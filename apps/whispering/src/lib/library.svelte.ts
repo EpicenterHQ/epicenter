@@ -246,7 +246,9 @@ export function createLibrary(workspace: Workspace) {
 	 * change, or input. Work accepted before stays accepted.
 	 */
 	let closing = $state(false);
-	/** Work admitted and not finished; flushing and closing wait for it. */
+	/** The one completion every `close` call answers. */
+	let released: Promise<void> | undefined;
+	/** Work admitted and not finished; `close` waits for it. */
 	const admissions = createAdmissions();
 	const { command } = admissions;
 
@@ -848,15 +850,9 @@ export function createLibrary(workspace: Workspace) {
 		get holdsUnsavedWork() {
 			return holdsUnsavedWork();
 		},
-		/**
-		 * Send each open draft's held snapshot and wait for the work in flight:
-		 * admitted commands and every draft's saves. Starts nothing new and
-		 * retries nothing, so a save that failed stays failed. The page's close
-		 * runs this within a bound.
-		 */
-		async flush(): Promise<void> {
-			await admissions.quiet();
-			await Promise.all(drafts.sessions().map((session) => session.settled()));
+		/** Whether a command is still running. */
+		get busy() {
+			return admissions.busy;
 		},
 		refresh,
 		refreshAll,
@@ -1228,23 +1224,30 @@ export function createLibrary(workspace: Workspace) {
 			return folder.git.commit();
 		}),
 		/**
-		 * Let running work and saves finish, then release the folder. A draft
-		 * that could not save, and audio that could not be published, end with
-		 * the page; a browser tab warns before it is left while either exists.
+		 * Refuse new work, let running work and saves finish, then release the
+		 * folder. A recording in progress is cancelled. A draft that could not
+		 * save, and audio that could not be published, end with the page; a
+		 * browser tab warns before it is left while either exists. Every call
+		 * answers the same completion.
 		 */
-		async close() {
-			closing = true;
-			// The microphone first: nothing still being written may keep it open.
-			input.close();
-			starting?.abort();
-			starting = undefined;
-			active?.cancel();
-			await admissions.quiet();
-			await input.saved();
-			await Promise.all(drafts.sessions().map((session) => session.settled()));
-			for (const path of drafts.keys()) drafts.forget(path);
-			recordingsListed.clear();
-			await workspace.close();
+		close(): Promise<void> {
+			released ??= (async () => {
+				closing = true;
+				// The microphone first: nothing still being written may keep it open.
+				input.close();
+				starting?.abort();
+				starting = undefined;
+				active?.cancel();
+				await admissions.quiet();
+				await input.saved();
+				await Promise.all(
+					drafts.sessions().map((session) => session.settled()),
+				);
+				for (const path of drafts.keys()) drafts.forget(path);
+				recordingsListed.clear();
+				await workspace.close();
+			})();
+			return released;
 		},
 	};
 }

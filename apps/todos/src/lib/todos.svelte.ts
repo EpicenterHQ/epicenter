@@ -263,8 +263,7 @@ export function createTodos(folder: TodosFolder) {
 	const leaving = new AbortController();
 	/**
 	 * Work started and not finished: Git commands, recoveries, file actions,
-	 * conflict commands, and terminal commands. A close flush and `close`
-	 * wait for it.
+	 * conflict commands, and terminal commands. `close` waits for it.
 	 */
 	const admissions = createAdmissions();
 	let recovering = $state(false);
@@ -537,14 +536,6 @@ export function createTodos(folder: TodosFolder) {
 		get failedSavePath() {
 			const state = slot.session?.state;
 			return state?.status === 'error' ? state.file.path : undefined;
-		},
-		/**
-		 * Let saves in flight land: running work and the open item's held
-		 * snapshot. Starts nothing and refuses nothing; a draft whose save
-		 * failed stays as it is. The page bounds the wait on close.
-		 */
-		async flush(): Promise<void> {
-			await Promise.all([admissions.quiet(), slot.session?.settled()]);
 		},
 		refresh,
 		/** The person's "Check again", and returning to the window. */

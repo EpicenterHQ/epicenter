@@ -25,7 +25,7 @@ import type { Library } from '../../lib/library.svelte.js';
 import { click, type } from '../svelte-dom.test-support.js';
 
 // Load the workspace after the mounted loader registered its plugin.
-const { openTestWorkspace } = await import(
+const { openTestWorkspace, settled } = await import(
 	'../../lib/workspace.test-support.js'
 );
 const { flushSync, mount, unmount } = await import('svelte');
@@ -77,7 +77,7 @@ async function show(library: Library, path: string) {
 
 /** Let saves and the views settle. */
 async function settle(library: Library) {
-	await library.flush();
+	await settled(library);
 	flushSync();
 }
 

@@ -55,7 +55,11 @@ import {
 } from './recording-collection.js';
 import type { Session } from './session.svelte.js';
 import type { Workspace } from './workspace/types.js';
-import { deferred, openTestWorkspace } from './workspace.test-support.js';
+import {
+	deferred,
+	openTestWorkspace,
+	settled,
+} from './workspace.test-support.js';
 
 const { openSession } = await import('./session.svelte.ts');
 
@@ -700,7 +704,7 @@ test('closing the details and changing page lose no typing: the draft is the ses
 	// Leaving the app is what is held back while the save runs.
 	expect(session.blocksNavigation({ willUnload: true })).toBe(true);
 
-	await library.flush();
+	await settled(library);
 	expect(library.holdsUnsavedWork).toBe(false);
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
 		'Typed just before closing the details.',

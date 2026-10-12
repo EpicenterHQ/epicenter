@@ -48,6 +48,7 @@ import { TransformationError } from './transformation.js';
 import {
 	deferred,
 	openTestWorkspace,
+	settled,
 	TEST_BASE_URL,
 	type TestWorkspaceOptions,
 } from './workspace.test-support.js';
@@ -381,7 +382,7 @@ test('a recipe runs on pasted text with no recordings; the answer is held until 
 	expect(await names(root, TEXT_RUNS)).toEqual([]);
 	expect(library.transformationRuns).toEqual([]);
 	expect(library.holdsUnsavedWork).toBe(true);
-	await library.flush();
+	await settled(library);
 	expect(library.holdsUnsavedWork).toBe(true);
 	expect(filesLineOf(library).label).toBe('1 result on pasted text not saved');
 
@@ -669,11 +670,11 @@ test('the pasted text and a held result stay with the session, and the result ke
 	expect(library.textRuns).toHaveLength(1);
 	expect(session.blocksNavigation({ willUnload: true })).toBe(true);
 	expect(session.blocksNavigation({ willUnload: false })).toBe(false);
-	await library.flush();
+	await settled(library);
 	expect(library.holdsUnsavedWork).toBe(true);
 
 	library.discardTransformationRun(library.textRuns[0]!.id);
-	await library.flush();
+	await settled(library);
 	expect(library.holdsUnsavedWork).toBe(false);
 });
 

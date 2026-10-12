@@ -178,7 +178,7 @@ function readProblem(error: RowReadError): string {
 	return error.message;
 }
 
-export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
+export function createCaptures(host: CaptureHost) {
 	const { folder } = host;
 	const table = folder.tables.captures;
 	const pathOf = (stem: string) => rowPath(CAPTURES_TABLE, stem);
@@ -196,7 +196,7 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 	let serviceStopped = $state(false);
 	let closing: Promise<void> | undefined;
 	let refreshSequence = 0;
-	/** Commands admitted and not finished: a close flush and `close` wait for them. */
+	/** Commands admitted and not finished: `close` waits for them. */
 	const { command, quiet, ...admissions } = createAdmissions();
 
 	const locked = () => closing !== undefined;
@@ -547,18 +547,9 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 		}),
 
 		/**
-		 * Let saves in flight land: running actions and the open capture's held
-		 * snapshot. Starts nothing and refuses nothing; a draft whose save
-		 * failed stays as it is. The page bounds the wait on close.
-		 */
-		async flush(): Promise<void> {
-			await Promise.all([quiet(), slot.session?.settled()]);
-		},
-
-		/**
-		 * Let running actions and the open capture's saves finish before the
-		 * page releases its folder. A failed save is not sent again. Every call
-		 * answers the same completion.
+		 * Refuse new work, let running actions and the open capture's saves
+		 * finish, then let go of the page's folder. A failed save is not sent
+		 * again. Every call answers the same completion.
 		 */
 		close(): Promise<void> {
 			if (closing !== undefined) return closing;
@@ -571,6 +562,7 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 							`Closed with a capture that could not be saved: ${unsaved}`,
 						),
 					);
+				await host.close();
 			})();
 			return closing;
 		},

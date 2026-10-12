@@ -11,8 +11,7 @@
  * - Outside the shell, a refused window, an unregistered scope, and a missing
  *   plugin each fail the open with a reason, and leave no listener behind
  * - The page names the Capture scope and is told the directory; the host's
- *   flush and stop are heard on this window only, and the flush is answered
- *   with `flush_done` once its saves land
+ *   stop is heard on this window only
  * - Closing detaches this page once, and a sibling page keeps saving
  * - A save sends the whole row as one replacement guarded by the bytes this
  *   page last saved, and keeps undeclared metadata
@@ -31,12 +30,7 @@
 import '../svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { readLegacyBundle } from '@epicenter/capture/legacy';
-import {
-	FLUSH_DONE_COMMAND,
-	FLUSH_ON_CLOSE_EVENT,
-	HOST_STOPPED_EVENT,
-} from '@epicenter/epicenter/page-close';
-import { flushOnClose } from '@epicenter/svelte/flush-on-close';
+import { HOST_STOPPED_EVENT } from '@epicenter/epicenter/page-close';
 import { expectOk } from 'wellcrafted/testing';
 import type {
 	FileChange as Change,
@@ -191,7 +185,6 @@ mock.module('@tauri-apps/api/core', () => ({
 	async invoke(name: string, args: Record<string, unknown> = {}) {
 		const call = { cmd: name.replace(PLUGIN, ''), args };
 		calls.push(call);
-		if (name === FLUSH_DONE_COMMAND) return null;
 		const override = overrides[call.cmd];
 		return override ? override(call, () => own(call)) : own(call);
 	},
@@ -358,49 +351,20 @@ test('the page names the Capture scope and is told the directory', async () => {
 	await host.close();
 });
 
-test('the host flush is heard on this window only and answered once the held snapshot lands', async () => {
-	put(PATH, SAVED);
-	const { host, captures } = await opened();
-	const { session, form } = await openOne(captures);
-	const stop = flushOnClose(() => captures.flush(), {
-		hostClose: hostSignals.close,
-	});
+test('the host stopping is heard on this window only', async () => {
+	const { captures } = await opened();
 	let stopped = 0;
 	const stopHearing = await hostSignals.stopped?.(() => stopped++);
-	await Bun.sleep(0);
 	// Targeted at this window, not any window's global listener.
-	expect(windowListeners.get(FLUSH_ON_CLOSE_EVENT)?.size).toBe(1);
-	expect(listeners.has(FLUSH_ON_CLOSE_EVENT)).toBe(false);
-
-	const landing = Promise.withResolvers<void>();
-	overrides.apply = async (_call, reply) => {
-		await landing.promise;
-		return reply();
-	};
-	form.inputText('Sent');
-	form.inputText('Typed last');
-	calls = [];
-	for (const listener of windowListeners.get(FLUSH_ON_CLOSE_EVENT) ?? [])
-		listener();
-	await Bun.sleep(5);
-	expect(sent(FLUSH_DONE_COMMAND)).toEqual([]);
-	delete overrides.apply;
-	landing.resolve();
-	await session.settled();
-	await Bun.sleep(5);
-	expect(sent(FLUSH_DONE_COMMAND)).toHaveLength(1);
-	expect(text(PATH)).toBe(withText('Typed last'));
+	expect(windowListeners.get(HOST_STOPPED_EVENT)?.size).toBe(1);
+	expect(listeners.has(HOST_STOPPED_EVENT)).toBe(false);
 
 	for (const listener of windowListeners.get(HOST_STOPPED_EVENT) ?? [])
 		listener();
 	expect(stopped).toBe(1);
-	stop();
 	stopHearing?.();
-	expect(
-		[...windowListeners.values()].reduce((count, set) => count + set.size, 0),
-	).toBe(0);
+	expect(windowListeners.get(HOST_STOPPED_EVENT)?.size).toBe(0);
 	await captures.close();
-	await host.close();
 });
 
 test('closing detaches this page once, and a sibling page keeps saving', async () => {
@@ -422,7 +386,7 @@ test('closing detaches this page once, and a sibling page keeps saving', async (
 
 test('a save sends the whole row as one replacement guarded by the bytes this page last saved', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { session, form } = await openOne(captures);
 	calls = [];
 
@@ -442,12 +406,11 @@ test('a save sends the whole row as one replacement guarded by the bytes this pa
 		},
 	]);
 	await captures.close();
-	await host.close();
 });
 
 test('an edit made elsewhere is a conflict and is not overwritten', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { session, form } = await openOne(captures);
 	const theirs = `${SAVED}- from another window\n`;
 	put(PATH, theirs);
@@ -460,12 +423,11 @@ test('an edit made elsewhere is a conflict and is not overwritten', async () => 
 	await session.settled();
 	expect(text(PATH)).toBe(`${withText('Mine')}`);
 	await captures.close();
-	await host.close();
 });
 
 test('a save whose reply is lost is confirmed by one read when it landed', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { session, form } = await openOne(captures);
 	overrides.apply = (_call, reply) => {
 		reply();
@@ -481,12 +443,11 @@ test('a save whose reply is lost is confirmed by one read when it landed', async
 	expect((await session.settled()).status).toBe('saved');
 	expect(text(PATH)).toBe(withText('Mine, more'));
 	await captures.close();
-	await host.close();
 });
 
 test('a save whose reply is lost and did not land stays unknown until it is saved again', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { session, form } = await openOne(captures);
 	overrides.apply = () => {
 		throw new Error(LOST);
@@ -504,12 +465,11 @@ test('a save whose reply is lost and did not land stays unknown until it is save
 	expect(text(PATH)).toBe(withText('Mine'));
 	expect(captures.unsettled).toBe(0);
 	await captures.close();
-	await host.close();
 });
 
 test('closing waits for a save already sent and the latest edit after it, and only then detaches', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { form } = await openOne(captures);
 	calls = [];
 	const landing = Promise.withResolvers<void>();
@@ -521,12 +481,9 @@ test('closing waits for a save already sent and the latest edit after it, and on
 	form.inputText('Submitted');
 	form.inputText('Typed later');
 	let closed = false;
-	const closing = captures
-		.close()
-		.then(() => host.close())
-		.then(() => {
-			closed = true;
-		});
+	const closing = captures.close().then(() => {
+		closed = true;
+	});
 	await Bun.sleep(5);
 	expect(closed).toBe(false);
 	expect(sent('detach')).toEqual([]);
@@ -539,7 +496,7 @@ test('closing waits for a save already sent and the latest edit after it, and on
 });
 
 test('a failed commit is reported beside a saved file, and retried without rewriting it', async () => {
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	captures.inputNewCapture('Saved before history');
 	expect(await captures.create()).toBeUndefined();
 	const path =
@@ -568,11 +525,10 @@ test('a failed commit is reported beside a saved file, and retried without rewri
 	expect(calls.map((call) => call.cmd)).toEqual(['commit']);
 	expect(text(path)).toBe(saved);
 	await captures.close();
-	await host.close();
 });
 
 test('a folder its owner closed is reported as stopped, and the text typed stays', async () => {
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	emit(SNAPSHOT_CHANGED, {
 		scope: CAPTURE_FOLDER_ID,
 		sequence: 1,
@@ -587,13 +543,12 @@ test('a folder its owner closed is reported as stopped, and the text typed stays
 	expect(await captures.create()).toContain('was not saved');
 	expect(captures.newCapture).toBe('typed after the folder closed');
 	await captures.close();
-	await host.close();
 });
 
 test('an import whose first save lost its reply is finished by a retry, and repeats create nothing', async () => {
 	const read = readLegacyBundle(fixture);
 	if (!read.ok) throw new Error('the fixture is not a bundle');
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	let lost = 0;
 	overrides.apply = (_call, reply) => {
 		reply();
@@ -627,5 +582,4 @@ test('an import whose first save lost its reply is finished by a retry, and repe
 		[...files.keys()].filter((path) => path.startsWith('captures/')),
 	).toHaveLength(6);
 	await captures.close();
-	await host.close();
 });

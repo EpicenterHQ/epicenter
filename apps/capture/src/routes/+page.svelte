@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { flushOnClose } from '@epicenter/svelte/flush-on-close';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
@@ -11,36 +10,26 @@
 	// The mounted page acquires the folder; importing modules opens nothing.
 	// Which folder is the build's choice: a browser folder, or the desktop
 	// shell's directory. There is no sign-in on this path.
-	//
-	// Once the captures exist, closing gives their saves in flight a bounded
-	// moment: on Epicenter's flush before it quits or restarts, and on
-	// `pagehide`. Nothing is asked.
 	const stops: (() => void)[] = [];
 	const opening = (async () => {
 		const host = await openCaptureHost();
 		const captures = createCaptures(host);
-		stops.push(flushOnClose(() => captures.flush(), { hostClose: hostSignals.close }));
 		void hostSignals
 			.stopped?.(() => captures.markServiceStopped())
 			.then((stop) => stops.push(stop), () => {});
 		await captures.refresh();
-		return { host, captures };
+		return captures;
 	})();
 
 	onDestroy(() => {
 		for (const stop of stops.splice(0)) stop();
-		void opening
-			.then(async ({ host, captures }) => {
-				await captures.close();
-				return host.close();
-			})
-			.catch(() => {});
+		void opening.then((captures) => captures.close()).catch(() => {});
 	});
 </script>
 
 {#await opening}
 	<Loading class="h-dvh" label="Opening your captures…" />
-{:then { captures }}
+{:then captures}
 	<CaptureApp {captures} />
 {:catch error}
 	<Empty.Root class="h-dvh">

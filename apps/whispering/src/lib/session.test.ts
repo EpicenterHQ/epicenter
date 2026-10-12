@@ -4,15 +4,13 @@
  * Drives session startup, navigation policy, and release over a real folder.
  * These tests do not mount routes; layout ownership is checked separately in
  * `page-boundary.test.ts`. Held-work details belong to the library tests, and
- * what a close flushes to `editing.test.ts`.
+ * what a close waits for to `editing.test.ts`.
  *
  * Key behaviors:
  * - Opening a session opens the folder once; closing it releases it once
  * - Internal navigation is allowed even while the session holds unsaved work
  * - A navigation that unloads the document is held back only while something
  *   exists only in the window
- * - The session flushes on the shell's close signal from when it has started
- *   until it closes; a failed opening leaves nothing listening
  * - The shell is told when a recording starts and when it ends, so a quit
  *   during one can confirm; a cancelled recording says it ended too
  * - A layout released before its session starts closes what it opened
@@ -57,7 +55,6 @@ const UNLOAD = { willUnload: true };
 test('a session opens the folder once and releases it once', async () => {
 	const { session, library, test } = await open();
 	expect(test.opens).toBe(1);
-	expect(test.closeListeners.size).toBe(1);
 	// The first read happened: the device's connections were read, and nothing was written.
 	expect(library.connections?.transcription?.model).toBe('verification-model');
 
@@ -66,7 +63,6 @@ test('a session opens the folder once and releases it once', async () => {
 
 	expect(test.opens).toBe(1);
 	expect(test.closes).toBe(1);
-	expect(test.closeListeners.size).toBe(0);
 });
 
 test('internal navigation is allowed while unloading is blocked only by unsaved work', async () => {
@@ -120,7 +116,6 @@ test('a session whose first read fails releases the folder it opened', async () 
 	// The close completed, and the rejection is the read's own error.
 	expect(rejected).toBe(lost);
 	expect(test.closes).toBe(1);
-	expect(test.closeListeners.size).toBe(0);
 });
 
 test('a workspace that cannot be opened is returned as the refusal, and no session exists', async () => {
@@ -137,26 +132,6 @@ test('a workspace that cannot be opened is returned as the refusal, and no sessi
 	expect(opens).toBe(1);
 	expect(refused.name).toBe('BrowserFolder');
 	expect(refused.message).toContain('Browser storage is not used');
-});
-
-// ============================================================================
-// What the layout holds
-// ============================================================================
-
-test('the mounted session flushes on the shell’s close signal, and stops when released', async () => {
-	const test = await openTestWorkspace();
-	cleanups.push(test.remove);
-	const mounted = mountSession(test.open);
-	const session = expectOk(await mounted.opening);
-	cleanups.push(() => session.close());
-
-	expect(await test.requestClose()).toEqual(['flushed']);
-
-	mounted.release();
-	await session.close();
-	expect(test.closeListeners.size).toBe(0);
-	expect(await test.requestClose()).toEqual([]);
-	expect(test.closes).toBe(1);
 });
 
 // ============================================================================
@@ -208,25 +183,7 @@ async function starting() {
 	};
 }
 
-test('nothing flushes on close until the session has started', async () => {
-	const { test, open, begun, finish } = await starting();
-	const mounted = mountSession(open);
-	await begun();
-
-	// The window closes while the first read is pending: nothing is listening,
-	// so the shell does not wait for this page.
-	expect(await test.requestClose()).toEqual([]);
-	expect(await Bun.file(`${test.root}/kv.json`).exists()).toBe(false);
-
-	finish();
-	const session = expectOk(await mounted.opening);
-	cleanups.push(() => session.close());
-	expect(test.closeListeners.size).toBe(1);
-	expect(await test.requestClose()).toEqual(['flushed']);
-	mounted.release();
-});
-
-test('a start that fails closes what it opened and leaves nothing listening', async () => {
+test('a start that fails closes what it opened', async () => {
 	const { test, open, begun, failWith } = await starting();
 	const mounted = mountSession(open);
 	await begun();
@@ -234,7 +191,6 @@ test('a start that fails closes what it opened and leaves nothing listening', as
 	failWith(new Error('the first read failed'));
 	await expect(mounted.opening).rejects.toThrow('the first read failed');
 	expect(test.closes).toBe(1);
-	expect(test.closeListeners.size).toBe(0);
 	mounted.release();
 });
 
@@ -290,9 +246,8 @@ test('a start that fails and cannot release what it opened keeps both reasons', 
 	);
 	expect(rejected.message).not.toContain('sk-secret');
 
-	// The folder is still held, and nothing listens for a close.
+	// The folder is still held.
 	expect(test.closes).toBe(0);
-	expect(test.closeListeners.size).toBe(0);
 	mounted.release();
 });
 
@@ -306,7 +261,6 @@ test('a layout released while starting, whose closing then fails, reports both r
 
 	const rejected = await unreleased(mounted.opening);
 	expect((rejected.startup as Error).message).toContain('released');
-	expect(test.closeListeners.size).toBe(0);
 });
 
 test('a workspace released before its session starts, whose closing fails, reports that too', async () => {
@@ -334,7 +288,7 @@ test('a workspace released before its session starts, whose closing fails, repor
 	expect(closed).toBe(1);
 });
 
-test('a layout released while its session is starting leaves nothing listening and nothing open', async () => {
+test('a layout released while its session is starting leaves nothing open', async () => {
 	const { test, open, begun, finish } = await starting();
 	const mounted = mountSession(open);
 	await begun();
@@ -347,7 +301,6 @@ test('a layout released while its session is starting leaves nothing listening a
 	// The admitted read settled before the folder closed; nothing was seeded.
 	expect(await Bun.file(`${test.root}/kv.json`).exists()).toBe(false);
 	expect(test.closes).toBe(1);
-	expect(test.closeListeners.size).toBe(0);
 });
 
 test('a layout released while its workspace is still opening closes that workspace without starting a session', async () => {
@@ -380,5 +333,4 @@ test('a layout released while its workspace is still opening closes that workspa
 	await expect(mounted.opening).rejects.toThrow('released');
 	expect(reads).toBe(0);
 	expect(test.closes).toBe(1);
-	expect(test.closeListeners.size).toBe(0);
 });

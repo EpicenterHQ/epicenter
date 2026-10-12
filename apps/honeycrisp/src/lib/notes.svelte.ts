@@ -270,7 +270,7 @@ export function createNotes(host: NotesHost) {
 	let closing: Promise<void> | undefined;
 	/** Set once the folder is being released: nothing reads it after. */
 	let released = false;
-	/** Actions admitted and not finished; `flush` and `close` wait for them. */
+	/** Actions admitted and not finished; `close` waits for them. */
 	const admissions = createAdmissions();
 
 	/** Whether the open item refuses input now. */
@@ -623,16 +623,6 @@ export function createNotes(host: NotesHost) {
 		/** 1 when the open item's last save may or may not have landed. */
 		get unconfirmed() {
 			return saveError()?.name === 'Unconfirmed' ? 1 : 0;
-		},
-		/**
-		 * Wait for running actions, then for the open item's saves, including
-		 * an autosave snapshot held behind a running write. For a window that
-		 * is about to end: it takes no input away and asks nothing, and a
-		 * draft whose save failed does not hold it.
-		 */
-		async flush(): Promise<void> {
-			await admissions.quiet();
-			await slot.session?.settled();
 		},
 		refresh,
 		check,

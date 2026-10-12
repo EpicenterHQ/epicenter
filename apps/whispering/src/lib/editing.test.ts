@@ -21,14 +21,13 @@
  *   discards it
  * - Returning to the window adopts a newer version of a draft that holds
  *   nothing unsaved
- * - Closing the app sends a draft's held snapshot and waits for it, within a
- *   bound: a hung save does not hold the close, and a failed one is not waited for
+ * - Closing sends a draft's held snapshot and waits for it; a failed save is
+ *   not sent again and does not hold the close
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import type { RowSession } from '@epicenter/svelte/edit-session';
-import { CLOSE_FLUSH_MS } from '@epicenter/svelte/flush-on-close';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	createTestStorage,
@@ -46,7 +45,6 @@ import { holdCloses } from './opfs-holds.test-support.js';
 import { openTestWorkspace } from './workspace.test-support.js';
 
 const { createLibrary } = await import('./library.svelte.ts');
-const { createSession } = await import('./session.svelte.ts');
 
 const opened: { close: () => Promise<void>; remove: () => Promise<void> }[] =
 	[];
@@ -62,10 +60,8 @@ afterEach(async () => {
 /**
  * The library over a fresh browser folder. `holdNextMarkdownWrite` holds the
  * next published `.md` write until released, and `mdWrites` counts every one.
- * With `session`, the library is a session's, which flushes when the shell
- * sends its close signal (`requestClose`).
  */
-async function open({ session = false }: { session?: boolean } = {}) {
+async function open() {
 	const storage = createTestStorage();
 	let hold: PromiseWithResolvers<void> | undefined;
 	let held: PromiseWithResolvers<void> | undefined;
@@ -94,21 +90,13 @@ async function open({ session = false }: { session?: boolean } = {}) {
 		}),
 	);
 	const fixture = await openTestWorkspace({ folder });
-	let library: Library;
-	if (session) {
-		const started = await createSession(fixture.workspace);
-		library = started.library;
-		opened.push({ close: started.close, remove: fixture.remove });
-	} else {
-		library = createLibrary(fixture.workspace);
-		opened.push({ close: library.close, remove: fixture.remove });
-		await library.start();
-	}
+	const library = createLibrary(fixture.workspace);
+	opened.push({ close: library.close, remove: fixture.remove });
+	await library.start();
 	const faults = opfsOf(storage).faults;
 	return {
 		library,
 		counter,
-		requestClose: fixture.requestClose,
 		holdNextMarkdownWrite() {
 			hold = Promise.withResolvers<void>();
 			held = Promise.withResolvers<void>();
@@ -230,12 +218,10 @@ test('a failed save keeps the draft and warns before leaving; Try again saves it
 	});
 	expect((await session.settled()).status).toBe('error');
 	expect(session.draft.body).toBe('Notes kept.\n');
-	await library.flush();
 	expect(library.holdsUnsavedWork).toBe(true);
 	session.retry();
 	expect((await session.settled()).status).toBe('saved');
 	expect(await text(library, session.path)).toContain('Notes kept.');
-	await library.flush();
 	expect(library.holdsUnsavedWork).toBe(false);
 });
 
@@ -320,7 +306,6 @@ test('a recording deleted elsewhere offers only Discard, which closes it without
 	expect(library.draftAt(path)).toBeUndefined();
 	expect(library.selection).toBeUndefined();
 	expect(await text(library, path)).toBeUndefined();
-	await library.flush();
 	expect(library.holdsUnsavedWork).toBe(false);
 });
 
@@ -568,7 +553,6 @@ test('a draft whose save failed does not refuse the deletion: it removes what wa
 	expect(await text(library, path)).toBeUndefined();
 	expect(library.draftAt(path)).toBeUndefined();
 	expect(library.selection).toBeUndefined();
-	await library.flush();
 	expect(library.holdsUnsavedWork).toBe(false);
 });
 
@@ -576,11 +560,10 @@ test('a draft whose save failed does not refuse the deletion: it removes what wa
 // Closing the app
 // ============================================================================
 
-test('closing the app sends a draft’s held snapshot and answers once it has landed', async () => {
-	const { library, holdNextMarkdownWrite, requestClose } = await open({
-		session: true,
-	});
+test('closing sends a draft’s held snapshot and waits for it to land', async () => {
+	const { library, holdNextMarkdownWrite, counter } = await open();
 	const session = await record(library);
+	const before = counter.mdWrites;
 	const { held, release } = holdNextMarkdownWrite();
 	session.edit((row) => {
 		row.body = 'First.\n';
@@ -591,45 +574,22 @@ test('closing the app sends a draft’s held snapshot and answers once it has la
 		row.body = 'Typed just before quitting.\n';
 	});
 
-	let answered = false;
-	const closing = requestClose().then((outcomes) => {
-		answered = true;
-		return outcomes;
+	let closed = false;
+	const closing = library.close().then(() => {
+		closed = true;
 	});
 	await Bun.sleep(20);
-	expect(answered).toBe(false);
+	expect(closed).toBe(false);
 
 	release();
-	expect(await closing).toEqual(['flushed']);
-	expect(await text(library, session.path)).toContain(
-		'Typed just before quitting.',
-	);
-});
-
-test('a save that hangs does not hold the close past its bound', async () => {
-	const { library, holdNextMarkdownWrite, requestClose } = await open({
-		session: true,
-	});
-	const session = await record(library);
-	const { held, release } = holdNextMarkdownWrite();
-	session.edit((row) => {
-		row.body = 'Never lands in time.\n';
-	});
-	await held;
-
-	const started = performance.now();
-	expect(await requestClose()).toEqual(['timed-out']);
-	const waited = performance.now() - started;
-	expect(waited).toBeGreaterThanOrEqual(CLOSE_FLUSH_MS - 5);
-	// Inside the second the shell waits for the answer.
-	expect(waited).toBeLessThan(1000);
-	release();
+	await closing;
+	expect(counter.mdWrites - before).toBe(2);
+	expect(session.state.status).toBe('saved');
+	expect(session.draft.body).toBe('Typed just before quitting.\n');
 });
 
 test('a draft whose save failed does not hold the close, and is not saved again', async () => {
-	const { library, failNextWrite, requestClose, counter } = await open({
-		session: true,
-	});
+	const { library, failNextWrite, counter } = await open();
 	const session = await record(library);
 	failNextWrite(session.path);
 	session.edit((row) => {
@@ -638,9 +598,7 @@ test('a draft whose save failed does not hold the close, and is not saved again'
 	expect((await session.settled()).status).toBe('error');
 	const writes = counter.mdWrites;
 
-	const started = performance.now();
-	expect(await requestClose()).toEqual(['flushed']);
-	expect(performance.now() - started).toBeLessThan(CLOSE_FLUSH_MS);
+	await library.close();
 	// Nothing retried it: the save bar already said it failed.
 	expect(counter.mdWrites).toBe(writes);
 	expect(session.state.status).toBe('error');

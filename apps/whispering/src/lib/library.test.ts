@@ -1003,30 +1003,6 @@ test('recording and transformation files keep their names, and a transcript keep
 // Leaving and closing
 // ============================================================================
 
-test('a flush awaits a file command through publication', async () => {
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	const { library, root } = await open({
-		beforeFileCreate: async () => {
-			reached.resolve();
-			await release.promise;
-		},
-	});
-	const creating = library.createFile('', 'created.txt');
-	await reached.promise;
-	let flushed = false;
-	const flushing = library.flush().then(() => {
-		flushed = true;
-	});
-	await Bun.sleep(10);
-	expect(flushed).toBe(false);
-	release.resolve();
-	expect(await creating).toBeUndefined();
-	await flushing;
-	expect(flushed).toBe(true);
-	expect(await readFile(join(root, 'created.txt'), 'utf8')).toBe('');
-});
-
 test('close drains accepted commands and refuses a new command', async () => {
 	const reached = Promise.withResolvers<void>();
 	const release = Promise.withResolvers<void>();

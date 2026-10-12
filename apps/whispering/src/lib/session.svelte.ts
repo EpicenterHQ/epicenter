@@ -11,12 +11,11 @@
  * recording, pending audio, selections, running requests, drafts, and the
  * terminal exactly as they were.
  *
- * Closing the window or quitting never asks. The session flushes on close
- * (`flushOnClose`): it sends each open draft's held snapshot and waits a
- * bounded moment for the saves in flight, then the window goes. A draft whose
- * save failed, an unanswered transcript, and a live recording end with it.
+ * Closing the session is the library's close: new work is refused, running
+ * work and open drafts' saves finish, and the folder is released. A draft
+ * whose save failed, an unanswered transcript, and a live recording end with
+ * it.
  */
-import { flushOnClose } from '@epicenter/svelte/flush-on-close';
 import { createContext } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createLibrary } from './library.svelte.js';
@@ -73,8 +72,7 @@ async function failOpening(
 }
 
 /**
- * Build the session over an opened workspace: read the folder once, then
- * flush on close.
+ * Build the session over an opened workspace: read the folder once.
  *
  * A session that cannot start is not returned. Its library and workspace are
  * closed first, which waits for whatever they had under way, and only then
@@ -94,9 +92,6 @@ export async function createSession(
 	} catch (cause) {
 		return failOpening(cause, () => library.close());
 	}
-	const stopFlushing = flushOnClose(() => library.flush(), {
-		hostClose: workspace.hostClose,
-	});
 	/** What the shell shows. Held here so no route owns it. */
 	const view = $state({
 		sidebarOpen: false,
@@ -162,8 +157,6 @@ export async function createSession(
 				present.has(path),
 			);
 	});
-	let closing: Promise<void> | undefined;
-
 	return {
 		workspace,
 		library,
@@ -180,13 +173,9 @@ export async function createSession(
 		blocksNavigation(navigation: { readonly willUnload: boolean }): boolean {
 			return navigation.willUnload && library.holdsUnsavedWork;
 		},
-		/** Stop flushing on close, let saves finish, and release the folder. Runs once. */
+		/** Refuse new work, let saves finish, and release the folder. Runs once. */
 		close(): Promise<void> {
-			closing ??= (async () => {
-				stopFlushing();
-				await library.close();
-			})();
-			return closing;
+			return library.close();
 		},
 	};
 }

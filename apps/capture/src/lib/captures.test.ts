@@ -25,14 +25,12 @@
  *   last; a file changed elsewhere since is not deleted
  * - Returning adopts a newer version of an open capture that holds nothing
  *   unsaved, and a thought edit whose thought changed keeps its text
- * - A close flush sends the held snapshot and waits for it, ends within its
- *   bound when a save hangs, and is not held by a failed save; close waits
- *   for saves
+ * - Close waits for a delete still waiting on a save, for the save already
+ *   sent and the latest edit after it, and is not held by a failed save
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readLegacyBundle } from '@epicenter/capture/legacy';
-import { flushWithin } from '@epicenter/svelte/flush-on-close';
 import fixture from '../../fixtures/legacy-bundle.json';
 import {
 	openCapture,
@@ -469,7 +467,7 @@ test('deleting waits for the open capture saves and deletes what it saved last',
 	expect(captures.timeline).toEqual([]);
 });
 
-test('a close flush and close wait for a delete that is still waiting on a save', async () => {
+test('close waits for a delete that is still waiting on a save', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -482,17 +480,14 @@ test('a close flush and close wait for a delete that is still waiting on a save'
 		order.push('deleted');
 		return problem;
 	});
-	const settling = captures.flush().then(() => {
-		order.push('flushed');
-	});
 	const closing = captures.close().then(() => {
 		order.push('closed');
 	});
 	await Bun.sleep(5);
 	expect(order).toEqual([]);
 	release();
-	await Promise.all([settling, closing]);
-	// Both waited for the delete itself, not only for the save before it.
+	await closing;
+	// It waited for the delete itself, not only for the save before it.
 	expect(order[0]).toBe('deleted');
 	expect(await removing).toBeUndefined();
 	expect(await harness.text(PATH)).toBeUndefined();
@@ -583,41 +578,10 @@ test('deleting or moving a thought from a list that changed meanwhile says why',
 });
 
 // ============================================================================
-// Flushing on close, and closing
+// Closing
 // ============================================================================
 
-test('a close flush sends the held snapshot and waits for it to land', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { form } = openCapture(captures);
-	const { held, release } = harness.holdNextMarkdownWrite();
-	form.inputText('Sent');
-	await held;
-	// Held behind the running write: only a flush that waits sees it land.
-	form.inputText('Typed last');
-	const flushing = flushWithin(() => captures.flush(), 5_000);
-	release();
-	expect(await flushing).toBe('flushed');
-	expect(await harness.text(PATH)).toContain('\nTyped last\n');
-});
-
-test('a close flush ends within its bound when a save hangs', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	const { held, release } = harness.holdNextMarkdownWrite();
-	form.inputText('Never lands');
-	await held;
-	const started = performance.now();
-	expect(await flushWithin(() => captures.flush(), 50)).toBe('timed-out');
-	expect(performance.now() - started).toBeLessThan(1_000);
-	release();
-	await session.settled();
-});
-
-test('a draft whose save failed does not hold a close flush', async () => {
+test('a draft whose save failed does not hold close', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -625,10 +589,9 @@ test('a draft whose save failed does not hold a close flush', async () => {
 	harness.failNextWrite(PATH);
 	form.inputText('Mine');
 	expect((await session.settled()).status).toBe('error');
-	expect(await flushWithin(() => captures.flush(), 1_000)).toBe('flushed');
-	// Nothing was retried or discarded: the save bar still shows the failure.
-	expect(session.state.status).toBe('error');
-	expect(captures.fenced).toBe(false);
+	await captures.close();
+	// Nothing was retried: the file keeps what was saved before.
+	expect(await harness.text(PATH)).not.toContain('Mine');
 });
 
 test('a commit is refused while closing, as other actions are', async () => {

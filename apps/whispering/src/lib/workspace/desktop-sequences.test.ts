@@ -25,7 +25,11 @@ import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../definition.js';
 import { transformationSession } from '../drafts.test-support.js';
 import type { Library } from '../library.svelte.js';
-import { deferred, openTestWorkspace } from '../workspace.test-support.js';
+import {
+	deferred,
+	openTestWorkspace,
+	settled,
+} from '../workspace.test-support.js';
 import { createScriptedOwner } from './scripted-owner.test-support.js';
 import { WHISPERING_FOLDER_ID, type Workspace } from './types.js';
 
@@ -124,7 +128,7 @@ test('a save whose reply was lost and cannot be read back stays unknown, warns b
 	expect(state.status === 'error' && state.error.name).toBe('Unconfirmed');
 	expect(owner.text(PATH)).toContain('Tidy it.');
 	expect(library.holdsUnsavedWork).toBe(true);
-	await library.flush();
+	await settled(library);
 	expect(library.holdsUnsavedWork).toBe(true);
 
 	owner.control.failReads.delete(PATH);
@@ -208,6 +212,6 @@ test('a deletion whose reply was lost says so and recreates nothing', async () =
 	);
 	expect(owner.text(PATH)).toBeUndefined();
 	expect(kinds()).toEqual(['remove']);
-	await library.flush();
+	await settled(library);
 	expect(library.holdsUnsavedWork).toBe(false);
 });

@@ -419,6 +419,21 @@ export async function openTestWorkspace({
 	};
 }
 
+/**
+ * Wait until no command runs and no draft saves, as a test needs before it
+ * reads what was saved. A command counts from its call, so one a click
+ * started is waited for too.
+ */
+export async function settled(library: {
+	readonly busy: boolean;
+	readonly saving: boolean;
+}) {
+	for (let quiet = 0; quiet < 2; ) {
+		await Bun.sleep(1);
+		quiet = library.busy || library.saving ? 0 : quiet + 1;
+	}
+}
+
 /** A promise a test settles by hand, to hold a request open. */
 export function deferred<T>() {
 	let resolve!: (value: T) => void;
