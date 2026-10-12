@@ -73,6 +73,62 @@ The same method can compare complete drafts when their development and endings
 matter; short passages suffice for this local choice.
 
 
+## Writing: recover the person in the expression
+
+This hypothetical exchange shows how the same idea can lose its speaker, and
+how developing the source language can make a new expression judgeable. All
+material and reactions are invented for the example.
+
+**Supplied words**
+
+> I don't think a simple API is one where I never have to think. It's more
+> like when I do have to think, the thing I'm thinking about is my problem.
+> I don't want to be sitting there wondering which of three methods is the
+> real one.
+
+**Earlier attempt**
+
+> A good API reduces cognitive overhead and lets developers focus on their goals.
+
+**Sample conversation**
+
+> **Human:** That's roughly the idea, but it sounds like somebody explaining
+> me. It doesn't sound like me saying it.
+>
+> **Agent:** Your version keeps returning to “think,” then lands on the
+> frustration of choosing between three methods. The summary loses that
+> movement. I'd develop those words and give the frustration its own paragraph.
+>
+> **Proposed marked changes from the earlier attempt**
+>
+>> ~~A good API reduces cognitive overhead and lets developers focus on their
+>> goals.~~ <ins>I don't think a simple API means I never have to think. I want
+>> the thinking to be about my problem.</ins>
+>>
+>> <ins>If I'm sitting there wondering which of three methods is the real one,
+>> the API has given me another problem to solve.</ins>
+>
+> **Human:** The first paragraph sounds more like me. But “another problem
+> to solve” wraps it up too neatly. I'm more exasperated about which one I'm
+> supposed to use.
+>
+> **Agent:** Keep the first paragraph and let the ending sound more like
+> that moment of frustration. This revises the candidate above:
+>
+>> I don't think a simple API means I never have to think. I want the thinking
+>> to be about my problem.
+>>
+>> ~~If I'm sitting there wondering which of three methods is the real one,
+>> the API has given me another problem to solve.~~ <ins>I don't want to sit
+>> there looking at three methods and thinking, wait, which one am I supposed
+>> to use?</ins>
+
+The source, failed attempt, and revisions expose what each change does. The
+agent contributes arrangement and new language, then learns that its neat
+ending loses the author's emotional register. The next attempt carries the
+recognized paragraph forward and develops the unsettled ending. It remains a
+proposal; the example leaves the author's next reaction open.
+
 ## API design: make the caller's choices visible
 
 This hypothetical example draws on Epicenter's independent-resource API design.

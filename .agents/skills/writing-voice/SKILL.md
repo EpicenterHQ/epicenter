@@ -1,28 +1,18 @@
 ---
 name: writing-voice
-description: Shape prose so it sounds unmistakably like Braden, with conversational precision and recognizable phrasing, rhythm, and judgment, and present revisions in context. Use for substantial drafting or revision, an ear pass, explicit voice or tone work, and comparing prose revisions, including short replies and exact selections. Present selected wording without reopening or repolishing it.
+description: Develop prose that sounds and feels unmistakably like Braden at his most articulate, and present revisions in context. Use for substantial drafting or revision, an ear pass, explicit voice or tone work, and comparing prose revisions, including short replies and exact selections. Present selected wording without reopening or repolishing it.
 ---
 
 # Writing Voice
 
-Help Braden bring forward the fullest readable expression of what he is trying
-to say. Judge the result by whether he can recognize it as “unmistakably me,”
-in both its judgment and its sound. Write in
-language Braden could say to an articulate friend: clear, natural, and precise,
-with room for rhythm, wit, and surprise. Find phrasing that makes the thought
-felt as well as understood. Use this craft throughout drafting and revision;
+Help Braden reach the fullest expression of what he is trying to say, in
+language that sounds and feels unmistakably his. Start from how he actually
+said it: his phrases, rhythm, emphasis, associations, and way of approaching
+the thought. Develop those into writing he could recognize as himself at his
+most articulate. Find phrasing that makes the thought felt as well as understood;
 voice, structure, and meaning develop together.
 
 ## Find The Expression
-
-Aim for conversational precision. Let the material and Braden's voice determine
-whether a passage is plain, funny, sharp, searching, or poetic. A turn earns its
-place when it helps express something he recognizes.
-Try a sharper verb, an unexpected comparison, a changed rhythm, or a plainer
-sentence when it better carries the thought. Do not invent a motive, feeling,
-or event to give the prose depth, or substitute ornament for the particulars.
-Avoid explanations of what a thought signifies merely to make the paragraph
-sound complete; a polished summary can add no meaning while erasing its force.
 
 Build from the author's actual phrases, not just a summary of their meaning.
 Keep the comparisons, ordinary words, asides, and emphatic turns that make the
@@ -33,6 +23,30 @@ own paragraph without becoming an explanation of everyday cultural connection.
 Repair transcription errors and obstructive phrasing without treating every
 “actually,” “of course,” or repetition as noise. Neither roughness nor polish
 is a virtue by itself.
+
+Contribute language, arrangement, rhythm, and discoveries that bring his
+expression forward. Let the material and his voice determine whether a passage
+is plain, funny, sharp, searching, or poetic. Try a sharper verb, an unexpected
+comparison, or a changed rhythm when it helps him recognize himself at his most
+articulate. Do not invent a motive, feeling, or event to give the prose depth,
+or substitute ornament or a polished summary for what the particulars carry.
+
+Judge changes by what they enable in his expression. “More natural” means
+natural for Braden in this piece; better rhythm carries his emphasis.
+Preserving meaning, smoothing the prose, or staying closer to the transcript
+does not by itself establish an improvement. New language earns its place when
+he recognizes himself in its sound and feeling as well as its thought. Hear
+how he enters the thought, dwells on it, and turns toward the next one.
+Remove polish that makes the passage more solemn, certain, universal, or
+professionally scripted than its intended expression.
+
+When a revision does not feel like him, compare the connected passage with his
+actual words and the versions he recognized. Locate where his presence
+disappeared: phrasing, rhythm, emphasis, emotional register, or the way the
+thought unfolds. Recover those expressive ingredients and develop another
+attempt. Carry his reactions forward without turning them into a fixed formula
+for his voice. Recognition is the author's judgment, not a label the agent can
+declare satisfied.
 
 Choose the register from the piece's purpose and Braden's reactions. Preserve
 the author's substantive qualifications while removing hesitation that belongs
@@ -89,11 +103,8 @@ The active writing workflow, such as page-writing or journal-writing, continues
 to own the conversation and edits.
 
 Read connected passages at speaking speed and judge each sentence with what
-surrounds it. The four ear tests below guide attention, not a report to fill out.
+surrounds it. The craft judgments below guide attention, not a report to fill out.
 Hear what the writing is doing, then judge it by what this piece needs.
-
-Treat Braden's reactions as evidence about what he means and how he wants to
-express it.
 
 After a whole-piece pass, hear whether the opening, details, turns, and ending
 belong together in this expression. Preserve meaningful detours and unresolved
@@ -136,21 +147,6 @@ An argument may explain a mechanism, a scene may accumulate particulars, and a
 question may stay open. An early conclusion can orient the reader; a later one
 can let the example earn its force. Choose the order this expression needs
 without imposing suspense, a moral, or a changed meaning at the end.
-
-### Human recognition
-
-“Unmistakably me” is a test of the resulting passage, not a label the agent can
-declare satisfied. Hear whether its words, characteristic connections, concrete
-details, humor, uncertainty, conviction, and movement belong to Braden. Retaining
-the facts alone does not establish recognition. Let his reactions show which
-phrases and turns he recognizes, and carry those forward in the next attempt.
-
-New language can pass this test when he recognizes the thought and how it moves,
-even if he would not have arrived at that exact sentence alone. Preserve room for
-that discovery without treating smoother or more polished prose as inherently
-better. Remove polish that makes the passage more solemn, certain, universal,
-or professionally scripted than its intended expression. Recognition matters
-more than grammatical perfection; the person should remain audible.
 
 ## Respect The Form
 

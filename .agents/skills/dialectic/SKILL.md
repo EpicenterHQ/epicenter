@@ -162,8 +162,6 @@ They demonstrate the relationship between articulation and concrete expression
 without prescribing a format, number of versions, or sequence.
 
 For prose drafting and revisions, use [writing-voice](../writing-voice/SKILL.md)
-for language, rhythm, fidelity to the author's words and particulars, and
-contextual revision comparisons, including short passages. Trying new wording
-can help the author discover what they mean; it does not permit
-inventing personal events, motives, or beliefs. Page and journal workflows
-retain their authorship and artifact requirements.
+for developing recognizable expression and presenting revisions in context.
+Page and journal workflows retain their authorship and artifact requirements,
+including the boundary against inventing personal events, motives, or beliefs.
