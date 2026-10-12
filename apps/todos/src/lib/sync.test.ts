@@ -34,14 +34,13 @@ import {
 import { todosDefinition } from './definition.js';
 import {
 	cached,
-	createQueryClient,
+	clearQueryClient,
 	observe,
 	quiet,
 	rowEditor,
 } from './query.test-support.js';
-import type { Todos } from './todos.svelte.js';
 
-const { createTodos } = await import('./todos.svelte.ts');
+const { startTodos } = await import('./todos.svelte.ts');
 
 const originalFetch = globalThis.fetch;
 const env = {
@@ -65,6 +64,7 @@ afterAll(() => {
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
+	clearQueryClient();
 });
 
 let count = 0;
@@ -103,7 +103,7 @@ async function openDemo() {
 			},
 		}),
 	);
-	const todos = createTodos(folder, createQueryClient());
+	const todos = startTodos(folder);
 	cleanup.push(() => todos.close());
 	cleanup.push(observe(todos));
 	expectOk(
@@ -113,7 +113,7 @@ async function openDemo() {
 		),
 	);
 	expect(expectOk(await todos.sync())).toMatchObject({ kind: 'synced' });
-	await quiet(todos);
+	await quiet();
 	await run(session.nativeCheckout, [
 		'git',
 		'pull',
@@ -153,15 +153,15 @@ test('a sync waits for queued writes, so its checkpoint holds what was typed', a
 test('independent edits merge without a review, and the cache shows the merged todo', async () => {
 	const { todos, session } = await openDemo();
 	rowEditor(todos, 'milk')(titled('Buy oat milk'));
-	await quiet(todos);
+	await quiet();
 	await pushMilk(
 		session,
 		'---\ntitle: Buy milk\ndone: false\n---\nTwo cartons.\n',
 	);
 
 	expect(expectOk(await todos.sync())).toMatchObject({ kind: 'synced' });
-	await quiet(todos);
-	expect(cached(todos, 'milk').row).toEqual({
+	await quiet();
+	expect(cached('milk').row).toEqual({
 		fields: { title: 'Buy oat milk', done: false },
 		body: 'Two cartons.\n',
 	});
@@ -170,7 +170,7 @@ test('independent edits merge without a review, and the cache shows the merged t
 test('competing edits need choices and write nothing; refused choices keep the attempt, and Apply settles it', async () => {
 	const { todos, session } = await openDemo();
 	rowEditor(todos, 'milk')(titled('Buy oat milk'));
-	await quiet(todos);
+	await quiet();
 	await pushMilk(
 		session,
 		'---\ntitle: Buy soy milk\ndone: false\n---\nOne carton.\n',
@@ -180,8 +180,8 @@ test('competing edits need choices and write nothing; refused choices keep the a
 	if (needs.name !== 'NeedsChoices')
 		throw new Error(`Expected choices, got ${needs.message}`);
 	const { attempt } = needs;
-	await quiet(todos);
-	expect(cached(todos, 'milk').row.fields.title).toBe('Buy oat milk');
+	await quiet();
+	expect(cached('milk').row.fields.title).toBe('Buy oat milk');
 	const [title] = attempt.conflicts;
 	expect(title).toMatchObject({
 		kind: 'field',
@@ -210,8 +210,8 @@ test('competing edits need choices and write nothing; refused choices keep the a
 		}),
 	);
 	expect(resolved.kind).toBe('synced');
-	await quiet(todos);
-	expect(cached(todos, 'milk').row.fields.title).toBe('Buy soy milk');
+	await quiet();
+	expect(cached('milk').row.fields.title).toBe('Buy soy milk');
 	expect(await run(session.bare, ['git', 'show', `main:${MILK}`])).toContain(
 		'title: Buy soy milk',
 	);

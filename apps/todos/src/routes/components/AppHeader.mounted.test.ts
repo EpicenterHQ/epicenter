@@ -19,12 +19,12 @@ import { expectOk } from 'wellcrafted/testing';
 import { testBrowserStorage } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
 import type { TodosFolder } from '../../lib/platform/types.js';
-import { createQueryClient, quiet } from '../../lib/query.test-support.js';
+import { clearQueryClient, quiet } from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { createTodos } = await import('../../lib/todos.svelte.ts');
+const { startTodos } = await import('../../lib/todos.svelte.ts');
 const { default: AppHeaderHost } = await import(
 	'./fixtures/AppHeaderHost.svelte'
 );
@@ -33,6 +33,7 @@ let count = 0;
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
+	clearQueryClient();
 });
 
 async function setup(adapt: (folder: TodosFolder) => TodosFolder = (f) => f) {
@@ -43,11 +44,11 @@ async function setup(adapt: (folder: TodosFolder) => TodosFolder = (f) => f) {
 			browser: { ...testBrowserStorage() },
 		}),
 	);
-	const todos: Todos = createTodos(adapt(folder), createQueryClient());
+	const todos: Todos = startTodos(adapt(folder));
 	cleanup.push(() => todos.close());
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(AppHeaderHost, { target, props: { todos } });
+	const view = mount(AppHeaderHost, { target });
 	flushSync();
 	cleanup.push(() => {
 		void unmount(view);
@@ -84,7 +85,7 @@ test('a folder that does not sync yet offers Save version', async () => {
 test('Save version records the saved files as a version', async () => {
 	const { target, todos } = await setup();
 	expectOk(await todos.create('Milk'));
-	await quiet(todos);
+	await quiet();
 	expect(todos.git.lastCommit).toBeUndefined();
 	click(target, 'Save version');
 	for (
@@ -93,7 +94,7 @@ test('Save version records the saved files as a version', async () => {
 		tries++
 	)
 		await Bun.sleep(5);
-	await quiet(todos);
+	await quiet();
 	flushSync();
 	expect(todos.git.lastCommit?.status).toBe('committed');
 	const [head] = expectOk(await todos.folder.git.log(1));

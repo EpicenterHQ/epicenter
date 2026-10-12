@@ -56,19 +56,21 @@ import {
 	joinPath,
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
-import type { MutationFilters, QueryClient } from '@tanstack/svelte-query';
+import type { MutationFilters } from '@tanstack/query-core';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import {
-	createQueryFactories,
-	defineKeys,
-	resultMutationOptions,
-	resultQueryOptions,
-} from 'wellcrafted/query';
+import { resultMutationOptions, resultQueryOptions } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type TodoFields, todosDefinition } from './definition.js';
 import { nameProblem, readTextFile } from './files.js';
 import type { TodosFolder } from './platform/types.js';
+import {
+	defineMutation,
+	queryClient,
+	todosKeys,
+	whenIdle,
+	writing,
+} from './query.js';
 import { createTerminalSession } from './terminal.svelte.js';
 
 export type Todos = ReturnType<typeof createTodos>;
@@ -126,39 +128,6 @@ export type TodosError = InferErrors<typeof TodosError>;
 /** Why input or a command was refused while Epicenter asks to quit or restart. */
 export const DEPARTING =
 	'Epicenter is asking to quit or restart, so nothing is changed now.';
-const CLOSING = 'Todos is closing, so nothing was changed.';
-
-/**
- * Every query and mutation reads or writes local files, so none waits for a
- * network connection, and a read that failed is shown rather than retried.
- */
-
-/** Cache identity for every query and mutation the app runs. */
-export const todosKeys = defineKeys({
-	/** Every query the app keeps; invalidated after sync, Apply, and recovery. */
-	all: ['todos'],
-	rows: ['todos', 'rows'],
-	files: ['todos', 'files'],
-	status: ['todos', 'status'],
-	text: (path: string) => ['todos', 'text', path] as const,
-	/** Every write of a row or a file's text. */
-	writes: ['todos', 'write'],
-	write: (path: string) => ['todos', 'write', 'row', path] as const,
-	writeText: (path: string) => ['todos', 'write', 'text', path] as const,
-	move: (path: string) => ['todos', 'move', path] as const,
-	remove: (path: string) => ['todos', 'remove', path] as const,
-});
-
-/** Why a listed row file is not a todo the list can edit. */
-function repairOf(path: string, error: RowReadError): Repair {
-	if (error.name === 'InvalidRow')
-		return {
-			path,
-			reason: error.issues.map((issue) => issue.message).join(' '),
-		};
-	return { path, reason: `It could not be read as text: ${error.message}` };
-}
-
 function byPath(a: { path: string }, b: { path: string }) {
 	return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
@@ -177,43 +146,48 @@ export function todosOf(listing: TodoListing): TodoEntry[] {
 /** The row files the list does not offer, each with why. */
 export function repairsOf(listing: TodoListing): Repair[] {
 	const repairs: Repair[] = [];
-	for (const { stem, result } of listing)
-		if (result.error !== null)
-			repairs.push(repairOf(rowPath('todos', stem), result.error));
+	for (const { stem, result } of listing) {
+		if (result.error === null) continue;
+		const path = rowPath('todos', stem);
+		repairs.push(
+			result.error.name === 'InvalidRow'
+				? {
+						path,
+						reason: result.error.issues.map((issue) => issue.message).join(' '),
+					}
+				: {
+						path,
+						reason: `It could not be read as text: ${result.error.message}`,
+					},
+		);
+	}
 	return repairs.sort(byPath);
 }
 
+/** How the store reports to the page. */
+export type TodosOptions = {
+	/** A write failed and was rolled back; the app tells the person. */
+	onWriteFailed?: (failure: WriteFailure) => void;
+};
+
 /**
- * Resolves once nothing matching `filters` is mutating. It watches the
- * mutation cache, so a mutation that starts meanwhile is waited for too.
+ * The store for the open folder. The page opens the folder, then calls
+ * `startTodos` once; every component imports `todos` from here. Views render
+ * only after that, so `todos` is set whenever one reads it.
  */
-export function whenIdle(
-	queryClient: QueryClient,
-	filters?: MutationFilters,
-): Promise<void> {
-	return new Promise((resolve) => {
-		const unsubscribe = queryClient.getMutationCache().subscribe(check);
-		function check() {
-			if (queryClient.isMutating(filters) > 0) return;
-			unsubscribe();
-			resolve();
-		}
-		check();
-	});
+export let todos: Todos;
+
+/** Start the store over the opened folder, and make it the one `todos`. */
+export function startTodos(folder: TodosFolder, options: TodosOptions = {}) {
+	todos = createTodos(folder, options);
+	return todos;
 }
 
-export function createTodos(
+function createTodos(
 	folder: TodosFolder,
-	queryClient: QueryClient,
-	{
-		onWriteFailed = () => {},
-	}: {
-		/** A write failed and was rolled back; the app tells the person. */
-		onWriteFailed?: (failure: WriteFailure) => void;
-	} = {},
+	{ onWriteFailed = () => {} }: TodosOptions,
 ) {
 	const table = folder.tables.todos;
-	const { defineMutation } = createQueryFactories(queryClient);
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
 	const trackMutations = createSubscriber((update) =>
 		queryClient.getMutationCache().subscribe(update),
@@ -234,27 +208,17 @@ export function createTodos(
 
 	/** Why no edit or action starts now, if one does not. */
 	function refused(): string | undefined {
-		if (closed) return CLOSING;
+		if (closed) return 'Todos is closing, so nothing was changed.';
 		if (departing) return DEPARTING;
 		return undefined;
 	}
 
-	// Every read and write is local: nothing waits for a network. A file that
-	// does not read will not read on a retry either, so a failure shows at once.
-	queryClient.setQueryDefaults(todosKeys.all, {
-		networkMode: 'always',
-		retry: false,
-		// Nothing goes stale on its own: a view that mounts shows what the cache
-		// holds, and reads happen only when asked for, never while a write runs.
-		staleTime: Number.POSITIVE_INFINITY,
-		refetchOnWindowFocus: () => (writing() ? false : 'always'),
-	});
-	// Mutations never retry by default. While Epicenter asks to leave or
-	// Todos closes, no new action starts: TanStack runs `onMutate` when an
-	// action is asked for, before its `mutationFn`, and what it throws is the
-	// action's error. An action asked for before that runs to the end.
+	// While Epicenter asks to leave or Todos closes, no new action starts:
+	// TanStack runs `onMutate` when an action is asked for, before its
+	// `mutationFn`, and what it throws is the action's error. An action asked
+	// for before that runs to the end. It reads this store's state, so the
+	// store registers it, not `query.ts`.
 	queryClient.setMutationDefaults(todosKeys.all, {
-		networkMode: 'always',
 		onMutate: () => {
 			const why = refused();
 			if (why !== undefined) throw TodosError.NotStarted({ reason: why }).error;
@@ -269,13 +233,8 @@ export function createTodos(
 	const unsentRows = new Set<string>();
 	const unsentTexts = new Set<string>();
 
-	/** Whether a write of a row or a file's text is running or waiting. */
-	const writing = () =>
-		queryClient.isMutating({ mutationKey: todosKeys.writes }) > 0;
-
 	/** Resolves once no write of a row or a file's text is running or waiting. */
-	const writesSettled = () =>
-		whenIdle(queryClient, { mutationKey: todosKeys.writes });
+	const writesSettled = () => whenIdle({ mutationKey: todosKeys.writes });
 
 	const rowsData = () => queryClient.getQueryData<TodoListing>(todosKeys.rows);
 	const textData = (path: string) =>
@@ -330,41 +289,6 @@ export function createTodos(
 			}) >
 		0;
 
-	/** The text a person loses with a row that could not be written. */
-	function rowText(row: Row<TodoFields>) {
-		return (
-			formatRow(todosDefinition.tables.todos, row).data ?? row.fields.title
-		);
-	}
-
-	/**
-	 * After a failed write, the cache takes the row as the file holds it
-	 * now. TanStack awaits this before the next write of the file runs, so
-	 * that write saves the file's own bytes instead of the failed edit.
-	 */
-	async function reloadRow(stem: string) {
-		unsentRows.delete(stem);
-		await queryClient.cancelQueries({ queryKey: todosKeys.rows, exact: true });
-		const { data: stored, error } = await table.get(stem);
-		queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
-			entries?.flatMap((entry) => {
-				if (entry.stem !== stem) return [entry];
-				if (error !== null) return [{ stem, result: Err(error) }];
-				return stored === undefined ? [] : [{ stem, result: Ok(stored) }];
-			}),
-		);
-	}
-
-	/** After a failed write of a file's text, the cache takes the file as it is now. */
-	async function reloadText(path: string) {
-		unsentTexts.delete(path);
-		const key = todosKeys.text(path);
-		await queryClient.cancelQueries({ queryKey: key, exact: true });
-		const read = await readTextFile(folder.files, path);
-		if (read.error === null) queryClient.setQueryData(key, read.data);
-		else await queryClient.invalidateQueries({ queryKey: key, exact: true });
-	}
-
 	/**
 	 * Read again what an action may have changed. While a write runs nothing
 	 * is read: the last write to settle reads everything again.
@@ -388,48 +312,23 @@ export function createTodos(
 	}
 
 	/**
-	 * Whether the fields of the todo at `path` are what the app edits now,
-	 * rather than its text: its rename or delete then joins the row's writes.
-	 */
-	const editsRow = (path: string) =>
-		rowStemOf(table.name, path) !== undefined &&
-		!(selected?.path === path && selected.as !== 'todos');
-
-	/**
 	 * The capture a rename or delete of `path` acts on, read when it runs:
 	 * the newest hash the cache confirmed for what the app edits, if it holds
-	 * one. An invalid row is a capture of its bytes too.
+	 * one. A todo's fields are what the app edits unless the detail shows its
+	 * text. An invalid row is a capture of its bytes too.
 	 */
 	function heldCapture(path: string): FileCapture | undefined {
-		if (editsRow(path)) {
-			const stem = rowStemOf(table.name, path);
+		const stem = rowStemOf(table.name, path);
+		const editsRow =
+			stem !== undefined &&
+			!(selected?.path === path && selected.as !== 'todos');
+		if (editsRow) {
 			const result = rowsData()?.find((entry) => entry.stem === stem)?.result;
 			if (result?.error === null) return result.data;
 			if (result?.error.name === 'InvalidRow') return result.error;
 		}
 		const opened = textData(path);
 		return opened?.kind === 'text' ? opened.file : undefined;
-	}
-
-	/** After a rename: the caches, the open item, and the write logs follow the file. */
-	function moved(from: string, to: string) {
-		const stem = rowStemOf(table.name, from);
-		const nextStem = rowStemOf(table.name, to);
-		if (stem !== undefined) {
-			queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
-				entries?.flatMap((entry) => {
-					if (entry.stem !== stem) return [entry];
-					if (nextStem === undefined) return [];
-					const result =
-						entry.result.error === null
-							? Ok({ ...entry.result.data, path: to })
-							: entry.result;
-					return [{ stem: nextStem, result }];
-				}),
-			);
-		}
-		queryClient.removeQueries({ queryKey: todosKeys.text(from), exact: true });
-		if (selected?.path === from) selected = { ...selected, path: to };
 	}
 
 	/** After a delete: the caches and the open item let the file go. */
@@ -495,7 +394,6 @@ export function createTodos(
 	return {
 		/** The opened folder; `folder.location` says where the todos are. */
 		folder,
-		queryClient,
 		terminal,
 		expanded,
 		get git() {
@@ -637,13 +535,32 @@ export function createTodos(
 					// The same file's text, if a view read it, is read again.
 					void invalidate(todosKeys.text(path));
 				},
+				// Roll back: the cache takes the row as the file holds it now.
+				// TanStack awaits this before the next write of the file runs, so
+				// that write finds no unsent edit and writes nothing.
 				onError: async (error) => {
-					const lost = rowOf(stem);
-					await reloadRow(stem);
+					const lost = rowOf(stem)?.row;
+					unsentRows.delete(stem);
+					await queryClient.cancelQueries({
+						queryKey: todosKeys.rows,
+						exact: true,
+					});
+					const { data: stored, error: readError } = await table.get(stem);
+					queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
+						entries?.flatMap((entry) => {
+							if (entry.stem !== stem) return [entry];
+							if (readError !== null) return [{ stem, result: Err(readError) }];
+							return stored === undefined ? [] : [{ stem, result: Ok(stored) }];
+						}),
+					);
 					onWriteFailed({
 						path,
 						error,
-						lost: lost === undefined ? '' : rowText(lost.row),
+						lost:
+							lost === undefined
+								? ''
+								: (formatRow(todosDefinition.tables.todos, lost).data ??
+									lost.fields.title),
 					});
 				},
 				onSettled: afterWrite,
@@ -669,9 +586,16 @@ export function createTodos(
 					if (rowStemOf(table.name, path) !== undefined)
 						void invalidate(todosKeys.rows);
 				},
+				// Roll back: the cache takes the file as it is now.
 				onError: async (error) => {
 					const lost = textData(path);
-					await reloadText(path);
+					unsentTexts.delete(path);
+					const key = todosKeys.text(path);
+					await queryClient.cancelQueries({ queryKey: key, exact: true });
+					const read = await readTextFile(folder.files, path);
+					if (read.error === null) queryClient.setQueryData(key, read.data);
+					else
+						await queryClient.invalidateQueries({ queryKey: key, exact: true });
 					onWriteFailed({
 						path,
 						error,
@@ -804,7 +728,28 @@ export function createTodos(
 						? table.rename(capture, nextStem)
 						: folder.files.move(capture, to);
 				},
-				onSuccess: () => moved(path, to),
+				// The cache and the open item follow the file.
+				onSuccess: () => {
+					const stem = rowStemOf(table.name, path);
+					if (stem !== undefined) {
+						queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
+							entries?.flatMap((entry) => {
+								if (entry.stem !== stem) return [entry];
+								if (nextStem === undefined) return [];
+								const result =
+									entry.result.error === null
+										? Ok({ ...entry.result.data, path: to })
+										: entry.result;
+								return [{ stem: nextStem, result }];
+							}),
+						);
+					}
+					queryClient.removeQueries({
+						queryKey: todosKeys.text(path),
+						exact: true,
+					});
+					if (selected?.path === path) selected = { ...selected, path: to };
+				},
 				onSettled: () =>
 					Promise.all([
 						invalidate(todosKeys.rows),
@@ -969,7 +914,7 @@ export function createTodos(
 				departing = true;
 			},
 			async settle(): Promise<number> {
-				await whenIdle(queryClient);
+				await whenIdle();
 				return newTitle.trim() === '' ? 0 : 1;
 			},
 			resume() {
@@ -984,7 +929,7 @@ export function createTodos(
 			if (closing !== undefined) return closing;
 			closed = true;
 			closing = (async () => {
-				await whenIdle(queryClient);
+				await whenIdle();
 				await queryClient.cancelQueries({ queryKey: todosKeys.all });
 				await folder.close();
 			})();

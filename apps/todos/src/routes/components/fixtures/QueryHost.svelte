@@ -3,11 +3,11 @@
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import type { Snippet } from 'svelte';
-	import type { Todos } from '$lib/todos.svelte.js';
+	import { queryClient } from '$lib/query.js';
 
-	let { todos, children }: { todos: Todos; children: Snippet } = $props();
+	let { children }: { children: Snippet } = $props();
 </script>
 
-<QueryClientProvider client={todos.queryClient}>
+<QueryClientProvider client={queryClient}>
 	<Tooltip.Provider>{@render children()}</Tooltip.Provider>
 </QueryClientProvider>

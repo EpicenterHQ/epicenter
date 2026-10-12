@@ -9,11 +9,11 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { rowStemOf } from '@epicenter/folder';
-	import type { Todos } from '$lib/todos.svelte.js';
+	import { todos } from '$lib/todos.svelte.js';
 	import FileView from './FileView.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 
-	let { todos, onBack }: { todos: Todos; onBack?: () => void } = $props();
+	let { onBack }: { onBack?: () => void } = $props();
 
 	const shown = $derived(todos.selected);
 	const stem = $derived(
@@ -31,10 +31,10 @@
 	</Empty.Root>
 {:else if stem !== undefined}
 	{#key shown.path}
-		<TodoDetail {todos} {stem} {onBack} />
+		<TodoDetail {stem} {onBack} />
 	{/key}
 {:else}
 	{#key `${shown.as}:${shown.path}`}
-		<FileView {todos} path={shown.path} {onBack} />
+		<FileView path={shown.path} {onBack} />
 	{/key}
 {/if}

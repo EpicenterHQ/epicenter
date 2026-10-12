@@ -20,10 +20,10 @@
 	import { rowPath } from '@epicenter/folder';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { describeError } from '$lib/describe-error.js';
-	import { type Todos } from '$lib/todos.svelte.js';
+	import { todos } from '$lib/todos.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
-	let { todos, onOpen }: { todos: Todos; onOpen?: () => void } = $props();
+	let { onOpen }: { onOpen?: () => void } = $props();
 
 	const listing = createQuery(() => todos.filesQuery());
 	/** Every todo row file, whether or not its text reads as a todo. */
@@ -69,7 +69,7 @@
 	/** The same actions back the right-click menu and the visible "…" menu. */
 	function actionGroups(row: TreeRow): Action[][] {
 		const copy: Action = { label: 'Copy path', run: () => void copyPath(row.path) };
-		const remove = () => void confirmDelete(todos, row.path);
+		const remove = () => void confirmDelete(row.path);
 		if (row.kind === 'directory')
 			return [
 				[
@@ -134,7 +134,7 @@
 				break;
 			case 'Delete':
 			case 'Backspace':
-				void confirmDelete(todos, row.path);
+				void confirmDelete(row.path);
 				break;
 			case 'ContextMenu':
 				menuPath = row.path;

@@ -5,9 +5,8 @@
 	import { createMutation } from '@tanstack/svelte-query';
 	import { Err, Ok } from 'wellcrafted/result';
 	import { incomingLine, recoveryLine, type StatusLine } from '$lib/status.js';
-	import type { Todos } from '$lib/todos.svelte.js';
+	import { todos } from '$lib/todos.svelte.js';
 
-	let { todos }: { todos: Todos } = $props();
 
 	const recovery = createMutation(() => todos.recoverIncoming.options);
 

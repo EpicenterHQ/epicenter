@@ -2,14 +2,12 @@
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
-	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { ModeWatcher } from 'mode-watcher';
 	import '@epicenter/ui/app.css';
+	import { queryClient } from '$lib/query.js';
 
 	let props = $props();
-
-	// One cache for the app: the files it shows, and every write and action.
-	const queryClient = new QueryClient();
 </script>
 
 <svelte:head><title>Todos</title></svelte:head>

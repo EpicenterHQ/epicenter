@@ -5,24 +5,24 @@
 	cache stay, as the narrow layout's Back does.
 -->
 <script lang="ts">
-	import type { Todos } from '$lib/todos.svelte.js';
+	import { todos } from '$lib/todos.svelte.js';
 	import Detail from '../Detail.svelte';
 	import TodoList from '../TodoList.svelte';
 	import QueryHost from './QueryHost.svelte';
 
-	let { todos, list = false }: { todos: Todos; list?: boolean } = $props();
+	let { list = false }: { list?: boolean } = $props();
 	let shown = $state(true);
 </script>
 
 <button type="button" data-host="toggle" onclick={() => (shown = !shown)}>
 	{shown ? 'Hide detail' : 'Show detail'}
 </button>
-<QueryHost {todos}>
+<QueryHost>
 	{#if list}
-		<div data-host="list"><TodoList {todos} /></div>
+		<div data-host="list"><TodoList /></div>
 	{/if}
 	{#if shown}
-		<div data-host="detail"><Detail {todos} /></div>
+		<div data-host="detail"><Detail /></div>
 	{:else}
 		<p data-view="hidden">The detail is hidden</p>
 	{/if}

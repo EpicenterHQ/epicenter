@@ -7,14 +7,13 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
-	import { useQueryClient } from '@tanstack/svelte-query';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { onDestroy } from 'svelte';
 	import { Ok } from 'wellcrafted/result';
 	import { departurePort } from '#platform/departure';
 	import { openTodosFolder } from '#platform/folder';
 	import { describeError } from '$lib/describe-error.js';
-	import { createTodos, type WriteFailure } from '$lib/todos.svelte.js';
+	import { startTodos, type WriteFailure } from '$lib/todos.svelte.js';
 	import TodosView from './components/TodosView.svelte';
 
 	// Inside Epicenter, quitting or restarting asks this page first; a browser
@@ -22,8 +21,6 @@
 	const departure =
 		departurePort === undefined ? undefined : createDeparture(departurePort);
 	void departure?.start();
-
-	const queryClient = useQueryClient();
 
 	/** A write that failed was rolled back to the file; say so, and offer the text it held. */
 	function writeFailed({ path, error, lost }: WriteFailure) {
@@ -56,7 +53,7 @@
 			const opened = await openTodosFolder();
 			return opened.error
 				? opened
-				: Ok(createTodos(opened.data, queryClient, { onWriteFailed: writeFailed }));
+				: Ok(startTodos(opened.data, { onWriteFailed: writeFailed }));
 		},
 		(opened) => opened.data?.departure,
 	);
@@ -97,7 +94,7 @@
 	{#if opened.error}
 		{@render refused(opened.error.message)}
 	{:else}
-		<TodosView todos={opened.data} {departure} />
+		<TodosView {departure} />
 	{/if}
 {:catch error}
 	{@render refused(error instanceof Error ? error.message : String(error))}

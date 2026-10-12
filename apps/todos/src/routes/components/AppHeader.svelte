@@ -29,11 +29,11 @@
 		versionOutcomeLine,
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
-	import { type Todos, type TodosError, todosKeys } from '$lib/todos.svelte.js';
+	import { queryClient, todosKeys } from '$lib/query.js';
+	import { todos, type TodosError } from '$lib/todos.svelte.js';
 	import { copyPath } from './file-actions.js';
 
 	let {
-		todos,
 		sync,
 		reviewing = false,
 		filesOpen,
@@ -41,7 +41,6 @@
 		onToggleFiles,
 		onToggleTerminal,
 	}: {
-		todos: Todos;
 		/** The page's Sync; a sync that needs choices opens the review the page shows. */
 		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, void, unknown>;
 		/** Whether the sync review shows, which holds every other Git action. */
@@ -215,7 +214,7 @@
 					variant="outline"
 					size="sm"
 					disabled={status.isFetching}
-					onclick={() => void todos.queryClient.invalidateQueries({ queryKey: todosKeys.all })}
+					onclick={() => void queryClient.invalidateQueries({ queryKey: todosKeys.all })}
 				>
 					Check again
 				</Button>

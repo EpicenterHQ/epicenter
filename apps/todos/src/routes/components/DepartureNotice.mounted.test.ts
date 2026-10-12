@@ -22,12 +22,12 @@ import { expectOk } from 'wellcrafted/testing';
 import { testBrowserStorage } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { createFakeHost } from '../../../../epicenter/src/departure-page.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
-import { createQueryClient } from '../../lib/query.test-support.js';
+import { clearQueryClient } from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { createTodos } = await import('../../lib/todos.svelte.ts');
+const { startTodos } = await import('../../lib/todos.svelte.ts');
 const { createDeparture } = await import('@epicenter/epicenter/departure/page');
 const { default: DepartureNotice } = await import('./DepartureNotice.svelte');
 
@@ -36,6 +36,7 @@ const cleanup: (() => unknown)[] = [];
 
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
+	clearQueryClient();
 });
 
 async function setup() {
@@ -46,7 +47,7 @@ async function setup() {
 			browser: { ...testBrowserStorage() },
 		}),
 	);
-	const todos: Todos = createTodos(folder, createQueryClient());
+	const todos: Todos = startTodos(folder);
 	cleanup.push(() => todos.close());
 	const host = createFakeHost();
 	const departure = createDeparture(host.port);

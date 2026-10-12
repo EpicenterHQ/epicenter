@@ -7,14 +7,12 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { createMutation } from '@tanstack/svelte-query';
-	import type { TodoEntry, Todos } from '$lib/todos.svelte.js';
+	import { type TodoEntry, todos } from '$lib/todos.svelte.js';
 
 	let {
-		todos,
 		entry,
 		onOpen,
 	}: {
-		todos: Todos;
 		entry: TodoEntry;
 		onOpen?: () => void;
 	} = $props();

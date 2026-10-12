@@ -37,9 +37,10 @@ import {
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from './definition.js';
 import { holdCloses } from './opfs-holds.test-support.js';
+import { queryClient, todosKeys } from './query.js';
 import {
 	cached,
-	createQueryClient,
+	clearQueryClient,
 	focusManager,
 	listing,
 	observe,
@@ -49,15 +50,14 @@ import {
 } from './query.test-support.js';
 import type { Todos, WriteFailure } from './todos.svelte.js';
 
-const { createTodos, repairsOf, todosKeys, todosOf } = await import(
-	'./todos.svelte.ts'
-);
+const { startTodos, repairsOf, todosOf } = await import('./todos.svelte.ts');
 
 const cleanup: (() => unknown)[] = [];
 let count = 0;
 
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
+	clearQueryClient();
 });
 
 /**
@@ -93,12 +93,12 @@ async function open() {
 		}),
 	);
 	const failures: WriteFailure[] = [];
-	const todos = createTodos(folder, createQueryClient(), {
+	const todos = startTodos(folder, {
 		onWriteFailed: (failure) => failures.push(failure),
 	});
 	cleanup.push(() => todos.close());
 	cleanup.push(observe(todos));
-	await quiet(todos);
+	await quiet();
 	const faults = opfsOf(storage).faults;
 	return {
 		todos,
@@ -137,7 +137,7 @@ async function writeElsewhere(todos: Todos, path: string, content: string) {
 /** Add a todo through the app; answers its stem and path. */
 async function addTodo(todos: Todos, title: string) {
 	const created = expectOk(await todos.create(title));
-	await quiet(todos);
+	await quiet();
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
 	return { stem, path: created.path };
 }
@@ -159,12 +159,12 @@ test('an edit changes the cache at once and is written to the file', async () =>
 	expect(todos.selected).toEqual({ path, as: 'todos' });
 
 	rowEditor(todos, stem)(titled('Oat milk'));
-	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
-	await quiet(todos);
+	expect(cached(stem).row.fields.title).toBe('Oat milk');
+	await quiet();
 	expect(await text(todos, path)).toBe(
 		'---\ntitle: Oat milk\ndone: false\n---\n',
 	);
-	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
+	expect(cached(stem).sha256).toBe(await sha(todos, path));
 });
 
 test('rapid edits run one write at a time with one waiting, which saves the newest row with no conflict', async () => {
@@ -179,21 +179,21 @@ test('rapid edits run one write at a time with one waiting, which saves the newe
 	for (const title of ['Oa', 'Oat', 'Oat ', 'Oat m', 'Oat milk'])
 		set(titled(title));
 	// One write runs and one waits; no more were queued.
-	expect(
-		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
-	).toBe(2);
-	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
+	expect(queryClient.isMutating({ mutationKey: todosKeys.write(path) })).toBe(
+		2,
+	);
+	expect(cached(stem).row.fields.title).toBe('Oat milk');
 
 	release();
-	await quiet(todos);
+	await quiet();
 	expect(failures).toEqual([]);
 	expect(counter.mdWrites - writes).toBe(2);
 	expect(await text(todos, path)).toContain('title: Oat milk');
-	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
+	expect(cached(stem).sha256).toBe(await sha(todos, path));
 
 	// The guard moved forward: the next edit writes on top.
 	set(titled('Oat milk, two'));
-	await quiet(todos);
+	await quiet();
 	expect(failures).toEqual([]);
 	expect(await text(todos, path)).toContain('title: Oat milk, two');
 });
@@ -202,7 +202,7 @@ test('no read starts while a write runs: not on returning to the window, not whe
 	const { todos, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const stop = observe(todos);
-	await quiet(todos);
+	await quiet();
 	const set = rowEditor(todos, stem);
 
 	const { held, release } = holdNextWrite();
@@ -215,17 +215,17 @@ test('no read starts while a write runs: not on returning to the window, not whe
 	await Bun.sleep(0);
 	// Neither does a view that mounts now.
 	const mounted = observe(todos, path);
-	expect(todos.queryClient.isFetching({ queryKey: todosKeys.rows })).toBe(0);
-	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
+	expect(queryClient.isFetching({ queryKey: todosKeys.rows })).toBe(0);
+	expect(cached(stem).row.fields.title).toBe('Oat milk');
 	release();
-	await quiet(todos);
+	await quiet();
 	mounted();
 	stop();
-	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
-	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
+	expect(cached(stem).row.fields.title).toBe('Oat milk');
+	expect(cached(stem).sha256).toBe(await sha(todos, path));
 
 	set(titled('Oat milk, two'));
-	await quiet(todos);
+	await quiet();
 	expect(failures).toEqual([]);
 	expect(await text(todos, path)).toContain('title: Oat milk, two');
 });
@@ -237,20 +237,20 @@ test('a write that meets a change made elsewhere rolls back to the file and repo
 	await writeElsewhere(todos, path, elsewhere);
 
 	rowEditor(todos, stem)(titled('Oat milk'));
-	await quiet(todos);
+	await quiet();
 	expect(failures).toHaveLength(1);
 	expect(failures[0]).toMatchObject({ path, error: { name: 'Conflict' } });
 	expect(failures[0]?.lost).toContain('title: Oat milk');
 	// The cache shows the file again; nothing was written over it.
 	expect(await text(todos, path)).toBe(elsewhere);
-	expect(cached(todos, stem).row.fields).toEqual({
+	expect(cached(stem).row.fields).toEqual({
 		title: 'Milk from the shop',
 		done: true,
 	});
 
 	// The next edit writes on top of what is there now.
 	rowEditor(todos, stem)(titled('Oat milk'));
-	await quiet(todos);
+	await quiet();
 	expect(failures).toHaveLength(1);
 	expect(await text(todos, path)).toBe(
 		'---\ntitle: Oat milk\ndone: true\n---\n',
@@ -267,17 +267,17 @@ test('a write that fails rolls back, and the write waiting behind it leaves the 
 	failNextWrite(path);
 	set(titled('First'));
 	set(titled('Second'));
-	expect(
-		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
-	).toBe(2);
-	await quiet(todos);
+	expect(queryClient.isMutating({ mutationKey: todosKeys.write(path) })).toBe(
+		2,
+	);
+	await quiet();
 	// The rollback lands before the waiting write runs, so it saves the
 	// file's own row and fails nothing.
 	expect(failures.map((failure) => failure.lost)).toEqual([
 		expect.stringContaining('title: Second'),
 	]);
 	expect(await text(todos, path)).toBe(saved);
-	expect(cached(todos, stem).row.fields.title).toBe('Milk');
+	expect(cached(stem).row.fields.title).toBe('Milk');
 });
 
 test('after a conflict, the write waiting behind it writes nothing over the file found', async () => {
@@ -291,18 +291,18 @@ test('after a conflict, the write waiting behind it writes nothing over the file
 
 	set(titled('First'));
 	set(titled('Second'));
-	expect(
-		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
-	).toBe(2);
-	await quiet(todos);
+	expect(queryClient.isMutating({ mutationKey: todosKeys.write(path) })).toBe(
+		2,
+	);
+	await quiet();
 	expect(failures).toMatchObject([{ path, error: { name: 'Conflict' } }]);
 	expect(counter.mdWrites - writes).toBe(0);
 	expect(await text(todos, path)).toBe(elsewhere);
-	expect(cached(todos, stem).row.fields.title).toBe('Milk from the shop');
+	expect(cached(stem).row.fields.title).toBe('Milk from the shop');
 
 	// The next edit writes again, over the file it now holds.
 	set(titled('Third'));
-	await quiet(todos);
+	await quiet();
 	expect(await text(todos, path)).toContain('title: Third');
 });
 
@@ -312,10 +312,10 @@ test('the folder refuses a value it cannot hold, and the cache rolls back', asyn
 	const saved = await text(todos, path);
 	// Inputs commit only values the schema accepts; this bypasses them.
 	rowEditor(todos, stem)(titled('Lone \uD800 surrogate'));
-	await quiet(todos);
+	await quiet();
 	expect(failures).toMatchObject([{ path, error: { name: 'InvalidValues' } }]);
 	expect(await text(todos, path)).toBe(saved);
-	expect(cached(todos, stem).row.fields.title).toBe('Milk');
+	expect(cached(stem).row.fields.title).toBe('Milk');
 });
 
 test('writes to one todo wait for each other, and writes to different todos do not', async () => {
@@ -328,7 +328,7 @@ test('writes to one todo wait for each other, and writes to different todos do n
 	rowEditor(todos, a.stem)(titled('A typed again'));
 	rowEditor(todos, b.stem)(titled('B typed'));
 	const state = (path: string) =>
-		todos.queryClient
+		queryClient
 			.getMutationCache()
 			.findAll({ mutationKey: todosKeys.write(path) })
 			.map((write) => write.state.isPaused);
@@ -336,7 +336,7 @@ test('writes to one todo wait for each other, and writes to different todos do n
 	expect(state(a.path)).toEqual([false, true]);
 	expect(state(b.path)).toEqual([false]);
 	release();
-	await quiet(todos);
+	await quiet();
 	expect(failures).toEqual([]);
 	expect(await text(todos, a.path)).toContain('title: A typed again');
 	expect(await text(todos, b.path)).toContain('title: B typed');
@@ -350,29 +350,27 @@ test('a row that is not a valid todo is named for repair, is written as typed te
 	const { todos, failures } = await open();
 	const path = 'todos/bad.md';
 	await writeElsewhere(todos, path, '---\ntitle: *missing\n---\n');
-	await todos.queryClient.invalidateQueries({ queryKey: todosKeys.all });
-	await quiet(todos);
-	expect(todosOf(listing(todos))).toEqual([]);
-	expect(repairsOf(listing(todos))).toEqual([
-		{ path, reason: expect.any(String) },
-	]);
+	await queryClient.invalidateQueries({ queryKey: todosKeys.all });
+	await quiet();
+	expect(todosOf(listing())).toEqual([]);
+	expect(repairsOf(listing())).toEqual([{ path, reason: expect.any(String) }]);
 
 	todos.select(path, 'repair');
 	const stop = observe(todos, path);
 	cleanup.push(stop);
-	await quiet(todos);
+	await quiet();
 	const type = textEditor(todos, path);
 	// Text that still does not parse is written as typed.
 	type('---\ntitle: Bread\ndone: soon\n---\n');
-	await quiet(todos);
+	await quiet();
 	expect(await text(todos, path)).toBe('---\ntitle: Bread\ndone: soon\n---\n');
-	expect(repairsOf(listing(todos))).toHaveLength(1);
+	expect(repairsOf(listing())).toHaveLength(1);
 
 	type('---\ntitle: Bread\ndone: false\n---\n');
-	await quiet(todos);
+	await quiet();
 	expect(failures).toEqual([]);
-	expect(repairsOf(listing(todos))).toEqual([]);
-	expect(cached(todos, 'bad').row.fields).toEqual({
+	expect(repairsOf(listing())).toEqual([]);
+	expect(cached('bad').row.fields).toEqual({
 		title: 'Bread',
 		done: false,
 	});
@@ -397,18 +395,18 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 	expect(todos.edit(stem, titled('Typed during the rename'))).toBe(false);
 	release();
 	expectOk(await renaming);
-	await quiet(todos);
+	await quiet();
 
 	expect(failures).toEqual([]);
 	expect(await text(todos, path)).toBeUndefined();
 	expect(await text(todos, 'todos/oat.md')).toContain('title: Oat milk');
 	expect(todos.selected).toEqual({ path: 'todos/oat.md', as: 'todos' });
-	expect(cached(todos, 'oat').row.fields.title).toBe('Oat milk');
+	expect(cached('oat').row.fields.title).toBe('Oat milk');
 	// Only the Markdown file moved.
 	expect(await text(todos, 'todos/milk.png')).toBe('not a todo');
 
 	rowEditor(todos, 'oat')(titled('Oat milk, two'));
-	await quiet(todos);
+	await quiet();
 	expect(await text(todos, 'todos/oat.md')).toContain('title: Oat milk, two');
 });
 
@@ -442,10 +440,10 @@ test('a delete runs after the queued writes and removes only the Markdown file',
 	expect(await text(todos, path)).toContain('title: Milk\n');
 	release();
 	expectOk(await removing);
-	await quiet(todos);
+	await quiet();
 	expect(await text(todos, path)).toBeUndefined();
 	expect(todos.selected).toBeUndefined();
-	expect(todosOf(listing(todos))).toEqual([]);
+	expect(todosOf(listing())).toEqual([]);
 	expect(await text(todos, 'todos/milk.png')).toBe('not a todo');
 });
 
@@ -462,14 +460,14 @@ test('a folder is deleted only when it is empty', async () => {
 	const { todos } = await open();
 	expectOk(await todos.createFolder({ directory: '', name: 'docs' }));
 	expectOk(await todos.createFile({ directory: 'docs', name: 'a.txt' }));
-	await quiet(todos);
+	await quiet();
 	expect(todos.selected).toEqual({ path: 'docs/a.txt', as: 'files' });
 	expect(expectErr(await todos.deletionFor('docs')).name).toBe('NotStarted');
 	expectOk(await todos.remove(expectOk(await todos.deletionFor('docs/a.txt'))));
-	await quiet(todos);
+	await quiet();
 	expectOk(await todos.remove(expectOk(await todos.deletionFor('docs'))));
-	await quiet(todos);
-	const files = todos.queryClient.getQueryData<{ directories: string[] }>(
+	await quiet();
+	const files = queryClient.getQueryData<{ directories: string[] }>(
 		todosKeys.files,
 	);
 	expect(files?.directories).not.toContain('docs');
@@ -483,7 +481,7 @@ test('saves never commit; Save version records one, and delete says when changes
 	const { todos } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	rowEditor(todos, stem)(titled('Oat milk'));
-	await quiet(todos);
+	await quiet();
 	expect(todos.git.lastCommit).toBeUndefined();
 	expect(expectOk(await todos.deletionFor(path))).toMatchObject({
 		unversioned: true,
@@ -498,7 +496,7 @@ test('saves never commit; Save version records one, and delete says when changes
 	});
 
 	rowEditor(todos, stem)(titled('Oat milk, two'));
-	await quiet(todos);
+	await quiet();
 	expect(expectOk(await todos.deletionFor(path))).toMatchObject({
 		unversioned: true,
 	});
@@ -528,7 +526,7 @@ test('close waits for running writes, and every close call shares one completion
 	expect(closed).toBe(true);
 	expect(todos.folder.signal.aborted).toBe(true);
 	// The write finished before the folder closed.
-	const writes = todos.queryClient
+	const writes = queryClient
 		.getMutationCache()
 		.findAll({ mutationKey: todosKeys.write(path) });
 	expect(writes.map((write) => write.state.status)).toEqual(['success']);
@@ -541,7 +539,7 @@ test('after close begins, edits and actions change nothing', async () => {
 	const saved = await text(todos, path);
 	void todos.close();
 	expect(todos.edit(stem, titled('Late'))).toBe(false);
-	expect(cached(todos, stem).row.fields.title).toBe('Milk');
+	expect(cached(stem).row.fields.title).toBe('Milk');
 	expect(expectErr(await todos.create('Another')).name).toBe('NotStarted');
 	todos.newTitle = 'Typed';
 	expect(todos.newTitle).toBe('');

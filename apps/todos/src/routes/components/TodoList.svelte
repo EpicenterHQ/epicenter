@@ -8,10 +8,10 @@
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { describeError } from '$lib/describe-error.js';
-	import { repairsOf, type Todos, todosOf } from '$lib/todos.svelte.js';
+	import { repairsOf, todos, todosOf } from '$lib/todos.svelte.js';
 	import TodoRow from './TodoRow.svelte';
 
-	let { todos, onOpen }: { todos: Todos; onOpen?: () => void } = $props();
+	let { onOpen }: { onOpen?: () => void } = $props();
 
 	const listing = createQuery(() =>
 		todos.rowsQuery((rows) => ({ entries: todosOf(rows), repairs: repairsOf(rows) })),
@@ -69,7 +69,7 @@
 	{:else}
 		<ul class="min-h-0 flex-1 overflow-y-auto" aria-label="Todos">
 			{#each listing.data.entries as entry (entry.stem)}
-				<TodoRow {todos} {entry} {onOpen} />
+				<TodoRow {entry} {onOpen} />
 			{:else}
 				<li>
 					<Empty.Root>

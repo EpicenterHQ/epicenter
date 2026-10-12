@@ -19,16 +19,14 @@
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { todosDefinition } from '$lib/definition.js';
 	import { describeError } from '$lib/describe-error.js';
-	import { type Todos } from '$lib/todos.svelte.js';
+	import { todos } from '$lib/todos.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
 
 	let {
-		todos,
 		path,
 		onBack,
 	}: {
-		todos: Todos;
 		/** The file shown. The parent keys this view by it. */
 		path: string;
 		/** Shown on narrow screens, where the list and the editor take turns. */
@@ -146,6 +144,6 @@
 			const { error } = await todos.rename(path, next);
 			return error === null ? undefined : describeError(error);
 		}}
-		onDelete={() => void confirmDelete(todos, path)}
+		onDelete={() => void confirmDelete(path)}
 	/>
 </section>

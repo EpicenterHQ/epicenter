@@ -33,16 +33,17 @@ import { createFakeHost } from '../../../epicenter/src/departure-page.test-suppo
 import { todosDefinition } from './definition.js';
 import { holdCloses } from './opfs-holds.test-support.js';
 import type { TodosFolder } from './platform/types.js';
+import { queryClient } from './query.js';
 import {
 	cached,
-	createQueryClient,
+	clearQueryClient,
 	observe,
 	quiet,
 	rowEditor,
 } from './query.test-support.js';
 import type { Todos } from './todos.svelte.js';
 
-const { createTodos, DEPARTING } = await import('./todos.svelte.ts');
+const { startTodos, DEPARTING } = await import('./todos.svelte.ts');
 const { createDeparture } = await import('@epicenter/epicenter/departure/page');
 
 let count = 0;
@@ -50,6 +51,7 @@ const cleanup: (() => unknown)[] = [];
 
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
+	clearQueryClient();
 });
 
 /**
@@ -82,10 +84,10 @@ async function openTodos(
 			},
 		}),
 	);
-	const todos: Todos = createTodos(adapt(folder), createQueryClient());
+	const todos: Todos = startTodos(adapt(folder));
 	cleanup.push(() => todos.close());
 	cleanup.push(observe(todos));
-	await quiet(todos);
+	await quiet();
 	return {
 		todos,
 		/** Hold the next todo row write; resolves once it is held. */
@@ -105,7 +107,7 @@ async function openTodos(
 /** Add a todo; answers its stem and path. */
 async function addTodo(todos: Todos, title: string) {
 	const created = expectOk(await todos.create(title));
-	await quiet(todos);
+	await quiet();
 	return {
 		stem: created.path.slice('todos/'.length, -'.md'.length),
 		path: created.path,
@@ -267,9 +269,7 @@ test('a new todo title typed and not added counts: the page asks, and Keep worki
 	expect(todos.departing).toBe(false);
 	expect(todos.newTitle).toBe('Buy milk');
 	// Nothing was created from it.
-	expect(todos.queryClient.getQueryData<unknown[]>(['todos', 'rows'])).toEqual(
-		[],
-	);
+	expect(queryClient.getQueryData<unknown[]>(['todos', 'rows'])).toEqual([]);
 });
 
 test('a round cancelled elsewhere gives back the typed title, and leaving anyway is a ready vote only', async () => {
@@ -313,7 +313,7 @@ test('granted, leaving, and a discarded vote stay fenced: nothing is edited or s
 		expect(todos.departing).toBe(true);
 		expect(departure.notice).toEqual({ stage: 'leaving', intent: 'quit' });
 		expect(todos.edit(stem, titled('Late'))).toBe(false);
-		expect(cached(todos, stem).row.fields.title).toBe('Milk');
+		expect(cached(stem).row.fields.title).toBe('Milk');
 		expect(expectErr(await todos.create('Another'))).toMatchObject({
 			reason: DEPARTING,
 		});
@@ -366,7 +366,7 @@ test('while fenced, every edit, action, Git command, and terminal command is ref
 	todos.departure.resume();
 	expect(todos.departing).toBe(false);
 	rowEditor(todos, stem)(titled('After'));
-	await quiet(todos);
+	await quiet();
 	expect(await text(path)).toContain('title: After');
 	expectOk(await todos.remove(deletion));
 	expect(await text('notes.txt')).toBeUndefined();
@@ -393,7 +393,7 @@ for (const ending of [
 		await settle();
 		expect(departure.notice).toEqual({ stage: 'leaving', intent: 'quit' });
 		release();
-		await eventually(() => todos.queryClient.isMutating() === 0);
+		await eventually(() => queryClient.isMutating() === 0);
 		await settle();
 		// The admitted write landed; no ready, no prompt, and still fenced.
 		expect(await text(path)).toContain('title: Slow');

@@ -37,9 +37,10 @@ import {
 	prepareGitSession,
 } from '../../server/git-server.js';
 import { todosDefinition } from './definition.js';
+import { queryClient } from './query.js';
 import {
 	cached,
-	createQueryClient,
+	clearQueryClient,
 	observe,
 	quiet,
 	rowEditor,
@@ -53,7 +54,7 @@ import {
 } from './status.js';
 import type { Todos } from './todos.svelte.js';
 
-const { createTodos } = await import('./todos.svelte.ts');
+const { startTodos } = await import('./todos.svelte.ts');
 
 const originalFetch = globalThis.fetch;
 const env = {
@@ -77,6 +78,7 @@ afterAll(() => {
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
+	clearQueryClient();
 });
 
 let count = 0;
@@ -134,11 +136,11 @@ async function openDemo() {
 				},
 			}),
 		);
-		const todos = createTodos(folder, createQueryClient());
+		const todos = startTodos(folder);
 		const stop = observe(todos);
 		cleanup.push(() => todos.close());
 		cleanup.push(stop);
-		await quiet(todos);
+		await quiet();
 		return todos;
 	};
 	return {
@@ -155,7 +157,7 @@ async function shareMilk(todos: Todos, session: GitSession) {
 	const created = todos.selected!.path;
 	expectOk(await todos.rename(created, 'milk.md'));
 	expect(expectOk(await todos.sync())).toMatchObject({ kind: 'synced' });
-	await quiet(todos);
+	await quiet();
 	await run(session.nativeCheckout, [
 		'git',
 		'pull',
@@ -211,21 +213,21 @@ async function interruptedSync() {
 	};
 	const synced = await todos.sync();
 	opfs.faults.write = undefined;
-	await quiet(todos);
+	await quiet();
 	return { ...demo, before, synced };
 }
 
 test('a sync brings remote changes in byte for byte, the cache shows them, and an edit keeps the undeclared keys', async () => {
 	const { todos, session } = await openDemo();
 	await shareMilk(todos, session);
-	expect(cached(todos, 'milk').row.fields.title).toBe('Buy milk');
+	expect(cached('milk').row.fields.title).toBe('Buy milk');
 	await pushRemoteChanges(session);
 
 	expect(expectOk(await todos.sync())).toMatchObject({ kind: 'synced' });
-	await quiet(todos);
+	await quiet();
 	expect(await text(todos, MILK)).toBe(MILK_REMOTE);
 	expect(await text(todos, BREAD)).toBe(BREAD_REMOTE);
-	expect(cached(todos, 'milk').row as AnyRow).toEqual({
+	expect(cached('milk').row as AnyRow).toEqual({
 		fields: {
 			title: 'Buy oat milk',
 			done: true,
@@ -234,11 +236,11 @@ test('a sync brings remote changes in byte for byte, the cache shows them, and a
 		},
 		body: 'Two cartons.\n',
 	});
-	expect(cached(todos, 'bread').row.fields.title).toBe('Bake bread');
+	expect(cached('bread').row.fields.title).toBe('Bake bread');
 
 	// A write saves the standard form, and the undeclared keys stay.
 	rowEditor(todos, 'milk')(noted('Three cartons.\n'));
-	await quiet(todos);
+	await quiet();
 	expect(rowOf((await text(todos, MILK))!)).toEqual({
 		fields: {
 			title: 'Buy oat milk',
@@ -275,9 +277,9 @@ test('the remote-edit demo fixture pushes a hand edit that Sync brings in byte f
 	expect(pushed.source).toContain('owner: sam');
 
 	expect(expectOk(await todos.sync())).toMatchObject({ kind: 'synced' });
-	await quiet(todos);
+	await quiet();
 	expect(await text(todos, MILK)).toBe(pushed.source);
-	expect(cached(todos, 'milk').row.fields).toMatchObject({
+	expect(cached('milk').row.fields).toMatchObject({
 		title: 'Buy oat milk',
 		done: true,
 	});
@@ -312,15 +314,15 @@ test('an interrupted sync is reported and never resumed: Sync and Save version w
 
 	// Editing continues.
 	const created = expectOk(await todos.create('Call mom'));
-	await quiet(todos);
+	await quiet();
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
 	rowEditor(todos, stem)(noted('Today.\n'));
-	await quiet(todos);
+	await quiet();
 	expect(await text(todos, created.path)).toContain('Today.');
 
 	// Reads only read the record; they resume nothing.
-	await todos.queryClient.invalidateQueries({ queryKey: ['todos'] });
-	await quiet(todos);
+	await queryClient.invalidateQueries({ queryKey: ['todos'] });
+	await quiet();
 	expect(todos.git.pendingIncoming).toEqual(pending);
 	expect(await text(todos, MILK)).toBe(before);
 
@@ -342,7 +344,7 @@ test('recovery names a path in neither state and writes nothing, until the file 
 
 	// Milk is still at its before state; the person edits it to a third one.
 	rowEditor(todos, 'milk')(noted('My own note.\n'));
-	await quiet(todos);
+	await quiet();
 	const third = (await text(todos, MILK))!;
 
 	const refused = await todos.recoverIncoming();
@@ -358,25 +360,25 @@ test('recovery names a path in neither state and writes nothing, until the file 
 	// The person makes it hold the version from before the update, as text in Files.
 	todos.select(MILK, 'files');
 	cleanup.push(observe(todos, MILK));
-	await quiet(todos);
+	await quiet();
 	textEditor(todos, MILK)(before);
-	await quiet(todos);
+	await quiet();
 	expect(await text(todos, MILK)).toBe(before);
 
 	// Now the update finishes, and every view reads what it wrote.
 	const recovered = await todos.recoverIncoming();
 	expect(recovered).toMatchObject({ data: { status: 'completed' } });
-	await quiet(todos);
+	await quiet();
 	expect(todos.git.pendingIncoming).toBeUndefined();
 	expect(await text(todos, MILK)).toBe(MILK_REMOTE);
 	expect(
-		todos.queryClient.getQueryData<{ kind: string; file?: { text: string } }>([
+		queryClient.getQueryData<{ kind: string; file?: { text: string } }>([
 			'todos',
 			'text',
 			MILK,
 		]),
 	).toMatchObject({ kind: 'text', file: { text: MILK_REMOTE } });
-	expect(cached(todos, 'milk').row.fields.title).toBe('Buy oat milk');
+	expect(cached('milk').row.fields.title).toBe('Buy oat milk');
 	expect(incomingLine(todos.git)).toBeUndefined();
 	// History continues.
 	expect(expectOk(await todos.saveVersion()).status).not.toBe('blocked');
@@ -385,7 +387,7 @@ test('recovery names a path in neither state and writes nothing, until the file 
 test('recovery waits for queued writes before it runs', async () => {
 	const { todos } = await interruptedSync();
 	const created = expectOk(await todos.create('Call mom'));
-	await quiet(todos);
+	await quiet();
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
 	// The next write of a row is held until the test lets it go.
 	const table = todos.folder.tables.todos;

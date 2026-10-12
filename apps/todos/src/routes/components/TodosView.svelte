@@ -10,7 +10,7 @@
 	import { Err, Ok } from 'wellcrafted/result';
 	import { beforeNavigate } from '$app/navigation';
 	import { syncOutcomeLine } from '$lib/status.js';
-	import type { Todos } from '$lib/todos.svelte.js';
+	import { todos } from '$lib/todos.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import Detail from './Detail.svelte';
 	import IncomingBanner from './IncomingBanner.svelte';
@@ -20,7 +20,7 @@
 	import DepartureNotice from './DepartureNotice.svelte';
 	import type { Departure } from '@epicenter/epicenter/departure/page';
 
-	let { todos, departure }: { todos: Todos; departure?: Departure } = $props();
+	let { departure }: { departure?: Departure } = $props();
 
 	// A write or action still running, or a new todo's typed title, lives
 	// only in this page. Leaving then is cancelled; for a reload or closed
@@ -116,7 +116,6 @@
 
 <div class="flex h-dvh flex-col overflow-hidden">
 	<AppHeader
-		{todos}
 		{sync}
 		reviewing={attempt !== undefined}
 		filesOpen={wide.current ? filesPane : filesSheet}
@@ -127,7 +126,7 @@
 	{#if departure}
 		<DepartureNotice {departure} />
 	{/if}
-	<IncomingBanner {todos} />
+	<IncomingBanner />
 
 	{#if attempt !== undefined}
 		<!-- The review is modal: it replaces the workspace until it is applied or cancelled. -->
@@ -148,16 +147,16 @@
 				<Resizable.PaneGroup direction="horizontal">
 					{#if filesPane}
 						<Resizable.Pane id="files" order={1} defaultSize={22} minSize={14} maxSize={40}>
-							<FileBrowser {todos} />
+							<FileBrowser />
 						</Resizable.Pane>
 						<Resizable.Handle />
 					{/if}
 					<Resizable.Pane id="list" order={2} defaultSize={filesPane ? 30 : 38} minSize={20}>
-						<TodoList {todos} />
+						<TodoList />
 					</Resizable.Pane>
 					<Resizable.Handle />
 					<Resizable.Pane id="detail" order={3} defaultSize={filesPane ? 48 : 62} minSize={30}>
-						<Detail {todos} />
+						<Detail />
 					</Resizable.Pane>
 				</Resizable.PaneGroup>
 			</Resizable.Pane>
@@ -173,15 +172,15 @@
 			{#if terminalOpen}
 				<FolderTerminal session={todos.terminal} {directory} onClose={() => void toggleTerminal()} />
 			{:else if showingDetail}
-				<Detail {todos} onBack={back} />
+				<Detail onBack={back} />
 			{:else}
-				<TodoList {todos} onOpen={showDetail} />
+				<TodoList onOpen={showDetail} />
 			{/if}
 		</main>
 		<Sheet.Root bind:open={filesSheet}>
 			<!-- Named directly: the browser's own visible heading is the only "Files" heading. -->
 			<Sheet.Content side="left" class="gap-0 p-0" aria-label="Files">
-				<FileBrowser {todos} onOpen={showDetail} />
+				<FileBrowser onOpen={showDetail} />
 			</Sheet.Content>
 		</Sheet.Root>
 	{/if}
