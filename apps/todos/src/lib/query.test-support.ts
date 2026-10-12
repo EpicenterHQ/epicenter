@@ -4,33 +4,27 @@
  *
  * The app imports the query client from `@tanstack/svelte-query`, whose
  * entry also loads `.svelte` components; Bun's server-runtime tests cannot
- * load those. This loads the same `@tanstack/query-core` build that
- * `@tanstack/svelte-query` re-exports, so a mounted test that mixes the two
- * shares one copy of every class and manager.
+ * load those. This imports `@tanstack/query-core`, which `svelte-query`
+ * re-exports. The catalog pins it to the exact version `svelte-query`
+ * depends on, so the install holds one copy and a mounted test that mixes
+ * the two shares every class and manager. Change the two pins together.
  *
  * The helpers stand in for what the views do: a screen that shows a query
  * observes it, and a view that edits a file creates its own write mutation
  * and queues a write only when the owner's `edit` says one is needed.
  */
-import { realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import type { Row, StoredRow } from '@epicenter/folder';
-import type * as Query from '@tanstack/svelte-query';
+import {
+	focusManager,
+	MutationObserver,
+	type MutationOptions,
+	QueryClient,
+	QueryObserver,
+} from '@tanstack/query-core';
 import type { TodoFields } from './definition.js';
 import type { TodoListing, Todos } from './todos.svelte.js';
 
-const svelteQuery = realpathSync(
-	dirname(
-		Bun.resolveSync('@tanstack/svelte-query/package.json', import.meta.dir),
-	),
-);
-// Loaded synchronously: Bun does not finish a top-level await in an imported
-// module before its importer runs.
-const core = require(
-	join(svelteQuery, '../query-core/build/modern/index.js'),
-) as typeof Query;
-
-export const { QueryClient, QueryObserver, focusManager } = core;
+export { focusManager, QueryClient, QueryObserver };
 
 /** A fresh cache, mounted as the layout's provider mounts it, so it hears focus. */
 export function createQueryClient() {
@@ -42,12 +36,10 @@ export function createQueryClient() {
 /** Run one mutation from `options`, as `createMutation`'s `mutate` does. */
 export function mutate<TData, TError>(
 	todos: Todos,
-	options: Query.MutationOptions<TData, TError, void, unknown>,
+	options: MutationOptions<TData, TError, void, unknown>,
 ): Promise<unknown> {
-	return todos.queryClient
-		.getMutationCache()
-		.build(todos.queryClient, options)
-		.execute(undefined)
+	return new MutationObserver(todos.queryClient, options)
+		.mutate()
 		.catch(() => undefined);
 }
 

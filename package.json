@@ -57,6 +57,7 @@
 			"mode-watcher": "^1.1.0",
 			"svelte-sonner": "^1.0.6",
 			"@lucide/svelte": "^0.561.0",
+			"@tanstack/query-core": "5.96.2",
 			"@tanstack/svelte-query": "^6.0.10",
 			"@tanstack/svelte-query-devtools": "^6.0.2",
 			"@tanstack/svelte-table": "9.0.0-alpha.10",

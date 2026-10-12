@@ -4,33 +4,21 @@
  *
  * The app imports the query client from `@tanstack/svelte-query`, whose
  * entry also loads `.svelte` components; Bun's server-runtime tests cannot
- * load those. This loads the same `@tanstack/query-core` build that
- * `@tanstack/svelte-query` re-exports, so a mounted test that mixes the two
- * shares one copy of every class and manager.
+ * load those. This imports `@tanstack/query-core`, which `svelte-query`
+ * re-exports. The catalog pins it to the exact version `svelte-query`
+ * depends on, so the install holds one copy and a mounted test that mixes
+ * the two shares every class and manager. Change the two pins together.
  *
  * A screen that shows a query observes it; `observe` stands in for that, so
  * invalidation and window focus read it again as they do in the app.
  */
-import { realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import type * as Query from '@tanstack/svelte-query';
+import { focusManager, QueryClient, QueryObserver } from '@tanstack/query-core';
 import { type Entry, readEntry, readRows } from './data.js';
 import type { EntryListing } from './entries.svelte.js';
 import { vocabKeys } from './query.js';
 import type { Vocab } from './vocab.svelte.js';
 
-const svelteQuery = realpathSync(
-	dirname(
-		Bun.resolveSync('@tanstack/svelte-query/package.json', import.meta.dir),
-	),
-);
-// Loaded synchronously: Bun does not finish a top-level await in an imported
-// module before its importer runs.
-const core = require(
-	join(svelteQuery, '../query-core/build/modern/index.js'),
-) as typeof Query;
-
-export const { QueryClient, QueryObserver, focusManager } = core;
+export { focusManager, QueryClient, QueryObserver };
 
 /** A fresh cache, mounted as the layout's provider mounts it, so it hears focus. */
 export function createQueryClient() {
