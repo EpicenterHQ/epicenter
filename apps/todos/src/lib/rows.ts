@@ -9,10 +9,10 @@
  * - An edit is one immutable `map` over the cached listing. Each todo's
  *   writes run one at a time in its file's queue, and each saves the row the
  *   cache holds when it runs, guarded by the hash the cache last confirmed:
- *   the file the person was editing. A write that fails reads the file
+ *   the file the person was editing. A write that fails reads the listing
  *   again, which rolls the edit back.
- * - A repair draft records the text it repairs, with its hash, at the first
- *   keystroke, and its Save is guarded by that hash.
+ * - A file that does not read as a todo is listed with why; Todos does not
+ *   edit its text. Another editor fixes it, and the next read shows it.
  * - Rename moves the version the cache holds when it runs, after the file's
  *   queued writes. Delete carries the version the person confirmed: `shown`
  *   waits for that todo's queued writes to land before it reads the
@@ -30,10 +30,7 @@ import {
 	type StoredRow,
 	type TableCreateError,
 	type TableError,
-	type TextCapture,
 } from '@epicenter/folder';
-import { hashKey } from '@tanstack/query-core';
-import { SvelteMap } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type TodoFields, todosDefinition } from './definition.js';
 import { type Session, TodosError, todosKeys } from './session.js';
@@ -57,16 +54,6 @@ function stemProblem(stem: string): string | undefined {
 		: `This name is not usable: ${problem}.`;
 }
 
-/**
- * Repair text typed for a file that does not read as a todo. `base` is the
- * file's text and hash when the person first typed: the version the repair
- * replaces.
- */
-export type RepairDraft = {
-	readonly base: TextCapture;
-	readonly text: string;
-};
-
 export function createRows({
 	folder,
 	queryClient,
@@ -85,8 +72,6 @@ export function createRows({
 	 * back the file it just reread.
 	 */
 	const unsent = new Set<string>();
-	/** Repair text typed and not saved, by stem. It lives as long as the folder is open. */
-	const drafts = new SvelteMap<string, RepairDraft>();
 
 	/** What the cache holds for `stem`: a row, or why it is not one. */
 	function resultOf(stem: string) {
@@ -155,26 +140,6 @@ export function createRows({
 			0
 		);
 	}
-
-	// A draft goes once its file reads as a todo or leaves the folder. A
-	// file that only failed to read keeps its draft.
-	const rowsHash = hashKey(todosKeys.rows);
-	queryClient.getQueryCache().subscribe((event) => {
-		if (
-			drafts.size === 0 ||
-			event.type !== 'updated' ||
-			event.action.type !== 'success' ||
-			event.query.queryHash !== rowsHash
-		)
-			return;
-		const listing = event.query.state.data as TodoListing | undefined;
-		if (listing === undefined) return;
-		for (const stem of [...drafts.keys()]) {
-			const entry = listing.find((candidate) => candidate.stem === stem);
-			if (entry === undefined || entry.result.error === null)
-				drafts.delete(stem);
-		}
-	});
 
 	/** The listing query: one cache entry, each view narrowing it with `select`. */
 	const listing = { queryKey: todosKeys.rows, queryFn: () => table.list() };
@@ -277,68 +242,6 @@ export function createRows({
 									lost.fields.title),
 					});
 				},
-				onSettled: afterWrite,
-			});
-		},
-		/** The repair text typed for `stem` and not saved, read reactively. */
-		draft(stem: string): RepairDraft | undefined {
-			return drafts.get(stem);
-		},
-		/**
-		 * Keep `text` as the repair typed for `stem`. The first keystroke
-		 * records the text the cache holds, with its hash, as the draft's base.
-		 * Refused, keeping nothing, while Epicenter asks to leave, while the
-		 * file is renamed or deleted, and when the file reads as a todo.
-		 */
-		setDraft(stem: string, text: string): boolean {
-			if (refused() !== undefined || moving(stem)) return false;
-			const kept = drafts.get(stem);
-			if (kept !== undefined) {
-				drafts.set(stem, { base: kept.base, text });
-				return true;
-			}
-			const result = resultOf(stem);
-			if (result?.error?.name !== 'InvalidRow') return false;
-			const { path, sha256, text: read } = result.error;
-			drafts.set(stem, { base: { path, sha256, text: read }, text });
-			return true;
-		},
-		/** Forget the repair typed for `stem`; the view shows the file's text again. */
-		discardDraft(stem: string) {
-			drafts.delete(stem);
-		},
-		/** How many repairs are typed and not saved, read reactively. */
-		get drafted() {
-			return drafts.size;
-		},
-		/**
-		 * The repair of a todo whose text does not read as one: write `text`
-		 * over `base`, the version the person typed over. The text is written
-		 * as typed, valid or not, and the file is read again. A file changed
-		 * since is the folder's `Conflict`: nothing is written, the typed text
-		 * is reported, and the draft stays.
-		 */
-		repair(stem: string) {
-			const path = todoPath(stem);
-			return defineMutation({
-				mutationKey: todosKeys.repair(path),
-				scope: { id: path },
-				mutationFn: async ({
-					text,
-					base,
-				}: {
-					text: string;
-					base: FileCapture;
-				}): Promise<Result<FileCapture, FileError | TodosError>> => {
-					return folder.files.replace(base, text);
-				},
-				// The view shows the written text before the draft goes.
-				onSuccess: async () => {
-					await invalidate(todosKeys.rows);
-					drafts.delete(stem);
-				},
-				onError: (error, { text }) =>
-					onWriteFailed({ path, error, lost: text }),
 				onSettled: afterWrite,
 			});
 		},

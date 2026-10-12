@@ -3,9 +3,8 @@
 	never disagrees with the list. Each edit goes into that cache, and this
 	view's own write mutation saves it: one write at a time for this file,
 	each saving whatever the cache holds when it runs. A file that does not
-	read as a todo shows its text and what to fix; the text typed for it is a
-	draft in the store, and Save writes it over the version it was typed over.
-	Rename moves the version saved when it runs; delete carries the version
+	read as a todo shows its text and what to fix, read-only: another editor
+	fixes it, and Todos reads it again when the person returns. Rename moves the version saved when it runs; delete carries the version
 	this view shows when the person asks.
 -->
 <script lang="ts">
@@ -50,7 +49,6 @@
 	const path = $derived(todoPath(stem));
 	const todo = createQuery(() => todos.rows.entry(stem).options);
 	const write = createMutation(() => todos.rows.write(stem).options);
-	const repair = createMutation(() => todos.rows.repair(stem).options);
 	/**
 	 * Edits, rename, and delete wait while this file is renamed or deleted.
 	 * While Epicenter asks to leave, the page is inert and the store refuses
@@ -59,18 +57,10 @@
 	// svelte-ignore state_referenced_locally
 	const moving = useIsMutating({ mutationKey: todosKeys.moving(todoPath(stem)) });
 	const locked = $derived(moving.current > 0);
-	/** The repair text typed here and not saved; it lives in the store, so it outlasts this view. */
-	const draft = $derived(todos.rows.draft(stem));
 
 	/** Change the row in the cache, and queue a write when one is needed. */
 	function set(change: (row: Row<TodoFields>) => Row<TodoFields>) {
 		if (todos.rows.edit(stem, change)) write.mutate();
-	}
-
-	/** Write the typed text over the version it was typed over, keeping that version's line endings. */
-	function saveRepair() {
-		if (draft === undefined || repair.isPending) return;
-		repair.mutate({ text: withFileNewlines(wellFormed(draft.text), draft.base.text), base: draft.base });
 	}
 
 	/** Textareas report LF, so views show LF; the setters restore the file's convention. */
@@ -193,7 +183,7 @@
 		<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
-				This file does not read as a todo. Fix its text here and save.
+				This file does not read as a todo. Fix it in a text editor; Todos reads it again when you return.
 			</p>
 			<ul class="space-y-0.5 text-muted-foreground">
 				{#each error.issues as issue, index (index)}
@@ -201,40 +191,9 @@
 				{/each}
 			</ul>
 		</div>
-		{#if draft !== undefined && draft.base.sha256 !== error.sha256}
-			<p class="shrink-0 border-b bg-warning/10 px-4 py-2 text-xs" role="status" data-testid="repair-stale">
-				This file changed elsewhere since you started typing, so Save will change nothing and offer to copy your text. Discard shows the file as it is now.
-			</p>
-		{/if}
-		<form
-			class="flex min-h-48 flex-1 flex-col gap-2 px-3 py-3 sm:px-4"
-			onsubmit={(event) => {
-				event.preventDefault();
-				saveRepair();
-			}}
-		>
-			<Textarea
-				class="min-h-0 flex-1 field-sizing-fixed resize-none font-mono text-xs"
-				aria-label="Text of {path}"
-				spellcheck={false}
-				disabled={locked || repair.isPending}
-				bind:value={() => draft?.text ?? lf(error.text), (typed) => todos.rows.setDraft(stem, typed)}
-			/>
-			<div class="flex items-center justify-end gap-2">
-				<Button
-					type="button"
-					size="sm"
-					variant="ghost"
-					disabled={locked || repair.isPending || draft === undefined}
-					onclick={() => todos.rows.discardDraft(stem)}
-				>
-					Discard
-				</Button>
-				<Button type="submit" size="sm" disabled={locked || repair.isPending || draft === undefined}>
-					{repair.isPending ? 'Saving…' : 'Save'}
-				</Button>
-			</div>
-		</form>
+		<pre
+			class="min-h-48 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap"
+			aria-label="Text of {path}">{lf(error.text)}</pre>
 		{@render nameBar()}
 	{:else if todo.data?.result.error}
 		<Empty.Root class="flex-1">

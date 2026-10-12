@@ -16,10 +16,9 @@ export const todosKeys = defineKeys({
 	all: ['todos'],
 	rows: ['todos', 'rows'],
 	status: ['todos', 'status'],
-	/** Every write of a todo's file: a row's fields, or a repair's text. */
+	/** Every write of a todo's fields. */
 	writes: ['todos', 'write'],
-	write: (path: string) => ['todos', 'write', 'row', path] as const,
-	repair: (path: string) => ['todos', 'write', 'repair', path] as const,
+	write: (path: string) => ['todos', 'write', path] as const,
 	/** A rename or a delete of the file at `path`: either pauses its edits. */
 	moving: (path: string) => ['todos', 'moving', path] as const,
 	rename: (path: string) => ['todos', 'moving', path, 'rename'] as const,
@@ -37,7 +36,7 @@ export type TodosError = InferErrors<typeof TodosError>;
 export const DEPARTING =
 	'Epicenter is asking to quit or restart, so nothing is changed now.';
 
-/** A write that failed: a row's was rolled back to the file; a repair's text was not written. */
+/** A write that failed and was rolled back to the file. */
 export type WriteFailure = {
 	readonly path: string;
 	readonly error: TableError | FileError | TodosError;

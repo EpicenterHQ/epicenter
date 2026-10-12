@@ -248,7 +248,6 @@ test('granted, leaving, and a discarded vote stay fenced: nothing is edited or s
 test('while fenced, every edit, action, and Git command is refused; resuming gives them back', async () => {
 	const { todos, text } = await openTodos();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	expectOk(await todos.folder.files.create('todos/bad.md', 'not a todo'));
 	await todos.refresh();
 	await quiet(todos);
 	const saved = await text(path);
@@ -263,21 +262,11 @@ test('while fenced, every edit, action, and Git command is refused; resuming giv
 	expect(
 		expectErr(await todos.rows.remove(stem, shown(todos, stem))),
 	).toMatchObject(refusal);
-	expect(
-		expectErr(
-			await todos.rows.repair('bad')({
-				text: 'typed',
-				base: shown(todos, 'bad'),
-			}),
-		),
-	).toMatchObject(refusal);
-	expect(todos.rows.setDraft('bad', 'typed')).toBe(false);
 	expect(expectErr(await todos.git.saveVersion())).toMatchObject(refusal);
 	expect(expectErr(await todos.git.recoverIncoming())).toMatchObject(refusal);
 	expect(expectErr(await todos.sync.run()).message).toContain(DEPARTING);
 	await settle();
 	expect(await text(path)).toBe(saved);
-	expect(await text('todos/bad.md')).toBe('not a todo');
 	expect(todos.git.snapshot.lastCommit).toBeUndefined();
 
 	todos.departure.resume();

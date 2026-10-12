@@ -16,10 +16,8 @@
  * - A write that fails rolls the cache back to the file, reports the text
  *   that was lost, and a write still waiting saves the file as it was
  * - The folder refuses a value it cannot hold, and the cache rolls back
- * - A row that is not a valid todo is named for repair; a repair writes the
- *   typed text guarded by the hash the listing read, as typed, and the row
- *   reads as a todo once repaired. A repair over a file changed elsewhere
- *   writes nothing and reports the typed text
+ * - A row that is not a valid todo is named for repair, and reads as a todo
+ *   once another editor fixes it
  * - Rename and delete run after the file's queued writes and act on what
  *   the last one saved; edits wait while they run; a file changed elsewhere
  *   since the listing read it is refused
@@ -380,157 +378,22 @@ async function breakTodo(todos: Todos, stem: string, text: string) {
 	await quiet(todos);
 }
 
-/**
- * The repair of `stem`, as the detail runs it: the typed text over the
- * version the listing holds now, as at the first keystroke.
- */
-function repairWith(todos: Todos, stem: string, text: string) {
-	return new MutationObserver(
-		todos.queryClient,
-		todos.rows.repair(stem).options,
-	)
-		.mutate({ text, base: shown(todos, stem) })
-		.catch(() => undefined);
-}
-
-test('a row that is not a valid todo is named for repair; a repair writes the typed text as typed, and the row reads as a todo once repaired', async () => {
-	const { todos, failures } = await open();
+test('a row that is not a valid todo is named for repair, and reads as a todo once another editor fixes it', async () => {
+	const { todos } = await open();
 	const path = 'todos/bad.md';
 	await breakTodo(todos, 'bad', '---\ntitle: *missing\n---\n');
 	expect(todosOf(listing(todos))).toEqual([]);
 	expect(repairsOf(listing(todos))).toEqual([
 		{ stem: 'bad', path, reason: expect.any(String) },
 	]);
+	expect(await text(todos, path)).toBe('---\ntitle: *missing\n---\n');
 
-	// Text that still does not parse is written as typed, guarded by the hash
-	// the listing read, and the listing reads it again.
-	await repairWith(todos, 'bad', '---\ntitle: Bread\ndone: soon\n---\n');
-	await quiet(todos);
-	expect(await text(todos, path)).toBe('---\ntitle: Bread\ndone: soon\n---\n');
-	expect(repairsOf(listing(todos))).toHaveLength(1);
-
-	// The second repair is guarded by the hash of the first one's text.
-	await repairWith(todos, 'bad', '---\ntitle: Bread\ndone: false\n---\n');
-	await quiet(todos);
-	expect(failures).toEqual([]);
+	await breakTodo(todos, 'bad', '---\ntitle: Bread\ndone: false\n---\n');
 	expect(repairsOf(listing(todos))).toEqual([]);
 	expect(cached(todos, 'bad').row.fields).toEqual({
 		title: 'Bread',
 		done: false,
 	});
-});
-
-test('a repair over a file changed elsewhere since the listing read it writes nothing and reports the typed text, even while another write runs', async () => {
-	const { todos, failures } = await open();
-	const path = 'todos/bad.md';
-	await breakTodo(todos, 'bad', 'not a todo');
-	await writeElsewhere(todos, path, 'changed elsewhere');
-	// Another file's write is still running, so the reread after the last
-	// write waits; the report must not.
-	const other = Promise.withResolvers<void>();
-	const running = new MutationObserver(todos.queryClient, {
-		mutationKey: todosKeys.write('todos/other.md'),
-		mutationFn: () => other.promise,
-	}).mutate();
-
-	void repairWith(todos, 'bad', 'typed here');
-	for (let tries = 0; tries < 200 && failures.length === 0; tries++)
-		await Bun.sleep(2);
-	expect(failures).toMatchObject([
-		{ path, error: { name: 'Conflict' }, lost: 'typed here' },
-	]);
-	other.resolve();
-	await running;
-	// A real write rereads when it settles; this stand-in does not.
-	await todos.refresh();
-	await quiet(todos);
-	expect(await text(todos, path)).toBe('changed elsewhere');
-	// The listing now holds what is there, so the next repair is guarded by it.
-	await repairWith(todos, 'bad', '---\ntitle: Fixed\ndone: false\n---\n');
-	await quiet(todos);
-	expect(cached(todos, 'bad').row.fields.title).toBe('Fixed');
-});
-
-test("a successful repair shows its fields at once, even while another file's write runs", async () => {
-	const { todos, failures } = await open();
-	await breakTodo(todos, 'bad', 'not a todo');
-	// Another file's write is still running, so no listing reread follows
-	// this repair; the repair reads its own row.
-	const other = Promise.withResolvers<void>();
-	const running = new MutationObserver(todos.queryClient, {
-		mutationKey: todosKeys.write('todos/other.md'),
-		mutationFn: () => other.promise,
-	}).mutate();
-
-	await repairWith(todos, 'bad', '---\ntitle: Fixed\ndone: false\n---\n');
-	expect(todos.queryClient.isMutating()).toBe(1);
-	expect(failures).toEqual([]);
-	expect(repairsOf(listing(todos))).toEqual([]);
-	expect(cached(todos, 'bad').row.fields).toEqual({
-		title: 'Fixed',
-		done: false,
-	});
-	other.resolve();
-	await running;
-});
-
-test('a repair draft records its base at the first keystroke, counts as unsaved, and goes when its file reads as a todo', async () => {
-	const { todos } = await open();
-	const { stem } = await addTodo(todos, 'Milk');
-	await breakTodo(todos, 'bad', 'not a todo');
-	const base = shown(todos, 'bad');
-	expect(todos.departure.holdsUnsaved).toBe(false);
-
-	// A todo that reads as one takes no draft.
-	expect(todos.rows.setDraft(stem, 'text')).toBe(false);
-	expect(todos.rows.setDraft('bad', 'f')).toBe(true);
-	expect(todos.rows.setDraft('bad', 'fixed')).toBe(true);
-	expect(todos.rows.draft('bad')).toEqual({
-		base: { ...base, text: 'not a todo' },
-		text: 'fixed',
-	});
-	expect(todos.departure.holdsUnsaved).toBe(true);
-
-	// A change elsewhere that still does not read keeps the draft and its base.
-	await breakTodo(todos, 'bad', 'still not a todo');
-	expect(todos.rows.draft('bad')?.base.sha256).toBe(base.sha256);
-
-	// Once the file reads as a todo, the draft goes.
-	await breakTodo(todos, 'bad', '---\ntitle: Fixed\ndone: false\n---\n');
-	expect(todos.rows.draft('bad')).toBeUndefined();
-	expect(todos.departure.holdsUnsaved).toBe(false);
-
-	// So it does when the file leaves the folder.
-	await breakTodo(todos, 'gone', 'not a todo');
-	todos.rows.setDraft('gone', 'typed');
-	expectOk(await todos.folder.files.remove(shown(todos, 'gone')));
-	await todos.refresh();
-	await quiet(todos);
-	expect(todos.rows.draft('gone')).toBeUndefined();
-});
-
-test("a repair is guarded by its draft's base: a file changed elsewhere since the first keystroke is a Conflict, even after the listing reread it", async () => {
-	const { todos, failures } = await open();
-	const path = 'todos/bad.md';
-	await breakTodo(todos, 'bad', 'not a todo');
-	todos.rows.setDraft('bad', 'typed here');
-	// The change elsewhere lands in the listing before Save.
-	await breakTodo(todos, 'bad', 'changed elsewhere');
-
-	const draft = todos.rows.draft('bad');
-	if (draft === undefined) throw new Error('The draft is gone');
-	await new MutationObserver(
-		todos.queryClient,
-		todos.rows.repair('bad').options,
-	)
-		.mutate({ text: draft.text, base: draft.base })
-		.catch(() => undefined);
-	await quiet(todos);
-	expect(failures).toMatchObject([
-		{ path, error: { name: 'Conflict' }, lost: 'typed here' },
-	]);
-	expect(await text(todos, path)).toBe('changed elsewhere');
-	expect(todos.rows.draft('bad')?.text).toBe('typed here');
 });
 
 test('a write finds no row and still sends no stale edit: the stem always leaves the unsent set', async () => {

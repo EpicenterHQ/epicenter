@@ -3,16 +3,14 @@
  * cache (ADR-0528). Todos shows one folder table: the list is the table, the
  * detail is one row, and a field change is a write of that row's file.
  * Every write carries the hash of the version the person acted on, taken
- * when they acted. The cache holds the listing; the store also holds repair
- * text typed and not saved.
+ * when they acted. The cache holds the listing.
  *
  * This file builds the session every part shares: the query client and its
  * rules, leaving, and closing. The parts are namespaces over that session,
  * each in its file:
  *
  * - `todos.rows` (`rows.ts`): the todo listing and its views, edits, writes,
- *   adding, rename, delete, and repair drafts of a file that does not read
- *   as a todo
+ *   adding, rename, and delete
  * - `todos.git`  (`git.ts`): history state and status, Save version, recovery
  * - `todos.sync` (`sync.ts`): Sync and its review's Apply
  *
@@ -20,7 +18,7 @@
  * `.options` to `createQuery` or `createMutation`; code and tests call a
  * mutation or `.fetch()` a query and get a `Result`. A member that takes a
  * stem and returns a definition is one a view holds (`rows.entry`,
- * `rows.write`, `rows.repair`); an async method is a one-shot action a
+ * `rows.write`); an async method is a one-shot action a
  * handler awaits (`rows.rename`, `rows.remove`). Whether something runs
  * is TanStack's: a view asks `useIsMutating` with a key from `todosKeys`
  * (`writes`, `moving(path)`, `recoverIncoming`). Which todo is open is the
@@ -176,18 +174,15 @@ export function createTodos(
 		onWriteFailed,
 	};
 
-	const rows = createRows(session);
-
 	return {
 		/** The opened folder; `folder.location` says where the todos are. */
 		folder,
 		/**
 		 * This folder's cache, for `FolderScope`'s `QueryClientProvider` only.
-		 * Views read and write through the store, never the client directly:
-		 * a read that skips the store's rules can land over unsent edits.
+		 * Views read and write through the store's definitions.
 		 */
 		queryClient,
-		rows,
+		rows: createRows(session),
 		git: createGit(session),
 		sync: createSync(session),
 		/** Read the listing and Git status again. */
@@ -201,17 +196,13 @@ export function createTodos(
 		 * (`@epicenter/epicenter/departure/page`), and the browser's leave
 		 * warning through the view's `beforeNavigate`. `fence` runs before
 		 * anything is awaited; `settle` waits until nothing is mutating, then
-		 * answers 0, so Epicenter never asks: Todos has no prompt to show, and
-		 * repair text typed and not saved is dropped on quit. `resume` gives
-		 * everything back.
+		 * answers 0, so Epicenter never asks: Todos has no prompt to show.
+		 * `resume` gives everything back.
 		 */
 		departure: {
-			/**
-			 * Whether leaving now could lose anything: a write or another action
-			 * still running, or repair text typed and not saved.
-			 */
+			/** Whether leaving now could lose anything: a write or another action still running. */
 			get holdsUnsaved() {
-				return queryClient.isMutating() > 0 || rows.drafted > 0;
+				return queryClient.isMutating() > 0;
 			},
 			fence() {
 				departing = true;

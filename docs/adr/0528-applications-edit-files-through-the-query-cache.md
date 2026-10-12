@@ -43,8 +43,10 @@ in flight, at the cost of all of that machinery.
   offers to copy the text.
 - **Validity.** An input commits only a value the schema accepts: pickers and
   typed fields commit on Enter or blur. The folder keeps refusing invalid
-  writes. A row made invalid outside the app is repaired as text through
-  `files.replace`.
+  writes. A row made invalid outside the app is repaired as text: through
+  `files.replace` in the app, or, in Todos, in a text editor while the app
+  shows the text and what to fix, read-only. The next read shows it as a
+  row again.
 - **State.** `$state` holds only input that is not committed yet: a new-item
   box, a search, a typed field that does not parse yet.
 - **Leaving and closing** wait for writes in flight and never ask to discard.
