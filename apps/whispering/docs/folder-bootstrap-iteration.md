@@ -72,8 +72,8 @@ deliberate copy remain the proposed journey.
 The next native slice should prove account-shaped root selection and origin
 opening against an ordinary test Git server before presenting cloud controls.
 Run it with a disposable root, preserving local edits and history. Changing
-the selected root must follow the shell's close, which flushes saves in flight,
-and relaunch; a page
+the selected root must follow the window's close, which waits for saves in
+flight, and relaunch; a page
 reload does not release its retained folder owner.
 
 Then exercise expiry and logout followed by reopening, with the selected

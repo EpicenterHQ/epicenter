@@ -86,30 +86,27 @@ against the code. The constraints below apply to every edit here.
 
 ## Closing
 
-- Closing never asks. Closing the window, Cmd+Q, and the run loop's exit
-  request each send the page `flush-on-close` once; the page flushes for a
-  bounded moment and acknowledges with `flush_done`, and the shell exits on
-  that acknowledgement or after one second, whichever comes first
-  (`src-tauri/src/flush.rs`). Do not add a prompt, a "Keep editing", an input
-  fence, or anything else that waits on a person or on the page's consent.
-- The flush protects saves in flight only: `notes.flush()` waits for
-  `admissions.quiet()` and then the open session's `settled()`, which sends
-  an autosave snapshot held behind a running write. A draft whose save
-  failed is not held back; the save bar said so when it failed. The page
-  wires it with `flushOnClose` from `@epicenter/svelte/flush-on-close` in
-  `src/routes/+page.svelte`, and the desktop leaf's `hostClose` in
-  `src/lib/platform/shell.tauri.ts` always acknowledges, even when the flush
-  failed or ran out of time.
-- Keep the custom macOS Quit menu item. The predefined one calls AppKit's
-  `terminate:`, which skips the exit request and so the flush.
+- Closing never asks. The page's `onCloseRequested` handler awaits
+  `notes.close()` with no timeout, then Tauri destroys the window and the app
+  exits with it (`src/routes/+page.svelte`, `createClosing` from
+  `@epicenter/svelte/closing`). After about 1,200 ms the page shows "Still
+  saving…" with Close anyway. Do not add a prompt, an input fence, an
+  acknowledgement, a wait in the shell, or a backstop timer.
+- `notes.close()` refuses new work and waits for `admissions.quiet()` and the
+  open session, which sends an autosave snapshot held behind a running
+  write. A draft whose save failed is not held back; the save bar said so
+  when it failed. A close before the notes exist resolves at once.
+- Keep the custom macOS Quit menu item, which closes the window. The
+  predefined one calls AppKit's `terminate:`, which closes no window.
 - A system quit (the Dock, a logout, a shutdown, an Apple Event) reaches the
   run loop only as `RunEvent::Exit`: Tao's application delegate implements
   `applicationWillTerminate:` and not `applicationShouldTerminate:`. The page
   cannot be reached then, so only writes the folder plugin already accepted
   are drained. Do not add `applicationShouldTerminate:` to hold such a quit;
   that would cancel logouts and shutdowns.
-- The browser keeps its own leave prompt: `onbeforeunload` while a save is
-  running or failed, in `NotesView.svelte`. `pagehide` starts the same flush.
+- `core:window:allow-destroy` goes to the `main` window only.
+- The browser has one leave rule, a `beforeNavigate` in `NotesView.svelte`
+  that cancels an unloading navigation while a save is running or failed.
 
 ## The boundary
 

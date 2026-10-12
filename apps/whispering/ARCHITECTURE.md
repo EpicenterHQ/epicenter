@@ -106,8 +106,8 @@ What Whispering adds on top:
   land, and a connection's base URL and key change in one write.
 
 Short file commands, including settings saves and file creation or deletion,
-start independently. The library joins their completion promises. Flushing on
-close awaits those accepted commands and the drafts' saves, within a bound.
+start independently. The library joins their completion promises. Closing
+awaits those accepted commands and the drafts' saves.
 Recording publication and provider work keep their own pending states and
 discard choices.
 
@@ -181,10 +181,10 @@ The shell settles four things, in this order, before the window exists
    capability, added at runtime because the port is not known until then,
    grants the `main` window, on exactly `http://127.0.0.1:<port>/*`, the
    owner's commands (`epicenter-folder:default`), listening for events
-   (`core:event:allow-listen`, `core:event:allow-unlisten`), and the shell's
-   own two commands: `flush_done`, the page's answer to a close
-   (`allow-flush-done`), and `set_recording`, whether a recording is in
-   progress (`allow-set-recording`).
+   (`core:event:allow-listen`, `core:event:allow-unlisten`), destroying the
+   window once its close handler returns (`core:window:allow-destroy`), and
+   showing, unminimizing, and focusing it to ask before closing during a
+   recording. The shell registers no command of its own.
    `tauri.conf.json` lists no capability.
 
 So the page cannot choose a directory: it names a scope, and the shell decided
@@ -208,8 +208,7 @@ routes/+layout.svelte      opens one session on mount, closes it on destroy
 ```
 
 `src/lib/session.svelte.ts` is the owner. A session is the workspace, the
-product state over it (`library.svelte.ts`), its flush on close, and what the
-shell is showing. The layout holds one opening (`mountSession`) and nothing
+product state over it (`library.svelte.ts`), and what the shell is showing. The layout holds one opening (`mountSession`) and nothing
 else does: pages call `getSession()` and never open a workspace. There is no
 module-level store, so a session exists only while a layout holds it, and
 releasing the layout releases the folder. `src/lib/page-boundary.test.ts` reads
@@ -587,48 +586,40 @@ unanswered transcript end with the page, and the save bar and notices already
 say so before the person quits.
 
 ```text
-shell   on a window close, the Quit menu item (Command-Q), or an exit request:
-          while the page says a recording is in progress, holds it back and
-          shows one native dialog; Cancel keeps the app open and recording,
-          Quit goes on
-shell   holds it back once and emits whispering://close-requested to the page
-page    flushes (`flushOnClose`): sends each draft's held snapshot and waits
-          for admitted work and running saves, at most 800 ms
-page    invokes the shell's flush_done command
-shell   exits on that answer, or after 1 second without one
+shell   the window's close button, or the Quit menu item (Command-Q), which
+          closes the window: Tauri runs the page's onCloseRequested handler
+page    while a recording is in progress, shows and focuses the window and
+          asks in the page; Cancel calls preventDefault and nothing closes,
+          and a second request joins the same ask
+page    awaits session.close(): refuses new work, sends each draft's held
+          snapshot, waits for admitted work and running saves, releases the
+          folder. No timeout; after about 1,200 ms "Still saving…" with
+          Close anyway, which stops waiting
+shell   Tauri destroys the window when the handler returns; the app exits
+          with its last window
 ```
 
-The page's side is `flushOnClose` from `@epicenter/svelte/flush-on-close`,
-started by the session once it has started (`createSession` in
-`src/lib/session.svelte.ts`) and stopped when the session closes. The flush is
-`library.flush()`: `admissions.quiet()` and every open draft's `settled()`,
-which sends the snapshot autosave is holding behind a running write. It starts
-nothing new and retries nothing, so a failed save is not waited for. A browser
-tab has no shell; there the same flush starts on `pagehide`, and cannot be
-waited for.
-
-The page tells the shell whether a recording is in progress each time that
-changes (`setRecording` in the library, `set_recording` in the shell), as one
-boolean. A new page in the main window resets it to false. The dialog is the
-dialog plugin's, shown from Rust, so the page is never asked.
-
-The signal is a Tauri event and the answer a shell command
-(`src/lib/workspace/desktop.ts` and `src-tauri/src/lib.rs`), not host
-operations, so they work whether or not the host is running. The shell's
-capability grants `flush_done` to the `main` window on the host's origin
-alone, and the command checks the window again. A page that is not listening (one still
-starting, or one whose opening failed) is not answered for: the shell waits out
-its second and exits. With no app page at all (the failure page), the shell
-exits at once.
+The handler is `createClosing` from `@epicenter/svelte/closing`, registered by
+`src/routes/+layout.svelte` once the session has opened and before it is
+shown, through the desktop workspace's `window` (`getCurrentWindow()` in
+`src/lib/workspace/desktop.ts`). Whispering builds one bundle for both
+targets, so the window rides on the desktop workspace rather than a build
+seam; a browser workspace has none. A close while the session is opening, or
+after it failed to open, has no handler and closes at once. The ask uses the
+shared `confirmationDialog`, which ends every opening in a confirmation or
+`onCancel`. A browser tab has no close handler; `AppShell`'s `beforeNavigate`
+raises the browser's leave warning instead.
 
 Command-Q is the shell's own menu item, because the predefined Quit calls
-AppKit's `terminate:`, which skips the exit request. On macOS a quit from the
+AppKit's `terminate:`, which closes no window. On macOS a quit from the
 system (the Dock's Quit, a logout, restart, or shutdown, an Apple Event) goes
 through Tao's `applicationWillTerminate:` straight to `RunEvent::Exit`, with
-no exit request first; tao 0.37 implements no `applicationShouldTerminate:`.
-The page is not reached then, and a recording in progress is not confirmed:
-only writes the folder's owner had already accepted are finished, and whatever was still in the page in that instant is
-lost. Whispering accepts that, and so never cancels a logout or shutdown.
+no window closed first; tao 0.37 implements no `applicationShouldTerminate:`.
+The page is not reached then, and a recording in progress is not asked
+about: only writes the folder's owner had already accepted are finished, and
+whatever was still in the page in that instant is lost. Whispering accepts
+that, and so never cancels a logout or shutdown. A page whose handler never
+returns keeps the window open until it is force quit.
 
 When the shell exits, the owner refuses new work, lets the saves and commits
 it had already admitted finish, and releases the folder. Checkpoints already

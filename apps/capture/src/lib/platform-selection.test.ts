@@ -10,9 +10,9 @@
  *   leaf, the browser adapter and its OPFS store, any Git implementation,
  *   the directory opener, and every Node module are absent from its bundle
  * - The host leaf carries, of the host package, only its page side of the
- *   close flush
+ *   host-stopped signal, and the window leaf hears close requests through Tauri
  * - The browser leaf carries the browser adapter and no desktop adapter, no
- *   generated native bindings, and no host signals
+ *   generated native bindings, no host signals, and no Tauri window
  * - Neither folder leaf loads the account recovery store
  */
 import { describe, expect, test } from 'bun:test';

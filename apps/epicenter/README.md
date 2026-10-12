@@ -167,9 +167,9 @@ have no HTTP route. Markdown interpretation and the restricted terminal remain
 shared TypeScript code, while Rust owns file publication, Git, watching, and the
 cross-process lock.
 
-A window close hides the loaded page and preserves its drafts. Quitting or
-restarting Epicenter does not ask; it gives the page a bounded flush first
-(see [Leaving Epicenter](#leaving-epicenter)). Reloading the page loses
+Closing the Todos window ends its page once the page has closed its todos,
+and never asks. Quitting or restarting Epicenter closes it the same way (see
+[Leaving Epicenter](#leaving-epicenter)). Reloading the page loses
 unsaved typing. Native shutdown drains accepted saves
 and commits; forced termination can leave saved files uncommitted. Two native
 processes cannot open the same directory. See Todos' [README](../todos/README.md)
@@ -189,68 +189,73 @@ there is no Capture HTTP file bridge. First attach opens the directory, and
 native shutdown drains admitted work. Browser Capture keeps a separate folder
 in its origin's private file system (OPFS).
 
-Closing the native window hides it with its drafts intact. Quitting or
-restarting Epicenter does not ask; it gives the page a bounded flush first
-(see [Leaving Epicenter](#leaving-epicenter)).
+Closing the native window ends its page once the page has closed its
+captures, and never asks. Quitting or restarting Epicenter closes it the same
+way (see [Leaving Epicenter](#leaving-epicenter)).
 A stopped sidecar leaves the page open for recovering its text. Forced
 termination does not wait.
 
 ## Leaving Epicenter
 
-Quitting never asks. Closing or force-closing Epicenter just closes it. The
-one thing worth protecting is a save in flight: Capture and Todos keep drafts
-in their pages, and a draft's latest snapshot can still be waiting behind a
-running write, where the Folder plugin's exit drain cannot see it. So before
-the process quits, or restarts for an account change, the host gives those
-pages a bounded moment (`src-tauri/src/close_flush.rs`):
+Quitting never asks, and nothing in the host waits on a page or sets a timer
+(`src-tauri/src/leaving.rs`, ADR-0529). The one thing worth protecting is a
+save in flight: Capture and Todos keep drafts in their pages, and a draft's
+latest snapshot can still be waiting behind a running write, where the Folder
+plugin's exit drain cannot see it. So their pages end themselves:
 
-1. It sends each open `capture` and `todos` window, hidden ones included, one
-   `flush-on-close` event.
-2. Each page sends what it holds and waits for its running saves and actions
-   (`flushOnClose` from `@epicenter/svelte/flush-on-close`), for at most
-   800 ms, then calls `flush_done`.
-3. The host waits for every answer or 1 second, whichever comes first, then
-   exits. The Folder plugin drains the writes it accepted on `Exit`.
+1. Each Capture and Todos page registers Tauri's `onCloseRequested` for its
+   window before anything can be edited (`#platform/window`).
+2. A close request runs that handler, which awaits the owner's `close()`
+   with no timeout (`createClosing` from `@epicenter/svelte/closing`). After
+   about 1,200 ms the page shows "Still saving…" with **Close anyway**.
+3. When the handler returns, Tauri destroys the window. The `page-close-*`
+   capabilities grant `core:window:allow-destroy` to `capture` and `todos`
+   alone; no installed app's window holds it.
+
+Quit, from the app menu (Cmd-Q) or the tray, marks Epicenter as quitting and
+closes every built-in window; installed app windows are destroyed. Windows
+that hide on close (Home, Whispering, installed apps) close while quitting.
+When the last window is gone, the run loop's `ExitRequested { code: None }`
+exits; without a quit or restart under way it is prevented, so closing the
+last window leaves Epicenter in the tray. The Folder plugin drains the writes
+it accepted on `Exit`.
 
 A draft whose save failed or conflicted, and text not added yet, is lost on
-quit. Its page's save bar already said so. Nothing is fenced, nobody is
-prompted, and no window can keep Epicenter open.
+close. Its page's save bar already said so. Nothing is fenced and nobody is
+prompted.
 
-- **Which quits flush.** Every quit that reaches the run loop as
-  `ExitRequested`: the tray's Quit, the app menu's Quit and Cmd-Q, and any
-  `app.exit`. The app menu's Quit is an item of Epicenter's own, because the
-  predefined one calls AppKit's `terminate:`, which skips `ExitRequested`.
+- **Which quits close windows.** The tray's Quit and the app menu's Quit. The
+  app menu's Quit is an item of Epicenter's own, because the predefined one
+  calls AppKit's `terminate:`, which closes no window. An `app.exit` with a
+  code, such as the startup failure dialog's Quit, exits at once.
 - **Which quits do not.** The Dock's Quit, logout, restart, shutdown, and a
   `quit` Apple event call `terminate:` directly. Tao 0.37 answers only
-  `applicationWillTerminate:`, so they reach Epicenter as `RunEvent::Exit`,
-  on the main thread, where a page's IPC cannot be served. They drain the
-  writes the Folder plugin already accepted; a snapshot still waiting in a
-  page is lost. Epicenter no longer cancels a logout or shutdown to ask.
-  Force Quit, a signal, or a crash also skip the flush.
+  `applicationWillTerminate:`, so they reach Epicenter as `RunEvent::Exit`
+  with no window closed first. They drain the writes the Folder plugin
+  already accepted; a snapshot still waiting in a page is lost. Epicenter
+  does not cancel a logout or shutdown. Force Quit, a signal, or a crash
+  also skip the pages.
+- **A frozen page.** A handler that never returns keeps its window, and so a
+  quit, open until Epicenter is force quit.
 - **Restart.** An account change asks over the private Bun pipe
   (`prepare-relaunch`, protocol 8). Rust grants it at once to that Bun
-  generation; `relaunch` then flushes the pages and calls `request_restart`,
-  whose Exit lets the Folder plugin drain admitted writes. `relaunch-abort`,
-  a withdrawn preparation, or the Bun generation ending drops the grant.
-- **Bun stopping** leaves both windows and their native folders running,
-  sends them `host-stopped`, and shows them. Their HTTP session does not
-  come back.
+  generation; `relaunch` then closes every window the same way and, once the
+  last is gone, calls `request_restart`, whose Exit lets the Folder plugin
+  drain admitted writes. `relaunch-abort`, a withdrawn preparation, or the Bun
+  generation ending drops the grant. A quit outranks a restart.
+- **Bun stopping** leaves the Capture and Todos windows and their native
+  folders running, sends them `host-stopped`, and shows them. Their HTTP
+  session does not come back.
 
 ### The page wire
 
-[`src/page-close.ts`](src/page-close.ts), exported as
-`@epicenter/epicenter/page-close`, is the page's side. Only a page's host
-build imports it.
+[`src/host-stopped.ts`](src/host-stopped.ts), exported as
+`@epicenter/epicenter/host-stopped`, is the page's side of the one event the
+host sends. Only a page's host build imports it.
 
 ```text
-Rust -> page   emit_to(label, "flush-on-close", ())   no payload
-page -> Rust   flush_done()                           once its flush ends
 Rust -> page   emit_to(label, "host-stopped", ())     the Bun host stopped
 ```
-
-Rust identifies the caller by its window, never by a label the page sends.
-The `close-flush-*` capabilities grant `flush_done` to `capture` and `todos`
-alone, and neither window holds a `core:window` grant.
 
 ## Install a local application release
 
@@ -368,9 +373,9 @@ Bun discovers installed IDs once and names them in its versioned ready frame.
 Rust admits launches against that list and its matching launch token before
 registering a folder. Unknown IDs open nothing. Registrations survive Bun
 restarts for the native process's lifetime. Closing an installed app hides its
-window and keeps its drafts; host restart destroys its page. Installed apps do
-not take part in the close flush yet; quitting drains only the writes their
-folder already accepted.
+window and keeps its drafts; host restart destroys its page. Quitting and an
+account-change restart destroy installed app windows without running a close
+handler, so they drain only the writes their folder already accepted.
 
 ## Build and verify
 
@@ -401,11 +406,11 @@ bun apps/epicenter/scripts/native-runtime-evidence.ts
 ```
 
 The runtime harness proves what the mock-runtime tests cannot: each restart
-reaches Exit and the Folder plugin's shutdown, every Bun sidecar stops, and
-the last process's exit request, with no Capture or Todos window open, is not
-held for a flush. It does not open Capture or Todos, so it does not prove the
-flush's wait, that an in-flight Folder write drains, or anything about
-Cmd-Q, the Dock, the tray, or logout.
+reaches Exit and the Folder plugin's shutdown, every relaunch closes the
+windows and restarts once the last is gone, every Bun sidecar stops, and the
+last process's exit with a code is not held. It does not open Capture or
+Todos, so it does not prove a page's close handler, that an in-flight Folder
+write drains, or anything about Cmd-Q, the Dock, the tray, or logout.
 
 The root `bun typecheck` runs each workspace's checks, including the apps checked
 by `typecheck:desktop`. Use `typecheck:desktop` for standalone verification of

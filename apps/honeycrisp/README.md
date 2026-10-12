@@ -157,11 +157,13 @@ is overwritten without your say.
 
 Unsaved text exists only in the open window. Reloading the page is held
 back while the open item's save is running or failed. Closing the window or
-quitting the app (including Cmd+Q) never asks: Honeycrisp gives a save that
-is already running about a second to land, including the latest typing
-waiting behind it, then closes. A draft whose save failed is lost on close;
-the save bar said so when it failed. A failed save is not tried again for
-you. Unsaved text does not survive the app being killed or crashing.
+quitting the app (including Cmd+Q) never asks: Honeycrisp waits for the saves
+already in flight, including the latest typing waiting behind a running save,
+then closes. There is no timeout; if it is still saving after about a second,
+the window shows "Still saving…" with **Close anyway**. A draft whose save
+failed is lost on close; the save bar said so when it failed. A failed save
+is not tried again for you. Unsaved text does not survive the app being
+killed or crashing.
 
 A quit from the system on macOS (the Dock's Quit, a logout, a shutdown)
 cannot reach the page. Honeycrisp never cancels one; it finishes writing
@@ -204,8 +206,8 @@ is not text, or is larger than 16 MB, is refused instead of shown.
 
 ```text
 Tauri shell (src-tauri)          one program and one window. It registers the
-        │                        notes directory with the shared folder plugin
-        │                        and lets the page flush before a close or quit.
+        │                        notes directory with the shared folder plugin;
+        │                        the page closes its own window.
         ▼
 Folder plugin                    owns the directory: conditional file writes,
         │                        the root lock, change detection, Git history.
@@ -277,7 +279,6 @@ or a working directory.
 
 | Command | Purpose |
 | --- | --- |
-| `flush_done` | The page's flush on close is done, below. |
 | `shell_info` | The root, and where the terminal's next command starts. |
 | `terminal_run` | One command in `/bin/sh`. The shell keeps the working directory between commands, so hiding the terminal or reloading the page loses nothing. |
 | `file_log`, `file_show` | One file's commits, and its text at one of them. The path must be a literal path inside the folder and the commit a hexadecimal id. |
@@ -287,38 +288,40 @@ The terminal is an outside writer, exactly as another program is. It requests
 no commit. The folder plugin notices its changes, and the page rereads after
 each command.
 
-### Flush on close
+### Closing
 
-Closing never asks. Three things close the app through the shell: the
-window's close button, an exit request from the run loop, and the Quit menu
-item. On macOS Quit (Cmd+Q) is a custom item, because the predefined one
-calls AppKit's `terminate:` and skips the exit request. Each goes through
-`src-tauri/src/flush.rs`:
+Closing never asks, and nothing in the shell waits on the page or sets a
+timer.
 
-1. The first close is held, and the page is sent `flush-on-close` once.
-   A close that arrives while it waits is held too.
-2. The page waits for its running actions and the open item's saves,
-   including an autosave snapshot held behind a running write, for at most
-   800 ms. Then it sends `flush_done`, even when a save hung or failed
-   (`flushOnClose` from `@epicenter/svelte/flush-on-close`).
-3. The shell exits on `flush_done` or after one second, whichever comes
-   first. A page that is still loading or stopped answering never sends it,
-   so its close waits out the second.
+1. The page registers Tauri's `onCloseRequested` for its window before the
+   notes can be edited (`#platform/window`, `src/routes/+page.svelte`).
+2. On the window's close button, or the Quit menu item, which closes the
+   window, Tauri awaits the page's handler. It awaits `notes.close()`
+   (`createClosing` from `@epicenter/svelte/closing`): running actions and
+   the open item's saves land, including an autosave snapshot held behind a
+   running write, and the folder is released. There is no timeout. After
+   about 1,200 ms the page shows "Still saving…" with **Close anyway**, which
+   stops waiting.
+3. When the handler returns, Tauri destroys the window, which the `main`
+   capability allows (`core:window:allow-destroy`), and the app exits with
+   its last window. A close while the notes are still opening goes ahead at
+   once.
 
-The folder plugin drains the writes it accepted when the app exits. A quit
-from the system (the Dock, a logout, a shutdown, an Apple Event) is AppKit's
-`terminate:`. Tao's application delegate implements
-`applicationWillTerminate:` and not `applicationShouldTerminate:`, so that
-quit reaches the run loop only as its exit, with no exit request before it.
-The page cannot be reached then, because its IPC needs the main thread. Such
-a quit drains only the writes the folder plugin already accepted; an
-autosave snapshot still held behind a running write is lost. Honeycrisp does
-not add `applicationShouldTerminate:` to hold it, so it never cancels a
-logout or a shutdown.
+On macOS Quit (Cmd+Q) is a custom item, because the predefined one calls
+AppKit's `terminate:`, which closes no window. The folder plugin drains the
+writes it accepted when the app exits. A quit from the system (the Dock, a
+logout, a shutdown, an Apple Event) is AppKit's `terminate:`. Tao's
+application delegate implements `applicationWillTerminate:` and not
+`applicationShouldTerminate:`, so that quit reaches the run loop only as its
+exit, with no window closed first. Such a quit drains only the writes the
+folder plugin already accepted; an autosave snapshot still held behind a
+running write is lost. Honeycrisp does not add `applicationShouldTerminate:`
+to hold it, so it never cancels a logout or a shutdown. A page whose handler
+never returns keeps the window, and the app, open until it is force quit.
 
-A browser tab has no host signal: `pagehide` starts the same flush, which the
-tab cannot wait for, and the browser asks before leaving while a save is
-running or failed.
+A browser tab has no close handler. One `beforeNavigate` rule raises the
+browser's own "Leave site?" when unloading the tab while a save is running
+or failed.
 
 ## Testing failures by hand
 
@@ -358,14 +361,13 @@ delivers events to it.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the draft, and semantic state replacement. `EditorView.state` owns live editing state. |
 | `src/lib/note-source.ts` | The body replacement Rich and Source share (`withBody`), and list previews. |
-| `src/lib/notes.svelte.ts` | Listings, the one open item (in `@epicenter/svelte/open-item`) and its edit session, conflict choices, note and folder actions (counted by `@epicenter/svelte/admissions`), and the flush a close waits for. |
-| `src/lib/platform/` | The `#platform/notes-host` seam, its two leaves, and `shell.tauri.ts`, the page side of the shell's commands and its close signal. |
+| `src/lib/notes.svelte.ts` | Listings, the one open item (in `@epicenter/svelte/open-item`) and its edit session, conflict choices, note and folder actions (counted by `@epicenter/svelte/admissions`), and `close`. |
+| `src/lib/platform/` | The `#platform/notes-host` seam, its two leaves, and `shell.tauri.ts`, the page side of the shell's commands; the `#platform/window` seam, which hears the window asked to close. |
 | `src/routes/components/` | Header, folder list, note list, the note view and its save bar, files, terminal. |
-| `src-tauri/src/lib.rs` | The desktop shell: the folder plugin, the notes scope, the window, close routing, the Quit menu item. |
+| `src-tauri/src/lib.rs` | The desktop shell: the folder plugin, the notes scope, the window, and the Quit menu item, which closes it. |
 | `src-tauri/src/root.rs` | Choosing and resolving the root directory. |
 | `src/lib/platform/first-open.ts` | Setting up a folder that has no layout yet, through the attached folder. |
 | `src-tauri/src/commands.rs` | The shell's commands, each a thin call into a module below. |
-| `src-tauri/src/flush.rs` | Holding a close for the page's flush, at most one second. |
 | `src-tauri/src/terminal.rs`, `history.rs`, `reveal.rs` | The terminal, per-file history, and reveal. |
 | `src-tauri/capabilities/main.json` | What the notes window may call. |
 
@@ -424,6 +426,6 @@ edit sessions, and dropped several promises of the version before it:
 - Returning to the window, or a terminal command, now takes a newer file into an open note that holds nothing unsaved, so a pull in the terminal is not met as a conflict. Its rich-text undo history starts over when that happens.
 - Closing the window or quitting no longer asks. There is no **Discard and
   quit** or **Keep editing**, and input is not paused while the app closes.
-  A save already running gets about a second to land; a draft whose save
-  failed is lost. A quit from the system (the Dock, a logout, a shutdown) is
+  Saves already running land first, with "Still saving…" and Close anyway
+  if that takes a moment; a draft whose save failed is lost. A quit from the system (the Dock, a logout, a shutdown) is
   no longer cancelled.

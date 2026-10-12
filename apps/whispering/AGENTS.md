@@ -14,8 +14,8 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   browser workspace alone, and `@epicenter/folder/tauri` by the desktop
   workspace alone. Other native services use shared typed invoke bindings
   imported only by the desktop workspace. The only direct Tauri imports are
-  `isTauri` in the workspace opener, and in the desktop workspace the close
-  event's `listen` and its answer, the shell's `flush_done` command. `src/lib/page-boundary.test.ts` enforces
+  `isTauri` in the workspace opener, and `getCurrentWindow` in the desktop
+  workspace, for its window's close request. `src/lib/page-boundary.test.ts` enforces
   these boundaries; keep it passing without granting native reach to components.
 - **One folder, one owner.** On the desktop the data folder is owned by the
   shell's `tauri-plugin-epicenter-folder` and by nothing else. The page
@@ -49,25 +49,23 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   inputs and protocol compatibility in Rust; a failed desktop acquisition is
   visible and never selects browser storage. `ARCHITECTURE.md` describes the
   current startup order; ADR-0493 records the shared-service migration.
-- **Closing never asks.** A window close, the Quit menu item, and every exit
-  request flush and exit (`ARCHITECTURE.md`, "Closing"): the shell sends the
-  page one close event, the page sends its held autosave snapshots and waits
-  for saves in flight (`flushOnClose` from `@epicenter/svelte/flush-on-close`),
-  and the shell exits on the page's answer or after one second. Do not add a
-  prompt, a consent round, a way to cancel a close, or a wait that is not
-  bounded. The one exception is a recording in progress: the page tells the
-  shell when one starts and stops (`set_recording`, one boolean), and while one
-  is in progress the shell shows one native dialog ("A recording is in
-  progress. Quit anyway?", Quit or Cancel) before the flush. Do not widen it
-  to other unsaved work or move it into the page. A save that failed and work
-  held only in the page are lost on quit;
-  the save bar and notices already say so. Keep the custom Quit menu item: the
-  predefined one calls AppKit's `terminate:`, which skips the exit request. A
-  quit from macOS itself (the Dock, a logout, shutdown, an Apple Event) reaches
-  the shell only as `RunEvent::Exit` and does not reach the page or the
-  recording dialog; only writes the folder's owner had accepted are finished. Do not hook
-  `applicationShouldTerminate:` to change that: Whispering never cancels a
-  logout or shutdown.
+- **Closing never asks, except while recording.** The window's close and the
+  Quit menu item, which closes the window, run the layout's close handler
+  (`ARCHITECTURE.md`, "Closing"): it awaits `session.close()` with no timeout,
+  then Tauri destroys the window and the app exits. After about 1,200 ms the
+  page shows "Still saving…" with Close anyway (`@epicenter/svelte/closing`).
+  The one ask is a recording in progress (`library.recording`): the layout
+  shows the window and asks in the page with `confirmationDialog`; Cancel
+  keeps the window open and the recording going. Do not widen the ask to
+  other unsaved work, move it into the shell, or add an acknowledgement, a
+  wait in the shell, or a timer. A save that failed and work held only in the
+  page are lost on close; the save bar and notices already say so. Keep the
+  custom Quit menu item: the predefined one calls AppKit's `terminate:`,
+  which closes no window. A quit from macOS itself (the Dock, a logout,
+  shutdown, an Apple Event) reaches the shell only as `RunEvent::Exit` and
+  does not reach the page or the ask; only writes the folder's owner had
+  accepted are finished. Do not hook `applicationShouldTerminate:` to change
+  that: Whispering never cancels a logout or shutdown.
 - **A lost reply is not a refusal.** When a native service does not answer, the page
   does not know whether the endpoint was called. Report it as unknown, never
   as "not sent", and never send a provider request again without the person

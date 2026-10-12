@@ -9,8 +9,9 @@ transformations. The fourth retains the earlier single-window acceptance.
 Closing has changed since these parts were written. The close relay, the leave
 guard and its prompt, the quit address, and the macOS quit guard, and the
 tests of them listed below, were removed on October 11, 2026: closing now
-flushes saves in flight for at most a second and never asks
-(`ARCHITECTURE.md`, "Closing").
+waits for saves in flight with no timeout, shows "Still saving…" with Close
+anyway after a moment, and asks only while recording (`ARCHITECTURE.md`,
+"Closing").
 
 ## Desktop folder moved to the shell's owner (October 2, 2026)
 
@@ -113,8 +114,10 @@ Not done, and needed before this can be called accepted on the desktop:
 - Edit a file from the terminal while a draft of it is open, and confirm the
   conflict; confirm a terminal edit refreshes a clean view.
 - Quit with Command-Q and close with Command-W while a draft's save is
-  running, and confirm the save lands; stop the host process and confirm a
-  draft still saves and the app still quits.
+  running, and confirm the save lands; hold a save past a second and confirm
+  "Still saving…" and Close anyway; close while recording and confirm Keep
+  recording keeps it going; stop the host process and confirm a draft still
+  saves and the app still quits.
 - Make the folder unopenable (hold its lock from another process) and confirm
   the window showing the refusal closes on Command-W and Command-Q.
 - Build the release bundle.
