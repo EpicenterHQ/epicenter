@@ -29,6 +29,7 @@
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
+import { MutationObserver } from '@tanstack/query-core';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	createTestStorage,
@@ -461,6 +462,30 @@ test('Source edits a valid row as its exact text, after the fields it was typed 
 // ============================================================================
 // A recording's lifecycle
 // ============================================================================
+
+test('a new recording is in the listing when it opens, even while another write keeps the reread waiting', async () => {
+	const { library, failures } = await open();
+	// Another file's write, still running: the listing rereads only once it
+	// settles, as it does while a person keeps typing elsewhere.
+	const other = Promise.withResolvers<void>();
+	const running = new MutationObserver(library.queryClient, {
+		mutationKey: ['whispering', 'write', 'row', 'elsewhere.md'],
+		mutationFn: () => other.promise,
+	}).mutate();
+
+	await library.startRecording();
+	await library.stopRecording();
+	expect(library.pending).toEqual([]);
+	const opened = library.selectedPath;
+	expect(opened).toBeDefined();
+	expect(library.entries.map((entry) => entry.path)).toEqual([opened ?? '']);
+
+	other.resolve();
+	await running;
+	await settle(library);
+	expect(failures).toEqual([]);
+	expect(library.entries).toHaveLength(1);
+});
 
 test('a recording\u2019s transcript is saved in its file\u2019s queue, after the writes queued before it', async () => {
 	const { library, failures, holdNextMarkdownWrite } = await open();

@@ -573,9 +573,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	}
 
 	/**
-	 * After a failed write, the cache takes the row as the file holds it now:
-	 * gone when the file is gone. TanStack awaits this before the next write
-	 * of the file runs, so that write saves the file's own bytes.
+	 * Read one row file into the cache as the file holds it now: gone when
+	 * the file is gone, added when the listing has not seen it. After a failed
+	 * write, TanStack awaits this before the next write of the file runs, so
+	 * that write saves the file's own bytes.
 	 */
 	async function reloadRow(table: RowTable, stem: string) {
 		await queryClient.cancelQueries({
@@ -583,14 +584,23 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			exact: true,
 		});
 		const { data: stored, error } = await tableOf(table).get(stem);
+		const read =
+			error !== null
+				? { stem, result: Err(error) }
+				: stored === undefined
+					? undefined
+					: { stem, result: Ok(stored) };
 		queryClient.setQueryData<TableListing<unknown>>(
 			keys.rows(table),
-			(listing) =>
-				listing?.flatMap((entry) => {
-					if (entry.stem !== stem) return [entry];
-					if (error !== null) return [{ stem, result: Err(error) }];
-					return stored === undefined ? [] : [{ stem, result: Ok(stored) }];
-				}),
+			(listing) => {
+				if (listing === undefined) return listing;
+				const others = listing.filter((entry) => entry.stem !== stem);
+				if (read === undefined) return others;
+				// A file the listing has not seen yet joins it.
+				return others.length === listing.length
+					? [...listing, read]
+					: listing.map((entry) => (entry.stem === stem ? read : entry));
+			},
 		);
 	}
 
@@ -971,6 +981,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			path,
 		);
 		if (outcome.kind === 'published') {
+			// Read the new recording now: the listing's own reread waits for
+			// every other write, and until then the recording would show as gone.
+			await reloadRow(RECORDINGS, item.capture.id);
 			setPending(item.capture.id, undefined);
 			if (selectedPath === selectionBefore) open(path);
 			return;
