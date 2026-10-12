@@ -16,6 +16,7 @@
 import { expect, test } from 'bun:test';
 import { type GitSnapshot, PullError, SyncError } from '@epicenter/folder';
 import { Ok } from 'wellcrafted/result';
+import { TodosError } from './session.js';
 import {
 	DIVERGED,
 	filesLine,
@@ -29,7 +30,6 @@ import {
 	versionLine,
 	versionOutcomeLine,
 } from './status.js';
-import { TodosError } from './todos.svelte.js';
 
 const idle = { active: false };
 /** A past day, so the time includes its date. */

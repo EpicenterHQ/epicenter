@@ -40,8 +40,8 @@
 	 * its attempt is the review, which shows until Apply ends it or Cancel
 	 * forgets it.
 	 */
-	const sync = createMutation(() => todos.sync.options);
-	const apply = createMutation(() => todos.apply.options);
+	const sync = createMutation(() => todos.sync.run.options);
+	const apply = createMutation(() => todos.sync.apply.options);
 	const attempt = $derived(sync.error?.name === 'NeedsChoices' ? sync.error.attempt : undefined);
 
 	function cancelReview() {
@@ -57,7 +57,7 @@
 				onSettled: (outcome, error) => {
 					if (error?.name === 'InvalidChoices') return;
 					cancelReview();
-					const line = syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git);
+					const line = syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot);
 					const notify = line.tone === 'good' ? toast.success : line.tone === 'error' ? toast.error : toast.warning;
 					notify(line.label, { description: line.detail });
 				},

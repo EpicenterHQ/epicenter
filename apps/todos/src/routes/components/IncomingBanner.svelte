@@ -10,10 +10,10 @@
 	const todos = getTodos();
 
 
-	const recovery = createMutation(() => todos.recoverIncoming.options);
+	const recovery = createMutation(() => todos.git.recoverIncoming.options);
 
 	/** The incoming update that has not finished, as the folder last read it. */
-	const pending = $derived(incomingLine(todos.git));
+	const pending = $derived(incomingLine(todos.git.snapshot));
 	/**
 	 * The last recovery request's answer, kept beside the report while the
 	 * update stays pending, so a refusal's paths and reason stay readable.

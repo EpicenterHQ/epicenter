@@ -38,15 +38,15 @@
 
 	const path = $derived(todoPath(stem));
 	const todo = createQuery(() =>
-		todos.rowsQuery((listing) => listing.find((entry) => entry.stem === stem)),
+		({ ...todos.rows.list.options, select: (listing) => listing.find((entry) => entry.stem === stem) }),
 	);
-	const write = createMutation(() => todos.rowWrite(stem));
+	const write = createMutation(() => todos.rows.write(stem).options);
 	/** Edits wait while Epicenter asks to leave, and while this file is renamed or deleted. */
-	const locked = $derived(todos.isMoving(path));
+	const locked = $derived(todos.files.isMoving(path));
 
 	/** Change the row in the cache, and queue a write when one is needed. */
 	function set(change: (row: Row<TodoFields>) => Row<TodoFields>) {
-		if (todos.edit(stem, change)) write.mutate();
+		if (todos.rows.edit(stem, change)) write.mutate();
 	}
 
 	/** Textareas report LF, so views show LF; the notes setter restores the file's convention. */
@@ -104,7 +104,7 @@
 			name={stem}
 			suffix=".md"
 			onRename={async (next) => {
-				const { error } = await todos.rename(path, `${next}.md`);
+				const { error } = await todos.files.rename(path, `${next}.md`);
 				return error === null ? undefined : describeError(error);
 			}}
 			onDelete={() => void confirmDelete(todos, path)}

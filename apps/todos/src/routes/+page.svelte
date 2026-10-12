@@ -13,7 +13,8 @@
 	import { departurePort } from '#platform/departure';
 	import { openTodosFolder } from '#platform/folder';
 	import { describeError } from '$lib/describe-error.js';
-	import { createTodos, type WriteFailure } from '$lib/todos.svelte.js';
+	import type { WriteFailure } from '$lib/session.js';
+	import { createTodos } from '$lib/todos.svelte.js';
 	import FolderScope from './components/FolderScope.svelte';
 	import TodosView from './components/TodosView.svelte';
 

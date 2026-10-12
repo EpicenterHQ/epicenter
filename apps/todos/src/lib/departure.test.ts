@@ -34,9 +34,10 @@ import { todosDefinition } from './definition.js';
 import { holdCloses } from './opfs-holds.test-support.js';
 import type { TodosFolder } from './platform/types.js';
 import { cached, observe, quiet, rowEditor } from './query.test-support.js';
+import { DEPARTING } from './session.js';
 import type { Todos } from './todos.svelte.js';
 
-const { createTodos, DEPARTING } = await import('./todos.svelte.ts');
+const { createTodos } = await import('./todos.svelte.ts');
 const { createDeparture } = await import('@epicenter/epicenter/departure/page');
 
 let count = 0;
@@ -98,7 +99,7 @@ async function openTodos(
 
 /** Add a todo; answers its stem and path. */
 async function addTodo(todos: Todos, title: string) {
-	const created = expectOk(await todos.create(title));
+	const created = expectOk(await todos.rows.create(title));
 	await quiet(todos);
 	return {
 		stem: created.path.slice('todos/'.length, -'.md'.length),
@@ -218,7 +219,7 @@ test('a write still running is waited for before the page answers ready', async 
 test('a sync running when Epicenter asks is waited for before the page answers ready', async () => {
 	const run = gate();
 	const { host, todos } = await started(heldSync(run));
-	const syncing = todos.sync();
+	const syncing = todos.sync.run();
 	await run.entered.promise;
 	host.begin('quit');
 	host.nudge();
@@ -245,9 +246,9 @@ test('granted, leaving, and a discarded vote stay fenced: nothing is edited or s
 		await settle();
 		expect(todos.departing).toBe(true);
 		expect(departure.notice).toEqual({ stage: 'leaving', intent: 'quit' });
-		expect(todos.edit(stem, titled('Late'))).toBe(false);
+		expect(todos.rows.edit(stem, titled('Late'))).toBe(false);
 		expect(cached(todos, stem).row.fields.title).toBe('Milk');
-		expect(expectErr(await todos.create('Another'))).toMatchObject({
+		expect(expectErr(await todos.rows.create('Another'))).toMatchObject({
 			reason: DEPARTING,
 		});
 		// Focus while fenced reads again; still fenced.
@@ -262,25 +263,29 @@ test('while fenced, every edit, action, Git command, and terminal command is ref
 	const { stem, path } = await addTodo(todos, 'Milk');
 	expectOk(await todos.folder.files.create('notes.txt', 'saved'));
 	const saved = await text(path);
-	const deletion = expectOk(await todos.deletionFor('notes.txt'));
+	const deletion = expectOk(await todos.files.deletionFor('notes.txt'));
 
 	todos.departure.fence();
-	expect(todos.edit(stem, titled('Late'))).toBe(false);
-	expect(todos.editText('notes.txt', 'typed')).toBe(false);
+	expect(todos.rows.edit(stem, titled('Late'))).toBe(false);
+	expect(todos.files.editText('notes.txt', 'typed')).toBe(false);
 	const refusal = { name: 'NotStarted', reason: DEPARTING };
-	expect(expectErr(await todos.create('New'))).toMatchObject(refusal);
-	expect(expectErr(await todos.rename(path, 'oat.md'))).toMatchObject(refusal);
-	expect(expectErr(await todos.deletionFor(path))).toMatchObject(refusal);
-	expect(expectErr(await todos.remove(deletion))).toMatchObject(refusal);
+	expect(expectErr(await todos.rows.create('New'))).toMatchObject(refusal);
+	expect(expectErr(await todos.files.rename(path, 'oat.md'))).toMatchObject(
+		refusal,
+	);
+	expect(expectErr(await todos.files.deletionFor(path))).toMatchObject(refusal);
+	expect(expectErr(await todos.files.remove(deletion))).toMatchObject(refusal);
 	expect(
-		expectErr(await todos.createFile({ directory: '', name: 'more.txt' })),
+		expectErr(
+			await todos.files.createFile({ directory: '', name: 'more.txt' }),
+		),
 	).toMatchObject(refusal);
 	expect(
-		expectErr(await todos.createFolder({ directory: '', name: 'docs' })),
+		expectErr(await todos.files.createFolder({ directory: '', name: 'docs' })),
 	).toMatchObject(refusal);
-	expect(expectErr(await todos.saveVersion())).toMatchObject(refusal);
-	expect(expectErr(await todos.recoverIncoming())).toMatchObject(refusal);
-	expect(expectErr(await todos.sync()).message).toContain(DEPARTING);
+	expect(expectErr(await todos.git.saveVersion())).toMatchObject(refusal);
+	expect(expectErr(await todos.git.recoverIncoming())).toMatchObject(refusal);
+	expect(expectErr(await todos.sync.run()).message).toContain(DEPARTING);
 	// The terminal takes no typing and Enter runs nothing.
 	todos.terminal.command = 'touch shell.txt';
 	expect(todos.terminal.command).toBe('');
@@ -290,14 +295,14 @@ test('while fenced, every edit, action, Git command, and terminal command is ref
 	expect(await text('shell.txt')).toBeUndefined();
 	expect(await text(path)).toBe(saved);
 	expect(await text('notes.txt')).toBe('saved');
-	expect(todos.git.lastCommit).toBeUndefined();
+	expect(todos.git.snapshot.lastCommit).toBeUndefined();
 
 	todos.departure.resume();
 	expect(todos.departing).toBe(false);
 	rowEditor(todos, stem)(titled('After'));
 	await quiet(todos);
 	expect(await text(path)).toContain('title: After');
-	expectOk(await todos.remove(deletion));
+	expectOk(await todos.files.remove(deletion));
 	expect(await text('notes.txt')).toBeUndefined();
 });
 
@@ -333,7 +338,7 @@ for (const ending of [
 test('close waits for a running sync through its last step', async () => {
 	const run = gate();
 	const { todos } = await openTodos(heldSync(run));
-	const syncing = todos.sync();
+	const syncing = todos.sync.run();
 	await run.entered.promise;
 	let closed = false;
 	const closing = todos.close().then(() => {

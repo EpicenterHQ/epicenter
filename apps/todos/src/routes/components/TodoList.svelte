@@ -16,14 +16,14 @@
 	let { onOpen }: { onOpen?: () => void } = $props();
 
 	const listing = createQuery(() =>
-		todos.rowsQuery((rows) => ({ entries: todosOf(rows), repairs: repairsOf(rows) })),
+		({ ...todos.rows.list.options, select: (rows) => ({ entries: todosOf(rows), repairs: repairsOf(rows) }) }),
 	);
 	/** The title typed for a new todo. It goes with the list: leaving with it half-typed drops it. */
 	let title = $state('');
 	// The failure is reported by the mutation, not this call, so it shows even
 	// when the list unmounted while the todo was being added.
 	const create = createMutation(() => ({
-		...todos.create.options,
+		...todos.rows.create.options,
 		onError: (error, typed) =>
 			toast.error('Could not add the todo', { description: `"${typed}": ${describeError(error)}` }),
 	}));

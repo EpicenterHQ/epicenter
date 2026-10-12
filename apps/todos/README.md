@@ -379,10 +379,14 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/routes/+layout.svelte` | The tooltip provider and toasts; no app state. |
 | `src/routes/+page.svelte` | Opens the folder and creates its store (`createTodos`), then shows the views inside its `FolderScope`. Inside Epicenter it starts the shared departure client (`@epicenter/epicenter/departure/page`) and opens the folder only once a status is known, attaching `todos.departure` the moment it exists (`openForDeparture`). It turns a failed write into a toast with **Copy your text**. |
 | `src/lib/platform/` | The `#platform/departure` seam: the host leaf is the shared Tauri window port (`@epicenter/epicenter/departure/window`); the browser leaf has no port. And the `#platform/folder` seam: `types.ts` is its contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens the OPFS folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The mounted page calls it; importing it opens nothing. |
-| `src/lib/files.ts` | File browser rows, and which files open as editable text. |
 | `src/routes/components/FolderScope.svelte` | One opened folder's views: sets its store for `getTodos()` and provides the store's query client. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
-| `src/lib/todos.svelte.ts` | The store over one folder and its own TanStack `QueryClient` (ADR-0528): query options for the todo listing, the folder listing, each file's text, and Git status; `edit` and `editText`, which change the cache; the scoped write options each view creates its mutation from (`rowWrite`, `textWrite`); and every other action as a mutation (create, rename, delete, Save version, Sync, Apply, recovery, terminal commands). Leaving and closing wait until nothing is mutating. |
+| `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry, no reread while writing, the quit fence), what the detail shows, the terminal, leaving, and closing. It composes the namespaces below over one `Session`. |
+| `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError`, and the `Session` type. |
+| `src/lib/rows.ts` | `todos.rows`: the todo listing (`list`), `edit`, the scoped `write(stem)` each view creates its mutation from, and `create`. |
+| `src/lib/files.ts` | `todos.files`: the folder listing, each file's text (`text(path)`), `editText` and `writeText(path)`, create, rename, and delete; plus the app's name rules and editable-text limit. |
+| `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, Save version, and incoming recovery. |
+| `src/lib/sync.ts` | `todos.sync`: `run` and the review's `apply`. |
 | `src/lib/terminal.svelte.ts` | The terminal session that outlives the terminal pane, over the folder's own `folder.terminal()`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
 | `src/routes/components/` | Header, file browser, list (`TodoList`, one `TodoRow` per todo), the detail pane (`Detail`: `TodoDetail` or `FileView`), the sync review (in `TodosView`), and terminal. |
@@ -392,12 +396,17 @@ todo; `todos/a.MD` is an ordinary file.
 | `apps/todos/scripts/remote-edit.ts` | Demo fixture: a hand edit with undeclared frontmatter, committed and pushed from the native checkout with ordinary Git. |
 | `apps/todos/scripts/module-graph.ts` | Lists the modules a build of one entry pulls in, resolved with the conditions and aliases `vite.config.ts` declares, for the seam test. |
 
+Every query and mutation is a wellcrafted definition. A view passes
+`.options` to `createQuery` or `createMutation`, adding `select` where it
+narrows a query; code and tests call a mutation, or `.fetch()` a query, and get
+a `Result`.
+
 The query cache holds the files, and an edit goes straight into it. The todo
 listing is one query (`['todos', 'rows']`) built from
 `folder.tables.todos.list()`; a row that does not read as a todo is an
 `Err(InvalidRow)` entry in it. `TodoDetail` reads that listing narrowed to
 its row with `select`, and the list reads all of it, so they cannot
-disagree. A view that edits a file calls `todos.edit(stem, change)`, one
+disagree. A view that edits a file calls `todos.rows.edit(stem, change)`, one
 immutable `map` over the listing, and queues its own write mutation
 (`mutationKey: ['todos', 'write', 'row', path]`, `scope: { id: path }`) only when
 `edit` says one is needed: fewer than two are running or waiting for that
@@ -409,7 +418,7 @@ what was lost. No read starts while a write runs: an edit cancels reads in
 flight, nothing goes stale on its own, returning to the page and **Check
 again** read nothing while writing, and the last write to settle reads
 everything again. Writes never wait for the page to be visible. Text files
-use the same pattern with `textQuery`, `editText`, and `textWrite`. The store
+use the same pattern with `todos.files.text`, `editText`, and `writeText`. The store
 holds what the detail shows and whether Epicenter is asking to leave; the new
 todo's title and the folders open in the browser live in the components that
 show them. Components find the store with `getTodos()` and never touch its

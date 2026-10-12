@@ -36,8 +36,8 @@
 		onBack?: () => void;
 	} = $props();
 
-	const file = createQuery(() => todos.textQuery(path));
-	const write = createMutation(() => todos.textWrite(path));
+	const file = createQuery(() => todos.files.text(path).options);
+	const write = createMutation(() => todos.files.writeText(path).options);
 	const name = $derived(basename(path));
 	const directory = $derived(dirname(path));
 	const isRow = $derived(todoStem(path) !== undefined);
@@ -48,7 +48,7 @@
 		const { error } = parseRow(todosDefinition.tables.todos, text);
 		return error ?? undefined;
 	});
-	const locked = $derived(todos.isMoving(path));
+	const locked = $derived(todos.files.isMoving(path));
 
 	/** A file shown as details: its extension names the type, then its size. */
 	function details(size: number) {
@@ -112,7 +112,7 @@
 				bind:value={
 					() => shown.replace(/\r\n?/g, '\n'),
 					(typed) => {
-						if (todos.editText(path, withFileNewlines(wellFormed(typed), shown))) write.mutate();
+						if (todos.files.editText(path, withFileNewlines(wellFormed(typed), shown))) write.mutate();
 					}
 				}
 			/>
@@ -143,7 +143,7 @@
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
 		onRename={async (next) => {
-			const { error } = await todos.rename(path, next);
+			const { error } = await todos.files.rename(path, next);
 			return error === null ? undefined : describeError(error);
 		}}
 		onDelete={() => void confirmDelete(todos, path)}

@@ -83,19 +83,19 @@ test('a folder that does not sync yet offers Save version', async () => {
 
 test('Save version records the saved files as a version', async () => {
 	const { target, todos } = await setup();
-	expectOk(await todos.create('Milk'));
+	expectOk(await todos.rows.create('Milk'));
 	await quiet(todos);
-	expect(todos.git.lastCommit).toBeUndefined();
+	expect(todos.git.snapshot.lastCommit).toBeUndefined();
 	click(target, 'Save version');
 	for (
 		let tries = 0;
-		tries < 200 && todos.git.lastCommit === undefined;
+		tries < 200 && todos.git.snapshot.lastCommit === undefined;
 		tries++
 	)
 		await Bun.sleep(5);
 	await quiet(todos);
 	flushSync();
-	expect(todos.git.lastCommit?.status).toBe('committed');
+	expect(todos.git.snapshot.lastCommit?.status).toBe('committed');
 	const [head] = expectOk(await todos.folder.git.log(1));
-	expect(todos.git.lastCommit).toMatchObject({ oid: head?.oid });
+	expect(todos.git.snapshot.lastCommit).toMatchObject({ oid: head?.oid });
 });

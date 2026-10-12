@@ -42,8 +42,9 @@ import {
 } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
 import { quiet } from '../../lib/query.test-support.js';
+import type { WriteFailure } from '../../lib/session.js';
 import { click, type } from '../../lib/svelte-dom.test-support.js';
-import type { Todos, WriteFailure } from '../../lib/todos.svelte.js';
+import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTodos } = await import('../../lib/todos.svelte.ts');
@@ -157,7 +158,7 @@ function listed(list: Element) {
 
 /** Add a todo through the app and show it; answers its path. */
 async function addTodo(todos: Todos, title: string) {
-	const created = expectOk(await todos.create(title));
+	const created = expectOk(await todos.rows.create(title));
 	await settle(todos);
 	return created.path;
 }

@@ -46,10 +46,11 @@ import {
 	rowEditor,
 	textEditor,
 } from './query.test-support.js';
+import { todosKeys, type WriteFailure } from './session.js';
 import { repairsOf, todosOf } from './todo-listing.js';
-import type { Todos, WriteFailure } from './todos.svelte.js';
+import type { Todos } from './todos.svelte.js';
 
-const { createTodos, todosKeys } = await import('./todos.svelte.ts');
+const { createTodos } = await import('./todos.svelte.ts');
 
 const cleanup: (() => unknown)[] = [];
 let count = 0;
@@ -134,7 +135,7 @@ async function writeElsewhere(todos: Todos, path: string, content: string) {
 
 /** Add a todo through the app; answers its stem and path. */
 async function addTodo(todos: Todos, title: string) {
-	const created = expectOk(await todos.create(title));
+	const created = expectOk(await todos.rows.create(title));
 	await quiet(todos);
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
 	return { stem, path: created.path };
@@ -423,11 +424,11 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
 
-	const renaming = todos.rename(path, 'oat.md');
+	const renaming = todos.files.rename(path, 'oat.md');
 	await Bun.sleep(5);
 	// The rename waits behind the write, and edits wait behind the rename.
-	expect(todos.isMoving(path)).toBe(true);
-	expect(todos.edit(stem, titled('Typed during the rename'))).toBe(false);
+	expect(todos.files.isMoving(path)).toBe(true);
+	expect(todos.rows.edit(stem, titled('Typed during the rename'))).toBe(false);
 	release();
 	expectOk(await renaming);
 	await quiet(todos);
@@ -448,13 +449,15 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 test('a todo file keeps its .md extension; another file moves as its bytes', async () => {
 	const { todos } = await open();
 	const { path } = await addTodo(todos, 'Milk');
-	expect(expectErr(await todos.rename(path, 'milk.txt'))).toMatchObject({
+	expect(expectErr(await todos.files.rename(path, 'milk.txt'))).toMatchObject({
 		name: 'NotStarted',
 		reason: 'A todo file keeps its .md extension.',
 	});
-	expect(expectErr(await todos.rename(path, 'a/b.md')).name).toBe('NotStarted');
+	expect(expectErr(await todos.files.rename(path, 'a/b.md')).name).toBe(
+		'NotStarted',
+	);
 	expectOk(await todos.folder.files.create('notes.txt', 'plain'));
-	expectOk(await todos.rename('notes.txt', 'notes.md'));
+	expectOk(await todos.files.rename('notes.txt', 'notes.md'));
 	expect(await text(todos, 'notes.md')).toBe('plain');
 	expect(await text(todos, 'notes.txt')).toBeUndefined();
 });
@@ -463,14 +466,14 @@ test('a delete runs after the queued writes and removes only the Markdown file',
 	const { todos, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	expectOk(await todos.folder.files.create('todos/milk.png', 'not a todo'));
-	const deletion = expectOk(await todos.deletionFor(path));
+	const deletion = expectOk(await todos.files.deletionFor(path));
 	expect(deletion).toMatchObject({ kind: 'todo', title: 'Milk' });
 
 	// Typing while the confirmation is open is written first.
 	const { held, release } = holdNextWrite();
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
-	const removing = todos.remove(deletion);
+	const removing = todos.files.remove(deletion);
 	await Bun.sleep(5);
 	expect(await text(todos, path)).toContain('title: Milk\n');
 	release();
@@ -485,22 +488,30 @@ test('a delete runs after the queued writes and removes only the Markdown file',
 test('a delete is refused when the file changed elsewhere after it was confirmed', async () => {
 	const { todos } = await open();
 	const { path } = await addTodo(todos, 'Milk');
-	const deletion = expectOk(await todos.deletionFor(path));
+	const deletion = expectOk(await todos.files.deletionFor(path));
 	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
-	expect(expectErr(await todos.remove(deletion)).name).toBe('Conflict');
+	expect(expectErr(await todos.files.remove(deletion)).name).toBe('Conflict');
 	expect(await text(todos, path)).toContain('title: Theirs');
 });
 
 test('a folder is deleted only when it is empty', async () => {
 	const { todos } = await open();
-	expectOk(await todos.createFolder({ directory: '', name: 'docs' }));
-	expectOk(await todos.createFile({ directory: 'docs', name: 'a.txt' }));
+	expectOk(await todos.files.createFolder({ directory: '', name: 'docs' }));
+	expectOk(await todos.files.createFile({ directory: 'docs', name: 'a.txt' }));
 	await quiet(todos);
 	expect(todos.selected).toEqual({ path: 'docs/a.txt', as: 'files' });
-	expect(expectErr(await todos.deletionFor('docs')).name).toBe('NotStarted');
-	expectOk(await todos.remove(expectOk(await todos.deletionFor('docs/a.txt'))));
+	expect(expectErr(await todos.files.deletionFor('docs')).name).toBe(
+		'NotStarted',
+	);
+	expectOk(
+		await todos.files.remove(
+			expectOk(await todos.files.deletionFor('docs/a.txt')),
+		),
+	);
 	await quiet(todos);
-	expectOk(await todos.remove(expectOk(await todos.deletionFor('docs'))));
+	expectOk(
+		await todos.files.remove(expectOk(await todos.files.deletionFor('docs'))),
+	);
 	await quiet(todos);
 	const files = todos.queryClient.getQueryData<{ directories: string[] }>(
 		todosKeys.files,
@@ -517,22 +528,22 @@ test('saves never commit; Save version records one, and delete says when changes
 	const { stem, path } = await addTodo(todos, 'Milk');
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await quiet(todos);
-	expect(todos.git.lastCommit).toBeUndefined();
-	expect(expectOk(await todos.deletionFor(path))).toMatchObject({
+	expect(todos.git.snapshot.lastCommit).toBeUndefined();
+	expect(expectOk(await todos.files.deletionFor(path))).toMatchObject({
 		unversioned: true,
 	});
 
-	const outcome = expectOk(await todos.saveVersion());
+	const outcome = expectOk(await todos.git.saveVersion());
 	expect(outcome.status).toBe('committed');
 	const [head] = expectOk(await todos.folder.git.log(1));
 	expect(head?.oid).toBe(outcome.status === 'committed' ? outcome.oid : '');
-	expect(expectOk(await todos.deletionFor(path))).toMatchObject({
+	expect(expectOk(await todos.files.deletionFor(path))).toMatchObject({
 		unversioned: false,
 	});
 
 	rowEditor(todos, stem)(titled('Oat milk, two'));
 	await quiet(todos);
-	expect(expectOk(await todos.deletionFor(path))).toMatchObject({
+	expect(expectOk(await todos.files.deletionFor(path))).toMatchObject({
 		unversioned: true,
 	});
 });

@@ -105,7 +105,7 @@ async function openDemo() {
 			{ stem: 'milk' },
 		),
 	);
-	expect(expectOk(await todos.sync())).toMatchObject({ kind: 'synced' });
+	expect(expectOk(await todos.sync.run())).toMatchObject({ kind: 'synced' });
 	await quiet(todos);
 	await run(session.nativeCheckout, [
 		'git',
@@ -136,7 +136,7 @@ const titled =
 test('a sync waits for queued writes, so its checkpoint holds what was typed', async () => {
 	const { todos, session } = await openDemo();
 	rowEditor(todos, 'milk')(titled('Buy oat milk'));
-	const synced = todos.sync();
+	const synced = todos.sync.run();
 	expect(expectOk(await synced)).toMatchObject({ kind: 'synced' });
 	expect(await run(session.bare, ['git', 'show', `main:${MILK}`])).toContain(
 		'title: Buy oat milk',
@@ -152,7 +152,7 @@ test('independent edits merge without a review, and the cache shows the merged t
 		'---\ntitle: Buy milk\ndone: false\n---\nTwo cartons.\n',
 	);
 
-	expect(expectOk(await todos.sync())).toMatchObject({ kind: 'synced' });
+	expect(expectOk(await todos.sync.run())).toMatchObject({ kind: 'synced' });
 	await quiet(todos);
 	expect(cached(todos, 'milk').row).toEqual({
 		fields: { title: 'Buy oat milk', done: false },
@@ -169,7 +169,7 @@ test('competing edits need choices and write nothing; refused choices keep the a
 		'---\ntitle: Buy soy milk\ndone: false\n---\nOne carton.\n',
 	);
 
-	const needs = expectErr(await todos.sync());
+	const needs = expectErr(await todos.sync.run());
 	if (needs.name !== 'NeedsChoices')
 		throw new Error(`Expected choices, got ${needs.message}`);
 	const { attempt } = needs;
@@ -185,7 +185,7 @@ test('competing edits need choices and write nothing; refused choices keep the a
 
 	// A refused choice keeps the attempt, with what to fix.
 	const refused = expectErr(
-		await todos.apply({
+		await todos.sync.apply({
 			attempt,
 			choices: { [title!.id]: { kind: 'remove' } },
 		}),
@@ -197,7 +197,7 @@ test('competing edits need choices and write nothing; refused choices keep the a
 	]);
 
 	const resolved = expectOk(
-		await todos.apply({
+		await todos.sync.apply({
 			attempt,
 			choices: { [title!.id]: { kind: 'take', side: 'incoming' } },
 		}),

@@ -37,17 +37,17 @@ export function mutate<TData, TError>(
 
 /** What a view that edits the todo at `stem` does with each change: edit the cache, then queue a write if needed. */
 export function rowEditor(todos: Todos, stem: string) {
-	const options = todos.rowWrite(stem);
+	const options = todos.rows.write(stem).options;
 	return (change: (row: Row<TodoFields>) => Row<TodoFields>) => {
-		if (todos.edit(stem, change)) void mutate(todos, options);
+		if (todos.rows.edit(stem, change)) void mutate(todos, options);
 	};
 }
 
 /** What a view showing the text of `path` does with each keystroke. */
 export function textEditor(todos: Todos, path: string) {
-	const options = todos.textWrite(path);
+	const options = todos.files.writeText(path).options;
 	return (text: string) => {
-		if (todos.editText(path, text)) void mutate(todos, options);
+		if (todos.files.editText(path, text)) void mutate(todos, options);
 	};
 }
 
@@ -57,10 +57,11 @@ export function textEditor(todos: Todos, path: string) {
  */
 export function observe(todos: Todos, ...paths: string[]) {
 	const observers = [
-		new QueryObserver(todos.queryClient, todos.rowsQuery()),
-		new QueryObserver(todos.queryClient, todos.filesQuery()),
+		new QueryObserver(todos.queryClient, todos.rows.list.options),
+		new QueryObserver(todos.queryClient, todos.files.list.options),
 		...paths.map(
-			(path) => new QueryObserver(todos.queryClient, todos.textQuery(path)),
+			(path) =>
+				new QueryObserver(todos.queryClient, todos.files.text(path).options),
 		),
 	];
 	const stops = observers.map((observer) => observer.subscribe(() => {}));

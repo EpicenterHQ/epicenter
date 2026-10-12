@@ -4,7 +4,7 @@
  */
 import type { FileError, MoveError, TableError } from '@epicenter/folder';
 import { basename } from '@epicenter/folder/file-browser';
-import type { TodosError } from './todos.svelte.js';
+import type { TodosError } from './session.js';
 
 /**
  * Library errors state failures precisely; these are the ones a person acts

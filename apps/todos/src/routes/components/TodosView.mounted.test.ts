@@ -131,7 +131,7 @@ async function competing() {
 			{ stem: 'milk' },
 		),
 	);
-	expectOk(await todos.sync());
+	expectOk(await todos.sync.run());
 	await run(session.nativeCheckout, [
 		'git',
 		'pull',

@@ -35,10 +35,10 @@
 
 	let { onOpen }: { onOpen?: () => void } = $props();
 
-	const listing = createQuery(() => todos.filesQuery());
+	const listing = createQuery(() => todos.files.list.options);
 	/** Every todo row file, whether or not its text reads as a todo. */
 	const todoPaths = createQuery(() =>
-		todos.rowsQuery((entries) => new Set(entries.map(({ stem }) => todoPath(stem)))),
+		({ ...todos.rows.list.options, select: (entries) => new Set(entries.map(({ stem }) => todoPath(stem))) }),
 	);
 	/** Folders open here. They go with the browser: hiding it forgets them. */
 	const expanded = new SvelteSet<string>(['todos']);
@@ -185,10 +185,10 @@
 		committing = true;
 		const { error } =
 			current.kind === 'rename'
-				? await todos.rename(current.path, name)
+				? await todos.files.rename(current.path, name)
 				: current.type === 'file'
-					? await todos.createFile({ directory, name })
-					: await todos.createFolder({ directory, name });
+					? await todos.files.createFile({ directory, name })
+					: await todos.files.createFolder({ directory, name });
 		committing = false;
 		if (error !== null) {
 			const action =

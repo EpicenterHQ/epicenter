@@ -29,7 +29,8 @@
 		versionOutcomeLine,
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
-	import { getTodos, type TodosError } from '$lib/todos.svelte.js';
+	import type { TodosError } from '$lib/session.js';
+	import { getTodos } from '$lib/todos.svelte.js';
 	import { copyPath } from './file-actions.js';
 
 	const todos = getTodos();
@@ -53,13 +54,13 @@
 	} = $props();
 
 	// Git status is a read like any other: on open, on focus, and after actions.
-	const status = createQuery(() => todos.statusQuery());
-	const saveVersion = createMutation(() => todos.saveVersion.options);
+	const status = createQuery(() => todos.git.status.options);
+	const saveVersion = createMutation(() => todos.git.saveVersion.options);
 	const files = $derived(filesLine({ saving: todos.saving }));
-	const incoming = $derived(incomingLine(todos.git));
-	const versions = $derived(versionLine(todos.git));
-	const lastVersion = $derived(lastVersionLine(todos.git));
-	const remote = $derived(pushLine(todos.git));
+	const incoming = $derived(incomingLine(todos.git.snapshot));
+	const versions = $derived(versionLine(todos.git.snapshot));
+	const lastVersion = $derived(lastVersionLine(todos.git.snapshot));
+	const remote = $derived(pushLine(todos.git.snapshot));
 	const summary = $derived(summaryLine({ files, incoming, versions, lastVersion, remote }));
 	const details = $derived<[string, string, StatusLine | undefined][]>([
 		['Incoming', 'status-incoming', incoming],
@@ -75,7 +76,7 @@
 	);
 	/** Whether this folder syncs; a desktop folder records versions but does not sync yet. */
 	const syncs = $derived(todos.folder.sync.supported);
-	const hasRemote = $derived(todos.git.remote !== undefined);
+	const hasRemote = $derived(todos.git.snapshot.remote !== undefined);
 	const NO_REMOTE = 'This folder has no Git remote, so there is nothing to sync with.';
 
 	const tones: Record<StatusLine['tone'], string> = {
@@ -91,14 +92,14 @@
 		sync.isPending ||
 			saveVersion.isPending ||
 			reviewing ||
-			todos.recovering,
+			todos.git.recovering,
 	);
 	/**
 	 * Sync and Save version wait while an incoming update is pending; the
 	 * folder refuses them anyway, so they are off until it is recovered.
 	 * Editing is not affected.
 	 */
-	const pending = $derived(todos.git.pendingIncoming !== undefined);
+	const pending = $derived(todos.git.snapshot.pendingIncoming !== undefined);
 
 	/** Outcome toasts use the status lines' wording, so the toast and the details agree. */
 	const notify: Record<StatusLine['tone'], typeof toast.info> = {
@@ -115,7 +116,7 @@
 		sync.mutate(undefined, {
 			onSettled: (outcome, error) => {
 				if (error?.name === 'NeedsChoices') return;
-				show(syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git));
+				show(syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot));
 			},
 		});
 	}

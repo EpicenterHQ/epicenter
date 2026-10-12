@@ -20,7 +20,7 @@
 		onOpen?: () => void;
 	} = $props();
 
-	const write = createMutation(() => todos.rowWrite(entry.stem));
+	const write = createMutation(() => todos.rows.write(entry.stem).options);
 	const selected = $derived(todos.selected?.as === 'todos' && todos.selected.path === entry.path);
 	const done = $derived(entry.row.fields.done);
 	/** While the todo is open as text, its text is what saves, so its checkbox waits. */
@@ -42,11 +42,11 @@
 		bind:checked={
 			() => done,
 			(next) => {
-				if (todos.edit(entry.stem, (row) => ({ ...row, fields: { ...row.fields, done: next } })))
+				if (todos.rows.edit(entry.stem, (row) => ({ ...row, fields: { ...row.fields, done: next } })))
 					write.mutate();
 			}
 		}
-		disabled={asText || todos.isMoving(entry.path)}
+		disabled={asText || todos.files.isMoving(entry.path)}
 		aria-label="{done ? 'Reopen' : 'Complete'} {title}"
 	/>
 	<Button

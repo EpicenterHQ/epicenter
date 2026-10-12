@@ -20,7 +20,7 @@ import type {
 } from '@epicenter/folder';
 import { describeSync } from '@epicenter/svelte/sync-line';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { TodosError } from './todos.svelte.js';
+import type { TodosError } from './session.js';
 
 export type Tone = 'neutral' | 'busy' | 'good' | 'warning' | 'error';
 export type StatusLine = {
