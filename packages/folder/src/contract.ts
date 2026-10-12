@@ -25,11 +25,6 @@ export {
 	field,
 	type KvOf,
 } from '@epicenter/definition';
-export {
-	type Autosave,
-	AutosaveError,
-	type SaveState,
-} from './autosave.js';
 export type { FileListing } from './boundary.js';
 export {
 	type CapturedFile,
@@ -53,7 +48,6 @@ export {
 	MoveError,
 	OpenFolderError,
 	type RowReadError,
-	type RowSaveError,
 	type TableCreateError,
 	type TableDeleteError,
 	type TableEnumerationError,
@@ -141,7 +135,6 @@ export {
 	type Row,
 	wellFormed,
 } from './row-text.js';
-export type { SaveMerge } from './save-merge.js';
 export type { FileTable, StoredRow, TableListing } from './table.js';
 export type { FolderTerminal, TerminalResult } from './terminal.js';
 

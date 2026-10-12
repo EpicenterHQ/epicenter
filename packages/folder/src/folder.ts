@@ -378,7 +378,7 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 			name,
 			table as PreparedFolderTable,
 		);
-	const files = createFiles({ storage, definition: prepared });
+	const files = createFiles({ storage });
 	const git = createFolderGit(history);
 
 	return Object.freeze({

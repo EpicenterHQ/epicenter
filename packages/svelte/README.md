@@ -18,86 +18,7 @@ This package is part of the Epicenter monorepo and is used internally. To use it
 }
 ```
 
-## Available Utilities
-
-### `edit-session` (`@epicenter/svelte/edit-session`)
-
-Edit sessions over `@epicenter/folder` files: the app owns the draft and the
-folder's guarded autosave writes it. `createRowSession(table, stored)` edits a
-valid row; `createTextSession(files, opened)` edits a file's text and keeps
-input well formed with `wellFormed` from `@epicenter/folder`. Both are `createEditSession` over a source
-(`rowSource`, `textSource`) that says how to save, read again, and merge.
-
-```ts
-const session = createRowSession(folder.tables.todos, stored, { locked });
-session.edit((row) => {
-	row.fields.title = 'Oat milk';
-}); // saves at once; only the latest request waits
-session.state; // saving | saved | error, each with `file`, the last confirmed capture
-session.review; // after a change elsewhere: what the folder could not merge on its own
-await session.resolve(choices); // answer every part of the review at once
-await session.rename((file) => folder.tables.todos.rename(file, 'next'));
-session.release(); // the person left: no input, and a running command starts nothing more
-```
-
-A save never assigns the draft. When a save meets a change made elsewhere,
-the folder merges the draft with it from the value the session last saved,
-the way sync merges a file (ADR-0514): what merges is written at once and the
-draft becomes the result. Parts both changed, a file deleted elsewhere, or a
-file that is no longer this kind become `review`, and input waits until
-`resolve` answers all of them; there is no other way out but leaving the file.
-`resolve` and `rename` run one at a time with input locked (`session.locked`),
-and `settled()` waits for them and for the merge. `adopt()` takes a newer version of the file only while the session is
-saved and idle. `generation` advances whenever a read replaces the draft, for
-views such as a rich text editor that must remount then. Which item is open,
-leaving, and what a person is told stay with the app.
-
-### `open-item` (`@epicenter/svelte/open-item`)
-
-The one item a page has open. `createOpenItem({ load, sessionOf, holds, closed })`
-keeps what `load` built for a key and owns how it is left: opening another key
-waits for the open session's saves and releases it, or answers
-`{ kind: 'unsaved', session }` so the app can ask and open again with
-`{ discard: session }`. Opening the shown key does nothing, and a load that
-answers after a newer open is released. `resolve(session, choices)` acts
-only on the session given while it is open; it closes the item when the file
-was left deleted and reopens it through `load` when the file can no longer be
-shown as the session's value. `removeOpen(session, remove)`
-releases, waits for the saves, and removes what the last one confirmed. What an
-item is, listings, refusals, and wording stay with the app.
-
-`createOpenItems(options)` keeps a slot per key, for a page with several
-items open at once. `slot(key)` has the same commands as `createOpenItem`,
-which is one such slot; `keys()`, `sessions()`, `holding(session)`,
-`resolve(session, choices)`, `adopt()`, and `close()` act
-across slots, and `move(from, to)` follows a renamed file. A slot exists while
-it shows something or a command on it runs, so a late load is always released
-by the slot it started in.
-
-```ts
-const drafts = createOpenItems<string, { path: string; as: 'row' | 'text' }, Draft, Session>({
-	load,
-	sessionOf,
-	sameKey: (a, b) => a.path === b.path && a.as === b.as,
-});
-const opened = await drafts.slot(path).open({ path, as: 'row' });
-if (opened.kind === 'unsaved') ask(opened.session); // then open again with { discard }
-```
-
-### `admissions` (`@epicenter/svelte/admissions`)
-
-`createAdmissions()` counts the work a page started so closing can wait for
-it. `command(fn)` wraps a whole method so each call counts from the call,
-before its first await; `admit(fn)` counts one piece; `quiet()` waits for all
-of it; `busy` is reactive.
-
-### `SaveBar` (`@epicenter/svelte/save-bar`)
-
-The save state and review for one edit session. What a merge left for the
-person shows in the `SyncReview` grid, labeled Your edit and Saved elsewhere,
-with Apply and no Cancel; `onResolve(choices)` answers it, and what the folder
-refuses shows beside its part. Other failures offer Try again or Save again,
-and a value a row cannot hold names what to fix.
+## Available utilities
 
 ### `SyncReview` (`@epicenter/svelte/sync-review`)
 
@@ -108,10 +29,8 @@ attempt's `SyncChoices` only while it is shown. `Use this` takes a side
 exactly, and `Use all from` takes one side for every part; typing
 replaces, as text for text values and as JSON, once it parses, for any other
 value; `Leave out` removes. Apply calls `onApply(attempt, choices)` only when
-every conflict has a choice. Cancel calls `onCancel`, and shows only when it
-is given: sync passes it, because nothing is lost by not syncing, while a
-save review does not, because a draft waits to be saved. `SaveBar` uses the
-same grid for a save that met a change made elsewhere.
+every conflict has a choice. Cancel calls `onCancel`, which discards the
+attempt; nothing is lost by not syncing.
 
 ```svelte
 {#if attempt}
@@ -130,7 +49,7 @@ same grid for a save that met a change made elsewhere.
 Show it in place of the page while the attempt waits, keyed on
 `attempt.id`. Pass the `problems` of an `InvalidChoices` refusal back in;
 each shows beside its row until the person changes that row's choice. The
-sides read "This device" and "Remote" unless `labels` says otherwise.
+sides read "This device" and "Remote".
 
 ### Running a sync from a page
 

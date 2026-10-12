@@ -14,10 +14,6 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
-		"./edit-session": "./src/edit-session.svelte.ts",
-		"./open-item": "./src/open-item.svelte.ts",
-		"./admissions": "./src/admissions.svelte.ts",
-		"./save-bar": "./src/save-bar.svelte",
 		"./sync-line": "./src/sync-line.ts",
 		"./sync-review": "./src/sync-review.svelte"
 	},

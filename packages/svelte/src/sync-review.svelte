@@ -1,8 +1,6 @@
 <!--
 	The review for one `folder.sync` attempt (ADR-0514, ADR-0516): a row per
 	conflict, grouped by file, with the two captured versions and the result.
-	An edit session's `review` uses the same grid for a save that met a
-	change made elsewhere, with its own labels, heading, and apply label.
 
 	The review is modal: the page shows it in place of everything else while
 	the attempt waits. It holds that attempt's choices and nothing else, only
@@ -68,10 +66,7 @@
 	}
 </script>
 
-<script
-	lang="ts"
-	generics="TAttempt extends Pick<SyncAttempt, 'id' | 'conflicts'>"
->
+<script lang="ts">
 	import type {
 		SyncAttempt,
 		SyncChoice,
@@ -86,28 +81,22 @@
 		attempt,
 		pending = false,
 		problems = [],
-		labels = { local: 'This device', incoming: 'Remote' },
-		heading = 'Choose what to keep',
-		description = 'These changes conflict with the remote. Nothing is saved until you apply.',
-		applyLabel = 'Apply and sync',
 		onCancel,
 		onApply,
 	}: {
 		/** The captured attempt the choices answer. */
-		attempt: TAttempt;
+		attempt: SyncAttempt;
 		/** A resolution is running: every control waits. */
 		pending?: boolean;
 		/** What the folder refused in the last Apply, shown beside each row. */
 		problems?: readonly SyncChoiceProblem[];
-		/** What a person calls each side. */
-		labels?: { readonly local: string; readonly incoming: string };
-		heading?: string;
-		description?: string;
-		applyLabel?: string;
-		/** Discard the attempt and its choices. Without it there is no Cancel. */
-		onCancel?: () => void;
-		onApply: (attempt: TAttempt, choices: SyncChoices) => void;
+		/** Discard the attempt and its choices. */
+		onCancel: () => void;
+		onApply: (attempt: SyncAttempt, choices: SyncChoices) => void;
 	} = $props();
+
+	/** What a person calls each side. */
+	const labels = { local: 'This device', incoming: 'Remote' } as const;
 
 	// Replace-only: every edit assigns a new object, so a submitted object
 	// never changes afterwards.
@@ -232,8 +221,10 @@
 	}}
 >
 	<header>
-		<h2 class="text-base font-medium">{heading}</h2>
-		<p class="text-muted-foreground text-sm">{description}</p>
+		<h2 class="text-base font-medium">Choose what to keep</h2>
+		<p class="text-muted-foreground text-sm">
+			These changes conflict with the remote. Nothing is saved until you apply.
+		</p>
 		{#if attempt.conflicts.length > 1}
 			<div class="mt-2 flex flex-wrap gap-2">
 				{#each sides as side (side)}
@@ -329,10 +320,8 @@
 			{/if}
 		</span>
 		<div class="flex gap-2">
-			{#if onCancel}
-				<Button variant="outline" disabled={pending} onclick={onCancel}>Cancel</Button>
-			{/if}
-			<Button type="submit" disabled={pending || !complete}>{applyLabel}</Button>
+			<Button variant="outline" disabled={pending} onclick={onCancel}>Cancel</Button>
+			<Button type="submit" disabled={pending || !complete}>Apply and sync</Button>
 		</div>
 	</footer>
 </form>

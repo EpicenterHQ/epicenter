@@ -81,7 +81,7 @@ Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/voc
 
 ## Changed promises
 
-This version edits files through the query cache (ADR-0528) instead of `@epicenter/svelte/edit-session` autosave, and dropped several promises of the version before it:
+This version edits files through the query cache (ADR-0528) instead of keeping a draft in an edit session that autosaved, and dropped several promises of the version before it:
 
 - A save that meets a change made elsewhere is no longer merged or reviewed. It is refused, the word shows the file as it is now, and a notice offers the note that was not saved. There is no "This changed elsewhere" review, **Use this**, **Apply**, or **Try again**, and a word deleted elsewhere cannot be created again from the screen.
 - A failed save is rolled back instead of kept as an unsaved draft. The learner can lose what was in flight: one press, or the last moment of typing.

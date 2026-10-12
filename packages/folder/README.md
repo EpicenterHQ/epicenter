@@ -477,7 +477,7 @@ successful reading does not mean an application can open the folder.
 
 | Member | Contract |
 | --- | --- |
-| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `get(stem)` returns a `StoredRow` (`path`, `sha256`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `replace`, `rename`, and `delete` take a capture and are refused as `Conflict` when its bytes are gone. `autosave(capture)` coordinates one editing session's saves. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
+| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `get(stem)` returns a `StoredRow` (`path`, `sha256`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `replace`, `rename`, and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
 | `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` merges one key into the current file, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and re-applies itself when another writer got there first. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `files` | Ordinary files at literal paths. See below. |
 | `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, `recoverIncoming()`, and `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |
@@ -526,8 +526,6 @@ capture; the one passed in stays what it was. A stored row and an
   holds now.
 - `create` reports `Exists` for an occupied path even when the bytes are identical.
 - A stale capture is a `Conflict`. Nothing is merged, replayed, or retried.
-- `autosave(capture)` saves one editing session's content, each write guarded
-  by the bytes the previous one saved ([Editing a row](#editing-a-row)).
 
 Internally, the same intention reaches each backend as `create`, `replace`,
 `overwrite`, `remove`, or `move`. `replace`, `remove`, and `move` carry an
@@ -704,7 +702,7 @@ refuse paths a filesystem could not hold apart; see Incoming changes.
 
 `create` is the one unconditional write. Every other write names the bytes it
 replaces with a capture, `{ path, sha256 }`: a `StoredRow`, an `InvalidRow`,
-a listed row, or the `file` of an autosave state passes as it is.
+or a listed row passes as it is.
 
 ```ts
 const created = await todos.create({ fields, body: '' }, { stem: 'milk' }); // Exists if taken
@@ -728,70 +726,16 @@ have landed. Present it as uncertainty, never as a definite failure.
 
 ### Editing a row
 
-An editing session owns its draft; the folder coordinates the saves it
-requests. A component reads once, keeps the row in its own state, and
-requests a save on input:
+The folder keeps no draft and no save queue. An application holds the rows it
+read in its query cache and writes each edit with `replace`, guarded by the
+capture the last read or write returned (ADR-0528). Each successful write
+returns the capture that guards the next one. A change made elsewhere, such as
+a Git pull, another tab, or an agent, is `Conflict`; the other change stays,
+and the application reads the file again. Nothing is merged on save; only sync
+merges.
 
-```svelte
-<script lang="ts">
-	import { untrack } from 'svelte';
-	let props: { folder: TodosFolder; initial: StoredRow<Todo> } = $props();
-	// Seeds for this session; the parent keys on the stem, so capturing once is correct.
-	const { folder, initial } = untrack(() => ({ ...props }));
-
-	const row = $state(initial.row);
-	let save = $state.raw<SaveState<RowSaveError>>({ status: 'saved', file: initial });
-	const saves = folder.tables.todos.autosave(initial, { onState: (next) => (save = next) });
-
-	function edit(change: () => void) {
-		change();
-		saves.request(row); // formatted before it returns
-	}
-</script>
-```
-
-`request(row)` prepares the row before returning, so later typing never
-changes an earlier save. One write runs at a time; requests made while it
-runs replace one pending snapshot, so intermediate drafts may never be
-written. A save result never assigns the draft.
-
-Each write is guarded by the bytes the previous one saved, starting from the
-capture the session began with. A change made elsewhere, such as a Git pull,
-another tab, or an agent, is `Conflict`, and the other change stays.
-
-`table.merge(path, { base, ours })` then merges the draft with that change
-the way sync merges a file (ADR-0514): `base` is the row the session last
-saved or read, `ours` the draft, and the file as it is now is theirs.
-Independent fields and body lines combine and are written over their version
-at once, guarded by its bytes (`saved`). What does not combine is `held`:
-fields or a body both changed, or the whole file when it was deleted
-elsewhere or is no longer a valid row or text. Its `conflicts` are the same
-`SyncConflict`s sync reviews, and `resolve(choices)` settles one
-`SyncChoice` for each and writes the result guarded by the bytes the merge
-read, or refuses with `InvalidChoices`, naming each problem. A further change
-made elsewhere is `Conflict` again. `{ restore: false }` refuses to bring
-back a file deleted elsewhere. `files.merge` does the same for any text
-file, by the folder's own rules: a row by field and body, `kv.json` by key,
-other text by line. `@epicenter/svelte/edit-session` runs this for an
-editing session.
-
-`onState` reports the latest request: `saving`, `saved`, or the `error` that
-stopped it. Every state carries `file`, the capture the session last
-confirmed, which guards a rename or delete from the same view. A draft that
-is not a valid row is that request's `InvalidValues` at once and is never
-written; an older write that finishes afterward cannot report `saved` over
-it. Nothing retries, and requesting again is the retry. `settled()` waits for
-the work in flight without starting any. Nothing is saved when the session
-ends unless it was requested.
-
-A row that is not valid is repaired as text. `files.autosave(capture)` is the
-same session over raw content, guarded the same way, starting from the
-`InvalidRow` the read returned:
-
-```ts
-const saves = folder.files.autosave(invalidRow, { onState });
-saves.request(text);
-```
+A row that is not valid is repaired as text: `files.replace(invalidRow, text)`
+saves over the `InvalidRow` the read returned, guarded by its bytes.
 
 ### Reading and saving kv.json
 
@@ -1256,7 +1200,6 @@ dangle.
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter also decides which OPFS directory is the folder and downloads an account folder before its first opening. |
 | `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
-| `src/autosave.ts` | One editing session's snapshot saves, shared by `table.autosave` and `files.autosave`. |
 | `src/svelte/` | Svelte boundary tests and the sync review's mounted tests. |
 | `src/reading.ts` | KV's reading diagnostics: `ParseError`, `FieldIssue`, `DeepReadonly`, and the ownership every checked value has: parsed values frozen and supplied values copied before a field sees them. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |

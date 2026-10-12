@@ -12,10 +12,6 @@
  * an `InvalidRow`, or a listed row passes as it is. The change is refused as
  * `Conflict` when the file no longer holds those bytes, and nothing retries
  * (ADR-0464). `create` alone is unconditional, and refuses an occupied stem.
- * An editing session saves through `autosave`: the caller owns the row,
- * each request is prepared before it returns, one write runs at a time with
- * only the latest request waiting, and each write is guarded by the bytes
- * the previous one saved.
  * The hash is a condition on bytes, not an identity or a revision.
  *
  * A table reads and writes exactly one Markdown file per row (ADR-0480). A
@@ -26,7 +22,6 @@
 
 import { customAlphabet } from 'nanoid';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { type Autosave, createAutosave, type SaveState } from './autosave.js';
 import type { FolderStorage } from './boundary.js';
 import {
 	type FileCapture,
@@ -39,7 +34,6 @@ import type { PreparedFolderTable } from './definition.js';
 import {
 	FileError,
 	type RowReadError,
-	type RowSaveError,
 	type TableCreateError,
 	type TableDeleteError,
 	type TableEnumerationError,
@@ -54,7 +48,6 @@ import {
 	rowStemOf,
 } from './paths.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
-import { mergeSave, type SaveMerge } from './save-merge.js';
 import { applyOne, replaceCaptured } from './storage.js';
 
 /**
@@ -115,37 +108,6 @@ export type FileTable<TFields> = {
 	): Promise<Result<FileCapture, TableRenameError>>;
 	/** Remove the captured row file, guarded by its bytes. */
 	delete(file: FileCapture): Promise<Result<undefined, TableDeleteError>>;
-	/**
-	 * Save one editing session's row over the captured row file. Each
-	 * `request(row)` is prepared before it returns: a row that is not valid,
-	 * or that cannot be written, is that request's `InvalidValues` at once and
-	 * is never written, so the session's draft stays the caller's to fix. Each
-	 * write is guarded by the bytes the previous one saved, starting from the
-	 * capture; a change made elsewhere, or a deleted row, is `Conflict`.
-	 * `saved` carries the capture of the bytes now in the file. Construction
-	 * reads, writes, and reports nothing.
-	 */
-	autosave(
-		file: FileCapture,
-		options: { onState(state: SaveState<RowSaveError>): void },
-	): Autosave<Row<TFields>, RowSaveError>;
-	/**
-	 * Merge a session's save with a change made elsewhere to the row file at
-	 * `path`, by field and body as sync merges it (ADR-0514). `base` is the
-	 * row the file held when the session last saved or read it, `ours` the
-	 * draft. What merges is written over the file as it is now, guarded by
-	 * its bytes; what does not is held for a person (`SaveMerge`).
-	 */
-	merge(
-		path: string,
-		versions: { readonly base: Row<TFields>; readonly ours: Row<TFields> },
-		options?: { readonly restore?: boolean },
-	): Promise<
-		Result<
-			SaveMerge,
-			FileError | Extract<TableError, { name: 'InvalidValues' }>
-		>
-	>;
 };
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -346,32 +308,6 @@ export function createTable<TFields>(
 				path: captured.path,
 				expectedSha256: captured.sha256,
 			});
-		},
-		autosave(file, { onState }) {
-			const owned = ownRowCapture(file);
-			return createAutosave({
-				file: owned.data ?? file,
-				prepare(row: Row<TFields>) {
-					if (owned.error !== null) return Err(owned.error);
-					return prepare(row);
-				},
-				write: ({ bytes }, over) => replaceCaptured(storage, over, bytes),
-				onState,
-			});
-		},
-		async merge(path, { base, ours }, options) {
-			const texts = [base, ours].map((row) =>
-				writeRow(table, row as Parameters<typeof writeRow>[1]),
-			);
-			for (const { error: issues } of texts)
-				if (issues !== null) return TableError.InvalidValues({ issues });
-			const [baseText, oursText] = texts.map(({ data }) => data?.text ?? '');
-			return mergeSave(
-				{ storage, definition: { kv: {}, tables: { [name]: table } } },
-				path,
-				{ base: baseText ?? '', ours: oursText ?? '' },
-				options,
-			);
 		},
 	};
 }

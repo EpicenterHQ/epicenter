@@ -4,7 +4,6 @@
 - **Date:** 2026-10-12
 - **Supersedes:** [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) (snapshot autosave sessions) and [ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) (drafts in edit sessions, one open item)
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (reads, guarded writes, `InvalidRow`)
-- **Unbuilt:** all of it. Todos is the first app to move; `edit-session`, `open-item`, `save-bar`, `autosave`, and the save merge (`table.merge`, `files.merge`, `save-merge.ts`) are deleted once all five apps have moved.
 
 ## Context
 

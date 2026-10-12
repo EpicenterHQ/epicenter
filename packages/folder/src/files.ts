@@ -1,11 +1,5 @@
 /** Ordinary file methods over the folder's accounted storage. */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import {
-	type Autosave,
-	type AutosaveError,
-	createAutosave,
-	type SaveState,
-} from './autosave.js';
 import type {
 	FileListing,
 	FileWriteIntent,
@@ -19,10 +13,8 @@ import {
 	ownBytes,
 	ownCapture,
 } from './capture.js';
-import type { FolderDefinition } from './definition.js';
 import type { FileError, MoveError } from './errors.js';
-import { mergeSave, type SaveMerge } from './save-merge.js';
-import { applyOne, replaceCaptured } from './storage.js';
+import { applyOne } from './storage.js';
 
 /**
  * Ordinary files at literal folder-relative paths (ADR-0479).
@@ -70,42 +62,14 @@ export type FolderFiles = {
 		path: string,
 		content: string | Uint8Array,
 	): Promise<Result<FileCapture, FileError>>;
-	/**
-	 * Save one editing session's content over the captured file. Each save is
-	 * guarded by the bytes the previous one confirmed, starting from the
-	 * capture, so a change made elsewhere is `Conflict` rather than
-	 * overwritten; the session then needs a fresh capture. `saved` carries the
-	 * capture of the bytes now in the file. Content is copied when requested.
-	 * Construction reads, writes, and reports nothing.
-	 */
-	autosave(
-		file: FileCapture,
-		options: { onState(state: SaveState<FileError | AutosaveError>): void },
-	): Autosave<string | Uint8Array, FileError | AutosaveError>;
 	mkdir(path: string): Promise<Result<undefined, FileError>>;
 	rmdir(path: string): Promise<Result<undefined, FileError>>;
-	/**
-	 * Merge a session's save with a change made elsewhere to the text file
-	 * at `path`, by the folder's own rules as sync merges it (ADR-0514): a
-	 * row by field and body, `kv.json` by key, any other text by line. `base`
-	 * is what the file held when the session last saved or read it, `ours`
-	 * the draft. What merges is written over the file as it is now, guarded
-	 * by its bytes; what does not is held for a person (`SaveMerge`).
-	 */
-	merge(
-		path: string,
-		versions: { readonly base: string; readonly ours: string },
-		options?: { readonly restore?: boolean },
-	): Promise<Result<SaveMerge, FileError>>;
 };
 
 export function createFiles({
 	storage,
-	definition,
 }: {
 	storage: FolderStorage;
-	/** Which rows and settings `merge` reads by field and key. */
-	definition?: FolderDefinition;
 }): FolderFiles {
 	/** Publish one write and return the capture of the bytes that were given. */
 	async function save(
@@ -174,18 +138,6 @@ export function createFiles({
 		},
 		overwrite: (path, content) =>
 			save({ kind: 'overwrite', path, bytes: ownBytes(content) }),
-		merge: (path, versions, options) =>
-			mergeSave({ storage, definition }, path, versions, options),
-		autosave(file, { onState }) {
-			const owned = ownCapture(file);
-			return createAutosave({
-				file: owned.data ?? file,
-				prepare: (content: string | Uint8Array) =>
-					owned.error !== null ? Err(owned.error) : Ok(ownBytes(content)),
-				write: (bytes, over) => replaceCaptured(storage, over, bytes),
-				onState,
-			});
-		},
 		mkdir: (path) => storage.mkdir(path),
 		rmdir: (path) => storage.rmdir(path),
 	} satisfies FolderFiles);

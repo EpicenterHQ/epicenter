@@ -3,8 +3,8 @@
  *
  * Both functions take a table of a prepared folder definition, the one
  * `defineFolder` returns, so they work before `openFolder` and with no
- * storage at all. A table's `get`, `list`, `create`, `replace`, and autosave
- * run exactly these; nothing else in the package parses or writes row text.
+ * storage at all. A table's `get`, `list`, `create`, and `replace` run
+ * exactly these; nothing else in the package parses or writes row text.
  *
  *     const definition = defineFolder({ kv: {}, tables: { todos } });
  *     const { data: row, error: issues } = parseRow(definition.tables.todos, text);

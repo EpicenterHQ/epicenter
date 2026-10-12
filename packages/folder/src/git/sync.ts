@@ -422,41 +422,6 @@ async function holdFile(
 }
 
 /**
- * One file's three versions merged as sync merges it, for a caller with no
- * Git history, such as an edit session whose save met a change made
- * elsewhere. `merged` is the file's text, `null` for no file. `held` names
- * the units a person chooses; `settle(choices)` answers the file's text
- * under one choice for each, `null` to leave no file, or every problem at
- * once, reading `choices` once. Writes nothing.
- */
-export type FileMerge =
-	| { readonly kind: 'merged'; readonly text: string | null }
-	| {
-			readonly kind: 'held';
-			readonly conflicts: readonly SyncConflict[];
-			settle(choices: unknown): Result<string | null, SyncError>;
-	  };
-
-export async function mergeFile(
-	definition: FolderDefinition | undefined,
-	path: string,
-	texts: TextVersions,
-): Promise<FileMerge> {
-	const merged = await holdFile(definition, path, texts);
-	if (merged.kind === 'merged') return merged;
-	const { conflicts } = merged.held;
-	const paths = new Map([[path, merged.held]]);
-	return Object.freeze({
-		kind: 'held',
-		conflicts: Object.freeze([...conflicts]),
-		settle(choices: unknown) {
-			const { data, error } = settle(paths, conflicts, choices);
-			return error === null ? Ok(data.get(path) ?? null) : Err(error);
-		},
-	});
-}
-
-/**
  * The merge rules sync adds to a Git merge, for one merge. `settled` gives
  * held paths their chosen text, so the same commits merge again with every
  * conflict answered. `held` collects what the merge could not settle.

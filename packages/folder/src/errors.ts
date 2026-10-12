@@ -12,7 +12,6 @@
  * row can be repaired as text and saved guarded by those bytes.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import type { AutosaveError } from './autosave.js';
 import type { FileCapture } from './capture.js';
 import type { Issue, Issues } from './row-text.js';
 
@@ -288,16 +287,6 @@ export type TableCreateError = FileError | TableErrorOf<'InvalidValues'>;
 
 /** The row cannot be written as a valid row, or the guarded publication failed. */
 export type TableReplaceError = FileError | TableErrorOf<'InvalidValues'>;
-
-/**
- * Why an autosave request saved nothing: its row cannot be written, or the
- * replacement failed. `Unconfirmed` may have landed; present it as
- * uncertainty. A writer defect is `AutosaveError.UnexpectedWriterError`.
- */
-export type RowSaveError =
-	| FileError
-	| TableErrorOf<'InvalidValues'>
-	| AutosaveError;
 
 /** A guarded row move preserves the file move's failures, its landed capture included. */
 export type TableRenameError = FileError | MoveError;
