@@ -14,7 +14,6 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{Runtime, State, Webview};
 
-use crate::flush::CloseFlush;
 use crate::history::{self, FileRevision};
 use crate::reveal;
 use crate::terminal::{Terminal, TerminalReply};
@@ -46,22 +45,6 @@ async fn blocking<T: Send + 'static>(
     tauri::async_runtime::spawn_blocking(work)
         .await
         .map_err(|cause| cause.to_string())
-}
-
-// ============================================================================
-// Closing
-// ============================================================================
-
-/// The page's flush on close is done: its held snapshot and running saves
-/// landed, or its own budget ran out. The waiting close goes ahead.
-#[tauri::command]
-pub fn flush_done<R: Runtime>(
-    webview: Webview<R>,
-    flush: State<'_, CloseFlush>,
-) -> Result<(), String> {
-    notes_window(&webview)?;
-    flush.acknowledge();
-    Ok(())
 }
 
 // ============================================================================

@@ -5,8 +5,8 @@
 //! The folder has one owner, `tauri-plugin-epicenter-folder`, in this process.
 //! The shell chooses the folder's directory once, registers it with that owner
 //! for the main window, and lets that window's page call the owner's commands.
-//! The page names the folder and never a path. The shell's own commands are
-//! two booleans from the page: `flush_done` and `set_recording`.
+//! The page names the folder and never a path. This crate registers no command
+//! of its own.
 //!
 //! The child is the Bun host (`native/main.ts`): it serves the page on loopback
 //! and does what a page cannot, such as running the terminal and sending
@@ -14,26 +14,21 @@
 //! waits for the port it reports, loads the page from it, and stops it on
 //! exit. The host is told where the folder is; it is never asked.
 //!
-//! Closing never asks. A window close, the Quit menu item (Command-Q), and any
-//! other exit request is held back once: the shell sends the page one close
-//! event, the page sends the saves it has in flight and answers, and the shell
-//! exits on that answer or after one second, whichever comes first. With no
-//! app page open, it exits at once. A save that failed and an unanswered
-//! transcript end with the page.
-//!
-//! The one exception is a live recording. The page tells the shell when one
-//! starts and stops (`set_recording`). While one is in progress, the first
-//! close or quit shows one native dialog, "A recording is in progress. Quit
-//! anyway?": Cancel keeps the app open and recording; Quit goes on to the
-//! flush and exit above. The page is not asked anything.
+//! Closing the window is the page's. Its close handler awaits the session's
+//! `close()`, which lets the saves in flight land, and then Tauri destroys
+//! the window; the app exits when its one window is gone. While a recording
+//! is in progress the page asks first, in the window, and Cancel keeps it
+//! open. The Quit menu item (Command-Q) closes the window the same way.
+//! Nothing here waits on the page or sets a timer; a slow close shows "Still
+//! saving…" in the page, with Close anyway.
 //!
 //! A quit from macOS itself (the Dock's Quit, a logout, restart, or shutdown,
 //! an Apple Event) reaches the shell only as `RunEvent::Exit`: Tao answers
-//! AppKit's `applicationWillTerminate:` and sends no exit request first. The
-//! page is not asked then, and a recording in progress is not confirmed: it is
-//! lost. Only writes the folder's owner had already accepted are finished;
-//! anything still in the page is lost. This keeps Whispering from ever
-//! cancelling a logout or shutdown.
+//! AppKit's `applicationWillTerminate:` and closes no window first. The page
+//! is not asked then, and a recording in progress is lost. Only writes the
+//! folder's owner had already accepted are finished; anything still in the
+//! page is lost. This keeps Whispering from ever cancelling a logout or
+//! shutdown.
 //!
 //! On exit the folder's owner refuses new work, lets the saves and commits it
 //! had admitted finish, and releases the folder. It commits nothing of its own.
@@ -45,29 +40,18 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use tauri::ipc::CapabilityBuilder;
-use tauri::{
-    App, AppHandle, Emitter, Manager, RunEvent, Runtime, State, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
-};
+use tauri::{App, AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig};
 
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(target_os = "macos")]
 const QUIT_MENU_ID: &str = "quit";
-
-/// Sent to the page when the window closes or the app quits. The page answers
-/// with the `flush_done` command once its saves in flight have landed, or its
-/// own, shorter wait for them ran out.
-const CLOSE_REQUESTED: &str = "whispering://close-requested";
-/// How long the shell waits for that answer before it exits anyway.
-const CLOSE_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The one window. The folder is registered for this label and no other.
 const MAIN_WINDOW: &str = "main";
@@ -87,64 +71,6 @@ struct HostState {
     process: Mutex<Option<HostProcess>>,
 }
 
-/// Where a close or quit stands.
-#[derive(Default)]
-struct Closing {
-    /// The app page was opened, so it may have saves in flight.
-    page_opened: AtomicBool,
-    /// The page was sent the close event and the shell is waiting.
-    flushing: AtomicBool,
-    /// The wait is over: the next exit request goes through.
-    flushed: AtomicBool,
-    /// Where the page's answer goes while the shell waits.
-    answer: Mutex<Option<mpsc::SyncSender<()>>>,
-    /// The page says a recording is in progress (`set_recording`).
-    recording: AtomicBool,
-    /// The quit-while-recording dialog is showing.
-    confirming: AtomicBool,
-    /// The person chose Quit in that dialog: the recording no longer holds a quit.
-    quit_confirmed: AtomicBool,
-}
-
-/// What a close or quit request does next.
-#[derive(Debug, PartialEq, Eq)]
-enum Next {
-    /// Let it go.
-    Exit,
-    /// Hold it; a flush or a confirmation already under way decides.
-    Hold,
-    /// Hold it and ask whether to quit during the recording.
-    Confirm,
-    /// Hold it and flush the page, then exit.
-    Flush,
-}
-
-impl Closing {
-    /// Decide a close or quit request from the flags alone. Starting a
-    /// confirmation or a flush is claimed here, so a second request holds.
-    fn next(&self) -> Next {
-        if self.flushed.load(Ordering::SeqCst) {
-            return Next::Exit;
-        }
-        if !self.page_opened.load(Ordering::SeqCst) {
-            self.flushed.store(true, Ordering::SeqCst);
-            return Next::Exit;
-        }
-        if self.recording.load(Ordering::SeqCst) && !self.quit_confirmed.load(Ordering::SeqCst) {
-            return if self.confirming.swap(true, Ordering::SeqCst) {
-                Next::Hold
-            } else {
-                Next::Confirm
-            };
-        }
-        if self.flushing.swap(true, Ordering::SeqCst) {
-            Next::Hold
-        } else {
-            Next::Flush
-        }
-    }
-}
-
 /// The app's embedded configuration and permissions. One expansion, shared by
 /// the shell and by the tests that drive it on the mock runtime.
 fn context<R: Runtime>() -> tauri::Context<R> {
@@ -155,28 +81,7 @@ pub fn run() {
     tauri::Builder::default()
         // Shuts the folder down when the app exits; see the module comment.
         .plugin(tauri_plugin_epicenter_folder::init())
-        .plugin(tauri_plugin_dialog::init())
         .manage(HostState::default())
-        .manage(Closing::default())
-        .invoke_handler(tauri::generate_handler![flush_done, set_recording])
-        // A new page in the main window holds no recording until it says so.
-        .on_page_load(|webview, payload| {
-            if webview.label() == MAIN_WINDOW
-                && payload.event() == tauri::webview::PageLoadEvent::Started
-            {
-                webview
-                    .state::<Closing>()
-                    .recording
-                    .store(false, Ordering::SeqCst);
-            }
-        })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if !may_exit(window.app_handle()) {
-                    api.prevent_close();
-                }
-            }
-        })
         .setup(|app| {
             #[cfg(target_os = "macos")]
             install_menu(app)?;
@@ -191,126 +96,23 @@ pub fn run() {
         })
         .build(context())
         .expect("failed to build Whispering")
-        .run(|app, event| match event {
-            // Every `AppHandle::exit` arrives here, including the one that
-            // ends the flush below.
-            RunEvent::ExitRequested { api, .. } => {
-                if !may_exit(app) {
-                    api.prevent_exit();
-                }
-            }
-            RunEvent::Exit => stop_host(app),
-            _ => {}
-        });
-}
-
-/// Whether a window close or exit request may go ahead now. The first one
-/// with an app page open may not: while a recording is in progress the person
-/// is asked first (`confirm_quit`); otherwise the page is sent the close
-/// event, and the app exits once it answers or `CLOSE_FLUSH_TIMEOUT` runs out.
-/// Requests made meanwhile are held too.
-fn may_exit(app: &AppHandle) -> bool {
-    match app.state::<Closing>().next() {
-        Next::Exit => true,
-        Next::Hold => false,
-        Next::Confirm => {
-            confirm_quit(app);
-            false
-        }
-        Next::Flush => {
-            flush_then_exit(app);
-            false
-        }
-    }
-}
-
-const QUIT_WHILE_RECORDING: &str = "A recording is in progress. Quit anyway?";
-
-/// Ask once whether to quit during a recording. Cancel keeps the app open and
-/// recording; Quit goes on to the flush and exit, as any other quit does.
-fn confirm_quit(app: &AppHandle) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-
-    let handle = app.clone();
-    app.dialog()
-        .message(QUIT_WHILE_RECORDING)
-        .title("Quit Whispering")
-        .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "Quit".to_string(),
-            "Cancel".to_string(),
-        ))
-        .show(move |quit| {
-            let closing = handle.state::<Closing>();
-            if quit {
-                closing.quit_confirmed.store(true, Ordering::SeqCst);
-            }
-            closing.confirming.store(false, Ordering::SeqCst);
-            if quit && may_exit(&handle) {
-                handle.exit(0);
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                stop_host(app);
             }
         });
 }
 
-/// The page says whether a recording is in progress, each time that changes.
-/// Only the main window's word counts, as with `flush_done`.
-#[tauri::command]
-fn set_recording<R: Runtime>(window: WebviewWindow<R>, closing: State<'_, Closing>, recording: bool) {
-    if window.label() != MAIN_WINDOW {
-        return;
-    }
-    closing.recording.store(recording, Ordering::SeqCst);
-}
-
-/// Send the page the close event, wait for its answer within the bound, and
-/// exit. A page that cannot be sent the event is not waited for.
-fn flush_then_exit(app: &AppHandle) {
-    let closing = app.state::<Closing>();
-    let (sender, answers) = mpsc::sync_channel(1);
-    *closing.answer.lock().unwrap() = Some(sender);
-    if let Err(error) = app.emit_to(MAIN_WINDOW, CLOSE_REQUESTED, ()) {
-        eprintln!("[whispering] could not tell the page the app is closing: {error}");
-        closing.answer.lock().unwrap().take();
-    }
-    let app = app.clone();
-    thread::spawn(move || {
-        if wait_for_flush(&answers, CLOSE_FLUSH_TIMEOUT) == Flush::TimedOut {
-            eprintln!("[whispering] the page did not answer the close in time; exiting");
+/// Quit: close the main window, which runs its page's close handler; the app
+/// exits once the window is gone. With no window open, exit now.
+fn quit_app<R: Runtime>(app: &AppHandle<R>) {
+    match app.get_webview_window(MAIN_WINDOW) {
+        Some(window) => {
+            if window.close().is_err() {
+                app.exit(0);
+            }
         }
-        app.state::<Closing>().flushed.store(true, Ordering::SeqCst);
-        app.exit(0);
-    });
-}
-
-/// The page's answer to a close: hand it to the wait under way, if there is
-/// one. Only the main window's answer counts; the capability grants the
-/// command to no other window, and this checks again.
-#[tauri::command]
-fn flush_done<R: Runtime>(window: WebviewWindow<R>, closing: State<'_, Closing>) {
-    if window.label() != MAIN_WINDOW {
-        return;
-    }
-    if let Some(answer) = closing.answer.lock().unwrap().take() {
-        let _ = answer.send(());
-    }
-}
-
-/// How the wait for the page's answer ended.
-#[derive(Debug, PartialEq, Eq)]
-enum Flush {
-    /// The page answered.
-    Answered,
-    /// The page did not answer within the bound.
-    TimedOut,
-    /// Nothing could answer: the event was never delivered.
-    Unreachable,
-}
-
-fn wait_for_flush(answers: &mpsc::Receiver<()>, bound: Duration) -> Flush {
-    match answers.recv_timeout(bound) {
-        Ok(()) => Flush::Answered,
-        Err(mpsc::RecvTimeoutError::Timeout) => Flush::TimedOut,
-        Err(mpsc::RecvTimeoutError::Disconnected) => Flush::Unreachable,
+        None => app.exit(0),
     }
 }
 
@@ -411,9 +213,10 @@ fn register_folder<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), 
 /// command at all without this. A page from any other origin or port, a local
 /// page such as the failure page, and any other window are not covered.
 ///
-/// The permissions are the owner's commands, listening for its events (and
-/// the shell's close event), `flush_done`, the page's answer to a close, and
-/// `set_recording`, which says whether a recording is in progress.
+/// The permissions are the owner's commands and listening for its events and
+/// for the window being asked to close; destroying the window once the page's
+/// close handler has closed the session; and showing, unminimizing, and
+/// focusing it to ask before closing during a recording.
 fn folder_capability(port: u16) -> CapabilityBuilder {
     CapabilityBuilder::new(FOLDER_CAPABILITY)
         .local(false)
@@ -422,14 +225,16 @@ fn folder_capability(port: u16) -> CapabilityBuilder {
         .permission("epicenter-folder:default")
         .permission("core:event:allow-listen")
         .permission("core:event:allow-unlisten")
-        .permission("allow-flush-done")
-        .permission("allow-set-recording")
+        .permission("core:window:allow-destroy")
+        .permission("core:window:allow-show")
+        .permission("core:window:allow-unminimize")
+        .permission("core:window:allow-set-focus")
 }
 
 /// The default macOS menu's Quit item calls AppKit's `terminate:`, which ends
-/// the app with no exit request, so the page is never sent the close event.
-/// This menu's Quit asks for an ordinary exit, which flushes like a window
-/// close, and keeps the Edit and Window items a text field and a window need.
+/// the app without closing its window, so the page would not finish its saves.
+/// This menu's Quit closes the window like its close button, and keeps the
+/// Edit and Window items a text field and a window need.
 #[cfg(target_os = "macos")]
 fn install_menu(app: &App) -> tauri::Result<()> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -458,8 +263,8 @@ fn install_menu(app: &App) -> tauri::Result<()> {
         .build()?;
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
-        if event.id().as_ref() == QUIT_MENU_ID && may_exit(app) {
-            app.exit(0);
+        if event.id().as_ref() == QUIT_MENU_ID {
+            quit_app(app);
         }
     });
     Ok(())
@@ -639,9 +444,6 @@ fn open_app_window(app: &App, port: u16, token: &str) -> Result<(), Box<dyn std:
         .initialization_script(script)
         .on_navigation(move |url| is_host_url(url, port))
         .build()?;
-    app.state::<Closing>()
-        .page_opened
-        .store(true, Ordering::SeqCst);
     Ok(())
 }
 
@@ -724,194 +526,6 @@ mod tests {
     }
 
     #[test]
-    fn the_wait_ends_on_the_answer() {
-        let (sender, answers) = mpsc::sync_channel(1);
-        sender.send(()).unwrap();
-        let started = Instant::now();
-        assert_eq!(wait_for_flush(&answers, Duration::from_secs(5)), Flush::Answered);
-        assert!(started.elapsed() < Duration::from_secs(1));
-    }
-
-    #[test]
-    fn the_wait_ends_at_its_bound_without_an_answer() {
-        let (_sender, answers) = mpsc::sync_channel::<()>(1);
-        let started = Instant::now();
-        assert_eq!(
-            wait_for_flush(&answers, Duration::from_millis(50)),
-            Flush::TimedOut
-        );
-        let waited = started.elapsed();
-        assert!(waited >= Duration::from_millis(50));
-        assert!(waited < Duration::from_secs(1));
-    }
-
-    #[test]
-    fn the_wait_ends_at_once_when_nothing_can_answer() {
-        let (sender, answers) = mpsc::sync_channel::<()>(1);
-        drop(sender);
-        let started = Instant::now();
-        assert_eq!(
-            wait_for_flush(&answers, Duration::from_secs(5)),
-            Flush::Unreachable
-        );
-        assert!(started.elapsed() < Duration::from_secs(1));
-    }
-
-    /// `flush_done` as the page at `url` in `window` would send it.
-    fn answer_close(window: &WebviewWindow<MockRuntime>, url: &str) -> Result<(), Value> {
-        tauri::test::get_ipc_response(
-            window,
-            InvokeRequest {
-                cmd: "flush_done".to_string(),
-                callback: CallbackFn(0),
-                error: CallbackFn(1),
-                url: url.parse().unwrap(),
-                body: InvokeBody::Json(json!({})),
-                headers: Default::default(),
-                invoke_key: INVOKE_KEY.to_string(),
-            },
-        )
-        .map(|_| ())
-        .map_err(|error| error.clone())
-    }
-
-    /// A page that has opened, as the shell sees it once the app window loads.
-    fn opened() -> Closing {
-        let closing = Closing::default();
-        closing.page_opened.store(true, Ordering::SeqCst);
-        closing
-    }
-
-    #[test]
-    fn with_no_recording_a_quit_goes_straight_to_the_flush() {
-        let closing = opened();
-        assert_eq!(closing.next(), Next::Flush);
-        // Requests while it flushes are held, and none asks.
-        assert_eq!(closing.next(), Next::Hold);
-        assert!(!closing.confirming.load(Ordering::SeqCst));
-    }
-
-    #[test]
-    fn a_recording_in_progress_asks_once_before_the_flush() {
-        let closing = opened();
-        closing.recording.store(true, Ordering::SeqCst);
-        assert_eq!(closing.next(), Next::Confirm);
-        // A second request while the dialog shows opens no second dialog.
-        assert_eq!(closing.next(), Next::Hold);
-        assert!(!closing.flushing.load(Ordering::SeqCst));
-
-        // Cancel, as the dialog's callback records it: the app stays open and
-        // the next quit asks again.
-        closing.confirming.store(false, Ordering::SeqCst);
-        assert_eq!(closing.next(), Next::Confirm);
-
-        // Quit: the recording no longer holds, and the flush follows.
-        closing.quit_confirmed.store(true, Ordering::SeqCst);
-        closing.confirming.store(false, Ordering::SeqCst);
-        assert_eq!(closing.next(), Next::Flush);
-    }
-
-    #[test]
-    fn a_recording_that_stopped_does_not_ask() {
-        let closing = opened();
-        closing.recording.store(true, Ordering::SeqCst);
-        closing.recording.store(false, Ordering::SeqCst);
-        assert_eq!(closing.next(), Next::Flush);
-    }
-
-    #[test]
-    fn with_no_app_page_nothing_asks_even_when_recording_was_said() {
-        let closing = Closing::default();
-        closing.recording.store(true, Ordering::SeqCst);
-        assert_eq!(closing.next(), Next::Exit);
-    }
-
-    /// `set_recording` as the page at `url` in `window` would send it.
-    fn say_recording(
-        window: &WebviewWindow<MockRuntime>,
-        url: &str,
-        recording: bool,
-    ) -> Result<(), Value> {
-        tauri::test::get_ipc_response(
-            window,
-            InvokeRequest {
-                cmd: "set_recording".to_string(),
-                callback: CallbackFn(0),
-                error: CallbackFn(1),
-                url: url.parse().unwrap(),
-                body: InvokeBody::Json(json!({ "recording": recording })),
-                headers: Default::default(),
-                invoke_key: INVOKE_KEY.to_string(),
-            },
-        )
-        .map(|_| ())
-        .map_err(|error| error.clone())
-    }
-
-    #[test]
-    fn only_the_main_window_sets_the_recording_flag() {
-        let app = mock_builder()
-            .manage(Closing::default())
-            .invoke_handler(tauri::generate_handler![flush_done, set_recording])
-            .build(context::<MockRuntime>())
-            .expect("mock app");
-        let main = WebviewWindowBuilder::new(&app, MAIN_WINDOW, Default::default())
-            .build()
-            .expect("main window");
-        let other = WebviewWindowBuilder::new(&app, "other", Default::default())
-            .build()
-            .expect("other window");
-        let host = "http://127.0.0.1:4000/";
-        let recording = || app.state::<Closing>().recording.load(Ordering::SeqCst);
-
-        assert!(say_recording(&main, host, true).is_err());
-        app.add_capability(folder_capability(4000)).unwrap();
-        assert!(say_recording(&other, host, true).is_err());
-        assert!(say_recording(&main, "http://127.0.0.1:4001/", true).is_err());
-        assert!(!recording());
-
-        say_recording(&main, host, true).expect("the main window says it records");
-        assert!(recording());
-        say_recording(&main, host, false).expect("and that it stopped");
-        assert!(!recording());
-    }
-
-    #[test]
-    fn only_the_main_windows_answer_reaches_the_wait() {
-        let app = mock_builder()
-            .manage(Closing::default())
-            .invoke_handler(tauri::generate_handler![flush_done])
-            .build(context::<MockRuntime>())
-            .expect("mock app");
-        let main = WebviewWindowBuilder::new(&app, MAIN_WINDOW, Default::default())
-            .build()
-            .expect("main window");
-        let other = WebviewWindowBuilder::new(&app, "other", Default::default())
-            .build()
-            .expect("other window");
-        let host = "http://127.0.0.1:4000/";
-        let (sender, answers) = mpsc::sync_channel(1);
-        *app.state::<Closing>().answer.lock().unwrap() = Some(sender);
-
-        // Without the capability the page cannot answer at all.
-        assert!(answer_close(&main, host).is_err());
-        app.add_capability(folder_capability(4000)).unwrap();
-        // Another window, and another origin, are not granted the command.
-        assert!(answer_close(&other, host).is_err());
-        assert!(answer_close(&main, "http://127.0.0.1:4001/").is_err());
-        assert!(app.state::<Closing>().answer.lock().unwrap().is_some());
-
-        answer_close(&main, host).expect("the main window answers");
-        assert_eq!(
-            wait_for_flush(&answers, Duration::from_secs(5)),
-            Flush::Answered
-        );
-        assert!(app.state::<Closing>().answer.lock().unwrap().is_none());
-        // An answer with no wait under way changes nothing.
-        answer_close(&main, host).expect("a late answer is accepted and ignored");
-    }
-
-    #[test]
     fn only_the_host_origin_is_navigable() {
         let allowed: tauri::Url = "http://127.0.0.1:4000/recordings".parse().unwrap();
         let other_port: tauri::Url = "http://127.0.0.1:4001/".parse().unwrap();
@@ -963,7 +577,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!(
             "whispering-shell-{label}-{}-{}",
             std::process::id(),
-            NEXT.fetch_add(1, Ordering::SeqCst)
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         ));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
@@ -1033,8 +647,10 @@ mod tests {
                 "epicenter-folder:default",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
-                "allow-flush-done",
-                "allow-set-recording",
+                "core:window:allow-destroy",
+                "core:window:allow-show",
+                "core:window:allow-unminimize",
+                "core:window:allow-set-focus",
             ]
         );
     }

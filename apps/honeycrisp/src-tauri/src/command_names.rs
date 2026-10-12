@@ -2,7 +2,6 @@
 /// permission for each, and a test checks the list against the registered
 /// handlers and the window's capability.
 pub const COMMANDS: &[&str] = &[
-    "flush_done",
     "shell_info",
     "terminal_run",
     "file_log",

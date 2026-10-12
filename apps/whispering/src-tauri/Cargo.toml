@@ -25,7 +25,6 @@ tauri = { version = "2.11", features = ["test"] }
 getrandom = "0.3"
 serde_json = "1"
 tauri = { version = "2.11", features = [] }
-tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
 
 # The same pins as packages/tauri-plugin-epicenter-folder/Cargo.toml. A patch

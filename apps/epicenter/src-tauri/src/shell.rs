@@ -54,7 +54,7 @@ pub fn create_tray(app: &DesktopAppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-home" => request_window(app, BuiltInApp::Home),
             "show-whispering" => request_window(app, BuiltInApp::Whispering),
-            "quit" => app.exit(0),
+            "quit" => crate::leaving::quit(app),
             _ => {}
         })
         .build(app)?;

@@ -13,7 +13,6 @@ pub const COMMANDS: &[&str] = &[
     "application_data",
     "download_application",
     "cancel_application_download",
-    "flush_done",
     "write_text",
     "simulate_enter_keystroke",
     "enumerate_recording_devices",

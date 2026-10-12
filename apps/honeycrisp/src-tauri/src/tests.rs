@@ -14,25 +14,21 @@
 //!   and gains no file.
 //! - A new folder is set up through the owner, and its settings are the first
 //!   commit by the owner's own policy.
-//! - A close sends the page one flush event, and exits when the page
-//!   acknowledges or the bound runs out, whichever comes first.
+//! - The notes window alone may destroy itself, which is how its page's close
+//!   handler lets it go.
 //! - The terminal keeps its working directory in the shell.
-//!
-//! The mock runtime does not implement `AppHandle::exit`, so the close tests
-//! replace the exit with a message to the test.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{mock_builder, MockRuntime, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
-use tauri::{App, Listener, WebviewWindow, WebviewWindowBuilder};
+use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
 use crate::commands::WINDOW;
-use crate::flush::{hold_then, FLUSH_ON_CLOSE};
 use crate::testing::{git, temp, TempDirectory};
 use crate::{context, folder_config, install, is_app_page, root, shell, COMMANDS};
 
@@ -145,6 +141,8 @@ fn the_capability_grants_exactly_the_listed_commands_to_the_notes_window() {
         [
             "core:event:allow-listen",
             "core:event:allow-unlisten",
+            // The page's close handler destroys this window once it has closed.
+            "core:window:allow-destroy",
             "epicenter-folder:default",
         ]
         .map(str::to_string),
@@ -566,77 +564,6 @@ fn a_save_that_cannot_be_written_fails_alone_and_a_commit_that_cannot_be_recorde
     );
     std::fs::remove_file(&lock).unwrap();
     assert_eq!(commit(), json!("committed"));
-}
-
-// ============================================================================
-// Closing
-// ============================================================================
-
-/// Hold a close as the shell does, with the exit reported to the test. Answers
-/// whether it was held, and receives the moment the app would exit.
-fn close(fixture: &Fixture, bound: Duration) -> (bool, mpsc::Receiver<Instant>) {
-    let (exited, exit) = mpsc::channel();
-    let held = hold_then(fixture.app.handle(), bound, move |_| {
-        let _ = exited.send(Instant::now());
-    });
-    (held, exit)
-}
-
-#[test]
-fn a_close_the_page_acknowledges_exits_at_once() {
-    let fixture = fixture("close-ack", |_| {});
-    let main = window(&fixture.app, WINDOW);
-    let (sender, flushes) = mpsc::channel::<()>();
-    main.listen(FLUSH_ON_CLOSE, move |_| {
-        let _ = sender.send(());
-    });
-
-    let started = Instant::now();
-    let (held, exit) = close(&fixture, Duration::from_secs(10));
-    assert!(held);
-    flushes
-        .recv_timeout(Duration::from_secs(5))
-        .expect("the page is sent the flush event");
-    // A second close while the page flushes is held and sends nothing more.
-    let (held_again, exit_again) = close(&fixture, Duration::from_secs(10));
-    assert!(held_again);
-
-    assert_eq!(invoke(&main, "flush_done", json!({})), Ok(Value::Null));
-    let exited = exit
-        .recv_timeout(Duration::from_secs(5))
-        .expect("the app exits once the page acknowledges");
-    assert!(exited - started < Duration::from_secs(5));
-    assert!(flushes.try_recv().is_err(), "one flush event per close");
-    assert!(exit_again.try_recv().is_err(), "one exit per close");
-
-    // Once the wait is over, the exit request the exit raises goes ahead.
-    let (held_after, _) = close(&fixture, Duration::from_secs(10));
-    assert!(!held_after);
-}
-
-#[test]
-fn a_close_the_page_never_acknowledges_exits_at_the_bound() {
-    let fixture = fixture("close-silent", |_| {});
-    let bound = Duration::from_millis(200);
-    let started = Instant::now();
-    let (held, exit) = close(&fixture, bound);
-    assert!(held);
-    let exited = exit
-        .recv_timeout(Duration::from_secs(5))
-        .expect("the app exits without the page");
-    assert!(exited - started >= bound);
-}
-
-#[test]
-fn another_window_cannot_end_the_wait() {
-    let fixture = fixture("close-other", |_| {});
-    let other = window(&fixture.app, "other");
-    let (held, exit) = close(&fixture, Duration::from_millis(300));
-    assert!(held);
-    assert!(invoke(&other, "flush_done", json!({})).is_err());
-    assert!(exit.recv_timeout(Duration::from_millis(150)).is_err());
-    exit.recv_timeout(Duration::from_secs(5))
-        .expect("the bound still ends the wait");
 }
 
 // ============================================================================

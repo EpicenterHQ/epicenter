@@ -88,7 +88,7 @@ fn evidence_result(app: DesktopAppHandle, error: Option<String>) {
         // preparation is not involved, so its reply is not sent.
         evidence.restarting.store(true, Ordering::SeqCst);
         let request_id = format!("evidence-relaunch-{cycle}");
-        close_flush::grant_without_reply(&app, 1, request_id.clone());
+        leaving::grant_without_reply(&app, 1, request_id.clone());
         handle_native_frame(&app, 1, BunToRustNativeFrame::Relaunch { request_id }).unwrap();
     });
 }
@@ -162,7 +162,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_epicenter_folder::init())
         .manage(HostState::new(Ok(port)))
-        .manage(close_flush::CloseFlush::default())
+        .manage(leaving::Departure::default())
         .manage(Mutex::new(Recorder::new()))
         .manage(Evidence {
             root: root.clone(),
@@ -229,10 +229,10 @@ pub fn run() {
         handle.exit(2);
     });
     app.run(|app,event| {
-        // The production filter: every exit request but a restart is held
-        // for the pages' flush.
+        // The production filter: the last window's exit request relaunches
+        // during a restart and exits during a quit; an exit with a code goes.
         if let RunEvent::ExitRequested { api, code, .. } = &event {
-            let prevented = close_flush::holds_exit(app, *code);
+            let prevented = leaving::holds_exit(app, *code);
             if prevented {
                 api.prevent_exit();
             }

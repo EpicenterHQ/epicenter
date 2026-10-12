@@ -22,7 +22,7 @@
 				"trusted-app-windows-production",
 				"trusted-whispering-native-production",
 				"trusted-whispering-overlay-production",
-				"close-flush-production",
+				"page-close-production",
 				"todos-folder-production",
 				"capture-folder-production",
 				"installed-app-folder-production"

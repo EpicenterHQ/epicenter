@@ -1,0 +1,11 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "page-close-development",
+	"description": "Capture and Todos end their own window when it closes: their page's close handler awaits the owner's close, then Tauri's onCloseRequested destroys the window. Built-in labels only; an installed app's window is never granted destroy.",
+	"local": false,
+	"windows": ["capture", "todos"],
+	"remote": {
+		"urls": ["http://127.0.0.1:*"]
+	},
+	"permissions": ["core:window:allow-destroy"]
+}

@@ -17,7 +17,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tauri::webview::NewWindowResponse;
 use tauri::{
-    AppHandle, Manager, RunEvent, Runtime, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, RunEvent, Runtime, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent, Wry,
 };
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -34,7 +34,7 @@ use tauri_specta::Event as _;
 mod command_names;
 
 pub mod app_data;
-mod close_flush;
+mod leaving;
 mod device_owner;
 mod installed_apps;
 mod sqlite;
@@ -102,6 +102,9 @@ pub mod clipboard;
 /// ever start with it. Which folder a window reaches is the plugin's per-label
 /// registration, not the glob.
 const APP_WINDOW_PREFIX: &str = "app-";
+/// Sent to a Capture or Todos page whose Bun host stopped; the page keeps its
+/// drafts (`apps/epicenter/src/host-stopped.ts`).
+const HOST_STOPPED_EVENT: &str = "host-stopped";
 #[cfg(any(not(debug_assertions), test))]
 const PRODUCTION_PORT: u16 = 39_130;
 #[cfg(any(debug_assertions, test))]
@@ -153,6 +156,15 @@ impl BuiltInApp {
             self,
             Self::Whispering | Self::Capture | Self::Mail | Self::Todos
         )
+    }
+
+    /// Whether this app's page keeps drafts it has not saved: Capture and
+    /// Todos. Closing its window ends the page once the page's close handler
+    /// has awaited its owner's `close()`, which is why only these windows may
+    /// destroy themselves. A Bun host that stops keeps them open, with their
+    /// text, and tells them (`HOST_STOPPED_EVENT`).
+    const fn keeps_drafts(self) -> bool {
+        matches!(self, Self::Capture | Self::Todos)
     }
 
     const fn id(self) -> &'static str {
@@ -1072,20 +1084,28 @@ fn ensure_app_window(
         .build()
         .with_context(|| format!("create the {id} app WebView"))?;
 
-    // Closing hides the window, as it does Capture and Todos, so a draft its
-    // page has not saved survives an ordinary close. A host restart still
-    // destroys it in `invalidate_windows`, because its page holds the dead
-    // host's token.
-    let close_window = window.clone();
-    window.on_window_event(move |event| {
-        if let WindowEvent::CloseRequested { api, .. } = event {
-            api.prevent_close();
-            let _ = close_window.hide();
-        }
-    });
+    // Closing hides the window, so a draft its page has not saved survives an
+    // ordinary close. A host restart still destroys it in `invalidate_windows`,
+    // because its page holds the dead host's token.
+    hide_on_close(&window);
     release_host_resources_on_destroy(&window);
     focus(window);
     Ok(())
+}
+
+/// Closing hides `window` instead, so its page and what it holds survive an
+/// ordinary close, unless Epicenter is quitting or restarting.
+fn hide_on_close(window: &WebviewWindow<Wry>) {
+    let hidden = window.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            if leaving::is_leaving(hidden.app_handle()) {
+                return;
+            }
+            api.prevent_close();
+            let _ = hidden.hide();
+        }
+    });
 }
 
 /// Release the host resources a window owns once it is destroyed.
@@ -1093,9 +1113,9 @@ fn ensure_app_window(
 /// A hidden window keeps capture. Destruction releases its document; the
 /// builder's page-load hook also releases it before a replacement page loads.
 ///
-/// Built-in and installed app windows are hidden rather than destroyed when the
-/// user closes them, so this fires for them on a host restart teardown, and
-/// for any window the host destroys directly.
+/// Most windows are hidden rather than destroyed when the user closes them,
+/// so this fires for them on a host restart teardown, on Quit, and for any
+/// window the host destroys directly. Capture and Todos windows end on close.
 fn release_host_resources_on_destroy(window: &WebviewWindow<Wry>) {
     let app = window.app_handle().clone();
     let label = window.label().to_string();
@@ -1121,8 +1141,7 @@ pub fn run() {
         launch_application,
         application_data,
         download_application,
-        cancel_application_download,
-        close_flush::flush_done
+        cancel_application_download
     ] as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
@@ -1160,7 +1179,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(HostState::new(port))
-        .manage(close_flush::CloseFlush::default())
+        .manage(leaving::Departure::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(Mutex::new(Recorder::new()))
         .manage(DownloadManager::default());
@@ -1180,7 +1199,6 @@ pub fn run() {
                     | "application_data"
                     | "download_application"
                     | "cancel_application_download"
-                    | "flush_done"
             ) {
                 native_handler(invoke)
             } else {
@@ -1260,7 +1278,7 @@ pub fn run() {
         .expect("failed to build Epicenter")
         .run(|app, event| match event {
             RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Home),
-            RunEvent::ExitRequested { api, code, .. } if close_flush::holds_exit(app, code) => {
+            RunEvent::ExitRequested { api, code, .. } if leaving::holds_exit(app, code) => {
                 api.prevent_exit();
             }
             RunEvent::Exit => shutdown_host(app),
@@ -1390,8 +1408,8 @@ fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
 const QUIT_MENU_ID: &str = "epicenter-quit";
 
 /// The default menu with a Quit of our own. The predefined Quit calls AppKit's
-/// `terminate:`, which ends the run loop without an exit request, so the pages
-/// would get no flush. This one calls `app.exit`, which `close_flush` holds.
+/// `terminate:`, which ends the run loop without closing a window, so no page
+/// would finish its saves. This one closes every window first (`leaving`).
 #[cfg(target_os = "macos")]
 fn menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -1422,7 +1440,7 @@ fn menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> 
 #[cfg(target_os = "macos")]
 fn handle_menu_event(app: &DesktopAppHandle, id: &str) {
     if id == QUIT_MENU_ID {
-        app.exit(0);
+        leaving::quit(app);
     }
 }
 
@@ -1927,21 +1945,21 @@ fn handle_native_frame(
             if request_id.is_empty() {
                 bail!("native requestId must be non-empty");
             }
-            close_flush::prepare_restart(app, generation, request_id);
+            leaving::prepare_restart(app, generation, request_id);
             Ok(())
         }
         BunToRustNativeFrame::PrepareCancel { request_id }
         | BunToRustNativeFrame::RelaunchAbort { request_id } => {
-            close_flush::release_restart(app, generation, &request_id);
+            leaving::release_restart(app, generation, &request_id);
             Ok(())
         }
-        // `request_restart` delivers ExitRequested and Exit from any thread, so
-        // the Folder plugin drains admitted writes and `shutdown_host` stops
-        // Bun before the new process starts. `restart` skips both when called
-        // on the main thread. Only a grant this generation holds restarts, and
-        // the pages flush first.
+        // Only a grant this generation holds restarts. Every window closes
+        // first, so Capture and Todos finish their saves, and the last one
+        // gone relaunches through `request_restart`, which delivers
+        // ExitRequested and Exit: the Folder plugin drains admitted writes and
+        // `shutdown_host` stops Bun before the new process starts.
         BunToRustNativeFrame::Relaunch { request_id } => {
-            close_flush::relaunch(app, generation, request_id);
+            leaving::relaunch(app, generation, request_id);
             Ok(())
         }
     }
@@ -2127,7 +2145,7 @@ fn fail_generation(app: &DesktopAppHandle, generation: u64, message: String) {
     };
     state.deactivate();
     stop_child(child);
-    close_flush::retire_sidecar(app, generation);
+    leaving::retire_sidecar(app, generation);
     invalidate_windows(app);
     request_start(app.clone(), Some(message));
 }
@@ -2255,13 +2273,12 @@ fn ensure_window(
         .build()
         .with_context(|| format!("create the {} WebView", built_in.title()))?;
 
-    let close_window = window.clone();
-    window.on_window_event(move |event| {
-        if let WindowEvent::CloseRequested { api, .. } = event {
-            api.prevent_close();
-            let _ = close_window.hide();
-        }
-    });
+    // Capture and Todos end on close: the page's close handler awaits its
+    // owner, then the page destroys its window. Every other built-in window
+    // hides, so its page survives an ordinary close.
+    if !built_in.keeps_drafts() {
+        hide_on_close(&window);
+    }
     release_host_resources_on_destroy(&window);
     if reveal {
         focus(window);
@@ -2283,8 +2300,10 @@ fn invalidate_windows(app: &DesktopAppHandle) {
             if let Some(window) = app.get_webview_window(built_in.id()) {
                 // Capture and Todos keep their pages and native folders, with
                 // any unsaved text, after the host that served them stops.
-                if close_flush::PAGES.contains(&built_in.id()) {
-                    close_flush::host_stopped(&app, &window);
+                // The page is told, and shown, so a person can recover it.
+                if built_in.keeps_drafts() {
+                    let _ = app.emit_to(window.label(), HOST_STOPPED_EVENT, ());
+                    let _ = window.show();
                     continue;
                 }
                 if window.destroy().is_err() {
@@ -3205,8 +3224,8 @@ mod tests {
             include_str!("../capabilities/trusted-whispering-native-production.json"),
             include_str!("../capabilities/trusted-app-windows-development.json"),
             include_str!("../capabilities/trusted-app-windows-production.json"),
-            include_str!("../capabilities/close-flush-development.json"),
-            include_str!("../capabilities/close-flush-production.json"),
+            include_str!("../capabilities/page-close-development.json"),
+            include_str!("../capabilities/page-close-production.json"),
             include_str!("../capabilities/home-launch-application-development.json"),
             include_str!("../capabilities/home-launch-application-production.json"),
         ] {
@@ -3246,7 +3265,6 @@ mod tests {
             "application_data",
             "download_application",
             "cancel_application_download",
-            "flush_done",
         ];
         for bindings in [
             include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
@@ -3491,8 +3509,8 @@ mod tests {
                 include_str!("../tauri.conf.json"),
                 "mail-gmail-authorization-production",
             ),
-            (include_str!("../tauri.dev.conf.json"), "close-flush-development"),
-            (include_str!("../tauri.conf.json"), "close-flush-production"),
+            (include_str!("../tauri.dev.conf.json"), "page-close-development"),
+            (include_str!("../tauri.conf.json"), "page-close-production"),
             (
                 include_str!("../tauri.dev.conf.json"),
                 "installed-app-folder-development",
@@ -3558,68 +3576,83 @@ mod tests {
         }
     }
 
-    /// The host waits for Capture and Todos, and nobody else, before it exits,
-    /// so only their windows may say they are done. The command identifies
-    /// the caller by its window, so this grant is the whole of who is waited for.
+    /// A window granted `core:window:allow-destroy` can end itself, which is
+    /// how a page's close handler lets its window go. Only Capture and Todos
+    /// hold it, by their built-in labels. An installed app's window never
+    /// does: leaving destroys those windows from native code, so a close
+    /// handler of theirs could only hold a quit open. Every capability file is
+    /// read, so a new grant anywhere is checked too.
     #[test]
-    fn only_capture_and_todos_are_flushed_before_exit() {
-        for encoded in [
-            include_str!("../capabilities/close-flush-development.json"),
-            include_str!("../capabilities/close-flush-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert_eq!(capability["windows"], serde_json::json!(["capture", "todos"]));
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!([
-                    "core:event:allow-listen",
-                    "core:event:allow-unlisten",
-                    "allow-flush-done"
-                ])
-            );
+    fn only_built_in_windows_that_keep_drafts_may_destroy_themselves() {
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+        let built_in: Vec<&str> = BuiltInApp::ALL
+            .into_iter()
+            .filter(|app| app.keeps_drafts())
+            .map(BuiltInApp::id)
+            .collect();
+        assert_eq!(built_in, ["capture", "todos"]);
+        let mut granting = Vec::new();
+        for entry in fs::read_dir(&directory).unwrap() {
+            let path = entry.unwrap().path();
+            let capability: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            let grants = capability["permissions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|permission| {
+                    let name = permission
+                        .as_str()
+                        .or_else(|| permission["identifier"].as_str())
+                        .unwrap_or_default();
+                    name == "core:window:allow-destroy"
+                });
+            if !grants {
+                continue;
+            }
+            for window in capability["windows"].as_array().unwrap() {
+                let label = window.as_str().unwrap();
+                assert!(
+                    !label.starts_with(APP_WINDOW_PREFIX) && !label.contains('*'),
+                    "{} grants window destroy to {label:?}, which is not a built-in label",
+                    path.display()
+                );
+                assert!(
+                    built_in.contains(&label),
+                    "{} grants window destroy to {label:?}, whose page keeps no drafts",
+                    path.display()
+                );
+            }
+            granting.push(path.file_name().unwrap().to_string_lossy().into_owned());
         }
-        for encoded in [
-            include_str!("../capabilities/trusted-app-windows-development.json"),
-            include_str!("../capabilities/trusted-app-windows-production.json"),
-            include_str!("../capabilities/trusted-whispering-native-development.json"),
-            include_str!("../capabilities/trusted-whispering-native-production.json"),
-            include_str!("../capabilities/home-model-administration-development.json"),
-            include_str!("../capabilities/home-model-administration-production.json"),
-            include_str!("../capabilities/home-launch-application-development.json"),
-            include_str!("../capabilities/home-launch-application-production.json"),
-            include_str!("../capabilities/capture-folder-development.json"),
-            include_str!("../capabilities/capture-folder-production.json"),
-            include_str!("../capabilities/todos-folder-development.json"),
-            include_str!("../capabilities/todos-folder-production.json"),
-            include_str!("../capabilities/installed-app-folder-development.json"),
-            include_str!("../capabilities/installed-app-folder-production.json"),
-        ] {
-            assert!(
-                !encoded.contains("flush-done"),
-                "the flush command belongs to the close-flush capability alone"
-            );
-        }
-        assert_eq!(close_flush::PAGES, ["capture", "todos"]);
+        granting.sort();
         assert_eq!(
-            [BuiltInApp::Capture.id(), BuiltInApp::Todos.id()],
-            ["capture", "todos"]
+            granting,
+            ["page-close-development.json", "page-close-production.json"]
         );
     }
 
-    /// Capture and Todos hold no `core:window` grant, so a page cannot show
-    /// itself; every reveal runs through native code.
+    /// Capture and Todos hold no `core:window` grant but destroy, so a page
+    /// cannot show itself; every reveal runs through native code.
     #[test]
     fn capture_and_todos_windows_cannot_show_themselves() {
         for encoded in [
-            include_str!("../capabilities/close-flush-development.json"),
-            include_str!("../capabilities/close-flush-production.json"),
+            include_str!("../capabilities/page-close-development.json"),
+            include_str!("../capabilities/page-close-production.json"),
             include_str!("../capabilities/capture-folder-development.json"),
             include_str!("../capabilities/capture-folder-production.json"),
             include_str!("../capabilities/todos-folder-development.json"),
             include_str!("../capabilities/todos-folder-production.json"),
         ] {
-            assert!(!encoded.contains("core:window"), "{encoded}");
-            assert!(!encoded.contains("core:webview"), "{encoded}");
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            for permission in capability["permissions"].as_array().unwrap() {
+                let name = permission.as_str().unwrap_or_default();
+                assert!(
+                    !name.starts_with("core:window") || name == "core:window:allow-destroy",
+                    "{name}"
+                );
+                assert!(!name.starts_with("core:webview"), "{name}");
+            }
         }
     }
 

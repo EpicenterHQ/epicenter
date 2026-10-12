@@ -9,38 +9,34 @@
 //!   reads the person's Git identity under its lock and owns the files,
 //!   change detection, and Git history. The
 //!   page names the scope and nothing else.
-//! - Honeycrisp's own commands (`commands.rs`): flush on close, the terminal,
-//!   per-file history, and reveal.
+//! - Honeycrisp's own commands (`commands.rs`): the terminal, per-file
+//!   history, and reveal.
 //!
-//! Closing never asks. The window's close button, an exit request from the
-//! runtime, and the macOS Quit menu item each give the page a bounded moment
-//! to land a save already in flight, then the app exits (`flush.rs`). A draft
-//! whose save failed ends with the page; the save bar said so when it failed.
+//! Closing the window is the page's: its close handler awaits the notes'
+//! `close()`, which lets the saves in flight land, and then Tauri destroys
+//! the window. The app exits when its one window is gone. The macOS Quit menu
+//! item closes that window the same way. Nothing here waits on the page or
+//! sets a timer; a slow close shows "Still saving…" in the page, with Close
+//! anyway.
 //!
 //! A quit from the system on macOS (the Dock, a logout, a shutdown, an Apple
 //! Event) is AppKit's `terminate:`. Tao's application delegate implements
 //! `applicationWillTerminate:` and not `applicationShouldTerminate:`, so that
-//! quit reaches the run loop as `RunEvent::Exit` with no exit request before
-//! it. The page cannot be reached then: its IPC needs the main thread, which
-//! is ending. The folder plugin drains the writes it already accepted on
-//! `RunEvent::Exit`; an autosave snapshot the page still held behind a
-//! running write in that instant is lost. The shell does not add
-//! `applicationShouldTerminate:` to hold such a quit, so it never cancels a
-//! logout or a shutdown.
+//! quit reaches the run loop as `RunEvent::Exit` with no window closed first.
+//! The page is not asked then. The folder plugin drains the writes it already
+//! accepted on `RunEvent::Exit`; a save the page still held in that instant is
+//! lost. The shell never cancels a logout or a shutdown.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{
-    AppHandle, Manager, RunEvent, Runtime, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent,
-};
+use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig};
 
 mod command_names;
 mod commands;
-mod flush;
 mod history;
 mod process;
 mod reveal;
@@ -55,19 +51,16 @@ mod tests;
 pub use command_names::COMMANDS;
 
 use commands::{Shell, WINDOW};
-use flush::{hold, CloseFlush};
 use terminal::Terminal;
 
 const QUIT_MENU_ITEM: &str = "quit-notes";
 
-/// The plugin, the commands, and the close routing of the notes window: a
-/// close or Quit is held for the page's flush, then exits. The
+/// The plugin, the commands, and Quit, which closes the notes window. The
 /// folder and the window are added in setup, once paths can be resolved.
 fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
         .plugin(tauri_plugin_epicenter_folder::init())
         .invoke_handler(tauri::generate_handler![
-            commands::flush_done,
             commands::shell_info,
             commands::terminal_run,
             commands::file_log,
@@ -75,17 +68,23 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             commands::reveal_folder,
         ])
         .on_menu_event(|app, event| {
-            if event.id().as_ref() == QUIT_MENU_ITEM && !hold(app) {
+            if event.id().as_ref() == QUIT_MENU_ITEM {
+                quit(app);
+            }
+        })
+}
+
+/// Close the notes window, which runs its page's close handler; the app exits
+/// once it is gone. With no window open, exit now.
+fn quit<R: Runtime>(app: &AppHandle<R>) {
+    match app.get_webview_window(WINDOW) {
+        Some(window) => {
+            if window.close().is_err() {
                 app.exit(0);
             }
-        })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == WINDOW && hold(window.app_handle()) {
-                    api.prevent_close();
-                }
-            }
-        })
+        }
+        None => app.exit(0),
+    }
 }
 
 /// Local history, using the repository's author after the owner takes its lock.
@@ -116,7 +115,6 @@ fn install<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), String> 
         folder: folder_config(&root),
         windows: vec![WINDOW.to_string()],
     })?;
-    app.manage(CloseFlush::new());
     app.manage(Shell {
         terminal: Arc::new(Terminal::new(root)),
     });
@@ -146,8 +144,8 @@ fn is_app_page(target: &Url) -> bool {
 }
 
 /// The predefined macOS Quit item calls Cocoa's `terminate:` directly, which
-/// skips the exit request and so the page's flush. Quit (Cmd+Q) is an item of
-/// our own.
+/// ends the app without closing its window, so the page would not finish its
+/// saves. Quit (Cmd+Q) is an item of our own, which closes the window.
 #[cfg(target_os = "macos")]
 fn quit_menu(app: &AppHandle) -> tauri::Result<()> {
     let menu = Menu::default(app)?;
@@ -203,12 +201,6 @@ pub fn run() {
         })
         .build(context())
         .expect("error while building the Honeycrisp application")
-        .run(|handle, event| {
-            // The folder plugin drains and unlocks the folder on exit itself.
-            if let RunEvent::ExitRequested { api, .. } = event {
-                if hold(handle) {
-                    api.prevent_exit();
-                }
-            }
-        });
+        // The folder plugin drains and unlocks the folder on exit itself.
+        .run(|_, _| {});
 }

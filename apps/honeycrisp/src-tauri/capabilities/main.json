@@ -1,13 +1,13 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "main",
-	"description": "The notes window: its folder through the shared folder plugin, and Honeycrisp's own flush on close, terminal, per-file history, and reveal commands. It names no path; the shell registered the folder for this window.",
+	"description": "The notes window: its folder through the shared folder plugin, Honeycrisp's own terminal, per-file history, and reveal commands, and destroying itself once its page's close handler has closed the notes. It names no path; the shell registered the folder for this window.",
 	"windows": ["main"],
 	"permissions": [
 		"core:event:allow-listen",
 		"core:event:allow-unlisten",
+		"core:window:allow-destroy",
 		"epicenter-folder:default",
-		"allow-flush-done",
 		"allow-shell-info",
 		"allow-terminal-run",
 		"allow-file-log",

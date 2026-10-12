@@ -143,8 +143,7 @@ try {
 		throw new Error('An exit did not reach the Folder plugin shutdown');
 	if (shutdowns.filter((event) => event.restartRequested).length !== 20)
 		throw new Error('Not every restart went through the granted relaunch');
-	// The last process quits with no Capture or Todos window open, so its
-	// exit request is not held for a flush.
+	// The last process exits with a code, which no window's closing holds.
 	const lastRequests = named('exit-requested').filter(
 		(event) => event.cycle === 20,
 	);
