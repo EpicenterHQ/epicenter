@@ -5,17 +5,16 @@ description: Work out an unsettled idea together through concrete attempts to ar
 
 # Dialectic
 
-Dialectic helps us work out what we mean through concrete attempts we can
-recognize and correct. Each response carries forward what we’ve understood
-and offers a clearer articulation or expression for us to judge. Show that
-articulation or expression directly, so we can read it and say what is right
-or still missing.
+Dialectic works toward an articulation the user can recognize with “that’s
+right.” The agent contributes to finding that articulation: it offers a
+thoughtful understanding of what the user is reaching for and gives the
+emerging thought concrete expression. The user can often recognize what is
+right or missing before they can articulate it themselves.
 
-A person can often recognize what is wrong or missing before they can
-articulate what would be right. Offer a concrete attempt that helps them make
-that distinction. When they cannot yet explain their reaction, propose what
-the mismatch might be and give them something specific to correct. Use what
-their response reveals to revise the shared understanding and the next attempt.
+Let that recognition and correction develop the next attempt. Preserve what
+landed, replace what missed, and develop what their response shows matters
+more. The conversation may clarify a thought the user already held or discover
+one neither participant had fully formed.
 
 Use this method within the ongoing task; its purpose, artifacts, and
 authorization remain in place. Standalone exploration needs no destination
@@ -31,9 +30,8 @@ writing.
 
 In writing, the same passage can articulate the thought and express it. Use a
 separate explanation when it helps the user judge something the passage alone
-does not make clear. An attempt need not arrive as a finished model; what it
-reveals can change our understanding or uncover a thought neither participant
-had fully formed.
+does not make clear. An attempt can help discover the model while giving it
+expression.
 
 ## Develop what is still unresolved
 
@@ -43,11 +41,20 @@ does not account for. Develop the uncertainty that could change the next
 attempt before cataloguing implications for every workflow. Use what the
 investigation reveals to develop the shared understanding and next attempt.
 
-Give your current read and make the unresolved part judgeable. A question helps
+Contribute your best current understanding of what the user is reaching for.
+Use their words, examples, and reactions to infer the concern, tension, or
+connection they have only partly expressed. Explain why you read it that way
+and make the inference available for correction. Work at the scope of the
+unresolved thought; a plausible interpretation or a selected sentence may
+still leave its meaning or development open.
+
+Make that uncertainty judgeable through a concrete attempt. A question helps
 when its answer would change the interpretation or next attempt. Explain what
-turns on it and ask about something the user can recall or judge. When a
-distinction is hard to answer abstractly, show what its different answers would
-produce. Leave room for the user's thought to fall outside your categories.
+turns on it and ask about something the user can recall or judge. When they
+cannot yet explain a reaction, propose the mismatch it may be pointing toward.
+When a distinction is hard to answer abstractly, show what its different
+answers would produce. Leave room for the user's thought to fall outside your
+categories.
 
 Use the evidence already available before asking the user to reconstruct it.
 Questions should uncover what the record cannot establish, not make the user
@@ -98,13 +105,13 @@ matters, let the user read it. Complete enough means enough for the live
 question, not an entire application or a rewrite of settled work. Economical
 commentary does not require a short expression.
 
-Show distinct alternatives when comparing them would help settle the live
-question. A correction may clarify what to avoid while leaving meaningful
-directions open; preserve what the user has recognized and make those remaining
-differences concrete. Explain each direction enough to judge it on its own,
-using headings when they help the comparison. Recommend a direction when you
-have grounds, and leave room to combine, reject, or redirect the possibilities.
-A settled selection or a straightforward correction needs no new comparison.
+Compare distinct attempts when their differences help develop or judge what
+remains unresolved. Let them vary in interpretation, expression, or both.
+Preserve what the user recognized, explain consequential differences, and
+recommend a direction when you have grounds. Leave room to combine, reject,
+or redirect the possibilities. Let the uncertainty determine their number and
+extent. A settled selection or straightforward correction needs direct
+application.
 
 When comparing revisions, show the relevant original and alternatives together
 so the user need not reconstruct earlier versions from memory. Keep unrelated
@@ -120,11 +127,11 @@ correction to learn from and revise the model, rather than continuing to judge
 their understanding against your earlier explanation.
 
 Treat the user's response as evidence about what you understood and what the
-attempt reveals. They may recognize the model but dislike a choice in its
-expression, or the expression may expose something the model missed. Locate
-that difference through the conversation rather than asking the user to
-classify their reaction. Revise at the scope it illuminates; a reaction to one
-passage does not establish a universal preference.
+attempt reveals, including where the thought needs to move. They may recognize
+the model but dislike a choice in its expression, or the expression may expose
+something the model missed. Locate that difference through the conversation
+rather than asking the user to classify their reaction. Revise at the scope it
+illuminates; a reaction to one passage does not establish a universal preference.
 
 Carry what you learn into the next coherent attempt. If the user recognizes
 parts of different versions, do the synthesis rather than making them assemble
