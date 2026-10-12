@@ -427,11 +427,13 @@ guarded `folder.files.replace(base, text)`. `base` is the draft's: the
 is writing, and drops the draft; a `Conflict` keeps it. The store keeps the
 drafts, counts them in `todos.departure.holdsUnsaved`, and drops one once its
 file reads as a todo or leaves the listing. Rename and delete join the same
-queue and carry the capture the view showed (`rename(stem, next, shown)`,
-`remove(stem, shown)`). When they run, the cached hash must be `shown`, or
-one the app's own writes produced from it; otherwise they refuse with
-`NotStarted`, and the folder's guard still refuses a change Todos has not
-read. The store holds whether Epicenter is asking to leave and the repair
+queue and carry the version the person confirmed: `todos.rows.shown(stem)`
+waits for that todo's queued writes to land, then reads it, so nothing the
+app does changes the file while the person decides (`rename(stem, next,
+shown)`, `remove(stem, shown)`). When they run, the cached hash must still be
+that version; otherwise they refuse with `NotStarted`, and the folder's
+guard still refuses a change Todos has not read. The store holds whether
+Epicenter is asking to leave and the repair
 drafts; the URL holds which todo is open; the new todo's title lives in the
 list. Components find the store with `getTodos()` and never touch its query
 client.
@@ -477,4 +479,5 @@ version before it:
   pressing **Save**, not by text that saves as you type.
 - Quitting or restarting no longer asks about anything. It waits for every
   write and action, then the window is ready; a new todo's title typed and not
-  added, and repair text typed and not saved, are dropped, as on a reload.
+  added, and repair text typed and not saved, are dropped. In the browser, a
+  reload with repair text not saved asks first.

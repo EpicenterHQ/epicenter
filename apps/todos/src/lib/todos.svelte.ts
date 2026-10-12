@@ -178,6 +178,7 @@ export function createTodos(
 		writesSettled,
 		invalidate,
 		trackMutations,
+		whenIdle,
 		refused,
 		afterWrite,
 		onWriteFailed,

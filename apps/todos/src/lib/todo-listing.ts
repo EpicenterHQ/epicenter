@@ -25,15 +25,10 @@ export type TodoListing = TableListing<TodoFields>;
 /** A todo row that reads as a todo. */
 export type TodoEntry = StoredRow<TodoFields> & { readonly stem: string };
 
-/**
- * A row file the list cannot edit, and why. Text that is not a valid todo
- * (`invalid`) is the person's to repair as text; a file that could not be
- * read as text (`unreadable`) is not.
- */
-type Repair = {
+/** A row file the list cannot show as a todo, and why. */
+type Problem = {
 	readonly stem: string;
 	readonly path: string;
-	readonly kind: 'invalid' | 'unreadable';
 	readonly reason: string;
 };
 
@@ -52,27 +47,28 @@ export function todosOf(listing: TodoListing): TodoEntry[] {
 	);
 }
 
-/** The row files the list does not offer, each with why. */
-export function repairsOf(listing: TodoListing): Repair[] {
-	const repairs: Repair[] = [];
-	for (const { stem, result } of listing) {
-		if (result.error === null) continue;
-		const path = todoPath(stem);
-		repairs.push(
-			result.error.name === 'InvalidRow'
-				? {
-						stem,
-						path,
-						kind: 'invalid',
-						reason: result.error.issues.map((issue) => issue.message).join(' '),
-					}
-				: {
-						stem,
-						path,
-						kind: 'unreadable',
-						reason: `It could not be read as text: ${result.error.message}`,
-					},
-		);
-	}
+/** Row files whose text is not a valid todo: the person's to repair as text. */
+export function repairsOf(listing: TodoListing): Problem[] {
+	const repairs: Problem[] = [];
+	for (const { stem, result } of listing)
+		if (result.error?.name === 'InvalidRow')
+			repairs.push({
+				stem,
+				path: todoPath(stem),
+				reason: result.error.issues.map((issue) => issue.message).join(' '),
+			});
 	return repairs.sort(byPath);
+}
+
+/** Row files that could not be read as text at all, each with why. */
+export function unreadableOf(listing: TodoListing): Problem[] {
+	const unreadable: Problem[] = [];
+	for (const { stem, result } of listing)
+		if (result.error !== null && result.error.name !== 'InvalidRow')
+			unreadable.push({
+				stem,
+				path: todoPath(stem),
+				reason: `It could not be read as text: ${result.error.message}`,
+			});
+	return unreadable.sort(byPath);
 }

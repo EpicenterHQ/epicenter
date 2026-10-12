@@ -13,9 +13,11 @@
  *   again, which rolls the edit back.
  * - A repair draft records the text it repairs, with its hash, at the first
  *   keystroke, and its Save is guarded by that hash.
- * - Rename and delete carry the capture the view showed when the person
- *   asked. They join the file's queue and run only on that version, or on
- *   one this app's own writes produced from it since.
+ * - Rename and delete carry the version the person confirmed. `shown`
+ *   waits for that todo's queued writes to land before it reads the version,
+ *   so nothing this app does changes the file while the person decides; a
+ *   different version when the action runs came from elsewhere, and is
+ *   refused.
  */
 import {
 	type FileCapture,
@@ -40,6 +42,7 @@ import {
 	todoPath,
 	todoStem,
 	todosOf,
+	unreadableOf,
 } from './todo-listing.js';
 
 /**
@@ -64,9 +67,6 @@ export type RepairDraft = {
 	readonly text: string;
 };
 
-/** How many of a todo's own writes a rename or delete can look back through. */
-const OWN_WRITES_KEPT = 8;
-
 export function createRows({
 	folder,
 	queryClient,
@@ -74,6 +74,7 @@ export function createRows({
 	defineMutation,
 	invalidate,
 	trackMutations,
+	whenIdle,
 	refused,
 	afterWrite,
 	onWriteFailed,
@@ -87,11 +88,6 @@ export function createRows({
 	const unsent = new Set<string>();
 	/** Repair text typed and not saved, by stem. It lives as long as the folder is open. */
 	const drafts = new SvelteMap<string, RepairDraft>();
-	/**
-	 * For each todo, the hashes this app's own writes produced, each mapped to
-	 * the hash it replaced: newest last, at most `OWN_WRITES_KEPT`.
-	 */
-	const ownWrites = new Map<string, Map<string, string>>();
 
 	/** What the cache holds for `stem`: a row, or why it is not one. */
 	function resultOf(stem: string) {
@@ -114,37 +110,10 @@ export function createRows({
 		return result.error.name === 'InvalidRow' ? result.error : undefined;
 	}
 
-	/** This app wrote `sha256` over `base` at `stem`. */
-	function wrote(stem: string, base: string, sha256: string) {
-		let links = ownWrites.get(stem);
-		if (links === undefined) {
-			links = new Map();
-			ownWrites.set(stem, links);
-		}
-		links.delete(sha256);
-		links.set(sha256, base);
-		if (links.size > OWN_WRITES_KEPT) {
-			const [oldest] = links.keys();
-			if (oldest !== undefined) links.delete(oldest);
-		}
-	}
-
-	/** Whether `sha256` is `shown`, or this app's own writes produced it from `shown`. */
-	function descends(stem: string, sha256: string, shown: string) {
-		const links = ownWrites.get(stem);
-		let current: string | undefined = sha256;
-		for (let hops = 0; hops <= OWN_WRITES_KEPT; hops++) {
-			if (current === shown) return true;
-			current = links?.get(current);
-			if (current === undefined) return false;
-		}
-		return false;
-	}
-
 	/**
 	 * What a rename or delete of `stem` acts on, decided when it runs: the
-	 * bytes the cache holds, if they are the version the person was `shown`
-	 * or one this app wrote from it since. Anything else is refused.
+	 * bytes the cache holds, if they are the version the person confirmed.
+	 * Anything else is refused.
 	 */
 	function confirmed(
 		stem: string,
@@ -156,7 +125,7 @@ export function createRows({
 			return TodosError.NotStarted({
 				reason: `This file is not in the list as Todos last read it, so nothing was ${done}.`,
 			});
-		if (!descends(stem, current.sha256, shown.sha256))
+		if (current.sha256 !== shown.sha256)
 			return TodosError.NotStarted({
 				reason: `The file changed after you chose this, so nothing was ${done}. Its current version is shown.`,
 			});
@@ -240,12 +209,25 @@ export function createRows({
 		todos: defineQuery({ ...listing, select: todosOf }),
 		/** The files in `todos/` that do not read as a todo, each with why. */
 		repairs: defineQuery({ ...listing, select: repairsOf }),
+		unreadable: defineQuery({ ...listing, select: unreadableOf }),
 		/** The listing entry of `stem`: its row, or why it is not one; `undefined` when absent. */
 		entry(stem: string) {
 			return defineQuery({
 				...listing,
 				select: (entries) => entries.find((entry) => entry.stem === stem),
 			});
+		},
+		/**
+		 * The version of `stem` a rename or delete confirms: what the cache holds
+		 * once that todo's queued writes have landed. Ask for it when the person
+		 * opens the confirmation, and pass it to `rename` or `remove`.
+		 */
+		async shown(stem: string): Promise<FileCapture | undefined> {
+			const path = todoPath(stem);
+			await whenIdle({
+				predicate: (mutation) => mutation.options.scope?.id === path,
+			});
+			return capturedOf(stem);
 		},
 		/** Whether `stem` is being renamed or deleted, which pauses its edits; read reactively. */
 		isMoving(stem: string) {
@@ -298,10 +280,7 @@ export function createRows({
 					// The stem leaves `unsent` whether or not there is a row to send.
 					const edited = unsent.delete(stem);
 					if (stored === undefined || !edited) return Ok(undefined);
-					const saved = await table.replace(stored, stored.row);
-					if (saved.error === null)
-						wrote(stem, stored.sha256, saved.data.sha256);
-					return saved;
+					return table.replace(stored, stored.row);
 				},
 				onSuccess: (saved) => {
 					if (saved === undefined) return;
@@ -382,9 +361,7 @@ export function createRows({
 					text: string;
 					base: FileCapture;
 				}): Promise<Result<FileCapture, FileError | TodosError>> => {
-					const saved = await folder.files.replace(base, text);
-					if (saved.error === null) wrote(stem, base.sha256, saved.data.sha256);
-					return saved;
+					return folder.files.replace(base, text);
 				},
 				// The view shows the written text before the draft goes.
 				onSuccess: async () => {
@@ -450,8 +427,7 @@ export function createRows({
 					if (error !== null) return Err(error);
 					return table.rename(capture, nextStem);
 				},
-				// The listing, a typed repair, and the app's own writes follow the
-				// file. The draft moves first: the listing's update drops a draft
+				// The listing and a typed repair follow the file. The draft moves first: the listing's update drops a draft
 				// whose stem it no longer holds.
 				onSuccess: (moved) => {
 					const draft = drafts.get(stem);
@@ -462,9 +438,6 @@ export function createRows({
 							base: { ...draft.base, path: moved.path },
 						});
 					}
-					const links = ownWrites.get(stem);
-					ownWrites.delete(stem);
-					if (links !== undefined) ownWrites.set(nextStem, links);
 					queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
 						entries?.map((entry) => {
 							if (entry.stem !== stem) return entry;
@@ -509,7 +482,6 @@ export function createRows({
 				},
 				onSuccess: () => {
 					unsent.delete(stem);
-					ownWrites.delete(stem);
 					queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
 						entries?.filter((entry) => entry.stem !== stem),
 					);

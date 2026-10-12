@@ -408,7 +408,7 @@ test('a row that is not a valid todo is named for repair; a repair writes the ty
 	await breakTodo(todos, 'bad', '---\ntitle: *missing\n---\n');
 	expect(todosOf(listing(todos))).toEqual([]);
 	expect(repairsOf(listing(todos))).toEqual([
-		{ stem: 'bad', path, kind: 'invalid', reason: expect.any(String) },
+		{ stem: 'bad', path, reason: expect.any(String) },
 	]);
 
 	// Text that still does not parse is written as typed, guarded by the hash
@@ -575,12 +575,22 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
 
-	const renaming = todos.rows.rename(stem, 'oat', shown(todos, stem));
+	// The version to confirm waits for the queued write.
+	let confirmed = false;
+	const confirming = todos.rows.shown(stem).then((version) => {
+		confirmed = true;
+		return version;
+	});
 	await Bun.sleep(5);
-	// The rename waits behind the write, and edits wait behind the rename.
+	expect(confirmed).toBe(false);
+	release();
+	const version = await confirming;
+	expect(version?.sha256).toBe(cached(todos, stem).sha256);
+
+	const renaming = todos.rows.rename(stem, 'oat', version!);
+	// Edits wait while the rename runs.
 	expect(todos.rows.isMoving(stem)).toBe(true);
 	expect(todos.rows.edit(stem, titled('Typed during the rename'))).toBe(false);
-	release();
 	expectOk(await renaming);
 	await quiet(todos);
 
@@ -658,16 +668,15 @@ test('a delete runs after the queued writes and removes only the Markdown file',
 	const { todos, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	expectOk(await todos.folder.files.create('todos/milk.png', 'not a todo'));
-	// Typing while the confirmation is open is written first.
+	// Typing just before the confirmation opens is written first.
 	const { held, release } = holdNextWrite();
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
-	// The confirmation was opened on the version before that write.
-	const removing = todos.rows.remove(stem, shown(todos, stem));
-	await Bun.sleep(5);
-	expect(await text(todos, path)).toContain('title: Milk\n');
+	const confirming = todos.rows.shown(stem);
 	release();
-	expectOk(await removing);
+	const version = await confirming;
+	expect(await text(todos, path)).toContain('title: Oat milk\n');
+	expectOk(await todos.rows.remove(stem, version!));
 	await quiet(todos);
 	expect(await text(todos, path)).toBeUndefined();
 	expect(todosOf(listing(todos))).toEqual([]);
@@ -695,18 +704,23 @@ test('a delete confirmed on a version changed elsewhere since, and read again, d
 	expect(await text(todos, 'todos/oat.md')).toBeUndefined();
 });
 
-test("a delete confirmed while the app's own write is queued deletes what that write saved", async () => {
+test("the version a delete confirms is the one the app's queued write saved, never the one before it", async () => {
 	const { todos, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
+	const before = shown(todos, stem);
 	const { held, release } = holdNextWrite();
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
-	const confirmedOn = shown(todos, stem);
+	const confirming = todos.rows.shown(stem);
 	release();
-	await quiet(todos);
-	expect(cached(todos, stem).sha256).not.toBe(confirmedOn.sha256);
-
-	expectOk(await todos.rows.remove(stem, confirmedOn));
+	const version = await confirming;
+	expect(version?.sha256).not.toBe(before.sha256);
+	expect(version?.sha256).toBe(cached(todos, stem).sha256);
+	// A version from before the app's own write is no longer what the file holds.
+	expect(expectErr(await todos.rows.remove(stem, before)).name).toBe(
+		'NotStarted',
+	);
+	expectOk(await todos.rows.remove(stem, version!));
 	expect(await text(todos, path)).toBeUndefined();
 });
 

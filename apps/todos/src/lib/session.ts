@@ -5,7 +5,7 @@
  * the session once per opened folder.
  */
 import type { FileError, TableError } from '@epicenter/folder';
-import type { QueryClient } from '@tanstack/query-core';
+import type { MutationFilters, QueryClient } from '@tanstack/query-core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { type createQueryFactories, defineKeys } from 'wellcrafted/query';
 import type { TodosFolder } from './platform/types.js';
@@ -57,6 +57,8 @@ export type Session = {
 	readonly invalidate: (queryKey?: readonly unknown[]) => Promise<void>;
 	/** Make the reading getter rerun when mutations start or settle. */
 	readonly trackMutations: () => void;
+	/** Resolves once nothing matching `filters` is mutating, including what starts meanwhile. */
+	readonly whenIdle: (filters?: MutationFilters) => Promise<void>;
 	/** Why no edit starts now, if one does not: Epicenter is asking to leave. */
 	readonly refused: () => string | undefined;
 	/** After a write settles: once it is the last one, everything is read again. */

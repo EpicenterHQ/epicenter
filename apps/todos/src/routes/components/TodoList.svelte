@@ -24,9 +24,10 @@
 	} = $props();
 
 	const listing = createQuery(() => todos.rows.todos.options);
-	const problems = createQuery(() => todos.rows.repairs.options);
-	const repairs = $derived(problems.data?.filter((file) => file.kind === 'invalid') ?? []);
-	const unreadable = $derived(problems.data?.filter((file) => file.kind === 'unreadable') ?? []);
+	const repairQuery = createQuery(() => todos.rows.repairs.options);
+	const unreadableQuery = createQuery(() => todos.rows.unreadable.options);
+	const repairs = $derived(repairQuery.data ?? []);
+	const unreadable = $derived(unreadableQuery.data ?? []);
 	/** The title typed for a new todo. It goes with the list: leaving with it half-typed drops it. */
 	let title = $state('');
 	// The failure is reported by the mutation, not this call, so it shows even

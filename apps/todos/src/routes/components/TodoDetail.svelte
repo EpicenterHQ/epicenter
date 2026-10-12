@@ -19,7 +19,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { type FileCapture, type Row, wellFormed } from '@epicenter/folder';
+	import { type Row, wellFormed } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import type { TodoFields } from '$lib/definition.js';
@@ -58,15 +58,6 @@
 	/** The repair text typed here and not saved; it lives in the store, so it outlasts this view. */
 	const draft = $derived(todos.rows.draft(stem));
 
-	/** The version this view shows, as a rename or delete carries it: a row's, or text that is not one. */
-	function shown(): FileCapture | undefined {
-		const result = todo.data?.result;
-		if (result === undefined) return undefined;
-		if (result.error === null) return { path: result.data.path, sha256: result.data.sha256 };
-		if (result.error.name === 'InvalidRow') return { path: result.error.path, sha256: result.error.sha256 };
-		return undefined;
-	}
-
 	/** Change the row in the cache, and queue a write when one is needed. */
 	function set(change: (row: Row<TodoFields>) => Row<TodoFields>) {
 		if (todos.rows.edit(stem, change)) write.mutate();
@@ -89,9 +80,13 @@
 	async function rename(event: SubmitEvent) {
 		event.preventDefault();
 		const name = nextName;
-		const version = shown();
-		if (locked || renaming || name === stem || version === undefined) return;
+		if (locked || renaming || name === stem) return;
 		renaming = true;
+		const version = await todos.rows.shown(stem);
+		if (version === undefined) {
+			renaming = false;
+			return;
+		}
 		const { error } = await todos.rows.rename(stem, name, version);
 		renaming = false;
 		if (error !== null) toast.error('Could not rename the file', { description: describeError(error) });
@@ -110,13 +105,12 @@
 
 	/**
 	 * Ask before deleting this file, named by its title when it has one. The
-	 * delete carries the version shown when the dialog opens: it runs after
-	 * the file's queued writes, and only on that version or one this app
-	 * wrote from it since.
+	 * dialog opens once the file's queued writes have landed, on the version
+	 * they left, and the delete runs only on that version.
 	 */
 	async function confirmDelete(title: string | undefined) {
+		const version = await todos.rows.shown(stem);
 		const lost = await history();
-		const version = shown();
 		if (version === undefined) return;
 		confirmationDialog.open({
 			title: `Delete “${title?.trim() ? title : `${stem}.md`}”?`,
