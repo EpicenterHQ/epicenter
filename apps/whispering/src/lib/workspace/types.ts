@@ -110,6 +110,21 @@ export type RecordingWriteHook = <T>(
 	run: () => Promise<T>,
 ) => Promise<T>;
 
+/** The desktop window a page runs in, as far as closing it goes. */
+export type WorkspaceWindow = {
+	/**
+	 * Run `handler` when the window is asked to close: its close button or
+	 * Quit. The shell awaits the handler; `preventDefault` keeps the window
+	 * open, and once the handler returns otherwise, the window is destroyed.
+	 * Resolves to how to stop listening.
+	 */
+	onCloseRequested(
+		handler: (event: { preventDefault(): void }) => void | Promise<void>,
+	): Promise<() => void>;
+	/** Unminimize, show, and focus the window, before the person is asked something. */
+	reveal(): Promise<void>;
+};
+
 export type Workspace = {
 	readonly kind: 'native' | 'browser';
 	readonly folder: WhisperingFolder;
@@ -175,6 +190,11 @@ export type Workspace = {
 			microphone: MicrophonePreference | undefined,
 		): Promise<string | undefined>;
 	};
+	/**
+	 * The desktop window this page runs in. Undefined in a browser tab, which
+	 * closes without asking the page; its leave rule is the browser's.
+	 */
+	readonly window: WorkspaceWindow | undefined;
 	/** Whether debug controls are offered. */
 	readonly debugControls: boolean;
 	/** Failure injection, in a debug desktop shell only. */

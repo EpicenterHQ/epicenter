@@ -3,25 +3,52 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { openHost } from '#platform/notes-host';
+	import { onCloseRequested } from '#platform/window';
 	import { onDestroy } from 'svelte';
-	import { createNotes } from '$lib/notes.svelte.js';
+	import { createLogger } from 'wellcrafted/logger';
+	import { createNotes, type Notes } from '$lib/notes.svelte.js';
 	import NotesView from './components/NotesView.svelte';
+
+	const log = createLogger('honeycrisp/page');
+
+	// Ending the page is `close`, however it ends: it refuses new work, lets
+	// running actions and saves finish, and releases the folder. The window's
+	// close handler awaits it before the window goes, and unmounting calls it
+	// too. Before the notes exist there is nothing to wait for, so a close
+	// while opening, or after opening failed, goes ahead at once.
+	let notes: Notes | undefined;
+	async function close() {
+		try {
+			await notes?.close();
+		} catch (cause) {
+			log.warn(new Error('Closing the notes failed.', { cause }));
+		}
+	}
+	const listening = onCloseRequested?.(close).catch((cause: unknown) => {
+		log.warn(new Error('Listening for the window to close failed.', { cause }));
+		return undefined;
+	});
 
 	// The mounted page acquires the folder; importing modules opens nothing.
 	const opening = (async () => {
+		// The handler is registered before anything can be edited.
+		await listening;
 		const host = await openHost();
 		try {
 			const opened = createNotes(host);
+			notes = opened;
 			await opened.check();
 			return opened;
 		} catch (cause) {
+			notes = undefined;
 			await host.close();
 			throw cause;
 		}
 	})();
 
 	onDestroy(() => {
-		void opening.then((opened) => opened.close()).catch(() => {});
+		void listening?.then((stop) => stop?.());
+		void opening.then(close, () => {});
 	});
 </script>
 

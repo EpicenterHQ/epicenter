@@ -48,3 +48,13 @@ export type OpenCaptureHost = () => Promise<CaptureHost>;
  * stop listening. A browser has no such service.
  */
 export type OnHostStopped = (listener: () => void) => Promise<() => void>;
+
+/**
+ * Run `handler` when this window is asked to close: its close button, Quit,
+ * or a host restart. Tauri awaits the handler; `preventDefault` keeps the
+ * window open, and once the handler returns otherwise, the window is
+ * destroyed. Resolves to how to stop listening.
+ */
+export type OnCloseRequested = (
+	handler: (event: { preventDefault(): void }) => void | Promise<void>,
+) => Promise<() => void>;

@@ -74,3 +74,13 @@ export type NotesHost = {
  * open its folder rejects; there is no other store to fall back to.
  */
 export type OpenHost = () => Promise<NotesHost>;
+
+/**
+ * Run `handler` when this window is asked to close: its close button or
+ * Quit. Tauri awaits the handler; `preventDefault` keeps the
+ * window open, and once the handler returns otherwise, the window is
+ * destroyed. Resolves to how to stop listening.
+ */
+export type OnCloseRequested = (
+	handler: (event: { preventDefault(): void }) => void | Promise<void>,
+) => Promise<() => void>;

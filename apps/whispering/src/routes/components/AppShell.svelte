@@ -31,8 +31,9 @@
 	// Typing, captured audio, and received text that have not reached the folder
 	// live only in this window. Moving between this app's pages keeps all of it,
 	// so that is never held back. Leaving the document is: in a browser tab the
-	// cancel becomes the browser's leave warning. Closing the desktop app does
-	// not ask; the session flushes its saves in flight and the window goes.
+	// cancel becomes the browser's leave warning. Closing the desktop window is
+	// the layout's: it waits for the session to close, asking first only while
+	// a recording is in progress.
 	beforeNavigate((navigation) => {
 		// svelte-ignore state_referenced_locally
 		if (session.blocksNavigation(navigation)) navigation.cancel();

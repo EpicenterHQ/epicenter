@@ -26,6 +26,7 @@
  */
 
 import { openFolder } from '@epicenter/folder/tauri';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type BridgeConnection, createHttpBridge } from '../bridge/http.js';
 import {
@@ -209,6 +210,18 @@ export async function openDesktopWorkspace(
 				} catch (cause) {
 					return describe(cause);
 				}
+			},
+		},
+		// The shell closes the window through Tauri; the page's handler runs
+		// first (`routes/+layout.svelte`).
+		window: {
+			onCloseRequested: (handler) =>
+				getCurrentWindow().onCloseRequested(handler),
+			async reveal() {
+				const current = getCurrentWindow();
+				await current.unminimize();
+				await current.show();
+				await current.setFocus();
 			},
 		},
 		debugControls: info.debug,

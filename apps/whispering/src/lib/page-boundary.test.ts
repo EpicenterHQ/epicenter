@@ -75,11 +75,15 @@ test('the page imports no Node or Bun module, and Tauri only in the workspace', 
 				specifier.includes('/native/'),
 		),
 	).toEqual([]);
-	// The Tauri API the page names: the opener asks whether it is inside a
-	// desktop app. Folder commands and events are the folder adapter's.
+	// The Tauri APIs the page names: the opener asks whether it is inside a
+	// desktop app, and the desktop workspace hears its window asked to close.
+	// Folder commands and events are the folder adapter's.
 	expect(
 		importers((specifier) => specifier.startsWith('@tauri-apps/')).sort(),
-	).toEqual(['lib/workspace/index.ts imports @tauri-apps/api/core']);
+	).toEqual([
+		'lib/workspace/desktop.ts imports @tauri-apps/api/window',
+		'lib/workspace/index.ts imports @tauri-apps/api/core',
+	]);
 });
 
 test('a folder is opened only by the two workspaces, each through its own entry', () => {

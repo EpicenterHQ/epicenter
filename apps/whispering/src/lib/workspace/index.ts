@@ -20,6 +20,7 @@ export type {
 	WhisperingFolder,
 	Workspace,
 	WorkspaceError,
+	WorkspaceWindow,
 } from './types.js';
 
 declare global {

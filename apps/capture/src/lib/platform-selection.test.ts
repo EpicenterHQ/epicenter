@@ -76,6 +76,18 @@ describe('#platform/folder', () => {
 			expect(
 				modules.filter((path) => /legacy\/|open-store\.ts$|@y[+/]/.test(path)),
 			).toEqual([]);
+			// The window leaf hears this window asked to close, through Tauri.
+			expect(
+				modules.some((path) =>
+					path.endsWith('platform/window.epicenter-host.ts'),
+				),
+			).toBe(true);
+			expect(
+				modules.some((path) => /@tauri-apps\/api\/window\.js$/.test(path)),
+			).toBe(true);
+			expect(
+				modules.some((path) => path.endsWith('platform/window.browser.ts')),
+			).toBe(false);
 			// Of the host package, only its page side of the host-stopped signal:
 			// never the Bun host.
 			expect(
@@ -105,6 +117,17 @@ describe('#platform/folder', () => {
 			expect(
 				modules.filter((path) =>
 					/folder\/src\/browser-(store|migration)\.ts$|fake-indexeddb/.test(
+						path,
+					),
+				),
+			).toEqual([]);
+			// A tab has no close handler: the browser leaf, and no Tauri window.
+			expect(
+				modules.some((path) => path.endsWith('platform/window.browser.ts')),
+			).toBe(true);
+			expect(
+				modules.filter((path) =>
+					/platform\/window\.epicenter-host\.ts$|@tauri-apps\/api\/window\.js$/.test(
 						path,
 					),
 				),

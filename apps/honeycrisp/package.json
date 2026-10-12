@@ -8,6 +8,10 @@
 		"#platform/notes-host": {
 			"tauri": "./src/lib/platform/notes-host.tauri.ts",
 			"default": "./src/lib/platform/notes-host.browser.ts"
+		},
+		"#platform/window": {
+			"tauri": "./src/lib/platform/window.tauri.ts",
+			"default": "./src/lib/platform/window.browser.ts"
 		}
 	},
 	"scripts": {

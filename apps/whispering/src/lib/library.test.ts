@@ -180,6 +180,7 @@ async function open({
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
 		},
+		window: undefined,
 		debugControls: true,
 		// A debug shell's injection: the row write fails after the audio landed.
 		injection: testInjection(directory, { audio: 0, row: failRowWrites }),

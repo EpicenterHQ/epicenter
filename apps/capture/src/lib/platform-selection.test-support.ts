@@ -3,3 +3,4 @@
  * bundles this under each build condition to see which leaf it resolves.
  */
 export { onHostStopped, openCaptureHost } from '#platform/folder';
+export { onCloseRequested } from '#platform/window';

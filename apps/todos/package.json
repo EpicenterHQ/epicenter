@@ -8,6 +8,10 @@
 		"#platform/folder": {
 			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
 			"default": "./src/lib/platform/folder.browser.ts"
+		},
+		"#platform/window": {
+			"epicenter-host": "./src/lib/platform/window.epicenter-host.ts",
+			"default": "./src/lib/platform/window.browser.ts"
 		}
 	},
 	"scripts": {

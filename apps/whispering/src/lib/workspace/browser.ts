@@ -255,6 +255,7 @@ export async function openBrowserWorkspace(): Promise<
 				}
 			},
 		},
+		window: undefined,
 		debugControls: import.meta.env.DEV,
 		injection: undefined,
 		close: () => folder.close(),

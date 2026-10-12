@@ -71,6 +71,18 @@ describe('#platform/folder', () => {
 			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 			expect(modules.some(folderModule('tauri-adapter.ts'))).toBe(true);
 			expect(modules.some(folderModule('native/bindings.gen.ts'))).toBe(true);
+			// The window leaf hears this window asked to close, through Tauri.
+			expect(
+				modules.some((path) =>
+					path.endsWith('platform/window.epicenter-host.ts'),
+				),
+			).toBe(true);
+			expect(
+				modules.some((path) => /@tauri-apps\/api\/window\.js$/.test(path)),
+			).toBe(true);
+			expect(
+				modules.some((path) => path.endsWith('platform/window.browser.ts')),
+			).toBe(false);
 			// Nothing of the host package: the page never reaches its Bun entry.
 			expect(
 				modules.filter((path) => /apps\/epicenter\/src\//.test(path)),
@@ -102,6 +114,17 @@ describe('#platform/folder', () => {
 			expect(modules.some((path) => path.includes('isomorphic-git'))).toBe(
 				true,
 			);
+			// A tab has no close handler: the browser leaf, and no Tauri window.
+			expect(
+				modules.some((path) => path.endsWith('platform/window.browser.ts')),
+			).toBe(true);
+			expect(
+				modules.filter((path) =>
+					/platform\/window\.epicenter-host\.ts$|@tauri-apps\/api\/window\.js$/.test(
+						path,
+					),
+				),
+			).toEqual([]);
 			// The browser reaches nothing of the host's.
 			expect(
 				modules.filter((path) =>

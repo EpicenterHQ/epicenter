@@ -3,29 +3,52 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { onDestroy } from 'svelte';
+	import { createLogger } from 'wellcrafted/logger';
 	import { Ok } from 'wellcrafted/result';
 	import { openTodosFolder } from '#platform/folder';
-	import { createTodos } from '$lib/todos.svelte.js';
+	import { onCloseRequested } from '#platform/window';
+	import { createTodos, type Todos } from '$lib/todos.svelte.js';
 	import TodosView from './components/TodosView.svelte';
+
+	const log = createLogger('todos/page');
 
 	// The mounted page acquires the folder; importing modules opens nothing.
 	// Which folder is the build's choice: a browser folder, or the desktop
 	// host's directory. A folder that cannot be opened is shown as that
 	// refusal; nothing else is opened in its place.
+	//
+	// Ending the page is `close`, however it ends: it refuses new work, lets
+	// running work and saves finish, and releases the folder. The window's
+	// close handler awaits it before the window goes, and unmounting calls it
+	// too. Before the todos exist there is nothing to wait for, so a close
+	// while opening, or after the folder was refused, goes ahead at once.
+	let todos: Todos | undefined;
+	async function close() {
+		try {
+			await todos?.close();
+		} catch (cause) {
+			log.warn(new Error('Closing the todos failed.', { cause }));
+		}
+	}
+	const listening = onCloseRequested?.(close).catch((cause: unknown) => {
+		log.warn(new Error('Listening for the window to close failed.', { cause }));
+		return undefined;
+	});
 	const opening = (async () => {
+		// The handler is registered before anything can be edited.
+		await listening;
 		const opened = await openTodosFolder();
-		return opened.error ? opened : Ok(createTodos(opened.data));
+		if (opened.error) return opened;
+		todos = createTodos(opened.data);
+		return Ok(todos);
 	})().then(async (opened) => {
 		await opened.data?.check();
 		return opened;
 	});
 
-	// Teardown, not a choice about input. It runs when SvelteKit destroys this
-	// page, which TodosView's beforeNavigate refuses while anything is
-	// unsaved; closing or hiding the window, quitting, and a host restart
-	// never run it. `close` saves what may save and names what it could not.
 	onDestroy(() => {
-		void opening.then((opened) => opened.data?.close()).catch(() => {});
+		void listening?.then((stop) => stop?.());
+		void opening.then(close, () => {});
 	});
 </script>
 

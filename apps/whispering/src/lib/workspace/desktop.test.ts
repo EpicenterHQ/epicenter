@@ -53,6 +53,25 @@ mock.module('@tauri-apps/api/event', () => ({
 	},
 }));
 
+/** What the page asked of its Tauri window, in order, and its close handlers. */
+const windowAsked: string[] = [];
+const closeHandlers = new Set<
+	(event: { preventDefault(): void }) => void | Promise<void>
+>();
+mock.module('@tauri-apps/api/window', () => ({
+	getCurrentWindow: () => ({
+		async onCloseRequested(
+			handler: (event: { preventDefault(): void }) => void | Promise<void>,
+		) {
+			closeHandlers.add(handler);
+			return () => closeHandlers.delete(handler);
+		},
+		unminimize: async () => void windowAsked.push('unminimize'),
+		show: async () => void windowAsked.push('show'),
+		setFocus: async () => void windowAsked.push('setFocus'),
+	}),
+}));
+
 const { openWorkspace } = await import('./index.js');
 const { openBrowserWorkspace } = await import('./browser.js');
 const { openDesktopWorkspace } = await import('./desktop.js');
@@ -477,6 +496,34 @@ test('a row save whose reply the shell never sent stays unknown, and later input
 	expect(written[2]).toContain('Tidy it more.');
 
 	session.release();
+	await workspace.close();
+});
+
+// ============================================================================
+// The window
+// ============================================================================
+
+test('the desktop workspace hears its window asked to close, and reveals it to ask', async () => {
+	setup();
+	attachable();
+	const served = host();
+	const workspace = expectOk(
+		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
+	);
+	windowAsked.length = 0;
+	let heard = 0;
+	const stop = await workspace.window!.onCloseRequested(() => {
+		heard += 1;
+	});
+	for (const handler of closeHandlers) await handler({ preventDefault() {} });
+	expect(heard).toBe(1);
+	stop();
+	expect(closeHandlers.size).toBe(0);
+
+	await workspace.window!.reveal();
+	expect(windowAsked).toEqual(['unminimize', 'show', 'setFocus']);
+	// Closing goes through Tauri's window, not the host.
+	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
 	await workspace.close();
 });
 

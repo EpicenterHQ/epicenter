@@ -361,6 +361,7 @@ export async function openTestWorkspace({
 			microphone: async () => undefined,
 			setMicrophone: async () => undefined,
 		},
+		window: undefined,
 		debugControls: true,
 		injection:
 			failAudioWrites > 0 || failRowWrites > 0

@@ -726,6 +726,10 @@ export function createLibrary(workspace: Workspace) {
 		get recorder() {
 			return recorder;
 		},
+		/** Whether a recording is starting, running, or stopping. */
+		get recording() {
+			return recorder.phase !== 'idle';
+		},
 		get recorderError() {
 			return recorderError;
 		},
