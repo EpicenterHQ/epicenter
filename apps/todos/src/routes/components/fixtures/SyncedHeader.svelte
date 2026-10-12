@@ -9,4 +9,4 @@
 	const sync = createMutation(() => todos.sync.run.options);
 </script>
 
-<AppHeader {sync} filesOpen={false} terminalOpen={false} onToggleFiles={() => {}} onToggleTerminal={() => {}} />
+<AppHeader {sync} />

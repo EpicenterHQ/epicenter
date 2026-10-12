@@ -37,13 +37,7 @@ import {
 	prepareGitSession,
 } from '../../server/git-server.js';
 import { todosDefinition } from './definition.js';
-import {
-	cached,
-	observe,
-	quiet,
-	rowEditor,
-	textEditor,
-} from './query.test-support.js';
+import { cached, observe, quiet, rowEditor } from './query.test-support.js';
 import {
 	INCOMING_WAITS,
 	incomingLine,
@@ -150,9 +144,14 @@ async function openDemo() {
 
 /** The app creates a milk todo and syncs it; the native checkout pulls it. */
 async function shareMilk(todos: Todos, session: GitSession) {
-	expectOk(await todos.rows.create('Buy milk'));
-	const created = todos.selected!.path;
-	expectOk(await todos.files.rename(created, 'milk.md'));
+	const created = expectOk(await todos.rows.create('Buy milk'));
+	await quiet(todos);
+	expectOk(
+		await todos.rows.rename(
+			created.path.slice('todos/'.length, -'.md'.length),
+			'milk',
+		),
+	);
 	expect(expectOk(await todos.sync.run())).toMatchObject({ kind: 'synced' });
 	await quiet(todos);
 	await run(session.nativeCheckout, [
@@ -358,11 +357,10 @@ test('recovery names a path in neither state and writes nothing, until the file 
 	expect(todos.git.snapshot.pendingIncoming).toEqual(pending);
 	expect(await text(todos, MILK)).toBe(third);
 
-	// The person makes it hold the version from before the update, as text in Files.
-	todos.select(MILK, 'files');
-	cleanup.push(observe(todos, MILK));
-	await quiet(todos);
-	textEditor(todos, MILK)(before);
+	// The person makes it hold the version from before the update, with
+	// another program, and returns to Todos.
+	expectOk(await todos.folder.files.overwrite(MILK, before));
+	await todos.refresh();
 	await quiet(todos);
 	expect(await text(todos, MILK)).toBe(before);
 
@@ -372,13 +370,6 @@ test('recovery names a path in neither state and writes nothing, until the file 
 	await quiet(todos);
 	expect(todos.git.snapshot.pendingIncoming).toBeUndefined();
 	expect(await text(todos, MILK)).toBe(MILK_REMOTE);
-	expect(
-		todos.queryClient.getQueryData<{ kind: string; file?: { text: string } }>([
-			'todos',
-			'text',
-			MILK,
-		]),
-	).toMatchObject({ kind: 'text', file: { text: MILK_REMOTE } });
 	expect(cached(todos, 'milk').row.fields.title).toBe('Buy oat milk');
 	expect(incomingLine(todos.git.snapshot)).toBeUndefined();
 	// History continues.

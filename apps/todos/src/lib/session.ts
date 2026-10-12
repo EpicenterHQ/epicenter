@@ -1,8 +1,8 @@
 /**
  * What the store's parts share: the cache keys, the refusal error and its
- * message, the selection and write-failure types, and the session each domain
- * (`rows.ts`, `files.ts`, `git.ts`, `sync.ts`) is built over. The store (`todos.svelte.ts`) creates the session once per opened
- * folder.
+ * message, the write-failure type, and the session each domain (`rows.ts`,
+ * `git.ts`, `sync.ts`) is built over. The store (`todos.svelte.ts`) creates
+ * the session once per opened folder.
  */
 import type { FileError, TableError } from '@epicenter/folder';
 import type { QueryClient } from '@tanstack/query-core';
@@ -15,19 +15,17 @@ export const todosKeys = defineKeys({
 	/** Every query the app keeps; read again after the app's own actions. */
 	all: ['todos'],
 	rows: ['todos', 'rows'],
-	files: ['todos', 'files'],
 	status: ['todos', 'status'],
-	text: (path: string) => ['todos', 'text', path] as const,
-	/** Every write of a row or a file's text. */
+	/** Every write of a todo's file: a row's fields, or a repair's text. */
 	writes: ['todos', 'write'],
 	write: (path: string) => ['todos', 'write', 'row', path] as const,
-	writeText: (path: string) => ['todos', 'write', 'text', path] as const,
+	repair: (path: string) => ['todos', 'write', 'repair', path] as const,
 	move: (path: string) => ['todos', 'move', path] as const,
 	remove: (path: string) => ['todos', 'remove', path] as const,
 	recoverIncoming: ['todos', 'recover-incoming'],
 });
 
-/** Why an action did not start: Epicenter asks to leave, or a name or folder refuses it. */
+/** Why an action did not start: Epicenter asks to leave, or a name refuses it. */
 export const TodosError = defineErrors({
 	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
 });
@@ -37,20 +35,10 @@ export type TodosError = InferErrors<typeof TodosError>;
 export const DEPARTING =
 	'Epicenter is asking to quit or restart, so nothing is changed now.';
 
-/**
- * What the detail shows: a todo's fields (`todos`), a file's complete text
- * (`files`), or a todo whose text does not read as a todo, opened as text
- * from the list (`repair`).
- */
-export type Selection = {
-	readonly path: string;
-	readonly as: 'todos' | 'files' | 'repair';
-};
-
-/** A write that failed and was rolled back to the file. */
+/** A write that failed: a row's was rolled back to the file; a repair's text was not written. */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: TableError | FileError;
+	readonly error: TableError | FileError | TodosError;
 	/** The text that was in the editor and is not in the file. */
 	readonly lost: string;
 };
@@ -63,7 +51,7 @@ export type Session = {
 	readonly defineMutation: ReturnType<
 		typeof createQueryFactories
 	>['defineMutation'];
-	/** Resolves once no write of a row or a file's text is running or waiting. */
+	/** Resolves once no write of a todo's file is running or waiting. */
 	readonly writesSettled: () => Promise<void>;
 	/** Read `queryKey` again, unless a write runs: then the last write reads. */
 	readonly invalidate: (queryKey?: readonly unknown[]) => Promise<void>;
@@ -71,15 +59,8 @@ export type Session = {
 	readonly trackMutations: () => void;
 	/** Why no edit starts now, if one does not: Epicenter is asking to leave. */
 	readonly refused: () => string | undefined;
-	/** Whether a rename or delete of `path` runs or waits, which pauses its edits. */
-	readonly moving: (path: string) => boolean;
 	/** After a write settles: once it is the last one, everything is read again. */
 	readonly afterWrite: () => Promise<void> | undefined;
-	/** A write failed and was rolled back; the page tells the person. */
+	/** A write failed; the page tells the person. */
 	readonly onWriteFailed: (failure: WriteFailure) => void;
-	/** What the detail shows. Actions move it with the file they act on. */
-	readonly selection: {
-		readonly current: Selection | undefined;
-		set(next: Selection | undefined): void;
-	};
 };

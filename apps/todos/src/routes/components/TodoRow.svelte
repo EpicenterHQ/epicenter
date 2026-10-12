@@ -14,17 +14,17 @@
 
 	let {
 		entry,
+		selected = false,
 		onOpen,
 	}: {
 		entry: TodoEntry;
-		onOpen?: () => void;
+		/** Whether the detail shows this todo. */
+		selected?: boolean;
+		onOpen?: (stem: string) => void;
 	} = $props();
 
 	const write = createMutation(() => todos.rows.write(entry.stem).options);
-	const selected = $derived(todos.selected?.as === 'todos' && todos.selected.path === entry.path);
 	const done = $derived(entry.row.fields.done);
-	/** While the todo is open as text, its text is what saves, so its checkbox waits. */
-	const asText = $derived(todos.selected?.path === entry.path && todos.selected.as !== 'todos');
 	const title = $derived.by(() => {
 		const typed = entry.row.fields.title;
 		if (typed.trim() !== '') return typed;
@@ -46,7 +46,7 @@
 					write.mutate();
 			}
 		}
-		disabled={asText || todos.files.isMoving(entry.path)}
+		disabled={todos.rows.isMoving(entry.stem)}
 		aria-label="{done ? 'Reopen' : 'Complete'} {title}"
 	/>
 	<Button
@@ -54,10 +54,7 @@
 		class="h-auto min-h-9 min-w-0 flex-1 justify-start whitespace-normal text-left"
 		aria-current={selected ? 'true' : undefined}
 		data-todo={entry.path}
-		onclick={() => {
-			todos.select(entry.path, 'todos');
-			onOpen?.();
-		}}
+		onclick={() => onOpen?.(entry.stem)}
 	>
 		<span class="line-clamp-2 break-anywhere {done ? 'text-muted-foreground line-through' : ''}">{title}</span>
 	</Button>

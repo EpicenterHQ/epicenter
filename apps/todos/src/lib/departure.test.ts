@@ -9,15 +9,15 @@
  * cover what this store fences, waits for, counts, and gives back.
  *
  * Key behaviors:
- * - A write, a sync, or a terminal command still running is waited for
- *   before `ready`: the page waits until nothing is mutating
+ * - A write or a sync still running is waited for before `ready`: the page
+ *   waits until nothing is mutating
  * - Only input never committed counts as unsaved: a new todo's typed
  *   title. A round cancelled elsewhere, or by "Keep working", gives it back
  * - Leaving anyway is a `ready` vote only: nothing is discarded, and an
  *   `idle` that follows gives everything back
  * - `granted`, `leaving`, and a `discarded` vote stay fenced
- * - While fenced, every edit, action, Git command, and terminal command is
- *   refused, and resuming gives them back
+ * - While fenced, every edit, action, and Git command is refused, and
+ *   resuming gives them back
  * - Close waits for a running sync through its last step
  */
 import './svelte-modules.test-support.js';
@@ -172,25 +172,6 @@ function heldSync(run: ReturnType<typeof gate>) {
 	});
 }
 
-/** The folder with each terminal command held at `exec` before it runs. */
-function heldTerminal(exec: ReturnType<typeof gate>) {
-	return (folder: TodosFolder): TodosFolder => ({
-		...folder,
-		terminal(options) {
-			const shell = folder.terminal(options);
-			return {
-				get cwd() {
-					return shell.cwd;
-				},
-				async exec(command, execOptions) {
-					await exec.wait();
-					return shell.exec(command, execOptions);
-				},
-			};
-		},
-	});
-}
-
 test('a write still running is waited for before the page answers ready', async () => {
 	const { host, departure, todos, text, holdNextSave } = await started();
 	const { stem, path } = await addTodo(todos, 'Milk');
@@ -258,43 +239,31 @@ test('granted, leaving, and a discarded vote stay fenced: nothing is edited or s
 	}
 });
 
-test('while fenced, every edit, action, Git command, and terminal command is refused; resuming gives them back', async () => {
+test('while fenced, every edit, action, and Git command is refused; resuming gives them back', async () => {
 	const { todos, text } = await openTodos();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	expectOk(await todos.folder.files.create('notes.txt', 'saved'));
+	expectOk(await todos.folder.files.create('todos/bad.md', 'not a todo'));
+	await todos.refresh();
+	await quiet(todos);
 	const saved = await text(path);
-	const deletion = expectOk(await todos.files.deletionFor('notes.txt'));
 
 	todos.departure.fence();
 	expect(todos.rows.edit(stem, titled('Late'))).toBe(false);
-	expect(todos.files.editText('notes.txt', 'typed')).toBe(false);
 	const refusal = { name: 'NotStarted', reason: DEPARTING };
 	expect(expectErr(await todos.rows.create('New'))).toMatchObject(refusal);
-	expect(expectErr(await todos.files.rename(path, 'oat.md'))).toMatchObject(
+	expect(expectErr(await todos.rows.rename(stem, 'oat'))).toMatchObject(
 		refusal,
 	);
-	expect(expectErr(await todos.files.deletionFor(path))).toMatchObject(refusal);
-	expect(expectErr(await todos.files.remove(deletion))).toMatchObject(refusal);
-	expect(
-		expectErr(
-			await todos.files.createFile({ directory: '', name: 'more.txt' }),
-		),
-	).toMatchObject(refusal);
-	expect(
-		expectErr(await todos.files.createFolder({ directory: '', name: 'docs' })),
-	).toMatchObject(refusal);
+	expect(expectErr(await todos.rows.remove(stem))).toMatchObject(refusal);
+	expect(expectErr(await todos.rows.repair('bad')('typed'))).toMatchObject(
+		refusal,
+	);
 	expect(expectErr(await todos.git.saveVersion())).toMatchObject(refusal);
 	expect(expectErr(await todos.git.recoverIncoming())).toMatchObject(refusal);
 	expect(expectErr(await todos.sync.run()).message).toContain(DEPARTING);
-	// The terminal takes no typing and Enter runs nothing.
-	todos.terminal.command = 'touch shell.txt';
-	expect(todos.terminal.command).toBe('');
-	await todos.terminal.run();
-	expect(todos.terminal.runs).toEqual([]);
 	await settle();
-	expect(await text('shell.txt')).toBeUndefined();
 	expect(await text(path)).toBe(saved);
-	expect(await text('notes.txt')).toBe('saved');
+	expect(await text('todos/bad.md')).toBe('not a todo');
 	expect(todos.git.snapshot.lastCommit).toBeUndefined();
 
 	todos.departure.resume();
@@ -302,8 +271,8 @@ test('while fenced, every edit, action, Git command, and terminal command is ref
 	rowEditor(todos, stem)(titled('After'));
 	await quiet(todos);
 	expect(await text(path)).toContain('title: After');
-	expectOk(await todos.files.remove(deletion));
-	expect(await text('notes.txt')).toBeUndefined();
+	expectOk(await todos.rows.remove(stem));
+	expect(await text(path)).toBeUndefined();
 });
 
 for (const ending of [
@@ -350,59 +319,4 @@ test('close waits for a running sync through its last step', async () => {
 	expect(expectErr(await syncing).name).toBe('NoRemote');
 	await closing;
 	expect(closed).toBe(true);
-});
-
-test('a terminal command admitted before a departure is waited for; meanwhile the session keeps its command, history, and output, and Enter does nothing', async () => {
-	const exec = gate();
-	const { host, todos, text } = await started(heldTerminal(exec));
-	const { terminal } = todos;
-	terminal.command = 'echo first > first.txt';
-	const running = terminal.run();
-	await exec.entered.promise;
-	host.begin('quit');
-	host.nudge();
-	await settle();
-	expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
-	exec.open();
-	await running;
-	await eventually(() => host.answers.length >= 2);
-	expect(host.answers.at(-1)?.answer).toBe('ready');
-	expect(await text('first.txt')).toBe('first\n');
-
-	// Fenced: typing, recall, and Enter change nothing.
-	const runs = terminal.runs.length;
-	terminal.command = 'echo second > second.txt';
-	expect(terminal.command).toBe('');
-	expect(terminal.recall('previous')).toBe(false);
-	expect(terminal.isFenced).toBe(true);
-	await terminal.run();
-	expect(terminal.runs.length).toBe(runs);
-	expect(exec.calls).toBe(1);
-
-	// The quit is cancelled elsewhere: the terminal takes typing again.
-	host.set({ phase: 'idle' });
-	host.nudge();
-	await settle();
-	expect(terminal.isFenced).toBe(false);
-	terminal.command = 'echo kept';
-	expect(terminal.command).toBe('echo kept');
-	expect(terminal.recall('previous')).toBe(true);
-	expect(terminal.command).toBe('echo first > first.txt');
-});
-
-test('a command typed in the terminal before a departure stays exactly as typed through a cancelled round, and is not counted as unsaved', async () => {
-	const { host, todos } = await started();
-	const { terminal } = todos;
-	terminal.command = 'git status';
-	host.begin('quit');
-	host.nudge();
-	await settle();
-	expect(host.answers.map((answer) => answer.answer)).toEqual(['ready']);
-	await terminal.run();
-	expect(terminal.command).toBe('git status');
-	expect(terminal.runs).toEqual([]);
-	host.set({ phase: 'idle' });
-	host.nudge();
-	await settle();
-	expect(terminal.command).toBe('git status');
 });

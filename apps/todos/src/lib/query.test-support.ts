@@ -9,7 +9,7 @@
  * together.
  *
  * The helpers stand in for what the views do: a screen that shows a query
- * observes it, and a view that edits a file creates its own write mutation
+ * observes it, and a view that edits a todo creates its own write mutation
  * and queues a write only when the store's `edit` says one is needed.
  */
 import type { Row, StoredRow } from '@epicenter/folder';
@@ -43,31 +43,15 @@ export function rowEditor(todos: Todos, stem: string) {
 	};
 }
 
-/** What a view showing the text of `path` does with each keystroke. */
-export function textEditor(todos: Todos, path: string) {
-	const options = todos.files.writeText(path).options;
-	return (text: string) => {
-		if (todos.files.editText(path, text)) void mutate(todos, options);
-	};
-}
-
 /**
- * Observe the queries the open screens show, so invalidation reads them
+ * Observe the todo listing as the open screens do, so invalidation reads it
  * again as it does in the app. Returns the function that stops observing.
  */
-export function observe(todos: Todos, ...paths: string[]) {
-	const observers = [
-		new QueryObserver(todos.queryClient, todos.rows.list.options),
-		new QueryObserver(todos.queryClient, todos.files.list.options),
-		...paths.map(
-			(path) =>
-				new QueryObserver(todos.queryClient, todos.files.text(path).options),
-		),
-	];
-	const stops = observers.map((observer) => observer.subscribe(() => {}));
-	return () => {
-		for (const stop of stops) stop();
-	};
+export function observe(todos: Todos) {
+	return new QueryObserver(
+		todos.queryClient,
+		todos.rows.list.options,
+	).subscribe(() => {});
 }
 
 /** Wait until nothing is mutating or fetching. */

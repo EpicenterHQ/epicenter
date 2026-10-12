@@ -7,9 +7,7 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import HistoryIcon from '@lucide/svelte/icons/history';
-	import PanelLeftIcon from '@lucide/svelte/icons/panel-left';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
-	import SquareTerminalIcon from '@lucide/svelte/icons/square-terminal';
 	import {
 		type CreateMutationResult,
 		createMutation,
@@ -31,26 +29,18 @@
 	import { describeError } from '$lib/describe-error.js';
 	import type { TodosError } from '$lib/session.js';
 	import { getTodos } from '$lib/todos.svelte.js';
-	import { copyPath } from './file-actions.js';
+	import { copyPath } from './actions.js';
 
 	const todos = getTodos();
 
 	let {
 		sync,
 		reviewing = false,
-		filesOpen,
-		terminalOpen,
-		onToggleFiles,
-		onToggleTerminal,
 	}: {
 		/** The page's Sync; a sync that needs choices opens the review the page shows. */
 		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, void, unknown>;
 		/** Whether the sync review shows, which holds every other Git action. */
 		reviewing?: boolean;
-		filesOpen: boolean;
-		terminalOpen: boolean;
-		onToggleFiles: () => void;
-		onToggleTerminal: () => void;
 	} = $props();
 
 	// Git status is a read like any other: on open, on focus, and after actions.
@@ -130,16 +120,6 @@
 </script>
 
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
-	<Button
-		variant="ghost"
-		size="icon-sm"
-		tooltip={filesOpen ? 'Hide files (Ctrl+B)' : 'Show files (Ctrl+B)'}
-		aria-label="Files"
-		aria-pressed={filesOpen}
-		onclick={onToggleFiles}
-	>
-		<PanelLeftIcon />
-	</Button>
 	<!-- On narrow screens the list itself says what this is; the width goes to status. -->
 	<h1 class="text-sm font-semibold max-sm:sr-only">Todos</h1>
 	{#if directory !== undefined}
@@ -252,16 +232,5 @@
 				<span class="max-sm:sr-only">Sync</span>
 			</Button>
 		{/if}
-		<Button
-			variant={terminalOpen ? 'secondary' : 'ghost'}
-			size="icon-sm"
-			tooltip={terminalOpen ? 'Hide terminal (Ctrl+`)' : 'Show terminal (Ctrl+`)'}
-			aria-label="Terminal"
-			aria-pressed={terminalOpen}
-			data-terminal-toggle
-			onclick={onToggleTerminal}
-		>
-			<SquareTerminalIcon />
-		</Button>
 	</div>
 </header>

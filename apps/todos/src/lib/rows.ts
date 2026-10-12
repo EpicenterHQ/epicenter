@@ -1,15 +1,19 @@
 /**
- * `todos.rows`: the todo listing, an edit to one todo in the cache, the write
- * that saves it, and adding a todo (ADR-0528).
+ * `todos.rows`: the todo table. The listing is the one query; every other
+ * member is a write of one todo's file (ADR-0528).
  *
  * An edit is one immutable `map` over the cached listing. Each todo's writes
  * run one at a time in its file's queue, and each saves the row the cache
  * holds when it runs, guarded by the hash the cache last confirmed. A write
- * that fails reads the file again, which rolls the edit back.
+ * that fails reads the file again, which rolls the edit back. Rename, delete,
+ * and repair join the same queue and are guarded by the same cached hash.
  */
 import {
+	type FileCapture,
 	type FileError,
 	formatRow,
+	type MoveError,
+	pathProblem,
 	type Row,
 	type StoredRow,
 	type TableCreateError,
@@ -17,8 +21,20 @@ import {
 } from '@epicenter/folder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type TodoFields, todosDefinition } from './definition.js';
-import { type Session, type TodosError, todosKeys } from './session.js';
+import { type Session, TodosError, todosKeys } from './session.js';
 import { type TodoListing, todoPath, todoStem } from './todo-listing.js';
+
+/**
+ * Why `stem` cannot name a todo, in words a person acts on. Any name the
+ * folder can hold works, the empty stem (`todos/.md`) included.
+ */
+export function stemProblem(stem: string): string | undefined {
+	if (stem.includes('/')) return 'A name cannot contain "/".';
+	const problem = pathProblem(todoPath(stem));
+	return problem === undefined
+		? undefined
+		: `This name is not usable: ${problem}.`;
+}
 
 export function createRows({
 	folder,
@@ -26,11 +42,10 @@ export function createRows({
 	defineQuery,
 	defineMutation,
 	invalidate,
+	trackMutations,
 	refused,
-	moving,
 	afterWrite,
 	onWriteFailed,
-	selection,
 }: Session) {
 	const table = folder.tables.todos;
 	/**
@@ -40,12 +55,33 @@ export function createRows({
 	 */
 	const unsent = new Set<string>();
 
-	/** The row the cache holds for `stem`, if it reads as a todo. */
-	function rowOf(stem: string): StoredRow<TodoFields> | undefined {
-		const result = queryClient
+	/** What the cache holds for `stem`: a row, or why it is not one. */
+	function resultOf(stem: string) {
+		return queryClient
 			.getQueryData<TodoListing>(todosKeys.rows)
 			?.find((entry) => entry.stem === stem)?.result;
+	}
+
+	/** The row the cache holds for `stem`, if it reads as a todo. */
+	function rowOf(stem: string): StoredRow<TodoFields> | undefined {
+		const result = resultOf(stem);
 		return result?.error === null ? result.data : undefined;
+	}
+
+	/**
+	 * The bytes a rename or delete of `stem` acts on, read when it runs: the
+	 * hash the cache last confirmed, for a row or for text that is not one.
+	 * A todo the cache cannot vouch for is read now.
+	 */
+	async function captureOf(
+		stem: string,
+	): Promise<Result<FileCapture, FileError>> {
+		const result = resultOf(stem);
+		if (result?.error === null) return Ok(result.data);
+		if (result?.error.name === 'InvalidRow') return Ok(result.error);
+		const { data: read, error } = await folder.files.read(todoPath(stem));
+		if (error !== null) return Err(error);
+		return Ok({ path: read.path, sha256: read.sha256 });
 	}
 
 	/** Change the row at `stem` in the cache: one immutable `map` over the listing. */
@@ -64,12 +100,33 @@ export function createRows({
 		return changed;
 	}
 
+	/** Whether a rename or delete of `stem` runs or waits, which pauses its edits. */
+	function moving(stem: string) {
+		const path = todoPath(stem);
+		return (
+			queryClient.isMutating({
+				mutationKey: todosKeys.move(path),
+				exact: true,
+			}) +
+				queryClient.isMutating({
+					mutationKey: todosKeys.remove(path),
+					exact: true,
+				}) >
+			0
+		);
+	}
+
 	return {
 		/** Every todo row file, as the table lists it. Narrow it with `select` where it is shown. */
 		list: defineQuery({
 			queryKey: todosKeys.rows,
 			queryFn: () => table.list(),
 		}),
+		/** Whether `stem` is being renamed or deleted, which pauses its edits; read reactively. */
+		isMoving(stem: string) {
+			trackMutations();
+			return moving(stem);
+		},
 		/**
 		 * Change the todo at `stem` in the cache. Answers whether the caller
 		 * should queue a write: an edit queues one only when fewer than two are
@@ -78,7 +135,7 @@ export function createRows({
 		 * Epicenter asks to leave and while a rename or delete of the file runs.
 		 */
 		edit(stem: string, change: (row: Row<TodoFields>) => Row<TodoFields>) {
-			if (refused() !== undefined || moving(todoPath(stem))) return false;
+			if (refused() !== undefined || moving(stem)) return false;
 			// A read still running could replace this edit when it lands.
 			void queryClient.cancelQueries({ queryKey: todosKeys.rows, exact: true });
 			const changed = mapRow(stem, (stored) => ({
@@ -103,7 +160,7 @@ export function createRows({
 			const path = todoPath(stem);
 			return defineMutation({
 				mutationKey: todosKeys.write(path),
-				// Row and text writes of one file share its queue.
+				// Every write, rename, delete, and repair of one file shares its queue.
 				scope: { id: path },
 				mutationFn: async (): Promise<
 					Result<
@@ -157,7 +214,32 @@ export function createRows({
 				onSettled: afterWrite,
 			});
 		},
-		/** Add a todo and show it. */
+		/**
+		 * The repair of a todo whose text does not read as one: write the text
+		 * typed for it, guarded by the hash of the text the listing read. The
+		 * text is written as typed, valid or not; the listing then reads it
+		 * again. A failure writes nothing and reports the typed text.
+		 */
+		repair(stem: string) {
+			const path = todoPath(stem);
+			return defineMutation({
+				mutationKey: todosKeys.repair(path),
+				scope: { id: path },
+				mutationFn: async (
+					text: string,
+				): Promise<Result<FileCapture, FileError | TodosError>> => {
+					const result = resultOf(stem);
+					if (result?.error?.name !== 'InvalidRow')
+						return TodosError.NotStarted({
+							reason: 'This file reads as a todo now, so nothing was written.',
+						});
+					return folder.files.replace(result.error, text);
+				},
+				onError: (error, text) => onWriteFailed({ path, error, lost: text }),
+				onSettled: afterWrite,
+			});
+		},
+		/** Add a todo. The caller decides whether to show it. */
 		create: defineMutation({
 			mutationKey: ['todos', 'create'],
 			mutationFn: async (
@@ -176,10 +258,89 @@ export function createRows({
 						todosKeys.rows,
 						(entries) => entries && [...entries, { stem, result: Ok(created) }],
 					);
-				selection.set({ path: created.path, as: 'todos' });
 			},
-			onSettled: () =>
-				Promise.all([invalidate(todosKeys.rows), invalidate(todosKeys.files)]),
+			onSettled: () => invalidate(todosKeys.rows),
 		}),
+		/**
+		 * Rename a todo's file to `todos/<nextStem>.md`. It runs after the
+		 * file's queued writes and moves what the last one confirmed; a file
+		 * changed elsewhere since is refused. No other file moves with it, and
+		 * edits of the todo wait meanwhile.
+		 */
+		async rename(
+			stem: string,
+			nextStem: string,
+		): Promise<
+			Result<
+				FileCapture | undefined,
+				FileError | MoveError | TableError | TodosError
+			>
+		> {
+			const problem = stemProblem(nextStem);
+			if (problem !== undefined)
+				return TodosError.NotStarted({ reason: problem });
+			if (nextStem === stem) return Ok(undefined);
+			const path = todoPath(stem);
+			return defineMutation({
+				mutationKey: todosKeys.move(path),
+				scope: { id: path },
+				mutationFn: async (): Promise<
+					Result<FileCapture, FileError | MoveError | TableError>
+				> => {
+					const { data: capture, error } = await captureOf(stem);
+					if (error !== null) return Err(error);
+					return table.rename(capture, nextStem);
+				},
+				// The listing follows the file.
+				onSuccess: (moved) => {
+					queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
+						entries?.map((entry) => {
+							if (entry.stem !== stem) return entry;
+							const { result } = entry;
+							if (result.error === null)
+								return {
+									stem: nextStem,
+									result: Ok({ ...result.data, path: moved.path }),
+								};
+							if (result.error.name === 'InvalidRow')
+								return {
+									stem: nextStem,
+									result: Err({ ...result.error, path: moved.path }),
+								};
+							return { stem: nextStem, result };
+						}),
+					);
+				},
+				onSettled: () => invalidate(todosKeys.rows),
+			})();
+		},
+		/**
+		 * Delete a todo's file. It runs after the file's queued writes, so it
+		 * removes what this app saved last; a file changed elsewhere since is
+		 * refused. A file that shares the stem stays.
+		 */
+		async remove(
+			stem: string,
+		): Promise<Result<undefined, FileError | TableError | TodosError>> {
+			const path = todoPath(stem);
+			return defineMutation({
+				mutationKey: todosKeys.remove(path),
+				scope: { id: path },
+				mutationFn: async (): Promise<
+					Result<undefined, FileError | TableError>
+				> => {
+					const { data: capture, error } = await captureOf(stem);
+					if (error !== null) return Err(error);
+					return table.delete(capture);
+				},
+				onSuccess: () => {
+					unsent.delete(stem);
+					queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
+						entries?.filter((entry) => entry.stem !== stem),
+					);
+				},
+				onSettled: () => invalidate(todosKeys.rows),
+			})();
+		},
 	};
 }

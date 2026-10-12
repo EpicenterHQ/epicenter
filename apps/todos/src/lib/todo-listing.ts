@@ -26,7 +26,11 @@ export type TodoListing = TableListing<TodoFields>;
 export type TodoEntry = StoredRow<TodoFields> & { readonly stem: string };
 
 /** A row file the list cannot edit, and why, for the person to repair as text. */
-type Repair = { readonly path: string; readonly reason: string };
+type Repair = {
+	readonly stem: string;
+	readonly path: string;
+	readonly reason: string;
+};
 
 function byPath(a: { path: string }, b: { path: string }) {
 	return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
@@ -52,10 +56,12 @@ export function repairsOf(listing: TodoListing): Repair[] {
 		repairs.push(
 			result.error.name === 'InvalidRow'
 				? {
+						stem,
 						path,
 						reason: result.error.issues.map((issue) => issue.message).join(' '),
 					}
 				: {
+						stem,
 						path,
 						reason: `It could not be read as text: ${result.error.message}`,
 					},

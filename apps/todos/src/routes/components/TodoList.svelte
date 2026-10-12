@@ -7,13 +7,21 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { describeError } from '$lib/describe-error.js';
-	import { repairsOf, todosOf } from '$lib/todo-listing.js';
+	import { repairsOf, todoStem, todosOf } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 	import TodoRow from './TodoRow.svelte';
 
 	const todos = getTodos();
 
-	let { onOpen }: { onOpen?: () => void } = $props();
+	let {
+		open,
+		onOpen,
+	}: {
+		/** The stem of the todo the detail shows, if any. */
+		open?: string;
+		/** Show the todo `stem` in the detail. */
+		onOpen?: (stem: string) => void;
+	} = $props();
 
 	const listing = createQuery(() =>
 		({ ...todos.rows.list.options, select: (rows) => ({ entries: todosOf(rows), repairs: repairsOf(rows) }) }),
@@ -33,9 +41,10 @@
 		const typed = title.trim();
 		if (typed === '' || create.isPending) return;
 		create.mutate(typed, {
-			onSuccess: () => {
+			onSuccess: (created) => {
 				title = '';
-				onOpen?.();
+				const stem = todoStem(created.path);
+				if (stem !== undefined) onOpen?.(stem);
 			},
 		});
 	}
@@ -70,7 +79,7 @@
 	{:else}
 		<ul class="min-h-0 flex-1 overflow-y-auto" aria-label="Todos">
 			{#each listing.data.entries as entry (entry.stem)}
-				<TodoRow {entry} {onOpen} />
+				<TodoRow {entry} selected={open === entry.stem} {onOpen} />
 			{:else}
 				<li>
 					<Empty.Root>
@@ -82,14 +91,14 @@
 		</ul>
 
 		{#if listing.data.repairs.length > 0}
-			<!-- Not todos the list can edit: each opens as its text, for repair. -->
+			<!-- Not todos the list can edit: each opens with its text and what to fix. -->
 			<section class="max-h-[40%] shrink-0 overflow-y-auto border-t bg-destructive/5 px-3 py-2 text-xs" aria-label="Needs repair">
 				<p class="flex items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					{listing.data.repairs.length === 1 ? 'This file does' : 'These files do'} not read as a todo. Repair opens its text.
+					{listing.data.repairs.length === 1 ? 'This file does' : 'These files do'} not read as a todo. Repair shows its text and what to fix.
 				</p>
 				<ul class="mt-1 space-y-1.5">
-					{#each listing.data.repairs as repair (repair.path)}
+					{#each listing.data.repairs as repair (repair.stem)}
 						<li class="flex items-start gap-2">
 							<div class="min-w-0 flex-1">
 								<code class="font-mono break-anywhere">{repair.path}</code>
@@ -98,10 +107,8 @@
 							<Button
 								size="xs"
 								variant="outline"
-								onclick={() => {
-									todos.select(repair.path, 'repair');
-									onOpen?.();
-								}}
+								aria-current={open === repair.stem ? 'true' : undefined}
+								onclick={() => onOpen?.(repair.stem)}
 							>
 								Repair
 							</Button>

@@ -1,9 +1,11 @@
 # Todos
 
 A file-first todo list. Each todo is a plain Markdown file, `todos/<stem>.md`,
-with `title` and `done` in frontmatter and notes in the body. A file browser
-shows every file in the folder, and a terminal edits the same files and runs
-Git commands against the folder's history.
+with `title` and `done` in frontmatter and notes in the body. Todos shows one
+folder table: the list is the table, the detail is one row, and a field change
+writes that row's file. A file in `todos/` that does not read as a todo shows
+its text and what to fix. Every other file in the folder is yours to edit with
+any program; Todos does not show it.
 
 There are two builds of the same UI, and the build decides where the folder is:
 
@@ -21,7 +23,7 @@ to browser storage.
 A todo is its Markdown file and nothing else. A file that shares a todo's stem,
 such as `todos/milk.png` or `todos/milk.webm` beside `todos/milk.md`, is an
 ordinary file: renaming or deleting the todo leaves it where it is, and you
-rename or delete it yourself from the file browser.
+rename or delete it yourself with another program.
 
 ## Desktop, inside Epicenter
 
@@ -47,10 +49,9 @@ that is already present. Native startup chooses the directory; nothing in the
 window can point Todos at another one.
 
 Edit the files with any program. Todos reads the folder when a screen
-opens, when you return to the window, and after its own actions and terminal
-commands. It does not follow change reports while you work: the list, the
-editor, and the file browser show what they last read until one of those
-moments.
+opens, when you return to the window, and after its own actions. It does not
+follow change reports while you work: the list and the editor show what they
+last read until one of those moments.
 
 ### Saving and versions
 
@@ -64,11 +65,6 @@ moments.
 - A new folder has no Git remote, and the desktop folder does not sync yet,
   so the desktop app offers Save version and no Sync. To use a remote, add
   one named `origin` with your own Git in the directory.
-- The terminal is the same restricted shell as the browser demo, over the real
-  directory. It is not `/bin/sh`: it has the listed file commands and
-  `git status`, `diff`, `log`, `add`, `commit`, `push`, `fetch`, and
-  `pull --ff-only`, and it cannot reach outside the folder. For anything else,
-  use your own terminal in the directory.
 
 ### What is and is not protected
 
@@ -112,16 +108,14 @@ are waited for. The title of a new todo you have not added lives in the box
 alone: it stays while the window is open, and quitting or reloading drops it.
 
 - Closing the Todos window hides it. The page stays loaded, so a typed title
-  and the terminal's output are still there when you open Todos again.
+  is still there when you open Todos again.
 - Quitting Epicenter, or restarting it for an account change, asks this page
   first, over the host's departure wire (`@epicenter/epicenter/departure`),
   through the shared page client (`@epicenter/epicenter/departure/page`).
-  From that moment the page takes no input and starts no edit, action, or
-  terminal command. It waits until every write, action, and terminal command
-  already running has finished, then tells Epicenter it is ready. It never
-  asks: once that work is done, nothing in it can be lost.
-- The terminal keeps its typed command, history, and output while it waits,
-  and Enter runs nothing; its typed command is not counted as unsaved.
+  From that moment the page takes no input and starts no edit or action. It
+  waits until every write and action already running has finished, then
+  tells Epicenter it is ready. It never asks: once that work is done, nothing
+  in it can be lost.
 - Todos opens its folder only once it is listening for a quit or restart and
   has read from Epicenter whether one is running. If it cannot listen, or
   cannot read that status, it shows "Todos is waiting for Epicenter" with
@@ -141,9 +135,7 @@ alone: it stays while the window is open, and quitting or reloading drops it.
 - A page reload or explicit client close ends that page's access. The shared
   owner remains open for sibling windows and finishes accepted work. The
   client's network wait can end while the native operation continues.
-- A terminal command holds nothing between its steps. Other pages can write
-  while it runs. A rewrite of a file the command read checks that captured
-  version. Git hashing and network traffic do not block writes.
+- Git hashing and network traffic do not block writes.
 
 ### How it is wired
 
@@ -165,12 +157,11 @@ shared Rust Folder plugin
 ```
 
 Rust reads and publishes bytes and owns Git history. Shared TypeScript code
-interprets Markdown tables and runs the restricted terminal against that byte
-boundary. Events announce changes; the page rereads through invoke. No file
+interprets Markdown tables against that byte boundary. Events announce changes; the page rereads through invoke. No file
 contents or history are mirrored in browser storage on desktop.
 
 Every page attached to the same root shares its owner. File admission orders
-managed writes and terminal operations. A separate Git queue hashes a captured
+managed writes. A separate Git queue hashes a captured
 file view after file admission is released, so a large file cannot hold up the
 next write. Other programs do not participate in these queues; edits
 made in place while capture is underway remain best effort.
@@ -219,23 +210,21 @@ the window. The header holds the rest:
 
 | Control | What it does |
 | --- | --- |
-| Files button (Ctrl+B) | Shows or hides the file browser: a pane on wide screens, a drawer on narrow ones. |
 | Folder path (desktop) | The directory the todos are in. Click to copy it. |
 | Status button | Shows the most important current fact, shortened on narrow screens. Open it for where the folder is, whether every edit is written, the changes since the last version, the last version, and the remote, with the times they were observed, plus "Check again", which reads everything again. |
 | Save version | Records the written files as a version in history (`folder.git.commit()`). Writes still running land first. Nothing is sent. |
-| Sync | Waits for writes still running, records a version, fetches, merges, and pushes (`folder.sync`, ADR-0514). Edits to different fields, or to different lines of the notes, merge on their own; a merged todo is rewritten in the standard form. When both sides changed the same title, done, notes, or a whole todo (one side deleted it, or a version is not a valid todo), the review replaces the workspace and nothing is written until you apply your choices. The review is modal: the workspace and the Git buttons wait until you apply or cancel, and Cancel forgets the attempt and your choices. A choice the folder refuses shows beside its row and keeps the review. Afterwards every list and open file is read again. Off when the folder has no remote. |
+| Sync | Waits for writes still running, records a version, fetches, merges, and pushes (`folder.sync`, ADR-0514). Edits to different fields, or to different lines of the notes, merge on their own; a merged todo is rewritten in the standard form. When both sides changed the same title, done, notes, or a whole todo (one side deleted it, or a version is not a valid todo), the review replaces the workspace and nothing is written until you apply your choices. The review is modal: the workspace and the Git buttons wait until you apply or cancel, and Cancel forgets the attempt and your choices. A choice the folder refuses shows beside its row and keeps the review. Afterwards the list and Git status are read again. Off when the folder has no remote. |
 | Recover incoming update | Shown only while an incoming update has not finished; see below. Sync and Save version are off until then, and say why. |
-| Terminal button (Ctrl+\`) | Shows or hides the terminal. It is hidden at first; its output, history, typed command, and working directory stay when it is hidden. |
 
-On narrow screens the list, the editor, and the terminal take turns; the
-editor has a Back button, and the file browser opens as a drawer.
+On narrow screens the list and the editor take turns; the editor has a Back
+button.
 
-Where you open a file decides how you edit it. The file browser opens any
-file's complete text, a todo's Markdown included. The todo list opens a
-todo's title, done, and notes; a todo whose text is not a valid todo shows
-as needing repair, opens as text with what to fix, and **Open as todo**
-returns once it reads as one. One item shows at a time, and switching never
-waits or asks: there is nothing unsaved to ask about.
+The list opens a todo's title, done, and notes. A file in `todos/` whose text
+is not a valid todo shows under "Needs repair" and opens as its text, with
+what to fix and **Save**; once it reads as a todo, the editor shows its
+fields. One todo shows at a time, and switching never waits or asks: there is
+nothing unsaved to ask about, except repair text you typed and did not save,
+which switching drops.
 
 ### Editing and writes
 
@@ -261,8 +250,11 @@ waits or asks: there is nothing unsaved to ask about.
 - The first write of a file written by hand rewrites it in Todos' standard
   form: plain YAML frontmatter, declared keys first, unknown keys kept.
   Comments and custom quoting in the frontmatter are not kept.
-- While a todo is open as text, its checkbox in the list waits: the text is
-  what is written.
+- A repair writes the text you typed when you press **Save**, guarded the
+  same way by the version Todos last read. Text that still does not read as
+  a todo is written as typed and stays under "Needs repair". When the file
+  changed elsewhere, nothing is written, the text stays in the field, and a
+  message offers to copy it.
 
 ### When an incoming update stops partway
 
@@ -276,22 +268,21 @@ the folder, "Check again", and returning to the window only read the record.
 - Sync and Save version wait while the update is pending; their buttons are
   off and say why. Editing, writing, renaming, and deleting keep working.
 - **Recover incoming update** runs only when you press it. Writes still
-  running land first. Afterward every list and open file is read again and
-  shows what the update wrote.
+  running land first. Afterward the list is read again and shows what the
+  update wrote.
 - Recovery finishes the update from the files as they are: each file still at
   its version from before the update gets the incoming version, and each file
   already at the incoming version is left alone. A file that holds neither,
   such as one you edited after the update stopped, is named with the reason,
   nothing is written, and the update stays pending with its record. Make each
-  named file hold one of its two versions (for example by editing its text
-  in the file browser, or with `git show` in the terminal), then press the
-  button again.
+  named file hold one of its two versions (for example with `git show` in
+  your own terminal), then press the button again.
 - Nothing is discarded, rolled back, or retried for you.
 
 ## What to try
 
 These steps are written for the browser demo, where a remote is always
-present. On the desktop, steps 1 to 4 work the same over the real directory,
+present. On the desktop, steps 1 to 3 work the same over the real directory,
 without Sync.
 
 1. Add a todo. The file is written immediately, and nothing is committed or
@@ -306,25 +297,13 @@ without Sync.
    editor shows that version. Change it elsewhere without returning, then
    edit here: the write changes nothing, the editor shows their version, and
    a message offers to copy your text.
-3. Open the file browser. Folders expand and collapse; every text file, a
-   todo's Markdown included, opens as its text and is written as you type,
-   guarded the same way. A file that is not UTF-8 text, or is over 1 MB,
-   shows its type and size and is never written as text. Right-click a row,
-   or use its "…" button, for Open, Rename, Copy path, and Delete; on a
-   folder, New file and New folder. With a row focused, arrow keys move and
-   expand, F2 renames, Delete asks to delete, and Shift+F10 opens the menu.
-   - Renaming or deleting a todo file changes that one Markdown file. A file
-     with the same stem, such as an image or a recording, stays where it is.
-   - The list's checkbox is an edit like any other.
-   - Delete always asks first, naming what it removes and whether its latest
-     changes are in no saved version. Only empty folders can be deleted from
-     the browser. Renaming does not update references to the old name in
-     other files.
-4. In the terminal: `ls todos`, `cat todos/<stem>.md`, `echo '...' > note.md`,
-   `git status`, `git log --oneline`, `git diff`, `git add`, `git commit`,
-   `git push`. Files matched by `.gitignore` stay out of status and versions;
-   a tracked file stays tracked.
-5. In the native checkout printed at startup:
+3. Rename a todo's file or delete it from the bar under its notes. Renaming
+   or deleting changes that one Markdown file: a file with the same stem,
+   such as an image or a recording, stays where it is. Delete always asks
+   first, naming what it removes and whether its latest changes are in no
+   saved version. A file changed elsewhere since Todos last read it is
+   refused.
+4. In the native checkout printed at startup:
 
    ```sh
    git pull --ff-only
@@ -336,7 +315,7 @@ without Sync.
    wrote, brings in the native commit, and pushes. Edit the same todo's
    title in both places first to see the review; an incoming file that would
    overwrite an ignored or untracked one is reported and nothing is written.
-6. To see a hand edit from another computer, run the demo fixture against the
+5. To see a hand edit from another computer, run the demo fixture against the
    same checkout:
 
    ```sh
@@ -350,7 +329,7 @@ without Sync.
    the comment and keys byte for byte until Todos writes it. Any write from
    Todos, a checkbox included, writes the standard form: `owner` and
    `labels` stay, the comment does not.
-7. `bun apps/todos/scripts/native.ts <checkout> status` prints the native
+6. `bun apps/todos/scripts/native.ts <checkout> status` prints the native
    folder's JSON status through `openFolder` from `@epicenter/folder/bun`.
    `create "<title>"`, `complete <stem>`, `commit-and-push`, `fetch`, and
    `pull` are also available there, for the native checkout only. A checkout
@@ -359,13 +338,13 @@ without Sync.
 Write a file whose text does not parse (for example `printf -- '---\ntitle: *missing\n---\n' > todos/bad.md`,
 or Markdown with no `---` lines at all) to see it under "Needs repair" below
 the list, with its path and why. It is not in the list itself. **Repair**
-opens its complete text with each problem and its line; fix it there. Text
-that still does not parse is written as typed and stays under "Needs
-repair". A todo that parses but has a bad field, such as `done: soon`, is
-named the same way. Once the text reads as a todo, **Open as todo** opens its
-fields. A todo that stops reading as a todo while it is shown, because
-another program changed it, shows as needing repair when the editor next
-reads it, with **Repair as text**.
+opens its complete text with each problem and its line; fix it there and
+press **Save**. Text that still does not parse is written as typed and stays
+under "Needs repair". A todo that parses but has a bad field, such as
+`done: soon`, is named the same way. Once the text reads as a todo, the
+editor shows its fields. A todo that stops reading as a todo while it is
+shown, because another program changed it, shows its text for repair when
+the editor next reads it.
 
 Any file name works for a todo, including a leading dot, a trailing space,
 punctuation, and `todos/.md` itself. Only `.md` in lowercase makes a file a
@@ -381,15 +360,13 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/platform/` | The `#platform/departure` seam: the host leaf is the shared Tauri window port (`@epicenter/epicenter/departure/window`); the browser leaf has no port. And the `#platform/folder` seam: `types.ts` is its contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens the OPFS folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The mounted page calls it; importing it opens nothing. |
 | `src/routes/components/FolderScope.svelte` | One opened folder's views: sets its store for `getTodos()` and provides the store's query client. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
-| `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry, no reread while writing, the quit fence), what the detail shows, the terminal, leaving, and closing. It composes the namespaces below over one `Session`. |
-| `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError` and `DEPARTING`, the `Selection` and `WriteFailure` types, and the `Session` type. |
-| `src/lib/rows.ts` | `todos.rows`: the todo listing (`list`), `edit`, the scoped `write(stem)` each view creates its mutation from, and `create`. |
-| `src/lib/files.ts` | `todos.files`: the folder listing, each file's text (`text(path)`), `editText` and `writeText(path)`, create, rename, and delete; plus the app's name rules and editable-text limit. |
+| `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry, no reread while writing, the quit fence), leaving, and closing. It composes the namespaces below over one `Session`. |
+| `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError` and `DEPARTING`, the `WriteFailure` type, and the `Session` type. |
+| `src/lib/rows.ts` | `todos.rows`: the todo listing (`list`), `edit`, the scoped `write(stem)` and `repair(stem)` each view creates its mutation from, `create`, `rename`, `remove`, and `isMoving`; plus the app's name rule (`stemProblem`). |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, Save version, and incoming recovery. |
 | `src/lib/sync.ts` | `todos.sync`: `run` and the review's `apply`. |
-| `src/lib/terminal.svelte.ts` | The terminal session that outlives the terminal pane, over the folder's own `folder.terminal()`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
-| `src/routes/components/` | Header, file browser, list (`TodoList`, one `TodoRow` per todo), the detail pane (`Detail`: `TodoDetail` or `FileView`), the sync review (in `TodosView`), and terminal. |
+| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, which also repairs a file that does not read as a todo), and the sync review. `TodosView` lays them out and holds which todo is open. |
 | `server/git-server.ts` | `git http-backend` over a bare repository, plus the native checkout. |
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |
@@ -417,10 +394,13 @@ newest row; TanStack awaits it before the next write in the scope runs. Its
 what was lost. No read starts while a write runs: an edit cancels reads in
 flight, nothing goes stale on its own, returning to the page and **Check
 again** read nothing while writing, and the last write to settle reads
-everything again. Writes never wait for the page to be visible. Text files
-use the same pattern with `todos.files.text`, `editText`, and `writeText`. The store
-holds what the detail shows and whether Epicenter is asking to leave; the new
-todo's title and the folders open in the browser live in the components that
+everything again. Writes never wait for the page to be visible. A repair
+(`todos.rows.repair(stem)`, `mutationKey: ['todos', 'write', 'repair', path]`)
+is a write too: it joins the file's queue and writes the typed text with
+guarded `folder.files.replace`, using the hash in the listing's `InvalidRow`.
+Rename and delete join the same queue and use the same cached hash. The store
+holds whether Epicenter is asking to leave; which todo is open, the new
+todo's title, and repair text typed and not saved live in the components that
 show them. Components find the store with `getTodos()` and never touch its
 query client.
 
@@ -455,6 +435,14 @@ version before it:
 - Change reports from the folder still do not reread anything while you
   work. Screens read when they open, when you return to the window, and
   after the app's own actions.
+- Todos no longer browses or edits arbitrary files. The file browser, the
+  file view, **Open in Files**, **Open as todo**, and New file and New folder
+  are gone. Todos shows the `todos/` table alone; edit any other file, or a
+  todo's raw text, with another program.
+- Todos has no terminal. Use your own terminal in the folder; the desktop
+  folder is an ordinary directory with ordinary Git.
+- A file that does not read as a todo is repaired by typing its text and
+  pressing **Save**, not by text that saves as you type.
 - Quitting or restarting no longer asks about anything. It waits for every
   write and action, then the window is ready; a new todo's title typed and not
   added is dropped, as it is on a reload.

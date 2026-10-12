@@ -1,8 +1,10 @@
 <!--
-	One todo's fields and notes. The view reads the todo listing narrowed to
-	this row, so it never disagrees with the list. Each edit goes into that
+	One todo: one row of the listing. The view reads the todo listing narrowed
+	to this row, so it never disagrees with the list. Each edit goes into that
 	cache, and this view's own write mutation saves it: one write at a time
-	for this file, each saving whatever the cache holds when it runs.
+	for this file, each saving whatever the cache holds when it runs. A file
+	that does not read as a todo shows its text and what to fix, and Save
+	writes the text typed here over it.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -21,7 +23,7 @@
 	import { describeError } from '$lib/describe-error.js';
 	import { todoPath } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
-	import { confirmDelete } from './file-actions.js';
+	import { confirmDelete } from './actions.js';
 	import FileNameBar from './FileNameBar.svelte';
 
 	const todos = getTodos();
@@ -29,11 +31,17 @@
 	let {
 		stem,
 		onBack,
+		onRenamed,
+		onDeleted,
 	}: {
 		/** The todo shown. The parent keys this view by it. */
 		stem: string;
 		/** Shown on narrow screens, where the list and the editor take turns. */
 		onBack?: () => void;
+		/** The todo's file was renamed to `nextStem`. */
+		onRenamed?: (nextStem: string) => void;
+		/** The todo's file was deleted. */
+		onDeleted?: () => void;
 	} = $props();
 
 	const path = $derived(todoPath(stem));
@@ -41,27 +49,63 @@
 		({ ...todos.rows.list.options, select: (listing) => listing.find((entry) => entry.stem === stem) }),
 	);
 	const write = createMutation(() => todos.rows.write(stem).options);
+	const repair = createMutation(() => todos.rows.repair(stem).options);
 	/** Edits wait while Epicenter asks to leave, and while this file is renamed or deleted. */
-	const locked = $derived(todos.files.isMoving(path));
+	const locked = $derived(todos.rows.isMoving(stem));
+	/**
+	 * The repair text typed here, once the person types. Until then the
+	 * textarea shows the file's text. Text that is not a todo yet is the
+	 * point of this field, so it lives here, not in the cache.
+	 */
+	let draft = $state<string | undefined>();
 
 	/** Change the row in the cache, and queue a write when one is needed. */
 	function set(change: (row: Row<TodoFields>) => Row<TodoFields>) {
 		if (todos.rows.edit(stem, change)) write.mutate();
 	}
 
-	/** Textareas report LF, so views show LF; the notes setter restores the file's convention. */
+	/** Write the typed text over the file, keeping its line endings. */
+	function saveRepair(fileText: string) {
+		if (draft === undefined || repair.isPending) return;
+		repair.mutate(withFileNewlines(wellFormed(draft), fileText), {
+			onSuccess: () => {
+				draft = undefined;
+			},
+		});
+	}
+
+	/** Textareas report LF, so views show LF; the setters restore the file's convention. */
 	const lf = (text: string) => text.replace(/\r\n?/g, '\n');
 </script>
+
+{#snippet back()}
+	{#if onBack}
+		<Button variant="ghost" size="icon-sm" aria-label="Back to todos" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
+			<ArrowLeftIcon />
+		</Button>
+	{/if}
+{/snippet}
+
+{#snippet nameBar(title?: string)}
+	<FileNameBar
+		prefix="todos/"
+		name={stem}
+		suffix=".md"
+		onRename={async (next) => {
+			const { error } = await todos.rows.rename(stem, next);
+			if (error !== null) return describeError(error);
+			onRenamed?.(next);
+			return undefined;
+		}}
+		onDelete={() => void confirmDelete(todos, stem, title, onDeleted)}
+	/>
+{/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
 	{#if todo.data?.result.error === null}
 		{@const row = todo.data.result.data.row}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
-			{#if onBack}
-				<Button variant="ghost" size="icon-sm" aria-label="Back to todos" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
-					<ArrowLeftIcon />
-				</Button>
-			{/if}
+			{@render back()}
 			<Checkbox
 				aria-label="Done"
 				disabled={locked}
@@ -77,9 +121,6 @@
 					(title) => set((r) => ({ ...r, fields: { ...r.fields, title: wellFormed(title) } }))
 				}
 			/>
-			<Button size="sm" variant="outline" onclick={() => todos.select(path, 'files')}>
-				Open in Files
-			</Button>
 		</div>
 
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
@@ -99,31 +140,49 @@
 			/>
 		</div>
 
-		<FileNameBar
-			prefix="todos/"
-			name={stem}
-			suffix=".md"
-			onRename={async (next) => {
-				const { error } = await todos.files.rename(path, `${next}.md`);
-				return error === null ? undefined : describeError(error);
-			}}
-			onDelete={() => void confirmDelete(todos, path)}
-		/>
-	{:else if todo.data?.result.error}
+		{@render nameBar(row.fields.title)}
+	{:else if todo.data?.result.error?.name === 'InvalidRow'}
 		{@const error = todo.data.result.error}
-		<Empty.Root class="flex-1" data-testid="needs-repair">
+		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
+			{@render back()}
+			<h2 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h2>
+		</div>
+		<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
+			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
+				<Badge variant="destructive">Needs repair</Badge>
+				This file does not read as a todo. Fix its text here and save.
+			</p>
+			<ul class="space-y-0.5 text-muted-foreground">
+				{#each error.issues as issue, index (index)}
+					<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
+				{/each}
+			</ul>
+		</div>
+		<form
+			class="flex min-h-48 flex-1 flex-col gap-2 px-3 py-3 sm:px-4"
+			onsubmit={(event) => {
+				event.preventDefault();
+				saveRepair(error.text);
+			}}
+		>
+			<Textarea
+				class="min-h-0 flex-1 field-sizing-fixed resize-none font-mono text-xs"
+				aria-label="Text of {path}"
+				spellcheck={false}
+				disabled={locked}
+				bind:value={() => draft ?? lf(error.text), (typed) => (draft = typed)}
+			/>
+			<Button class="self-end" type="submit" size="sm" disabled={locked || repair.isPending || draft === undefined}>
+				{repair.isPending ? 'Saving…' : 'Save'}
+			</Button>
+		</form>
+		{@render nameBar()}
+	{:else if todo.data?.result.error}
+		<Empty.Root class="flex-1">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
-			{#if error.name === 'InvalidRow'}
-				<Empty.Title><Badge variant="destructive">Needs repair</Badge> This file does not read as a todo</Empty.Title>
-				<Empty.Description>
-					<code class="font-mono">{path}</code>: {error.issues.map((issue) => issue.message).join(' ')}
-				</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => todos.select(path, 'repair')}>Repair as text</Button>
-			{:else}
-				<Empty.Title>Could not read this todo</Empty.Title>
-				<Empty.Description>{error.message}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void todos.refresh()}>Try again</Button>
-			{/if}
+			<Empty.Title>Could not read this todo</Empty.Title>
+			<Empty.Description>{todo.data.result.error.message}</Empty.Description>
+			<Button variant="outline" size="sm" onclick={() => void todos.refresh()}>Try again</Button>
 		</Empty.Root>
 	{:else if todo.isSuccess}
 		<Empty.Root class="flex-1">

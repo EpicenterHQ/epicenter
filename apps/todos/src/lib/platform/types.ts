@@ -3,8 +3,8 @@
  *
  * `#platform/folder` resolves at build time. The Epicenter host leaf opens the
  * directory the desktop shell owns; the browser leaf opens a folder in
- * OPFS. Both answer the same folder handle, so the UI edits, lists, hears
- * change hints, and runs its terminal the same way in either build.
+ * OPFS. Both answer the same folder handle, so the UI lists, edits, and
+ * hears change hints the same way in either build.
  */
 import type { Folder, OpenFolderError } from '@epicenter/folder';
 import type { Result } from 'wellcrafted/result';

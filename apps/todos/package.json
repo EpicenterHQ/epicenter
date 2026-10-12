@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/todos",
-	"description": "File-first todos: Markdown rows, browser Git history, and a folder terminal",
+	"description": "File-first todos: Markdown rows and Git history",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",

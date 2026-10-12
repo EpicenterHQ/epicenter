@@ -16,12 +16,14 @@
  * - A write that fails rolls the cache back to the file, reports the text
  *   that was lost, and a write still waiting saves the file as it was
  * - The folder refuses a value it cannot hold, and the cache rolls back
- * - A row that is not a valid todo is named for repair, its text is
- *   written as typed, and it reads as a todo once repaired
+ * - A row that is not a valid todo is named for repair; a repair writes the
+ *   typed text guarded by the hash the listing read, as typed, and the row
+ *   reads as a todo once repaired. A repair over a file changed elsewhere
+ *   writes nothing and reports the typed text
  * - Rename and delete run after the file's queued writes and act on what
  *   the last one saved; edits wait while they run; a file changed elsewhere
- *   since is refused
- * - Delete says when a file has changes in no saved version; saves never
+ *   since the listing read it is refused
+ * - Git status names a file with changes in no saved version; saves never
  *   commit, and Save version records one
  * - Close waits for every mutation, and every close call shares one
  *   completion; afterwards edits and actions change nothing
@@ -45,7 +47,6 @@ import {
 	observe,
 	quiet,
 	rowEditor,
-	textEditor,
 } from './query.test-support.js';
 import { todosKeys, type WriteFailure } from './session.js';
 import { repairsOf, todosOf } from './todo-listing.js';
@@ -156,7 +157,6 @@ const titled =
 test('an edit changes the cache at once and is written to the file', async () => {
 	const { todos } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	expect(todos.selected).toEqual({ path, as: 'todos' });
 
 	rowEditor(todos, stem)(titled('Oat milk'));
 	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
@@ -249,7 +249,7 @@ test('no read starts while a write runs: not on returning to the page, not on Ch
 	// Neither does Check again.
 	void todos.refresh();
 	// Neither does a view that mounts now.
-	const mounted = observe(todos, path);
+	const mounted = observe(todos);
 	expect(todos.queryClient.isFetching({ queryKey: todosKeys.rows })).toBe(0);
 	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
 	release();
@@ -290,37 +290,6 @@ test('a write that meets a change made elsewhere rolls back to the file and repo
 	expect(await text(todos, path)).toBe(
 		'---\ntitle: Oat milk\ndone: true\n---\n',
 	);
-});
-
-test("a file's text write that meets a change made elsewhere rolls back to the file and reports the lost text", async () => {
-	const { todos, failures } = await open();
-	const path = 'notes.txt';
-	expectOk(await todos.folder.files.create(path, 'saved'));
-	cleanup.push(observe(todos, path));
-	await quiet(todos);
-	await writeElsewhere(todos, path, 'changed elsewhere');
-	// Another file's write is still running, so the reread after the last
-	// write waits; the rollback must not.
-	const other = Promise.withResolvers<void>();
-	const running = new MutationObserver(todos.queryClient, {
-		mutationKey: todosKeys.write('todos/other.md'),
-		mutationFn: () => other.promise,
-	}).mutate();
-
-	textEditor(todos, path)('typed here');
-	for (let tries = 0; tries < 200 && failures.length === 0; tries++)
-		await Bun.sleep(2);
-	expect(failures).toMatchObject([
-		{ path, error: { name: 'Conflict' }, lost: 'typed here' },
-	]);
-	expect(todos.queryClient.getQueryData(todosKeys.text(path))).toMatchObject({
-		kind: 'text',
-		file: { text: 'changed elsewhere' },
-	});
-	other.resolve();
-	await running;
-	await quiet(todos);
-	expect(await text(todos, path)).toBe('changed elsewhere');
 });
 
 test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {
@@ -412,29 +381,41 @@ test('writes to one todo wait for each other, and writes to different todos do n
 // Rows that need repair
 // ============================================================================
 
-test('a row that is not a valid todo is named for repair, is written as typed text, and reads as a todo once repaired', async () => {
-	const { todos, failures } = await open();
-	const path = 'todos/bad.md';
-	await writeElsewhere(todos, path, '---\ntitle: *missing\n---\n');
+/** Another program writes `text` that does not read as a todo; the listing reads it. */
+async function breakTodo(todos: Todos, stem: string, text: string) {
+	await writeElsewhere(todos, `todos/${stem}.md`, text);
 	await todos.queryClient.invalidateQueries({ queryKey: todosKeys.all });
 	await quiet(todos);
+}
+
+/** The repair of `stem`, as the detail runs it with the typed text. */
+function repairWith(todos: Todos, stem: string, text: string) {
+	return new MutationObserver(
+		todos.queryClient,
+		todos.rows.repair(stem).options,
+	)
+		.mutate(text)
+		.catch(() => undefined);
+}
+
+test('a row that is not a valid todo is named for repair; a repair writes the typed text as typed, and the row reads as a todo once repaired', async () => {
+	const { todos, failures } = await open();
+	const path = 'todos/bad.md';
+	await breakTodo(todos, 'bad', '---\ntitle: *missing\n---\n');
 	expect(todosOf(listing(todos))).toEqual([]);
 	expect(repairsOf(listing(todos))).toEqual([
-		{ path, reason: expect.any(String) },
+		{ stem: 'bad', path, reason: expect.any(String) },
 	]);
 
-	todos.select(path, 'repair');
-	const stop = observe(todos, path);
-	cleanup.push(stop);
-	await quiet(todos);
-	const type = textEditor(todos, path);
-	// Text that still does not parse is written as typed.
-	type('---\ntitle: Bread\ndone: soon\n---\n');
+	// Text that still does not parse is written as typed, guarded by the hash
+	// the listing read, and the listing reads it again.
+	await repairWith(todos, 'bad', '---\ntitle: Bread\ndone: soon\n---\n');
 	await quiet(todos);
 	expect(await text(todos, path)).toBe('---\ntitle: Bread\ndone: soon\n---\n');
 	expect(repairsOf(listing(todos))).toHaveLength(1);
 
-	type('---\ntitle: Bread\ndone: false\n---\n');
+	// The second repair is guarded by the hash of the first one's text.
+	await repairWith(todos, 'bad', '---\ntitle: Bread\ndone: false\n---\n');
 	await quiet(todos);
 	expect(failures).toEqual([]);
 	expect(repairsOf(listing(todos))).toEqual([]);
@@ -442,6 +423,37 @@ test('a row that is not a valid todo is named for repair, is written as typed te
 		title: 'Bread',
 		done: false,
 	});
+});
+
+test('a repair over a file changed elsewhere since the listing read it writes nothing and reports the typed text, even while another write runs', async () => {
+	const { todos, failures } = await open();
+	const path = 'todos/bad.md';
+	await breakTodo(todos, 'bad', 'not a todo');
+	await writeElsewhere(todos, path, 'changed elsewhere');
+	// Another file's write is still running, so the reread after the last
+	// write waits; the report must not.
+	const other = Promise.withResolvers<void>();
+	const running = new MutationObserver(todos.queryClient, {
+		mutationKey: todosKeys.write('todos/other.md'),
+		mutationFn: () => other.promise,
+	}).mutate();
+
+	void repairWith(todos, 'bad', 'typed here');
+	for (let tries = 0; tries < 200 && failures.length === 0; tries++)
+		await Bun.sleep(2);
+	expect(failures).toMatchObject([
+		{ path, error: { name: 'Conflict' }, lost: 'typed here' },
+	]);
+	other.resolve();
+	await running;
+	// A real write rereads when it settles; this stand-in does not.
+	await todos.refresh();
+	await quiet(todos);
+	expect(await text(todos, path)).toBe('changed elsewhere');
+	// The listing now holds what is there, so the next repair is guarded by it.
+	await repairWith(todos, 'bad', '---\ntitle: Fixed\ndone: false\n---\n');
+	await quiet(todos);
+	expect(cached(todos, 'bad').row.fields.title).toBe('Fixed');
 });
 
 // ============================================================================
@@ -456,10 +468,10 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
 
-	const renaming = todos.files.rename(path, 'oat.md');
+	const renaming = todos.rows.rename(stem, 'oat');
 	await Bun.sleep(5);
 	// The rename waits behind the write, and edits wait behind the rename.
-	expect(todos.files.isMoving(path)).toBe(true);
+	expect(todos.rows.isMoving(stem)).toBe(true);
 	expect(todos.rows.edit(stem, titled('Typed during the rename'))).toBe(false);
 	release();
 	expectOk(await renaming);
@@ -468,7 +480,6 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 	expect(failures).toEqual([]);
 	expect(await text(todos, path)).toBeUndefined();
 	expect(await text(todos, 'todos/oat.md')).toContain('title: Oat milk');
-	expect(todos.selected).toEqual({ path: 'todos/oat.md', as: 'todos' });
 	expect(cached(todos, 'oat').row.fields.title).toBe('Oat milk');
 	// Only the Markdown file moved.
 	expect(await text(todos, 'todos/milk.png')).toBe('not a todo');
@@ -478,106 +489,100 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 	expect(await text(todos, 'todos/oat.md')).toContain('title: Oat milk, two');
 });
 
-test('a todo file keeps its .md extension; another file moves as its bytes', async () => {
+test('a rename is refused when the name is not usable or is taken, and writes nothing', async () => {
 	const { todos } = await open();
-	const { path } = await addTodo(todos, 'Milk');
-	expect(expectErr(await todos.files.rename(path, 'milk.txt'))).toMatchObject({
+	const { stem, path } = await addTodo(todos, 'Milk');
+	expectOk(
+		await todos.folder.tables.todos.create(
+			{ fields: { title: 'Bread', done: false }, body: '' },
+			{ stem: 'bread' },
+		),
+	);
+	expect(expectErr(await todos.rows.rename(stem, 'a/b'))).toMatchObject({
 		name: 'NotStarted',
-		reason: 'A todo file keeps its .md extension.',
+		reason: 'A name cannot contain "/".',
 	});
-	expect(expectErr(await todos.files.rename(path, 'a/b.md')).name).toBe(
+	expect(expectErr(await todos.rows.rename(stem, 'tab\there')).name).toBe(
 		'NotStarted',
 	);
-	expectOk(await todos.folder.files.create('notes.txt', 'plain'));
-	expectOk(await todos.files.rename('notes.txt', 'notes.md'));
-	expect(await text(todos, 'notes.md')).toBe('plain');
-	expect(await text(todos, 'notes.txt')).toBeUndefined();
+	expect(expectErr(await todos.rows.rename(stem, 'bread')).name).toBe('Exists');
+	expect(await text(todos, path)).toContain('title: Milk');
+});
+
+test('rename and delete use the hash the listing read: a file changed elsewhere since is refused', async () => {
+	const { todos } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
+	expect(expectErr(await todos.rows.rename(stem, 'oat')).name).toBe('Conflict');
+	// The refusal read the folder again; another change lands after it.
+	await quiet(todos);
+	await writeElsewhere(
+		todos,
+		path,
+		'---\ntitle: Theirs, two\ndone: false\n---\n',
+	);
+	expect(expectErr(await todos.rows.remove(stem)).name).toBe('Conflict');
+	expect(await text(todos, path)).toContain('title: Theirs, two');
+	expect(await text(todos, 'todos/oat.md')).toBeUndefined();
+
+	// A file that does not read as a todo is guarded by its listed hash too.
+	await breakTodo(todos, 'bad', 'not a todo');
+	await writeElsewhere(todos, 'todos/bad.md', 'changed elsewhere');
+	expect(expectErr(await todos.rows.remove('bad')).name).toBe('Conflict');
+	await todos.queryClient.invalidateQueries({ queryKey: todosKeys.all });
+	await quiet(todos);
+	expectOk(await todos.rows.rename('bad', 'renamed'));
+	await quiet(todos);
+	expect(await text(todos, 'todos/renamed.md')).toBe('changed elsewhere');
+	expectOk(await todos.rows.remove('renamed'));
+	expect(await text(todos, 'todos/renamed.md')).toBeUndefined();
 });
 
 test('a delete runs after the queued writes and removes only the Markdown file', async () => {
 	const { todos, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	expectOk(await todos.folder.files.create('todos/milk.png', 'not a todo'));
-	const deletion = expectOk(await todos.files.deletionFor(path));
-	expect(deletion).toMatchObject({ kind: 'todo', title: 'Milk' });
-
 	// Typing while the confirmation is open is written first.
 	const { held, release } = holdNextWrite();
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
-	const removing = todos.files.remove(deletion);
+	const removing = todos.rows.remove(stem);
 	await Bun.sleep(5);
 	expect(await text(todos, path)).toContain('title: Milk\n');
 	release();
 	expectOk(await removing);
 	await quiet(todos);
 	expect(await text(todos, path)).toBeUndefined();
-	expect(todos.selected).toBeUndefined();
 	expect(todosOf(listing(todos))).toEqual([]);
 	expect(await text(todos, 'todos/milk.png')).toBe('not a todo');
-});
-
-test('a delete is refused when the file changed elsewhere after it was confirmed', async () => {
-	const { todos } = await open();
-	const { path } = await addTodo(todos, 'Milk');
-	const deletion = expectOk(await todos.files.deletionFor(path));
-	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
-	expect(expectErr(await todos.files.remove(deletion)).name).toBe('Conflict');
-	expect(await text(todos, path)).toContain('title: Theirs');
-});
-
-test('a folder is deleted only when it is empty', async () => {
-	const { todos } = await open();
-	expectOk(await todos.files.createFolder({ directory: '', name: 'docs' }));
-	expectOk(await todos.files.createFile({ directory: 'docs', name: 'a.txt' }));
-	await quiet(todos);
-	expect(todos.selected).toEqual({ path: 'docs/a.txt', as: 'files' });
-	expect(expectErr(await todos.files.deletionFor('docs')).name).toBe(
-		'NotStarted',
-	);
-	expectOk(
-		await todos.files.remove(
-			expectOk(await todos.files.deletionFor('docs/a.txt')),
-		),
-	);
-	await quiet(todos);
-	expectOk(
-		await todos.files.remove(expectOk(await todos.files.deletionFor('docs'))),
-	);
-	await quiet(todos);
-	const files = todos.queryClient.getQueryData<{ directories: string[] }>(
-		todosKeys.files,
-	);
-	expect(files?.directories).not.toContain('docs');
 });
 
 // ============================================================================
 // Versions
 // ============================================================================
 
-test('saves never commit; Save version records one, and delete says when changes are in no saved version', async () => {
+test('saves never commit; Save version records one, and Git status names a file with changes in no saved version', async () => {
 	const { todos } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
+	/** Whether status names `path`, as the delete confirmation asks. */
+	const unversioned = async () =>
+		expectOk(await todos.git.status.fetch()).changes.some(
+			(change) => change.path === path,
+		);
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await quiet(todos);
 	expect(todos.git.snapshot.lastCommit).toBeUndefined();
-	expect(expectOk(await todos.files.deletionFor(path))).toMatchObject({
-		unversioned: true,
-	});
+	expect(await unversioned()).toBe(true);
 
 	const outcome = expectOk(await todos.git.saveVersion());
 	expect(outcome.status).toBe('committed');
 	const [head] = expectOk(await todos.folder.git.log(1));
 	expect(head?.oid).toBe(outcome.status === 'committed' ? outcome.oid : '');
-	expect(expectOk(await todos.files.deletionFor(path))).toMatchObject({
-		unversioned: false,
-	});
+	expect(await unversioned()).toBe(false);
 
 	rowEditor(todos, stem)(titled('Oat milk, two'));
 	await quiet(todos);
-	expect(expectOk(await todos.files.deletionFor(path))).toMatchObject({
-		unversioned: true,
-	});
+	expect(await unversioned()).toBe(true);
 });
 
 // ============================================================================

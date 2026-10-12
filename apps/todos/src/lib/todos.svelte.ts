@@ -1,21 +1,26 @@
 /**
  * The Todos store over one opened folder, kept in its own TanStack Query
- * cache (ADR-0528). This file builds the session every part shares: the
- * query client and its rules, what the detail shows, and leaving and
- * closing. The parts are namespaces over that session, each in its file:
+ * cache (ADR-0528). Todos shows one folder table: the list is the table, the
+ * detail is one row, and a field change is a write of that row's file,
+ * guarded by the hash the list last read. Nothing else is cached.
  *
- * - `todos.rows`  (`rows.ts`): the todo listing, edits, writes, adding
- * - `todos.files` (`files.ts`): files as listed and as text, create, rename, delete
- * - `todos.git`   (`git.ts`): history state and status, Save version, recovery
- * - `todos.sync`  (`sync.ts`): Sync and its review's Apply
+ * This file builds the session every part shares: the query client and its
+ * rules, leaving, and closing. The parts are namespaces over that session,
+ * each in its file:
+ *
+ * - `todos.rows` (`rows.ts`): the todo listing, edits, writes, adding,
+ *   rename, delete, and repair of a file that does not read as a todo
+ * - `todos.git`  (`git.ts`): history state and status, Save version, recovery
+ * - `todos.sync` (`sync.ts`): Sync and its review's Apply
  *
  * Every query and mutation is a wellcrafted definition: a view passes
  * `.options` to `createQuery` or `createMutation`; code and tests call a
  * mutation or `.fetch()` a query and get a `Result`. A member that takes a
- * path or stem and returns a definition is one a view holds (`files.text`,
- * `rows.write`); an async method is a one-shot action a handler awaits
- * (`files.rename`, `files.remove`, `files.deletionFor`). Saves never commit
- * (ADR-0529); a version is recorded by Sync or by Save version.
+ * stem and returns a definition is one a view holds (`rows.write`,
+ * `rows.repair`); an async method is a one-shot action a handler awaits
+ * (`rows.rename`, `rows.remove`). Which todo is open is the view's state, not
+ * the store's. Saves never commit (ADR-0529); a version is recorded by Sync
+ * or by Save version.
  */
 import type { DepartureParticipant } from '@epicenter/epicenter/departure/page';
 import {
@@ -27,27 +32,23 @@ import {
 import { createContext } from 'svelte';
 import { createSubscriber } from 'svelte/reactivity';
 import { createQueryFactories } from 'wellcrafted/query';
-import { Ok } from 'wellcrafted/result';
-import { createFiles } from './files.js';
 import { createGit } from './git.js';
 import type { TodosFolder } from './platform/types.js';
 import { createRows } from './rows.js';
 import {
 	DEPARTING,
-	type Selection,
 	type Session,
 	TodosError,
 	todosKeys,
 	type WriteFailure,
 } from './session.js';
 import { createSync } from './sync.js';
-import { createTerminalSession } from './terminal.svelte.js';
 
 export type Todos = ReturnType<typeof createTodos>;
 
 /** How the store reports to the page. */
 type TodosOptions = {
-	/** A write failed and was rolled back; the app tells the person. */
+	/** A write failed; the app tells the person. */
 	onWriteFailed?: (failure: WriteFailure) => void;
 };
 
@@ -63,8 +64,6 @@ export function createTodos(
 	folder: TodosFolder,
 	{ onWriteFailed = () => {} }: TodosOptions = {},
 ) {
-	/** What the detail shows. */
-	let selected = $state.raw<Selection | undefined>();
 	/**
 	 * Epicenter asks to quit or restart. From `departure.fence` until
 	 * `departure.resume`, no edit or action starts; writes already queued go on.
@@ -77,12 +76,12 @@ export function createTodos(
 		return departing ? DEPARTING : undefined;
 	}
 
-	// The cache for this folder: the files it shows, and every write and
-	// action. Its rules read the mutation cache, which exists first, so the
+	// The cache for this folder: the todo listing, Git status, and every
+	// write and action. Its rules read the mutation cache, which exists first, so the
 	// client never refers to itself.
 	const mutationCache = new MutationCache();
 
-	/** Whether a write of a row or a file's text is running or waiting. */
+	/** Whether a write of a todo's file is running or waiting. */
 	const writing = () =>
 		mutationCache.findAll({ mutationKey: todosKeys.writes, status: 'pending' })
 			.length > 0;
@@ -153,17 +152,8 @@ export function createTodos(
 		});
 	}
 
-	/** Resolves once no write of a row or a file's text is running or waiting. */
+	/** Resolves once no write of a todo's file is running or waiting. */
 	const writesSettled = () => whenIdle({ mutationKey: todosKeys.writes });
-
-	/** Whether a rename or delete of `path` is running or waiting, which pauses its edits. */
-	const moving = (path: string) =>
-		queryClient.isMutating({ mutationKey: todosKeys.move(path), exact: true }) +
-			queryClient.isMutating({
-				mutationKey: todosKeys.remove(path),
-				exact: true,
-			}) >
-		0;
 
 	/**
 	 * Read again what an action may have changed. While a write runs nothing
@@ -187,33 +177,9 @@ export function createTodos(
 		invalidate,
 		trackMutations,
 		refused,
-		moving,
 		afterWrite,
 		onWriteFailed,
-		selection: {
-			get current() {
-				return selected;
-			},
-			set(next) {
-				selected = next;
-			},
-		},
 	};
-	const git = createGit(session);
-
-	const shell = folder.terminal();
-	/** A terminal command may write anything, so it is a mutation, and every listing is read again after it. */
-	const runCommand = defineMutation({
-		mutationKey: ['todos', 'terminal'],
-		mutationFn: async ({
-			command,
-			options,
-		}: {
-			command: string;
-			options?: { signal?: AbortSignal };
-		}) => Ok(await shell.exec(command, options)),
-		onSettled: () => invalidate(),
-	});
 
 	return {
 		/** The opened folder; `folder.location` says where the todos are. */
@@ -225,38 +191,14 @@ export function createTodos(
 		 */
 		queryClient,
 		rows: createRows(session),
-		files: createFiles(session, git),
-		git,
+		git: createGit(session),
 		sync: createSync(session),
-		/** The folder's terminal, which outlives its pane. Commands are mutations. */
-		terminal: createTerminalSession(
-			{
-				get cwd() {
-					return shell.cwd;
-				},
-				async exec(command, options) {
-					// A command that throws, or is refused, is shown in the terminal's output.
-					const ran = await runCommand({ command, options });
-					if (ran.data === null) throw ran.error;
-					return ran.data;
-				},
-			},
-			() => departing,
-		),
-		/** Read every listing and open file again, unless a write runs: then the last write reads. */
+		/** Read the listing and Git status again, unless a write runs: then the last write reads. */
 		refresh: () => invalidate(),
-		/** Whether a write of a row or a file's text is running or waiting, read reactively. */
+		/** Whether a write of a todo's file is running or waiting, read reactively. */
 		get saving() {
 			trackMutations();
 			return writing();
-		},
-		/** What the detail shows. */
-		get selected() {
-			return selected;
-		},
-		/** Show `path` in the detail, as `as` edits it. Opening never waits or asks. */
-		select(path: string, as: Selection['as']) {
-			selected = { path, as };
 		},
 		/** Whether Epicenter is asking to quit or restart, which pauses all input. */
 		get departing() {

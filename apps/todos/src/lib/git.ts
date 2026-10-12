@@ -52,8 +52,8 @@ export function createGit({
 		}),
 		/**
 		 * Recover the incoming update in `snapshot.pendingIncoming`, only because
-		 * the person asked. Writes still running land first; afterward every
-		 * listing and open file is read again.
+		 * the person asked. Writes still running land first; afterward the
+		 * listing and Git status are read again.
 		 */
 		recoverIncoming: defineMutation({
 			mutationKey: todosKeys.recoverIncoming,
