@@ -18,7 +18,8 @@
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { todosDefinition } from '$lib/definition.js';
-	import { describeError, type Todos } from '$lib/todos.svelte.js';
+	import { describeError } from '$lib/describe-error.js';
+	import { type Todos } from '$lib/todos.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
 

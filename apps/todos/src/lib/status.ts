@@ -19,7 +19,7 @@ import type {
 	SyncOutcome,
 } from '@epicenter/folder';
 import { describeSync } from '@epicenter/svelte/sync-line';
-import type { Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { TodosError } from './todos.svelte.js';
 
 export type Tone = 'neutral' | 'busy' | 'good' | 'warning' | 'error';
@@ -440,10 +440,16 @@ export function recoveryLine({
  * for the push of a merge that is not synced yet.
  */
 export function syncOutcomeLine(
-	result: Result<SyncOutcome, SyncError>,
+	result: Result<SyncOutcome, SyncError | TodosError>,
 	git: GitSnapshot,
 ): StatusLine {
-	const { error } = result;
+	const { data, error } = result;
+	if (error?.name === 'NotStarted')
+		return {
+			label: 'Sync did not start',
+			detail: error.reason,
+			tone: 'warning',
+		};
 	// A pending incoming update refuses the checkpoint first, or the merge.
 	const waits =
 		(error?.name === 'Merge' && error.error.name === 'IncomingPending') ||
@@ -452,7 +458,7 @@ export function syncOutcomeLine(
 			git.pendingIncoming !== undefined);
 	if (waits)
 		return { label: 'Sync waits', detail: INCOMING_WAITS, tone: 'warning' };
-	return describeSync(result, (push) => {
+	return describeSync(error === null ? Ok(data) : Err(error), (push) => {
 		const line = pushOutcomeLine(push, git);
 		return [line.label, line.detail].filter(Boolean).join('\n');
 	});

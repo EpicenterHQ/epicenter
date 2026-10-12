@@ -43,7 +43,7 @@ import {
 	type StoredRow,
 	type SyncAttempt,
 	type SyncChoices,
-	SyncError,
+	type SyncError,
 	type SyncOutcome,
 	type TableCreateError,
 	type TableError,
@@ -149,36 +149,6 @@ export const todosKeys = defineKeys({
 	remove: (path: string) => ['todos', 'remove', path] as const,
 });
 
-/**
- * Library errors state failures precisely; these are the ones a person acts
- * on. A refusal changed nothing, a move that kept its source left both
- * files, and a lost reply leaves the outcome unknown.
- */
-export function describeError(
-	error: FileError | MoveError | TableError | TodosError,
-): string {
-	switch (error.name) {
-		case 'NotStarted':
-			return error.reason;
-		case 'Exists':
-			return `"${basename(error.path)}" already exists here.`;
-		case 'Conflict':
-			return error.actualSha256 === undefined
-				? 'The file is no longer here, so nothing was changed.'
-				: 'The file changed elsewhere, so nothing was changed. Its current version is shown.';
-		case 'DirectoryNotEmpty':
-			return 'The folder is not empty, so nothing was deleted.';
-		case 'SourceNotRemoved':
-			return `The file was copied to ${error.to}, but ${error.from} could not be removed, so the folder now has both. Delete whichever you do not want.`;
-		case 'Unconfirmed':
-			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${error.message}`;
-		case 'InvalidValues':
-			return error.issues.map((issue) => issue.message).join(' ');
-		default:
-			return error.message;
-	}
-}
-
 /** Why a listed row file is not a todo the list can edit. */
 function repairOf(path: string, error: RowReadError): Repair {
 	if (error.name === 'InvalidRow')
@@ -279,8 +249,17 @@ export function createTodos(
 		staleTime: Number.POSITIVE_INFINITY,
 		refetchOnWindowFocus: () => (writing() ? false : 'always'),
 	});
-	// Mutations never retry by default.
-	queryClient.setMutationDefaults(todosKeys.all, { networkMode: 'always' });
+	// Mutations never retry by default. While Epicenter asks to leave or
+	// Todos closes, no new action starts: TanStack runs `onMutate` when an
+	// action is asked for, before its `mutationFn`, and what it throws is the
+	// action's error. An action asked for before that runs to the end.
+	queryClient.setMutationDefaults(todosKeys.all, {
+		networkMode: 'always',
+		onMutate: () => {
+			const why = refused();
+			if (why !== undefined) throw TodosError.NotStarted({ reason: why }).error;
+		},
+	});
 
 	/**
 	 * Todos and file texts whose cached value holds an edit no write has sent.
@@ -504,10 +483,7 @@ export function createTodos(
 				return shell.cwd;
 			},
 			async exec(command, options) {
-				const why = refused();
-				if (why !== undefined)
-					return { stdout: '', stderr: `${why}\n`, exitCode: 1 };
-				// A command that throws is shown in the terminal's output.
+				// A command that throws, or is refused, is shown in the terminal's output.
 				const ran = await runCommand({ command, options });
 				if (ran.data === null) throw ran.error;
 				return ran.data;
@@ -718,8 +694,6 @@ export function createTodos(
 			): Promise<
 				Result<StoredRow<TodoFields>, TableCreateError | TodosError>
 			> => {
-				const why = refused();
-				if (why !== undefined) return TodosError.NotStarted({ reason: why });
 				return table.create(
 					{ fields: { title, done: false }, body: '' },
 					{ stem: crypto.randomUUID() },
@@ -748,7 +722,7 @@ export function createTodos(
 				directory: string;
 				name: string;
 			}): Promise<Result<FileCapture, FileError | TodosError>> => {
-				const why = refused() ?? nameProblem(directory, name);
+				const why = nameProblem(directory, name);
 				if (why !== undefined) return TodosError.NotStarted({ reason: why });
 				return folder.files.create(joinPath(directory, name), '');
 			},
@@ -769,7 +743,7 @@ export function createTodos(
 				directory: string;
 				name: string;
 			}): Promise<Result<undefined, FileError | TodosError>> => {
-				const why = refused() ?? nameProblem(directory, name);
+				const why = nameProblem(directory, name);
 				if (why !== undefined) return TodosError.NotStarted({ reason: why });
 				const path = joinPath(directory, name);
 				const listing = queryClient.getQueryData<FileListing>(todosKeys.files);
@@ -819,8 +793,6 @@ export function createTodos(
 				mutationFn: async (): Promise<
 					Result<FileCapture, FileError | MoveError | TableError | TodosError>
 				> => {
-					const why = refused();
-					if (why !== undefined) return TodosError.NotStarted({ reason: why });
 					let capture = heldCapture(path);
 					if (capture === undefined) {
 						const { data, error } = await captureNow(path);
@@ -895,8 +867,6 @@ export function createTodos(
 				mutationFn: async (): Promise<
 					Result<undefined, FileError | TableError | TodosError>
 				> => {
-					const why = refused();
-					if (why !== undefined) return TodosError.NotStarted({ reason: why });
 					if (deletion.kind === 'folder')
 						return folder.files.rmdir(deletion.path);
 					const capture = heldCapture(deletion.path) ?? deletion.capture;
@@ -919,8 +889,6 @@ export function createTodos(
 		saveVersion: defineMutation({
 			mutationKey: ['todos', 'save-version'],
 			mutationFn: async (): Promise<Result<CommitOutcome, TodosError>> => {
-				const why = refused();
-				if (why !== undefined) return TodosError.NotStarted({ reason: why });
 				await writesSettled();
 				return Ok(await folder.git.commit());
 			},
@@ -932,9 +900,9 @@ export function createTodos(
 		 */
 		sync: defineMutation({
 			mutationKey: ['todos', 'sync'],
-			mutationFn: async (): Promise<Result<SyncOutcome, SyncError>> => {
-				const why = refused();
-				if (why !== undefined) return SyncError.Failed({ cause: why });
+			mutationFn: async (): Promise<
+				Result<SyncOutcome, SyncError | TodosError>
+			> => {
 				await writesSettled();
 				return folder.sync.run();
 			},
@@ -949,9 +917,7 @@ export function createTodos(
 			}: {
 				attempt: SyncAttempt;
 				choices: SyncChoices;
-			}): Promise<Result<SyncOutcome, SyncError>> => {
-				const why = refused();
-				if (why !== undefined) return SyncError.Failed({ cause: why });
+			}): Promise<Result<SyncOutcome, SyncError | TodosError>> => {
 				await writesSettled();
 				return folder.sync.resolve(attempt, choices);
 			},
@@ -967,8 +933,6 @@ export function createTodos(
 			mutationFn: async (): Promise<
 				Result<RecoverOutcome, PullError | GitError | TodosError>
 			> => {
-				const why = refused();
-				if (why !== undefined) return TodosError.NotStarted({ reason: why });
 				await writesSettled();
 				return folder.git.recoverIncoming();
 			},

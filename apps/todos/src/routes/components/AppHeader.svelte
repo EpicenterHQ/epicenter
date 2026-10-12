@@ -28,7 +28,8 @@
 		versionLine,
 		versionOutcomeLine,
 	} from '$lib/status.js';
-	import { describeError, type Todos, todosKeys } from '$lib/todos.svelte.js';
+	import { describeError } from '$lib/describe-error.js';
+	import { type Todos, type TodosError, todosKeys } from '$lib/todos.svelte.js';
 	import { copyPath } from './file-actions.js';
 
 	let {
@@ -42,7 +43,7 @@
 	}: {
 		todos: Todos;
 		/** The page's Sync; a sync that needs choices opens the review the page shows. */
-		sync: CreateMutationResult<SyncOutcome, SyncError, void, unknown>;
+		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, void, unknown>;
 		/** Whether the sync review shows, which holds every other Git action. */
 		reviewing?: boolean;
 		filesOpen: boolean;

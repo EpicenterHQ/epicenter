@@ -7,7 +7,8 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { describeError, repairsOf, type Todos, todosOf } from '$lib/todos.svelte.js';
+	import { describeError } from '$lib/describe-error.js';
+	import { repairsOf, type Todos, todosOf } from '$lib/todos.svelte.js';
 	import TodoRow from './TodoRow.svelte';
 
 	let { todos, onOpen }: { todos: Todos; onOpen?: () => void } = $props();

@@ -13,7 +13,8 @@
 	import { Ok } from 'wellcrafted/result';
 	import { departurePort } from '#platform/departure';
 	import { openTodosFolder } from '#platform/folder';
-	import { createTodos, describeError, type WriteFailure } from '$lib/todos.svelte.js';
+	import { describeError } from '$lib/describe-error.js';
+	import { createTodos, type WriteFailure } from '$lib/todos.svelte.js';
 	import TodosView from './components/TodosView.svelte';
 
 	// Inside Epicenter, quitting or restarting asks this page first; a browser

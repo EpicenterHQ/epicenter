@@ -19,7 +19,8 @@
 	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { rowPath } from '@epicenter/folder';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { describeError, type Todos } from '$lib/todos.svelte.js';
+	import { describeError } from '$lib/describe-error.js';
+	import { type Todos } from '$lib/todos.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
 	let { todos, onOpen }: { todos: Todos; onOpen?: () => void } = $props();

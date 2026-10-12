@@ -7,7 +7,8 @@
 import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
-import { type Deletion, describeError, type Todos } from '$lib/todos.svelte.js';
+import { describeError } from '$lib/describe-error.js';
+import type { Deletion, Todos } from '$lib/todos.svelte.js';
 
 export async function copyPath(path: string) {
 	try {
