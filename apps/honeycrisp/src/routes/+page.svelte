@@ -4,6 +4,8 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { openHost } from '#platform/notes-host';
 	import { onCloseRequested } from '#platform/window';
+	import { createClosing } from '@epicenter/svelte/closing';
+	import ClosingNotice from '@epicenter/svelte/closing-notice';
 	import { onDestroy } from 'svelte';
 	import { createLogger } from 'wellcrafted/logger';
 	import { createNotes, type Notes } from '$lib/notes.svelte.js';
@@ -18,13 +20,12 @@
 	// while opening, or after opening failed, goes ahead at once.
 	let notes: Notes | undefined;
 	async function close() {
-		try {
-			await notes?.close();
-		} catch (cause) {
-			log.warn(new Error('Closing the notes failed.', { cause }));
-		}
+		await notes?.close();
 	}
-	const listening = onCloseRequested?.(close).catch((cause: unknown) => {
+	// The handler waits with no timeout. A close still running after a moment
+	// shows "Still saving…" with Close anyway, which lets the window go.
+	const closing = createClosing({ close });
+	const listening = onCloseRequested?.(closing.request).catch((cause: unknown) => {
 		log.warn(new Error('Listening for the window to close failed.', { cause }));
 		return undefined;
 	});
@@ -48,7 +49,7 @@
 
 	onDestroy(() => {
 		void listening?.then((stop) => stop?.());
-		void opening.then(close, () => {});
+		void opening.then(close).catch(() => {});
 	});
 </script>
 
@@ -63,3 +64,5 @@
 		<Empty.Description>{error instanceof Error ? error.message : String(error)}</Empty.Description>
 	</Empty.Root>
 {/await}
+
+<ClosingNotice {closing} />

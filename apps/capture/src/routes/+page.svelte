@@ -2,6 +2,8 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
+	import { createClosing } from '@epicenter/svelte/closing';
+	import ClosingNotice from '@epicenter/svelte/closing-notice';
 	import { onDestroy } from 'svelte';
 	import { createLogger } from 'wellcrafted/logger';
 	import { onHostStopped, openCaptureHost } from '#platform/folder';
@@ -22,13 +24,12 @@
 	// a close while opening, or after opening failed, goes ahead at once.
 	let captures: Captures | undefined;
 	async function close() {
-		try {
-			await captures?.close();
-		} catch (cause) {
-			log.warn(new Error('Closing the captures failed.', { cause }));
-		}
+		await captures?.close();
 	}
-	const listening = onCloseRequested?.(close).catch((cause: unknown) => {
+	// The handler waits with no timeout. A close still running after a moment
+	// shows "Still saving…" with Close anyway, which lets the window go.
+	const closing = createClosing({ close });
+	const listening = onCloseRequested?.(closing.request).catch((cause: unknown) => {
 		log.warn(new Error('Listening for the window to close failed.', { cause }));
 		return undefined;
 	});
@@ -49,7 +50,7 @@
 	onDestroy(() => {
 		for (const stop of stops.splice(0)) stop();
 		void listening?.then((stop) => stop?.());
-		void opening.then(close, () => {});
+		void opening.then(close).catch(() => {});
 	});
 </script>
 
@@ -66,3 +67,5 @@
 		<Empty.Content><Button variant="outline" size="sm" onclick={() => location.reload()}>Try again</Button></Empty.Content>
 	</Empty.Root>
 {/await}
+
+<ClosingNotice {closing} />

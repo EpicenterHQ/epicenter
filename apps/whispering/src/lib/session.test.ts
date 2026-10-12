@@ -12,6 +12,8 @@
  * - A navigation that unloads the document is held back only while something
  *   exists only in the window
  * - A layout released before its session starts closes what it opened
+ * - A window close while recording asks first: Cancel keeps the window open
+ *   and the recording going, and a second request joins the same ask
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -29,6 +31,7 @@ import {
 const { mountSession, openSession, OpeningNotReleasedError } = await import(
 	'./session.svelte.ts'
 );
+const { createClosing } = await import('@epicenter/svelte/closing');
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -74,6 +77,46 @@ test('internal navigation is allowed while unloading is blocked only by unsaved 
 
 	await library.stopRecording();
 	expect(session.blocksNavigation(UNLOAD)).toBe(false);
+});
+
+test('a window close while recording asks first; Cancel keeps the window and the recording, and a second request joins the ask', async () => {
+	const { session, library, test } = await open();
+	await library.startRecording();
+	expect(library.recording).toBe(true);
+	const answer = deferred<boolean>();
+	let asked = 0;
+	// As the layout composes it: ask only while a recording is in progress.
+	const closing = createClosing({
+		close: () => session.close(),
+		confirm: () => {
+			if (!library.recording) return true;
+			asked += 1;
+			return answer.promise;
+		},
+	});
+	const kept: boolean[] = [];
+	const request = () => ({
+		preventDefault() {
+			kept.push(true);
+		},
+	});
+
+	const handled = [closing.request(request()), closing.request(request())];
+	await Bun.sleep(5);
+	expect(asked).toBe(1);
+	answer.resolve(false);
+	await Promise.all(handled);
+
+	expect(kept).toEqual([true, true]);
+	expect(library.recording).toBe(true);
+	expect(test.closes).toBe(0);
+
+	// Once the recording stops, a close asks nothing and ends the session.
+	await library.stopRecording();
+	const closed = request();
+	await closing.request(closed);
+	expect(kept).toEqual([true, true]);
+	expect(test.closes).toBe(1);
 });
 
 test('a session whose first read fails releases the folder it opened', async () => {

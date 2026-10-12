@@ -2,6 +2,8 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import { createClosing } from '@epicenter/svelte/closing';
+	import ClosingNotice from '@epicenter/svelte/closing-notice';
 	import { onDestroy } from 'svelte';
 	import { createLogger } from 'wellcrafted/logger';
 	import { Ok } from 'wellcrafted/result';
@@ -24,13 +26,12 @@
 	// while opening, or after the folder was refused, goes ahead at once.
 	let todos: Todos | undefined;
 	async function close() {
-		try {
-			await todos?.close();
-		} catch (cause) {
-			log.warn(new Error('Closing the todos failed.', { cause }));
-		}
+		await todos?.close();
 	}
-	const listening = onCloseRequested?.(close).catch((cause: unknown) => {
+	// The handler waits with no timeout. A close still running after a moment
+	// shows "Still saving…" with Close anyway, which lets the window go.
+	const closing = createClosing({ close });
+	const listening = onCloseRequested?.(closing.request).catch((cause: unknown) => {
 		log.warn(new Error('Listening for the window to close failed.', { cause }));
 		return undefined;
 	});
@@ -48,7 +49,7 @@
 
 	onDestroy(() => {
 		void listening?.then((stop) => stop?.());
-		void opening.then(close, () => {});
+		void opening.then(close).catch(() => {});
 	});
 </script>
 
@@ -71,3 +72,5 @@
 {:catch error}
 	{@render refused(error instanceof Error ? error.message : String(error))}
 {/await}
+
+<ClosingNotice {closing} />

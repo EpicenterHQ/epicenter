@@ -9,6 +9,8 @@
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { ModeWatcher } from 'mode-watcher';
+	import { createClosing } from '@epicenter/svelte/closing';
+	import ClosingNotice from '@epicenter/svelte/closing-notice';
 	import { onDestroy } from 'svelte';
 	import { createLogger } from 'wellcrafted/logger';
 	import { mountSession, type Session } from '$lib/session.svelte.js';
@@ -28,64 +30,51 @@
 	const { opening, release } = mountSession();
 
 	// Closing the desktop window ends the session: the shell awaits this
-	// handler, which awaits `session.close()`, then the window goes. Only a
-	// recording in progress is asked about first; Cancel keeps the window open
-	// and the recording going. The handler is registered before the session is
-	// shown, so nothing is editable without it. A close while opening, or
+	// handler, which awaits `session.close()` with no timeout, then the window
+	// goes. A close still running after a moment shows "Still saving…" with
+	// Close anyway. Only a recording in progress is asked about first; Cancel
+	// keeps the window open and the recording going, and a second close
+	// request joins the same ask. The handler is registered before the session
+	// is shown, so nothing is editable without it. A close while opening, or
 	// after opening failed, has no session to wait for and goes ahead at once.
 	let session: Session | undefined;
 	let stopListening: (() => void) | undefined;
 	let destroyed = false;
-	/** The ask on screen, which a second close request joins. */
-	let asking: Promise<boolean> | undefined;
 
-	function askToStopRecording(window: WorkspaceWindow): Promise<boolean> {
-		asking ??= (async () => {
-			// Quit can arrive while the window is hidden or behind others.
-			await window.reveal().catch((cause: unknown) => {
-				log.warn(new Error('Showing the window to ask failed.', { cause }));
-			});
-			return new Promise<boolean>((resolve) => {
-				confirmationDialog.open({
-					title: 'A recording is in progress',
-					description:
-						'Closing Whispering stops the recording, and what was recorded is not kept.',
-					confirm: { text: 'Close', variant: 'destructive' },
-					cancel: { text: 'Keep recording' },
-					onConfirm: () => resolve(true),
-					onCancel: () => resolve(false),
-				});
-			});
-		})().finally(() => {
-			asking = undefined;
+	async function askToStopRecording(window: WorkspaceWindow) {
+		// Quit can arrive while the window is hidden or behind others.
+		await window.reveal().catch((cause: unknown) => {
+			log.warn(new Error('Showing the window to ask failed.', { cause }));
 		});
-		return asking;
+		return new Promise<boolean>((resolve) => {
+			confirmationDialog.open({
+				title: 'A recording is in progress',
+				description:
+					'Closing Whispering stops the recording, and what was recorded is not kept.',
+				confirm: { text: 'Close', variant: 'destructive' },
+				cancel: { text: 'Keep recording' },
+				onConfirm: () => resolve(true),
+				onCancel: () => resolve(false),
+			});
+		});
 	}
 
-	async function closeRequested(event: { preventDefault(): void }) {
-		const current = session;
-		if (current === undefined) return;
-		const { window } = current.workspace;
-		if (
-			current.library.recording &&
-			window !== undefined &&
-			!(await askToStopRecording(window))
-		) {
-			event.preventDefault();
-			return;
-		}
-		try {
-			await current.close();
-		} catch (cause) {
-			log.warn(new Error('Closing the session failed.', { cause }));
-		}
-	}
+	const closing = createClosing({
+		close: async () => {
+			await session?.close();
+		},
+		confirm: () => {
+			const window = session?.workspace.window;
+			if (!session?.library.recording || window === undefined) return true;
+			return askToStopRecording(window);
+		},
+	});
 
 	const ready = opening.then(async (opened) => {
 		if (opened.error !== null) return opened;
 		session = opened.data;
 		const stop = await opened.data.workspace.window
-			?.onCloseRequested(closeRequested)
+			?.onCloseRequested(closing.request)
 			.catch((cause: unknown) => {
 				log.warn(
 					new Error('Listening for the window to close failed.', { cause }),
@@ -130,5 +119,6 @@
 </Tooltip.Provider>
 
 <ConfirmationDialog />
+<ClosingNotice {closing} />
 <Toaster offset={16} closeButton />
 <ModeWatcher defaultMode="dark" track={false} />

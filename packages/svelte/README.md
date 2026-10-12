@@ -85,6 +85,30 @@ it. `command(fn)` wraps a whole method so each call counts from the call,
 before its first await; `admit(fn)` counts one piece; `quiet()` waits for all
 of it; `busy` is reactive.
 
+### `closing` and `ClosingNotice` (`@epicenter/svelte/closing`, `@epicenter/svelte/closing-notice`)
+
+A desktop page's window close handler. `createClosing({ close, confirm? })`
+returns `request(event)`, which the page registers with Tauri's
+`onCloseRequested`: it awaits the owner's `close()` with no timeout, and the
+window goes once it returns. Every request joins one close. `confirm`, when
+given, is asked before the close starts; `false` calls
+`event.preventDefault()` and closes nothing, and a second request while it is
+asked joins the same answer.
+
+When the close has run longer than about 1,200 ms, `slow` turns on and
+`ClosingNotice` shows "Still saving…" with "Close anyway", which calls
+`closeAnyway()` to stop waiting and let the window go. The delay decides when
+the notice shows; it never ends the close.
+
+```svelte
+<script lang="ts">
+	const closing = createClosing({ close: () => owner?.close() });
+	const listening = onCloseRequested?.(closing.request);
+</script>
+
+<ClosingNotice {closing} />
+```
+
 ### `SaveBar` (`@epicenter/svelte/save-bar`)
 
 The save state and conflict prompt for one edit session: Reload theirs or
