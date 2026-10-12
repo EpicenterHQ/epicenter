@@ -1,8 +1,9 @@
 # 0528. Applications edit files through the query cache
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-12
-- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (reads, guarded writes, `InvalidRow`), ADR-0514 (sync keeps field merge and the review grid). On acceptance this record supersedes [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) and [ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md), and ADR-0484 is deleted.
+- **Supersedes:** [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) (snapshot autosave sessions) and [ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) (drafts in edit sessions, one open item)
+- **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (reads, guarded writes, `InvalidRow`)
 - **Unbuilt:** all of it. Todos is the first app to move; `edit-session`, `open-item`, `save-bar`, `autosave`, and the save merge (`table.merge`, `files.merge`, `save-merge.ts`) are deleted once all five apps have moved.
 
 ## Context

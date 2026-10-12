@@ -718,7 +718,7 @@ When you add an ADR, add its row here.
 | [0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) | File table updates conditionally replace the captured whole file | Proposed |
 | [0466](0466-opened-media-provides-stable-input-bytes.md) | Opened media provides stable input bytes | Proposed (stable media reads and transcription migration unbuilt) |
 | [0467](0467-file-workflows-report-each-operations-outcome.md) | File workflows report each operation's outcome | Accepted |
-| [0468](0468-file-saves-succeed-independently-of-automatic-commits.md) | File saves succeed independently of automatic commits | Accepted (busy-attempt skipping amended by 0505, proposed) |
+| [0468](0468-file-saves-succeed-independently-of-automatic-commits.md) | File saves succeed independently of automatic commits | Accepted (automatic commits withdrawn by 0529) |
 | [0469](0469-generated-commit-messages-describe-captured-file-changes.md) | Generated commit messages describe captured file changes | Proposed (tree-derived message generation unbuilt) |
 | [0470](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) | Epicenter helps people make software that is unmistakably theirs | Proposed (product articulation; public adoption and independent browser folder access unbuilt) |
 | [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, files, and Git | Accepted |
@@ -732,7 +732,6 @@ When you add an ADR, add its row here.
 | [0480](0480-file-tables-own-only-their-markdown-row-files.md) | File tables own only their Markdown row files | Accepted (supersedes 0456) |
 | [0482](0482-folder-mutations-publish-one-file-at-a-time.md) | Folder mutations publish one file at a time | Accepted |
 | [0483](0483-honeycrisp-shares-one-canonical-editor-per-open-row.md) | Honeycrisp shares one canonical editor per open row | Superseded by 0523 |
-| [0484](0484-conflict-presentation-follows-the-edit-being-resolved.md) | Conflict presentation follows the edit being resolved | Proposed (consistent editor presentation unbuilt) |
 | [0486](0486-folder-domain-methods-share-accounted-storage.md) | Folder domain methods share accounted storage | Proposed |
 | [0488](0488-cloud-folders-use-independent-git-histories.md) | Cloud folders pair with independent private GitHub repositories | Proposed (unbuilt; GitHub connection, private creation, account pairing, credential and browser gates; first-party hosting evidence retained) |
 | [0489](0489-cloud-folder-transfers-are-explicit-and-bootstrap-before-opening.md) | Account identity selects local folders and cloud transfers are explicit | Proposed (local history and Local CLI locks implemented; account setup, managed Sync, unrelated-history combination, and save/adoption/refresh coordination unbuilt) |
@@ -748,21 +747,20 @@ When you add an ADR, add its row here.
 | [0501](0501-store-checkout-push-pull-and-its-baseline-are-removed.md) | Store checkout Pull/Push and its baseline are removed | Proposed (checkout removed; generic folder queries unbuilt; no replacement checkout or SQL export planned) |
 | [0502](0502-whispering-connections-own-request-destinations-and-credentials.md) | Whispering connections own request destinations and credentials | Accepted (cross-application execution and folder-independent credential storage unbuilt) |
 | [0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) | File-authoritative workflows preserve information and tolerate repairable states | Proposed (application refusal review and simpler Honeycrisp folder deletion unbuilt) |
-| [0505](0505-automatic-commits-carry-one-coalesced-request-until-the-folder-is-free.md) | Automatic commits carry one coalesced request until the folder is free | Proposed (amends 0468) |
 | [0506](0506-capture-composes-values-through-a-source-preserving-body-codec.md) | Capture composes values through a source-preserving body codec | Proposed |
 | [0509](0509-folder-remotes-and-http-fetch-have-separate-contracts.md) | Folder remotes and HTTP fetch have separate contracts | Proposed |
 | [0510](0510-authored-dataset-locations-are-independent-of-sign-in.md) | Authored dataset locations are independent of sign-in | Proposed (stable-location startup, transition of existing scoped folders, connection controls, and account-change acceptance unbuilt) |
 | [0512](0512-ai-reply-is-independent-of-openai-protocol-compatibility.md) | AI reply is independent of OpenAI protocol compatibility | Proposed (Zhongwen adoption and authenticated browser bridge unbuilt) |
-| [0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) | Snapshot saves serialize writes and retain only the latest pending text | Accepted (commits for late-confirmed saves unbuilt) |
+| [0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) | Snapshot saves serialize writes and retain only the latest pending text | Superseded by 0528 |
 | [0517](0517-a-data-folder-can-live-inside-any-repository.md) | A data folder can live inside any repository | Proposed (epicenter.json discovery in apps, opener refusal inside a host, extraction tooling, and submodule-hosted opening unbuilt) |
 | [0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) | A row is read through one pipeline and repaired as text | Accepted (kv.json unbuilt) |
 | [0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) | Row frontmatter is YAML every common reader reads identically | Accepted (continuous cross-reader check unbuilt) |
 | [0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) | The CLI acts on a data folder by its path | Accepted (running outside an Epicenter checkout unbuilt) |
 | [0521](0521-a-data-folder-syncs-with-its-git-origin-through-a-provider.md) | A data folder syncs with its Git origin through a provider | Proposed (provider interface, repository-addressed GitHub transfers, listing by epicenter.json, and Artifacts provider unbuilt) |
 | [0522](0522-settings-are-independent-keys-set-one-at-a-time.md) | Settings are independent keys set one at a time | Proposed (application adoption unbuilt) |
-| [0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) | Applications own drafts in edit sessions and leave one open item | Accepted (keyed slot for several open items unbuilt) |
+| [0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) | Applications own drafts in edit sessions and leave one open item | Superseded by 0528 |
 | [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Accepted |
 | [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Accepted |
 | [0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) | A data folder may keep its declaration as TypeScript | Accepted |
-| [0528](0528-applications-edit-files-through-the-query-cache.md) | Applications edit files through the query cache | Proposed |
-| [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Proposed |
+| [0528](0528-applications-edit-files-through-the-query-cache.md) | Applications edit files through the query cache | Accepted |
+| [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Accepted |

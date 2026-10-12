@@ -1,8 +1,9 @@
 # 0529. Commits happen only on sync or when a person saves a version
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-12
-- **Relates:** ADR-0528 (edits are written at once, without commits). On acceptance this record amends [ADR-0468](0468-file-saves-succeed-independently-of-automatic-commits.md), withdrawing automatic commits after saves while keeping that a save and a commit report their outcomes separately, and ADR-0505 is deleted.
+- **Amends:** [ADR-0468](0468-file-saves-succeed-independently-of-automatic-commits.md), withdrawing automatic commits after saves. That a save succeeds independently of any commit, and that each reports its own outcome, remains.
+- **Relates:** [ADR-0528](0528-applications-edit-files-through-the-query-cache.md) (edits are written at once, without commits)
 - **Unbuilt:** removing `commitOnEdit` and the automatic commit worker from the TypeScript history and the desktop owner; "Save version" in Capture, Honeycrisp, and Whispering; Todos' Fetch, Pull, Merge, and Commit and push controls removed in favor of Sync.
 
 ## Context
