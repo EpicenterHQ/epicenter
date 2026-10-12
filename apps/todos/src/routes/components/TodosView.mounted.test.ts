@@ -33,12 +33,9 @@ import {
 	prepareGitSession,
 } from '../../../server/git-server.js';
 import { todosDefinition } from '../../lib/definition.js';
-import {
-	clearQueryClient,
-	quiet,
-	rowEditor,
-} from '../../lib/query.test-support.js';
+import { quiet, rowEditor } from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
+import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { startTodos } = await import('../../lib/todos.svelte.ts');
@@ -68,7 +65,6 @@ afterAll(() => {
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
-	clearQueryClient();
 });
 
 let count = 0;
@@ -91,8 +87,8 @@ async function run(cwd: string, command: string[]) {
 }
 
 /** Let writes, reads, and effects run, then render. */
-async function settle() {
-	await quiet();
+async function settle(todos: Todos) {
+	await quiet(todos);
 	flushSync();
 	await Bun.sleep(0);
 	flushSync();
@@ -153,7 +149,7 @@ async function competing() {
 		void unmount(view);
 		target.remove();
 	});
-	await settle();
+	await settle(todos);
 	rowEditor(
 		todos,
 		'milk',
@@ -161,7 +157,7 @@ async function competing() {
 		...row,
 		fields: { ...row.fields, title: 'Buy oat milk' },
 	}));
-	await settle();
+	await settle(todos);
 	return { todos, session, target };
 }
 
@@ -184,7 +180,7 @@ function sync(target: Element) {
 }
 
 test('Sync with competing edits opens the review in place of the workspace and writes nothing; Cancel forgets it', async () => {
-	const { session, target } = await competing();
+	const { todos, session, target } = await competing();
 	expect(workspace(target)?.textContent).toContain('Buy oat milk');
 
 	sync(target);
@@ -201,7 +197,7 @@ test('Sync with competing edits opens the review in place of the workspace and w
 
 	click(review(target)!, 'Cancel');
 	await eventually(() => review(target) === null);
-	await settle();
+	await settle(todos);
 	expect(review(target)).toBeNull();
 	expect(workspace(target)?.textContent).toContain('Buy oat milk');
 	expect(
@@ -210,7 +206,7 @@ test('Sync with competing edits opens the review in place of the workspace and w
 }, 60_000);
 
 test('a refused choice shows beside its row and keeps the review; Apply with a valid choice ends it, and the list shows the result', async () => {
-	const { session, target } = await competing();
+	const { todos, session, target } = await competing();
 	sync(target);
 	await eventually(() => review(target) !== null);
 
@@ -236,7 +232,7 @@ test('a refused choice shows beside its row and keeps the review; Apply with a v
 	flushSync();
 	click(review(target)!, 'Apply and sync');
 	await eventually(() => review(target) === null);
-	await settle();
+	await settle(todos);
 	expect(workspace(target)?.textContent).toContain('Buy soy milk');
 	expect(await run(session.bare, ['git', 'show', `main:${MILK}`])).toContain(
 		'title: Buy soy milk',

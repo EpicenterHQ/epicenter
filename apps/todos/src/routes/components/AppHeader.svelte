@@ -29,7 +29,6 @@
 		versionOutcomeLine,
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
-	import { queryClient, todosKeys } from '$lib/query.js';
 	import { todos, type TodosError } from '$lib/todos.svelte.js';
 	import { copyPath } from './file-actions.js';
 
@@ -214,7 +213,7 @@
 					variant="outline"
 					size="sm"
 					disabled={status.isFetching}
-					onclick={() => void queryClient.invalidateQueries({ queryKey: todosKeys.all })}
+					onclick={() => void todos.refresh()}
 				>
 					Check again
 				</Button>

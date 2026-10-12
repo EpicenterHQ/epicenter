@@ -33,14 +33,7 @@ import { createFakeHost } from '../../../epicenter/src/departure-page.test-suppo
 import { todosDefinition } from './definition.js';
 import { holdCloses } from './opfs-holds.test-support.js';
 import type { TodosFolder } from './platform/types.js';
-import { queryClient } from './query.js';
-import {
-	cached,
-	clearQueryClient,
-	observe,
-	quiet,
-	rowEditor,
-} from './query.test-support.js';
+import { cached, observe, quiet, rowEditor } from './query.test-support.js';
 import type { Todos } from './todos.svelte.js';
 
 const { startTodos, DEPARTING } = await import('./todos.svelte.ts');
@@ -51,7 +44,6 @@ const cleanup: (() => unknown)[] = [];
 
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
-	clearQueryClient();
 });
 
 /**
@@ -87,7 +79,7 @@ async function openTodos(
 	const todos: Todos = startTodos(adapt(folder));
 	cleanup.push(() => todos.close());
 	cleanup.push(observe(todos));
-	await quiet();
+	await quiet(todos);
 	return {
 		todos,
 		/** Hold the next todo row write; resolves once it is held. */
@@ -107,7 +99,7 @@ async function openTodos(
 /** Add a todo; answers its stem and path. */
 async function addTodo(todos: Todos, title: string) {
 	const created = expectOk(await todos.create(title));
-	await quiet();
+	await quiet(todos);
 	return {
 		stem: created.path.slice('todos/'.length, -'.md'.length),
 		path: created.path,
@@ -135,7 +127,7 @@ function track(departure: Departure) {
 }
 
 /** Let reads, answers, saves, and drains run. */
-async function settle() {
+async function settle(todos: Todos) {
 	for (let i = 0; i < 20; i++) await Bun.sleep(0);
 }
 
@@ -214,7 +206,7 @@ test('a write still running is waited for before the page answers ready', async 
 	await held;
 	host.begin('restart');
 	host.nudge();
-	await settle();
+	await settle(todos);
 	// The write is running: the page asks and waits for it.
 	expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
 	expect(departure.notice?.stage).toBe('saving');
@@ -238,7 +230,7 @@ test('a sync running when Epicenter asks is waited for before the page answers r
 	await run.entered.promise;
 	host.begin('quit');
 	host.nudge();
-	await settle();
+	await settle(todos);
 	expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
 	run.open();
 	// No remote: the sync itself refuses, and only then is the page ready.
@@ -260,7 +252,7 @@ test('a new todo title typed and not added counts: the page asks, and Keep worki
 		held: 1,
 	});
 	departure.keepWorking(shownPrompt(departure));
-	await settle();
+	await settle(todos);
 	expect(host.answers.map((answer) => answer.answer)).toEqual([
 		'asking',
 		'cancel',
@@ -269,7 +261,9 @@ test('a new todo title typed and not added counts: the page asks, and Keep worki
 	expect(todos.departing).toBe(false);
 	expect(todos.newTitle).toBe('Buy milk');
 	// Nothing was created from it.
-	expect(queryClient.getQueryData<unknown[]>(['todos', 'rows'])).toEqual([]);
+	expect(todos.queryClient.getQueryData<unknown[]>(['todos', 'rows'])).toEqual(
+		[],
+	);
 });
 
 test('a round cancelled elsewhere gives back the typed title, and leaving anyway is a ready vote only', async () => {
@@ -279,7 +273,7 @@ test('a round cancelled elsewhere gives back the typed title, and leaving anyway
 	host.nudge();
 	await eventually(() => departure.notice?.stage === 'choose');
 	departure.leaveAnyway(shownPrompt(departure));
-	await settle();
+	await settle(todos);
 	expect(host.answers.map((answer) => answer.answer)).toEqual([
 		'asking',
 		'ready',
@@ -291,7 +285,7 @@ test('a round cancelled elsewhere gives back the typed title, and leaving anyway
 
 	host.set({ phase: 'idle' });
 	host.nudge();
-	await settle();
+	await settle(todos);
 	expect(todos.departing).toBe(false);
 	expect(todos.newTitle).toBe('Buy milk');
 	todos.newTitle = 'Buy oat milk';
@@ -309,11 +303,11 @@ test('granted, leaving, and a discarded vote stay fenced: nothing is edited or s
 		host.begin('quit');
 		host.set(next);
 		host.nudge();
-		await settle();
+		await settle(todos);
 		expect(todos.departing).toBe(true);
 		expect(departure.notice).toEqual({ stage: 'leaving', intent: 'quit' });
 		expect(todos.edit(stem, titled('Late'))).toBe(false);
-		expect(cached(stem).row.fields.title).toBe('Milk');
+		expect(cached(todos, stem).row.fields.title).toBe('Milk');
 		expect(expectErr(await todos.create('Another'))).toMatchObject({
 			reason: DEPARTING,
 		});
@@ -321,7 +315,7 @@ test('granted, leaving, and a discarded vote stay fenced: nothing is edited or s
 		expect(todos.newTitle).toBe('');
 		// Focus while fenced reads again; still fenced.
 		host.focus();
-		await settle();
+		await settle(todos);
 		expect(todos.departing).toBe(true);
 	}
 });
@@ -357,7 +351,7 @@ test('while fenced, every edit, action, Git command, and terminal command is ref
 	expect(todos.terminal.command).toBe('');
 	await todos.terminal.run();
 	expect(todos.terminal.runs).toEqual([]);
-	await settle();
+	await settle(todos);
 	expect(await text('shell.txt')).toBeUndefined();
 	expect(await text(path)).toBe(saved);
 	expect(await text('notes.txt')).toBe('saved');
@@ -366,7 +360,7 @@ test('while fenced, every edit, action, Git command, and terminal command is ref
 	todos.departure.resume();
 	expect(todos.departing).toBe(false);
 	rowEditor(todos, stem)(titled('After'));
-	await quiet();
+	await quiet(todos);
 	expect(await text(path)).toContain('title: After');
 	expectOk(await todos.remove(deletion));
 	expect(await text('notes.txt')).toBeUndefined();
@@ -385,16 +379,16 @@ for (const ending of [
 		host.begin('quit');
 		host.nudge();
 		await held;
-		await settle();
+		await settle(todos);
 		expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
 
 		host.set(ending);
 		host.nudge();
-		await settle();
+		await settle(todos);
 		expect(departure.notice).toEqual({ stage: 'leaving', intent: 'quit' });
 		release();
-		await eventually(() => queryClient.isMutating() === 0);
-		await settle();
+		await eventually(() => todos.queryClient.isMutating() === 0);
+		await settle(todos);
 		// The admitted write landed; no ready, no prompt, and still fenced.
 		expect(await text(path)).toContain('title: Slow');
 		expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
@@ -411,7 +405,7 @@ test('close waits for a running sync through its last step', async () => {
 	const closing = todos.close().then(() => {
 		closed = true;
 	});
-	await settle();
+	await settle(todos);
 	expect(closed).toBe(false);
 	run.open();
 	expect(expectErr(await syncing).name).toBe('NoRemote');
@@ -428,7 +422,7 @@ test('a terminal command admitted before a departure is waited for; meanwhile th
 	await exec.entered.promise;
 	host.begin('quit');
 	host.nudge();
-	await settle();
+	await settle(todos);
 	expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
 	exec.open();
 	await running;
@@ -449,7 +443,7 @@ test('a terminal command admitted before a departure is waited for; meanwhile th
 	// The quit is cancelled elsewhere: the terminal takes typing again.
 	host.set({ phase: 'idle' });
 	host.nudge();
-	await settle();
+	await settle(todos);
 	expect(terminal.isFenced).toBe(false);
 	terminal.command = 'echo kept';
 	expect(terminal.command).toBe('echo kept');
@@ -463,13 +457,13 @@ test('a command typed in the terminal before a departure stays exactly as typed 
 	terminal.command = 'git status';
 	host.begin('quit');
 	host.nudge();
-	await settle();
+	await settle(todos);
 	expect(host.answers.map((answer) => answer.answer)).toEqual(['ready']);
 	await terminal.run();
 	expect(terminal.command).toBe('git status');
 	expect(terminal.runs).toEqual([]);
 	host.set({ phase: 'idle' });
 	host.nudge();
-	await settle();
+	await settle(todos);
 	expect(terminal.command).toBe('git status');
 });

@@ -19,7 +19,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { testBrowserStorage } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
 import type { TodosFolder } from '../../lib/platform/types.js';
-import { clearQueryClient, quiet } from '../../lib/query.test-support.js';
+import { quiet } from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
@@ -33,7 +33,6 @@ let count = 0;
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
-	clearQueryClient();
 });
 
 async function setup(adapt: (folder: TodosFolder) => TodosFolder = (f) => f) {
@@ -85,7 +84,7 @@ test('a folder that does not sync yet offers Save version', async () => {
 test('Save version records the saved files as a version', async () => {
 	const { target, todos } = await setup();
 	expectOk(await todos.create('Milk'));
-	await quiet();
+	await quiet(todos);
 	expect(todos.git.lastCommit).toBeUndefined();
 	click(target, 'Save version');
 	for (
@@ -94,7 +93,7 @@ test('Save version records the saved files as a version', async () => {
 		tries++
 	)
 		await Bun.sleep(5);
-	await quiet();
+	await quiet(todos);
 	flushSync();
 	expect(todos.git.lastCommit?.status).toBe('committed');
 	const [head] = expectOk(await todos.folder.git.log(1));

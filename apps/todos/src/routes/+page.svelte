@@ -7,6 +7,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
+	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { onDestroy } from 'svelte';
 	import { Ok } from 'wellcrafted/result';
@@ -94,7 +95,9 @@
 	{#if opened.error}
 		{@render refused(opened.error.message)}
 	{:else}
-		<TodosView {departure} />
+		<QueryClientProvider client={opened.data.queryClient}>
+			<TodosView {departure} />
+		</QueryClientProvider>
 	{/if}
 {:catch error}
 	{@render refused(error instanceof Error ? error.message : String(error))}

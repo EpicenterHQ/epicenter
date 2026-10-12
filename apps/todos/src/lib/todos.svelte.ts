@@ -56,21 +56,24 @@ import {
 	joinPath,
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
-import type { MutationFilters } from '@tanstack/query-core';
+import {
+	focusManager,
+	MutationCache,
+	type MutationFilters,
+	QueryClient,
+} from '@tanstack/query-core';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { resultMutationOptions, resultQueryOptions } from 'wellcrafted/query';
+import {
+	createQueryFactories,
+	defineKeys,
+	resultMutationOptions,
+	resultQueryOptions,
+} from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type TodoFields, todosDefinition } from './definition.js';
 import { nameProblem, readTextFile } from './files.js';
 import type { TodosFolder } from './platform/types.js';
-import {
-	defineMutation,
-	queryClient,
-	todosKeys,
-	whenIdle,
-	writing,
-} from './query.js';
 import { createTerminalSession } from './terminal.svelte.js';
 
 export type Todos = ReturnType<typeof createTodos>;
@@ -128,6 +131,22 @@ export type TodosError = InferErrors<typeof TodosError>;
 /** Why input or a command was refused while Epicenter asks to quit or restart. */
 export const DEPARTING =
 	'Epicenter is asking to quit or restart, so nothing is changed now.';
+
+/** Cache identity for every query and mutation the app runs. */
+export const todosKeys = defineKeys({
+	/** Every query the app keeps; read again after the app's own actions. */
+	all: ['todos'],
+	rows: ['todos', 'rows'],
+	files: ['todos', 'files'],
+	status: ['todos', 'status'],
+	text: (path: string) => ['todos', 'text', path] as const,
+	/** Every write of a row or a file's text. */
+	writes: ['todos', 'write'],
+	write: (path: string) => ['todos', 'write', 'row', path] as const,
+	writeText: (path: string) => ['todos', 'write', 'text', path] as const,
+	move: (path: string) => ['todos', 'move', path] as const,
+	remove: (path: string) => ['todos', 'remove', path] as const,
+});
 function byPath(a: { path: string }, b: { path: string }) {
 	return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
@@ -189,9 +208,6 @@ function createTodos(
 ) {
 	const table = folder.tables.todos;
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
-	const trackMutations = createSubscriber((update) =>
-		queryClient.getMutationCache().subscribe(update),
-	);
 	/** Folders open in the file browser; kept while the browser is hidden. */
 	const expanded = new SvelteSet<string>(['todos']);
 	/** What the detail shows. */
@@ -213,17 +229,80 @@ function createTodos(
 		return undefined;
 	}
 
-	// While Epicenter asks to leave or Todos closes, no new action starts:
-	// TanStack runs `onMutate` when an action is asked for, before its
-	// `mutationFn`, and what it throws is the action's error. An action asked
-	// for before that runs to the end. It reads this store's state, so the
-	// store registers it, not `query.ts`.
-	queryClient.setMutationDefaults(todosKeys.all, {
-		onMutate: () => {
-			const why = refused();
-			if (why !== undefined) throw TodosError.NotStarted({ reason: why }).error;
+	// The cache for this folder: the files it shows, and every write and
+	// action. Its rules read the mutation cache, which exists first, so the
+	// client never refers to itself.
+	const mutationCache = new MutationCache();
+
+	/** Whether a write of a row or a file's text is running or waiting. */
+	const writing = () =>
+		mutationCache.findAll({ mutationKey: todosKeys.writes, status: 'pending' })
+			.length > 0;
+
+	const queryClient = new QueryClient({
+		mutationCache,
+		defaultOptions: {
+			// Every read is local: nothing waits for a network, and a file that
+			// does not read will not read on a retry either, so a failure shows
+			// at once. Nothing goes stale on its own: the cache holds edits on
+			// their way to disk, so a view that mounts shows the cache instead of
+			// reading over it. Returning to the page reads again, but not while a
+			// write runs: the last write to settle reads everything again.
+			queries: {
+				networkMode: 'always',
+				retry: false,
+				staleTime: Number.POSITIVE_INFINITY,
+				refetchOnWindowFocus: () => (writing() ? false : 'always'),
+			},
+			mutations: {
+				networkMode: 'always',
+				// While Epicenter asks to leave or Todos closes, no new action
+				// starts: TanStack runs `onMutate` when an action is asked for,
+				// before its `mutationFn`, and what it throws is the action's
+				// error. An action asked for before that runs to the end.
+				onMutate: () => {
+					const why = refused();
+					if (why !== undefined)
+						throw TodosError.NotStarted({ reason: why }).error;
+				},
+			},
 		},
 	});
+	queryClient.mount();
+	const { defineMutation } = createQueryFactories(queryClient);
+	const trackMutations = createSubscriber((update) =>
+		mutationCache.subscribe(update),
+	);
+
+	// TanStack holds a waiting write until the page is visible, which would
+	// stall quitting and lose the write when a background tab closes. So the
+	// page counts as always focused, and becoming visible is the focus event
+	// that reads again. `focusManager` is one per page, like this store.
+	focusManager.setEventListener((setFocused) => {
+		setFocused(true);
+		if (typeof document === 'undefined') return undefined;
+		const returned = () => {
+			if (document.visibilityState === 'visible') focusManager.onFocus();
+		};
+		document.addEventListener('visibilitychange', returned);
+		return () => document.removeEventListener('visibilitychange', returned);
+	});
+
+	/**
+	 * Resolves once nothing matching `filters` is mutating. It watches the
+	 * mutation cache, so a mutation that starts meanwhile is waited for too.
+	 */
+	function whenIdle(filters?: MutationFilters): Promise<void> {
+		return new Promise((resolve) => {
+			const unsubscribe = mutationCache.subscribe(check);
+			function check() {
+				if (queryClient.isMutating(filters) > 0) return;
+				unsubscribe();
+				resolve();
+			}
+			check();
+		});
+	}
 
 	/**
 	 * Todos and file texts whose cached value holds an edit no write has sent.
@@ -394,6 +473,14 @@ function createTodos(
 	return {
 		/** The opened folder; `folder.location` says where the todos are. */
 		folder,
+		/**
+		 * This folder's cache, for the page's `QueryClientProvider` only.
+		 * Views read and write through the store, never the client directly:
+		 * a read that skips the store's rules can land over unsent edits.
+		 */
+		queryClient,
+		/** Read every listing and open file again, unless a write runs: then the last write reads. */
+		refresh: () => invalidate(),
 		terminal,
 		expanded,
 		get git() {
@@ -532,8 +619,6 @@ function createTodos(
 						path: saved.path,
 						sha256: saved.sha256,
 					}));
-					// The same file's text, if a view read it, is read again.
-					void invalidate(todosKeys.text(path));
 				},
 				// Roll back: the cache takes the row as the file holds it now.
 				// TanStack awaits this before the next write of the file runs, so
@@ -582,9 +667,6 @@ function createTodos(
 				onSuccess: (saved) => {
 					if (saved === undefined) return;
 					mapText(path, (file) => ({ ...file, sha256: saved.sha256 }));
-					// A row file's text decides whether it reads as a todo.
-					if (rowStemOf(table.name, path) !== undefined)
-						void invalidate(todosKeys.rows);
 				},
 				// Roll back: the cache takes the file as it is now.
 				onError: async (error) => {
@@ -932,6 +1014,8 @@ function createTodos(
 				await whenIdle();
 				await queryClient.cancelQueries({ queryKey: todosKeys.all });
 				await folder.close();
+				queryClient.unmount();
+				queryClient.clear();
 			})();
 			return closing;
 		},
