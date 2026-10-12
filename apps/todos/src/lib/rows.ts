@@ -41,7 +41,6 @@ import {
 	repairsOf,
 	type TodoListing,
 	todoPath,
-	todoStem,
 	todosOf,
 	unreadableOf,
 } from './todo-listing.js';
@@ -354,7 +353,11 @@ export function createRows({
 				onSettled: afterWrite,
 			});
 		},
-		/** Add a todo. The caller decides whether to show it. */
+		/**
+		 * Add a todo. The caller decides whether to show it. Create, rename,
+		 * and delete read the listing again in `onSettled`, which TanStack
+		 * awaits, so the listing holds the change before the caller hears of it.
+		 */
 		create: defineMutation({
 			mutationKey: ['todos', 'create'],
 			mutationFn: async (
@@ -366,14 +369,6 @@ export function createRows({
 					{ fields: { title, done: false }, body: '' },
 					{ stem: crypto.randomUUID() },
 				),
-			onSuccess: (created) => {
-				const stem = todoStem(created.path);
-				if (stem !== undefined)
-					queryClient.setQueryData<TodoListing>(
-						todosKeys.rows,
-						(entries) => entries && [...entries, { stem, result: Ok(created) }],
-					);
-			},
 			onSettled: () => invalidate(todosKeys.rows),
 		}),
 		/**
@@ -410,35 +405,6 @@ export function createRows({
 						});
 					return table.rename(capture, nextStem);
 				},
-				// The listing and a typed repair follow the file. The draft moves first: the listing's update drops a draft
-				// whose stem it no longer holds.
-				onSuccess: (moved) => {
-					const draft = drafts.get(stem);
-					if (draft !== undefined) {
-						drafts.delete(stem);
-						drafts.set(nextStem, {
-							...draft,
-							base: { ...draft.base, path: moved.path },
-						});
-					}
-					queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
-						entries?.map((entry) => {
-							if (entry.stem !== stem) return entry;
-							const { result } = entry;
-							if (result.error === null)
-								return {
-									stem: nextStem,
-									result: Ok({ ...result.data, path: moved.path }),
-								};
-							if (result.error.name === 'InvalidRow')
-								return {
-									stem: nextStem,
-									result: Err({ ...result.error, path: moved.path }),
-								};
-							return { stem: nextStem, result };
-						}),
-					);
-				},
 				onSettled: () => invalidate(todosKeys.rows),
 			})();
 		},
@@ -465,9 +431,6 @@ export function createRows({
 				},
 				onSuccess: () => {
 					unsent.delete(stem);
-					queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
-						entries?.filter((entry) => entry.stem !== stem),
-					);
 				},
 				onSettled: () => invalidate(todosKeys.rows),
 			})();
