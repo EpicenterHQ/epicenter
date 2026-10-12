@@ -26,10 +26,7 @@ import { type Session, TodosError, todosKeys } from './session.js';
 import { type TodoListing, todoStem } from './todo-listing.js';
 
 /** Why `name` cannot name a file in `directory`, in words a person acts on. */
-export function nameProblem(
-	directory: string,
-	name: string,
-): string | undefined {
+function nameProblem(directory: string, name: string): string | undefined {
 	if (name === '') return 'Enter a name.';
 	if (name.includes('/')) return 'A name cannot contain "/".';
 	const problem = pathProblem(joinPath(directory, name));

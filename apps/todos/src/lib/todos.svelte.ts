@@ -11,7 +11,10 @@
  *
  * Every query and mutation is a wellcrafted definition: a view passes
  * `.options` to `createQuery` or `createMutation`; code and tests call a
- * mutation or `.fetch()` a query and get a `Result`. Saves never commit
+ * mutation or `.fetch()` a query and get a `Result`. A member that takes a
+ * path or stem and returns a definition is one a view holds (`files.text`,
+ * `rows.write`); an async method is a one-shot action a handler awaits
+ * (`files.rename`, `files.remove`, `files.deletionFor`). Saves never commit
  * (ADR-0529); a version is recorded by Sync or by Save version.
  */
 import type { DepartureParticipant } from '@epicenter/epicenter/departure/page';
@@ -101,10 +104,10 @@ export function createTodos(
 			},
 			mutations: {
 				networkMode: 'always',
-				// While Epicenter asks to leave or Todos closes, no new action
-				// starts: TanStack runs `onMutate` when an action is asked for,
-				// before its `mutationFn`, and what it throws is the action's
-				// error. An action asked for before that runs to the end.
+				// While Epicenter asks to leave, no new action starts: TanStack
+				// runs `onMutate` when an action is asked for, before its
+				// `mutationFn`, and what it throws is the action's error. An
+				// action asked for before that runs to the end.
 				onMutate: () => {
 					const why = refused();
 					if (why !== undefined)
@@ -183,7 +186,6 @@ export function createTodos(
 		writesSettled,
 		invalidate,
 		trackMutations,
-		whenIdle,
 		refused,
 		moving,
 		afterWrite,

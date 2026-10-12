@@ -29,6 +29,7 @@
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
+import { MutationObserver } from '@tanstack/query-core';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	createTestStorage,
@@ -289,6 +290,37 @@ test('a write that meets a change made elsewhere rolls back to the file and repo
 	expect(await text(todos, path)).toBe(
 		'---\ntitle: Oat milk\ndone: true\n---\n',
 	);
+});
+
+test("a file's text write that meets a change made elsewhere rolls back to the file and reports the lost text", async () => {
+	const { todos, failures } = await open();
+	const path = 'notes.txt';
+	expectOk(await todos.folder.files.create(path, 'saved'));
+	cleanup.push(observe(todos, path));
+	await quiet(todos);
+	await writeElsewhere(todos, path, 'changed elsewhere');
+	// Another file's write is still running, so the reread after the last
+	// write waits; the rollback must not.
+	const other = Promise.withResolvers<void>();
+	const running = new MutationObserver(todos.queryClient, {
+		mutationKey: todosKeys.write('todos/other.md'),
+		mutationFn: () => other.promise,
+	}).mutate();
+
+	textEditor(todos, path)('typed here');
+	for (let tries = 0; tries < 200 && failures.length === 0; tries++)
+		await Bun.sleep(2);
+	expect(failures).toMatchObject([
+		{ path, error: { name: 'Conflict' }, lost: 'typed here' },
+	]);
+	expect(todos.queryClient.getQueryData(todosKeys.text(path))).toMatchObject({
+		kind: 'text',
+		file: { text: 'changed elsewhere' },
+	});
+	other.resolve();
+	await running;
+	await quiet(todos);
+	expect(await text(todos, path)).toBe('changed elsewhere');
 });
 
 test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {

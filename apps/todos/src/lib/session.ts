@@ -1,11 +1,11 @@
 /**
- * What the store's parts share: the cache keys, the refusal error, and the
- * session each domain (`rows.ts`, `files.ts`, `git.ts`, `sync.ts`) is built
- * over. The store (`todos.svelte.ts`) creates the session once per opened
+ * What the store's parts share: the cache keys, the refusal error and its
+ * message, the selection and write-failure types, and the session each domain
+ * (`rows.ts`, `files.ts`, `git.ts`, `sync.ts`) is built over. The store (`todos.svelte.ts`) creates the session once per opened
  * folder.
  */
 import type { FileError, TableError } from '@epicenter/folder';
-import type { MutationFilters, QueryClient } from '@tanstack/query-core';
+import type { QueryClient } from '@tanstack/query-core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { type createQueryFactories, defineKeys } from 'wellcrafted/query';
 import type { TodosFolder } from './platform/types.js';
@@ -69,8 +69,6 @@ export type Session = {
 	readonly invalidate: (queryKey?: readonly unknown[]) => Promise<void>;
 	/** Make the reading getter rerun when mutations start or settle. */
 	readonly trackMutations: () => void;
-	/** Resolves once nothing matching `filters` is mutating. */
-	readonly whenIdle: (filters?: MutationFilters) => Promise<void>;
 	/** Why no edit starts now, if one does not: Epicenter is asking to leave. */
 	readonly refused: () => string | undefined;
 	/** Whether a rename or delete of `path` runs or waits, which pauses its edits. */

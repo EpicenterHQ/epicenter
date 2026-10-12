@@ -382,7 +382,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/routes/components/FolderScope.svelte` | One opened folder's views: sets its store for `getTodos()` and provides the store's query client. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
 | `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry, no reread while writing, the quit fence), what the detail shows, the terminal, leaving, and closing. It composes the namespaces below over one `Session`. |
-| `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError`, and the `Session` type. |
+| `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError` and `DEPARTING`, the `Selection` and `WriteFailure` types, and the `Session` type. |
 | `src/lib/rows.ts` | `todos.rows`: the todo listing (`list`), `edit`, the scoped `write(stem)` each view creates its mutation from, and `create`. |
 | `src/lib/files.ts` | `todos.files`: the folder listing, each file's text (`text(path)`), `editText` and `writeText(path)`, create, rename, and delete; plus the app's name rules and editable-text limit. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, Save version, and incoming recovery. |
