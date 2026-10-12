@@ -84,25 +84,20 @@ export function createTodos(
 	// client never refers to itself.
 	const mutationCache = new MutationCache();
 
-	/** Whether a write of a todo's file is running or waiting. */
-	const writing = () =>
-		mutationCache.findAll({ mutationKey: todosKeys.writes, status: 'pending' })
-			.length > 0;
-
 	const queryClient = new QueryClient({
 		mutationCache,
 		defaultOptions: {
 			// Every read is local: nothing waits for a network, and a file that
 			// does not read will not read on a retry either, so a failure shows
-			// at once. Nothing goes stale on its own: the cache holds edits on
-			// their way to disk, so a view that mounts shows the cache instead of
-			// reading over it. Returning to the page reads again, but not while a
-			// write runs: the last write to settle reads everything again.
+			// at once. The app reads when it opens, when the page is shown
+			// again, and after its own actions, so nothing goes stale on its
+			// own. A read lands whenever it finishes, even while a write runs
+			// (ADR-0528 accepts what that can cost).
 			queries: {
 				networkMode: 'always',
 				retry: false,
 				staleTime: Number.POSITIVE_INFINITY,
-				refetchOnWindowFocus: () => (writing() ? false : 'always'),
+				refetchOnWindowFocus: 'always',
 			},
 			mutations: {
 				networkMode: 'always',
@@ -157,14 +152,14 @@ export function createTodos(
 	/** Resolves once no write of a todo's file is running or waiting. */
 	const writesSettled = () => whenIdle({ mutationKey: todosKeys.writes });
 
-	/**
-	 * Read again what an action may have changed. While a write runs nothing
-	 * is read: the last write to settle reads everything again.
-	 */
+	/** Read again what an action may have changed. */
 	const invalidate = (queryKey: readonly unknown[] = todosKeys.all) =>
-		writing() ? Promise.resolve() : queryClient.invalidateQueries({ queryKey });
+		queryClient.invalidateQueries({ queryKey });
 
-	/** After a write settles: once it is the last one, everything is read again. */
+	/**
+	 * After a write settles: once it is the last one, everything is read
+	 * again. Not after each write, since Git status reads the whole folder.
+	 */
 	const afterWrite = () =>
 		queryClient.isMutating({ mutationKey: todosKeys.writes }) <= 1
 			? queryClient.invalidateQueries({ queryKey: todosKeys.all })
@@ -198,12 +193,12 @@ export function createTodos(
 		rows,
 		git: createGit(session),
 		sync: createSync(session),
-		/** Read the listing and Git status again, unless a write runs: then the last write reads. */
+		/** Read the listing and Git status again. */
 		refresh: () => invalidate(),
 		/** Whether a write of a todo's file is running or waiting, read reactively. */
 		get saving() {
 			trackMutations();
-			return writing();
+			return queryClient.isMutating({ mutationKey: todosKeys.writes }) > 0;
 		},
 		/** Whether Epicenter is asking to quit or restart, which pauses all input. */
 		get departing() {

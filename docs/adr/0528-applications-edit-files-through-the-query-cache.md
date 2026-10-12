@@ -26,10 +26,9 @@ in flight, at the cost of all of that machinery.
   view reads the same query narrowed with `select`. An invalid row is an
   `Err(InvalidRow)` entry in that same listing.
 - **When reads happen.** On open, on window focus, and after the app's own
-  actions. Editing apps do not subscribe to file changes. No read starts
-  while a write runs: an edit cancels reads in flight, the listing never goes
-  stale on its own, focus does not refetch while writing, and the app rereads
-  once the last write settles.
+  actions. Editing apps do not subscribe to file changes. The listing never
+  goes stale on its own, and the app rereads once the last write settles.
+  Reads are never held back for writes: one may land while a write runs.
 - **Edits.** One immutable `map` over the listing in the cache changes one row.
 - **Writes.** Each edit is written with guarded `table.replace(stored, row)`
   from a mutation keyed and scoped by the file's path, so row writes, text
@@ -61,7 +60,14 @@ save merge, and every app's refresh and conflict wiring are deleted. A detail
 view and a table edit rows the same way and cannot disagree.
 
 A rejected edit rolls back instead of being kept, so a person can lose what
-was in flight: one click or the last moment of typing. Nothing changes in
+was in flight: one click or the last moment of typing.
+
+A read that lands while a write runs shows the file from before that write,
+and a write waiting behind it can save that older row without a conflict,
+since its guard is the app's own. The window is one local write, so this is
+accepted rather than guarded: the guards it needed (no read while writing, an
+edit cancelling reads in flight) cost more to understand than the rare loss
+of the last moment of typing. Nothing changes in
 front of a person while they watch; outside changes appear on return or after
 sync.
 

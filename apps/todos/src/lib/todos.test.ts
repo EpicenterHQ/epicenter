@@ -12,7 +12,7 @@
  * - Rapid edits run one write at a time per file, with one waiting; the
  *   waiting write saves the newest row, guarded by the hash the previous
  *   write confirmed, so typing never conflicts with itself
- * - A read that ran while a write was in flight does not undo the write
+ * - A read may land while a write runs; the write's settling reads again
  * - A write that fails rolls the cache back to the file, reports the text
  *   that was lost, and a write still waiting saves the file as it was
  * - The folder refuses a value it cannot hold, and the cache rolls back
@@ -233,30 +233,21 @@ test('a write waiting behind another still runs while the window is hidden', asy
 	expect(failures).toEqual([]);
 });
 
-test('no read starts while a write runs: not on returning to the page, not on Check again, not when a view mounts', async () => {
+test('a read while a write runs lands, and the cache shows the written row once the write settles', async () => {
 	const { todos, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	const stop = observe(todos);
-	await quiet(todos);
 	const set = rowEditor(todos, stem);
 
 	const { held, release } = holdNextWrite();
 	set(titled('Oat milk'));
 	await held;
-	// Returning to the page while the write is held reads nothing. The page
-	// becoming visible is the focus event; the client refetches a tick later.
+	// Returning to the page while the write is held reads the file as it is.
 	focusManager.onFocus();
 	await Bun.sleep(0);
-	// Neither does Check again.
-	void todos.refresh();
-	// Neither does a view that mounts now.
-	const mounted = observe(todos);
-	expect(todos.queryClient.isFetching({ queryKey: todosKeys.rows })).toBe(0);
-	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
+	await todos.queryClient.fetchQuery({ queryKey: todosKeys.rows });
+	expect(cached(todos, stem).row.fields.title).toBe('Milk');
 	release();
 	await quiet(todos);
-	mounted();
-	stop();
 	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
 	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
 

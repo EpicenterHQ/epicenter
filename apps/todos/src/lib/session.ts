@@ -53,7 +53,7 @@ export type Session = {
 	>['defineMutation'];
 	/** Resolves once no write of a todo's file is running or waiting. */
 	readonly writesSettled: () => Promise<void>;
-	/** Read `queryKey` again, unless a write runs: then the last write reads. */
+	/** Read `queryKey` again. */
 	readonly invalidate: (queryKey?: readonly unknown[]) => Promise<void>;
 	/** Make the reading getter rerun when mutations start or settle. */
 	readonly trackMutations: () => void;

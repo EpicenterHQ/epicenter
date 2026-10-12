@@ -148,13 +148,8 @@ export function createRows({
 		return changed;
 	}
 
-	/**
-	 * Read the file at `stem` again into the cache, whatever else is
-	 * writing. A read of the listing still running could land over it, so it
-	 * is cancelled first.
-	 */
+	/** Read the file at `stem` again into the cache, whatever else is writing. */
 	async function rereadRow(stem: string) {
-		await queryClient.cancelQueries({ queryKey: todosKeys.rows, exact: true });
 		const { data: stored, error } = await table.get(stem);
 		queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
 			entries?.flatMap((entry) => {
@@ -243,8 +238,6 @@ export function createRows({
 		 */
 		edit(stem: string, change: (row: Row<TodoFields>) => Row<TodoFields>) {
 			if (refused() !== undefined || moving(stem)) return false;
-			// A read still running could replace this edit when it lands.
-			void queryClient.cancelQueries({ queryKey: todosKeys.rows, exact: true });
 			const changed = mapRow(stem, (stored) => ({
 				...stored,
 				row: change(stored.row),
