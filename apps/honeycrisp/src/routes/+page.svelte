@@ -1,34 +1,39 @@
 <script lang="ts">
-	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import { useQueryClient } from '@tanstack/svelte-query';
 	import { openNotes } from '#platform/notes-host';
 	import { onDestroy } from 'svelte';
-	import { createNotes } from '$lib/notes.svelte.js';
+	import { createNotes, describeError, type WriteFailure } from '$lib/notes.svelte.js';
 	import NotesView from './components/NotesView.svelte';
 
+	const queryClient = useQueryClient();
+
+	/** A write that failed was rolled back to the file; say so, and offer the text it held. */
+	function writeFailed({ path, error, lost }: WriteFailure) {
+		toast.error(`Could not save ${path}`, {
+			description: describeError(error),
+			action:
+				lost === ''
+					? undefined
+					: {
+							label: 'Copy your text',
+							onClick: () => void navigator.clipboard.writeText(lost).catch(() => {}),
+						},
+		});
+	}
+
 	// The mounted page acquires the folder; importing modules opens nothing.
-	// On the desktop, closing the window or quitting asks this page first.
+	// On the desktop, closing the window or quitting asks this page first, and
+	// the page approves once every write has landed.
 	const opening = openNotes({
 		async create(host) {
-			const notes = createNotes(host);
-			await notes.check();
+			const notes = createNotes(host, queryClient, { onWriteFailed: writeFailed });
+			await notes.load();
 			return notes;
 		},
-		askToDiscard: (remaining) =>
-			new Promise<boolean>((resolve) => {
-				confirmationDialog.open({
-					title: `${remaining} ${remaining === 1 ? 'change is' : 'changes are'} not saved or not confirmed`,
-					description:
-						'Some text could not be saved to its file, or a change was sent and never confirmed. Quitting now discards unsaved text and stops keeping track of the unconfirmed changes. It does not cancel them: one may still happen afterwards. Keep editing to retry, compare, or copy.',
-					confirm: { text: 'Discard and quit', variant: 'destructive' },
-					cancel: { text: 'Keep editing' },
-					onConfirm: () => resolve(true),
-					onCancel: () => resolve(false),
-				});
-			}),
 		report: (cause) =>
 			toast.error('Could not finish closing', {
 				description: cause instanceof Error ? cause.message : String(cause),

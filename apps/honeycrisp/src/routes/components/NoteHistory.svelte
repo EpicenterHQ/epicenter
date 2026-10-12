@@ -15,7 +15,7 @@
 		path: string;
 		/** Whether input is being taken; false while the app answers a close. */
 		admitting: boolean;
-		/** Put this version in the draft. Resolves why it was not taken, or undefined. */
+		/** Put this version in the note, which writes it. Answers why it was not taken, or undefined. */
 		onUse: (source: string) => string | undefined;
 		open: boolean;
 	} = $props();
@@ -38,9 +38,10 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="flex max-h-[85vh] flex-col sm:max-w-3xl">
 		<Dialog.Header>
-			<Dialog.Title>Git history of {path}</Dialog.Title>
+			<Dialog.Title>Saved versions of {path}</Dialog.Title>
 			<Dialog.Description>
-				Committed versions of this file. Using one puts it in your draft; nothing is saved until the draft saves.
+				A version is saved when you choose Save version, or by a commit made in the terminal. Using one
+				replaces the note's text and saves it at once.
 			</Dialog.Description>
 		</Dialog.Header>
 		<div class="grid min-h-0 flex-1 grid-cols-[14rem_1fr] gap-3">
@@ -62,7 +63,7 @@
 							</Button>
 						</li>
 					{:else}
-						<li class="text-muted-foreground">No commit includes this file yet.</li>
+						<li class="text-muted-foreground">No saved version includes this file yet. Save version records one.</li>
 					{/each}
 				{:catch error}
 					<li class="text-destructive">{error instanceof Error ? error.message : String(error)}</li>
@@ -81,7 +82,7 @@
 					else toast.error('Could not use this version', { description: problem });
 				}}
 			>
-				Use this version as my draft
+				Use this version
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

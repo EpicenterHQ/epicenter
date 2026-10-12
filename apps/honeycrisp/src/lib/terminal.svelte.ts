@@ -15,9 +15,8 @@ export type TerminalEntry = {
 export type TerminalSession = ReturnType<typeof createTerminalSession>;
 
 export function createTerminalSession(
+	/** Runs each command; the notes state reads the folder again after one. */
 	terminal: NotesTerminal,
-	/** Shell writes are saved files; the app shows them and rechecks status. */
-	afterRun: () => Promise<void>,
 	/** Whether a command may start. False while a close is being answered. */
 	admits: () => boolean = () => true,
 ) {
@@ -80,7 +79,6 @@ export function createTerminalSession(
 				running = false;
 				cwd = terminal.cwd;
 			}
-			await afterRun();
 		},
 		/** Step through earlier commands. Returns false when there is none to recall. */
 		recall(direction: 'previous' | 'next'): boolean {

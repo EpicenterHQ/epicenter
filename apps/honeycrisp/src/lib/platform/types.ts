@@ -21,9 +21,9 @@ type Definition = typeof honeycrispDefinition;
 export const HONEYCRISP_FOLDER_ID = APPS.HONEYCRISP.id;
 
 /**
- * The folder surface the notes UI uses: its tables and files, whole, since an
- * edit session saves through them, and the Git status and history it shows.
- * Remotes are outside this app.
+ * The folder surface the notes UI uses: its tables and files, whole, since
+ * edits write through them, and the Git status, versions, and history it
+ * shows. Remotes are outside this app.
  */
 export type NotesFolder = Pick<Folder<Definition>, 'tables' | 'files'> & {
 	git: Pick<FolderGit, 'snapshot' | 'subscribe' | 'status' | 'commit' | 'log'>;
@@ -72,12 +72,15 @@ export type NotesHost = {
 /** What answering a close needs from the notes state. */
 export type ClosableNotes = {
 	/**
-	 * Stop taking input and actions. Returns the release, for a close that was
-	 * declined or refused.
+	 * Stop taking input and actions. Returns the release, for an approval the
+	 * gate refused.
 	 */
 	fenceInput(): () => void;
-	/** Try to save every draft. Resolves how many still cannot be closed safely. */
-	settleAll(): Promise<number>;
+	/**
+	 * Resolves once every write and action has landed. A write that failed was
+	 * already rolled back and reported, so nothing is left to discard.
+	 */
+	settle(): Promise<void>;
 };
 
 /**
@@ -85,15 +88,13 @@ export type ClosableNotes = {
  *
  * The desktop leaf arranges close consent around this. It registers with the
  * shell before acquiring the folder, and from the moment the folder is held
- * it answers every window close and quit: input is fenced, drafts are saved,
- * and `askToDiscard` decides the rest. A browser tab has no shell to answer;
- * its leave guards are the page's own.
+ * it answers every window close and quit: input is fenced, every write and
+ * action lands, and the close is approved. A browser tab has no shell to
+ * answer; its leave guards are the page's own.
  */
 export type OpenNotes = <TNotes extends ClosableNotes>(options: {
 	/** Build the notes state over the opened folder. */
 	create(host: NotesHost): Promise<TNotes>;
-	/** Ask whether to discard `remaining` unsaved drafts and quit. */
-	askToDiscard(remaining: number): Promise<boolean>;
 	/** An answer to a close could not be sent; the close stays held. */
 	report(cause: unknown): void;
 }) => Promise<TNotes>;

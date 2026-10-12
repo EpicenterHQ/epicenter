@@ -18,12 +18,15 @@
 	import FolderSearchIcon from '@lucide/svelte/icons/folder-search';
 	import { tick } from 'svelte';
 	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { noteIdOf } from '$lib/data.js';
 	import type { Notes } from '$lib/notes.svelte.js';
-	import { confirmDelete, copyPath, openItem } from './file-actions.js';
+	import { confirmDelete, copyPath } from './file-actions.js';
 
 	let { notes }: { notes: Notes } = $props();
 
-	const rows = $derived(notes.listing ? visibleRows(notes.listing, notes.expanded) : []);
+	const listing = createQuery(() => notes.filesQuery());
+	const rows = $derived(listing.data ? visibleRows(listing.data, notes.expanded) : []);
 
 	/** The inline name field: renaming a file, or creating one in a folder. */
 	let editing = $state<
@@ -50,7 +53,7 @@
 			else notes.expanded.add(row.path);
 			return;
 		}
-		void openItem(notes, row.path);
+		notes.open(row.path);
 	}
 
 	function startCreate(directory: string, type: 'file' | 'folder') {
@@ -269,27 +272,27 @@
 	<p class="truncate border-b px-3 py-1 font-mono text-[11px] text-muted-foreground" title={notes.host.location}>
 		{notes.host.location}
 	</p>
-	{#if notes.listing === undefined}
-		{#if notes.listingError}
+	{#if listing.data === undefined}
+		{#if listing.isError}
 			<Empty.Root class="flex-1 p-6">
 				<Empty.Title>Could not read the folder</Empty.Title>
-				<Empty.Description>{notes.listingError}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void notes.refresh()}>Try again</Button>
+				<Empty.Description>{listing.error.message}</Empty.Description>
+				<Button variant="outline" size="sm" onclick={() => void listing.refetch()}>Try again</Button>
 			</Empty.Root>
 		{:else}
 			<Loading class="flex-1" label="Reading files…" />
 		{/if}
 	{:else}
-		{#if notes.listingError}
+		{#if listing.isError}
 			<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-				Could not read the folder: {notes.listingError}. Showing the last list that was read.
+				Could not read the folder: {listing.error.message}. Showing the last list that was read.
 			</p>
 		{/if}
 		<nav class="min-h-0 flex-1 overflow-y-auto p-1.5" aria-label="Folder files">
 			<Sidebar.Menu bind:ref={tree} class="gap-0.5" onkeydown={navigate}>
 				{@render createField('', 0)}
 				{#each rows as row (row.path)}
-					{@const selected = notes.selectedPath === row.path}
+					{@const selected = notes.selected?.path === row.path}
 					{@const open = row.kind === 'directory' && notes.expanded.has(row.path)}
 					<Sidebar.MenuItem>
 						{#if editing?.kind === 'rename' && editing.path === row.path}
@@ -311,7 +314,7 @@
 										>
 											{#if row.kind === 'directory'}
 												{#if open}<FolderOpenIcon />{:else}<FolderIcon />{/if}
-											{:else if notes.isNote(row.path)}
+											{:else if noteIdOf(row.path) !== undefined}
 												<NotebookTextIcon />
 											{:else if /\.(md|txt|json|ya?ml|csv)$/i.test(row.name) || row.name.startsWith('.')}
 												<FileTextIcon />

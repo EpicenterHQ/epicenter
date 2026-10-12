@@ -6,14 +6,14 @@
  * Close consent has an order the page must keep:
  *
  * 1. Register before opening the folder. Until the page says its folder is
- *    open, the shell lets a close go ahead, because no draft exists yet.
+ *    open, the shell lets a close go ahead, because no edit exists yet.
  * 2. Listen for close requests before saying the folder is open, so the
  *    first request cannot arrive unheard.
  * 3. Say the folder is open before the notes exist. From then on every close
  *    is asked, and only an answer naming this page and that request lets it
  *    go ahead.
- * 4. Stop taking input before counting what is unsaved, and keep it stopped
- *    until the answer is known to be "keep editing" or a refusal.
+ * 4. Stop taking input before waiting for writes to land, and keep it
+ *    stopped until the approval is known to be refused.
  *
  * `openGuarded` keeps that order. A page that cannot register or cannot say
  * its folder is open shows no notes.
@@ -41,9 +41,9 @@ const APPROVAL_NOT_TAKEN: ReadonlySet<unknown> = new Set([
 
 /** One held close. Either answer is final; a second answer does nothing. */
 export type CloseRequest = {
-	/** Every draft is saved, or the person chose to discard what is not. */
+	/** Every write and action has landed; the app may close. */
 	approve(): Promise<void>;
-	/** The person chose to keep editing. */
+	/** Keep the app open. The page itself never declines; the gate still takes it. */
 	decline(): Promise<void>;
 };
 
@@ -103,35 +103,27 @@ export async function registerPage(
 }
 
 /**
- * Answer one held close: save what can be saved, and ask only when something
- * could not be. Nothing is discarded without the person's choice.
+ * Answer one held close: let every write and action land, then approve.
+ * Nothing is ever discarded, so the page never asks the person.
  *
- * Input is fenced before anything is counted, so nothing typed afterward can
- * be missing from the count, and it stays fenced while the approval is on its
- * way: the shell exits when it takes it. The fence is released when the
- * person keeps editing, and when the gate says this approval was not taken
- * and the app is not closing (`APPROVAL_NOT_TAKEN`). Every other failure,
- * including any other text, keeps the fence: it does not say whether the
- * shell took the approval, and "already closing" says it is exiting. The
- * next close is asked again.
+ * Input is fenced before anything is waited for, so nothing typed afterward
+ * can start a write the close would not wait for, and it stays fenced while
+ * the approval is on its way: the shell exits when it takes it. The fence is
+ * released only when the gate says this approval was not taken and the app is
+ * not closing (`APPROVAL_NOT_TAKEN`). Every other failure, including any other
+ * text, keeps the fence: it does not say whether the shell took the approval,
+ * and "already closing" says it is exiting. The next close is asked again.
  */
 async function answerClose(
 	notes: ClosableNotes | undefined,
 	request: CloseRequest,
-	askToDiscard: (remaining: number) => Promise<boolean>,
 ): Promise<void> {
 	const release = notes?.fenceInput() ?? (() => {});
-	let keep: boolean;
 	try {
-		const remaining = (await notes?.settleAll()) ?? 0;
-		keep = remaining > 0 && !(await askToDiscard(remaining));
+		await notes?.settle();
 	} catch (cause) {
 		release();
 		throw cause;
-	}
-	if (keep) {
-		release();
-		return request.decline();
 	}
 	try {
 		await request.approve();
@@ -154,15 +146,12 @@ export async function openGuarded<
 >({
 	acquire,
 	create,
-	askToDiscard,
 	report,
 }: {
 	/** Open the folder. Nothing a person can edit exists yet. */
 	acquire(): Promise<THost>;
 	/** Create the notes state over the opened folder. */
 	create(host: THost): Promise<TNotes>;
-	/** Ask whether to discard `remaining` unsaved drafts and quit. */
-	askToDiscard(remaining: number): Promise<boolean>;
 	report(cause: unknown): void;
 }): Promise<TNotes> {
 	const page = await registerPage(report);
@@ -175,7 +164,7 @@ export async function openGuarded<
 	}
 	let notes: TNotes | undefined;
 	try {
-		await page.hold((request) => answerClose(notes, request, askToDiscard));
+		await page.hold((request) => answerClose(notes, request));
 	} catch (cause) {
 		page.dispose();
 		await host.close();

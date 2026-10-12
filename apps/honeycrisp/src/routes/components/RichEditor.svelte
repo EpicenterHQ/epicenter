@@ -42,13 +42,13 @@
 	import type { NoteBody } from '$lib/editor/rich-text.js';
 
 	let {
-		session,
+		note,
 		focusRequest,
 		onOpenSource,
 		onRefuse,
 	}: {
-		/** The note's edit session, whose draft holds the body. */
-		session: NoteBody;
+		/** The note in the cache, which holds the body. */
+		note: NoteBody;
 		focusRequest: number;
 		onOpenSource: () => void;
 		/** An edit Markdown cannot spell was not made; says why. */
@@ -65,16 +65,18 @@
 	let element = $state<HTMLDivElement>();
 
 	/**
-	 * The body as a document, or why it cannot be one. A change elsewhere in the
-	 * note, such as its title, gives the same body and the same answer, so
-	 * nothing below runs again.
+	 * The body the cache holds now. A change elsewhere in the note, such as its
+	 * title, or a write landing, gives the same string, so nothing below runs
+	 * again.
 	 */
-	const rich = $derived(bodyCodec.decode(session.draft.body));
+	const body = $derived(note.row?.body);
+	/** The body as a document, or why it cannot be one. */
+	const rich = $derived(body === undefined ? undefined : bodyCodec.decode(body));
 	/**
 	 * A boolean, on purpose: the view's lifetime depends on this and nothing
 	 * else, and a boolean only notifies when it flips. Typing never flips it.
 	 */
-	const editable = $derived(rich.supported);
+	const editable = $derived(rich?.supported === true);
 
 	let active = $state.raw({
 		bold: false,
@@ -164,26 +166,29 @@
 	$effect(() => {
 		if (!element || !editable) return;
 		const opened = untrack(() => rich);
-		if (!opened.supported) return;
+		if (!opened?.supported) return;
 		/** Cleared with this view: a transaction it is handed afterwards changes nothing. */
 		let alive = true;
-		const created = new EditorView(element, {
+		// Untracked: the view asks `editable` while it is built, and `locked`
+		// changes with every write, which must not recreate the view.
+		const mountOn = element;
+		const created = untrack(() => new EditorView(mountOn, {
 			state: EditorState.create({
 				doc: opened.doc,
 				plugins: [...editingPlugins(), placeholder, taskCheckbox],
 			}),
 			attributes: { class: 'focus:outline-none', 'aria-label': 'Note text' },
-			editable: () => !session.locked,
+			editable: () => !note.locked,
 			dispatchTransaction(this: EditorView, transaction) {
 				// Something that kept this view, a command or a timer, can still
 				// dispatch after it was destroyed. Its document is not the note's.
 				if (!alive || this.isDestroyed) return;
 				// A refused or stale transaction changes nothing on screen; a
-				// taken one is already in the note's draft.
-				const next = stateAfter(this.state, transaction, session, onRefuse);
+				// taken one is already in the cache, and its write is queued.
+				const next = stateAfter(this.state, transaction, note, onRefuse);
 				if (next !== undefined) show(this, next);
 			},
-		});
+		}));
 		view = created;
 		readActive(created.state);
 		return () => {
@@ -193,14 +198,24 @@
 		};
 	});
 
-	// Follow the body. A body this view wrote, or the same content respelled,
-	// keeps the state; one changed elsewhere replaces it with a new history.
+	// Follow the body in the cache. A body this view wrote, a write landing, or
+	// the same content respelled keeps the state; different content (Source, a
+	// version, the file read again, a failed write rolled back) replaces it
+	// with a new history. No read lands while a write runs, so this never
+	// replaces typing in flight.
 	$effect(() => {
 		const current = rich;
 		const mounted = untrack(() => view);
-		if (!mounted || !current.supported) return;
+		if (!mounted || !current?.supported) return;
 		const next = stateShowing(mounted.state, current.doc);
 		if (next !== mounted.state) show(mounted, next);
+	});
+
+	// The view asks `editable` only when it updates: ask it again when the note
+	// starts or stops taking edits, so the text is not editable while locked.
+	$effect(() => {
+		note.locked;
+		untrack(() => view)?.setProps({});
 	});
 
 	$effect(() => {
@@ -303,7 +318,7 @@
 					>
 						<Input class="h-8" placeholder="https://example.com" aria-label="Link address" bind:value={linkHref} />
 						<!-- The popover is outside the app's inert root. -->
-						<Button type="submit" size="sm" disabled={session.locked}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
+						<Button type="submit" size="sm" disabled={note.locked}>{linkHref.trim() === '' ? 'Remove' : 'Apply'}</Button>
 					</form>
 				</Popover.Content>
 			</Popover.Root>
@@ -343,11 +358,11 @@
 	<div class="flex h-full flex-col items-start gap-3 overflow-y-auto p-6 text-sm" role="status">
 		<p class="font-medium">This note opens in Source only</p>
 		<p class="text-muted-foreground">
-			The rich-text editor would change or drop part of it on save, so it is not opened here. Nothing in the
-			file was changed.
+			The rich-text editor would change or drop part of it when it writes, so it is not opened here. Nothing
+			in the file was changed.
 		</p>
 		<ul class="list-disc space-y-0.5 ps-5 text-muted-foreground">
-			{#each rich.supported ? [] : rich.reasons as reason (reason)}
+			{#each rich === undefined || rich.supported ? [] : rich.reasons as reason (reason)}
 				<li>{reason}</li>
 			{/each}
 		</ul>

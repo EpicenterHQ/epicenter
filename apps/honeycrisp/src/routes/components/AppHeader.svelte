@@ -6,13 +6,16 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
+	import HistoryIcon from '@lucide/svelte/icons/history';
 	import SquareTerminalIcon from '@lucide/svelte/icons/square-terminal';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { getAbortSignal } from 'svelte';
-	import type { Notes } from '$lib/notes.svelte.js';
+	import { describeError, type Notes, notesKeys } from '$lib/notes.svelte.js';
 	import {
-		draftsLine,
+		changesLine,
+		commitOutcomeLine,
 		historyLine,
-		savedFilesLine,
+		savesLine,
 		type StatusLine,
 		summaryLine,
 	} from '$lib/status.js';
@@ -31,22 +34,20 @@
 		onToggleTerminal: () => void;
 	} = $props();
 
-	const drafts = $derived(
-		draftsLine({
-			saving: notes.saving,
-			notSaved: notes.notSaved,
-			unconfirmed: notes.unconfirmed,
-			unsettled: notes.unsettled,
-		}),
-	);
-	const files = $derived(savedFilesLine(notes.git));
+	// Observed so Git status is read again on focus and after actions; the
+	// lines below read the snapshot that read updates.
+	createQuery(() => notes.statusQuery());
+
+	const saves = $derived(savesLine({ saving: notes.saving }));
+	const changes = $derived(changesLine(notes.git));
 	const history = $derived(historyLine(notes.git));
-	const summary = $derived(summaryLine({ drafts, files, history }));
+	const summary = $derived(summaryLine({ saves, changes, history }));
 	const details = $derived<[string, string, StatusLine][]>([
-		['Drafts', 'status-drafts', drafts],
-		['Saved files', 'status-files', files],
-		['Git history', 'status-history', history],
+		['Saves', 'status-saves', saves],
+		['Changes', 'status-changes', changes],
+		['Versions', 'status-history', history],
 	]);
+	const savingVersion = $derived(notes.mutating({ mutationKey: notesKeys.saveVersion }) > 0);
 
 	const tones: Record<StatusLine['tone'], string> = {
 		neutral: 'bg-muted-foreground/50',
@@ -59,7 +60,7 @@
 	let open = $state(false);
 	let log = $state.raw<CommitSummary[] | string>([]);
 
-	// Read the recent commits whenever the details open or history moves.
+	// Read the recent versions whenever the details open or history moves.
 	$effect(() => {
 		if (!open) return;
 		notes.git.lastCommit;
@@ -76,14 +77,23 @@
 		);
 	});
 
-	async function commitNow() {
-		const outcome = await notes.commitNow();
-		if (outcome.status === 'committed') toast.success(`Committed ${outcome.oid.slice(0, 7)}`);
-		else if (outcome.status === 'unchanged') toast.info('Nothing new to commit');
-		else if (outcome.status === 'failed') toast.error('Commit failed', { description: outcome.error });
-		else if (outcome.status === 'blocked') toast.warning('Commit blocked', { description: outcome.reason });
-		else if (outcome.status === 'unconfirmed') toast.warning('Commit reply was lost', { description: `${outcome.error} Check history before committing again.` });
-		await notes.check();
+	/** Record a version of every saved file (ADR-0529). */
+	async function saveVersion() {
+		const { data: outcome, error } = await notes.saveVersion();
+		if (error !== null) {
+			toast.warning('Version not saved', { description: describeError(error) });
+			return;
+		}
+		const line = commitOutcomeLine(outcome);
+		const notify =
+			line.tone === 'good'
+				? toast.success
+				: line.tone === 'error'
+					? toast.error
+					: line.tone === 'warning'
+						? toast.warning
+						: toast.info;
+		notify(line.label, { description: line.detail });
 	}
 </script>
 
@@ -124,7 +134,7 @@
 					</div>
 				{/each}
 				<div class="grid grid-cols-[5.5rem_1fr] gap-x-3 px-3 py-2">
-					<dt class="text-xs text-muted-foreground">Recent commits</dt>
+					<dt class="text-xs text-muted-foreground">Recent versions</dt>
 					<dd class="min-w-0 font-mono text-xs" data-testid="status-log">
 						{#if typeof log === 'string'}
 							<span class="text-destructive">{log}</span>
@@ -132,23 +142,29 @@
 							{#each log as commit (commit.oid)}
 								<span class="block truncate">{commit.oid.slice(0, 7)} {commit.message.split('\n')[0]}</span>
 							{:else}
-								<span class="font-sans text-muted-foreground">No commits yet</span>
+								<span class="font-sans text-muted-foreground">No versions yet</span>
 							{/each}
 						{/if}
 					</dd>
 				</div>
 			</dl>
 			<div class="flex items-center gap-2 border-t px-3 py-2">
-				<Button variant="outline" size="sm" onclick={() => void notes.check()}>Check again</Button>
-				<!-- The popover is outside the app's inert root. -->
-				<Button variant="ghost" size="sm" disabled={notes.git.activity.commit.active || notes.fenced} onclick={commitNow}>
-					Commit saved files
-				</Button>
+				<Button variant="outline" size="sm" onclick={() => void notes.refresh()}>Check again</Button>
 			</div>
 		</Popover.Content>
 	</Popover.Root>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1">
+		<Button
+			variant="ghost"
+			size="sm"
+			tooltip="Record every saved file as a version in Git history"
+			disabled={savingVersion || notes.fenced}
+			onclick={saveVersion}
+		>
+			<HistoryIcon />
+			Save version
+		</Button>
 		<LightSwitch variant="ghost" />
 		<Button
 			variant={filesOpen ? 'secondary' : 'ghost'}

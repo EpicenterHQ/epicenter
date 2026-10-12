@@ -5,17 +5,26 @@
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { format } from 'date-fns';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { folderLabel, type NoteEntry } from '$lib/data.js';
 	import { getDateLabel } from '$lib/date-label.js';
 	import { displayTitle, previewText } from '$lib/note-source.js';
-	import type { Notes } from '$lib/notes.svelte.js';
-	import { confirmDelete, openItem } from './file-actions.js';
+	import { foldersOf, type Notes, notesOf, repairsOf, unreadableOf } from '$lib/notes.svelte.js';
+	import { confirmDelete } from './file-actions.js';
 
 	let { notes }: { notes: Notes } = $props();
 
-	/** What a row shows: the open note's draft when it is open, else the listed file. */
+	const noteRows = createQuery(() => notes.notesQuery());
+	const folderRows = createQuery(() => notes.foldersQuery());
+	const all = $derived(noteRows.data ? notesOf(noteRows.data) : []);
+	const folders = $derived(folderRows.data ? foldersOf(folderRows.data) : []);
+	const repairs = $derived(noteRows.data ? repairsOf(noteRows.data) : []);
+	const unreadable = $derived(unreadableOf(noteRows.data, folderRows.data));
+	const selectedPath = $derived(notes.selected?.path);
+
+	/** What a row shows. A note's edits are in the cache, so the list shows them as they are typed. */
 	function shown(note: NoteEntry) {
-		const row = notes.noteAt(note.path)?.draft ?? note.row;
+		const row = note.row;
 		return {
 			fields: row.fields,
 			title: displayTitle(row.fields.title, row.body),
@@ -23,21 +32,20 @@
 		};
 	}
 
-	const updated = (note: NoteEntry) => shown(note).fields.updatedAt;
-	const isDeleted = (note: NoteEntry) => typeof shown(note).fields.deletedAt === 'string';
-	const isPinned = (note: NoteEntry) => shown(note).fields.pinned;
+	const updated = (note: NoteEntry) => note.row.fields.updatedAt;
+	const isDeleted = (note: NoteEntry) => typeof note.row.fields.deletedAt === 'string';
+	const isPinned = (note: NoteEntry) => note.row.fields.pinned;
 
 	const visible = $derived.by(() => {
 		const { folderId, deleted, query } = notes.view;
 		const needle = query.trim().toLowerCase();
-		return notes.notes
+		return all
 			.filter((note) => {
-				const { fields } = shown(note);
+				const { fields } = note.row;
 				if (isDeleted(note) !== deleted) return false;
 				if (!deleted && folderId !== null && fields.folderId !== folderId) return false;
 				if (needle === '') return true;
-				const row = notes.noteAt(note.path)?.draft ?? note.row;
-				return `${row.fields.title}\n${row.body}`.toLowerCase().includes(needle);
+				return `${fields.title}\n${note.row.body}`.toLowerCase().includes(needle);
 			})
 			.toSorted((a, b) => updated(b).localeCompare(updated(a)));
 	});
@@ -46,7 +54,7 @@
 		if (notes.view.deleted) return 'Recently Deleted';
 		const id = notes.view.folderId;
 		if (id === null) return 'All Notes';
-		const folder = notes.folders.find((item) => item.stem === id);
+		const folder = folders.find((item) => item.stem === id);
 		return folder === undefined ? 'Notes' : folderLabel(folder);
 	});
 
@@ -63,7 +71,7 @@
 		return result;
 	});
 
-	async function report(action: string, problem: Promise<string | undefined>) {
+	async function report(action: string, problem: Promise<string | undefined> | string | undefined) {
 		const message = await problem;
 		if (message) toast.error(`Could not ${action}`, { description: message });
 	}
@@ -88,37 +96,37 @@
 		{/if}
 	</div>
 
-	{#if notes.listError}
+	{#if noteRows.isError}
 		<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-			Could not read the notes: {notes.listError}. Showing the last list that was read.
+			Could not read the notes: {noteRows.error.message}.{noteRows.data ? ' Showing the last list that was read.' : ''}
 		</p>
 	{/if}
 
 	<div class="min-h-0 flex-1 overflow-y-auto p-2">
-		{#if visible.length === 0 && (notes.view.deleted || notes.repairs.length === 0)}
+		{#if visible.length === 0 && (notes.view.deleted || repairs.length === 0)}
 			<p class="p-6 text-center text-sm text-muted-foreground">
 				{notes.view.deleted ? 'No deleted notes' : 'No notes here yet. Press + to create one.'}
 			</p>
 		{/if}
-		{#if !notes.view.deleted && notes.repairs.length > 0}
+		{#if !notes.view.deleted && repairs.length > 0}
 			<!-- Shown in every folder, so a note that needs repair cannot go missing. -->
 			<h3 class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground">Needs repair</h3>
-			{#each notes.repairs as repair (repair.path)}
+			{#each repairs as repair (repair.path)}
 				<ContextMenu.Root>
 					<ContextMenu.Trigger>
 						<button
 							class="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left hover:bg-accent/40"
-							class:bg-accent={notes.selectedPath === repair.path}
+							class:bg-accent={selectedPath === repair.path}
 							data-note={repair.path}
-							aria-current={notes.selectedPath === repair.path ? 'true' : undefined}
-							onclick={() => void openItem(notes, repair.path)}
+							aria-current={selectedPath === repair.path ? 'true' : undefined}
+							onclick={() => notes.open(repair.path)}
 						>
 							<span class="line-clamp-1 font-mono text-xs">{repair.path}</span>
 							<span class="line-clamp-2 text-xs text-destructive">{repair.message}</span>
 						</button>
 					</ContextMenu.Trigger>
 					<ContextMenu.Content class="w-52">
-						<ContextMenu.Item disabled={notes.fenced} onSelect={() => void openItem(notes, repair.path)}>
+						<ContextMenu.Item disabled={notes.fenced} onSelect={() => notes.open(repair.path)}>
 							Open to repair
 						</ContextMenu.Item>
 						<ContextMenu.Item
@@ -136,15 +144,15 @@
 			<h3 class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground">{group.label}</h3>
 			{#each group.entries as note (note.path)}
 				{@const row = shown(note)}
-				{@const status = notes.noteAt(note.path)?.state.status}
+				{@const saving = notes.isWriting(note.path)}
 				<ContextMenu.Root>
 					<ContextMenu.Trigger>
 						<button
 							class="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left hover:bg-accent/40"
-							class:bg-accent={notes.selectedPath === note.path}
+							class:bg-accent={selectedPath === note.path}
 							data-note={note.path}
-							aria-current={notes.selectedPath === note.path ? 'true' : undefined}
-							onclick={() => void openItem(notes, note.path)}
+							aria-current={selectedPath === note.path ? 'true' : undefined}
+							onclick={() => notes.open(note.path)}
 						>
 							<span class="flex items-start justify-between gap-2">
 								<span class="line-clamp-1 text-sm font-medium">
@@ -152,9 +160,7 @@
 									{row.title}
 								</span>
 								<span class="shrink-0 text-xs text-muted-foreground">
-									{#if status === 'error'}
-										<span class="text-destructive">not saved</span>
-									{:else if status === 'saving'}
+									{#if saving}
 										saving
 									{:else}
 										{format(new Date(updated(note)), 'h:mm a')}
@@ -190,7 +196,7 @@
 										No folder
 									</ContextMenu.Item>
 									<ContextMenu.Separator />
-									{#each notes.folders as folder (folder.path)}
+									{#each folders as folder (folder.path)}
 										<ContextMenu.Item
 											onSelect={() =>
 												void report('move the note', notes.patchNote(note.path, { folderId: folder.stem }))}
@@ -213,9 +219,9 @@
 			{/each}
 		{/each}
 
-		{#if notes.unreadable.length > 0}
+		{#if unreadable.length > 0}
 			<h3 class="px-2 pt-3 pb-1 text-xs font-medium text-muted-foreground">Cannot be opened here</h3>
-			{#each notes.unreadable as item (item.path)}
+			{#each unreadable as item (item.path)}
 				<div class="rounded-lg px-3 py-2">
 					<p class="font-mono text-xs">{item.path}</p>
 					<p class="text-xs text-muted-foreground">{item.message}</p>

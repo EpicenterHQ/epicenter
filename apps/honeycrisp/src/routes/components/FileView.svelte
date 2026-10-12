@@ -1,8 +1,9 @@
 <!--
-	An open item other than a note: a file's exact text in a text session, or
-	why it does not open. A note or folder file whose text is not a valid row
-	shows its issues, read live from what is typed, and is repaired here; a
-	note that reads opens as a note again.
+	An open item other than a note: a file's exact text, or its type and size
+	when it is not editable text. Typing goes into the file's cached text and
+	writes at once, the same way a note's fields do. A note or folder file
+	whose text is not a valid row shows its issues, read live from what is
+	typed, and is repaired here; a note that reads opens as a note again.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -13,24 +14,24 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { parseRow, rowStemOf } from '@epicenter/folder';
+	import { parseRow, rowStemOf, wellFormed } from '@epicenter/folder';
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { honeycrispDefinition, noteIdOf } from '$lib/data.js';
-	import { type Notes, type Opened, pathOf } from '$lib/notes.svelte.js';
-	import { confirmDelete, copyPath, openItem } from './file-actions.js';
+	import { describeError, type Notes } from '$lib/notes.svelte.js';
+	import { confirmDelete, copyPath } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
-	import SaveBar from '@epicenter/svelte/save-bar';
 
 	let {
 		notes,
-		item,
+		path,
 	}: {
 		notes: Notes;
-		/** The open item, other than a note. The parent keys this view by it. */
-		item: Exclude<Opened, { kind: 'note' }>;
+		/** The file shown. It follows a rename; the parent keys this view by its opening. */
+		path: string;
 	} = $props();
 
-	const path = $derived(pathOf(item));
+	const file = createQuery(() => notes.textQuery(path));
 	const name = $derived(basename(path));
 	const directory = $derived(dirname(path));
 	const isNote = $derived(noteIdOf(path) !== undefined);
@@ -42,12 +43,15 @@
 				? honeycrispDefinition.tables.folders
 				: undefined,
 	);
+	const text = $derived(file.data?.kind === 'text' ? file.data.file.text : undefined);
 	/** Why the text is not a row yet, read live from what is typed. */
 	const issues = $derived.by(() => {
-		if (table === undefined || item.kind !== 'text') return undefined;
-		const { error } = parseRow(table, item.session.draft);
+		if (table === undefined || text === undefined) return undefined;
+		const { error } = parseRow(table, text);
 		return error ?? undefined;
 	});
+	/** Edits wait while the app answers a close, and while this file is renamed or deleted. */
+	const locked = $derived(notes.isLocked(path));
 
 	/** A file shown as details: its extension names the type, then its size. */
 	function details(size: number) {
@@ -66,13 +70,13 @@
 			<h2 class="truncate text-sm font-medium">{name}</h2>
 			<p class="truncate font-mono text-xs text-muted-foreground">{path}</p>
 		</div>
-		{#if isNote && item.kind === 'text'}
+		{#if isNote && text !== undefined}
 			<Button
 				size="sm"
 				variant="outline"
 				disabled={issues !== undefined}
 				tooltip={issues === undefined ? undefined : 'Fix the text first'}
-				onclick={() => void openItem(notes, path, 'note')}
+				onclick={() => notes.open(path, 'note')}
 			>
 				Open as note
 			</Button>
@@ -82,23 +86,8 @@
 		</Button>
 	</div>
 
-	{#if item.kind === 'loading'}
-		<Loading class="flex-1" label="Opening {name}…" />
-	{:else if item.kind === 'failed'}
-		<Empty.Root class="flex-1">
-			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
-			<Empty.Title>Could not open this file</Empty.Title>
-			<Empty.Description>{item.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void openItem(notes, path)}>Try again</Button>
-		</Empty.Root>
-	{:else if item.kind === 'text'}
-		{@const session = item.session}
-		<SaveBar
-			save={session.state}
-			review={session.review}
-			onRetry={() => session.retry()}
-			onResolve={(choices) => notes.resolve(session, choices)}
-		/>
+	{#if file.data?.kind === 'text'}
+		{@const shown = file.data.file.text}
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
@@ -117,24 +106,38 @@
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
 				aria-label="Contents of {name}"
 				spellcheck={false}
-				disabled={session.locked}
+				disabled={locked}
 				bind:value={
-					() => session.draft.replace(/\r\n?/g, '\n'),
-					(text) => session.input(withFileNewlines(text, session.draft))
+					() => shown.replace(/\r\n?/g, '\n'),
+					(typed) => {
+						notes.editText(path, withFileNewlines(wellFormed(typed), shown));
+					}
 				}
 			/>
 		</div>
-	{:else}
+		<p class="shrink-0 border-t px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
+			{notes.isWriting(path) ? 'Saving…' : 'Saved'}
+		</p>
+	{:else if file.data !== undefined}
 		<Empty.Root class="flex-1">
 			<Empty.Media><FileIcon class="size-8 text-muted-foreground" /></Empty.Media>
-			<Empty.Title>{details(item.size)}</Empty.Title>
+			<Empty.Title>{details(file.data.size)}</Empty.Title>
 			<Empty.Description>
-				{item.kind === 'binary'
+				{file.data.kind === 'binary'
 					? 'This file is not text, so it is listed here but not opened for editing.'
 					: 'This text file is larger than 1 MB, so it is not opened in the editor.'}
 				Rename, delete, and the terminal still work on it.
 			</Empty.Description>
 		</Empty.Root>
+	{:else if file.isError}
+		<Empty.Root class="flex-1">
+			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
+			<Empty.Title>Could not open this file</Empty.Title>
+			<Empty.Description>{describeError(file.error)}</Empty.Description>
+			<Button variant="outline" size="sm" onclick={() => void file.refetch()}>Try again</Button>
+		</Empty.Root>
+	{:else}
+		<Loading class="flex-1" label="Opening {name}…" />
 	{/if}
 
 	<FileNameBar

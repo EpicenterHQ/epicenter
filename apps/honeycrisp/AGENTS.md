@@ -28,47 +28,58 @@ against the code. The constraints below apply to every edit here.
   only when a read confirmed it absent and only if it is still absent, and
   never retry an outcome that is unknown. Table directories come from the
   declaration; do not list them a second time in Rust.
-- One item is open at a time, in one edit session from
-  `@epicenter/svelte/edit-session`: a note in a row session, any other text
-  (a file, a note opened as its file, a note whose text is not a valid row)
-  in a text session. Its title, folder, pin, rich-text, and Source controls
-  all change that session's draft through `session.edit`. Do not add another
-  save engine, a retained editor per path, or a second draft beside the
-  session's.
-- Every write is guarded by bytes this page read or saved: the session's
-  autosave, `replace` on the row a list read, and `move`/`remove` on a
-  capture. A change made elsewhere merges with the draft by field and
-  line first, with no question. Parts both changed, and a file deleted
-  elsewhere, wait in the session's review; Apply answers all of them at
-  once through `notes.resolve`, and nothing is overwritten silently. The
-  review has no Cancel; leaving the item asks to discard the draft as for
-  any unsaved one. `create` is the only unguarded write and refuses an
-  occupied path.
-- A field command on a row that is not open (pin, trash, restore, folder
-  assignment, folder name) is a guarded `replace` of the row the list read,
-  then a re-list. On the open note it is an edit to its draft. On a note
-  open as text it is refused.
+- The query cache holds the files (ADR-0528). The note and folder
+  listings, the file listing, each file opened as text, and Git status are
+  queries in `src/lib/notes.svelte.ts`. Do not add a draft, an edit session,
+  an autosave, a save merge, a review, a retained editor per path, or any
+  other copy beside the cache. `$state` holds only input that is not
+  committed yet: the search, a folder name being typed.
+- An edit is one immutable change to the cached row or text, then a write
+  mutation keyed and scoped by the file's path. It reads the cache when it
+  runs and is guarded by the hash the cache last confirmed. A file has at
+  most one write running and one waiting. Success moves the guard forward
+  and keeps the cached row; failure rereads that one file, which rolls the
+  edit back, and reports the lost text through `onWriteFailed`. Title,
+  folder, pin, rich text, Source, list actions, and folder names are all
+  such edits. While a file is open as text, its text is what saves, and row
+  edits of it are refused.
+- No read starts while a write runs: an edit cancels reads in flight,
+  nothing goes stale on its own (`staleTime: Infinity`), focus does not
+  refetch while writing, a text read waits for the file's row write, and
+  everything is read again once the last write settles. The race tests in
+  `notes.test.ts` fail when the focus, staleness, or text-read guard is
+  removed; keep them.
+- Every action is a mutation (create, rename, delete, delete folder, Save
+  version, terminal commands), so closing can wait for the mutation cache to
+  be idle. Do not add a manual `refresh()` after an action; its mutation
+  invalidates what it changed.
+- Commits happen only on **Save version** (`folder.git.commit()`, ADR-0529).
+  Nothing commits on its own, and setup records no commit.
 - A note whose text does not read as one is listed for repair and opens as
   text, with its issues read live from the text on screen (`parseRow`).
   There is no structured partial-row repair.
-- The page reads the folder when it opens, after its own actions and
-  terminal commands, and on focus or visibility. Do not follow
-  `folder.onFilesChanged` hints. Reading on return adopts a newer file into
-  an open note only while it holds nothing unsaved (the slot's `adopt`);
-  that remounts the rich-text editor, so its undo history restarts.
+- The page reads the folder when it opens, on window focus, and after its
+  own actions and terminal commands. Do not follow `folder.onFilesChanged`
+  hints. A reread that changes the open note's body replaces the rich-text
+  state, so its undo history restarts.
 - A destructive action that must find every related file refuses when any
   file's relation did not read (`deleteFolder`).
 
 ## Editor ownership
 
-- The session owns the draft; a save never assigns it. ProseMirror's
-  `EditorState` owns the rich-text document, cursor, and undo history.
+- The cache owns the note's body. ProseMirror's `EditorState` owns only what
+  the cache has no place for: the cursor, pending formatting, undo history,
+  and an empty paragraph Markdown cannot spell yet. Its document is never a
+  draft beside the cache.
 - Every ProseMirror transaction that changes the document goes through
-  `stateAfter`: current-body reconciliation, checked Markdown serialization,
-  then `session.edit` with the body made `wellFormed`, before it is shown.
-  Refuse it while `session.locked`. Do not refuse an edit only because a file
-  cannot hold it (a lone surrogate): sanitize it, or ProseMirror and the
-  draft diverge.
+  `stateAfter`: reconciliation with the body the cache holds now, checked
+  Markdown serialization, then `NoteBody.edit` with the body made
+  `wellFormed`, before it is shown. An edit the cache refuses is not shown.
+  Do not refuse an edit only because a file cannot hold it (a lone
+  surrogate): sanitize it, or ProseMirror and the cache diverge.
+- `stateShowing` follows the cached body by content: the same content keeps
+  the state; different content (Source, a version, a reread, a rollback)
+  replaces it.
 - Do not weaken `checkNoteDoc` to let an edit through. If Markdown cannot
   spell it, the edit is refused. If it should be spellable, fix the
   serializer and add the case to `markdown.test.ts`; the property tests in
@@ -77,21 +88,18 @@ against the code. The constraints below apply to every edit here.
 - Adding a node or mark to `editor/schema.ts` requires its Markdown in both
   directions and tests for both. Source the schema cannot hold is refused by
   `inspectNoteBody`, not dropped.
-- The rich-text view's lifetime depends on one boolean (`editable`), its
-  element, and the session's `generation` (a read replaced the draft). Do not
-  make its mount effect read anything that changes on a keystroke; that
-  recreates the view and erases undo history.
-- Leaving an item waits for `settled()`, then releases its session. A draft
-  whose save failed or conflicted is let go only when the person confirms
-  the discard for that session. Rename and delete act on
-  `settled().file`; delete releases the session first.
-- Views disable their inputs with `session.locked`, and a released session
-  takes no input, so a control that outlives its view changes nothing.
+- The rich-text view's lifetime depends on one boolean (`editable`) and its
+  element. Do not make its mount effect read anything that changes on a
+  keystroke or a write, including `locked`; that recreates the view and
+  erases undo history. The view is keyed by its opening, so a rename keeps
+  it.
+- Views disable their inputs with `notes.isLocked(path)`: while a close is
+  answered, and while the file is renamed or deleted.
 
 ## Closing
 
 - Once the page holds its folder, every native close needs that page's
-  answer to that request. Nothing else approves one: not a draft count, not
+  answer to that request. Nothing else approves one: not a write count, not
   a timeout, not a page that stopped answering, not the shell itself. Do not
   add a native prompt that discards on the page's behalf.
 - The page registers with the shell before it opens the folder, listens
@@ -99,16 +107,19 @@ against the code. The constraints below apply to every edit here.
   `openGuarded` in `src/lib/platform/shell.tauri.ts` keeps that order; do not
   open the desktop folder around it.
 - An approval names its page generation and its request. Keep both checks in
-  `src-tauri/src/close.rs`, and keep **Keep editing** an explicit decline.
-- Input is fenced before drafts are counted and stays fenced while the
-  approval is on its way. `notes.fenceInput()` is the one switch: sessions
-  lock, notes actions and the terminal refuse to run,
-  and `NotesView` is `inert`. A new way to change a file must check it, and
+  `src-tauri/src/close.rs`. The page answers a close by waiting for the
+  mutation cache to be idle (`notes.settle()`), then approving; it never
+  asks to discard and never declines. The gate's decline stays for the
+  shell's own use.
+- Input is fenced before writes are waited for and stays fenced while the
+  approval is on its way. `notes.fenceInput()` is the one switch: edits are
+  refused, notes actions and the terminal refuse to run, and `NotesView` is
+  `inert`. A new way to change a file must check it, and
   a control in a menu, popover, or dialog must also be `disabled`, because
   those render outside the inert root. Do not unmount the editors to fence
   them: that loses undo history.
-- Release the fence only for **Keep editing** and for the two gate refusals
-  listed in `APPROVAL_NOT_TAKEN` in `shell.tauri.ts`. Those are the texts of
+- Release the fence only for the two gate refusals listed in
+  `APPROVAL_NOT_TAKEN` in `shell.tauri.ts`. Those are the texts of
   `Refusal::StalePage` and `Refusal::NoSuchRequest` in `close.rs`; change
   them together. "the app is already closing", any other text, and any other
   failure keep the fence.
@@ -163,9 +174,9 @@ against the code. The constraints below apply to every edit here.
 - Do not add fault injection to the shell or wrap the folder's writes to
   simulate failures. The README lists how to produce a real failure in a
   disposable directory; never test against the default one. Tests fault the
-  folder's storage stand-in, never a wrapper around a session.
+  folder's storage stand-in, never a wrapper around the notes state.
 - A commit failure is a Git fact. Do not turn one into a save error, and do
-  not make a save wait for a commit.
+  not make a save request or wait for a commit.
 - `bun run test` must not need Rust. Tests that need the shell live in
   `src-tauri` and `native-tests/` and run with `bun run test:native`. The
   quit harness, `src-tauri/examples/quit`, opens a window and needs a macOS
@@ -175,6 +186,6 @@ against the code. The constraints below apply to every edit here.
 
 ## Words a person reads
 
-Say note, folder, file, draft, saved, and commit. Do not put `entry`,
+Say note, folder, file, saved, version, and commit. Do not put `entry`,
 `buffer`, `scope`, `shell`, `baseline`, or `canonical` in anything a person
 reads; those are the right words in code and the wrong ones in a status line.

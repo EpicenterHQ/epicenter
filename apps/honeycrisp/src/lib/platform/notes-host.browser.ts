@@ -27,7 +27,7 @@ async function acquire(): Promise<NotesHost> {
 				return terminal.cwd;
 			},
 			description:
-				'The same files as the app · git status, diff, log; saves request history',
+				'The same files as the app · git status, diff, log, add, commit',
 			exec: (command) => terminal.exec(command),
 		},
 		location: 'This browser',

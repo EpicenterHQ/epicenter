@@ -3,10 +3,11 @@
  * in-memory OPFS stand-in, for tests that need a write to wait, fail, or lose
  * its reply at an exact moment.
  *
- * Nothing here wraps the folder or its row editor. A note's editor is the
- * production `table.edit`, and every fault acts where the folder writes: the
- * stand-in's file streams. A stream that is asked for can be held open
- * (`hold`), a write can fail before anything is published (`failWrites`),
+ * Nothing here wraps the folder or its tables. A note's write is the
+ * production `table.replace`, and every fault acts where the folder writes:
+ * the stand-in's file streams. A stream that is asked for can be held open
+ * (`hold`), a write can fail before anything is published (`failWrites`,
+ * `failNextWrite`),
  * and a close can publish and then throw, which the folder reports as
  * `Unconfirmed` (`loseReplies`). Another program's writes and removals go
  * below the API (`put`, `drop`): they take no lock and send no hint, so the
@@ -38,7 +39,10 @@ export async function openNotesFolder() {
 		await openFolder({
 			id: ID,
 			definition: honeycrispDefinition,
-			browser: { ...browserStorage(storage) },
+			browser: {
+				author: { name: 'Test', email: 'test@example.test' },
+				...browserStorage(storage),
+			},
 		}),
 	);
 	await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));
@@ -61,7 +65,14 @@ export async function openNotesFolder() {
 		held.push({ path: at.slice(ROOT.length + 1), release: resolve });
 		return promise;
 	};
-	opfs.faults.write = (at) => (failing && ours(at) ? 'fail' : undefined);
+	/** Writes still to fail before failing stops on its own; `Infinity` until turned off. */
+	let failures = 0;
+	opfs.faults.write = (at) => {
+		if (!failing || !ours(at)) return undefined;
+		failures -= 1;
+		if (failures <= 0) failing = false;
+		return 'fail';
+	};
 	opfs.faults.close = (at) => (losing && ours(at) ? 'lost' : undefined);
 
 	const host: NotesHost = {
@@ -123,6 +134,12 @@ export async function openNotesFolder() {
 		/** Writes fail before anything is published: a full disk. */
 		failWrites(on = true) {
 			failing = on;
+			failures = Number.POSITIVE_INFINITY;
+		},
+		/** The next write fails before anything is published, and later ones do not. */
+		failNextWrite() {
+			failing = true;
+			failures = 1;
 		},
 		/** Writes publish, and their reply is lost. */
 		loseReplies(on = true) {

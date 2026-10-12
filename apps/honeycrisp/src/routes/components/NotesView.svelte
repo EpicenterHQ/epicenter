@@ -18,14 +18,13 @@
 	let filesOpen = $state(false);
 	let terminalOpen = $state(false);
 
-	// Drafts live only in this window. Three things can end it, and each is held
-	// back while the open item's save runs or failed:
-	// - a reload or in-page navigation: cancelled here, and the webview asks first;
-	// - closing the window or quitting the app: the shell asks the page, which
-	//   answers from `+page.svelte` before these notes exist. While it answers,
-	//   `notes.fenced` holds back every input and action here.
+	// Writes and actions run in this window. A reload or in-page navigation
+	// waits while one runs: it is cancelled here, and the webview asks first.
+	// Closing the window or quitting the app asks the page, which answers once
+	// they land (`+page.svelte`); while it answers, `notes.fenced` holds back
+	// every input and action here.
 	beforeNavigate(({ cancel }) => {
-		if (notes.unsettled > 0) cancel();
+		if (notes.busy) cancel();
 	});
 
 	async function toggleTerminal() {
@@ -37,26 +36,20 @@
 	}
 </script>
 
-<!-- Returning to the app reads the lists and Git status again. An open note
-     keeps its draft: a change made elsewhere shows as a conflict on its next save. -->
-<svelte:document
-	onvisibilitychange={() => {
-		if (document.visibilityState === 'visible') void notes.check();
-	}}
-/>
+<!-- Returning to the window reads the lists, the open file, and Git status
+     again, through the query cache; nothing is read while a write runs. -->
 <svelte:window
-	onfocus={() => void notes.check()}
 	onbeforeunload={(event) => {
-		if (notes.unsettled > 0) event.preventDefault();
+		if (notes.busy) event.preventDefault();
 	}}
 	onkeydown={async (event) => {
 		const mod = event.metaKey || event.ctrlKey;
-		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && notes.unsettled > 0) {
-			// A reload would end this window's drafts. The leave prompt below is
+		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && notes.busy) {
+			// A reload would stop a write in flight. The leave prompt below is
 			// the webview's to show or not; refusing the shortcut does not depend on it.
 			event.preventDefault();
-			toast.warning('Reload stopped: the open note is not saved', {
-				description: 'Wait for them to save, or resolve them in the note, then reload.',
+			toast.warning('Reload stopped: a change is still being saved', {
+				description: 'Reload again once it finishes.',
 			});
 		} else if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
 			event.preventDefault();
@@ -73,7 +66,7 @@
 />
 
 <!-- While a close is being answered nothing here takes input. The editors stay
-     mounted, so Keep editing returns to the same text and undo history. -->
+     mounted, so a refused approval returns to the same text and undo history. -->
 <div class="flex h-dvh flex-col overflow-hidden" inert={notes.fenced}>
 	<AppHeader
 		{notes}
@@ -95,15 +88,15 @@
 				</Resizable.Pane>
 				<Resizable.Handle />
 				<Resizable.Pane id="detail" order={3} defaultSize={filesOpen ? 40 : 60} minSize={30}>
-					{@const opened = notes.opened}
-					{#if opened?.kind === 'note'}
-						<!-- One mount per session: leaving the note releases it. -->
-						{#key opened.session}
-							<NoteDetail {notes} session={opened.session} />
+					{@const shown = notes.selected}
+					{#if shown?.as === 'note'}
+						<!-- One mount per opening: a rename keeps it, and its undo history. -->
+						{#key shown.id}
+							<NoteDetail {notes} path={shown.path} />
 						{/key}
-					{:else if opened !== undefined}
-						{#key opened}
-							<FileView {notes} item={opened} />
+					{:else if shown !== undefined}
+						{#key shown.id}
+							<FileView {notes} path={shown.path} />
 						{/key}
 					{:else}
 						<Empty.Root class="h-full">

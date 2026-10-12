@@ -9,19 +9,21 @@
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { type FolderEntry, folderLabel as nameOf } from '$lib/data.js';
-	import type { Notes } from '$lib/notes.svelte.js';
-	import { openItem } from './file-actions.js';
+	import { foldersOf, type Notes, notesOf } from '$lib/notes.svelte.js';
 
 	let { notes }: { notes: Notes } = $props();
 
+	const noteRows = createQuery(() => notes.notesQuery(notesOf));
+	const folderRows = createQuery(() => notes.foldersQuery(foldersOf));
 	const folders = $derived(
-		[...notes.folders].sort((a, b) => nameOf(a).localeCompare(nameOf(b))),
+		(folderRows.data ?? []).toSorted((a, b) => nameOf(a).localeCompare(nameOf(b))),
 	);
 	const counts = $derived.by(() => {
 		const result = { active: 0, deleted: 0, folders: new Map<string, number>() };
-		for (const note of notes.notes) {
-			const fields = notes.fieldsOf(note);
+		for (const note of noteRows.data ?? []) {
+			const fields = note.row.fields;
 			if (typeof fields.deletedAt === 'string') {
 				result.deleted += 1;
 				continue;
@@ -47,7 +49,7 @@
 				? await notes.createFolder(name)
 				: name === nameOf(target)
 					? undefined
-					: await notes.patchFolder(target, { name });
+					: notes.patchFolder(target.path, { name });
 		if (problem) toast.error('Could not save the folder', { description: problem });
 	}
 
@@ -162,7 +164,7 @@
 						>
 							Rename
 						</DropdownMenu.Item>
-						<DropdownMenu.Item disabled={notes.fenced} onSelect={() => void openItem(notes, folder.path)}>
+						<DropdownMenu.Item disabled={notes.fenced} onSelect={() => notes.open(folder.path, 'text')}>
 							Open file
 						</DropdownMenu.Item>
 						<DropdownMenu.Separator />

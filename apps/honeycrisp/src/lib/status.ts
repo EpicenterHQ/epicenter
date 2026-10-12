@@ -1,10 +1,12 @@
 /**
  * Plain-language status lines for the header and its details.
  *
- * Drafts, saved files, and Git history are three separate facts, and each
- * line reports exactly one: a draft is text in this window, a saved file is
- * on disk, and history is what Git has committed. A failed commit is a
- * history fact; it never makes a saved file look unsaved.
+ * Saves, changes since the last version, and versions are three separate
+ * facts, and each line reports exactly one: a save is an edit written to its
+ * file, a change is a saved file that differs from the last version, and a
+ * version is a commit (ADR-0529). Changes since the last version are neutral
+ * detail, not a warning: nothing commits on its own. A failed commit is a
+ * version fact; it never makes a saved file look unsaved.
  */
 import type { CommitOutcome, GitSnapshot } from '@epicenter/folder';
 
@@ -33,51 +35,32 @@ const SEVERITY: Record<Tone, number> = {
 };
 
 /**
- * Drafts: text in this window that is not in a file yet. A change whose reply
- * never came is neither: it is reported as not confirmed, never as not saved.
+ * Saves: every edit is written as it is made. A write that failed was rolled
+ * back and reported when it happened, so only one in flight is news.
  */
-export function draftsLine(state: {
-	saving: boolean;
-	notSaved: number;
-	unconfirmed: number;
-	unsettled: number;
-}): StatusLine {
-	if (state.notSaved > 0)
-		return {
-			label: `${state.notSaved} ${state.notSaved === 1 ? 'draft' : 'drafts'} not saved`,
-			detail:
-				'Open the note to try again, or to choose between your version and theirs.',
-			tone: 'error',
-		};
-	if (state.unconfirmed > 0)
-		return {
-			label: `${state.unconfirmed} ${state.unconfirmed === 1 ? 'change' : 'changes'} not confirmed`,
-			detail:
-				'It may or may not be in the file. Open the note to save it again.',
-			tone: 'warning',
-		};
-	if (state.saving) return { label: 'Saving…', tone: 'busy' };
-	if (state.unsettled > 0) return { label: 'Unsaved typing', tone: 'busy' };
-	return { label: 'No unsaved drafts', tone: 'good' };
+export function savesLine(state: { saving: boolean }): StatusLine {
+	return state.saving
+		? { label: 'Saving…', tone: 'busy' }
+		: { label: 'Saved', tone: 'good' };
 }
 
 function changesLabel(count: number) {
 	return count === 0
-		? 'Every saved file is committed'
-		: `${count} saved ${count === 1 ? 'file is' : 'files are'} not committed`;
+		? 'Every file is in the last version'
+		: `${count} ${count === 1 ? 'file' : 'files'} changed since the last version`;
 }
 
 /**
- * Saved files compared with the last commit. Only a current, successful
- * check may say everything is committed.
+ * Saved files compared with the last version. Only a current, successful
+ * check may say every file is in it.
  */
-export function savedFilesLine(git: GitSnapshot): StatusLine {
+export function changesLine(git: GitSnapshot): StatusLine {
 	const files = git.files;
 	if (files.state === 'unknown')
 		return files.error
 			? {
 					label: 'Check failed',
-					detail: `Uncommitted files are unknown: ${files.error}`,
+					detail: `Changes since the last version are unknown: ${files.error}`,
 					tone: 'error',
 				}
 			: git.activity.scan.active
@@ -109,21 +92,22 @@ export function savedFilesLine(git: GitSnapshot): StatusLine {
 		label: changesLabel(count),
 		detail:
 			[...changes, `Checked at ${at(files.checkedAt)}`].join('\n') || undefined,
-		tone: count === 0 ? 'good' : 'warning',
+		tone: count === 0 ? 'good' : 'neutral',
 	};
 }
 
-function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
+/** One Save version outcome, as the header and its toast say it. */
+export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 	switch (outcome.status) {
 		case 'committed':
 			return outcome.indexWarning
 				? {
-						label: `Committed ${short(outcome.oid)} · index not updated`,
+						label: `Saved version ${short(outcome.oid)} · index not updated`,
 						detail: `${outcome.message}\nIndex not updated: ${outcome.indexWarning}`,
 						tone: 'warning',
 					}
 				: {
-						label: `Committed ${short(outcome.oid)}`,
+						label: `Saved version ${short(outcome.oid)}`,
 						detail: outcome.message,
 						tone: 'good',
 					};
@@ -134,32 +118,32 @@ function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 						detail: outcome.indexWarning,
 						tone: 'warning',
 					}
-				: { label: 'Nothing new to commit', tone: 'neutral' };
+				: { label: 'Nothing new since the last version', tone: 'neutral' };
 		case 'branchMoved':
 			return {
-				label: 'Commit not recorded',
+				label: 'Version not saved',
 				detail:
-					'The branch changed while committing. Your files are saved; commit again.',
+					'The branch changed while the version was being saved. Your files are saved; save a version again.',
 				tone: 'warning',
 			};
 		case 'blocked':
 			return {
-				label: 'Commit blocked',
+				label: 'Version not saved',
 				detail: `${outcome.reason}\nYour files are still saved.`,
 				tone: 'warning',
 			};
 		case 'failed':
 			return {
-				label: 'Commit failed',
+				label: 'Version failed',
 				detail: `${outcome.error}\nYour files are still saved.`,
 				tone: 'error',
 			};
 		case 'stoppedWaiting':
-			return { label: 'Commit may still be running', tone: 'neutral' };
+			return { label: 'Version may still be saving', tone: 'neutral' };
 		case 'unconfirmed':
 			return {
-				label: 'Commit reply was lost',
-				detail: `${outcome.error}\nYour files are saved. Check history before committing again.`,
+				label: 'Version reply was lost',
+				detail: `${outcome.error}\nYour files are saved. Check history before saving a version again.`,
 				tone: 'warning',
 			};
 		case 'closed':
@@ -167,12 +151,13 @@ function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 	}
 }
 
-/** Git history: the last commit attempt this session. */
+/** Versions: the last Save version this session. */
 export function historyLine(git: GitSnapshot): StatusLine {
-	if (git.activity.commit.active) return { label: 'Committing…', tone: 'busy' };
+	if (git.activity.commit.active)
+		return { label: 'Saving a version…', tone: 'busy' };
 	const last = git.lastCommit;
 	if (last === undefined)
-		return { label: 'No commit this session', tone: 'neutral' };
+		return { label: 'No version saved this session', tone: 'neutral' };
 	const line = commitOutcomeLine(last);
 	const when = `Last attempt at ${at(last.at)}`;
 	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
@@ -180,25 +165,22 @@ export function historyLine(git: GitSnapshot): StatusLine {
 
 /**
  * The one line the header shows: the most severe current fact, the earlier
- * one on a tie. A neutral history line is not news.
+ * one on a tie. A neutral line is not news, so with nothing worse the header
+ * says the files are saved.
  */
 export function summaryLine(lines: {
-	drafts: StatusLine;
-	files: StatusLine;
+	saves: StatusLine;
+	changes: StatusLine;
 	history: StatusLine;
 }): StatusLine {
 	let chosen: StatusLine | undefined;
-	for (const line of [
-		lines.drafts,
-		lines.files,
-		lines.history.tone === 'neutral' ? undefined : lines.history,
-	])
+	for (const line of [lines.saves, lines.changes, lines.history])
 		if (
-			line &&
+			line.tone !== 'neutral' &&
 			(chosen === undefined || SEVERITY[line.tone] > SEVERITY[chosen.tone])
 		)
 			chosen = line;
 	if (chosen === undefined || chosen.tone === 'good')
-		return { label: 'Saved and committed', tone: 'good' };
+		return { label: 'Saved', tone: 'good' };
 	return chosen;
 }
