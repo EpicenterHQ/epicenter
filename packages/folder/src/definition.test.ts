@@ -70,7 +70,6 @@ async function open<
 			definition,
 			browser: {
 				author: { name: 'Definition', email: 'definition@example.test' },
-				commitOnEdit: false,
 				...browserStorage(storage),
 			},
 		}),

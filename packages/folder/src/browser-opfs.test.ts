@@ -63,7 +63,6 @@ fresh();
 
 async function open(
 	options: {
-		commitOnEdit?: boolean;
 		id?: string;
 		hints?: boolean;
 		scope?: Parameters<typeof openFolder>[0]['browser'] extends infer B
@@ -79,7 +78,6 @@ async function open(
 			definition,
 			browser: {
 				author,
-				commitOnEdit: options.commitOnEdit ?? false,
 				scope: options.scope,
 				opfs: opfsEnvironment(opfs, {
 					BroadcastChannel: options.hints ? BroadcastChannel : undefined,
@@ -442,17 +440,16 @@ describe('outcomes a caller can rely on', () => {
 		expect(opfs.files(ROOT).get('a.md')).toEqual(new Uint8Array());
 	});
 
-	test('a close that throws is Unconfirmed, whatever the path holds after: hinted, and committed as it is', async () => {
+	test('a close that throws is Unconfirmed, whatever the path holds after: hinted, and the next commit records it as it is', async () => {
 		for (const [fault, after] of [
 			['fail', new Uint8Array()],
 			// The bytes did land; the reply still says nothing of it.
 			['lost', encoder.encode('x')],
 		] as const) {
-			const folder = await open({ commitOnEdit: true, hints: true });
+			const folder = await open({ hints: true });
 			const other = await open({ hints: true });
-			while (folder.git.snapshot.activity.commit.active) await Bun.sleep(5);
+			// Drain the second opening's cross-context publication hint.
 			await Bun.sleep(20);
-			const previousAttempt = folder.git.snapshot.lastCommit;
 			const heardHere: string[] = [];
 			const heardThere: string[] = [];
 			folder.onFilesChanged((paths) => heardHere.push(...paths));
@@ -467,15 +464,11 @@ describe('outcomes a caller can rely on', () => {
 			for (let index = 0; index < 50 && heardThere.length === 0; index++)
 				await Bun.sleep(5);
 			expect(heardThere).toContain('a.md');
-			// A commit records whatever the path holds, so one is asked for even
+			// The save made no commit. A commit records whatever the path holds,
 			// though nobody knows whether the bytes landed.
-			for (
-				let index = 0;
-				index < 100 && folder.git.snapshot.lastCommit === previousAttempt;
-				index++
-			)
-				await Bun.sleep(10);
-			expect(folder.git.snapshot.lastCommit).not.toBe(previousAttempt);
+			expect(folder.git.snapshot.lastCommit).toBeUndefined();
+			expect((await folder.git.commit()).status).toBe('committed');
+			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 			for (const each of opened.splice(0)) await each.close();
 			fresh();
 		}
@@ -558,19 +551,16 @@ describe('scopes and history', () => {
 		).toBe('percent');
 	});
 
-	test('automatic commits, status, and the shell work over the same files', async () => {
-		const folder = await open({ commitOnEdit: true });
+	test('commits, status, and the shell work over the same files', async () => {
+		const folder = await open();
 		expectOk(
 			await folder.tables.notes.create(
 				{ fields: { title: 'First' }, body: '' },
 				{ stem: 'first' },
 			),
 		);
-		for (let index = 0; index < 200; index++) {
-			if (folder.git.snapshot.lastCommit !== undefined) break;
-			await Bun.sleep(5);
-		}
-		expect(folder.git.snapshot.lastCommit?.status).toBe('committed');
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
+		expect((await folder.git.commit()).status).toBe('committed');
 		const shell = folder.terminal();
 		const listed = await shell.exec('cat notes/first.md && git status --short');
 		expect(listed.stdout).toContain('title: First\n');

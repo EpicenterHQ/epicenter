@@ -12,8 +12,8 @@
 //!   inside the root; opening an existing folder changes no file and nothing
 //!   in its repository, born or unborn; a root another process holds is busy
 //!   and gains no file.
-//! - A new folder is set up through the owner, and its settings are the first
-//!   commit by the owner's own policy.
+//! - A new folder is set up through the owner, and its settings are in the
+//!   first commit asked for. A save commits nothing.
 //! - A held close reaches the page as an event; refusals reach it as text.
 //! - The terminal keeps its working directory in the shell.
 //!
@@ -230,7 +230,6 @@ fn history_is_local_and_the_repository_configuration_adds_no_remote() {
     assert!(config.remote.is_none());
     assert!(config.use_repository_author);
     assert!(!config.use_repository_origin);
-    assert!(config.commit_on_edit);
     assert_eq!(config.branch, "main");
 }
 
@@ -259,14 +258,13 @@ fn repository_author_is_used_for_local_history_without_adopting_origin() {
         }),
     )
     .unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    while !git_output(&fixture.root, &["rev-parse", "--verify", "--quiet", "HEAD"]).0 {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "no automatic local commit"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let committed = invoke(
+        &main,
+        "plugin:epicenter-folder|commit",
+        json!({ "session": attached["session"] }),
+    )
+    .unwrap();
+    assert_eq!(committed["status"], "committed", "{committed}");
     assert_eq!(
         git(&fixture.root, &["log", "-1", "--format=%an <%ae>"]),
         "Local Person <local@example.com>"
@@ -379,7 +377,6 @@ fn an_existing_folder_with_history_is_opened_without_changing_its_files_or_its_r
     let main = window(&fixture.app, WINDOW);
     let attached = attach(&main).expect("the notes window attaches");
     assert_eq!(attached["root"], json!(fixture.root.to_str().unwrap()));
-    assert_eq!(attached["snapshot"]["commitOnEdit"], json!(true));
     look(&main, &attached["session"]);
     // Long enough for a commit to have been made, had one been requested.
     std::thread::sleep(Duration::from_millis(300));
@@ -463,12 +460,15 @@ fn a_new_folder_is_set_up_through_the_owner_and_its_settings_are_the_first_commi
         )
     };
     create("{}\n").expect("the default settings are published");
-    // The owner commits the save by its own policy; nothing asked it to.
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    while git_output(&fixture.root, &["rev-list", "--count", "HEAD"]).1 != "1" {
-        assert!(std::time::Instant::now() < deadline, "no first commit");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    // The save commits nothing; the first commit asked for holds it.
+    assert!(!git_output(&fixture.root, &["rev-parse", "--verify", "--quiet", "HEAD"]).0);
+    let committed = invoke(
+        &main,
+        "plugin:epicenter-folder|commit",
+        json!({ "session": session }),
+    )
+    .unwrap();
+    assert_eq!(committed["status"], "committed", "{committed}");
     assert_eq!(git(&fixture.root, &["log", "--format=%s"]), "Add kv.json");
 
     // A second creation loses to the file that is there and changes nothing.
@@ -536,12 +536,7 @@ fn a_save_that_cannot_be_written_fails_alone_and_a_commit_that_cannot_be_recorde
             .clone()
     };
     write("notes/a.md", "first\n").expect("an ordinary save lands");
-    // The save's own commit may already have recorded it.
-    let first = commit();
-    assert!(
-        first == json!("committed") || first == json!("unchanged"),
-        "{first}"
-    );
+    assert_eq!(commit(), json!("committed"));
 
     // `chmod a-w notes`: the save fails and nothing is written.
     let notes = fixture.root.join("notes");

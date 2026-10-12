@@ -18,7 +18,6 @@ import {
 	type DirectoryFolderOptions,
 	defineFolder,
 	defineTable,
-	type Folder,
 	type FolderDefinition,
 	field,
 	openFolder,
@@ -49,7 +48,6 @@ const definition = defineFolder({
 		}),
 	},
 });
-type Todos = Folder<typeof definition>;
 
 const author = { name: 'App', email: 'app@example.test' };
 const originalFetch = globalThis.fetch;
@@ -69,16 +67,6 @@ afterAll(() => {
 		else process.env[key] = originalEnv[key];
 });
 
-/** Wait for the commit attempt a save started, and its push, to settle. */
-async function settled(folder: Todos) {
-	for (let index = 0; index < 400; index++) {
-		const { activity } = folder.git.snapshot;
-		if (!activity.commit.active && !activity.push.active) return;
-		await Bun.sleep(10);
-	}
-	throw new Error('Git work did not settle');
-}
-
 describe('native folder', () => {
 	test('an existing non-main HEAD refuses history changes while file saves remain available', async () => {
 		const root = await scratch('native-legacy-branch-');
@@ -90,7 +78,7 @@ describe('native folder', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		try {
 			expectOk(await folder.files.create('saved.txt', 'saved'));
@@ -108,14 +96,13 @@ describe('native folder', () => {
 		}
 	});
 
-	test('saves ordinary files, commits automatically, and keeps the native index consistent', async () => {
+	test('saves ordinary files without a commit; an explicit commit keeps the native index consistent', async () => {
 		const root = await scratch('native-folder-');
 		const folder = await openNativeFolder({
 			root,
 			definition,
 			git: { author },
 		});
-		await settled(folder);
 		expectOk(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Walk', done: false }, body: 'Around the block.\n' },
@@ -128,10 +115,15 @@ describe('native folder', () => {
 			fields: { title: 'Walk', done: false },
 			body: 'Around the block.\n',
 		});
-		await settled(folder);
-		expect(await git(root, 'log', '--format=%s')).toBe(
-			'Add todos/walk.md\nAdd epicenter.json',
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
+		expect(await git(root, 'status', '--porcelain')).toBe(
+			'?? epicenter.json\n?? todos/',
 		);
+		expect(await folder.git.commit()).toMatchObject({
+			status: 'committed',
+			message: 'Update 2 files',
+		});
+		expect(await git(root, 'log', '--format=%s')).toBe('Update 2 files');
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 
 		// An external edit is preserved when a command updates current content.
@@ -147,7 +139,9 @@ describe('native folder', () => {
 		);
 
 		expect(done.row.fields).toEqual({ title: 'Run', done: true });
-		await settled(folder);
+		// The helper trims the leading space of the unstaged column.
+		expect(await git(root, 'status', '--porcelain')).toBe('M todos/walk.md');
+		expect((await folder.git.commit()).status).toBe('committed');
 		expect(await git(root, 'log', '-1', '--format=%s')).toBe(
 			'Update todos/walk.md',
 		);
@@ -164,7 +158,7 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
-	test('a complete file save checkpoints external bytes and refuses staged authoring', async () => {
+	test('a complete file save makes no commit; the next commit checkpoints external bytes with it', async () => {
 		const root = await scratch('native-content-policy-');
 		const folder = await openNativeFolder({
 			root,
@@ -172,23 +166,13 @@ describe('native folder', () => {
 			git: { author },
 		});
 		try {
-			await settled(folder);
 			await writeFile(join(root, 'external.md'), 'external');
-			expect(folder.git.snapshot.lastCommit).toMatchObject({
-				status: 'committed',
-				message: 'Add epicenter.json',
-			});
-			expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
 			expectOk(await folder.files.create('saved.md', 'saved'));
-			await settled(folder);
+			expect(folder.git.snapshot.lastCommit).toBeUndefined();
+			expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
+			expect((await folder.git.commit()).status).toBe('committed');
 			expect(await git(root, 'show', 'HEAD:external.md')).toBe('external');
 			expect(await git(root, 'show', 'HEAD:saved.md')).toBe('saved');
-			expect(expectErr(await folder.git.stage('all')).name).toBe(
-				'AutomaticHistory',
-			);
-			expect(expectErr(await folder.git.commitStaged('Authored')).name).toBe(
-				'AutomaticHistory',
-			);
 			expect(await git(root, 'status', '--porcelain')).toBe('');
 		} finally {
 			await folder.close();
@@ -252,7 +236,7 @@ describe('native folder', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		await folder.files.create(
 			'todos/Plan.md',
@@ -301,7 +285,7 @@ describe('native folder', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		const stems = ['', '.hidden', 'trailing ', 'a: b', 'q?*'];
 		for (const stem of stems) {
@@ -347,7 +331,7 @@ describe('native folder', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		// Audio recorded under the old model sits beside the row it was saved with.
 		const audio = new Uint8Array([1, 2, 3]);
@@ -408,7 +392,6 @@ describe('native folder', () => {
 			},
 			boundary,
 			author,
-			commitOnEdit: false,
 		});
 		await writeFile(join(root, 'a.txt'), 'a');
 		const outcome = await history.commit();
@@ -429,7 +412,7 @@ describe('native folder', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		await folder.files.create('a.txt', 'a\n');
 		await folder.files.create('b.txt', 'b\n');
@@ -464,7 +447,6 @@ describe('browser and native exchange through a real bare repository', () => {
 				browser: {
 					author,
 					...browserStorage(environment),
-					commitOnEdit: false,
 				},
 			}),
 		);
@@ -480,7 +462,6 @@ describe('browser and native exchange through a real bare repository', () => {
 				browser: {
 					author,
 					...browserStorage(environment),
-					commitOnEdit: false,
 					remote: { url: 'http://git.test/remote.git', branch: 'backup' },
 				},
 			}),
@@ -509,7 +490,6 @@ describe('browser and native exchange through a real bare repository', () => {
 				definition,
 				git: {
 					author,
-					commitOnEdit: false,
 					remote: { url: bare, branch: 'backup' },
 				},
 			});
@@ -536,7 +516,7 @@ describe('browser and native exchange through a real bare repository', () => {
 				native = await openNativeFolder({
 					root: nativeRoot,
 					definition,
-					git: { author, commitOnEdit: false },
+					git: { author },
 				});
 				expectOk(await native.files.create('third.txt', 'third'));
 				expect((await native.git.commit()).status).toBe('committed');
@@ -547,7 +527,6 @@ describe('browser and native exchange through a real bare repository', () => {
 					definition,
 					git: {
 						author,
-						commitOnEdit: false,
 						remote: { url: bare, branch: 'backup' },
 					},
 				});
@@ -587,16 +566,15 @@ describe('browser and native exchange through a real bare repository', () => {
 				},
 			}),
 		);
-		await settled(browser);
 		await browser.tables.todos.create(
 			{ fields: { title: 'First', done: false }, body: '' },
 			{ stem: 'first' },
 		);
-		await settled(browser);
+		expect((await browser.git.commit()).status).toBe('committed');
 		expect(browser.git.snapshot.lastPush).toBeUndefined();
 		expect((await browser.git.push()).status).toBe('pushed');
 		expect(await git(bare, 'log', '--format=%s', 'main')).toBe(
-			'Add todos/first.md\nAdd epicenter.json',
+			'Update 2 files',
 		);
 
 		const nativeRoot = join(root, 'native');
@@ -623,7 +601,7 @@ describe('browser and native exchange through a real bare repository', () => {
 		const nativeDone = expectOk(
 			await native.tables.todos.replace(nativeEntry, nativeEntry.row),
 		);
-		await settled(native);
+		expect((await native.git.commit()).status).toBe('committed');
 		expect(native.git.snapshot.lastPush).toBeUndefined();
 		expect((await native.git.push()).status).toBe('pushed');
 		expect(await git(bare, 'log', '-1', '--format=%s', 'main')).toBe(
@@ -642,7 +620,7 @@ describe('browser and native exchange through a real bare repository', () => {
 		// A dirty folder refuses the next fast-forward before writing anything.
 		nativeDone.row.fields.title = 'Native edit';
 		expectOk(await native.tables.todos.replace(nativeDone, nativeDone.row));
-		await settled(native);
+		expect((await native.git.commit()).status).toBe('committed');
 		expect((await native.git.push()).status).toBe('pushed');
 		// Another writer publishes without a save request on this handle.
 		const external = await rawBrowserFolder({
@@ -699,13 +677,13 @@ describe('browser and native exchange through a real bare repository', () => {
 			}),
 		);
 		expectOk(await browser.files.create('offline.txt', 'Offline'));
-		await settled(browser);
-		expect(browser.git.snapshot.lastCommit?.status).toBe('committed');
+		expect(browser.git.snapshot.lastCommit).toBeUndefined();
+		expect((await browser.git.commit()).status).toBe('committed');
 		expect(browser.git.snapshot.lastPush).toBeUndefined();
 		expect((await browser.git.push()).status).toBe('failed');
 		expect(browser.git.snapshot.lastPush?.status).toBe('failed');
 		const sync = browser.git.snapshot.sync;
-		expect(sync.state === 'observed' && sync.value.ahead).toBe(2);
+		expect(sync.state === 'observed' && sync.value.ahead).toBe(1);
 		expect(
 			new TextDecoder().decode(
 				expectOk(await browser.files.read('offline.txt')).bytes,
@@ -715,5 +693,5 @@ describe('browser and native exchange through a real bare repository', () => {
 	});
 });
 
-// Automatic commits need the shared lock; this runtime has none of its own.
+// Commits need the shared lock; this runtime has none of its own.
 useWebLocks();

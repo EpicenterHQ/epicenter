@@ -8,7 +8,7 @@
  *
  * Key behaviors:
  * - Opening publishes discovery JSON and preserves existing notes and settings
- * - A missing layout is created; publication and default settings use automatic history
+ * - A missing layout is created; setup records no commit (ADR-0529)
  * - A `kv.json` that appears first is kept, and nothing is retried
  * - A read that fails for any reason but absence writes nothing
  */
@@ -108,7 +108,7 @@ async function existing() {
 // ============================================================================
 
 describe('an existing folder', () => {
-	test('with history gains its definition while saved note and setting bytes and times stay intact', async () => {
+	test('with history gains its definition while saved note and setting bytes stay intact, and records no commit', async () => {
 		const { root, git } = await existing();
 		git('init', '--quiet', '--initial-branch=main');
 		git('add', '--all');
@@ -133,15 +133,9 @@ describe('an existing folder', () => {
 		const before = await savedFiles();
 		const folder = await open(root);
 		await setUpFolder(folder.files, TABLES);
-		await until(
-			() => !folder.git.snapshot.activity.commit.active,
-			'publication history',
-		);
 		expect(await savedFiles()).toEqual(before);
-		expect(git('rev-parse', 'HEAD^').stdout.trim()).toBe(prior);
-		expect(git('log', '-1', '--format=%s').stdout.trim()).toBe(
-			'Add epicenter.json',
-		);
+		expect(git('rev-parse', 'HEAD').stdout.trim()).toBe(prior);
+		expect(git('status', '--porcelain').stdout).toBe('?? epicenter.json\n');
 		expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
 			formatDeclaration(honeycrispDefinition),
 		);
@@ -149,7 +143,7 @@ describe('an existing folder', () => {
 		expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe(KV);
 	});
 
-	test('with an unborn repository records publication and keeps existing content intact', async () => {
+	test('with an unborn repository keeps existing content intact and records no commit', async () => {
 		const { root, git } = await existing();
 		git('init', '--quiet', '--initial-branch=main');
 		const files = (await fingerprint(root)).filter(
@@ -157,12 +151,7 @@ describe('an existing folder', () => {
 		);
 		const folder = await open(root);
 		await setUpFolder(folder.files, TABLES);
-		await until(
-			() => !folder.git.snapshot.activity.commit.active,
-			'publication history',
-		);
-		expect(git('rev-list', '--count', 'HEAD').stdout.trim()).toBe('1');
-		expect(git('status', '--porcelain').stdout).toBe('');
+		expect(git('rev-parse', '--verify', '--quiet', 'HEAD').status).not.toBe(0);
 		expect(
 			(await fingerprint(root)).filter(
 				(line) => !line.includes('/.git') && !line.includes('/epicenter.json '),
@@ -181,7 +170,6 @@ describe('an existing folder', () => {
 		].map((stats) => stats.mtimeMs);
 		const folder = await open(root);
 		await setUpFolder(folder.files, TABLES);
-		await new Promise((resolve) => setTimeout(resolve, 300));
 		expect((await stat(join(root, 'folders'))).isDirectory()).toBe(true);
 		expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe(KV);
 		expect(
@@ -190,10 +178,7 @@ describe('an existing folder', () => {
 				await stat(join(root, 'kv.json')),
 			].map((stats) => stats.mtimeMs),
 		).toEqual(kept);
-		// Publication checkpoints the whole existing folder, including its saved data.
-		expect(git('ls-tree', '-r', '--name-only', 'HEAD').stdout.trim()).toBe(
-			'epicenter.json\nkv.json\nnotes/old.md',
-		);
+		expect(git('rev-parse', '--verify', '--quiet', 'HEAD').status).not.toBe(0);
 	});
 });
 
@@ -202,44 +187,25 @@ describe('an existing folder', () => {
 // ============================================================================
 
 describe('a new folder', () => {
-	test('gets its table directories, definition and default settings in settled history', async () => {
+	test('gets its table directories, definition and default settings, and setting up again changes nothing', async () => {
 		const { root, git } = await directory();
 		const folder = await open(root);
 		await setUpFolder(folder.files, TABLES);
 		for (const table of TABLES)
 			expect((await stat(join(root, table))).isDirectory()).toBe(true);
 		expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe('{}\n');
-		await until(
-			() => !folder.git.snapshot.activity.commit.active,
-			'setup history',
-		);
-		expect(git('show', 'HEAD:kv.json').stdout).toBe('{}\n');
-		expect(git('show', 'HEAD:epicenter.json').stdout).toBe(
+		expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
 			formatDeclaration(honeycrispDefinition),
 		);
-		const head = git('rev-parse', 'HEAD').stdout;
+		// Opening always republishes epicenter.json; everything else stays as it was.
+		const saved = async () =>
+			(await fingerprint(root)).filter(
+				(line) => !line.includes('/epicenter.json '),
+			);
+		const files = await saved();
 		const reopened = await open(root);
 		await setUpFolder(reopened.files, TABLES);
-		await until(
-			() => !reopened.git.snapshot.activity.commit.active,
-			'reopening history',
-		);
-		expect(git('rev-parse', 'HEAD').stdout).toBe(head);
-	});
-
-	test('is set up even when the first commit cannot be recorded', async () => {
-		const { root, git } = await directory();
-		git('init', '--quiet', '--initial-branch=main');
-		// Hold the branch before opening so both discovery and settings saves stand.
-		await mkdir(join(root, '.git', 'refs', 'heads'), { recursive: true });
-		await writeFile(join(root, '.git', 'refs', 'heads', 'main.lock'), '');
-		const folder = await open(root);
-		await setUpFolder(folder.files, TABLES);
-		expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe('{}\n');
-		await until(
-			() => folder.git.snapshot.lastCommit?.status === 'failed',
-			'the failed commit',
-		);
+		expect(await saved()).toEqual(files);
 		expect(git('rev-parse', '--verify', '--quiet', 'HEAD').status).not.toBe(0);
 	});
 });

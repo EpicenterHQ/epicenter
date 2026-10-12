@@ -54,7 +54,6 @@ try {
 		backend,
 		boundary,
 		author: { name: 'Review', email: 'review@localhost' },
-		commitOnEdit: false,
 	});
 	const outcome = await history.pullFastForward();
 	console.log(

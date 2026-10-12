@@ -85,7 +85,6 @@ async function folder() {
 		backend,
 		boundary,
 		author: { name: 'Stager', email: 'stager@example.test' },
-		commitOnEdit: false,
 	});
 	opened.push(history);
 	return { root, history, base: await git(root, 'rev-parse', 'HEAD') };

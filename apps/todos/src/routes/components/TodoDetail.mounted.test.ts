@@ -79,7 +79,6 @@ async function setup() {
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
-				commitOnEdit: false,
 				...browserStorage(storage),
 			},
 		}),

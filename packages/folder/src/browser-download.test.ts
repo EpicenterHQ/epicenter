@@ -183,7 +183,6 @@ async function open(
 			author,
 			remote,
 			httpFetch,
-			commitOnEdit: false,
 			...browserStorage(storage),
 			...options,
 		},

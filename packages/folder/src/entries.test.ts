@@ -210,7 +210,7 @@ test('the browser entry refuses inside the desktop app even when handed storage'
 	expect(invoked).toEqual([]);
 });
 
-test('a browser folder defaults to a local author and local automatic history; a remote needs an explicit author', async () => {
+test('a browser folder defaults to a local author and no remote; a remote needs an explicit author', async () => {
 	const environment = createTestStorage();
 	const withoutAuthor = expectErr(
 		await browser.openFolder({
@@ -235,18 +235,14 @@ test('a browser folder defaults to a local author and local automatic history; a
 			browser: browserStorage(environment),
 		}),
 	);
-	// The policy in effect is observable on the handle.
+	// The history settings in effect are observable on the handle.
 	expect(folder.git.snapshot).toMatchObject({
-		commitOnEdit: true,
 		remote: undefined,
 		branch: 'main',
 	});
 	expectOk(await folder.files.create('a.md', 'a'));
-	for (let waited = 0; waited < 400; waited++) {
-		if (folder.git.snapshot.lastCommit !== undefined) break;
-		await Bun.sleep(5);
-	}
-	expect(folder.git.snapshot.lastCommit?.status).toBe('committed');
+	expect(folder.git.snapshot.lastCommit).toBeUndefined();
+	expect((await folder.git.commit()).status).toBe('committed');
 	const [commit] = expectOk(await folder.git.log(1));
 	expect(commit?.author).toMatchObject({
 		name: 'Local',
@@ -264,7 +260,6 @@ test('handles sharing browser storage hear each other, when the storage carries 
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					...browserStorage(environment),
 				},
 			}),
@@ -294,5 +289,5 @@ test('handles sharing browser storage hear each other, when the storage carries 
 	await first.close();
 });
 
-// Automatic commits need the shared lock; this runtime has none of its own.
+// Commits need the shared lock; this runtime has none of its own.
 useWebLocks();

@@ -1,7 +1,7 @@
 /**
  * Folder close fences the next storage call, without waiting for file helpers.
  * An already-started application returns its actual outcome. Git work still
- * drains before release, and closing makes no last automatic commit.
+ * drains before release, and closing makes no last commit.
  *
  * Key behaviors:
  * - Preparation before publication can be refused by close without writing
@@ -58,7 +58,6 @@ test('browser helpers still preparing when close starts are refused without writ
 			}),
 		);
 	const folder = await open();
-	while (folder.git.snapshot.activity.commit.active) await Bun.sleep(5);
 	const saving = folder.files.create('note.md', 'preparing');
 	const row = folder.tables.todos.create(
 		{ fields: { title: 'Last' }, body: '' },
@@ -71,10 +70,7 @@ test('browser helpers still preparing when close starts are refused without writ
 		'Closed',
 	);
 	expect(folder.git.snapshot.closed).toBe(true);
-	expect(folder.git.snapshot.lastCommit).toMatchObject({
-		status: 'committed',
-		message: 'Add epicenter.json',
-	});
+	expect(folder.git.snapshot.lastCommit).toBeUndefined();
 	const reopened = await open();
 	expect(
 		expectOk(await reopened.files.list()).files.map((file) => file.path),
@@ -88,15 +84,18 @@ test('a directory helper still hashing at close is refused; the caller must awai
 	const preparing = folder.files.create('refused.md', 'not yet published');
 	await folder.close();
 	expect(expectErr(await preparing).name).toBe('Closed');
-	expect(await git(root, 'status', '--porcelain')).toBe('');
+	// Opening wrote the definition; nothing commits it.
+	expect(await git(root, 'status', '--porcelain')).toBe('?? epicenter.json');
 	const reopened = await openNativeFolder({
 		root,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	expectOk(await reopened.files.create('saved.md', 'awaited by caller'));
 	await reopened.close();
-	expect(await git(root, 'status', '--porcelain')).toBe('?? saved.md');
+	expect(await git(root, 'status', '--porcelain')).toBe(
+		'?? epicenter.json\n?? saved.md',
+	);
 });
 
 /** A real browser history over a boundary whose next publication the test holds. */
@@ -122,6 +121,8 @@ async function held() {
 	const commits = {
 		/** Set to hold the next commit just before it moves the branch. */
 		hold: undefined as Promise<void> | undefined,
+		/** Called when a commit reaches the branch move, before any hold. */
+		reached: undefined as (() => void) | undefined,
 	};
 	const backend: GitBackend = {
 		...real,
@@ -130,18 +131,14 @@ async function held() {
 			pushes++;
 		},
 		async casBranch(expected, next) {
+			commits.reached?.();
 			await commits.hold;
 			const moved = await real.casBranch(expected, next);
 			order.push('committed');
 			return moved;
 		},
 	};
-	const history = createHistory({
-		backend,
-		boundary,
-		author,
-		commitOnEdit: true,
-	});
+	const history = createHistory({ backend, boundary, author });
 	const hints = createFileHints();
 	const folder = assembleFolder<typeof definition>({
 		prepared: definition,
@@ -206,14 +203,14 @@ test('closing releases storage before a begun save replies; its actual result st
 	await closing;
 
 	expect(saved.values).toEqual({ theme: 'dark' });
-	// The save landed after closing began, so it started no commit attempt.
+	// The save landed after closing began, and closing made no commit.
 	expect(order).toEqual(['released', 'saved']);
 	expect(folder.git.snapshot.lastCommit).toBeUndefined();
 	expect(pushes()).toBe(0);
 	expect(snapshots.at(-1)).toBe(true);
 });
 
-test("a save's commit attempt running when the folder closes finishes and stays local before storage is released", async () => {
+test('a commit running when the folder closes finishes and stays local before storage is released', async () => {
 	const { folder, order, reached, release, commits, pushes } = await held();
 	const { promise: holding, resolve: letGo } = Promise.withResolvers<void>();
 	commits.hold = holding;
@@ -221,8 +218,14 @@ test("a save's commit attempt running when the folder closes finishes and stays 
 	await reached;
 	release();
 	expectOk(await saving);
-	// The save returned; its one attempt is running and held.
+	// The save made no commit; this one is asked for, and held.
+	expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
+	const { promise: inside, resolve: enter } = Promise.withResolvers<void>();
+	commits.reached = enter;
+	const committing = folder.git.commit();
 	expect(folder.git.snapshot.activity.commit).toEqual({ active: true });
+	// Inside the protection: close waits for it instead of refusing it.
+	await inside;
 
 	let closed = false;
 	const closing = folder.close().then(() => {
@@ -235,11 +238,15 @@ test("a save's commit attempt running when the folder closes finishes and stays 
 	letGo();
 	await closing;
 	expect(order).toEqual(['saved', 'committed', 'released']);
+	expect(await committing).toMatchObject({
+		status: 'committed',
+		message: 'Add kv.json',
+	});
 	expect(folder.git.snapshot.lastCommit).toMatchObject({
 		status: 'committed',
 		message: 'Add kv.json',
 	});
-	// The attempt finished during close, so its commit stayed local.
+	// The commit finished during close, so it stayed local.
 	expect(pushes()).toBe(0);
 });
 
@@ -282,5 +289,5 @@ test('close reentered by abort and history observers shares one completion and r
 	expect(folder.close()).toBe(closing);
 });
 
-// Automatic commits need the shared lock; this runtime has none of its own.
+// Commits need the shared lock; this runtime has none of its own.
 useWebLocks();

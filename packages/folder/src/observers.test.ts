@@ -7,8 +7,8 @@
  *
  * Key behaviors:
  * - A listener or subscriber that throws does not reject a save whose bytes
- *   landed, does not stop the commit request, and does not silence the
- *   listeners after it
+ *   landed, does not change what the next commit records, and does not
+ *   silence the listeners after it
  * - A listener that closes the folder, or stops another listener, fences the
  *   listeners after it within the same dispatch
  * - A browser relay that throws does not change a save's result
@@ -66,15 +66,6 @@ afterEach(async () => {
 	for (const folder of opened.splice(0)) await folder.close();
 });
 
-/** Wait for the commit attempt a save started to settle. */
-async function settled(folder: Opened) {
-	for (let index = 0; index < 400; index++) {
-		if (!folder.git.snapshot.activity.commit.active) return;
-		await Bun.sleep(5);
-	}
-	throw new Error('Git work did not settle');
-}
-
 describe.each(['browser', 'directory'])('%s folder observers', (kind) => {
 	async function open() {
 		const folder =
@@ -94,7 +85,6 @@ describe.each(['browser', 'directory'])('%s folder observers', (kind) => {
 						definition,
 						git: { author },
 					});
-		await settled(folder);
 		opened.push(folder);
 		return folder;
 	}
@@ -145,11 +135,8 @@ describe.each(['browser', 'directory'])('%s folder observers', (kind) => {
 			'audio/a.webm',
 			'notes/b.md',
 		]);
-		// And the saves still started commit passes. A save that landed while
-		// one was running may be uncommitted; one request commits what is left.
-		await settled(folder);
-		expect(expectOk(await folder.git.log(10)).length).toBeGreaterThan(0);
-		await folder.git.commit();
+		// And the next commit records every save.
+		expect((await folder.git.commit()).status).toBe('committed');
 		expect(expectOk(await folder.git.status()).changes).toEqual([]);
 	});
 
@@ -167,13 +154,15 @@ describe.each(['browser', 'directory'])('%s folder observers', (kind) => {
 		throwing = true;
 		const before = seen.length;
 
-		// The save marks the observation stale and starts a commit pass, both of
-		// which publish a snapshot from inside the save.
+		// The save marks the observation stale, which publishes a snapshot from
+		// inside the save.
 		expectOk(await folder.files.create('note.txt', 'submitted'));
-		await settled(folder);
-
 		expect(seen.length).toBeGreaterThan(before);
-		expect(folder.git.snapshot.lastCommit?.status).toBe('committed');
+
+		// A commit publishes its activity to the same subscribers.
+		const during = seen.length;
+		expect((await folder.git.commit()).status).toBe('committed');
+		expect(seen.length).toBeGreaterThan(during);
 		expect((await folder.git.commit()).status).toBe('unchanged');
 	});
 
@@ -193,11 +182,8 @@ describe.each(['browser', 'directory'])('%s folder observers', (kind) => {
 		expect(created.path).toBe('note.txt');
 		expect(calls).toEqual([1]);
 		await closing;
-		// The listener closed the folder in the same instant the save's attempt
-		// was made. A directory attempt is inside the protection at once, so
-		// closing waited for it. A browser attempt was still being granted the
-		// Web Lock, so it was refused and nothing was committed.
-		expect(folder.git.snapshot.lastCommit?.status).toBe('committed');
+		// The save made no commit, so closing had none to wait for.
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
 		expect(calls).toEqual([1]);
 	});
 
@@ -308,12 +294,9 @@ describe('browser channel', () => {
 		folder.onFilesChanged((paths) => heard.push(...paths));
 
 		expectOk(await folder.files.create('note.txt', 'submitted'));
-		// Let the first automatic commit finish before the next save asks.
-		await settled(folder);
 		expectOk(await folder.files.create('b.txt', 'b'));
 		expect(heard).toEqual(['note.txt', 'b.txt']);
-		await settled(folder);
-		expect(expectOk(await folder.git.log(10)).length).toBeGreaterThan(0);
+		expect((await folder.git.commit()).status).toBe('committed');
 		expect(expectOk(await folder.git.status()).changes).toEqual([]);
 		await folder.close();
 	});
@@ -326,7 +309,6 @@ describe('browser channel', () => {
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					...testBrowserStorage({ BroadcastChannel: Channel }),
 				},
 			}),
@@ -345,7 +327,6 @@ describe('browser channel', () => {
 					definition,
 					browser: {
 						author,
-						commitOnEdit: false,
 						...browserStorage(environment),
 					},
 				}),
@@ -367,21 +348,21 @@ describe('browser channel', () => {
 	});
 });
 
-test('a cross-tab file hint marks history stale without requesting an automatic commit', async () => {
+test('a cross-tab file hint marks history stale and makes no commit', async () => {
 	const environment = createTestStorage({ BroadcastChannel });
-	const open = async (commitOnEdit: boolean) =>
+	const open = async () =>
 		expectOk(
 			await openBrowserFolder({
 				id: 'so.epicenter.observerstest',
 				definition,
-				browser: { author, commitOnEdit, ...browserStorage(environment) },
+				browser: { author, ...browserStorage(environment) },
 			}),
 		);
-	const reader = await open(true);
-	const writer = await open(false);
+	const reader = await open();
+	const writer = await open();
 	opened.push(reader, writer);
-	await settled(reader);
-	await Bun.sleep(20);
+	// Commit what opening wrote, so the folder starts clean.
+	expect((await reader.git.commit()).status).toBe('committed');
 	const previousAttempt = reader.git.snapshot.lastCommit;
 	expectOk(await reader.git.status());
 	expect(reader.git.snapshot.files).toMatchObject({
@@ -407,5 +388,5 @@ test('a cross-tab file hint marks history stale without requesting an automatic 
 	expect(reader.git.snapshot.lastCommit).toBe(previousAttempt);
 });
 
-// Automatic commits need the shared lock; this runtime has none of its own.
+// Commits need the shared lock; this runtime has none of its own.
 useWebLocks();

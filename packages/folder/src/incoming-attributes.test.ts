@@ -138,7 +138,6 @@ async function incoming(kind: 'browser' | 'directory') {
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					remote: { url: 'http://git.test/remote.git', branch: 'main' },
 					...browserStorage(environment),
 				},
@@ -163,7 +162,6 @@ async function incoming(kind: 'browser' | 'directory') {
 			definition,
 			git: {
 				author,
-				commitOnEdit: false,
 				remote: { url: bare, branch: 'main' },
 			},
 		});

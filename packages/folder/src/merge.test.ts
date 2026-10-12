@@ -91,7 +91,6 @@ async function setup(
 		backend,
 		boundary,
 		author,
-		commitOnEdit: false,
 		landed: (paths) => landed.push(...paths),
 	});
 
@@ -659,7 +658,6 @@ describe('the browser journey', () => {
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					remote: { url: 'http://git.test/remote.git', branch: 'main' },
 					...browserStorage(environment),
 				},
@@ -746,7 +744,6 @@ test('a directory folder refuses a conflict by default and changes nothing', asy
 		definition,
 		git: {
 			author,
-			commitOnEdit: false,
 			remote: { url: bare, branch: 'main' },
 		},
 	});
@@ -778,7 +775,7 @@ test('a directory folder refuses a conflict by default and changes nothing', asy
 });
 
 /** A directory folder over a fresh remote, and a clone that pushes to it. */
-async function directoryWithUpstream(commitOnEdit: boolean) {
+async function directoryWithUpstream() {
 	const root = await scratch('merge-directory-');
 	const bare = await createBareRemote(root);
 	const local = join(root, 'local');
@@ -786,7 +783,7 @@ async function directoryWithUpstream(commitOnEdit: boolean) {
 	const directory = await openNativeFolder({
 		root: local,
 		definition: defineFolder({ kv: {}, tables: {} }),
-		git: { author, commitOnEdit, remote: { url: bare, branch: 'main' } },
+		git: { author, remote: { url: bare, branch: 'main' } },
 	});
 	opened.push(directory);
 	expectOk(await directory.files.create('a.md', 'one\ntwo\nthree\n'));
@@ -805,7 +802,7 @@ async function directoryWithUpstream(commitOnEdit: boolean) {
 }
 
 test('a directory folder merges independent changes in one commit with both parents', async () => {
-	const { directory, local, push } = await directoryWithUpstream(false);
+	const { directory, local, push } = await directoryWithUpstream();
 	await push('a.md', 'one\ntwo\nTHREE\n');
 	expectOk(await directory.files.overwrite('a.md', 'ONE\ntwo\nthree\n'));
 	const ours = await directory.git.commit();
@@ -821,35 +818,28 @@ test('a directory folder merges independent changes in one commit with both pare
 	expect(await git(local, 'status', '--porcelain')).toBe('');
 });
 
-for (const commitOnEdit of [true, false])
-	test(`a conflicted git merge in the terminal writes nothing and points to Sync (commitOnEdit: ${commitOnEdit})`, async () => {
-		const { directory, local, push } =
-			await directoryWithUpstream(commitOnEdit);
-		await push('a.md', 'one\nTWO, theirs\nthree\n');
-		expectOk(
-			await directory.files.overwrite('a.md', 'one\nTWO, ours\nthree\n'),
-		);
-		// Committed now in either mode, so no automatic commit lands later.
-		await directory.git.commit();
-		const shell = directory.terminal();
-		expect((await shell.exec('git fetch')).exitCode).toBe(0);
-		const head = await git(local, 'rev-parse', 'main');
+test('a conflicted git merge in the terminal writes nothing and points to Sync', async () => {
+	const { directory, local, push } = await directoryWithUpstream();
+	await push('a.md', 'one\nTWO, theirs\nthree\n');
+	expectOk(await directory.files.overwrite('a.md', 'one\nTWO, ours\nthree\n'));
+	expect((await directory.git.commit()).status).toBe('committed');
+	const shell = directory.terminal();
+	expect((await shell.exec('git fetch')).exitCode).toBe(0);
+	const head = await git(local, 'rev-parse', 'main');
 
-		const merged = await shell.exec('git merge');
-		expect(merged.exitCode).toBe(1);
-		expect(merged.stderr).toContain(
-			'CONFLICT (content): Merge conflict in a.md',
-		);
-		expect(merged.stderr).toContain(CONFLICTS_NEED_SYNC);
-		expect(await readFile(join(local, 'a.md'), 'utf8')).toBe(
-			'one\nTWO, ours\nthree\n',
-		);
-		expect(await git(local, 'rev-parse', 'main')).toBe(head);
-		await expect(readFile(join(local, '.git/MERGE_HEAD'))).rejects.toThrow();
-	});
+	const merged = await shell.exec('git merge');
+	expect(merged.exitCode).toBe(1);
+	expect(merged.stderr).toContain('CONFLICT (content): Merge conflict in a.md');
+	expect(merged.stderr).toContain(CONFLICTS_NEED_SYNC);
+	expect(await readFile(join(local, 'a.md'), 'utf8')).toBe(
+		'one\nTWO, ours\nthree\n',
+	);
+	expect(await git(local, 'rev-parse', 'main')).toBe(head);
+	await expect(readFile(join(local, '.git/MERGE_HEAD'))).rejects.toThrow();
+});
 
 test('a merge another Git program began blocks commits and updates until Git finishes it', async () => {
-	const { directory, local, push } = await directoryWithUpstream(false);
+	const { directory, local, push } = await directoryWithUpstream();
 	await push('a.md', 'one\ntwo\nTHREE\n');
 	expectOk(await directory.git.fetch());
 	const head = await git(local, 'rev-parse', 'main');

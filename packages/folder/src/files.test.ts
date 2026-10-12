@@ -95,7 +95,6 @@ const openers: Record<string, () => Promise<Opened>> = {
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					...testBrowserStorage(),
 				},
 			}),
@@ -104,7 +103,7 @@ const openers: Record<string, () => Promise<Opened>> = {
 		openNativeFolder({
 			root: await scratch('files-verbs-'),
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		}),
 };
 

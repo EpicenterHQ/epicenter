@@ -417,7 +417,7 @@ test('inherited GIT_DIR, GIT_WORK_TREE, and GIT_INDEX_FILE do not redirect the f
 	const opened = await openNativeFolder({
 		root: folder,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	try {
 		expectOk(
@@ -456,7 +456,7 @@ test('a root that lost its .git never resolves to a repository above it', async 
 	const opened = await openNativeFolder({
 		root: folder,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	try {
 		await writeFile(join(folder, 'note.md'), 'text');

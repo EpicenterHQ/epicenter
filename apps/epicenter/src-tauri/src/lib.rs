@@ -3950,8 +3950,7 @@ mod tests {
         );
 
         // The save is committed by the repository's own author, and a push
-        // goes to the repository's own origin. An explicit commit waits for
-        // the automatic one the save asked for, so the history is settled.
+        // goes to the repository's own origin.
         folder_invoke(
             &zhongwen,
             "commit",

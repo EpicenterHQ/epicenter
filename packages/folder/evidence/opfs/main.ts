@@ -107,7 +107,6 @@ async function open(
 	options: {
 		remote?: boolean;
 		definition?: typeof definition;
-		commitOnEdit?: boolean;
 	} = {},
 ) {
 	used.add(id);
@@ -117,7 +116,6 @@ async function open(
 		browser: {
 			scope,
 			author,
-			commitOnEdit: options.commitOnEdit ?? false,
 			remote: options.remote ? remote : undefined,
 		},
 	});
@@ -370,23 +368,19 @@ async function publication(id: string) {
 		},
 	);
 	await check(
-		'history-enabled publication settles and identical reopening adds no commit',
+		'publication makes no commit, and identical reopening leaves nothing to commit',
 		async () => {
 			const historyId = `${id}-history`;
-			const settle = async (folder: Folder<typeof definition>) => {
-				for (let attempt = 0; attempt < 1000; attempt++) {
-					if (!folder.git.snapshot.activity.commit.active) return;
-					await new Promise((resolve) => setTimeout(resolve, 10));
-				}
-				throw new Error('automatic history did not settle');
-			};
-			const first = await open(historyId, { commitOnEdit: true });
-			await settle(first);
+			const first = await open(historyId);
+			assert(ok(await first.git.log(10)).length === 0, 'opening made a commit');
+			const made = await first.git.commit();
+			assert(made.status === 'committed', `first commit ${made.status}`);
 			const commits = ok(await first.git.log(10));
 			assert(commits.length === 1, `initial commits ${commits.length}`);
 			await first.close();
-			const second = await open(historyId, { commitOnEdit: true });
-			await settle(second);
+			const second = await open(historyId);
+			const reopened = await second.git.commit();
+			assert(reopened.status === 'unchanged', `reopening ${reopened.status}`);
 			const after = ok(await second.git.log(10));
 			assert(
 				JSON.stringify(after) === JSON.stringify(commits),
@@ -394,9 +388,9 @@ async function publication(id: string) {
 			);
 			assert(
 				ok(await second.git.status()).changes.length === 0,
-				'settled tree is dirty',
+				'committed tree is dirty',
 			);
-			return `one settled commit ${commits[0]?.oid}; unchanged reopening keeps it`;
+			return `one commit ${commits[0]?.oid}; unchanged reopening keeps it`;
 		},
 	);
 }
@@ -881,7 +875,7 @@ async function identity(id: string) {
 		const { data: folder, error } = await openFolder({
 			id: folderId,
 			definition,
-			browser: { scope, author, commitOnEdit: false },
+			browser: { scope, author },
 		});
 		if (error === null) opened.push(folder);
 		return error;

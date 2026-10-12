@@ -72,7 +72,7 @@ export function createBrowser() {
 				await openFolder({
 					id: VOCAB_FOLDER_ID,
 					definition: vocabFolder,
-					browser: { commitOnEdit: false, ...storage },
+					browser: { ...storage },
 				}),
 			);
 			opened.push(folder);

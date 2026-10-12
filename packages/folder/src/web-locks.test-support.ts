@@ -69,7 +69,7 @@ export function createWebLocks() {
 
 /**
  * Give every test in the calling file `navigator.locks`. A browser folder
- * makes no automatic commit without it.
+ * makes no commit without it.
  */
 export function useWebLocks() {
 	afterAll(installWebLocks());

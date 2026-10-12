@@ -49,15 +49,10 @@ import type { FolderTerminal } from './terminal.js';
 
 /** History settings for a folder whose history this process records. */
 export type FolderGitOptions = {
-	/** Author and committer for automatic and staged commits. */
+	/** Author and committer for the folder's commits. */
 	readonly author: Author;
 	/** The remote branch to push to and fetch from. */
 	readonly remote?: GitRemote;
-	/**
-	 * Whether complete content saves request automatic local commits.
-	 * Transfers remain explicit. Fixed for this handle's lifetime. Default `true`.
-	 */
-	readonly commitOnEdit?: boolean;
 };
 
 export type FolderGit = {
@@ -116,7 +111,7 @@ export type FolderGit = {
 	recoverIncoming(): Promise<Result<RecoverOutcome, PullError | GitError>>;
 	/** Per-path staged and unstaged state, as `git status` reports it. */
 	paths(): Promise<Result<PathStatus[], GitError>>;
-	/** Staged authoring requires `commitOnEdit: false`. */
+	/** Stage paths for a commit authored with `commitStaged`. */
 	stage(paths: readonly string[] | 'all'): Promise<Result<undefined, GitError>>;
 	/**
 	 * Commit staged changes with a user-authored message in manual mode. The

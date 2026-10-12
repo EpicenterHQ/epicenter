@@ -1,7 +1,7 @@
 /**
  * Which captured files are history source.
  *
- * Status, automatic commits, and incoming fast-forwards share one rule: a file
+ * Status, commits, and incoming fast-forwards share one rule: a file
  * tracked in the committed tree stays source; an untracked file is source
  * unless `.gitignore` excludes it. Private Git state and operating-system
  * scratch files are excluded earlier by `isPortablePath`. The browser evaluates

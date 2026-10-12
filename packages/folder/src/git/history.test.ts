@@ -16,7 +16,7 @@
  *
  * See also:
  * - `runner.test.ts` for `attempt` and `request`
- * - `history-attempt.test.ts` for automatic attempts and queued callers
+ * - `history-attempt.test.ts` for commit attempts and queued callers
  * - `browser.test.ts` for a folder-level stalled push
  */
 import { expect, test } from 'bun:test';
@@ -69,7 +69,6 @@ test('close aborts the active push at once while a held local pass finishes', as
 		backend,
 		boundary,
 		author,
-		commitOnEdit: true,
 	});
 
 	await write('a.txt', 'a');
@@ -121,7 +120,6 @@ test('a caller signal stops waiting without aborting the shared push', async () 
 		backend,
 		boundary,
 		author,
-		commitOnEdit: false,
 	});
 	await write('a.txt', 'a');
 	await history.commit();

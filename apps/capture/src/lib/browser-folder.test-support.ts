@@ -81,7 +81,6 @@ export async function openCaptures(files: Record<string, string> = {}) {
 			definition: captureDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
-				commitOnEdit: false,
 				opfs: {
 					locks: testLocks,
 					getDirectory: async () =>

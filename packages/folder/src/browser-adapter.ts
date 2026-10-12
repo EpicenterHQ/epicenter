@@ -390,7 +390,6 @@ async function startHistory(
 		readonly author: Author;
 		readonly remote: GitRemote | undefined;
 		readonly httpFetch: HttpFetch | undefined;
-		readonly commitOnEdit: boolean;
 		readonly definition?: FolderDefinition;
 		readonly relay?: (paths: readonly string[]) => void;
 		readonly landed?: (paths: readonly string[]) => void;
@@ -421,7 +420,6 @@ async function startHistory(
 		backend,
 		boundary,
 		author: settings.author,
-		commitOnEdit: settings.commitOnEdit,
 		definition: settings.definition,
 		landed: settings.landed,
 	});
@@ -446,7 +444,7 @@ export const openFolder: OpenFolder = async ({
 	if (isTauri()) return OpenFolderError.InsideTauri();
 	if (typeof id !== 'string' || id.trim() === '')
 		return OpenFolderError.InvalidId({ id: String(id) });
-	const { remote, commitOnEdit = true, createIfMissing = true } = browser;
+	const { remote, createIfMissing = true } = browser;
 	if (remote !== undefined && browser.author === undefined)
 		return OpenFolderError.AuthorRequired();
 	const author = browser.author ?? LOCAL_AUTHOR;
@@ -462,7 +460,6 @@ export const openFolder: OpenFolder = async ({
 		author,
 		remote,
 		httpFetch,
-		commitOnEdit,
 		createIfMissing,
 	});
 };
@@ -475,7 +472,6 @@ async function openOpfsFolder<TDefinition extends FolderDefinition>(
 		readonly author: Author;
 		readonly remote: GitRemote | undefined;
 		readonly httpFetch: HttpFetch | undefined;
-		readonly commitOnEdit: boolean;
 		readonly createIfMissing: boolean;
 	},
 ): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
@@ -538,7 +534,6 @@ async function openOpfsFolder<TDefinition extends FolderDefinition>(
 			author: captured.author,
 			remote: captured.remote,
 			httpFetch: captured.httpFetch,
-			commitOnEdit: captured.commitOnEdit,
 			definition: prepared,
 			relay,
 			landed: (paths) => hints.emit(paths),
@@ -770,7 +765,6 @@ async function downloadInto(
 		author: LOCAL_AUTHOR,
 		remote,
 		httpFetch,
-		commitOnEdit: false,
 	});
 	// Closing the history aborts its transfer; the step that was running
 	// returns, and the download reports the signal's reason.

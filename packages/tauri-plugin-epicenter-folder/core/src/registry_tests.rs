@@ -3,7 +3,7 @@
 //! Key behaviors:
 //! - A window attaches only to a scope the shell registered for it.
 //! - Detaching one window leaves the owner and every other window working,
-//!   and the commit the owner admitted for its save still finishes.
+//!   and a commit the owner admitted for it still finishes.
 //! - Shutdown drains admitted saves, starts no commit, then releases the lock.
 //! - The lock excludes another process, in both directions with the Bun
 //!   hosts' lock, and a killed process leaves nothing to recover.
@@ -92,8 +92,8 @@ fn detaching_one_window_leaves_the_other_and_the_admitted_commit() {
         }
     });
 
-    // Window A's save is admitted for its commit, held before it publishes,
-    // and then window A detaches.
+    // Window A saves and asks for a commit. The commit is held before it
+    // publishes, and then window A detaches.
     let owner = b.authorize("b").unwrap();
     let (reached, at_capture) = mpsc::channel::<()>();
     let (release, gate) = mpsc::channel::<()>();
@@ -102,10 +102,9 @@ fn detaching_one_window_leaves_the_other_and_the_admitted_commit() {
         reached.send(()).unwrap();
         gate.lock().unwrap().recv().unwrap();
     }));
-    a.authorize("a")
-        .unwrap()
-        .apply(&[create("from-a.md", "A")])
-        .unwrap();
+    let from_a = a.authorize("a").unwrap().clone();
+    from_a.apply(&[create("from-a.md", "A")]).unwrap();
+    let committing = std::thread::spawn(move || from_a.commit());
     at_capture.recv().unwrap();
     owner.hooks().after_capture = None;
     drop(a);
@@ -115,14 +114,9 @@ fn detaching_one_window_leaves_the_other_and_the_admitted_commit() {
         b"A",
         "both windows share one owner"
     );
-    // The commit the owner admitted outlives the session that saved.
+    // The commit the owner admitted outlives the session that asked.
     release.send(()).unwrap();
-    let idle = || {
-        eventually("the admitted commit to finish", || {
-            !owner.snapshot().activity.commit.active
-        })
-    };
-    idle();
+    committing.join().unwrap();
     assert_eq!(
         git(&root, &["ls-tree", "-r", "--name-only", "HEAD"]),
         "from-a.md"
@@ -130,7 +124,7 @@ fn detaching_one_window_leaves_the_other_and_the_admitted_commit() {
 
     owner.apply(&[create("from-b.md", "B")]).unwrap();
     assert_eq!(*heard.lock().unwrap(), vec!["from-a.md", "from-b.md"]);
-    idle();
+    owner.commit();
     assert_eq!(
         git(&root, &["ls-tree", "-r", "--name-only", "HEAD"]),
         "from-a.md\nfrom-b.md"
@@ -191,7 +185,7 @@ fn shutdown_drains_a_held_save_commits_nothing_and_releases_the_lock() {
     release.send(()).unwrap();
     held.join().unwrap().unwrap();
     shutdown.join().unwrap();
-    // The save landed. It finished after the fence, so it was not committed.
+    // The save landed, and shutdown committed nothing.
     assert_eq!(
         std::fs::read_to_string(root.join("held.md")).unwrap(),
         "admitted"

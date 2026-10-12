@@ -532,7 +532,6 @@ test('a folder with no history adopts the remote on its first sync, merging over
 				author: { name: 'Fresh', email: 'fresh@example.test' },
 				remote: { url: 'http://git.test/remote.git', branch: 'main' },
 				httpFetch: context.httpFetch,
-				commitOnEdit: false,
 				...browserStorage(createTestStorage()),
 			},
 		}),

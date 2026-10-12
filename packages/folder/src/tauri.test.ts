@@ -98,7 +98,6 @@ const definition = defineFolder({
 const wireSnapshot = (overrides: Record<string, unknown> = {}) => ({
 	branch: 'main',
 	remote: null,
-	commitOnEdit: true,
 	files: { state: 'unknown', error: null },
 	sync: { state: 'unknown', error: null },
 	activity: Object.fromEntries(
@@ -170,7 +169,7 @@ test('the folder opened is the scope the opener names', async () => {
 			session: 7,
 			root: '/Users/someone/Epicenter/notes',
 			sequence: 3,
-			snapshot: wireSnapshot({ commitOnEdit: false }),
+			snapshot: wireSnapshot(),
 		}),
 		detach: () => null,
 		apply: () => null,
@@ -179,15 +178,18 @@ test('the folder opened is the scope the opener names', async () => {
 		await openFolder({
 			id: 'so.epicenter.taurifoldertest',
 			definition,
-			// Browser settings do not reach the shell: its own policy is in effect.
-			browser: { commitOnEdit: true },
+			// Browser settings do not reach the shell: its own remote is in effect.
+			browser: {
+				author: { name: 'Browser', email: 'browser@example.test' },
+				remote: { url: 'http://git.test/remote.git', branch: 'browser' },
+			},
 		}),
 	);
 	expect(sent('attach')[0]?.args).toEqual({
 		scope: 'so.epicenter.taurifoldertest',
 		protocol: 9,
 	});
-	expect(folder.git.snapshot.commitOnEdit).toBe(false);
+	expect(folder.git.snapshot.remote).toBeUndefined();
 	await folder.close();
 });
 
@@ -1277,9 +1279,9 @@ test('merge refusals keep their names, and a lost reply is Unconfirmed and sent 
 		[
 			{
 				name: 'Pull',
-				error: { name: 'Git', error: { name: 'AutomaticHistory' } },
+				error: { name: 'Git', error: { name: 'NothingToCommit' } },
 			},
-			{ name: 'AutomaticHistory' },
+			{ name: 'NothingToCommit' },
 		],
 	] as const) {
 		replies.merge_incoming = () => refuse(refusal);

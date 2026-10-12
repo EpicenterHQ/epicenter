@@ -218,8 +218,6 @@ function gitError(error: WireGitError, operation: string): GitError {
 			return GitError.InvalidMessage(error).error;
 		case 'NothingToCommit':
 			return GitError.NothingToCommit().error;
-		case 'AutomaticHistory':
-			return GitError.AutomaticHistory().error;
 		case 'BranchMoved':
 			return GitError.BranchMoved({
 				expected: orUndefined(error.expected),
@@ -445,7 +443,6 @@ function snapshotFromWire(wire: WireGitSnapshot): GitSnapshot {
 	return Object.freeze({
 		branch: wire.branch,
 		remote: orUndefined(wire.remote),
-		commitOnEdit: wire.commitOnEdit,
 		files: observation(wire.files, (files) => ({
 			head: orUndefined(files.head),
 			changes: files.changes,

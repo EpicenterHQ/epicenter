@@ -65,7 +65,6 @@ test('browser push, native pull and push, then browser fast-forward through the 
 			browser: {
 				author: { name: 'Todos', email: 'todos@localhost' },
 				remote: { url: session.remoteUrl, branch: 'main' },
-				commitOnEdit: false,
 				...testBrowserStorage(),
 			},
 		}),

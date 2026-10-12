@@ -219,9 +219,7 @@ export function commitLine(git: GitSnapshot): StatusLine {
 	const last = git.lastCommit;
 	if (last === undefined)
 		return {
-			label: git.commitOnEdit
-				? 'No commit this session'
-				: 'No commit this session (automatic commits off)',
+			label: 'No commit this session',
 			tone: 'neutral',
 		};
 	return withTime(commitOutcomeLine(last), 'Last attempt', last.at);

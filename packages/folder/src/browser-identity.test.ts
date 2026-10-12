@@ -49,7 +49,7 @@ async function open(opfs: MemoryOpfs) {
 	return openFolder({
 		id,
 		definition,
-		browser: { commitOnEdit: false, opfs: opfsEnvironment(opfs) },
+		browser: { opfs: opfsEnvironment(opfs) },
 	});
 }
 
@@ -310,7 +310,6 @@ describe('an opener that does not create', () => {
 			id,
 			definition,
 			browser: {
-				commitOnEdit: false,
 				createIfMissing: false,
 				opfs: opfsEnvironment(opfs),
 			},
@@ -500,7 +499,7 @@ describe('the browser globals', () => {
 						() => (globalThis as { indexedDB?: unknown }).indexedDB,
 					).toThrow();
 				touched = 0;
-				const options = { id, definition, browser: { commitOnEdit: false } };
+				const options = { id, definition, browser: {} };
 				const first = expectOk(await openFolder(options));
 				expectOk(await first.files.create('a.md', 'saved'));
 				expect((await first.git.commit()).status).toBe('committed');

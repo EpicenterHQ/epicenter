@@ -32,7 +32,6 @@ async function open(backend: 'browser' | 'directory') {
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					...testBrowserStorage(),
 				},
 			}),
@@ -46,7 +45,7 @@ async function open(backend: 'browser' | 'directory') {
 		await openDirectoryFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		}),
 	);
 	opened.push(folder);

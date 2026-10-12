@@ -40,8 +40,6 @@ pub enum GitError {
         reason: String,
     },
     NothingToCommit,
-    /// Staged authoring requires `commitOnEdit: false`.
-    AutomaticHistory,
     BranchMoved {
         expected: Option<String>,
         actual: Option<String>,
@@ -488,7 +486,6 @@ pub struct Attempt<T> {
 pub struct GitSnapshot {
     pub branch: String,
     pub remote: Option<Remote>,
-    pub commit_on_edit: bool,
     pub files: Observation<FilesObservation>,
     pub sync: Observation<SyncObservation>,
     pub activity: Activities,

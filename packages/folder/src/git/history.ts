@@ -9,19 +9,10 @@
  *
  * The backend's exclusive protection is the only thing that orders commits,
  * pulls, and staging, in this handle and across tabs. This module adds no
- * queue of its own for them. With `commitOnEdit`, a save this handle
- * published asks for an automatic commit. Every request not yet answered is
- * one obligation, carried by at most one worker of this handle that waits for
- * the protection like an explicit request does. Saves made while it waits,
- * or while a checkpoint runs, only renumber that obligation, so the worker
- * commits the latest files once the protection is free, without another
- * save. A whole-folder checkpoint, explicit or automatic, answers every
- * request made before it starts; an automatic one that finds nothing left to
- * answer does nothing. A failed checkpoint is reported and answers its
- * requests too, so only a newer save asks again. There is no timer and no
- * last commit at close: closing refuses a worker still waiting. An explicit
- * request waits for the protection and then reads the folder, so it sees
- * every save that landed while it waited.
+ * queue of its own for them. A commit happens only when asked, by `commit`
+ * or by sync's checkpoint (ADR-0529); a save never asks for one. A commit
+ * waits for the protection and then reads the folder, so it sees every save
+ * that landed while it waited. Closing refuses one still waiting.
  *
  * Pushes and fetches have runners of their own, because network work never
  * runs under the protection. Each push pins the commit it sends. Network
@@ -261,7 +252,6 @@ export type Attempt<T> = T & { readonly at: number };
 export type GitSnapshot = {
 	readonly branch: string;
 	readonly remote: GitRemote | undefined;
-	readonly commitOnEdit: boolean;
 	readonly files: Observation<FilesObservation>;
 	readonly sync: Observation<SyncObservation>;
 	readonly activity: {
@@ -309,14 +299,12 @@ export function createHistory({
 	backend,
 	boundary,
 	author,
-	commitOnEdit,
 	definition,
 	landed = () => {},
 }: {
 	backend: GitBackend;
 	boundary: FileBoundary;
 	author: Author;
-	commitOnEdit: boolean;
 	/** The prepared definition whose rows sync merges by field; without it, rows merge as text. */
 	definition?: FolderDefinition;
 	/** Paths an incoming update wrote or removed, whether or not it completed. */
@@ -324,16 +312,6 @@ export function createHistory({
 }) {
 	let clock = 0;
 	let lastEdit = 0;
-	/**
-	 * Automatic commit requests, numbered by the saves that made them.
-	 * `answered` is the newest request a whole-folder checkpoint started for,
-	 * or a failed request to enter the protection gave up on. Requests after
-	 * it are one pending obligation; no file bytes are kept for them.
-	 */
-	let requested = 0;
-	let answered = 0;
-	/** Whether this handle's one automatic worker is alive. */
-	let automatic = false;
 	/**
 	 * Aborted when closing starts. From then on nothing new is admitted, and a
 	 * request still waiting for the backend's protection is refused instead of
@@ -372,7 +350,6 @@ export function createHistory({
 		snapshot = Object.freeze({
 			branch: backend.branch,
 			remote: backend.remote,
-			commitOnEdit,
 			files: publicFiles,
 			sync,
 			activity: {
@@ -561,28 +538,11 @@ export function createHistory({
 		return (await backend.blocked()) ?? (await backend.checkpointProblem());
 	}
 
-	/**
-	 * One whole-folder commit, after waiting for the backend's protection.
-	 * Inside it, before anything is awaited, every automatic request made so
-	 * far is answered: this checkpoint captures after them, and whatever it
-	 * finds, they are not asked for again. An automatic checkpoint with no
-	 * request left to answer resolves `undefined` and touches nothing.
-	 */
+	/** One whole-folder commit, after waiting for the backend's protection. */
 	function commitCurrentFiles(
-		trigger: 'explicit',
 		onCapture?: (capturedAt: number) => void,
-	): Promise<CommitOutcome>;
-	function commitCurrentFiles(
-		trigger: 'automatic',
-	): Promise<CommitOutcome | undefined>;
-	function commitCurrentFiles(
-		trigger: 'explicit' | 'automatic',
-		onCapture?: (capturedAt: number) => void,
-	): Promise<CommitOutcome | undefined> {
-		return exclusive(async (): Promise<CommitOutcome | undefined> => {
-			const pending = answered < requested;
-			answered = requested;
-			if (!pending && trigger === 'automatic') return undefined;
+	): Promise<CommitOutcome> {
+		return exclusive(async (): Promise<CommitOutcome> => {
 			const blocked = await wholeFolderProblem();
 			if (blocked !== undefined) return { status: 'blocked', reason: blocked };
 			// Pin the parent, then capture, both inside the Git lock. A pull or
@@ -702,15 +662,6 @@ export function createHistory({
 	}
 
 	/**
-	 * A checkpoint threw other than by closing, perhaps before it entered the
-	 * protection and answered anything. The requests made before it asked
-	 * are answered by that failure, so nothing asks again until a newer save.
-	 */
-	function giveUp(through: number) {
-		answered = Math.max(answered, through);
-	}
-
-	/**
 	 * An explicit commit. It waits for the backend's protection and captures
 	 * inside it. Closing refuses it while it still waits; once inside, it runs
 	 * to its end and reports what it did.
@@ -719,47 +670,18 @@ export function createHistory({
 		onCapture?: (capturedAt: number) => void,
 	): Promise<CommitOutcome> {
 		if (closing.signal.aborted) return Promise.resolve({ status: 'closed' });
-		const through = requested;
 		return owned('commit', async (): Promise<CommitOutcome> => {
 			let outcome: CommitOutcome;
 			try {
-				outcome = await commitCurrentFiles('explicit', onCapture);
+				outcome = await commitCurrentFiles(onCapture);
 			} catch (cause) {
 				// Refused while waiting: nothing ran, so no attempt is recorded.
 				if (refusedByClose(cause)) return { status: 'closed' };
-				giveUp(through);
 				outcome = failedCommit(cause);
 			}
 			await settleCommit(outcome);
 			return outcome;
 		});
-	}
-
-	/**
-	 * The automatic worker: while a request is unanswered, wait for the
-	 * protection and checkpoint. Its loop test and its retirement run in one
-	 * synchronous step after every await, so a save that asks before it sees
-	 * the request, and one that asks after it starts a new worker.
-	 */
-	async function automaticCommits(): Promise<void> {
-		try {
-			while (!closing.signal.aborted && answered < requested) {
-				const through = requested;
-				let outcome: CommitOutcome | undefined;
-				try {
-					outcome = await commitCurrentFiles('automatic');
-				} catch (cause) {
-					if (refusedByClose(cause)) continue;
-					giveUp(through);
-					outcome = failedCommit(cause);
-				}
-				// An explicit checkpoint already answered these requests.
-				if (outcome === undefined) continue;
-				await settleCommit(outcome);
-			}
-		} finally {
-			automatic = false;
-		}
 	}
 
 	const pushRunner = createPassRunner<void, PushOutcome>({
@@ -1771,19 +1693,6 @@ export function createHistory({
 			markEdited();
 			if (wasFresh) emit();
 		},
-		/**
-		 * Ask for a commit after a save this handle published; never awaited
-		 * by the save. Requests made before a checkpoint starts share it.
-		 */
-		requestAutomaticCommit() {
-			if (!commitOnEdit || closing.signal.aborted) return;
-			requested++;
-			if (automatic) return;
-			// Claim the worker before `owned` reports it: a listener that saves
-			// or closes from that report must find it already there.
-			automatic = true;
-			void owned('commit', automaticCommits);
-		},
 		status: (): Promise<Result<FilesObservation, GitError>> =>
 			scanRunner.follow(),
 		/** Commits the folder's current files without pushing. */
@@ -1837,7 +1746,6 @@ export function createHistory({
 			paths: readonly string[] | 'all',
 		): Promise<Result<undefined, GitError>> {
 			if (closing.signal.aborted) return GitError.Closed();
-			if (commitOnEdit) return GitError.AutomaticHistory();
 			return manual('add', async () => {
 				const staged = await exclusive(
 					async (): Promise<Result<undefined, GitError>> => {
@@ -1854,7 +1762,6 @@ export function createHistory({
 		},
 		commitStaged(message: string): Promise<Result<StagedCommit, GitError>> {
 			if (closing.signal.aborted) return Promise.resolve(GitError.Closed());
-			if (commitOnEdit) return Promise.resolve(GitError.AutomaticHistory());
 			return manual('commit', () => commitStaged(message));
 		},
 		diff: (options: { staged: boolean; paths: readonly string[] }) =>

@@ -34,7 +34,7 @@ const ZERO: &str = "0000000000000000000000000000000000000000";
 /// Git's empty tree, which every repository can name without storing it.
 pub const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const REMOTE_NAME: &str = "origin";
-const PLAIN_ONLY: &str = "automatic commits only write plain files";
+const PLAIN_ONLY: &str = "commits only write plain files";
 /// Git's empty blob: the base of a file both sides added.
 const EMPTY_BLOB: &str = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
 /// Git operations no commit may run under. A merge in progress is checked
@@ -1237,7 +1237,7 @@ impl Git {
         let conversion = text(&autocrlf.stdout).trim().to_lowercase();
         if conversion == "true" || conversion == "input" {
             return Ok(Err(format!(
-                "core.autocrlf is {conversion}; automatic commits do not convert line endings"
+                "core.autocrlf is {conversion}; commits do not convert line endings"
             )));
         }
 
@@ -1267,7 +1267,7 @@ impl Git {
         );
         if let Some((path, attribute)) = self.normalizing_attribute(None, attributed)? {
             return Ok(Err(format!(
-                "{path} has the Git attribute {attribute}; automatic commits do not apply attribute filters or conversion"
+                "{path} has the Git attribute {attribute}; commits do not apply attribute filters or conversion"
             )));
         }
 

@@ -48,7 +48,6 @@ async function open() {
 			definition,
 			browser: {
 				author: { name: 'Owner', email: 'owner@example.test' },
-				commitOnEdit: false,
 				...testBrowserStorage(),
 			},
 		}),

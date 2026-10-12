@@ -10,7 +10,6 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	defineFolder,
 	defineTable,
-	type Folder,
 	type FolderDefinition,
 	field,
 } from './contract.js';
@@ -42,49 +41,38 @@ const definition = defineFolder({
 const author = { name: 'Publication', email: 'publication@example.test' };
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-async function settled(folder: Pick<Folder<typeof definition>, 'git'>) {
-	for (let attempt = 0; attempt < 500; attempt++) {
-		if (!folder.git.snapshot.activity.commit.active) return;
-		await Bun.sleep(10);
-	}
-	throw new Error('Automatic history did not settle');
-}
-
 test('opening before downloading an existing browser remote preserves incoming protections', async () => {
 	const root = await scratch('definition-existing-remote-');
 	await createBareRemote(root);
 	const httpFetch = await gitHttpFetch(root);
-	const open = (commitOnEdit: boolean) =>
+	const open = () =>
 		openBrowser({
 			id: 'publication-remote',
 			definition,
 			browser: {
 				author,
-				commitOnEdit,
 				remote: { url: 'http://git.test/remote.git', branch: 'main' },
 				httpFetch,
 				...browserStorage(createTestStorage()),
 			},
 		});
-	const sender = expectOk(await open(false));
+	const sender = expectOk(await open());
 	try {
 		expectOk(await sender.kv.set('theme', 'remote'));
 		expect((await sender.git.commitAndPush()).push.status).toBe('pushed');
-		for (const automatic of [false, true]) {
-			const receiver = expectOk(await open(automatic));
-			try {
-				await settled(receiver);
-				expectOk(await receiver.git.fetch());
-				expect(expectErr(await receiver.git.pullFastForward()).name).toBe(
-					automatic ? 'Diverged' : 'Dirty',
-				);
-				expect(expectErr(await receiver.git.mergeIncoming()).name).toBe(
-					automatic ? 'UnsupportedHistory' : 'Dirty',
-				);
-				expect(expectOk(await receiver.kv.get())).toBeUndefined();
-			} finally {
-				await receiver.close();
-			}
+		const receiver = expectOk(await open());
+		try {
+			// Opening wrote the definition and committed nothing, so the
+			// receiver's folder is dirty before anything arrives.
+			expect(receiver.git.snapshot.lastCommit).toBeUndefined();
+			expectOk(await receiver.git.fetch());
+			expect(expectErr(await receiver.git.pullFastForward()).name).toBe(
+				'Dirty',
+			);
+			expect(expectErr(await receiver.git.mergeIncoming()).name).toBe('Dirty');
+			expect(expectOk(await receiver.kv.get())).toBeUndefined();
+		} finally {
+			await receiver.close();
 		}
 	} finally {
 		await sender.close();
@@ -102,7 +90,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 					? await openBun({
 							root,
 							definition: schema,
-							git: { author, commitOnEdit: false },
+							git: { author },
 						})
 					: await openBrowser({
 							id: 'publication',
@@ -110,7 +98,6 @@ for (const adapter of ['browser', 'bun'] as const) {
 							browser: {
 								...browserStorage(environment),
 								author,
-								commitOnEdit: false,
 							},
 						}),
 			);
@@ -163,7 +150,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 		}
 	});
 
-	test(`${adapter}: identical reopening writes again without an additional settled commit`, async () => {
+	test(`${adapter}: identical reopening writes the definition again and leaves nothing to commit`, async () => {
 		const root = await scratch('definition-history-');
 		const environment = createTestStorage();
 		const open = async () =>
@@ -178,14 +165,15 @@ for (const adapter of ['browser', 'bun'] as const) {
 			);
 		let folder = await open();
 		try {
-			await settled(folder);
+			expect((await folder.git.commit()).status).toBe('committed');
 			const before = expectOk(await folder.git.log(10));
 			expect(before).toHaveLength(1);
 			await folder.close();
 			folder = await open();
-			await settled(folder);
+			expect(folder.git.snapshot.lastCommit).toBeUndefined();
+			expect(expectOk(await folder.git.status()).changes).toEqual([]);
+			expect((await folder.git.commit()).status).toBe('unchanged');
 			expect(expectOk(await folder.git.log(10))).toEqual(before);
-			expect(folder.git.snapshot.lastCommit?.status).toBe('unchanged');
 			if (adapter === 'bun')
 				expect(await git(root, 'status', '--porcelain')).toBe('');
 		} finally {
@@ -198,9 +186,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 test('Bun publication failure leaves the folder usable and reports the actual destination failure', async () => {
 	const root = await scratch('definition-failure-');
 	await mkdir(join(root, 'epicenter.json'));
-	const folder = expectOk(
-		await openBun({ root, definition, git: { author, commitOnEdit: false } }),
-	);
+	const folder = expectOk(await openBun({ root, definition, git: { author } }));
 	try {
 		expectOk(await folder.files.create('usable.txt', 'usable'));
 		expect(

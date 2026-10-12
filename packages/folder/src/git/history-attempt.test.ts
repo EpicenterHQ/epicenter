@@ -1,27 +1,21 @@
 /**
- * Commit-On-Edit Request Tests
+ * Commit Attempt Tests
  *
- * With `commitOnEdit`, each save this handle published asks for an automatic
- * commit. Requests not yet answered are one obligation, carried by at most
- * one worker that waits for the backend's protection. These tests pin what
- * that promises and what it does not.
+ * A save makes no commit (ADR-0529). A commit happens when asked, and waits
+ * for the backend's protection like every other Git operation of this
+ * handle. These tests pin what an explicit commit promises around that wait.
  *
  * Key behaviors:
- * - One published save makes one commit; its subject and count come from the
- *   committed tree
+ * - A save asks for nothing; a commit records the folder as it is, with a
+ *   subject and count from the committed tree
  * - Held protection (another tab's Web Lock, this handle's pull, path
- *   listing, or running commit) delays the request: once it frees, one
- *   checkpoint commits the latest files without another save, however many
- *   saves asked meanwhile, and at most one wait is outstanding
- * - A whole-folder checkpoint answers every request made before it started;
- *   an automatic one left with nothing to answer records nothing
- * - A write nobody published through this handle, and `noteEdit` alone, ask
- *   for nothing
- * - A failed checkpoint, or a refused request to enter the protection,
- *   records the error and is not retried; a newer save asks again
- * - Automatic commits and `commit()` stay local; a caller that stopped waiting
- *   on `commitAndPush` starts no push later
- * - Closing refuses a request still waiting for the protection without moving
+ *   listing, or running commit) delays a commit: once it frees, the commit
+ *   captures the latest files, including saves made while it waited
+ * - A failed capture, or a refused request to enter the protection, records
+ *   the error and is not retried; the next commit records the files
+ * - `commit()` stays local; a caller that stopped waiting on `commitAndPush`
+ *   starts no push later
+ * - Closing refuses a commit still waiting for the protection without moving
  *   the branch, waits for work already inside it, and makes no last commit
  * - Two tabs, real Git locks, and many callers leave a branch that only ever
  *   moved by compare-and-swap
@@ -88,11 +82,7 @@ async function until(condition: () => boolean) {
  * `probe.hold` stops the next commit after it captured and wrote its commit,
  * just before the branch moves. `holds` stop the named backend call.
  */
-async function tab(
-	environment: TestStorage,
-	name: string,
-	{ commitOnEdit = true } = {},
-) {
+async function tab(environment: TestStorage, name: string) {
 	const raw = await rawBrowserFolder({ id: name, storage: environment });
 	const base = raw.boundary;
 	const holds: {
@@ -120,11 +110,6 @@ async function tab(
 		mostWaiting: 0,
 		/** Refuses the next request to enter, as a failing lock manager would. */
 		refuseNext: undefined as Error | undefined,
-		/**
-		 * Runs once when an automatic request enters and finds nothing left to
-		 * answer, after its work returned and before the worker resumes.
-		 */
-		onAnswered: undefined as (() => void) | undefined,
 		/** Commits that reached the branch compare-and-swap. */
 		publications: 0,
 		pushes: 0,
@@ -166,18 +151,11 @@ async function tab(
 			probe.mostWaiting = Math.max(probe.mostWaiting, probe.waiting);
 			let entered = false;
 			try {
-				const value = await real.exclusive(() => {
+				return await real.exclusive(() => {
 					entered = true;
 					probe.waiting--;
 					return work();
 				}, signal);
-				// Only an automatic request with nothing to answer returns nothing.
-				const answered = probe.onAnswered;
-				if (value === undefined && answered !== undefined) {
-					probe.onAnswered = undefined;
-					answered();
-				}
-				return value;
 			} finally {
 				if (!entered) probe.waiting--;
 			}
@@ -216,7 +194,7 @@ async function tab(
 			return real.casBranch(expected, next);
 		},
 	};
-	const history = createHistory({ backend, boundary, author, commitOnEdit });
+	const history = createHistory({ backend, boundary, author });
 	async function land(path: string, text: string) {
 		const bytes = encoder.encode(text);
 		const { error: applyError } = await boundary.apply([
@@ -224,20 +202,10 @@ async function tab(
 		]);
 		expect(applyError).toBeNull();
 	}
-	/** A complete save as the folder publishes it: land, note, one request. */
+	/** A complete save as the folder publishes it: land, then note the edit. */
 	async function save(path: string, text: string) {
 		await land(path, text);
 		history.noteEdit();
-		history.requestAutomaticCommit();
-	}
-	/** Wait until no commit or push of this handle is in flight. */
-	async function idle() {
-		await Bun.sleep(0);
-		await until(
-			() =>
-				!history.snapshot.activity.commit.active &&
-				!history.snapshot.activity.push.active,
-		);
 	}
 	/** The committed files at the branch head, as text. */
 	async function committed() {
@@ -266,28 +234,35 @@ async function tab(
 		entered: entered.opened,
 		land,
 		save,
-		idle,
 		committed,
 		saved,
 	};
 }
 
-// Automatic commits need the shared lock; this runtime has none of its own.
+// Commits need the shared lock; this runtime has none of its own.
 useWebLocks();
 
 // ============================================================================
-// One request per published save
+// A save asks for nothing; a commit records the folder
 // ============================================================================
 
-test('a published save makes one commit of the folder with a subject from the committed tree', async () => {
-	const { history, probe, save, idle, committed } = await tab(
+test('a save makes no commit; an explicit commit records the folder with a subject from the committed tree', async () => {
+	const { history, probe, save, committed } = await tab(
 		createTestStorage(),
 		'one-attempt',
 	);
 	await save('a.txt', 'one');
-	// The save returned; its request is in flight.
-	expect(history.snapshot.activity.commit).toEqual({ active: true });
-	await idle();
+	await Bun.sleep(20);
+	expect(probe.admissions).toBe(0);
+	expect(history.snapshot.activity.commit).toEqual({ active: false });
+	expect(history.snapshot.lastCommit).toBeUndefined();
+	expect(await committed()).toEqual({});
+
+	expect(await history.commit()).toMatchObject({
+		status: 'committed',
+		message: 'Add a.txt',
+		changedPaths: 1,
+	});
 	expect(probe.admissions).toBe(1);
 	expect(probe.publications).toBe(1);
 	expect(history.snapshot.lastCommit).toMatchObject({
@@ -296,135 +271,46 @@ test('a published save makes one commit of the folder with a subject from the co
 		changedPaths: 1,
 	});
 	expect(await committed()).toEqual({ 'a.txt': 'one' });
-	// A configured remote never makes a save upload.
+	// A configured remote never makes a commit upload.
 	expect(probe.pushes).toBe(0);
 	expect(history.snapshot.lastPush).toBeUndefined();
 
-	// Nothing else happens until the next save.
+	// Nothing else happens until the next request.
 	await Bun.sleep(30);
 	expect(probe.admissions).toBe(1);
 	await history.close();
 });
 
-test('with commitOnEdit off, a save asks for nothing', async () => {
-	const { history, probe, save } = await tab(createTestStorage(), 'off', {
-		commitOnEdit: false,
-	});
-	await save('a.txt', 'one');
-	await Bun.sleep(20);
-	expect(probe.admissions).toBe(0);
-	expect(history.snapshot.activity.commit).toEqual({ active: false });
-	expect(history.snapshot.lastCommit).toBeUndefined();
-	await history.close();
-});
-
-test('a write this handle did not publish, and a noted edit alone, ask for nothing', async () => {
+test('a commit records the folder as it is, including a write this handle did not publish', async () => {
 	const environment = createTestStorage();
 	const mine = await tab(environment, 'external');
-	const other = await tab(environment, 'external', { commitOnEdit: false });
+	const other = await tab(environment, 'external');
 	// Another tab writes to the shared store; this handle only hears a hint.
 	await other.land('a.txt', 'from another tab');
-	// A partial publication notes the edit and asks for nothing.
 	mine.history.noteEdit();
+	await mine.save('b.txt', 'mine');
 	await Bun.sleep(30);
 	expect(mine.probe.admissions).toBe(0);
-	expect(mine.history.snapshot.lastCommit).toBeUndefined();
 	expect(await mine.committed()).toEqual({});
 
-	// The next save this handle publishes commits the folder as it is.
-	await mine.save('b.txt', 'mine');
-	await mine.idle();
-	expect(mine.history.snapshot.lastCommit).toMatchObject({
+	expect(await mine.history.commit()).toMatchObject({
 		status: 'committed',
 		message: 'Update 2 files',
 		changedPaths: 2,
+	});
+	expect(await mine.committed()).toEqual({
+		'a.txt': 'from another tab',
+		'b.txt': 'mine',
 	});
 	await mine.history.close();
 	await other.history.close();
 });
 
 // ============================================================================
-// Held protection: one request waits and commits the latest files
+// Held protection: a commit waits and records the latest files
 // ============================================================================
 
-test("saves during this handle's held commit are committed by one following checkpoint, without another save", async () => {
-	const { history, probe, save, idle, committed, saved } = await tab(
-		createTestStorage(),
-		'held-own',
-	);
-	const held = gate();
-	probe.hold = held;
-	await save('a.txt', 'one');
-	await probe.reached.opened;
-
-	// The held commit already captured `one`. These saves only renumber the
-	// one request: no second wait starts while the first commit runs.
-	await save('a.txt', 'two');
-	await save('b.txt', 'new');
-	await save('a.txt', 'three');
-	expect(probe.admissions).toBe(1);
-	held.open();
-	await idle();
-	expect(probe.admissions).toBe(2);
-	expect(probe.mostWaiting).toBe(1);
-	expect(probe.publications).toBe(2);
-	expect(history.snapshot.lastCommit).toMatchObject({
-		status: 'committed',
-		message: 'Update 2 files',
-		changedPaths: 2,
-	});
-	const latest = { 'a.txt': 'three', 'b.txt': 'new' };
-	expect(await committed()).toEqual(latest);
-	expect(await saved()).toEqual(latest);
-	expect(history.snapshot.files).toMatchObject({
-		state: 'observed',
-		stale: false,
-	});
-
-	// Every request was answered; nothing runs on its own afterward.
-	await Bun.sleep(30);
-	expect(probe.admissions).toBe(2);
-	expect(probe.pushes).toBe(0);
-	await history.close();
-});
-
-test('a save during a failing capture requests one later pass, and the failure alone requests nothing', async () => {
-	const { history, probe, holds, save, idle, committed } = await tab(
-		createTestStorage(),
-		'failed-capture',
-	);
-	const captured = gate();
-	holds.captured = captured;
-	probe.failCaptureNext = true;
-	await save('a.txt', 'one');
-	await until(() => holds.captured === undefined);
-	await save('a.txt', 'two');
-	const outcomes: string[] = [];
-	const unsubscribe = history.subscribe((snapshot) => {
-		const status = snapshot.lastCommit?.status;
-		if (status && outcomes.at(-1) !== status) outcomes.push(status);
-	});
-	captured.open();
-	await idle();
-	expect(outcomes).toEqual(['failed', 'committed']);
-	expect(probe.admissions).toBe(2);
-	expect(await committed()).toEqual({ 'a.txt': 'two' });
-
-	probe.failCaptureNext = true;
-	await save('a.txt', 'three');
-	await idle();
-	expect(history.snapshot.lastCommit).toMatchObject({
-		status: 'failed',
-		error: 'Controlled capture failure',
-	});
-	await Bun.sleep(30);
-	expect(probe.admissions).toBe(3);
-	expect(await committed()).toEqual({ 'a.txt': 'two' });
-	unsubscribe();
-	await history.close();
-});
-
-test('while another tab holds the Web Lock, repeated saves wait as one request and commit the latest files once it frees', async () => {
+test("while another tab holds the Web Lock, a commit waits, then records the latest files on top of that tab's commit", async () => {
 	const restore = installWebLocks();
 	try {
 		const environment = createTestStorage();
@@ -433,9 +319,11 @@ test('while another tab holds the Web Lock, repeated saves wait as one request a
 		const held = gate();
 		a.probe.hold = held;
 		await a.save('a.txt', 'from a');
+		const first = a.history.commit();
 		await a.probe.reached.opened;
 
 		await b.save('b.txt', 'one');
+		const waiting = b.history.commit();
 		await b.save('b.txt', 'two');
 		await b.save('c.txt', 'last');
 		await Bun.sleep(20);
@@ -446,17 +334,18 @@ test('while another tab holds the Web Lock, repeated saves wait as one request a
 		expect(b.history.snapshot.lastCommit).toBeUndefined();
 
 		held.open();
-		await a.idle();
-		const first = a.history.snapshot.lastCommit;
-		expect(first).toMatchObject({ status: 'committed', message: 'Add a.txt' });
-		// Tab B's request runs when the lock frees, on top of tab A's commit.
-		await b.idle();
-		expect(b.probe.publications).toBe(1);
-		expect(b.history.snapshot.lastCommit).toMatchObject({
+		const committedA = await first;
+		expect(committedA).toMatchObject({
+			status: 'committed',
+			message: 'Add a.txt',
+		});
+		// Tab B's commit runs when the lock frees, on top of tab A's commit.
+		expect(await waiting).toMatchObject({
 			status: 'committed',
 			message: 'Update 2 files',
-			parent: first?.status === 'committed' ? first.oid : undefined,
+			parent: committedA.status === 'committed' ? committedA.oid : undefined,
 		});
+		expect(b.probe.publications).toBe(1);
 		expect(await b.committed()).toEqual({
 			'a.txt': 'from a',
 			'b.txt': 'two',
@@ -473,10 +362,10 @@ test('while another tab holds the Web Lock, repeated saves wait as one request a
 	}
 });
 
-test("a save during this handle's held pull or path listing is committed once that work ends", async () => {
+test("a commit during this handle's held pull or path listing runs once that work ends", async () => {
 	const restore = installWebLocks();
 	try {
-		const { history, probe, holds, entered, save, idle, committed } = await tab(
+		const { history, probe, holds, entered, save, committed } = await tab(
 			createTestStorage(),
 			'own-lock',
 		);
@@ -487,17 +376,17 @@ test("a save during this handle's held pull or path listing is committed once th
 		const pull = history.pullFastForward();
 		await entered;
 		await save('a.txt', 'one');
+		const first = history.commit();
 		await Bun.sleep(10);
 		expect(probe.publications).toBe(0);
 		expect(history.snapshot.lastCommit).toBeUndefined();
 		pulling.open();
 		expect(expectErr(await pull).name).toBe('NoFetchedHead');
-		await idle();
-		expect(probe.publications).toBe(1);
-		expect(history.snapshot.lastCommit).toMatchObject({
+		expect(await first).toMatchObject({
 			status: 'committed',
 			message: 'Add a.txt',
 		});
+		expect(probe.publications).toBe(1);
 		expect(await committed()).toEqual({ 'a.txt': 'one' });
 
 		// So does an explicit path listing.
@@ -506,16 +395,16 @@ test("a save during this handle's held pull or path listing is committed once th
 		const paths = history.paths();
 		await until(() => holds.pathStatus === undefined);
 		await save('a.txt', 'two');
+		const second = history.commit();
 		await Bun.sleep(10);
 		expect(probe.publications).toBe(1);
 		listing.open();
 		expectOk(await paths);
-		await idle();
-		expect(probe.publications).toBe(2);
-		expect(history.snapshot.lastCommit).toMatchObject({
+		expect(await second).toMatchObject({
 			status: 'committed',
 			message: 'Update a.txt',
 		});
+		expect(probe.publications).toBe(2);
 		expect(await committed()).toEqual({ 'a.txt': 'two' });
 		await history.close();
 	} finally {
@@ -523,12 +412,8 @@ test("a save during this handle's held pull or path listing is committed once th
 	}
 });
 
-// ============================================================================
-// Explicit commits answer pending requests
-// ============================================================================
-
-test('an explicit commit during a held attempt waits and captures a save made while it waited', async () => {
-	const { history, probe, save, idle, committed } = await tab(
+test('a commit waiting behind a held commit captures a save made while it waited', async () => {
+	const { history, probe, save, committed } = await tab(
 		createTestStorage(),
 		'explicit-waits',
 	);
@@ -536,6 +421,7 @@ test('an explicit commit during a held attempt waits and captures a save made wh
 	const held = gate();
 	probe.hold = held;
 	await save('a.txt', 'one');
+	const first = history.commit();
 	await probe.reached.opened;
 
 	let outcome: Awaited<ReturnType<typeof history.commit>> | undefined;
@@ -548,66 +434,23 @@ test('an explicit commit during a held attempt waits and captures a save made wh
 	await save('b.txt', 'while waiting');
 
 	held.open();
-	await explicit;
-	expect(outcome).toMatchObject({ status: 'committed', message: 'Add b.txt' });
-	const recorded = history.snapshot.lastCommit;
-	expect(recorded).toMatchObject({ status: 'committed', message: 'Add b.txt' });
-	// The explicit commit answered the request `b.txt` made. Whether the
-	// worker found that before or after entering again, it commits nothing
-	// and leaves the explicit commit's outcome in place.
-	await idle();
-	expect(probe.publications).toBe(2);
-	expect(history.snapshot.lastCommit).toBe(recorded);
-	expect(await committed()).toEqual({
-		'a.txt': 'one',
-		'b.txt': 'while waiting',
-	});
-	// Both the automatic commit and the explicit commit stayed local.
-	expect(probe.pushes).toBe(0);
-	await history.close();
-});
-
-test('a request an explicit commit already answered records nothing, and a save that asks as it returns is still committed', async () => {
-	const { real, history, probe, land, save, idle, committed } = await tab(
-		createTestStorage(),
-		'answered-race',
-	);
-	// Something of this tab holds the protection. An explicit commit, and
-	// then a save's request, wait behind it in that order.
-	const holding = gate();
-	const holder = real.exclusive(() => holding.opened);
-	const explicit = history.commit();
-	await save('a.txt', 'one');
-	await Bun.sleep(10);
-	expect(probe.mostWaiting).toBe(2);
-
-	// The explicit commit captures `a.txt` and is held before it publishes.
-	// A save lands then, and its request arrives just as the worker comes
-	// back from finding nothing left to answer.
-	const held = gate();
-	probe.hold = held;
-	probe.onAnswered = () => {
-		history.noteEdit();
-		history.requestAutomaticCommit();
-	};
-	holding.open();
-	await holder;
-	await probe.reached.opened;
-	await land('b.txt', 'raced');
-	held.open();
-	expect(await explicit).toMatchObject({
+	expect(await first).toMatchObject({
 		status: 'committed',
 		message: 'Add a.txt',
 	});
-
-	await idle();
-	expect(probe.onAnswered).toBeUndefined();
-	expect(probe.publications).toBe(2);
+	await explicit;
+	expect(outcome).toMatchObject({ status: 'committed', message: 'Add b.txt' });
 	expect(history.snapshot.lastCommit).toMatchObject({
 		status: 'committed',
 		message: 'Add b.txt',
 	});
-	expect(await committed()).toEqual({ 'a.txt': 'one', 'b.txt': 'raced' });
+	expect(probe.publications).toBe(2);
+	expect(await committed()).toEqual({
+		'a.txt': 'one',
+		'b.txt': 'while waiting',
+	});
+	// Both commits stayed local.
+	expect(probe.pushes).toBe(0);
 	await history.close();
 });
 
@@ -615,14 +458,43 @@ test('a request an explicit commit already answered records nothing, and a save 
 // Failures are reported and not retried
 // ============================================================================
 
-test('a refused request to enter the protection is recorded, not retried, and a newer save asks again', async () => {
-	const { history, probe, save, idle, committed } = await tab(
+test('a failed capture is recorded and not retried; the next commit records the latest files', async () => {
+	const { history, probe, save, committed } = await tab(
+		createTestStorage(),
+		'failed-capture',
+	);
+	probe.failCaptureNext = true;
+	await save('a.txt', 'one');
+	expect(await history.commit()).toMatchObject({
+		status: 'failed',
+		error: 'Controlled capture failure',
+	});
+	expect(history.snapshot.lastCommit).toMatchObject({
+		status: 'failed',
+		error: 'Controlled capture failure',
+	});
+	await save('a.txt', 'two');
+	await Bun.sleep(30);
+	expect(probe.admissions).toBe(1);
+	expect(await committed()).toEqual({});
+
+	expect(await history.commit()).toMatchObject({ status: 'committed' });
+	expect(probe.admissions).toBe(2);
+	expect(await committed()).toEqual({ 'a.txt': 'two' });
+	await history.close();
+});
+
+test('a commit refused entry to the protection is recorded and not retried; the next commit records the files', async () => {
+	const { history, probe, save, committed } = await tab(
 		createTestStorage(),
 		'refused-entry',
 	);
 	probe.refuseNext = new Error('lock manager unavailable');
 	await save('a.txt', 'one');
-	await idle();
+	expect(await history.commit()).toMatchObject({
+		status: 'failed',
+		error: 'lock manager unavailable',
+	});
 	expect(probe.admissions).toBe(1);
 	expect(history.snapshot.lastCommit).toMatchObject({
 		status: 'failed',
@@ -633,44 +505,11 @@ test('a refused request to enter the protection is recorded, not retried, and a 
 	expect(await committed()).toEqual({});
 
 	await save('b.txt', 'two');
-	await idle();
-	expect(probe.admissions).toBe(2);
-	expect(history.snapshot.lastCommit).toMatchObject({
+	expect(await history.commit()).toMatchObject({
 		status: 'committed',
 		message: 'Update 2 files',
 	});
-	expect(await committed()).toEqual({ 'a.txt': 'one', 'b.txt': 'two' });
-	await history.close();
-});
-
-test('an explicit commit refused entry answers the saves before it: the waiting request then commits nothing', async () => {
-	const { real, history, probe, save, idle, committed } = await tab(
-		createTestStorage(),
-		'refused-explicit',
-	);
-	const holding = gate();
-	const holder = real.exclusive(() => holding.opened);
-	await save('a.txt', 'one');
-	await Bun.sleep(10);
-	expect(probe.waiting).toBe(1);
-
-	probe.refuseNext = new Error('lock manager unavailable');
-	const refused = await history.commit();
-	expect(refused).toMatchObject({
-		status: 'failed',
-		error: 'lock manager unavailable',
-	});
-	holding.open();
-	await holder;
-	await idle();
-	// The worker entered and found the save already answered by the failure.
 	expect(probe.admissions).toBe(2);
-	expect(probe.publications).toBe(0);
-	expect(history.snapshot.lastCommit).toMatchObject(refused);
-	expect(await committed()).toEqual({});
-
-	await save('b.txt', 'two');
-	await idle();
 	expect(await committed()).toEqual({ 'a.txt': 'one', 'b.txt': 'two' });
 	await history.close();
 });
@@ -679,14 +518,11 @@ test('an explicit commit refused entry answers the saves before it: the waiting 
 // Pushing
 // ============================================================================
 
-test('a failed explicit push is not retried by a save; another explicit push uploads the new history', async () => {
-	const { history, probe, save, idle } = await tab(
-		createTestStorage(),
-		'push-again',
-	);
+test('a failed explicit push is not retried by a later commit; another explicit push uploads the new history', async () => {
+	const { history, probe, save } = await tab(createTestStorage(), 'push-again');
 	probe.offline = true;
 	await save('a.txt', 'one');
-	await idle();
+	expect((await history.commit()).status).toBe('committed');
 	expect(probe.pushes).toBe(0);
 	expect((await history.push()).status).toBe('failed');
 	expect(history.snapshot.lastPush?.status).toBe('failed');
@@ -698,7 +534,8 @@ test('a failed explicit push is not retried by a save; another explicit push upl
 
 	probe.offline = false;
 	await save('a.txt', 'two');
-	await idle();
+	expect((await history.commit()).status).toBe('committed');
+	await Bun.sleep(30);
 	expect(history.snapshot.lastPush?.status).toBe('failed');
 	expect(probe.pushes).toBe(1);
 	expect((await history.push()).status).toBe('pushed');
@@ -713,7 +550,6 @@ test('explicit commit is local; commitAndPush pushes', async () => {
 	const { history, probe, land } = await tab(
 		createTestStorage(),
 		'explicit-local',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -733,7 +569,6 @@ test('a caller that stops waiting on commitAndPush leaves its commit to finish a
 	const { history, probe, land, committed } = await tab(
 		createTestStorage(),
 		'abandoned',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	const held = gate();
@@ -803,10 +638,11 @@ test("closing refuses an explicit commit still waiting on another tab's Web Lock
 	try {
 		const environment = createTestStorage();
 		const a = await tab(environment, 'close-waiting');
-		const b = await tab(environment, 'close-waiting', { commitOnEdit: false });
+		const b = await tab(environment, 'close-waiting');
 		const held = gate();
 		a.probe.hold = held;
 		await a.save('a.txt', 'from a');
+		const first = a.history.commit();
 		await a.probe.reached.opened;
 
 		await b.land('b.txt', 'from b');
@@ -823,57 +659,12 @@ test("closing refuses an explicit commit still waiting on another tab's Web Lock
 		expect(b.history.snapshot.lastCommit).toBeUndefined();
 
 		held.open();
-		await a.idle();
+		expect((await first).status).toBe('committed');
 		await Bun.sleep(30);
 		// Tab B's commit never ran, not even after the lock was freed.
 		expect(b.probe.publications).toBe(0);
 		expect(await a.committed()).toEqual({ 'a.txt': 'from a' });
 		expect(await a.saved()).toEqual({ 'a.txt': 'from a', 'b.txt': 'from b' });
-		await a.history.close();
-	} finally {
-		restore();
-	}
-});
-
-test("closing refuses a save's request still waiting on another tab's Web Lock; nothing of it runs once the lock frees", async () => {
-	const restore = installWebLocks();
-	try {
-		const environment = createTestStorage();
-		const a = await tab(environment, 'close-request');
-		const b = await tab(environment, 'close-request');
-		const held = gate();
-		a.probe.hold = held;
-		await a.save('a.txt', 'from a');
-		await a.probe.reached.opened;
-		const head = await a.real.readBranch();
-
-		await b.save('b.txt', 'from b');
-		await b.save('b.txt', 'from b, again');
-		await Bun.sleep(20);
-		expect(b.probe.waiting).toBe(1);
-		expect(b.history.snapshot.activity.commit).toEqual({ active: true });
-
-		await b.history.close();
-		expect(b.probe.waiting).toBe(0);
-		expect(b.history.snapshot.activity.commit).toEqual({ active: false });
-		expect(b.history.snapshot.lastCommit).toBeUndefined();
-
-		held.open();
-		await a.idle();
-		await Bun.sleep(30);
-		// Only tab A's commit moved the branch; tab B's save stays saved.
-		expect(b.probe.admissions).toBe(1);
-		expect(b.probe.publications).toBe(0);
-		const first = a.history.snapshot.lastCommit;
-		expect(first).toMatchObject({ status: 'committed', parent: head });
-		expect(await a.real.readBranch()).toBe(
-			first?.status === 'committed' ? first.oid : undefined,
-		);
-		expect(await a.committed()).toEqual({ 'a.txt': 'from a' });
-		expect(await a.saved()).toEqual({
-			'a.txt': 'from a',
-			'b.txt': 'from b, again',
-		});
 		await a.history.close();
 	} finally {
 		restore();
@@ -890,6 +681,7 @@ test('closing waits for an attempt already inside the protection, refuses a comm
 		const held = gate();
 		probe.hold = held;
 		await save('a.txt', 'one');
+		const admitted = history.commit();
 		await probe.reached.opened;
 		await save('b.txt', 'late');
 		// Asked for before closing, still waiting behind the held attempt.
@@ -904,7 +696,7 @@ test('closing waits for an attempt already inside the protection, refuses a comm
 		void closing.then(() => {
 			closed = true;
 		});
-		// A save that lands after closing began asks for nothing.
+		// A save that lands after closing began enters nothing.
 		const before = probe.admissions;
 		await save('c.txt', 'later still');
 		expect(probe.admissions).toBe(before);
@@ -914,7 +706,11 @@ test('closing waits for an attempt already inside the protection, refuses a comm
 
 		held.open();
 		await closing;
-		// The request `b.txt` left pending was not carried past close.
+		expect(await admitted).toMatchObject({
+			status: 'committed',
+			message: 'Add a.txt',
+		});
+		// The refused commit was not carried past close.
 		expect(probe.admissions).toBe(before);
 		expect(probe.publications).toBe(1);
 		expect(history.snapshot.lastCommit).toMatchObject({
@@ -1032,7 +828,6 @@ test('a push whose caller leaves while it is queued behind a held push starts no
 	const { history, probe, holds, land } = await tab(
 		createTestStorage(),
 		'push-queued',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -1062,7 +857,6 @@ test('a push asked for with an already aborted signal starts no transport', asyn
 	const { history, probe, land } = await tab(
 		createTestStorage(),
 		'push-aborted',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -1084,7 +878,6 @@ test('a caller that leaves commitAndPush while its push is queued keeps its comm
 	const { history, probe, holds, land } = await tab(
 		createTestStorage(),
 		'both-queued',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -1120,7 +913,6 @@ test('a caller that leaves after its push started is told so; the transport fini
 	const { history, probe, holds, land } = await tab(
 		createTestStorage(),
 		'push-admitted',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -1150,7 +942,6 @@ test('a fetch whose caller leaves while it is queued, or before it asks, starts 
 	const { history, probe, holds } = await tab(
 		createTestStorage(),
 		'fetch-queued',
-		{ commitOnEdit: false },
 	);
 	const transport = gate();
 	holds.transport = transport;
@@ -1179,33 +970,25 @@ test('a fetch whose caller leaves while it is queued, or before it asks, starts 
 // A directory with the real `git`
 // ============================================================================
 
-async function directory(prefix: string, commitOnEdit: boolean) {
+async function directory(prefix: string) {
 	const root = await scratch(prefix);
-	const open = () =>
-		openNativeFolder({ root, definition, git: { author, commitOnEdit } });
+	const open = () => openNativeFolder({ root, definition, git: { author } });
 	return { root, open, folder: await open() };
 }
 
-async function settled(
-	folder: Awaited<ReturnType<typeof directory>>['folder'],
-) {
-	await Bun.sleep(0);
-	await until(() => !folder.git.snapshot.activity.commit.active);
-}
-
-test('a held ref lock fails the attempt, records the error, keeps the save, and nothing retries until the next save', async () => {
-	const { root, folder } = await directory('attempt-ref-lock-', true);
+test('a held ref lock fails the commit, records the error, keeps the save, and nothing retries until the next commit', async () => {
+	const { root, folder } = await directory('attempt-ref-lock-');
 	expectOk(await folder.files.create('a.md', 'first'));
-	await settled(folder);
+	expect((await folder.git.commit()).status).toBe('committed');
 	const head = await git(root, 'rev-parse', 'HEAD');
 
 	const lock = join(root, '.git', 'refs', 'heads', 'main.lock');
 	await writeFile(lock, '');
 	expectOk(await folder.files.create('b.md', 'saved under a lock'));
-	await settled(folder);
-	const failed = folder.git.snapshot.lastCommit;
-	expect(failed?.status).toBe('failed');
-	expect(failed?.status === 'failed' && failed.error).toContain('main.lock');
+	const failed = await folder.git.commit();
+	expect(failed.status).toBe('failed');
+	expect(failed.status === 'failed' && failed.error).toContain('main.lock');
+	expect(folder.git.snapshot.lastCommit).toMatchObject(failed);
 	expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
 	expect(await readFile(join(root, 'b.md'), 'utf8')).toBe('saved under a lock');
 	expect(await git(root, 'status', '--porcelain')).toBe('?? b.md');
@@ -1217,10 +1000,9 @@ test('a held ref lock fails the attempt, records the error, keeps the save, and 
 	expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
 	expect(folder.git.snapshot.lastCommit?.status).toBe('failed');
 
-	// The next save's attempt commits both.
+	// The next commit records both.
 	expectOk(await folder.files.create('c.md', 'next'));
-	await settled(folder);
-	expect(folder.git.snapshot.lastCommit).toMatchObject({
+	expect(await folder.git.commit()).toMatchObject({
 		status: 'committed',
 		message: 'Update 2 files',
 		changedPaths: 2,
@@ -1231,17 +1013,16 @@ test('a held ref lock fails the attempt, records the error, keeps the save, and 
 });
 
 test('a held index lock still commits, reports the index warning, and the next commit repairs it', async () => {
-	const { root, folder } = await directory('attempt-index-lock-', true);
+	const { root, folder } = await directory('attempt-index-lock-');
 	expectOk(await folder.files.create('a.md', 'first'));
-	await settled(folder);
+	expect((await folder.git.commit()).status).toBe('committed');
 
 	const lock = join(root, '.git', 'index.lock');
 	await writeFile(lock, '');
 	expectOk(await folder.files.create('b.md', 'second'));
-	await settled(folder);
-	const committed = folder.git.snapshot.lastCommit;
+	const committed = await folder.git.commit();
 	expect(committed).toMatchObject({ status: 'committed', message: 'Add b.md' });
-	expect(committed?.status === 'committed' && committed.indexWarning).toContain(
+	expect(committed.status === 'committed' && committed.indexWarning).toContain(
 		'index.lock',
 	);
 	expect(await git(root, 'show', 'HEAD:b.md')).toBe('second');
@@ -1258,7 +1039,7 @@ test('a held index lock still commits, reports the index warning, and the next c
 });
 
 test('many callers in one handle and across two each take a commit and leave a linear branch, sound objects, and a usable index', async () => {
-	const { root, open, folder: one } = await directory('attempt-many-', false);
+	const { root, open, folder: one } = await directory('attempt-many-');
 	const two = await open();
 	const tally: Record<string, number> = {};
 	const committedOids: string[] = [];
@@ -1306,7 +1087,7 @@ test('many callers in one handle and across two each take a commit and leave a l
 });
 
 test('the subject and count describe the committed tree, not the files on disk', async () => {
-	const { root, folder } = await directory('attempt-subject-', false);
+	const { root, folder } = await directory('attempt-subject-');
 	await writeFile(join(root, '.gitignore'), '*.log\n');
 	await writeFile(join(root, 'a.md'), 'a');
 	await writeFile(join(root, 'b.md'), 'b');
@@ -1351,7 +1132,7 @@ test('the subject and count describe the committed tree, not the files on disk',
 	await folder.close();
 });
 
-test('close from a commit activity observer refuses unadmitted work or waits for the admitted attempt', async () => {
+test('close from a commit activity observer refuses the waiting commit or waits for the admitted one', async () => {
 	const mine = await tab(createTestStorage(), 'close-from-activity');
 	const hold = gate();
 	mine.probe.hold = hold;
@@ -1367,14 +1148,17 @@ test('close from a commit activity observer refuses unadmitted work or waits for
 	});
 	try {
 		await mine.save('note.md', 'saved');
+		const commit = mine.history.commit();
 		await until(() => closed || mine.probe.publications > 0);
 		if (closed) {
+			expect(await commit).toEqual({ status: 'closed' });
 			await Bun.sleep(20);
 			expect(mine.probe.publications).toBe(0);
 		} else {
 			expect(mine.probe.publications).toBe(1);
 			hold.open();
 			await closing;
+			expect((await commit).status).toBe('committed');
 			expect(await mine.committed()).toEqual({ 'note.md': 'saved' });
 		}
 		expect(closed).toBe(true);

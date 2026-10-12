@@ -55,7 +55,6 @@ async function setup() {
 			definition: captureDefinition,
 			git: {
 				author: { name: 'Test', email: 'test@localhost' },
-				commitOnEdit: false,
 			},
 		}),
 	);

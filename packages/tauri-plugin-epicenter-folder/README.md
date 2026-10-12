@@ -66,7 +66,6 @@ once registered.
 | `branch` | `main` | The local branch, and the remote branch when a remote exists. |
 | `author` | required | Who commits. With `use_repository_author`, the fallback for whichever of name and email the repository does not configure. |
 | `remote` | none | Where to push and fetch. |
-| `commit_on_edit` | `true` | Whether a complete save asks for a local commit. Transfers are explicit. While the folder is busy the request waits, merged with later ones; see "Automatic commits". |
 | `use_repository_author` | `false` | Read `user.name` and `user.email` when the folder opens. |
 | `use_repository_origin` | `false` | Read `remote.origin.url` when the folder opens and use it as the remote. |
 | `transport` | none | Where each push and fetch gets a relay URL; see "Relayed transfers". Without one, Git is given the remote's URL. |
@@ -196,7 +195,7 @@ The two booleans are optional and `false` when absent.
 
 - **A Git merge a person began** outside Epicenter, while `MERGE_HEAD`
   exists or the index holds unmerged stages, blocks whole-folder commits,
-  automatic commits, staged commits, fast-forwards, merges, and recovery,
+  staged commits, fast-forwards, merges, and recovery,
   as a rebase in progress or a detached HEAD does: `CommitOutcome` `blocked`,
   `PullError` `Blocked`, `GitError` `Failed` for a staged commit, and
   `RecoveryRefused` for recovery, each with the reason "a Git merge is in
@@ -223,8 +222,8 @@ flushed, and renamed into place. Every path, byte, and index entry is derived fr
 so a later fetch that moves the tracking ref, or a garbage collection, cannot
 take the target away. Ordinary saves keep no record.
 
-- **While a record exists**, saves and fetches carry on. Commits, automatic
-  commits, staging, staged commits, and new fast-forwards are refused:
+- **While a record exists**, saves and fetches carry on. Commits, staging,
+  staged commits, and new fast-forwards are refused:
   `CommitOutcome` `blocked`, `GitError` `IncomingPending`, and `PullError`
   `IncomingPending`. The snapshot's `pendingIncoming` reports it: `recorded`
   with the four fields, or `unreadable` with the exact reason a record could
@@ -276,8 +275,7 @@ take the target away. Ordinary saves keep no record.
   exits or the shell calls `app.folders().shutdown()`. Shutdown refuses new
   work, lets admitted saves and commits already inside the folder finish,
   cancels pushes and fetches, and releases the lock. It commits nothing of its
-  own: a save whose automatic request was still waiting, or which lands after
-  shutdown began, stays saved and uncommitted. A commit or fast-forward still
+  own: a save stays saved and uncommitted until a commit is asked for. A commit or fast-forward still
   waiting for the folder when shutdown begins is refused as closed.
 - **A session** belongs to the window that attached it. Another window that
   names it is denied. A session ends on `detach`, when its page reloads, and
@@ -345,36 +343,9 @@ removes only ended sessions, so an attachment from the new page survives it.
 - Nothing waits for the Git lock while holding the file gate, and nothing
   takes the file gate while holding the Git lock.
 
-## Automatic commits
+## Commits
 
-With `commit_on_edit`, a complete `apply` batch asks for an automatic commit.
-The request is numbered under the file gate the batch published under. One
-worker thread per owner carries every request not yet answered: it waits for
-the file gate and then the Git lock as an explicit commit does, and commits
-the folder as it is once it holds both. The save returns once the worker is
-admitted and started, never waiting for the commit.
-
-- A save made while the worker waits, or while another save, commit,
-  fast-forward, or staging call holds the folder, only renumbers the pending
-  request. When the holder lets go, one commit takes the latest files without
-  another save. No copy of saved bytes is kept, and no timer exists.
-- Every whole-folder commit, explicit or automatic, answers the requests made
-  before it took both locks. A worker that then finds nothing pending records
-  nothing, so it never replaces an explicit commit's outcome.
-- A commit that is blocked or fails is recorded in `snapshot.lastCommit` and
-  is not retried; the next save asks again. A worker thread that cannot start
-  is recorded as `failed` the same way.
-- A terminal's save asks like any other save. A redirection publishes the
-  empty file and then its content; the second request is carried by the same
-  worker, so the content is committed.
-- A partial, refused, or unconfirmed batch asks for nothing.
-- Automatic commits stay local. Only an explicit push request starts outgoing
-  transport, even when a remote is configured.
-- `snapshot.activity.commit.active` is true while the worker waits or a
-  commit runs, and the files observation is stale after any save the last
-  commit did not cover.
-
-An explicit `commit` waits for the folder instead, reads it once it holds both
+A save never asks for a commit (ADR-0529). An explicit `commit` waits for the file gate and then the Git lock, reads it once it holds both
 locks, and replies with what it did. It never pushes; `commitAndPush` in a
 page sends the push as its own command, and only while that caller is still
 waiting.

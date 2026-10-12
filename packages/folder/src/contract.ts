@@ -180,11 +180,6 @@ export type BrowserFolderOptions = {
 	 */
 	readonly httpFetch?: HttpFetch;
 	/**
-	 * Whether complete content saves request automatic local commits.
-	 * Transfers remain explicit. Default `true`.
-	 */
-	readonly commitOnEdit?: boolean;
-	/**
 	 * Whether opening makes a folder where none exists. Default `true`. With
 	 * `false`, a missing or empty directory is `Absent`, decided under the
 	 * same open lock that would create it, and nothing is created: no

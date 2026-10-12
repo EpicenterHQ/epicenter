@@ -17,8 +17,8 @@
  * - Later steps of the batch are not attempted, and a save queued behind it
  *   checks against the bytes that landed
  * - Through an opened folder the save is `Unconfirmed` carrying that report;
- *   the path is hinted, and the automatic commit records what landed, while
- *   the displaced entry stays outside history
+ *   the path is hinted, the save makes no commit, and the next commit
+ *   records what landed, while the displaced entry stays outside history
  *
  * See also:
  * - `native-publication.test.ts` for the checks before the exchange
@@ -303,7 +303,7 @@ test.skipIf(!exchangeSupported)(
 );
 
 test.skipIf(!exchangeSupported)(
-	'through an opened folder the save is Unconfirmed with the report, hinted, and what landed is committed',
+	'through an opened folder the save is Unconfirmed with the report, hinted, and the next commit records what landed',
 	async () => {
 		const folder = await root('native-displaced-opened-');
 		await writeFile(join(folder, 'note.md'), 'read');
@@ -315,16 +315,12 @@ test.skipIf(!exchangeSupported)(
 					todos: defineTable({ fields: { title: field.string() } }),
 				},
 			}),
-			git: {
-				author: { name: 'App', email: 'app@example.test' },
-				commitOnEdit: true,
-			},
+			git: { author: { name: 'App', email: 'app@example.test' } },
 		});
 		try {
 			const heard: string[] = [];
 			opened.onFilesChanged((paths) => heard.push(...paths));
 			const capture = expectOk(await opened.files.read('note.md'));
-			const before = opened.git.snapshot.lastCommit;
 			beforeExchange = () => directoryAt(folder);
 
 			const unconfirmed = expectErr(
@@ -336,11 +332,11 @@ test.skipIf(!exchangeSupported)(
 			expect(unconfirmed.message).toContain(location);
 			expect(unconfirmed.message).toContain('Inspect');
 			expect(heard).toContain('note.md');
-			// A commit records the folder's files as they are, so the bytes that
-			// landed are committed; the displaced entry is kept under `.git`.
-			for (let i = 0; i < 100 && opened.git.snapshot.lastCommit === before; i++)
-				await Bun.sleep(20);
-			expect(opened.git.snapshot.lastCommit).toMatchObject({
+			// The save made no commit. A commit records the folder's files as
+			// they are, so the bytes that landed are committed; the displaced
+			// entry is kept under `.git`.
+			expect(opened.git.snapshot.lastCommit).toBeUndefined();
+			expect(await opened.git.commit()).toMatchObject({
 				status: 'committed',
 			});
 			expect(await readFile(join(folder, 'note.md'), 'utf8')).toBe('mine');

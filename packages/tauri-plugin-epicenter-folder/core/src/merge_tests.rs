@@ -50,9 +50,8 @@ fn put(directory: &Path, path: &str, content: &str) {
     std::fs::write(file, content).unwrap();
 }
 
-fn open_local(root: &Path, bare: &Path, commit_on_edit: bool) -> FolderOwner {
+fn open_local(root: &Path, bare: &Path) -> FolderOwner {
     FolderOwner::open(FolderConfig {
-        commit_on_edit,
         remote: Some(Remote {
             url: bare.display().to_string(),
             branch: "main".to_string(),
@@ -63,7 +62,7 @@ fn open_local(root: &Path, bare: &Path, commit_on_edit: bool) -> FolderOwner {
 }
 
 /// Upstream commits `base`; the folder fast-forwards to it.
-fn scene(label: &str, base: &[(&str, &str)], commit_on_edit: bool) -> Scene {
+fn scene(label: &str, base: &[(&str, &str)]) -> Scene {
     let temp = TempDir::new(label);
     let bare = temp.folder("remote.git");
     git(
@@ -83,7 +82,7 @@ fn scene(label: &str, base: &[(&str, &str)], commit_on_edit: bool) -> Scene {
     git(&upstream, &["commit", "--quiet", "-m", "base"]);
     git(&upstream, &["push", "--quiet", "origin", "main"]);
     let root = temp.folder("local");
-    let owner = open_local(&root, &bare, commit_on_edit);
+    let owner = open_local(&root, &bare);
     owner.fetch(None).unwrap();
     assert!(matches!(
         owner.pull_fast_forward(),
@@ -215,7 +214,7 @@ fn unrelated(
     let root = temp.folder("local");
     let scene = Scene {
         _temp: temp,
-        owner: Some(open_local(&root, &bare, false)),
+        owner: Some(open_local(&root, &bare)),
         upstream,
         root,
     };
@@ -228,7 +227,6 @@ fn red_green(label: &str) -> (Scene, String, String, String) {
     let scene = scene(
         label,
         &[("notes/color.txt", "blue\n"), ("keep.md", "keep\n")],
-        false,
     );
     let base = scene.head();
     let theirs = scene.theirs(|upstream| {
@@ -247,7 +245,6 @@ fn a_clean_divergence_records_both_original_parents_and_merges_kv_by_key() {
             ("kv.json", "{\"theme\":\"light\",\"lang\":\"en\"}"),
             ("notes.md", "one\ntwo\nthree\nfour\nfive\n"),
         ],
-        false,
     );
     let theirs = scene.theirs(|upstream| {
         put(
@@ -431,7 +428,7 @@ fn unrelated_histories_need_consent_and_then_keep_both_roots() {
 
 #[test]
 fn several_merge_bases_are_refused_even_with_consent_to_unrelated_histories() {
-    let scene = scene("merge-criss-cross", &[("a.md", "a\n")], false);
+    let scene = scene("merge-criss-cross", &[("a.md", "a\n")]);
     scene.theirs(|upstream| put(upstream, "b.md", "b\n"));
     let ours = scene.ours(&[("c.md", "c\n")]);
     // The folder merges theirs, and upstream merges ours on its own: each
@@ -490,7 +487,6 @@ fn a_refused_conflict_carries_each_files_committed_bytes_and_writes_nothing() {
             ("gone.md", "keep me\n"),
             ("kv.json", "{\"a\":1,\"b\":1}"),
         ],
-        false,
     );
     let theirs = scene.theirs(|upstream| {
         std::fs::write(upstream.join("bin.dat"), THEIRS_BIN).unwrap();

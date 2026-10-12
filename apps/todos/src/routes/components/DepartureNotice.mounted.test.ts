@@ -42,7 +42,7 @@ async function setup() {
 		await openFolder({
 			id: `departure-notice-${count++}`,
 			definition: todosDefinition,
-			browser: { commitOnEdit: false, ...testBrowserStorage() },
+			browser: { ...testBrowserStorage() },
 		}),
 	);
 	const todos: Todos = createTodos(folder);

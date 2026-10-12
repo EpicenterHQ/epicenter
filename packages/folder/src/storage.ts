@@ -37,7 +37,7 @@ export function withPublication({
 	landed,
 }: {
 	storage: FolderStorage;
-	history: Pick<History, 'noteEdit' | 'requestAutomaticCommit'>;
+	history: Pick<History, 'noteEdit'>;
 	landed: (paths: readonly string[]) => void;
 }): FolderStorage {
 	return {
@@ -47,10 +47,6 @@ export function withPublication({
 			const touched = mayHaveChanged(changes, result.error);
 			if (touched.length > 0) {
 				history.noteEdit();
-				// A commit records the folder's files as they are, never a claim
-				// about which save put them there, so asking is safe even when
-				// nobody knows whether this change landed.
-				history.requestAutomaticCommit();
 				landed(touched);
 			}
 			return result;

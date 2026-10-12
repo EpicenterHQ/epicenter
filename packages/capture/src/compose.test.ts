@@ -88,7 +88,6 @@ test('the legacy import writes the marked file and reports it as source-only', a
 			definition: captureDefinition,
 			git: {
 				author: { name: 'Test', email: 'test@localhost' },
-				commitOnEdit: false,
 			},
 		}),
 	);

@@ -183,7 +183,7 @@ test('a checkpoint that overlaps a table rename commits the files from before it
 	const opened = await openNativeFolder({
 		root: folder,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	try {
 		const entry = expectOk(

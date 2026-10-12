@@ -16,8 +16,8 @@
 //!     })
 //! ```
 //!
-//! A page names a scope and nothing else. The root, the author, the remote,
-//! and whether saves commit automatically all come from `register`.
+//! A page names a scope and nothing else. The root, the author, and the
+//! remote all come from `register`.
 //!
 //! The owner of a scope is opened on its first attach and kept until the app
 //! exits or the shell calls `Folders::shutdown`, which fences new work, lets

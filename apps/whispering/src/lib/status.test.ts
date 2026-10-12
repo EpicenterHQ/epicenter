@@ -17,7 +17,6 @@ function snapshot(): GitSnapshot {
 	return {
 		branch: 'main',
 		remote: undefined,
-		commitOnEdit: true,
 		files: { state: 'unknown', error: undefined },
 		sync: { state: 'unknown', error: undefined },
 		activity: {

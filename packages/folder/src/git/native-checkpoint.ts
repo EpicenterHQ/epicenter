@@ -26,7 +26,7 @@ const MODES: Record<string, string> = {
 const text = (bytes: Uint8Array) => Buffer.from(bytes).toString('utf8');
 const records = (output: Uint8Array) =>
 	text(output).split('\0').filter(Boolean);
-const plainOnly = 'automatic commits only write plain files';
+const plainOnly = 'commits only write plain files';
 
 export async function nativeCheckpointProblem({
 	root,
@@ -77,7 +77,7 @@ export async function nativeCheckpointProblem({
 	});
 	const conversion = text(autocrlf.stdout).trim().toLowerCase();
 	if (conversion === 'true' || conversion === 'input')
-		return `core.autocrlf is ${conversion}; automatic commits do not convert line endings`;
+		return `core.autocrlf is ${conversion}; commits do not convert line endings`;
 
 	// Working files Git would record differently, and nested Git data.
 	const special: { path: string; reason: string }[] = [];
@@ -129,7 +129,7 @@ export async function nativeCheckpointProblem({
 	for (let index = 0; index + 2 < attributes.length; index += 3) {
 		const [path, attribute, value] = attributes.slice(index, index + 3);
 		if (value !== undefined && value !== 'unspecified' && value !== 'unset')
-			return `${path} has the Git attribute ${attribute}${value === 'set' ? '' : `=${value}`}; automatic commits do not apply attribute filters or conversion`;
+			return `${path} has the Git attribute ${attribute}${value === 'set' ? '' : `=${value}`}; commits do not apply attribute filters or conversion`;
 	}
 	return undefined;
 }

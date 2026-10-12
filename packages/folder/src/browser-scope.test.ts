@@ -59,7 +59,7 @@ async function open(
 		await openFolder({
 			id,
 			definition,
-			browser: { ...browserStorage(storage), scope, commitOnEdit: false },
+			browser: { ...browserStorage(storage), scope },
 		}),
 	);
 	folders.push(folder);

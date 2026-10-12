@@ -16,8 +16,8 @@
  *
  * Key behaviors:
  * - A window attaches only to a scope registered for it, and learns the root
- * - Tables, raw files, and Git work through the adapter, and the owner
- *   commits a save on its own when the folder is free
+ * - Tables, raw files, and Git work through the adapter; a save makes no
+ *   commit, and a commit records what the saves left (ADR-0529)
  * - A page built for the previous protocol is refused at attach
  * - Two windows saving over one version: one lands, one conflicts
  * - A save the shell receives after a later save of its page landed on the
@@ -27,9 +27,9 @@
  *   as an exact-sha256 conflict, and the raw save stays
  * - A row another window changed after a table's directory read is still an
  *   exact-sha256 conflict
- * - A terminal command holds nothing: another window saves, and runs a whole
- *   terminal command of its own, between its steps, and the owner commits a
- *   terminal's save like any other
+ * - A terminal command holds nothing: another window saves, commits, and runs
+ *   a whole terminal command of its own, between its steps; a terminal's save
+ *   makes no commit, like any other
  * - Binary pipelines and directory tree moves use the real owner's file commands
  * - A terminal's rewrite of a file it read is refused when another window
  *   wrote between its steps, and the steps before it stay landed
@@ -38,9 +38,9 @@
  *   nothing; a merge the person's own Git begins blocks commits, staged
  *   commits, and merges until Git outside Epicenter finishes it
  * - Closing a page mid-command stops the command's later steps; the save the
- *   owner already admitted lands and is committed without the page
- * - Closing one window's folder leaves the other window and the owner working,
- *   and the commit the owner admitted for its last save still finishes
+ *   owner already admitted lands, and closing commits nothing
+ * - Closing one window's folder leaves the other window and the owner
+ *   working, and its last save stays in the folder for the next commit
  *
  * See also:
  * - `tauri.test.ts` for what the adapter decides on its own
@@ -92,9 +92,7 @@ class Bridge {
 		readonly root: string,
 	) {}
 
-	static async start(
-		options: { manual?: boolean; remote?: string } = {},
-	): Promise<Bridge> {
+	static async start(options: { remote?: string } = {}): Promise<Bridge> {
 		const root = await realpath(await scratch('tauri-folder-'));
 		const harness = [
 			'tests::invoke_bridge',
@@ -128,7 +126,6 @@ class Bridge {
 				env: {
 					...process.env,
 					FOLDER_BRIDGE_ROOT: root,
-					...(options.manual ? { FOLDER_BRIDGE_MANUAL: '1' } : {}),
 					...(options.remote ? { FOLDER_BRIDGE_REMOTE: options.remote } : {}),
 				},
 			},
@@ -263,7 +260,7 @@ const as =
 const a = as('a');
 const b = as('b');
 
-async function setup(options: { manual?: boolean; remote?: string } = {}) {
+async function setup(options: { remote?: string } = {}) {
 	bridge = await Bridge.start(options);
 	const running = bridge;
 	const attach = (window: ReturnType<typeof as>) =>
@@ -282,21 +279,6 @@ async function setup(options: { manual?: boolean; remote?: string } = {}) {
 				folder.files.children('todos'),
 			);
 			return listError !== null ? [] : listed.files;
-		},
-		/**
-		 * Return once no commit the owner admitted is still running. `paths`
-		 * takes the owner's Git lock, which an admitted commit holds from before
-		 * its save returned until it has recorded its outcome.
-		 */
-		async settled() {
-			expectOk(await b(() => other.git.paths()));
-			// Its last snapshot event may still be on its way to this window.
-			for (let waited = 0; waited < 600; waited++) {
-				const { activity, lastCommit } = folder.git.snapshot;
-				if (!activity.commit.active && lastCommit) return;
-				await Bun.sleep(10);
-			}
-			throw new Error('no settled commit reached the snapshot');
 		},
 	};
 }
@@ -403,25 +385,26 @@ const row = (stem: string) =>
 const IMAGE = new Uint8Array([1, 2, 3]);
 
 describe.skipIf(!enabled)('tauri folder against the native owner', () => {
-	test('opening publishes root discovery JSON and identical reopening creates no additional native commit', async () => {
-		const { root, settled } = await setup();
+	test('opening publishes root discovery JSON and makes no commit; identical reopening leaves nothing to commit', async () => {
+		const { root, folder } = await setup();
 		expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
 			formatDeclaration(definition),
 		);
-		await settled();
+		expect(await git(root, 'status', '--porcelain')).toBe('?? epicenter.json');
+		expect((await a(() => folder.git.commit())).status).toBe('committed');
 		const before = await git(root, 'rev-parse', 'HEAD');
 		expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('1');
 		const reopened = expectOk(
 			await a(() => openFolder({ id: 'notes', definition })),
 		);
-		await settled();
 		expect(await git(root, 'rev-parse', 'HEAD')).toBe(before);
 		expect(await git(root, 'status', '--porcelain')).toBe('');
+		expect((await a(() => reopened.git.commit())).status).toBe('unchanged');
 		await a(() => reopened.close());
 	});
 
-	test('manual native opening replaces the previous description without committing or changing saved row bytes', async () => {
-		const { root, folder } = await setup({ manual: true });
+	test('native opening replaces the previous description without committing or changing saved row bytes', async () => {
+		const { root, folder } = await setup();
 		expectOk(await a(() => folder.tables.todos.create(...row('kept'))));
 		const before = await readFile(join(root, 'todos/kept.md'), 'utf8');
 		expectOk(
@@ -448,7 +431,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a kv set creates kv.json and keeps untouched raw values through the native owner', async () => {
-		const { root, folder, other } = await setup({ manual: true });
+		const { root, folder, other } = await setup();
 		expect(
 			await a(async () => expectOk(await folder.kv.get())),
 		).toBeUndefined();
@@ -490,9 +473,9 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		expect(unknown).toMatchObject({ name: 'UnknownScope', scope: 'elsewhere' });
 		expect(folder.location).toEqual({ kind: 'directory', root });
 		expect(folder.git.snapshot.branch).toBe('main');
-		// Opening awaits discovery publication, while native history settles separately.
-		while (folder.git.snapshot.activity.commit.active) await Bun.sleep(10);
+		// Opening awaits discovery publication and makes no commit.
 		expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
 
 		// A page built for the previous protocol is refused by the real owner.
 		const { error: refusal } = await a(() =>
@@ -505,30 +488,31 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		});
 	});
 
-	test('audio and its row are two saves the owner commits on its own, and each capture is what it reads back', async () => {
-		const { folder, todos, root, settled } = await setup();
+	test('audio and its row are two saves that make no commit, and each capture is what it reads back', async () => {
+		const { folder, todos, root } = await setup();
 		const statuses: (string | undefined)[] = [];
 		folder.git.subscribe((snapshot) =>
 			statuses.push(snapshot.lastCommit?.status),
 		);
 
-		// Settling between them keeps the second automatic attempt from finding
-		// the first still running.
 		const image = expectOk(
 			await a(() => folder.files.create('todos/take.png', IMAGE)),
 		);
-		await settled();
 		const created = expectOk(await a(() => todos.create(...row('take'))));
-		await settled();
-
-		expect(await git(root, 'log', '--format=%s')).toBe(
-			'Add todos/take.md\nAdd todos/take.png\nAdd epicenter.json',
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
+		expect(await git(root, 'status', '--porcelain')).toBe(
+			'?? epicenter.json\n?? todos/',
 		);
+
+		expect(await a(() => folder.git.commit())).toMatchObject({
+			status: 'committed',
+			message: 'Update 3 files',
+		});
+		expect(await git(root, 'log', '--format=%s')).toBe('Update 3 files');
 		expect(await git(root, 'ls-tree', '-r', '--name-only', 'HEAD')).toBe(
 			'epicenter.json\ntodos/take.md\ntodos/take.png',
 		);
 		expect(statuses.at(-1)).toBe('committed');
-		expect(folder.git.snapshot.commitOnEdit).toBe(true);
 		expect(expectOk(await a(() => folder.git.status())).changes).toEqual([]);
 		// Each save's capture is the version the owner now reads back.
 		const reread = expectOk(await a(() => todos.get('take')));
@@ -547,13 +531,12 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		expect(log[0]?.author.name).toBe('Test Author');
 		expect(await a(() => folder.git.push())).toEqual({ status: 'noRemote' });
 		expect(expectErr(await a(() => folder.git.fetch())).name).toBe('NoRemote');
-		expect(expectErr(await a(() => folder.git.stage('all'))).name).toBe(
-			'AutomaticHistory',
-		);
+		// Staging is always available.
+		expectOk(await a(() => folder.git.stage('all')));
 	});
 
 	test('raw bytes round-trip exactly and the returned sha256 is the content hash', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const bytes = Uint8Array.from({ length: 4096 }, (_, index) => index % 256);
 
 		const created = expectOk(
@@ -574,7 +557,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a capture stays the bytes that were saved while another window replaces the file', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const mine = expectOk(await a(() => folder.files.create('a.md', 'mine')));
 		const theirs = expectOk(
 			await b(() => other.files.overwrite('a.md', 'theirs')),
@@ -607,7 +590,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('two windows saving over one version: one lands and one conflicts', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const base = expectOk(await a(() => folder.files.create('a.md', 'base')));
 
 		const results = await Promise.all([
@@ -625,7 +608,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a row another window changed after this window captured it is an exact-sha256 conflict', async () => {
-		const { folder, todos, other, files } = await setup({ manual: true });
+		const { folder, todos, other, files } = await setup();
 		expectOk(await a(() => folder.files.create('todos/take.png', IMAGE)));
 		const entry = expectOk(await a(() => todos.create(...row('take'))));
 		const changed = '---\ntitle: Changed\ndone: true\n---\n';
@@ -648,7 +631,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a terminal command holds nothing: another window saves and runs its own terminal between its steps', async () => {
-		const { folder, other, root, settled } = await setup();
+		const { folder, other, root } = await setup();
 		const terminal = folder.terminal();
 		// Window A's command is stopped mid-run, inside its first listing.
 		const reached = Promise.withResolvers<void>();
@@ -662,20 +645,17 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		);
 		await reached.promise;
 
-		// Window B does not wait for it: a save lands and the owner commits it,
-		// and a whole terminal command of B's own runs to its end.
+		// Window B does not wait for it: a save lands, B commits it, and a
+		// whole terminal command of B's own runs to its end.
 		expectOk(await b(() => other.files.create('from-b.md', 'did not wait')));
-		await settled();
-		expect(await git(root, 'log', '--format=%s')).toBe(
-			'Add from-b.md\nAdd epicenter.json',
-		);
+		expect(await b(() => other.git.commit())).toMatchObject({
+			status: 'committed',
+			message: 'Update 2 files',
+		});
 		const theirs = await b(() =>
 			other.terminal().exec('echo "b ran" > b.md && cat b.md'),
 		);
 		expect(theirs).toEqual({ stdout: 'b ran\n', stderr: '', exitCode: 0 });
-		// A's next save should find the gates free. A save made while B's
-		// commit is still running would correctly skip its automatic attempt.
-		await settled();
 		const before = await git(root, 'rev-parse', 'HEAD');
 
 		release.resolve();
@@ -686,22 +666,13 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 			),
 		).toBe('from the terminal\n');
 
-		// A terminal's save follows the folder's ordinary history policy: the
-		// owner committed it on its own, with no explicit commit from anyone.
-		await settled();
+		// A terminal's save makes no commit, like any other save. The next
+		// commit records every write that landed since B's.
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(before);
+		expect((await a(() => folder.git.commit())).status).toBe('committed');
 		const tracked = await git(root, 'ls-tree', '-r', '--name-only', 'HEAD');
 		expect(tracked.split('\n')).toEqual(
 			expect.arrayContaining(['b.md', 'from-b.md', 'notes/a.md']),
-		);
-		// That checkpoint may also contain B's content write if B's second
-		// attempt was skipped. Its subject describes all captured changes.
-		expect(await git(root, 'rev-parse', 'HEAD')).not.toBe(before);
-		// A redirection publishes the empty file and then its content, one
-		// attempt each. A second that found the first still running stays
-		// uncommitted until the next commit, as it would from any page.
-		expect((await a(() => terminal.exec('git status'))).exitCode).toBe(0);
-		expect(['committed', 'unchanged']).toContain(
-			(await a(() => folder.git.commit())).status,
 		);
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		expect(await git(root, 'show', 'HEAD:notes/a.md')).toBe(
@@ -710,7 +681,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('the terminal preserves binary pipelines and moves a directory tree through the real owner', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
 		expectOk(await a(() => folder.files.create('raw.bin', bytes)));
 		const result = await a(() =>
@@ -731,7 +702,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a terminal rewrite of a file it read is refused when another window wrote between its steps', async () => {
-		const { folder, other, root } = await setup({ manual: true });
+		const { folder, other, root } = await setup();
 		expectOk(await a(() => folder.files.create('note.md', 'first\n')));
 		const terminal = folder.terminal();
 		const running = active();
@@ -784,24 +755,20 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	test('a terminal fetch in flight at the remote holds no save and no commit back', async () => {
 		const remote = await HeldRemote.start();
 		try {
-			const { folder, other, root, settled } = await setup({
-				remote: remote.url,
-			});
+			const { folder, other, root } = await setup({ remote: remote.url });
 			const terminal = folder.terminal();
 
 			// The owner starts a real `git fetch`, and the remote does not answer.
 			const fetching = a(() => terminal.exec('git fetch'));
 			await remote.arrived;
 
-			// With that transport in flight, both windows save, the owner commits
-			// each save on its own, and explicit Git work runs.
+			// With that transport in flight, both windows save and commit, and
+			// other explicit Git work runs.
 			expectOk(await b(() => other.files.create('from-b.md', 'did not wait')));
-			await settled();
-			expect(await git(root, 'log', '--format=%s')).toBe(
-				'Add from-b.md\nAdd epicenter.json',
-			);
+			expect((await b(() => other.git.commit())).status).toBe('committed');
+			expect(await git(root, 'log', '--format=%s')).toBe('Update 2 files');
 			expectOk(await a(() => folder.files.create('from-a.md', 'nor did this')));
-			await settled();
+			expect((await a(() => folder.git.commit())).status).toBe('committed');
 			expect((await git(root, 'log', '--format=%s')).split('\n')[0]).toBe(
 				'Add from-a.md',
 			);
@@ -834,10 +801,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		const remoteRoot = await realpath(await scratch('tauri-folder-merge-'));
 		try {
 			const bare = await createBareRemote(remoteRoot);
-			const { folder, other, root } = await setup({
-				manual: true,
-				remote: bare,
-			});
+			const { folder, other, root } = await setup({ remote: bare });
 			expectOk(await a(() => folder.files.create('notes/color.txt', 'blue\n')));
 			const pushed = await a(() => folder.git.commitAndPush());
 			expect(pushed.push.status).toBe('pushed');
@@ -906,7 +870,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('close detaches before a landed native save replies, and that save returns success', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const reached = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		active().afterApply = async () => {
@@ -925,7 +889,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a save the shell receives after its session saved again lands last and stays', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const reached = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		// The earlier save is held before Rust receives it.
@@ -970,7 +934,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	}
 
 	test('a save still hashing when a later save of the page lands, lands after it, through one handle or two', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const second = await a(async () =>
 			expectOk(await openFolder({ id: 'notes', definition })),
 		);
@@ -992,7 +956,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a table replace still hashing when a raw save lands is refused, and the raw save stays', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const created = expectOk(
 			await a(() =>
 				folder.tables.todos.create(
@@ -1019,7 +983,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('an apply delivered after detach returns the owner refusal without writing or replay', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const reached = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		active().beforeApply = async () => {
@@ -1038,7 +1002,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		).toBe('NotFound');
 	});
 
-	test('closing a page mid-command stops its later steps; the save already admitted lands and is committed', async () => {
+	test('closing a page mid-command stops its later steps; the save already admitted lands, and closing commits nothing', async () => {
 		const { folder, other, root } = await setup();
 		const terminal = folder.terminal();
 		const running = active();
@@ -1071,26 +1035,24 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		});
 		expect(existsSync(join(root, 'late.md'))).toBe(false);
 
-		// The owner finished that save's commit without the page, and window B
-		// carries on.
-		expectOk(await b(() => other.git.paths()));
-		expect(await git(root, 'log', '--format=%s')).toBe(
-			'Add one.md\nAdd epicenter.json',
+		// Closing committed nothing, and window B carries on: its commit
+		// records the save the page left.
+		expect(await git(root, 'status', '--porcelain')).toBe(
+			'?? epicenter.json\n?? one.md',
 		);
 		expectOk(await b(() => other.files.create('after.md', 'b carries on')));
-		expectOk(await b(() => other.git.paths()));
+		expect((await b(() => other.git.commit())).status).toBe('committed');
 		expect(await git(root, 'ls-tree', '-r', '--name-only', 'HEAD')).toBe(
 			'after.md\nepicenter.json\none.md',
 		);
 	});
 
-	test('closing one window leaves the other, and the commit admitted for its last save still finishes', async () => {
+	test('closing one window leaves the other, and its last save stays for the next commit', async () => {
 		const { folder, other, root } = await setup();
 		const heard: (readonly string[])[] = [];
 		other.onFilesChanged((paths) => heard.push(paths));
 
-		// The folder is free, so the owner admits this save's commit before the
-		// save returns. The page closes without waiting for it.
+		// The page saves and closes at once.
 		expectOk(
 			await a(() => folder.files.create('last.md', 'saved as the page closed')),
 		);
@@ -1103,17 +1065,15 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		const { error: unknownSession } = await a(() => commands.list(1));
 		expect(unknownSession?.name).toBe('Denied');
 
-		// Window B waits on the owner's Git lock: the admitted commit finished
-		// without the page that saved. Closing committed nothing itself.
-		expectOk(await b(() => other.git.paths()));
-		expect(await git(root, 'log', '--format=%s')).toBe(
-			'Add last.md\nAdd epicenter.json',
+		// Closing committed nothing: the save is in the folder, uncommitted.
+		expect(await git(root, 'status', '--porcelain')).toBe(
+			'?? epicenter.json\n?? last.md',
 		);
 
 		expectOk(
 			await b(() => other.files.create('after.md', 'window b carries on')),
 		);
-		expectOk(await b(() => other.git.paths()));
+		expect((await b(() => other.git.commit())).status).toBe('committed');
 		expect(await git(root, 'ls-tree', '-r', '--name-only', 'HEAD')).toBe(
 			'after.md\nepicenter.json\nlast.md',
 		);

@@ -1,7 +1,7 @@
 /**
  * History Source Scope Tests
  *
- * Status, automatic commits, and incoming fast-forwards share one inclusion
+ * Status, whole-folder commits, and incoming fast-forwards share one inclusion
  * rule: tracked files stay source, untracked files are source unless
  * `.gitignore` excludes them. SQLite filenames have no special source policy.
  *
@@ -93,7 +93,6 @@ describe('browser folder scope', () => {
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					...testBrowserStorage(),
 				},
 			}),
@@ -127,7 +126,7 @@ describe('native folder scope', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		await folder.files.create('tracked.log', 'v1\n');
 		expect((await folder.git.commit()).status).toBe('committed');
@@ -165,12 +164,12 @@ describe('native folder scope', () => {
 		const writer = await openNativeFolder({
 			root: writerRoot,
 			definition,
-			git: { author, remote, commitOnEdit: false },
+			git: { author, remote },
 		});
 		const reader = await openNativeFolder({
 			root: readerRoot,
 			definition,
-			git: { author, remote, commitOnEdit: false },
+			git: { author, remote },
 		});
 
 		await writer.files.create('.gitignore', '*.log\n');

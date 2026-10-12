@@ -9,8 +9,8 @@
  *   retired is a `Partial` result naming both facts, merged with earlier
  *   steps; both copies stay
  * - Through the folder it is `MoveError.SourceNotRemoved` naming the guard
- *   hash at the destination; observations become stale without an
- *   automatic commit
+ *   hash at the destination; observations become stale, the move makes no
+ *   commit, and the next commit records both paths
  * - A pull whose files landed while the index was locked returns
  *   `IndexFailed`, keeps HEAD, and never leaves a fresh clean observation
  * - A table lists every `.md` name it holds: a symbolic link is
@@ -120,7 +120,7 @@ describe('native partial moves', () => {
 	);
 
 	test.skipIf(!canDenyWrites)(
-		'a folder move that keeps its source names both paths, marks observations stale, and commits what landed',
+		'a folder move that keeps its source names both paths, marks observations stale, and the next commit records what landed',
 		async () => {
 			const root = await scratch('native-move-folder-');
 			const folder = await openNativeFolder({
@@ -128,16 +128,9 @@ describe('native partial moves', () => {
 				definition,
 				git: { author },
 			});
-			while (folder.git.snapshot.activity.commit.active) await Bun.sleep(10);
 			const locked = expectOk(await folder.files.create('locked/a.txt', 'A'));
 			await folder.files.mkdir('open');
-			for (
-				let attempt = 0;
-				attempt < 200 && folder.git.snapshot.activity.commit.active;
-				attempt++
-			)
-				await Bun.sleep(10);
-			expect(folder.git.snapshot.lastCommit?.status).toBe('committed');
+			expect((await folder.git.commit()).status).toBe('committed');
 			expect((await folder.git.status()).data?.changes).toEqual([]);
 			const committed = folder.git.snapshot.lastCommit;
 			await chmod(join(root, 'locked'), 0o555);
@@ -154,15 +147,15 @@ describe('native partial moves', () => {
 				expect(await readFile(join(root, 'open/a.txt'), 'utf8')).toBe('A');
 				const files = folder.git.snapshot.files;
 				expect(files.state === 'observed' && files.stale).toBe(true);
-				// A commit records both paths as they are; it claims no move.
-				for (
-					let attempt = 0;
-					attempt < 200 && folder.git.snapshot.lastCommit === committed;
-					attempt++
-				)
-					await Bun.sleep(10);
-				expect(folder.git.snapshot.lastCommit?.status).toBe('committed');
-				expect(folder.git.snapshot.lastCommit).not.toBe(committed);
+				// The move made no commit. The next one records both paths as they
+				// are; it claims no move.
+				expect(folder.git.snapshot.lastCommit).toBe(committed);
+				expect(await folder.git.commit()).toMatchObject({
+					status: 'committed',
+					message: 'Add open/a.txt',
+				});
+				expect(await git(root, 'show', 'HEAD:locked/a.txt')).toBe('A');
+				expect(await git(root, 'show', 'HEAD:open/a.txt')).toBe('A');
 			} finally {
 				await chmod(join(root, 'locked'), 0o755);
 			}
@@ -202,7 +195,7 @@ describe('native listings name what reads refuse', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		const listed = expectOk(await folder.tables.todos.list());
 		await folder.close();
@@ -293,12 +286,12 @@ describe('native pull with a locked index', () => {
 		const writer = await openNativeFolder({
 			root: writerRoot,
 			definition,
-			git: { author, remote, commitOnEdit: false },
+			git: { author, remote },
 		});
 		const reader = await openNativeFolder({
 			root: readerRoot,
 			definition,
-			git: { author, remote, commitOnEdit: false },
+			git: { author, remote },
 		});
 		await writer.files.create('readme.md', 'A\n');
 		await writer.git.commitAndPush();
@@ -360,7 +353,7 @@ describe('native checkpoints refuse what they would misrepresent', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		// A plain edit through the folder still saves.
 		expectOk(await folder.files.overwrite('a.md', 'edited\n'));
@@ -458,7 +451,7 @@ describe('native checkpoints refuse what they would misrepresent', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		await folder.files.overwrite('a.md', 'edited\n');
 		expect((await folder.git.commit()).status).toBe('committed');

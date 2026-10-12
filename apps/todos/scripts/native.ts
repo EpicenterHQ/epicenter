@@ -9,8 +9,8 @@
  *   bun apps/todos/scripts/native.ts <checkout> fetch
  *   bun apps/todos/scripts/native.ts <checkout> pull
  *
- * The CLI opens the folder with `commitOnEdit: false`: a command saves files,
- * then `create` and `complete` request one explicit commit and push. `pull`
+ * A command saves files, then `create` and `complete` request one explicit
+ * commit and push; saves never commit on their own (ADR-0529). `pull`
  * applies only a fast-forward; diverged history is refused with the folder's
  * pointer to Sync, and nothing is written. A
  * checkout that cannot be opened prints the refusal and exits 1.
@@ -53,7 +53,6 @@ const { data: openedFolder, error: openedError } = await openFolder({
 		},
 		remote:
 			remoteUrl === undefined ? undefined : { url: remoteUrl, branch: 'main' },
-		commitOnEdit: false,
 	},
 });
 if (openedError) {

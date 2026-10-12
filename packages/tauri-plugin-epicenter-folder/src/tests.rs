@@ -105,16 +105,11 @@ fn temp(label: &str) -> TempDirectory {
 
 /// An app whose windows may call every plugin command, with the scope
 /// `notes` registered for `windows`.
-fn fixture(label: &str, windows: &[&str], commit_on_edit: bool) -> Fixture {
-    fixture_in(temp(label), windows, commit_on_edit, None)
+fn fixture(label: &str, windows: &[&str]) -> Fixture {
+    fixture_in(temp(label), windows, None)
 }
 
-fn fixture_in(
-    directory: TempDirectory,
-    windows: &[&str],
-    commit_on_edit: bool,
-    remote: Option<Remote>,
-) -> Fixture {
+fn fixture_in(directory: TempDirectory, windows: &[&str], remote: Option<Remote>) -> Fixture {
     let root = directory.0.join("notes");
     std::fs::create_dir(&root).unwrap();
     let mut context = mock_context(noop_assets());
@@ -132,7 +127,6 @@ fn fixture_in(
         .register(ScopeConfig {
             scope: "notes".to_string(),
             folder: FolderConfig {
-                commit_on_edit,
                 remote,
                 watch_events: false,
                 watch_interval: None,
@@ -220,8 +214,11 @@ fn apply(
 /// Return once no commit the owner admitted is still running. `paths` takes
 /// the Git lock, which an admitted commit holds from before its save returned
 /// until it has recorded its outcome.
-fn idle(window: &WebviewWindow<MockRuntime>, session: u64) {
-    invoke(window, "paths", json!({ "session": session })).expect("paths");
+/// Commit the whole folder through `window`; the reply.
+fn commit(window: &WebviewWindow<MockRuntime>, session: u64) -> Value {
+    let committed = invoke(window, "commit", json!({ "session": session })).unwrap();
+    assert_eq!(committed["status"], "committed", "{committed}");
+    committed
 }
 
 fn git(root: &Path, args: &[&str]) -> String {
@@ -250,7 +247,7 @@ fn eventually(what: &str, condition: impl Fn() -> bool) {
 
 #[test]
 fn a_window_attaches_reads_publishes_and_commits_through_invoke() {
-    let fixture = fixture("round-trip", &["main"], false);
+    let fixture = fixture("round-trip", &["main"]);
     let main = window(&fixture.app, "main");
     let attached = invoke(
         &main,
@@ -260,7 +257,6 @@ fn a_window_attaches_reads_publishes_and_commits_through_invoke() {
     .unwrap();
     let session = attached["session"].as_u64().unwrap();
     assert_eq!(attached["snapshot"]["branch"], "main");
-    assert_eq!(attached["snapshot"]["commitOnEdit"], false);
     assert_eq!(
         attached["snapshot"]["files"],
         json!({ "state": "unknown", "error": null })
@@ -511,7 +507,7 @@ fn a_window_attaches_reads_publishes_and_commits_through_invoke() {
 
 #[test]
 fn a_window_reaches_only_its_own_scopes_and_its_own_sessions() {
-    let fixture = fixture("sessions", &["a", "b"], false);
+    let fixture = fixture("sessions", &["a", "b"]);
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let intruder = window(&fixture.app, "intruder");
@@ -629,7 +625,7 @@ fn a_window_reaches_only_its_own_scopes_and_its_own_sessions() {
 
 #[test]
 fn two_windows_share_one_owner_and_detaching_one_leaves_the_other() {
-    let fixture = fixture("shared", &["a", "b"], true);
+    let fixture = fixture("shared", &["a", "b"]);
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let heard: Arc<Mutex<Vec<Value>>> = Arc::default();
@@ -690,11 +686,8 @@ fn two_windows_share_one_owner_and_detaching_one_leaves_the_other() {
         .iter()
         .all(|event| event["scope"] == "notes" && event["paths"] == json!(["a.md"])));
 
-    // Window A saves and goes away at once. The owner admitted the save's
-    // commit before the save returned, and finishes it without the window.
-    // The earlier saves' commits are let finish first: a save made while one
-    // of them held the Git lock would have its own attempt skipped.
-    idle(&a, a_session);
+    // Window A saves and goes away at once. The save landed; window B's
+    // commit records it without the window that made it.
     apply(
         &a,
         a_session,
@@ -706,15 +699,16 @@ fn two_windows_share_one_owner_and_detaching_one_leaves_the_other() {
         invoke(&a, "read", json!({ "session": a_session, "path": "a.md" })).unwrap_err()["name"],
         "Denied"
     );
-    eventually("the detached window's save to be committed", || {
-        fixture.root.join(".git/refs/heads/main").exists()
-            && git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]) == "a.md\nlast.md"
-    });
+    assert!(!fixture.root.join(".git/refs/heads/main").exists());
+    commit(&b, b_session);
+    assert_eq!(
+        git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]),
+        "a.md\nlast.md"
+    );
 
     // Window B is untouched: same session, same owner, same history.
-    idle(&b, b_session);
     apply(&b, b_session, json!([create("b.md", "after a left")])).unwrap();
-    idle(&b, b_session);
+    commit(&b, b_session);
     assert_eq!(
         git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]),
         "a.md\nb.md\nlast.md"
@@ -732,8 +726,7 @@ fn two_windows_share_one_owner_and_detaching_one_leaves_the_other() {
     let a_again = attach(&a);
     apply(&a, a_again, json!([create("again.md", "x")])).unwrap();
 
-    // Shutdown drains what was admitted and refuses what comes after. That
-    // save was admitted for its commit when it landed, with the folder free.
+    // Shutdown drains what was admitted and refuses what comes after.
     fixture.app.folders().shutdown();
     assert_eq!(
         apply(&b, b_session, json!([create("late.md", "x")])).unwrap_err(),
@@ -750,8 +743,8 @@ fn two_windows_share_one_owner_and_detaching_one_leaves_the_other() {
     );
     assert_eq!(
         git(&fixture.root, &["status", "--porcelain"]),
-        "",
-        "the admitted commit finished before shutdown returned"
+        "?? again.md",
+        "shutdown commits nothing of its own"
     );
 }
 
@@ -825,12 +818,12 @@ impl HeldRemote {
     }
 }
 
-/// A folder that does not commit on edit, with a remote whose pushes are held.
+/// A folder with a remote whose pushes are held.
 #[cfg(unix)]
 fn held_fixture(label: &str, windows: &[&str]) -> (Fixture, HeldRemote) {
     let directory = temp(label);
     let (held, remote) = HeldRemote::new(&directory.0);
-    (fixture_in(directory, windows, false, Some(remote)), held)
+    (fixture_in(directory, windows, Some(remote)), held)
 }
 
 fn open_request(window: &WebviewWindow<MockRuntime>, session: u64) -> u64 {
@@ -1051,10 +1044,10 @@ fn ending_a_session_withdraws_its_unstarted_push_and_keeps_the_one_in_flight() {
 #[cfg(unix)]
 #[test]
 fn a_push_in_flight_at_the_remote_holds_no_window_save_or_commit_back() {
-    // This folder commits on edit, and its remote holds every push.
+    // This folder's remote holds every push.
     let directory = temp("network-held");
     let (remote, configured) = HeldRemote::new(&directory.0);
-    let fixture = fixture_in(directory, &["a", "b"], true, Some(configured));
+    let fixture = fixture_in(directory, &["a", "b"], Some(configured));
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let a_session = attach(&a);
@@ -1063,13 +1056,13 @@ fn a_push_in_flight_at_the_remote_holds_no_window_save_or_commit_back() {
     let subjects = || git(&fixture.root, &["log", "--format=%s"]);
     let (a, b) = (&a, &b);
 
-    // Window A saves. The owner commits it on its own and pushes nothing:
-    // only a push request sends history to the remote.
+    // Window A saves and commits, and nothing is pushed: only a push
+    // request sends history to the remote.
     apply(a, a_session, json!([create("one.md", "one")])).unwrap();
-    idle(a, a_session);
+    commit(a, a_session);
     assert_eq!(subjects(), "Add one.md");
     let first = head();
-    assert_eq!(remote.arrivals(), 0, "an automatic commit stays local");
+    assert_eq!(remote.arrivals(), 0, "a commit stays local");
 
     std::thread::scope(|scope| {
         // A asks for a push. It is a real `git push`, held inside the remote.
@@ -1082,15 +1075,15 @@ fn a_push_in_flight_at_the_remote_holds_no_window_save_or_commit_back() {
         let request = open_request(a, a_session);
         let pushing = scope.spawn(move || push(a, a_session, request));
 
-        // Window B saves, and both windows' terminals make directories and
-        // save, while one push is in flight and another waits. Every call
-        // returns, and each complete save is committed by its own attempt.
+        // Window B saves, and both windows' terminals make directories, save,
+        // and commit, while one push is in flight and another waits. Every
+        // call returns.
         apply(b, b_session, json!([create("two.md", "two")])).unwrap();
-        idle(b, b_session);
+        commit(b, b_session);
         assert_eq!(subjects(), "Add two.md\nAdd one.md");
         invoke(a, "mkdir", json!({ "session": a_session, "path": "made" })).unwrap();
         apply(a, a_session, json!([create("made/three.md", "three")])).unwrap();
-        idle(a, a_session);
+        commit(a, a_session);
         assert_eq!(subjects(), "Add made/three.md\nAdd two.md\nAdd one.md");
         let third = head();
         let status = invoke(b, "status", json!({ "session": b_session })).unwrap();
@@ -1122,7 +1115,7 @@ fn a_push_in_flight_at_the_remote_holds_no_window_save_or_commit_back() {
 
 #[test]
 fn a_page_reload_ends_that_pages_sessions_and_nothing_else() {
-    let fixture = fixture("reload", &["a", "b"], true);
+    let fixture = fixture("reload", &["a", "b"]);
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let a_session = attach(&a);
@@ -1139,9 +1132,6 @@ fn a_page_reload_ends_that_pages_sessions_and_nothing_else() {
         json!([create("before.md", "saved before the reload")]),
     )
     .unwrap();
-    // Let that save's commit finish, so window B's save below is not skipped
-    // for finding the Git lock held.
-    idle(&b, b_session);
     crate::commands::end_page(a.as_ref());
 
     // Its session is gone.
@@ -1170,10 +1160,11 @@ fn a_page_reload_ends_that_pages_sessions_and_nothing_else() {
     assert_ne!(again, a_session);
     let read = invoke(&a, "read", json!({ "session": again, "path": "before.md" })).unwrap();
     assert_eq!(read["bytes"], json!("saved before the reload".as_bytes()));
-    eventually("the old page's save to be committed", || {
-        fixture.root.join(".git/refs/heads/main").exists()
-            && git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]) == "b.md\nbefore.md"
-    });
+    commit(&a, again);
+    assert_eq!(
+        git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]),
+        "b.md\nbefore.md"
+    );
 }
 
 type AttachHook = Arc<dyn Fn() + Send + Sync>;
@@ -1239,7 +1230,7 @@ fn hold_next(
 
 #[test]
 fn a_save_held_before_the_folder_lands_after_its_sessions_later_save_and_stays() {
-    let fixture = fixture("last-landed", &["last-landed"], false);
+    let fixture = fixture("last-landed", &["last-landed"]);
     let page = window(&fixture.app, "last-landed");
     let session = attach(&page);
     let read = |path: &str| std::fs::read_to_string(fixture.root.join(path)).ok();
@@ -1271,7 +1262,7 @@ fn a_save_held_before_the_folder_lands_after_its_sessions_later_save_and_stays()
 
 #[test]
 fn a_second_delivery_of_a_save_lands_again_through_any_session() {
-    let fixture = fixture("late-delivery", &["late-delivery", "elsewhere"], false);
+    let fixture = fixture("late-delivery", &["late-delivery", "elsewhere"]);
     let page = window(&fixture.app, "late-delivery");
     let (one, two) = (attach(&page), attach(&page));
     let read = |path: &str| std::fs::read_to_string(fixture.root.join(path)).ok();
@@ -1298,7 +1289,7 @@ fn a_second_delivery_of_a_save_lands_again_through_any_session() {
 
 #[test]
 fn a_second_scope_on_the_same_root_cannot_open() {
-    let fixture = fixture("alias-scope", &["main"], false);
+    let fixture = fixture("alias-scope", &["main"]);
     // The same directory, spelled through its parent.
     let spelled = fixture.root.join("..").join("notes");
     fixture
@@ -1333,7 +1324,7 @@ fn a_second_scope_on_the_same_root_cannot_open() {
 
 #[test]
 fn a_destroyed_window_ends_its_sessions_after_the_manager_forgot_its_webview() {
-    let fixture = fixture("destroyed", &["a", "b"], true);
+    let fixture = fixture("destroyed", &["a", "b"]);
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let a_session = attach(&a);
@@ -1344,9 +1335,6 @@ fn a_destroyed_window_ends_its_sessions_after_the_manager_forgot_its_webview() {
         json!([create("before.md", "saved before the window closed")]),
     )
     .unwrap();
-    // Let that save's commit finish, so window B's save below is not skipped
-    // for finding the Git lock held.
-    idle(&b, b_session);
 
     // What Tauri does before any plugin hears `Destroyed`: the manager drops
     // the webview. From here the plugin cannot look the webview up by label,
@@ -1380,7 +1368,7 @@ fn a_destroyed_window_ends_its_sessions_after_the_manager_forgot_its_webview() {
     );
     assert!(!fixture.root.join("late.md").exists());
     // Window B keeps its session, and the save made before the window closed
-    // is in the folder and in history.
+    // is in the folder, and in history once B commits.
     let read = invoke(
         &b,
         "read",
@@ -1391,10 +1379,11 @@ fn a_destroyed_window_ends_its_sessions_after_the_manager_forgot_its_webview() {
         read["bytes"],
         json!("saved before the window closed".as_bytes())
     );
-    eventually("both saves to be committed", || {
-        fixture.root.join(".git/refs/heads/main").exists()
-            && git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]) == "b.md\nbefore.md"
-    });
+    commit(&b, b_session);
+    assert_eq!(
+        git(&fixture.root, &["ls-tree", "-r", "--name-only", "HEAD"]),
+        "b.md\nbefore.md"
+    );
     // Destroying it again, or a window that never attached, changes nothing.
     crate::window_destroyed(fixture.app.handle(), "a");
     crate::window_destroyed(fixture.app.handle(), "never-existed");
@@ -1407,7 +1396,7 @@ fn a_stale_webview_handle_neither_joins_nor_ends_another_webviews_sessions() {
     // it. The mock manager keeps a destroyed window's entry, so the second
     // cannot be built under the first one's label here; the same-label case
     // is exercised on the identity objects in the test after this one.
-    let fixture = fixture("stale-handle", &["old", "successor"], false);
+    let fixture = fixture("stale-handle", &["old", "successor"]);
     let old = window(&fixture.app, "old");
     let old_session = attach(&old);
     old.as_ref().close().unwrap();
@@ -1479,7 +1468,6 @@ fn a_window_recreated_under_the_same_label_is_a_separate_instance() {
         .register(ScopeConfig {
             scope: "notes".to_string(),
             folder: FolderConfig {
-                commit_on_edit: false,
                 watch_events: false,
                 watch_interval: None,
                 ..FolderConfig::new(
@@ -1558,7 +1546,7 @@ fn a_window_recreated_under_the_same_label_is_a_separate_instance() {
 
 #[test]
 fn an_attach_that_finishes_after_its_window_was_destroyed_registers_nothing() {
-    let fixture = fixture("late-attach", &["late", "b"], false);
+    let fixture = fixture("late-attach", &["late", "b"]);
     let late = window(&fixture.app, "late");
     let b = window(&fixture.app, "b");
     let b_session = attach(&b);
@@ -1613,7 +1601,7 @@ fn an_attach_that_finishes_after_its_window_was_destroyed_registers_nothing() {
 
 #[test]
 fn a_reload_fences_an_attach_in_flight_for_the_old_page() {
-    let fixture = fixture("reload-attach", &["reloading"], false);
+    let fixture = fixture("reload-attach", &["reloading"]);
     let page = window(&fixture.app, "reloading");
     let (at_hook, release) = hold_first_attach("reloading");
 
@@ -1656,7 +1644,7 @@ pub(crate) fn page_advanced(label: &str) {
 
 #[test]
 fn a_session_the_new_page_attaches_during_reload_cleanup_survives_it() {
-    let fixture = fixture("reload-cleanup", &["reloading-cleanup"], false);
+    let fixture = fixture("reload-cleanup", &["reloading-cleanup"]);
     let page = window(&fixture.app, "reloading-cleanup");
     let old_session = attach(&page);
 
@@ -1739,7 +1727,6 @@ fn invoke_bridge() {
         .register(ScopeConfig {
             scope: "notes".to_string(),
             folder: FolderConfig {
-                commit_on_edit: std::env::var_os("FOLDER_BRIDGE_MANUAL").is_none(),
                 remote: std::env::var("FOLDER_BRIDGE_REMOTE")
                     .ok()
                     .map(|url| Remote {
@@ -1836,7 +1823,7 @@ fn a_window_without_the_permission_cannot_call_the_plugin() {
 
 #[test]
 fn recovering_an_incoming_update_is_a_command_of_a_session_on_that_scope() {
-    let fixture = fixture("recover-scope", &["owner", "other"], false);
+    let fixture = fixture("recover-scope", &["owner", "other"]);
     let owner = window(&fixture.app, "owner");
     let other = window(&fixture.app, "other");
     let intruder = window(&fixture.app, "intruder");
@@ -1939,7 +1926,7 @@ fn merge_options_are_optional_arguments_that_reach_the_owner() {
         url: bare.display().to_string(),
         branch: "main".to_string(),
     };
-    let fixture = fixture_in(directory, &["main"], false, Some(remote));
+    let fixture = fixture_in(directory, &["main"], Some(remote));
     let main = window(&fixture.app, "main");
     let session = attach(&main);
     apply(

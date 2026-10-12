@@ -22,9 +22,7 @@ export const commands = {
 	/**  One result per requested path, in the order given. */
 	readMany: (session: number, paths: string[]) => typedError<(Settled<FileRead, FileError>)[], FileError>(__TAURI_INVOKE("plugin:epicenter-folder|read_many", { session, paths })),
 	/**
-	 *  Publish ordered changes. Where the folder commits on edit, a complete
-	 *  batch requests an automatic local commit. While the folder is busy,
-	 *  requests coalesce and wait for its protection.
+	 *  Publish ordered changes. A save requests no commit.
 	 *
 	 *  Saves are published in the order they reach the folder, not the order a
 	 *  page asked for them. The last to land on a path wins, from any window, and
@@ -306,9 +304,7 @@ export type GitError =
  */
 { name: "Withdrawn" } |
 /**  The caller has no session for this folder, or names another window's. */
-{ name: "Denied"; reason: string } | { name: "NoRemote" } | { name: "InvalidMessage"; reason: string } | { name: "NothingToCommit" } |
-/**  Staged authoring requires `commitOnEdit: false`. */
-{ name: "AutomaticHistory" } | { name: "BranchMoved"; expected: string | null; actual: string | null } |
+{ name: "Denied"; reason: string } | { name: "NoRemote" } | { name: "InvalidMessage"; reason: string } | { name: "NothingToCommit" } | { name: "BranchMoved"; expected: string | null; actual: string | null } |
 /**
  *  An incoming update has not finished; staging and staged commits wait
  *  for `recoverIncoming`. Saves continue.
@@ -318,7 +314,6 @@ export type GitError =
 export type GitSnapshot = {
 	branch: string,
 	remote: Remote | null,
-	commitOnEdit: boolean,
 	files: Observation<FilesObservation>,
 	sync: Observation<SyncObservation>,
 	activity: Activities,

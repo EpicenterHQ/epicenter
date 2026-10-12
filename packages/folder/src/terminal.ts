@@ -3,18 +3,16 @@
  *
  * The shell reads and writes the same files as the app through the folder's
  * accounted storage; there is no scratch copy. Redirection and `rm` act on
- * whatever is at a path. Each successful content write
- * follows the folder's automatic history policy. A command that
+ * whatever is at a path. A write makes no commit (ADR-0529). A command that
  * rewrites a file it read in the same command writes against the sha256 it
  * read, so an intervening replacement is refused; a plain redirection is a
  * deliberate overwrite.
  *
  * `git` is a real command over the folder's history: status, diff, log, add,
- * commit -m, push, fetch, pull --ff-only, and merge. Staged authoring requires
- * `commitOnEdit: false`. `git merge` merges the already fetched remote head
- * when it fast-forwards or merges cleanly; a conflict writes nothing and
- * exits 1, pointing to Sync, in either history mode. Other Git commands are
- * refused.
+ * commit -m, push, fetch, pull --ff-only, and merge. `git merge` merges the
+ * already fetched remote head when it fast-forwards or merges cleanly; a
+ * conflict writes nothing and exits 1, pointing to Sync. Other Git commands
+ * are refused.
  */
 import { Buffer } from 'buffer/';
 import {
@@ -810,7 +808,7 @@ async function runGit(
 		case 'help':
 		case '--help':
 			return ok(
-				`Supported: git status, git diff [--cached] [paths], git log [-n N] [--oneline]${git.snapshot.commitOnEdit ? '' : ', git add <paths>|-A, git commit -m <message>'}, git push, git fetch, git pull --ff-only, git merge\n`,
+				'Supported: git status, git diff [--cached] [paths], git log [-n N] [--oneline], git add <paths>|-A, git commit -m <message>, git push, git fetch, git pull --ff-only, git merge\n',
 			);
 		default:
 			return error(

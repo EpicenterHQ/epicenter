@@ -1,4 +1,4 @@
-//! Automatic commit subjects.
+//! Subjects for commits of the whole folder.
 //!
 //! A port of `packages/app/src/files/git/messages.ts`, pinned to it by the
 //! golden vectors in `fixtures/commit-subjects.txt`. The 72 limit counts

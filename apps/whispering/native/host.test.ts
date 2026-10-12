@@ -81,7 +81,7 @@ async function start(overrides: Partial<HostOptions> = {}) {
 
 /** The folder's owner, for a test that needs files published and committed. */
 async function owner(root: string) {
-	const folder = await openTestFolder(root, { commitOnEdit: false });
+	const folder = await openTestFolder(root);
 	cleanups.push(() => folder.close());
 	return folder;
 }

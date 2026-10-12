@@ -68,7 +68,6 @@ async function openTodos(
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
-				commitOnEdit: false,
 				opfs: {
 					locks: testLocks,
 					getDirectory: async () =>

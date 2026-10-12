@@ -2,9 +2,9 @@
  * Browser folders with real isomorphic-git objects, on the in-memory OPFS
  * stand-in (`browser-storage.test-support.ts`).
  *
- * Complete table, KV, and file publications request automatic history without
- * waiting for it. Conflicts and directory operations request no history;
- * staged authoring requires manual mode, including through the folder shell.
+ * A save makes no commit (ADR-0529): table, KV, file, and shell writes stay
+ * uncommitted until a commit is asked for, and staged authoring works through
+ * the folder shell.
  * A table reads and writes one Markdown file per row and leaves every other
  * file alone.
  */
@@ -46,7 +46,7 @@ const author = { name: 'Browser', email: 'browser@example.test' };
 let environment: TestStorage;
 const opened: Folder<typeof definition>[] = [];
 
-async function open(options: { commitOnEdit?: boolean; id?: string } = {}) {
+async function open(options: { id?: string } = {}) {
 	environment ??= createTestStorage();
 	const folder = expectOk(
 		await openFolder({
@@ -54,13 +54,11 @@ async function open(options: { commitOnEdit?: boolean; id?: string } = {}) {
 			definition,
 			browser: {
 				author,
-				commitOnEdit: options.commitOnEdit,
 				...browserStorage(environment),
 			},
 		}),
 	);
 	opened.push(folder);
-	await settled(folder);
 	return folder;
 }
 
@@ -68,17 +66,6 @@ afterEach(async () => {
 	for (const folder of opened.splice(0)) await folder.close();
 	environment = createTestStorage();
 });
-
-/** Wait for background commit work to settle. */
-/** Wait for the commit attempt a save started, and its push, to settle. */
-async function settled(folder: Folder<typeof definition>) {
-	for (let index = 0; index < 400; index++) {
-		const { activity } = folder.git.snapshot;
-		if (!activity.commit.active && !activity.push.active) return;
-		await Bun.sleep(5);
-	}
-	throw new Error('Git work did not settle');
-}
 
 describe('browser folder tables', () => {
 	test('a repository previously opened on another branch refuses a new main history', async () => {
@@ -93,7 +80,6 @@ describe('browser folder tables', () => {
 			backend,
 			boundary,
 			author,
-			commitOnEdit: false,
 		});
 		const bytes = new TextEncoder().encode('previous history');
 		expectOk(
@@ -109,7 +95,7 @@ describe('browser folder tables', () => {
 		expect((await history.commit()).status).toBe('committed');
 		const previous = await backend.readBranch();
 		await history.close();
-		const folder = await open({ id: 'legacy-branch', commitOnEdit: false });
+		const folder = await open({ id: 'legacy-branch' });
 		expectOk(await folder.files.create('saved.txt', 'saved'));
 		expect(await folder.git.commit()).toMatchObject({
 			status: 'blocked',
@@ -128,7 +114,7 @@ describe('browser folder tables', () => {
 	});
 
 	test('creates, lists, replaces, renames, and deletes canonical Markdown rows', async () => {
-		const folder = await open({ commitOnEdit: false });
+		const folder = await open();
 		const created = expectOk(
 			await folder.tables.todos.create(
 				{ fields: { title: 'Buy milk', done: false }, body: 'Two liters.\n' },
@@ -174,7 +160,7 @@ describe('browser folder tables', () => {
 	});
 
 	test('create is exclusive, keeps names exactly, and refuses a path outside its table', async () => {
-		const folder = await open({ commitOnEdit: false });
+		const folder = await open();
 		await folder.tables.todos.create(
 			{ fields: { title: 'P', done: false }, body: '' },
 			{ stem: 'Plan' },
@@ -215,7 +201,7 @@ describe('browser folder tables', () => {
 	});
 
 	test('text that is not a valid row is InvalidRow with its exact text, and is repaired by a guarded replace', async () => {
-		const folder = await open({ commitOnEdit: false });
+		const folder = await open();
 		const source =
 			'﻿---\r\ntitle: Kept # comment\r\ndone: maybe\r\nextra: unknown\r\n---\r\nBody\r\n';
 		await folder.files.create('todos/odd.md', source);
@@ -268,7 +254,7 @@ describe('browser folder tables', () => {
 	});
 
 	test('same-stem siblings are ordinary files: a row is created beside them, and rename and delete leave them', async () => {
-		const folder = await open({ commitOnEdit: false });
+		const folder = await open();
 		const audio = new Uint8Array([1, 2, 3]);
 		// The audio exists first. It does not block the row that shares its stem.
 		const opus = expectOk(await folder.files.create('todos/rec.opus', audio));
@@ -372,7 +358,6 @@ describe('browser folder tables', () => {
 				definition: withReference,
 				browser: {
 					author,
-					commitOnEdit: false,
 					...testBrowserStorage(),
 				},
 			}),
@@ -422,7 +407,7 @@ describe('browser folder tables', () => {
 	});
 
 	test('a todo with an unresolvable alias is an InvalidRow, repaired by replacing its captured bytes', async () => {
-		const folder = await open({ commitOnEdit: false });
+		const folder = await open();
 		const source = '---\ntitle: *missing\ndone: false\n---\nNotes stay.\n';
 		await folder.files.create('todos/alias.md', source);
 		const listed = expectOk(await folder.tables.todos.list());
@@ -447,7 +432,7 @@ describe('browser folder tables', () => {
 	});
 
 	test('a kv set creates kv.json when it is missing and keeps keys it does not change', async () => {
-		const folder = await open({ commitOnEdit: false });
+		const folder = await open();
 		const kvText = async () =>
 			new TextDecoder().decode(
 				expectOk(await folder.files.read('kv.json')).bytes,
@@ -477,9 +462,8 @@ describe('browser folder persistence and history', () => {
 			{ stem: 'kept' },
 		);
 		await first.files.mkdir('empty/dir');
-		await settled(first);
-		const head = first.git.snapshot.lastCommit;
-		expect(head?.status).toBe('committed');
+		expect(first.git.snapshot.lastCommit).toBeUndefined();
+		expect((await first.git.commit()).status).toBe('committed');
 		await first.close();
 
 		const second = await open();
@@ -492,39 +476,37 @@ describe('browser folder persistence and history', () => {
 		const commits = expectOk(await second.git.log(10));
 
 		expect(commits.map((commit) => commit.message)).toEqual([
-			'Add todos/kept.md\n',
-			'Add epicenter.json\n',
+			'Update 2 files\n',
 		]);
 		const status = expectOk(await second.git.status());
 
 		expect(status.changes).toEqual([]);
 	});
 
-	test('file create, move, and remove request automatic history', async () => {
+	test('file create, move, and remove make no commit; an explicit commit records each', async () => {
 		const folder = await open();
 		const created = expectOk(
 			await folder.files.create('notes/raw.txt', 'hello'),
 		);
-		// The save returned; its commit attempt is still running.
-		expect(folder.git.snapshot.activity.commit.active).toBe(true);
-		await settled(folder);
-		expect(folder.git.snapshot.lastCommit).toMatchObject({
+		expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
+		expect(await folder.git.commit()).toMatchObject({
 			status: 'committed',
-			message: 'Add notes/raw.txt',
+			message: 'Update 2 files',
 		});
 		const moved = expectOk(await folder.files.move(created, 'moved.txt'));
-		await settled(folder);
-		expect((await folder.git.status()).data!.changes).toEqual([]);
+		expect(expectOk(await folder.git.status()).changes).not.toEqual([]);
+		expect((await folder.git.commit()).status).toBe('committed');
+		expect(expectOk(await folder.git.status()).changes).toEqual([]);
 		expectOk(await folder.files.remove(moved));
-		await settled(folder);
-		expect(folder.git.snapshot.lastCommit).toMatchObject({
+		expect(await folder.git.commit()).toMatchObject({
 			status: 'committed',
 			message: 'Delete moved.txt',
 		});
-		expect((await folder.git.log(10)).data).toHaveLength(4);
+		expect((await folder.git.log(10)).data).toHaveLength(3);
 	});
 
-	test('directories and refused content saves request no history', async () => {
+	test('directories and refused content saves make no commit', async () => {
 		const folder = await open();
 		expectOk(await folder.files.mkdir('empty'));
 		expectOk(await folder.files.rmdir('empty'));
@@ -535,48 +517,17 @@ describe('browser folder persistence and history', () => {
 			),
 		);
 		expect(conflict.name).toBe('Conflict');
-		expect(folder.git.snapshot.lastCommit).toMatchObject({
-			status: 'committed',
-			message: 'Add epicenter.json',
-		});
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
 		expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
 	});
 
-	test('automatic mode refuses staging and a staged commit', async () => {
-		const folder = await open();
-		expect(expectErr(await folder.git.stage('all')).name).toBe(
-			'AutomaticHistory',
-		);
-		expect(expectErr(await folder.git.commitStaged('Authored')).name).toBe(
-			'AutomaticHistory',
-		);
-		expect((await folder.git.paths()).data).toEqual([]);
-	});
-
-	test('KV publication requests automatic history under the same policy', async () => {
-		const folder = await open();
-		expectOk(await folder.kv.set('theme', 'dark'));
-		await settled(folder);
-		expect(folder.git.snapshot.lastCommit).toMatchObject({
-			status: 'committed',
-			message: 'Add kv.json',
-		});
-		expectOk(await folder.kv.set('theme', 'light'));
-		await settled(folder);
-		expect(folder.git.snapshot.lastCommit).toMatchObject({
-			status: 'committed',
-			message: 'Update kv.json',
-		});
-	});
-
 	test('subscribe delivers the cached snapshot synchronously, unknown before the first scan', async () => {
-		const folder = await open({ commitOnEdit: false });
+		const folder = await open();
 		const seen: string[] = [];
 		const unsubscribe = folder.git.subscribe((snapshot) =>
 			seen.push(snapshot.files.state),
 		);
 		expect(seen).toEqual(['unknown']);
-		expect(folder.git.snapshot.commitOnEdit).toBe(false);
 		await folder.git.status();
 		expect(seen.at(-1)).toBe('observed');
 		await folder.files.create('x.txt', 'x');
@@ -585,8 +536,8 @@ describe('browser folder persistence and history', () => {
 		unsubscribe();
 	});
 
-	test('commitOnEdit false suppresses implicit commits; commitAndPush still commits', async () => {
-		const folder = await open({ commitOnEdit: false });
+	test('table, file, and KV saves make no commit; commitAndPush commits', async () => {
+		const folder = await open();
 		await folder.tables.todos.create(
 			{ fields: { title: 'M', done: false }, body: '' },
 			{ stem: 'manual' },
@@ -628,7 +579,7 @@ describe('browser folder persistence and history', () => {
 				{ fields: { title: 'A', done: false }, body: '' },
 				{ stem: 'a' },
 			);
-			await settled(folder);
+			expect((await folder.git.commit()).status).toBe('committed');
 			expect(requests).toBe(0);
 			const pushing = folder.git.push();
 			for (let index = 0; index < 200 && requests === 0; index++)
@@ -642,14 +593,10 @@ describe('browser folder persistence and history', () => {
 				),
 			);
 
-			for (let index = 0; index < 200; index++) {
-				if (!folder.git.snapshot.activity.commit.active) break;
-				await Bun.sleep(5);
-			}
-			const lastCommit = folder.git.snapshot.lastCommit;
-			expect(lastCommit?.status === 'committed' && lastCommit.message).toBe(
-				'Add todos/b.md',
-			);
+			expect(await folder.git.commit()).toMatchObject({
+				status: 'committed',
+				message: 'Add todos/b.md',
+			});
 			// That commit is local: its push was not started behind the stalled one.
 			expect(folder.git.snapshot.activity.push.active).toBe(true);
 
@@ -695,7 +642,6 @@ describe('browser folder persistence and history', () => {
 			},
 			boundary,
 			author,
-			commitOnEdit: false,
 		});
 		await boundary.apply([
 			{
@@ -718,37 +664,23 @@ describe('browser folder persistence and history', () => {
 });
 
 describe('browser terminal', () => {
-	test('shell writes use automatic history and reject staged authoring', async () => {
+	test('a shell write makes no commit until one is asked for', async () => {
 		const folder = await open();
 		const terminal = folder.terminal();
 		expect((await terminal.exec('echo text > typed.txt')).exitCode).toBe(0);
-		await settled(folder);
-		expect(folder.git.snapshot.lastCommit?.status).toBe('committed');
+		expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
+		expect(folder.git.snapshot.lastCommit).toBeUndefined();
 		expect(
 			new TextDecoder().decode(
 				expectOk(await folder.files.read('typed.txt')).bytes,
 			),
 		).toBe('text\n');
-		// A redirect publishes the empty file and then its content, one attempt
-		// each. When the second finds the first still running, the content is
-		// saved and uncommitted until the next request.
-		await folder.git.commit();
+		expect((await folder.git.commit()).status).toBe('committed');
 		expect(expectOk(await folder.git.status()).changes).toEqual([]);
-		const before = expectOk(await folder.git.log(10)).map(
-			(commit) => commit.oid,
-		);
-		for (const command of ['git add typed.txt', 'git commit -m "Authored"']) {
-			const refused = await terminal.exec(command);
-			expect(refused.exitCode).not.toBe(0);
-			expect(refused.stderr).toContain('commitOnEdit: false');
-		}
-		expect(
-			expectOk(await folder.git.log(10)).map((commit) => commit.oid),
-		).toEqual(before);
 	});
 
 	test('shell reads and writes the same files; git staging semantics are real', async () => {
-		const folder = await open({ commitOnEdit: false });
+		const folder = await open();
 		const terminal = folder.terminal();
 		await folder.tables.todos.create(
 			{ fields: { title: 'One', done: false }, body: '' },
@@ -769,7 +701,7 @@ describe('browser terminal', () => {
 				expectOk(await folder.files.read('notes.txt')).bytes,
 			),
 		).toBe('shell note\n');
-		// This folder opted out of automatic commits for staged authoring.
+		// A shell write makes no commit.
 		expect(folder.git.snapshot.lastCommit).toBeUndefined();
 
 		let status = await terminal.exec('git status');
@@ -817,7 +749,7 @@ describe('browser terminal', () => {
 		);
 		expect((await terminal.exec('git rebase main')).exitCode).toBe(1);
 
-		// Automatic checkpoints keep the index consistent with the new head.
+		// A whole-folder commit keeps the index consistent with the new head.
 		await terminal.exec('echo "auto" > auto.txt');
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect((await terminal.exec('git status')).stdout).toBe(
@@ -831,5 +763,5 @@ describe('browser terminal', () => {
 	});
 });
 
-// Automatic commits need the shared lock; this runtime has none of its own.
+// Commits need the shared lock; this runtime has none of its own.
 useWebLocks();

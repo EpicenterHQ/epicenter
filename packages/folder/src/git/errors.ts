@@ -38,9 +38,6 @@ export const GitError = defineErrors({
 		reason,
 	}),
 	NothingToCommit: () => ({ message: 'Nothing is staged to commit' }),
-	AutomaticHistory: () => ({
-		message: 'Staged authoring requires commitOnEdit: false',
-	}),
 	BranchMoved: ({
 		expected,
 		actual,

@@ -151,7 +151,7 @@ async function open<const TDefinition extends FolderDefinition>(
 		await openFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		}),
 	);
 }
@@ -857,7 +857,7 @@ try {
 		'--count',
 	]);
 	check(
-		'with commitOnEdit: false, no save made a commit',
+		'no save made a commit',
 		commits.stdout.toString().trim() === '0',
 		commits.stdout.toString() + commits.stderr.toString(),
 	);

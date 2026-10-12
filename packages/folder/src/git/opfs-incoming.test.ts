@@ -109,7 +109,6 @@ async function folderAt(opfs = memoryOpfs()) {
 		backend,
 		boundary,
 		author,
-		commitOnEdit: false,
 	});
 	opened.push(history);
 
@@ -223,10 +222,7 @@ function folderFiles(opfs: MemoryOpfs) {
 
 const stored = (opfs: MemoryOpfs, path: string) => opfs.files(ROOT).get(path);
 
-async function reopen(
-	opfs: MemoryOpfs,
-	options: { commitOnEdit?: boolean } = {},
-) {
+async function reopen(opfs: MemoryOpfs) {
 	const folder = expectOk(
 		await openFolder({
 			id: 'merge',
@@ -234,7 +230,6 @@ async function reopen(
 			browser: {
 				author,
 				remote,
-				commitOnEdit: options.commitOnEdit ?? false,
 				opfs: opfsEnvironment(opfs),
 			},
 		}),

@@ -3,8 +3,8 @@
  *
  * Local observers hear confirmed paths and uncertain failed-step paths,
  * never unattempted paths. Accounting preserves the storage receipt and
- * requests one automatic commit for any outcome that may have changed a
- * path: a commit records the folder's files as they are.
+ * notes one edit for any outcome that may have changed a path; it asks for
+ * no commit (ADR-0529).
  */
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -24,7 +24,7 @@ test('a directory move hints its uncertain destination after a completed prefix'
 		await openFolder({
 			id: 'partial-publication',
 			definition: defineFolder({ kv: {}, tables: {} }),
-			browser: { ...browserStorage(storage), commitOnEdit: false },
+			browser: { ...browserStorage(storage) },
 		}),
 	);
 	try {
@@ -83,15 +83,11 @@ for (const failed of [
 			});
 			const heard: string[] = [];
 			let edits = 0;
-			let commits = 0;
 			const storage = withPublication({
 				storage: { ...boundary, apply: async () => receipt },
 				history: {
 					noteEdit: () => {
 						edits++;
-					},
-					requestAutomaticCommit: () => {
-						commits++;
 					},
 				},
 				landed: (paths) => heard.push(...paths),
@@ -114,7 +110,6 @@ for (const failed of [
 				]),
 			).toBe(receipt);
 			expect(edits).toBe(1);
-			expect(commits).toBe(1);
 			expect(heard).toEqual([
 				'confirmed.md',
 				...(unknown

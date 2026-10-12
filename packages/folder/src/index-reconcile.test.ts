@@ -14,7 +14,7 @@
  *   reports `indexWarning`; a later explicit commit-and-push repairs the index
  *
  * See also:
- * - `native.test.ts` for automatic commits and the browser/native exchange
+ * - `native.test.ts` for whole-folder commits and the browser/native exchange
  * - `source-scope.test.ts` for which files a checkpoint includes
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
@@ -65,7 +65,7 @@ test('an unchanged checkpoint repairs HEAD B, files B, index A (MM)', async () =
 	const folder = await openNativeFolder({
 		root,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	const outcome = await folder.git.commit();
 	expect(outcome).toMatchObject({
@@ -92,7 +92,7 @@ test('staged-only additions and deletions do not survive a checkpoint', async ()
 	const folder = await openNativeFolder({
 		root,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	const outcome = await folder.git.commit();
 	// The ignored file is not source, and kept.md is unchanged: no new commit.
@@ -109,7 +109,7 @@ test('an index lock after the branch moved keeps the commit and a later commit-a
 	const folder = await openNativeFolder({
 		root,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	await folder.files.create('b.md', 'new\n');
 	await writeFile(join(root, '.git', 'index.lock'), '');

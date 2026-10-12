@@ -21,7 +21,7 @@
  *
  * See also:
  * - `history.test.ts` for cancellation of outgoing work on close
- * - `history-attempt.test.ts` for automatic attempts and lock failures
+ * - `history-attempt.test.ts` for commit attempts and lock failures
  */
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -46,10 +46,7 @@ function gate() {
 
 async function setup(
 	overrides: (real: GitBackend) => Partial<GitBackend> = () => ({}),
-	options: {
-		commitOnEdit?: boolean;
-		boundary?: (base: FileBoundary) => FileBoundary;
-	} = {},
+	options: { boundary?: (base: FileBoundary) => FileBoundary } = {},
 ) {
 	const raw = await rawBrowserFolder({ id: 'ordering' });
 	const base = raw.boundary;
@@ -64,12 +61,7 @@ async function setup(
 		...overrides(real),
 	};
 	const boundary = options.boundary?.(base) ?? base;
-	const history = createHistory({
-		backend,
-		boundary,
-		author,
-		commitOnEdit: options.commitOnEdit ?? true,
-	});
+	const history = createHistory({ backend, boundary, author });
 	async function write(path: string, text: string) {
 		const bytes = encoder.encode(text);
 		const { error: applyError } = await base.apply([
@@ -108,9 +100,7 @@ async function setup(
 }
 
 test('a staged commit that waited while an incoming record was admitted refuses and touches nothing', async () => {
-	const { raw, real, history, write } = await setup(() => ({}), {
-		commitOnEdit: false,
-	});
+	const { raw, real, history, write } = await setup();
 	await write('a.txt', 'one');
 	const committed = await history.commit();
 	if (committed.status !== 'committed') throw new Error(committed.status);
@@ -209,19 +199,16 @@ test('an external branch move after the parent is pinned is refused, not overwri
 test('close waits for a held stage and a held staged commit, including its refresh', async () => {
 	const stageGate = gate();
 	const commitGate = gate();
-	const { history, write, pushes } = await setup(
-		(real) => ({
-			async stage(paths) {
-				await stageGate.opened;
-				return real.stage(paths);
-			},
-			async commitIndex(message, commitAuthor) {
-				await commitGate.opened;
-				return real.commitIndex(message, commitAuthor);
-			},
-		}),
-		{ commitOnEdit: false },
-	);
+	const { history, write, pushes } = await setup((real) => ({
+		async stage(paths) {
+			await stageGate.opened;
+			return real.stage(paths);
+		},
+		async commitIndex(message, commitAuthor) {
+			await commitGate.opened;
+			return real.commitIndex(message, commitAuthor);
+		},
+	}));
 	await write('a.txt', 'one');
 	const staging = history.stage(['a.txt']);
 	// Let it enter the Git protection: close refuses a request still outside it.
@@ -239,15 +226,12 @@ test('close waits for a held stage and a held staged commit, including its refre
 	expect(closed).toBe(true);
 
 	// A fresh history: a held staged commit keeps close open through its refresh.
-	const second = await setup(
-		(real) => ({
-			async commitIndex(message, commitAuthor) {
-				await commitGate.opened;
-				return real.commitIndex(message, commitAuthor);
-			},
-		}),
-		{ commitOnEdit: false },
-	);
+	const second = await setup((real) => ({
+		async commitIndex(message, commitAuthor) {
+			await commitGate.opened;
+			return real.commitIndex(message, commitAuthor);
+		},
+	}));
 	await second.write('a.txt', 'one');
 	expect((await second.history.stage(['a.txt'])).error).toBeNull();
 	const committing = second.history.commitStaged('Stage one file');
@@ -384,41 +368,23 @@ test('explicit commit stays local; a commit requested during a held pass waits a
 	await history.close();
 });
 
-test('with commitOnEdit false, nothing commits on its own and commitAndPush still does both', async () => {
-	const { history, write, pushes } = await setup(() => ({}), {
-		commitOnEdit: false,
-	});
-	await write('a.txt', 'one');
-	await Bun.sleep(20);
-	expect(history.snapshot.lastCommit).toBeUndefined();
-	const both = await history.commitAndPush();
-	expect(both.commit.status).toBe('committed');
-	expect(both.push.status).toBe('pushed');
-	expect(pushes()).toBe(1);
-	await history.close();
-});
-
 test('a published checkpoint keeps its receipt when the following observation fails', async () => {
 	let failRead = false;
 	let publications = 0;
-	const { real, history, write } = await setup(
-		(base) => ({
-			async casBranch(expected, next) {
-				const result = await base.casBranch(expected, next);
-				if (result.ok) {
-					publications++;
-					failRead = true;
-				}
-				return result;
-			},
-			async readBranch() {
-				if (failRead)
-					throw new Error('post-publication observation unavailable');
-				return base.readBranch();
-			},
-		}),
-		{ commitOnEdit: false },
-	);
+	const { real, history, write } = await setup((base) => ({
+		async casBranch(expected, next) {
+			const result = await base.casBranch(expected, next);
+			if (result.ok) {
+				publications++;
+				failRead = true;
+			}
+			return result;
+		},
+		async readBranch() {
+			if (failRead) throw new Error('post-publication observation unavailable');
+			return base.readBranch();
+		},
+	}));
 	try {
 		await write('saved.md', 'the save remains readable');
 		expectOk(await history.status());
@@ -457,21 +423,18 @@ test('a published checkpoint keeps its receipt when the following observation fa
 test('a published fast-forward stays successful when its observation cannot be refreshed', async () => {
 	let incoming: string | undefined;
 	let failRead = false;
-	const { real, base, history, write, commitOf } = await setup(
-		(backend) => ({
-			readRemoteTracking: async () => incoming,
-			async publishIncoming(plan) {
-				const result = await backend.publishIncoming(plan);
-				if (result.status === 'published') failRead = true;
-				return result;
-			},
-			async readBranch() {
-				if (failRead) throw new Error('post-pull observation unavailable');
-				return backend.readBranch();
-			},
-		}),
-		{ commitOnEdit: false },
-	);
+	const { real, base, history, write, commitOf } = await setup((backend) => ({
+		readRemoteTracking: async () => incoming,
+		async publishIncoming(plan) {
+			const result = await backend.publishIncoming(plan);
+			if (result.status === 'published') failRead = true;
+			return result;
+		},
+		async readBranch() {
+			if (failRead) throw new Error('post-pull observation unavailable');
+			return backend.readBranch();
+		},
+	}));
 	try {
 		await write('saved.md', 'before');
 		await history.commit();
@@ -506,19 +469,16 @@ test('a published fast-forward stays successful when its observation cannot be r
 test('a branch read failure before publication remains a failed checkpoint', async () => {
 	let failRead = false;
 	let publications = 0;
-	const { real, history, write } = await setup(
-		(base) => ({
-			async readBranch() {
-				if (failRead) throw new Error('pre-publication branch unavailable');
-				return base.readBranch();
-			},
-			async casBranch(expected, next) {
-				publications++;
-				return base.casBranch(expected, next);
-			},
-		}),
-		{ commitOnEdit: false },
-	);
+	const { real, history, write } = await setup((base) => ({
+		async readBranch() {
+			if (failRead) throw new Error('pre-publication branch unavailable');
+			return base.readBranch();
+		},
+		async casBranch(expected, next) {
+			publications++;
+			return base.casBranch(expected, next);
+		},
+	}));
 	try {
 		await write('saved.md', 'saved without a commit');
 		failRead = true;

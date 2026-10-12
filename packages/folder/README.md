@@ -96,12 +96,10 @@ folder remains usable. A failed attempt can leave discovery missing, stale, or
 uncertain.
 
 Publication always writes through `files.overwrite`, including on unchanged
-reopening. It uses `commitOnEdit`: opening awaits the file attempt while
-history settles separately, and identical trees create no additional commit.
-Publication never explicitly commits or pushes. Opening an empty folder before
-pulling an existing remote changes bootstrap behavior: with history disabled,
-the uncommitted `epicenter.json` blocks incoming updates; with history enabled,
-its local initial commit creates unrelated history. Get the remote's history
+reopening. Publication never commits or pushes, so the published
+`epicenter.json` stays uncommitted until a sync or an explicit commit. Opening
+an empty folder before pulling an existing remote leaves that uncommitted file
+in the way of incoming updates. Get the remote's history
 before the first opening: a browser account folder uses
 [`downloadFolder`](#downloading-a-browser-folder), and a runtime with a clone
 operation clones first. The current Todos browser startup opens first and
@@ -147,13 +145,13 @@ nothing. On a server, opening returns a refusal.
 openFolder({
   id,        // required: which folder, such as 'so.epicenter.todos'. Never a path.
   definition,
-  browser,   // optional: { scope, author, remote, httpFetch, commitOnEdit, createIfMissing, opfs }
+  browser,   // optional: { scope, author, remote, httpFetch, createIfMissing, opfs }
 }): Promise<Result<Folder, OpenFolderError>>
 ```
 
 `browser` applies to a browser folder only. A browser folder uses a local
-author by default. Complete saves request automatic commits; requests made
-before a checkpoint starts share it. A `remote` needs an explicit `author`.
+author by default. Saves never commit (ADR-0529). A `remote` needs an explicit
+`author`.
 `httpFetch` supplies a fetch-compatible HTTP function for Git fetch and push.
 It defaults to regular fetch; applications can supply an authenticated relay.
 It receives the canonical remote URL and the operation's abort signal. It does
@@ -218,7 +216,7 @@ visible, empty, from its creation until its stream closes.
 | What happened | Outcome |
 | --- | --- |
 | A step failed before its stream closed | `Io`. A file the step created is removed again; when its absence cannot be established, `Unconfirmed`. |
-| A stream's close threw | `Unconfirmed`, whatever the path holds afterward: matching bytes do not prove which write put them there. The path is hinted, the history observation turns stale, and an automatic commit records whatever the path holds. |
+| A stream's close threw | `Unconfirmed`, whatever the path holds afterward: matching bytes do not prove which write put them there. The path is hinted and the history observation turns stale. |
 | A move landed its destination and could not remove its source | `SourceNotRemoved`. The destination is hinted. |
 
 Saves are ordered by the lock alone, not by when their methods were called.
@@ -407,7 +405,7 @@ import { openFolder } from '@epicenter/folder/bun';
 const opened = await openFolder({
   root: '/path/to/an/existing/directory',
   definition,
-  git: { author: { name: 'Tool', email: 'tool@example.test' }, commitOnEdit: false },
+  git: { author: { name: 'Tool', email: 'tool@example.test' } },
 });
 ```
 
@@ -487,7 +485,7 @@ successful reading does not mean an application can open the folder.
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
 | `onFilesChanged(listener)` | A hint that paths changed, so read again. Returns the function that stops listening. |
 | `terminal({ cwd })` | A shell over the folder's files and history. |
-| `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no final automatic commit. |
+| `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no commit. |
 
 ### Files
 
@@ -912,10 +910,9 @@ requests its commit, and the other listeners still hear. The same holds for a
 its first command runs. Its `git` command supports `status`, `diff [--cached]`,
 `log`, `add`, `commit -m`, `push`, `fetch`, `pull --ff-only`, and `merge`. A
 redirection is a deliberate overwrite; a rewrite of a file the same command
-read is conditional on what it read. `add` and staged `commit -m` need
-`commitOnEdit: false`. `git merge` merges the already fetched remote branch
-(`pull --ff-only` fetches first) when it fast-forwards or merges cleanly. A
-conflict, in either history mode, writes nothing: it prints Git's
+read is conditional on what it read. `git merge` merges the already fetched
+remote branch (`pull --ff-only` fetches first) when it fast-forwards or merges
+cleanly. A conflict writes nothing: it prints Git's
 `CONFLICT` lines and `CONFLICTS_NEED_SYNC`, which points to Sync, and exits
 1. A command holds nothing between its steps, in the
 browser or the desktop app: another tab's or window's save can land between
@@ -951,32 +948,19 @@ subject derived from the tree difference, and moves the branch only with a
 compare-and-swap. A moved branch is reported and not retried. Commit and push
 failures never undo a save.
 
-With `commitOnEdit` (default `true`), each complete table, KV, or file save
-this handle published asks for a commit in the background. If another tab, a
-pull, a staged command, or an earlier commit holds the folder's Git work, the
-request waits for it, together with every later request: when that work ends,
-one commit captures the latest files without another save. Each handle keeps
-at most one such waiting request, and no copy of the saved bytes. Any
-whole-folder commit, including an explicit `commit()`, answers the requests
-made before it started. An automatic waiter whose requests were already
-answered skips capture and records nothing. A browser or Bun save racing an
-admitted capture can authorize one later `unchanged` pass, which creates no
-empty commit. A commit that fails is reported in
-`git.snapshot.lastCommit` and is not retried; the next save asks again.
-There is no timer and no commit when the folder closes: a request still
-waiting then is dropped, so the last save can stay uncommitted indefinitely.
-Edits made by another program or tab ask for nothing. A save that stopped
-partway or whose outcome is unknown asks like any other: a commit records the
-folder's files as they are, never a claim about which save put them there. `git.snapshot.files` turns `stale` when
-a save lands after the last capture, and `git.status()` lists what is
-uncommitted.
+A save never asks for a commit (ADR-0529). A commit happens only when a caller
+asks for one: `commit()`, `commitAndPush()`, a staged `commitStaged()`, or
+sync's checkpoint before it fetches. A commit that fails is reported in
+`git.snapshot.lastCommit` and is not retried. `git.snapshot.files` turns
+`stale` when a save lands after the last capture, and `git.status()` lists what
+is uncommitted.
 
 The browser and Bun openers use local `main`. A remote branch selects the
 transfer destination; it never selects another local history. An existing
 repository with `HEAD` on another branch refuses commits and incoming
 adoption until its branch is deliberately reconciled.
 
-Automatic commits and `commit()` stay local, even with a configured remote.
+`commit()` stays local, even with a configured remote.
 Only explicit `push()` or `commitAndPush()` requests upload history.
 `commitAndPush()` commits and then pushes;
 a caller `signal` only stops that caller waiting, and a caller that stopped
@@ -1337,7 +1321,6 @@ storage with the handle's close signal. These wrappers retain no file-operation
 collection.
 
 Git keeps raw storage because incoming fast-forwards update files and history
-under their own policy. They must not trigger an automatic commit as a new
-local save. Saves are not ordered by when their methods were called: the last
+under their own policy, and are not recorded as local saves. Saves are not ordered by when their methods were called: the last
 to land on a path wins. Terminal writes apply separately; a
 recursive removal or directory move applies its captured file steps together.
