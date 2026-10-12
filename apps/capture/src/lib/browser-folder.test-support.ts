@@ -2,15 +2,15 @@
  * Test helper: a real browser folder over the folder package's in-memory OPFS
  * stand-in, with the controls a test of the Capture store needs: hold a
  * Markdown save while it runs, count Markdown saves, fail the next write of
- * a path, and change files as another program would.
+ * a path, and change files as another program would. The store gets its own
+ * mounted query client, with the capture listing observed as the timeline
+ * observes it, and records every write that failed.
  *
  * Import a runes-module loader first (`svelte-modules.test-support.js` or
  * `svelte-dom.test-support.js`); this module loads `captures.svelte.ts`.
  */
 import { captureDefinition } from '@epicenter/capture';
-import type { SyncChoices, SyncSide } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
-import type { SaveReview } from '@epicenter/svelte/edit-session';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	createTestStorage,
@@ -21,7 +21,8 @@ import type {
 	OpfsDirectoryHandle,
 	OpfsFileHandle,
 } from '../../../../packages/folder/src/opfs-store.js';
-import type { Captures } from './captures.svelte.js';
+import type { Captures, WriteFailure } from './captures.svelte.js';
+import { createQueryClient, observe, quiet } from './query.test-support.js';
 
 /**
  * OPFS handles that call `beforeClose` with a file's own handle before a
@@ -101,16 +102,20 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		expectOk(await folder.files.create(path, text));
 	// Loaded on use, after the test file registered its runes-module loader.
 	const { createCaptures } = await import('./captures.svelte.ts');
-	const captures: Captures = createCaptures({
-		folder,
-		location: folder.location,
-	});
-	await captures.refresh();
+	const failures: WriteFailure[] = [];
+	const captures: Captures = createCaptures(
+		{ folder, location: folder.location },
+		createQueryClient(),
+		{ onWriteFailed: (failure) => failures.push(failure) },
+	);
+	const stopObserving = observe(captures);
+	await quiet(captures);
 	const faults = opfsOf(storage).faults;
 	return {
 		folder,
 		captures,
 		counter,
+		failures,
 		/** The file's text now, or `undefined` when it is gone. */
 		async text(path: string) {
 			const read = await folder.files.read(path);
@@ -141,40 +146,9 @@ export async function openCaptures(files: Record<string, string> = {}) {
 			};
 		},
 		async close() {
+			stopObserving();
 			await captures.close();
 			await folder.close();
 		},
 	};
-}
-
-/** The open capture's row session and form; throws when another kind is open. */
-export function openCapture(captures: Captures) {
-	const item = captures.opened;
-	if (item?.kind !== 'capture')
-		throw new Error(`Expected an open capture, got ${item?.kind}`);
-	return item;
-}
-
-/** The open text session; throws when another kind is open. */
-export function openText(captures: Captures) {
-	const item = captures.opened;
-	if (item?.kind !== 'text')
-		throw new Error(`Expected open text, got ${item?.kind}`);
-	return item.session;
-}
-
-/**
- * One choice for every part of `session`'s review, all from `side`: the
- * person's draft (`local`) or the file as it is now (`incoming`). Throws
- * when nothing waits for a choice.
- */
-export function takeAll(
-	session: { readonly review: SaveReview | undefined },
-	side: SyncSide,
-): SyncChoices {
-	const { review } = session;
-	if (review === undefined) throw new Error('Expected a review');
-	return Object.fromEntries(
-		review.conflicts.map((conflict) => [conflict.id, { kind: 'take', side }]),
-	);
 }

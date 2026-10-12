@@ -13,14 +13,15 @@
  * - The page names the Capture scope and is told the directory; departure is
  *   heard on this window only
  * - Closing detaches this page once, and a sibling page keeps saving
- * - A save sends the whole row as one replacement guarded by the bytes this
- *   page last saved, and keeps undeclared metadata
- * - An edit made elsewhere is a conflict and is not overwritten
- * - A lost reply is unknown and shown as such; saving again is guarded, so a
- *   save that did land answers as a conflict for the person to resolve
- * - Closing waits for every save already requested
- * - A failed commit is reported beside a saved file; a closed folder is
- *   reported as stopped
+ * - A write sends the whole row as one replacement guarded by the bytes
+ *   this page last saved, and keeps undeclared metadata
+ * - An edit made elsewhere is a conflict: it is not overwritten, and the
+ *   capture shows it
+ * - A lost reply to a write that landed is confirmed; one that did not land
+ *   is reported as unknown, and the capture shows the file as it is
+ * - Closing waits for every write already queued
+ * - Save version commits through the owner and rewrites no file; a closed
+ *   folder is reported as stopped
  * - An import whose first save lost its reply is finished by a retry
  *
  * See also:
@@ -36,7 +37,7 @@ import {
 	DEPARTURE_STATUS_COMMAND,
 	HOST_STOPPED_EVENT,
 } from '@epicenter/epicenter/departure';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import type {
 	FileChange as Change,
 	GitSnapshot,
@@ -228,6 +229,10 @@ const { openCaptureHost, openDeparture } = await import(
 	'./folder.epicenter-host.js'
 );
 const { createCaptures } = await import('../captures.svelte.ts');
+const { cached, createQueryClient, observe, quiet } = await import(
+	'../query.test-support.js'
+);
+type WriteFailure = import('../captures.svelte.js').WriteFailure;
 
 function emit(name: string, payload?: unknown) {
 	for (const listener of listeners.get(name) ?? []) listener({ payload });
@@ -256,19 +261,19 @@ const LOST = 'the webview lost its IPC connection';
 
 async function opened() {
 	const host = await openCaptureHost();
-	const captures = createCaptures(host);
-	await captures.refresh();
-	return { host, captures };
+	const failures: WriteFailure[] = [];
+	const captures = createCaptures(host, createQueryClient(), {
+		onWriteFailed: (failure) => failures.push(failure),
+	});
+	observe(captures);
+	await quiet(captures);
+	return { host, captures, failures };
 }
 
-/** The open capture at PATH. */
-async function openOne(
-	captures: Awaited<ReturnType<typeof opened>>['captures'],
-) {
-	await captures.open('one', 'capture');
-	const item = captures.opened;
-	if (item?.kind !== 'capture') throw new Error(`opened ${item?.kind}`);
-	return item;
+/** The capture at PATH, opened, and its form. */
+function openOne(captures: Awaited<ReturnType<typeof opened>>['captures']) {
+	captures.open('one', 'capture');
+	return { form: captures.formOf('one') };
 }
 
 const encode = (source: string) => new TextEncoder().encode(source);
@@ -400,15 +405,15 @@ test('closing detaches this page once, and a sibling page keeps saving', async (
 	expect(listening()).toBe(0);
 });
 
-test('a save sends the whole row as one replacement guarded by the bytes this page last saved', async () => {
+test('a write sends the whole row as one replacement guarded by the bytes this page last saved', async () => {
 	put(PATH, SAVED);
 	const { host, captures } = await opened();
-	const { session, form } = await openOne(captures);
+	const { form } = openOne(captures);
 	calls = [];
 
 	form.inputNewThought('second');
 	expect(form.addThought()).toBe(true);
-	expect((await session.settled()).status).toBe('saved');
+	await quiet(captures);
 
 	const expected = `${FORMATTED}- second\n`;
 	expect(text(PATH)).toBe(expected);
@@ -425,61 +430,66 @@ test('a save sends the whole row as one replacement guarded by the bytes this pa
 	await host.close();
 });
 
-test('an edit made elsewhere to other lines combines with the draft, and neither is overwritten', async () => {
+test('an edit made elsewhere is a conflict: it is not overwritten, and the capture shows it', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
-	const { session, form } = await openOne(captures);
-	put(PATH, `${SAVED}- from another window\n`);
+	const { host, captures, failures } = await opened();
+	const { form } = openOne(captures);
+	const theirs = `${SAVED}- from another window\n`;
+	put(PATH, theirs);
 
 	form.inputText('Mine');
-	const state = await session.settled();
-	expect(state.status).toBe('saved');
-	expect(session.review).toBeUndefined();
-	expect(text(PATH)).toBe(`${withText('Mine')}- from another window\n`);
+	await quiet(captures);
+	expect(failures).toMatchObject([{ path: PATH, error: { name: 'Conflict' } }]);
+	expect(failures[0]?.lost).toContain('\nMine\n');
+	expect(text(PATH)).toBe(theirs);
+	expect(cached(captures, 'one').row.body).toContain('- from another window');
 	await captures.close();
 	await host.close();
 });
 
-test('a save whose reply is lost is confirmed by one read when it landed', async () => {
+test('a write whose reply is lost is confirmed by the owner when it landed', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
-	const { session, form } = await openOne(captures);
+	const { host, captures, failures } = await opened();
+	const { form } = openOne(captures);
 	overrides.apply = (_call, reply) => {
 		reply();
 		throw new Error(LOST);
 	};
 
 	form.inputText('Mine');
-	expect((await session.settled()).status).toBe('saved');
+	await quiet(captures);
 	delete overrides.apply;
+	expect(failures).toEqual([]);
 	expect(text(PATH)).toBe(withText('Mine'));
-	// Its own landed save guards the next one.
+	// The bytes that landed guard the next write.
 	form.inputText('Mine, more');
-	expect((await session.settled()).status).toBe('saved');
+	await quiet(captures);
+	expect(failures).toEqual([]);
 	expect(text(PATH)).toBe(withText('Mine, more'));
 	await captures.close();
 	await host.close();
 });
 
-test('a save whose reply is lost and did not land stays unknown until it is saved again', async () => {
+test('a write whose reply is lost and did not land shows the file as it is', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
-	const { session, form } = await openOne(captures);
+	const { host, captures, failures } = await opened();
+	const { form } = openOne(captures);
 	overrides.apply = () => {
 		throw new Error(LOST);
 	};
 
 	form.inputText('Mine');
-	const lost = await session.settled();
+	await quiet(captures);
 	delete overrides.apply;
-	expect(lost.status === 'error' && lost.error.name).toBe('Unconfirmed');
+	expect(failures).toMatchObject([
+		{
+			error: { name: 'Unconfirmed' },
+			lost: expect.stringContaining('\nMine\n'),
+		},
+	]);
 	expect(text(PATH)).toBe(SAVED);
-	expect(await captures.departure.settle()).toBe(1);
-
-	session.retry();
-	expect((await session.settled()).status).toBe('saved');
-	expect(text(PATH)).toBe(withText('Mine'));
-	expect(captures.unsettled).toBe(0);
+	expect(cached(captures, 'one').row.body).toContain('\nText\n');
+	expect(captures.unsettled).toBe(false);
 	await captures.close();
 	await host.close();
 });
@@ -487,7 +497,7 @@ test('a save whose reply is lost and did not land stays unknown until it is save
 test('closing waits for a save already sent and the latest edit after it, and only then detaches', async () => {
 	put(PATH, SAVED);
 	const { host, captures } = await opened();
-	const { form } = await openOne(captures);
+	const { form } = openOne(captures);
 	calls = [];
 	const landing = Promise.withResolvers<void>();
 	overrides.apply = async (_call, reply) => {
@@ -515,33 +525,18 @@ test('closing waits for a save already sent and the latest edit after it, and on
 	expect(sent('detach')).toHaveLength(1);
 });
 
-test('a failed commit is reported beside a saved file, and retried without rewriting it', async () => {
+test('Save version commits through the owner and rewrites no file', async () => {
 	const { host, captures } = await opened();
 	captures.inputNewCapture('Saved before history');
-	expect(await captures.create()).toBeUndefined();
-	const path =
-		captures.opened?.kind === 'capture' ? captures.opened.session.path : '';
+	expectOk(await captures.create('Saved before history'));
+	await quiet(captures);
+	const path = `captures/${captures.opened?.stem}.md`;
 	const saved = text(path);
+	// Saving the file asked for no commit.
+	expect(sent('commit')).toEqual([]);
 
-	emit(SNAPSHOT_CHANGED, {
-		scope: CAPTURE_FOLDER_ID,
-		sequence: 1,
-		snapshot: wireSnapshot({
-			lastCommit: {
-				at: 1,
-				result: { status: 'failed', error: 'index.lock exists' },
-			},
-		}),
-	});
-
-	expect(captures.git.lastCommit).toMatchObject({
-		status: 'failed',
-		error: 'index.lock exists',
-	});
-	expect(captures.unsettled).toBe(0);
-	expect(captures.folderStopped).toBe(false);
 	calls = [];
-	expect((await captures.commit()).status).toBe('unchanged');
+	expect(expectOk(await captures.saveVersion()).status).toBe('unchanged');
 	expect(calls.map((call) => call.cmd)).toEqual(['commit']);
 	expect(text(path)).toBe(saved);
 	await captures.close();
@@ -561,7 +556,9 @@ test('a folder its owner closed is reported as stopped, and the text typed stays
 	overrides.apply = () =>
 		refuse({ name: 'Refused', error: { name: 'Closed' } });
 	captures.inputNewCapture('typed after the folder closed');
-	expect(await captures.create()).toContain('was not saved');
+	expect(
+		expectErr(await captures.create('typed after the folder closed')).name,
+	).toBe('Closed');
 	expect(captures.newCapture).toBe('typed after the folder closed');
 	await captures.close();
 	await host.close();
@@ -579,7 +576,7 @@ test('an import whose first save lost its reply is finished by a retry, and repe
 	};
 
 	// The export landed, but its reply did not: nothing is claimed.
-	await expect(captures.importLegacy(read.bundle)).rejects.toThrow(
+	expect(expectErr(await captures.importLegacy(read.bundle)).message).toContain(
 		'Nothing was imported',
 	);
 	expect(lost).toBe(1);
@@ -590,14 +587,14 @@ test('an import whose first save lost its reply is finished by a retry, and repe
 	const original = text(exported[0] as string);
 
 	delete overrides.apply;
-	const retry = await captures.importLegacy(read.bundle);
+	const retry = expectOk(await captures.importLegacy(read.bundle));
 	expect(retry.complete).toBe(true);
 	expect(retry.documents.map((document) => document.status)).toEqual(
 		Array.from({ length: 6 }, () => 'created'),
 	);
 	expect(text(exported[0] as string)).toBe(original);
 
-	const again = await captures.importLegacy(read.bundle);
+	const again = expectOk(await captures.importLegacy(read.bundle));
 	expect(again.documents).toEqual([]);
 	expect(again.alreadyImported).toHaveLength(6);
 	expect(

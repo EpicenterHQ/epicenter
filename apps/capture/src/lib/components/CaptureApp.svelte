@@ -3,15 +3,13 @@
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as Dialog from '@epicenter/ui/dialog';
-	import * as Empty from '@epicenter/ui/empty';
-	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { beforeNavigate } from '$app/navigation';
-	import type { Captures } from '$lib/captures.svelte.js';
-	import { backToTimeline, openItem } from '$lib/item-actions.js';
+	import { createMutation } from '@tanstack/svelte-query';
+	import type { CommitOutcome } from '@epicenter/folder';
+	import { type Captures, describeError } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
 	import Recovery from './Recovery.svelte';
-	import TechnicalDetails from './TechnicalDetails.svelte';
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
@@ -30,10 +28,10 @@
 	/** The capture just added from the timeline, so its view starts at Add a thought. */
 	let created = $state<string>();
 
-	// Leaving would lose something: unsaved or unadded text, or running work.
-	const mustStay = $derived(captures.unsettled > 0);
+	// Leaving would lose something: a write or action still running, or text not added.
+	const mustStay = $derived(captures.unsettled);
 
-	// Drafts live only in this page. A reload, a tab close, or a navigation out
+	// Text not added lives only in this page. A reload, a tab close, or a navigation out
 	// of the app is held back here; quitting the desktop app asks below.
 	beforeNavigate((navigation) => {
 		if (mustStay && navigation.willUnload) navigation.cancel();
@@ -48,50 +46,44 @@
 		departure?.notice?.stage === 'choose' ? departure.notice : undefined,
 	);
 
-	const commitProblem = $derived.by(() => {
-		const last = captures.git.lastCommit;
-		if (last === undefined) return undefined;
-		if (last.status === 'failed') return last.error;
-		if (last.status === 'blocked') return last.reason;
-		if (last.status === 'branchMoved') return 'The branch moved while committing.';
-		return undefined;
-	});
-	let committing = $state(false);
-	async function retryCommit() {
-		committing = true;
-		try {
-			const outcome = await captures.commit();
-			if (outcome.status === 'committed' || outcome.status === 'unchanged')
-				toast.success('History is up to date');
-			// No answer came back, so the snapshot cannot say what happened.
-			else if (outcome.status === 'unconfirmed')
-				toast.warning('The commit was not confirmed', { description: outcome.error });
-			// Refused while Capture closes or Epicenter quits; the snapshot is unchanged.
-			else if (outcome.status === 'blocked')
-				toast.error('The commit did not start', { description: outcome.reason });
-		} finally {
-			committing = false;
+	/** Save version: commit the saved files. Capture has no remote, so nothing is pushed. */
+	const saveVersion = createMutation(() => captures.saveVersion.options);
+	function told(outcome: CommitOutcome) {
+		switch (outcome.status) {
+			case 'committed':
+				return toast.success('Version saved', { description: outcome.indexWarning });
+			case 'unchanged':
+				return toast.info('No changes since the last version');
+			case 'branchMoved':
+				return toast.warning('Version not saved', {
+					description: 'The history changed while saving. Your captures are saved; save the version again.',
+				});
+			case 'blocked':
+				return toast.error('Version not saved', { description: outcome.reason });
+			case 'failed':
+				return toast.error('Version not saved', { description: outcome.error });
+			case 'unconfirmed':
+				return toast.warning('The version was not confirmed', { description: outcome.error });
+			default:
+				return toast.error('Version not saved');
 		}
 	}
+	function runSaveVersion() {
+		saveVersion.mutate(undefined, {
+			onSuccess: told,
+			onError: (error) => toast.error('Version not saved', { description: describeError(error) }),
+		});
+	}
 
-	const status = $derived.by((): { text: string; tone: 'quiet' | 'pending' | 'problem' } => {
+	const status = $derived.by((): { text: string; tone: 'quiet' | 'problem' } => {
 		if (captures.folderStopped) return { text: 'Saving unavailable', tone: 'problem' };
-		const save = item?.kind === 'capture' || item?.kind === 'text' ? item.session.state : undefined;
-		if (save?.status === 'error') return { text: 'Not saved', tone: 'problem' };
-		if (save?.status === 'saving') return { text: 'Saving…', tone: 'quiet' };
-		if (captures.unsettled > 0) return { text: 'Not saved yet', tone: 'pending' };
+		if (captures.saving) return { text: 'Saving…', tone: 'quiet' };
 		return { text: 'Saved', tone: 'quiet' };
 	});
 </script>
 
-<!-- Returning to the app reads the folder again. -->
-<svelte:document
-	onvisibilitychange={() => {
-		if (document.visibilityState === 'visible') void captures.check();
-	}}
-/>
+<!-- Returning to the window reads the folder again: the query client listens for focus. -->
 <svelte:window
-	onfocus={() => void captures.check()}
 	onbeforeunload={(event) => {
 		if (mustStay) event.preventDefault();
 	}}
@@ -102,7 +94,7 @@
 			// shortcut does not depend on it.
 			event.preventDefault();
 			toast.warning('Reload stopped: some text is not saved', {
-				description: 'Finish, resolve, or copy it first, then reload.',
+				description: 'Wait for saving to finish, and add or clear text you typed, then reload.',
 			});
 		}
 	}}
@@ -116,18 +108,26 @@
 			class="-ml-2.5"
 			onclick={() => {
 				recovering = false;
-				void backToTimeline(captures);
+				captures.leave();
 			}}>Capture</Button
 		>
-		<span
-			role="status"
-			class={{
-				'text-xs': true,
-				'text-muted-foreground': status.tone === 'quiet',
-				'font-medium': status.tone !== 'quiet',
-				'text-destructive': status.tone === 'problem',
-			}}
-		>{status.text}</span>
+		<div class="flex items-center gap-3">
+			<span
+				role="status"
+				class={{
+					'text-xs': true,
+					'text-muted-foreground': status.tone === 'quiet',
+					'font-medium': status.tone === 'problem',
+					'text-destructive': status.tone === 'problem',
+				}}
+			>{status.text}</span>
+			<Button
+				variant="outline"
+				size="sm"
+				disabled={saveVersion.isPending || captures.fenced || captures.folderStopped}
+				onclick={runSaveVersion}>{saveVersion.isPending ? 'Saving version…' : 'Save version'}</Button
+			>
+		</div>
 	</div>
 </header>
 
@@ -161,23 +161,6 @@
 			<Alert.Description>Captures still save to the folder from this window. Reloading it, or exporting captures from an account, may not work until Epicenter restarts.</Alert.Description>
 		</Alert.Root>
 	{/if}
-	{#if captures.listProblem}
-		<Alert.Root variant="destructive">
-			<Alert.Title>The captures folder could not be read</Alert.Title>
-			<Alert.Description>What is listed here may be out of date. Text you have typed in this window is still here.</Alert.Description>
-			<div class="mt-2 text-foreground"><Button variant="outline" size="sm" onclick={() => captures.refresh()}>Check again</Button></div>
-			<TechnicalDetails detail={captures.listProblem} />
-		</Alert.Root>
-	{/if}
-	{#if commitProblem}
-		<Alert.Root aria-label="History problem">
-			<Alert.Title>History was not recorded</Alert.Title>
-			<Alert.Description>Your captures are saved as files. Only the Git commit that records them did not complete, so the latest changes are not in history yet.</Alert.Description>
-			<div class="mt-2"><Button variant="outline" size="sm" disabled={committing} onclick={retryCommit}>{committing ? 'Committing…' : 'Try the commit again'}</Button></div>
-			<TechnicalDetails detail={commitProblem} />
-		</Alert.Root>
-	{/if}
-
 	<div>
 		{#if item === undefined}
 			{#if recovering}
@@ -185,7 +168,7 @@
 					{captures}
 					onOpen={(stem, mode) => {
 						recovering = false;
-						void openItem(captures, stem, mode);
+						captures.open(stem, mode);
 					}}
 				/>
 			{:else}
@@ -195,29 +178,13 @@
 					onRecover={() => (recovering = true)}
 				/>
 			{/if}
-		{:else if item.kind === 'loading'}
-			<Loading label="Opening…" />
-		{:else if item.kind === 'failed'}
-			<Empty.Root role="alert">
-				<Empty.Header>
-					<Empty.Title>This capture could not be opened</Empty.Title>
-					<Empty.Description>Nothing was changed. It may have been removed or renamed outside this window.</Empty.Description>
-				</Empty.Header>
-				<Empty.Content>
-					<div class="flex flex-wrap justify-center gap-2">
-						<Button variant="outline" size="sm" onclick={() => void captures.reload()}>Try again</Button>
-						<Button variant="outline" size="sm" onclick={() => void backToTimeline(captures)}>Back to timeline</Button>
-					</div>
-					<TechnicalDetails detail={item.message} />
-				</Empty.Content>
-			</Empty.Root>
-		{:else if item.kind === 'capture'}
+		{:else if item.mode === 'capture'}
 			{#key item}
-				<CaptureDetail {captures} {item} focusNewThought={created === item.stem} />
+				<CaptureDetail {captures} stem={item.stem} focusNewThought={created === item.stem} />
 			{/key}
 		{:else}
 			{#key item}
-				<TextDetail {captures} {item} />
+				<TextDetail {captures} stem={item.stem} />
 			{/key}
 		{/if}
 	</div>
@@ -234,7 +201,7 @@
 					{#if captures.folderStopped}
 						Epicenter can no longer save from this window. {leaving === 'restart' ? 'Restarting' : 'Quitting'} now discards the text still open here. Keep working to copy or download it first.
 					{:else}
-						Some text could not be saved, or was typed and not added yet. {leaving === 'restart' ? 'Restarting' : 'Quitting'} now discards it. Keep working to finish, resolve, or copy it.
+						Some text was typed and not added yet. {leaving === 'restart' ? 'Restarting' : 'Quitting'} now discards it. Keep working to add or copy it.
 					{/if}
 				</Dialog.Description>
 			</Dialog.Header>

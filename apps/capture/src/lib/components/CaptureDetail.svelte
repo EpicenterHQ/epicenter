@@ -1,47 +1,63 @@
 <!--
-	One open capture as its text and thoughts. Every change saves at once
-	through the capture's row session; "Edit as text" opens the file's exact
-	Markdown instead. The parent keys this view by the open capture, so
-	another capture mounts a new view.
+	One capture as its text and thoughts. The view reads the capture listing
+	narrowed to this capture, so it never disagrees with the timeline. Every
+	change goes into that cache and is written at once; "Edit as text" opens
+	the file's exact Markdown instead. The parent keys this view by the
+	capture.
 
-	When the body stops reading as text and thoughts (a version reloaded from
-	elsewhere with two Thoughts headings, say), the controls go away rather
-	than show values the file does not have, and Edit as text is the way to
-	repair it.
+	When the body stops reading as text and thoughts (a version read again
+	with two Thoughts headings, say), the controls go away rather than show
+	values the file does not have, and Edit as text is the way to repair it.
 -->
 <script lang="ts">
-	import { captureDefinition } from '@epicenter/capture';
-	import { formatRow } from '@epicenter/folder';
+	import { captureBody, captureDefinition } from '@epicenter/capture';
+	import { formatRow, rowPath } from '@epicenter/folder';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
+	import * as Empty from '@epicenter/ui/empty';
 	import * as Field from '@epicenter/ui/field';
+	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { tick, untrack } from 'svelte';
-	import { type Captures, instantOf, type Opened } from '$lib/captures.svelte.js';
+	import { type Captures, capturesKeys, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
-	import { backToTimeline, confirmDelete, openItem } from '$lib/item-actions.js';
-	import SaveBar from '@epicenter/svelte/save-bar';
+	import { confirmDelete } from '$lib/item-actions.js';
 	import ThoughtEditForm from './ThoughtEditForm.svelte';
 
 	let {
 		captures,
-		item,
+		stem,
 		focusNewThought = false,
 	}: {
 		captures: Captures;
-		/** The open capture. The parent keys this view by it. */
-		item: Extract<Opened, { kind: 'capture' }>;
+		/** The capture shown. The parent keys this view by it. */
+		stem: string;
 		/** The capture was just added: the next thing to type is a thought. */
 		focusNewThought?: boolean;
 	} = $props();
 
-	// The view is keyed by the item, so it never changes for this view.
-	const { session, form, stem } = untrack(() => item);
+	// The view is keyed by the capture, so neither changes for this view.
+	const path = untrack(() => rowPath(captures.folder.tables.captures.name, stem));
+	const form = untrack(() => captures.formOf(stem));
+	const entry = createQuery(() =>
+		captures.rowsQuery((listing) => listing.find((found) => found.stem === stem)),
+	);
+	const stored = $derived(entry.data?.result.error === null ? entry.data.result.data : undefined);
+	/** The body as text and thoughts, or why it cannot be edited here. */
+	const reading = $derived(stored === undefined ? undefined : captureBody.decode(stored.row.body));
+	const text = $derived(reading?.data?.text ?? '');
+	const thoughts = $derived(reading?.data?.thoughts ?? []);
+	const capturedAt = $derived(instantOf(stored?.row.fields.capturedAt));
+	/** Edits wait while Epicenter asks to leave and while this capture is deleted. */
+	const locked = $derived(captures.fenced || captures.isRemoving(path));
+	const saving = $derived(
+		captures.mutating({ mutationKey: capturesKeys.write(path), exact: true }) > 0,
+	);
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-	const capturedAt = $derived(instantOf(session.draft.fields.capturedAt));
 
 	let newThoughtField = $state<HTMLTextAreaElement | null>(null);
 	let thoughtList = $state<HTMLOListElement>();
@@ -52,7 +68,7 @@
 	});
 
 	// Engines without content-sized fields fall back to this many rows.
-	const rowsFor = (text: string) => Math.min(12, Math.max(3, text.split('\n').length + 1));
+	const rowsFor = (value: string) => Math.min(12, Math.max(3, value.split('\n').length + 1));
 
 	function submitOnModEnter(event: KeyboardEvent & { currentTarget: HTMLTextAreaElement }) {
 		if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
@@ -77,15 +93,16 @@
 		afterMenu = undefined;
 	}
 
-	async function copy(text: string, what: string) {
-		if (await copyText(text)) toast.success(`${what} copied`);
+	async function copy(value: string, what: string) {
+		if (await copyText(value)) toast.success(`${what} copied`);
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 
 	function download() {
-		const { data: text, error } = formatRow(captureDefinition.tables.captures, session.draft);
+		if (stored === undefined) return;
+		const { data: file, error } = formatRow(captureDefinition.tables.captures, stored.row);
 		if (error !== null) toast.error('Could not download this capture', { description: error.message });
-		else downloadText(`${stem}.md`, text);
+		else downloadText(`${stem}.md`, file);
 	}
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
@@ -100,9 +117,56 @@
 	}
 </script>
 
+{#if reading === undefined}
+	<div class="flex flex-col gap-4">
+		<div>
+			<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
+		</div>
+		{#if entry.data?.result.error}
+			{@const error = entry.data.result.error}
+			<Empty.Root role="alert">
+				<Empty.Header>
+					{#if error.name === 'InvalidRow'}
+						<Empty.Title>This file does not read as a capture</Empty.Title>
+						<Empty.Description>{error.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
+					{:else}
+						<Empty.Title>This capture could not be read</Empty.Title>
+						<Empty.Description>{error.message}</Empty.Description>
+					{/if}
+				</Empty.Header>
+				<Empty.Content>
+					{#if error.name === 'InvalidRow'}
+						<Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
+					{:else}
+						<Button variant="outline" size="sm" onclick={() => void entry.refetch()}>Try again</Button>
+					{/if}
+				</Empty.Content>
+			</Empty.Root>
+		{:else if entry.isSuccess}
+			<Empty.Root role="alert">
+				<Empty.Header>
+					<Empty.Title>This capture is no longer in the folder</Empty.Title>
+					<Empty.Description>It was deleted, here or by another program.</Empty.Description>
+				</Empty.Header>
+			</Empty.Root>
+		{:else if entry.isError}
+			<Empty.Root role="alert">
+				<Empty.Header>
+					<Empty.Title>The captures folder could not be read</Empty.Title>
+					<Empty.Description>{entry.error.message}</Empty.Description>
+				</Empty.Header>
+				<Empty.Content>
+					<Button variant="outline" size="sm" onclick={() => void entry.refetch()}>Try again</Button>
+				</Empty.Content>
+			</Empty.Root>
+		{:else}
+			<Loading label="Opening…" />
+		{/if}
+	</div>
+{:else}
 <div class="flex flex-col gap-4">
 	<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-		<Button variant="outline" size="sm" onclick={() => void backToTimeline(captures)}>Back to timeline</Button>
+		<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		<h1 class="mr-auto text-lg font-semibold tracking-tight">
 			{#if capturedAt}
 				<time datetime={capturedAt.toISOString()}>{when.format(capturedAt)}</time>
@@ -110,7 +174,7 @@
 				Capture with no date
 			{/if}
 		</h1>
-		<Button variant="outline" size="sm" onclick={() => void openItem(captures, stem, 'text')}>Edit as text</Button>
+		<Button variant="outline" size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger>
 				{#snippet child({ props })}
@@ -118,21 +182,17 @@
 				{/snippet}
 			</DropdownMenu.Trigger>
 			<DropdownMenu.Content align="end" class="w-48">
-				<DropdownMenu.Item onclick={() => copy(form.text, 'Capture text')}>Copy capture text</DropdownMenu.Item>
+				<DropdownMenu.Item onclick={() => copy(text, 'Capture text')}>Copy capture text</DropdownMenu.Item>
 				<DropdownMenu.Item onclick={download}>Download file</DropdownMenu.Item>
 				<DropdownMenu.Separator />
-				<DropdownMenu.Item variant="destructive" disabled={captures.fenced} onclick={() => confirmDelete(captures, form.text.trim().slice(0, 60))}>Delete capture…</DropdownMenu.Item>
+				<DropdownMenu.Item variant="destructive" disabled={locked} onclick={() => void confirmDelete(captures, stem)}>Delete capture…</DropdownMenu.Item>
 			</DropdownMenu.Content>
 		</DropdownMenu.Root>
 	</div>
 
-	<SaveBar
-		save={session.state}
-		review={session.review}
-		class="rounded-md border"
-		onRetry={() => session.retry()}
-		onResolve={(choices) => captures.resolve(session, choices)}
-	/>
+	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
+		{saving ? 'Saving…' : `Saved to ${path}`}
+	</p>
 
 	{#if form.refusal}
 		<Alert.Root aria-label="Not applied">
@@ -141,15 +201,15 @@
 		</Alert.Root>
 	{/if}
 
-	{#if form.reading.error}
+	{#if reading.error}
 		<Alert.Root variant="destructive" aria-label="Needs repair">
 			<Alert.Title>This capture cannot be edited as text and thoughts</Alert.Title>
 			<Alert.Description>
-				<p>{form.reading.error.message}</p>
+				<p>{reading.error.message}</p>
 				<p>Nothing was changed. Edit its Markdown as text to repair it.</p>
 			</Alert.Description>
 			<div class="mt-2 text-foreground">
-				<Button size="sm" onclick={() => void openItem(captures, stem, 'text')}>Edit as text</Button>
+				<Button size="sm" onclick={() => captures.open(stem, 'text')}>Edit as text</Button>
 			</div>
 		</Alert.Root>
 		{#each [
@@ -166,7 +226,7 @@
 			</Field.Field>
 		{/each}
 		{#if form.unsent}
-			<p class="text-sm text-muted-foreground">Leaving this capture, or editing it as text, asks before discarding this text.</p>
+			<p class="text-sm text-muted-foreground">It stays here until you clear it.</p>
 		{/if}
 	{:else}
 		<div class="flex flex-col gap-8">
@@ -174,9 +234,9 @@
 				<Field.Label for="capture-text">Capture text</Field.Label>
 				<Textarea
 					id="capture-text"
-					readonly={session.locked}
-					bind:value={() => form.text, form.inputText}
-					rows={rowsFor(form.text)}
+					readonly={locked}
+					bind:value={() => text, form.inputText}
+					rows={rowsFor(text)}
 					class="max-h-96 resize-y leading-relaxed"
 					placeholder="Write here…"
 				/>
@@ -186,22 +246,22 @@
 			<section class="flex flex-col gap-3" aria-label="Capture thoughts">
 				<h2 class="font-medium">
 					Thoughts
-					{#if form.thoughts.length}<span class="font-normal text-muted-foreground">{form.thoughts.length}</span>{/if}
+					{#if thoughts.length}<span class="font-normal text-muted-foreground">{thoughts.length}</span>{/if}
 				</h2>
 
-				{#if form.editing !== undefined && form.thoughts[form.editing.index] === undefined}
+				{#if form.editing !== undefined && thoughts[form.editing.index] === undefined}
 					{@const edit = form.editing}
 					<Alert.Root aria-label="Kept thought edit">
 						<Alert.Title>Your edit to a thought was not applied</Alert.Title>
 						<Alert.Description>The capture changed after you started editing, and that thought is gone. Your text is kept here; copy it, then cancel.</Alert.Description>
 						{#key edit.id}
-							<ThoughtEditForm {form} {edit} onSaved={() => {}} onCancelled={() => void focusThought(0)} />
+							<ThoughtEditForm {form} {edit} {locked} onSaved={() => {}} onCancelled={() => void focusThought(0)} />
 						{/key}
 					</Alert.Root>
 				{/if}
 
-				{#if form.thoughts.length}
-					{@const shown = form.thoughts}
+				{#if thoughts.length}
+					{@const shown = thoughts}
 					<ol bind:this={thoughtList} aria-label="Thoughts" class="list-decimal divide-y border-y pl-6 marker:text-muted-foreground">
 						{#each shown as thought, index (index)}
 							<li class="py-1 pl-1">
@@ -212,6 +272,7 @@
 										<ThoughtEditForm
 											{form}
 											{edit}
+											{locked}
 											onSaved={() => void focusThought(index)}
 											onCancelled={() => void focusThought(index)}
 										/>
@@ -226,21 +287,21 @@
 												{/snippet}
 											</DropdownMenu.Trigger>
 											<DropdownMenu.Content align="end" class="w-48" onCloseAutoFocus={onMenuClosed}>
-												<DropdownMenu.Item disabled={session.locked || form.editing !== undefined} onclick={() => {
+												<DropdownMenu.Item disabled={locked || form.editing !== undefined} onclick={() => {
 													form.startEditing(index, shown);
 													// The editor takes focus as it appears; the menu must not take it back.
 													afterMenu = () => {};
 												}}>Edit</DropdownMenu.Item>
-												<DropdownMenu.Item disabled={session.locked || index === 0} onclick={() => {
+												<DropdownMenu.Item disabled={locked || index === 0} onclick={() => {
 													if (form.swapThoughts(index, index - 1, shown)) afterMenu = () => void focusThought(index - 1);
 												}}>Move up</DropdownMenu.Item>
-												<DropdownMenu.Item disabled={session.locked || index === shown.length - 1} onclick={() => {
+												<DropdownMenu.Item disabled={locked || index === shown.length - 1} onclick={() => {
 													if (form.swapThoughts(index, index + 1, shown)) afterMenu = () => void focusThought(index + 1);
 												}}>Move down</DropdownMenu.Item>
 												<DropdownMenu.Separator />
 												<DropdownMenu.Item onclick={() => copy(thought, 'Thought')}>Copy text</DropdownMenu.Item>
 												<DropdownMenu.Separator />
-												<DropdownMenu.Item variant="destructive" disabled={session.locked} onclick={() => confirmDeleteThought(thought, index, shown)}>Delete thought…</DropdownMenu.Item>
+												<DropdownMenu.Item variant="destructive" disabled={locked} onclick={() => confirmDeleteThought(thought, index, shown)}>Delete thought…</DropdownMenu.Item>
 											</DropdownMenu.Content>
 										</DropdownMenu.Root>
 									</div>
@@ -263,7 +324,7 @@
 						<Textarea
 							id="new-thought"
 							bind:ref={newThoughtField}
-							readonly={session.locked}
+							readonly={locked}
 							bind:value={() => form.newThought, form.inputNewThought}
 							onkeydown={submitOnModEnter}
 							rows={2}
@@ -275,20 +336,21 @@
 						<p class="text-xs text-muted-foreground">
 							{#if form.newThought !== ''}
 								Not added yet. It stays here until you add it or clear it.
-							{:else if form.thoughts.length}
+							{:else if thoughts.length}
 								Ctrl or ⌘ + Enter adds it after the last thought.
 							{:else}
 								Thoughts you add are saved in this capture, under its Thoughts heading.
 							{/if}
 						</p>
-						<Button type="submit" size="sm" disabled={session.locked}>Add thought</Button>
+						<Button type="submit" size="sm" disabled={locked}>Add thought</Button>
 					</div>
 				</form>
 
-				{#if form.reading.data?.hasOtherContent}
+				{#if reading.data?.hasOtherContent}
 					<p class="text-muted-foreground">This file has more Markdown after its thoughts. It is kept as it is; Edit as text shows it.</p>
 				{/if}
 			</section>
 		</div>
 	{/if}
 </div>
+{/if}

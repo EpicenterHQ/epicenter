@@ -9,15 +9,15 @@
  *
  * Key behaviors:
  * - Neither choice changes what the page holds: after `ready` and another
- *   page's `cancel`, the open capture and its unsent text are as they were
- * - With a failed save, discarding is only a vote: the text and the failure
- *   stay until the person saves again
+ *   page's `cancel`, the open capture and its text not added are as they were
+ * - Settling waits for writes already queued, and counts only text not added
  */
 import '../svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { Departure } from '@epicenter/epicenter/departure/page';
 import { createFakeHost } from '../../../../epicenter/src/departure-page.test-support.js';
-import { openCapture, openCaptures } from '../browser-folder.test-support.js';
+import { openCaptures } from '../browser-folder.test-support.js';
+import { quiet } from '../query.test-support.js';
 
 const { createDeparture } = await import('@epicenter/epicenter/departure/page');
 
@@ -45,12 +45,12 @@ async function realPage() {
 			'---\ncapturedAt: 2026-10-01T02:30:00.000Z\n---\n\nA\n\n## Thoughts\n',
 	});
 	const { captures } = harness;
-	await captures.open('one', 'capture');
-	return { harness, captures, ...openCapture(captures) };
+	captures.open('one', 'capture');
+	return { harness, captures, form: captures.formOf('one') };
 }
 
 test('a page that answers ready changes nothing it holds; when another page cancels, everything is back as it was', async () => {
-	const { harness, captures, session, form } = await realPage();
+	const { harness, captures, form } = await realPage();
 	form.inputText('Typed: saves on its own');
 	form.inputNewThought('Held: never added on its own');
 	captures.inputNewCapture('A new capture, not added');
@@ -72,7 +72,7 @@ test('a page that answers ready changes nothing it holds; when another page canc
 	await settle();
 	expect(host.answers.at(-1)?.answer).toBe('ready');
 	expect(departure.fenced).toBe(true);
-	expect(captures.opened?.kind).toBe('capture');
+	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(form.newThought).toBe('Held: never added on its own');
 	expect(captures.newCapture).toBe('A new capture, not added');
 
@@ -81,20 +81,21 @@ test('a page that answers ready changes nothing it holds; when another page canc
 	host.nudge();
 	await settle();
 	expect(captures.fenced).toBe(false);
-	expect(session.locked).toBe(false);
 	expect(form.newThought).toBe('Held: never added on its own');
-	expect(form.text).toBe('Typed: saves on its own');
+	expect(await harness.text('captures/one.md')).toContain(
+		'\nTyped: saves on its own\n',
+	);
 	form.inputNewThought('Held, and now added');
 	expect(form.addThought()).toBe(true);
 	departure.destroy();
 	await harness.close();
 });
 
-test('with a failed save, discarding is only a vote: the text and the failure stay', async () => {
-	const { harness, captures, session, form } = await realPage();
-	harness.failNextWrite('captures/one.md');
+test('settling waits for a write already queued and counts only text not added', async () => {
+	const { harness, captures, form } = await realPage();
+	const { held, release } = harness.holdNextMarkdownWrite();
 	form.inputText('Mine');
-	expect((await session.settled()).status).toBe('error');
+	await held;
 	const host = createFakeHost();
 	const departure = createDeparture(host.port);
 	await departure.start();
@@ -102,22 +103,21 @@ test('with a failed save, discarding is only a vote: the text and the failure st
 
 	host.begin('restart');
 	host.nudge();
-	await eventually(() => departure.notice?.stage === 'choose');
-	expect(departure.notice).toMatchObject({ intent: 'restart', held: 1 });
-	departure.leaveAnyway(shownPrompt(departure));
 	await settle();
-	expect(form.text).toBe('Mine');
-	expect(session.state.status).toBe('error');
+	expect(captures.fenced).toBe(true);
+	// The page is still settling: the write is held.
+	expect(departure.notice?.stage).not.toBe('choose');
+	release();
+	await eventually(() => host.answers.at(-1)?.answer === 'ready');
+	// Nothing was left to lose, so the page answered ready without asking.
+	expect(host.answers.at(-1)?.answer).toBe('ready');
+	expect(await harness.text('captures/one.md')).toContain('\nMine\n');
+	await quiet(captures);
 
 	host.set({ phase: 'idle' });
 	host.nudge();
 	await settle();
-	expect(form.text).toBe('Mine');
-	expect(session.state.status).toBe('error');
 	expect(captures.fenced).toBe(false);
-	session.retry();
-	expect((await session.settled()).status).toBe('saved');
-	expect(await harness.text('captures/one.md')).toContain('\nMine\n');
 	departure.destroy();
 	await harness.close();
 });

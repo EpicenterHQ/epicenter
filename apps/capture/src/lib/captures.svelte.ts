@@ -1,31 +1,37 @@
 /**
- * The Capture product state over one opened folder.
+ * The Capture product state over one opened folder, kept in a TanStack Query
+ * cache (ADR-0528).
  *
- * The timeline is the last listing of `captures/*.md`. It is read when the
- * page opens, after each of the app's own actions, and when the person
- * returns to the window; the latest listing wins. It offers the files that
- * read as captures and names the rest, with why, for repair as text.
+ * Reads are queries: the capture listing (`folder.tables.captures.list()`),
+ * which the timeline and the capture view both read, and the exact text of
+ * a capture opened as text. They are read when a view opens, when the
+ * window regains focus, and after the app's own actions. Nothing follows
+ * the folder's change reports.
  *
- * One capture is open at a time, in one edit session
- * (`@epicenter/svelte/edit-session`): as a capture, a row session whose body
- * the capture form edits as text and thoughts; or as text, a text session
- * over the file's exact Markdown, which is how a file that is not a valid
- * capture is repaired. The open-item slot (`@epicenter/svelte/open-item`)
- * owns leaving: it waits for the session's saves, then releases it, and the
- * timeline is listed again. A save that failed or conflicted, or a thought
- * typed and not added, keeps the capture open until the person discards it
- * (`open` and `leave` answer `unsaved` with the session, and the view asks).
+ * An edit goes straight into the cache: one immutable `map` over the listing
+ * changes one capture, and one replacement changes a file's text. Each edit
+ * is written by a mutation scoped to its file, so writes to one file run one
+ * at a time. A write reads the cache when it runs, so it saves the newest
+ * row and is guarded by the newest confirmed `sha256`; a file has at most
+ * one write running and one waiting. A write that succeeds moves the guard
+ * forward. A write that fails reads the file again, which rolls the edit
+ * back, and reports the text that was lost.
  *
- * Returning to the window takes a newer version of the open capture when its
- * session holds nothing unsaved. Otherwise the next save merges with the
- * change: independent changes are written with no question, and parts both
- * changed, or a file deleted elsewhere, wait in a review the person answers.
+ * Every other action is a mutation too: create, delete, Save version, and
+ * the import of old captures. Leaving and closing fence new input, then
+ * wait until nothing is mutating. Saves never commit (ADR-0529); a version
+ * is recorded only by Save version.
+ *
+ * Input not committed yet is `$state`: the New capture text, and for each
+ * capture its thought typed and not added and its thought being edited
+ * (`formOf`). Those stay while the person moves between captures.
  */
 
 import {
 	CAPTURES_TABLE,
 	type CaptureFields,
 	captureBody,
+	captureDefinition,
 	composeBody,
 	excerpt,
 } from '@epicenter/capture';
@@ -37,60 +43,46 @@ import {
 import type { DepartureParticipant } from '@epicenter/epicenter/departure/page';
 import {
 	type CommitOutcome,
+	type FileCapture,
+	type FileError,
+	formatRow,
+	type Row,
 	type RowReadError,
 	rowPath,
 	rowStemOf,
 	type StoredRow,
-	type SyncChoices,
+	type TableCreateError,
+	type TableError,
+	type TableListing,
 } from '@epicenter/folder';
-import { createAdmissions } from '@epicenter/svelte/admissions';
+import { type OpenedFile, readTextFile } from '@epicenter/folder/file-browser';
+import type {
+	MutationFilters,
+	MutationOptions,
+	QueryClient,
+} from '@tanstack/svelte-query';
+import { createSubscriber, SvelteMap } from 'svelte/reactivity';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import {
-	createRowSession,
-	createTextSession,
-	type RowSession,
-	type TextSession,
-	textSource,
-} from '@epicenter/svelte/edit-session';
-import { createOpenItem } from '@epicenter/svelte/open-item';
-import { createSubscriber } from 'svelte/reactivity';
-import { createLogger } from 'wellcrafted/logger';
+	createQueryFactories,
+	defineKeys,
+	resultMutationOptions,
+	resultQueryOptions,
+} from 'wellcrafted/query';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type CaptureForm, createCaptureForm } from './capture-form.svelte.js';
 import type { CaptureHost } from './platform/types.js';
 
-const log = createLogger('capture');
-
 export type Captures = ReturnType<typeof createCaptures>;
+
+/** Every capture file, as the table lists it: a row, or why it is not one. */
+export type CaptureListing = TableListing<CaptureFields>;
 
 /** How a capture is open: its text and thoughts, or its exact Markdown. */
 export type Mode = 'capture' | 'text';
 
-/** Which capture is open, and how. */
-type Key = { readonly stem: string; readonly mode: Mode };
-
-/** A capture as its loader built it. */
-type Item =
-	| {
-			readonly kind: 'capture';
-			readonly stem: string;
-			readonly session: RowSession<CaptureFields>;
-			readonly form: CaptureForm;
-	  }
-	| {
-			readonly kind: 'text';
-			readonly stem: string;
-			readonly session: TextSession;
-	  }
-	| {
-			readonly kind: 'failed';
-			readonly stem: string;
-			readonly mode: Mode;
-			readonly message: string;
-	  };
-
-/** The one open capture: what the detail shows. */
-export type Opened =
-	| { readonly kind: 'loading'; readonly stem: string; readonly mode: Mode }
-	| Item;
+/** Which capture the detail shows, and how. */
+export type Opened = { readonly stem: string; readonly mode: Mode };
 
 /** A capture the timeline lists. */
 export type TimelineRow = {
@@ -109,30 +101,78 @@ export type Repair = {
 	readonly problem: string;
 };
 
+/** What a confirmed deletion removes, as the person was asked about it. */
+export type Deletion = {
+	readonly stem: string;
+	readonly path: string;
+	/** What the dialog names: the start of the capture's text, if it reads as one. */
+	readonly title: string;
+	/** The file as it was when the person was asked, for a file no view holds. */
+	readonly capture: FileCapture;
+	/**
+	 * Whether the file has changes that are in no saved version, as Git
+	 * status last checked; `undefined` when the check failed.
+	 */
+	readonly unversioned: boolean | undefined;
+};
+
+/** A write that failed and was rolled back to the file. */
+export type WriteFailure = {
+	readonly path: string;
+	readonly error: TableError | FileError;
+	/** The text that was on screen and is not in the file. */
+	readonly lost: string;
+};
+
+/** Why an action did not start, or why an import failed. */
+export const CapturesError = defineErrors({
+	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
+	ImportFailed: ({ cause }: { cause: unknown }) => ({
+		message: cause instanceof Error ? cause.message : String(cause),
+		cause,
+	}),
+});
+export type CapturesError = InferErrors<typeof CapturesError>;
+
 /** Why input or an action was refused while Epicenter asks to quit or restart. */
 export const DEPARTING =
 	'Epicenter is asking to quit or restart, so nothing is changed now. Your text is kept.';
 const CLOSING = 'Capture is closing, so nothing was changed.';
 
+/** Text larger than this opens as file details instead of in the editor. */
+const EDITABLE_TEXT_LIMIT = 1024 * 1024;
+
+/** Cache identity for every query and mutation the app runs. */
+export const capturesKeys = defineKeys({
+	/** Every query the app keeps; read again after the last write settles. */
+	all: ['captures'],
+	rows: ['captures', 'rows'],
+	text: (path: string) => ['captures', 'text', path] as const,
+	/** Every write of a capture or a file's text. */
+	writes: ['captures', 'write'],
+	write: (path: string) => ['captures', 'write', 'row', path] as const,
+	writeText: (path: string) => ['captures', 'write', 'text', path] as const,
+	remove: (path: string) => ['captures', 'remove', path] as const,
+});
+
 /**
  * Library errors state failures precisely; these are the ones a person acts
  * on. A lost reply leaves the outcome unknown.
  */
-export function describeError(error: {
-	readonly name: string;
-	readonly message: string;
-	readonly actualSha256?: string | undefined;
-	readonly issues?: readonly { readonly message: string }[];
-}): string {
+export function describeError(
+	error: FileError | TableError | CapturesError,
+): string {
 	switch (error.name) {
+		case 'NotStarted':
+			return error.reason;
 		case 'Conflict':
 			return error.actualSha256 === undefined
 				? 'The file is no longer here, so nothing was changed.'
-				: 'The file changed elsewhere, so nothing was changed. Check it and try again.';
+				: 'The file changed elsewhere, so nothing was changed. Its current version is shown.';
 		case 'Unconfirmed':
 			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${error.message}`;
 		case 'InvalidValues':
-			return (error.issues ?? []).map((issue) => issue.message).join(' ');
+			return error.issues.map((issue) => issue.message).join(' ');
 		default:
 			return error.message;
 	}
@@ -184,206 +224,428 @@ function readProblem(error: RowReadError): string {
 	return error.message;
 }
 
-export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
+/**
+ * The listing as the timeline shows it: captures newest first, files to
+ * repair as text, and files that could not be read at all.
+ */
+export function timelineOf(listing: CaptureListing) {
+	const rows: TimelineRow[] = [];
+	const repairs: Repair[] = [];
+	const unreadable: { path: string; message: string }[] = [];
+	for (const { stem, result } of listing) {
+		const path = rowPath(CAPTURES_TABLE, stem);
+		if (result.error?.name === 'InvalidRow') {
+			repairs.push({ stem, path, problem: readProblem(result.error) });
+			continue;
+		}
+		if (result.error !== null) {
+			unreadable.push({ path, message: readProblem(result.error) });
+			continue;
+		}
+		const { row } = result.data;
+		const { data: body, error: refusal } = captureBody.decode(row.body);
+		if (refusal !== null) {
+			repairs.push({ stem, path, problem: refusal.message });
+			continue;
+		}
+		rows.push({
+			stem,
+			path,
+			capturedAt: instantOf(row.fields.capturedAt),
+			preview: excerpt(body.text),
+			thoughtCount: body.thoughts.length,
+		});
+	}
+	return {
+		rows: rows.sort(newestFirst),
+		repairs: repairs.sort(byPath),
+		unreadable: unreadable.sort(byPath),
+	};
+}
+
+/**
+ * Resolves once nothing matching `filters` is mutating. It watches the
+ * mutation cache, so a mutation that starts meanwhile is waited for too.
+ */
+export function whenIdle(
+	queryClient: QueryClient,
+	filters?: MutationFilters,
+): Promise<void> {
+	return new Promise((resolve) => {
+		const unsubscribe = queryClient.getMutationCache().subscribe(check);
+		function check() {
+			if (queryClient.isMutating(filters) > 0) return;
+			unsubscribe();
+			resolve();
+		}
+		check();
+	});
+}
+
+export function createCaptures(
+	host: Pick<CaptureHost, 'folder' | 'location'>,
+	queryClient: QueryClient,
+	{
+		onWriteFailed = () => {},
+	}: {
+		/** A write failed and was rolled back; the app tells the person. */
+		onWriteFailed?: (failure: WriteFailure) => void;
+	} = {},
+) {
 	const { folder } = host;
 	const table = folder.tables.captures;
 	const pathOf = (stem: string) => rowPath(CAPTURES_TABLE, stem);
-
-	let timeline = $state.raw<TimelineRow[]>([]);
-	let repairs = $state.raw<Repair[]>([]);
-	/** Capture files that are not text, or could not be read. */
-	let unreadable = $state.raw<{ path: string; message: string }[]>([]);
-	/** Why the folder could not be listed, when it could not. */
-	let listProblem = $state<string | undefined>();
-	let loaded = $state(false);
-	let newCapture = $state('');
+	const { defineMutation } = createQueryFactories(queryClient);
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
+	const trackMutations = createSubscriber((update) =>
+		queryClient.getMutationCache().subscribe(update),
+	);
+
+	/** What the detail shows. */
+	let opened = $state.raw<Opened | undefined>();
+	/** The New capture text, typed and not added. */
+	let newCapture = $state('');
+	/** Each capture's input not committed yet, kept while the person moves between captures. */
+	const forms = new SvelteMap<string, CaptureForm>();
 	/** The Epicenter service that served this page has stopped. */
 	let serviceStopped = $state(false);
-	/** Epicenter asks to quit or restart: no action starts, and the open capture takes no input. */
+	/** Epicenter asks to quit or restart: no edit or action starts. */
 	let departing = $state(false);
 	let closing: Promise<void> | undefined;
-	let refreshSequence = 0;
-	/** Commands admitted and not finished: a departure and `close` wait for them. */
-	const { command, quiet, ...admissions } = createAdmissions();
+	let closed = $state(false);
 
-	const locked = () => departing || closing !== undefined;
-
-	/** Why no action starts now, if one does not. */
+	/** Why no edit or action starts now, if one does not. */
 	function refused(): string | undefined {
-		if (closing !== undefined) return CLOSING;
+		if (closed) return CLOSING;
 		if (departing) return DEPARTING;
 		return undefined;
 	}
 
-	/** One listing pass. A pass that a newer one overtook changes nothing. */
-	async function refresh() {
-		if (closing !== undefined) return;
-		const sequence = ++refreshSequence;
-		const { data: listed, error } = await table.list();
-		if (closing !== undefined || sequence !== refreshSequence) return;
-		// Keep the previous listing visible; never show an empty one for a failed read.
-		if (error !== null) {
-			listProblem = error.message;
-			return;
-		}
-		const rows: TimelineRow[] = [];
-		const repair: Repair[] = [];
-		const others: { path: string; message: string }[] = [];
-		for (const { stem, result } of listed) {
-			const path = pathOf(stem);
-			if (result.error?.name === 'InvalidRow') {
-				repair.push({ stem, path, problem: readProblem(result.error) });
-				continue;
-			}
-			if (result.error !== null) {
-				others.push({ path, message: readProblem(result.error) });
-				continue;
-			}
-			const { row } = result.data;
-			const { data: body, error: refusal } = captureBody.decode(row.body);
-			if (refusal !== null) {
-				repair.push({ stem, path, problem: refusal.message });
-				continue;
-			}
-			rows.push({
-				stem,
-				path,
-				capturedAt: instantOf(row.fields.capturedAt),
-				preview: excerpt(body.text),
-				thoughtCount: body.thoughts.length,
-			});
-		}
-		listProblem = undefined;
-		loaded = true;
-		timeline = rows.sort(newestFirst);
-		repairs = repair.sort(byPath);
-		unreadable = others.sort(byPath);
-	}
-
-	function openRow(stem: string, stored: StoredRow<CaptureFields>): Item {
-		const session = createRowSession(table, stored, { locked });
-		return { kind: 'capture', stem, session, form: createCaptureForm(session) };
-	}
-
-	/** The file's exact text, as a text session. */
-	async function loadText(stem: string): Promise<Item> {
-		const { data: found, error } = await textSource(folder.files).reread(
-			pathOf(stem),
-		);
-		if (error !== null)
-			return { kind: 'failed', stem, mode: 'text', message: error.message };
-		if (found.kind === 'gone')
-			return {
-				kind: 'failed',
-				stem,
-				mode: 'text',
-				message: 'This capture is no longer in the folder.',
-			};
-		if (found.kind === 'other')
-			return {
-				kind: 'failed',
-				stem,
-				mode: 'text',
-				message: 'This file is not UTF-8 text, so it cannot be edited here.',
-			};
-		return {
-			kind: 'text',
-			stem,
-			session: createTextSession(
-				folder.files,
-				{ ...found.file, text: found.value },
-				{ locked },
-			),
-		};
-	}
-
-	/**
-	 * Read `stem` the way `mode` opens it. A file that is not a valid capture
-	 * opens as text whichever was asked.
-	 */
-	async function load({ stem, mode }: Key): Promise<Item> {
-		if (mode === 'text') return loadText(stem);
-		const { data: stored, error } = await table.get(stem);
-		if (error?.name === 'InvalidRow')
-			return {
-				kind: 'text',
-				stem,
-				session: createTextSession(folder.files, error, { locked }),
-			};
-		if (error !== null)
-			return { kind: 'failed', stem, mode, message: readProblem(error) };
-		if (stored === undefined)
-			return {
-				kind: 'failed',
-				stem,
-				mode,
-				message: 'This capture is no longer in the folder.',
-			};
-		if (captureBody.decode(stored.row.body).error !== null)
-			return loadText(stem);
-		return openRow(stem, stored);
-	}
-
-	/** How an item shows its file; a failed item, as it was asked. */
-	const modeOf = (item: Item): Mode =>
-		item.kind === 'capture'
-			? 'capture'
-			: item.kind === 'text'
-				? 'text'
-				: item.mode;
-
-	/**
-	 * The open capture. A thought typed and not added is input outside its
-	 * session, so leaving asks about it as it does about a failed save.
-	 */
-	const slot = createOpenItem({
-		load,
-		sessionOf: (item: Item) =>
-			item.kind === 'failed' ? undefined : item.session,
-		// A capture asked for as a capture that opened as text is shown as text,
-		// so asking for it as a capture again (once repaired) reads it.
-		keyOf: (item, asked): Key => ({ stem: asked.stem, mode: modeOf(item) }),
-		sameKey: (a: Key, b: Key) => a.stem === b.stem && a.mode === b.mode,
-		holds: (item) => item.kind === 'capture' && item.form.unsent,
-		closed: () => closing !== undefined,
+	// Every file write is local: nothing waits for a network, and nothing retries.
+	queryClient.setQueryDefaults(capturesKeys.all, {
+		networkMode: 'always',
+		// Nothing goes stale on its own: a view that mounts shows what the cache
+		// holds, and reads happen only when asked for, never while a write runs.
+		staleTime: Number.POSITIVE_INFINITY,
+		refetchOnWindowFocus: () => (writing() ? false : 'always'),
+	});
+	queryClient.setMutationDefaults(capturesKeys.all, {
+		networkMode: 'always',
+		retry: false,
 	});
 
-	/**
-	 * Show `stem` as `mode` edits it. The open capture's saves land first,
-	 * and the timeline is read again. Answers `unsaved`, opening nothing,
-	 * when the open capture holds something it could not save; the view asks
-	 * the person and opens again with `{ discard: session }`.
-	 */
-	async function open(
+	/** Whether a write of a capture or a file's text is running or waiting. */
+	const writing = () =>
+		queryClient.isMutating({ mutationKey: capturesKeys.writes }) > 0;
+
+	/** Resolves once no write is running or waiting. */
+	const writesSettled = () =>
+		whenIdle(queryClient, { mutationKey: capturesKeys.writes });
+
+	const rowsData = () =>
+		queryClient.getQueryData<CaptureListing>(capturesKeys.rows);
+	const textData = (path: string) =>
+		queryClient.getQueryData<OpenedFile>(capturesKeys.text(path));
+
+	/** The row the cache holds for `stem`, if it reads as a row. */
+	function rowOf(stem: string): StoredRow<CaptureFields> | undefined {
+		const result = rowsData()?.find((entry) => entry.stem === stem)?.result;
+		return result?.error === null ? result.data : undefined;
+	}
+
+	/** Change the row at `stem` in the cache: one immutable `map` over the listing. */
+	function mapRow(
 		stem: string,
-		mode: Mode,
-		options?: { discard?: RowSession<CaptureFields> | TextSession },
-	) {
-		const opening = await slot.open({ stem, mode }, options);
-		if (opening.kind === 'done' && opening.left) void refresh();
-		return opening;
+		change: (stored: StoredRow<CaptureFields>) => StoredRow<CaptureFields>,
+	): boolean {
+		let changed = false;
+		queryClient.setQueryData<CaptureListing>(capturesKeys.rows, (entries) =>
+			entries?.map((entry) => {
+				if (entry.stem !== stem || entry.result.error !== null) return entry;
+				changed = true;
+				return { ...entry, result: Ok(change(entry.result.data)) };
+			}),
+		);
+		return changed;
+	}
+
+	/** Change the text of `path` in the cache, if it holds text. */
+	function mapText(
+		path: string,
+		change: (file: { path: string; sha256: string; text: string }) => {
+			path: string;
+			sha256: string;
+			text: string;
+		},
+	): boolean {
+		let changed = false;
+		queryClient.setQueryData<OpenedFile>(capturesKeys.text(path), (file) => {
+			if (file?.kind !== 'text') return file;
+			changed = true;
+			return { kind: 'text', file: change(file.file) };
+		});
+		return changed;
+	}
+
+	/** Whether a delete of `path` is running or waiting, which pauses its edits. */
+	const removing = (path: string) =>
+		queryClient.isMutating({
+			mutationKey: capturesKeys.remove(path),
+			exact: true,
+		}) > 0;
+
+	/** How many writes of the kind `mutationKey` names are running or waiting. */
+	const queued = (mutationKey: readonly unknown[]) =>
+		queryClient.isMutating({ mutationKey, exact: true });
+
+	/** The text a person loses with a capture that could not be written. */
+	function rowText(row: Row<CaptureFields>) {
+		return formatRow(captureDefinition.tables.captures, row).data ?? row.body;
+	}
+
+	/**
+	 * After a failed write, the cache takes the row as the file holds it
+	 * now. TanStack awaits this before the next write of the file runs, so
+	 * that write saves the file's own bytes instead of the failed edit.
+	 */
+	async function reloadRow(stem: string) {
+		await queryClient.cancelQueries({
+			queryKey: capturesKeys.rows,
+			exact: true,
+		});
+		const { data: stored, error } = await table.get(stem);
+		queryClient.setQueryData<CaptureListing>(capturesKeys.rows, (entries) =>
+			entries?.flatMap((entry) => {
+				if (entry.stem !== stem) return [entry];
+				if (error !== null) return [{ stem, result: Err(error) }];
+				return stored === undefined ? [] : [{ stem, result: Ok(stored) }];
+			}),
+		);
+	}
+
+	/** After a failed write of a file's text, the cache takes the file as it is now. */
+	async function reloadText(path: string) {
+		const key = capturesKeys.text(path);
+		await queryClient.cancelQueries({ queryKey: key, exact: true });
+		const read = await readTextFile(folder.files, path, EDITABLE_TEXT_LIMIT);
+		if (read.error === null) queryClient.setQueryData(key, read.data);
+		else await queryClient.invalidateQueries({ queryKey: key, exact: true });
+	}
+
+	/**
+	 * Read again what an action may have changed. While a write runs nothing
+	 * is read: the last write to settle reads everything again.
+	 */
+	const invalidate = (queryKey: readonly unknown[] = capturesKeys.all) =>
+		writing() ? Promise.resolve() : queryClient.invalidateQueries({ queryKey });
+
+	/** After a write settles: once it is the last one, everything is read again. */
+	const afterWrite = () =>
+		queryClient.isMutating({ mutationKey: capturesKeys.writes }) <= 1
+			? queryClient.invalidateQueries({ queryKey: capturesKeys.all })
+			: undefined;
+
+	/**
+	 * The write of one capture. It saves the row the cache holds when it
+	 * runs, guarded by the hash the cache last confirmed.
+	 */
+	function rowWrite(stem: string) {
+		const path = pathOf(stem);
+		return resultMutationOptions({
+			mutationKey: capturesKeys.write(path),
+			// Row and text writes, and the delete, of one file share its queue.
+			scope: { id: path },
+			mutationFn: async (): Promise<
+				Result<
+					StoredRow<CaptureFields> | undefined,
+					| Extract<TableError, { name: 'Conflict' | 'InvalidValues' }>
+					| FileError
+				>
+			> => {
+				const stored = rowOf(stem);
+				if (stored === undefined) return Ok(undefined);
+				return table.replace(stored, stored.row);
+			},
+			onSuccess: (saved) => {
+				if (saved === undefined) return;
+				// TanStack awaits this before the next write in the scope runs.
+				mapRow(stem, (stored) => ({
+					...stored,
+					path: saved.path,
+					sha256: saved.sha256,
+				}));
+				// The same file's text, if a view read it, is read again.
+				void invalidate(capturesKeys.text(path));
+			},
+			onError: async (error) => {
+				const lost = rowOf(stem);
+				await reloadRow(stem);
+				onWriteFailed({
+					path,
+					error,
+					lost: lost === undefined ? '' : rowText(lost.row),
+				});
+			},
+			onSettled: afterWrite,
+		});
+	}
+
+	/** The write of one file's text, as `rowWrite` is for a capture. */
+	function textWrite(path: string) {
+		return resultMutationOptions({
+			mutationKey: capturesKeys.writeText(path),
+			scope: { id: path },
+			mutationFn: async (): Promise<
+				Result<FileCapture | undefined, FileError>
+			> => {
+				const file = textData(path);
+				if (file?.kind !== 'text') return Ok(undefined);
+				return folder.files.replace(file.file, file.file.text);
+			},
+			onSuccess: (saved) => {
+				if (saved === undefined) return;
+				mapText(path, (file) => ({ ...file, sha256: saved.sha256 }));
+				// A capture file's text decides whether it reads as a capture.
+				void invalidate(capturesKeys.rows);
+			},
+			onError: async (error) => {
+				const lost = textData(path);
+				await reloadText(path);
+				onWriteFailed({
+					path,
+					error,
+					lost: lost?.kind === 'text' ? lost.file.text : '',
+				});
+			},
+			onSettled: afterWrite,
+		});
+	}
+
+	/** Queue the write `options` describes; a failure is reported by its own `onError`. */
+	function queue<TData, TError>(options: MutationOptions<TData, TError>) {
+		void queryClient
+			.getMutationCache()
+			.build(queryClient, options)
+			.execute(undefined)
+			.catch(() => undefined);
+	}
+
+	/**
+	 * Change the capture at `stem` in the cache, and queue its write unless
+	 * one already waits: the waiting write saves whatever the cache holds
+	 * when it runs. Refused, changing nothing, while Epicenter asks to leave,
+	 * while closing, and while the capture is being deleted. Answers whether
+	 * the cache changed.
+	 */
+	function edit(
+		stem: string,
+		change: (row: Row<CaptureFields>) => Row<CaptureFields>,
+	): boolean {
+		const path = pathOf(stem);
+		if (refused() !== undefined || removing(path)) return false;
+		// A read still running could replace this edit when it lands.
+		void queryClient.cancelQueries({
+			queryKey: capturesKeys.rows,
+			exact: true,
+		});
+		const changed = mapRow(stem, (stored) => ({
+			...stored,
+			row: change(stored.row),
+		}));
+		if (!changed) return false;
+		if (queued(capturesKeys.write(path)) < 2) queue(rowWrite(stem));
+		return true;
+	}
+
+	/** Replace the text of `path` in the cache and queue its write, as `edit` does. */
+	function editText(path: string, text: string): boolean {
+		if (refused() !== undefined || removing(path)) return false;
+		void queryClient.cancelQueries({
+			queryKey: capturesKeys.text(path),
+			exact: true,
+		});
+		const changed = mapText(path, (file) => ({ ...file, text }));
+		if (!changed) return false;
+		if (queued(capturesKeys.writeText(path)) < 2) queue(textWrite(path));
+		return true;
+	}
+
+	/** The input not committed yet for the capture at `stem`. */
+	function formOf(stem: string): CaptureForm {
+		let form = forms.get(stem);
+		if (form === undefined) {
+			form = createCaptureForm({
+				body: () => rowOf(stem)?.row.body,
+				setBody: (body) => edit(stem, (row) => ({ ...row, body })),
+				locked: () => refused() !== undefined || removing(pathOf(stem)),
+			});
+			forms.set(stem, form);
+		}
+		return form;
+	}
+
+	/** How many captures hold a thought typed and not added, or a changed thought edit. */
+	const unsentForms = () =>
+		[...forms.values()].filter((form) => form.unsent).length;
+
+	/**
+	 * The capture a delete of `path` acts on, read when it runs: the newest
+	 * hash the cache confirmed for what the app edits, if it holds one.
+	 */
+	function heldCapture(stem: string): FileCapture | undefined {
+		const path = pathOf(stem);
+		if (opened?.stem === stem && opened.mode === 'text') {
+			const file = textData(path);
+			return file?.kind === 'text' ? file.file : undefined;
+		}
+		const result = rowsData()?.find((entry) => entry.stem === stem)?.result;
+		if (result?.error === null) return result.data;
+		if (result?.error.name === 'InvalidRow') return result.error;
+		return undefined;
+	}
+
+	/**
+	 * Show `stem` as `mode` edits it. A capture that is not a valid one opens
+	 * as text. Coming from its text, the text's writes land first and the
+	 * capture is read again, so the view shows what was typed there.
+	 */
+	async function open(stem: string, mode: Mode) {
+		const path = pathOf(stem);
+		if (
+			mode === 'capture' &&
+			opened?.stem === stem &&
+			opened.mode === 'text' &&
+			refused() === undefined
+		) {
+			await whenIdle(queryClient, {
+				mutationKey: capturesKeys.writeText(path),
+				exact: true,
+			});
+			await reloadRow(stem);
+		}
+		let as = mode;
+		if (mode === 'capture') {
+			const result = rowsData()?.find((entry) => entry.stem === stem)?.result;
+			if (
+				result !== undefined &&
+				(result.error !== null ||
+					captureBody.decode(result.data.row.body).error !== null)
+			)
+				as = 'text';
+		}
+		// Text opened before is read again, unless a write of it is still landing.
+		if (as === 'text' && queued(capturesKeys.writeText(path)) === 0)
+			queryClient.removeQueries({
+				queryKey: capturesKeys.text(path),
+				exact: true,
+			});
+		opened = { stem, mode: as };
 	}
 
 	return {
 		location: host.location,
-		/** Captures that read as one, newest first, as last listed. */
-		get timeline() {
-			return timeline;
-		},
-		/** Capture files the timeline cannot show, with why; each opens as text. */
-		get repairs() {
-			return repairs;
-		},
-		get unreadable() {
-			return unreadable;
-		},
-		get listProblem() {
-			return listProblem;
-		},
-		get loaded() {
-			return loaded;
-		},
+		folder,
+		queryClient,
 		get git() {
 			trackGit();
 			return folder.git.snapshot;
@@ -402,164 +664,243 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 		},
 		/** Leaving or closing refuses input and actions. */
 		get fenced() {
-			return locked();
+			return departing || closed;
 		},
-		/** The open capture, or `undefined`. */
-		get opened(): Opened | undefined {
-			const shown = slot.shown;
-			if (shown?.status === 'loading')
-				return { kind: 'loading', stem: shown.key.stem, mode: shown.key.mode };
-			return shown?.item;
+		/** How many mutations match `filters`, read reactively. */
+		mutating(filters?: MutationFilters) {
+			trackMutations();
+			return queryClient.isMutating(filters);
 		},
-		/** The open capture has a save running, a draft it could not save, or a thought not added. */
-		get unsaved() {
-			return slot.unsaved;
+		/** Whether a write of a capture or a file's text is running or waiting, read reactively. */
+		get saving() {
+			trackMutations();
+			return writing();
 		},
-		/** How many things leaving now could lose: the open capture, the New capture text, running actions. */
+		/** Whether `path` is being deleted, which pauses its edits; read reactively. */
+		isRemoving(path: string) {
+			trackMutations();
+			return removing(path);
+		},
+		/** Whether leaving now could lose anything: an action running, or text not added. */
 		get unsettled() {
+			trackMutations();
 			return (
-				(slot.unsaved ? 1 : 0) +
-				(newCapture === '' ? 0 : 1) +
-				(admissions.busy ? 1 : 0)
+				queryClient.isMutating() > 0 || newCapture !== '' || unsentForms() > 0
 			);
 		},
+
+		// ------------------------------------------------------------------
+		// Reads
+		// ------------------------------------------------------------------
+
+		/** The capture listing, narrowed by `select` for one view. */
+		rowsQuery<TData = CaptureListing>(
+			select?: (listing: CaptureListing) => TData,
+		) {
+			return resultQueryOptions({
+				queryKey: capturesKeys.rows,
+				queryFn: () => table.list(),
+				select,
+			});
+		},
+		/** One file's complete text, or its type and size when it is not editable text. */
+		textQuery(path: string) {
+			return resultQueryOptions({
+				queryKey: capturesKeys.text(path),
+				queryFn: () => readTextFile(folder.files, path, EDITABLE_TEXT_LIMIT),
+			});
+		},
+
+		// ------------------------------------------------------------------
+		// What the detail shows
+		// ------------------------------------------------------------------
+
+		/** The open capture, or `undefined` for the timeline. */
+		get opened() {
+			return opened;
+		},
+		open,
+		/** Back to the timeline. Writes go on landing; nothing waits or asks. */
+		leave() {
+			opened = undefined;
+		},
+
+		// ------------------------------------------------------------------
+		// Edits
+		// ------------------------------------------------------------------
+
+		edit,
+		editText,
+		formOf,
+
+		// ------------------------------------------------------------------
+		// Actions
+		// ------------------------------------------------------------------
+
 		get newCapture() {
 			return newCapture;
 		},
 		inputNewCapture(value: string) {
-			if (!locked()) newCapture = value;
-		},
-		refresh,
-		/** Returning to the window: the listing, and a newer version of the open capture when it holds nothing unsaved. */
-		async check() {
-			if (closing !== undefined) return;
-			await Promise.all([refresh(), slot.adopt()]);
-		},
-		open,
-		/** Read the open capture again as it is now, as it was asked to open: Try again after a failed open. */
-		reload: () => slot.reload(),
-		/** Leave the open capture for the timeline. Answers `unsaved` as `open` does. */
-		async leave(options?: {
-			discard?: RowSession<CaptureFields> | TextSession;
-		}) {
-			const left = await slot.leave(options);
-			if (left.kind === 'done') await refresh();
-			return left;
+			if (refused() === undefined) newCapture = value;
 		},
 		/**
-		 * Answer the review of `session`, the open capture's, with one choice
-		 * for each part. A file left deleted closes; one the session can no
-		 * longer show (a capture whose text is no longer a valid row) opens
-		 * again as it reads now. Answers what the person is told, if anything.
+		 * Save `text` as a new capture file and open it. The New capture text
+		 * stays in the form when this fails.
 		 */
-		resolve: command(
-			async (
-				session: RowSession<CaptureFields> | TextSession,
-				choices: SyncChoices,
-			): Promise<string | undefined> => {
+		create: defineMutation({
+			mutationKey: ['captures', 'create'],
+			mutationFn: async (
+				text: string,
+			): Promise<
+				Result<StoredRow<CaptureFields>, TableCreateError | CapturesError>
+			> => {
 				const why = refused();
-				if (why !== undefined) return why;
-				const resolved = await slot.resolve(session, choices);
-				if (resolved === undefined) return undefined;
-				if (resolved.error !== null) return describeError(resolved.error);
-				await refresh();
-				return undefined;
-			},
-		),
-
-		/**
-		 * Save the New capture text as a new file and open it. The text stays
-		 * in the form when the save fails. Answers what the person is told.
-		 */
-		create: command(async (): Promise<string | undefined> => {
-			const why = refused();
-			if (why !== undefined) return why;
-			const text = newCapture;
-			// Blank text is refused and stays in the form: only the person clears it.
-			if (text.trim() === '') return 'Write something first.';
-			const now = new Date();
-			const { body } = composeBody(text);
-			let created: Awaited<ReturnType<typeof table.create>>;
-			for (let attempt = 0; ; attempt++) {
-				created = await table.create(
-					{
-						fields: {
-							capturedAt: now.toISOString() as CaptureFields['capturedAt'],
+				if (why !== undefined) return CapturesError.NotStarted({ reason: why });
+				// Blank text is refused and stays in the form: only the person clears it.
+				if (text.trim() === '')
+					return CapturesError.NotStarted({ reason: 'Write something first.' });
+				const now = new Date();
+				const { body } = composeBody(text);
+				for (let attempt = 0; ; attempt++) {
+					const created = await table.create(
+						{
+							fields: {
+								capturedAt: now.toISOString() as CaptureFields['capturedAt'],
+							},
+							body,
 						},
-						body,
-					},
-					{ stem: newStem(now) },
-				);
-				// Another capture took this name: a new one is tried.
-				if (created.error?.name !== 'Exists' || attempt >= 3) break;
-			}
-			if (created.error !== null)
-				return `The capture was not saved: ${describeError(created.error)} Your text is still here.`;
-			if (newCapture === text) newCapture = '';
-			await refresh();
-			const stem = rowStemOf(CAPTURES_TABLE, created.data.path);
-			if (stem !== undefined) await open(stem, 'capture');
-			return undefined;
-		}),
-
-		/**
-		 * Delete the open capture, whose session is `session`. The session is
-		 * released and its last saves land first, so the delete removes what
-		 * this window saved last; a file another program changed since is
-		 * refused, and the capture opens again as it is now.
-		 */
-		remove: command(
-			async (
-				session: RowSession<CaptureFields> | TextSession,
-			): Promise<string | undefined> => {
-				const why = refused();
-				if (why !== undefined) return why;
-				const removed = await slot.removeOpen(session, (file) =>
-					table.delete(file),
-				);
-				if (removed === undefined) return undefined;
-				if (removed.error !== null) return describeError(removed.error);
-				await refresh();
-				return undefined;
-			},
-		),
-
-		/** Import a whole export, including its report and receipt, then list again. */
-		importLegacy: command(
-			async (bundle: LegacyBundle): Promise<ImportReport> => {
-				const why = refused();
-				if (why !== undefined) throw new Error(why);
-				try {
-					return await runLegacyImport(folder.files, bundle);
-				} finally {
-					await refresh();
+						{ stem: newStem(now) },
+					);
+					// Another capture took this name: a new one is tried.
+					if (created.error?.name !== 'Exists' || attempt >= 3) return created;
 				}
 			},
-		),
-		/** Commit what is saved. Refused, as other actions are, while closing or departing. */
-		commit: command(async (): Promise<CommitOutcome> => {
-			const why = refused();
-			if (why !== undefined) return { status: 'blocked', reason: why };
-			return folder.git.commit();
+			onSuccess: (created, text) => {
+				const stem = rowStemOf(CAPTURES_TABLE, created.path);
+				if (newCapture === text) newCapture = '';
+				if (stem === undefined) return;
+				queryClient.setQueryData<CaptureListing>(
+					capturesKeys.rows,
+					(entries) => entries && [...entries, { stem, result: Ok(created) }],
+				);
+				// Text that does not read as text and thoughts opens as text.
+				void open(stem, 'capture');
+			},
+			onSettled: () => invalidate(capturesKeys.rows),
 		}),
+		/**
+		 * What deleting the capture at `stem` would remove, for the person to
+		 * confirm, and whether its latest changes are in no saved version.
+		 */
+		async deletionFor(
+			stem: string,
+		): Promise<Result<Deletion, FileError | CapturesError>> {
+			const why = refused();
+			if (why !== undefined) return CapturesError.NotStarted({ reason: why });
+			const path = pathOf(stem);
+			const { data: read, error } = await folder.files.read(path);
+			if (error !== null) return Err(error);
+			const status = await folder.git.status().then(
+				(observed) => observed.data ?? undefined,
+				() => undefined,
+			);
+			const body = rowOf(stem)?.row.body;
+			const text =
+				body === undefined ? undefined : captureBody.decode(body).data?.text;
+			return Ok({
+				stem,
+				path,
+				title: text?.trim().slice(0, 60) ?? '',
+				capture: { path: read.path, sha256: read.sha256 },
+				unversioned: status?.changes.some((change) => change.path === path),
+			});
+		},
+		/**
+		 * Delete what was confirmed. It runs after the file's queued writes,
+		 * so it removes what this window saved last; a file another program
+		 * changed since is refused, and everything is read again.
+		 */
+		remove(deletion: Deletion) {
+			return defineMutation({
+				mutationKey: capturesKeys.remove(deletion.path),
+				scope: { id: deletion.path },
+				mutationFn: async (): Promise<
+					Result<undefined, FileError | TableError | CapturesError>
+				> => {
+					const why = refused();
+					if (why !== undefined)
+						return CapturesError.NotStarted({ reason: why });
+					return table.delete(heldCapture(deletion.stem) ?? deletion.capture);
+				},
+				onSuccess: () => {
+					queryClient.setQueryData<CaptureListing>(
+						capturesKeys.rows,
+						(entries) =>
+							entries?.filter((entry) => entry.stem !== deletion.stem),
+					);
+					queryClient.removeQueries({
+						queryKey: capturesKeys.text(deletion.path),
+						exact: true,
+					});
+					forms.delete(deletion.stem);
+					if (opened?.stem === deletion.stem) opened = undefined;
+				},
+				onSettled: () => invalidate(),
+			})();
+		},
+		/**
+		 * Record a version: commit the saved files (ADR-0529). Writes still
+		 * running land first. Capture has no remote, so nothing is pushed.
+		 */
+		saveVersion: defineMutation({
+			mutationKey: ['captures', 'save-version'],
+			mutationFn: async (): Promise<Result<CommitOutcome, CapturesError>> => {
+				const why = refused();
+				if (why !== undefined) return CapturesError.NotStarted({ reason: why });
+				await writesSettled();
+				return Ok(await folder.git.commit());
+			},
+		}),
+		/** Import a whole export, including its report and receipt, then read everything again. */
+		importLegacy: defineMutation({
+			mutationKey: ['captures', 'import'],
+			mutationFn: async (
+				bundle: LegacyBundle,
+			): Promise<Result<ImportReport, CapturesError>> => {
+				const why = refused();
+				if (why !== undefined) return CapturesError.NotStarted({ reason: why });
+				try {
+					return Ok(await runLegacyImport(folder.files, bundle));
+				} catch (cause) {
+					return CapturesError.ImportFailed({ cause });
+				}
+			},
+			onSettled: () => invalidate(),
+		}),
+
+		// ------------------------------------------------------------------
+		// Leaving and closing
+		// ------------------------------------------------------------------
 
 		/**
 		 * The page's part in leaving Epicenter. `fence` runs before anything is
-		 * awaited; `settle` lets running actions and saves finish and answers
-		 * how many things would be lost; `resume` gives everything back.
+		 * awaited; `settle` waits until nothing is mutating and answers how
+		 * many things would be lost: the New capture text, and each capture
+		 * with a thought typed and not added or a thought edit not saved.
+		 * `resume` gives everything back.
 		 */
 		departure: {
-			/** Whether leaving would lose anything: the open capture, the New capture text, running actions. */
 			get holdsUnsaved() {
-				return slot.unsaved || newCapture !== '' || admissions.busy;
+				return (
+					queryClient.isMutating() > 0 || newCapture !== '' || unsentForms() > 0
+				);
 			},
 			fence() {
 				departing = true;
 			},
 			async settle(): Promise<number> {
-				await quiet();
-				await slot.session?.settled();
-				return (slot.unsaved ? 1 : 0) + (newCapture === '' ? 0 : 1);
+				await whenIdle(queryClient);
+				return (newCapture === '' ? 0 : 1) + unsentForms();
 			},
 			resume() {
 				departing = false;
@@ -567,21 +908,15 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 		} satisfies DepartureParticipant,
 
 		/**
-		 * Let running actions and the open capture's saves finish before the
-		 * page releases its folder. A failed save is not sent again. Every call
-		 * answers the same completion.
+		 * Fence new input, then wait until nothing is mutating before the page
+		 * releases its folder. Every call answers the same completion.
 		 */
 		close(): Promise<void> {
 			if (closing !== undefined) return closing;
+			closed = true;
 			closing = (async () => {
-				await quiet();
-				const unsaved = await slot.close();
-				if (unsaved !== undefined)
-					log.warn(
-						new Error(
-							`Closed with a capture that could not be saved: ${unsaved}`,
-						),
-					);
+				await whenIdle(queryClient);
+				await queryClient.cancelQueries({ queryKey: capturesKeys.all });
 			})();
 			return closing;
 		},

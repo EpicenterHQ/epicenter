@@ -2,21 +2,19 @@
  * Mounted Capture Detail Tests
  *
  * The real `CaptureDetail` and `TextDetail` components, compiled for the
- * client and mounted in jsdom over the real Capture store and a real browser
- * folder. Events are dispatched on the components' own elements, as a
- * keystroke or a press would deliver them.
+ * client and mounted in jsdom inside the query client the layout supplies,
+ * over the real Capture store and a real browser folder. Events are
+ * dispatched on the components' own elements, as a keystroke or a press
+ * would deliver them.
  *
  * Key behaviors:
- * - The capture text and Add a thought save through the open capture's
- *   session
- * - A change made elsewhere that does not overlap the text on screen is
- *   combined with no question
- * - Text both changed shows the review: Your edit saves the text on screen
- *   over theirs, and Saved elsewhere shows theirs in the same view
- * - A capture deleted elsewhere shows the review: Saved elsewhere leaves it
- *   deleted and closes it, and Your edit puts it back
+ * - The capture text and Add a thought change the cache at once and are
+ *   written to the file
+ * - A write that meets a change made elsewhere rolls the text box back to
+ *   the file and reports the text that was lost
+ * - Returning to the window shows a change made elsewhere
  * - A thought typed and not added stays visible to copy when the capture
- *   resolves to a layout the form cannot show
+ *   stops reading as text and thoughts
  * - A file that is not a valid capture shows its issues as text is typed,
  *   and opens as a capture once they are fixed
  * - While Epicenter asks to quit, the text boxes take nothing
@@ -34,11 +32,9 @@ import {
 	type,
 } from '../svelte-dom.test-support.js';
 
-const { openCapture, openCaptures, openText } = await import(
-	'../browser-folder.test-support.js'
-);
-const { default: CaptureDetail } = await import('./CaptureDetail.svelte');
-const { default: TextDetail } = await import('./TextDetail.svelte');
+const { openCaptures } = await import('../browser-folder.test-support.js');
+const { focusManager, quiet } = await import('../query.test-support.js');
+const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 
 type Harness = Awaited<ReturnType<typeof openCaptures>>;
 const cleanup: (() => Promise<void>)[] = [];
@@ -52,77 +48,33 @@ const FILE = `---\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- first\n`;
 const saved = (text: string, thoughts = '- first\n') =>
 	`---\ncapturedAt: "${AT}"\n---\n\n${text}\n\n## Thoughts\n\n${thoughts}`;
 
-/** Open `stem` as `mode` and mount its view. */
+/** Open `one` as `mode` and mount the view the app shows for it. */
 async function setup(files: Record<string, string>, mode: 'capture' | 'text') {
 	const harness = await openCaptures(files);
 	const target = document.createElement('main');
 	document.body.replaceChildren(target);
-	await harness.captures.open('one', mode);
-	const item = harness.captures.opened;
-	const view =
-		item?.kind === 'capture'
-			? mount(CaptureDetail, {
-					target,
-					props: { captures: harness.captures, item },
-				})
-			: item?.kind === 'text'
-				? mount(TextDetail, {
-						target,
-						props: { captures: harness.captures, item },
-					})
-				: undefined;
-	if (view === undefined) throw new Error(`opened ${item?.kind}`);
-	flushSync();
+	harness.captures.open('one', mode);
+	const view = mount(ViewHost, {
+		target,
+		props: { captures: harness.captures },
+	});
 	cleanup.push(async () => {
 		unmount(view);
 		await harness.close();
 	});
+	await settle(harness);
 	return { ...harness, target };
 }
 
-/**
- * Press `Use this` on `side` for the one part the review shows, then Apply,
- * and wait for the store to answer it. Answers what the person is told.
- */
-async function apply(harness: Harness, side: 'local' | 'incoming') {
-	const choices = [...document.querySelectorAll('button')].filter(
-		(candidate) => candidate.textContent?.trim() === 'Use this',
-	);
-	// Your edit is first, then Saved elsewhere.
-	const [local, incoming, ...rest] = choices;
-	if (local === undefined || incoming === undefined || rest.length > 0)
-		throw new Error(
-			`Expected one part to choose, got ${choices.length} buttons`,
-		);
-	click(side === 'local' ? local : incoming);
-	flushSync();
-	const { captures } = harness;
-	const resolve = captures.resolve;
-	let answered: Promise<string | undefined> | undefined;
-	captures.resolve = (session, picked) => {
-		answered = resolve(session, picked);
-		return answered;
-	};
-	try {
-		click(button('Apply'));
-	} finally {
-		captures.resolve = resolve;
-	}
-	if (answered === undefined) throw new Error('Apply answered nothing');
-	const told = await answered;
-	await settle(harness);
-	return told;
-}
-
-/** Wait for the open session's saves, then let the view update. */
+/** Let writes and reads run, then render. */
 async function settle(harness: Harness) {
-	const item = harness.captures.opened;
-	if (item?.kind === 'capture' || item?.kind === 'text')
-		await item.session.settled();
+	await quiet(harness.captures);
+	flushSync();
+	await Bun.sleep(0);
 	flushSync();
 }
 
-test('the capture text and Add a thought save through the open session', async () => {
+test('the capture text and Add a thought are written to the file', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	expect(field('capture-text')?.value).toBe('Text');
 	type(field('capture-text'), 'Edited');
@@ -131,81 +83,46 @@ test('the capture text and Add a thought save through the open session', async (
 	await settle(harness);
 	expect(await harness.text(PATH)).toBe(saved('Edited', '- first\n- second\n'));
 	expect(field('new-thought')?.value).toBe('');
-	expect(harness.target.textContent).toContain('Saved to');
+	expect(harness.target.textContent).toContain(`Saved to ${PATH}`);
+	expect(harness.failures).toEqual([]);
 });
 
-test('a change made elsewhere that does not overlap the text on screen is combined with no question', async () => {
-	const harness = await setup({ [PATH]: FILE }, 'capture');
-	await harness.writeElsewhere(PATH, `${FILE}- theirs\n`);
-	type(field('capture-text'), 'Mine');
-	await settle(harness);
-	expect(harness.target.querySelector('[role="alert"]')).toBeNull();
-	expect(field('capture-text')?.value).toBe('Mine');
-	expect(harness.target.textContent).toContain('theirs');
-	expect(await harness.text(PATH)).toBe(saved('Mine', '- first\n- theirs\n'));
-	expect(harness.target.textContent).toContain('Saved to');
-});
-
-test('text both changed shows the review, and Your edit saves the text on screen over it', async () => {
-	const harness = await setup({ [PATH]: FILE }, 'capture');
-	await harness.writeElsewhere(PATH, `---\ncapturedAt: ${AT}\n---\n\nTheirs\n`);
-	type(field('capture-text'), 'Mine');
-	await settle(harness);
-	expect(harness.target.textContent).toContain('This changed elsewhere.');
-	expect(harness.target.textContent).toContain(
-		'Your edits are kept here and not saved.',
-	);
-	expect(() => button('Cancel')).toThrow();
-	// One part: no Use all.
-	expect(() => button('Use all from Your edit')).toThrow();
-	expect(await apply(harness, 'local')).toBeUndefined();
-	expect(await harness.text(PATH)).toBe(saved('Mine'));
-	expect(harness.target.textContent).not.toContain('This changed elsewhere.');
-	expect(harness.target.textContent).toContain('Saved to');
-});
-
-test('text both changed: Saved elsewhere shows theirs in the same view', async () => {
+test('a write that meets a change made elsewhere rolls the text box back to the file and reports the lost text', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
 	await harness.writeElsewhere(PATH, theirs);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
-	expect(await apply(harness, 'incoming')).toBeUndefined();
+	expect(harness.failures).toMatchObject([
+		{ path: PATH, error: { name: 'Conflict' } },
+	]);
+	expect(harness.failures[0]?.lost).toContain('\nMine\n');
 	expect(field('capture-text')?.value).toBe('Theirs');
 	expect(harness.target.textContent).not.toContain('first');
 	expect(await harness.text(PATH)).toBe(theirs);
 });
 
-test('a capture deleted elsewhere: Saved elsewhere leaves it deleted and closes it', async () => {
+test('returning to the window shows a change made elsewhere', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
-	await harness.deleteElsewhere(PATH);
-	type(field('capture-text'), 'Mine');
+	await harness.writeElsewhere(PATH, `${FILE}- theirs\n`);
+	focusManager.setFocused(false);
+	focusManager.setFocused(true);
+	await Bun.sleep(0);
 	await settle(harness);
-	expect(harness.target.textContent).toContain('This was deleted elsewhere.');
-	expect(await apply(harness, 'incoming')).toBeUndefined();
-	expect(harness.captures.opened).toBeUndefined();
-	expect(await harness.text(PATH)).toBeUndefined();
+	expect(harness.target.textContent).toContain('theirs');
 });
 
-test('a capture deleted elsewhere: Your edit puts it back from the text on screen', async () => {
-	const harness = await setup({ [PATH]: FILE }, 'capture');
-	await harness.deleteElsewhere(PATH);
-	type(field('capture-text'), 'Mine');
-	await settle(harness);
-	expect(await apply(harness, 'local')).toBeUndefined();
-	expect(await harness.text(PATH)).toBe(saved('Mine'));
-});
-
-test('a thought typed and not added stays visible to copy when Saved elsewhere brings a layout the form cannot show', async () => {
+test('a thought typed and not added stays visible to copy when the capture stops reading as text and thoughts', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	type(field('new-thought'), 'my pending thought');
 	await harness.writeElsewhere(
 		PATH,
 		`---\ncapturedAt: ${AT}\n---\n\n## Thoughts\n\n## Thoughts\n`,
 	);
-	type(field('capture-text'), 'Mine');
+	focusManager.setFocused(false);
+	focusManager.setFocused(true);
+	await Bun.sleep(0);
 	await settle(harness);
-	expect(await apply(harness, 'incoming')).toBeUndefined();
 	expect(harness.target.textContent).toContain(
 		'cannot be edited as text and thoughts',
 	);
@@ -214,12 +131,13 @@ test('a thought typed and not added stays visible to copy when Saved elsewhere b
 	);
 	expect(pending?.value).toBe('my pending thought');
 	expect(pending?.readOnly).toBe(true);
-	expect(harness.captures.unsaved).toBe(true);
+	expect(harness.captures.unsettled).toBe(true);
 });
 
 test('a file that is not a valid capture shows its issues as typed, and opens as a capture once fixed', async () => {
 	const broken = '---\ncapturedAt: nope\n---\n\nBroken\n\n## Thoughts\n';
 	const harness = await setup({ [PATH]: broken }, 'capture');
+	expect(harness.captures.opened).toEqual({ stem: 'one', mode: 'text' });
 	const contents = harness.target.querySelector('textarea');
 	expect(contents?.value).toBe(broken);
 	expect(harness.target.textContent).toContain('Line 2:');
@@ -229,11 +147,12 @@ test('a file that is not a valid capture shows its issues as typed, and opens as
 	type(contents, fixed);
 	flushSync();
 	expect(harness.target.textContent).not.toContain('Needs repair');
-	expect(openText(harness.captures).draft).toBe(fixed);
-	click(button('Open as capture'));
-	await Bun.sleep(20);
-	expect(openCapture(harness.captures).form.text).toBe('Repaired');
+	await settle(harness);
 	expect(await harness.text(PATH)).toBe(fixed);
+	click(button('Open as capture'));
+	await settle(harness);
+	expect(harness.captures.opened).toEqual({ stem: 'one', mode: 'capture' });
+	expect(field('capture-text')?.value).toBe('Repaired');
 });
 
 test('while Epicenter asks to quit, the text boxes take nothing', async () => {
@@ -243,10 +162,9 @@ test('while Epicenter asks to quit, the text boxes take nothing', async () => {
 	expect(field('capture-text')?.readOnly).toBe(true);
 	type(field('capture-text'), 'refused');
 	type(field('new-thought'), 'refused');
-	const { form } = openCapture(harness.captures);
-	expect(form.text).toBe('Text');
-	expect(form.newThought).toBe('');
+	expect(harness.captures.formOf('one').newThought).toBe('');
 	harness.captures.departure.resume();
 	await settle(harness);
+	expect(field('capture-text')?.value).toBe('Text');
 	expect(await harness.text(PATH)).toBe(FILE);
 });

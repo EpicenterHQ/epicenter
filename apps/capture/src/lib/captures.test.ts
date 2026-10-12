@@ -1,45 +1,51 @@
 /**
  * Capture Store Tests
  *
- * Drives the real Capture store against a real browser folder over an
- * in-memory OPFS stand-in.
+ * Drives the real Capture store and its TanStack Query cache against a real
+ * browser folder over an in-memory OPFS stand-in. Views are stood in for as
+ * they behave: the timeline observes the capture listing, and a capture
+ * opened as text observes that file's text.
  *
  * Key behaviors:
  * - Creating a capture writes its text and an empty Thoughts section, and
  *   opens it; listing and opening write nothing
  * - The timeline orders by the captured instant, names files that are not
  *   captures for repair as text, and lists unreadable files apart
- * - Each change to the open capture saves the whole row at once, keeping
- *   metadata Capture does not declare; rapid typing writes the latest draft
- * - A draft that is not a valid capture is never written
- * - A save that meets a change made elsewhere merges with it: independent
- *   changes are written with no question; parts both changed wait in a
- *   review, and `resolve` writes one choice for each. A file deleted
- *   elsewhere is one part: taking the draft creates it again, taking the
- *   deletion closes it
- * - A file that is not a valid capture opens as text, saves as typed, and
- *   reopens as a capture once repaired
- * - Leaving a capture whose save failed, or with a thought typed and not
- *   added, answers `unsaved` until the person discards that session; opening
- *   the capture already shown does nothing; a discard after resolving
- *   reopened it as text applies to the session answered
- * - Deleting waits for the open capture's saves and deletes what it saved
- *   last; a file changed elsewhere since is not deleted
- * - Returning adopts a newer version of an open capture that holds nothing
- *   unsaved, and a thought edit whose thought changed keeps its text
- * - A departure refuses input, settles saves, counts what would be lost, and
- *   gives everything back; close waits for saves
+ * - An edit changes the cache at once and is written to the file, keeping
+ *   metadata Capture does not declare
+ * - Rapid edits run one write at a time with one waiting; the waiting write
+ *   saves the newest row, guarded by the hash the previous write confirmed
+ * - No read starts while a write runs: not on returning to the window, not
+ *   when a view mounts
+ * - A write that fails rolls the cache back to the file and reports the
+ *   text that was lost; a change the body or the folder cannot hold is
+ *   refused
+ * - A file that is not a valid capture opens as text, is written as typed,
+ *   and opens as a capture once repaired
+ * - A thought typed and not added stays with its capture; a thought command
+ *   on a list that changed meanwhile is refused and keeps its text
+ * - Deleting runs after the queued writes and removes what they saved; a
+ *   file changed elsewhere since is not deleted
+ * - Saves never commit; Save version records one
+ * - A departure fences input, settles writes, and counts text not added;
+ *   close waits for every mutation
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readLegacyBundle } from '@epicenter/capture/legacy';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import fixture from '../../fixtures/legacy-bundle.json';
+import { openCaptures } from './browser-folder.test-support.js';
 import {
-	openCapture,
-	openCaptures,
-	openText,
-	takeAll,
-} from './browser-folder.test-support.js';
+	cached,
+	cachedText,
+	focusManager,
+	listing,
+	observe,
+	quiet,
+} from './query.test-support.js';
+
+const { capturesKeys, timelineOf } = await import('./captures.svelte.ts');
 
 type Opened = Awaited<ReturnType<typeof openCaptures>>;
 const opened: Opened[] = [];
@@ -56,13 +62,26 @@ async function open(files: Record<string, string> = {}) {
 const AT = '2026-10-01T10:30:00+08:00';
 /** A capture file written by hand, with metadata Capture does not declare. */
 const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n  nested line\n`;
+/** HAND as a write saves it: plain YAML frontmatter, the body byte for byte. */
+const FORMATTED = HAND.replace(`capturedAt: ${AT}`, `capturedAt: "${AT}"`);
 const PATH = 'captures/one.md';
 
-/** Create a capture through the New capture form; it opens. */
+/** Read everything again, as returning to the window does. */
+async function returnToWindow(harness: Opened) {
+	focusManager.setFocused(false);
+	focusManager.setFocused(true);
+	await Bun.sleep(0);
+	await quiet(harness.captures);
+}
+
+/** Create a capture through the New capture form; it opens. Answers its stem. */
 async function create(harness: Opened, text: string) {
 	harness.captures.inputNewCapture(text);
-	expect(await harness.captures.create()).toBeUndefined();
-	return openCapture(harness.captures);
+	expectOk(await harness.captures.create(text));
+	await quiet(harness.captures);
+	const stem = harness.captures.opened?.stem;
+	if (stem === undefined) throw new Error('the new capture did not open');
+	return stem;
 }
 
 // ============================================================================
@@ -72,666 +91,513 @@ async function create(harness: Opened, text: string) {
 test('creating writes the text and an empty Thoughts section, opens it, and clears the form', async () => {
 	const harness = await open();
 	const { captures, counter } = harness;
-	const { session, form } = await create(harness, 'Exact\n  text ');
+	const stem = await create(harness, 'Exact\n  text ');
+	const path = `captures/${stem}.md`;
 	expect(captures.newCapture).toBe('');
-	expect(await harness.text(session.path)).toMatch(
+	expect(captures.opened).toEqual({ stem, mode: 'capture' });
+	expect(await harness.text(path)).toMatch(
 		/^---\ncapturedAt: "[^"]+"\n---\n\nExact\n {2}text \n\n## Thoughts\n$/,
 	);
-	expect(form.text).toBe('Exact\n  text ');
-	expect(form.thoughts).toEqual([]);
-	expect(captures.timeline.map((row) => row.path)).toEqual([session.path]);
+	expect(timelineOf(listing(captures)).rows.map((row) => row.path)).toEqual([
+		path,
+	]);
 
 	// Listing and opening again write nothing.
 	const before = counter.mdWrites;
-	await captures.leave();
-	await captures.refresh();
-	await captures.open(captures.timeline[0]!.stem, 'capture');
+	captures.leave();
+	await returnToWindow(harness);
+	captures.open(stem, 'capture');
+	captures.open(stem, 'text');
+	const stop = observe(captures, path);
+	await quiet(captures);
+	stop();
 	expect(counter.mdWrites).toBe(before);
 });
 
 test('blank New capture text is refused and stays in the form', async () => {
 	const { captures } = await open();
 	captures.inputNewCapture('   ');
-	expect(await captures.create()).toBe('Write something first.');
+	expect(expectErr(await captures.create('   '))).toMatchObject({
+		name: 'NotStarted',
+		reason: 'Write something first.',
+	});
 	expect(captures.newCapture).toBe('   ');
-	expect(captures.unsettled).toBe(1);
+	expect(captures.unsettled).toBe(true);
 });
 
 test('the timeline orders by the instant across offsets, names files to repair, and lists unreadable ones apart', async () => {
-	const { captures, folder } = await open({
+	const harness = await open({
 		'captures/utc.md': '---\ncapturedAt: 2026-10-01T03:00:00Z\n---\n\nUTC\n',
 		'captures/east.md': `---\ncapturedAt: ${AT}\n---\n\nEast\n`,
 		'captures/nodate.md': '---\ncapturedAt: nope\n---\n\nNo date\n',
 		'captures/two-headings.md':
 			'---\ncapturedAt: 2026-10-01T03:00:00Z\n---\n\n## Thoughts\n\n## Thoughts\n',
 	});
-	await folder.files.create('captures/binary.md', new Uint8Array([0xff, 0xfe]));
-	await captures.refresh();
+	await harness.folder.files.create(
+		'captures/binary.md',
+		new Uint8Array([0xff, 0xfe]),
+	);
+	await returnToWindow(harness);
+	const { rows, repairs, unreadable } = timelineOf(listing(harness.captures));
 	// 10:30+08:00 is 02:30Z, before 03:00Z.
-	expect(captures.timeline.map((row) => row.preview)).toEqual(['UTC', 'East']);
-	expect(captures.repairs.map((row) => row.path)).toEqual([
+	expect(rows.map((row) => row.preview)).toEqual(['UTC', 'East']);
+	expect(repairs.map((row) => row.path)).toEqual([
 		'captures/nodate.md',
 		'captures/two-headings.md',
 	]);
-	expect(captures.repairs[0]?.problem).toContain('capturedAt');
-	expect(captures.repairs[1]?.problem).toContain('Thoughts');
-	expect(captures.unreadable).toEqual([
+	expect(repairs[0]?.problem).toContain('capturedAt');
+	expect(repairs[1]?.problem).toContain('Thoughts');
+	expect(unreadable).toEqual([
 		{ path: 'captures/binary.md', message: 'It is not UTF-8 text.' },
 	]);
 });
 
 // ============================================================================
-// Saving the open capture
+// Edits and writes
 // ============================================================================
 
-test('each change saves the whole row at once, keeping metadata Capture does not declare', async () => {
+test('an edit changes the cache at once and is written to the file, keeping metadata Capture does not declare', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	expect(form.text).toBe('Text');
-	expect(form.thoughts).toEqual(['first\nnested line']);
-
+	captures.open('one', 'capture');
+	const form = captures.formOf('one');
 	form.inputNewThought('second');
 	expect(form.addThought()).toBe(true);
 	form.inputText('Edited');
-	expect((await session.settled()).status).toBe('saved');
+	expect(cached(captures, 'one').row.body).toContain('\nEdited\n');
+	await quiet(captures);
 	expect(await harness.text(PATH)).toBe(
-		'---\ncapturedAt: "2026-10-01T10:30:00+08:00"\ncustom: kept\n---\n\nEdited\n\n## Thoughts\n\n- first\n  nested line\n- second\n',
+		`${FORMATTED.replace('\nText\n', '\nEdited\n')}- second\n`,
 	);
+	expect(cached(captures, 'one').sha256).toBe(
+		expectOk(await harness.folder.files.read(PATH)).sha256,
+	);
+	expect(harness.failures).toEqual([]);
 });
 
-test('rapid typing writes only the latest draft', async () => {
+test('rapid edits run one write at a time with one waiting, which saves the newest text with no conflict', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures, counter } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
+	const form = captures.formOf('one');
 	const { held, release } = harness.holdNextMarkdownWrite();
 	form.inputText('T');
 	await held;
 	const before = counter.mdWrites;
 	for (const text of ['Ty', 'Typ', 'Typi', 'Typing']) form.inputText(text);
-	expect(session.state.status).toBe('saving');
+	// One write runs and one waits; no more were queued.
+	expect(
+		captures.queryClient.isMutating({ mutationKey: capturesKeys.write(PATH) }),
+	).toBe(2);
 	release();
-	expect((await session.settled()).status).toBe('saved');
-	// The held write, then one write of the latest draft.
+	await quiet(captures);
+	expect(harness.failures).toEqual([]);
+	// The held write, then one write of the newest text.
 	expect(counter.mdWrites - before).toBe(1);
 	expect(await harness.text(PATH)).toContain('\nTyping\n');
-	expect(form.text).toBe('Typing');
+
+	// The guard moved forward: the next edit writes on top.
+	form.inputText('Typing more');
+	await quiet(captures);
+	expect(harness.failures).toEqual([]);
+	expect(await harness.text(PATH)).toContain('\nTyping more\n');
 });
 
-test('a draft that is not a valid capture is never written, and the next valid edit saves', async () => {
+test('no read starts while a write runs: not on returning to the window, not when a view mounts', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	session.edit((row) => {
-		row.fields.capturedAt = 'not a date' as typeof row.fields.capturedAt;
+	const form = captures.formOf('one');
+	const { held, release } = harness.holdNextMarkdownWrite();
+	form.inputText('Mine');
+	await held;
+	// Returning to the window while the write is held reads nothing.
+	focusManager.setFocused(false);
+	focusManager.setFocused(true);
+	// The client refetches on focus a tick later, after resuming paused writes.
+	await Bun.sleep(0);
+	// Neither does a view that mounts now.
+	const mounted = observe(captures);
+	expect(captures.queryClient.isFetching({ queryKey: capturesKeys.rows })).toBe(
+		0,
+	);
+	release();
+	await quiet(captures);
+	mounted();
+	expect(captures.formOf('one')).toBe(form);
+	expect(cached(captures, 'one').row.body).toContain('\nMine\n');
+	expect(cached(captures, 'one').sha256).toBe(
+		expectOk(await harness.folder.files.read(PATH)).sha256,
+	);
+	form.inputText('Mine again');
+	await quiet(captures);
+	expect(harness.failures).toEqual([]);
+	expect(await harness.text(PATH)).toContain('\nMine again\n');
+});
+
+test('a write that meets a change made elsewhere rolls back to the file and reports the lost text', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
+	await harness.writeElsewhere(PATH, theirs);
+	captures.formOf('one').inputText('Mine');
+	await quiet(captures);
+	expect(harness.failures).toHaveLength(1);
+	expect(harness.failures[0]).toMatchObject({
+		path: PATH,
+		error: { name: 'Conflict' },
 	});
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('InvalidValues');
-	expect(await harness.text(PATH)).toBe(HAND);
-	session.edit((row) => {
-		row.fields.capturedAt = AT as typeof row.fields.capturedAt;
-	});
-	form.inputText('Fixed');
-	expect((await session.settled()).status).toBe('saved');
-	expect(await harness.text(PATH)).toContain('\nFixed\n');
+	expect(harness.failures[0]?.lost).toContain('\nMine\n');
+	// The cache shows the file again; nothing was written over it.
+	expect(await harness.text(PATH)).toBe(theirs);
+	expect(cached(captures, 'one').row.body).toContain('Theirs');
+
+	// The next edit writes on top of what is there now.
+	captures.formOf('one').inputText('Mine, again');
+	await quiet(captures);
+	expect(harness.failures).toHaveLength(1);
+	expect(await harness.text(PATH)).toContain('\nMine, again\n');
+});
+
+test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	const form = captures.formOf('one');
+	harness.failNextWrite(PATH);
+	form.inputText('First');
+	form.inputText('Second');
+	expect(
+		captures.queryClient.isMutating({ mutationKey: capturesKeys.write(PATH) }),
+	).toBe(2);
+	await quiet(captures);
+	// The rollback lands before the waiting write runs, so it saves the
+	// file's own row and fails nothing.
+	expect(harness.failures.map((failure) => failure.lost)).toEqual([
+		expect.stringContaining('\nSecond\n'),
+	]);
+	// What it saves is the file's own row, with its frontmatter in the standard form.
+	expect(await harness.text(PATH)).toBe(FORMATTED);
+	expect(cached(captures, 'one').row.body).toContain('\nText\n');
+});
+
+test('a write to a file deleted elsewhere rolls back and the capture is gone', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	captures.open('one', 'capture');
+	await harness.deleteElsewhere(PATH);
+	captures.formOf('one').inputText('Mine');
+	await quiet(captures);
+	expect(harness.failures).toMatchObject([
+		{ path: PATH, error: { name: 'Conflict', actualSha256: undefined } },
+	]);
+	// A write never recreates a deleted file.
+	expect(await harness.text(PATH)).toBeUndefined();
+	expect(listing(captures)).toEqual([]);
 });
 
 test('a change the body cannot hold is refused with the reason, and nothing is written', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures, counter } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
+	const form = captures.formOf('one');
 	const before = counter.mdWrites;
 	// An open fence would absorb the Thoughts section.
 	form.inputText('```\nopen fence');
 	expect(form.refusal).toContain('would not read back');
-	expect(form.text).toBe('Text');
-	await session.settled();
+	expect(cached(captures, 'one').row.body).toContain('\nText\n');
+	await quiet(captures);
 	expect(counter.mdWrites).toBe(before);
 });
 
-// ============================================================================
-// A change made elsewhere
-// ============================================================================
-
-test('a save merges with an independent change made elsewhere and asks nothing', async () => {
+test('the folder refuses a value it cannot hold, and the cache rolls back', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	await harness.writeElsewhere(PATH, `${HAND}- theirs\n`);
-	form.inputText('Mine');
-	expect((await session.settled()).status).toBe('saved');
-	expect(session.review).toBeUndefined();
-	expect(form.text).toBe('Mine');
-	expect(form.thoughts).toEqual(['first\nnested line', 'theirs']);
-	const saved = await harness.text(PATH);
-	expect(saved).toContain('\nMine\n');
-	expect(saved).toContain('- theirs\n');
-	expect(saved).toContain('custom: kept');
-});
-
-test('a body both changed waits in a review; taking theirs shows it and keeps the independent field change', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
-	await harness.writeElsewhere(PATH, theirs);
-	form.inputText('Mine');
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
-		'body',
+	// Inputs commit only values the schema accepts; this bypasses them.
+	captures.edit('one', (row) => ({
+		...row,
+		fields: {
+			...row.fields,
+			capturedAt: 'not a date' as (typeof row.fields)['capturedAt'],
+		},
+	}));
+	await quiet(captures);
+	expect(harness.failures).toMatchObject([
+		{ path: PATH, error: { name: 'InvalidValues' } },
 	]);
-	// Nothing is written until the review is answered.
-	expect(await harness.text(PATH)).toBe(theirs);
-
-	expect(
-		await captures.resolve(session, takeAll(session, 'incoming')),
-	).toBeUndefined();
-	expect(session.review).toBeUndefined();
-	expect(form.text).toBe('Theirs');
-	expect(form.thoughts).toEqual([]);
-	expect(session.state.status).toBe('saved');
-	// Their text already holds everything chosen: their body and their
-	// removal of `custom`.
-	expect(await harness.text(PATH)).toBe(theirs);
-	// The session saves again from what it resolved.
-	form.inputText('After');
-	expect((await session.settled()).status).toBe('saved');
-	expect(await harness.text(PATH)).toContain('\nAfter\n');
-});
-
-test('a body both changed: taking the draft saves it over the change made elsewhere', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	await harness.writeElsewhere(
-		PATH,
-		`---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`,
-	);
-	form.inputText('Mine');
-	await session.settled();
-	expect(
-		await captures.resolve(session, takeAll(session, 'local')),
-	).toBeUndefined();
-	expect((await session.settled()).status).toBe('saved');
-	expect(session.review).toBeUndefined();
-	const saved = await harness.text(PATH);
-	expect(saved).toContain('\nMine\n');
-	expect(saved).toContain('- first\n  nested line');
-});
-
-test('a choice the folder refuses keeps the review with its problem', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
-	await harness.writeElsewhere(PATH, theirs);
-	form.inputText('Mine');
-	await session.settled();
-	const review = session.review;
-	expect(await captures.resolve(session, {})).toBeString();
-	expect(session.review?.id).toBe(review?.id);
-	expect(session.review?.problems.length).toBeGreaterThan(0);
-	expect(await harness.text(PATH)).toBe(theirs);
-});
-
-test('a file deleted elsewhere waits in a review; taking the draft creates it again', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	await harness.deleteElsewhere(PATH);
-	form.inputText('Still mine');
-	const state = await session.settled();
-	expect(
-		state.status === 'error' &&
-			state.error.name === 'Conflict' &&
-			state.error.actualSha256,
-	).toBeUndefined();
-	expect(session.review?.conflicts).toEqual([
-		expect.objectContaining({ kind: 'file', incoming: { present: false } }),
-	]);
-	// A save never recreates a deleted file on its own.
-	expect(await harness.text(PATH)).toBeUndefined();
-
-	expect(
-		await captures.resolve(session, takeAll(session, 'local')),
-	).toBeUndefined();
-	expect(await harness.text(PATH)).toContain('\nStill mine\n');
-	expect(session.state.status).toBe('saved');
-	form.inputText('After');
-	expect((await session.settled()).status).toBe('saved');
-});
-
-test('a file deleted elsewhere: taking the deletion closes it without writing', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	await harness.deleteElsewhere(PATH);
-	form.inputText('Mine');
-	await session.settled();
-	expect(
-		await captures.resolve(session, takeAll(session, 'incoming')),
-	).toBeUndefined();
-	expect(captures.opened).toBeUndefined();
-	// The closed session takes nothing more.
-	form.inputText('Late');
-	await session.settled();
-	expect(await harness.text(PATH)).toBeUndefined();
-	expect(captures.timeline).toEqual([]);
-});
-
-test('a capture made invalid elsewhere: taking their text opens it as text with the issues', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	await harness.writeElsewhere(PATH, '---\ncapturedAt: [unclosed\n---\n');
-	form.inputText('Mine');
-	await session.settled();
-	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
-		'file',
-	]);
-	expect(
-		await captures.resolve(session, takeAll(session, 'incoming')),
-	).toBeUndefined();
-	expect(openText(captures).draft).toBe('---\ncapturedAt: [unclosed\n---\n');
+	expect(await harness.text(PATH)).toBe(HAND);
+	expect<string>(cached(captures, 'one').row.fields.capturedAt).toBe(AT);
 });
 
 // ============================================================================
 // Repair as text
 // ============================================================================
 
-test('an invalid row is named for repair, opens as text, saves as typed, and reopens as a capture', async () => {
+test('an invalid row opens as text, is written as typed, and opens as a capture once repaired', async () => {
 	const broken = '---\ncapturedAt: nope\n---\n\nBroken\n\n## Thoughts\n';
 	const harness = await open({ [PATH]: broken });
 	const { captures } = harness;
-	expect(captures.timeline).toEqual([]);
-	expect(captures.repairs.map((row) => row.stem)).toEqual(['one']);
+	expect(timelineOf(listing(captures)).repairs.map((row) => row.stem)).toEqual([
+		'one',
+	]);
 
 	// Asked as a capture, it opens as text.
-	await captures.open('one', 'capture');
-	const session = openText(captures);
-	expect(session.draft).toBe(broken);
-	session.input('---\ncapturedAt: still nope\n---\n\nBroken\n\n## Thoughts\n');
-	expect((await session.settled()).status).toBe('saved');
-	// Invalid text saves exactly as typed.
-	expect(await harness.text(PATH)).toBe(
-		'---\ncapturedAt: still nope\n---\n\nBroken\n\n## Thoughts\n',
-	);
-	session.input(`---\ncapturedAt: ${AT}\n---\n\nRepaired\n\n## Thoughts\n`);
-	await session.settled();
+	captures.open('one', 'capture');
+	expect(captures.opened).toEqual({ stem: 'one', mode: 'text' });
+	const stop = observe(captures, PATH);
+	await quiet(captures);
+	expect(cachedText(captures, PATH)).toBe(broken);
+	// Invalid text is written exactly as typed.
+	const still = '---\ncapturedAt: still nope\n---\n\nBroken\n\n## Thoughts\n';
+	captures.editText(PATH, still);
+	await quiet(captures);
+	expect(await harness.text(PATH)).toBe(still);
 
-	expect(await captures.open('one', 'capture')).toEqual({
-		kind: 'done',
-		left: true,
-	});
-	const { form } = openCapture(captures);
-	expect(form.text).toBe('Repaired');
-	await captures.refresh();
-	expect(captures.repairs).toEqual([]);
-	expect(captures.timeline.map((row) => row.preview)).toEqual(['Repaired']);
+	const repaired = `---\ncapturedAt: ${AT}\n---\n\nRepaired\n\n## Thoughts\n`;
+	captures.editText(PATH, repaired);
+	await quiet(captures);
+	stop();
+	expect(harness.failures).toEqual([]);
+	expect(await harness.text(PATH)).toBe(repaired);
+	// The listing is read again after the write.
+	expect(timelineOf(listing(captures)).repairs).toEqual([]);
+	await captures.open('one', 'capture');
+	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 });
 
 test('a valid row whose Thoughts layout is ambiguous opens as text too', async () => {
 	const ambiguous = `---\ncapturedAt: ${AT}\n---\n\n## Thoughts\n\n## Thoughts\n`;
 	const { captures } = await open({ [PATH]: ambiguous });
-	await captures.open('one', 'capture');
-	expect(openText(captures).draft).toBe(ambiguous);
+	captures.open('one', 'capture');
+	expect(captures.opened).toEqual({ stem: 'one', mode: 'text' });
 });
 
-test('Edit as text shows the exact file, and taking the draft there keeps their other changes', async () => {
+test('a write of the text that meets a change made elsewhere rolls back and reports the text', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	await captures.open('one', 'text');
-	const session = openText(captures);
-	expect(session.draft).toBe(HAND);
-	await harness.writeElsewhere(PATH, `---\ncapturedAt: ${AT}\n---\n\nTheirs\n`);
-	session.input(`${session.draft}- mine\n`);
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(
-		await captures.resolve(session, takeAll(session, 'local')),
-	).toBeUndefined();
-	await session.settled();
-	// The capture merges by field and body, as sync merges it: the body both
-	// changed is mine, and their removal of `custom` stands.
-	const saved = await harness.text(PATH);
-	expect(saved).toEndWith('- mine\n');
-	expect(saved).not.toContain('custom: kept');
-	expect<string | undefined>(session.draft).toBe(saved);
+	captures.open('one', 'text');
+	const stop = observe(captures, PATH);
+	await quiet(captures);
+	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n`;
+	await harness.writeElsewhere(PATH, theirs);
+	captures.editText(PATH, `${HAND}- mine\n`);
+	await quiet(captures);
+	stop();
+	expect(harness.failures).toMatchObject([
+		{ path: PATH, error: { name: 'Conflict' }, lost: `${HAND}- mine\n` },
+	]);
+	expect(cachedText(captures, PATH)).toBe(theirs);
+	expect(await harness.text(PATH)).toBe(theirs);
 });
 
 // ============================================================================
-// Leaving a capture
+// Input not added yet
 // ============================================================================
 
-test('leaving waits for saves, and a failed save answers unsaved until it is discarded', async () => {
+test('a thought typed and not added stays with its capture while another opens, and nothing asks', async () => {
 	const harness = await open({ [PATH]: HAND, 'captures/two.md': HAND });
 	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const one = openCapture(captures);
-	harness.failNextWrite(PATH);
-	one.form.inputText('Mine');
-	expect(await captures.open('two', 'capture')).toEqual({
-		kind: 'unsaved',
-		session: one.session,
-	});
-	expect(openCapture(captures)).toBe(one);
-	expect(captures.unsaved).toBe(true);
-
-	// A discard names the session it lets go; any other answers unsaved again.
-	const other = {} as typeof one.session;
-	expect((await captures.leave({ discard: other })).kind).toBe('unsaved');
-	expect(
-		await captures.open('two', 'capture', { discard: one.session }),
-	).toEqual({ kind: 'done', left: true });
-	expect(openCapture(captures).stem).toBe('two');
-	// The released session takes nothing more.
-	one.form.inputText('Late');
-	expect(one.form.text).toBe('Mine');
+	captures.open('one', 'capture');
+	captures.formOf('one').inputNewThought('not added');
+	expect(captures.unsettled).toBe(true);
+	captures.open('two', 'capture');
+	expect(captures.opened).toEqual({ stem: 'two', mode: 'capture' });
+	captures.leave();
+	captures.open('one', 'capture');
+	expect(captures.formOf('one').newThought).toBe('not added');
 	expect(await harness.text(PATH)).toBe(HAND);
-});
-
-test('a thought typed and not added keeps the capture open until it is discarded', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	form.inputNewThought('not added');
-	expect(captures.unsettled).toBe(1);
-	expect((await captures.leave()).kind).toBe('unsaved');
-	expect(await captures.leave({ discard: session })).toEqual({
-		kind: 'done',
-		left: true,
-	});
-	expect(captures.opened).toBeUndefined();
-	expect(await harness.text(PATH)).toBe(HAND);
-});
-
-test('opening the capture already shown does nothing, even when it holds unsaved text', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures, counter } = harness;
-	await captures.open('one', 'capture');
-	const one = openCapture(captures);
-	one.form.inputNewThought('not added');
-	const before = counter.mdWrites;
-	expect(await captures.open('one', 'capture')).toEqual({
-		kind: 'done',
-		left: false,
-	});
-	expect(openCapture(captures)).toBe(one);
-	expect(one.form.newThought).toBe('not added');
-	expect(one.session.locked).toBe(false);
-	expect(counter.mdWrites).toBe(before);
-});
-
-test('a discard after resolving reopened the capture as text applies to the session answered', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const row = openCapture(captures);
-	const invalid = '---\ncapturedAt: [unclosed\n---\n';
-	await harness.writeElsewhere(PATH, invalid);
-	row.form.inputText('Mine');
-	await row.session.settled();
-	// The row session cannot show the file now, so it opens again as text.
-	expect(
-		await captures.resolve(row.session, takeAll(row.session, 'incoming')),
-	).toBeUndefined();
-	const text = openText(captures);
-	harness.failNextWrite(PATH);
-	text.input(`${invalid}more\n`);
-	await text.settled();
-
-	const answered = await captures.leave();
-	expect(answered).toEqual({ kind: 'unsaved', session: text });
-	// The session from before the swap discards nothing.
-	expect((await captures.leave({ discard: row.session })).kind).toBe('unsaved');
-	expect(openText(captures)).toBe(text);
-	if (answered.kind !== 'unsaved') throw new Error('expected unsaved');
-	expect(await captures.leave({ discard: answered.session })).toEqual({
-		kind: 'done',
-		left: true,
-	});
-	expect(captures.opened).toBeUndefined();
-	expect(await harness.text(PATH)).toBe(invalid);
-});
-
-test('leaving after an edit saves that edit first', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	openCapture(captures).form.inputText('Saved on the way out');
-	expect(await captures.leave()).toEqual({ kind: 'done', left: true });
-	expect(await harness.text(PATH)).toContain('\nSaved on the way out\n');
-	expect(captures.timeline[0]?.preview).toBe('Saved on the way out');
-});
-
-// ============================================================================
-// Deleting
-// ============================================================================
-
-test('deleting waits for the open capture saves and deletes what it saved last', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	const { held, release } = harness.holdNextMarkdownWrite();
-	form.inputText('Saving while deleted');
-	await held;
-	const removing = captures.remove(session);
-	release();
-	expect(await removing).toBeUndefined();
-	expect(await harness.text(PATH)).toBeUndefined();
-	expect(captures.opened).toBeUndefined();
-	expect(captures.timeline).toEqual([]);
-});
-
-test('a departure and close wait for a delete that is still waiting on a save', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	const { held, release } = harness.holdNextMarkdownWrite();
-	form.inputText('Saving while deleted');
-	await held;
-	const order: string[] = [];
-	const removing = captures.remove(session).then((problem) => {
-		order.push('deleted');
-		return problem;
-	});
-	captures.departure.fence();
-	const settling = captures.departure.settle().then(() => {
-		order.push('settled');
-	});
-	const closing = captures.close().then(() => {
-		order.push('closed');
-	});
-	await Bun.sleep(5);
-	expect(order).toEqual([]);
-	release();
-	await Promise.all([settling, closing]);
-	// Both waited for the delete itself, not only for the save before it.
-	expect(order[0]).toBe('deleted');
-	expect(await removing).toBeUndefined();
-	expect(await harness.text(PATH)).toBeUndefined();
-});
-
-test('a capture changed elsewhere is not deleted; it opens again as it is now', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session } = openCapture(captures);
-	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
-	await harness.writeElsewhere(PATH, theirs);
-	expect(await captures.remove(session)).toContain('changed elsewhere');
-	expect(await harness.text(PATH)).toBe(theirs);
-	expect(openCapture(captures).form.text).toBe('Theirs');
-});
-
-// ============================================================================
-// Returning to the window
-// ============================================================================
-
-test('returning adopts a newer version of an open capture that holds nothing unsaved', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	await harness.writeElsewhere(
-		PATH,
-		`---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n\n- theirs\n`,
-	);
-	await captures.check();
-	expect(form.text).toBe('Theirs');
-	expect(form.thoughts).toEqual(['theirs']);
-	expect(session.state.status).toBe('saved');
-});
-
-test('returning leaves a capture with a thought typed and not added; its next save meets the change in a review', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	form.inputNewThought('typed');
-	await harness.writeElsewhere(PATH, `---\ncapturedAt: ${AT}\n---\n\nTheirs\n`);
-	await captures.check();
-	expect(form.text).toBe('Text');
-	expect(form.addThought()).toBe(true);
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
-		'body',
-	]);
 });
 
 test('a thought edit whose thought changed meanwhile is refused and keeps its text', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
-	form.startEditing(0, form.thoughts);
-	const edit = form.editing!;
-	// Unchanged text is nothing unsaved, so returning adopts the newer version.
+	const form = captures.formOf('one');
+	form.startEditing(0, ['first\nnested line']);
+	const edit = form.editing;
+	if (edit === undefined) throw new Error('the edit did not start');
 	await harness.writeElsewhere(
 		PATH,
 		`---\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- changed elsewhere\n`,
 	);
-	await captures.check();
+	await returnToWindow(harness);
 	form.inputEditing('my edit', edit.id);
 	expect(form.commitEditing(edit.id)).toBe(false);
 	expect(form.refusal).toContain('changed since they were shown');
 	expect(form.editing?.text).toBe('my edit');
-	await session.settled();
+	await quiet(captures);
 	expect(await harness.text(PATH)).toContain('- changed elsewhere');
 });
 
 test('deleting or moving a thought from a list that changed meanwhile says why', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { form } = openCapture(captures);
-	const shown = form.thoughts;
+	const form = captures.formOf('one');
+	const shown = ['first\nnested line'];
 	await harness.writeElsewhere(
 		PATH,
 		`---\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- a\n- b\n`,
 	);
-	await captures.check();
+	await returnToWindow(harness);
 	expect(form.deleteThought(0, shown)).toBe(false);
 	expect(form.refusal).toContain('changed since they were shown');
-	expect(form.swapThoughts(0, 1, shown)).toBe(false);
-	expect(form.refusal).toContain('changed since they were shown');
-	expect(form.thoughts).toEqual(['a', 'b']);
+	expect(form.swapThoughts(0, 1, ['b', 'a'])).toBe(false);
+	expect(form.swapThoughts(0, 1, ['a', 'b'])).toBe(true);
+	await quiet(captures);
+	expect(await harness.text(PATH)).toContain('- b\n- a\n');
+});
+
+// ============================================================================
+// Deleting
+// ============================================================================
+
+test('a delete runs after the queued writes and removes what they saved', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	captures.open('one', 'capture');
+	const deletion = expectOk(await captures.deletionFor('one'));
+	expect(deletion).toMatchObject({ path: PATH, title: 'Text' });
+	// Typing while the confirmation is open is written first.
+	const { held, release } = harness.holdNextMarkdownWrite();
+	captures.formOf('one').inputText('Saving while deleted');
+	await held;
+	const removing = captures.remove(deletion);
+	await Bun.sleep(5);
+	expect(captures.isRemoving(PATH)).toBe(true);
+	// Edits wait while the delete runs.
+	expect(captures.edit('one', (row) => row)).toBe(false);
+	release();
+	expectOk(await removing);
+	await quiet(captures);
+	expect(harness.failures).toEqual([]);
+	expect(await harness.text(PATH)).toBeUndefined();
+	expect(captures.opened).toBeUndefined();
+	expect(listing(captures)).toEqual([]);
+});
+
+test('a capture changed elsewhere is not deleted, and the timeline shows it as it is now', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	const deletion = expectOk(await captures.deletionFor('one'));
+	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
+	await harness.writeElsewhere(PATH, theirs);
+	expect(expectErr(await captures.remove(deletion)).name).toBe('Conflict');
+	await quiet(captures);
+	expect(await harness.text(PATH)).toBe(theirs);
+	expect(timelineOf(listing(captures)).rows[0]?.preview).toBe('Theirs');
+});
+
+// ============================================================================
+// Versions
+// ============================================================================
+
+test('saves never commit; Save version records one, and delete says when changes are in no saved version', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures, folder } = harness;
+	const form = captures.formOf('one');
+	form.inputText('Edited');
+	form.inputNewThought('another');
+	form.addThought();
+	await quiet(captures);
+	await Bun.sleep(20);
+	// Nothing commits on its own after edits.
+	expect(captures.git.lastCommit).toBeUndefined();
+	expect(expectOk(await folder.git.log(5))).toEqual([]);
+	expect(expectOk(await captures.deletionFor('one'))).toMatchObject({
+		unversioned: true,
+	});
+
+	const outcome = expectOk(await captures.saveVersion());
+	expect(outcome.status).toBe('committed');
+	const log = expectOk(await folder.git.log(5));
+	expect(log.map((commit) => commit.oid)).toEqual([
+		outcome.status === 'committed' ? outcome.oid : '',
+	]);
+	expect(expectOk(await captures.deletionFor('one'))).toMatchObject({
+		unversioned: false,
+	});
+
+	form.inputText('Edited again');
+	await quiet(captures);
+	await Bun.sleep(20);
+	expect(expectOk(await folder.git.log(5))).toHaveLength(1);
+	expect(expectOk(await captures.deletionFor('one'))).toMatchObject({
+		unversioned: true,
+	});
+});
+
+test('Save version is refused while departing or closing, as other actions are', async () => {
+	const { captures } = await open({ [PATH]: HAND });
+	captures.departure.fence();
+	expect(expectErr(await captures.saveVersion()).message).toContain(
+		'quit or restart',
+	);
+	captures.departure.resume();
+	void captures.close();
+	expect(expectErr(await captures.saveVersion()).message).toContain('closing');
 });
 
 // ============================================================================
 // Departure and closing
 // ============================================================================
 
-test('a departure refuses input, settles saves, counts what would be lost, and gives everything back', async () => {
+test('a departure refuses input, settles writes, counts text not added, and gives everything back', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { session, form } = openCapture(captures);
+	const form = captures.formOf('one');
 	form.inputText('Saves on its own');
 	form.inputNewThought('Held');
 	captures.inputNewCapture('A new capture, not added');
 
 	captures.departure.fence();
 	expect(captures.fenced).toBe(true);
-	expect(session.locked).toBe(true);
 	form.inputText('refused');
 	form.inputNewThought('refused');
 	captures.inputNewCapture('refused');
-	expect(await captures.create()).toContain('quit or restart');
+	expect(expectErr(await captures.create('x')).message).toContain(
+		'quit or restart',
+	);
 	// The new thought and the New capture text would be lost.
 	expect(await captures.departure.settle()).toBe(2);
 	expect(await harness.text(PATH)).toContain('\nSaves on its own\n');
 
 	captures.departure.resume();
-	expect(session.locked).toBe(false);
 	expect(form.newThought).toBe('Held');
 	expect(captures.newCapture).toBe('A new capture, not added');
 	expect(form.addThought()).toBe(true);
-	expect((await session.settled()).status).toBe('saved');
+	await quiet(captures);
+	expect(await harness.text(PATH)).toContain('- Held\n');
 });
 
-test('a commit is refused while departing or closing, as other actions are', async () => {
-	const { captures } = await open({ [PATH]: HAND });
-	captures.departure.fence();
-	expect(await captures.commit()).toEqual({
-		status: 'blocked',
-		reason: expect.stringContaining('quit or restart'),
-	});
-	captures.departure.resume();
-	void captures.close();
-	expect(await captures.commit()).toEqual({
-		status: 'blocked',
-		reason: expect.stringContaining('closing'),
-	});
-});
-
-test('closing waits for a save already sent and the latest edit after it', async () => {
+test('close waits for a write already sent and the newest edit after it, and every call shares one completion', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const { form } = openCapture(captures);
+	const form = captures.formOf('one');
 	const { held, release } = harness.holdNextMarkdownWrite();
 	form.inputText('Sent');
 	await held;
 	form.inputText('Typed later');
 	let closed = false;
-	const closing = captures.close().then(() => {
+	const first = captures.close();
+	expect(captures.close()).toBe(first);
+	void first.then(() => {
 		closed = true;
 	});
 	await Bun.sleep(5);
 	expect(closed).toBe(false);
 	release();
-	await closing;
+	await first;
 	expect(await harness.text(PATH)).toContain('\nTyped later\n');
+	// After close, edits change nothing.
 	form.inputText('After close');
-	expect(form.text).toBe('Typed later');
+	expect(cached(captures, 'one').row.body).toContain('\nTyped later\n');
 });
 
 test('importing an export twice adds nothing the second time', async () => {
 	const read = readLegacyBundle(fixture);
 	if (!read.ok) throw new Error('the fixture is not a bundle');
 	const { captures } = await open();
-	const first = await captures.importLegacy(read.bundle);
+	const first = expectOk(await captures.importLegacy(read.bundle));
 	expect(first.complete).toBe(true);
-	const imported = captures.timeline.length + captures.repairs.length;
-	expect(imported).toBe(first.documents.length);
-	const again = await captures.importLegacy(read.bundle);
+	await quiet(captures);
+	expect(listing(captures)).toHaveLength(first.documents.length);
+	const again = expectOk(await captures.importLegacy(read.bundle));
 	expect(again.documents).toEqual([]);
-	expect(captures.timeline.length + captures.repairs.length).toBe(imported);
+	await quiet(captures);
+	expect(listing(captures)).toHaveLength(first.documents.length);
 });

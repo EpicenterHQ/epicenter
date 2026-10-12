@@ -9,7 +9,7 @@
 	import { rowStemOf } from '@epicenter/folder';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
-	import type { Captures, Mode } from '$lib/captures.svelte.js';
+	import { type Captures, describeError, type Mode } from '$lib/captures.svelte.js';
 	import { downloadText } from '$lib/download.js';
 
 	// Captures made before this version live in an account store, not in
@@ -98,15 +98,10 @@
 	async function runImport() {
 		if (!bundle) return;
 		working = 'Importing…';
-		try {
-			report = await captures.importLegacy(bundle);
-			problems = [];
-		} catch (cause) {
-			report = undefined;
-			problems = [cause instanceof Error ? cause.message : String(cause)];
-		} finally {
-			working = '';
-		}
+		const { data, error } = await captures.importLegacy(bundle);
+		working = '';
+		report = data ?? undefined;
+		problems = error === null ? [] : [describeError(error)];
 	}
 
 	const count = (status: string) =>
@@ -142,8 +137,8 @@
 				<Button variant="outline" size="sm" disabled={working !== ''} onclick={checkAccount}>Use my account</Button>
 			{:else if account}
 				<Button variant="outline" size="sm" disabled={working !== ''} onclick={exportFromAccount}>Export my old captures</Button>
-			{:else if captures.unsettled > 0}
-				<p role="status">Signing in leaves this page. Save or resolve your unsaved text first.</p>
+			{:else if captures.unsettled}
+				<p role="status">Signing in leaves this page. Wait for saving to finish, and add or clear text you typed, first.</p>
 			{:else}
 				<Button variant="outline" size="sm" disabled={working !== ''} onclick={signIn}>Sign in to export</Button>
 			{/if}

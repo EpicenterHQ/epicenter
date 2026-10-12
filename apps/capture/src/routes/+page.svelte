@@ -2,10 +2,12 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
+	import { toast } from '@epicenter/ui/sonner';
+	import { useQueryClient } from '@tanstack/svelte-query';
 	import { openForDeparture } from '@epicenter/epicenter/departure/page';
 	import { onDestroy } from 'svelte';
 	import { openCaptureHost, openDeparture } from '#platform/folder';
-	import { createCaptures } from '$lib/captures.svelte.js';
+	import { createCaptures, describeError, type WriteFailure } from '$lib/captures.svelte.js';
 	import CaptureApp from '$lib/components/CaptureApp.svelte';
 
 	// The mounted page acquires the folder; importing modules opens nothing.
@@ -17,19 +19,36 @@
 	// editable while a quit or restart may be running. The captures are
 	// attached before anything else is awaited; a folder that did not open
 	// has nothing to settle. A browser tab has none.
+	const queryClient = useQueryClient();
+
+	/** A write that failed was rolled back to the file; say so, and offer the text it held. */
+	function writeFailed({ path, error, lost }: WriteFailure) {
+		toast.error(`Could not save ${path}`, {
+			description: describeError(error),
+			duration: Number.POSITIVE_INFINITY,
+			action:
+				lost === ''
+					? undefined
+					: {
+							label: 'Copy your text',
+							onClick: () => void navigator.clipboard.writeText(lost).catch(() => {}),
+						},
+		});
+	}
+
 	const departure = openDeparture();
 	void departure?.start();
 	const opening = openForDeparture(
 		departure,
 		async () => {
 			const host = await openCaptureHost();
-			return { host, captures: createCaptures(host) };
+			return {
+				host,
+				captures: createCaptures(host, queryClient, { onWriteFailed: writeFailed }),
+			};
 		},
 		({ captures }) => captures.departure,
-	).then(async (opened) => {
-		await opened.captures.refresh();
-		return opened;
-	});
+	);
 
 	onDestroy(() => {
 		departure?.destroy();

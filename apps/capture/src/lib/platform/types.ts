@@ -27,7 +27,8 @@ export type CaptureFolder = {
 	readonly tables: { readonly captures: FileTable<CaptureFields> };
 	/** A capture's exact text for repair, and the legacy import's files. */
 	readonly files: FolderFiles;
-	readonly git: Pick<FolderGit, 'snapshot' | 'subscribe' | 'commit'>;
+	/** The snapshot, Save version, and whether a file has changes in no saved version. */
+	readonly git: Pick<FolderGit, 'snapshot' | 'subscribe' | 'commit' | 'status'>;
 };
 
 export type CaptureHost = {
