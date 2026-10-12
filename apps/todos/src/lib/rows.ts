@@ -73,7 +73,6 @@ export function createRows({
 	defineQuery,
 	defineMutation,
 	invalidate,
-	trackMutations,
 	whenIdle,
 	refused,
 	afterWrite,
@@ -162,16 +161,8 @@ export function createRows({
 
 	/** Whether a rename or delete of `stem` runs or waits, which pauses its edits. */
 	function moving(stem: string) {
-		const path = todoPath(stem);
 		return (
-			queryClient.isMutating({
-				mutationKey: todosKeys.move(path),
-				exact: true,
-			}) +
-				queryClient.isMutating({
-					mutationKey: todosKeys.remove(path),
-					exact: true,
-				}) >
+			queryClient.isMutating({ mutationKey: todosKeys.moving(todoPath(stem)) }) >
 			0
 		);
 	}
@@ -223,11 +214,6 @@ export function createRows({
 				predicate: (mutation) => mutation.options.scope?.id === path,
 			});
 			return capturedOf(stem);
-		},
-		/** Whether `stem` is being renamed or deleted, which pauses its edits; read reactively. */
-		isMoving(stem: string) {
-			trackMutations();
-			return moving(stem);
 		},
 		/**
 		 * Change the todo at `stem` in the cache. Answers whether the caller
@@ -411,7 +397,7 @@ export function createRows({
 			if (nextStem === stem) return Ok(undefined);
 			const path = todoPath(stem);
 			return defineMutation({
-				mutationKey: todosKeys.move(path),
+				mutationKey: todosKeys.rename(path),
 				scope: { id: path },
 				mutationFn: async (): Promise<
 					Result<FileCapture, FileError | MoveError | TableError | TodosError>

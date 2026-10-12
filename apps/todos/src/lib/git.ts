@@ -16,12 +16,10 @@ import { type Session, type TodosError, todosKeys } from './session.js';
 
 export function createGit({
 	folder,
-	queryClient,
 	defineQuery,
 	defineMutation,
 	writesSettled,
 	invalidate,
-	trackMutations,
 }: Session) {
 	const trackSnapshot = createSubscriber((update) =>
 		folder.git.subscribe(update),
@@ -65,12 +63,5 @@ export function createGit({
 			},
 			onSettled: () => invalidate(),
 		}),
-		/** Whether recovering an incoming update runs, read reactively. */
-		get recovering() {
-			trackMutations();
-			return (
-				queryClient.isMutating({ mutationKey: todosKeys.recoverIncoming }) > 0
-			);
-		},
 	};
 }

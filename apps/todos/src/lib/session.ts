@@ -20,8 +20,10 @@ export const todosKeys = defineKeys({
 	writes: ['todos', 'write'],
 	write: (path: string) => ['todos', 'write', 'row', path] as const,
 	repair: (path: string) => ['todos', 'write', 'repair', path] as const,
-	move: (path: string) => ['todos', 'move', path] as const,
-	remove: (path: string) => ['todos', 'remove', path] as const,
+	/** A rename or a delete of the file at `path`: either pauses its edits. */
+	moving: (path: string) => ['todos', 'moving', path] as const,
+	rename: (path: string) => ['todos', 'moving', path, 'rename'] as const,
+	remove: (path: string) => ['todos', 'moving', path, 'delete'] as const,
 	recoverIncoming: ['todos', 'recover-incoming'],
 });
 
@@ -55,8 +57,6 @@ export type Session = {
 	readonly writesSettled: () => Promise<void>;
 	/** Read `queryKey` again. */
 	readonly invalidate: (queryKey?: readonly unknown[]) => Promise<void>;
-	/** Make the reading getter rerun when mutations start or settle. */
-	readonly trackMutations: () => void;
 	/** Resolves once nothing matching `filters` is mutating, including what starts meanwhile. */
 	readonly whenIdle: (filters?: MutationFilters) => Promise<void>;
 	/** Why no edit starts now, if one does not: Epicenter is asking to leave. */

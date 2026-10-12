@@ -12,6 +12,7 @@
 		type CreateMutationResult,
 		createMutation,
 		createQuery,
+		useIsMutating,
 	} from '@tanstack/svelte-query';
 	import { Err, Ok } from 'wellcrafted/result';
 	import {
@@ -27,7 +28,7 @@
 		versionOutcomeLine,
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
-	import type { TodosError } from '$lib/session.js';
+	import { type TodosError, todosKeys } from '$lib/session.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 
 	const todos = getTodos();
@@ -45,7 +46,9 @@
 	// Git status is a read like any other: on open, on focus, and after actions.
 	const status = createQuery(() => todos.git.status.options);
 	const saveVersion = createMutation(() => todos.git.saveVersion.options);
-	const files = $derived(filesLine({ saving: todos.saving }));
+	const writing = useIsMutating({ mutationKey: todosKeys.writes });
+	const recovering = useIsMutating({ mutationKey: todosKeys.recoverIncoming });
+	const files = $derived(filesLine({ saving: writing.current > 0 }));
 	const incoming = $derived(incomingLine(todos.git.snapshot));
 	const versions = $derived(versionLine(todos.git.snapshot));
 	const lastVersion = $derived(lastVersionLine(todos.git.snapshot));
@@ -90,7 +93,7 @@
 		sync.isPending ||
 			saveVersion.isPending ||
 			reviewing ||
-			todos.git.recovering,
+			recovering.current > 0,
 	);
 	/**
 	 * Sync and Save version wait while an incoming update is pending; the

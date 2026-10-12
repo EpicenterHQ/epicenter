@@ -580,7 +580,9 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 
 	const renaming = todos.rows.rename(stem, 'oat', version!);
 	// Edits wait while the rename runs.
-	expect(todos.rows.isMoving(stem)).toBe(true);
+	expect(
+		todos.queryClient.isMutating({ mutationKey: todosKeys.moving(path) }),
+	).toBe(1);
 	expect(todos.rows.edit(stem, titled('Typed during the rename'))).toBe(false);
 	expectOk(await renaming);
 	await quiet(todos);

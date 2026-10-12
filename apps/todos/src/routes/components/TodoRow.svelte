@@ -6,7 +6,8 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
-	import { createMutation } from '@tanstack/svelte-query';
+	import { createMutation, useIsMutating } from '@tanstack/svelte-query';
+	import { todosKeys } from '$lib/session.js';
 	import type { TodoEntry } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 
@@ -24,6 +25,9 @@
 	} = $props();
 
 	const write = createMutation(() => todos.rows.write(entry.stem).options);
+	// The list keys each row by its stem, so a row's path never changes.
+	// svelte-ignore state_referenced_locally
+	const moving = useIsMutating({ mutationKey: todosKeys.moving(entry.path) });
 	const done = $derived(entry.row.fields.done);
 	const title = $derived.by(() => {
 		const typed = entry.row.fields.title;
@@ -46,7 +50,7 @@
 					write.mutate();
 			}
 		}
-		disabled={todos.rows.isMoving(entry.stem)}
+		disabled={moving.current > 0}
 		aria-label="{done ? 'Reopen' : 'Complete'} {title}"
 	/>
 	<Button

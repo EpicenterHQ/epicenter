@@ -21,7 +21,9 @@
  * mutation or `.fetch()` a query and get a `Result`. A member that takes a
  * stem and returns a definition is one a view holds (`rows.entry`,
  * `rows.write`, `rows.repair`); an async method is a one-shot action a
- * handler awaits (`rows.rename`, `rows.remove`). Which todo is open is the
+ * handler awaits (`rows.rename`, `rows.remove`). Whether something runs
+ * is TanStack's: a view asks `useIsMutating` with a key from `todosKeys`
+ * (`writes`, `moving(path)`, `recoverIncoming`). Which todo is open is the
  * page URL's (`?todo=<stem>`), not the store's. Saves never commit
  * (ADR-0529); a version is recorded by Sync or by Save version.
  */
@@ -33,7 +35,6 @@ import {
 	QueryClient,
 } from '@tanstack/query-core';
 import { createContext } from 'svelte';
-import { createSubscriber } from 'svelte/reactivity';
 import { createQueryFactories } from 'wellcrafted/query';
 import { createGit } from './git.js';
 import type { TodosFolder } from './platform/types.js';
@@ -115,9 +116,6 @@ export function createTodos(
 	});
 	queryClient.mount();
 	const { defineQuery, defineMutation } = createQueryFactories(queryClient);
-	const trackMutations = createSubscriber((update) =>
-		mutationCache.subscribe(update),
-	);
 
 	// TanStack holds a waiting write until the page is visible, which would
 	// stall quitting and lose the write when a background tab closes. So the
@@ -172,7 +170,6 @@ export function createTodos(
 		defineMutation,
 		writesSettled,
 		invalidate,
-		trackMutations,
 		whenIdle,
 		refused,
 		afterWrite,
@@ -195,11 +192,6 @@ export function createTodos(
 		sync: createSync(session),
 		/** Read the listing and Git status again. */
 		refresh: () => invalidate(),
-		/** Whether a write of a todo's file is running or waiting, read reactively. */
-		get saving() {
-			trackMutations();
-			return queryClient.isMutating({ mutationKey: todosKeys.writes }) > 0;
-		},
 		/** Whether Epicenter is asking to quit or restart, which pauses all input. */
 		get departing() {
 			return departing;

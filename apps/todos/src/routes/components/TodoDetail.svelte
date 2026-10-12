@@ -21,9 +21,10 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { type Row, wellFormed } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useIsMutating } from '@tanstack/svelte-query';
 	import type { TodoFields } from '$lib/definition.js';
 	import { describeError } from '$lib/describe-error.js';
+	import { todosKeys } from '$lib/session.js';
 	import { todoPath } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 
@@ -54,7 +55,9 @@
 	 * While Epicenter asks to leave, the page is inert and the store refuses
 	 * them; this does not cover that.
 	 */
-	const locked = $derived(todos.rows.isMoving(stem));
+	// svelte-ignore state_referenced_locally
+	const moving = useIsMutating({ mutationKey: todosKeys.moving(todoPath(stem)) });
+	const locked = $derived(moving.current > 0);
 	/** The repair text typed here and not saved; it lives in the store, so it outlasts this view. */
 	const draft = $derived(todos.rows.draft(stem));
 
