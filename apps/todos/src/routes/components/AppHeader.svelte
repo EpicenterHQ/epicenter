@@ -29,7 +29,6 @@
 	import { describeError } from '$lib/describe-error.js';
 	import type { TodosError } from '$lib/session.js';
 	import { getTodos } from '$lib/todos.svelte.js';
-	import { copyPath } from './actions.js';
 
 	const todos = getTodos();
 
@@ -59,6 +58,15 @@
 		['Last version', 'status-last-version', lastVersion],
 		['Remote', 'status-remote', remote],
 	]);
+
+	async function copyPath(path: string) {
+		try {
+			await navigator.clipboard.writeText(path);
+			toast.success(`Copied ${path}`);
+		} catch {
+			toast.error('Could not copy the path', { description: path });
+		}
+	}
 
 	/** The directory on this computer, when the todos are in one. */
 	const directory = $derived(

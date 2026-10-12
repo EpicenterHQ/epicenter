@@ -12,7 +12,7 @@
  * observes it, and a view that edits a todo creates its own write mutation
  * and queues a write only when the store's `edit` says one is needed.
  */
-import type { Row, StoredRow } from '@epicenter/folder';
+import type { FileCapture, Row, StoredRow } from '@epicenter/folder';
 import {
 	focusManager,
 	MutationObserver,
@@ -50,7 +50,7 @@ export function rowEditor(todos: Todos, stem: string) {
 export function observe(todos: Todos) {
 	return new QueryObserver(
 		todos.queryClient,
-		todos.rows.list.options,
+		todos.rows.todos.options,
 	).subscribe(() => {});
 }
 
@@ -80,4 +80,19 @@ export function cached(todos: Todos, stem: string): StoredRow<TodoFields> {
 	if (result?.error !== null || result === undefined)
 		throw new Error(`No valid row for ${stem} in the cache`);
 	return result.data;
+}
+
+/**
+ * The bytes the cache holds for `stem`, a row's or an `InvalidRow`'s, as a
+ * view shows them when the person asks to rename or delete it.
+ */
+export function shown(todos: Todos, stem: string): FileCapture {
+	const result = listing(todos).find((entry) => entry.stem === stem)?.result;
+	if (result === undefined)
+		throw new Error(`No entry for ${stem} in the cache`);
+	if (result.error === null)
+		return { path: result.data.path, sha256: result.data.sha256 };
+	if (result.error.name !== 'InvalidRow')
+		throw new Error(`${stem} could not be read: ${result.error.message}`);
+	return { path: result.error.path, sha256: result.error.sha256 };
 }

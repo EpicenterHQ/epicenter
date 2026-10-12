@@ -86,9 +86,11 @@ last read until one of those moments.
   checked immediately before the file is replaced, so an edit that lands in
   that instant is overwritten. It is not an operating-system compare-and-swap,
   and nothing merges on a write.
-- A rename or delete of a todo changes one file, its Markdown file. It runs
-  after the file's writes, so it acts on what Todos wrote last, and a file
-  changed elsewhere since is refused. A failure is reported as it happened: a
+- A rename or delete of a todo changes one file, its Markdown file. It
+  carries the version the editor showed when you asked. It runs after the
+  file's writes, and only on that version or one Todos itself wrote from it
+  since; a file changed elsewhere is refused, whether or not Todos has read
+  the change yet. A failure is reported as it happened: a
   refusal wrote nothing, and a reply that never arrived says the change may
   have landed, with the folder's own detail. Nothing is retried or rolled
   back.
@@ -106,6 +108,10 @@ last read until one of those moments.
 Edits are written as you make them. Writes and other actions still running
 are waited for. The title of a new todo you have not added lives in the box
 alone: it stays while the window is open, and quitting or reloading drops it.
+Repair text you typed and did not save lives in the page: it stays while you
+open other todos and while the window is open, and it counts as unsaved, so
+the browser demo's leave warning covers it. Quitting or restarting Epicenter
+drops it without asking, as a reload does.
 
 - Closing the Todos window hides it. The page stays loaded, so a typed title
   is still there when you open Todos again.
@@ -114,8 +120,9 @@ alone: it stays while the window is open, and quitting or reloading drops it.
   through the shared page client (`@epicenter/epicenter/departure/page`).
   From that moment the page takes no input and starts no edit or action. It
   waits until every write and action already running has finished, then
-  tells Epicenter it is ready. It never asks: once that work is done, nothing
-  in it can be lost.
+  tells Epicenter it is ready. It never asks: Todos has no prompt to show.
+  Once that work is done, nothing in it is lost; repair text typed and not
+  saved is.
 - Todos opens its folder only once it is listening for a quit or restart and
   has read from Epicenter whether one is running. If it cannot listen, or
   cannot read that status, it shows "Todos is waiting for Epicenter" with
@@ -129,7 +136,9 @@ alone: it stays while the window is open, and quitting or reloading drops it.
   not ask Epicenter ends the page without asking. A write that had not landed
   is lost. Written files are on disk and reopen as they were.
 - The browser demo has none of this: leaving the tab while a write or action
-  runs asks first with the browser's leave warning.
+  runs, or while repair text is typed and not saved, asks first with the
+  browser's leave warning. Opening another todo changes only the address's
+  `?todo=` and never asks.
 - On quit, the Rust Folder owner fences new work, drains accepted local
   writes, stops network work, and releases the directory lock.
 - A page reload or explicit client close ends that page's access. The shared
@@ -216,15 +225,21 @@ the window. The header holds the rest:
 | Sync | Waits for writes still running, records a version, fetches, merges, and pushes (`folder.sync`, ADR-0514). Edits to different fields, or to different lines of the notes, merge on their own; a merged todo is rewritten in the standard form. When both sides changed the same title, done, notes, or a whole todo (one side deleted it, or a version is not a valid todo), the review replaces the workspace and nothing is written until you apply your choices. The review is modal: the workspace and the Git buttons wait until you apply or cancel, and Cancel forgets the attempt and your choices. A choice the folder refuses shows beside its row and keeps the review. Afterwards the list and Git status are read again. Off when the folder has no remote. |
 | Recover incoming update | Shown only while an incoming update has not finished; see below. Sync and Save version are off until then, and say why. |
 
-On narrow screens the list and the editor take turns; the editor has a Back
-button.
+The open todo is part of the address, `?todo=<stem>`, so a reload or a
+change of window width keeps it open. On narrow screens the list and the
+editor take turns: opening a todo adds a history entry, so the browser's Back
+returns to the list, and the editor has its own Back button. Renaming or
+deleting the open todo replaces the entry, so Back never lands on a name
+that is gone.
 
 The list opens a todo's title, done, and notes. A file in `todos/` whose text
 is not a valid todo shows under "Needs repair" and opens as its text, with
-what to fix and **Save**; once it reads as a todo, the editor shows its
-fields. One todo shows at a time, and switching never waits or asks: there is
-nothing unsaved to ask about, except repair text you typed and did not save,
-which switching drops.
+what to fix, **Save**, and **Discard**; once it reads as a todo, the editor
+shows its fields. A file that cannot be read as text at all shows under
+"Could not read" with **Try again**; Todos cannot repair it. One todo shows
+at a time, and switching never waits or asks. Repair text you typed and did
+not save stays with its file while you switch, until you save or discard it,
+or the file reads as a todo or leaves the folder.
 
 ### Editing and writes
 
@@ -245,16 +260,23 @@ which switching drops.
 - Inputs hold only values a todo can hold. A title or notes with a lone
   surrogate is written with U+FFFD in its place, as shown. The folder still
   refuses a value it cannot hold, and the editor then shows the file again.
-- Rename and delete run after the file's writes and act on what was written
-  last. Typing into that file waits while they run.
+- Rename and delete carry the version the editor showed when you asked:
+  for delete, when the confirmation opened. They run after the file's
+  writes, and only on that version or one Todos wrote from it since, so a
+  delete you confirmed while your last edit was still being written removes
+  that edit's file. A file changed elsewhere since is refused, and so is a
+  todo Todos no longer lists. Typing into that file waits while they run.
 - The first write of a file written by hand rewrites it in Todos' standard
   form: plain YAML frontmatter, declared keys first, unknown keys kept.
   Comments and custom quoting in the frontmatter are not kept.
-- A repair writes the text you typed when you press **Save**, guarded the
-  same way by the version Todos last read. Text that still does not read as
-  a todo is written as typed and stays under "Needs repair". When the file
-  changed elsewhere, nothing is written, the text stays in the field, and a
-  message offers to copy it.
+- A repair writes the text you typed when you press **Save**, guarded by the
+  version you started typing over: Todos records it at your first
+  keystroke. Text that still does not read as a todo is written as typed and
+  stays under "Needs repair". When the file changed elsewhere since your
+  first keystroke, even if Todos has read the change, nothing is written,
+  the text stays in the field, the editor says the file changed, and a
+  message offers to copy your text. **Discard** drops your text and shows
+  the file as it is now.
 
 ### When an incoming update stops partway
 
@@ -301,7 +323,7 @@ without Sync.
    or deleting changes that one Markdown file: a file with the same stem,
    such as an image or a recording, stays where it is. Delete always asks
    first, naming what it removes and whether its latest changes are in no
-   saved version. A file changed elsewhere since Todos last read it is
+   saved version. A file changed elsewhere after the confirmation opened is
    refused.
 4. In the native checkout printed at startup:
 
@@ -362,11 +384,11 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
 | `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry, no reread while writing, the quit fence), leaving, and closing. It composes the namespaces below over one `Session`. |
 | `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError` and `DEPARTING`, the `WriteFailure` type, and the `Session` type. |
-| `src/lib/rows.ts` | `todos.rows`: the todo listing (`list`), `edit`, the scoped `write(stem)` and `repair(stem)` each view creates its mutation from, `create`, `rename`, `remove`, and `isMoving`; plus the app's name rule (`stemProblem`). |
+| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), `edit`, the scoped `write(stem)` and `repair(stem)` each view creates its mutation from, repair drafts (`draft`, `setDraft`, `discardDraft`, `drafted`), `create`, `rename`, `remove`, and `isMoving`. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, Save version, and incoming recovery. |
 | `src/lib/sync.ts` | `todos.sync`: `run` and the review's `apply`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
-| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, which also repairs a file that does not read as a todo), and the sync review. `TodosView` lays them out and holds which todo is open. |
+| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also repairs a file that does not read as a todo), and the sync review. `TodosView` lays them out and reads which todo is open from the URL's `?todo=`. |
 | `server/git-server.ts` | `git http-backend` over a bare repository, plus the native checkout. |
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |
@@ -378,12 +400,14 @@ Every query and mutation is a wellcrafted definition. A view passes
 narrows a query; code and tests call a mutation, or `.fetch()` a query, and get
 a `Result`.
 
-The query cache holds the files, and an edit goes straight into it. The todo
-listing is one query (`['todos', 'rows']`) built from
+The query cache holds the files, and an edit goes straight into it. Every
+write carries the hash of the version the person acted on, taken when they
+acted. The todo listing is one query (`['todos', 'rows']`) built from
 `folder.tables.todos.list()`; a row that does not read as a todo is an
-`Err(InvalidRow)` entry in it. `TodoDetail` reads that listing narrowed to
-its row with `select`, and the list reads all of it, so they cannot
-disagree. A view that edits a file calls `todos.rows.edit(stem, change)`, one
+`Err(InvalidRow)` entry in it. The store defines its views over that one
+cache entry, each with `select`: the list reads `todos.rows.todos` and
+`todos.rows.repairs`, and `TodoDetail` reads `todos.rows.entry(stem)`, so
+they cannot disagree. A view that edits a file calls `todos.rows.edit(stem, change)`, one
 immutable `map` over the listing, and queues its own write mutation
 (`mutationKey: ['todos', 'write', 'row', path]`, `scope: { id: path }`) only when
 `edit` says one is needed: fewer than two are running or waiting for that
@@ -396,13 +420,21 @@ flight, nothing goes stale on its own, returning to the page and **Check
 again** read nothing while writing, and the last write to settle reads
 everything again. Writes never wait for the page to be visible. A repair
 (`todos.rows.repair(stem)`, `mutationKey: ['todos', 'write', 'repair', path]`)
-is a write too: it joins the file's queue and writes the typed text with
-guarded `folder.files.replace`, using the hash in the listing's `InvalidRow`.
-Rename and delete join the same queue and use the same cached hash. The store
-holds whether Epicenter is asking to leave; which todo is open, the new
-todo's title, and repair text typed and not saved live in the components that
-show them. Components find the store with `getTodos()` and never touch its
-query client.
+is a write too: it joins the file's queue and writes `{ text, base }` with
+guarded `folder.files.replace(base, text)`. `base` is the draft's: the
+`InvalidRow`'s path, hash, and text at the first keystroke
+(`todos.rows.setDraft`). A success reads that one file again, whatever else
+is writing, and drops the draft; a `Conflict` keeps it. The store keeps the
+drafts, counts them in `todos.departure.holdsUnsaved`, and drops one once its
+file reads as a todo or leaves the listing. Rename and delete join the same
+queue and carry the capture the view showed (`rename(stem, next, shown)`,
+`remove(stem, shown)`). When they run, the cached hash must be `shown`, or
+one the app's own writes produced from it; otherwise they refuse with
+`NotStarted`, and the folder's guard still refuses a change Todos has not
+read. The store holds whether Epicenter is asking to leave and the repair
+drafts; the URL holds which todo is open; the new todo's title lives in the
+list. Components find the store with `getTodos()` and never touch its query
+client.
 
 Checks: `bun run --cwd apps/todos typecheck` (both seam leaves and the Bun
 side), `bun run --cwd apps/todos test` (it builds the Folder's file exchange
@@ -445,4 +477,4 @@ version before it:
   pressing **Save**, not by text that saves as you type.
 - Quitting or restarting no longer asks about anything. It waits for every
   write and action, then the window is ready; a new todo's title typed and not
-  added is dropped, as it is on a reload.
+  added, and repair text typed and not saved, are dropped, as on a reload.

@@ -1,13 +1,16 @@
 /**
  * Todo Detail Mounted Tests
  *
- * Mounts the real list and the real `TodoDetail` as `TodosView` lays them
- * out on a wide screen, with their real `TodoRow`, `FileNameBar`, and
- * `@epicenter/ui` controls, in jsdom inside the query client the folder's
- * scope provides, over the real Todos store (`createTodos`) and a real
- * browser folder on the in-memory OPFS stand-in. Typing goes through the
- * DOM, into the shared `Input` and `Textarea` and their function bindings;
- * another writer changes the file through `folder.files`.
+ * Mounts the whole `TodosView` as the page does, with the real list, the real
+ * `TodoDetail` and its file name bar, and the real `@epicenter/ui` controls,
+ * in jsdom inside the query client the folder's scope provides, over the real
+ * Todos store (`createTodos`) and a real browser folder on the in-memory OPFS
+ * stand-in. The open todo is the page URL's `?todo=`, driven through the
+ * `$app/state` and `$app/navigation` stand-ins. jsdom matches no media query
+ * until a test crosses the breakpoint, so the view lays out as on a narrow
+ * screen: the list stays mounted, hidden, behind the open todo. Typing goes
+ * through the DOM, into the shared `Input` and `Textarea` and their function
+ * bindings; another writer changes the file through `folder.files`.
  *
  * Key behaviors:
  * - Typing a title or notes changes the cache at once, so the list shows it
@@ -19,7 +22,14 @@
  * - A malformed todo shows under "Needs repair"; opened, it shows its issues
  *   and its text. Save writes the typed text, keeping the file's CRLF, and
  *   then the detail shows its fields. A repair over a file changed elsewhere
- *   writes nothing, reports the typed text, and keeps it in the field
+ *   since the first keystroke writes nothing, even after the listing read
+ *   the change, reports the typed text, and keeps it in the field
+ * - Repair text typed and not saved survives opening another todo and the
+ *   width breakpoint, and leaving the page asks while it is held; opening
+ *   another todo does not
+ * - A file that cannot be read as text is labelled "Could not read", not
+ *   offered for repair
+ * - The open todo follows the URL, and opening one from the list sets it
  * - A title input keeps its value well formed, so what is written is what
  *   is shown
  * - Notes show LF and keep the file's CRLF
@@ -43,13 +53,17 @@ import {
 import { todosDefinition } from '../../lib/definition.js';
 import { quiet } from '../../lib/query.test-support.js';
 import type { WriteFailure } from '../../lib/session.js';
-import { click, type } from '../../lib/svelte-dom.test-support.js';
+import { click, setWide, type } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTodos } = await import('../../lib/todos.svelte.ts');
-const { default: TodoDetailHost } = await import(
-	'./fixtures/TodoDetailHost.svelte'
+const { page } = await import('../../lib/app-state.test-support.svelte.ts');
+const { goto, leave, resetUrl } = await import(
+	'../../lib/app-navigation.test-support.ts'
+);
+const { default: TodosViewHost } = await import(
+	'./fixtures/TodosViewHost.svelte'
 );
 
 const ROW = (title: string) => `---\ntitle: ${title}\ndone: false\n---\n`;
@@ -58,9 +72,16 @@ const cleanup: (() => Promise<unknown> | void)[] = [];
 
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
+	setWide(false);
+	resetUrl();
 });
 
-/** The real store over a fresh browser folder, with the list and the detail mounted over it. */
+/** The todo the URL opens. */
+const opened = () => page.url.searchParams.get('todo') ?? undefined;
+const DETAIL = 'section[aria-label="Todo"]';
+const LIST = '[aria-label="Todo list"]';
+
+/** The real store over a fresh browser folder, with the whole view mounted over it. */
 async function setup() {
 	const storage = createTestStorage();
 	const folder = expectOk(
@@ -80,7 +101,7 @@ async function setup() {
 	cleanup.push(() => todos.close());
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(TodoDetailHost, { target, props: { todos } });
+	const view = mount(TodosViewHost, { target, props: { todos } });
 	flushSync();
 	cleanup.push(() => {
 		void unmount(view);
@@ -95,8 +116,8 @@ async function setup() {
 		todos,
 		failures,
 		target,
-		detail: () => target.querySelector('[data-host="detail"]')!,
-		list: () => target.querySelector('[data-host="list"]')!,
+		detail: () => target.querySelector(DETAIL)!,
+		list: () => target.querySelector(LIST)!,
 		find<T extends Element = HTMLTextAreaElement>(selector: string) {
 			return target.querySelector(selector) as T | null;
 		},
@@ -121,17 +142,22 @@ async function setup() {
 	};
 }
 
-const TITLE = '[data-host="detail"] input[aria-label="Title"]';
-const NOTES = '[data-host="detail"] textarea[aria-label="Notes"]';
-const DONE = '[data-host="detail"] button[aria-label="Done"]';
+const TITLE = `${DETAIL} input[aria-label="Title"]`;
+const NOTES = `${DETAIL} textarea[aria-label="Notes"]`;
+const DONE = `${DETAIL} button[aria-label="Done"]`;
 /** A malformed todo's text, for repair. */
-const REPAIR = '[data-host="detail"] textarea[aria-label^="Text of"]';
+const REPAIR = `${DETAIL} textarea[aria-label^="Text of"]`;
 
-/** Let writes, reads, and effects run, then render. */
+/**
+ * Let writes, reads, and effects run, then render. TanStack hands observers
+ * their results on a timer, so a few turns pass before the last render.
+ */
 async function settle(todos: Todos) {
 	await quiet(todos);
-	flushSync();
-	await Bun.sleep(0);
+	for (let turn = 0; turn < 3; turn++) {
+		flushSync();
+		await Bun.sleep(1);
+	}
 	flushSync();
 }
 
@@ -158,9 +184,9 @@ function listed(list: Element) {
 
 /** Open the todo at `path` from the list. */
 async function openTodo(todos: Todos, target: Element, path: string) {
-	const row = [
-		...target.querySelectorAll('[data-host="list"] [data-todo]'),
-	].find((candidate) => candidate.getAttribute('data-todo') === path);
+	const row = [...target.querySelectorAll(`${LIST} [data-todo]`)].find(
+		(candidate) => candidate.getAttribute('data-todo') === path,
+	);
 	if (row === undefined) throw new Error(`The list does not show ${path}`);
 	press(row);
 	await settle(todos);
@@ -168,14 +194,12 @@ async function openTodo(todos: Todos, target: Element, path: string) {
 
 /** Add a todo through the list and show it, as the list does; answers its path. */
 async function addTodo(todos: Todos, target: Element, title: string) {
-	const opened = () =>
-		target.querySelector('[data-host="detail"]')?.getAttribute('data-open');
 	const before = opened();
 	type(target.querySelector('[aria-label="New todo title"]'), title);
 	flushSync();
-	click(target.querySelector('[data-host="list"]')!, 'Add');
+	click(target.querySelector(LIST)!, 'Add');
 	await settle(todos);
-	await eventually(() => opened() != null && opened() !== before);
+	await eventually(() => opened() !== undefined && opened() !== before);
 	return `todos/${opened()}.md`;
 }
 
@@ -283,7 +307,7 @@ test('a malformed todo shows its issues and text; Save writes the typed text, ke
 	// Text that still does not parse is written as typed, and still needs repair.
 	type(field, '---\ntitle: Bread\ndone: soon\n---\n');
 	flushSync();
-	click(get('[data-host="detail"]'), 'Save');
+	click(get(DETAIL), 'Save');
 	await settle(todos);
 	expect(await text('todos/bad.md')).toBe(
 		'---\r\ntitle: Bread\r\ndone: soon\r\n---\r\n',
@@ -292,7 +316,7 @@ test('a malformed todo shows its issues and text; Save writes the typed text, ke
 
 	type(get(REPAIR), ROW('Fixed'));
 	flushSync();
-	click(get('[data-host="detail"]'), 'Save');
+	click(get(DETAIL), 'Save');
 	await settle(todos);
 	expect(await text('todos/bad.md')).toBe(ROW('Fixed').replace(/\n/g, '\r\n'));
 	expect(repairs()).toBeNull();
@@ -317,7 +341,7 @@ test('a repair over a file changed elsewhere writes nothing, reports the typed t
 
 	type(get(REPAIR), ROW('Mine'));
 	flushSync();
-	click(get('[data-host="detail"]'), 'Save');
+	click(get(DETAIL), 'Save');
 	await settle(todos);
 	await eventually(() => failures.length > 0);
 	expect(failures).toMatchObject([
@@ -397,14 +421,141 @@ test('completion from the list and from the detail keeps notes and undeclared ke
 test('renaming the file keeps the todo open under its new name', async () => {
 	const { todos, target, get, text } = await setup();
 	const path = await addTodo(todos, target, 'Milk');
-	type(get<HTMLInputElement>('[data-host="detail"] form input'), 'milk');
+	type(get<HTMLInputElement>(`${DETAIL} form input`), 'milk');
 	flushSync();
-	click(get('[data-host="detail"]'), 'Rename file');
+	click(get(DETAIL), 'Rename file');
 	await settle(todos);
-	await eventually(
-		() => get('[data-host="detail"]').getAttribute('data-open') === 'milk',
-	);
+	await eventually(() => opened() === 'milk');
 	expect(await text(path)).toBeUndefined();
 	expect(await text('todos/milk.md')).toContain('title: Milk');
 	expect(get<HTMLInputElement>(TITLE).value).toBe('Milk');
+});
+
+/** Open the repair of `stem` from the list's "Needs repair" section. */
+async function openRepair(todos: Todos, list: Element, stem: string) {
+	const section = list.querySelector('[aria-label="Needs repair"]');
+	const item = [...(section?.querySelectorAll('li') ?? [])].find((li) =>
+		li.textContent?.includes(`todos/${stem}.md`),
+	);
+	if (item === undefined) throw new Error(`No repair offered for ${stem}`);
+	click(item, 'Repair');
+	await settle(todos);
+}
+
+test('a repair typed before a change elsewhere is refused on Save, even after the listing read the change: the file keeps it', async () => {
+	const { todos, get, find, list, failures, overwrite, text } = await setup();
+	expectOk(await todos.folder.files.create('todos/bad.md', 'not a todo'));
+	await reread(todos);
+	await openRepair(todos, list(), 'bad');
+
+	type(get(REPAIR), ROW('Mine'));
+	flushSync();
+	await overwrite('todos/bad.md', 'changed elsewhere');
+	// The person returns to the window: the listing reads the change.
+	await reread(todos);
+	expect(find('[data-testid="repair-stale"]')).not.toBeNull();
+	expect(get(REPAIR).value).toBe(ROW('Mine'));
+
+	click(get(DETAIL), 'Save');
+	await settle(todos);
+	await eventually(() => failures.length > 0);
+	expect(failures).toMatchObject([
+		{ path: 'todos/bad.md', error: { name: 'Conflict' }, lost: ROW('Mine') },
+	]);
+	expect(await text('todos/bad.md')).toBe('changed elsewhere');
+	expect(get(REPAIR).value).toBe(ROW('Mine'));
+
+	// Discard shows the file as it is now, and a repair typed over it saves.
+	click(get(DETAIL), 'Discard');
+	flushSync();
+	expect(get(REPAIR).value).toBe('changed elsewhere');
+	type(get(REPAIR), ROW('Mine'));
+	flushSync();
+	click(get(DETAIL), 'Save');
+	await settle(todos);
+	expect(failures).toHaveLength(1);
+	expect(await text('todos/bad.md')).toBe(ROW('Mine'));
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Mine');
+});
+
+test('repair text typed and not saved survives opening another todo and the width breakpoint; leaving the page asks while it is held, opening a todo does not', async () => {
+	const { todos, target, get, list } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	expectOk(await todos.folder.files.create('todos/bad.md', 'not a todo'));
+	await reread(todos);
+	await openRepair(todos, list(), 'bad');
+	expect(leave()).toBe(false);
+
+	type(get(REPAIR), 'typed, not saved');
+	flushSync();
+	expect(leave()).toBe(true);
+
+	// Opening another todo changes only the query: nothing asks.
+	await openTodo(todos, target, path);
+	expect(opened()).toBe(path.slice('todos/'.length, -'.md'.length));
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Milk');
+
+	await openRepair(todos, list(), 'bad');
+	expect(opened()).toBe('bad');
+	expect(get(REPAIR).value).toBe('typed, not saved');
+
+	// Across the breakpoint the list and the detail are laid out again.
+	// The narrow layout hides the list behind the open todo; the wide one
+	// shows both.
+	expect(list().closest('[hidden]')).not.toBeNull();
+	setWide(true);
+	await settle(todos);
+	expect(list().closest('[hidden]')).toBeNull();
+	expect(opened()).toBe('bad');
+	expect(get(REPAIR).value).toBe('typed, not saved');
+	setWide(false);
+	await settle(todos);
+	expect(list().closest('[hidden]')).not.toBeNull();
+	expect(get(REPAIR).value).toBe('typed, not saved');
+
+	click(get(DETAIL), 'Discard');
+	flushSync();
+	expect(leave()).toBe(false);
+});
+
+test('a file that cannot be read as text is labelled "Could not read", with no repair', async () => {
+	const { todos, list } = await setup();
+	expectOk(
+		await todos.folder.files.create(
+			'todos/binary.md',
+			new Uint8Array([0xff, 0xfe, 0x00]),
+		),
+	);
+	await reread(todos);
+	const unreadable = list().querySelector('[aria-label="Could not read"]');
+	expect(unreadable?.textContent).toContain('todos/binary.md');
+	expect(
+		[...(unreadable?.querySelectorAll('button') ?? [])].map((button) =>
+			button.textContent?.trim(),
+		),
+	).toEqual(['Try again']);
+	expect(list().querySelector('[aria-label="Needs repair"]')).toBeNull();
+});
+
+test('the open todo follows the URL, and opening one from the list sets it', async () => {
+	const { todos, target, get, detail } = await setup();
+	const milk = await addTodo(todos, target, 'Milk');
+	const bread = await addTodo(todos, target, 'Bread');
+	const stemOf = (path: string) => path.slice('todos/'.length, -'.md'.length);
+	expect(opened()).toBe(stemOf(bread));
+
+	await goto(`?todo=${encodeURIComponent(stemOf(milk))}`);
+	await settle(todos);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Milk');
+
+	await openTodo(todos, target, bread);
+	expect(opened()).toBe(stemOf(bread));
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Bread');
+
+	// A todo the folder does not hold says so.
+	await goto('?todo=missing');
+	await settle(todos);
+	expect(detail().textContent).toContain(
+		'This todo is no longer in the folder',
+	);
 });

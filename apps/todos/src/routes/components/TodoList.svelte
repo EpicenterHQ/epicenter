@@ -7,7 +7,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { describeError } from '$lib/describe-error.js';
-	import { repairsOf, todoStem, todosOf } from '$lib/todo-listing.js';
+	import { todoStem } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 	import TodoRow from './TodoRow.svelte';
 
@@ -23,9 +23,10 @@
 		onOpen?: (stem: string) => void;
 	} = $props();
 
-	const listing = createQuery(() =>
-		({ ...todos.rows.list.options, select: (rows) => ({ entries: todosOf(rows), repairs: repairsOf(rows) }) }),
-	);
+	const listing = createQuery(() => todos.rows.todos.options);
+	const problems = createQuery(() => todos.rows.repairs.options);
+	const repairs = $derived(problems.data?.filter((file) => file.kind === 'invalid') ?? []);
+	const unreadable = $derived(problems.data?.filter((file) => file.kind === 'unreadable') ?? []);
 	/** The title typed for a new todo. It goes with the list: leaving with it half-typed drops it. */
 	let title = $state('');
 	// The failure is reported by the mutation, not this call, so it shows even
@@ -78,7 +79,7 @@
 		{/if}
 	{:else}
 		<ul class="min-h-0 flex-1 overflow-y-auto" aria-label="Todos">
-			{#each listing.data.entries as entry (entry.stem)}
+			{#each listing.data as entry (entry.stem)}
 				<TodoRow {entry} selected={open === entry.stem} {onOpen} />
 			{:else}
 				<li>
@@ -90,15 +91,15 @@
 			{/each}
 		</ul>
 
-		{#if listing.data.repairs.length > 0}
+		{#if repairs.length > 0}
 			<!-- Not todos the list can edit: each opens with its text and what to fix. -->
 			<section class="max-h-[40%] shrink-0 overflow-y-auto border-t bg-destructive/5 px-3 py-2 text-xs" aria-label="Needs repair">
 				<p class="flex items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					{listing.data.repairs.length === 1 ? 'This file does' : 'These files do'} not read as a todo. Repair shows its text and what to fix.
+					{repairs.length === 1 ? 'This file does' : 'These files do'} not read as a todo. Repair shows its text and what to fix.
 				</p>
 				<ul class="mt-1 space-y-1.5">
-					{#each listing.data.repairs as repair (repair.stem)}
+					{#each repairs as repair (repair.stem)}
 						<li class="flex items-start gap-2">
 							<div class="min-w-0 flex-1">
 								<code class="font-mono break-anywhere">{repair.path}</code>
@@ -115,6 +116,25 @@
 						</li>
 					{/each}
 				</ul>
+			</section>
+		{/if}
+
+		{#if unreadable.length > 0}
+			<!-- Files Todos could not read as text: nothing to repair here; reading again may work. -->
+			<section class="max-h-[40%] shrink-0 overflow-y-auto border-t bg-destructive/5 px-3 py-2 text-xs" aria-label="Could not read">
+				<p class="flex items-center gap-2 font-medium">
+					<Badge variant="destructive">Could not read</Badge>
+					{unreadable.length === 1 ? 'This file' : 'These files'} could not be read. Fix {unreadable.length === 1 ? 'it' : 'them'} with another program, then try again.
+				</p>
+				<ul class="mt-1 space-y-1.5">
+					{#each unreadable as file (file.stem)}
+						<li class="min-w-0">
+							<code class="font-mono break-anywhere">{file.path}</code>
+							<p class="text-muted-foreground">{file.reason}</p>
+						</li>
+					{/each}
+				</ul>
+				<Button class="mt-1.5" size="xs" variant="outline" onclick={() => void todos.refresh()}>Try again</Button>
 			</section>
 		{/if}
 	{/if}

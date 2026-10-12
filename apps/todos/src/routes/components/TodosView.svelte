@@ -8,7 +8,8 @@
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { SyncAttempt, SyncChoices } from '@epicenter/folder';
 	import { Err, Ok } from 'wellcrafted/result';
-	import { beforeNavigate } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { syncOutcomeLine } from '$lib/status.js';
 	import { todoPath } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
@@ -23,11 +24,14 @@
 
 	let { departure }: { departure?: Departure } = $props();
 
-	// A write or action still running lives only in this page. Leaving then
-	// is cancelled; for a reload or closed tab ('leave'), SvelteKit turns the
-	// cancel into the browser's own leave confirmation.
-	beforeNavigate(({ cancel }) => {
-		if (todos.departure.holdsUnsaved) cancel();
+	// A write or action still running, and repair text typed and not saved,
+	// live only in this page. Leaving the page then is cancelled; for a
+	// reload or closed tab ('leave'), SvelteKit turns the cancel into the
+	// browser's own leave confirmation. Opening another todo changes only the
+	// query, stays on this page, and loses nothing.
+	beforeNavigate(({ type, from, to, cancel }) => {
+		if (!todos.departure.holdsUnsaved) return;
+		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
 	});
 
 	/**
@@ -62,13 +66,29 @@
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
-	/** The stem of the todo the detail shows. Opening never waits or asks. */
-	let open = $state<string | undefined>();
+	/**
+	 * The stem of the todo the detail shows: the URL's `?todo=<stem>`, so it
+	 * survives a reload and the breakpoint. Opening never waits or asks.
+	 */
+	const open = $derived(page.url.searchParams.get('todo') ?? undefined);
+
+	/**
+	 * Show the todo `stem`, or none. Opening adds a history entry, so Back
+	 * returns to the list; a rename or delete replaces the entry, so Back
+	 * never lands on a name that is gone.
+	 */
+	async function show(stem: string | undefined, { replaceState = false } = {}) {
+		if (stem === open) return;
+		const url = new URL(page.url);
+		if (stem === undefined) url.searchParams.delete('todo');
+		else url.searchParams.set('todo', stem);
+		await goto(url, { replaceState, keepFocus: true, noScroll: true });
+	}
 
 	/** On narrow screens, return to the list, focused on the todo that was open. */
 	async function back() {
 		const stem = open;
-		open = undefined;
+		await show(undefined);
 		await tick();
 		if (stem !== undefined)
 			document.querySelector<HTMLElement>(`[data-todo="${CSS.escape(todoPath(stem))}"]`)?.focus();
@@ -86,8 +106,8 @@
 			<TodoDetail
 				stem={open}
 				{onBack}
-				onRenamed={(next) => (open = next)}
-				onDeleted={() => (open = undefined)}
+				onRenamed={(next) => void show(next, { replaceState: true })}
+				onDeleted={() => void show(undefined, { replaceState: true })}
 			/>
 		{/key}
 	{/if}
@@ -126,7 +146,7 @@
 	{#if wide.current}
 		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1" hidden={attempt !== undefined}>
 			<Resizable.Pane id="list" order={1} defaultSize={38} minSize={20}>
-				<TodoList {open} onOpen={(stem) => (open = stem)} />
+				<TodoList {open} onOpen={(stem) => void show(stem)} />
 			</Resizable.Pane>
 			<Resizable.Handle />
 			<Resizable.Pane id="detail" order={2} defaultSize={62} minSize={30}>
@@ -140,7 +160,7 @@
 			{/if}
 			<!-- Hidden, not unmounted, behind the detail: a typed title stays. -->
 			<div class="h-full" hidden={open !== undefined}>
-				<TodoList {open} onOpen={(stem) => (open = stem)} />
+				<TodoList {open} onOpen={(stem) => void show(stem)} />
 			</div>
 		</main>
 	{/if}

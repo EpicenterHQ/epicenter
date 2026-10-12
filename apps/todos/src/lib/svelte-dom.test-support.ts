@@ -29,6 +29,7 @@ const appDir = join(import.meta.dir, '../..');
 const libDir = join(appDir, 'src/lib');
 const appSource = join(appDir, 'src');
 const navigation = join(libDir, 'app-navigation.test-support.ts');
+const state = join(libDir, 'app-state.test-support.svelte.ts');
 
 /** Fail on a compiler warning in this app's own source; other packages compile as they ship. */
 function check(path: string, warnings: readonly { message: string }[]) {
@@ -52,12 +53,12 @@ Bun.plugin({
 				generate: 'client',
 			});
 			check(path, compiled.warnings);
-			// SvelteKit's navigation module has no runtime outside a SvelteKit
-			// app; a mounted view gets one whose hooks do nothing.
-			const contents = compiled.js.code.replaceAll(
-				"'$app/navigation'",
-				JSON.stringify(navigation),
-			);
+			// SvelteKit's navigation and state modules have no runtime outside
+			// a SvelteKit app; a mounted view gets stand-ins whose URL a test
+			// drives.
+			const contents = compiled.js.code
+				.replaceAll("'$app/navigation'", JSON.stringify(navigation))
+				.replaceAll("'$app/state'", JSON.stringify(state));
 			return { contents, loader: 'js' };
 		});
 		// Runes modules: this app's `.svelte.ts`, and the `.svelte.js` that
@@ -141,19 +142,26 @@ for (const name of Object.getOwnPropertyNames(window))
 		} catch {
 			// A property jsdom refuses to read outside its window stays absent.
 		}
-// jsdom evaluates no media queries; every query reads as not matching, so
-// a view lays out as on a narrow screen.
+// jsdom evaluates no media queries. Every query reads as not matching, so a
+// view lays out as on a narrow screen, until `setWide(true)` makes the
+// `min-width` queries match.
+let wide = false;
+const mediaListeners = new Set<(event: Event) => void>();
 window.matchMedia ??= (query: string) =>
 	({
-		matches: false,
+		get matches() {
+			return wide && query.includes('min-width');
+		},
 		media: query,
 		onchange: null,
-		addEventListener() {},
-		removeEventListener() {},
+		addEventListener: (_type: string, listener: (event: Event) => void) =>
+			mediaListeners.add(listener),
+		removeEventListener: (_type: string, listener: (event: Event) => void) =>
+			mediaListeners.delete(listener),
 		addListener() {},
 		removeListener() {},
 		dispatchEvent: () => false,
-	}) as MediaQueryList;
+	}) as unknown as MediaQueryList;
 globalThis.matchMedia ??= window.matchMedia;
 // jsdom lays nothing out; components that measure see nothing change.
 globalThis.ResizeObserver ??= class {
@@ -177,6 +185,12 @@ if (!Bun.resolveSync('svelte', import.meta.dir).endsWith('index-client.js'))
 	throw new Error(
 		'Mounted Svelte tests need the browser runtime: run them with `bun run test:mounted`, which passes --conditions=browser.',
 	);
+
+/** Cross the width breakpoint: `min-width` media queries match while `next` is true. */
+export function setWide(next: boolean) {
+	wide = next;
+	for (const listener of mediaListeners) listener(new window.Event('change'));
+}
 
 /** Set a field's value and dispatch the `input` event a keystroke would. */
 export function type(element: Element | null, value: string) {

@@ -47,6 +47,7 @@ import {
 	observe,
 	quiet,
 	rowEditor,
+	shown,
 } from './query.test-support.js';
 import { todosKeys, type WriteFailure } from './session.js';
 import { repairsOf, todosOf } from './todo-listing.js';
@@ -388,13 +389,16 @@ async function breakTodo(todos: Todos, stem: string, text: string) {
 	await quiet(todos);
 }
 
-/** The repair of `stem`, as the detail runs it with the typed text. */
+/**
+ * The repair of `stem`, as the detail runs it: the typed text over the
+ * version the listing holds now, as at the first keystroke.
+ */
 function repairWith(todos: Todos, stem: string, text: string) {
 	return new MutationObserver(
 		todos.queryClient,
 		todos.rows.repair(stem).options,
 	)
-		.mutate(text)
+		.mutate({ text, base: shown(todos, stem) })
 		.catch(() => undefined);
 }
 
@@ -404,7 +408,7 @@ test('a row that is not a valid todo is named for repair; a repair writes the ty
 	await breakTodo(todos, 'bad', '---\ntitle: *missing\n---\n');
 	expect(todosOf(listing(todos))).toEqual([]);
 	expect(repairsOf(listing(todos))).toEqual([
-		{ stem: 'bad', path, reason: expect.any(String) },
+		{ stem: 'bad', path, kind: 'invalid', reason: expect.any(String) },
 	]);
 
 	// Text that still does not parse is written as typed, guarded by the hash
@@ -456,6 +460,109 @@ test('a repair over a file changed elsewhere since the listing read it writes no
 	expect(cached(todos, 'bad').row.fields.title).toBe('Fixed');
 });
 
+test("a successful repair shows its fields at once, even while another file's write runs", async () => {
+	const { todos, failures } = await open();
+	await breakTodo(todos, 'bad', 'not a todo');
+	// Another file's write is still running, so no listing reread follows
+	// this repair; the repair reads its own row.
+	const other = Promise.withResolvers<void>();
+	const running = new MutationObserver(todos.queryClient, {
+		mutationKey: todosKeys.write('todos/other.md'),
+		mutationFn: () => other.promise,
+	}).mutate();
+
+	await repairWith(todos, 'bad', '---\ntitle: Fixed\ndone: false\n---\n');
+	expect(todos.queryClient.isMutating()).toBe(1);
+	expect(failures).toEqual([]);
+	expect(repairsOf(listing(todos))).toEqual([]);
+	expect(cached(todos, 'bad').row.fields).toEqual({
+		title: 'Fixed',
+		done: false,
+	});
+	other.resolve();
+	await running;
+});
+
+test('a repair draft records its base at the first keystroke, counts as unsaved, and goes when its file reads as a todo', async () => {
+	const { todos } = await open();
+	const { stem } = await addTodo(todos, 'Milk');
+	await breakTodo(todos, 'bad', 'not a todo');
+	const base = shown(todos, 'bad');
+	expect(todos.departure.holdsUnsaved).toBe(false);
+
+	// A todo that reads as one takes no draft.
+	expect(todos.rows.setDraft(stem, 'text')).toBe(false);
+	expect(todos.rows.setDraft('bad', 'f')).toBe(true);
+	expect(todos.rows.setDraft('bad', 'fixed')).toBe(true);
+	expect(todos.rows.draft('bad')).toEqual({
+		base: { ...base, text: 'not a todo' },
+		text: 'fixed',
+	});
+	expect(todos.departure.holdsUnsaved).toBe(true);
+
+	// A change elsewhere that still does not read keeps the draft and its base.
+	await breakTodo(todos, 'bad', 'still not a todo');
+	expect(todos.rows.draft('bad')?.base.sha256).toBe(base.sha256);
+
+	// Once the file reads as a todo, the draft goes.
+	await breakTodo(todos, 'bad', '---\ntitle: Fixed\ndone: false\n---\n');
+	expect(todos.rows.draft('bad')).toBeUndefined();
+	expect(todos.departure.holdsUnsaved).toBe(false);
+
+	// So it does when the file leaves the folder.
+	await breakTodo(todos, 'gone', 'not a todo');
+	todos.rows.setDraft('gone', 'typed');
+	expectOk(await todos.folder.files.remove(shown(todos, 'gone')));
+	await todos.refresh();
+	await quiet(todos);
+	expect(todos.rows.draft('gone')).toBeUndefined();
+});
+
+test("a repair is guarded by its draft's base: a file changed elsewhere since the first keystroke is a Conflict, even after the listing reread it", async () => {
+	const { todos, failures } = await open();
+	const path = 'todos/bad.md';
+	await breakTodo(todos, 'bad', 'not a todo');
+	todos.rows.setDraft('bad', 'typed here');
+	// The change elsewhere lands in the listing before Save.
+	await breakTodo(todos, 'bad', 'changed elsewhere');
+
+	const draft = todos.rows.draft('bad');
+	if (draft === undefined) throw new Error('The draft is gone');
+	await new MutationObserver(
+		todos.queryClient,
+		todos.rows.repair('bad').options,
+	)
+		.mutate({ text: draft.text, base: draft.base })
+		.catch(() => undefined);
+	await quiet(todos);
+	expect(failures).toMatchObject([
+		{ path, error: { name: 'Conflict' }, lost: 'typed here' },
+	]);
+	expect(await text(todos, path)).toBe('changed elsewhere');
+	expect(todos.rows.draft('bad')?.text).toBe('typed here');
+});
+
+test('a write finds no row and still sends no stale edit: the stem always leaves the unsent set', async () => {
+	const { todos, counter } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const write = todos.rows.write(stem).options;
+	// An edit no write has sent yet.
+	expect(todos.rows.edit(stem, titled('Oat milk'))).toBe(true);
+	// The file stops reading as a todo, and the listing reads it.
+	await breakTodo(todos, stem, 'not a todo');
+	// The write runs and finds no row to send.
+	await new MutationObserver(todos.queryClient, write).mutate();
+	// The file comes back, hand written, and the listing reads it.
+	const hand = "---\ntitle:   'Milk'\ndone: false\n---\n";
+	await breakTodo(todos, stem, hand);
+	const writes = counter.mdWrites;
+	// A write with no edit of its own, as one waiting behind another, writes nothing.
+	await new MutationObserver(todos.queryClient, write).mutate();
+	await quiet(todos);
+	expect(counter.mdWrites - writes).toBe(0);
+	expect(await text(todos, path)).toBe(hand);
+});
+
 // ============================================================================
 // Rename and delete
 // ============================================================================
@@ -468,7 +575,7 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
 
-	const renaming = todos.rows.rename(stem, 'oat');
+	const renaming = todos.rows.rename(stem, 'oat', shown(todos, stem));
 	await Bun.sleep(5);
 	// The rename waits behind the write, and edits wait behind the rename.
 	expect(todos.rows.isMoving(stem)).toBe(true);
@@ -498,14 +605,17 @@ test('a rename is refused when the name is not usable or is taken, and writes no
 			{ stem: 'bread' },
 		),
 	);
-	expect(expectErr(await todos.rows.rename(stem, 'a/b'))).toMatchObject({
+	const milk = shown(todos, stem);
+	expect(expectErr(await todos.rows.rename(stem, 'a/b', milk))).toMatchObject({
 		name: 'NotStarted',
 		reason: 'A name cannot contain "/".',
 	});
-	expect(expectErr(await todos.rows.rename(stem, 'tab\there')).name).toBe(
+	expect(expectErr(await todos.rows.rename(stem, 'tab\there', milk)).name).toBe(
 		'NotStarted',
 	);
-	expect(expectErr(await todos.rows.rename(stem, 'bread')).name).toBe('Exists');
+	expect(expectErr(await todos.rows.rename(stem, 'bread', milk)).name).toBe(
+		'Exists',
+	);
 	expect(await text(todos, path)).toContain('title: Milk');
 });
 
@@ -513,7 +623,9 @@ test('rename and delete use the hash the listing read: a file changed elsewhere 
 	const { todos } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
-	expect(expectErr(await todos.rows.rename(stem, 'oat')).name).toBe('Conflict');
+	expect(
+		expectErr(await todos.rows.rename(stem, 'oat', shown(todos, stem))).name,
+	).toBe('Conflict');
 	// The refusal read the folder again; another change lands after it.
 	await quiet(todos);
 	await writeElsewhere(
@@ -521,20 +633,24 @@ test('rename and delete use the hash the listing read: a file changed elsewhere 
 		path,
 		'---\ntitle: Theirs, two\ndone: false\n---\n',
 	);
-	expect(expectErr(await todos.rows.remove(stem)).name).toBe('Conflict');
+	expect(
+		expectErr(await todos.rows.remove(stem, shown(todos, stem))).name,
+	).toBe('Conflict');
 	expect(await text(todos, path)).toContain('title: Theirs, two');
 	expect(await text(todos, 'todos/oat.md')).toBeUndefined();
 
 	// A file that does not read as a todo is guarded by its listed hash too.
 	await breakTodo(todos, 'bad', 'not a todo');
 	await writeElsewhere(todos, 'todos/bad.md', 'changed elsewhere');
-	expect(expectErr(await todos.rows.remove('bad')).name).toBe('Conflict');
+	expect(
+		expectErr(await todos.rows.remove('bad', shown(todos, 'bad'))).name,
+	).toBe('Conflict');
 	await todos.queryClient.invalidateQueries({ queryKey: todosKeys.all });
 	await quiet(todos);
-	expectOk(await todos.rows.rename('bad', 'renamed'));
+	expectOk(await todos.rows.rename('bad', 'renamed', shown(todos, 'bad')));
 	await quiet(todos);
 	expect(await text(todos, 'todos/renamed.md')).toBe('changed elsewhere');
-	expectOk(await todos.rows.remove('renamed'));
+	expectOk(await todos.rows.remove('renamed', shown(todos, 'renamed')));
 	expect(await text(todos, 'todos/renamed.md')).toBeUndefined();
 });
 
@@ -546,7 +662,8 @@ test('a delete runs after the queued writes and removes only the Markdown file',
 	const { held, release } = holdNextWrite();
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
-	const removing = todos.rows.remove(stem);
+	// The confirmation was opened on the version before that write.
+	const removing = todos.rows.remove(stem, shown(todos, stem));
 	await Bun.sleep(5);
 	expect(await text(todos, path)).toContain('title: Milk\n');
 	release();
@@ -555,6 +672,53 @@ test('a delete runs after the queued writes and removes only the Markdown file',
 	expect(await text(todos, path)).toBeUndefined();
 	expect(todosOf(listing(todos))).toEqual([]);
 	expect(await text(todos, 'todos/milk.png')).toBe('not a todo');
+});
+
+test('a delete confirmed on a version changed elsewhere since, and read again, deletes nothing', async () => {
+	const { todos } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	// The confirmation opens on the version the view shows.
+	const confirmedOn = shown(todos, stem);
+	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
+	await todos.refresh();
+	await quiet(todos);
+	expect(cached(todos, stem).row.fields.title).toBe('Theirs');
+
+	expect(expectErr(await todos.rows.remove(stem, confirmedOn))).toMatchObject({
+		name: 'NotStarted',
+	});
+	expect(await text(todos, path)).toContain('title: Theirs');
+	// Renaming from a stale view is refused the same way.
+	expect(
+		expectErr(await todos.rows.rename(stem, 'oat', confirmedOn)),
+	).toMatchObject({ name: 'NotStarted' });
+	expect(await text(todos, 'todos/oat.md')).toBeUndefined();
+});
+
+test("a delete confirmed while the app's own write is queued deletes what that write saved", async () => {
+	const { todos, holdNextWrite } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const { held, release } = holdNextWrite();
+	rowEditor(todos, stem)(titled('Oat milk'));
+	await held;
+	const confirmedOn = shown(todos, stem);
+	release();
+	await quiet(todos);
+	expect(cached(todos, stem).sha256).not.toBe(confirmedOn.sha256);
+
+	expectOk(await todos.rows.remove(stem, confirmedOn));
+	expect(await text(todos, path)).toBeUndefined();
+});
+
+test('a delete of a todo the cache no longer holds is refused without reading the folder', async () => {
+	const { todos } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const confirmedOn = shown(todos, stem);
+	todos.queryClient.setQueryData(todosKeys.rows, []);
+	expect(expectErr(await todos.rows.remove(stem, confirmedOn))).toMatchObject({
+		name: 'NotStarted',
+	});
+	expect(await text(todos, path)).toContain('title: Milk');
 });
 
 // ============================================================================

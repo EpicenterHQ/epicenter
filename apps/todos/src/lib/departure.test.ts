@@ -33,7 +33,13 @@ import { createFakeHost } from '../../../epicenter/src/departure-page.test-suppo
 import { todosDefinition } from './definition.js';
 import { holdCloses } from './opfs-holds.test-support.js';
 import type { TodosFolder } from './platform/types.js';
-import { cached, observe, quiet, rowEditor } from './query.test-support.js';
+import {
+	cached,
+	observe,
+	quiet,
+	rowEditor,
+	shown,
+} from './query.test-support.js';
 import { DEPARTING } from './session.js';
 import type { Todos } from './todos.svelte.js';
 
@@ -251,13 +257,21 @@ test('while fenced, every edit, action, and Git command is refused; resuming giv
 	expect(todos.rows.edit(stem, titled('Late'))).toBe(false);
 	const refusal = { name: 'NotStarted', reason: DEPARTING };
 	expect(expectErr(await todos.rows.create('New'))).toMatchObject(refusal);
-	expect(expectErr(await todos.rows.rename(stem, 'oat'))).toMatchObject(
-		refusal,
-	);
-	expect(expectErr(await todos.rows.remove(stem))).toMatchObject(refusal);
-	expect(expectErr(await todos.rows.repair('bad')('typed'))).toMatchObject(
-		refusal,
-	);
+	expect(
+		expectErr(await todos.rows.rename(stem, 'oat', shown(todos, stem))),
+	).toMatchObject(refusal);
+	expect(
+		expectErr(await todos.rows.remove(stem, shown(todos, stem))),
+	).toMatchObject(refusal);
+	expect(
+		expectErr(
+			await todos.rows.repair('bad')({
+				text: 'typed',
+				base: shown(todos, 'bad'),
+			}),
+		),
+	).toMatchObject(refusal);
+	expect(todos.rows.setDraft('bad', 'typed')).toBe(false);
 	expect(expectErr(await todos.git.saveVersion())).toMatchObject(refusal);
 	expect(expectErr(await todos.git.recoverIncoming())).toMatchObject(refusal);
 	expect(expectErr(await todos.sync.run()).message).toContain(DEPARTING);
@@ -271,7 +285,7 @@ test('while fenced, every edit, action, and Git command is refused; resuming giv
 	rowEditor(todos, stem)(titled('After'));
 	await quiet(todos);
 	expect(await text(path)).toContain('title: After');
-	expectOk(await todos.rows.remove(stem));
+	expectOk(await todos.rows.remove(stem, shown(todos, stem)));
 	expect(await text(path)).toBeUndefined();
 });
 

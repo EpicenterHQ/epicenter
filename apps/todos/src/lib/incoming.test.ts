@@ -37,7 +37,13 @@ import {
 	prepareGitSession,
 } from '../../server/git-server.js';
 import { todosDefinition } from './definition.js';
-import { cached, observe, quiet, rowEditor } from './query.test-support.js';
+import {
+	cached,
+	observe,
+	quiet,
+	rowEditor,
+	shown,
+} from './query.test-support.js';
 import {
 	INCOMING_WAITS,
 	incomingLine,
@@ -146,12 +152,8 @@ async function openDemo() {
 async function shareMilk(todos: Todos, session: GitSession) {
 	const created = expectOk(await todos.rows.create('Buy milk'));
 	await quiet(todos);
-	expectOk(
-		await todos.rows.rename(
-			created.path.slice('todos/'.length, -'.md'.length),
-			'milk',
-		),
-	);
+	const stem = created.path.slice('todos/'.length, -'.md'.length);
+	expectOk(await todos.rows.rename(stem, 'milk', shown(todos, stem)));
 	expect(expectOk(await todos.sync.run())).toMatchObject({ kind: 'synced' });
 	await quiet(todos);
 	await run(session.nativeCheckout, [

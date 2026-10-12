@@ -62,9 +62,9 @@
 
 	// Teardown, not a choice about input. It runs when SvelteKit destroys this
 	// page, which TodosView's beforeNavigate refuses while a write or action
-	// runs; closing or hiding the window, quitting, and a host restart never
-	// run it. `close` waits for every
-	// write and action, then releases the folder.
+	// runs or repair text is unsaved; closing or hiding the window, quitting,
+	// and a host restart never run it. `close` waits for every write and
+	// action, then releases the folder.
 	onDestroy(() => {
 		departure?.destroy();
 		void opening.then((opened) => opened.data?.close()).catch(() => {});

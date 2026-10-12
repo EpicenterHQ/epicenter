@@ -25,10 +25,15 @@ export type TodoListing = TableListing<TodoFields>;
 /** A todo row that reads as a todo. */
 export type TodoEntry = StoredRow<TodoFields> & { readonly stem: string };
 
-/** A row file the list cannot edit, and why, for the person to repair as text. */
+/**
+ * A row file the list cannot edit, and why. Text that is not a valid todo
+ * (`invalid`) is the person's to repair as text; a file that could not be
+ * read as text (`unreadable`) is not.
+ */
 type Repair = {
 	readonly stem: string;
 	readonly path: string;
+	readonly kind: 'invalid' | 'unreadable';
 	readonly reason: string;
 };
 
@@ -58,11 +63,13 @@ export function repairsOf(listing: TodoListing): Repair[] {
 				? {
 						stem,
 						path,
+						kind: 'invalid',
 						reason: result.error.issues.map((issue) => issue.message).join(' '),
 					}
 				: {
 						stem,
 						path,
+						kind: 'unreadable',
 						reason: `It could not be read as text: ${result.error.message}`,
 					},
 		);

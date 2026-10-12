@@ -1,26 +1,29 @@
 /**
  * The Todos store over one opened folder, kept in its own TanStack Query
  * cache (ADR-0528). Todos shows one folder table: the list is the table, the
- * detail is one row, and a field change is a write of that row's file,
- * guarded by the hash the list last read. Nothing else is cached.
+ * detail is one row, and a field change is a write of that row's file.
+ * Every write carries the hash of the version the person acted on, taken
+ * when they acted. The cache holds the listing; the store also holds repair
+ * text typed and not saved.
  *
  * This file builds the session every part shares: the query client and its
  * rules, leaving, and closing. The parts are namespaces over that session,
  * each in its file:
  *
- * - `todos.rows` (`rows.ts`): the todo listing, edits, writes, adding,
- *   rename, delete, and repair of a file that does not read as a todo
+ * - `todos.rows` (`rows.ts`): the todo listing and its views, edits, writes,
+ *   adding, rename, delete, and repair drafts of a file that does not read
+ *   as a todo
  * - `todos.git`  (`git.ts`): history state and status, Save version, recovery
  * - `todos.sync` (`sync.ts`): Sync and its review's Apply
  *
  * Every query and mutation is a wellcrafted definition: a view passes
  * `.options` to `createQuery` or `createMutation`; code and tests call a
  * mutation or `.fetch()` a query and get a `Result`. A member that takes a
- * stem and returns a definition is one a view holds (`rows.write`,
- * `rows.repair`); an async method is a one-shot action a handler awaits
- * (`rows.rename`, `rows.remove`). Which todo is open is the view's state, not
- * the store's. Saves never commit (ADR-0529); a version is recorded by Sync
- * or by Save version.
+ * stem and returns a definition is one a view holds (`rows.entry`,
+ * `rows.write`, `rows.repair`); an async method is a one-shot action a
+ * handler awaits (`rows.rename`, `rows.remove`). Which todo is open is the
+ * page URL's (`?todo=<stem>`), not the store's. Saves never commit
+ * (ADR-0529); a version is recorded by Sync or by Save version.
  */
 import type { DepartureParticipant } from '@epicenter/epicenter/departure/page';
 import {
@@ -55,7 +58,7 @@ type TodosOptions = {
 /**
  * The store of the folder a view belongs to. `FolderScope` sets it for its
  * subtree, with the store's query client; a component calls `getTodos()`
- * while it initializes. Each opened folder has its own scope.
+ * while it initializes.
  */
 export const [getTodos, setTodos] = createContext<Todos>();
 
@@ -124,8 +127,7 @@ export function createTodos(
 	// TanStack holds a waiting write until the page is visible, which would
 	// stall quitting and lose the write when a background tab closes. So the
 	// page counts as always focused, and becoming visible is the focus event
-	// that reads again. `focusManager` is one per page and every store sets the
-	// same rule, so a second opened folder changes nothing.
+	// that reads again. `focusManager` is one per page.
 	focusManager.setEventListener((setFocused) => {
 		setFocused(true);
 		if (typeof document === 'undefined') return undefined;
@@ -181,6 +183,8 @@ export function createTodos(
 		onWriteFailed,
 	};
 
+	const rows = createRows(session);
+
 	return {
 		/** The opened folder; `folder.location` says where the todos are. */
 		folder,
@@ -190,7 +194,7 @@ export function createTodos(
 		 * a read that skips the store's rules can land over unsent edits.
 		 */
 		queryClient,
-		rows: createRows(session),
+		rows,
 		git: createGit(session),
 		sync: createSync(session),
 		/** Read the listing and Git status again, unless a write runs: then the last write reads. */
@@ -205,15 +209,21 @@ export function createTodos(
 			return departing;
 		},
 		/**
-		 * The page's part in leaving Epicenter
-		 * (`@epicenter/epicenter/departure/page`). `fence` runs before anything
-		 * is awaited; `settle` waits until nothing is mutating, after which
-		 * nothing is lost, so it never asks. `resume` gives everything back.
+		 * The page's part in leaving: Epicenter's quit or restart
+		 * (`@epicenter/epicenter/departure/page`), and the browser's leave
+		 * warning through the view's `beforeNavigate`. `fence` runs before
+		 * anything is awaited; `settle` waits until nothing is mutating, then
+		 * answers 0, so Epicenter never asks: Todos has no prompt to show, and
+		 * repair text typed and not saved is dropped on quit. `resume` gives
+		 * everything back.
 		 */
 		departure: {
-			/** Whether leaving now could lose anything: a write or another action still running. */
+			/**
+			 * Whether leaving now could lose anything: a write or another action
+			 * still running, or repair text typed and not saved.
+			 */
 			get holdsUnsaved() {
-				return queryClient.isMutating() > 0;
+				return queryClient.isMutating() > 0 || rows.drafted > 0;
 			},
 			fence() {
 				departing = true;
