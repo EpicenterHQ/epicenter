@@ -91,7 +91,6 @@
 		sync.isPending ||
 			saveVersion.isPending ||
 			reviewing ||
-			todos.departing ||
 			todos.recovering,
 	);
 	/**

@@ -1,7 +1,7 @@
 /**
  * Sync Tests
  *
- * Drives the real Todos owner's Sync and Apply mutations against a
+ * Drives the real Todos store's Sync and Apply mutations against a
  * production browser folder whose remote is the demo's real Git target: a
  * bare repository served by `git http-backend`, and a native checkout that
  * commits and pushes with system Git.

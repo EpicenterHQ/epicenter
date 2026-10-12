@@ -10,7 +10,7 @@
  *
  * The helpers stand in for what the views do: a screen that shows a query
  * observes it, and a view that edits a file creates its own write mutation
- * and queues a write only when the owner's `edit` says one is needed.
+ * and queues a write only when the store's `edit` says one is needed.
  */
 import type { Row, StoredRow } from '@epicenter/folder';
 import {

@@ -1,8 +1,8 @@
 /**
  * Todos View Mounted Tests
  *
- * Mounts the whole `TodosView` in jsdom, inside the query client the layout
- * provides, over the real Todos owner and a production browser folder whose
+ * Mounts the whole `TodosView` in jsdom, inside the folder's scope as the
+ * page provides it, over the real Todos store and a production browser folder whose
  * remote is the demo's real Git target: a bare repository served by
  * `git http-backend`, and a native checkout that commits and pushes with
  * system Git. jsdom matches no media query, so the view lays out as on a
@@ -170,8 +170,13 @@ async function pushMilk(session: GitSession, text: string) {
 
 const review = (target: Element) =>
 	target.querySelector('[aria-label="Review sync changes"]');
-const workspace = (target: Element) =>
-	target.querySelector('[aria-label="Todo list"]');
+/** The todo list, while it shows: the review hides it without unmounting it. */
+const workspace = (target: Element) => {
+	const list = target.querySelector('[aria-label="Todo list"]');
+	return list?.closest('[hidden]') ? null : list;
+};
+const newTitle = (target: Element) =>
+	target.querySelector<HTMLInputElement>('[aria-label="New todo title"]')!;
 
 function sync(target: Element) {
 	target
@@ -179,9 +184,11 @@ function sync(target: Element) {
 		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }
 
-test('Sync with competing edits opens the review in place of the workspace and writes nothing; Cancel forgets it', async () => {
+test('Sync with competing edits opens the review in place of the workspace and writes nothing; Cancel forgets it and keeps a typed title', async () => {
 	const { todos, session, target } = await competing();
 	expect(workspace(target)?.textContent).toContain('Buy oat milk');
+	newTitle(target).value = 'Buy bread';
+	newTitle(target).dispatchEvent(new Event('input', { bubbles: true }));
 
 	sync(target);
 	await eventually(() => review(target) !== null);
@@ -200,6 +207,7 @@ test('Sync with competing edits opens the review in place of the workspace and w
 	await settle(todos);
 	expect(review(target)).toBeNull();
 	expect(workspace(target)?.textContent).toContain('Buy oat milk');
+	expect(newTitle(target).value).toBe('Buy bread');
 	expect(
 		target.querySelector<HTMLButtonElement>('[data-testid="sync"]')!.disabled,
 	).toBe(false);

@@ -1,7 +1,7 @@
 /**
  * Incoming Update Tests
  *
- * Drives the real Todos owner against a production browser folder whose
+ * Drives the real Todos store against a production browser folder whose
  * remote is the demo's real Git target: a bare repository served by
  * `git http-backend`, and an ordinary native checkout that commits and
  * pushes with system Git. The folder runs on the in-memory OPFS stand-in,

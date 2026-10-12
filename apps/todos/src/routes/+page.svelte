@@ -44,7 +44,7 @@
 	//
 	// Inside Epicenter, the folder opens only once a status from the host is
 	// known, so nothing is editable while a quit or restart may be running,
-	// and the owner is attached before anything else is awaited. Until then a
+	// and the store is attached before anything else is awaited. Until then a
 	// failure to listen or read keeps the page here, unopened, with Retry; a
 	// later nudge or focus that reads the status opens it too. A folder that
 	// does not open answers a departure ready.
@@ -61,8 +61,8 @@
 
 	// Teardown, not a choice about input. It runs when SvelteKit destroys this
 	// page, which TodosView's beforeNavigate refuses while a write or action
-	// runs; closing or hiding the window,
-	// quitting, and a host restart never run it. `close` waits for every
+	// runs; closing or hiding the window, quitting, and a host restart never
+	// run it. `close` waits for every
 	// write and action, then releases the folder.
 	onDestroy(() => {
 		departure?.destroy();

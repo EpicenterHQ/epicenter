@@ -1,7 +1,7 @@
 /**
  * Todos Store Tests
  *
- * Drives the real Todos owner and its TanStack Query cache against a real
+ * Drives the real Todos store and its TanStack Query cache against a real
  * browser folder over an in-memory OPFS stand-in. Views are stood in for as
  * they behave: a screen observes the queries it shows, and an editor edits
  * the cache and queues its own scoped write mutation when `edit` says one
@@ -59,7 +59,7 @@ afterEach(async () => {
 });
 
 /**
- * The owner over a fresh folder, with its screens observing. `holdNextWrite`
+ * The store over a fresh folder, with its screens observing. `holdNextWrite`
  * holds the next published `.md` write until released, and `mdWrites`
  * counts every published `.md` write.
  */
@@ -569,13 +569,24 @@ test('close waits for running writes, and every close call shares one completion
 	expect(path).toBe(`todos/${stem}.md`);
 });
 
-test('after close begins, edits and actions change nothing', async () => {
-	const { todos } = await open();
+test('an edit made while close waits is written before the folder closes', async () => {
+	const { todos, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	const saved = await text(todos, path);
-	void todos.close();
-	expect(todos.edit(stem, titled('Late'))).toBe(false);
-	expect(cached(todos, stem).row.fields.title).toBe('Milk');
-	expect(expectErr(await todos.create('Another')).name).toBe('NotStarted');
-	expect(saved).toContain('title: Milk');
+	const set = rowEditor(todos, stem);
+	const { held, release } = holdNextWrite();
+	set(titled('Oat'));
+	await held;
+	const closing = todos.close();
+	// Close is waiting for the held write; this edit queues behind it.
+	set(titled('Oat milk'));
+	const writes = todos.queryClient
+		.getMutationCache()
+		.findAll({ mutationKey: todosKeys.write(path) });
+	release();
+	await closing;
+	expect(writes.map((write) => write.state.status)).toEqual([
+		'success',
+		'success',
+	]);
+	expect(todos.folder.signal.aborted).toBe(true);
 });

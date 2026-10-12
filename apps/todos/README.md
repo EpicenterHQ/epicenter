@@ -107,23 +107,19 @@ moments.
 
 ### Closing, quitting, and unsaved typing
 
-Edits are written as you make them, so the only typing that lives in the
-window alone is the title of a new todo you have not added. Writes and other
-actions still running are waited for.
+Edits are written as you make them. Writes and other actions still running
+are waited for. The title of a new todo you have not added lives in the box
+alone: it stays while the window is open, and quitting or reloading drops it.
 
 - Closing the Todos window hides it. The page stays loaded, so a typed title
   and the terminal's output are still there when you open Todos again.
 - Quitting Epicenter, or restarting it for an account change, asks this page
   first, over the host's departure wire (`@epicenter/epicenter/departure`),
   through the shared page client (`@epicenter/epicenter/departure/page`).
-  From that moment the page takes no typing and starts no edit, action, or
+  From that moment the page takes no input and starts no edit, action, or
   terminal command. It waits until every write, action, and terminal command
-  already running has finished. A page with no typed title then answers at
-  once. Otherwise the window says a new todo's title is still in the box,
-  names whether Epicenter is quitting or restarting, and offers "Keep
-  working" or "Quit anyway" ("Restart anyway"). Nothing is added or discarded
-  for you; leaving anyway only tells Epicenter this window is ready. A choice
-  counts only for the quit or restart it was shown for.
+  already running has finished, then tells Epicenter it is ready. It never
+  asks: once that work is done, nothing in it can be lost.
 - The terminal keeps its typed command, history, and output while it waits,
   and Enter runs nothing; its typed command is not counted as unsaved.
 - Todos opens its folder only once it is listening for a quit or restart and
@@ -132,15 +128,14 @@ actions still running are waited for.
   Retry, and nothing is open or editable meanwhile; returning to the window,
   or a quit or restart beginning, also reads again.
 - If the quit or restart is cancelled, by you or by another window, the
-  page takes typing again with the typed title as it was. Quitting again
-  during the same quit asks the page again, without a second prompt. Until
+  page takes input again. Until
   Epicenter says the quit is over, the page stays waiting, even if an answer
   to Epicenter was lost.
 - A host restart after a crash, a forced kill, or a system shutdown that does
   not ask Epicenter ends the page without asking. A write that had not landed
   is lost. Written files are on disk and reopen as they were.
 - The browser demo has none of this: leaving the tab while a write or action
-  runs, or with a typed title, asks first with the browser's leave warning.
+  runs asks first with the browser's leave warning.
 - On quit, the Rust Folder owner fences new work, drains accepted local
   writes, stops network work, and releases the directory lock.
 - A page reload or explicit client close ends that page's access. The shared
@@ -381,11 +376,13 @@ todo; `todos/a.MD` is an ordinary file.
 | Path | Role |
 | --- | --- |
 | `src/lib/definition.ts` | The inert `defineFolder` declaration, written with the shared `defineTable` and `field` vocabulary. It names no folder. |
-| `src/routes/+layout.svelte` | Creates the app's one TanStack `QueryClient` and provides it. |
-| `src/routes/+page.svelte` | Opens the Todos owner over the page's query client. Inside Epicenter it starts the shared departure client (`@epicenter/epicenter/departure/page`) and opens the folder only once a status is known, attaching `todos.departure` the moment it exists (`openForDeparture`). It turns a failed write into a toast with **Copy your text**. |
+| `src/routes/+layout.svelte` | The tooltip provider and toasts; no app state. |
+| `src/routes/+page.svelte` | Opens the folder and creates its store (`createTodos`), then shows the views inside its `FolderScope`. Inside Epicenter it starts the shared departure client (`@epicenter/epicenter/departure/page`) and opens the folder only once a status is known, attaching `todos.departure` the moment it exists (`openForDeparture`). It turns a failed write into a toast with **Copy your text**. |
 | `src/lib/platform/` | The `#platform/departure` seam: the host leaf is the shared Tauri window port (`@epicenter/epicenter/departure/window`); the browser leaf has no port. And the `#platform/folder` seam: `types.ts` is its contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens the OPFS folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The mounted page calls it; importing it opens nothing. |
 | `src/lib/files.ts` | File browser rows, and which files open as editable text. |
-| `src/lib/todos.svelte.ts` | The owner over the query cache (ADR-0528): query options for the todo listing, the folder listing, each file's text, and Git status; `edit` and `editText`, which change the cache; the scoped write options each view creates its mutation from (`rowWrite`, `textWrite`); and every other action as a mutation (create, rename, delete, Save version, Sync, Apply, recovery, terminal commands). Leaving and closing wait until nothing is mutating. |
+| `src/routes/components/FolderScope.svelte` | One opened folder's views: sets its store for `getTodos()` and provides the store's query client. |
+| `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
+| `src/lib/todos.svelte.ts` | The store over one folder and its own TanStack `QueryClient` (ADR-0528): query options for the todo listing, the folder listing, each file's text, and Git status; `edit` and `editText`, which change the cache; the scoped write options each view creates its mutation from (`rowWrite`, `textWrite`); and every other action as a mutation (create, rename, delete, Save version, Sync, Apply, recovery, terminal commands). Leaving and closing wait until nothing is mutating. |
 | `src/lib/terminal.svelte.ts` | The terminal session that outlives the terminal pane, over the folder's own `folder.terminal()`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
 | `src/routes/components/` | Header, file browser, list (`TodoList`, one `TodoRow` per todo), the detail pane (`Detail`: `TodoDetail` or `FileView`), the sync review (in `TodosView`), and terminal. |
@@ -402,17 +399,21 @@ listing is one query (`['todos', 'rows']`) built from
 its row with `select`, and the list reads all of it, so they cannot
 disagree. A view that edits a file calls `todos.edit(stem, change)`, one
 immutable `map` over the listing, and queues its own write mutation
-(`mutationKey: ['todos', 'write', stem]`, `scope: { id: stem }`) only when
+(`mutationKey: ['todos', 'write', 'row', path]`, `scope: { id: path }`) only when
 `edit` says one is needed: fewer than two are running or waiting for that
 file. The write reads the cache when it runs and calls guarded
 `table.replace`. Its `onSuccess` moves the cached hash forward and keeps the
 newest row; TanStack awaits it before the next write in the scope runs. Its
 `onError` reads the file again, which rolls the cache back, and reports
-what was lost. A read that ran while a file was being written keeps what the
-cache holds for that file, so it never undoes a write. Text files use the
-same pattern with `textQuery`, `editText`, and `textWrite`, keyed by path.
-`$state` holds only what is not committed: the new todo's title, what the
-detail shows, and the folders open in the browser.
+what was lost. No read starts while a write runs: an edit cancels reads in
+flight, nothing goes stale on its own, returning to the page and **Check
+again** read nothing while writing, and the last write to settle reads
+everything again. Writes never wait for the page to be visible. Text files
+use the same pattern with `textQuery`, `editText`, and `textWrite`. The store
+holds what the detail shows and whether Epicenter is asking to leave; the new
+todo's title and the folders open in the browser live in the components that
+show them. Components find the store with `getTodos()` and never touch its
+query client.
 
 Checks: `bun run --cwd apps/todos typecheck` (both seam leaves and the Bun
 side), `bun run --cwd apps/todos test` (it builds the Folder's file exchange
@@ -445,5 +446,6 @@ version before it:
 - Change reports from the folder still do not reread anything while you
   work. Screens read when they open, when you return to the window, and
   after the app's own actions.
-- A departure no longer counts failed saves; only a new todo's typed title
-  is counted as unsaved, after every write and action has finished.
+- Quitting or restarting no longer asks about anything. It waits for every
+  write and action, then the window is ready; a new todo's title typed and not
+  added is dropped, as it is on a reload.

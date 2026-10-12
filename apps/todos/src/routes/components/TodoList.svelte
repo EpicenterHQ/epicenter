@@ -47,9 +47,9 @@
 			bind:value={title}
 			placeholder="Add a todo"
 			aria-label="New todo title"
-			disabled={create.isPending || todos.departing}
+			disabled={create.isPending}
 		/>
-		<Button type="submit" disabled={create.isPending || todos.departing || title.trim() === ''}>
+		<Button type="submit" disabled={create.isPending || title.trim() === ''}>
 			{create.isPending ? 'Adding…' : 'Add'}
 		</Button>
 	</form>

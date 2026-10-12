@@ -1,8 +1,8 @@
 <!--
 	Mounts the real Detail as TodosView does: the detail pane for whatever the
-	owner shows now, inside the query client and tooltip provider the layout
-	supplies. "Hide detail" unmounts the whole pane while the owner and its
-	cache stay, as the narrow layout's Back does.
+	store shows now, inside the folder's scope and the tooltip provider. "Hide
+	detail" unmounts the whole pane while the store and its cache stay, as the
+	narrow layout's Back does.
 -->
 <script lang="ts">
 	import type { Todos } from '$lib/todos.svelte.js';

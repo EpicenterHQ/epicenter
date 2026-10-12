@@ -37,9 +37,6 @@ import {
 	type PullError,
 	type RecoverOutcome,
 	type Row,
-	type RowReadError,
-	rowPath,
-	rowStemOf,
 	type StoredRow,
 	type SyncAttempt,
 	type SyncChoices,
@@ -75,7 +72,7 @@ import { type TodoFields, todosDefinition } from './definition.js';
 import { nameProblem, readTextFile } from './files.js';
 import type { TodosFolder } from './platform/types.js';
 import { createTerminalSession } from './terminal.svelte.js';
-import type { TodoListing } from './todo-listing.js';
+import { type TodoListing, todoPath, todoStem } from './todo-listing.js';
 
 export type Todos = ReturnType<typeof createTodos>;
 
@@ -168,13 +165,10 @@ export function createTodos(
 	 */
 	let departing = $state(false);
 	let closing: Promise<void> | undefined;
-	let closed = false;
 
 	/** Why no edit or action starts now, if one does not. */
 	function refused(): string | undefined {
-		if (closed) return 'Todos is closing, so nothing was changed.';
-		if (departing) return DEPARTING;
-		return undefined;
+		return departing ? DEPARTING : undefined;
 	}
 
 	// The cache for this folder: the files it shows, and every write and
@@ -346,7 +340,7 @@ export function createTodos(
 	 * text. An invalid row is a capture of its bytes too.
 	 */
 	function heldCapture(path: string): FileCapture | undefined {
-		const stem = rowStemOf(table.name, path);
+		const stem = todoStem(path);
 		const editsRow =
 			stem !== undefined &&
 			!(selected?.path === path && selected.as !== 'todos');
@@ -411,7 +405,7 @@ export function createTodos(
 		/** The opened folder; `folder.location` says where the todos are. */
 		folder,
 		/**
-		 * This folder's cache, for the page's `QueryClientProvider` only.
+		 * This folder's cache, for `FolderScope`'s `QueryClientProvider` only.
 		 * Views read and write through the store, never the client directly:
 		 * a read that skips the store's rules can land over unsent edits.
 		 */
@@ -490,8 +484,7 @@ export function createTodos(
 		 * delete of the file runs.
 		 */
 		edit(stem: string, change: (row: Row<TodoFields>) => Row<TodoFields>) {
-			if (refused() !== undefined || moving(rowPath(table.name, stem)))
-				return false;
+			if (refused() !== undefined || moving(todoPath(stem))) return false;
 			// A read still running could replace this edit when it lands.
 			void queryClient.cancelQueries({ queryKey: todosKeys.rows, exact: true });
 			const changed = mapRow(stem, (stored) => ({
@@ -502,7 +495,7 @@ export function createTodos(
 			unsentRows.add(stem);
 			return (
 				queryClient.isMutating({
-					mutationKey: todosKeys.write(rowPath(table.name, stem)),
+					mutationKey: todosKeys.write(todoPath(stem)),
 					exact: true,
 				}) < 2
 			);
@@ -530,7 +523,7 @@ export function createTodos(
 		 * it runs, guarded by the hash the cache last confirmed.
 		 */
 		rowWrite(stem: string) {
-			const path = rowPath(table.name, stem);
+			const path = todoPath(stem);
 			return resultMutationOptions({
 				mutationKey: todosKeys.write(path),
 				// Row and text writes of one file share its queue.
@@ -642,7 +635,7 @@ export function createTodos(
 				);
 			},
 			onSuccess: (created) => {
-				const stem = rowStemOf(table.name, created.path);
+				const stem = todoStem(created.path);
 				if (stem !== undefined)
 					queryClient.setQueryData<TodoListing>(
 						todosKeys.rows,
@@ -718,8 +711,8 @@ export function createTodos(
 			if (problem !== undefined)
 				return TodosError.NotStarted({ reason: problem });
 			if (to === path) return Ok(undefined);
-			const nextStem = rowStemOf(table.name, to);
-			if (rowStemOf(table.name, path) !== undefined && nextStem === undefined)
+			const nextStem = todoStem(to);
+			if (todoStem(path) !== undefined && nextStem === undefined)
 				return TodosError.NotStarted({
 					reason: 'A todo file keeps its .md extension.',
 				});
@@ -735,14 +728,13 @@ export function createTodos(
 						if (error !== null) return Err(error);
 						capture = data;
 					}
-					return nextStem !== undefined &&
-						rowStemOf(table.name, path) !== undefined
+					return nextStem !== undefined && todoStem(path) !== undefined
 						? table.rename(capture, nextStem)
 						: folder.files.move(capture, to);
 				},
 				// The cache and the open item follow the file.
 				onSuccess: () => {
-					const stem = rowStemOf(table.name, path);
+					const stem = todoStem(path);
 					if (stem !== undefined) {
 						queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
 							entries?.flatMap((entry) => {
@@ -801,7 +793,7 @@ export function createTodos(
 			const unversioned = status?.changes.some(
 				(change) => change.path === path,
 			);
-			const stem = rowStemOf(table.name, path);
+			const stem = todoStem(path);
 			const title =
 				stem === undefined ? undefined : rowOf(stem)?.row.fields.title;
 			return Ok({
@@ -827,13 +819,13 @@ export function createTodos(
 					if (deletion.kind === 'folder')
 						return folder.files.rmdir(deletion.path);
 					const capture = heldCapture(deletion.path) ?? deletion.capture;
-					return rowStemOf(table.name, deletion.path) !== undefined
+					return todoStem(deletion.path) !== undefined
 						? table.delete(capture)
 						: folder.files.remove(capture);
 				},
 				// The cache and the open item let the file go.
 				onSuccess: () => {
-					const stem = rowStemOf(table.name, deletion.path);
+					const stem = todoStem(deletion.path);
 					if (stem !== undefined)
 						queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
 							entries?.filter((entry) => entry.stem !== stem),
@@ -935,12 +927,13 @@ export function createTodos(
 			},
 		} satisfies DepartureParticipant,
 		/**
-		 * Fence new input, wait until nothing is mutating, then release the
-		 * folder. Every call answers the same completion.
+		 * Wait until nothing is mutating, then release the folder. Work that
+		 * starts meanwhile is waited for too, so it lands before the folder
+		 * closes; after that the folder refuses with `Closed`. Every call
+		 * answers the same completion.
 		 */
 		close(): Promise<void> {
 			if (closing !== undefined) return closing;
-			closed = true;
 			closing = (async () => {
 				await whenIdle();
 				await queryClient.cancelQueries({ queryKey: todosKeys.all });

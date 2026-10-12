@@ -115,7 +115,12 @@
 	}}
 />
 
-<div class="flex h-dvh flex-col overflow-hidden">
+<!--
+	While Epicenter asks to quit or restart, the whole page takes no input; the
+	store also refuses every action, which covers menus and dialogs that render
+	outside this element.
+-->
+<div class="flex h-dvh flex-col overflow-hidden" inert={todos.departing}>
 	<AppHeader
 		{sync}
 		reviewing={attempt !== undefined}
@@ -130,7 +135,11 @@
 	<IncomingBanner />
 
 	{#if attempt !== undefined}
-		<!-- The review is modal: it replaces the workspace until it is applied or cancelled. -->
+		<!--
+			The review is modal: it covers the workspace until it is applied or
+			cancelled. The workspace is hidden, not unmounted, so what the person
+			typed there is still there afterwards.
+		-->
 		<div class="min-h-0 flex-1 overflow-y-auto p-4">
 			{#key attempt.id}
 				<SyncReview
@@ -142,8 +151,9 @@
 				/>
 			{/key}
 		</div>
-	{:else if wide.current}
-		<Resizable.PaneGroup direction="vertical" class="min-h-0 flex-1">
+	{/if}
+	{#if wide.current}
+		<Resizable.PaneGroup direction="vertical" class="min-h-0 flex-1" hidden={attempt !== undefined}>
 			<Resizable.Pane id="workspace" order={1} minSize={30}>
 				<Resizable.PaneGroup direction="horizontal">
 					{#if filesPane}
@@ -169,14 +179,16 @@
 			{/if}
 		</Resizable.PaneGroup>
 	{:else}
-		<main class="min-h-0 flex-1">
+		<main class="min-h-0 flex-1" hidden={attempt !== undefined}>
 			{#if terminalOpen}
 				<FolderTerminal session={todos.terminal} {directory} onClose={() => void toggleTerminal()} />
 			{:else if showingDetail}
 				<Detail onBack={back} />
-			{:else}
-				<TodoList onOpen={showDetail} />
 			{/if}
+			<!-- Hidden, not unmounted, behind the detail or terminal: a typed title stays. -->
+			<div class="h-full" hidden={terminalOpen || showingDetail}>
+				<TodoList onOpen={showDetail} />
+			</div>
 		</main>
 		<Sheet.Root bind:open={filesSheet}>
 			<!-- Named directly: the browser's own visible heading is the only "Files" heading. -->

@@ -1,7 +1,7 @@
 /**
  * App Header Mounted Tests
  *
- * Mounts the real `AppHeader` in jsdom over the real Todos owner on the
+ * Mounts the real `AppHeader` in jsdom over the real Todos store on the
  * in-memory OPFS stand-in.
  *
  * Key behaviors:

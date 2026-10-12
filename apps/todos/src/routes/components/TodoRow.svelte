@@ -46,7 +46,7 @@
 					write.mutate();
 			}
 		}
-		disabled={todos.departing || asText || todos.isMoving(entry.path)}
+		disabled={asText || todos.isMoving(entry.path)}
 		aria-label="{done ? 'Reopen' : 'Complete'} {title}"
 	/>
 	<Button

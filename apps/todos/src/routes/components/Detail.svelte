@@ -8,7 +8,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-	import { rowStemOf } from '@epicenter/folder';
+	import { todoStem } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 	import FileView from './FileView.svelte';
 	import TodoDetail from './TodoDetail.svelte';
@@ -19,7 +19,7 @@
 
 	const shown = $derived(todos.selected);
 	const stem = $derived(
-		shown?.as === 'todos' ? rowStemOf(todos.folder.tables.todos.name, shown.path) : undefined,
+		shown?.as === 'todos' ? todoStem(shown.path) : undefined,
 	);
 </script>
 

@@ -2,8 +2,22 @@
  * The todo listing as the list shows it. Pure functions of what the table
  * lists; the store reads and writes the listing, these only arrange it.
  */
-import { rowPath, type StoredRow, type TableListing } from '@epicenter/folder';
-import type { TodoFields } from './definition.js';
+import {
+	rowPath,
+	rowStemOf,
+	type StoredRow,
+	type TableListing,
+} from '@epicenter/folder';
+import type { TodoFields, todosDefinition } from './definition.js';
+
+/** The todo table's directory: its key in the definition. */
+const TABLE = 'todos' satisfies keyof typeof todosDefinition.tables;
+
+/** The file of the todo `stem`: `todos/<stem>.md`. */
+export const todoPath = (stem: string) => rowPath(TABLE, stem);
+
+/** The stem of `path` when it is a todo's file, or `undefined`. */
+export const todoStem = (path: string) => rowStemOf(TABLE, path);
 
 /** Every todo row file, as the table lists it: a row, or why it is not one. */
 export type TodoListing = TableListing<TodoFields>;
@@ -34,7 +48,7 @@ export function repairsOf(listing: TodoListing): Repair[] {
 	const repairs: Repair[] = [];
 	for (const { stem, result } of listing) {
 		if (result.error === null) continue;
-		const path = rowPath('todos', stem);
+		const path = todoPath(stem);
 		repairs.push(
 			result.error.name === 'InvalidRow'
 				? {

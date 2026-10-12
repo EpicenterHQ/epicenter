@@ -14,11 +14,12 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { type Row, rowPath, wellFormed } from '@epicenter/folder';
+	import { type Row, wellFormed } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import type { TodoFields } from '$lib/definition.js';
 	import { describeError } from '$lib/describe-error.js';
+	import { todoPath } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 	import { confirmDelete } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
@@ -35,13 +36,13 @@
 		onBack?: () => void;
 	} = $props();
 
-	const path = $derived(rowPath(todos.folder.tables.todos.name, stem));
+	const path = $derived(todoPath(stem));
 	const todo = createQuery(() =>
 		todos.rowsQuery((listing) => listing.find((entry) => entry.stem === stem)),
 	);
 	const write = createMutation(() => todos.rowWrite(stem));
 	/** Edits wait while Epicenter asks to leave, and while this file is renamed or deleted. */
-	const locked = $derived(todos.departing || todos.isMoving(path));
+	const locked = $derived(todos.isMoving(path));
 
 	/** Change the row in the cache, and queue a write when one is needed. */
 	function set(change: (row: Row<TodoFields>) => Row<TodoFields>) {
@@ -102,7 +103,6 @@
 			prefix="todos/"
 			name={stem}
 			suffix=".md"
-			disabled={todos.departing}
 			onRename={async (next) => {
 				const { error } = await todos.rename(path, `${next}.md`);
 				return error === null ? undefined : describeError(error);

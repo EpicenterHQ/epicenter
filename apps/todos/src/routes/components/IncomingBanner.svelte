@@ -58,7 +58,7 @@
 			<span class="font-medium" role="status">{pending.label}</span>
 			<Button
 				size="xs"
-				disabled={recovery.isPending || todos.departing}
+				disabled={recovery.isPending}
 				tooltip="Finish or clear the update from the files as they are now. If a file holds neither version, it is named and nothing is written."
 				data-testid="recover-incoming"
 				onclick={recover}

@@ -14,11 +14,12 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { parseRow, rowStemOf, wellFormed } from '@epicenter/folder';
+	import { parseRow, wellFormed } from '@epicenter/folder';
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { todosDefinition } from '$lib/definition.js';
 	import { describeError } from '$lib/describe-error.js';
+	import { todoStem } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
@@ -39,7 +40,7 @@
 	const write = createMutation(() => todos.textWrite(path));
 	const name = $derived(basename(path));
 	const directory = $derived(dirname(path));
-	const isRow = $derived(rowStemOf(todos.folder.tables.todos.name, path) !== undefined);
+	const isRow = $derived(todoStem(path) !== undefined);
 	const text = $derived(file.data?.kind === 'text' ? file.data.file.text : undefined);
 	/** Why the text is not a todo yet, read live from what is typed. */
 	const issues = $derived.by(() => {
@@ -47,7 +48,7 @@
 		const { error } = parseRow(todosDefinition.tables.todos, text);
 		return error ?? undefined;
 	});
-	const locked = $derived(todos.departing || todos.isMoving(path));
+	const locked = $derived(todos.isMoving(path));
 
 	/** A file shown as details: its extension names the type, then its size. */
 	function details(size: number) {
@@ -141,7 +142,6 @@
 	<FileNameBar
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
-		disabled={todos.departing}
 		onRename={async (next) => {
 			const { error } = await todos.rename(path, next);
 			return error === null ? undefined : describeError(error);

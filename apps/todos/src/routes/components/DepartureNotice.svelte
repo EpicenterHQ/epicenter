@@ -23,7 +23,7 @@
 		{:else if departure.notice.stage === 'ready'}
 			<span>{leaving}. This window is ready; editing waits until Epicenter leaves or the {ending} is cancelled.</span>
 		{:else}
-			<!-- Todos never asks: once its work settles nothing is lost, so it never shows a choice. -->
+			<!-- Leaving. Todos never asks: once its work settles nothing is lost, so it has no choice to show. -->
 			<span>{leaving}.</span>
 		{/if}
 		{#if departure.problem !== undefined}

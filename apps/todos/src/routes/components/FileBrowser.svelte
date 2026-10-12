@@ -25,9 +25,9 @@
 		type TreeRow,
 		visibleRows,
 	} from '@epicenter/folder/file-browser';
-	import { rowPath } from '@epicenter/folder';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { describeError } from '$lib/describe-error.js';
+	import { todoPath } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
@@ -38,7 +38,7 @@
 	const listing = createQuery(() => todos.filesQuery());
 	/** Every todo row file, whether or not its text reads as a todo. */
 	const todoPaths = createQuery(() =>
-		todos.rowsQuery((entries) => new Set(entries.map(({ stem }) => rowPath(todos.folder.tables.todos.name, stem)))),
+		todos.rowsQuery((entries) => new Set(entries.map(({ stem }) => todoPath(stem)))),
 	);
 	/** Folders open here. They go with the browser: hiding it forgets them. */
 	const expanded = new SvelteSet<string>(['todos']);
@@ -234,7 +234,6 @@
 			aria-label={label}
 			autocomplete="off"
 			spellcheck={false}
-			disabled={todos.departing}
 			{@attach (node: HTMLInputElement) => {
 				node.focus();
 				// Select the name before its extension, as file managers do.

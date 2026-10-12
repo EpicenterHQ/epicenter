@@ -1,12 +1,12 @@
 /**
  * Departure Tests
  *
- * The real Todos owner behind the shared departure client
+ * The real Todos store behind the shared departure client
  * (`@epicenter/epicenter/departure/page`), over a real browser folder on the
  * in-memory OPFS stand-in and a stand-in for the host's side of the wire. The
  * client's own rules (listening first, version order, prompt identity, lost
  * answers, destroy) are tested beside it in `apps/epicenter`; these tests
- * cover what this owner fences, waits for, counts, and gives back.
+ * cover what this store fences, waits for, counts, and gives back.
  *
  * Key behaviors:
  * - A write, a sync, or a terminal command still running is waited for
@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 /**
- * The real Todos owner over a fresh browser folder. `holdNextSave` holds the
+ * The real Todos store over a fresh browser folder. `holdNextSave` holds the
  * next published write of a todo row until the returned function runs.
  */
 async function openTodos(
@@ -113,14 +113,6 @@ const titled =
 		fields: { ...row.fields, title },
 	});
 
-/** The identity of the prompt shown now, as its controls carry it. */
-function shownPrompt(departure: Departure): number {
-	const notice = departure.notice;
-	if (notice?.stage !== 'choose')
-		throw new Error(`Expected a prompt, got ${notice?.stage}`);
-	return notice.id;
-}
-
 function track(departure: Departure) {
 	cleanup.push(() => departure.destroy());
 	return departure;
@@ -135,7 +127,7 @@ async function eventually(done: () => boolean) {
 	for (let waited = 0; waited < 400 && !done(); waited++) await Bun.sleep(5);
 }
 
-/** A started departure with an open owner, idle. */
+/** A started departure with an open store, idle. */
 async function started(adapt?: (folder: TodosFolder) => TodosFolder) {
 	const host = createFakeHost();
 	const departure = track(createDeparture(host.port));
