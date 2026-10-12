@@ -17,12 +17,19 @@
 	import ListTodoIcon from '@lucide/svelte/icons/list-todo';
 	import { tick } from 'svelte';
 	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
-	import type { Todos } from '$lib/todos.svelte.js';
-	import { confirmDelete, copyPath, openItem } from './file-actions.js';
+	import { rowPath } from '@epicenter/folder';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { describeError, type Todos } from '$lib/todos.svelte.js';
+	import { confirmDelete, copyPath } from './file-actions.js';
 
 	let { todos, onOpen }: { todos: Todos; onOpen?: () => void } = $props();
 
-	const rows = $derived(todos.listing ? visibleRows(todos.listing, todos.expanded) : []);
+	const listing = createQuery(() => todos.filesQuery());
+	/** Every todo row file, whether or not its text reads as a todo. */
+	const todoPaths = createQuery(() =>
+		todos.rowsQuery((entries) => new Set(entries.map(({ stem }) => rowPath(todos.folder.tables.todos.name, stem)))),
+	);
+	const rows = $derived(listing.data ? visibleRows(listing.data, todos.expanded) : []);
 
 	/** The inline name field: renaming a file, or creating one in a folder. */
 	let editing = $state<
@@ -49,7 +56,7 @@
 			else todos.expanded.add(row.path);
 			return;
 		}
-		void openItem(todos, row.path, 'files');
+		todos.select(row.path, 'files');
 		onOpen?.();
 	}
 
@@ -154,17 +161,17 @@
 			return;
 		}
 		committing = true;
-		const problem =
+		const { error } =
 			current.kind === 'rename'
 				? await todos.rename(current.path, name)
 				: current.type === 'file'
-					? await todos.createFile(directory, name)
-					: await todos.createFolder(directory, name);
+					? await todos.createFile({ directory, name })
+					: await todos.createFolder({ directory, name });
 		committing = false;
-		if (problem) {
+		if (error !== null) {
 			const action =
 				current.kind === 'rename' ? 'rename' : `create the ${current.type}`;
-			toast.error(`Could not ${action}`, { description: problem });
+			toast.error(`Could not ${action}`, { description: describeError(error) });
 			return;
 		}
 		editing = undefined;
@@ -250,27 +257,27 @@
 		</div>
 	</div>
 
-	{#if todos.listing === undefined}
-		{#if todos.listingError}
+	{#if listing.data === undefined}
+		{#if listing.isError}
 			<Empty.Root class="flex-1 p-6">
 				<Empty.Title>Could not read the folder</Empty.Title>
-				<Empty.Description>{todos.listingError}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void todos.refresh()}>Try again</Button>
+				<Empty.Description>{listing.error.message}</Empty.Description>
+				<Button variant="outline" size="sm" onclick={() => void listing.refetch()}>Try again</Button>
 			</Empty.Root>
 		{:else}
 			<Loading class="flex-1" label="Reading files…" />
 		{/if}
 	{:else}
-		{#if todos.listingError}
+		{#if listing.isError}
 			<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-				Could not read the folder: {todos.listingError}. Showing the last list that was read.
+				Could not read the folder: {listing.error.message}. Showing the last list that was read.
 			</p>
 		{/if}
 		<nav class="min-h-0 flex-1 overflow-y-auto p-1.5" aria-label="Folder files">
 			<Sidebar.Menu bind:ref={tree} class="gap-0.5" onkeydown={navigate}>
 				{@render createField('', 0)}
 				{#each rows as row (row.path)}
-					{@const selected = todos.current?.workspace === 'files' && todos.current.path === row.path}
+					{@const selected = todos.selected?.as === 'files' && todos.selected.path === row.path}
 					{@const open = row.kind === 'directory' && todos.expanded.has(row.path)}
 					<Sidebar.MenuItem>
 						{#if editing?.kind === 'rename' && editing.path === row.path}
@@ -292,7 +299,7 @@
 										>
 											{#if row.kind === 'directory'}
 												{#if open}<FolderOpenIcon />{:else}<FolderIcon />{/if}
-											{:else if todos.isTodo(row.path)}
+											{:else if todoPaths.data?.has(row.path)}
 												<ListTodoIcon />
 											{:else if /\.(md|txt|json|ya?ml|csv)$/i.test(row.name) || row.name.startsWith('.')}
 												<FileTextIcon />

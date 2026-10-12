@@ -9,41 +9,41 @@
  * cover what this owner fences, waits for, counts, and gives back.
  *
  * Key behaviors:
- * - A todo write, a pull, a merge, or a terminal command still running is
- *   waited for before `ready`
- * - What cannot be saved, and a new todo's typed title, are counted for the
- *   person's choice; a round cancelled elsewhere, or by "Keep working", gives
- *   them back exactly as they were
+ * - A write, a sync, or a terminal command still running is waited for
+ *   before `ready`: the page waits until nothing is mutating
+ * - Only input never committed counts as unsaved: a new todo's typed
+ *   title. A round cancelled elsewhere, or by "Keep working", gives it back
  * - Leaving anyway is a `ready` vote only: nothing is discarded, and an
  *   `idle` that follows gives everything back
  * - `granted`, `leaving`, and a `discarded` vote stay fenced
- * - While fenced, every action, Git command, terminal command, and editing
- *   input is refused, and resuming gives them back
+ * - While fenced, every edit, action, Git command, and terminal command is
+ *   refused, and resuming gives them back
+ * - Close waits for a running sync through its last step
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import type { Departure } from '@epicenter/epicenter/departure/page';
 import { openFolder } from '@epicenter/folder/browser';
-import type { RowSession } from '@epicenter/svelte/edit-session';
-import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	createTestStorage,
-	opfsOf,
 	testLocks,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import { createFakeHost } from '../../../epicenter/src/departure-page.test-support.js';
-import type { TodoFields } from './definition.js';
 import { todosDefinition } from './definition.js';
 import { holdCloses } from './opfs-holds.test-support.js';
 import type { TodosFolder } from './platform/types.js';
+import {
+	cached,
+	createQueryClient,
+	observe,
+	quiet,
+	rowEditor,
+} from './query.test-support.js';
 import type { Todos } from './todos.svelte.js';
 
-type TodoSession = RowSession<TodoFields>;
-
-const { createTodos } = await import('./todos.svelte.ts');
+const { createTodos, DEPARTING } = await import('./todos.svelte.ts');
 const { createDeparture } = await import('@epicenter/epicenter/departure/page');
-const { DEPARTING } = await import('./todos.svelte.ts');
 
 let count = 0;
 const cleanup: (() => unknown)[] = [];
@@ -82,10 +82,10 @@ async function openTodos(
 			},
 		}),
 	);
-	const todos: Todos = createTodos(adapt(folder));
+	const todos: Todos = createTodos(adapt(folder), createQueryClient());
 	cleanup.push(() => todos.close());
-	await todos.check();
-	const faults = opfsOf(storage).faults;
+	cleanup.push(observe(todos));
+	await quiet(todos);
 	return {
 		todos,
 		/** Hold the next todo row write; resolves once it is held. */
@@ -95,14 +95,6 @@ async function openTodos(
 			const release = hold.resolve;
 			return { held: started.promise, release };
 		},
-		/** The next write of `path` fails before it publishes. */
-		failNextWrite(path: string) {
-			faults.write = (file) => {
-				if (!file.endsWith(`/${path}`)) return undefined;
-				faults.write = undefined;
-				return 'fail';
-			};
-		},
 		async text(path: string) {
 			const read = await folder.files.read(path);
 			return read.error ? undefined : new TextDecoder().decode(read.data.bytes);
@@ -110,26 +102,22 @@ async function openTodos(
 	};
 }
 
-function todoSession(todos: Todos) {
-	const item = todos.opened;
-	if (item?.kind !== 'todo')
-		throw new Error(`Expected an open todo, got ${item?.kind}`);
-	return item.session;
+/** Add a todo; answers its stem and path. */
+async function addTodo(todos: Todos, title: string) {
+	const created = expectOk(await todos.create(title));
+	await quiet(todos);
+	return {
+		stem: created.path.slice('todos/'.length, -'.md'.length),
+		path: created.path,
+	};
 }
 
-/** What the title control does: edit the draft's title, which requests a save. */
-function typeTitle(session: TodoSession, title: string) {
-	session.edit((row) => {
-		row.fields.title = title;
+const titled =
+	(title: string) =>
+	<T extends { fields: { title: string; done: boolean } }>(row: T): T => ({
+		...row,
+		fields: { ...row.fields, title },
 	});
-}
-
-/** What the notes control does: edit the draft's body, which requests a save. */
-function typeNotes(session: TodoSession, notes: string) {
-	session.edit((row) => {
-		row.body = notes;
-	});
-}
 
 /** The identity of the prompt shown now, as its controls carry it. */
 function shownPrompt(departure: Departure): number {
@@ -182,34 +170,19 @@ function gate() {
 	};
 }
 
-/**
- * The folder with its Git fetch held at `fetch`, and its fast-forward and
- * merge counted, so a test sees which steps of a pull or merge ran.
- */
-function heldGit(fetch: ReturnType<typeof gate>) {
-	const applied = { pullFastForward: 0, mergeIncoming: 0 };
-	const adapt = (folder: TodosFolder): TodosFolder => ({
+/** The folder with each sync held at `run` before it starts. */
+function heldSync(run: ReturnType<typeof gate>) {
+	return (folder: TodosFolder): TodosFolder => ({
 		...folder,
-		git: {
-			...folder.git,
-			get snapshot() {
-				return folder.git.snapshot;
+		sync: {
+			supported: folder.sync.supported,
+			async run() {
+				await run.wait();
+				return folder.sync.run();
 			},
-			async fetch() {
-				await fetch.wait();
-				return Ok({ status: 'fetched', oid: undefined });
-			},
-			async pullFastForward() {
-				applied.pullFastForward += 1;
-				return folder.git.pullFastForward();
-			},
-			async mergeIncoming() {
-				applied.mergeIncoming += 1;
-				return folder.git.mergeIncoming();
-			},
+			resolve: (attempt, choices) => folder.sync.resolve(attempt, choices),
 		},
 	});
-	return { adapt, applied };
 }
 
 /** The folder with each terminal command held at `exec` before it runs. */
@@ -231,15 +204,20 @@ function heldTerminal(exec: ReturnType<typeof gate>) {
 	});
 }
 
-test('a todo write still running is waited for before the page answers ready', async () => {
-	const { host, departure, todos, text } = await started();
-	await todos.create('Milk');
-	const path = todos.current!.path;
-	const editor = todoSession(todos);
-	typeTitle(editor, 'Oat milk');
-	expect(editor.state.status).toBe('saving');
+test('a write still running is waited for before the page answers ready', async () => {
+	const { host, departure, todos, text, holdNextSave } = await started();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const { held, release } = holdNextSave();
+	rowEditor(todos, stem)(titled('Oat milk'));
+	await held;
 	host.begin('restart');
 	host.nudge();
+	await settle();
+	// The write is running: the page asks and waits for it.
+	expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
+	expect(departure.notice?.stage).toBe('saving');
+
+	release();
 	await eventually(() => host.answers.length >= 2);
 	expect(host.answers.map((answer) => answer.answer)).toEqual([
 		'asking',
@@ -249,109 +227,22 @@ test('a todo write still running is waited for before the page answers ready', a
 	expect(host.status).toMatchObject({ phase: 'collecting', vote: 'ready' });
 	expect(departure.notice).toEqual({ stage: 'ready', intent: 'restart' });
 	expect(todos.departing).toBe(true);
-	expect(editor.state.status).toBe('saved');
 });
 
-test('a round cancelled elsewhere gives back a failed save and the newer input typed after it, as they were', async () => {
-	const { host, departure, todos, failNextWrite, text } = await started();
-	await todos.create('Milk');
-	const path = todos.current!.path;
-	const saved = await text(path);
-	const editor = todoSession(todos);
-	failNextWrite(path);
-	typeTitle(editor, 'First');
-	await editor.settled();
-	expect(editor.state.status).toBe('error');
-	failNextWrite(path);
-	typeTitle(editor, 'Newer');
-	await editor.settled();
-
+test('a sync running when Epicenter asks is waited for before the page answers ready', async () => {
+	const run = gate();
+	const { host, todos } = await started(heldSync(run));
+	const syncing = todos.sync();
+	await run.entered.promise;
 	host.begin('quit');
 	host.nudge();
-	await eventually(() => departure.notice?.stage === 'choose');
-	expect(departure.notice).toEqual({
-		stage: 'choose',
-		id: expect.any(Number),
-		intent: 'quit',
-		held: 1,
-	});
-	expect(todos.failedSavePath).toBe(path);
+	await settle();
 	expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
-	// Nothing was retried for the failed save.
-	expect(await text(path)).toBe(saved);
-
-	// Another window's "Keep working" ends the round.
-	host.set({ phase: 'idle' });
-	host.nudge();
-	await settle();
-	expect(todos.departing).toBe(false);
-	expect(departure.notice).toBeUndefined();
-	expect(editor.state.status).toBe('error');
-	expect(editor.draft.fields.title).toBe('Newer');
-	expect(await text(path)).toBe(saved);
-});
-
-test('leaving anyway is a ready vote only: the failed save and its input stay fenced until idle gives them back', async () => {
-	const { host, departure, todos, failNextWrite, text } = await started();
-	await todos.create('Milk');
-	const path = todos.current!.path;
-	const saved = await text(path);
-	const editor = todoSession(todos);
-	failNextWrite(path);
-	typeTitle(editor, 'Mine');
-	await eventually(() => editor.state.status === 'error');
-
-	host.begin('quit');
-	host.nudge();
-	await eventually(() => departure.notice?.stage === 'choose');
-	departure.leaveAnyway(shownPrompt(departure));
-	await settle();
-	expect(host.answers.map((answer) => answer.answer)).toEqual([
-		'asking',
-		'ready',
-	]);
-	expect(departure.notice).toEqual({ stage: 'ready', intent: 'quit' });
-	expect(todos.departing).toBe(true);
-	expect(editor.state.status).toBe('error');
-	expect(editor.draft.fields.title).toBe('Mine');
-	// Still fenced while the other window decides.
-	typeNotes(editor, 'ignored\n');
-	expect(editor.draft.body).toBe('');
-
-	host.set({ phase: 'idle' });
-	host.nudge();
-	await settle();
-	expect(todos.departing).toBe(false);
-	expect(editor.state.status).toBe('error');
-	expect(editor.draft.fields.title).toBe('Mine');
-	expect(await text(path)).toBe(saved);
-});
-
-test('granted, leaving, and a discarded vote stay fenced: nothing is edited or started', async () => {
-	for (const next of [
-		{ phase: 'granted' },
-		{ phase: 'leaving' },
-		{ phase: 'collecting', vote: 'discarded' },
-	] as const) {
-		const { host, departure, todos } = await started();
-		await todos.create('Milk');
-		const editor = todoSession(todos);
-		host.begin('quit');
-		host.set(next);
-		host.nudge();
-		await settle();
-		expect(todos.departing).toBe(true);
-		expect(departure.notice).toEqual({ stage: 'leaving', intent: 'quit' });
-		typeTitle(editor, 'Late');
-		expect(editor.draft.fields.title).toBe('Milk');
-		expect(await todos.create('Another')).toBe(DEPARTING);
-		todos.newTitle = 'Typed';
-		expect(todos.newTitle).toBe('');
-		// Focus while fenced reads again; still fenced.
-		host.focus();
-		await settle();
-		expect(todos.departing).toBe(true);
-	}
+	run.open();
+	// No remote: the sync itself refuses, and only then is the page ready.
+	expect(expectErr(await syncing).name).toBe('NoRemote');
+	await eventually(() => host.answers.length >= 2);
+	expect(host.answers.at(-1)?.answer).toBe('ready');
 });
 
 test('a new todo title typed and not added counts: the page asks, and Keep working cancels the round and gives it back', async () => {
@@ -366,7 +257,6 @@ test('a new todo title typed and not added counts: the page asks, and Keep worki
 		intent: 'quit',
 		held: 1,
 	});
-	expect(todos.failedSavePath).toBeUndefined();
 	departure.keepWorking(shownPrompt(departure));
 	await settle();
 	expect(host.answers.map((answer) => answer.answer)).toEqual([
@@ -377,82 +267,109 @@ test('a new todo title typed and not added counts: the page asks, and Keep worki
 	expect(todos.departing).toBe(false);
 	expect(todos.newTitle).toBe('Buy milk');
 	// Nothing was created from it.
-	expect(todos.entries).toEqual([]);
+	expect(todos.queryClient.getQueryData<unknown[]>(['todos', 'rows'])).toEqual(
+		[],
+	);
 });
 
-test('while fenced, every action, Git command, terminal command, and editing input is refused; resuming gives them back', async () => {
+test('a round cancelled elsewhere gives back the typed title, and leaving anyway is a ready vote only', async () => {
+	const { host, departure, todos } = await started();
+	todos.newTitle = 'Buy milk';
+	host.begin('quit');
+	host.nudge();
+	await eventually(() => departure.notice?.stage === 'choose');
+	departure.leaveAnyway(shownPrompt(departure));
+	await settle();
+	expect(host.answers.map((answer) => answer.answer)).toEqual([
+		'asking',
+		'ready',
+	]);
+	expect(departure.notice).toEqual({ stage: 'ready', intent: 'quit' });
+	// Still fenced while the other window decides; nothing was discarded.
+	todos.newTitle = 'ignored';
+	expect(todos.newTitle).toBe('Buy milk');
+
+	host.set({ phase: 'idle' });
+	host.nudge();
+	await settle();
+	expect(todos.departing).toBe(false);
+	expect(todos.newTitle).toBe('Buy milk');
+	todos.newTitle = 'Buy oat milk';
+	expect(todos.newTitle).toBe('Buy oat milk');
+});
+
+test('granted, leaving, and a discarded vote stay fenced: nothing is edited or started', async () => {
+	for (const next of [
+		{ phase: 'granted' },
+		{ phase: 'leaving' },
+		{ phase: 'collecting', vote: 'discarded' },
+	] as const) {
+		const { host, departure, todos } = await started();
+		const { stem } = await addTodo(todos, 'Milk');
+		host.begin('quit');
+		host.set(next);
+		host.nudge();
+		await settle();
+		expect(todos.departing).toBe(true);
+		expect(departure.notice).toEqual({ stage: 'leaving', intent: 'quit' });
+		expect(todos.edit(stem, titled('Late'))).toBe(false);
+		expect(cached(todos, stem).row.fields.title).toBe('Milk');
+		expect(expectErr(await todos.create('Another'))).toMatchObject({
+			reason: DEPARTING,
+		});
+		todos.newTitle = 'Typed';
+		expect(todos.newTitle).toBe('');
+		// Focus while fenced reads again; still fenced.
+		host.focus();
+		await settle();
+		expect(todos.departing).toBe(true);
+	}
+});
+
+test('while fenced, every edit, action, Git command, and terminal command is refused; resuming gives them back', async () => {
 	const { todos, text } = await openTodos();
-	await todos.create('Milk');
-	const path = todos.current!.path;
-	const milk = todoSession(todos);
+	const { stem, path } = await addTodo(todos, 'Milk');
 	expectOk(await todos.folder.files.create('notes.txt', 'saved'));
-	await todos.refresh();
 	const saved = await text(path);
-	const entry = todos.entries[0]!;
+	const deletion = expectOk(await todos.deletionFor('notes.txt'));
 
 	todos.departure.fence();
-	// The open todo refuses input; Try again requests nothing.
-	typeTitle(milk, 'Late');
-	typeNotes(milk, 'late\n');
-	milk.edit((row) => {
-		row.fields.done = true;
-	});
-	milk.retry();
-	expect(milk.draft).toEqual({
-		fields: { title: 'Milk', done: false },
-		body: '',
-	});
-	expect(milk.state.status).toBe('saved');
-	// Actions refuse.
+	expect(todos.edit(stem, titled('Late'))).toBe(false);
+	expect(todos.editText('notes.txt', 'typed')).toBe(false);
 	todos.newTitle = 'Typed';
 	expect(todos.newTitle).toBe('');
-	expect(await todos.create('New')).toBe(DEPARTING);
-	expect(await todos.toggle(entry)).toBe(DEPARTING);
-	expect(await todos.rename(path, 'oat.md')).toBe(DEPARTING);
-	expect(expectErr(await todos.deletionFor(path))).toBe(DEPARTING);
+	const refusal = { name: 'NotStarted', reason: DEPARTING };
+	expect(expectErr(await todos.create('New'))).toMatchObject(refusal);
+	expect(expectErr(await todos.rename(path, 'oat.md'))).toMatchObject(refusal);
+	expect(expectErr(await todos.deletionFor(path))).toMatchObject(refusal);
+	expect(expectErr(await todos.remove(deletion))).toMatchObject(refusal);
 	expect(
-		await todos.remove({ kind: 'file', path: 'notes.txt', sha256: 'x' }),
-	).toBe(DEPARTING);
-	expect(await todos.createFile('', 'more.txt')).toBe(DEPARTING);
-	expect(await todos.createFolder('', 'docs')).toBe(DEPARTING);
-	// Opening another file changes nothing on disk, and its text refuses input.
-	await todos.open('notes.txt', 'files');
-	const opened = todos.opened;
-	if (opened?.kind !== 'text') throw new Error('Expected the notes text');
-	const notes = opened.session;
-	notes.input('typed');
-	expect(notes.draft).toBe('saved');
-	expect(notes.state.status).toBe('saved');
-	// Git and the terminal refuse.
-	expect(await todos.commitAndPush()).toEqual({
-		commit: { status: 'blocked', reason: DEPARTING },
-		push: { status: 'skipped', reason: DEPARTING },
-	});
-	expect(expectErr(await todos.pull()).message).toContain(DEPARTING);
-	expect(expectErr(await todos.merge()).message).toContain(DEPARTING);
-	expect(expectErr(await todos.fetch()).message).toContain(DEPARTING);
-	expect(await todos.recoverIncoming()).toEqual({ kind: 'busy' });
+		expectErr(await todos.createFile({ directory: '', name: 'more.txt' })),
+	).toMatchObject(refusal);
+	expect(
+		expectErr(await todos.createFolder({ directory: '', name: 'docs' })),
+	).toMatchObject(refusal);
+	expect(expectErr(await todos.saveVersion())).toMatchObject(refusal);
+	expect(expectErr(await todos.recoverIncoming())).toMatchObject(refusal);
+	expect(expectErr(await todos.sync()).message).toContain(DEPARTING);
 	// The terminal takes no typing and Enter runs nothing.
 	todos.terminal.command = 'touch shell.txt';
 	expect(todos.terminal.command).toBe('');
 	await todos.terminal.run();
 	expect(todos.terminal.runs).toEqual([]);
-	expect(await text('shell.txt')).toBeUndefined();
 	await settle();
+	expect(await text('shell.txt')).toBeUndefined();
 	expect(await text(path)).toBe(saved);
 	expect(await text('notes.txt')).toBe('saved');
-	expect(todos.entries).toHaveLength(1);
+	expect(todos.git.lastCommit).toBeUndefined();
 
 	todos.departure.resume();
 	expect(todos.departing).toBe(false);
-	notes.input('after');
-	expect((await notes.settled()).status).toBe('saved');
-	expect(await text('notes.txt')).toBe('after');
-	await todos.open(path, 'todos');
-	const reopened = todoSession(todos);
-	typeTitle(reopened, 'After');
-	expect((await reopened.settled()).status).toBe('saved');
+	rowEditor(todos, stem)(titled('After'));
+	await quiet(todos);
 	expect(await text(path)).toContain('title: After');
+	expectOk(await todos.remove(deletion));
+	expect(await text('notes.txt')).toBeUndefined();
 });
 
 for (const ending of [
@@ -461,10 +378,9 @@ for (const ending of [
 ] as const)
 	test(`${ending.phase === 'granted' ? 'granted' : 'a discarded vote'} during a held drain ends the handling: the drain finishes, and nothing more is answered or prompted`, async () => {
 		const { host, departure, todos, holdNextSave, text } = await started();
-		await todos.create('Milk');
-		const path = todos.current!.path;
+		const { stem, path } = await addTodo(todos, 'Milk');
 		const { held, release } = holdNextSave();
-		typeTitle(todoSession(todos), 'Slow');
+		rowEditor(todos, stem)(titled('Slow'));
 		todos.newTitle = 'Buy milk';
 		host.begin('quit');
 		host.nudge();
@@ -477,69 +393,30 @@ for (const ending of [
 		await settle();
 		expect(departure.notice).toEqual({ stage: 'leaving', intent: 'quit' });
 		release();
-		await eventually(() => !todos.saving);
+		await eventually(() => todos.queryClient.isMutating() === 0);
 		await settle();
-		// The admitted save landed; no ready, no prompt, and still fenced.
+		// The admitted write landed; no ready, no prompt, and still fenced.
 		expect(await text(path)).toContain('title: Slow');
 		expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
 		expect(departure.notice).toEqual({ stage: 'leaving', intent: 'quit' });
 		expect(todos.departing).toBe(true);
 	});
 
-test('a pull admitted before a departure is waited for, and its apply step is withdrawn and says so', async () => {
-	const fetch = gate();
-	const { adapt, applied } = heldGit(fetch);
-	const { host, departure, todos } = await started(adapt);
-	const pulling = todos.pull();
-	await fetch.entered.promise;
-	host.begin('quit');
-	host.nudge();
-	await settle();
-	// The pull is still running: the page asks and waits for it.
-	expect(host.answers.map((answer) => answer.answer)).toEqual(['asking']);
-	expect(departure.notice?.stage).toBe('saving');
-
-	fetch.open();
-	expect(expectErr(await pulling).message).toContain('nothing was applied');
-	expect(applied.pullFastForward).toBe(0);
-	await eventually(() => host.answers.length >= 2);
-	expect(host.answers.at(-1)?.answer).toBe('ready');
-});
-
-test('a merge admitted before a departure is withdrawn after its fetch, and close waits for a running pull through its last step', async () => {
-	const fetch = gate();
-	const { adapt, applied } = heldGit(fetch);
-	const { host, todos } = await started(adapt);
-	const merging = todos.merge();
-	await fetch.entered.promise;
-	host.begin('restart');
-	host.nudge();
-	await settle();
-	fetch.open();
-	expect(expectErr(await merging).message).toContain('nothing was applied');
-	expect(applied.mergeIncoming).toBe(0);
-	await eventually(() => host.answers.length >= 2);
-	host.set({ phase: 'idle' });
-	host.nudge();
-	await settle();
-	expect(todos.departing).toBe(false);
-
-	fetch.entered = Promise.withResolvers();
-	const pulling = todos.pull();
-	await fetch.entered.promise;
+test('close waits for a running sync through its last step', async () => {
+	const run = gate();
+	const { todos } = await openTodos(heldSync(run));
+	const syncing = todos.sync();
+	await run.entered.promise;
 	let closed = false;
 	const closing = todos.close().then(() => {
 		closed = true;
 	});
 	await settle();
 	expect(closed).toBe(false);
-	fetch.open();
-	// A fetch that answers after close began applies nothing; close waited
-	// for the whole pull before it closed the folder.
-	expect(expectErr(await pulling).name).toBe('Closed');
+	run.open();
+	expect(expectErr(await syncing).name).toBe('NoRemote');
 	await closing;
 	expect(closed).toBe(true);
-	expect(applied.pullFastForward).toBe(0);
 });
 
 test('a terminal command admitted before a departure is waited for; meanwhile the session keeps its command, history, and output, and Enter does nothing', async () => {

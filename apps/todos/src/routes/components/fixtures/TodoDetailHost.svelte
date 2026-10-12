@@ -1,25 +1,29 @@
 <!--
 	Mounts the real Detail as TodosView does: the detail pane for whatever the
-	owner shows now, with each editor view keyed by its editor. "Hide detail"
-	unmounts the whole pane while the Todos owner keeps every editor, as the
-	narrow layout's Back does.
+	owner shows now, inside the query client and tooltip provider the layout
+	supplies. "Hide detail" unmounts the whole pane while the owner and its
+	cache stay, as the narrow layout's Back does.
 -->
 <script lang="ts">
-	import * as Tooltip from '@epicenter/ui/tooltip';
 	import type { Todos } from '$lib/todos.svelte.js';
 	import Detail from '../Detail.svelte';
+	import TodoList from '../TodoList.svelte';
+	import QueryHost from './QueryHost.svelte';
 
-	let { todos }: { todos: Todos } = $props();
+	let { todos, list = false }: { todos: Todos; list?: boolean } = $props();
 	let shown = $state(true);
 </script>
 
 <button type="button" data-host="toggle" onclick={() => (shown = !shown)}>
 	{shown ? 'Hide detail' : 'Show detail'}
 </button>
-<Tooltip.Provider>
+<QueryHost {todos}>
+	{#if list}
+		<div data-host="list"><TodoList {todos} /></div>
+	{/if}
 	{#if shown}
-		<Detail {todos} />
+		<div data-host="detail"><Detail {todos} /></div>
 	{:else}
 		<p data-view="hidden">The detail is hidden</p>
 	{/if}
-</Tooltip.Provider>
+</QueryHost>

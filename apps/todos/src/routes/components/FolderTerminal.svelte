@@ -38,7 +38,7 @@
 	<div class="flex h-9 shrink-0 items-center gap-3 border-b ps-3 pe-1 font-sans text-xs text-muted-foreground">
 		<span class="font-medium text-foreground">Terminal</span>
 		<span class="truncate max-md:hidden">
-			{directory === undefined ? 'Same files as the app' : `Files in ${directory}`} · git status, diff, log, push, fetch, pull --ff-only
+			{directory === undefined ? 'Same files as the app' : `Files in ${directory}`} · git status, diff, log, add, commit, push, fetch, pull --ff-only
 		</span>
 		<Button class="ml-auto" variant="ghost" size="icon-sm" tooltip="Hide terminal" aria-label="Hide terminal" onclick={onClose}>
 			<XIcon />

@@ -1,9 +1,8 @@
 <script lang="ts">
 	import type { Departure } from '@epicenter/epicenter/departure/page';
-	import type { Todos } from '$lib/todos.svelte.js';
 	import DeparturePrompt from './DeparturePrompt.svelte';
 
-	let { departure, todos }: { departure: Departure; todos: Todos } = $props();
+	let { departure }: { departure: Departure } = $props();
 
 	const leaving = $derived(
 		departure.notice?.intent === 'restart'
@@ -21,7 +20,7 @@
 		aria-label="Leaving Epicenter"
 	>
 		{#if departure.notice.stage === 'saving'}
-			<span>{leaving}. Saving your edits first; editing waits until it is done.</span>
+			<span>{leaving}. Finishing your saves first; editing waits until they are done.</span>
 		{:else if departure.notice.stage === 'ready'}
 			<span>{leaving}. This window is ready; editing waits until Epicenter leaves or the {ending} is cancelled.</span>
 		{:else if departure.notice.stage === 'keeping'}
@@ -31,7 +30,7 @@
 		{:else}
 			<!-- A new prompt mounts a new instance; an earlier one is gone for good. -->
 			{#key departure.notice.id}
-				<DeparturePrompt {departure} {todos} prompt={departure.notice} />
+				<DeparturePrompt {departure} prompt={departure.notice} />
 			{/key}
 		{/if}
 		{#if departure.problem !== undefined}

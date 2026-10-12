@@ -6,12 +6,14 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
+	import { toast } from '@epicenter/ui/sonner';
+	import { useQueryClient } from '@tanstack/svelte-query';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { onDestroy } from 'svelte';
 	import { Ok } from 'wellcrafted/result';
 	import { departurePort } from '#platform/departure';
 	import { openTodosFolder } from '#platform/folder';
-	import { createTodos } from '$lib/todos.svelte.js';
+	import { createTodos, describeError, type WriteFailure } from '$lib/todos.svelte.js';
 	import TodosView from './components/TodosView.svelte';
 
 	// Inside Epicenter, quitting or restarting asks this page first; a browser
@@ -19,6 +21,22 @@
 	const departure =
 		departurePort === undefined ? undefined : createDeparture(departurePort);
 	void departure?.start();
+
+	const queryClient = useQueryClient();
+
+	/** A write that failed was rolled back to the file; say so, and offer the text it held. */
+	function writeFailed({ path, error, lost }: WriteFailure) {
+		toast.error(`Could not save ${path}`, {
+			description: describeError(error),
+			action:
+				lost === ''
+					? undefined
+					: {
+							label: 'Copy your text',
+							onClick: () => void navigator.clipboard.writeText(lost).catch(() => {}),
+						},
+		});
+	}
 
 	// The mounted page acquires the folder; importing modules opens nothing.
 	// Which folder is the build's choice: a browser folder, or the desktop
@@ -35,18 +53,18 @@
 		departure,
 		async () => {
 			const opened = await openTodosFolder();
-			return opened.error ? opened : Ok(createTodos(opened.data));
+			return opened.error
+				? opened
+				: Ok(createTodos(opened.data, queryClient, { onWriteFailed: writeFailed }));
 		},
 		(opened) => opened.data?.departure,
-	).then(async (opened) => {
-		await opened.data?.check();
-		return opened;
-	});
+	);
 
 	// Teardown, not a choice about input. It runs when SvelteKit destroys this
-	// page, which TodosView's beforeNavigate refuses while anything is
-	// unsaved; closing or hiding the window, quitting, and a host restart
-	// never run it. `close` saves what may save and names what it could not.
+	// page, which TodosView's beforeNavigate refuses while a write or action
+	// runs or a new todo's title is typed; closing or hiding the window,
+	// quitting, and a host restart never run it. `close` waits for every
+	// write and action, then releases the folder.
 	onDestroy(() => {
 		departure?.destroy();
 		void opening.then((opened) => opened.data?.close()).catch(() => {});

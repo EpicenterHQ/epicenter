@@ -18,7 +18,6 @@
  let initializing = $state(true);
  let message = $state('');
  let showTerminal = $state(true);
- let applying = $state(false);
  let showGuide = $state(false);
  let terminalOutput = $state<HTMLDivElement>();
  let followOutput = $state(true);
@@ -138,19 +137,16 @@
      <span class="ml-auto text-xs text-muted-foreground">{workspace.saveMessage}</span>
      <Button variant="ghost" size="xs" disabled={workspace.running || !workspace.dirty} onclick={() => act(() => workspace!.flush())}>Save</Button>
     </div>
-    {#if workspace.syncs.attempt}
+    {#if workspace.syncAttempt}
      <!-- The review is modal: it replaces the editor and terminal until it is applied or cancelled. -->
      <div class="min-h-0 flex-1 overflow-auto p-4">
-      {#key workspace.syncs.attempt.id}
+      {#key workspace.syncAttempt.id}
        <SyncReview
-        attempt={workspace.syncs.attempt}
-        pending={applying}
-        problems={workspace.syncs.problems}
-        onCancel={() => workspace!.syncs.cancel()}
-        onApply={(attempt, choices) => {
-         applying = true;
-         void workspace!.applySync(attempt, choices).finally(() => { applying = false; });
-        }}
+        attempt={workspace.syncAttempt}
+        pending={workspace.syncing}
+        problems={workspace.syncProblems}
+        onCancel={() => workspace!.cancelSync()}
+        onApply={(attempt, choices) => void workspace!.applySync(attempt, choices)}
        />
       {/key}
      </div>

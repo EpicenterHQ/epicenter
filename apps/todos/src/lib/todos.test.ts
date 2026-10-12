@@ -1,35 +1,34 @@
 /**
  * Todos Store Tests
  *
- * Drives the real Todos store against a real browser folder over an
- * in-memory OPFS stand-in.
+ * Drives the real Todos owner and its TanStack Query cache against a real
+ * browser folder over an in-memory OPFS stand-in. Views are stood in for as
+ * they behave: a screen observes the queries it shows, and an editor edits
+ * the cache and queues its own scoped write mutation when `edit` says one
+ * is needed.
  *
  * Key behaviors:
- * - An open todo saves each edit at once, and rapid edits write the latest
- *   draft, never every intermediate one
- * - A change made elsewhere merges with the draft; the parts both changed
- *   wait in a review, and nothing is written until the person answers every
- *   part at once
- * - A file deleted elsewhere is a review too: taking the draft creates it
- *   again, taking theirs leaves it deleted and closes it
- * - A draft that is not a valid row is never written
- * - A todo whose text is not a valid row opens as text with its issues,
- *   saves as typed, and reopens as a todo once repaired
- * - Rename and delete wait for the open item's saves and act on what the
- *   last one confirmed; a draft that could not save refuses both
- * - Leaving an item whose save failed answers `unsaved` until the person
- *   discards it
- * - Returning to the window adopts a newer version of an open item that
- *   holds nothing unsaved
- * - A list toggle on a closed todo is guarded by the version the list read
- * - Renaming or deleting a todo moves or removes only its Markdown file
- * - Close waits for running work, and every close call shares one completion
+ * - An edit changes the cache at once and is written to the file
+ * - Rapid edits run one write at a time per file, with one waiting; the
+ *   waiting write saves the newest row, guarded by the hash the previous
+ *   write confirmed, so typing never conflicts with itself
+ * - A read that ran while a write was in flight does not undo the write
+ * - A write that fails rolls the cache back to the file, reports the text
+ *   that was lost, and a write still waiting saves nothing
+ * - The folder refuses a value it cannot hold, and the cache rolls back
+ * - A row that is not a valid todo is named for repair, its text is
+ *   written as typed, and it reads as a todo once repaired
+ * - Rename and delete run after the file's queued writes and act on what
+ *   the last one saved; edits wait while they run; a file changed elsewhere
+ *   since is refused
+ * - Delete says when a file has changes in no saved version; saves never
+ *   commit, and Save version records one
+ * - Close waits for every mutation, and every close call shares one
+ *   completion; afterwards edits and actions change nothing
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import type { SyncChoices } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
-import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	createTestStorage,
@@ -38,42 +37,34 @@ import {
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from './definition.js';
 import { holdCloses } from './opfs-holds.test-support.js';
-import type { TodosFolder } from './platform/types.js';
-import type { Todos } from './todos.svelte.js';
+import {
+	cached,
+	createQueryClient,
+	listing,
+	observe,
+	quiet,
+	rowEditor,
+	textEditor,
+} from './query.test-support.js';
+import type { Todos, WriteFailure } from './todos.svelte.js';
 
-/** A choice for every part of `session`'s review, each taken from `side`. */
-function allFrom(
-	session: {
-		readonly review:
-			| { readonly conflicts: readonly { readonly id: string }[] }
-			| undefined;
-	},
-	side: 'local' | 'incoming',
-): SyncChoices {
-	if (session.review === undefined) throw new Error('Expected a review');
-	return Object.fromEntries(
-		session.review.conflicts.map(({ id }) => [id, { kind: 'take', side }]),
-	);
-}
+const { createTodos, repairsOf, todosKeys, todosOf } = await import(
+	'./todos.svelte.ts'
+);
 
-const { createTodos } = await import('./todos.svelte.ts');
-
-const opened: Todos[] = [];
+const cleanup: (() => unknown)[] = [];
 let count = 0;
 
 afterEach(async () => {
-	for (const todos of opened.splice(0)) await todos.close();
+	for (const step of cleanup.splice(0).reverse()) await step();
 });
 
 /**
- * The store over a fresh folder. `holdNextMarkdownWrite` holds the next
- * published `.md` write until the returned function runs, and `mdWrites`
+ * The owner over a fresh folder, with its screens observing. `holdNextWrite`
+ * holds the next published `.md` write until released, and `mdWrites`
  * counts every published `.md` write.
  */
-async function open(
-	adapt: (folder: TodosFolder) => TodosFolder = (folder) => folder,
-	remote?: { url: string; branch: string },
-) {
+async function open() {
 	const storage = createTestStorage();
 	let hold: PromiseWithResolvers<void> | undefined;
 	let held: PromiseWithResolvers<void> | undefined;
@@ -84,7 +75,6 @@ async function open(
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
-				remote,
 				opfs: {
 					locks: testLocks,
 					getDirectory: async () =>
@@ -101,14 +91,19 @@ async function open(
 			},
 		}),
 	);
-	const todos = createTodos(adapt(folder));
-	opened.push(todos);
-	await todos.check();
+	const failures: WriteFailure[] = [];
+	const todos = createTodos(folder, createQueryClient(), {
+		onWriteFailed: (failure) => failures.push(failure),
+	});
+	cleanup.push(() => todos.close());
+	cleanup.push(observe(todos));
+	await quiet(todos);
 	const faults = opfsOf(storage).faults;
 	return {
 		todos,
 		counter,
-		holdNextMarkdownWrite() {
+		failures,
+		holdNextWrite() {
 			hold = Promise.withResolvers<void>();
 			held = Promise.withResolvers<void>();
 			return { held: held.promise, release: hold.resolve };
@@ -129,22 +124,8 @@ async function text(todos: Todos, path: string) {
 	return read.error ? undefined : new TextDecoder().decode(read.data.bytes);
 }
 
-/** A folder whose Git methods a test replaces. */
-function withGit(
-	git: Partial<
-		Pick<TodosFolder['git'], 'fetch' | 'mergeIncoming' | 'pullFastForward'>
-	>,
-) {
-	return (folder: TodosFolder): TodosFolder => ({
-		...folder,
-		// The folder's Git is frozen; these methods shadow its own.
-		git: Object.create(
-			folder.git,
-			Object.fromEntries(
-				Object.entries(git).map(([key, value]) => [key, { value }]),
-			),
-		),
-	});
+async function sha(todos: Todos, path: string) {
+	return expectOk(await todos.folder.files.read(path)).sha256;
 }
 
 /** Another program writes the file. */
@@ -152,902 +133,383 @@ async function writeElsewhere(todos: Todos, path: string, content: string) {
 	expectOk(await todos.folder.files.overwrite(path, content));
 }
 
-/** Another program deletes the file as it is now. */
-async function deleteElsewhere(todos: Todos, path: string) {
-	const { files } = todos.folder;
-	expectOk(await files.remove(expectOk(await files.read(path))));
-}
-
-function todoSession(todos: Todos) {
-	const item = todos.opened;
-	if (item?.kind !== 'todo')
-		throw new Error(`Expected an open todo, got ${item?.kind}`);
-	return item.session;
-}
-
-function textSession(todos: Todos) {
-	const item = todos.opened;
-	if (item?.kind !== 'text')
-		throw new Error(`Expected open text, got ${item?.kind}`);
-	return item.session;
-}
-
+/** Add a todo through the app; answers its stem and path. */
 async function addTodo(todos: Todos, title: string) {
-	expect(await todos.create(title)).toBeUndefined();
-	return todoSession(todos);
+	const created = expectOk(await todos.create(title));
+	await quiet(todos);
+	const stem = created.path.slice('todos/'.length, -'.md'.length);
+	return { stem, path: created.path };
 }
 
-// ============================================================================
-// Saving an open todo
-// ============================================================================
-
-test('each edit saves at once, and rapid edits write only the latest draft', async () => {
-	const { todos, counter, holdNextMarkdownWrite } = await open();
-	const session = await addTodo(todos, 'Milk');
-	const { held, release } = holdNextMarkdownWrite();
-	session.edit((row) => {
-		row.fields.title = 'M';
+const titled =
+	(title: string) =>
+	<T extends { fields: { title: string; done: boolean } }>(row: T): T => ({
+		...row,
+		fields: { ...row.fields, title },
 	});
-	await held;
-	const before = counter.mdWrites;
-	for (const title of ['Mi', 'Mil', 'Milk!', 'Milk!!'])
-		session.edit((row) => {
-			row.fields.title = title;
-		});
-	expect(session.state.status).toBe('saving');
-	release();
-	expect((await session.settled()).status).toBe('saved');
-	// The held write, then one write of the latest draft.
-	expect(counter.mdWrites - before).toBe(1);
-	expect(await text(todos, session.path)).toContain('Milk!!');
-	expect(session.draft.fields.title).toBe('Milk!!');
-});
-
-test('a save never assigns the draft: edits made while a save runs stay on screen', async () => {
-	const { todos, holdNextMarkdownWrite } = await open();
-	const session = await addTodo(todos, 'Milk');
-	const { held, release } = holdNextMarkdownWrite();
-	session.edit((row) => {
-		row.body = 'first\n';
-	});
-	await held;
-	session.edit((row) => {
-		row.body = 'second\n';
-	});
-	release();
-	await session.settled();
-	expect(session.draft.body).toBe('second\n');
-	expect(await text(todos, session.path)).toContain('second');
-});
-
-test('a draft that is not a valid row is never written, and the next valid edit saves', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	const saved = await text(todos, session.path);
-	session.edit((row) => {
-		(row.fields as { title: unknown }).title = 42;
-	});
-	const state = await session.settled();
-	expect(state.status).toBe('error');
-	expect(state.status === 'error' && state.error.name).toBe('InvalidValues');
-	expect(await text(todos, session.path)).toBe(saved);
-	session.edit((row) => {
-		row.fields.title = 'Oat milk';
-	});
-	expect((await session.settled()).status).toBe('saved');
-	expect(await text(todos, session.path)).toContain('title: Oat milk');
-});
-
-test('a failed save keeps the draft; Try again saves it', async () => {
-	const { todos, failNextWrite } = await open();
-	const session = await addTodo(todos, 'Milk');
-	failNextWrite(session.path);
-	session.edit((row) => {
-		row.fields.title = 'Bread';
-	});
-	expect((await session.settled()).status).toBe('error');
-	expect(session.draft.fields.title).toBe('Bread');
-	expect(todos.saveProblems).toBe(1);
-	session.retry();
-	expect((await session.settled()).status).toBe('saved');
-	expect(await text(todos, session.path)).toContain('title: Bread');
-});
 
 // ============================================================================
-// The review of a change made elsewhere
+// Edits and writes
 // ============================================================================
 
-test('a title both changed waits in a review, and taking theirs shows their version in the same session', async () => {
+test('an edit changes the cache at once and is written to the file', async () => {
 	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	const theirs = '---\ntitle: Theirs\ndone: true\n---\nfrom elsewhere\n';
-	await writeElsewhere(todos, session.path, theirs);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(await text(todos, session.path)).toBe(theirs);
+	const { stem, path } = await addTodo(todos, 'Milk');
+	expect(todos.selected).toEqual({ path, as: 'todos' });
 
-	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['field']);
-	expect(
-		await todos.resolve(session, allFrom(session, 'incoming')),
-	).toBeUndefined();
-	const reloaded = todoSession(todos);
-	expect(reloaded).toBe(session);
-	expect(reloaded.draft.fields).toEqual({ title: 'Theirs', done: true });
-	expect(reloaded.draft.body).toBe('from elsewhere\n');
-	expect(reloaded.state.status).toBe('saved');
-	expect(await text(todos, session.path)).toBe(theirs);
-	// The session saves again from what it reloaded.
-	reloaded.edit((row) => {
-		row.fields.done = false;
-	});
-	expect((await reloaded.settled()).status).toBe('saved');
-	expect(await text(todos, session.path)).toContain('done: false');
-});
-
-test('taking the draft where both changed keeps what changed elsewhere in other fields', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	await writeElsewhere(
-		todos,
-		session.path,
-		'---\ntitle: Theirs\ndone: true\n---\n',
-	);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(
-		await todos.resolve(session, allFrom(session, 'local')),
-	).toBeUndefined();
-	expect((await session.settled()).status).toBe('saved');
-	const saved = await text(todos, session.path);
-	expect(saved).toContain('title: Mine');
-	expect(saved).toContain('done: true');
-});
-
-test('a file deleted elsewhere waits in a review, and taking the draft creates it again', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	await deleteElsewhere(todos, session.path);
-	session.edit((row) => {
-		row.fields.title = 'Still mine';
-	});
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(
-		state.status === 'error' &&
-			state.error.name === 'Conflict' &&
-			state.error.actualSha256,
-	).toBeUndefined();
-	// A deleted file is never recreated by a save.
-	expect(await text(todos, session.path)).toBeUndefined();
-	expect(session.review?.conflicts).toMatchObject([
-		{ kind: 'file', incoming: { present: false } },
-	]);
-
-	expect(
-		await todos.resolve(session, allFrom(session, 'local')),
-	).toBeUndefined();
-	expect(await text(todos, session.path)).toContain('title: Still mine');
-	expect(session.state.status).toBe('saved');
-	session.edit((row) => {
-		row.body = 'after\n';
-	});
-	expect((await session.settled()).status).toBe('saved');
-});
-
-test('a file deleted elsewhere: taking theirs leaves it deleted and closes it', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	await deleteElsewhere(todos, session.path);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(
-		await todos.resolve(session, allFrom(session, 'incoming')),
-	).toBeUndefined();
-	expect(todos.opened).toBeUndefined();
-	expect(await text(todos, session.path)).toBeUndefined();
-	// The closed session takes nothing more.
-	session.edit((row) => {
-		row.fields.title = 'Late';
-	});
-	await session.settled();
-	expect(await text(todos, session.path)).toBeUndefined();
-});
-
-test('taking theirs for a todo made invalid elsewhere opens its text with the issues', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	await writeElsewhere(todos, session.path, '---\ntitle: [unclosed\n---\n');
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['file']);
-	expect(
-		await todos.resolve(session, allFrom(session, 'incoming')),
-	).toBeUndefined();
-	expect(todos.current).toEqual({ path: session.path, workspace: 'todos' });
-	expect(textSession(todos).draft).toBe('---\ntitle: [unclosed\n---\n');
-});
-
-test('input is locked while a review waits and while its answer is written, so a recreated file holds the draft on screen', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	await deleteElsewhere(todos, session.path);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(session.locked).toBe(true);
-	const keeping = todos.resolve(session, allFrom(session, 'local'));
-	expect(session.locked).toBe(true);
-	session.edit((row) => {
-		row.fields.title = 'Refused';
-	});
-	expect(await keeping).toBeUndefined();
-	expect(session.draft.fields.title).toBe('Mine');
-	expect(await text(todos, session.path)).toContain('title: Mine');
-});
-
-test('taking the draft saves over a file that is no longer text', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	expectOk(
-		await todos.folder.files.overwrite(
-			session.path,
-			new Uint8Array([0xff, 0xfe, 0x00]),
-		),
-	);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['file']);
-	expect(
-		await todos.resolve(session, allFrom(session, 'local')),
-	).toBeUndefined();
-	await session.settled();
-	expect(await text(todos, session.path)).toContain('title: Mine');
-});
-
-test('taking theirs for a file that is no longer text opens it again as it is now', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	expectOk(
-		await todos.folder.files.overwrite(
-			session.path,
-			new Uint8Array([0xff, 0xfe, 0x00]),
-		),
-	);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	const choices = allFrom(session, 'incoming');
-	expect(await todos.resolve(session, choices)).toBeUndefined();
-	// A todo row that is not text cannot load as a todo; the detail says why.
-	expect(todos.opened?.kind).toBe('failed');
-	expect(todos.current).toEqual({ path: session.path, workspace: 'todos' });
-	// The reviewed session was released: answering it again does nothing.
-	expect(await todos.resolve(session, choices)).toBeUndefined();
-	expect(session.locked).toBe(true);
-
-	// Opened from Files, the same file reloads as file details.
-	expectOk(await todos.folder.files.overwrite(session.path, 'text again'));
-	expect(await todos.open(session.path, 'files')).toMatchObject({
-		kind: 'done',
-	});
-	const file = textSession(todos);
-	expectOk(
-		await todos.folder.files.overwrite(
-			session.path,
-			new Uint8Array([0xff, 0xfe, 0x00]),
-		),
-	);
-	file.input('mine');
-	await file.settled();
-	expect(await todos.resolve(file, allFrom(file, 'incoming'))).toBeUndefined();
-	expect(todos.opened).toMatchObject({ kind: 'binary', path: session.path });
-});
-
-test('leaving a todo lists it again, so a toggle from the list uses what was saved', async () => {
-	const { todos } = await open();
-	const milk = await addTodo(todos, 'Milk');
-	milk.edit((row) => {
-		row.fields.title = 'Oat milk';
-	});
-	await addTodo(todos, 'Bread');
-	await todos.refresh();
-	const entry = todos.entries.find((e) => e.path === milk.path)!;
-	expect(entry.row.fields.title).toBe('Oat milk');
-	expect(await todos.toggle(entry)).toBeUndefined();
-});
-
-test('text input is kept well formed, so what saves is what is shown', async () => {
-	const { todos } = await open();
-	expectOk(await todos.folder.files.create('notes.txt', ''));
-	await todos.open('notes.txt', 'files');
-	const session = textSession(todos);
-	session.input('a\uD800b');
-	await session.settled();
-	expect(session.draft).toBe('a\uFFFDb');
-	expect(await text(todos, 'notes.txt')).toBe(session.draft);
-});
-
-// ============================================================================
-// Invalid rows are repaired as text
-// ============================================================================
-
-test('a row that is not a valid todo is named for repair, opens as text, saves as typed, and reopens as a todo', async () => {
-	const { todos } = await open();
-	const path = 'todos/broken.md';
-	expectOk(
-		await todos.folder.files.create(path, '---\ntitle: Broken\n---\nnotes\n'),
-	);
-	await todos.refresh();
-	expect(todos.entries).toEqual([]);
-	expect(todos.repairs).toEqual([
-		{ path, reason: expect.stringContaining('done') },
-	]);
-
-	expect(await todos.open(path, 'todos')).toMatchObject({ kind: 'done' });
-	const session = textSession(todos);
-	expect(todos.current).toEqual({ path, workspace: 'todos' });
-	session.input('---\ntitle: Broken\ndone: tru\n---\nnotes\n');
-	expect((await session.settled()).status).toBe('saved');
-	// Invalid text saves exactly as typed.
+	rowEditor(todos, stem)(titled('Oat milk'));
+	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
+	await quiet(todos);
 	expect(await text(todos, path)).toBe(
-		'---\ntitle: Broken\ndone: tru\n---\nnotes\n',
+		'---\ntitle: Oat milk\ndone: false\n---\n',
 	);
-	session.input('---\ntitle: Broken\ndone: true\n---\nnotes\n');
-	await session.settled();
-
-	// The repair text is shown under its own key, so opening it as a todo
-	// leaves the text and opens the row.
-	expect(await todos.open(path, 'todos')).toEqual({ kind: 'done', left: true });
-	expect(session.locked).toBe(true);
-	const repaired = todoSession(todos);
-	expect(repaired.draft).toEqual({
-		fields: { title: 'Broken', done: true },
-		body: 'notes\n',
-	});
-	await todos.refresh();
-	expect(todos.repairs).toEqual([]);
-	expect(todos.entries.map((entry) => entry.path)).toEqual([path]);
+	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
 });
 
-test('Files opens a todo as its exact text, and a change made elsewhere there reviews the same parts', async () => {
-	const { todos } = await open();
-	const row = await addTodo(todos, 'Milk');
-	const path = row.path;
-	expect(await todos.open(path, 'files')).toMatchObject({ kind: 'done' });
-	const session = textSession(todos);
-	expect(session.draft).toBe((await text(todos, path))!);
-	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
-	session.input(session.draft.replace('title: Milk', 'title: Mine'));
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	// A todo opened as text still merges by field, as sync merges it.
-	expect(session.review?.conflicts.map(({ kind }) => kind)).toEqual(['field']);
+test('rapid edits run one write at a time with one waiting, which saves the newest row with no conflict', async () => {
+	const { todos, counter, failures, holdNextWrite } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const set = rowEditor(todos, stem);
+	const writes = counter.mdWrites;
+
+	const { held, release } = holdNextWrite();
+	set(titled('O'));
+	await held;
+	for (const title of ['Oa', 'Oat', 'Oat ', 'Oat m', 'Oat milk'])
+		set(titled(title));
+	// One write runs and one waits; no more were queued.
 	expect(
-		await todos.resolve(session, allFrom(session, 'local')),
-	).toBeUndefined();
-	await session.settled();
-	expect(await text(todos, path)).toBe(session.draft);
-	expect(session.draft).toContain('title: Mine');
+		todos.queryClient.isMutating({ mutationKey: todosKeys.write(stem) }),
+	).toBe(2);
+	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
+
+	release();
+	await quiet(todos);
+	expect(failures).toEqual([]);
+	expect(counter.mdWrites - writes).toBe(2);
+	expect(await text(todos, path)).toContain('title: Oat milk');
+	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
+
+	// The guard moved forward: the next edit writes on top.
+	set(titled('Oat milk, two'));
+	await quiet(todos);
+	expect(failures).toEqual([]);
+	expect(await text(todos, path)).toContain('title: Oat milk, two');
 });
 
-// ============================================================================
-// Leaving an item
-// ============================================================================
+test('a read that ran while a write was in flight does not undo it', async () => {
+	const { todos, failures, holdNextWrite } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const set = rowEditor(todos, stem);
 
-test('opening another item waits for saves, and a failed save answers unsaved until discarded', async () => {
-	const { todos, failNextWrite } = await open();
-	const milk = await addTodo(todos, 'Milk');
-	const bread = await addTodo(todos, 'Bread');
-	failNextWrite(bread.path);
-	bread.edit((row) => {
-		row.fields.title = 'Rye';
+	const { held, release } = holdNextWrite();
+	set(titled('Oat milk'));
+	await held;
+	// Returning to the window reads the listing while the write is held.
+	const reading = todos.queryClient.invalidateQueries({
+		queryKey: todosKeys.rows,
 	});
-	expect(await todos.open(milk.path, 'todos')).toEqual({
-		kind: 'unsaved',
-		session: bread,
-	});
-	expect(todoSession(todos)).toBe(bread);
-	expect(todos.unsaved).toBe(true);
+	await Bun.sleep(5);
+	release();
+	await reading;
+	await quiet(todos);
+	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
+	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
 
-	// A discard names the draft it lets go; any other answers unsaved again.
-	expect(await todos.open(milk.path, 'todos', { discard: milk })).toMatchObject(
-		{ kind: 'unsaved' },
+	set(titled('Oat milk, two'));
+	await quiet(todos);
+	expect(failures).toEqual([]);
+	expect(await text(todos, path)).toContain('title: Oat milk, two');
+});
+
+test('a write that meets a change made elsewhere rolls back to the file and reports the lost text', async () => {
+	const { todos, failures } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const elsewhere = '---\ntitle: Milk from the shop\ndone: true\n---\n';
+	await writeElsewhere(todos, path, elsewhere);
+
+	rowEditor(todos, stem)(titled('Oat milk'));
+	await quiet(todos);
+	expect(failures).toHaveLength(1);
+	expect(failures[0]).toMatchObject({ path, error: { name: 'Conflict' } });
+	expect(failures[0]!.lost).toContain('title: Oat milk');
+	// The cache shows the file again; nothing was written over it.
+	expect(await text(todos, path)).toBe(elsewhere);
+	expect(cached(todos, stem).row.fields).toEqual({
+		title: 'Milk from the shop',
+		done: true,
+	});
+
+	// The next edit writes on top of what is there now.
+	rowEditor(todos, stem)(titled('Oat milk'));
+	await quiet(todos);
+	expect(failures).toHaveLength(1);
+	expect(await text(todos, path)).toBe(
+		'---\ntitle: Oat milk\ndone: true\n---\n',
 	);
-	expect(await todos.open(milk.path, 'todos', { discard: bread })).toEqual({
-		kind: 'done',
-		left: true,
-	});
-	expect(todoSession(todos).path).toBe(milk.path);
-	// The released session takes nothing more.
-	bread.edit((row) => {
-		row.fields.title = 'Late';
-	});
-	expect(bread.draft.fields.title).toBe('Rye');
-	expect(await text(todos, bread.path)).toContain('title: Bread');
-	expect(todos.unsaved).toBe(false);
 });
 
-test('opening another item after an edit saves that edit first', async () => {
-	const { todos } = await open();
-	const milk = await addTodo(todos, 'Milk');
-	const bread = await addTodo(todos, 'Bread');
-	bread.edit((row) => {
-		row.body = 'whole grain\n';
-	});
-	expect(await todos.open(milk.path, 'todos')).toMatchObject({ kind: 'done' });
-	expect(await text(todos, bread.path)).toContain('whole grain');
-});
+test('a write that fails rolls back, and the write waiting behind it saves nothing', async () => {
+	const { todos, counter, failures, failNextWrite } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const saved = await text(todos, path);
+	const set = rowEditor(todos, stem);
+	const writes = counter.mdWrites;
 
-test('opening the item already shown does nothing, even when its save failed', async () => {
-	const { todos, failNextWrite } = await open();
-	const milk = await addTodo(todos, 'Milk');
-	failNextWrite(milk.path);
-	milk.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await milk.settled();
-	expect(await todos.open(milk.path, 'todos')).toEqual({
-		kind: 'done',
-		left: false,
-	});
-	expect(todoSession(todos)).toBe(milk);
-	expect(milk.draft.fields.title).toBe('Mine');
-	expect(milk.locked).toBe(false);
-});
-
-test('a discard after taking theirs swapped the session applies to the session the open answered', async () => {
-	const { todos, failNextWrite } = await open();
-	const bread = await addTodo(todos, 'Bread');
-	const milk = await addTodo(todos, 'Milk');
-	await writeElsewhere(todos, milk.path, '---\ntitle: [unclosed\n---\n');
-	milk.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await milk.settled();
-	expect(await todos.resolve(milk, allFrom(milk, 'incoming'))).toBeUndefined();
-	const repair = textSession(todos);
-	failNextWrite(milk.path);
-	repair.input('---\ntitle: still broken\n---\n');
-	await repair.settled();
-
-	// The session the view held before its review was answered is not the one asked about.
-	expect(await todos.open(bread.path, 'todos', { discard: milk })).toEqual({
-		kind: 'unsaved',
-		session: repair,
-	});
+	// The first write fails; the second waits behind it.
+	failNextWrite(path);
+	set(titled('First'));
+	set(titled('Second'));
 	expect(
-		await todos.open(bread.path, 'todos', { discard: repair }),
-	).toMatchObject({ kind: 'done' });
-	expect(todoSession(todos).path).toBe(bread.path);
+		todos.queryClient.isMutating({ mutationKey: todosKeys.write(stem) }),
+	).toBe(2);
+	await quiet(todos);
+	expect(failures.map((failure) => failure.lost)).toEqual([
+		expect.stringContaining('title: Second'),
+	]);
+	expect(counter.mdWrites).toBe(writes);
+	expect(await text(todos, path)).toBe(saved);
+	expect(cached(todos, stem).row.fields.title).toBe('Milk');
 });
 
-test('a renamed open todo keeps its place: opening it at its new path does nothing, and taking theirs finds it there', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	expect(await todos.rename(session.path, 'renamed.md')).toBeUndefined();
-	expect(await todos.open('todos/renamed.md', 'todos')).toEqual({
-		kind: 'done',
-		left: false,
-	});
-	expect(todoSession(todos)).toBe(session);
-	await writeElsewhere(todos, session.path, '---\ntitle: [unclosed\n---\n');
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(
-		await todos.resolve(session, allFrom(session, 'incoming')),
-	).toBeUndefined();
-	expect(textSession(todos).path).toBe('todos/renamed.md');
-	expect(todos.current).toEqual({
-		path: 'todos/renamed.md',
-		workspace: 'todos',
-	});
+test('the folder refuses a value it cannot hold, and the cache rolls back', async () => {
+	const { todos, failures } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const saved = await text(todos, path);
+	// Inputs commit only values the schema accepts; this bypasses them.
+	rowEditor(todos, stem)(titled('Lone \uD800 surrogate'));
+	await quiet(todos);
+	expect(failures).toMatchObject([{ path, error: { name: 'InvalidValues' } }]);
+	expect(await text(todos, path)).toBe(saved);
+	expect(cached(todos, stem).row.fields.title).toBe('Milk');
 });
 
-// ============================================================================
-// Returning to the window
-// ============================================================================
-
-test('returning adopts a newer version of an open todo that holds nothing unsaved', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	await writeElsewhere(
-		todos,
-		session.path,
-		'---\ntitle: Theirs\ndone: false\n---\n',
-	);
-	await todos.check();
-	expect(session.draft.fields.title).toBe('Theirs');
-	expect(todos.entries[0]?.row.fields.title).toBe('Theirs');
-	session.edit((row) => {
-		row.fields.done = true;
-	});
-	expect((await session.settled()).status).toBe('saved');
-});
-
-test('returning leaves a draft whose save failed as it is', async () => {
-	const { todos, failNextWrite } = await open();
-	const session = await addTodo(todos, 'Milk');
-	failNextWrite(session.path);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	await writeElsewhere(
-		todos,
-		session.path,
-		'---\ntitle: Theirs\ndone: false\n---\n',
-	);
-	await todos.check();
-	expect(session.draft.fields.title).toBe('Mine');
-	session.retry();
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
+test('writes to one todo wait for each other, and writes to different todos do not', async () => {
+	const { todos, failures, holdNextWrite } = await open();
+	const a = await addTodo(todos, 'A');
+	const b = await addTodo(todos, 'B');
+	const { held, release } = holdNextWrite();
+	rowEditor(todos, a.stem)(titled('A typed'));
+	await held;
+	rowEditor(todos, a.stem)(titled('A typed again'));
+	rowEditor(todos, b.stem)(titled('B typed'));
+	const state = (stem: string) =>
+		todos.queryClient
+			.getMutationCache()
+			.findAll({ mutationKey: todosKeys.write(stem) })
+			.map((write) => write.state.isPaused);
+	// A's second write waits in A's scope; B's write is not held by A's.
+	expect(state(a.stem)).toEqual([false, true]);
+	expect(state(b.stem)).toEqual([false]);
+	release();
+	await quiet(todos);
+	expect(failures).toEqual([]);
+	expect(await text(todos, a.path)).toContain('title: A typed again');
+	expect(await text(todos, b.path)).toContain('title: B typed');
 });
 
 // ============================================================================
-// List toggles
+// Rows that need repair
 // ============================================================================
 
-test('a toggle on the open todo is an edit to its draft', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	session.edit((row) => {
-		row.body = 'typed\n';
+test('a row that is not a valid todo is named for repair, is written as typed text, and reads as a todo once repaired', async () => {
+	const { todos, failures } = await open();
+	const path = 'todos/bad.md';
+	await writeElsewhere(todos, path, '---\ntitle: *missing\n---\n');
+	await todos.queryClient.invalidateQueries({ queryKey: todosKeys.all });
+	await quiet(todos);
+	expect(todosOf(listing(todos))).toEqual([]);
+	expect(repairsOf(listing(todos))).toEqual([
+		{ path, reason: expect.any(String) },
+	]);
+
+	todos.select(path, 'repair');
+	const stop = observe(todos, path);
+	cleanup.push(stop);
+	await quiet(todos);
+	const type = textEditor(todos, path);
+	// Text that still does not parse is written as typed.
+	type('---\ntitle: Bread\ndone: soon\n---\n');
+	await quiet(todos);
+	expect(await text(todos, path)).toBe('---\ntitle: Bread\ndone: soon\n---\n');
+	expect(repairsOf(listing(todos))).toHaveLength(1);
+
+	type('---\ntitle: Bread\ndone: false\n---\n');
+	await quiet(todos);
+	expect(failures).toEqual([]);
+	expect(repairsOf(listing(todos))).toEqual([]);
+	expect(cached(todos, 'bad').row.fields).toEqual({
+		title: 'Bread',
+		done: false,
 	});
-	const entry = todos.entries[0]!;
-	expect(await todos.toggle(entry)).toBeUndefined();
-	await session.settled();
-	expect(session.draft.fields.done).toBe(true);
-	const saved = await text(todos, session.path);
-	expect(saved).toContain('done: true');
-	expect(saved).toContain('typed');
-});
-
-test('a toggle on a closed todo replaces it, guarded by the version the list read', async () => {
-	const { todos } = await open();
-	const milk = await addTodo(todos, 'Milk');
-	await addTodo(todos, 'Bread');
-	await todos.refresh();
-	const entry = todos.entries.find((e) => e.path === milk.path)!;
-	expect(await todos.toggle(entry)).toBeUndefined();
-	expect(await text(todos, milk.path)).toContain('done: true');
-
-	// The listed version is stale now: the toggle refuses and writes nothing.
-	const stale = entry;
-	await writeElsewhere(
-		todos,
-		milk.path,
-		'---\ntitle: Theirs\ndone: false\n---\n',
-	);
-	expect(await todos.toggle(stale)).toContain('changed elsewhere');
-	expect(await text(todos, milk.path)).toContain('title: Theirs');
 });
 
 // ============================================================================
 // Rename and delete
 // ============================================================================
 
-const PNG = new Uint8Array([0x89, 0x50, 0]);
-
-test('renaming an open todo moves only its Markdown file after its saves land; input is locked meanwhile, and later edits save at the new path', async () => {
-	const { todos, holdNextMarkdownWrite } = await open();
-	const session = await addTodo(todos, 'Milk');
-	const stem = session.path.replace(/\.md$/, '');
-	expectOk(await todos.folder.files.create(`${stem}.png`, PNG));
-	const { held, release } = holdNextMarkdownWrite();
-	session.edit((row) => {
-		row.body = 'before\n';
-	});
+test('a rename runs after the queued writes and moves what they saved; edits wait while it runs', async () => {
+	const { todos, failures, holdNextWrite } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	expectOk(await todos.folder.files.create('todos/milk.png', 'not a todo'));
+	const { held, release } = holdNextWrite();
+	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
-	const renaming = todos.rename(session.path, 'renamed.md');
-	expect(session.locked).toBe(true);
-	session.edit((row) => {
-		row.body = 'refused\n';
-	});
-	expect(session.draft.body).toBe('before\n');
+
+	const renaming = todos.rename(path, 'oat.md');
+	await Bun.sleep(5);
+	// The rename waits behind the write, and edits wait behind the rename.
+	expect(todos.isMoving(path)).toBe(true);
+	expect(todos.edit(stem, titled('Typed during the rename'))).toBe(false);
 	release();
-	expect(await renaming).toBeUndefined();
-	expect(session.path).toBe('todos/renamed.md');
-	expect(session.locked).toBe(false);
-	session.edit((row) => {
-		row.body = 'after\n';
-	});
-	await session.settled();
-	expect(await text(todos, 'todos/renamed.md')).toContain('after');
-	expect(await text(todos, `${stem}.md`)).toBeUndefined();
-	expect(expectOk(await todos.folder.files.read(`${stem}.png`)).bytes).toEqual(
-		PNG,
-	);
+	expectOk(await renaming);
+	await quiet(todos);
+
+	expect(failures).toEqual([]);
+	expect(await text(todos, path)).toBeUndefined();
+	expect(await text(todos, 'todos/oat.md')).toContain('title: Oat milk');
+	expect(todos.selected).toEqual({ path: 'todos/oat.md', as: 'todos' });
+	expect(cached(todos, 'oat').row.fields.title).toBe('Oat milk');
+	// Only the Markdown file moved.
+	expect(await text(todos, 'todos/milk.png')).toBe('not a todo');
+
+	rowEditor(todos, 'oat')(titled('Oat milk, two'));
+	await quiet(todos);
+	expect(await text(todos, 'todos/oat.md')).toContain('title: Oat milk, two');
 });
 
-test('renaming an open todo whose save failed moves what was saved and saves the draft at the new path', async () => {
-	const { todos, failNextWrite } = await open();
-	const session = await addTodo(todos, 'Milk');
-	failNextWrite(session.path);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(await todos.rename(session.path, 'other.md')).toBeUndefined();
-	expect((await session.settled()).status).toBe('saved');
-	expect(await text(todos, 'todos/other.md')).toContain('title: Mine');
-});
-
-test('a rename of a conflicted todo is refused by the guard, and the draft stays', async () => {
+test('a todo file keeps its .md extension; another file moves as its bytes', async () => {
 	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	await writeElsewhere(
-		todos,
-		session.path,
-		'---\ntitle: Theirs\ndone: false\n---\n',
-	);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
+	const { path } = await addTodo(todos, 'Milk');
+	expect(expectErr(await todos.rename(path, 'milk.txt'))).toMatchObject({
+		name: 'NotStarted',
+		reason: 'A todo file keeps its .md extension.',
 	});
-	await session.settled();
-	expect(await todos.rename(session.path, 'other.md')).toContain(
-		'changed elsewhere',
-	);
-	expect(session.draft.fields.title).toBe('Mine');
-	expect(await text(todos, 'todos/other.md')).toBeUndefined();
+	expect(expectErr(await todos.rename(path, 'a/b.md')).name).toBe('NotStarted');
+	expectOk(await todos.folder.files.create('notes.txt', 'plain'));
+	expectOk(await todos.rename('notes.txt', 'notes.md'));
+	expect(await text(todos, 'notes.md')).toBe('plain');
+	expect(await text(todos, 'notes.txt')).toBeUndefined();
 });
 
-test('deleting the open todo waits for its saves, removes only its Markdown file, and closes it', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	const stem = session.path.replace(/\.md$/, '');
-	expectOk(await todos.folder.files.create(`${stem}.png`, PNG));
-	session.edit((row) => {
-		row.fields.title = 'Oat milk';
-	});
-	const deletion = expectOk(await todos.deletionFor(session.path));
-	expect(deletion).toMatchObject({ kind: 'todo', title: 'Oat milk' });
-	expect(await todos.remove(deletion)).toBeUndefined();
-	expect(await text(todos, session.path)).toBeUndefined();
-	expect(todos.opened).toBeUndefined();
-	expect(todos.entries).toEqual([]);
-	expect(expectOk(await todos.folder.files.read(`${stem}.png`)).bytes).toEqual(
-		PNG,
-	);
+test('a delete runs after the queued writes and removes only the Markdown file', async () => {
+	const { todos, holdNextWrite } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	expectOk(await todos.folder.files.create('todos/milk.png', 'not a todo'));
+	const deletion = expectOk(await todos.deletionFor(path));
+	expect(deletion).toMatchObject({ kind: 'todo', title: 'Milk' });
+
+	// Typing while the confirmation is open is written first.
+	const { held, release } = holdNextWrite();
+	rowEditor(todos, stem)(titled('Oat milk'));
+	await held;
+	const removing = todos.remove(deletion);
+	await Bun.sleep(5);
+	expect(await text(todos, path)).toContain('title: Milk\n');
+	release();
+	expectOk(await removing);
+	await quiet(todos);
+	expect(await text(todos, path)).toBeUndefined();
+	expect(todos.selected).toBeUndefined();
+	expect(todosOf(listing(todos))).toEqual([]);
+	expect(await text(todos, 'todos/milk.png')).toBe('not a todo');
 });
 
-test('edits made while the delete dialog is open are saved before the delete, which then removes the file', async () => {
+test('a delete is refused when the file changed elsewhere after it was confirmed', async () => {
 	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	const deletion = expectOk(await todos.deletionFor(session.path));
-	session.edit((row) => {
-		row.fields.title = 'Typed during the dialog';
-	});
-	expect(await todos.remove(deletion)).toBeUndefined();
-	expect(await text(todos, session.path)).toBeUndefined();
-	expect(todos.opened).toBeUndefined();
-});
-
-test('a refused delete of the open todo reopens it as it is now, and it saves again', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	const deletion = expectOk(await todos.deletionFor(session.path));
-	await writeElsewhere(
-		todos,
-		session.path,
-		'---\ntitle: Theirs\ndone: false\n---\n',
-	);
-	expect(await todos.remove(deletion)).toContain('changed elsewhere');
-	const reopened = todoSession(todos);
-	expect(reopened).not.toBe(session);
-	expect(reopened.draft.fields.title).toBe('Theirs');
-	reopened.edit((row) => {
-		row.fields.done = true;
-	});
-	expect((await reopened.settled()).status).toBe('saved');
-	expect(await text(todos, session.path)).toContain('done: true');
-});
-
-test('a delete is refused when the file changed after it was confirmed', async () => {
-	const { todos } = await open();
-	expectOk(await todos.folder.files.create('notes.txt', 'first'));
-	await todos.refresh();
-	const deletion = expectOk(await todos.deletionFor('notes.txt'));
-	await writeElsewhere(todos, 'notes.txt', 'second');
-	expect(await todos.remove(deletion)).toContain('changed elsewhere');
-	expect(await text(todos, 'notes.txt')).toBe('second');
+	const { path } = await addTodo(todos, 'Milk');
+	const deletion = expectOk(await todos.deletionFor(path));
+	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
+	expect(expectErr(await todos.remove(deletion)).name).toBe('Conflict');
+	expect(await text(todos, path)).toContain('title: Theirs');
 });
 
 test('a folder is deleted only when it is empty', async () => {
 	const { todos } = await open();
-	expect(await todos.createFolder('', 'docs')).toBeUndefined();
-	expect(await todos.createFile('docs', 'a.txt')).toBeUndefined();
-	expect(expectErr(await todos.deletionFor('docs'))).toContain(
-		'Only empty folders',
+	expectOk(await todos.createFolder({ directory: '', name: 'docs' }));
+	expectOk(await todos.createFile({ directory: 'docs', name: 'a.txt' }));
+	await quiet(todos);
+	expect(todos.selected).toEqual({ path: 'docs/a.txt', as: 'files' });
+	expect(expectErr(await todos.deletionFor('docs')).name).toBe('NotStarted');
+	expectOk(await todos.remove(expectOk(await todos.deletionFor('docs/a.txt'))));
+	await quiet(todos);
+	expectOk(await todos.remove(expectOk(await todos.deletionFor('docs'))));
+	await quiet(todos);
+	const files = todos.queryClient.getQueryData<{ directories: string[] }>(
+		todosKeys.files,
 	);
-	const file = expectOk(await todos.deletionFor('docs/a.txt'));
-	expect(await todos.remove(file)).toBeUndefined();
-	await todos.refresh();
-	const folder = expectOk(await todos.deletionFor('docs'));
-	expect(await todos.remove(folder)).toBeUndefined();
+	expect(files?.directories).not.toContain('docs');
 });
 
 // ============================================================================
-// Close and Git
+// Versions
 // ============================================================================
 
-test('close waits for running saves, and every close call shares one completion', async () => {
-	const { todos, holdNextMarkdownWrite } = await open();
-	const session = await addTodo(todos, 'Milk');
-	const { held, release } = holdNextMarkdownWrite();
-	session.edit((row) => {
-		row.fields.title = 'Closing';
+test('saves never commit; Save version records one, and delete says when changes are in no saved version', async () => {
+	const { todos } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	rowEditor(todos, stem)(titled('Oat milk'));
+	await quiet(todos);
+	expect(todos.git.lastCommit).toBeUndefined();
+	expect(expectOk(await todos.deletionFor(path))).toMatchObject({
+		unversioned: true,
 	});
+
+	const outcome = expectOk(await todos.saveVersion());
+	expect(outcome.status).toBe('committed');
+	const [head] = expectOk(await todos.folder.git.log(1));
+	expect(head?.oid).toBe(outcome.status === 'committed' ? outcome.oid : '');
+	expect(expectOk(await todos.deletionFor(path))).toMatchObject({
+		unversioned: false,
+	});
+
+	rowEditor(todos, stem)(titled('Oat milk, two'));
+	await quiet(todos);
+	expect(expectOk(await todos.deletionFor(path))).toMatchObject({
+		unversioned: true,
+	});
+});
+
+// ============================================================================
+// Closing
+// ============================================================================
+
+test('close waits for running writes, and every close call shares one completion', async () => {
+	const { todos, holdNextWrite } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const { held, release } = holdNextWrite();
+	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
-	const first = todos.close();
-	expect(todos.close()).toBe(first);
-	release();
-	expect(await first).toEqual({ unsettled: [] });
-	// Reopen the same storage is out of scope; the save landed before close.
-	expect(session.state.status).toBe('saved');
-});
-
-test('a refused delete after renaming the open todo reopens it at its new path', async () => {
-	const { todos } = await open();
-	const session = await addTodo(todos, 'Milk');
-	expect(await todos.rename(session.path, 'renamed.md')).toBeUndefined();
-	const deletion = expectOk(await todos.deletionFor('todos/renamed.md'));
-	await writeElsewhere(
-		todos,
-		'todos/renamed.md',
-		'---\ntitle: Theirs\ndone: false\n---\n',
-	);
-	expect(await todos.remove(deletion)).toContain('changed elsewhere');
-	const reopened = todoSession(todos);
-	expect(reopened).not.toBe(session);
-	expect(reopened.path).toBe('todos/renamed.md');
-	expect(reopened.draft.fields.title).toBe('Theirs');
-});
-
-test('Try again reads an item that failed to load again', async () => {
-	const { todos } = await open();
-	expect(await todos.open('todos/gone.md', 'todos')).toMatchObject({
-		kind: 'done',
-	});
-	expect(todos.opened?.kind).toBe('failed');
-	expect(await todos.open('todos/gone.md', 'todos')).toEqual({
-		kind: 'done',
-		left: false,
-	});
-	expectOk(
-		await todos.folder.files.create(
-			'todos/gone.md',
-			'---\ntitle: Back\ndone: false\n---\n',
-		),
-	);
-	await todos.reload();
-	expect(todoSession(todos).draft.fields.title).toBe('Back');
-});
-
-test('close waits for a closed-file rename whose read is still running', async () => {
-	let hold: PromiseWithResolvers<void> | undefined;
-	const reading = Promise.withResolvers<void>();
-	const { todos } = await open((folder) => ({
-		...folder,
-		files: Object.create(folder.files, {
-			read: {
-				async value(path: string) {
-					const gate = hold;
-					if (gate !== undefined && path === 'notes.txt') {
-						hold = undefined;
-						reading.resolve();
-						await gate.promise;
-					}
-					return folder.files.read(path);
-				},
-			},
-		}),
-	}));
-	expectOk(await todos.folder.files.create('notes.txt', 'first'));
-	await todos.refresh();
-	hold = Promise.withResolvers<void>();
-	const release = hold.resolve;
-	const renaming = todos.rename('notes.txt', 'renamed.txt');
-	await reading.promise;
-	expect(todos.departure.holdsUnsaved).toBe(true);
 	let closed = false;
-	const closing = todos.close().then(() => {
+	const first = todos.close();
+	const second = todos.close();
+	expect(second).toBe(first);
+	void first.then(() => {
 		closed = true;
 	});
-	await Bun.sleep(5);
+	await Bun.sleep(10);
 	expect(closed).toBe(false);
 	release();
-	// The move ran on the open folder, before close released it.
-	expect(await renaming).toBeUndefined();
-	await closing;
+	await first;
+	expect(closed).toBe(true);
+	expect(todos.folder.signal.aborted).toBe(true);
+	// The write finished before the folder closed.
+	const writes = todos.queryClient
+		.getMutationCache()
+		.findAll({ mutationKey: todosKeys.write(stem) });
+	expect(writes.map((write) => write.state.status)).toEqual(['success']);
+	expect(path).toBe(`todos/${stem}.md`);
 });
 
-test('renaming another file while a todo is open is not held to the .md rule', async () => {
+test('after close begins, edits and actions change nothing', async () => {
 	const { todos } = await open();
-	await addTodo(todos, 'Milk');
-	expectOk(await todos.folder.files.create('notes.txt', 'first'));
-	await todos.refresh();
-	expect(await todos.rename('notes.txt', 'renamed.txt')).toBeUndefined();
-	expect(await text(todos, 'renamed.txt')).toBe('first');
-});
-
-test('calls after close began change nothing', async () => {
-	const { todos } = await open();
-	await todos.close();
-	expect(await todos.create('Late')).toBe(
-		'Todos is closing, so nothing was changed.',
-	);
-	expect(await todos.open('todos/x.md', 'todos')).toEqual({
-		kind: 'superseded',
-	});
-	expect(todos.opened).toBeUndefined();
-});
-
-test('merge fetches, then merges what was fetched, and pushes nothing', async () => {
-	const calls: string[] = [];
-	const merged = {
-		status: 'merged' as const,
-		from: 'a'.repeat(40),
-		to: 'c'.repeat(40),
-		fetched: 'b'.repeat(40),
-		changedPaths: ['kv.json'],
-	};
-	const { todos } = await open(
-		withGit({
-			async fetch() {
-				calls.push('fetch');
-				return Ok({ status: 'fetched', oid: merged.fetched });
-			},
-			async mergeIncoming() {
-				calls.push('mergeIncoming');
-				return Ok(merged);
-			},
-		}),
-	);
-	expect(expectOk(await todos.merge())).toEqual(merged);
-	expect(calls).toEqual(['fetch', 'mergeIncoming']);
-});
-
-test('a fetch that answers after close began does not start the fast-forward', async () => {
-	let fastForwarded = false;
-	let release: (() => void) | undefined;
-	const { todos } = await open(
-		withGit({
-			async fetch(options) {
-				await new Promise<void>((resolve) => {
-					release = resolve;
-					options?.signal?.addEventListener('abort', () => resolve(), {
-						once: true,
-					});
-				});
-				return Ok({ status: 'fetched', oid: undefined });
-			},
-			async pullFastForward() {
-				fastForwarded = true;
-				return Ok({ status: 'up-to-date' } as never);
-			},
-		}),
-	);
-	const pulling = todos.pull();
-	while (release === undefined) await Bun.sleep(1);
-	const closing = todos.close();
-	release();
-	expect(expectErr(await pulling).name).toBe('Closed');
-	await closing;
-	expect(fastForwarded).toBe(false);
+	const { stem, path } = await addTodo(todos, 'Milk');
+	const saved = await text(todos, path);
+	void todos.close();
+	expect(todos.edit(stem, titled('Late'))).toBe(false);
+	expect(cached(todos, stem).row.fields.title).toBe('Milk');
+	expect(expectErr(await todos.create('Another')).name).toBe('NotStarted');
+	todos.newTitle = 'Typed';
+	expect(todos.newTitle).toBe('');
+	expect(saved).toContain('title: Milk');
 });

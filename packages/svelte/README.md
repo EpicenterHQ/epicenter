@@ -114,14 +114,14 @@ save review does not, because a draft waits to be saved. `SaveBar` uses the
 same grid for a save that met a change made elsewhere.
 
 ```svelte
-{#if syncs.attempt}
-	{#key syncs.attempt.id}
+{#if attempt}
+	{#key attempt.id}
 		<SyncReview
-			attempt={syncs.attempt}
-			{pending}
-			problems={syncs.problems}
-			onCancel={() => syncs.cancel()}
-			onApply={(attempt, choices) => syncs.apply(attempt, choices)}
+			{attempt}
+			pending={apply.isPending}
+			problems={apply.error?.name === 'InvalidChoices' ? apply.error.problems : []}
+			onCancel={() => sync.reset()}
+			onApply={(attempt, choices) => apply.mutate({ attempt, choices })}
 		/>
 	{/key}
 {/if}
@@ -132,28 +132,27 @@ Show it in place of the page while the attempt waits, keyed on
 each shows beside its row until the person changes that row's choice. The
 sides read "This device" and "Remote" unless `labels` says otherwise.
 
-### `createSyncController` (`@epicenter/svelte/sync`)
+### Running a sync from a page
 
-The page's state around `folder.sync`: `syncing` while a run or an Apply is
-in flight, the `attempt` whose review shows, `locked` from the start of a
-run until that attempt ends, and the `problems` of the last refused Apply.
-`run()` and `apply(attempt, choices)` call the folder between the page's
-`beforeSync` and `afterSync`; `refused` stops either before it starts, and
-no run starts while an attempt waits. `cancel()` discards the attempt;
-nothing carries to the next one.
+A page runs `folder.sync` as two of its own mutations; this package keeps no
+sync state. `run()` is one mutation and `resolve(attempt, choices)` another,
+both invalidating the page's queries when they settle. A sync that needs
+choices fails with `SyncError.NeedsChoices`, so the attempt the review shows
+is the run mutation's error, and the mutation's own state is all the page
+keeps:
 
 ```ts
-const syncs = createSyncController({
-	folder,
-	beforeSync: async () => openItem.session?.settled(), // the checkpoint holds the open item's saves
-	afterSync: () => readEverythingAgain(),
-	refused: () => (quitting ? 'Quitting' : undefined),
-});
-const locked = () => syncs.locked || quitting; // the open item takes no input during a review
-await syncs.run(); // conflicts keep syncs.attempt
-await syncs.apply(attempt, choices); // refused choices stay as syncs.problems; anything else ends the attempt
-syncs.cancel(); // or discard it
+const sync = createMutation(() => syncOptions); // mutationFn: () => folder.sync.run()
+const apply = createMutation(() => applyOptions); // mutationFn: ({ attempt, choices }) => folder.sync.resolve(attempt, choices)
+const attempt = $derived(
+	sync.error?.name === 'NeedsChoices' ? sync.error.attempt : undefined,
+);
+// Cancel: sync.reset(). An Apply refused as InvalidChoices keeps the review;
+// any other result ends it with sync.reset().
 ```
+
+`apps/todos` builds both with `resultMutationOptions` from
+`wellcrafted/query`, so the errors stay typed.
 
 `describeSync(result, describePush?)` from `@epicenter/svelte/sync-line`
 words a result for a toast or a status line. It is a plain module, so status

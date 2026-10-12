@@ -1,23 +1,27 @@
 <!--
-	The detail pane: the one open item. A todo from the list is its fields and
-	notes; a file from Files, or a todo whose text is not a valid row, is its
-	text. Each view is keyed by the open item, so another item mounts a new
-	view and a view never changes sessions.
+	The detail pane: what the app shows now. A todo from the list is its fields
+	and notes; a file from Files, or a todo whose text does not read as a
+	todo, is its text. Each view is keyed by what it shows, so another file
+	mounts a new view.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-	import { pathOf, type Todos } from '$lib/todos.svelte.js';
+	import { rowStemOf } from '@epicenter/folder';
+	import type { Todos } from '$lib/todos.svelte.js';
 	import FileView from './FileView.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 
 	let { todos, onBack }: { todos: Todos; onBack?: () => void } = $props();
 
-	const item = $derived(todos.opened);
+	const shown = $derived(todos.selected);
+	const stem = $derived(
+		shown?.as === 'todos' ? rowStemOf(todos.folder.tables.todos.name, shown.path) : undefined,
+	);
 </script>
 
-{#if item === undefined}
+{#if shown === undefined}
 	<Empty.Root class="h-full">
 		<Empty.Title>Select a todo to edit it</Empty.Title>
 		<Empty.Description>Files opens any file, a todo's Markdown included, as text.</Empty.Description>
@@ -25,12 +29,12 @@
 			<Button variant="outline" size="sm" onclick={onBack}><ArrowLeftIcon /> Back to todos</Button>
 		{/if}
 	</Empty.Root>
-{:else if item.kind === 'todo'}
-	{#key item}
-		<TodoDetail {todos} session={item.session} {onBack} />
+{:else if stem !== undefined}
+	{#key shown.path}
+		<TodoDetail {todos} {stem} {onBack} />
 	{/key}
 {:else}
-	{#key item}
-		<FileView {todos} path={pathOf(item)} {item} {onBack} />
+	{#key `${shown.as}:${shown.path}`}
+		<FileView {todos} path={shown.path} {onBack} />
 	{/key}
 {/if}

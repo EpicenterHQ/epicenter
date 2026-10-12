@@ -1,3 +1,9 @@
+<!--
+	One file's complete text, or its type and size when it is not editable
+	text. Typing goes into the file's cached text, and this view's own write
+	mutation saves it, the same way a todo's fields are saved. A todo whose
+	text does not read as a todo opens here for repair and says why.
+-->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -8,37 +14,39 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { parseRow, rowStemOf } from '@epicenter/folder';
+	import { parseRow, rowStemOf, wellFormed } from '@epicenter/folder';
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { todosDefinition } from '$lib/definition.js';
-	import type { Opened, Todos } from '$lib/todos.svelte.js';
-	import SaveBar from '@epicenter/svelte/save-bar';
-	import { confirmDelete, copyPath, openItem } from './file-actions.js';
+	import { describeError, type Todos } from '$lib/todos.svelte.js';
+	import { confirmDelete, copyPath } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
 
 	let {
 		todos,
 		path,
-		item,
 		onBack,
 	}: {
 		todos: Todos;
+		/** The file shown. The parent keys this view by it. */
 		path: string;
-		/** The open item at `path`, other than a todo. The parent keys this view by it. */
-		item: Exclude<Opened, { kind: 'todo' }>;
 		/** Shown on narrow screens, where the list and the editor take turns. */
 		onBack?: () => void;
 	} = $props();
 
+	const file = createQuery(() => todos.textQuery(path));
+	const write = createMutation(() => todos.textWrite(path));
 	const name = $derived(basename(path));
 	const directory = $derived(dirname(path));
 	const isRow = $derived(rowStemOf(todos.folder.tables.todos.name, path) !== undefined);
+	const text = $derived(file.data?.kind === 'text' ? file.data.file.text : undefined);
 	/** Why the text is not a todo yet, read live from what is typed. */
 	const issues = $derived.by(() => {
-		if (!isRow || item.kind !== 'text') return undefined;
-		const { error } = parseRow(todosDefinition.tables.todos, item.session.draft);
+		if (!isRow || text === undefined) return undefined;
+		const { error } = parseRow(todosDefinition.tables.todos, text);
 		return error ?? undefined;
 	});
+	const locked = $derived(todos.departing || todos.isMoving(path));
 
 	/** A file shown as details: its extension names the type, then its size. */
 	function details(size: number) {
@@ -62,13 +70,13 @@
 			<h2 class="truncate text-sm font-medium">{name}</h2>
 			<p class="truncate font-mono text-xs text-muted-foreground">{path}</p>
 		</div>
-		{#if isRow && item.kind === 'text'}
+		{#if isRow && text !== undefined}
 			<Button
 				size="sm"
 				variant="outline"
 				disabled={issues !== undefined}
 				tooltip={issues === undefined ? undefined : 'Fix the text first'}
-				onclick={() => void openItem(todos, path, 'todos')}
+				onclick={() => todos.select(path, 'todos')}
 			>
 				Open as todo
 			</Button>
@@ -78,23 +86,8 @@
 		</Button>
 	</div>
 
-	{#if item.kind === 'loading'}
-		<Loading class="flex-1" label="Opening {name}…" />
-	{:else if item.kind === 'failed'}
-		<Empty.Root class="flex-1">
-			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
-			<Empty.Title>Could not open this file</Empty.Title>
-			<Empty.Description>{item.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void todos.reload()}>Try again</Button>
-		</Empty.Root>
-	{:else if item.kind === 'text'}
-		{@const session = item.session}
-		<SaveBar
-			save={session.state}
-			review={session.review}
-			onRetry={() => session.retry()}
-			onResolve={(choices) => todos.resolve(session, choices)}
-		/>
+	{#if file.data?.kind === 'text'}
+		{@const shown = file.data.file.text}
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
@@ -113,31 +106,45 @@
 				class="min-h-0 flex-1 field-sizing-fixed resize-none font-mono text-xs"
 				aria-label="Contents of {name}"
 				spellcheck={false}
-				disabled={session.locked}
+				disabled={locked}
 				bind:value={
-					() => session.draft.replace(/\r\n?/g, '\n'),
-					(text) => session.input(withFileNewlines(text, session.draft))
+					() => shown.replace(/\r\n?/g, '\n'),
+					(typed) => {
+						if (todos.editText(path, withFileNewlines(wellFormed(typed), shown))) write.mutate();
+					}
 				}
 			/>
 		</div>
-	{:else}
+	{:else if file.data !== undefined}
 		<Empty.Root class="flex-1">
 			<Empty.Media><FileIcon class="size-8 text-muted-foreground" /></Empty.Media>
-			<Empty.Title>{details(item.size)}</Empty.Title>
+			<Empty.Title>{details(file.data.size)}</Empty.Title>
 			<Empty.Description>
-				{item.kind === 'binary'
+				{file.data.kind === 'binary'
 					? 'This file is not text, so it is listed here but not opened for editing.'
 					: 'This text file is larger than 1 MB, so it is not opened in the editor.'}
 				Rename, delete, and the terminal still work on it.
 			</Empty.Description>
 		</Empty.Root>
+	{:else if file.isError}
+		<Empty.Root class="flex-1">
+			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
+			<Empty.Title>Could not open this file</Empty.Title>
+			<Empty.Description>{file.error.message}</Empty.Description>
+			<Button variant="outline" size="sm" onclick={() => void file.refetch()}>Try again</Button>
+		</Empty.Root>
+	{:else}
+		<Loading class="flex-1" label="Opening {name}…" />
 	{/if}
 
 	<FileNameBar
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
 		disabled={todos.departing}
-		onRename={(next) => todos.rename(path, next)}
+		onRename={async (next) => {
+			const { error } = await todos.rename(path, next);
+			return error === null ? undefined : describeError(error);
+		}}
 		onDelete={() => void confirmDelete(todos, path)}
 	/>
 </section>

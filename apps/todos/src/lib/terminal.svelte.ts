@@ -15,9 +15,8 @@ export type TerminalRun = {
 export type TerminalSession = ReturnType<typeof createTerminalSession>;
 
 export function createTerminalSession(
+	/** The folder's shell; the app runs each command as a mutation that reads everything again after it. */
 	terminal: FolderTerminal,
-	/** Shell writes are saved files; the app shows them and rechecks status. */
-	afterRun: () => Promise<void>,
 	/**
 	 * While true, typing, recall, and Enter change nothing: the command,
 	 * history, and output stay exactly as they are, as when Epicenter asks to
@@ -81,7 +80,6 @@ export function createTerminalSession(
 				running = false;
 				cwd = terminal.cwd;
 			}
-			await afterRun();
 		},
 		/** Step through earlier commands. Returns false when there is none to recall. */
 		recall(direction: 'previous' | 'next'): boolean {

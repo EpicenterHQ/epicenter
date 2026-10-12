@@ -3,8 +3,11 @@
 	import * as Sheet from '@epicenter/ui/sheet';
 	import { toast } from '@epicenter/ui/sonner';
 	import SyncReview from '@epicenter/svelte/sync-review';
+	import { createMutation } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
+	import type { SyncAttempt, SyncChoices } from '@epicenter/folder';
+	import { Err, Ok } from 'wellcrafted/result';
 	import { beforeNavigate } from '$app/navigation';
 	import { syncOutcomeLine } from '$lib/status.js';
 	import type { Todos } from '$lib/todos.svelte.js';
@@ -19,17 +22,47 @@
 
 	let { todos, departure }: { todos: Todos; departure?: Departure } = $props();
 
-	// Drafts live only in this open page. While any editor has typing, a save
-	// in flight, a failed save, or a conflict, leaving is cancelled; for a
-	// reload or closed tab ('leave'), SvelteKit turns the cancel into the
-	// browser's own leave confirmation.
+	// A write or action still running, or a new todo's typed title, lives
+	// only in this page. Leaving then is cancelled; for a reload or closed
+	// tab ('leave'), SvelteKit turns the cancel into the browser's own leave
+	// confirmation.
 	beforeNavigate(({ cancel }) => {
-		if (todos.unsaved) cancel();
+		if (todos.departure.holdsUnsaved) cancel();
 	});
 
 	const directory = $derived(
 		todos.folder.location.kind === 'directory' ? todos.folder.location.root : undefined,
 	);
+
+	/**
+	 * Sync and its review. A sync that needs choices fails with `NeedsChoices`;
+	 * its attempt is the review, which shows until Apply ends it or Cancel
+	 * forgets it.
+	 */
+	const sync = createMutation(() => todos.sync.options);
+	const apply = createMutation(() => todos.apply.options);
+	const attempt = $derived(sync.error?.name === 'NeedsChoices' ? sync.error.attempt : undefined);
+
+	function cancelReview() {
+		sync.reset();
+		apply.reset();
+	}
+
+	/** Apply the review's choices; refused ones stay in the review, marked. */
+	function applyReview(answered: SyncAttempt, choices: SyncChoices) {
+		apply.mutate(
+			{ attempt: answered, choices },
+			{
+				onSettled: (outcome, error) => {
+					if (error?.name === 'InvalidChoices') return;
+					cancelReview();
+					const line = syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git);
+					const notify = line.tone === 'good' ? toast.success : line.tone === 'error' ? toast.error : toast.warning;
+					notify(line.label, { description: line.detail });
+				},
+			},
+		);
+	}
 
 	/** The shared Modal's breakpoint: below it, the list, editor, and terminal take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
@@ -60,23 +93,8 @@
 		terminalOpen = false;
 	}
 
-	let applying = $state(false);
-
-	/** Apply the review's choices; refused ones stay in the review, marked. */
-	async function applySync(...[attempt, choices]: Parameters<Todos['resolveSync']>) {
-		applying = true;
-		try {
-			const resolved = await todos.resolveSync(attempt, choices);
-			const line = syncOutcomeLine(resolved, todos.git);
-			const notify = line.tone === 'good' ? toast.success : line.tone === 'error' ? toast.error : toast.warning;
-			notify(line.label, { description: line.detail });
-		} finally {
-			applying = false;
-		}
-	}
-
 	async function back() {
-		const path = todos.current?.path;
+		const path = todos.selected?.path;
 		showingDetail = false;
 		await tick();
 		if (path !== undefined)
@@ -84,10 +102,7 @@
 	}
 </script>
 
-<!-- Returning to the app reads the listings, Git status, and a newer version of an open item that holds nothing unsaved. -->
-<svelte:document onvisibilitychange={() => document.visibilityState === 'visible' && void todos.check()} />
 <svelte:window
-	onfocus={() => void todos.check()}
 	onkeydown={(event) => {
 		if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
 			event.preventDefault();
@@ -102,26 +117,28 @@
 <div class="flex h-dvh flex-col overflow-hidden">
 	<AppHeader
 		{todos}
+		{sync}
+		reviewing={attempt !== undefined}
 		filesOpen={wide.current ? filesPane : filesSheet}
 		{terminalOpen}
 		onToggleFiles={toggleFiles}
 		onToggleTerminal={() => void toggleTerminal()}
 	/>
 	{#if departure}
-		<DepartureNotice {departure} {todos} />
+		<DepartureNotice {departure} />
 	{/if}
 	<IncomingBanner {todos} />
 
-	{#if todos.syncAttempt !== undefined}
+	{#if attempt !== undefined}
 		<!-- The review is modal: it replaces the workspace until it is applied or cancelled. -->
 		<div class="min-h-0 flex-1 overflow-y-auto p-4">
-			{#key todos.syncAttempt.id}
+			{#key attempt.id}
 				<SyncReview
-					attempt={todos.syncAttempt}
-					pending={applying}
-					problems={todos.syncProblems}
-					onCancel={() => todos.cancelSync()}
-					onApply={(attempt, choices) => void applySync(attempt, choices)}
+					{attempt}
+					pending={apply.isPending}
+					problems={apply.error?.name === 'InvalidChoices' ? apply.error.problems : []}
+					onCancel={cancelReview}
+					onApply={applyReview}
 				/>
 			{/key}
 		</div>

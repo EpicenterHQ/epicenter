@@ -5,11 +5,16 @@ import {
 	type GitSnapshot,
 	openFolder,
 	type PathStatus,
+	type SyncAttempt,
+	type SyncChoiceProblem,
+	type SyncChoices,
+	type SyncError,
+	type SyncOutcome,
 } from '@epicenter/folder';
 import { readTextFile, withFileNewlines } from '@epicenter/folder/file-browser';
-import { createSyncController } from '@epicenter/svelte/sync';
 import { describeSync } from '@epicenter/svelte/sync-line';
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import type { Result } from 'wellcrafted/result';
 
 const definition = defineFolder({ kv: {}, tables: {} });
 export type WorkingCopy = NonNullable<
@@ -70,15 +75,34 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	const terminal = folder.terminal();
 	/**
 	 * Sync with the remote: commit, fetch, merge, and push, asking before a
-	 * conflict is written. The review is modal: the editor and the terminal
-	 * take no input until it is applied or cancelled.
+	 * conflict is written. A run or Apply in flight, and the attempt a sync
+	 * that needs choices left for the review. The review is modal: the
+	 * editor and the terminal take no input until it is applied or
+	 * cancelled. Nothing outlives an attempt.
 	 */
-	const syncs = createSyncController({
-		folder,
-		beforeSync: () => flush(),
-		afterSync: () => refresh(),
-		refused: () => (closed ? 'The working copy is closed.' : undefined),
-	});
+	let syncing = $state(false);
+	let attempt = $state.raw<SyncAttempt | undefined>();
+	let problems = $state.raw<readonly SyncChoiceProblem[]>([]);
+	const syncLocked = () => syncing || attempt !== undefined;
+
+	/** One folder sync call: saved text lands first, and the copy is read again after. */
+	async function syncStep(
+		call: () => Promise<Result<SyncOutcome, SyncError>>,
+	): Promise<Result<SyncOutcome, SyncError>> {
+		syncing = true;
+		try {
+			await flush();
+			return await call();
+		} finally {
+			syncing = false;
+			await refresh();
+		}
+	}
+
+	function report(result: Result<SyncOutcome, SyncError>) {
+		const line = describeSync(result);
+		output += `${line.label}${line.detail ? `\n${line.detail}` : ''}\n`;
+	}
 
 	async function readSelected() {
 		const path = selected;
@@ -174,7 +198,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		}
 	}
 	async function execute(label: string, work: () => Promise<string>) {
-		if (running || closed || syncs.locked) return;
+		if (running || closed || syncLocked()) return;
 		running = true;
 		output += `\n$ ${label}\n`;
 		try {
@@ -249,30 +273,58 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		get running() {
 			return running;
 		},
-		/** The sync controller: its attempt, while one waits, is the modal review. */
-		syncs,
+		/** The attempt whose review shows, while one waits for choices. */
+		get syncAttempt() {
+			return attempt;
+		},
+		/** What the folder refused in the last Apply, shown beside its rows. */
+		get syncProblems() {
+			return problems;
+		},
+		/** Whether an Apply is in flight. */
+		get syncing() {
+			return syncing;
+		},
 		/** Whether anything but the review takes input now. */
 		get locked() {
-			return running || syncs.locked;
+			return running || syncLocked();
 		},
-		/** Sync, reporting the result in the terminal output. */
+		/** Sync, reporting the result in the terminal output. A conflict opens the review. */
 		async sync() {
-			if (running || closed || syncs.locked) return;
+			if (running || closed || syncLocked()) return;
 			running = true;
 			output += '\n$ Sync\n';
 			try {
-				const ran = await syncs.run();
-				const line = describeSync(ran);
-				output += `${line.label}${line.detail ? `\n${line.detail}` : ''}\n`;
+				const ran = await syncStep(() => folder.sync.run());
+				if (ran.error?.name === 'NeedsChoices') attempt = ran.error.attempt;
+				report(ran);
 			} finally {
 				running = false;
 			}
 		},
-		/** Apply the review's choices, reporting the result in the terminal output. */
-		async applySync(...[attempt, choices]: Parameters<typeof syncs.apply>) {
-			const resolved = await syncs.apply(attempt, choices);
-			const line = describeSync(resolved);
-			output += `${line.label}${line.detail ? `\n${line.detail}` : ''}\n`;
+		/**
+		 * Apply the review's choices, reporting the result in the terminal
+		 * output. Refused choices stay in the review with what to fix; any
+		 * other result ends the attempt.
+		 */
+		async applySync(answered: SyncAttempt, choices: SyncChoices) {
+			if (syncing || closed) return;
+			const resolved = await syncStep(() =>
+				folder.sync.resolve(answered, choices),
+			);
+			if (resolved.error?.name === 'InvalidChoices')
+				problems = resolved.error.problems;
+			else if (attempt?.id === answered.id) {
+				attempt = undefined;
+				problems = [];
+			}
+			report(resolved);
+		},
+		/** Forget the waiting attempt and its choices; nothing is written. */
+		cancelSync() {
+			if (syncing) return;
+			attempt = undefined;
+			problems = [];
 		},
 		get output() {
 			return output;
@@ -289,7 +341,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			await readSelected();
 		},
 		input(text: string) {
-			if (closed || !capture || syncs.locked) return;
+			if (closed || !capture || syncLocked()) return;
 			buffer = withFileNewlines(text, saved);
 			dirty = buffer !== saved;
 			saveMessage = dirty ? 'Unsaved changes' : 'Saved';

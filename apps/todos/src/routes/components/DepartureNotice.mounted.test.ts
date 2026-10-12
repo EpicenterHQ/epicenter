@@ -22,6 +22,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { testBrowserStorage } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { createFakeHost } from '../../../../epicenter/src/departure-page.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
+import { createQueryClient } from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
@@ -45,9 +46,8 @@ async function setup() {
 			browser: { ...testBrowserStorage() },
 		}),
 	);
-	const todos: Todos = createTodos(folder);
+	const todos: Todos = createTodos(folder, createQueryClient());
 	cleanup.push(() => todos.close());
-	await todos.check();
 	const host = createFakeHost();
 	const departure = createDeparture(host.port);
 	cleanup.push(() => departure.destroy());
@@ -55,7 +55,7 @@ async function setup() {
 	departure.attach(todos.departure);
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(DepartureNotice, { target, props: { departure, todos } });
+	const view = mount(DepartureNotice, { target, props: { departure } });
 	flushSync();
 	cleanup.push(() => {
 		void unmount(view);
@@ -83,7 +83,7 @@ test('a restart lists what would be lost, and Keep working cancels it and gives 
 		'Epicenter is restarting for an account change',
 	);
 	expect(target.textContent).toContain(
-		'the title of a new todo you have not added',
+		'the title of a new todo you have not added is still in the box',
 	);
 	expect(target.textContent).toContain('Restart anyway');
 

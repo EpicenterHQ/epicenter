@@ -1,7 +1,8 @@
 <!--
 	One prompt: what would be lost, and the person's choice. Mounted once per
 	prompt; its choices carry the prompt's identity as it was issued, so a
-	control of an earlier prompt never answers a later round.
+	control of an earlier prompt never answers a later round. Writes and
+	actions have finished by now, so only input never committed is named.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -10,23 +11,17 @@
 		Departure,
 		DepartureNotice,
 	} from '@epicenter/epicenter/departure/page';
-	import type { Todos } from '$lib/todos.svelte.js';
 
 	let {
 		departure,
-		todos,
 		prompt,
 	}: {
 		departure: Departure;
-		todos: Todos;
 		prompt: Extract<DepartureNotice, { stage: 'choose' }>;
 	} = $props();
 
 	/** The prompt this instance was mounted for, fixed for its lifetime. */
 	const issued = untrack(() => prompt);
-	/** What would be lost: a draft whose save failed, and a typed title. */
-	const paths = $derived(todos.failedSavePath === undefined ? [] : [todos.failedSavePath]);
-	const newTitle = $derived(todos.newTitle.trim() !== '');
 
 	/** Whether this prompt is mounted; its buttons answer for a mounted prompt only. */
 	const view = { mounted: true };
@@ -41,9 +36,8 @@
 </script>
 
 <span class="w-full">
-	{leaving}, but some of your edits are not saved:
-	{#each paths as path, index (path)}<code class="font-mono">{path}</code>{index < paths.length - 1 ? ', ' : ''}{/each}{#if newTitle}{paths.length > 0 ? ', and ' : ''}the title of a new todo you have not added{/if}.
-	{issued.intent === 'restart' ? 'Restarting' : 'Quitting'} now loses them.
+	{leaving}, but the title of a new todo you have not added is still in the box.
+	{issued.intent === 'restart' ? 'Restarting' : 'Quitting'} now loses it.
 </span>
 <Button size="xs" onclick={() => view.mounted && departure.keepWorking(issued.id)}>Keep working</Button>
 <Button size="xs" variant="outline" onclick={() => view.mounted && departure.leaveAnyway(issued.id)}>

@@ -231,7 +231,7 @@ test('two copies sync; a competing line waits for a modal review that Cancel for
 		await a.sync();
 		b.input('color=green\n');
 		await b.sync();
-		const attempt = b.syncs.attempt;
+		const attempt = b.syncAttempt;
 		expect(
 			attempt?.conflicts.map(({ kind, path }) => ({ kind, path })),
 		).toEqual([{ kind: 'file', path: 'notes/color.txt' }]);
@@ -239,17 +239,17 @@ test('two copies sync; a competing line waits for a modal review that Cancel for
 		b.input('typed during the review\n');
 		expect(b.buffer).toBe('color=green\n');
 
-		b.syncs.cancel();
-		expect(b.syncs.attempt).toBeUndefined();
+		b.cancelSync();
+		expect(b.syncAttempt).toBeUndefined();
 		expect(b.locked).toBe(false);
 
 		await b.sync();
-		const again = b.syncs.attempt;
+		const again = b.syncAttempt;
 		if (again === undefined) throw new Error('Expected a review');
 		await b.applySync(again, {
 			[again.conflicts[0]!.id]: { kind: 'take', side: 'local' },
 		});
-		expect(b.syncs.attempt).toBeUndefined();
+		expect(b.syncAttempt).toBeUndefined();
 		expect(await git(bare, 'show', 'main:notes/color.txt')).toBe('color=green');
 		expect(b.output).toContain('Synced');
 	} finally {
