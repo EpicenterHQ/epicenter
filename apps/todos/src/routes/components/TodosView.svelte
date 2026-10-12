@@ -24,8 +24,7 @@
 
 	let { departure }: { departure?: Departure } = $props();
 
-	// A write or action still running, or a new todo's typed title, lives
-	// only in this page. Leaving then is cancelled; for a reload or closed
+	// A write or action still running lives only in this page. Leaving then is cancelled; for a reload or closed
 	// tab ('leave'), SvelteKit turns the cancel into the browser's own leave
 	// confirmation.
 	beforeNavigate(({ cancel }) => {

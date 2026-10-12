@@ -122,7 +122,7 @@
 			{:else}
 				<Empty.Title>Could not read this todo</Empty.Title>
 				<Empty.Description>{error.message}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void todo.refetch()}>Try again</Button>
+				<Button variant="outline" size="sm" onclick={() => void todos.refresh()}>Try again</Button>
 			{/if}
 		</Empty.Root>
 	{:else if todo.isSuccess}
@@ -137,7 +137,7 @@
 		<Empty.Root class="flex-1">
 			<Empty.Title>Could not read the todos folder</Empty.Title>
 			<Empty.Description>{todo.error.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void todo.refetch()}>Try again</Button>
+			<Button variant="outline" size="sm" onclick={() => void todos.refresh()}>Try again</Button>
 		</Empty.Root>
 	{:else}
 		<Loading class="flex-1" label="Opening the todo…" />

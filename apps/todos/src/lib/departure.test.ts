@@ -239,59 +239,6 @@ test('a sync running when Epicenter asks is waited for before the page answers r
 	expect(host.answers.at(-1)?.answer).toBe('ready');
 });
 
-test('a new todo title typed and not added counts: the page asks, and Keep working cancels the round and gives it back', async () => {
-	const { host, departure, todos } = await started();
-	todos.newTitle = 'Buy milk';
-	host.begin('quit');
-	host.nudge();
-	await eventually(() => departure.notice?.stage === 'choose');
-	expect(departure.notice).toEqual({
-		stage: 'choose',
-		id: expect.any(Number),
-		intent: 'quit',
-		held: 1,
-	});
-	departure.keepWorking(shownPrompt(departure));
-	await settle();
-	expect(host.answers.map((answer) => answer.answer)).toEqual([
-		'asking',
-		'cancel',
-	]);
-	expect(host.status.phase).toBe('idle');
-	expect(todos.departing).toBe(false);
-	expect(todos.newTitle).toBe('Buy milk');
-	// Nothing was created from it.
-	expect(todos.queryClient.getQueryData<unknown[]>(['todos', 'rows'])).toEqual(
-		[],
-	);
-});
-
-test('a round cancelled elsewhere gives back the typed title, and leaving anyway is a ready vote only', async () => {
-	const { host, departure, todos } = await started();
-	todos.newTitle = 'Buy milk';
-	host.begin('quit');
-	host.nudge();
-	await eventually(() => departure.notice?.stage === 'choose');
-	departure.leaveAnyway(shownPrompt(departure));
-	await settle();
-	expect(host.answers.map((answer) => answer.answer)).toEqual([
-		'asking',
-		'ready',
-	]);
-	expect(departure.notice).toEqual({ stage: 'ready', intent: 'quit' });
-	// Still fenced while the other window decides; nothing was discarded.
-	todos.newTitle = 'ignored';
-	expect(todos.newTitle).toBe('Buy milk');
-
-	host.set({ phase: 'idle' });
-	host.nudge();
-	await settle();
-	expect(todos.departing).toBe(false);
-	expect(todos.newTitle).toBe('Buy milk');
-	todos.newTitle = 'Buy oat milk';
-	expect(todos.newTitle).toBe('Buy oat milk');
-});
-
 test('granted, leaving, and a discarded vote stay fenced: nothing is edited or started', async () => {
 	for (const next of [
 		{ phase: 'granted' },
@@ -311,8 +258,6 @@ test('granted, leaving, and a discarded vote stay fenced: nothing is edited or s
 		expect(expectErr(await todos.create('Another'))).toMatchObject({
 			reason: DEPARTING,
 		});
-		todos.newTitle = 'Typed';
-		expect(todos.newTitle).toBe('');
 		// Focus while fenced reads again; still fenced.
 		host.focus();
 		await settle();
@@ -330,8 +275,6 @@ test('while fenced, every edit, action, Git command, and terminal command is ref
 	todos.departure.fence();
 	expect(todos.edit(stem, titled('Late'))).toBe(false);
 	expect(todos.editText('notes.txt', 'typed')).toBe(false);
-	todos.newTitle = 'Typed';
-	expect(todos.newTitle).toBe('');
 	const refusal = { name: 'NotStarted', reason: DEPARTING };
 	expect(expectErr(await todos.create('New'))).toMatchObject(refusal);
 	expect(expectErr(await todos.rename(path, 'oat.md'))).toMatchObject(refusal);
@@ -375,7 +318,6 @@ for (const ending of [
 		const { stem, path } = await addTodo(todos, 'Milk');
 		const { held, release } = holdNextSave();
 		rowEditor(todos, stem)(titled('Slow'));
-		todos.newTitle = 'Buy milk';
 		host.begin('quit');
 		host.nudge();
 		await held;

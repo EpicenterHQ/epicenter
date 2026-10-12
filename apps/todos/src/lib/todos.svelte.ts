@@ -50,7 +50,6 @@ import {
 	type TableListing,
 } from '@epicenter/folder';
 import {
-	ancestorsOf,
 	basename,
 	dirname,
 	joinPath,
@@ -63,7 +62,7 @@ import {
 	QueryClient,
 } from '@tanstack/query-core';
 import { createContext } from 'svelte';
-import { createSubscriber, SvelteSet } from 'svelte/reactivity';
+import { createSubscriber } from 'svelte/reactivity';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import {
 	createQueryFactories,
@@ -204,19 +203,15 @@ export function createTodos(
 ) {
 	const table = folder.tables.todos;
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
-	/** Folders open in the file browser; kept while the browser is hidden. */
-	const expanded = new SvelteSet<string>(['todos']);
 	/** What the detail shows. */
 	let selected = $state.raw<Selection | undefined>();
-	/** The title typed for a new todo and not yet added. */
-	let newTitle = $state('');
 	/**
 	 * Epicenter asks to quit or restart. From `departure.fence` until
 	 * `departure.resume`, no edit or action starts; writes already queued go on.
 	 */
 	let departing = $state(false);
 	let closing: Promise<void> | undefined;
-	let closed = $state(false);
+	let closed = false;
 
 	/** Why no edit or action starts now, if one does not. */
 	function refused(): string | undefined {
@@ -273,7 +268,8 @@ export function createTodos(
 	// TanStack holds a waiting write until the page is visible, which would
 	// stall quitting and lose the write when a background tab closes. So the
 	// page counts as always focused, and becoming visible is the focus event
-	// that reads again. `focusManager` is one per page, like this store.
+	// that reads again. `focusManager` is one per page and every store sets the
+	// same rule, so a second opened folder changes nothing.
 	focusManager.setEventListener((setFocused) => {
 		setFocused(true);
 		if (typeof document === 'undefined') return undefined;
@@ -478,7 +474,6 @@ export function createTodos(
 		/** Read every listing and open file again, unless a write runs: then the last write reads. */
 		refresh: () => invalidate(),
 		terminal,
-		expanded,
 		get git() {
 			trackGit();
 			return folder.git.snapshot;
@@ -533,8 +528,6 @@ export function createTodos(
 		/** Show `path` in the detail, as `as` edits it. Opening never waits or asks. */
 		select(path: string, as: Selection['as']) {
 			selected = { path, as };
-			if (as === 'files')
-				for (const ancestor of ancestorsOf(path)) expanded.add(ancestor);
 		},
 
 		// ------------------------------------------------------------------
@@ -701,14 +694,13 @@ export function createTodos(
 					{ stem: crypto.randomUUID() },
 				);
 			},
-			onSuccess: (created, title) => {
+			onSuccess: (created) => {
 				const stem = rowStemOf(table.name, created.path);
 				if (stem !== undefined)
 					queryClient.setQueryData<TodoListing>(
 						todosKeys.rows,
 						(entries) => entries && [...entries, { stem, result: Ok(created) }],
 					);
-				if (newTitle.trim() === title) newTitle = '';
 				selected = { path: created.path, as: 'todos' };
 			},
 			onSettled: () =>
@@ -730,8 +722,6 @@ export function createTodos(
 			},
 			onSuccess: (created) => {
 				selected = { path: created.path, as: 'files' };
-				for (const ancestor of ancestorsOf(created.path))
-					expanded.add(ancestor);
 			},
 			onSettled: () =>
 				Promise.all([invalidate(todosKeys.rows), invalidate(todosKeys.files)]),
@@ -757,9 +747,6 @@ export function createTodos(
 						reason: `"${name}" already exists here.`,
 					});
 				return folder.files.mkdir(path);
-			},
-			onSuccess: (_, { directory }) => {
-				if (directory !== '') expanded.add(directory);
 			},
 			onSettled: () => invalidate(todosKeys.files),
 		}),
@@ -963,37 +950,26 @@ export function createTodos(
 		}),
 
 		// ------------------------------------------------------------------
-		// Input not yet committed, leaving, and closing
+		// Leaving and closing
 		// ------------------------------------------------------------------
 
-		get newTitle() {
-			return newTitle;
-		},
-		set newTitle(title: string) {
-			if (refused() !== undefined) return;
-			newTitle = title;
-		},
 		/**
 		 * The page's part in leaving Epicenter
 		 * (`@epicenter/epicenter/departure/page`). `fence` runs before anything
-		 * is awaited; `settle` waits until nothing is mutating and answers how
-		 * many things would be lost: a typed title not added. `resume` gives
-		 * everything back.
+		 * is awaited; `settle` waits until nothing is mutating, after which
+		 * nothing is lost, so it never asks. `resume` gives everything back.
 		 */
 		departure: {
-			/**
-			 * Whether leaving now could lose anything: a write or another
-			 * action still running, or a new todo's title typed and not added.
-			 */
+			/** Whether leaving now could lose anything: a write or another action still running. */
 			get holdsUnsaved() {
-				return queryClient.isMutating() > 0 || newTitle.trim() !== '';
+				return queryClient.isMutating() > 0;
 			},
 			fence() {
 				departing = true;
 			},
 			async settle(): Promise<number> {
 				await whenIdle();
-				return newTitle.trim() === '' ? 0 : 1;
+				return 0;
 			},
 			resume() {
 				departing = false;

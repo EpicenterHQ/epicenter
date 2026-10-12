@@ -6,7 +6,6 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
-	import { onDestroy } from 'svelte';
 	import { describeError } from '$lib/describe-error.js';
 	import { getTodos, repairsOf, todosOf } from '$lib/todos.svelte.js';
 	import TodoRow from './TodoRow.svelte';
@@ -18,26 +17,25 @@
 	const listing = createQuery(() =>
 		todos.rowsQuery((rows) => ({ entries: todosOf(rows), repairs: repairsOf(rows) })),
 	);
-	const create = createMutation(() => todos.create.options);
-	/**
-	 * Whether this list is mounted. The new todo's typed title belongs to the
-	 * owner, which outlives the list on narrow screens; a form that left the
-	 * document must not submit it.
-	 */
-	const view = { mounted: true };
-	onDestroy(() => {
-		view.mounted = false;
-	});
+	/** The title typed for a new todo. It goes with the list: leaving with it half-typed drops it. */
+	let title = $state('');
+	// The failure is reported by the mutation, not this call, so it shows even
+	// when the list unmounted while the todo was being added.
+	const create = createMutation(() => ({
+		...todos.create.options,
+		onError: (error, typed) =>
+			toast.error('Could not add the todo', { description: `"${typed}": ${describeError(error)}` }),
+	}));
 
 	function add(event: SubmitEvent) {
 		event.preventDefault();
-		if (!view.mounted) return;
-		const title = todos.newTitle.trim();
-		if (title === '' || create.isPending) return;
-		// On success the owner clears the typed title itself and shows the todo.
-		create.mutate(title, {
-			onSuccess: () => onOpen?.(),
-			onError: (error) => toast.error('Could not add the todo', { description: describeError(error) }),
+		const typed = title.trim();
+		if (typed === '' || create.isPending) return;
+		create.mutate(typed, {
+			onSuccess: () => {
+				title = '';
+				onOpen?.();
+			},
 		});
 	}
 </script>
@@ -45,12 +43,12 @@
 <section class="flex h-full min-h-0 flex-col" aria-label="Todo list">
 	<form class="flex shrink-0 items-center gap-2 border-b p-3" onsubmit={add}>
 		<Input
-			bind:value={() => todos.newTitle, (title) => (todos.newTitle = title)}
+			bind:value={title}
 			placeholder="Add a todo"
 			aria-label="New todo title"
 			disabled={create.isPending || todos.departing}
 		/>
-		<Button type="submit" disabled={create.isPending || todos.departing || todos.newTitle.trim() === ''}>
+		<Button type="submit" disabled={create.isPending || todos.departing || title.trim() === ''}>
 			{create.isPending ? 'Adding…' : 'Add'}
 		</Button>
 	</form>

@@ -15,8 +15,16 @@
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
 	import ListTodoIcon from '@lucide/svelte/icons/list-todo';
-	import { tick } from 'svelte';
-	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
+	import { tick, untrack } from 'svelte';
+	import { SvelteSet } from 'svelte/reactivity';
+	import {
+		ancestorsOf,
+		basename,
+		dirname,
+		joinPath,
+		type TreeRow,
+		visibleRows,
+	} from '@epicenter/folder/file-browser';
 	import { rowPath } from '@epicenter/folder';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { describeError } from '$lib/describe-error.js';
@@ -32,7 +40,18 @@
 	const todoPaths = createQuery(() =>
 		todos.rowsQuery((entries) => new Set(entries.map(({ stem }) => rowPath(todos.folder.tables.todos.name, stem)))),
 	);
-	const rows = $derived(listing.data ? visibleRows(listing.data, todos.expanded) : []);
+	/** Folders open here. They go with the browser: hiding it forgets them. */
+	const expanded = new SvelteSet<string>(['todos']);
+	// Show the file the detail opens as a file: when the browser mounts, and
+	// each time the selection changes. The person can still close any folder.
+	$effect.pre(() => {
+		const shown = todos.selected;
+		if (shown?.as !== 'files') return;
+		untrack(() => {
+			for (const ancestor of ancestorsOf(shown.path)) expanded.add(ancestor);
+		});
+	});
+	const rows = $derived(listing.data ? visibleRows(listing.data, expanded) : []);
 
 	/** The inline name field: renaming a file, or creating one in a folder. */
 	let editing = $state<
@@ -55,8 +74,8 @@
 
 	function activate(row: TreeRow) {
 		if (row.kind === 'directory') {
-			if (todos.expanded.has(row.path)) todos.expanded.delete(row.path);
-			else todos.expanded.add(row.path);
+			if (expanded.has(row.path)) expanded.delete(row.path);
+			else expanded.add(row.path);
 			return;
 		}
 		todos.select(row.path, 'files');
@@ -64,7 +83,7 @@
 	}
 
 	function startCreate(directory: string, type: 'file' | 'folder') {
-		if (directory !== '') todos.expanded.add(directory);
+		if (directory !== '') expanded.add(directory);
 		editing = { kind: 'create', directory, type };
 	}
 
@@ -107,7 +126,7 @@
 		const index = rows.findIndex((row) => row.path === path);
 		const row = rows[index];
 		if (row === undefined) return;
-		const open = row.kind === 'directory' && todos.expanded.has(row.path);
+		const open = row.kind === 'directory' && expanded.has(row.path);
 		switch (event.key) {
 			case 'ArrowDown':
 				focusRow(rows[index + 1]?.path);
@@ -124,10 +143,10 @@
 			case 'ArrowRight':
 				if (row.kind !== 'directory') return;
 				if (open) focusRow(rows[index + 1]?.path);
-				else todos.expanded.add(row.path);
+				else expanded.add(row.path);
 				break;
 			case 'ArrowLeft':
-				if (open) todos.expanded.delete(row.path);
+				if (open) expanded.delete(row.path);
 				else focusRow(dirname(row.path) || undefined);
 				break;
 			case 'F2':
@@ -265,7 +284,7 @@
 			<Empty.Root class="flex-1 p-6">
 				<Empty.Title>Could not read the folder</Empty.Title>
 				<Empty.Description>{listing.error.message}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void listing.refetch()}>Try again</Button>
+				<Button variant="outline" size="sm" onclick={() => void todos.refresh()}>Try again</Button>
 			</Empty.Root>
 		{:else}
 			<Loading class="flex-1" label="Reading files…" />
@@ -281,7 +300,7 @@
 				{@render createField('', 0)}
 				{#each rows as row (row.path)}
 					{@const selected = todos.selected?.as === 'files' && todos.selected.path === row.path}
-					{@const open = row.kind === 'directory' && todos.expanded.has(row.path)}
+					{@const open = row.kind === 'directory' && expanded.has(row.path)}
 					<Sidebar.MenuItem>
 						{#if editing?.kind === 'rename' && editing.path === row.path}
 							{@render nameField(row.name, row.depth, `New name for ${row.name}`)}

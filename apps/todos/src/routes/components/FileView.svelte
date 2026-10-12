@@ -132,7 +132,7 @@
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
 			<Empty.Title>Could not open this file</Empty.Title>
 			<Empty.Description>{file.error.message}</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void file.refetch()}>Try again</Button>
+			<Button variant="outline" size="sm" onclick={() => void todos.refresh()}>Try again</Button>
 		</Empty.Root>
 	{:else}
 		<Loading class="flex-1" label="Opening {name}…" />

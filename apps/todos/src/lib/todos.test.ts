@@ -578,7 +578,5 @@ test('after close begins, edits and actions change nothing', async () => {
 	expect(todos.edit(stem, titled('Late'))).toBe(false);
 	expect(cached(todos, stem).row.fields.title).toBe('Milk');
 	expect(expectErr(await todos.create('Another')).name).toBe('NotStarted');
-	todos.newTitle = 'Typed';
-	expect(todos.newTitle).toBe('');
 	expect(saved).toContain('title: Milk');
 });
