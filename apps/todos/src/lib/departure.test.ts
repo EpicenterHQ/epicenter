@@ -258,7 +258,7 @@ test('while fenced, every edit, action, and Git command is refused; resuming giv
 	const refusal = { name: 'NotStarted', reason: DEPARTING };
 	expect(expectErr(await todos.rows.create('New'))).toMatchObject(refusal);
 	expect(
-		expectErr(await todos.rows.rename(stem, 'oat', shown(todos, stem))),
+		expectErr(await todos.rows.rename(stem, 'oat')),
 	).toMatchObject(refusal);
 	expect(
 		expectErr(await todos.rows.remove(stem, shown(todos, stem))),

@@ -566,24 +566,13 @@ test('a rename runs after the queued writes and moves what they saved; edits wai
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
 
-	// The version to confirm waits for the queued write.
-	let confirmed = false;
-	const confirming = todos.rows.shown(stem).then((version) => {
-		confirmed = true;
-		return version;
-	});
-	await Bun.sleep(5);
-	expect(confirmed).toBe(false);
-	release();
-	const version = await confirming;
-	expect(version?.sha256).toBe(cached(todos, stem).sha256);
-
-	const renaming = todos.rows.rename(stem, 'oat', version!);
-	// Edits wait while the rename runs.
+	// The rename waits behind the queued write; edits wait behind the rename.
+	const renaming = todos.rows.rename(stem, 'oat');
 	expect(
 		todos.queryClient.isMutating({ mutationKey: todosKeys.moving(path) }),
 	).toBe(1);
 	expect(todos.rows.edit(stem, titled('Typed during the rename'))).toBe(false);
+	release();
 	expectOk(await renaming);
 	await quiet(todos);
 
@@ -608,15 +597,14 @@ test('a rename is refused when the name is not usable or is taken, and writes no
 			{ stem: 'bread' },
 		),
 	);
-	const milk = shown(todos, stem);
-	expect(expectErr(await todos.rows.rename(stem, 'a/b', milk))).toMatchObject({
+	expect(expectErr(await todos.rows.rename(stem, 'a/b'))).toMatchObject({
 		name: 'NotStarted',
 		reason: 'A name cannot contain "/".',
 	});
-	expect(expectErr(await todos.rows.rename(stem, 'tab\there', milk)).name).toBe(
+	expect(expectErr(await todos.rows.rename(stem, 'tab\there')).name).toBe(
 		'NotStarted',
 	);
-	expect(expectErr(await todos.rows.rename(stem, 'bread', milk)).name).toBe(
+	expect(expectErr(await todos.rows.rename(stem, 'bread')).name).toBe(
 		'Exists',
 	);
 	expect(await text(todos, path)).toContain('title: Milk');
@@ -627,7 +615,7 @@ test('rename and delete use the hash the listing read: a file changed elsewhere 
 	const { stem, path } = await addTodo(todos, 'Milk');
 	await writeElsewhere(todos, path, '---\ntitle: Theirs\ndone: false\n---\n');
 	expect(
-		expectErr(await todos.rows.rename(stem, 'oat', shown(todos, stem))).name,
+		expectErr(await todos.rows.rename(stem, 'oat')).name,
 	).toBe('Conflict');
 	// The refusal read the folder again; another change lands after it.
 	await quiet(todos);
@@ -650,7 +638,7 @@ test('rename and delete use the hash the listing read: a file changed elsewhere 
 	).toBe('Conflict');
 	await todos.queryClient.invalidateQueries({ queryKey: todosKeys.all });
 	await quiet(todos);
-	expectOk(await todos.rows.rename('bad', 'renamed', shown(todos, 'bad')));
+	expectOk(await todos.rows.rename('bad', 'renamed'));
 	await quiet(todos);
 	expect(await text(todos, 'todos/renamed.md')).toBe('changed elsewhere');
 	expectOk(await todos.rows.remove('renamed', shown(todos, 'renamed')));
@@ -690,11 +678,6 @@ test('a delete confirmed on a version changed elsewhere since, and read again, d
 		name: 'NotStarted',
 	});
 	expect(await text(todos, path)).toContain('title: Theirs');
-	// Renaming from a stale view is refused the same way.
-	expect(
-		expectErr(await todos.rows.rename(stem, 'oat', confirmedOn)),
-	).toMatchObject({ name: 'NotStarted' });
-	expect(await text(todos, 'todos/oat.md')).toBeUndefined();
 });
 
 test("the version a delete confirms is the one the app's queued write saved, never the one before it", async () => {

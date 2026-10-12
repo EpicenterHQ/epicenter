@@ -153,7 +153,7 @@ async function shareMilk(todos: Todos, session: GitSession) {
 	const created = expectOk(await todos.rows.create('Buy milk'));
 	await quiet(todos);
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
-	expectOk(await todos.rows.rename(stem, 'milk', shown(todos, stem)));
+	expectOk(await todos.rows.rename(stem, 'milk'));
 	expect(expectOk(await todos.sync.run())).toMatchObject({ kind: 'synced' });
 	await quiet(todos);
 	await run(session.nativeCheckout, [

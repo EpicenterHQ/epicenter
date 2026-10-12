@@ -13,11 +13,12 @@
  *   again, which rolls the edit back.
  * - A repair draft records the text it repairs, with its hash, at the first
  *   keystroke, and its Save is guarded by that hash.
- * - Rename and delete carry the version the person confirmed. `shown`
- *   waits for that todo's queued writes to land before it reads the version,
- *   so nothing this app does changes the file while the person decides; a
- *   different version when the action runs came from elsewhere, and is
- *   refused.
+ * - Rename moves the version the cache holds when it runs, after the file's
+ *   queued writes. Delete carries the version the person confirmed: `shown`
+ *   waits for that todo's queued writes to land before it reads the
+ *   version, so nothing this app does changes the file while the person
+ *   decides; a different version when the delete runs came from elsewhere,
+ *   and is refused.
  */
 import {
 	type FileCapture,
@@ -110,23 +111,24 @@ export function createRows({
 	}
 
 	/**
-	 * What a rename or delete of `stem` acts on, decided when it runs: the
-	 * bytes the cache holds, if they are the version the person confirmed.
-	 * Anything else is refused.
+	 * What a delete of `stem` acts on, decided when it runs: the bytes the
+	 * cache holds, if they are the version the person confirmed. Anything
+	 * else is refused.
 	 */
 	function confirmed(
 		stem: string,
 		shown: FileCapture,
-		done: 'renamed' | 'deleted',
 	): Result<FileCapture, TodosError> {
 		const current = capturedOf(stem);
 		if (current === undefined)
 			return TodosError.NotStarted({
-				reason: `This file is not in the list as Todos last read it, so nothing was ${done}.`,
+				reason:
+					'This file is not in the list as Todos last read it, so nothing was deleted.',
 			});
 		if (current.sha256 !== shown.sha256)
 			return TodosError.NotStarted({
-				reason: `The file changed after you chose this, so nothing was ${done}. Its current version is shown.`,
+				reason:
+					'The file changed after you chose this, so nothing was deleted. Its current version is shown.',
 			});
 		return Ok(current);
 	}
@@ -375,16 +377,14 @@ export function createRows({
 			onSettled: () => invalidate(todosKeys.rows),
 		}),
 		/**
-		 * Rename a todo's file to `todos/<nextStem>.md`. `shown` is the version
-		 * the view showed when the person asked. It runs after the file's
-		 * queued writes, and only on that version or one this app wrote from
-		 * it since; anything else is refused. No other file moves with it, and
-		 * edits of the todo wait meanwhile.
+		 * Rename a todo's file to `todos/<nextStem>.md`. It runs after the
+		 * file's queued writes and moves the version the cache holds then,
+		 * guarded by its hash: a file changed elsewhere since is `Conflict`. No
+		 * other file moves with it, and edits of the todo wait meanwhile.
 		 */
 		async rename(
 			stem: string,
 			nextStem: string,
-			shown: FileCapture,
 		): Promise<
 			Result<
 				FileCapture | undefined,
@@ -402,8 +402,12 @@ export function createRows({
 				mutationFn: async (): Promise<
 					Result<FileCapture, FileError | MoveError | TableError | TodosError>
 				> => {
-					const { data: capture, error } = confirmed(stem, shown, 'renamed');
-					if (error !== null) return Err(error);
+					const capture = capturedOf(stem);
+					if (capture === undefined)
+						return TodosError.NotStarted({
+							reason:
+								'This file is not in the list as Todos last read it, so nothing was renamed.',
+						});
 					return table.rename(capture, nextStem);
 				},
 				// The listing and a typed repair follow the file. The draft moves first: the listing's update drops a draft
@@ -455,7 +459,7 @@ export function createRows({
 				mutationFn: async (): Promise<
 					Result<undefined, FileError | TableError | TodosError>
 				> => {
-					const { data: capture, error } = confirmed(stem, shown, 'deleted');
+					const { data: capture, error } = confirmed(stem, shown);
 					if (error !== null) return Err(error);
 					return table.delete(capture);
 				},

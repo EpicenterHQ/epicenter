@@ -5,7 +5,8 @@
 	each saving whatever the cache holds when it runs. A file that does not
 	read as a todo shows its text and what to fix; the text typed for it is a
 	draft in the store, and Save writes it over the version it was typed over.
-	Rename and delete carry the version this view shows when the person asks.
+	Rename moves the version saved when it runs; delete carries the version
+	this view shows when the person asks.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -78,20 +79,12 @@
 	const id = $props.id();
 	/** The file name typed for a rename; it follows the file's name until the person types. */
 	let nextName = $derived(stem);
-	let renaming = $state(false);
 
 	async function rename(event: SubmitEvent) {
 		event.preventDefault();
 		const name = nextName;
-		if (locked || renaming || name === stem) return;
-		renaming = true;
-		const version = await todos.rows.shown(stem);
-		if (version === undefined) {
-			renaming = false;
-			return;
-		}
-		const { error } = await todos.rows.rename(stem, name, version);
-		renaming = false;
+		if (locked || name === stem) return;
+		const { error } = await todos.rows.rename(stem, name);
 		if (error !== null) toast.error('Could not rename the file', { description: describeError(error) });
 		else onRenamed?.(name);
 	}
@@ -144,7 +137,7 @@
 			<Input {id} class="h-8 w-44 font-mono md:text-xs" bind:value={nextName} autocomplete="off" spellcheck={false} disabled={locked} />
 			<span class="font-mono text-xs text-muted-foreground">.md</span>
 		</div>
-		<Button type="submit" size="sm" variant="outline" disabled={locked || renaming || nextName === stem}>
+		<Button type="submit" size="sm" variant="outline" disabled={locked || nextName === stem}>
 			Rename file
 		</Button>
 		<Button class="ml-auto" size="sm" variant="ghost-destructive" disabled={locked} onclick={() => void confirmDelete(title)}>Delete</Button>

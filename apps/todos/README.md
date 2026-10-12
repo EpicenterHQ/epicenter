@@ -260,12 +260,12 @@ or the file reads as a todo or leaves the folder.
 - Inputs hold only values a todo can hold. A title or notes with a lone
   surrogate is written with U+FFFD in its place, as shown. The folder still
   refuses a value it cannot hold, and the editor then shows the file again.
-- Rename and delete carry the version the editor showed when you asked:
-  for delete, when the confirmation opened. They run after the file's
-  writes, and only on that version or one Todos wrote from it since, so a
-  delete you confirmed while your last edit was still being written removes
-  that edit's file. A file changed elsewhere since is refused, and so is a
-  todo Todos no longer lists. Typing into that file waits while they run.
+- Rename and delete run after the file's writes. Rename moves the file as
+  Todos last read or wrote it. Delete carries the version shown when the
+  confirmation opened, or one Todos wrote from it since, so a delete you
+  confirmed while your last edit was still being written removes that
+  edit's file. A file changed elsewhere since is refused, and so is a todo
+  Todos no longer lists. Typing into that file waits while they run.
 - The first write of a file written by hand rewrites it in Todos' standard
   form: plain YAML frontmatter, declared keys first, unknown keys kept.
   Comments and custom quoting in the frontmatter are not kept.
@@ -426,12 +426,13 @@ guarded `folder.files.replace(base, text)`. `base` is the draft's: the
 is writing, and drops the draft; a `Conflict` keeps it. The store keeps the
 drafts, counts them in `todos.departure.holdsUnsaved`, and drops one once its
 file reads as a todo or leaves the listing. Rename and delete join the same
-queue and carry the version the person confirmed: `todos.rows.shown(stem)`
-waits for that todo's queued writes to land, then reads it, so nothing the
-app does changes the file while the person decides (`rename(stem, next,
-shown)`, `remove(stem, shown)`). When they run, the cached hash must still be
-that version; otherwise they refuse with `NotStarted`, and the folder's
-guard still refuses a change Todos has not read. The store holds whether
+queue. `rename(stem, next)` moves what the cache holds when it runs, guarded
+by its hash. Delete carries the version the person confirmed:
+`todos.rows.shown(stem)` waits for that todo's queued writes to land, then
+reads it, so nothing the app does changes the file while the person decides
+(`remove(stem, shown)`). When it runs, the cached hash must still be that
+version; otherwise it refuses with `NotStarted`, and the folder's guard
+still refuses a change Todos has not read. The store holds whether
 Epicenter is asking to leave and the repair
 drafts; the URL holds which todo is open; the new todo's title lives in the
 list. Components find the store with `getTodos()` and never touch its query
