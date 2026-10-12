@@ -1,51 +1,59 @@
 /**
  * Editing Tests
  *
- * Drives the real library against a real browser folder over an in-memory
- * OPFS stand-in, with a fixture capture device and stubbed endpoints.
+ * Drives the real library and its TanStack Query cache against a real browser
+ * folder over an in-memory OPFS stand-in, with a fixture capture device and
+ * stubbed endpoints. Views are stood in for as they behave: an editor changes
+ * the row or text in the cache, which queues the file's write.
  *
  * Key behaviors:
- * - An open draft saves each edit at once, and rapid edits write only the
- *   latest draft
- * - A draft that is not a valid row is never written
- * - A change made elsewhere to other fields merges with no question. Parts
- *   both changed become a review, and nothing more is written until the
- *   person answers it: Saved elsewhere takes theirs, Your edit saves the draft
- * - A transcript deleted elsewhere: Your edit creates it again. A recording
- *   deleted elsewhere is never restored, since its audio may be gone too:
- *   Your edit is refused, and Saved elsewhere closes it
- * - A row whose text is not a valid row opens as text with its issues, saves
- *   as typed, and opens as fields once repaired
- * - A deletion waits for the open draft's saves and deletes what the last one
- *   confirmed: the recording's row and its results; its audio stays. A draft
- *   whose save failed does not refuse it: its edits are discarded
- * - Leaving a draft whose save failed answers `unsaved` until the person
- *   discards it
- * - Returning to the window adopts a newer version of a draft that holds
- *   nothing unsaved
+ * - An edit changes the cache at once and is written to the file at once
+ * - Rapid edits run one write at a time per file, with one waiting; the
+ *   waiting write saves the newest row, guarded by the hash the previous one
+ *   confirmed, so typing never conflicts with itself
+ * - No read starts while a write runs: not on returning to the window, not
+ *   on Check again, not when a view mounts
+ * - A write that meets a change made elsewhere, or fails, rolls back to the
+ *   file and reports the text that was lost; the write waiting behind it
+ *   saves the file as it is
+ * - A recording deleted elsewhere stays deleted: its write fails and nothing
+ *   creates it again
+ * - A row that is not valid is named for repair, edited as its text, and
+ *   edited as fields once it reads
+ * - A recording's lifecycle writes run in its file's queue, in order
+ * - A deletion runs after the file's writes and removes what they saved; its
+ *   audio stays
+ * - Nothing commits on its own; Save version records a version
+ * - Close waits for writes in flight
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
-import type { RowSession } from '@epicenter/svelte/edit-session';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	createTestStorage,
 	opfsOf,
 	testLocks,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
-import {
-	type RecordingFields,
-	type TranscriptionFields,
-	whisperingDefinition,
-} from './definition.js';
+import { whisperingDefinition } from './definition.js';
 import { describeDeletion } from './deletion.js';
-import { allFrom } from './drafts.test-support.js';
-import type { Library } from './library.svelte.js';
+import {
+	openText,
+	recordingEditor,
+	settle,
+	transcriptEditor,
+} from './edits.test-support.js';
+import type { Library, WriteFailure } from './library.svelte.js';
 import { holdCloses } from './opfs-holds.test-support.js';
+import {
+	createQueryClient,
+	focusManager,
+	QueryObserver,
+	quiet,
+} from './query.test-support.js';
 import { openTestWorkspace } from './workspace.test-support.js';
 
-const { createLibrary } = await import('./library.svelte.ts');
+const { createLibrary, whisperingKeys } = await import('./library.svelte.ts');
 
 const opened: { library: Library; remove: () => Promise<void> }[] = [];
 let count = 0;
@@ -59,7 +67,8 @@ afterEach(async () => {
 
 /**
  * The library over a fresh browser folder. `holdNextMarkdownWrite` holds the
- * next published `.md` write until released, and `mdWrites` counts every one.
+ * next published `.md` write until released, `mdWrites` counts every one,
+ * and `failures` collects every write that failed and was rolled back.
  */
 async function open() {
 	const storage = createTestStorage();
@@ -89,12 +98,15 @@ async function open() {
 		}),
 	);
 	const fixture = await openTestWorkspace({ folder });
-	const library = createLibrary(fixture.workspace);
+	const library = createLibrary(fixture.workspace, createQueryClient());
 	opened.push({ library, remove: fixture.remove });
 	await library.start();
+	const failures: WriteFailure[] = [];
+	library.onWriteFailed((failure) => failures.push(failure));
 	const faults = opfsOf(storage).faults;
 	return {
 		library,
+		failures,
 		counter,
 		holdNextMarkdownWrite() {
 			hold = Promise.withResolvers<void>();
@@ -117,6 +129,10 @@ async function text(library: Library, path: string) {
 	return read.error ? undefined : new TextDecoder().decode(read.data.bytes);
 }
 
+async function sha(library: Library, path: string) {
+	return expectOk(await library.folder.files.read(path)).sha256;
+}
+
 /** Another program writes the file. */
 async function writeElsewhere(library: Library, path: string, content: string) {
 	expectOk(await library.folder.files.overwrite(path, content));
@@ -128,444 +144,369 @@ async function deleteElsewhere(library: Library, path: string) {
 	expectOk(await files.remove(expectOk(await files.read(path))));
 }
 
-/** Record one recording; it is saved and opens. */
-async function record(library: Library): Promise<RowSession<RecordingFields>> {
+/** Record one recording; it is saved and opens. Answers its editor. */
+async function record(library: Library) {
 	await library.startRecording();
 	await library.stopRecording();
 	expect(library.pending).toEqual([]);
-	return recordingSession(library);
+	await settle(library);
+	return recordingEditor(library);
 }
 
-function recordingSession(library: Library): RowSession<RecordingFields> {
-	const draft = library.selection?.draft;
-	if (draft?.kind !== 'row' || draft.table !== 'recordings')
-		throw new Error(`Expected an open recording, got ${draft?.kind}`);
-	return draft.session;
-}
-
-/** Transcribe the selected recording and open its transcript beside it. */
-async function transcript(
-	library: Library,
-): Promise<RowSession<TranscriptionFields>> {
-	const entry = library.entries[0]!;
+/** Transcribe the selected recording; answers its transcript's editor. */
+async function transcript(library: Library) {
+	const [entry] = library.entries;
+	if (entry === undefined) throw new Error('Expected a recording');
 	await library.transcribe(entry);
-	const result = library.resultsFor(entry.stem)[0]!;
-	await library.openTranscript(result.path);
-	const draft = library.draftAt(result.path);
-	if (draft?.kind !== 'row' || draft.table !== 'transcriptions')
-		throw new Error(`Expected an open transcript, got ${draft?.kind}`);
-	return draft.session;
+	await settle(library);
+	const [result] = library.resultsFor(entry.stem);
+	if (result === undefined) throw new Error('Expected a transcript');
+	return transcriptEditor(library, result.path);
+}
+
+/** The newest hash the cache confirmed for the recording at `path`. */
+const cachedSha = (library: Library, path: string) =>
+	library.rowAt('recordings', path)?.sha256;
+
+/** Commits on the branch now. */
+async function commits(library: Library) {
+	const { data } = await library.folder.git.log(100);
+	return data?.length ?? 0;
 }
 
 const recordingText = (title: string, audioPath: string) =>
 	`---\ntitle: ${title}\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: ${audioPath}\n---\n`;
 
 // ============================================================================
-// Saving an open draft
+// Edits and writes
 // ============================================================================
 
-test('each edit saves at once, and rapid edits write only the latest draft', async () => {
-	const { library, counter, holdNextMarkdownWrite } = await open();
-	const session = await record(library);
+test('an edit changes the cache at once and is written to the file at once', async () => {
+	const { library, failures } = await open();
+	const editor = await record(library);
+	const audioPath = editor.draft.fields.audioPath;
+
+	editor.edit((row) => {
+		row.fields.title = 'Morning notes';
+	});
+	// The table and the detail read the same cache: both show it now.
+	expect(library.entries[0]?.row.fields.title).toBe('Morning notes');
+	expect(library.isSaving(editor.path)).toBe(true);
+	await quiet(library.queryClient);
+
+	expect(failures).toEqual([]);
+	const written = await text(library, editor.path);
+	expect(written).toContain('title: Morning notes');
+	// The audio link is untouched by typing.
+	expect(written).toContain(`audioPath: ${audioPath}`);
+	expect(cachedSha(library, editor.path)).toBe(await sha(library, editor.path));
+});
+
+test('rapid edits run one write at a time with one waiting, which saves the newest row with no conflict', async () => {
+	const { library, failures, counter, holdNextMarkdownWrite } = await open();
+	const editor = await record(library);
 	const { held, release } = holdNextMarkdownWrite();
-	session.edit((row) => {
+	editor.edit((row) => {
 		row.fields.title = 'M';
 	});
 	await held;
 	const before = counter.mdWrites;
 	for (const title of ['Mo', 'Mor', 'Morning', 'Morning notes'])
-		session.edit((row) => {
+		editor.edit((row) => {
 			row.fields.title = title;
 		});
-	expect(session.state.status).toBe('saving');
+	// One write runs and one waits; no more were queued.
+	expect(
+		library.queryClient.isMutating({
+			mutationKey: whisperingKeys.write(editor.path),
+		}),
+	).toBe(2);
+	expect(editor.draft.fields.title).toBe('Morning notes');
+
 	release();
-	expect((await session.settled()).status).toBe('saved');
-	// The held write, then one write of the latest draft.
+	await quiet(library.queryClient);
+	expect(failures).toEqual([]);
+	// The held write, then one write of the newest row.
 	expect(counter.mdWrites - before).toBe(1);
-	expect(await text(library, session.path)).toContain('title: Morning notes');
-	// The audio link is untouched by typing.
-	expect(await text(library, session.path)).toContain(
-		`audioPath: ${session.draft.fields.audioPath}`,
+	expect(await text(library, editor.path)).toContain('title: Morning notes');
+	expect(cachedSha(library, editor.path)).toBe(await sha(library, editor.path));
+
+	// The guard moved forward: the next edit writes on top.
+	editor.edit((row) => {
+		row.fields.title = 'Morning notes, two';
+	});
+	await quiet(library.queryClient);
+	expect(failures).toEqual([]);
+	expect(await text(library, editor.path)).toContain(
+		'title: Morning notes, two',
 	);
 });
 
-test('a draft that is not a valid row is never written, and the next valid edit saves', async () => {
-	const { library } = await open();
-	const session = await record(library);
-	const saved = await text(library, session.path);
-	session.edit((row) => {
+test('no read starts while a write runs: not on returning to the window, not on Check again, not when a view mounts', async () => {
+	const { library, failures, holdNextMarkdownWrite } = await open();
+	const editor = await record(library);
+	const client = library.queryClient;
+	// The recordings table is on screen: it observes the listing.
+	const table = new QueryObserver(client, library.rowsQuery('recordings'));
+	const stopTable = table.subscribe(() => {});
+
+	const { held, release } = holdNextMarkdownWrite();
+	editor.edit((row) => {
+		row.fields.title = 'Typed while held';
+	});
+	await held;
+	// Returning to the window while the write is held reads nothing.
+	focusManager.setFocused(false);
+	focusManager.setFocused(true);
+	// The client refetches on focus a tick later, after resuming paused writes.
+	await Bun.sleep(0);
+	expect(client.isFetching()).toBe(0);
+	// Neither does the window's own check, nor a view that mounts now.
+	await library.check();
+	const detail = new QueryObserver(client, library.rowsQuery('recordings'));
+	const stopDetail = detail.subscribe(() => {});
+	expect(client.isFetching()).toBe(0);
+	expect(editor.draft.fields.title).toBe('Typed while held');
+
+	release();
+	await settle(library);
+	stopDetail();
+	stopTable();
+	focusManager.setFocused(undefined);
+	expect(failures).toEqual([]);
+	expect(editor.draft.fields.title).toBe('Typed while held');
+	expect(cachedSha(library, editor.path)).toBe(await sha(library, editor.path));
+
+	editor.edit((row) => {
+		row.fields.title = 'Typed after';
+	});
+	await quiet(library.queryClient);
+	expect(failures).toEqual([]);
+	expect(await text(library, editor.path)).toContain('title: Typed after');
+});
+
+test('a write that meets a change made elsewhere rolls back to the file and reports the lost text', async () => {
+	const { library, failures } = await open();
+	const editor = await record(library);
+	const audioPath = editor.draft.fields.audioPath;
+	const theirs = recordingText('Theirs', audioPath);
+	await writeElsewhere(library, editor.path, theirs);
+
+	editor.edit((row) => {
+		row.fields.title = 'Mine';
+	});
+	await quiet(library.queryClient);
+	expect(failures).toHaveLength(1);
+	expect(failures[0]).toMatchObject({
+		path: editor.path,
+		error: { name: 'Conflict' },
+	});
+	expect(failures[0]?.lost).toContain('title: Mine');
+	// Nothing was written over theirs, and the cache shows the file again.
+	expect(await text(library, editor.path)).toBe(theirs);
+	expect(editor.draft.fields.title).toBe('Theirs');
+	expect(library.holdsUnsavedWork).toBe(false);
+
+	// The next edit writes on top of what is there now.
+	editor.edit((row) => {
+		row.fields.title = 'Mine';
+	});
+	await quiet(library.queryClient);
+	expect(failures).toHaveLength(1);
+	expect(await text(library, editor.path)).toContain('title: Mine');
+});
+
+test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {
+	const { library, failures, failNextWrite } = await open();
+	const editor = await record(library);
+	const saved = await text(library, editor.path);
+	failNextWrite(editor.path);
+	editor.edit((row) => {
+		row.fields.title = 'First';
+	});
+	editor.edit((row) => {
+		row.fields.title = 'Second';
+	});
+	await quiet(library.queryClient);
+
+	// The rollback lands before the waiting write runs, so it saves the
+	// file's own row and fails nothing.
+	expect(failures.map((failure) => failure.lost)).toEqual([
+		expect.stringContaining('title: Second'),
+	]);
+	expect(await text(library, editor.path)).toBe(saved);
+	expect(editor.draft.fields.title).not.toBe('Second');
+});
+
+test('the folder refuses a value it cannot hold, and the cache rolls back', async () => {
+	const { library, failures } = await open();
+	const editor = await record(library);
+	const saved = await text(library, editor.path);
+	// Inputs commit only values the schema accepts; this bypasses them.
+	editor.edit((row) => {
 		(row.fields as { durationMs: unknown }).durationMs = 'long';
 	});
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('InvalidValues');
-	expect(await text(library, session.path)).toBe(saved);
-	expect(library.saveProblems).toBe(1);
-	session.edit((row) => {
-		row.fields.durationMs = 1000;
-		row.fields.title = 'Fixed';
-	});
-	expect((await session.settled()).status).toBe('saved');
-	expect(await text(library, session.path)).toContain('title: Fixed');
+	await quiet(library.queryClient);
+	expect(failures).toMatchObject([{ error: { name: 'InvalidValues' } }]);
+	expect(await text(library, editor.path)).toBe(saved);
+	expect(editor.draft.fields.durationMs).toBe(1000);
 });
 
-test('a failed save keeps the draft and holds the close; Try again saves it', async () => {
-	const { library, failNextWrite } = await open();
-	const session = await record(library);
-	failNextWrite(session.path);
-	session.edit((row) => {
-		row.body = 'Notes kept.\n';
-	});
-	expect((await session.settled()).status).toBe('error');
-	expect(session.draft.body).toBe('Notes kept.\n');
-	expect(await library.prepareToLeave()).toBe(false);
-	expect(library.unsavedWork).toContain(
-		`${session.path} has edits whose last save failed.`,
-	);
-	session.retry();
-	expect((await session.settled()).status).toBe('saved');
-	expect(await text(library, session.path)).toContain('Notes kept.');
-	expect(await library.prepareToLeave()).toBe(true);
-});
-
-// ============================================================================
-// A change made elsewhere
-// ============================================================================
-
-/** The kind of each part of `session`'s review, and the field it names. */
-function parts(session: RowSession<RecordingFields | TranscriptionFields>) {
-	return session.review?.conflicts.map((conflict) =>
-		conflict.kind === 'field'
-			? `field:${conflict.field}`
-			: conflict.kind === 'file'
-				? `file:${conflict.incoming.present ? 'present' : 'deleted'}`
-				: conflict.kind,
-	);
-}
-
-const DELETED_HERE =
-	'This file was deleted elsewhere and cannot be restored here';
-
-test('a change made elsewhere to other parts merges with no review, and the draft shows both', async () => {
-	const { library } = await open();
-	const session = await record(library);
-	const saved = await text(library, session.path);
-	if (saved === undefined) throw new Error('Expected the recording saved');
-	await writeElsewhere(library, session.path, `${saved}Their notes.\n`);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	expect((await session.settled()).status).toBe('saved');
-
-	expect(session.review).toBeUndefined();
-	expect(session.draft.fields.title).toBe('Mine');
-	expect(session.draft.body).toBe('Their notes.\n');
-	expect(await text(library, session.path)).toBe(
-		`${saved.replace(/^title: .*$/m, 'title: Mine')}Their notes.\n`,
-	);
-});
-
-test('a field both changed is a review that writes nothing, and Saved elsewhere takes theirs', async () => {
-	const { library, counter } = await open();
-	const session = await record(library);
-	const saved = await text(library, session.path);
-	if (saved === undefined) throw new Error('Expected the recording saved');
-	const theirs = saved.replace(/^title: .*$/m, 'title: Theirs');
-	await writeElsewhere(library, session.path, theirs);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(parts(session)).toEqual(['field:title']);
-	expect(await text(library, session.path)).toBe(theirs);
-	const writes = counter.mdWrites;
-
-	expect(
-		await library.resolveReview(session, allFrom(session, 'incoming')),
-	).toBeUndefined();
-	// Theirs is what the file holds: nothing is written.
-	expect(counter.mdWrites).toBe(writes);
-	expect(session.review).toBeUndefined();
-	expect(session.draft.fields.title).toBe('Theirs');
-	expect(session.state.status).toBe('saved');
-	expect(await text(library, session.path)).toBe(theirs);
-});
-
-test('Your edit saves the draft over a field changed elsewhere', async () => {
-	const { library } = await open();
-	const session = await record(library);
-	await writeElsewhere(
-		library,
-		session.path,
-		recordingText('Theirs', session.draft.fields.audioPath),
-	);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(parts(session)).toEqual(['field:title']);
-
-	expect(
-		await library.resolveReview(session, allFrom(session, 'local')),
-	).toBeUndefined();
-	expect((await session.settled()).status).toBe('saved');
-	expect(session.review).toBeUndefined();
-	expect(await text(library, session.path)).toContain('title: Mine');
-});
-
-test('a transcript deleted elsewhere is a review of the whole file: Your edit creates it again from the draft', async () => {
-	const { library } = await open();
-	await record(library);
-	const session = await transcript(library);
-	await deleteElsewhere(library, session.path);
-	session.edit((row) => {
-		row.body = 'Mine, kept.\n';
-	});
-	await session.settled();
-	expect(parts(session)).toEqual(['file:deleted']);
-	expect(await text(library, session.path)).toBeUndefined();
-
-	expect(
-		await library.resolveReview(session, allFrom(session, 'local')),
-	).toBeUndefined();
-	expect(session.review).toBeUndefined();
-	expect(await text(library, session.path)).toContain('Mine, kept.');
-});
-
-test('a recording deleted elsewhere is never restored: Your edit is refused with the reason shown, and Saved elsewhere closes it', async () => {
-	const { library } = await open();
-	const session = await record(library);
-	const path = session.path;
+test('a recording deleted elsewhere stays deleted: its write fails, nothing creates it again, and the lost text is reported', async () => {
+	const { library, failures } = await open();
+	const editor = await record(library);
+	const { path } = editor;
+	const audioPath = editor.draft.fields.audioPath;
 	await deleteElsewhere(library, path);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
+
+	editor.edit((row) => {
+		row.fields.title = 'Typed after it was deleted';
 	});
-	await session.settled();
-	expect(parts(session)).toEqual(['file:deleted']);
+	await settle(library);
 
-	// Its audio may be gone too, so it is not created again.
-	expect(
-		await library.resolveReview(session, allFrom(session, 'local')),
-	).toBeDefined();
-	expect(session.review?.problems.map((problem) => problem.message)).toEqual([
-		DELETED_HERE,
-	]);
+	expect(failures).toHaveLength(1);
+	expect(failures[0]).toMatchObject({ path, error: { name: 'Conflict' } });
+	expect(failures[0]?.lost).toContain('title: Typed after it was deleted');
 	expect(await text(library, path)).toBeUndefined();
-	expect(library.draftAt(path)).toBeDefined();
-
-	expect(
-		await library.resolveReview(session, allFrom(session, 'incoming')),
-	).toBeUndefined();
-	expect(library.draftAt(path)).toBeUndefined();
+	// The cache let it go: the table and the detail show it gone.
+	expect(library.entries).toEqual([]);
 	expect(library.selection).toBeUndefined();
-	expect(await text(library, path)).toBeUndefined();
-	expect(await library.prepareToLeave()).toBe(true);
-});
+	expect(library.holdsUnsavedWork).toBe(false);
+	// Its audio is an ordinary file, left where it was.
+	expect((await library.folder.files.read(audioPath)).error).toBeNull();
 
-test('a recording deleted after its review was shown is never restored: the review becomes its deletion, and only Saved elsewhere is accepted', async () => {
-	const { library } = await open();
-	const session = await record(library);
-	const path = session.path;
-	await writeElsewhere(
-		library,
-		path,
-		recordingText('Theirs', session.draft.fields.audioPath),
+	// A later edit has no row to change, and writes nothing.
+	library.editRow(
+		'recordings',
+		path.slice('recordings/'.length, -3),
+		(row) => ({
+			...row,
+			body: 'Still typing.\n',
+		}),
 	);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(parts(session)).toEqual(['field:title']);
-
-	// Another writer deletes it before the person chooses.
-	await deleteElsewhere(library, path);
-	expect(
-		await library.resolveReview(session, allFrom(session, 'local')),
-	).toBeDefined();
-	await session.settled();
+	await settle(library);
 	expect(await text(library, path)).toBeUndefined();
-	expect(parts(session)).toEqual(['file:deleted']);
-
-	expect(
-		await library.resolveReview(session, allFrom(session, 'local')),
-	).toBeDefined();
-	expect(session.review?.problems.map((problem) => problem.message)).toEqual([
-		DELETED_HERE,
-	]);
-	expect(await text(library, path)).toBeUndefined();
-
-	expect(
-		await library.resolveReview(session, allFrom(session, 'incoming')),
-	).toBeUndefined();
-	expect(library.draftAt(path)).toBeUndefined();
-	expect(await text(library, path)).toBeUndefined();
+	expect(failures).toHaveLength(1);
 });
 
-test('a recording made invalid elsewhere: Saved elsewhere keeps that text and opens it as text with the issues', async () => {
-	const { library } = await open();
-	const session = await record(library);
-	const invalid = '---\ntitle: [unclosed\n---\n';
-	await writeElsewhere(library, session.path, invalid);
-	session.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await session.settled();
-	expect(parts(session)).toEqual(['file:present']);
+test('a transcript deleted elsewhere stays deleted too', async () => {
+	const { library, failures } = await open();
+	await record(library);
+	const editor = await transcript(library);
+	await deleteElsewhere(library, editor.path);
 
-	expect(
-		await library.resolveReview(session, allFrom(session, 'incoming')),
-	).toBeUndefined();
-	const draft = library.selection?.draft;
-	expect(draft?.kind).toBe('text');
-	expect(draft?.kind === 'text' && draft.session.draft).toBe(invalid);
-	expect(await text(library, session.path)).toBe(invalid);
+	editor.edit((row) => {
+		row.body = 'Mine.\n';
+	});
+	await settle(library);
+	expect(failures).toMatchObject([{ path: editor.path }]);
+	expect(failures[0]?.lost).toContain('Mine.');
+	expect(await text(library, editor.path)).toBeUndefined();
+	expect(library.transcriptions).toEqual([]);
 });
 
 // ============================================================================
-// Repairing a row as text
+// Repair and Source
 // ============================================================================
 
-test('a row that is not valid is named for repair, opens as text, saves as typed, and reopens as fields', async () => {
-	const { library } = await open();
-	const path = 'transformations/broken.md';
-	const broken = '---\ntitle: Clean up\n---\nTidy it.\n';
-	expectOk(await library.folder.files.create(path, broken));
-	await library.refresh();
-	expect(library.transformations).toEqual([]);
-	expect(library.transformationRepairs).toEqual([
-		expect.objectContaining({ path, reason: expect.stringContaining('model') }),
-	]);
+test('a row that is not valid is named for repair, is written as typed text, and reads as fields once repaired', async () => {
+	const { library, failures } = await open();
+	const editor = await record(library);
+	const { path } = editor;
+	const audioPath = editor.draft.fields.audioPath;
+	const broken = `---\ntitle: Broken\naudioPath: ${audioPath}\n---\n`;
+	await writeElsewhere(library, path, broken);
+	await settle(library);
 
-	expect(await library.open(path)).toBeUndefined();
-	const draft = library.selectedTransformation?.draft;
-	if (draft?.kind !== 'text')
-		throw new Error(`Expected text, got ${draft?.kind}`);
-	// The fields cannot open until the text reads.
+	expect(library.repairs.map((item) => item.path)).toEqual([path]);
+	expect(library.showsText(path)).toBe(true);
+	const source = await openText(library, path);
+	expect(source.draft).toBe(broken);
 	expect(await library.useForm(path)).toContain('does not read');
 
-	const repaired =
-		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy it.\n';
-	draft.session.input(repaired);
-	expect((await draft.session.settled()).status).toBe('saved');
-	expect(await text(library, path)).toBe(repaired);
-
+	source.input(recordingText('Repaired', audioPath));
+	await settle(library);
+	expect(failures).toEqual([]);
+	expect(await text(library, path)).toBe(recordingText('Repaired', audioPath));
+	expect(library.repairs).toEqual([]);
 	expect(await library.useForm(path)).toBeUndefined();
-	const row = library.selectedTransformation?.draft;
-	expect(
-		row?.kind === 'row' &&
-			row.table === 'transformations' &&
-			row.session.draft.fields.title,
-	).toBe('Clean up');
-	await library.refresh();
-	expect(library.transformations.map((entry) => entry.path)).toEqual([path]);
-	expect(library.transformationRepairs).toEqual([]);
+	expect(library.showsText(path)).toBe(false);
+	expect(recordingEditor(library).draft.fields.title).toBe('Repaired');
 });
 
-test('Source edits a valid row as its exact text, and the form returns once it reads', async () => {
-	const { library } = await open();
-	const session = await record(library);
-	const path = session.path;
-	expect(await library.editSource(path)).toBeUndefined();
-	const draft = library.selection?.draft;
-	if (draft?.kind !== 'text')
-		throw new Error(`Expected text, got ${draft?.kind}`);
-	draft.session.input(
-		draft.session.draft.replace(/title: .*/, 'title: From source'),
-	);
-	await draft.session.settled();
-	expect(await library.useForm(path)).toBeUndefined();
-	expect(recordingSession(library).draft.fields.title).toBe('From source');
-});
-
-// ============================================================================
-// Leaving and returning
-// ============================================================================
-
-test('opening another item waits for saves, and a failed save answers unsaved until discarded', async () => {
-	const { library, failNextWrite } = await open();
-	const first = await record(library);
-	const firstPath = first.path;
-	expectOk(await library.folder.files.create('notes.txt', 'hello'));
-	failNextWrite(firstPath);
-	first.edit((row) => {
-		row.fields.title = 'Not saved';
+test('Source edits a valid row as its exact text, after the fields it was typed in are written', async () => {
+	const { library, failures, holdNextMarkdownWrite } = await open();
+	const editor = await record(library);
+	const { path } = editor;
+	const { held, release } = holdNextMarkdownWrite();
+	editor.edit((row) => {
+		row.body = 'Typed in the fields.\n';
 	});
-	await first.settled();
+	await held;
+	const opening = library.editSource(path);
+	release();
+	expect(await opening).toBeUndefined();
+	expect(library.showsText(path)).toBe(true);
+	const source = await openText(library, path);
+	expect(source.draft).toEndWith('---\nTyped in the fields.\n');
 
-	const refused = await library.open('notes.txt');
-	expect(refused?.unsaved).toBe(first);
-	expect(library.selectedPath).toBe(firstPath);
-
-	expect(await library.open('notes.txt', { discard: first })).toBeUndefined();
-	expect(library.selectedPath).toBe('notes.txt');
-	expect(library.draftAt(firstPath)).toBeUndefined();
-	expect(first.locked).toBe(true);
-	expect(await text(library, firstPath)).not.toContain('Not saved');
+	source.input(source.draft.replace('Typed in the fields.', 'Typed as text.'));
+	await settle(library);
+	expect(failures).toEqual([]);
+	expect(await text(library, path)).toEndWith('---\nTyped as text.\n');
+	expect(await library.useForm(path)).toBeUndefined();
+	expect(recordingEditor(library).draft.body).toBe('Typed as text.\n');
 });
 
-test('an open that a newer open of the same pane overtakes shows nothing, and the other pane keeps its draft', async () => {
-	const { library } = await open();
-	const recording = await record(library);
+// ============================================================================
+// A recording's lifecycle
+// ============================================================================
+
+test('a recording\u2019s transcript is saved in its file\u2019s queue, after the writes queued before it', async () => {
+	const { library, failures, holdNextMarkdownWrite } = await open();
+	const editor = await record(library);
+	const { held, release } = holdNextMarkdownWrite();
+	editor.edit((row) => {
+		row.fields.title = 'Titled first';
+	});
+	await held;
+	const [entry] = library.entries;
+	if (entry === undefined) throw new Error('Expected a recording');
+
+	const transcribing = library.transcribe(entry);
+	await Bun.sleep(20);
+	// The answer arrived, and its save waits behind the recording's write.
+	expect(library.transcriptionRun(entry.stem)?.kind).toBe('running');
 	expect(
-		await library.createTransformation({ title: 'Tidy', prompt: 'Tidy.\n' }),
-	).toBeUndefined();
-	const transformation = library.selectedTransformation!;
-	expectOk(await library.folder.files.create('notes.txt', 'notes'));
-	expectOk(await library.folder.files.create('other.txt', 'other'));
+		(await library.folder.files.list()).data?.files.map((file) => file.path),
+	).not.toContainEqual(expect.stringMatching(/^transcriptions\//));
+	expect(library.holdsUnsavedWork).toBe(true);
 
-	// Both leave the recording; the later one takes the recordings pane.
-	const first = library.open('notes.txt');
-	const second = library.open('other.txt');
-	expect(await first).toBeUndefined();
-	expect(await second).toBeUndefined();
-	expect(library.selectedPath).toBe('other.txt');
-	expect(library.draftAt('other.txt')?.kind).toBe('text');
-	expect(library.draftAt('notes.txt')).toBeUndefined();
-	expect(library.draftAt(recording.path)).toBeUndefined();
-	expect(recording.locked).toBe(true);
-
-	// A load still running when its pane opens something else installs nothing.
-	const loading = library.open('notes.txt');
-	await Bun.sleep(0);
-	await library.open(recording.path);
-	await loading;
-	expect(library.selectedPath).toBe(recording.path);
-	expect(library.draftAt('notes.txt')).toBeUndefined();
-	expect(library.draftAt('other.txt')).toBeUndefined();
-
-	// The transformations pane was never left.
-	expect(library.selectedTransformation?.draft).toBe(transformation.draft);
-	expect(library.draftAt(transformation.path)).toBe(transformation.draft);
-});
-
-test('returning adopts a newer version of an open draft that holds nothing unsaved', async () => {
-	const { library } = await open();
-	const session = await record(library);
-	await writeElsewhere(
-		library,
-		session.path,
-		recordingText('From elsewhere', session.draft.fields.audioPath),
-	);
-	await library.check();
-	expect(session.draft.fields.title).toBe('From elsewhere');
-	expect(session.state.status).toBe('saved');
+	release();
+	await transcribing;
+	await settle(library);
+	expect(failures).toEqual([]);
+	expect(await text(library, editor.path)).toContain('title: Titled first');
+	expect(library.resultsFor(entry.stem)).toHaveLength(1);
+	expect(library.holdsUnsavedWork).toBe(false);
 });
 
 // ============================================================================
 // Deleting
 // ============================================================================
 
-test('a deletion waits for the open draft’s saves and removes the recording and its results, keeping its audio', async () => {
+test('a deletion runs after the file\u2019s writes and removes the recording and its results, keeping its audio', async () => {
 	const { library, holdNextMarkdownWrite } = await open();
-	const session = await record(library);
-	const audioPath = session.draft.fields.audioPath;
+	const editor = await record(library);
+	const { path } = editor;
+	const audioPath = editor.draft.fields.audioPath;
 	const result = await transcript(library);
 	const { held, release } = holdNextMarkdownWrite();
-	session.edit((row) => {
+	editor.edit((row) => {
 		row.fields.title = 'Saved before the delete';
 	});
 	await held;
-	const capturing = library.deletionFor(session.path);
+	const capturing = library.deletionFor(path);
 	release();
 	const deletion = expectOk(await capturing);
 	expect(deletion).toMatchObject({
@@ -573,53 +514,103 @@ test('a deletion waits for the open draft’s saves and removes the recording an
 		title: 'Saved before the delete',
 		audioPath,
 		results: [{ path: result.path }],
+		// Nothing is in a saved version yet.
+		unversioned: true,
 	});
+	expect(describeDeletion(deletion).description).toContain(
+		'changes that are in no saved version',
+	);
 
-	// Typed while the dialog is open: saved, and the delete removes that.
-	session.edit((row) => {
+	// Typed while the dialog is open: written, and the delete removes that.
+	editor.edit((row) => {
 		row.body = 'Typed while asked.\n';
 	});
 	expect(await library.remove(deletion)).toBeUndefined();
-	expect(session.locked).toBe(true);
-	expect(await text(library, session.path)).toBeUndefined();
+	expect(await text(library, path)).toBeUndefined();
 	expect(await text(library, result.path)).toBeUndefined();
 	expect((await library.folder.files.read(audioPath)).error).toBeNull();
 	expect(library.entries).toEqual([]);
 	expect(library.selection).toBeUndefined();
 });
 
-test('a deletion is refused when the file changed after it was confirmed, and the file opens as it is', async () => {
+test('a deletion is refused when the file changed elsewhere after it was confirmed', async () => {
 	const { library } = await open();
-	const session = await record(library);
-	const path = session.path;
+	const editor = await record(library);
+	const { path } = editor;
 	const deletion = expectOk(await library.deletionFor(path));
-	const theirs = recordingText('Changed', session.draft.fields.audioPath);
+	const theirs = recordingText('Changed', editor.draft.fields.audioPath);
 	await writeElsewhere(library, path, theirs);
 
 	expect(await library.remove(deletion)).toContain('changed elsewhere');
 	expect(await text(library, path)).toBe(theirs);
-	expect(recordingSession(library).draft.fields.title).toBe('Changed');
+	await settle(library);
+	expect(recordingEditor(library).draft.fields.title).toBe('Changed');
 });
 
-test('a draft whose save failed does not refuse the deletion: it removes what was last saved and discards the edits', async () => {
-	const { library, failNextWrite } = await open();
-	const session = await record(library);
-	const path = session.path;
-	failNextWrite(path);
-	session.edit((row) => {
-		row.fields.title = 'Not saved';
-	});
-	expect((await session.settled()).status).toBe('error');
+// ============================================================================
+// Versions and closing
+// ============================================================================
 
-	const deletion = expectOk(await library.deletionFor(path));
-	expect(deletion).toMatchObject({ kind: 'recording', row: { path } });
-	expect(describeDeletion(deletion).description).toContain(
-		'Edits here that are not saved are discarded too.',
+test('nothing commits on its own: edits are written with no commit, and Save version records one', async () => {
+	const { library } = await open();
+	const editor = await record(library);
+	await transcript(library);
+	const before = await commits(library);
+
+	for (const title of ['One', 'Two', 'Three']) {
+		editor.edit((row) => {
+			row.fields.title = title;
+		});
+		await settle(library);
+	}
+	expect(await text(library, editor.path)).toContain('title: Three');
+	expect(await commits(library)).toBe(before);
+	expect(library.git.lastCommit).toBeUndefined();
+	const status = expectOk(await library.folder.git.status());
+	expect(status.changes.map((change) => change.path)).toContain(editor.path);
+
+	const outcome = await library.saveVersion();
+	expect(outcome.status).toBe('committed');
+	expect(await commits(library)).toBe(before + 1);
+	const [head] = expectOk(await library.folder.git.log(1));
+	expect(head?.oid).toBe(outcome.status === 'committed' ? outcome.oid : '');
+	expect(expectOk(await library.folder.git.status()).changes).toEqual([]);
+
+	// Editing again commits nothing until the next Save version.
+	editor.edit((row) => {
+		row.fields.title = 'Four';
+	});
+	await settle(library);
+	expect(await commits(library)).toBe(before + 1);
+});
+
+test('close waits for a write in flight, and the write lands before the folder closes', async () => {
+	const { library, holdNextMarkdownWrite } = await open();
+	const editor = await record(library);
+	const { held, release } = holdNextMarkdownWrite();
+	editor.edit((row) => {
+		row.fields.title = 'Typed before closing';
+	});
+	await held;
+	expect(await Promise.race([library.prepareToLeave(), Bun.sleep(20)])).toBe(
+		undefined,
 	);
-	expect(await library.remove(deletion)).toBeUndefined();
-	expect(session.locked).toBe(true);
-	expect(await text(library, path)).toBeUndefined();
-	expect(library.draftAt(path)).toBeUndefined();
-	expect(library.selection).toBeUndefined();
-	expect(await library.prepareToLeave()).toBe(true);
+	let closed = false;
+	const closing = library.close().then(() => {
+		closed = true;
+	});
+	await Bun.sleep(10);
+	expect(closed).toBe(false);
+	// Nothing new starts once closing began.
+	editor.edit((row) => {
+		row.fields.title = 'Typed after closing began';
+	});
+	release();
+	await closing;
+	expect(closed).toBe(true);
+	const writes = library.queryClient
+		.getMutationCache()
+		.findAll({ mutationKey: whisperingKeys.write(editor.path) });
+	// The write finished before the folder closed; the late edit wrote nothing.
+	expect(writes.map((write) => write.state.status)).toEqual(['success']);
 });

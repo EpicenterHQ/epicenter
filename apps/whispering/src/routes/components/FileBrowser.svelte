@@ -258,7 +258,7 @@
 			<Empty.Root class="flex-1 p-6">
 				<Empty.Title>Could not read the folder</Empty.Title>
 				<Empty.Description>{library.listingError}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void library.refresh()}>Try again</Button>
+				<Button variant="outline" size="sm" onclick={() => void library.check()}>Try again</Button>
 			</Empty.Root>
 		{:else}
 			<Loading class="flex-1" label="Reading files…" />

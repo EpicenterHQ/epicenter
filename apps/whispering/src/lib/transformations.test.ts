@@ -44,11 +44,13 @@ import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { STARTER_TRANSFORMATIONS } from './definition.js';
 import {
-	textSession,
-	transcriptSession,
-	transformationSession,
-} from './drafts.test-support.js';
+	openText,
+	settle,
+	transcriptEditor,
+	transformationEditor,
+} from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
+import { createQueryClient } from './query.test-support.js';
 import { filesLineOf } from './status.js';
 import { TransformationError } from './transformation.js';
 import {
@@ -69,7 +71,7 @@ const CLEANUP = STARTER_TRANSFORMATIONS[0]!;
 
 async function open(options: TestWorkspaceOptions = {}) {
 	const test = await openTestWorkspace(options);
-	const library = createLibrary(test.workspace);
+	const library = createLibrary(test.workspace, createQueryClient());
 	cleanups.push(async () => {
 		await library.close();
 		await test.remove();
@@ -100,11 +102,11 @@ async function transcribed(library: Library, root: string) {
 /** Create the cleanup starter and give it a model, as a person would before running it. */
 async function cleanupProfile(library: Library) {
 	expect(await library.createTransformation(CLEANUP)).toBeUndefined();
-	const session = transformationSession(library);
+	const session = transformationEditor(library);
 	session.edit((row) => {
 		row.fields.model = 'chat-model';
 	});
-	expect((await session.settled()).status).toBe('saved');
+	await settle(library);
 	return session;
 }
 
@@ -140,8 +142,7 @@ test('a new transformation copies no endpoint or model from another one', async 
 	editor.edit((row) => {
 		row.fields.endpoint = 'http://127.0.0.1:11434/v1';
 	});
-	await editor.settled();
-	await library.refresh();
+	await settle(library);
 
 	await library.createTransformation({ title: 'Summarize', prompt: 'Sum.\n' });
 
@@ -160,17 +161,18 @@ test('editing a transformation saves the whole row in one form and keeps fields 
 		'---\n# a comment\ntitle: Mine\nmodel: chat-model\nendpoint: http://127.0.0.1:18080/v1\ntemperature: 0.2\n---\nOriginal prompt\n';
 	const path = join(root, 'transformations', 'mine.md');
 	await writeFile(path, source);
+	await settle(library);
 	await library.open('transformations/mine.md');
-	const editor = transformationSession(library);
-	// Opening reads; it writes nothing, and a file in another form is not unsaved.
-	expect(editor.state.status).toBe('saved');
+	const editor = transformationEditor(library);
+	// Opening reads; it writes nothing.
+	expect(library.isSaving(editor.path)).toBe(false);
 	expect(await readFile(path, 'utf8')).toBe(source);
 
 	editor.edit((row) => {
 		row.fields.title = 'Renamed';
 		row.body = 'A new prompt\n';
 	});
-	expect((await editor.settled()).status).toBe('saved');
+	await settle(library);
 
 	const written = await readFile(path, 'utf8');
 	const row = expectOk(
@@ -198,14 +200,15 @@ test('a transformation that does not read is named for repair, cannot run, and i
 	const broken = '---\ntitle: *missing\nmood: curious\n---\nStill here\n';
 	const path = 'transformations/broken.md';
 	await writeFile(join(root, path), broken);
-	await library.refreshAll();
+	await settle(library);
 
 	expect(library.transformations).toEqual([]);
 	expect(library.transformationRepairs.map((item) => item.path)).toEqual([
 		path,
 	]);
 	await library.open(path);
-	const text = textSession(library, path);
+	expect(library.showsText(path)).toBe(true);
+	const text = await openText(library, path);
 	expect(text.draft).toBe(broken);
 	expect(await library.transform(transcript.path, path)).toBe(
 		'Repair this transformation before running it.',
@@ -216,14 +219,13 @@ test('a transformation that does not read is named for repair, cannot run, and i
 	text.input(
 		'---\ntitle: Repaired\nmodel: chat-model\nendpoint: http://127.0.0.1:18080/v1\nmood: curious\n---\nStill here\n',
 	);
-	expect((await text.settled()).status).toBe('saved');
-	await library.refresh();
+	await settle(library);
 	expect(library.transformations.map((item) => item.path)).toEqual([path]);
 	expect(await library.transform(transcript.path, path)).toBeUndefined();
 	expect(transformed).toHaveLength(1);
 	// Repaired, it is edited as fields again, with its unknown field kept.
 	expect(await library.useForm(path)).toBeUndefined();
-	expect(transformationSession(library).draft.fields).toMatchObject({
+	expect(transformationEditor(library).draft.fields).toMatchObject({
 		title: 'Repaired',
 		mood: 'curious',
 	});
@@ -275,7 +277,7 @@ test('applying a transformation writes a new result row and leaves the transcrip
 	expect(await names(root, RUNS)).toEqual([`${output.stem}.md`]);
 
 	// The result is an ordinary file in ordinary history.
-	const committed = await library.commit();
+	const committed = await library.saveVersion();
 	expect(['committed', 'unchanged']).toContain(committed.status);
 	const tree = execFileSync('git', ['ls-tree', '-r', '--name-only', 'HEAD'], {
 		cwd: root,
@@ -292,11 +294,11 @@ test('what is sent is the saved transformation: a save still running settles fir
 	editor.edit((row) => {
 		row.body = 'Edited just now.\n';
 	});
-	expect(editor.state.status).toBe('saving');
+	expect(library.isSaving(editor.path)).toBe(true);
 
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
 
-	expect(editor.state.status).toBe('saved');
+	expect(library.isSaving(editor.path)).toBe(false);
 	expect(transformed[0]!.prompt).toBe('Edited just now.\n');
 	expect(await readFile(join(root, editor.path), 'utf8')).toContain(
 		'Edited just now.',
@@ -310,7 +312,7 @@ test('a transformation with no instructions, or a transcript with no text, sends
 	const { library, root, transformed } = await open();
 	const { transcript, transcriptText } = await transcribed(library, root);
 	await library.createTransformation({ title: 'Empty', prompt: '' });
-	const editor = transformationSession(library);
+	const editor = transformationEditor(library);
 
 	expect(await library.transform(transcript.path, editor.path)).toBe(
 		'Write instructions to run this.',
@@ -340,7 +342,7 @@ test('a transcript edited outside is sent as the folder has it now, and is not r
 	const { transcript, transcriptText } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
 	// Another program rewrites the transcript and adds a field. No refresh follows.
-	await library.refresh();
+	await settle(library);
 	const outside = transcriptText
 		.replace('---\n', '---\nreviewedBy: someone\n')
 		.replace(transcript.row.body, 'A steady tone, corrected by hand.\n');
@@ -367,7 +369,7 @@ test('a transcript deleted or broken outside refuses, and nothing stale is sent'
 	const { transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
 	// Settle the list now, so what it shows below is known to predate the outside changes.
-	await library.refresh();
+	await settle(library);
 
 	const broken = '---\nrecordingId: *missing\n---\nStill some text\n';
 	await writeFile(join(root, transcript.path), broken);
@@ -392,7 +394,7 @@ test('a transcript whose recording was deleted outside refuses', async () => {
 	const { library, root, transformed } = await open();
 	const { recording, transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
-	await library.refresh();
+	await settle(library);
 	await rm(join(root, recording.path));
 	await rm(join(root, recording.row.fields.audioPath));
 	// The list still shows the recording: nothing has refreshed it.
@@ -406,53 +408,54 @@ test('a transcript whose recording was deleted outside refuses', async () => {
 	expect(library.transformationRuns).toHaveLength(0);
 });
 
-/** The draft Files opens for a transcript's file. */
-async function transcriptEditor(library: Library, path: string) {
+/** A transcript's file opened from Files, as its view edits it. */
+async function openedTranscript(library: Library, path: string) {
 	await library.open(path);
-	return transcriptSession(library, path);
+	return transcriptEditor(library, path);
 }
 
 test('a save of the transcript’s file still running settles first, then what it saved is sent', async () => {
 	const { library, root, transformed } = await open();
 	const { transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
-	const source = await transcriptEditor(library, transcript.path);
+	const source = await openedTranscript(library, transcript.path);
 	source.edit((row) => {
 		row.body = 'Typed in Files.\n';
 	});
-	expect(source.state.status).toBe('saving');
+	expect(library.isSaving(source.path)).toBe(true);
 
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
 
-	expect(source.state.status).toBe('saved');
+	expect(library.isSaving(source.path)).toBe(false);
 	expect(await readFile(join(root, transcript.path), 'utf8')).toContain(
 		'Typed in Files.',
 	);
 	expect(transformed[0]!.input).toBe('Typed in Files.\n');
 });
 
-test('a transcript whose save failed refuses, and the edits stay in its editor', async () => {
+test('a transcript whose write failed rolls back, and what is sent is what the file holds', async () => {
 	const { library, root, transformed } = await open();
 	const { transcript, transcriptText } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
-	const source = await transcriptEditor(library, transcript.path);
+	const failures: string[] = [];
+	library.onWriteFailed((failure) => failures.push(failure.lost));
+	const source = await openedTranscript(library, transcript.path);
 	chmodSync(join(root, 'transcriptions'), 0o555);
 	try {
 		source.edit((row) => {
 			row.body = 'Mine.\n';
 		});
-		expect((await source.settled()).status).toBe('error');
+		await settle(library);
 	} finally {
 		chmodSync(join(root, 'transcriptions'), 0o755);
 	}
+	expect(failures).toEqual([expect.stringContaining('Mine.')]);
+	expect(source.draft.body).toBe(transcriptText.split('---\n')[2] ?? '');
 
-	expect(await library.transform(transcript.path, editor.path)).toContain(
-		'has edits that are not saved',
-	);
+	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
 
-	expect(transformed).toHaveLength(0);
-	expect(source.draft.body).toBe('Mine.\n');
-	expect(source.state.status).toBe('error');
+	expect(transformed).toHaveLength(1);
+	expect(transformed[0]?.input).toBe(source.draft.body);
 	expect(await readFile(join(root, transcript.path), 'utf8')).toBe(
 		transcriptText,
 	);
@@ -619,8 +622,7 @@ test('a result outlives edits to its transformation and the transformation’s d
 		row.fields.title = 'Renamed';
 		row.body = 'A different prompt.\n';
 	});
-	await editor.settled();
-	await library.refreshAll();
+	await settle(library);
 	expect(await readFile(join(root, output.path), 'utf8')).toBe(result);
 
 	const deletion = expectOk(await library.deletionFor(editor.path));
@@ -752,8 +754,8 @@ test('a result that cannot be saved keeps its text and id; saving again does not
 	const { library, root, transformed } = await open({ failRunWrites: 2 });
 	const { transcript, transcriptBytes } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
-	await library.commit();
-	await library.refreshAll();
+	await library.saveVersion();
+	await settle(library);
 	expect(filesLineOf(library).tone).toBe('good');
 
 	await library.transform(transcript.path, editor.path);
@@ -944,6 +946,12 @@ test('this run’s exact row is recognized, and the same row with a field anothe
  * A run reads its transformation and its transcript before anything is sent,
  * so holding those reads is what puts two asks inside that time together.
  */
+/** Wait until `condition` holds: work runs through the mutation cache, a few turns later. */
+async function until(condition: () => boolean) {
+	for (let tries = 0; tries < 500 && !condition(); tries++) await Bun.sleep(2);
+	expect(condition()).toBe(true);
+}
+
 async function openHoldingReads(
 	held: 'transformations' | 'transcriptions',
 	options: TestWorkspaceOptions = {},
@@ -952,23 +960,26 @@ async function openHoldingReads(
 	const reads: { hold?: Promise<void>; waiting: number } = { waiting: 0 };
 	const { tables } = test.workspace.folder;
 	const table = tables[held];
-	const library = createLibrary({
-		...test.workspace,
-		folder: {
-			...test.workspace.folder,
-			tables: {
-				...tables,
-				[held]: {
-					...table,
-					async get(stem: string) {
-						reads.waiting += 1;
-						await reads.hold;
-						return table.get(stem);
+	const library = createLibrary(
+		{
+			...test.workspace,
+			folder: {
+				...test.workspace.folder,
+				tables: {
+					...tables,
+					[held]: {
+						...table,
+						async get(stem: string) {
+							reads.waiting += 1;
+							await reads.hold;
+							return table.get(stem);
+						},
 					},
 				},
-			},
-		} as Library['workspace']['folder'],
-	});
+			} as Library['workspace']['folder'],
+		},
+		createQueryClient(),
+	);
 	cleanups.push(async () => {
 		await library.close();
 		await test.remove();
@@ -985,11 +996,11 @@ test('two asks for the same transcript and transformation at once send one reque
 	expect(
 		await library.createTransformation(STARTER_TRANSFORMATIONS[1]!),
 	).toBeUndefined();
-	const summarize = transformationSession(library);
+	const summarize = transformationEditor(library);
 	summarize.edit((row) => {
 		row.fields.model = 'chat-model';
 	});
-	expect((await summarize.settled()).status).toBe('saved');
+	await settle(library);
 	const reading = deferred<void>();
 	reads.hold = reading.promise;
 
@@ -1051,7 +1062,7 @@ test('a failed run retried twice at once is sent once more, not twice', async ()
 		library.retryTransformation(failed.id),
 		library.retryTransformation(failed.id),
 	]);
-	await Promise.resolve();
+	await until(() => reads.waiting > 0);
 	// One retry is reading the transcript; the other was left to it.
 	expect(reads.waiting).toBe(1);
 	reads.hold = undefined;
@@ -1102,29 +1113,32 @@ async function openHookedRuns(options: TestWorkspaceOptions = {}) {
 		create?: () => Promise<void>;
 		list?: () => Promise<Listed | undefined>;
 	} = {};
-	const library = createLibrary({
-		...test.workspace,
-		folder: {
-			...test.workspace.folder,
-			tables: {
-				...tables,
-				transformation_runs: {
-					...runs,
-					async get(stem: string) {
-						await hooks.get?.();
-						return runs.get(stem);
-					},
-					async create(...args: Parameters<typeof runs.create>) {
-						await hooks.create?.();
-						return runs.create(...args);
-					},
-					async list() {
-						return (await hooks.list?.()) ?? runs.list();
+	const library = createLibrary(
+		{
+			...test.workspace,
+			folder: {
+				...test.workspace.folder,
+				tables: {
+					...tables,
+					transformation_runs: {
+						...runs,
+						async get(stem: string) {
+							await hooks.get?.();
+							return runs.get(stem);
+						},
+						async create(...args: Parameters<typeof runs.create>) {
+							await hooks.create?.();
+							return runs.create(...args);
+						},
+						async list() {
+							return (await hooks.list?.()) ?? runs.list();
+						},
 					},
 				},
-			},
-		} as Library['workspace']['folder'],
-	});
+			} as Library['workspace']['folder'],
+		},
+		createQueryClient(),
+	);
 	cleanups.push(async () => {
 		await library.close();
 		await test.remove();
@@ -1267,7 +1281,7 @@ test('a failed run discarded while its retry reads the transcript sends nothing 
 	reads.waiting = 0;
 
 	const retry = library.retryTransformation(failed.id);
-	await Promise.resolve();
+	await until(() => reads.waiting > 0);
 	expect(reads.waiting).toBe(1);
 	library.discardTransformationRun(failed.id);
 	reads.hold = undefined;

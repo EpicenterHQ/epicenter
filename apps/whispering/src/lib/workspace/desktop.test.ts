@@ -25,6 +25,7 @@ import type { GitSnapshot } from '../../../../../packages/folder/src/native/bind
 import { createHost, type HostOptions } from '../../../native/host.js';
 import { encode } from '../bridge/codec.js';
 import { toneWav } from '../capture.js';
+import { createQueryClient } from '../query.test-support.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
@@ -57,7 +58,6 @@ const { openWorkspace } = await import('./index.js');
 const { openBrowserWorkspace } = await import('./browser.js');
 const { openDesktopWorkspace } = await import('./desktop.js');
 const { mountSession } = await import('../session.svelte.ts');
-const { createRowSession } = await import('@epicenter/svelte/edit-session');
 
 const ROOT = '/Users/someone/Epicenter/local/so.epicenter.whispering';
 const SCOPE = 'so.epicenter.whispering';
@@ -453,7 +453,7 @@ test('saves and history go to the shell’s owner and never to the host', async 
 	await workspace.close();
 });
 
-test('a row save whose reply the shell never sent stays unknown, and later input starts another save', async () => {
+test('a row write whose reply the shell never sent is unknown, not refused, and a later write over what landed confirms', async () => {
 	setup();
 	attachable();
 	const disk = new Map<string, Uint8Array>([
@@ -495,41 +495,33 @@ test('a row save whose reply the shell never sent stays unknown, and later input
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
 	);
 	const table = workspace.folder.tables.transformations;
-	const session = createRowSession(table, expectOk(await table.get('clean'))!);
+	const stored = expectOk(await table.get('clean'))!;
 	// From here the owner writes, and its replies never reach the page.
 	written.length = 0;
 	loseReplies = true;
-	const lost = async () => {
-		const state = await session.settled();
-		return state.status === 'error' ? state.error : undefined;
-	};
 
-	session.edit((row) => {
-		row.body = 'Tidy it.\n';
+	const lost = await table.replace(stored, {
+		...stored.row,
+		body: 'Tidy it.\n',
 	});
-	expect(await lost()).toMatchObject({
+	expect(lost.error).toMatchObject({
 		name: 'Unconfirmed',
 		message: expect.stringContaining('the reply was lost'),
 	});
 	expect(written).toHaveLength(1);
 
-	// Later input starts another write, whose reply is lost too.
-	session.edit((row) => {
-		row.body = 'Tidy it more.\n';
-	});
-	expect(session.draft.body).toBe('Tidy it more.\n');
-	expect((await lost())?.name).toBe('Unconfirmed');
-	expect(written).toHaveLength(2);
-
-	// Saving again is the person's choice, and writes the latest input; its
-	// own reply confirms it.
+	// The page reads what landed, and writes on top of it; its own reply
+	// confirms it. Nothing was written again on its own.
 	loseReplies = false;
-	session.retry();
-	expect((await session.settled()).status).toBe('saved');
-	expect(written).toHaveLength(3);
-	expect(written[2]).toContain('Tidy it more.');
+	const landed = expectOk(await table.get('clean'));
+	if (landed === undefined) throw new Error('Expected the row to be there');
+	expect(landed.row.body).toBe('Tidy it.\n');
+	expectOk(
+		await table.replace(landed, { ...landed.row, body: 'Tidy it more.\n' }),
+	);
+	expect(written).toHaveLength(2);
+	expect(written[1]).toContain('Tidy it more.');
 
-	session.release();
 	await workspace.close();
 });
 
@@ -996,7 +988,7 @@ test('after a refused attach there is no session, and the person’s close is an
 	const refusedAttach = Promise.withResolvers<never>();
 	replies = { attach: () => refusedAttach.promise };
 
-	const mounted = mountSession();
+	const mounted = mountSession(createQueryClient());
 	cleanups.push(() => mounted.release());
 	// The person asks to close while the folder is still being opened. Nothing
 	// answers for an opening that has not settled: it might yet hold work.
@@ -1036,7 +1028,7 @@ test('nothing is approved unasked: a failed opening by itself closes nothing', a
 	const shell = setup({ bridge: { token: CONNECTION.token } });
 	attachable('/Users/someone/elsewhere');
 
-	const mounted = mountSession();
+	const mounted = mountSession(createQueryClient());
 	cleanups.push(() => mounted.release());
 	expect(expectErr(await mounted.opening).name).toBe('FolderMismatch');
 	await settle(200);
@@ -1056,7 +1048,7 @@ test('after a failed opening with the host gone, the shell’s close attempt is 
 	const hostDown = Promise.withResolvers<never>();
 	globalThis.fetch = (() => hostDown.promise) as unknown as typeof fetch;
 
-	const mounted = mountSession();
+	const mounted = mountSession(createQueryClient());
 	cleanups.push(() => mounted.release());
 	// Still opening: a close attempt is not answered.
 	shell.closeBlocked();
@@ -1090,7 +1082,7 @@ test('after an opening that failed without proof, the real host approves only th
 	const shell = setup({ bridge: { token: CONNECTION.token } });
 	// The failure is not one that proves anything was released, as when the
 	// desktop workspace's own module cannot be loaded.
-	const mounted = mountSession(async () => {
+	const mounted = mountSession(createQueryClient(), async () => {
 		throw new Error('Failed to fetch dynamically imported module');
 	});
 	cleanups.push(() => mounted.release());
@@ -1112,7 +1104,7 @@ test('a Quit the host cannot take also uses the quit address, and says it was no
 		throw new TypeError('Load failed');
 	}) as unknown as typeof fetch;
 	const shell = setup({ bridge: { token: CONNECTION.token } });
-	const mounted = mountSession(async () => {
+	const mounted = mountSession(createQueryClient(), async () => {
 		throw new Error('Failed to fetch dynamically imported module');
 	});
 	cleanups.push(() => mounted.release());
@@ -1135,7 +1127,7 @@ test('a desktop app that is not Whispering’s shell, and a browser tab, are ask
 
 	// Inside another desktop app: no host token was injected.
 	const embedded = setup({ bridge: undefined });
-	const inApp = mountSession();
+	const inApp = mountSession(createQueryClient());
 	expect(expectErr(await inApp.opening).name).toBe('HostMissing');
 	// Nothing to quit through, so no Quit is offered.
 	expect(inApp.quit).toBeUndefined();
@@ -1146,7 +1138,7 @@ test('a desktop app that is not Whispering’s shell, and a browser tab, are ask
 	// A browser tab that somehow carries a token: the browser owns leaving.
 	inShell = false;
 	const tab = setup({ bridge: { token: 'left-over-token' } });
-	const inTab = mountSession();
+	const inTab = mountSession(createQueryClient());
 	expect(expectErr(await inTab.opening).name).toBe('BrowserFolder');
 	expect(inTab.quit).toBeUndefined();
 	tab.closeBlocked();

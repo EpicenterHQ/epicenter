@@ -26,7 +26,9 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
 import {
 	audioPathIn,
+	RECORDINGS,
 	type RecordingFields,
+	TEXT_RUNS,
 	type TextRunFields,
 	TRANSCRIPTIONS,
 	TRANSFORMATIONS,
@@ -182,7 +184,6 @@ export function createRuns({
 	resolve,
 	settle,
 	deleting,
-	refresh,
 	track,
 }: {
 	workspace: Workspace;
@@ -194,17 +195,18 @@ export function createRuns({
 		readonly error: string | undefined;
 	};
 	resolve: (recipe: Row<TransformationFields> | undefined) => ResolvedRecipe;
-	/** Wait for the saves of an open draft at `path`; why not, when its save failed. */
-	settle: (path: string) => Promise<string | undefined>;
+	/** Resolves once the edits being written have landed, so what is read is what was typed. */
+	settle: () => Promise<void>;
 	/** Recordings whose deletion is under way. No request starts for one. */
 	deleting: ReadonlySet<string>;
-	refresh: () => Promise<void>;
 	/**
-	 * Count folder work as running until it settles, so leaving and closing
-	 * wait for it. Waiting on an endpoint is not counted: a request that does
-	 * not answer must not keep the app from asking to close.
+	 * Run folder work as a mutation, so leaving and closing wait for it and
+	 * the folder is read again after it. `scope` names the file whose queue
+	 * it joins: a recording's results are saved in order, after its writes.
+	 * Waiting on an endpoint is not tracked: a request that does not answer
+	 * must not keep the app from asking to close.
 	 */
-	track: <T>(work: () => Promise<T>) => Promise<T>;
+	track: <T>(work: () => Promise<T>, scope?: string) => Promise<T>;
 }) {
 	const { folder } = workspace;
 	/** Transcription runs, by recording ID. */
@@ -241,11 +243,15 @@ export function createRuns({
 		admitted: TranscriptionRun,
 	) {
 		writing.set(received.id, recording);
-		const { error } = await createOnce(
-			folder.tables.transcriptions,
-			received.id,
-			received.row,
-			'transcript',
+		const { error } = await track(
+			() =>
+				createOnce(
+					folder.tables.transcriptions,
+					received.id,
+					received.row,
+					'transcript',
+				),
+			rowPath(RECORDINGS, recording),
 		);
 		writing.delete(received.id);
 		const stands = transcriptions.get(recording) === admitted;
@@ -260,7 +266,6 @@ export function createRuns({
 			return;
 		}
 		if (stands) transcriptions.delete(recording);
-		await refresh();
 	}
 
 	/** Save a received recipe result. Applied only while `admitted` still stands. */
@@ -272,17 +277,25 @@ export function createRuns({
 		);
 		const { error } =
 			run.destination === 'transcript'
-				? await createOnce(
-						folder.tables.transformation_runs,
-						run.id,
-						{ fields: run.fields, body },
-						'result',
+				? await track(
+						() =>
+							createOnce(
+								folder.tables.transformation_runs,
+								run.id,
+								{ fields: run.fields, body },
+								'result',
+							),
+						rowPath(RECORDINGS, run.fields.recordingId),
 					)
-				: await createOnce(
-						folder.tables.text_runs,
-						run.id,
-						{ fields: run.fields, body },
-						'result',
+				: await track(
+						() =>
+							createOnce(
+								folder.tables.text_runs,
+								run.id,
+								{ fields: run.fields, body },
+								'result',
+							),
+						rowPath(TEXT_RUNS, run.id),
 					);
 		writing.delete(run.id);
 		const stands = recipes.get(run.id) === admitted;
@@ -295,7 +308,6 @@ export function createRuns({
 			return;
 		}
 		if (stands) recipes.delete(run.id);
-		await refresh();
 	}
 
 	/**
@@ -330,7 +342,7 @@ export function createRuns({
 			return;
 		}
 		if (run.destination === 'transcript') {
-			await track(() => saveRun(run, answer.text, running));
+			await saveRun(run, answer.text, running);
 			return;
 		}
 		if (recipes.get(run.id) === running)
@@ -344,14 +356,13 @@ export function createRuns({
 			);
 	}
 
-	/** The saved transformation at `path`, read now, after its open draft settles. */
+	/** The saved transformation at `path`, read now, after the edits being written land. */
 	async function recipeAt(
 		path: string,
 	): Promise<Result<{ stem: string; resolved: ResolvedRecipe }, string>> {
 		const stem = rowStemOf(TRANSFORMATIONS, path);
 		if (stem === undefined) return Err(`${path} is not a transformation.`);
-		const unsettled = await settle(path);
-		if (unsettled !== undefined) return Err(unsettled);
+		await settle();
 		const { data: stored, error } =
 			await folder.tables.transformations.get(stem);
 		if (error !== null && error.name !== 'InvalidRow')
@@ -363,8 +374,8 @@ export function createRuns({
 
 	/**
 	 * What a transformation is made from, read now: the transcript's saved text
-	 * and the recording it names. Its open draft settles first; one whose save
-	 * failed refuses, so what is sent is never text the folder does not have.
+	 * and the recording it names. The edits being written land first, so what
+	 * is sent is what the folder has.
 	 */
 	async function transcriptAt(
 		path: string,
@@ -377,8 +388,7 @@ export function createRuns({
 		const transcriptionId = rowStemOf(TRANSCRIPTIONS, path);
 		if (transcriptionId === undefined)
 			return Err(`${path} is not a transcript.`);
-		const unsettled = await settle(path);
-		if (unsettled !== undefined) return Err(unsettled);
+		await settle();
 		const { data: stored, error } =
 			await folder.tables.transcriptions.get(transcriptionId);
 		if (error?.name === 'InvalidRow')
@@ -429,7 +439,7 @@ export function createRuns({
 			if (run === undefined) return;
 			if (run.state.kind === 'unsaved') {
 				const { text } = run.state;
-				await track(() => saveRun(run, text, run));
+				await saveRun(run, text, run);
 				return;
 			}
 			if (run.state.kind !== 'failed') return;
@@ -616,24 +626,22 @@ export function createRuns({
 				return;
 			}
 			const at = new Date();
-			await track(() =>
-				saveTranscript(
-					id,
-					{
-						id: makeId(at),
-						row: {
-							fields: {
-								recordingId: id,
-								createdAt: at.toISOString(),
-								model: connection.model,
-								endpoint: connection.baseUrl,
-							} as TranscriptionFields,
-							body: resultBody(answer.text),
-						},
-						text: answer.text,
+			await saveTranscript(
+				id,
+				{
+					id: makeId(at),
+					row: {
+						fields: {
+							recordingId: id,
+							createdAt: at.toISOString(),
+							model: connection.model,
+							endpoint: connection.baseUrl,
+						} as TranscriptionFields,
+						body: resultBody(answer.text),
 					},
-					running,
-				),
+					text: answer.text,
+				},
+				running,
 			);
 		},
 		/** Save a held transcript again. The endpoint is not called. */
@@ -643,7 +651,7 @@ export function createRuns({
 			if (run?.kind !== 'unsaved' || run.saving) return;
 			const admitted: TranscriptionRun = { ...run, saving: true };
 			transcriptions.set(id, admitted);
-			await track(() => saveTranscript(id, run, admitted));
+			await saveTranscript(id, run, admitted);
 		},
 		/** Drop a transcription run that is not running. A write already begun may still land. */
 		dismissRun(id: string) {
@@ -662,44 +670,54 @@ export function createRuns({
 			const why = refused();
 			if (why !== undefined) return why;
 			const pair = JSON.stringify([transcriptionPath, transformationPath]);
-			if (applying.has(pair))
+			const sending = transcriptRuns().some(
+				(run) =>
+					run.state.kind === 'running' &&
+					run.fields.transcriptionId ===
+						rowStemOf(TRANSCRIPTIONS, transcriptionPath) &&
+					run.fields.transformationId ===
+						rowStemOf(TRANSFORMATIONS, transformationPath),
+			);
+			if (applying.has(pair) || sending)
 				return 'This transformation is already running on this transcript. Run it again when it has finished.';
 			applying.add(pair);
-			try {
-				const { data: recipe, error } = await track(() =>
-					recipeAt(transformationPath),
-				);
-				if (error !== null) return error;
-				const { resolved } = recipe;
-				if (resolved.kind !== 'ready') return resolved.reason;
-				const { data: source, error: sourceError } = await track(() =>
-					transcriptAt(transcriptionPath),
-				);
-				if (sourceError !== null) return sourceError;
-				if (deleting.has(source.recordingId)) return BEING_DELETED;
-				const late = refused();
-				if (late !== undefined) return late;
-				const at = new Date();
-				await sendRun({
-					id: makeId(at),
-					destination: 'transcript',
-					fields: {
-						recordingId: source.recordingId,
-						transcriptionId: source.transcriptionId,
-						transformationId: recipe.stem,
-						transformationTitle: resolved.title,
-						createdAt: at.toISOString(),
-						model: resolved.model,
-						endpoint: resolved.endpoint,
-						prompt: resolved.prompt,
-						input: source.input,
-					} as TransformationRunFields,
-					state: { kind: 'running' },
-				});
-				return undefined;
-			} finally {
-				applying.delete(pair);
-			}
+			// The reads are folder work that leaving waits for; the request is not.
+			const prepared = await track(async (): Promise<Run | string> => {
+				try {
+					const { data: recipe, error } = await recipeAt(transformationPath);
+					if (error !== null) return error;
+					const { resolved } = recipe;
+					if (resolved.kind !== 'ready') return resolved.reason;
+					const { data: source, error: sourceError } =
+						await transcriptAt(transcriptionPath);
+					if (sourceError !== null) return sourceError;
+					if (deleting.has(source.recordingId)) return BEING_DELETED;
+					const late = refused();
+					if (late !== undefined) return late;
+					const at = new Date();
+					return {
+						id: makeId(at),
+						destination: 'transcript',
+						fields: {
+							recordingId: source.recordingId,
+							transcriptionId: source.transcriptionId,
+							transformationId: recipe.stem,
+							transformationTitle: resolved.title,
+							createdAt: at.toISOString(),
+							model: resolved.model,
+							endpoint: resolved.endpoint,
+							prompt: resolved.prompt,
+							input: source.input,
+						} as TransformationRunFields,
+						state: { kind: 'running' },
+					};
+				} finally {
+					applying.delete(pair);
+				}
+			});
+			if (typeof prepared === 'string') return prepared;
+			await sendRun(prepared);
+			return undefined;
 		},
 		/**
 		 * Apply a saved recipe to pasted text, taken as it is now. The answer
@@ -726,41 +744,44 @@ export function createRuns({
 			if (held !== undefined)
 				return 'A result of this transformation on pasted text is waiting. Save or discard it first, so it is not replaced.';
 			applying.add(key);
-			try {
-				const { data: recipe, error } = await track(() =>
-					recipeAt(transformationPath),
-				);
-				if (error !== null) return error;
-				const { resolved } = recipe;
-				if (resolved.kind !== 'ready') return resolved.reason;
-				const late = refused();
-				if (late !== undefined) return late;
-				// A failed run held nothing; the new one takes its place.
-				for (const run of textRuns())
-					if (
-						run.fields.transformationId === stem &&
-						run.state.kind === 'failed'
-					)
-						recipes.delete(run.id);
-				const at = new Date();
-				await sendRun({
-					id: makeId(at),
-					destination: 'text',
-					fields: {
-						transformationId: stem,
-						transformationTitle: resolved.title,
-						createdAt: at.toISOString(),
-						model: resolved.model,
-						endpoint: resolved.endpoint,
-						prompt: resolved.prompt,
-						input,
-					} as TextRunFields,
-					state: { kind: 'running' },
-				});
-				return undefined;
-			} finally {
-				applying.delete(key);
-			}
+			// The read is folder work that leaving waits for; the request is not.
+			const prepared = await track(async (): Promise<Run | string> => {
+				try {
+					const { data: recipe, error } = await recipeAt(transformationPath);
+					if (error !== null) return error;
+					const { resolved } = recipe;
+					if (resolved.kind !== 'ready') return resolved.reason;
+					const late = refused();
+					if (late !== undefined) return late;
+					// A failed run held nothing; the new one takes its place.
+					for (const run of textRuns())
+						if (
+							run.fields.transformationId === stem &&
+							run.state.kind === 'failed'
+						)
+							recipes.delete(run.id);
+					const at = new Date();
+					return {
+						id: makeId(at),
+						destination: 'text',
+						fields: {
+							transformationId: stem,
+							transformationTitle: resolved.title,
+							createdAt: at.toISOString(),
+							model: resolved.model,
+							endpoint: resolved.endpoint,
+							prompt: resolved.prompt,
+							input,
+						} as TextRunFields,
+						state: { kind: 'running' },
+					};
+				} finally {
+					applying.delete(key);
+				}
+			});
+			if (typeof prepared === 'string') return prepared;
+			await sendRun(prepared);
+			return undefined;
 		},
 		/** Save a received result on pasted text under the id fixed when it began. */
 		async saveTextRun(id: string) {

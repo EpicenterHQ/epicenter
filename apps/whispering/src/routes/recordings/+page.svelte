@@ -18,7 +18,7 @@
 	 * table on a wide window, where the table keeps its search, order, and
 	 * ticks in view, and in place of it below this width. Closing the details
 	 * gives the whole width back to the table and changes nothing else: the
-	 * recording stays selected, and what was typed in its drafts stays typed.
+	 * recording stays selected, and everything typed is already in its file.
 	 */
 	const wide = new MediaQuery('(min-width: 768px)');
 
@@ -38,11 +38,11 @@
 	{@const selection = library.selection}
 	{#if selection?.kind === 'recording'}
 		{#key selection.path}
-			<RecordingDetail {library} path={selection.path} draft={selection.draft} entry={selection.entry} {onBack} {onClose} />
+			<RecordingDetail {library} path={selection.path} entry={selection.entry} {onBack} {onClose} />
 		{/key}
 	{:else if selection?.kind === 'file'}
 		{#key selection.path}
-			<FileView {library} path={selection.path} draft={selection.draft} onBack={onBack ?? onClose} />
+			<FileView {library} path={selection.path} onBack={onBack ?? onClose} />
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">

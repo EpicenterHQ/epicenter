@@ -11,7 +11,7 @@
  * choice, a transcript's Transform menu, the recipe's own page, and the run
  * itself all ask it, so none of them can disagree about whether a recipe
  * runs or with what. The run asks it again of the saved file, after the
- * draft has been saved, and that answer is what is sent.
+ * edits being written have landed, and that answer is what is sent.
  */
 
 import type { Row } from '@epicenter/folder';
@@ -22,7 +22,7 @@ import {
 } from './connections.js';
 import type { TransformationFields } from './definition.js';
 
-/** A recipe as a row: a listed one, or a draft. Undefined when its text is not a valid row. */
+/** A recipe as a row: a listed one, or its text as typed. Undefined when its text is not a valid row. */
 export type RecipeRow = Pick<Row<TransformationFields>, 'fields' | 'body'>;
 
 export type ResolvedRecipe =

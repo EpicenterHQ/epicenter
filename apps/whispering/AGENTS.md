@@ -64,9 +64,10 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   does not know whether the endpoint was called. Report it as unknown, never
   as "not sent", and never send a provider request again without the person
   asking. A stopped Bun host does not stop saving: do not tell the person it does.
-- **Files are authoritative.** Do not add a cache, mirror, or second store of
-  recordings. Do not add Yjs, the `@epicenter/app` store, accounts, or sync to
-  this workflow.
+- **Files are authoritative.** The TanStack Query cache holds only the folder
+  as last read and edits on their way to it (ADR-0528); do not add another
+  cache, mirror, or second store of recordings. Do not add Yjs, the
+  `@epicenter/app` store, accounts, or sync to this workflow.
 - **A recording's audio is the file its row names.** `audioPath` is the only
   link. Do not infer audio from a file that shares the row's stem, do not
   fill in a missing `audioPath`, and do not delete audio because its row was

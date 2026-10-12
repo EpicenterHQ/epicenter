@@ -9,9 +9,10 @@
  * The app layout opens exactly one session when it mounts and closes it when it
  * is destroyed. Pages receive it from context and never open a workspace, so
  * moving between `/`, `/recordings`, and `/transformations` keeps the live
- * recording, pending audio, selections, running requests, drafts, and the
- * terminal exactly as they were. Only leaving the app is guarded.
+ * recording, pending audio, selections, running requests, the query cache,
+ * and the terminal exactly as they were. Only leaving the app is guarded.
  */
+import type { QueryClient } from '@tanstack/svelte-query';
 import { createContext } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createLeaveGuard } from './leave.svelte.js';
@@ -106,9 +107,10 @@ async function failOpening(
  */
 export async function createSession(
 	workspace: Workspace,
+	queryClient: QueryClient,
 	released?: AbortSignal,
 ) {
-	const library = createLibrary(workspace);
+	const library = createLibrary(workspace, queryClient);
 	try {
 		await library.start();
 		if (released?.aborted) throw new Error(RELEASED);
@@ -147,7 +149,7 @@ export async function createSession(
 		/**
 		 * Whether a recording's details are showing: beside the table on a wide
 		 * window, in place of it on a narrow one. Closing them changes nothing
-		 * else: the recording stays selected and its drafts stay as typed.
+		 * else: the recording stays selected.
 		 */
 		showingDetail: false,
 		/** On a narrow window, whether a transformation's editor shows in place of the list. */
@@ -199,7 +201,7 @@ export async function createSession(
 		blocksNavigation(navigation: { readonly willUnload: boolean }): boolean {
 			return navigation.willUnload && library.holdsUnsavedWork;
 		},
-		/** Stop answering the shell, save what can be saved, and release the folder. Runs once. */
+		/** Stop answering the shell, wait for what is being written, and release the folder. Runs once. */
 		close(): Promise<void> {
 			closing ??= (async () => {
 				leave.dispose();
@@ -213,7 +215,8 @@ export async function createSession(
 export type Session = Awaited<ReturnType<typeof createSession>>;
 
 /**
- * Open the workspace this page was given and start a session over it. Called
+ * Open the workspace this page was given and start a session over it, with
+ * `queryClient` holding what it reads and running what it writes. Called
  * by the app layout when it mounts; importing this module opens nothing. A
  * workspace that cannot be opened is returned as the reason, and no session
  * exists. A session that cannot start, or whose layout was released first,
@@ -223,6 +226,7 @@ export type Session = Awaited<ReturnType<typeof createSession>>;
  * what that opener acquired before it threw.
  */
 export async function openSession(
+	queryClient: QueryClient,
 	open: () => Promise<Result<Workspace, WorkspaceError>> = openWorkspace,
 	released?: AbortSignal,
 ): Promise<Result<Session, WorkspaceError>> {
@@ -230,7 +234,7 @@ export async function openSession(
 	if (openError !== null) return Err(openError);
 	if (released?.aborted)
 		return failOpening(new Error(RELEASED), () => workspace.close());
-	return Ok(await createSession(workspace, released));
+	return Ok(await createSession(workspace, queryClient, released));
 }
 
 /**
@@ -264,6 +268,7 @@ export async function openSession(
  * question.
  */
 export function mountSession(
+	queryClient: QueryClient,
 	open: () => Promise<Result<Workspace, WorkspaceError>> = openWorkspace,
 	answerClose: () => () => void = answerCloseAfterFailedOpening,
 	quitWhenAsked:
@@ -271,7 +276,7 @@ export function mountSession(
 		| undefined = quitAfterFailedOpening(),
 ) {
 	const releasing = new AbortController();
-	const opening = openSession(open, releasing.signal);
+	const opening = openSession(queryClient, open, releasing.signal);
 	let stopAnswering: (() => void) | undefined;
 	/** Whether the opening ended with no session, however it failed. */
 	let openingFailed = false;

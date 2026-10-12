@@ -15,7 +15,7 @@
  * for each row first, as a single deletion is, and removed only as captured.
  */
 import { audioPathIn } from './definition.js';
-import { recordingTitle, UNSAVED_DISCARDED } from './deletion.js';
+import { recordingTitle } from './deletion.js';
 import type {
 	Deletion,
 	Library,
@@ -403,7 +403,11 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 			audio > 0
 				? `${audio === 1 ? 'The audio file is' : `The ${audio} audio files are`} not deleted: audio stays in the folder as ordinary files, and you can delete it from Files. `
 				: ''
-		}${UNSAVED_DISCARDED} Committed versions stay in Git history.${
+		}${
+			deletions.some((item) => item.unversioned)
+				? 'Some have changes that are in no saved version, and those are lost. Earlier saved versions stay in Git history.'
+				: 'Saved versions stay in Git history.'
+		}${
 			refused.length > 0
 				? ` ${count(refused.length, 'selected recording is', 'selected recordings are')} left out and kept: ${refused
 						.map(({ title, reason }) => `“${title}” (${reason})`)

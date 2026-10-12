@@ -6,7 +6,6 @@
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { wellFormed } from '@epicenter/folder';
-	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
@@ -14,26 +13,23 @@
 	import { transformationName } from '$lib/post-processing.js';
 	import { copyText, formatTime, lf, openItem } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import SaveBar from '@epicenter/svelte/save-bar';
 	import TransformationOutput from './TransformationOutput.svelte';
 
 	/**
 	 * One saved transcript of the recording that is open, edited where it is
 	 * read, beside the player. Its text is the body of the transcript's own
-	 * file, in a draft opened beside the recording and left with it. Nothing
-	 * here selects the transcript's file, so the recording stays open.
+	 * file, edited in the transcriptions listing in the cache and written at
+	 * once. Nothing here selects the transcript's file, so the recording
+	 * stays open.
 	 */
 	let { library, result }: { library: Library; result: TranscriptionEntry } = $props();
 
-	// Open the file's draft once for this path, beside the recording.
-	$effect(() => {
-		const path = result.path;
-		untrack(() => void library.openTranscript(path));
-	});
-	const draft = $derived(library.draftAt(result.path));
-	const row = $derived(draft?.kind === 'row' && draft.table === TRANSCRIPTIONS ? draft.session : undefined);
-	/** The text now: the draft's, or the row as listed. */
-	const text = $derived(row?.draft.body ?? result.row.body);
+	/** Edited here unless the person opened its file as text in Files. */
+	const asText = $derived(library.showsText(result.path));
+	const row = $derived(asText ? undefined : library.rowAt(TRANSCRIPTIONS, result.path)?.row);
+	/** The text now, as the cache holds it. */
+	const text = $derived(row?.body ?? result.row.body);
+	const locked = $derived(library.locked(result.path));
 
 	const outputs = $derived(library.outputsFor(result.stem));
 	const transforming = $derived(
@@ -60,41 +56,27 @@
 		<Textarea
 			class="min-h-32 resize-y font-sans"
 			bind:value={
-				() => lf(row?.draft.body ?? ''),
+				() => lf(row?.body ?? ''),
 				(value) =>
-					row?.edit((draft) => {
-						draft.body = withFileNewlines(wellFormed(value), draft.body);
-					})
+					library.editRow(TRANSCRIPTIONS, result.stem, (r) => ({
+						...r,
+						body: withFileNewlines(wellFormed(value), r.body),
+					}))
 			}
-			disabled={row.locked}
+			disabled={locked}
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"
 			data-testid="transcript-text"
 		/>
-		<SaveBar
-			save={row.state}
-			review={row.review}
-			hideWhenSaved
-			onRetry={() => row.retry()}
-			onResolve={(choices) => library.resolveReview(row, choices)}
-		/>
+		{#if library.isSaving(result.path)}
+			<p class="text-xs text-muted-foreground" role="status">Saving…</p>
+		{/if}
 	{:else}
 		<p class="max-h-64 overflow-y-auto rounded border p-2 whitespace-pre-wrap" data-testid="transcript-text-readonly">{text}</p>
 	{/if}
-	{#if draft?.kind === 'text'}
-		<p class="text-xs text-destructive" role="alert">
-			This transcript’s file is being edited as text, so its text cannot be edited here. Open it from Files.
-		</p>
-		<SaveBar
-			save={draft.session.state}
-			review={draft.session.review}
-			hideWhenSaved
-			onRetry={() => draft.session.retry()}
-			onResolve={(choices) => library.resolveReview(draft.session, choices)}
-		/>
-	{:else if draft?.kind === 'failed'}
-		<p class="text-xs text-destructive" role="alert">
-			This transcript’s file could not be opened: {draft.message}
+	{#if asText}
+		<p class="text-xs text-muted-foreground" role="status">
+			This transcript’s file is open as text in Files, so its text is edited there.
 		</p>
 	{/if}
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">

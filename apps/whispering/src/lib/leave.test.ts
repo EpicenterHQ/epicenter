@@ -5,9 +5,9 @@
  * Key behaviors:
  * - Nothing held: the page answers `proceed` with no prompt
  * - A row save still running is waited for, then `proceed`
- * - A pending capture, an unsaved transcript or transformation result, a live
- *   recording, or a draft whose save failed or conflicted: the page answers
- *   `asking` and shows its prompt
+ * - A pending capture, an unsaved transcript or transformation result, or a
+ *   live recording: the page answers `asking` and shows its prompt
+ * - A write that failed was rolled back and reported; it holds nothing
  * - "Keep working" answers `cancel` and every held byte is still there
  * - "Discard and quit" answers `proceed`
  */
@@ -20,7 +20,13 @@ import { join } from 'node:path';
 import { FileError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { createFixtureDevice, toneWav } from './capture.js';
+import {
+	recordingEditor,
+	settle,
+	transformationEditor,
+} from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
+import { createQueryClient } from './query.test-support.js';
 import type { CloseDecision, Workspace } from './workspace/types.js';
 import {
 	openTestFolder,
@@ -153,7 +159,7 @@ async function open({
 		injection: testInjection(root, { audio: failAudioWrites, row: 0 }),
 		close: () => folder.close(),
 	};
-	const library = createLibrary(workspace);
+	const library = createLibrary(workspace, createQueryClient());
 	opened.push(library);
 	await library.start();
 	const guard = createLeaveGuard(
@@ -225,29 +231,13 @@ async function record(library: Library) {
 /** A draft as plain data, to compare before and after. */
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 
-/** The open recording's row session. */
-function recordingSession(library: Library) {
-	const draft = library.selection?.draft;
-	if (draft?.kind !== 'row' || draft.table !== 'recordings')
-		throw new Error(`Expected an open recording, got ${draft?.kind}`);
-	return draft.session;
-}
-
-/** The open transformation's row session. */
-function transformationSession(library: Library) {
-	const draft = library.selectedTransformation?.draft;
-	if (draft?.kind !== 'row' || draft.table !== 'transformations')
-		throw new Error(`Expected an open transformation, got ${draft?.kind}`);
-	return draft.session;
-}
-
 /** Name a model in the open transformation, so it can run. */
 async function nameModel(library: Library) {
-	const session = transformationSession(library);
+	const session = transformationEditor(library);
 	session.edit((row) => {
 		row.fields.model = 'chat-model';
 	});
-	await session.settled();
+	await settle(library);
 }
 
 test('with everything saved, a close request is acknowledged and proceeds without a prompt', async () => {
@@ -263,17 +253,17 @@ test('with everything saved, a close request is acknowledged and proceeds withou
 test('a row save still running is waited for, then the close proceeds', async () => {
 	const { library, guard, answers, ask, root } = await open();
 	await record(library);
-	const session = recordingSession(library);
+	const session = recordingEditor(library);
 	session.edit((row) => {
 		row.fields.title = 'Typed just now';
 	});
-	expect(session.state.status).toBe('saving');
+	expect(library.isSaving(session.path)).toBe(true);
 
 	await ask();
 
 	expect(answers).toEqual(['asking', 'proceed']);
 	expect(guard.asking).toBe(false);
-	expect(session.state.status).toBe('saved');
+	expect(library.isSaving(session.path)).toBe(false);
 	const saved = await Bun.file(join(root, session.path)).text();
 	expect(saved).toContain('title: Typed just now');
 });
@@ -400,63 +390,57 @@ test('a transformation result whose file was not saved blocks the close and is k
 	expect(answers).toEqual(['asking', 'cancel', 'asking', 'proceed']);
 });
 
-test('a recording deleted elsewhere under typing blocks the close, keeps the draft, and never creates the file', async () => {
-	const { library, guard, answers, ask, root } = await open();
+test('a recording deleted elsewhere under typing stays deleted: the write fails, the lost text is reported, and the close proceeds', async () => {
+	const { library, answers, ask, root } = await open();
 	await record(library);
-	const session = recordingSession(library);
+	const failures: string[] = [];
+	library.onWriteFailed((failure) => failures.push(failure.lost));
+	const session = recordingEditor(library);
 	const path = join(root, session.path);
 	await rm(path);
 	session.edit((row) => {
 		row.fields.title = 'Typed after it was removed';
 	});
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
+	await settle(library);
+	expect(failures).toEqual([
+		expect.stringContaining('title: Typed after it was removed'),
+	]);
+	expect(library.selection).toBeUndefined();
 
 	await ask();
 
-	expect(answers).toEqual(['asking']);
-	expect(guard.held).toContain(`${session.path} has edits held in a conflict.`);
-	await guard.stay();
-	expect(session.draft.fields.title).toBe('Typed after it was removed');
+	expect(answers).toEqual(['asking', 'proceed']);
 	expect(await Bun.file(path).exists()).toBe(false);
 });
 
-test('close keeps failed input visible, and typing after Keep working saves again', async () => {
+test('a failed write rolls back and is reported, the close does not write it again, and typing after it saves', async () => {
 	const { library, guard, answers, ask, root } = await open();
 	await record(library);
-	const session = recordingSession(library);
+	const failures: string[] = [];
+	library.onWriteFailed((failure) => failures.push(failure.lost));
+	const session = recordingEditor(library);
 	const path = join(root, session.path);
 	const before = await Bun.file(path).text();
-	// The row's directory refuses the save; the draft stays visible.
+	// The row's directory refuses the save; the cache rolls back.
 	chmodSync(join(root, 'recordings'), 0o555);
 	try {
 		session.edit((row) => {
 			row.fields.title = 'Typed before it failed';
 		});
-		expect((await session.settled()).status).toBe('error');
+		await settle(library);
 	} finally {
 		chmodSync(join(root, 'recordings'), 0o755);
 	}
+	expect(failures).toEqual([
+		expect.stringContaining('title: Typed before it failed'),
+	]);
+	expect(session.draft.fields.title).not.toBe('Typed before it failed');
 
+	// Nothing is held: the failure was reported, and the file is as it was.
 	await ask();
-
-	// Close does not resubmit failed input without another edit.
-	expect(answers).toEqual(['asking']);
-	expect(guard.held).toContain(
-		`${session.path} has edits whose last save failed.`,
-	);
+	expect(answers).toEqual(['asking', 'proceed']);
+	expect(guard.asking).toBe(false);
 	expect(await Bun.file(path).text()).toBe(before);
-	await guard.stay();
-	expect(session.draft.fields.title).toBe('Typed before it failed');
-
-	// Keep working admits later input, which saves again.
-	session.edit((row) => {
-		row.fields.title = 'Typed after staying';
-	});
-	expect((await session.settled()).status).toBe('saved');
-	expect(await Bun.file(path).text()).toContain('Typed after staying');
-	await ask();
-	expect(answers).toEqual(['asking', 'cancel', 'asking', 'proceed']);
 });
 
 test('when what is held cannot be determined, the page asks instead of proceeding', async () => {
@@ -584,7 +568,7 @@ test('a capture or typing asked for while the approval is on its way is refused'
 		deliverProceed: () => delivered.promise,
 	});
 	await record(library);
-	const session = recordingSession(library);
+	const session = recordingEditor(library);
 	const before = plain(session.draft);
 
 	// Nothing was held, so `proceed` is sent. It has not arrived yet.
@@ -593,15 +577,14 @@ test('a capture or typing asked for while the approval is on its way is refused'
 	expect(guard.phase).toBe('quitting');
 
 	await library.startRecording();
-	expect(session.locked).toBe(true);
+	expect(library.locked(session.path)).toBe(true);
 	session.edit((row) => {
 		row.fields.title = 'Typed after approval';
 	});
-	session.retry();
 
 	expect(library.recorder.phase).toBe('idle');
 	expect(plain(session.draft)).toEqual(before);
-	expect(session.state.status).toBe('saved');
+	expect(library.isSaving(session.path)).toBe(false);
 	expect(library.holdsUnsavedWork).toBe(false);
 
 	delivered.resolve();
@@ -620,11 +603,11 @@ test('while the person decides nothing new starts, and keep working admits work 
 	await record(library);
 	const pending = library.pending[0]!;
 	await library.createTransformation({ title: 'Clean up', prompt: 'Tidy.\n' });
-	const session = transformationSession(library);
+	const session = transformationEditor(library);
 	session.edit((row) => {
 		row.body = 'Typed before the close.\n';
 	});
-	expect((await session.settled()).status).toBe('saved');
+	await settle(library);
 
 	await ask();
 	expect(answers).toEqual(['asking']);
@@ -640,15 +623,14 @@ test('while the person decides nothing new starts, and keep working admits work 
 		row.body = 'typed while asked';
 	});
 	expect(session.draft.body).toBe('Typed before the close.\n');
-	expect(session.state.status).toBe('saved');
+	expect(library.isSaving(session.path)).toBe(false);
 	expect(await library.editSource(session.path)).toContain('closing');
-	expect(await library.resolveReview(session, {})).toContain('closing');
 	expect(await library.createFile('', 'note.md')).toContain('closing');
 	expect(await Bun.file(join(root, 'note.md')).exists()).toBe(false);
 	library.terminal.command = 'echo hi';
 	await library.terminal.run();
 	expect(library.terminal.runs.at(-1)?.result?.stderr).toContain('closing');
-	expect((await library.commit()).status).toBe('blocked');
+	expect((await library.saveVersion()).status).toBe('blocked');
 
 	await guard.stay();
 
@@ -659,7 +641,7 @@ test('while the person decides nothing new starts, and keep working admits work 
 	session.edit((row) => {
 		row.body = 'Typed before the close.\nMore.\n';
 	});
-	expect((await session.settled()).status).toBe('saved');
+	await settle(library);
 	expect(await Bun.file(join(root, session.path)).text()).toContain('More.');
 	await library.startRecording();
 	expect(library.recorder.phase).toBe('recording');
@@ -887,10 +869,10 @@ test('keep working while saves settle admits work again, and the finished prepar
 	expect(page.guard.phase).toBe('idle');
 });
 
-test('released drafts take no input and cannot resume admission', async () => {
+test('a closed library takes no input and cannot resume admission', async () => {
 	const { library, guard } = await open();
 	await record(library);
-	const session = recordingSession(library);
+	const session = recordingEditor(library);
 	const before = plain(session.draft);
 	guard.dispose();
 	await library.close();
@@ -899,6 +881,6 @@ test('released drafts take no input and cannot resume admission', async () => {
 		row.fields.title = 'Typed after release';
 	});
 	expect(library.admitting).toBe(false);
-	expect(session.locked).toBe(true);
+	expect(library.locked(session.path)).toBe(true);
 	expect(plain(session.draft)).toEqual(before);
 });

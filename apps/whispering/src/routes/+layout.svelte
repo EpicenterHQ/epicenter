@@ -5,6 +5,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
+	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { ModeWatcher } from 'mode-watcher';
 	import { onDestroy } from 'svelte';
@@ -20,7 +21,9 @@
 	// it: a route change renders another page inside the same session. Importing
 	// modules opens nothing, and no page opens a folder of its own. If the
 	// folder cannot be opened, the same holder lets the window be closed.
-	const { opening, quit, release } = mountSession();
+	// One cache for the session: the files it shows, and every write and action.
+	const queryClient = new QueryClient();
+	const { opening, quit, release } = mountSession(queryClient);
 
 	onDestroy(release);
 
@@ -57,6 +60,7 @@
 
 <svelte:head><title>Whispering</title></svelte:head>
 
+<QueryClientProvider client={queryClient}>
 <Tooltip.Provider>
 	{#await opening}
 		<Loading class="h-dvh" label="Opening your recordings…" />
@@ -71,6 +75,7 @@
 		{@render failed(error instanceof Error ? error.message : String(error))}
 	{/await}
 </Tooltip.Provider>
+</QueryClientProvider>
 
 <ConfirmationDialog />
 <Toaster offset={16} closeButton />

@@ -31,8 +31,9 @@ import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { ConnectionChange } from './connections.js';
 import { STARTER_TRANSFORMATIONS } from './definition.js';
-import { transformationSession } from './drafts.test-support.js';
+import { settle, transformationEditor } from './edits.test-support.js';
 import { resolvePostProcessing } from './post-processing.js';
+import { createQueryClient } from './query.test-support.js';
 import type { Session } from './session.svelte.js';
 import type { Workspace } from './workspace/types.js';
 import {
@@ -56,7 +57,7 @@ async function open(
 	const test = await openTestWorkspace(options);
 	const workspace = change(test.workspace);
 	const session: Session = expectOk(
-		await openSession(async () => Ok(workspace)),
+		await openSession(createQueryClient(), async () => Ok(workspace)),
 	);
 	cleanups.push(async () => {
 		await session.close();
@@ -79,13 +80,12 @@ async function cleanup(session: Session, model?: string) {
 	expect(
 		await library.createTransformation(STARTER_TRANSFORMATIONS[0]!),
 	).toBeUndefined();
-	const draft = transformationSession(library);
+	const draft = transformationEditor(library);
 	if (model !== undefined) {
 		draft.edit((row) => {
 			row.fields.model = model;
 		});
-		expect((await draft.settled()).status).toBe('saved');
-		await library.refreshAll();
+		await settle(library);
 	}
 	return library.transformations[0]!;
 }
@@ -124,7 +124,7 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 	// Nothing is transcribed by recording either.
 	expect(transcribed).toEqual([]);
 	await library.transcribe(library.entries[0]!);
-	await library.refreshAll();
+	await settle(library);
 
 	expect(transformed).toEqual([]);
 	expect(await names(root, 'transformation_runs')).toEqual([]);
@@ -173,7 +173,7 @@ test('a chosen transformation with no text connection to run over cannot run, an
 	);
 
 	await rm(join(root, profile.path));
-	await library.refreshAll();
+	await settle(library);
 
 	expect(
 		resolvePostProcessing(
@@ -194,7 +194,7 @@ test('the folder being read is reported while it is read, and not after', async 
 	const { library } = await open();
 	expect(library.refreshing).toBe(false);
 
-	const reading = library.refresh();
+	const reading = library.check();
 	expect(library.refreshing).toBe(true);
 	await reading;
 

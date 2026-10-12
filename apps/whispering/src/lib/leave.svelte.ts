@@ -1,17 +1,17 @@
 /**
  * Answers the desktop shell when it asks to close the window or quit.
  *
- * Unsaved typing, captured audio that has not reached the folder, a received
- * transcript whose file was not written, and a live recording exist only in
- * this page. The shell cannot see them, so it asks before closing and closes
- * only on this page's `proceed`:
+ * Captured audio that has not reached the folder, a received transcript
+ * whose file was not written, and a live recording exist only in this page,
+ * and edits may still be being written. The shell cannot see them, so it asks
+ * before closing and closes only on this page's `proceed`:
  *
  * - the moment a request arrives, before anything is awaited, the page stops
  *   admitting new work: no capture, request, retry, file change, or typing
- *   starts. What it then saves and inspects is all there is;
+ *   starts. What it then waits for and inspects is all there is;
  * - every request is acknowledged with `asking` before anything else, so the
  *   shell knows the page is alive and deciding;
- * - nothing is held (after saving what can be saved): `proceed`, with no prompt;
+ * - nothing is held once nothing is being written: `proceed`, with no prompt;
  * - something is held, or it could not be determined: the page shows its own
  *   confirmation. "Keep working" answers `cancel`, admits work again, and
  *   everything stays as it was. "Discard and quit" answers `proceed`.
@@ -28,7 +28,7 @@
  * their explicit choice, even when nothing is held.
  *
  * A stopped host does not stop saving. The folder belongs to the shell and
- * stays open, so a draft still saves and a pending recording can still be
+ * stays open, so an edit is still written and a pending recording can still be
  * tried again once the person keeps working; what is held is read live, and
  * the prompt follows it. What the host did is what is gone: the terminal and
  * new transcription and transformation requests. A save can still fail for

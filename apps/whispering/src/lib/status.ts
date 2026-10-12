@@ -44,11 +44,9 @@ function withTime(
 	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
 }
 
-/** What is saved to files: open drafts and captured recordings waiting to be written. */
+/** What is saved to files: edits being written, and captured recordings waiting to be written. */
 export function filesLine(state: {
 	saving: boolean;
-	/** Open drafts whose save failed or conflicted. */
-	problems: number;
 	/** Captured recordings not known to be in the folder. */
 	pendingCaptures: number;
 	capturesSaving: boolean;
@@ -92,13 +90,6 @@ export function filesLine(state: {
 				'The text is kept in this window. Save or discard it on its transformation’s page; the endpoint is not called again.',
 			tone: 'warning',
 		};
-	if (state.problems > 0)
-		return {
-			label: `${state.problems} ${state.problems === 1 ? 'file' : 'files'} not saved`,
-			short: `${state.problems} not saved`,
-			detail: 'Open the file to review it.',
-			tone: 'error',
-		};
 	if (state.saving || state.capturesSaving)
 		return { label: 'Saving…', tone: 'busy' };
 	return { label: 'All changes saved to files', short: 'Saved', tone: 'good' };
@@ -107,7 +98,6 @@ export function filesLine(state: {
 /** The files line for the product state, as the header shows it. */
 export function filesLineOf(library: {
 	readonly saving: boolean;
-	readonly saveProblems: number;
 	readonly pending: readonly { readonly state: { readonly kind: string } }[];
 	readonly unsavedResults: number;
 	readonly unsavedTransformations: number;
@@ -115,7 +105,6 @@ export function filesLineOf(library: {
 }): StatusLine {
 	return filesLine({
 		saving: library.saving,
-		problems: library.saveProblems,
 		pendingCaptures: library.pending.length,
 		capturesSaving: library.pending.some(
 			(item) => item.state.kind === 'saving',
@@ -128,14 +117,15 @@ export function filesLineOf(library: {
 
 function changesLabel(count: number) {
 	return count === 0
-		? 'No uncommitted changes'
-		: `${count} uncommitted ${count === 1 ? 'change' : 'changes'}`;
+		? 'No changes since the last version'
+		: `${count} ${count === 1 ? 'change' : 'changes'} since the last version`;
 }
 
 /**
- * Saved files that are not in history yet. Only a current, successful
- * observation may say there are none; a stale or failed one says it needs
- * checking and names what the last check saw.
+ * Saved files that are in no saved version yet. A count is neutral detail,
+ * not a warning (ADR-0529). Only a current, successful observation may say
+ * there are none; a stale or failed one says it needs checking and names
+ * what the last check saw.
  */
 export function uncommittedLine(git: GitSnapshot): StatusLine {
 	const files = git.files;
@@ -179,16 +169,16 @@ export function uncommittedLine(git: GitSnapshot): StatusLine {
 	return withTime(
 		{
 			label: changesLabel(count),
-			short: count === 0 ? undefined : `${count} to commit`,
+			short: count === 0 ? undefined : `${count} changed`,
 			detail: changes.join('\n') || undefined,
-			tone: count === 0 ? 'good' : 'warning',
+			tone: count === 0 ? 'good' : 'neutral',
 		},
 		'Checked',
 		files.checkedAt,
 	);
 }
 
-/** One commit attempt, as the last-commit line and the Commit now toast report it. */
+/** One commit attempt, as the last-version line and the Save version toast report it. */
 export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 	switch (outcome.status) {
 		case 'committed':
@@ -209,7 +199,7 @@ export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 				? {
 						label: 'Git index not updated',
 						short: 'Index issue',
-						detail: `${outcome.indexWarning}\nCommit now retries it.`,
+						detail: `${outcome.indexWarning}\nSave version retries it.`,
 						tone: 'warning',
 					}
 				: { label: 'Nothing new to commit', tone: 'neutral' };
@@ -230,7 +220,7 @@ export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 		case 'failed':
 			return {
 				label: 'Commit failed',
-				detail: `${outcome.error}\nYour files are still saved. Commit now tries again.`,
+				detail: `${outcome.error}\nYour files are still saved. Save version tries again.`,
 				tone: 'error',
 			};
 		case 'unconfirmed':
@@ -283,7 +273,7 @@ export function headLine(git: GitSnapshot): StatusLine {
 /**
  * The one line the header shows: the most severe current fact, the earlier one
  * on a tie. Unsaved files take priority over history. The last commit attempt
- * counts only when it needs attention.
+ * and the changes since the last version count only when they need attention.
  */
 export function summaryLine(lines: {
 	files: StatusLine;
@@ -292,13 +282,14 @@ export function summaryLine(lines: {
 }): StatusLine {
 	if (lines.files.tone === 'busy' || lines.files.tone === 'error')
 		return lines.files;
+	const needsAttention = (line: StatusLine) =>
+		line.tone !== 'neutral' && line.tone !== 'good';
 	let chosen: StatusLine | undefined;
 	for (const line of [
 		lines.files,
-		lines.commit.tone === 'neutral' || lines.commit.tone === 'good'
-			? undefined
-			: lines.commit,
-		lines.uncommitted,
+		needsAttention(lines.commit) ? lines.commit : undefined,
+		// How many files changed since the last version is detail, not news.
+		needsAttention(lines.uncommitted) ? lines.uncommitted : undefined,
 	])
 		if (
 			line &&
@@ -306,17 +297,7 @@ export function summaryLine(lines: {
 		)
 			chosen = line;
 	if (chosen === undefined || chosen.tone === 'good')
-		return {
-			label: 'Saved · no uncommitted changes',
-			short: 'Saved',
-			tone: 'good',
-		};
-	// A saved file with history still to record: say both halves.
-	if (chosen === lines.uncommitted && chosen.tone === 'warning')
-		return {
-			...chosen,
-			label: `Saved · ${chosen.label.toLowerCase()}`,
-		};
+		return { label: 'Saved', tone: 'good' };
 	if (chosen === lines.commit)
 		return { ...chosen, label: `Saved · ${chosen.label.toLowerCase()}` };
 	return chosen;

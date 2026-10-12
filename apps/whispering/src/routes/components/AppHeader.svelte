@@ -51,7 +51,7 @@
 	const details = $derived<[string, string, StatusLine][]>([
 		['Files', 'status-files', files],
 		['Changes', 'status-history', uncommitted],
-		['Last commit', 'status-last-commit', commit],
+		['Last version', 'status-last-commit', commit],
 		['History', 'status-head', head],
 	]);
 
@@ -70,13 +70,13 @@
 		error: toast.error,
 	};
 
+	/** Record a version of the saved files: the only thing that commits besides the terminal. */
 	let committing = $state(false);
-	async function commitNow() {
+	async function saveVersion() {
 		committing = true;
 		try {
-			const line = commitOutcomeLine(await library.commit());
+			const line = commitOutcomeLine(await library.saveVersion());
 			notify[line.tone](line.label, { description: line.detail });
-			await library.refreshAll();
 		} finally {
 			committing = false;
 		}
@@ -170,9 +170,9 @@
 			</dl>
 			<div class="flex items-center gap-2 border-t px-3 py-2">
 				<Button variant="outline" size="sm" onclick={() => void library.check()}>Check again</Button>
-				<Button size="sm" disabled={committing || library.git.activity.commit.active} onclick={commitNow} data-testid="commit-now">
+				<Button size="sm" disabled={committing || library.git.activity.commit.active} onclick={saveVersion} data-testid="save-version">
 					{#if committing}<Spinner class="size-3.5" />{/if}
-					Commit now
+					Save version
 				</Button>
 			</div>
 		</Popover.Content>

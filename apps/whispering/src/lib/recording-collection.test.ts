@@ -38,7 +38,8 @@ import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import type { RecordingFields, TranscriptionFields } from './definition.js';
-import { allFrom, transcriptSession } from './drafts.test-support.js';
+import { settle, transcriptEditor } from './edits.test-support.js';
+import { createQueryClient } from './query.test-support.js';
 import {
 	captureDeletions,
 	DEFAULT_SORT,
@@ -172,7 +173,7 @@ async function history(
 	);
 
 	const session: Session = expectOk(
-		await openSession(async () =>
+		await openSession(createQueryClient(), async () =>
 			Ok({
 				...test.workspace,
 				folder: folderOf(test.workspace.folder),
@@ -367,7 +368,7 @@ test('a selection is by path: it holds through a search, a sort, and a refresh, 
 	// A new order and a refresh change nothing about what is selected.
 	view.recordingQuery = '';
 	view.recordingSort = nextSort(view.recordingSort, 'title');
-	await library.refreshAll();
+	await settle(library);
 	const sorted = shownRows(library, view.recordingQuery, view.recordingSort);
 	expect(
 		stems(selectionIn(view.recordingSelected, sorted, library).rows),
@@ -585,7 +586,7 @@ test('while a result cannot be told apart from a recording’s own, none is capt
 	]);
 	// Something else writes a result that cannot say whose it is.
 	await writeFile(join(root, 'transcriptions', 'stray.md'), 'not a row\n');
-	await library.refreshAll();
+	await settle(library);
 
 	expect(
 		(await captureDeletions(library, [path('standup')])).deletions,
@@ -610,76 +611,70 @@ test('while a result cannot be told apart from a recording’s own, none is capt
 
 const TRANSCRIPT = 'transcriptions/standup-t1.md';
 
-test('a transcript is edited in its own draft beside its recording, which stays selected', async () => {
+test('a transcript is edited in the cache beside its recording, which stays selected, and is written at once', async () => {
 	const { library, root } = await history();
 	await library.open(path('standup'));
 	const before = await readFile(join(root, TRANSCRIPT), 'utf8');
 
-	await library.openTranscript(TRANSCRIPT);
-
-	expect(library.selectedPath).toBe(path('standup'));
-	expect(library.selection?.kind).toBe('recording');
-	const session = transcriptSession(library, TRANSCRIPT);
-	session.edit((row) => {
+	const editor = transcriptEditor(library, TRANSCRIPT);
+	editor.edit((row) => {
 		row.body = 'Yesterday I finished the importer. Today: the exporter.\n';
 	});
-	// Saving from the moment it is typed: leaving now would wait for it.
-	expect(session.state.status).toBe('saving');
+	// Written from the moment it is typed: leaving now would wait for it.
+	expect(library.isSaving(TRANSCRIPT)).toBe(true);
 	expect(library.holdsUnsavedWork).toBe(true);
-	expect((await session.settled()).status).toBe('saved');
+	// The list shows it at once: it reads the same cache.
+	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toBe(
+		'Yesterday I finished the importer. Today: the exporter.',
+	);
+	await settle(library);
 
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	// The fields as they were, the new text.
 	expect(saved.split('---')[1]).toBe(before.split('---')[1]);
 	expect(saved).toContain('Today: the exporter.');
 	expect(library.holdsUnsavedWork).toBe(false);
-	await library.refreshAll();
-	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toBe(
-		'Yesterday I finished the importer. Today: the exporter.',
-	);
+	expect(library.selectedPath).toBe(path('standup'));
+	expect(library.selection?.kind).toBe('recording');
 
-	// Asking again, and opening the file from Files, reach the same draft.
-	await library.openTranscript(TRANSCRIPT);
-	expect(transcriptSession(library, TRANSCRIPT)).toBe(session);
+	// Opening the file from Files edits the same row.
 	expect(await library.open(TRANSCRIPT)).toBeUndefined();
 	expect(library.selection).toMatchObject({ kind: 'file', path: TRANSCRIPT });
-	expect(transcriptSession(library, TRANSCRIPT)).toBe(session);
-	// The recording's draft was left when another item opened.
-	expect(library.draftAt(path('standup'))).toBeUndefined();
-	// A path that is not a transcript is not opened by this.
-	await library.openTranscript('notes.md');
-	expect(library.draftAt('notes.md')).toBeUndefined();
+	expect(library.rowAt('transcriptions', TRANSCRIPT)?.row.body).toBe(
+		'Yesterday I finished the importer. Today: the exporter.\n',
+	);
 });
 
-test('a transcript changed outside is listed, and its open draft shows the competing body for review on the next save; Your edit saves it', async () => {
+test('a transcript changed outside is read on return; typing over a version the window has not read fails, rolls back, and reports the lost text', async () => {
 	const { library, root } = await history();
 	await library.open(path('standup'));
-	await library.openTranscript(TRANSCRIPT);
-	const session = transcriptSession(library, TRANSCRIPT);
+	const failures: string[] = [];
+	library.onWriteFailed((failure) => failures.push(failure.lost));
+	const editor = transcriptEditor(library, TRANSCRIPT);
 	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8')).replace(
 		'importer',
 		'migration',
 	);
 	await writeFile(join(root, TRANSCRIPT), outside);
 
-	await library.refreshAll();
+	// Typing before the window read it again: the write is refused.
+	editor.edit((row) => {
+		row.body = 'What I typed.\n';
+	});
+	await settle(library);
+	expect(failures).toEqual([expect.stringContaining('What I typed.')]);
+	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toBe(outside);
+	expect(editor.draft.body).toContain('migration');
 	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toContain(
 		'migration',
 	);
-	expect(session.draft.body).toContain('importer');
 
-	session.edit((row) => {
+	// The next edit writes on top of what is there now.
+	editor.edit((row) => {
 		row.body = 'What I typed.\n';
 	});
-	const state = await session.settled();
-	expect(state.status === 'error' && state.error.name).toBe('Conflict');
-	expect(session.review?.conflicts.map((conflict) => conflict.kind)).toEqual([
-		'body',
-	]);
-	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toBe(outside);
-	expect(
-		await library.resolveReview(session, allFrom(session, 'local')),
-	).toBeUndefined();
+	await settle(library);
+	expect(failures).toHaveLength(1);
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
 		'What I typed.',
 	);
@@ -690,8 +685,7 @@ test('closing the details and changing page lose no typing: the draft is the ses
 	const { session, library, view, root } = await history();
 	await library.open(path('standup'));
 	view.showingDetail = true;
-	await library.openTranscript(TRANSCRIPT);
-	const draft = transcriptSession(library, TRANSCRIPT);
+	const draft = transcriptEditor(library, TRANSCRIPT);
 	draft.edit((row) => {
 		row.body = 'Typed just before closing the details.\n';
 	});
@@ -700,7 +694,6 @@ test('closing the details and changing page lose no typing: the draft is the ses
 	// Closing the pane, then a change of page: neither unloads the document.
 	view.showingDetail = false;
 	expect(session.blocksNavigation({ willUnload: false })).toBe(false);
-	expect(transcriptSession(library, TRANSCRIPT)).toBe(draft);
 	expect(library.selectedPath).toBe(path('standup'));
 	// Leaving the app is what is held back while the save runs.
 	expect(session.blocksNavigation({ willUnload: true })).toBe(true);
@@ -744,19 +737,19 @@ test('a selected recording that left the folder is unticked once a listing confi
 
 	// A search that hides a selected row unticks nothing, however often the folder is read.
 	view.recordingQuery = 'garden';
-	await library.refreshAll();
+	await settle(library);
 	expect(view.recordingSelected).toEqual([path('standup'), path('walk')]);
 
 	// The file goes, but the listing that would say so fails: nothing is taken as gone.
 	await rm(join(root, path('standup')));
 	listing.fails = true;
-	await library.refreshAll();
+	await settle(library);
 	expect(library.listError).toContain('the disk did not answer');
 	expect(view.recordingSelected).toEqual([path('standup'), path('walk')]);
 
 	// A listing that is read confirms it gone, and it is unticked then.
 	listing.fails = false;
-	await library.refreshAll();
+	await settle(library);
 	expect(view.recordingSelected).toEqual([path('walk')]);
 
 	// Another file made at that path later is another recording: it arrives unticked.
@@ -765,7 +758,7 @@ test('a selected recording that left the folder is unticked once a listing confi
 		row.replace('Monday standup', 'A different recording'),
 	);
 	view.recordingQuery = '';
-	await library.refreshAll();
+	await settle(library);
 	expect(rowOf(library, 'standup').title).toBe('A different recording');
 	const shown = shownRows(library, '', DEFAULT_SORT);
 	expect(
@@ -794,19 +787,15 @@ test('nothing is opened or read after closing', async () => {
 	await session.close();
 	expect(library.closing).toBe(true);
 	const before = reads.length;
-	await library.openTranscript('transcriptions/walk-t1.md');
 	await library.open('transcriptions/walk-t2.md');
 	await library.open(path('walk'));
-	expect(library.draftAt('transcriptions/walk-t1.md')).toBeUndefined();
-	expect(library.draftAt('transcriptions/walk-t2.md')).toBeUndefined();
 	expect(library.selectedPath).toBe(path('standup'));
 	expect(reads).toHaveLength(before);
 });
 
 test('typing in a transcript that was opened before closing is saved before the folder closes', async () => {
 	const { session, library, root } = await history();
-	await library.openTranscript(TRANSCRIPT);
-	transcriptSession(library, TRANSCRIPT).edit((row) => {
+	transcriptEditor(library, TRANSCRIPT).edit((row) => {
 		row.body = 'Typed just before quitting.\n';
 	});
 

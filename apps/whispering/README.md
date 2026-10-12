@@ -128,7 +128,7 @@ forward, and refresh work.
 | Transformations | `/transformations` | The instructions you apply to transcripts or pasted text, and the results they produced. |
 
 Changing pages keeps everything in progress: a recording keeps recording, a
-request keeps running, unsaved typing stays in its editor, and the terminal
+request keeps running, what you typed is already in its file, and the terminal
 keeps its output, history, and directory. One folder is opened when the app
 starts and it stays open until the app closes.
 
@@ -151,7 +151,8 @@ page, is anything that is not saved yet.
 | Copy transcripts | Copies the newest transcript of each selected row shown, in table order, with titles when copying several. |
 | Delete selected | Captures the selected rows shown and their results before confirmation. Audio stays in the folder. |
 | Transform | On a transcript. Applies one of your transformations and saves the answer as a new file under the transcript. |
-| Status | Saved files, uncommitted changes, the last commit attempt, and the folder path as separate lines, with Check again and Commit now. |
+| Status | Saved files, changes since the last version, the last version saved, and the folder path as separate lines, with Check again and Save version. |
+| Save version | In the status details. Records the saved files as a version in the folder's Git history. Nothing else records one. |
 | Settings | The two connections, transcription and text: each an endpoint, a default model, and an optional key, kept on this device and outside history. See [Connections](#connections). |
 | Reveal folder | Opens the data folder in Finder. |
 | Files (Ctrl+Shift+E) | The folder's files, beside any page. A recording row opens on Recordings and a transformation on Transformations; an audio file opens a player and other text a plain editor, both on Recordings. |
@@ -161,12 +162,12 @@ page, is anything that is not saved yet.
 
 The table starts at full width. Activate a recording to open its detail pane,
 then close the pane to return that space to the collection. Search, sorting,
-selection, and typed drafts stay when you change pages or hide details.
+and selection stay when you change pages or hide details.
 
-Edit transcript text beside playback. Each transcript is its own draft beside
-the recording, saved as you type; opening its file from Files shows the same
-draft. Copy uses the text shown; Transform first waits for its saves and reads
-the saved transcript.
+Edit transcript text beside playback. Each change is written to the
+transcript's file as you type; opening the file from Files shows the same
+text. Copy uses the text shown; Transform first waits for what is being
+written and reads the saved transcript.
 Dates, file paths, capture information, endpoint, and history are under
 **File details**.
 
@@ -281,7 +282,7 @@ text and press **Run on pasted text**; no recording is needed. The pasted text
 stays while you move between pages and transformations, and is never written
 anywhere.
 
-- Running saves open edits to the transformation first, then fixes the run
+- Running waits for edits being written to land first, then fixes the run
   before anything is sent: its file name and the exact instructions, text,
   model, and endpoint. Editing the text, the transformation, or Settings
   afterward changes nothing about that run.
@@ -365,27 +366,24 @@ notice says the outcome is not known, not that nothing was sent. Whispering
 never sends it again on its own; **Try again** is one more request, and with a
 paid endpoint possibly one more charge. This applies to transcription too.
 
-### Saved is not committed
+### Saved is not a version
 
-A save writes files. A commit records them in history. They are separate
-outcomes and the status reports them separately.
+A save writes files. A version records them in the folder's Git history. They
+are separate outcomes and the status reports them separately.
 
-- Every content save through tables, KV, or Files tries one commit
-  automatically. Typing saves after a short pause.
-- In the desktop app that try happens only if the folder is free at that
-  moment. A save that lands while another save or commit is running is saved
-  and not committed; nothing retries it later. The next save's commit, or
-  **Commit now**, includes it.
+- Every change is saved as you make it, and no save records a version.
+- **Save version**, in the status details, records one: it waits for what is
+  being written, then commits the saved files. It is the only thing in the
+  app that does. `git commit` in the terminal works too.
+- The status says "Saved" once your changes are in files. How many files
+  changed since the last version is shown as a detail, not as a warning.
 - A commit that fails or is blocked never undoes a save and never reports the
-  save as failed. The status says "Saved" and what happened to the commit, and
-  **Commit now** tries again.
-- Quitting commits nothing. Saves that are underway finish, and whatever was
-  saved and not yet committed stays that way until the next commit.
-- The browser terminal follows the folder's automatic history policy and refuses
-  `git add` and `git commit` in automatic mode. Staged authoring requires a folder
-  opened with `commitOnEdit: false`.
-- Desktop terminal commands and other programs edit disk directly. Their changes
-  enter the next automatic checkpoint or an explicit commit.
+  save as failed. The status says what happened to it, and **Save version**
+  tries again.
+- Quitting records no version. Saves that are underway finish, and whatever
+  changed since the last version stays that way until the next one.
+- Terminal commands and other programs edit the files directly. Their changes
+  enter the next version you save.
 
 ### When a save does not finish
 
@@ -412,8 +410,8 @@ with **Save it again** and **Copy**. A transformation result keeps the file name
 it was given when the run began, so saving again cannot produce a second result,
 and if another file has taken that name it is left alone.
 
-Pending audio, an unsaved transcript or result, and unsaved typing live only in
-the open window. They are not written anywhere else.
+Pending audio and an unsaved transcript or result live only in the open
+window. They are not written anywhere else.
 
 ### Closing and quitting
 
@@ -421,14 +419,13 @@ Closing the window (the close button or Command-W) and quitting (Command-Q,
 the Whispering menu, or on macOS Quit in the Dock, a logout, restart, or
 shutdown) all ask the window first:
 
-- When nothing is held, typing that can still be saved is saved and the app
-  closes with no prompt.
+- When nothing is held, changes still being written finish and the app closes
+  with no prompt. It never asks about typing: every change is already in its
+  file, or was refused and reported when it happened.
 - When something is held (a recording in progress, a recording that is not in
   the folder, a transcript or transformation result whose file was not written,
-  a result on pasted text not saved yet, a running transcription or
-  transformation, or edits whose save failed, conflicted, or was not
-  confirmed),
-  the app stays open and shows what would be lost. **Keep working** closes the
+  a result on pasted text not saved yet, or a running transcription or
+  transformation), the app stays open and shows what would be lost. **Keep working** closes the
   prompt and changes nothing. **Discard and quit** closes the app and drops
   what was held.
 
@@ -448,8 +445,8 @@ If Whispering's host process stops while the window is open, the terminal,
 Reveal folder, and new transcription and transformation requests stop working
 until you restart the app. Saving does not stop: the folder belongs to the
 window's shell, so changes to recordings, transcripts, and other files can
-still be saved, a pending recording can still be tried again, and **Commit
-now** still works. A save can still fail for its own reasons, such as a full
+still be saved, a pending recording can still be tried again, and **Save
+version** still works. A save can still fail for its own reasons, such as a full
 disk, exactly as it can at any other time.
 
 What the window can no longer do is be asked through the host whether it may
@@ -473,41 +470,33 @@ cannot answer is never closed on its behalf.
 In a browser tab (`bun dev:whispering:ui`) the browser's own leave warning
 applies instead.
 
-### Editing and conflicts
+### Editing
 
-Each open file is a draft, saved as you type: the recording or file you
-selected, the recording's transcripts beside it, and the transformation you
-selected. Selecting another item leaves the drafts it replaces once their
-saves land.
+Every change is written to its file as you type: a recording's title and
+notes, a transcript, a transformation's fields, and any text file opened from
+Files. There is no save button and no draft beside the file. The table and the
+detail show the same row, so they never disagree.
 
-- Every save is guarded by the version this window last saved. When the file
-  changed elsewhere, your changes and theirs are combined: a field or line
-  only one side changed is saved with no question. Parts you both changed
-  show in a review under the save line, with **Your edit** and **Saved
-  elsewhere** side by side. Pick one for each part (or **Use all from** one
-  side when there are several), then **Apply** saves them all at once. There
-  is no Cancel: your edits stay on screen, unsaved, until you apply.
-- A file deleted elsewhere shows the same review for the whole file. **Your
-  edit** creates it again from your version; **Saved elsewhere** leaves it
-  deleted and closes it. A recording deleted elsewhere can only stay
-  deleted, because its audio may be gone too: choosing **Your edit** is
-  refused, and the reason shows beside it.
-- A row file that no longer reads as a row after a change elsewhere: **Saved
-  elsewhere** keeps that text and opens it as text with what to fix.
-- A save that failed, or whose reply never arrived, keeps your edits on screen.
-  **Try again** (or **Save again**) saves them; your next edit saves too.
-- Leaving an item whose save failed or conflicted asks "Discard unsaved
-  changes?" first. Keeping it keeps the item open.
-- Deleting an item whose save failed or conflicted goes ahead: it deletes the
-  version last saved, and the delete dialog says edits that are not saved are
-  discarded too.
-- A draft that is not a valid row, such as a field with the wrong kind of
-  value, is never written; the save line names what to fix.
+- Each file is written one change at a time. While one write runs, the newest
+  change waits behind it, so fast typing writes what you typed last.
+- Every write is guarded by the version this window last read or wrote. When
+  another program changed the file since, the write is refused and nothing in
+  the file changes. The window shows the file as it is now, and a notice says
+  your change was not saved, with **Copy what was lost** to keep your text.
+  Typing again writes on top of the file as it is now.
+- A file deleted elsewhere stays deleted. A change to it is refused and
+  reported the same way, and the recording, transcript, or transformation
+  closes. Nothing creates it again.
+- A write that fails for another reason, or whose reply never arrived, is
+  reported the same way and the window shows the file as it reads now.
+- A value that a file cannot hold, such as a field with the wrong kind of
+  value, is refused and rolled back.
 - Text typed or pasted into a field that a file cannot hold exactly (a lone
   surrogate) is saved with U+FFFD in its place.
 - The lists are read when the page opens, after this window's own actions and
-  terminal commands, and when you return to the window or its tab. Returning
-  also takes a newer version of an open file that has nothing unsaved.
+  terminal commands, and when you return to the window or its tab. While a
+  change is being written nothing is read; the folder is read once the last
+  write lands.
 
 A recording, transcript, or transformation file whose text does not read as a
 row is listed under "Needs repair" with why, and opens as its text with its
@@ -523,6 +512,8 @@ exact text, edit it in Source.
 Any file name works for a row, including a trailing space or `recordings/.md`.
 Only `.md` in lowercase makes a file a row.
 
+A deletion runs after the changes being written to that file, and the
+confirmation says when the file has changes that are in no saved version.
 Deleting a recording also deletes its results; its audio stays. It is refused
 while any result file cannot say which recording it belongs to (text that does
 not read, or a file that is not text). Repair or remove those from Files
@@ -590,7 +581,7 @@ any build:
 
 ```sh
 touch "$WHISPERING_DATA_ROOT/.git/refs/heads/main.lock"   # commits now fail
-rm "$WHISPERING_DATA_ROOT/.git/refs/heads/main.lock"      # Commit now works again
+rm "$WHISPERING_DATA_ROOT/.git/refs/heads/main.lock"      # Save version works again
 ```
 
 ## Restoring from history
@@ -605,32 +596,25 @@ afplay /tmp/whispering-restore/recordings/<recording-id>.wav
 
 ## Changed promises
 
-This build edits files through the folder's edit sessions. These promises of
-the earlier build changed:
+This build writes each change to its file at once and keeps no draft beside
+it. These promises of the earlier build changed:
 
-- A change made elsewhere is not overwritten. The next save of an open
-  recording, transcript, or transformation used to write over another
-  program's change unless you chose **Reload from file**. Now changes that do
-  not overlap are combined, and you choose for each part you both changed.
-- A file deleted elsewhere can be created again from your version (**Your
-  edit**), except a recording. It used to be never created again.
-- No "Keep both". A conflicting text file used to offer writing your
-  version to `conflicts/<name>-<time>.md`.
-- No paused autosave. The debug menu's "Pause autosave" is gone; every
-  draft saves as you type.
-- Several drafts are no longer kept per path. Leaving an item releases its
-  draft once its saves land; one whose save failed asks before it is
-  discarded. Drafts used to stay in the window for every file you had opened.
-- A row that does not read is repaired as text. A recording with one bad
-  field used to stay in the table and keep playing and transcribing; now it is
-  listed under "Needs repair" until its text reads.
-- A lone surrogate is saved as U+FFFD. It used to be refused with a notice.
-- No "saved, cannot be shown" notice for a new recording. Once both files
-  are confirmed the capture is dropped and the recording opens; the
-  "Saved · 1 recording to check" status and its Refresh are gone.
-- The lists no longer follow change hints. They used to refresh within a
-  couple of seconds of any program's change; now they refresh when you return
-  to the window, act, or press Check again.
+- A change made elsewhere is never merged on save. The earlier build combined
+  your edit with theirs and asked about parts you both changed. Now your write
+  is refused, the window shows their version, and the notice offers to copy
+  what you typed.
+- A file deleted elsewhere stays deleted, transcripts included. The earlier
+  build could create one again from your edit.
+- No save bar, **Try again**, or **Discard unsaved changes?**. A failed write
+  is rolled back and reported once; there is nothing held to retry or discard.
+  Closing and opening another item never ask about edits.
+- No commit after a save. Each save used to try one commit; now a version is
+  recorded only by **Save version**, which replaces **Commit now**. Changes
+  since the last version are a neutral count in the status, not a warning.
+- A row that does not read is repaired as text, and a lone surrogate is saved
+  as U+FFFD, as before.
+- The lists do not follow change hints. They are read when you return to the
+  window, act, or press Check again.
 
 ## What is not supported
 

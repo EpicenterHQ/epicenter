@@ -39,9 +39,10 @@ import {
 	STARTER_TRANSFORMATIONS,
 	type TransformationFields,
 } from './definition.js';
-import { transformationSession } from './drafts.test-support.js';
+import { settle, transformationEditor } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
 import { resolvePostProcessing } from './post-processing.js';
+import { createQueryClient } from './query.test-support.js';
 import { resolveRecipe } from './recipe.js';
 import { filesLineOf } from './status.js';
 import { TransformationError } from './transformation.js';
@@ -77,25 +78,28 @@ async function open(options: TestWorkspaceOptions = {}) {
 	const hooks: Hooks = {};
 	const { tables } = test.workspace.folder;
 	const textRuns = tables.text_runs;
-	const library = createLibrary({
-		...test.workspace,
-		folder: {
-			...test.workspace.folder,
-			tables: {
-				...tables,
-				text_runs: {
-					...textRuns,
-					async create(...args: Parameters<typeof textRuns.create>) {
-						await hooks.create?.();
-						return textRuns.create(...args);
-					},
-					async list() {
-						return (await hooks.list?.()) ?? textRuns.list();
+	const library = createLibrary(
+		{
+			...test.workspace,
+			folder: {
+				...test.workspace.folder,
+				tables: {
+					...tables,
+					text_runs: {
+						...textRuns,
+						async create(...args: Parameters<typeof textRuns.create>) {
+							await hooks.create?.();
+							return textRuns.create(...args);
+						},
+						async list() {
+							return (await hooks.list?.()) ?? textRuns.list();
+						},
 					},
 				},
-			},
-		} as Library['workspace']['folder'],
-	});
+			} as Library['workspace']['folder'],
+		},
+		createQueryClient(),
+	);
 	cleanups.push(async () => {
 		await library.close();
 		await test.remove();
@@ -251,14 +255,14 @@ test('the Run check, the post-processing choice, the menu, and the run agree abo
 		model: 'old-model',
 		endpoint: 'http://127.0.0.1:18080/other/v1',
 	});
-	await library.refreshAll();
+	await settle(library);
 
 	for (const path of [fresh, matching, elsewhere]) {
 		const entry = library.transformations.find((item) => item.path === path)!;
 		const listed = library.resolve(entry.row);
 		// The draft on the recipe's page is read by the same resolver.
 		await library.open(path);
-		const shown = library.resolve(transformationSession(library).draft);
+		const shown = library.resolve(transformationEditor(library).draft);
 		const chosen = resolvePostProcessing(
 			path,
 			library.transformations,
@@ -297,8 +301,9 @@ test('removing an earlier endpoint from a recipe lets it run with the text conne
 		model: 'old-model',
 		endpoint: 'https://api.openai.com/v1',
 	});
+	await settle(library);
 	await library.open(path);
-	const editor = transformationSession(library);
+	const editor = transformationEditor(library);
 	expect(await library.transform(transcript.path, path)).toContain(
 		'runs only at https://api.openai.com/v1',
 	);
@@ -331,7 +336,7 @@ test('a result file and a recipe written by an earlier build still read and list
 	const old =
 		'---\nrecordingId: 20250101-000000-abcd\ntranscriptionId: 20250101-000001-abcd\ntransformationId: old\ntransformationTitle: Earlier\ncreatedAt: 2025-01-01T00:00:02.000Z\nmodel: old-model\nendpoint: https://api.openai.com/v1\nprompt: Fix it.\ninput: some text\n---\nFixed text.\n';
 	await writeFile(join(root, 'transformation_runs', 'earlier.md'), old);
-	await library.refreshAll();
+	await settle(library);
 
 	expect(library.transformations.map((item) => item.path)).toEqual([path]);
 	expect(library.outputsOf('old').map((output) => output.row.body)).toEqual([
@@ -414,7 +419,7 @@ test('what is saved is what was sent: edits to the recipe or the connection whil
 		transform: () => answer.promise,
 	});
 	const path = await recipe(library);
-	const editor = transformationSession(library);
+	const editor = transformationEditor(library);
 	const stem = selectedStem(library);
 	editor.edit((row) => {
 		row.body = 'Draft instructions.\n';
@@ -429,7 +434,7 @@ test('what is saved is what was sent: edits to the recipe or the connection whil
 		row.body = 'Edited while running.\n';
 		row.fields.model = 'other';
 	});
-	expect((await editor.settled()).status).toBe('saved');
+	await settle(library);
 	expect(
 		await library.saveConnection('text', {
 			baseUrl: TEST_BASE_URL,
@@ -653,7 +658,9 @@ test('a transcript’s failed run is not sent again over a connection that moved
 test('the pasted text and a held result stay with the session, and the result keeps the app open', async () => {
 	const { open: openWorkspace, remove } = await openTestWorkspace();
 	const { openSession } = await import('./session.svelte.ts');
-	const session = expectOk(await openSession(openWorkspace));
+	const session = expectOk(
+		await openSession(createQueryClient(), openWorkspace),
+	);
 	cleanups.push(async () => {
 		await session.close();
 		await remove();
@@ -692,7 +699,7 @@ test('a text_runs/ file that does not read never holds up a recording’s deleti
 		join(root, TEXT_RUNS, 'binary.md'),
 		new Uint8Array([0xff, 0xfe, 0x00]),
 	);
-	await library.refreshAll();
+	await settle(library);
 	expect(library.textRepairs.map((item) => item.path)).toEqual([
 		'text_runs/binary.md',
 		'text_runs/broken.md',
@@ -709,13 +716,13 @@ test('a text_runs/ file that does not read never holds up a recording’s deleti
 			operation: 'list',
 			cause: new Error('the listing could not be read'),
 		});
-	await library.refreshAll();
+	await settle(library);
 	expect(library.textResultsError).toContain('the listing could not be read');
 	expect(library.textOutputsOf(stem)).toHaveLength(1);
 
 	// Deleting the recipe keeps its results, and the confirmation counts them.
 	hooks.list = undefined;
-	await library.refreshAll();
+	await settle(library);
 	expect(expectOk(await library.deletionFor(path))).toMatchObject({
 		kind: 'transformation',
 		results: 1,

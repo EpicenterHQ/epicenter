@@ -1,3 +1,10 @@
+<!--
+	One recording: its audio, transcripts, notes, and source. The fields come
+	from the recordings listing in the cache, so this view never disagrees
+	with the table. Each edit goes into that cache and is written at once.
+	A recording deleted elsewhere is never written again: its write fails,
+	and the view closes.
+-->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -10,31 +17,29 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { parseRow, rowStemOf } from '@epicenter/folder';
+	import { parseRow, type Row, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { wellFormed } from '@epicenter/folder';
-	import { audioPathIn, RECORDINGS, whisperingDefinition } from '$lib/definition.js';
-	import type { Draft, Library, RecordingEntry } from '$lib/library.svelte.js';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { audioPathIn, RECORDINGS, type RecordingFields, whisperingDefinition } from '$lib/definition.js';
+	import type { Library, RecordingEntry } from '$lib/library.svelte.js';
 	import { committedState } from '$lib/status.js';
 	import AudioPlayer from './AudioPlayer.svelte';
-	import { confirmDelete, lf, openItem } from './file-actions.js';
+	import { confirmDelete, lf } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
-	import SaveBar from '@epicenter/svelte/save-bar';
 	import TranscriptCard from './TranscriptCard.svelte';
 
 	let {
 		library,
 		path,
-		draft,
 		entry,
 		onBack,
 		onClose,
 	}: {
 		library: Library;
+		/** The recording's file. The parent keys this view by it. */
 		path: string;
-		/** The open draft of the recording's file: its fields, or its text. */
-		draft: Draft;
-		/** The listed row, or undefined when the file does not read or left the folder. */
+		/** The listed row, or undefined when the file does not read. */
 		entry: RecordingEntry | undefined;
 		/** Shown on narrow windows, where the table and the details take turns. */
 		onBack?: () => void;
@@ -47,12 +52,23 @@
 	 * then notes. What describes the files (when, how long, where, which ID) is
 	 * kept, one press away, under File details.
 	 */
-	const row = $derived(draft.kind === 'row' && draft.table === RECORDINGS ? draft.session : undefined);
-	const text = $derived(draft.kind === 'text' ? draft.session : undefined);
+	const asText = $derived(library.showsText(path));
+	/** The recording as the cache holds it, while its fields are what is edited. */
+	const row = $derived(asText ? undefined : library.rowAt(RECORDINGS, path)?.row);
+	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
+	const text = $derived(asText && opened.data?.kind === 'text' ? opened.data.file : undefined);
 	/** Why the text on screen is not a recording yet, read live from what is typed. */
-	const issues = $derived(text && (parseRow(whisperingDefinition.tables.recordings, text.draft).error ?? undefined));
+	const issues = $derived(text && (parseRow(whisperingDefinition.tables.recordings, text.text).error ?? undefined));
 	const id = $derived(rowStemOf(RECORDINGS, path) ?? path);
-	const title = $derived(row?.draft.fields.title ?? entry?.row.fields.title ?? '');
+	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
+	/** Edits wait while the app decides whether to close, and while this file is renamed or deleted. */
+	const locked = $derived(library.locked(path));
+	const saving = $derived(library.isSaving(path));
+
+	/** Change the recording in the cache; it is written at once. */
+	function set(change: (row: Row<RecordingFields>) => Row<RecordingFields>) {
+		library.editRow(RECORDINGS, id, change);
+	}
 	const results = $derived(library.resultsFor(id));
 	const run = $derived(library.transcriptionRun(id));
 	/** The audio the row names. Nothing is guessed from another file's name. */
@@ -83,13 +99,10 @@
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={
-					() => row?.draft.fields.title ?? '',
-					(value) =>
-						row?.edit((draft) => {
-							draft.fields.title = wellFormed(value);
-						})
+					() => row?.fields.title ?? '',
+					(value) => set((r) => ({ ...r, fields: { ...r.fields, title: wellFormed(value) } }))
 				}
-				disabled={row.locked}
+				disabled={locked}
 				placeholder="Title"
 				aria-label="Recording title"
 			/>
@@ -103,14 +116,9 @@
 		{/if}
 	</div>
 
-	{#if draft.kind === 'row' || draft.kind === 'text'}
-		<SaveBar
-			save={draft.session.state}
-			review={draft.session.review}
-			onRetry={() => draft.session.retry()}
-			onResolve={(choices) => library.resolveReview(draft.session, choices)}
-		/>
-	{/if}
+	<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
+		{saving ? 'Saving…' : `Saved to ${path}`}
+	</p>
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
@@ -126,15 +134,15 @@
 		</div>
 	{/if}
 
-	{#if draft.kind === 'loading'}
-		<Loading class="flex-1" label="Opening the recording…" />
-	{:else if draft.kind === 'failed'}
+	{#if asText && opened.isError}
 		<div class="flex flex-1 flex-col items-start gap-2 px-4 py-4 text-sm" role="alert" data-testid="row-unopened">
-			<p>This recording’s file could not be opened: {draft.message}</p>
-			<Button size="sm" variant="outline" onclick={() => void openItem(library, path)}>Try again</Button>
+			<p>This recording’s file could not be opened: {opened.error.message}</p>
+			<Button size="sm" variant="outline" onclick={() => void opened.refetch()}>Try again</Button>
 		</div>
+	{:else if asText ? text === undefined : row === undefined}
+		<Loading class="flex-1" label="Opening the recording…" />
 	{:else}
-	<Tabs.Root bind:value={() => (text ? 'source' : 'details'), (value) => void show(value === 'source')} class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
+	<Tabs.Root bind:value={() => (asText ? 'source' : 'details'), (value) => void show(value === 'source')} class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
 		<Tabs.List>
 			<Tabs.Trigger value="details" disabled={issues !== undefined}>Details</Tabs.Trigger>
 			<Tabs.Trigger value="source">Source</Tabs.Trigger>
@@ -202,13 +210,10 @@
 					<Textarea
 						class="min-h-28 resize-y font-sans"
 						bind:value={
-							() => lf(row?.draft.body ?? ''),
-							(value) =>
-								row?.edit((draft) => {
-									draft.body = withFileNewlines(wellFormed(value), draft.body);
-								})
+							() => lf(row?.body ?? ''),
+							(value) => set((r) => ({ ...r, body: withFileNewlines(wellFormed(value), r.body) }))
 						}
-						disabled={row.locked}
+						disabled={locked}
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
 					/>
@@ -226,12 +231,12 @@
 					<Collapsible.Content class="pt-2">
 					<dl class="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-1.5 text-sm">
 						<dt class="text-muted-foreground">Recorded</dt>
-						<dd>{when(row.draft.fields.recordedAt)}</dd>
+						<dd>{when(row.fields.recordedAt)}</dd>
 						<dt class="text-muted-foreground">Length</dt>
-						<dd>{(row.draft.fields.durationMs / 1000).toFixed(1)} s</dd>
+						<dd>{(row.fields.durationMs / 1000).toFixed(1)} s</dd>
 						<dt class="text-muted-foreground">Captured from</dt>
 						<dd>
-							{#if row.draft.fields.capture === 'fixture'}
+							{#if row.fields.capture === 'fixture'}
 								<Badge variant="outline">Fixture audio, not a microphone take</Badge>
 							{:else}
 								Microphone
@@ -268,8 +273,8 @@
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(text?.draft ?? ''), (value) => text?.input(withFileNewlines(value, text.draft))}
-					disabled={text.locked}
+					bind:value={() => lf(text?.text ?? ''), (value) => library.editText(path, withFileNewlines(value, text?.text ?? ''))}
+					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}
 				/>

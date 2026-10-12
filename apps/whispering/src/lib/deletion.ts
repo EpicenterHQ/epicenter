@@ -2,11 +2,11 @@
  * Deleting from the folder: capture what a deletion removes from fresh reads,
  * tell the person exactly that, and remove only what was captured.
  *
- * Every removal is guarded by the bytes captured, so a file changed after the
- * person was asked is refused and kept. An open draft of a file waits for its
- * saves first, even one whose save failed: the person chose to delete the
- * file, and the dialog says unsaved edits are discarded. Removing releases
- * its session and deletes the file its last save confirmed.
+ * Every removal is guarded by the bytes captured, so a file changed by
+ * another program after the person was asked is refused and kept. Edits
+ * being written land first, and a removal runs after the file's queued
+ * writes: it deletes what this window saved last. The person is told when a
+ * file has changes that are in no saved version.
  *
  * Deleting a recording removes its row, its transcripts, and the results made
  * from them. The audio its row names is an ordinary file the table does not
@@ -30,7 +30,6 @@ import {
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
 } from './definition.js';
-import type { Draft, Drafts } from './drafts.svelte.js';
 import { describeError } from './files.js';
 import type { WhisperingFolder } from './workspace/types.js';
 
@@ -41,6 +40,8 @@ export type Deletion =
 			readonly id: string;
 			readonly title: string;
 			readonly row: FileCapture;
+			/** Whether its files have changes in no saved version; undefined when the check failed. */
+			readonly unversioned: boolean | undefined;
 			/** The audio the row names. It is not deleted: it stays as an ordinary file. */
 			readonly audioPath: string | undefined;
 			/** Its transcripts, then the results made from them. */
@@ -50,12 +51,14 @@ export type Deletion =
 			readonly kind: 'transformation';
 			readonly title: string;
 			readonly file: FileCapture;
+			readonly unversioned: boolean | undefined;
 			/** How many saved results name it. They are kept. */
 			readonly results: number;
 	  }
 	| {
 			readonly kind: 'file';
 			readonly file: FileCapture;
+			readonly unversioned: boolean | undefined;
 			/** Why a recording or transformation file does not read as one; only it goes. */
 			readonly problem?: string;
 			/** The recording a recording file's name makes it; nothing runs for it meanwhile. */
@@ -67,17 +70,16 @@ export type Deletion =
 
 export type DeletionContext = {
 	readonly folder: WhisperingFolder;
-	readonly drafts: Drafts;
 	readonly listing: FileListing | undefined;
+	/** Resolves once the edits being written have landed. */
+	writesSettled(): Promise<void>;
+	/** The newest capture this window confirmed for `path`, if it holds one. */
+	held(path: string): FileCapture | undefined;
 	/** Why a recording cannot be deleted now, while work for it is under way. */
 	busy(recordingId: string): string | undefined;
 	/** The title of the recording that names `path` as its audio, if one does. */
 	audioOf(path: string): string | undefined;
 };
-
-/** An open draft's session. Inline here: this module loads without the Svelte compiler. */
-const sessionOf = (draft: Draft | undefined) =>
-	draft !== undefined && 'session' in draft ? draft.session : undefined;
 
 /** A recording's title, or its ID when the title is empty. */
 export function recordingTitle(entry: {
@@ -92,24 +94,23 @@ export function recordingTitle(entry: {
 }
 
 /**
- * The file an open draft's last save confirmed, once its saves have landed.
- * A save that failed leaves the file as last saved.
+ * Whether any of `paths` has changes in no saved version, by a status check
+ * now; undefined when the check failed.
  */
-async function settledAt(
-	drafts: Drafts,
-	path: string,
-): Promise<FileCapture | undefined> {
-	const session = sessionOf(drafts.get(path));
-	return session && (await session.settled()).file;
+async function unversionedOf(
+	{ folder }: DeletionContext,
+	paths: readonly string[],
+): Promise<boolean | undefined> {
+	const { data: status, error } = await folder.git.status();
+	if (error !== null) return undefined;
+	return status.changes.some((change) => paths.includes(change.path));
 }
 
-/** The file at `path` as it is now: its open draft's, or a fresh read. */
+/** The file at `path` as it is now, by a fresh read. */
 async function captureNow(
-	{ folder, drafts }: DeletionContext,
+	{ folder }: DeletionContext,
 	path: string,
 ): Promise<Result<FileCapture, string>> {
-	const settled = await settledAt(drafts, path);
-	if (settled !== undefined) return Ok(settled);
 	const { data: read, error: readError } = await folder.files.read(path);
 	if (readError !== null)
 		return Err(
@@ -154,14 +155,14 @@ async function resultsOf(
 }
 
 /**
- * Capture what deleting `path` would remove, for the person to confirm. Open
- * drafts' saves land first. Only empty folders can be deleted.
+ * Capture what deleting `path` would remove, for the person to confirm. The
+ * edits being written land first. Only empty folders can be deleted.
  */
 export async function captureDeletion(
 	context: DeletionContext,
 	path: string,
 ): Promise<Result<Deletion, string>> {
-	const { folder, drafts, listing } = context;
+	const { folder, listing } = context;
 	if (listing?.directories.includes(path)) {
 		const prefix = `${path}/`;
 		const occupied =
@@ -179,8 +180,7 @@ export async function captureDeletion(
 		const busy = context.busy(recordingId);
 		if (busy !== undefined) return Err(busy);
 	}
-	if (recordingId !== undefined || transformationId !== undefined)
-		await settledAt(drafts, path);
+	await context.writesSettled();
 
 	if (recordingId !== undefined) {
 		const { data: stored, error: readError } =
@@ -189,6 +189,7 @@ export async function captureDeletion(
 			return Ok({
 				kind: 'file',
 				file: { path: readError.path, sha256: readError.sha256 },
+				unversioned: await unversionedOf(context, [path]),
 				recordingId,
 				problem:
 					readError.name === 'InvalidRow'
@@ -198,8 +199,6 @@ export async function captureDeletion(
 		if (readError !== null) return Err(readError.message);
 		if (stored === undefined)
 			return Err('This recording is no longer in the folder.');
-		// Open results' saves land before they are listed.
-		await Promise.all(drafts.sessions().map((session) => session.settled()));
 		const { data: results, error: resultsError } = await resultsOf(
 			context,
 			recordingId,
@@ -210,6 +209,10 @@ export async function captureDeletion(
 			id: recordingId,
 			title: recordingTitle({ ...stored, stem: recordingId }),
 			row: { path: stored.path, sha256: stored.sha256 },
+			unversioned: await unversionedOf(context, [
+				stored.path,
+				...results.map((result) => result.path),
+			]),
 			audioPath: audioPathIn(stored.row.fields),
 			results,
 		});
@@ -228,6 +231,7 @@ export async function captureDeletion(
 			return Ok({
 				kind: 'file',
 				file: { path: stored.error.path, sha256: stored.error.sha256 },
+				unversioned: await unversionedOf(context, [path]),
 				problem:
 					stored.error.name === 'InvalidRow'
 						? stored.error.issues.map((issue) => issue.message).join(' ')
@@ -245,33 +249,34 @@ export async function captureDeletion(
 			kind: 'transformation',
 			title: title.trim() === '' ? basename(path) : title,
 			file: { path: stored.data.path, sha256: stored.data.sha256 },
+			unversioned: await unversionedOf(context, [path]),
 			results,
 		});
 	}
 
 	const { data: file, error } = await captureNow(context, path);
 	if (error !== null) return Err(error);
-	return Ok({ kind: 'file', file, audioOf: context.audioOf(path) });
+	return Ok({
+		kind: 'file',
+		file,
+		unversioned: await unversionedOf(context, [path]),
+		audioOf: context.audioOf(path),
+	});
 }
 
 /**
- * Delete the file at `capture.path` as captured. An open draft there is
- * released first; when the file then holds what the draft saved after the
- * person was asked (typing while the dialog was open), that is what is
- * deleted. Anything else changed since is refused, and the file opens again
- * as it is now.
+ * Delete the file at `capture.path` as captured. When this window saved the
+ * file after the person was asked (typing while the dialog was open), that
+ * is what is deleted. Anything else changed since is refused.
  */
 async function deleteOne(
-	{ drafts }: DeletionContext,
+	context: RemovalContext,
 	capture: FileCapture,
 	remove: (
 		file: FileCapture,
 	) => Promise<Result<undefined, { name: string; message: string }>>,
 ): Promise<string | undefined> {
-	const draft = drafts.get(capture.path);
-	const session = sessionOf(draft);
-	session?.release();
-	const saved = session && (await session.settled()).file;
+	const saved = context.held(capture.path);
 	let { error } = await remove(capture);
 	if (
 		error?.name === 'Conflict' &&
@@ -279,21 +284,27 @@ async function deleteOne(
 		saved.sha256 !== capture.sha256
 	)
 		({ error } = await remove(saved));
-	drafts.forget(capture.path);
-	if (error === null) return undefined;
-	if (draft !== undefined) await drafts.show(capture.path);
+	if (error === null) {
+		context.deleted(capture.path);
+		return undefined;
+	}
 	return describeError(error);
 }
+
+type RemovalContext = DeletionContext & {
+	/** Recordings whose deletion is under way. */
+	readonly deleting: Set<string>;
+	dropFailed(recordingId: string): void;
+	/** The caches let a deleted file go. */
+	deleted(path: string): void;
+};
 
 /**
  * Delete exactly what was confirmed. `deleting` holds the recording while it
  * is removed, so nothing new starts for it.
  */
 export async function removeDeletion(
-	context: DeletionContext & {
-		readonly deleting: Set<string>;
-		dropFailed(recordingId: string): void;
-	},
+	context: RemovalContext,
 	deletion: Deletion,
 ): Promise<string | undefined> {
 	const { folder } = context;
@@ -361,9 +372,12 @@ export async function removeDeletion(
 	}
 }
 
-/** A deletion goes on past an open draft whose save failed, and says so. */
-export const UNSAVED_DISCARDED =
-	'Edits here that are not saved are discarded too.';
+/** What the person is told about history, by whether the files have changes in no saved version. */
+function historyNote(unversioned: boolean | undefined): string {
+	return unversioned
+		? 'It has changes that are in no saved version, and those are lost. Earlier saved versions stay in Git history.'
+		: 'Saved versions stay in Git history.';
+}
 
 const count = (n: number, one: string, many: string) =>
 	`${n} ${n === 1 ? one : many}`;
@@ -388,7 +402,7 @@ export function describeDeletion(deletion: Deletion): {
 					deletion.audioPath
 						? `Its audio ${deletion.audioPath} is not deleted: it stays in the folder as an ordinary file, and you can delete it from Files. `
 						: ''
-				}${UNSAVED_DISCARDED} Committed versions stay in Git history.`,
+				}${historyNote(deletion.unversioned)}`,
 			};
 		}
 		case 'transformation':
@@ -398,7 +412,7 @@ export function describeDeletion(deletion: Deletion): {
 					deletion.results > 0
 						? `Its ${count(deletion.results, 'saved result stays', 'saved results stay')} in transformation_runs or text_runs, each with the prompt it used.`
 						: 'It has no saved results.'
-				} ${UNSAVED_DISCARDED} Committed versions stay in Git history.`,
+				} ${historyNote(deletion.unversioned)}`,
 			};
 		case 'file': {
 			const { path } = deletion.file;
@@ -417,7 +431,7 @@ export function describeDeletion(deletion: Deletion): {
 					}`;
 			return {
 				title: `Delete ${basename(path)}?`,
-				description: `${what} ${UNSAVED_DISCARDED} Committed versions stay in Git history.`,
+				description: `${what} ${historyNote(deletion.unversioned)}`,
 			};
 		}
 		case 'folder':

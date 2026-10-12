@@ -106,11 +106,10 @@ What Whispering adds on top:
   at a time, so a connection save and a microphone save that overlap both
   land, and a connection's base URL and key change in one write.
 
-Short file commands, including settings saves and file creation or deletion,
-start independently. The library joins their completion promises. Quit
-preparation awaits those accepted
-commands and the drafts' saves before deciding what remains unsaved. Recording
-publication and provider work keep their own pending states and discard choices.
+Every file command, including settings saves, file creation, rename, and
+deletion, is a TanStack mutation. Quit preparation waits until the mutation
+cache is idle before deciding what remains unsaved. Recording publication and
+provider work keep their own pending states and discard choices.
 
 ## The storage boundary
 
@@ -146,7 +145,7 @@ The page then checks that the owner and the host name the same directory and
 refuses with `FolderMismatch` if they do not, since the terminal and
 transcription would otherwise use a directory the saves do not go to.
 
-Everything above the seam (`library.svelte.ts`, the drafts, the components)
+Everything above the seam (`library.svelte.ts`, its query cache, the components)
 is the same code for both. Opening returns a `Result`, and a refusal is shown
 on the "Could not open the recordings folder" screen as it is. The two
 storages are never substitutes: nothing that is missing or refuses inside a
@@ -221,8 +220,8 @@ window showing the refusal can be closed; see "Closing".
 
 Because the pages are routes under that one layout, a page change is a
 re-render inside the same session. The live recording, pending captures,
-selections, running requests, held results, drafts, and the terminal session
-are fields of the library, and the pasted text a transformation is tried on is
+selections, running requests, held results, the query cache, and the terminal
+session are fields of the library, and the pasted text a transformation is tried on is
 a field of the session's view, not of any page, so none of them is touched by
 navigation. What a
 page keeps in its own component (which tab is showing) is the only thing a page
@@ -455,7 +454,7 @@ for another base URL, and sends with that connection's key. An error never
 carries the key: an endpoint that echoes it has it removed.
 
 `src/lib/recipe.ts` decides whether a recipe runs and with what, from the
-recipe as read (a listed row, or the draft on screen) and the text connection
+recipe as read (a listed row, or its text as typed in Source) and the text connection
 as last read: the file must read without issues and have instructions; a text
 connection must be set up; an endpoint the recipe names must be exactly the
 connection's base URL (canonical spelling, no same-origin relaxation); the
@@ -522,11 +521,11 @@ recording. Results on pasted text name no recording, so they are neither
 deleted with one nor in the way of deleting one, readable or not.
 
 What a deletion of a recording or transformation path removes is decided by
-its file as read after its draft settles, not by the last listing. A draft
-whose save failed or conflicted does not refuse the deletion: the person
-chose to delete the file, and the dialog says unsaved edits are discarded.
-Removing releases the session, waits for it, and deletes what was confirmed,
-or what the session last saved when that changed after the person was asked. A row that reads is deleted as above. A file that
+its file as read after the writes being made have landed, not by the last
+listing. The dialog says when the files have changes that are in no saved
+version. Removing is a mutation in the file's queue, so it runs after the
+file's writes and deletes what was confirmed, or what this window last
+wrote when that changed after the person was asked. A row that reads is deleted as above. A file that
 is there and does not read as a row (bytes that are not text, say) is removed
 alone, conditional on the exact bytes read, and the person is told its
 results are kept: nothing in the file says which results are its own, so
@@ -534,59 +533,51 @@ none is deleted with it. For a recording, the same guards hold by its name:
 the capture and the confirmation both refuse while work for that recording
 is running or unsaved, and nothing new starts for it while it is removed.
 
-## Drafts and conflicts
+## Editing through the query cache
 
-Open files are drafts (`src/lib/drafts.svelte.ts`), each in its own edit
-session from `@epicenter/svelte/edit-session`. The app owns the draft; the
-folder's guarded autosave writes it.
+Files are edited through the TanStack Query cache (ADR-0528). The library
+reads each table's rows (`table.list()`), the folder listing, and `kv.json` as
+queries built with `resultQueryOptions`, and a view that shows a file's exact
+text reads it with its own query. A row that does not read is an
+`Err(InvalidRow)` entry in the same listing, shown as text with its issues
+(`parseRow`) until it reads. A row the person opens in Source is shown as
+text too; its fields open again once the text reads.
 
-- A recording, transcript, or transformation that reads as a row is a row
-  session over its fields and body.
-- A row file whose text is not a valid row, a row the person chose to edit in
-  Source, and any other text file is a text session over the exact text. A
-  row file's text shows its issues live (`parseRow`), and its fields open
-  once it reads.
-- Audio and files that are not text open as what they are.
+- **Reads** happen when the page opens, on return (window focus, or the page
+  becoming visible), on **Check again**, and after the app's own actions and
+  terminal commands. A change hint from the folder does not reread. No read
+  starts while a write runs: an edit cancels reads in flight, nothing goes
+  stale on its own, focus does not refetch while writing, and the last write
+  to settle reads everything again.
+- **An edit** is one immutable `map` over the listing in the cache. The table
+  and the detail read the same listing, so they cannot disagree.
+- **A write** is a mutation keyed and scoped by the file's path. It reads the
+  cache when it runs, so it saves the newest row with guarded
+  `table.replace(stored, row)`, or the newest text with `files.replace`. A
+  file has at most one write running and one waiting. Success moves the
+  `sha256` guard forward and keeps what was typed meanwhile.
+- **A failed write** reads that one file again, which rolls the edit back,
+  and the shell shows a toast that can copy the lost text. A change made
+  elsewhere is `Conflict`; there is no merge on save. A recording or
+  transcript deleted elsewhere stays deleted: its write fails, and the reread
+  removes it from the cache.
+- **A value the schema refuses** is never written: the folder refuses it as
+  `InvalidValues`, and the cache rolls back. Text typed into a field is kept
+  well formed: a lone surrogate becomes U+FFFD, as a file holds it.
+- **A recording's lifecycle** writes in its file's queue: publishing it,
+  saving a transcript, and saving a transformation result are mutations
+  scoped by the recording's path, so they run in order after its edits.
+  Waiting on an endpoint is not a mutation, so a request that does not answer
+  never keeps the app from asking to close.
 
-Several drafts are open at once: the selected recording or file with the
-recording's transcripts beside it, and the selected transformation. Selecting
-another item leaves the drafts it replaces: their saves land, then their
-sessions are released. A draft whose save failed or conflicted is left only
-when the person discards it; the view asks "Discard unsaved changes?" and
-binds the discard to that session.
-
-Each edit changes the draft and requests a save at once. One write runs at a
-time and only the latest request waits, so rapid typing writes the latest
-draft. A draft that is not a valid row is refused as `InvalidValues` and
-never written. Text typed into a field is kept well formed: a lone surrogate
-becomes U+FFFD, as a file holds it. Every write is guarded by the bytes the
-session last saved, so a change made elsewhere, or a deleted file, is
-`Conflict`. The session then asks the folder to merge the draft with the
-file: a row field by field, text by line. Changes that do not overlap are
-written with no question, and the draft becomes the result. Parts both
-changed, a file deleted elsewhere, and a file that no longer reads as a row
-become the session's review, which the save bar shows with "Your edit" and
-"Saved elsewhere" for each part. Apply answers every part at once
-(`library.resolveReview`); there is no Cancel, because the draft is waiting
-to be saved. A recording's session merges with `restore: false`: one
-deleted elsewhere is never created again, since its audio may be gone too,
-so the folder refuses Your edit beside that part and Saved elsewhere closes
-it. Returning to the window takes a
-newer version of a draft that holds nothing unsaved; otherwise the next save
-reports the change. The lists are read when the page opens, after the app's
-own actions, and on return (window focus, or the page becoming visible); a
-change hint from the folder does not reread. The save bar is the shared
-`@epicenter/svelte/save-bar`, and the library counts its commands with
-`createAdmissions` (`@epicenter/svelte/admissions`): each command from its
-call, and a run only while it does folder work, never while it waits on an
-endpoint.
-
-Renaming a file moves an open draft with it once its saves land
-(`session.rename`); a closed file moves as it is now. Recording and
-transformation files keep their names. Deleting an open file releases its
-session, waits for its saves, and deletes what its last save confirmed. While
-the app decides whether to close, every session is locked; closing waits for
-running saves and releases them.
+`$state` holds only input that is not in a file: a typed connection form, the
+pasted text, a captured recording, and an answer whose file is not written.
+Renaming a file is a mutation in its queue; the selection follows it.
+Recording and transformation files keep their names. While the app decides
+whether to close, edits change nothing; closing waits until the mutation
+cache is idle and never asks to discard. Nothing commits on its own: a
+version is recorded only by **Save version** (`folder.git.commit()`,
+ADR-0529) or by `git commit` in the terminal.
 
 ## Closing
 
@@ -597,7 +588,7 @@ item it owns, so that path cannot bypass it) and asks:
 ```text
 shell   writes {"type":"close-requested"} to the host's standard input
 host    sends a close-requested event to the page
-page    saves what can be saved, then answers POST /bridge/app { op: "close" }
+page    waits for what is being written, then answers POST /bridge/app { op: "close" }
           proceed   nothing is held, or the person chose Discard and quit
           asking    it is showing its confirmation
           cancel    the person chose Keep working
@@ -738,20 +729,19 @@ It is narrow on purpose:
   answered.
 
 When the shell exits, the owner refuses new work, lets the saves and commits
-it had already admitted finish, and releases the folder. Checkpoints already
-inside Git protection finish; waiting automatic requests are cancelled.
-Shutdown makes no final commit, so those saves can remain uncommitted. Closing the page's folder handle only detaches the window.
+it had already admitted finish, and releases the folder. Shutdown makes no
+final commit, so those saves can remain uncommitted. Closing the page's folder handle only detaches the window.
 
 ## History
 
-The shell registers the folder with automatic commits on and no remote. A
-complete content save requests automatic local history and does not wait for
-Git. While protection is busy, requests coalesce; the worker captures the
-latest files when admitted. A failed checkpoint stays visible and is not
-retried until a newer save or **Commit now** requests another attempt.
-`src/lib/status.ts` turns the folder's Git snapshot into separate lines for
-saved files, uncommitted changes, and the last commit attempt, and never lets
-a commit outcome change what it says about a save.
+The shell registers the folder with no remote. A save never commits
+(ADR-0529): a version is recorded only when the person presses **Save
+version**, a mutation that waits for the writes in flight and then calls
+`folder.git.commit()`, or runs `git commit` in the terminal. A failed commit
+stays visible and is not retried on its own. `src/lib/status.ts` turns the
+folder's Git snapshot into separate lines for saved files, changes since the
+last version (neutral detail, not a warning), and the last commit attempt,
+and never lets a commit outcome change what it says about a save.
 
 ## The terminal
 
@@ -764,14 +754,15 @@ so hiding the terminal loses nothing.
 
 It is the person's real shell, not the folder's in-page one, and it writes the
 directory as any other program does, outside the owner. Nothing it writes is
-committed until a save or an explicit commit includes it. An open draft whose
-file it changed conflicts on its next save, like any other outside edit.
+committed until a version is saved. A file it changed is read again after the
+command; an edit made before that read meets the change as a `Conflict`, like
+any other outside edit.
 
 ## Noticing outside changes
 
 The page reads the folder when it opens, after its own actions and terminal
-commands, and when the person returns to the window, which also takes a newer
-version of each open draft that holds nothing unsaved. It does not follow the
+commands, and when the person returns to the window, unless a write is
+running; the last write to settle reads it then. It does not follow the
 folder's change hints. The host watches nothing and says nothing about files.
 
 ## Debug builds
@@ -816,8 +807,7 @@ attached and says so (`injection-launch`).
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | What the post-processing choice is now, read against the listed transformations and the recipe resolver. It runs nothing. |
-| `src/lib/library.svelte.ts` | Product state: lists, selections, open drafts, pending captures, settings, and the command that answers a draft's review. |
-| `src/lib/drafts.svelte.ts` | The open files, one edit session each. |
+| `src/lib/library.svelte.ts` | Product state over the query cache: the listings, edits and their writes, selections, pending captures, settings, and every action as a mutation. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs, and `createOnce` for their result rows. |
 | `src/lib/deletion.ts` | What a deletion removes, captured from fresh reads, and the removal. |
 | `src/lib/recordings/publish.ts` | Publication and recovery. |

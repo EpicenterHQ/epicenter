@@ -37,8 +37,8 @@ function snapshot(): GitSnapshot {
 }
 
 for (const state of [
-	{ saving: true, problems: 0, expected: 'Saving…' },
-	{ saving: false, problems: 1, expected: '1 file not saved' },
+	{ saving: true, pendingCaptures: 0, expected: 'Saving…' },
+	{ saving: false, pendingCaptures: 1, expected: '1 recording not saved' },
 ]) {
 	test(`${state.expected} takes priority over a failed commit`, () => {
 		const git = snapshot();
@@ -48,7 +48,6 @@ for (const state of [
 		};
 		const files = filesLine({
 			...state,
-			pendingCaptures: 0,
 			capturesSaving: false,
 			unsavedResults: 0,
 			unsavedTransformations: 0,
@@ -71,7 +70,6 @@ test('a failed commit still needs attention after all files are saved', () => {
 	};
 	const files = filesLine({
 		saving: false,
-		problems: 0,
 		pendingCaptures: 0,
 		capturesSaving: false,
 		unsavedResults: 0,
@@ -84,6 +82,37 @@ test('a failed commit still needs attention after all files are saved', () => {
 			commit: commitLine(git),
 		}).label,
 	).toBe('Saved · commit failed');
+});
+
+test('changes since the last version are neutral detail: the summary says Saved', () => {
+	const git: GitSnapshot = {
+		...snapshot(),
+		files: {
+			state: 'observed',
+			value: {
+				head: 'abcdef123456',
+				changes: [{ path: 'recordings/a.md', kind: 'modify' }],
+			},
+			checkedAt: 1,
+			stale: false,
+			error: undefined,
+		},
+	};
+	const uncommitted = uncommittedLine(git);
+	expect(uncommitted).toMatchObject({
+		label: '1 change since the last version',
+		tone: 'neutral',
+	});
+	const files = filesLine({
+		saving: false,
+		pendingCaptures: 0,
+		capturesSaving: false,
+		unsavedResults: 0,
+		unsavedTransformations: 0,
+	});
+	expect(
+		summaryLine({ files, uncommitted, commit: commitLine(git) }).label,
+	).toBe('Saved');
 });
 
 test('an unobserved head does not claim empty history', () => {

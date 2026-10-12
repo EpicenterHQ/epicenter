@@ -144,14 +144,6 @@ test('the credential host opens no folder and watches nothing', () => {
 	}
 });
 
-/** The entries of `@epicenter/svelte` that work over folder files alone. */
-const FOLDER_ENTRIES = new Set([
-	'@epicenter/svelte/edit-session',
-	'@epicenter/svelte/open-item',
-	'@epicenter/svelte/admissions',
-	'@epicenter/svelte/save-bar',
-]);
-
 test('the page imports no Yjs store, sync, or account module', () => {
 	expect(
 		importers(
@@ -159,11 +151,9 @@ test('the page imports no Yjs store, sync, or account module', () => {
 				specifier === 'yjs' ||
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
-				// The page uses only the folder-file entries of `@epicenter/svelte`:
-				// edit sessions, open-item slots, admissions, and the save bar.
-				// None holds a store.
-				(specifier.startsWith('@epicenter/svelte') &&
-					!FOLDER_ENTRIES.has(specifier)) ||
+				// Files are edited through the query cache (ADR-0528): no edit
+				// session, open-item slot, admission, or save bar.
+				specifier.startsWith('@epicenter/svelte') ||
 				specifier.startsWith('@epicenter/auth') ||
 				specifier.startsWith('@epicenter/blobs') ||
 				specifier.startsWith('@epicenter/recorder') ||

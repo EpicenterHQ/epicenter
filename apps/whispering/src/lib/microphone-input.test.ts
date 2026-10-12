@@ -42,6 +42,7 @@ import {
 	type MicrophonePreference,
 	toneWav,
 } from './capture.js';
+import { createQueryClient } from './query.test-support.js';
 import type { Workspace } from './workspace/types.js';
 import { deferred, openTestWorkspace } from './workspace.test-support.js';
 
@@ -184,11 +185,14 @@ async function open({
 	device?: ReturnType<typeof devicePreferences>;
 } = {}) {
 	const test = await openTestWorkspace();
-	const library = createLibrary({
-		...test.workspace,
-		capture: microphone.device,
-		preferences: device.preferences,
-	});
+	const library = createLibrary(
+		{
+			...test.workspace,
+			capture: microphone.device,
+			preferences: device.preferences,
+		},
+		createQueryClient(),
+	);
 	cleanups.push(async () => {
 		await library.close();
 		await test.remove();
@@ -581,20 +585,23 @@ test('closing releases the microphone at once, while a file command that was acc
 		const test = await openTestWorkspace();
 		const writing = deferred<void>();
 		const files = test.workspace.folder.files;
-		const library = createLibrary({
-			...test.workspace,
-			capture: microphone.device,
-			folder: {
-				...test.workspace.folder,
-				files: {
-					...files,
-					async create(path, content) {
-						await writing.promise;
-						return files.create(path, content);
+		const library = createLibrary(
+			{
+				...test.workspace,
+				capture: microphone.device,
+				folder: {
+					...test.workspace.folder,
+					files: {
+						...files,
+						async create(path, content) {
+							await writing.promise;
+							return files.create(path, content);
+						},
 					},
-				},
-			} as Workspace['folder'],
-		});
+				} as Workspace['folder'],
+			},
+			createQueryClient(),
+		);
 		cleanups.push(async () => {
 			await library.close();
 			await test.remove();
@@ -697,15 +704,18 @@ test('closing while a choice is being saved releases the microphone at once and 
 	const microphone = scriptedMicrophone();
 	const test = await openTestWorkspace();
 	const order: string[] = [];
-	const library = createLibrary({
-		...test.workspace,
-		capture: microphone.device,
-		preferences: held.preferences,
-		async close() {
-			order.push('workspace closed');
-			await test.workspace.close();
+	const library = createLibrary(
+		{
+			...test.workspace,
+			capture: microphone.device,
+			preferences: held.preferences,
+			async close() {
+				order.push('workspace closed');
+				await test.workspace.close();
+			},
 		},
-	});
+		createQueryClient(),
+	);
 	cleanups.push(async () => {
 		await library.close();
 		await test.remove();
@@ -745,10 +755,13 @@ test('closing while a choice is being saved releases the microphone at once and 
 test('fixture mode has no input: nothing is listed, tested, enabled, or chosen', async () => {
 	const test = await openTestWorkspace();
 	const device = devicePreferences(USB);
-	const library = createLibrary({
-		...test.workspace,
-		preferences: device.preferences,
-	});
+	const library = createLibrary(
+		{
+			...test.workspace,
+			preferences: device.preferences,
+		},
+		createQueryClient(),
+	);
 	cleanups.push(async () => {
 		await library.close();
 		await test.remove();

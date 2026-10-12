@@ -14,7 +14,7 @@
 	import LeavePrompt from './LeavePrompt.svelte';
 	import RecoveryNotices from './RecoveryNotices.svelte';
 	import VerticalNav from './VerticalNav.svelte';
-	import { openItem } from './file-actions.js';
+	import { openItem, reportWriteFailure } from './file-actions.js';
 
 	/**
 	 * The frame every page sits in: navigation, the header with status and
@@ -29,8 +29,11 @@
 	// svelte-ignore state_referenced_locally
 	setSession(session);
 
-	// Typing, captured audio, and received text that have not reached the folder
-	// live only in this window. Moving between this app's pages keeps all of it,
+	// A write that failed was rolled back; the person is told what was lost.
+	$effect(() => library.onWriteFailed(reportWriteFailure));
+
+	// Captured audio and received text that have not reached the folder live
+	// only in this window. Moving between this app's pages keeps all of it,
 	// so that is never held back. Leaving the document is: in a browser tab the
 	// cancel becomes the browser's leave warning. The desktop shell does not
 	// raise that warning, so it asks before closing or quitting and the leave
@@ -76,7 +79,7 @@
 	}
 </script>
 
-<!-- Returning to the app is a refresh boundary for files and Git status. -->
+<!-- Returning to the app reads the files and Git status again, unless a write is running. -->
 <svelte:document
 	onvisibilitychange={() => {
 		if (document.visibilityState === 'visible') void library.check();

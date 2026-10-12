@@ -4,14 +4,13 @@
  * The real library over a real directory (the Bun opener), and the real
  * FileView, RecordingDetail, and TransformationDetail components mounted in
  * jsdom inside a fixture that renders them as the recordings and
- * transformations pages do.
+ * transformations pages do, under the library's query client.
  *
  * Key behaviors:
- * - typing in a view edits the draft of the path it shows, and saves it
- * - a change made elsewhere to the same lines shows the review, with no
- *   Cancel: Your edit saves the draft, Saved elsewhere shows theirs; a
- *   recording deleted elsewhere is never restored: Your edit is refused with
- *   the reason beside it, and Saved elsewhere closes it
+ * - typing in a view edits the cache of the path it shows, and writes it
+ * - typing over a change made elsewhere is refused and rolled back: the view
+ *   shows theirs, and the lost text is reported; a recording deleted
+ *   elsewhere stays deleted and its view closes
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
  * - controls are disabled while the app decides whether to close
@@ -24,8 +23,9 @@
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Library } from '../../lib/library.svelte.js';
-import { click, type } from '../svelte-dom.test-support.js';
+import type { Library, WriteFailure } from '../../lib/library.svelte.js';
+import { createQueryClient, quiet } from '../../lib/query.test-support.js';
+import { type } from '../svelte-dom.test-support.js';
 
 // Load the workspace after the mounted loader registered its plugin.
 const { openTestWorkspace } = await import(
@@ -58,8 +58,10 @@ async function open(
 	const stubs = await openTestWorkspace();
 	for (const [path, text] of Object.entries(files))
 		await Bun.write(join(stubs.root, path), text);
-	const library = createLibrary(stubs.workspace);
+	const library = createLibrary(stubs.workspace, createQueryClient());
 	await library.start();
+	const failures: WriteFailure[] = [];
+	library.onWriteFailed((failure) => failures.push(failure));
 	const page = pageState({ shown: true, tab });
 	const target = document.createElement('main');
 	document.body.append(target);
@@ -69,62 +71,36 @@ async function open(
 		await library.close();
 		await stubs.remove();
 	});
-	return { library, page, target, root: stubs.root };
+	return { library, page, target, failures, root: stubs.root };
 }
 
-/** Select a file and let the views render it. */
+/** Select a file and let the views render it, with any text they read. */
 async function show(library: Library, path: string) {
 	expect(await library.open(path)).toBeUndefined();
 	flushSync();
+	await quiet(library.queryClient);
+	flushSync();
 }
 
-/** Let saves and the views settle. */
+/** Let writes, the reads after them, and the views settle. */
 async function settle(library: Library) {
-	await library.prepareToLeave();
+	await quiet(library.queryClient);
+	await library.check();
+	await quiet(library.queryClient);
 	flushSync();
 }
 
 const field = <T extends Element>(target: ParentNode, selector: string) =>
 	target.querySelector<T>(selector);
 
-/**
- * Press `Use this` on `side` for the one part the review shows, then Apply,
- * and let the answer settle.
- */
-async function apply(
-	library: Library,
-	target: ParentNode,
-	side: 'local' | 'incoming',
-) {
-	const uses = [...target.querySelectorAll('button')].filter(
-		(candidate) => candidate.textContent?.trim() === 'Use this',
-	);
-	expect(uses).toHaveLength(2);
-	// Your edit is first, then Saved elsewhere.
-	uses[side === 'local' ? 0 : 1]?.dispatchEvent(
-		new window.MouseEvent('click', { bubbles: true }),
-	);
-	flushSync();
-	click(target, 'Apply');
-	await settle(library);
-}
+/** What the write status line says: Saving… or Saved. */
+const writeStatus = (target: ParentNode) =>
+	target.querySelector('[data-testid="write-status"]')?.textContent?.trim();
 
-/** The labels of the save bar's buttons. */
-const barButtons = (target: ParentNode) =>
-	[...target.querySelectorAll('[data-testid="save-bar"] button')].map(
-		(button) => button.textContent?.trim(),
-	);
-
-/** The save bar's state as the person reads it: a problem, saving, or saved. */
-function saveState(target: ParentNode) {
-	const bar = target.querySelector('[data-testid="save-bar"]');
-	if (bar === null) return undefined;
-	if (bar.querySelector('[role="alert"]') !== null) return 'error';
-	return bar.textContent?.includes('Saving') ? 'saving' : 'saved';
-}
-
-test('typing in a transcript’s view edits the draft of the path it shows, and saves it', async () => {
-	const { library, target, root } = await open({ [A]: transcript('Alpha.\n') });
+test('typing in a transcript’s view edits the cache of the path it shows, and writes it', async () => {
+	const { library, target, failures, root } = await open({
+		[A]: transcript('Alpha.\n'),
+	});
 	await show(library, A);
 	const body = field<HTMLTextAreaElement>(
 		target,
@@ -133,16 +109,21 @@ test('typing in a transcript’s view edits the draft of the path it shows, and 
 	expect(body?.value).toBe('Alpha.\n');
 
 	type(body, 'Alpha, typed.\n');
+	flushSync();
+	expect(writeStatus(target)).toBe('Saving…');
 	await settle(library);
 
+	expect(failures).toEqual([]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith(
 		'---\nAlpha, typed.\n',
 	);
-	expect(saveState(target)).toBe('saved');
+	expect(writeStatus(target)).toBe('Saved');
 });
 
-test('a change made elsewhere to the same lines shows the review with no Cancel: Your edit saves the draft, and Saved elsewhere shows theirs', async () => {
-	const { library, target, root } = await open({ [A]: transcript('Alpha.\n') });
+test('typing over a change made elsewhere is refused and rolled back: the view shows theirs, and the lost text is reported', async () => {
+	const { library, target, failures, root } = await open({
+		[A]: transcript('Alpha.\n'),
+	});
 	await show(library, A);
 	const body = () =>
 		field<HTMLTextAreaElement>(
@@ -153,33 +134,20 @@ test('a change made elsewhere to the same lines shows the review with no Cancel:
 	await writeFile(join(root, A), transcript('Theirs.\n'));
 	type(body(), 'Mine.\n');
 	await settle(library);
-	expect(saveState(target)).toBe('error');
-	expect(target.textContent).toContain('This changed elsewhere');
-	expect(target.textContent).toContain(
-		'Your edits are kept here and not saved',
-	);
-	expect(target.textContent).toContain('Choose what to keep');
-	expect(barButtons(target)).toEqual(['Use this', 'Use this', 'Apply']);
+	expect(failures).toHaveLength(1);
+	expect(failures[0]?.lost).toContain('Mine.');
 	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Theirs.\n'));
+	expect(body()?.value).toBe('Theirs.\n');
 
-	await apply(library, target, 'local');
-	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
-	expect(saveState(target)).toBe('saved');
-
-	await writeFile(join(root, A), transcript('Theirs again.\n'));
+	// Typing again writes on top of theirs.
 	type(body(), 'Mine again.\n');
 	await settle(library);
-	expect(saveState(target)).toBe('error');
-	await apply(library, target, 'incoming');
-	expect(body()?.value).toBe('Theirs again.\n');
-	expect(saveState(target)).toBe('saved');
-	expect(await readFile(join(root, A), 'utf8')).toBe(
-		transcript('Theirs again.\n'),
-	);
+	expect(failures).toHaveLength(1);
+	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine again.\n');
 });
 
-test('a recording deleted elsewhere is never restored: Your edit is refused with the reason beside it, and Saved elsewhere closes it', async () => {
-	const { library, target, root } = await open({
+test('a recording deleted elsewhere stays deleted: typing in it is refused, reported, and its view closes', async () => {
+	const { library, target, failures, root } = await open({
 		[RECORDING]: recording('Take', 'Notes.\n'),
 	});
 	await show(library, RECORDING);
@@ -187,19 +155,8 @@ test('a recording deleted elsewhere is never restored: Your edit is refused with
 	type(field(target, 'input[aria-label="Recording title"]'), 'Mine');
 	await settle(library);
 
-	expect(target.textContent).toContain('This was deleted elsewhere');
-	expect(barButtons(target)).toEqual(['Use this', 'Use this', 'Apply']);
-
-	await apply(library, target, 'local');
-	expect(target.textContent).toContain(
-		'This file was deleted elsewhere and cannot be restored here',
-	);
-	expect(
-		target.querySelector('[data-testid="recording-detail"]'),
-	).not.toBeNull();
-	expect(await Bun.file(join(root, RECORDING)).exists()).toBe(false);
-
-	await apply(library, target, 'incoming');
+	expect(failures).toHaveLength(1);
+	expect(failures[0]?.lost).toContain('title: Mine');
 	expect(library.selection).toBeUndefined();
 	expect(target.querySelector('[data-testid="recording-detail"]')).toBeNull();
 	expect(await Bun.file(join(root, RECORDING)).exists()).toBe(false);

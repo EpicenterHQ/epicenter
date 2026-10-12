@@ -49,7 +49,9 @@ import { expectOk } from 'wellcrafted/testing';
 import { loadAudio } from './audio-source.js';
 import { createFixtureDevice, toneWav } from './capture.js';
 import { describeDeletion } from './deletion.js';
+import { openText, settle } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
+import { createQueryClient } from './query.test-support.js';
 import {
 	commitLine,
 	filesLineOf,
@@ -186,7 +188,7 @@ async function open({
 		injection: testInjection(directory, { audio: 0, row: failRowWrites }),
 		close: () => folder.close(),
 	};
-	const library = createLibrary(workspace);
+	const library = createLibrary(workspace, createQueryClient());
 	opened.push(library);
 	await library.start();
 	return { library, root: directory, transcribed, failures, device };
@@ -341,14 +343,14 @@ test('kv.json that does not parse, or holds a value that does not conform, is th
 		join(root, 'kv.json'),
 		'{"transcriptionModel": 7, "transcriptionBaseUrl": "http://kept"}\n',
 	);
-	await library.refreshAll();
+	await settle(library);
 	expect(library.settingsProblem).toContain('transcriptionModel');
 	expect(library.legacySettings).toEqual({
 		transcriptionBaseUrl: 'http://kept',
 	});
 
 	await writeFile(join(root, 'kv.json'), '{"transcriptionModel": "kept"}\n');
-	await library.refreshAll();
+	await settle(library);
 	expect(library.settingsProblem).toBeUndefined();
 	expect(library.legacySettings).toEqual({ transcriptionModel: 'kept' });
 });
@@ -370,12 +372,13 @@ test('record, stop, and save leave a row, real audio, and a commit, and the reco
 	expect(fields.durationMs).toBe(1000);
 	expect(fields.audioPath).toBe(`recordings/${entry.stem}.wav`);
 	expect(library.selectedPath).toBe(entry.path);
-	expect(library.selection?.draft.kind).toBe('row');
+	expect(library.selection?.entry?.path).toBe(entry.path);
+	expect(library.showsText(entry.path)).toBe(false);
 	expect(new Uint8Array(await readFile(join(root, fields.audioPath)))).toEqual(
 		new Uint8Array(toneWav()),
 	);
 
-	const outcome = await library.commit();
+	const outcome = await library.saveVersion();
 	expect(['committed', 'unchanged']).toContain(outcome.status);
 	const tree = git(root, 'ls-tree', '-r', '--name-only', 'HEAD');
 	expect(tree).toContain(entry.path);
@@ -423,7 +426,7 @@ test('a row written before audioPath does not read: it is named for repair, and 
 		'---\ntitle: Old take\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: fixture\n---\nNotes\n';
 	await writeFile(join(root, 'recordings', 'old.md'), old);
 	await writeFile(join(root, 'recordings', 'old.wav'), toneWav());
-	await library.refreshAll();
+	await settle(library);
 
 	expect(library.entries).toEqual([]);
 	expect(library.repairs).toEqual([
@@ -438,19 +441,18 @@ test('a row written before audioPath does not read: it is named for repair, and 
 
 	// The person repairs it as text by naming the audio.
 	expect(await library.open('recordings/old.md')).toBeUndefined();
-	const draft = library.selection?.draft;
-	if (draft?.kind !== 'text')
-		throw new Error(`Expected text, got ${draft?.kind}`);
-	expect(draft.session.draft).toBe(old);
-	draft.session.input(
+	expect(library.showsText('recordings/old.md')).toBe(true);
+	const text = await openText(library, 'recordings/old.md');
+	expect(text.draft).toBe(old);
+	text.input(
 		old.replace(
 			'capture: fixture\n',
 			'capture: fixture\naudioPath: recordings/old.wav\n',
 		),
 	);
-	expect((await draft.session.settled()).status).toBe('saved');
+	await settle(library);
 	expect(await library.useForm('recordings/old.md')).toBeUndefined();
-	await library.refresh();
+	await settle(library);
 	const repaired = library.entries.find((item) => item.stem === 'old')!;
 	expect(library.recordingNaming('recordings/old.wav')?.path).toBe(
 		'recordings/old.md',
@@ -470,7 +472,7 @@ test('audio replaced by bytes of the same length is noticed by its content', asy
 	);
 
 	const before = library.generation;
-	await library.refreshAll();
+	await settle(library);
 	expect(library.generation).toBeGreaterThan(before);
 	expect(expectOk(await loadAudio(library.folder.files, path, first))).toBe(
 		first,
@@ -479,7 +481,7 @@ test('audio replaced by bytes of the same length is noticed by its content', asy
 	const replaced = new Uint8Array(toneWav({ frequency: 880 }));
 	expect(replaced.length).toBe(toneWav().length);
 	await writeFile(join(root, path), replaced);
-	await library.refreshAll();
+	await settle(library);
 
 	const next = expectOk(await loadAudio(library.folder.files, path, first));
 	expect(next).not.toBe(first);
@@ -510,7 +512,7 @@ test('a transcription is saved as its own row naming the recording, and reopenin
 	const row = await readFile(join(root, results[0]!.path), 'utf8');
 	expect(row).toContain(`recordingId: "${entry.stem}"`);
 	expect(row).toContain('model: verification-model');
-	await library.commit();
+	await library.saveVersion();
 	opened.splice(opened.indexOf(library), 1);
 	await library.close();
 
@@ -607,8 +609,8 @@ function holdNextResultWrite(library: Library) {
 test('a transcript whose file was not saved is reported as unsaved until it is', async () => {
 	const { library, root } = await open({ failResultWrites: 1 });
 	await record(library);
-	await library.commit();
-	await library.refreshAll();
+	await library.saveVersion();
+	await settle(library);
 	const entry = library.entries[0]!;
 	expect(status(library).files.tone).toBe('good');
 
@@ -744,7 +746,6 @@ test('a save that lands after its transcript was discarded leaves a newer held t
 	const {
 		library,
 		root,
-		failures,
 		entry,
 		id,
 		held: first,
@@ -759,13 +760,18 @@ test('a save that lands after its transcript was discarded leaves a newer held t
 	const saving = library.retrySaveResult(id);
 	await write.started;
 	library.dismissRun(id);
-	failures.resultWrites = 1;
-	await library.transcribe(entry);
-	const second = heldTranscript(library, id);
-	expect(second.text).toBe('second answer');
+	// The recording's results are saved in order: the second answer's save
+	// waits for the first one's, and then fails.
+	const later = holdNextResultWrite(library);
+	const transcribing = library.transcribe(entry);
 
 	write.release('write');
 	await saving;
+	await later.started;
+	later.release('refuse');
+	await transcribing;
+	const second = heldTranscript(library, id);
+	expect(second.text).toBe('second answer');
 
 	expect(await transcripts(root)).toEqual([`${first.id}.md`]);
 	expect(library.transcriptionRun(id)).toEqual(second);
@@ -936,7 +942,7 @@ test('a recording file that does not read is deleted alone, as the bytes it hold
 	const entry = library.entries[0]!;
 	await library.transcribe(entry);
 	await writeFile(join(root, entry.path), new Uint8Array([0xff, 0xfe, 0x00]));
-	await library.refresh();
+	await settle(library);
 	expect(library.repairs.map((item) => item.path)).toEqual([entry.path]);
 
 	const deletion = expectOk(await library.deletionFor(entry.path));
@@ -955,23 +961,19 @@ test('a recording file that does not read is deleted alone, as the bytes it hold
 // Files
 // ============================================================================
 
-test('renaming an open text file waits for its saves and moves it with its draft', async () => {
+test('renaming an open text file runs after its writes and moves what they saved; the selection follows', async () => {
 	const { library, root } = await open();
 	await writeFile(join(root, 'notes.md'), 'original\n');
-	await library.refreshAll();
+	await settle(library);
 	expect(await library.open('notes.md')).toBeUndefined();
-	const draft = library.selection?.draft;
-	if (draft?.kind !== 'text')
-		throw new Error(`Expected text, got ${draft?.kind}`);
-	draft.session.input('typed\n');
+	(await openText(library, 'notes.md')).input('typed\n');
 
 	expect(await library.rename('notes.md', 'renamed.md')).toBeUndefined();
 
 	expect(library.selectedPath).toBe('renamed.md');
-	expect(library.selection?.draft).toBe(draft);
 	expect(await readFile(join(root, 'renamed.md'), 'utf8')).toBe('typed\n');
-	draft.session.input('typed again\n');
-	await draft.session.settled();
+	(await openText(library, 'renamed.md')).input('typed again\n');
+	await settle(library);
 	expect(await readFile(join(root, 'renamed.md'), 'utf8')).toBe(
 		'typed again\n',
 	);
@@ -987,12 +989,13 @@ test('recording and transformation files keep their names, and a transcript keep
 	);
 	await library.transcribe(entry);
 	const result = library.resultsFor(entry.stem)[0]!;
-	await library.openTranscript(result.path);
 	expect(await library.rename(result.path, 'plain.txt')).toContain(
 		'keeps its .md extension',
 	);
 	expect(await library.rename(result.path, 'renamed.md')).toBeUndefined();
-	expect(library.draftAt('transcriptions/renamed.md')?.kind).toBe('row');
+	expect(
+		library.rowAt('transcriptions', 'transcriptions/renamed.md'),
+	).toBeDefined();
 	expect(library.resultsFor(entry.stem).map((item) => item.path)).toEqual([
 		'transcriptions/renamed.md',
 	]);
@@ -1062,7 +1065,7 @@ test('close waits for a rename whose read is still held, and the rename finishes
 		},
 	});
 	await writeFile(join(root, 'notes.md'), 'original\n');
-	await library.refreshAll();
+	await settle(library);
 
 	const renaming = library.rename('notes.md', 'renamed.md');
 	await reached.promise;

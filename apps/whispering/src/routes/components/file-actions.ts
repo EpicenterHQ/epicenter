@@ -7,7 +7,8 @@ import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeDeletion } from '$lib/deletion.js';
-import type { DraftSession, Library } from '$lib/library.svelte.js';
+import { describeError } from '$lib/files.js';
+import type { Library, WriteFailure } from '$lib/library.svelte.js';
 
 export { recordingTitle } from '$lib/deletion.js';
 
@@ -72,27 +73,30 @@ export async function confirmDelete(library: Library, path: string) {
 }
 
 /**
- * Open `path`, asking first when a draft it would leave holds changes that
- * could not be saved: discarding that draft lets the open go on, cancelling
- * keeps it. Answers whether `path` opened.
+ * Open `path`. Opening never waits or asks: edits already made are in the
+ * folder or on their way. Answers whether `path` opened.
  */
 export async function openItem(
 	library: Library,
 	path: string,
-	discard?: DraftSession,
 ): Promise<boolean> {
-	const opened = await library.open(path, { discard });
-	if (opened === undefined) return true;
-	const { promise, resolve } = Promise.withResolvers<boolean>();
-	confirmationDialog.open({
-		title: 'Discard unsaved changes?',
-		description: `${opened.unsaved.path} has changes that could not be saved. Discard them to open another file, or cancel to keep working on them.`,
-		confirm: { text: 'Discard', variant: 'destructive' },
-		async onConfirm() {
-			// The draft the dialog describes: confirming discards this one only.
-			resolve(await openItem(library, path, opened.unsaved));
-		},
-		onCancel: () => resolve(false),
+	await library.open(path);
+	return !library.closing;
+}
+
+/**
+ * Tell the person that a write failed and was rolled back, offering to copy
+ * the text that did not reach the file.
+ */
+export function reportWriteFailure({ path, error, lost }: WriteFailure) {
+	toast.error(`${basename(path)} was not saved`, {
+		description: `${describeError(error)} What you typed there is not in the file.`,
+		duration: Number.POSITIVE_INFINITY,
+		...(lost.trim() !== '' && {
+			action: {
+				label: 'Copy what was lost',
+				onClick: () => void copyText(lost, 'the text that was not saved'),
+			},
+		}),
 	});
-	return promise;
 }

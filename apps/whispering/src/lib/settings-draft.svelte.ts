@@ -1,7 +1,9 @@
 /**
  * The one draft of the connection settings: for transcription and for text,
  * a base URL, a default model, and what to do with the key. All of it stays
- * on this device; none of it is written to the folder.
+ * on this device; none of it is written to the folder, so it is not a file
+ * edited through the query cache. It is a form being composed: `$state`
+ * until its explicit Save, which is a mutation the close waits for.
  *
  * The session owns it, so the form is the same draft wherever it is shown:
  * what was typed in the header's Settings is what the form beside the

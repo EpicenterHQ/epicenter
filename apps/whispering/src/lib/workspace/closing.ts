@@ -69,7 +69,7 @@ export function watchCloseRequests(
  *
  * The shell holds back every close until the page answers, because a page may
  * hold unsaved work. A page whose workspace could not be opened holds none:
- * there is no session, no draft, no request, and no save in flight. But it
+ * there is no session, no request, and no write in flight. But it
  * would also have nobody to answer, and the window could never be closed. So
  * once opening has failed, and only then, this answers each close the person
  * asks for: `proceed` through the host, or the quit address when the shell

@@ -19,6 +19,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { OpenFolderError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { createQueryClient } from './query.test-support.js';
 import type { Session } from './session.svelte.js';
 import { type Workspace, WorkspaceError } from './workspace/types.js';
 import {
@@ -41,7 +42,9 @@ afterEach(async () => {
 
 async function open(options: TestWorkspaceOptions = {}) {
 	const test = await openTestWorkspace(options);
-	const session: Session = expectOk(await openSession(test.open));
+	const session: Session = expectOk(
+		await openSession(createQueryClient(), test.open),
+	);
 	cleanups.push(async () => {
 		await session.close();
 		await test.remove();
@@ -98,7 +101,9 @@ test('a session whose first read fails releases the folder it opened', async () 
 		},
 	};
 
-	const rejected = await openSession(async () => Ok(unreadable)).then(
+	const rejected = await openSession(createQueryClient(), async () =>
+		Ok(unreadable),
+	).then(
 		() => undefined,
 		(cause: unknown) => cause,
 	);
@@ -117,7 +122,7 @@ test('a session whose first read fails releases the folder it opened', async () 
 test('a workspace that cannot be opened is returned as the refusal, and no session exists', async () => {
 	let opens = 0;
 	const refused = expectErr(
-		await openSession(async () => {
+		await openSession(createQueryClient(), async () => {
 			opens += 1;
 			const { error: insideTauri } = OpenFolderError.InsideTauri();
 			return WorkspaceError.BrowserFolder({ refusal: insideTauri });
@@ -159,7 +164,7 @@ const refusal = () => {
 test('while a session exists, only its guard answers a close: nothing answers for it unseen', async () => {
 	const test = await openTestWorkspace({ failAudioWrites: 1 });
 	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(test.open, answerClose);
+	const mounted = mountSession(createQueryClient(), test.open, answerClose);
 	const session = expectOk(await mounted.opening);
 	cleanups.push(test.remove);
 	// Something held only in the window.
@@ -187,7 +192,11 @@ test('a refused opening starts answering closes only once it has settled, and re
 	const settle = deferred<ReturnType<typeof refusal>>();
 	const { counts, answerClose } = closeAnswerer();
 
-	const mounted = mountSession(() => settle.promise, answerClose);
+	const mounted = mountSession(
+		createQueryClient(),
+		() => settle.promise,
+		answerClose,
+	);
 	// Still opening: a close asked now is not answered by anyone yet.
 	await Bun.sleep(10);
 	expect(counts).toEqual({ started: 0, stopped: 0 });
@@ -218,7 +227,11 @@ test('an opening that fails after its folder opened is also a failed opening: th
 	};
 	const { counts, answerClose } = closeAnswerer();
 
-	const mounted = mountSession(async () => Ok(unreadable), answerClose);
+	const mounted = mountSession(
+		createQueryClient(),
+		async () => Ok(unreadable),
+		answerClose,
+	);
 	await expect(mounted.opening).rejects.toThrow('the first read failed');
 	await Bun.sleep(0);
 
@@ -239,10 +252,14 @@ test('an opener that throws partway through acquiring is never answered for, eve
 	const thrown = new Error('closing the mismatched folder failed');
 	const acquiring = deferred<void>();
 	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(async () => {
-		await acquiring.promise;
-		throw thrown;
-	}, answerClose);
+	const mounted = mountSession(
+		createQueryClient(),
+		async () => {
+			await acquiring.promise;
+			throw thrown;
+		},
+		answerClose,
+	);
 	// The person asks to close while the opening is under way.
 	test.requestClose();
 
@@ -270,6 +287,7 @@ test('an opening that fails without proof answers no close by itself, and quits 
 	const { counts, answerClose } = closeAnswerer();
 	let quits = 0;
 	const mounted = mountSession(
+		createQueryClient(),
 		async () => {
 			await acquiring.promise;
 			throw new Error('the desktop workspace could not be loaded');
@@ -303,7 +321,11 @@ test('an opening that fails without proof answers no close by itself, and quits 
 test('a layout that went away before its opening failed never starts answering', async () => {
 	const settle = deferred<ReturnType<typeof refusal>>();
 	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(() => settle.promise, answerClose);
+	const mounted = mountSession(
+		createQueryClient(),
+		() => settle.promise,
+		answerClose,
+	);
 
 	mounted.release();
 	settle.resolve(refusal());
@@ -374,7 +396,7 @@ async function until(condition: () => boolean, what: string) {
 test('a close asked while the first read is pending is not answered until the session has started, and then its guard decides', async () => {
 	const { test, open, begun, finish } = await starting();
 	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(open, answerClose);
+	const mounted = mountSession(createQueryClient(), open, answerClose);
 	await begun();
 
 	// The person asks to close, more than once, while the session is starting.
@@ -424,7 +446,7 @@ test('a start that fails with a close pending answers nothing until everything i
 		});
 	};
 	const seen: { closes: number; answers: number }[] = [];
-	const mounted = mountSession(slowToClose, () => {
+	const mounted = mountSession(createQueryClient(), slowToClose, () => {
 		seen.push({ closes: test.closes, answers: test.answers.length });
 		return () => {};
 	});
@@ -484,7 +506,7 @@ async function unreleased(opening: Promise<unknown>) {
 test('a start that fails and cannot release what it opened keeps both reasons and never answers a close', async () => {
 	const { test, open, begun, failWith } = await startingUnreleasable();
 	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(open, answerClose);
+	const mounted = mountSession(createQueryClient(), open, answerClose);
 	await begun();
 	test.requestClose();
 
@@ -521,7 +543,7 @@ test('a start that fails and cannot release what it opened keeps both reasons an
 test('a layout released while starting, whose closing then fails, answers nothing', async () => {
 	const { test, open, begun, finish } = await startingUnreleasable();
 	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(open, answerClose);
+	const mounted = mountSession(createQueryClient(), open, answerClose);
 	await begun();
 
 	mounted.release();
@@ -542,16 +564,20 @@ test('a workspace released before its session starts, whose closing fails, repor
 	cleanups.push(test.remove);
 	cleanups.push(() => test.workspace.close());
 	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(async () => {
-		await opened.promise;
-		return Ok({
-			...test.workspace,
-			async close() {
-				closed += 1;
-				throw new Error('the owner did not confirm the release');
-			},
-		});
-	}, answerClose);
+	const mounted = mountSession(
+		createQueryClient(),
+		async () => {
+			await opened.promise;
+			return Ok({
+				...test.workspace,
+				async close() {
+					closed += 1;
+					throw new Error('the owner did not confirm the release');
+				},
+			});
+		},
+		answerClose,
+	);
 
 	mounted.release();
 	opened.resolve();
@@ -566,7 +592,7 @@ test('a workspace released before its session starts, whose closing fails, repor
 test('a layout released while its session is starting leaves nothing listening and nothing open, and answers nothing', async () => {
 	const { test, open, begun, finish } = await starting();
 	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(open, answerClose);
+	const mounted = mountSession(createQueryClient(), open, answerClose);
 	await begun();
 
 	mounted.release();
@@ -603,10 +629,14 @@ test('a layout released while its workspace is still opening closes that workspa
 	};
 	const opened = deferred<void>();
 	const { counts, answerClose } = closeAnswerer();
-	const mounted = mountSession(async () => {
-		await opened.promise;
-		return Ok(counted);
-	}, answerClose);
+	const mounted = mountSession(
+		createQueryClient(),
+		async () => {
+			await opened.promise;
+			return Ok(counted);
+		},
+		answerClose,
+	);
 
 	mounted.release();
 	opened.resolve();
