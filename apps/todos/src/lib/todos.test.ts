@@ -14,7 +14,7 @@
  *   write confirmed, so typing never conflicts with itself
  * - A read that ran while a write was in flight does not undo the write
  * - A write that fails rolls the cache back to the file, reports the text
- *   that was lost, and a write still waiting saves nothing
+ *   that was lost, and a write still waiting saves the file as it was
  * - The folder refuses a value it cannot hold, and the cache rolls back
  * - A row that is not a valid todo is named for repair, its text is
  *   written as typed, and it reads as a todo once repaired
@@ -40,6 +40,7 @@ import { holdCloses } from './opfs-holds.test-support.js';
 import {
 	cached,
 	createQueryClient,
+	focusManager,
 	listing,
 	observe,
 	quiet,
@@ -179,7 +180,7 @@ test('rapid edits run one write at a time with one waiting, which saves the newe
 		set(titled(title));
 	// One write runs and one waits; no more were queued.
 	expect(
-		todos.queryClient.isMutating({ mutationKey: todosKeys.write(stem) }),
+		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
 	).toBe(2);
 	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
 
@@ -197,22 +198,29 @@ test('rapid edits run one write at a time with one waiting, which saves the newe
 	expect(await text(todos, path)).toContain('title: Oat milk, two');
 });
 
-test('a read that ran while a write was in flight does not undo it', async () => {
+test('no read starts while a write runs: not on returning to the window, not when a view mounts', async () => {
 	const { todos, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
+	const stop = observe(todos);
+	await quiet(todos);
 	const set = rowEditor(todos, stem);
 
 	const { held, release } = holdNextWrite();
 	set(titled('Oat milk'));
 	await held;
-	// Returning to the window reads the listing while the write is held.
-	const reading = todos.queryClient.invalidateQueries({
-		queryKey: todosKeys.rows,
-	});
-	await Bun.sleep(5);
+	// Returning to the window while the write is held reads nothing.
+	focusManager.setFocused(false);
+	focusManager.setFocused(true);
+	// The client refetches on focus a tick later, after resuming paused writes.
+	await Bun.sleep(0);
+	// Neither does a view that mounts now.
+	const mounted = observe(todos, path);
+	expect(todos.queryClient.isFetching({ queryKey: todosKeys.rows })).toBe(0);
+	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
 	release();
-	await reading;
 	await quiet(todos);
+	mounted();
+	stop();
 	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
 	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
 
@@ -232,7 +240,7 @@ test('a write that meets a change made elsewhere rolls back to the file and repo
 	await quiet(todos);
 	expect(failures).toHaveLength(1);
 	expect(failures[0]).toMatchObject({ path, error: { name: 'Conflict' } });
-	expect(failures[0]!.lost).toContain('title: Oat milk');
+	expect(failures[0]?.lost).toContain('title: Oat milk');
 	// The cache shows the file again; nothing was written over it.
 	expect(await text(todos, path)).toBe(elsewhere);
 	expect(cached(todos, stem).row.fields).toEqual({
@@ -249,25 +257,25 @@ test('a write that meets a change made elsewhere rolls back to the file and repo
 	);
 });
 
-test('a write that fails rolls back, and the write waiting behind it saves nothing', async () => {
-	const { todos, counter, failures, failNextWrite } = await open();
+test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {
+	const { todos, failures, failNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const saved = await text(todos, path);
 	const set = rowEditor(todos, stem);
-	const writes = counter.mdWrites;
 
 	// The first write fails; the second waits behind it.
 	failNextWrite(path);
 	set(titled('First'));
 	set(titled('Second'));
 	expect(
-		todos.queryClient.isMutating({ mutationKey: todosKeys.write(stem) }),
+		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
 	).toBe(2);
 	await quiet(todos);
+	// The rollback lands before the waiting write runs, so it saves the
+	// file's own row and fails nothing.
 	expect(failures.map((failure) => failure.lost)).toEqual([
 		expect.stringContaining('title: Second'),
 	]);
-	expect(counter.mdWrites).toBe(writes);
 	expect(await text(todos, path)).toBe(saved);
 	expect(cached(todos, stem).row.fields.title).toBe('Milk');
 });
@@ -293,14 +301,14 @@ test('writes to one todo wait for each other, and writes to different todos do n
 	await held;
 	rowEditor(todos, a.stem)(titled('A typed again'));
 	rowEditor(todos, b.stem)(titled('B typed'));
-	const state = (stem: string) =>
+	const state = (path: string) =>
 		todos.queryClient
 			.getMutationCache()
-			.findAll({ mutationKey: todosKeys.write(stem) })
+			.findAll({ mutationKey: todosKeys.write(path) })
 			.map((write) => write.state.isPaused);
 	// A's second write waits in A's scope; B's write is not held by A's.
-	expect(state(a.stem)).toEqual([false, true]);
-	expect(state(b.stem)).toEqual([false]);
+	expect(state(a.path)).toEqual([false, true]);
+	expect(state(b.path)).toEqual([false]);
 	release();
 	await quiet(todos);
 	expect(failures).toEqual([]);
@@ -496,7 +504,7 @@ test('close waits for running writes, and every close call shares one completion
 	// The write finished before the folder closed.
 	const writes = todos.queryClient
 		.getMutationCache()
-		.findAll({ mutationKey: todosKeys.write(stem) });
+		.findAll({ mutationKey: todosKeys.write(path) });
 	expect(writes.map((write) => write.state.status)).toEqual(['success']);
 	expect(path).toBe(`todos/${stem}.md`);
 });

@@ -56,11 +56,7 @@ import {
 	joinPath,
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
-import type {
-	MutationFilters,
-	MutationKey,
-	QueryClient,
-} from '@tanstack/svelte-query';
+import type { MutationFilters, QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import {
@@ -136,7 +132,6 @@ const CLOSING = 'Todos is closing, so nothing was changed.';
  * Every query and mutation reads or writes local files, so none waits for a
  * network connection, and a read that failed is shown rather than retried.
  */
-const LOCAL = { networkMode: 'always', retry: false } as const;
 
 /** Cache identity for every query and mutation the app runs. */
 export const todosKeys = defineKeys({
@@ -146,8 +141,10 @@ export const todosKeys = defineKeys({
 	files: ['todos', 'files'],
 	status: ['todos', 'status'],
 	text: (path: string) => ['todos', 'text', path] as const,
-	write: (stem: string) => ['todos', 'write', stem] as const,
-	writeText: (path: string) => ['todos', 'write-text', path] as const,
+	/** Every write of a row or a file's text. */
+	writes: ['todos', 'write'],
+	write: (path: string) => ['todos', 'write', 'row', path] as const,
+	writeText: (path: string) => ['todos', 'write', 'text', path] as const,
 	move: (path: string) => ['todos', 'move', path] as const,
 	remove: (path: string) => ['todos', 'remove', path] as const,
 });
@@ -235,51 +232,6 @@ export function whenIdle(
 	});
 }
 
-/** Whether a mutation key names a write of a todo row or a file's text. */
-function isWrite(key: MutationKey | undefined) {
-	return (
-		key?.[0] === 'todos' && (key[1] === 'write' || key[1] === 'write-text')
-	);
-}
-
-/**
- * What one kind of write has done, so a read that ran while a file was
- * being written does not replace what the cache holds for it.
- *
- * `unsaved` names files with an edit no write has taken yet. `savedAt`
- * orders each file's last confirmed write against the start of a read: a
- * read that began before it may hold the file's previous bytes. A file
- * whose write failed is `rollingBack` until the read that rolls it back has
- * landed; that read always wins.
- */
-function createWriteLog(busy: (id: string) => boolean) {
-	let sequence = 0;
-	const savedAt = new Map<string, number>();
-	const unsaved = new Set<string>();
-	const rollingBack = new Set<string>();
-	return {
-		unsaved,
-		rollingBack,
-		/** A mark to take before a read starts. */
-		get sequence() {
-			return sequence;
-		},
-		saved(id: string) {
-			savedAt.set(id, ++sequence);
-		},
-		/** The file was renamed or deleted: nothing about it is kept. */
-		forget(id: string) {
-			savedAt.delete(id);
-			unsaved.delete(id);
-		},
-		/** Whether the cache holds something for `id` newer than a read that began at `since`. */
-		newer(id: string, since: number) {
-			if (rollingBack.has(id)) return false;
-			return unsaved.has(id) || busy(id) || (savedAt.get(id) ?? 0) > since;
-		},
-	};
-}
-
 export function createTodos(
 	folder: TodosFolder,
 	queryClient: QueryClient,
@@ -317,26 +269,26 @@ export function createTodos(
 		return undefined;
 	}
 
-	const rowWrites = createWriteLog(
-		(stem) =>
-			queryClient.isMutating({
-				mutationKey: todosKeys.write(stem),
-				exact: true,
-			}) > 0,
-	);
-	const textWrites = createWriteLog(
-		(path) =>
-			queryClient.isMutating({
-				mutationKey: todosKeys.writeText(path),
-				exact: true,
-			}) > 0,
-	);
+	// Every file write is local: nothing waits for a network, and nothing retries.
+	queryClient.setQueryDefaults(todosKeys.all, {
+		networkMode: 'always',
+		// Nothing goes stale on its own: a view that mounts shows what the cache
+		// holds, and reads happen only when asked for, never while a write runs.
+		staleTime: Number.POSITIVE_INFINITY,
+		refetchOnWindowFocus: () => (writing() ? false : 'always'),
+	});
+	queryClient.setMutationDefaults(todosKeys.all, {
+		networkMode: 'always',
+		retry: false,
+	});
+
+	/** Whether a write of a row or a file's text is running or waiting. */
+	const writing = () =>
+		queryClient.isMutating({ mutationKey: todosKeys.writes }) > 0;
 
 	/** Resolves once no write of a row or a file's text is running or waiting. */
 	const writesSettled = () =>
-		whenIdle(queryClient, {
-			predicate: (mutation) => isWrite(mutation.options.mutationKey),
-		});
+		whenIdle(queryClient, { mutationKey: todosKeys.writes });
 
 	const rowsData = () => queryClient.getQueryData<TodoListing>(todosKeys.rows);
 	const textData = (path: string) =>
@@ -346,38 +298,6 @@ export function createTodos(
 	function rowOf(stem: string): StoredRow<TodoFields> | undefined {
 		const result = rowsData()?.find((entry) => entry.stem === stem)?.result;
 		return result?.error === null ? result.data : undefined;
-	}
-
-	/**
-	 * Every row file, read through the table. A row with an edit not yet
-	 * written, a write running, or a write confirmed since this read began
-	 * keeps what the cache holds; the read may have seen its previous bytes.
-	 */
-	async function listRows() {
-		const since = rowWrites.sequence;
-		const { data: listed, error } = await table.list();
-		if (error !== null) return Err(error);
-		const cached = rowsData();
-		const kept = new Map(
-			(cached ?? [])
-				.filter((entry) => rowWrites.newer(entry.stem, since))
-				.map((entry) => [entry.stem, entry]),
-		);
-		if (kept.size === 0) return Ok(listed);
-		const merged = listed.map((entry) => kept.get(entry.stem) ?? entry);
-		for (const [stem, entry] of kept)
-			if (!listed.some((read) => read.stem === stem)) merged.push(entry);
-		return Ok(merged as TodoListing);
-	}
-
-	/** One file's text, or its type and size; the same rule as `listRows` for writes. */
-	async function readText(path: string) {
-		const since = textWrites.sequence;
-		const read = await readTextFile(folder.files, path);
-		const cached = textData(path);
-		if (cached !== undefined && textWrites.newer(path, since))
-			return Ok(cached);
-		return read;
 	}
 
 	/** Change the row at `stem` in the cache: one immutable `map` over the listing. */
@@ -431,27 +351,43 @@ export function createTodos(
 	}
 
 	/**
-	 * Read again after a write failed. The read wins over the failed edit
-	 * and anything typed after it, and a write still waiting finds nothing
-	 * new to save.
+	 * After a failed write, the cache takes the row as the file holds it
+	 * now. TanStack awaits this before the next write of the file runs, so
+	 * that write saves the file's own bytes instead of the failed edit.
 	 */
-	async function rollBack(
-		log: ReturnType<typeof createWriteLog>,
-		id: string,
-		queryKey: readonly unknown[],
-	) {
-		log.unsaved.delete(id);
-		log.rollingBack.add(id);
-		try {
-			await queryClient.invalidateQueries({ queryKey, exact: true });
-		} finally {
-			log.rollingBack.delete(id);
-		}
+	async function reloadRow(stem: string) {
+		await queryClient.cancelQueries({ queryKey: todosKeys.rows, exact: true });
+		const { data: stored, error } = await table.get(stem);
+		queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
+			entries?.flatMap((entry) => {
+				if (entry.stem !== stem) return [entry];
+				if (error !== null) return [{ stem, result: Err(error) }];
+				return stored === undefined ? [] : [{ stem, result: Ok(stored) }];
+			}),
+		);
 	}
 
-	/** Invalidate after an action: what it may have changed is read again. */
+	/** After a failed write of a file's text, the cache takes the file as it is now. */
+	async function reloadText(path: string) {
+		const key = todosKeys.text(path);
+		await queryClient.cancelQueries({ queryKey: key, exact: true });
+		const read = await readTextFile(folder.files, path);
+		if (read.error === null) queryClient.setQueryData(key, read.data);
+		else await queryClient.invalidateQueries({ queryKey: key, exact: true });
+	}
+
+	/**
+	 * Read again what an action may have changed. While a write runs nothing
+	 * is read: the last write to settle reads everything again.
+	 */
 	const invalidate = (queryKey: readonly unknown[] = todosKeys.all) =>
-		queryClient.invalidateQueries({ queryKey });
+		writing() ? Promise.resolve() : queryClient.invalidateQueries({ queryKey });
+
+	/** After a write settles: once it is the last one, everything is read again. */
+	const afterWrite = () =>
+		queryClient.isMutating({ mutationKey: todosKeys.writes }) <= 1
+			? queryClient.invalidateQueries({ queryKey: todosKeys.all })
+			: undefined;
 
 	/** The same file as captured now, for a file no view holds. */
 	async function captureNow(
@@ -469,10 +405,6 @@ export function createTodos(
 	const editsRow = (path: string) =>
 		rowStemOf(table.name, path) !== undefined &&
 		!(selected?.path === path && selected.as !== 'todos');
-
-	/** The scope a rename or delete of `path` joins: its row's writes, or its text's. */
-	const scopeOf = (path: string) =>
-		editsRow(path) ? (rowStemOf(table.name, path) as string) : path;
 
 	/**
 	 * The capture a rename or delete of `path` acts on, read when it runs:
@@ -495,7 +427,6 @@ export function createTodos(
 		const stem = rowStemOf(table.name, from);
 		const nextStem = rowStemOf(table.name, to);
 		if (stem !== undefined) {
-			rowWrites.forget(stem);
 			queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
 				entries?.flatMap((entry) => {
 					if (entry.stem !== stem) return [entry];
@@ -508,7 +439,6 @@ export function createTodos(
 				}),
 			);
 		}
-		textWrites.forget(from);
 		queryClient.removeQueries({ queryKey: todosKeys.text(from), exact: true });
 		if (selected?.path === from) selected = { ...selected, path: to };
 	}
@@ -517,12 +447,10 @@ export function createTodos(
 	function deleted(path: string) {
 		const stem = rowStemOf(table.name, path);
 		if (stem !== undefined) {
-			rowWrites.forget(stem);
 			queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
 				entries?.filter((entry) => entry.stem !== stem),
 			);
 		}
-		textWrites.forget(path);
 		queryClient.removeQueries({ queryKey: todosKeys.text(path), exact: true });
 		if (selected?.path === path) selected = undefined;
 	}
@@ -533,8 +461,7 @@ export function createTodos(
 	) {
 		return resultQueryOptions({
 			queryKey: todosKeys.rows,
-			queryFn: listRows,
-			...LOCAL,
+			queryFn: () => table.list(),
 			select,
 		});
 	}
@@ -545,7 +472,6 @@ export function createTodos(
 			queryKey: todosKeys.status,
 			queryFn: (): Promise<Result<FilesObservation, GitError>> =>
 				folder.git.status(),
-			...LOCAL,
 		});
 	}
 
@@ -553,7 +479,6 @@ export function createTodos(
 	/** A terminal command may write anything, so it is a mutation, and every listing is read again after it. */
 	const runCommand = defineMutation({
 		mutationKey: ['todos', 'terminal'],
-		...LOCAL,
 		mutationFn: async ({
 			command,
 			options,
@@ -602,11 +527,7 @@ export function createTodos(
 		/** Whether a write of a row or a file's text is running or waiting, read reactively. */
 		get saving() {
 			trackMutations();
-			return (
-				queryClient.isMutating({
-					predicate: (mutation) => isWrite(mutation.options.mutationKey),
-				}) > 0
-			);
+			return writing();
 		},
 		/** Whether `path` is being renamed or deleted, which pauses its edits; read reactively. */
 		isMoving(path: string) {
@@ -624,15 +545,13 @@ export function createTodos(
 			return resultQueryOptions({
 				queryKey: todosKeys.files,
 				queryFn: () => folder.files.list(),
-				...LOCAL,
 			});
 		},
 		/** One file's complete text, or its type and size when it is not editable text. */
 		textQuery(path: string) {
 			return resultQueryOptions({
 				queryKey: todosKeys.text(path),
-				queryFn: () => readText(path),
-				...LOCAL,
+				queryFn: () => readTextFile(folder.files, path),
 			});
 		},
 		statusQuery,
@@ -666,15 +585,16 @@ export function createTodos(
 		edit(stem: string, change: (row: Row<TodoFields>) => Row<TodoFields>) {
 			if (refused() !== undefined || moving(rowPath(table.name, stem)))
 				return false;
+			// A read still running could replace this edit when it lands.
+			void queryClient.cancelQueries({ queryKey: todosKeys.rows, exact: true });
 			const changed = mapRow(stem, (stored) => ({
 				...stored,
 				row: change(stored.row),
 			}));
 			if (!changed) return false;
-			rowWrites.unsaved.add(stem);
 			return (
 				queryClient.isMutating({
-					mutationKey: todosKeys.write(stem),
+					mutationKey: todosKeys.write(rowPath(table.name, stem)),
 					exact: true,
 				}) < 2
 			);
@@ -682,9 +602,12 @@ export function createTodos(
 		/** Replace the text of `path` in the cache; answers as `edit` does. */
 		editText(path: string, text: string) {
 			if (refused() !== undefined || moving(path)) return false;
+			void queryClient.cancelQueries({
+				queryKey: todosKeys.text(path),
+				exact: true,
+			});
 			const changed = mapText(path, (file) => ({ ...file, text }));
 			if (!changed) return false;
-			textWrites.unsaved.add(path);
 			return (
 				queryClient.isMutating({
 					mutationKey: todosKeys.writeText(path),
@@ -700,9 +623,9 @@ export function createTodos(
 		rowWrite(stem: string) {
 			const path = rowPath(table.name, stem);
 			return resultMutationOptions({
-				mutationKey: todosKeys.write(stem),
-				...LOCAL,
-				scope: { id: stem },
+				mutationKey: todosKeys.write(path),
+				// Row and text writes of one file share its queue.
+				scope: { id: path },
 				mutationFn: async (): Promise<
 					Result<
 						StoredRow<TodoFields> | undefined,
@@ -710,15 +633,12 @@ export function createTodos(
 						| FileError
 					>
 				> => {
-					// A write that finds nothing new, as after a rollback, saves nothing.
-					if (!rowWrites.unsaved.delete(stem)) return Ok(undefined);
 					const stored = rowOf(stem);
 					if (stored === undefined) return Ok(undefined);
 					return table.replace(stored, stored.row);
 				},
 				onSuccess: (saved) => {
 					if (saved === undefined) return;
-					rowWrites.saved(stem);
 					// TanStack awaits this before the next write in the scope runs.
 					mapRow(stem, (stored) => ({
 						...stored,
@@ -730,32 +650,30 @@ export function createTodos(
 				},
 				onError: async (error) => {
 					const lost = rowOf(stem);
-					await rollBack(rowWrites, stem, todosKeys.rows);
+					await reloadRow(stem);
 					onWriteFailed({
 						path,
 						error,
 						lost: lost === undefined ? '' : rowText(lost.row),
 					});
 				},
+				onSettled: afterWrite,
 			});
 		},
 		/** The write of one file's text, as `rowWrite` is for a todo. */
 		textWrite(path: string) {
 			return resultMutationOptions({
 				mutationKey: todosKeys.writeText(path),
-				...LOCAL,
 				scope: { id: path },
 				mutationFn: async (): Promise<
 					Result<FileCapture | undefined, FileError>
 				> => {
-					if (!textWrites.unsaved.delete(path)) return Ok(undefined);
 					const opened = textData(path);
 					if (opened?.kind !== 'text') return Ok(undefined);
 					return folder.files.replace(opened.file, opened.file.text);
 				},
 				onSuccess: (saved) => {
 					if (saved === undefined) return;
-					textWrites.saved(path);
 					mapText(path, (file) => ({ ...file, sha256: saved.sha256 }));
 					// A row file's text decides whether it reads as a todo.
 					if (rowStemOf(table.name, path) !== undefined)
@@ -763,13 +681,14 @@ export function createTodos(
 				},
 				onError: async (error) => {
 					const lost = textData(path);
-					await rollBack(textWrites, path, todosKeys.text(path));
+					await reloadText(path);
 					onWriteFailed({
 						path,
 						error,
 						lost: lost?.kind === 'text' ? lost.file.text : '',
 					});
 				},
+				onSettled: afterWrite,
 			});
 		},
 
@@ -780,7 +699,6 @@ export function createTodos(
 		/** Add a todo and show it. */
 		create: defineMutation({
 			mutationKey: ['todos', 'create'],
-			...LOCAL,
 			mutationFn: async (
 				title: string,
 			): Promise<
@@ -809,7 +727,6 @@ export function createTodos(
 		/** A new empty text file, shown; it never replaces an existing one. */
 		createFile: defineMutation({
 			mutationKey: ['todos', 'create-file'],
-			...LOCAL,
 			mutationFn: async ({
 				directory,
 				name,
@@ -831,7 +748,6 @@ export function createTodos(
 		}),
 		createFolder: defineMutation({
 			mutationKey: ['todos', 'create-folder'],
-			...LOCAL,
 			mutationFn: async ({
 				directory,
 				name,
@@ -885,8 +801,7 @@ export function createTodos(
 				});
 			return defineMutation({
 				mutationKey: todosKeys.move(path),
-				...LOCAL,
-				scope: { id: scopeOf(path) },
+				scope: { id: path },
 				mutationFn: async (): Promise<
 					Result<FileCapture, FileError | MoveError | TableError | TodosError>
 				> => {
@@ -962,8 +877,7 @@ export function createTodos(
 		remove(deletion: Deletion) {
 			return defineMutation({
 				mutationKey: todosKeys.remove(deletion.path),
-				...LOCAL,
-				scope: { id: scopeOf(deletion.path) },
+				scope: { id: deletion.path },
 				mutationFn: async (): Promise<
 					Result<undefined, FileError | TableError | TodosError>
 				> => {
@@ -990,7 +904,6 @@ export function createTodos(
 		 */
 		saveVersion: defineMutation({
 			mutationKey: ['todos', 'save-version'],
-			...LOCAL,
 			mutationFn: async (): Promise<Result<CommitOutcome, TodosError>> => {
 				const why = refused();
 				if (why !== undefined) return TodosError.NotStarted({ reason: why });
@@ -1005,7 +918,6 @@ export function createTodos(
 		 */
 		sync: defineMutation({
 			mutationKey: ['todos', 'sync'],
-			...LOCAL,
 			mutationFn: async (): Promise<Result<SyncOutcome, SyncError>> => {
 				const why = refused();
 				if (why !== undefined) return SyncError.Failed({ cause: why });
@@ -1017,7 +929,6 @@ export function createTodos(
 		/** Answer a sync's review. Refused choices are `InvalidChoices` and keep the attempt. */
 		apply: defineMutation({
 			mutationKey: ['todos', 'apply'],
-			...LOCAL,
 			mutationFn: async ({
 				attempt,
 				choices,
@@ -1039,7 +950,6 @@ export function createTodos(
 		 */
 		recoverIncoming: defineMutation({
 			mutationKey: ['todos', 'recover-incoming'],
-			...LOCAL,
 			mutationFn: async (): Promise<
 				Result<RecoverOutcome, PullError | GitError | TodosError>
 			> => {

@@ -32,9 +32,11 @@ const core = require(
 
 export const { QueryClient, QueryObserver, focusManager } = core;
 
-/** A fresh cache, as the layout creates one per page. */
+/** A fresh cache, mounted as the layout's provider mounts it, so it hears focus. */
 export function createQueryClient() {
-	return new QueryClient();
+	const client = new QueryClient();
+	client.mount();
+	return client;
 }
 
 /** Run one mutation from `options`, as `createMutation`'s `mutate` does. */
