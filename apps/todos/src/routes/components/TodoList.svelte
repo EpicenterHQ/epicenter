@@ -7,7 +7,8 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { describeError } from '$lib/describe-error.js';
-	import { getTodos, repairsOf, todosOf } from '$lib/todos.svelte.js';
+	import { repairsOf, todosOf } from '$lib/todo-listing.js';
+	import { getTodos } from '$lib/todos.svelte.js';
 	import TodoRow from './TodoRow.svelte';
 
 	const todos = getTodos();

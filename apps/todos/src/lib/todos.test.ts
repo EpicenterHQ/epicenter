@@ -46,11 +46,10 @@ import {
 	rowEditor,
 	textEditor,
 } from './query.test-support.js';
+import { repairsOf, todosOf } from './todo-listing.js';
 import type { Todos, WriteFailure } from './todos.svelte.js';
 
-const { createTodos, repairsOf, todosKeys, todosOf } = await import(
-	'./todos.svelte.ts'
-);
+const { createTodos, todosKeys } = await import('./todos.svelte.ts');
 
 const cleanup: (() => unknown)[] = [];
 let count = 0;

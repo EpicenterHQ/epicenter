@@ -75,24 +75,16 @@ import { type TodoFields, todosDefinition } from './definition.js';
 import { nameProblem, readTextFile } from './files.js';
 import type { TodosFolder } from './platform/types.js';
 import { createTerminalSession } from './terminal.svelte.js';
+import type { TodoListing } from './todo-listing.js';
 
 export type Todos = ReturnType<typeof createTodos>;
-
-/** Every todo row file, as the table lists it: a row, or why it is not one. */
-export type TodoListing = TableListing<TodoFields>;
-
-/** A todo row that reads as a todo. */
-export type TodoEntry = StoredRow<TodoFields> & { readonly stem: string };
-
-/** A row file the list cannot edit, and why, for the person to repair as text. */
-export type Repair = { readonly path: string; readonly reason: string };
 
 /**
  * What the detail shows: a todo's fields (`todos`), a file's complete text
  * (`files`), or a todo whose text does not read as a todo, opened as text
  * from the list (`repair`).
  */
-export type Selection = {
+type Selection = {
 	readonly path: string;
 	readonly as: 'todos' | 'files' | 'repair';
 };
@@ -146,45 +138,10 @@ export const todosKeys = defineKeys({
 	writeText: (path: string) => ['todos', 'write', 'text', path] as const,
 	move: (path: string) => ['todos', 'move', path] as const,
 	remove: (path: string) => ['todos', 'remove', path] as const,
+	recoverIncoming: ['todos', 'recover-incoming'],
 });
-function byPath(a: { path: string }, b: { path: string }) {
-	return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
-}
-
-/** The listing as the list shows it: open todos first, then done, each by path. */
-export function todosOf(listing: TodoListing): TodoEntry[] {
-	const entries: TodoEntry[] = [];
-	for (const { stem, result } of listing)
-		if (result.error === null) entries.push({ ...result.data, stem });
-	return entries.sort(
-		(a, b) =>
-			Number(a.row.fields.done) - Number(b.row.fields.done) || byPath(a, b),
-	);
-}
-
-/** The row files the list does not offer, each with why. */
-export function repairsOf(listing: TodoListing): Repair[] {
-	const repairs: Repair[] = [];
-	for (const { stem, result } of listing) {
-		if (result.error === null) continue;
-		const path = rowPath('todos', stem);
-		repairs.push(
-			result.error.name === 'InvalidRow'
-				? {
-						path,
-						reason: result.error.issues.map((issue) => issue.message).join(' '),
-					}
-				: {
-						path,
-						reason: `It could not be read as text: ${result.error.message}`,
-					},
-		);
-	}
-	return repairs.sort(byPath);
-}
-
 /** How the store reports to the page. */
-export type TodosOptions = {
+type TodosOptions = {
 	/** A write failed and was rolled back; the app tells the person. */
 	onWriteFailed?: (failure: WriteFailure) => void;
 };
@@ -402,18 +359,6 @@ export function createTodos(
 		return opened?.kind === 'text' ? opened.file : undefined;
 	}
 
-	/** After a delete: the caches and the open item let the file go. */
-	function deleted(path: string) {
-		const stem = rowStemOf(table.name, path);
-		if (stem !== undefined) {
-			queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
-				entries?.filter((entry) => entry.stem !== stem),
-			);
-		}
-		queryClient.removeQueries({ queryKey: todosKeys.text(path), exact: true });
-		if (selected?.path === path) selected = undefined;
-	}
-
 	/** The todo listing, narrowed by `select` for one view. */
 	function rowsQuery<TData = TodoListing>(
 		select?: (listing: TodoListing) => TData,
@@ -481,10 +426,12 @@ export function createTodos(
 		get departing() {
 			return departing;
 		},
-		/** How many mutations match `filters`, read reactively. */
-		mutating(filters?: MutationFilters) {
+		/** Whether recovering an incoming update runs, read reactively. */
+		get recovering() {
 			trackMutations();
-			return queryClient.isMutating(filters);
+			return (
+				queryClient.isMutating({ mutationKey: todosKeys.recoverIncoming }) > 0
+			);
 		},
 		/** Whether a write of a row or a file's text is running or waiting, read reactively. */
 		get saving() {
@@ -884,7 +831,19 @@ export function createTodos(
 						? table.delete(capture)
 						: folder.files.remove(capture);
 				},
-				onSuccess: () => deleted(deletion.path),
+				// The cache and the open item let the file go.
+				onSuccess: () => {
+					const stem = rowStemOf(table.name, deletion.path);
+					if (stem !== undefined)
+						queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
+							entries?.filter((entry) => entry.stem !== stem),
+						);
+					queryClient.removeQueries({
+						queryKey: todosKeys.text(deletion.path),
+						exact: true,
+					});
+					if (selected?.path === deletion.path) selected = undefined;
+				},
 				onSettled: () =>
 					Promise.all([
 						invalidate(todosKeys.rows),
@@ -939,7 +898,7 @@ export function createTodos(
 		 * listing and open file is read again.
 		 */
 		recoverIncoming: defineMutation({
-			mutationKey: ['todos', 'recover-incoming'],
+			mutationKey: todosKeys.recoverIncoming,
 			mutationFn: async (): Promise<
 				Result<RecoverOutcome, PullError | GitError | TodosError>
 			> => {

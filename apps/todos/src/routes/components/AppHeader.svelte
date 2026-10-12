@@ -92,7 +92,7 @@
 			saveVersion.isPending ||
 			reviewing ||
 			todos.departing ||
-			todos.mutating({ mutationKey: ['todos', 'recover-incoming'] }) > 0,
+			todos.recovering,
 	);
 	/**
 	 * Sync and Save version wait while an incoming update is pending; the

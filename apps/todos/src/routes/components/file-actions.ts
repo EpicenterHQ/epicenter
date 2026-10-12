@@ -28,7 +28,7 @@ function history(deletion: Extract<Deletion, { kind: 'todo' | 'file' }>) {
 		: 'Its current text is in the last saved version.';
 }
 
-export function describeDeletion(deletion: Deletion) {
+function describeDeletion(deletion: Deletion) {
 	switch (deletion.kind) {
 		case 'todo':
 			return {

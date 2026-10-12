@@ -20,7 +20,8 @@ import {
 	QueryObserver,
 } from '@tanstack/query-core';
 import type { TodoFields } from './definition.js';
-import type { TodoListing, Todos } from './todos.svelte.js';
+import type { TodoListing } from './todo-listing.js';
+import type { Todos } from './todos.svelte.js';
 
 export { focusManager, QueryObserver };
 
