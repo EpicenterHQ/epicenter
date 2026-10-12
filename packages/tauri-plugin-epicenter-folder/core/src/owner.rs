@@ -11,8 +11,8 @@
 //! - The **file gate** admits one publication at a time: a complete `apply`
 //!   batch, a directory change, or a fast-forward's file changes. It is held
 //!   for that one publication and never across calls.
-//! - The **Git lock** serializes work on the index and the branch: commits,
-//!   staging, staged commits, and a fast-forward's ref update.
+//! - The **Git lock** serializes work on the index and the branch: commits
+//!   and a fast-forward's ref update.
 //!
 //! A commit holds both: the file gate, then the Git lock. Under them it pins
 //! the branch head, enumerates the folder, and hard-links every file into a
@@ -23,7 +23,7 @@
 //! observation is marked stale. A branch another Git process moved fails the
 //! compare-and-swap and is reported; there is no retry.
 //!
-//! With `commit_on_edit`, a complete save asks for that commit. The request
+//! Every complete save asks for that commit. The request
 //! is numbered under the file gate, so a commit that snapshots the folder
 //! afterward has every request made before it in hand. Requests not yet
 //! answered are one obligation, carried by at most one worker thread that
@@ -74,15 +74,15 @@ use crate::files::{
     has_repository, resolve_root, verify_layout, ApplyError, Children, FileChange, FileError,
     FileListing, FileRead, FileStep, Files,
 };
-use crate::git::{Author, Capture, Cas, CommitSummary, Git, IndexCommit, PathStatus, Remote};
+use crate::git::{Author, Capture, Cas, CommitSummary, Git, PathStatus, Remote};
 use crate::history::{
     Activities, Activity, Attempt, CommitOutcome, FetchOutcome, FilesObservation, GitError,
     GitSnapshot, MergeError, MergeOutcome, MergePolicy, Observation, OwnerEvent, PendingIncoming,
-    PullError, PullOutcome, PushOutcome, RecoverOutcome, StagedCommit, SyncObservation,
+    PullError, PullOutcome, PushOutcome, RecoverOutcome, SyncObservation,
 };
 use crate::incoming::{self, Record, Written};
 use crate::merge::{self, Prepared};
-use crate::messages::{commit_subject, message_problem, ChangeKind};
+use crate::messages::{commit_subject, ChangeKind};
 use crate::paths::{ancestors, is_portable_path, path_problem};
 use crate::runner::{CloseMode, Endings, Leaving, PassRunner};
 use crate::transport::{with_report, GitService, Relay, Transport};
@@ -101,13 +101,9 @@ pub struct FolderConfig {
     pub require_existing_repository: bool,
     /// The local branch history is recorded on.
     pub branch: String,
-    /// Author and committer for automatic and staged commits.
+    /// Author and committer for automatic commits.
     pub author: Author,
     pub remote: Option<Remote>,
-    /// Whether a complete content save asks for an automatic local commit.
-    /// While the folder is busy the request waits, merged with later ones.
-    /// Transfers are explicit.
-    pub commit_on_edit: bool,
     /// Whether the repository's own `user.name` and `user.email` decide who
     /// commits. They are read once, when the folder opens, after its lock is
     /// held and its layout verified; `author` supplies whichever of the two
@@ -143,7 +139,6 @@ impl FolderConfig {
             branch: "main".to_string(),
             author,
             remote: None,
-            commit_on_edit: true,
             use_repository_author: false,
             use_repository_origin: false,
             transport: None,
@@ -504,7 +499,6 @@ impl FolderOwner {
                 snapshot: Arc::new(GitSnapshot {
                     branch: git.branch.clone(),
                     remote: git.remote.clone(),
-                    commit_on_edit: config.commit_on_edit,
                     files: Observation::Unknown { error: None },
                     sync: Observation::Unknown { error: None },
                     activity: Activities::default(),
@@ -865,48 +859,11 @@ impl FolderOwner {
         })
     }
 
-    /// Staged authoring requires `commit_on_edit: false`. `None` stages
-    /// everything.
-    pub fn stage(&self, paths: Option<&[String]>) -> Result<(), GitError> {
-        if self.inner.closing.load(Ordering::SeqCst) {
-            return Err(GitError::Closed);
-        }
-        if self.inner.config.commit_on_edit {
-            return Err(GitError::AutomaticHistory);
-        }
-        let Ok(_admitted) = self.inner.admit() else {
-            return Err(GitError::Closed);
-        };
-        let staged = {
-            let _git = lock(&self.inner.git_lock);
-            if let Some(pending) = self.inner.read_pending().pending() {
-                return Err(GitError::IncomingPending { pending });
-            }
-            self.inner
-                .git
-                .stage(paths)
-                .map_err(|cause| GitError::failed("add", cause))
-        };
-        self.inner.emit();
-        staged
-    }
-
-    /// Commit staged changes with a user-authored message in manual mode.
-    /// A Git merge in progress refuses it, writing nothing.
-    pub fn commit_staged(&self, message: &str) -> Result<StagedCommit, GitError> {
-        let Ok(_admitted) = self.inner.admit() else {
-            return Err(GitError::Closed);
-        };
-        if self.inner.config.commit_on_edit {
-            return Err(GitError::AutomaticHistory);
-        }
-        self.inner.commit_staged(message)
-    }
-
-    pub fn diff(&self, staged: bool, paths: &[String]) -> Result<String, GitError> {
+    /// Unstaged changes of `paths`, every path when empty.
+    pub fn diff(&self, paths: &[String]) -> Result<String, GitError> {
         self.inner.manual("diff", |inner| {
             let _git = lock(&inner.git_lock);
-            inner.git.diff(staged, paths)
+            inner.git.diff(paths)
         })
     }
 
@@ -1075,7 +1032,6 @@ impl Inner {
             GitSnapshot {
                 branch: self.git.branch.clone(),
                 remote: self.git.remote.clone(),
-                commit_on_edit: self.config.commit_on_edit,
                 files: state.files.clone(),
                 sync: state.sync.clone(),
                 activity,
@@ -1192,9 +1148,7 @@ impl Inner {
     /// Number a complete save's request for an automatic commit. The caller
     /// holds the file gate the save published under.
     fn request_automatic(&self) {
-        if self.config.commit_on_edit {
-            lock(&self.automatic).requested += 1;
-        }
+        lock(&self.automatic).requested += 1;
     }
 
     /// Answer every request made so far, and say whether any was pending.
@@ -1628,7 +1582,7 @@ impl Inner {
             });
         }
         // The parent is pinned and the folder snapshotted under both locks,
-        // so no fast-forward or staged commit of this owner falls between
+        // so no fast-forward of this owner falls between
         // them: bytes snapshotted for one parent are never committed on
         // another. Another Git process can still move the branch; that fails
         // the compare-and-swap below.
@@ -1678,8 +1632,8 @@ impl Inner {
             .as_ref()
             .map(|(oid, _)| oid.clone())
             .or_else(|| parent.clone());
-        // A whole-folder commit supersedes staged-only intent: every index
-        // entry is reset to the head. The branch has already moved, so a
+        // A whole-folder commit supersedes staged-only intent another Git
+        // program left: every index entry is reset to the head. The branch has already moved, so a
         // failure here is a warning, not a failed commit.
         let index_warning = head
             .as_deref()
@@ -1715,60 +1669,6 @@ impl Inner {
         self.refresh_sync();
         self.emit();
         outcome
-    }
-
-    /// Every check runs under the Git lock: an incoming update that stopped,
-    /// or a Git operation that began, while this waited is seen here.
-    fn commit_staged(&self, message: &str) -> Result<StagedCommit, GitError> {
-        if let Some(reason) = message_problem(message) {
-            return Err(GitError::InvalidMessage {
-                reason: reason.to_string(),
-            });
-        }
-        let failed = |cause: String| GitError::failed("commit", cause);
-        let (result, changed_paths) = {
-            let _git = lock(&self.git_lock);
-            if let Some(pending) = self.read_pending().pending() {
-                return Err(GitError::IncomingPending { pending });
-            }
-            if let Some(blocked) = self.git.blocked().map_err(failed)? {
-                return Err(failed(blocked));
-            }
-            let staged = self
-                .git
-                .path_status()
-                .map_err(failed)?
-                .iter()
-                .filter(|path| path.index != " " && path.index != "?")
-                .count();
-            let result = self
-                .git
-                .commit_index(message, &self.config.author)
-                .map_err(failed)?;
-            (result, staged)
-        };
-        if let IndexCommit::Committed { oid, parent } = &result {
-            lock(&self.state).last_commit = Some(Attempt {
-                result: CommitOutcome::Committed {
-                    oid: oid.clone(),
-                    parent: parent.clone(),
-                    message: message.to_string(),
-                    changed_paths: changed_paths as u32,
-                    index_warning: None,
-                },
-                at: now_ms(),
-            });
-        }
-        self.refresh_sync();
-        self.mark_files_stale();
-        self.emit();
-        match result {
-            IndexCommit::Nothing => Err(GitError::NothingToCommit),
-            IndexCommit::BranchMoved { expected, actual } => {
-                Err(GitError::BranchMoved { expected, actual })
-            }
-            IndexCommit::Committed { oid, parent } => Ok(StagedCommit { oid, parent }),
-        }
     }
 
     // ------------------------------------------------------------------
@@ -2484,11 +2384,7 @@ mod tests {
     fn a_save_held_before_the_gate_lands_after_a_later_one_and_stays() {
         let temp = TempDir::new("last-landed");
         let root = temp.folder("notes");
-        let owner = FolderOwner::open(FolderConfig {
-            commit_on_edit: false,
-            ..config(&root)
-        })
-        .unwrap();
+        let owner = FolderOwner::open(config(&root)).unwrap();
         let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
 
         // An earlier save is held before the gate while a later one lands.
@@ -2531,11 +2427,7 @@ mod tests {
     fn a_second_delivery_of_a_landed_save_lands_again() {
         let temp = TempDir::new("duplicate-delivery");
         let root = temp.folder("notes");
-        let owner = FolderOwner::open(FolderConfig {
-            commit_on_edit: false,
-            ..config(&root)
-        })
-        .unwrap();
+        let owner = FolderOwner::open(config(&root)).unwrap();
         let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
 
         // A save lands, a later one lands, and the first is delivered again,
@@ -2567,7 +2459,6 @@ mod tests {
         );
         let root = temp.folder("notes");
         let owner = FolderOwner::open(FolderConfig {
-            commit_on_edit: false,
             remote: Some(Remote {
                 url: bare.display().to_string(),
                 branch: "main".to_string(),

@@ -42,7 +42,6 @@ function snapshot(overrides: Partial<GitSnapshot> = {}): GitSnapshot {
 	return {
 		branch: 'main',
 		remote: { url: 'http://127.0.0.1/git/todos.git', branch: 'main' },
-		commitOnEdit: true,
 		files: {
 			state: 'observed',
 			value: { head: 'a'.repeat(40), changes: [] },

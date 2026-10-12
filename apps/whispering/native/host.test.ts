@@ -81,7 +81,7 @@ async function start(overrides: Partial<HostOptions> = {}) {
 
 /** The folder's owner, for a test that needs files published and committed. */
 async function owner(root: string) {
-	const folder = await openTestFolder(root, { commitOnEdit: false });
+	const folder = await openTestFolder(root);
 	cleanups.push(() => folder.close());
 	return folder;
 }
@@ -541,7 +541,7 @@ test('a terminal edit is an outside write: the owner’s next read sees it, and 
 	const pending = capture();
 	await publishRecording(folder, pending, { retry: false });
 	const entry = expectOk(await folder.tables.recordings.get(pending.id));
-	expect((await folder.git.commit()).status).toBe('committed');
+	await folder.git.commit();
 
 	// The real shell, as any other program: it edits the row and commits.
 	const run = await bridge.app<ShellRun>('terminal', {

@@ -45,7 +45,6 @@ mod lifecycle;
 
 pub use command_names::COMMANDS;
 pub use commands::{Attached, FolderFilesChanged, FolderSnapshotChanged, PROTOCOL};
-pub use epicenter_folder_core::history::StagedCommit;
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
@@ -107,8 +106,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::merge_incoming::<tauri::Wry>,
             commands::recover_incoming::<tauri::Wry>,
             commands::paths::<tauri::Wry>,
-            commands::stage::<tauri::Wry>,
-            commands::commit_staged::<tauri::Wry>,
             commands::diff::<tauri::Wry>,
             commands::log::<tauri::Wry>,
         ])

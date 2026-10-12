@@ -66,7 +66,6 @@ once registered.
 | `branch` | `main` | The local branch, and the remote branch when a remote exists. |
 | `author` | required | Who commits. With `use_repository_author`, the fallback for whichever of name and email the repository does not configure. |
 | `remote` | none | Where to push and fetch. |
-| `commit_on_edit` | `true` | Whether a complete save asks for a local commit. Transfers are explicit. While the folder is busy the request waits, merged with later ones; see "Automatic commits". |
 | `use_repository_author` | `false` | Read `user.name` and `user.email` when the folder opens. |
 | `use_repository_origin` | `false` | Read `remote.origin.url` when the folder opens and use it as the remote. |
 | `transport` | none | Where each push and fetch gets a relay URL; see "Relayed transfers". Without one, Git is given the remote's URL. |
@@ -105,12 +104,14 @@ await folder.close();           // detaches this page only
 `openFolder` returns its refusals: an unknown scope, a window the scope does
 not list, a folder another process holds, a shell without this plugin, and a
 desktop app built for another protocol version. The unreleased protocol is
-version 9: version 5 added the incoming record, `recover_incoming`, and the
+version 10: version 5 added the incoming record, `recover_incoming`, and the
 refusals a pending update causes, version 6 the optional `expectedSha256` on
 `replace`, version 7 removed the save number `apply` named and its
 `Superseded` refusal, version 8 added `merge_incoming` with unfinished
-merges, and version 9 removed unfinished merges: every conflict is refused
-(see [Merging incoming history](#merging-incoming-history)). No command
+merges, version 9 removed unfinished merges: every conflict is refused
+(see [Merging incoming history](#merging-incoming-history)), and version 10
+removed manual history: the snapshot's `commitOnEdit`, `stage`,
+`commit_staged`, `diff`'s `staged`, and the Git refusals only they made. No command
 holds the folder across calls or names a terminal lease.
 A page built for a different version is refused at attach. It never opens
 browser storage instead. `@epicenter/folder/tauri` is the same opener without the
@@ -196,18 +197,11 @@ The two booleans are optional and `false` when absent.
 
 - **A Git merge a person began** outside Epicenter, while `MERGE_HEAD`
   exists or the index holds unmerged stages, blocks whole-folder commits,
-  automatic commits, staged commits, fast-forwards, merges, and recovery,
-  as a rebase in progress or a detached HEAD does: `CommitOutcome` `blocked`,
-  `PullError` `Blocked`, `GitError` `Failed` for a staged commit, and
-  `RecoveryRefused` for recovery, each with the reason "a Git merge is in
-  progress; finish or abort it with Git outside Epicenter". Nothing is
-  written; saves, fetches, and staging continue.
-- **Every staged commit** pins its parent before construction and moves the
-  branch only if it still names it. Git writes the tree from a private index
-  copy, excluding intent-to-add placeholders while preserving staged empty
-  files, modes, and deletions. A concurrent branch move reports
-  `BranchMoved { expected, actual }` and leaves the live index unchanged.
-  Built-in commits run no commit hooks and are unsigned.
+  automatic commits, fast-forwards, merges, and recovery, as a rebase in
+  progress or a detached HEAD does: `CommitOutcome` `blocked`, `PullError`
+  `Blocked`, and `RecoveryRefused` for recovery, each with the reason "a Git
+  merge is in progress; finish or abort it with Git outside Epicenter".
+  Nothing is written; saves and fetches continue.
 
 ## Incoming updates and their recovery
 
@@ -224,9 +218,8 @@ so a later fetch that moves the tracking ref, or a garbage collection, cannot
 take the target away. Ordinary saves keep no record.
 
 - **While a record exists**, saves and fetches carry on. Commits, automatic
-  commits, staging, staged commits, and new fast-forwards are refused:
-  `CommitOutcome` `blocked`, `GitError` `IncomingPending`, and `PullError`
-  `IncomingPending`. The snapshot's `pendingIncoming` reports it: `recorded`
+  commits, and new fast-forwards are refused: `CommitOutcome` `blocked` and
+  `PullError` `IncomingPending`. The snapshot's `pendingIncoming` reports it: `recorded`
   with the four fields, or `unreadable` with the exact reason a record could
   not be read. Opening the folder and `status` read it and never resume it.
 - **`recover_incoming`** runs only when asked, under the file gate and the
@@ -331,7 +324,7 @@ removes only ended sessions, so an attachment from the new page survives it.
 - A save the plugin took before its session ended still lands; one that
   arrives after the session ended is denied and writes nothing. Two scopes
   cannot hold one root at once, since the second cannot take its lock.
-- **The Git lock** orders commits, staging, and ref updates.
+- **The Git lock** orders commits and ref updates.
 - Pushes and fetches run outside both. A transport in flight delays no save
   and no commit.
 - A commit takes the file gate and then the Git lock. Under both it pins the
@@ -347,15 +340,22 @@ removes only ended sessions, so an attachment from the new page survives it.
 
 ## Automatic commits
 
-With `commit_on_edit`, a complete `apply` batch asks for an automatic commit.
-The request is numbered under the file gate the batch published under. One
+Every complete `apply` batch asks for an automatic commit; there is no
+setting that turns this off, and no staging or commit with a message of its
+own. The folder is a real directory with a real `.git`, so a person can still
+use their own Git there. A whole-folder commit covers the whole folder, not
+what is staged, and resets every index entry to the new head, so changes that
+were only staged do not survive it. Like any commit the owner writes, it runs
+no commit hooks and is unsigned.
+
+A batch's request is numbered under the file gate the batch published under. One
 worker thread per owner carries every request not yet answered: it waits for
 the file gate and then the Git lock as an explicit commit does, and commits
 the folder as it is once it holds both. The save returns once the worker is
 admitted and started, never waiting for the commit.
 
-- A save made while the worker waits, or while another save, commit,
-  fast-forward, or staging call holds the folder, only renumbers the pending
+- A save made while the worker waits, or while another save, commit, or
+  fast-forward holds the folder, only renumbers the pending
   request. When the holder lets go, one commit takes the latest files without
   another save. No copy of saved bytes is kept, and no timer exists.
 - Every whole-folder commit, explicit or automatic, answers the requests made

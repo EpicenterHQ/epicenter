@@ -9,12 +9,11 @@
  * read, so an intervening replacement is refused; a plain redirection is a
  * deliberate overwrite.
  *
- * `git` is a real command over the folder's history: status, diff, log, add,
- * commit -m, push, fetch, pull --ff-only, and merge. Staged authoring requires
- * `commitOnEdit: false`. `git merge` merges the already fetched remote head
- * when it fast-forwards or merges cleanly; a conflict writes nothing and
- * exits 1, pointing to Sync, in either history mode. Other Git commands are
- * refused.
+ * `git` is a real command over the folder's history: status, diff, log, push,
+ * fetch, pull --ff-only, and merge. There is no `git add` or `git commit`:
+ * every save already commits. `git merge` merges the already fetched remote
+ * head when it fast-forwards or merges cleanly; a conflict writes nothing and
+ * exits 1, pointing to Sync. Other Git commands are refused.
  */
 import { Buffer } from 'buffer/';
 import {
@@ -575,19 +574,16 @@ async function runGit(
 			return ok(`${header}\n${lines.join('\n')}\n`);
 		}
 		case 'diff': {
-			let staged = false;
 			const paths: string[] = [];
 			for (const arg of rest) {
-				if (arg === '--cached' || arg === '--staged') staged = true;
-				else if (arg === '--') continue;
+				if (arg === '--') continue;
 				else if (arg.startsWith('-'))
 					return error(`git diff: unsupported option ${arg}`, 129);
 				else paths.push(toPath(arg));
 			}
-			const { data: diff, error: diffError } = await git.diff({
-				staged,
-				paths: paths.map((path) => path || '.'),
-			});
+			const { data: diff, error: diffError } = await git.diff(
+				paths.map((path) => path || '.'),
+			);
 			if (diffError !== null) return error(diffError.message);
 			return ok(diff);
 		}
@@ -634,63 +630,6 @@ async function runGit(
 						return `commit ${commit.oid}\nAuthor: ${commit.author.name} <${commit.author.email}>\nDate:   ${date}\n\n${body}\n`;
 					})
 					.join('\n'),
-			);
-		}
-		case 'add': {
-			if (rest.length === 0)
-				return error(
-					"Nothing specified, nothing added.\nhint: Maybe you wanted to say 'git add .'?",
-				);
-			let all = false;
-			const paths: string[] = [];
-			for (const arg of rest) {
-				if (arg === '-A' || arg === '--all') all = true;
-				else if (arg === '--') continue;
-				else if (arg.startsWith('-'))
-					return error(`git add: unsupported option ${arg}`, 129);
-				else paths.push(toPath(arg));
-			}
-			const target = all || paths.includes('') ? 'all' : paths;
-			const { error: stageError } = await git.stage(target);
-			if (stageError !== null)
-				return error(`fatal: ${stageError.message}`, 128);
-			return ok('');
-		}
-		case 'commit': {
-			const messages: string[] = [];
-			for (let index = 0; index < rest.length; index++) {
-				const arg = rest[index]!;
-				if (arg === '-m' || arg === '--message') {
-					const value = rest[++index];
-					if (value === undefined)
-						return error(`error: switch \`m' requires a value`, 129);
-					messages.push(value);
-				} else if (arg.startsWith('--message='))
-					messages.push(arg.slice('--message='.length));
-				else if (arg.startsWith('-m') && arg.length > 2)
-					messages.push(arg.slice(2));
-				else
-					return error(
-						`git commit: unsupported argument ${arg}; use git add, then git commit -m <message>`,
-						129,
-					);
-			}
-			if (messages.length === 0)
-				return error(
-					'git commit: a message is required: git commit -m <message>',
-					129,
-				);
-			const { data: committed, error: commitError } = await git.commitStaged(
-				messages.join('\n\n'),
-			);
-			if (commitError !== null) {
-				if (commitError.name === 'NothingToCommit')
-					return error('nothing added to commit', 1);
-				return error(commitError.message);
-			}
-			const subject = messages[0]!.split('\n')[0];
-			return ok(
-				`[${git.snapshot.branch} ${short(committed.oid)}] ${subject}\n`,
 			);
 		}
 		case 'push': {
@@ -810,7 +749,7 @@ async function runGit(
 		case 'help':
 		case '--help':
 			return ok(
-				`Supported: git status, git diff [--cached] [paths], git log [-n N] [--oneline]${git.snapshot.commitOnEdit ? '' : ', git add <paths>|-A, git commit -m <message>'}, git push, git fetch, git pull --ff-only, git merge\n`,
+				'Supported: git status, git diff [paths], git log [-n N] [--oneline], git push, git fetch, git pull --ff-only, git merge\n',
 			);
 		default:
 			return error(

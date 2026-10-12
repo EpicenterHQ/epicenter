@@ -317,7 +317,6 @@ test.skipIf(!exchangeSupported)(
 			}),
 			git: {
 				author: { name: 'App', email: 'app@example.test' },
-				commitOnEdit: true,
 			},
 		});
 		try {

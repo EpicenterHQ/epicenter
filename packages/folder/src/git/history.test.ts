@@ -69,7 +69,6 @@ test('close aborts the active push at once while a held local pass finishes', as
 		backend,
 		boundary,
 		author,
-		commitOnEdit: true,
 	});
 
 	await write('a.txt', 'a');
@@ -121,7 +120,6 @@ test('a caller signal stops waiting without aborting the shared push', async () 
 		backend,
 		boundary,
 		author,
-		commitOnEdit: false,
 	});
 	await write('a.txt', 'a');
 	await history.commit();

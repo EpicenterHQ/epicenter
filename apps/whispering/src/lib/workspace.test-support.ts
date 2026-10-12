@@ -132,15 +132,12 @@ function refusedConnection(
 }
 
 /** A real directory opened as Whispering's folder, by this test process. */
-export async function openTestFolder(
-	root: string,
-	git: { commitOnEdit?: boolean } = {},
-) {
+export async function openTestFolder(root: string) {
 	return expectOk(
 		await openFolder({
 			root,
 			definition: whisperingDefinition,
-			git: { author: { name: 'Test', email: 'test@localhost' }, ...git },
+			git: { author: { name: 'Test', email: 'test@localhost' } },
 		}),
 	);
 }

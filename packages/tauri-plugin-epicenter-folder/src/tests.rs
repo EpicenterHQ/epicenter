@@ -105,16 +105,11 @@ fn temp(label: &str) -> TempDirectory {
 
 /// An app whose windows may call every plugin command, with the scope
 /// `notes` registered for `windows`.
-fn fixture(label: &str, windows: &[&str], commit_on_edit: bool) -> Fixture {
-    fixture_in(temp(label), windows, commit_on_edit, None)
+fn fixture(label: &str, windows: &[&str]) -> Fixture {
+    fixture_in(temp(label), windows, None)
 }
 
-fn fixture_in(
-    directory: TempDirectory,
-    windows: &[&str],
-    commit_on_edit: bool,
-    remote: Option<Remote>,
-) -> Fixture {
+fn fixture_in(directory: TempDirectory, windows: &[&str], remote: Option<Remote>) -> Fixture {
     let root = directory.0.join("notes");
     std::fs::create_dir(&root).unwrap();
     let mut context = mock_context(noop_assets());
@@ -132,7 +127,6 @@ fn fixture_in(
         .register(ScopeConfig {
             scope: "notes".to_string(),
             folder: FolderConfig {
-                commit_on_edit,
                 remote,
                 watch_events: false,
                 watch_interval: None,
@@ -250,7 +244,7 @@ fn eventually(what: &str, condition: impl Fn() -> bool) {
 
 #[test]
 fn a_window_attaches_reads_publishes_and_commits_through_invoke() {
-    let fixture = fixture("round-trip", &["main"], false);
+    let fixture = fixture("round-trip", &["main"]);
     let main = window(&fixture.app, "main");
     let attached = invoke(
         &main,
@@ -260,7 +254,7 @@ fn a_window_attaches_reads_publishes_and_commits_through_invoke() {
     .unwrap();
     let session = attached["session"].as_u64().unwrap();
     assert_eq!(attached["snapshot"]["branch"], "main");
-    assert_eq!(attached["snapshot"]["commitOnEdit"], false);
+    assert!(attached["snapshot"].get("commitOnEdit").is_none());
     assert_eq!(
         attached["snapshot"]["files"],
         json!({ "state": "unknown", "error": null })
@@ -420,10 +414,17 @@ fn a_window_attaches_reads_publishes_and_commits_through_invoke() {
     .unwrap();
     assert!(!fixture.root.join("moved.md").exists() && !fixture.root.join("other.md").exists());
 
+    // Every save asked for a commit; once they ran, nothing is uncommitted.
+    eventually("the saves to be committed", || {
+        invoke(&main, "status", json!({ "session": session })).unwrap()["changes"] == json!([])
+    });
+    // A file another program writes waits for a commit someone asks for.
+    std::fs::write(fixture.root.join("outside.md"), "outside").unwrap();
+    std::fs::write(fixture.root.join("todos/a.png"), "edited").unwrap();
     let status = invoke(&main, "status", json!({ "session": session })).unwrap();
     assert_eq!(
         status["changes"],
-        json!([{ "path": "todos/a.md", "kind": "add" }, { "path": "todos/a.png", "kind": "add" }])
+        json!([{ "path": "outside.md", "kind": "add" }, { "path": "todos/a.png", "kind": "modify" }])
     );
     // The commit command replies with the settled outcome itself.
     let committed = invoke(&main, "commit", json!({ "session": session })).unwrap();
@@ -432,7 +433,7 @@ fn a_window_attaches_reads_publishes_and_commits_through_invoke() {
     assert_eq!(committed["changedPaths"], 2);
     assert!(committed.get("outcome").is_none() && committed.get("followingPush").is_none());
     assert_eq!(
-        git(&fixture.root, &["log", "--format=%s"]),
+        git(&fixture.root, &["log", "-1", "--format=%s"]),
         "Update 2 files"
     );
     let log = invoke(&main, "log", json!({ "session": session, "depth": 5 })).unwrap();
@@ -470,48 +471,23 @@ fn a_window_attaches_reads_publishes_and_commits_through_invoke() {
         json!({ "name": "Pull", "error": { "name": "Git", "error": { "name": "NoRemote" } } })
     );
 
-    // Manual staging through invoke, since this scope does not commit on edit.
-    apply(&main, session, json!([create("b.md", "B")])).unwrap();
-    invoke(
-        &main,
-        "stage",
-        json!({ "session": session, "paths": ["b.md"] }),
-    )
-    .unwrap();
+    // Paths and diff report a change another program made, unstaged.
+    std::fs::write(fixture.root.join("outside.md"), "changed").unwrap();
     assert_eq!(
         invoke(&main, "paths", json!({ "session": session })).unwrap(),
-        json!([{ "path": "b.md", "index": "A", "worktree": " " }])
+        json!([{ "path": "outside.md", "index": " ", "worktree": "M" }])
     );
-    let diff = invoke(
-        &main,
-        "diff",
-        json!({ "session": session, "staged": true, "paths": [] }),
-    )
-    .unwrap();
-    assert!(diff.as_str().unwrap().contains("+B"));
-    let staged = invoke(
-        &main,
-        "commit_staged",
-        json!({ "session": session, "message": "Add b" }),
-    )
-    .unwrap();
-    assert_eq!(
-        staged,
-        json!({ "oid": staged["oid"], "parent": committed["oid"] })
-    );
-    assert_eq!(
-        git(&fixture.root, &["rev-parse", "HEAD"]),
-        staged["oid"].as_str().unwrap()
-    );
+    let diff = invoke(&main, "diff", json!({ "session": session, "paths": [] })).unwrap();
+    assert!(diff.as_str().unwrap().contains("+changed"), "{diff}");
 
-    for response in [&status, &committed, &staged] {
+    for response in [&status, &committed] {
         assert!(response.to_string().len() < 1024, "{response}");
     }
 }
 
 #[test]
 fn a_window_reaches_only_its_own_scopes_and_its_own_sessions() {
-    let fixture = fixture("sessions", &["a", "b"], false);
+    let fixture = fixture("sessions", &["a", "b"]);
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let intruder = window(&fixture.app, "intruder");
@@ -629,7 +605,7 @@ fn a_window_reaches_only_its_own_scopes_and_its_own_sessions() {
 
 #[test]
 fn two_windows_share_one_owner_and_detaching_one_leaves_the_other() {
-    let fixture = fixture("shared", &["a", "b"], true);
+    let fixture = fixture("shared", &["a", "b"]);
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let heard: Arc<Mutex<Vec<Value>>> = Arc::default();
@@ -830,7 +806,7 @@ impl HeldRemote {
 fn held_fixture(label: &str, windows: &[&str]) -> (Fixture, HeldRemote) {
     let directory = temp(label);
     let (held, remote) = HeldRemote::new(&directory.0);
-    (fixture_in(directory, windows, false, Some(remote)), held)
+    (fixture_in(directory, windows, Some(remote)), held)
 }
 
 fn open_request(window: &WebviewWindow<MockRuntime>, session: u64) -> u64 {
@@ -862,9 +838,18 @@ fn withdraw(window: &WebviewWindow<MockRuntime>, session: u64, request: u64) {
 #[cfg(unix)]
 fn commit_file(window: &WebviewWindow<MockRuntime>, session: u64, path: &str) -> String {
     apply(window, session, json!([create(path, path)])).unwrap();
+    // The save's automatic commit, or this one if it gets there first.
     let committed = invoke(window, "commit", json!({ "session": session })).unwrap();
-    assert_eq!(committed["status"], "committed", "{committed}");
-    committed["oid"].as_str().unwrap().to_string()
+    assert!(
+        committed["status"] == "committed" || committed["status"] == "unchanged",
+        "{committed}"
+    );
+    let head = invoke(window, "log", json!({ "session": session, "depth": 1 })).unwrap();
+    assert_eq!(
+        head[0]["message"].as_str().unwrap().trim_end(),
+        format!("Add {path}")
+    );
+    head[0]["oid"].as_str().unwrap().to_string()
 }
 
 /// What the owner replies for a push it never started: this request pinned
@@ -1054,7 +1039,7 @@ fn a_push_in_flight_at_the_remote_holds_no_window_save_or_commit_back() {
     // This folder commits on edit, and its remote holds every push.
     let directory = temp("network-held");
     let (remote, configured) = HeldRemote::new(&directory.0);
-    let fixture = fixture_in(directory, &["a", "b"], true, Some(configured));
+    let fixture = fixture_in(directory, &["a", "b"], Some(configured));
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let a_session = attach(&a);
@@ -1122,7 +1107,7 @@ fn a_push_in_flight_at_the_remote_holds_no_window_save_or_commit_back() {
 
 #[test]
 fn a_page_reload_ends_that_pages_sessions_and_nothing_else() {
-    let fixture = fixture("reload", &["a", "b"], true);
+    let fixture = fixture("reload", &["a", "b"]);
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let a_session = attach(&a);
@@ -1239,7 +1224,7 @@ fn hold_next(
 
 #[test]
 fn a_save_held_before_the_folder_lands_after_its_sessions_later_save_and_stays() {
-    let fixture = fixture("last-landed", &["last-landed"], false);
+    let fixture = fixture("last-landed", &["last-landed"]);
     let page = window(&fixture.app, "last-landed");
     let session = attach(&page);
     let read = |path: &str| std::fs::read_to_string(fixture.root.join(path)).ok();
@@ -1271,7 +1256,7 @@ fn a_save_held_before_the_folder_lands_after_its_sessions_later_save_and_stays()
 
 #[test]
 fn a_second_delivery_of_a_save_lands_again_through_any_session() {
-    let fixture = fixture("late-delivery", &["late-delivery", "elsewhere"], false);
+    let fixture = fixture("late-delivery", &["late-delivery", "elsewhere"]);
     let page = window(&fixture.app, "late-delivery");
     let (one, two) = (attach(&page), attach(&page));
     let read = |path: &str| std::fs::read_to_string(fixture.root.join(path)).ok();
@@ -1298,7 +1283,7 @@ fn a_second_delivery_of_a_save_lands_again_through_any_session() {
 
 #[test]
 fn a_second_scope_on_the_same_root_cannot_open() {
-    let fixture = fixture("alias-scope", &["main"], false);
+    let fixture = fixture("alias-scope", &["main"]);
     // The same directory, spelled through its parent.
     let spelled = fixture.root.join("..").join("notes");
     fixture
@@ -1333,7 +1318,7 @@ fn a_second_scope_on_the_same_root_cannot_open() {
 
 #[test]
 fn a_destroyed_window_ends_its_sessions_after_the_manager_forgot_its_webview() {
-    let fixture = fixture("destroyed", &["a", "b"], true);
+    let fixture = fixture("destroyed", &["a", "b"]);
     let a = window(&fixture.app, "a");
     let b = window(&fixture.app, "b");
     let a_session = attach(&a);
@@ -1407,7 +1392,7 @@ fn a_stale_webview_handle_neither_joins_nor_ends_another_webviews_sessions() {
     // it. The mock manager keeps a destroyed window's entry, so the second
     // cannot be built under the first one's label here; the same-label case
     // is exercised on the identity objects in the test after this one.
-    let fixture = fixture("stale-handle", &["old", "successor"], false);
+    let fixture = fixture("stale-handle", &["old", "successor"]);
     let old = window(&fixture.app, "old");
     let old_session = attach(&old);
     old.as_ref().close().unwrap();
@@ -1479,7 +1464,6 @@ fn a_window_recreated_under_the_same_label_is_a_separate_instance() {
         .register(ScopeConfig {
             scope: "notes".to_string(),
             folder: FolderConfig {
-                commit_on_edit: false,
                 watch_events: false,
                 watch_interval: None,
                 ..FolderConfig::new(
@@ -1558,7 +1542,7 @@ fn a_window_recreated_under_the_same_label_is_a_separate_instance() {
 
 #[test]
 fn an_attach_that_finishes_after_its_window_was_destroyed_registers_nothing() {
-    let fixture = fixture("late-attach", &["late", "b"], false);
+    let fixture = fixture("late-attach", &["late", "b"]);
     let late = window(&fixture.app, "late");
     let b = window(&fixture.app, "b");
     let b_session = attach(&b);
@@ -1613,7 +1597,7 @@ fn an_attach_that_finishes_after_its_window_was_destroyed_registers_nothing() {
 
 #[test]
 fn a_reload_fences_an_attach_in_flight_for_the_old_page() {
-    let fixture = fixture("reload-attach", &["reloading"], false);
+    let fixture = fixture("reload-attach", &["reloading"]);
     let page = window(&fixture.app, "reloading");
     let (at_hook, release) = hold_first_attach("reloading");
 
@@ -1656,7 +1640,7 @@ pub(crate) fn page_advanced(label: &str) {
 
 #[test]
 fn a_session_the_new_page_attaches_during_reload_cleanup_survives_it() {
-    let fixture = fixture("reload-cleanup", &["reloading-cleanup"], false);
+    let fixture = fixture("reload-cleanup", &["reloading-cleanup"]);
     let page = window(&fixture.app, "reloading-cleanup");
     let old_session = attach(&page);
 
@@ -1739,7 +1723,6 @@ fn invoke_bridge() {
         .register(ScopeConfig {
             scope: "notes".to_string(),
             folder: FolderConfig {
-                commit_on_edit: std::env::var_os("FOLDER_BRIDGE_MANUAL").is_none(),
                 remote: std::env::var("FOLDER_BRIDGE_REMOTE")
                     .ok()
                     .map(|url| Remote {
@@ -1836,7 +1819,7 @@ fn a_window_without_the_permission_cannot_call_the_plugin() {
 
 #[test]
 fn recovering_an_incoming_update_is_a_command_of_a_session_on_that_scope() {
-    let fixture = fixture("recover-scope", &["owner", "other"], false);
+    let fixture = fixture("recover-scope", &["owner", "other"]);
     let owner = window(&fixture.app, "owner");
     let other = window(&fixture.app, "other");
     let intruder = window(&fixture.app, "intruder");
@@ -1939,7 +1922,7 @@ fn merge_options_are_optional_arguments_that_reach_the_owner() {
         url: bare.display().to_string(),
         branch: "main".to_string(),
     };
-    let fixture = fixture_in(directory, &["main"], false, Some(remote));
+    let fixture = fixture_in(directory, &["main"], Some(remote));
     let main = window(&fixture.app, "main");
     let session = attach(&main);
     apply(
@@ -1951,9 +1934,9 @@ fn merge_options_are_optional_arguments_that_reach_the_owner() {
         ]),
     )
     .unwrap();
-    let committed = invoke(&main, "commit", json!({ "session": session })).unwrap();
-    assert_eq!(committed["status"], "committed", "{committed}");
-    let ours = committed["oid"].clone();
+    // The save's automatic commit, or this one if it gets there first.
+    invoke(&main, "commit", json!({ "session": session })).unwrap();
+    let ours = json!(git(&fixture.root, &["rev-parse", "HEAD"]));
     let request = open_request(&main, session);
     let theirs = invoke(
         &main,

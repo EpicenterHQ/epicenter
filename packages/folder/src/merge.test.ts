@@ -15,14 +15,15 @@
  * - A two-sided change to bytes isomorphic-git would not merge faithfully
  *   (invalid UTF-8, a lone carriage return) is a conflict; one-sided binary
  *   changes keep their exact bytes
- * - A save to an unchanged path, a new file at an incoming path, staging, or
- *   a branch move between planning and publication refuses the whole update
+ * - A save to an unchanged path, a new file at an incoming path, an index
+ *   change, or a branch move between planning and publication refuses the
+ *   whole update
  * - A directory folder refuses the same conflicts with its files, index,
  *   and branch untouched, and merges independent changes in one commit
  * - A conflicted `git merge` in the folder terminal writes nothing and
- *   points to Sync, in either history mode
- * - A merge another Git program began blocks commits, staged commits, and
- *   incoming updates until it is finished with Git
+ *   points to Sync
+ * - A merge another Git program began blocks commits and incoming updates
+ *   until it is finished with Git
  *
  * See also:
  * - `sync.test.ts` for settling conflicts
@@ -91,7 +92,6 @@ async function setup(
 		backend,
 		boundary,
 		author,
-		commitOnEdit: false,
 		landed: (paths) => landed.push(...paths),
 	});
 
@@ -578,7 +578,7 @@ describe('publication baseline', () => {
 		expect(decoder.decode(await made.read('incoming.md'))).toBe('mine\n');
 	});
 
-	test('staging between the clean check and the index capture refuses it', async () => {
+	test('an index change between the clean check and the index capture refuses it', async () => {
 		let armed = false;
 		let afterStage: Record<string, string> | undefined;
 		let made!: Awaited<ReturnType<typeof setup>>;
@@ -588,7 +588,9 @@ describe('publication baseline', () => {
 				if (armed) {
 					armed = false;
 					await made.write('kv.json', '{"theme":"staged","lang":"en"}');
-					await real.stage(['kv.json']);
+					await real.withObjects((access) =>
+						isogit.add({ ...access, dir: WORKDIR, filepath: 'kv.json' }),
+					);
 					await made.write('kv.json', SIDES.ours['kv.json']);
 					afterStage = await made.dump();
 				}
@@ -603,7 +605,7 @@ describe('publication baseline', () => {
 		expect(await made.dump()).toEqual(afterStage!);
 	});
 
-	test('staging after the clean check refuses it', async () => {
+	test('an index change after the clean check refuses it', async () => {
 		const { made, sides, refused } = await interrupted((made) =>
 			made.real.withObjects((access) =>
 				isogit.remove({ ...access, dir: WORKDIR, filepath: 'quiet.md' }),
@@ -659,7 +661,6 @@ describe('the browser journey', () => {
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					remote: { url: 'http://git.test/remote.git', branch: 'main' },
 					...browserStorage(environment),
 				},
@@ -692,8 +693,8 @@ describe('the browser journey', () => {
 
 			// This folder changes the theme and commits without pushing.
 			expectOk(await folder.kv.set('theme', 'dark'));
-			const local = await folder.git.commit();
-			if (local.status !== 'committed') throw new Error(local.status);
+			await folder.git.commit();
+			const local = { oid: expectOk(await folder.git.log(1))[0]!.oid };
 			const fetched = expectOk(await folder.git.fetch()).oid;
 			expect(fetched).toBe(remoteHead);
 			expect(expectErr(await folder.git.pullFastForward()).name).toBe(
@@ -746,7 +747,6 @@ test('a directory folder refuses a conflict by default and changes nothing', asy
 		definition,
 		git: {
 			author,
-			commitOnEdit: false,
 			remote: { url: bare, branch: 'main' },
 		},
 	});
@@ -759,8 +759,8 @@ test('a directory folder refuses a conflict by default and changes nothing', asy
 		await git(upstream, 'commit', '--quiet', '-am', 'Theirs');
 		await git(upstream, 'push', '--quiet', 'origin', 'main');
 		expectOk(await directory.files.overwrite('a.md', 'ours\n'));
-		const ours = await directory.git.commit();
-		if (ours.status !== 'committed') throw new Error(ours.status);
+		await directory.git.commit();
+		const ours = { oid: await git(local, 'rev-parse', 'main') };
 		expectOk(await directory.git.fetch());
 		const index = await readFile(join(local, '.git/index'));
 
@@ -778,7 +778,7 @@ test('a directory folder refuses a conflict by default and changes nothing', asy
 });
 
 /** A directory folder over a fresh remote, and a clone that pushes to it. */
-async function directoryWithUpstream(commitOnEdit: boolean) {
+async function directoryWithUpstream() {
 	const root = await scratch('merge-directory-');
 	const bare = await createBareRemote(root);
 	const local = join(root, 'local');
@@ -786,7 +786,7 @@ async function directoryWithUpstream(commitOnEdit: boolean) {
 	const directory = await openNativeFolder({
 		root: local,
 		definition: defineFolder({ kv: {}, tables: {} }),
-		git: { author, commitOnEdit, remote: { url: bare, branch: 'main' } },
+		git: { author, remote: { url: bare, branch: 'main' } },
 	});
 	opened.push(directory);
 	expectOk(await directory.files.create('a.md', 'one\ntwo\nthree\n'));
@@ -805,11 +805,12 @@ async function directoryWithUpstream(commitOnEdit: boolean) {
 }
 
 test('a directory folder merges independent changes in one commit with both parents', async () => {
-	const { directory, local, push } = await directoryWithUpstream(false);
+	const { directory, local, push } = await directoryWithUpstream();
 	await push('a.md', 'one\ntwo\nTHREE\n');
 	expectOk(await directory.files.overwrite('a.md', 'ONE\ntwo\nthree\n'));
-	const ours = await directory.git.commit();
-	if (ours.status !== 'committed') throw new Error(ours.status);
+	// The save's automatic commit, or this one if it gets there first.
+	await directory.git.commit();
+	const ours = { oid: await git(local, 'rev-parse', 'main') };
 	expectOk(await directory.git.fetch());
 
 	const merged = expectOk(await directory.git.mergeIncoming());
@@ -821,35 +822,29 @@ test('a directory folder merges independent changes in one commit with both pare
 	expect(await git(local, 'status', '--porcelain')).toBe('');
 });
 
-for (const commitOnEdit of [true, false])
-	test(`a conflicted git merge in the terminal writes nothing and points to Sync (commitOnEdit: ${commitOnEdit})`, async () => {
-		const { directory, local, push } =
-			await directoryWithUpstream(commitOnEdit);
-		await push('a.md', 'one\nTWO, theirs\nthree\n');
-		expectOk(
-			await directory.files.overwrite('a.md', 'one\nTWO, ours\nthree\n'),
-		);
-		// Committed now in either mode, so no automatic commit lands later.
-		await directory.git.commit();
-		const shell = directory.terminal();
-		expect((await shell.exec('git fetch')).exitCode).toBe(0);
-		const head = await git(local, 'rev-parse', 'main');
+test('a conflicted git merge in the terminal writes nothing and points to Sync', async () => {
+	const { directory, local, push } = await directoryWithUpstream();
+	await push('a.md', 'one\nTWO, theirs\nthree\n');
+	expectOk(await directory.files.overwrite('a.md', 'one\nTWO, ours\nthree\n'));
+	// Committed now, so no automatic commit lands later.
+	await directory.git.commit();
+	const shell = directory.terminal();
+	expect((await shell.exec('git fetch')).exitCode).toBe(0);
+	const head = await git(local, 'rev-parse', 'main');
 
-		const merged = await shell.exec('git merge');
-		expect(merged.exitCode).toBe(1);
-		expect(merged.stderr).toContain(
-			'CONFLICT (content): Merge conflict in a.md',
-		);
-		expect(merged.stderr).toContain(CONFLICTS_NEED_SYNC);
-		expect(await readFile(join(local, 'a.md'), 'utf8')).toBe(
-			'one\nTWO, ours\nthree\n',
-		);
-		expect(await git(local, 'rev-parse', 'main')).toBe(head);
-		await expect(readFile(join(local, '.git/MERGE_HEAD'))).rejects.toThrow();
-	});
+	const merged = await shell.exec('git merge');
+	expect(merged.exitCode).toBe(1);
+	expect(merged.stderr).toContain('CONFLICT (content): Merge conflict in a.md');
+	expect(merged.stderr).toContain(CONFLICTS_NEED_SYNC);
+	expect(await readFile(join(local, 'a.md'), 'utf8')).toBe(
+		'one\nTWO, ours\nthree\n',
+	);
+	expect(await git(local, 'rev-parse', 'main')).toBe(head);
+	await expect(readFile(join(local, '.git/MERGE_HEAD'))).rejects.toThrow();
+});
 
 test('a merge another Git program began blocks commits and updates until Git finishes it', async () => {
-	const { directory, local, push } = await directoryWithUpstream(false);
+	const { directory, local, push } = await directoryWithUpstream();
 	await push('a.md', 'one\ntwo\nTHREE\n');
 	expectOk(await directory.git.fetch());
 	const head = await git(local, 'rev-parse', 'main');
@@ -863,10 +858,6 @@ test('a merge another Git program began blocks commits and updates until Git fin
 			'a Git operation is in progress (MERGE_HEAD)',
 		);
 	expect(expectErr(await directory.git.mergeIncoming()).name).toBe('Blocked');
-	expectOk(await directory.git.stage(['a.md']));
-	expect(expectErr(await directory.git.commitStaged('Mine')).message).toContain(
-		'MERGE_HEAD',
-	);
 	expect(await git(local, 'rev-parse', 'main')).toBe(head);
 });
 

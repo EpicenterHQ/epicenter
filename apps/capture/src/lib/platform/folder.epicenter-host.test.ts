@@ -65,7 +65,6 @@ const wireSnapshot = (overridden: Partial<GitSnapshot> = {}) =>
 	({
 		branch: 'main',
 		remote: null,
-		commitOnEdit: true,
 		pendingIncoming: null,
 		files: { state: 'unknown', error: null },
 		sync: { state: 'unknown', error: null },
@@ -345,7 +344,7 @@ test('the page names the Capture scope and is told the directory', async () => {
 
 	expect(sent('attach')[0]?.args).toEqual({
 		scope: 'so.epicenter.capture',
-		protocol: 9,
+		protocol: 10,
 	});
 	expect(host.location).toEqual({ kind: 'directory', root: ROOT });
 	await host.close();

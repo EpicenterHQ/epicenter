@@ -10,7 +10,7 @@
 
 Whispering currently opens a Local folder at `~/Epicenter/local/so.epicenter.whispering`, or the directory `WHISPERING_DATA_ROOT` names. It has no account startup. The folder engine initializes Git if absent. Settings defaults stay in memory until an explicit settings save, so launching Whispering alone creates no source file or commit.
 
-An earlier `commitOnEdit` policy pushed after automatic commits. The revised engine records local history without implicit network work ([ADR-0468](0468-file-saves-succeed-independently-of-automatic-commits.md)). Native `RootLock` excludes a second owning process, but the Bun opener does not acquire it. Browser OPFS directories and Web Lock names derive from a captured channel, owner, and folder ID ([ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)); applications do not select account scopes yet.
+An earlier automatic-commit policy pushed after each commit. The revised engine records local history without implicit network work ([ADR-0468](0468-file-saves-succeed-independently-of-automatic-commits.md)). Native `RootLock` excludes a second owning process, but the Bun opener does not acquire it. Browser OPFS directories and Web Lock names derive from a captured channel, owner, and folder ID ([ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)); applications do not select account scopes yet.
 
 ## Decision
 

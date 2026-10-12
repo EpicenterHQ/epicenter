@@ -157,6 +157,8 @@ const FOLDER_ENTRIES = new Set([
 	'@epicenter/svelte/save-bar',
 	'@epicenter/svelte/closing',
 	'@epicenter/svelte/closing-notice',
+	'@epicenter/svelte/folder-ui',
+	'@epicenter/svelte/terminal-session',
 ]);
 
 test('the page imports no Yjs store, sync, or account module', () => {
@@ -167,8 +169,9 @@ test('the page imports no Yjs store, sync, or account module', () => {
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
 				// The page uses only the folder-file entries of `@epicenter/svelte`:
-				// edit sessions, open-item slots, admissions, the save bar, and
-				// closing the window. None holds a store.
+				// edit sessions, open-item slots, admissions, the save bar, the
+				// file browser, file view, terminal, and closing the window.
+				// None holds a store.
 				(specifier.startsWith('@epicenter/svelte') &&
 					!FOLDER_ENTRIES.has(specifier)) ||
 				specifier.startsWith('@epicenter/auth') ||

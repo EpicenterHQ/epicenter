@@ -63,35 +63,6 @@ pub fn commit_subject(changes: &[PathChange]) -> Option<String> {
     })
 }
 
-/// Why a user-authored commit message is refused, or `None` when it is usable.
-pub fn message_problem(message: &str) -> Option<&'static str> {
-    // What JavaScript's `trim` removes: Rust's `trim` differs on U+0085 and U+FEFF.
-    let blank = |c: char| {
-        matches!(
-            c,
-            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-                ..='\u{200a}'
-                    | '\u{2028}'
-                    | '\u{2029}'
-                    | '\u{202f}'
-                    | '\u{205f}'
-                    | '\u{3000}'
-                    | '\u{feff}'
-        )
-    };
-    if message.chars().all(blank) {
-        return Some("the commit message is empty");
-    }
-    let control = |c: char| {
-        let code = c as u32;
-        code <= 0x08 || (0x0b..=0x1f).contains(&code) || code == 0x7f
-    };
-    if message.chars().any(control) {
-        return Some("the commit message contains a control character");
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,19 +107,5 @@ mod tests {
             cases += 1;
         }
         assert!(cases >= 20, "the fixture has {cases} cases");
-    }
-
-    #[test]
-    fn message_problem_allows_tabs_and_newlines_only() {
-        assert_eq!(message_problem("  \n"), Some("the commit message is empty"));
-        assert_eq!(message_problem("Fix\n\n\tbody"), None);
-        assert_eq!(
-            message_problem("a\u{0}b"),
-            Some("the commit message contains a control character")
-        );
-        assert_eq!(
-            message_problem("a\rb"),
-            Some("the commit message contains a control character")
-        );
     }
 }

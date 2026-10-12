@@ -95,56 +95,6 @@ pub fn git(root: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-/// Make the next `git commit-tree` run in `root` first move `main` to
-/// `target`, as another program acting between a commit's pinned parent and
-/// its compare-and-swap would.
-///
-/// Every `git` this test process starts afterwards, the owner's included,
-/// runs through a wrapper first on `PATH`. The wrapper only acts in a
-/// repository holding the marker, removes it, and otherwise hands each
-/// command to the real `git` unchanged.
-#[cfg(unix)]
-pub fn move_branch_before_commit_tree(root: &Path, target: &str) {
-    use std::os::unix::fs::PermissionsExt;
-
-    static INTERCEPT: Once = Once::new();
-    /// Its presence in a repository's `.git` asks the wrapper to act there.
-    const MOVE_MARKER: &str = "epicenter-test-move-branch";
-
-    INTERCEPT.call_once(|| {
-        let path = std::env::var_os("PATH").unwrap_or_default();
-        let real = std::env::split_paths(&path)
-            .map(|directory| directory.join("git"))
-            .find(|candidate| candidate.is_file())
-            .expect("git on PATH");
-        let directory =
-            std::env::temp_dir().join(format!("epicenter-folder-git-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).expect("create the git wrapper directory");
-        let real = real.display();
-        let script = format!(
-            "#!/bin/sh\n\
-             case \" $* \" in\n\
-             *\" commit-tree \"*)\n\
-             \tif [ -f .git/{MOVE_MARKER} ]; then\n\
-             \t\ttarget=$(cat .git/{MOVE_MARKER})\n\
-             \t\trm -f .git/{MOVE_MARKER}\n\
-             \t\t'{real}' update-ref refs/heads/main \"$target\" || exit 1\n\
-             \tfi;;\n\
-             esac\n\
-             exec '{real}' \"$@\"\n"
-        );
-        let wrapper = directory.join("git");
-        let executable = std::fs::Permissions::from_mode(0o755);
-        std::fs::write(&wrapper, script).expect("write the git wrapper");
-        std::fs::set_permissions(&wrapper, executable).expect("make the git wrapper executable");
-        let mut paths = vec![directory];
-        paths.extend(std::env::split_paths(&path));
-        let joined = std::env::join_paths(paths).expect("a joinable PATH");
-        std::env::set_var("PATH", joined);
-    });
-    std::fs::write(root.join(".git").join(MOVE_MARKER), target).expect("write the move marker");
-}
-
 pub fn create(path: &str, content: &str) -> FileChange {
     FileChange::Create {
         path: path.to_string(),

@@ -103,7 +103,6 @@ export type {
 	PullOutcome,
 	PushOutcome,
 	RecoverOutcome,
-	StagedCommit,
 	SyncObservation,
 } from './git/history.js';
 export type { HttpFetch } from './git/http.js';
@@ -178,11 +177,6 @@ export type BrowserFolderOptions = {
 	 * not to the folder or remote configuration.
 	 */
 	readonly httpFetch?: HttpFetch;
-	/**
-	 * Whether complete content saves request automatic local commits.
-	 * Transfers remain explicit. Default `true`.
-	 */
-	readonly commitOnEdit?: boolean;
 	/**
 	 * Whether opening makes a folder where none exists. Default `true`. With
 	 * `false`, a missing or empty directory is `Absent`, decided under the

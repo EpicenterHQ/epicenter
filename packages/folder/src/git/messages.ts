@@ -44,15 +44,3 @@ export function commitSubject(
 	const subject = `${verb} ${escapePath(change.path)}`;
 	return subject.length <= SUBJECT_LIMIT ? subject : 'Update 1 file';
 }
-
-/**
- * Validate a user-authored commit message from an explicit Git command.
- * Returns the reason it is refused, or `undefined` when it is usable.
- */
-export function messageProblem(message: string): string | undefined {
-	if (message.trim() === '') return 'the commit message is empty';
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this rejects.
-	if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(message))
-		return 'the commit message contains a control character';
-	return undefined;
-}

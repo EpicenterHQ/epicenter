@@ -141,7 +141,6 @@ async function openDemo(
 				browser: {
 					author: { name: 'Todos', email: 'todos@localhost' },
 					remote: { url: session.remoteUrl, branch: 'main' },
-					commitOnEdit: false,
 					...browserStorage(storage),
 				},
 			}),

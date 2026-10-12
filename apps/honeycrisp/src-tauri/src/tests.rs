@@ -229,7 +229,6 @@ fn history_is_local_and_the_repository_configuration_adds_no_remote() {
     assert!(config.remote.is_none());
     assert!(config.use_repository_author);
     assert!(!config.use_repository_origin);
-    assert!(config.commit_on_edit);
     assert_eq!(config.branch, "main");
 }
 
@@ -378,7 +377,6 @@ fn an_existing_folder_with_history_is_opened_without_changing_its_files_or_its_r
     let main = window(&fixture.app, WINDOW);
     let attached = attach(&main).expect("the notes window attaches");
     assert_eq!(attached["root"], json!(fixture.root.to_str().unwrap()));
-    assert_eq!(attached["snapshot"]["commitOnEdit"], json!(true));
     look(&main, &attached["session"]);
     // Long enough for a commit to have been made, had one been requested.
     std::thread::sleep(Duration::from_millis(300));

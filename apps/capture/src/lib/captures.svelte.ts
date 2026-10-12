@@ -392,7 +392,7 @@ export function createCaptures(host: CaptureHost) {
 			serviceStopped = true;
 		},
 		/** Closing refuses input and actions. */
-		get fenced() {
+		get locked() {
 			return locked();
 		},
 		/** The open capture, or `undefined`. */

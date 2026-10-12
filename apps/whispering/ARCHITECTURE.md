@@ -643,9 +643,10 @@ a commit outcome change what it says about a save.
 `native/terminal.ts` runs one shell process per command in the data folder. The
 shell prints its final directory behind a marker that is new for each run; the
 host cuts that tail off and carries the directory to the next command. There is
-no terminal device, so nothing interactive runs. `src/lib/terminal.svelte.ts`
-keeps the session (output, history, typed command) for the life of the window,
-so hiding the terminal loses nothing.
+no terminal device, so nothing interactive runs. The library keeps the session
+(`createTerminalSession` from `@epicenter/svelte/terminal-session`: output,
+history, typed command) for the life of the window, so hiding the terminal
+loses nothing.
 
 It is the person's real shell, not the folder's in-page one, and it writes the
 directory as any other program does, outside the owner. Nothing it writes is
@@ -709,9 +710,9 @@ attached and says so (`injection-launch`).
 | `src/lib/capture.ts`, `microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone, container detection, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one session. |
 | `src/lib/audio-source.ts` | What a player holds, reloaded by content version on each folder refresh. |
-| `src/lib/status.ts`, `files.ts`, `terminal.svelte.ts` | Status lines, the file tree, the terminal session. |
+| `src/lib/status.ts`, `files.ts` | Status lines, and file messages and the largest editable text. |
 | `src/routes/` | The layout that owns the session, and the three pages. |
-| `src/routes/components/` | The shell, navigation, header, unsaved notices, recorder, recording and transformation lists and details, file browser and view, terminal. |
+| `src/routes/components/` | The shell, navigation, header, unsaved notices, recorder, recording and transformation lists and details, and `FileDraftView`, which adds a transcript's body and an audio file's player to the shared `FileView`. The file browser and terminal are the shared ones from `@epicenter/svelte/folder-ui`. |
 | `src/lib/assets/` | The microphone mark from the earlier Whispering. |
 | `native/` | The host: `main.ts`, `host.ts`, `audio.ts`, `device-file.ts`, `terminal.ts`, `failure-injection.ts`. |
 | `src-tauri/` | The shell: the window, the folder's registration and capability, and the host's lifetime. `shell/index.html` is shown only when the app cannot start. |

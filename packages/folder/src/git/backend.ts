@@ -13,12 +13,7 @@ import type { FileChange } from '../boundary.js';
 import type { FileError, FileStep } from '../errors.js';
 import type { DeclaredAttribute } from './attributes.js';
 import type { CapturedIndex } from './captured-index.js';
-import type {
-	Author,
-	CommitSummary,
-	ObjectAccess,
-	TreeFile,
-} from './objects.js';
+import type { CommitSummary, ObjectAccess, TreeFile } from './objects.js';
 
 export type StatusCode = ' ' | 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?';
 
@@ -113,8 +108,8 @@ export type RecordedIncoming = {
 };
 
 /**
- * What a browser folder's incoming record says. While there is one, staging,
- * commits, and new incoming updates wait for an explicit recovery.
+ * What a browser folder's incoming record says. While there is one, commits
+ * and new incoming updates wait for an explicit recovery.
  */
 export type PendingIncoming =
 	| RecordedIncoming
@@ -192,7 +187,7 @@ export type GitBackend = {
 	 * nested Git data, and normalizing attributes are refused rather than
 	 * silently rewritten. Unmerged index stages another Git program left are
 	 * refused too: a checkpoint would reset them and record conflict markers
-	 * as ordinary content. Explicit staging and staged commits are unaffected.
+	 * as ordinary content.
 	 */
 	checkpointProblem(): Promise<string | undefined>;
 	/**
@@ -221,31 +216,8 @@ export type GitBackend = {
 	/** The index file's stored bytes, or `undefined` when there is none. */
 	readIndex(): Promise<Uint8Array | undefined>;
 	pathStatus(): Promise<PathStatus[]>;
-	/** Stage current contents of `paths`, including deletions; `'all'` stages everything. */
-	stage(paths: readonly string[] | 'all'): Promise<void>;
-	/**
-	 * Commit the index's tree onto the branch head pinned when the commit
-	 * starts. A tree equal to the parent's is `nothing`. The branch moves only
-	 * if it still names the pinned parent; otherwise the result is
-	 * `branchMoved` and no ref or index entry changes.
-	 */
-	commitIndex(
-		message: string,
-		author: Author,
-	): Promise<
-		| {
-				readonly status: 'committed';
-				readonly oid: string;
-				readonly parent: string | undefined;
-		  }
-		| { readonly status: 'nothing' }
-		| {
-				readonly status: 'branchMoved';
-				readonly expected: string | undefined;
-				readonly actual: string | undefined;
-		  }
-	>;
-	diff(options: { staged: boolean; paths: readonly string[] }): Promise<string>;
+	/** Unstaged changes of `paths`: the index against the files. */
+	diff(paths: readonly string[]): Promise<string>;
 	log(depth: number): Promise<CommitSummary[]>;
 	/** Push an exact commit to the configured remote branch. */
 	push(oid: string, signal: AbortSignal): Promise<void>;

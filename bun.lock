@@ -955,6 +955,7 @@
         "@epicenter/agent": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/ui": "workspace:*",
+        "@lucide/svelte": "catalog:",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
       },

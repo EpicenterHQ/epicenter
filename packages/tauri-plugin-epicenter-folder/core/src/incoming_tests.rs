@@ -38,7 +38,7 @@ use std::sync::Arc;
 
 use crate::git::Remote;
 use crate::history::{
-    CommitOutcome, GitError, Observation, PendingIncoming, PullError, PullOutcome, RecoverOutcome,
+    CommitOutcome, Observation, PendingIncoming, PullError, PullOutcome, RecoverOutcome,
 };
 use crate::owner::{FolderConfig, FolderOwner};
 use crate::testing::{config, eventually, git, overwrite, TempDir};
@@ -66,9 +66,8 @@ fn put(directory: &Path, path: &str, content: &str) {
     std::fs::write(file, content).unwrap();
 }
 
-fn open_local(root: &Path, bare: &Path, commit_on_edit: bool) -> FolderOwner {
+fn open_local(root: &Path, bare: &Path) -> FolderOwner {
     FolderOwner::open(FolderConfig {
-        commit_on_edit,
         remote: Some(Remote {
             url: bare.display().to_string(),
             branch: "main".to_string(),
@@ -99,7 +98,7 @@ fn scene(label: &str, files: &[(&str, &str)], pulled: bool) -> Scene {
     git(&upstream, &["commit", "--quiet", "-m", "first"]);
     git(&upstream, &["push", "--quiet", "origin", "main"]);
     let root = temp.folder("local");
-    let owner = open_local(&root, &bare, false);
+    let owner = open_local(&root, &bare);
     owner.fetch(None).unwrap();
     if pulled {
         assert!(matches!(
@@ -158,9 +157,9 @@ impl Scene {
     }
 
     /// Open the folder again, as a new process would.
-    fn reopen(&mut self, commit_on_edit: bool) {
+    fn reopen(&mut self) {
         self.owner.take().unwrap().shutdown();
-        self.owner = Some(open_local(&self.root, &self.bare, commit_on_edit));
+        self.owner = Some(open_local(&self.root, &self.bare));
     }
 
     fn read(&self, path: &str) -> Option<String> {
@@ -256,7 +255,7 @@ fn an_update_stopped_at_any_boundary_is_reported_on_opening_and_finished_only_wh
         scene.pull_stopped_at(boundary);
 
         // Opening again reports the update and resumes nothing.
-        scene.reopen(false);
+        scene.reopen();
         let (expected_head, next_head) =
             recorded(scene.owner().snapshot().pending_incoming.clone());
         assert_eq!(
@@ -301,7 +300,7 @@ fn an_update_stopped_before_its_record_left_nothing_and_one_stopped_after_cleari
     let from = scene.head();
     let to = scene.standard_update();
     scene.pull_stopped_at("record");
-    scene.reopen(false);
+    scene.reopen();
     assert_eq!(scene.owner().snapshot().pending_incoming, None);
     assert_eq!(scene.head(), from);
     assert_eq!(scene.read("edit.md").as_deref(), Some("before edit"));
@@ -315,7 +314,7 @@ fn an_update_stopped_before_its_record_left_nothing_and_one_stopped_after_cleari
         scene.owner().pull_fast_forward(),
         Ok(PullOutcome::FastForwarded { .. })
     ));
-    scene.reopen(false);
+    scene.reopen();
     assert_eq!(scene.owner().snapshot().pending_incoming, None);
     assert_eq!(scene.head(), to);
     assert!(!scene.pins().is_empty());
@@ -338,7 +337,7 @@ fn the_pinned_target_survives_a_moved_tracking_ref_and_a_garbage_collection() {
     let from = scene.head();
     let to = scene.standard_update();
     scene.pull_stopped_at("file:edit.md");
-    scene.reopen(false);
+    scene.reopen();
 
     // Upstream rewrites its history; the fetch moves the tracking ref away
     // from the update's target, and a collection runs.
@@ -368,7 +367,7 @@ fn an_update_into_an_empty_history_records_no_before_commit_and_recovers() {
     let mut scene = scene("empty-history", &[("a.md", "A"), ("dir/b.md", "B")], false);
     let to = git(&scene.root, &["rev-parse", "refs/remotes/origin/main"]);
     scene.pull_stopped_at("file:dir/b.md");
-    scene.reopen(false);
+    scene.reopen();
     let (expected_head, next_head) = recorded(scene.owner().snapshot().pending_incoming.clone());
     assert_eq!((expected_head, next_head), (None, to.clone()));
     assert!(!scene.pins().contains("/before"));
@@ -394,7 +393,7 @@ fn a_path_in_neither_state_stops_recovery_and_keeps_the_record_until_it_is_resol
     let mut scene = scene("third-bytes", &BEFORE, true);
     let to = scene.standard_update();
     scene.pull_stopped_at("file:edit.md");
-    scene.reopen(false);
+    scene.reopen();
 
     // Another program writes bytes that are neither before nor after.
     std::fs::write(scene.root.join("edit.md"), "a third version").unwrap();
@@ -419,7 +418,7 @@ fn an_empty_file_where_the_update_adds_one_is_a_third_state_not_absence() {
     let mut scene = scene("empty-third", &BEFORE, true);
     scene.standard_update();
     scene.pull_stopped_at("file:new.md");
-    scene.reopen(false);
+    scene.reopen();
     std::fs::write(scene.root.join("new.md"), "").unwrap();
     let (paths, _) = refused(scene.owner().recover_incoming());
     assert_eq!(paths, vec!["new.md".to_string()]);
@@ -433,7 +432,7 @@ fn a_foreign_index_entry_a_moved_branch_and_held_locks_stop_recovery_and_keep_th
     let from = scene.head();
     let to = scene.standard_update();
     scene.pull_stopped_at("file:edit.md");
-    scene.reopen(false);
+    scene.reopen();
 
     // Staged by another Git process: a change the update does not make.
     std::fs::write(scene.root.join("keep.md"), "staged elsewhere").unwrap();
@@ -501,7 +500,7 @@ fn an_unreadable_record_or_index_is_refused_by_name_and_kept() {
     let mut scene = scene("unreadable", &BEFORE, true);
     scene.standard_update();
     scene.pull_stopped_at("file:edit.md");
-    scene.reopen(false);
+    scene.reopen();
 
     let index = scene.root.join(".git/index");
     let saved = std::fs::read(&index).unwrap();
@@ -513,7 +512,7 @@ fn an_unreadable_record_or_index_is_refused_by_name_and_kept() {
 
     let record = scene.root.join(".git/epicenter/incoming.json");
     std::fs::write(&record, "{\"operationId\":\"x\"}").unwrap();
-    scene.reopen(false);
+    scene.reopen();
     let reason = "the incoming record has no branch".to_string();
     assert_eq!(
         scene.owner().snapshot().pending_incoming,
@@ -547,7 +546,7 @@ fn a_branch_already_at_the_target_clears_the_record_and_keeps_later_edits() {
     let mut scene = scene("later-edits", &BEFORE, true);
     let to = scene.standard_update();
     scene.pull_stopped_at("clear");
-    scene.reopen(false);
+    scene.reopen();
     // Saves continue while the update is pending; this one edits a path the
     // update changed.
     scene
@@ -598,7 +597,7 @@ fn files_become_directories_and_directories_files() {
             )),
             Some(boundary) => {
                 scene.pull_stopped_at(boundary);
-                scene.reopen(false);
+                scene.reopen();
                 changed(scene.owner().recover_incoming());
             }
         }
@@ -640,7 +639,7 @@ fn directories_an_earlier_attempt_emptied_are_still_the_updates_to_remove() {
         let mut scene = scene(&label, &NESTED, true);
         let to = nested_to_file(&scene);
         scene.pull_stopped_at(boundary);
-        scene.reopen(false);
+        scene.reopen();
         let written = changed(scene.owner().recover_incoming());
         assert!(
             written.contains(&"box".to_string()),
@@ -661,7 +660,7 @@ fn anything_else_in_a_directory_the_update_must_remove_stops_it_before_it_writes
     let mut scene = scene("emptied-foreign", &NESTED, true);
     let to = nested_to_file(&scene);
     scene.pull_stopped_at("file:box/b/y.md");
-    scene.reopen(false);
+    scene.reopen();
 
     // An empty directory no tree names, then a file no tree names, inside
     // directories the update would remove.
@@ -725,7 +724,7 @@ fn while_an_update_is_pending_saves_and_fetches_continue_and_history_waits() {
     scene.pull_stopped_at("file:edit.md");
 
     // Automatic history: a save lands and its commit attempt is refused.
-    scene.reopen(true);
+    scene.reopen();
     scene
         .owner()
         .apply(&[overwrite("unrelated.md", "saved while pending")])
@@ -752,16 +751,6 @@ fn while_an_update_is_pending_saves_and_fetches_continue_and_history_waits() {
         Some(CommitOutcome::Blocked { .. })
     ));
 
-    // Staged history: staging and staged commits wait too.
-    scene.reopen(false);
-    assert!(matches!(
-        scene.owner().stage(None),
-        Err(GitError::IncomingPending { .. })
-    ));
-    assert!(matches!(
-        scene.owner().commit_staged("by hand"),
-        Err(GitError::IncomingPending { .. })
-    ));
     // A new update waits; a fetch does not, and does not move the target.
     assert!(matches!(
         scene.owner().pull_fast_forward(),
@@ -792,7 +781,7 @@ fn a_recovery_observes_status_again_and_keeps_edits_made_while_pending() {
         let mut scene = scene(&label, &BEFORE, true);
         let to = scene.standard_update();
         scene.pull_stopped_at(boundary);
-        scene.reopen(false);
+        scene.reopen();
         scene
             .owner()
             .apply(&[overwrite("unrelated.md", "edited while pending")])
@@ -894,7 +883,7 @@ fn a_published_update_whose_record_cannot_be_removed_is_reported_and_stays_pendi
     );
 
     // A recovery finds the branch at the target and clears it, writing nothing.
-    scene.reopen(false);
+    scene.reopen();
     assert!(matches!(
         scene.owner().recover_incoming(),
         Ok(RecoverOutcome::Cleared { .. })

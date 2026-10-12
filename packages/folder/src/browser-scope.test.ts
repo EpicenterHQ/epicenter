@@ -59,7 +59,7 @@ async function open(
 		await openFolder({
 			id,
 			definition,
-			browser: { ...browserStorage(storage), scope, commitOnEdit: false },
+			browser: { ...browserStorage(storage), scope },
 		}),
 	);
 	folders.push(folder);
@@ -70,7 +70,8 @@ test('omitted scope and explicit release Local are one folder, with one hint cha
 	const storage = environment();
 	const first = await open(storage);
 	expectOk(await first.files.create('saved.txt', 'local'));
-	expect((await first.git.commit()).status).toBe('committed');
+	await first.git.commit();
+	const committed = expectOk(await first.git.log(10));
 	await first.close();
 	const reopened = await open(storage, { channel: 'release' });
 	expect(reopened.location).toEqual(first.location);
@@ -85,7 +86,7 @@ test('omitted scope and explicit release Local are one folder, with one hint cha
 	).toBe('local');
 	const { data: history, error: historyError } = await reopened.git.log(10);
 	expect(historyError).toBeNull();
-	expect(history).toHaveLength(1);
+	expect(history).toEqual(committed);
 	expect(new Set(storage.names).size).toBe(1);
 });
 
@@ -127,7 +128,7 @@ test('channels and authority/principal pairs retain separate bytes, locks, and h
 		for (const [index, scope] of scopes.entries()) {
 			const folder = await open(storage, scope);
 			expectOk(await folder.files.create('saved.txt', String(index)));
-			expect((await folder.git.commit()).status).toBe('committed');
+			await folder.git.commit();
 		}
 	} finally {
 		navigator.locks.request = request;
@@ -164,7 +165,7 @@ test('a scoped folder starts with its definition beside a Local folder of the sa
 	const storage = environment();
 	const local = await open(storage);
 	expectOk(await local.files.create('saved.txt', 'local'));
-	expect((await local.git.commit()).status).toBe('committed');
+	await local.git.commit();
 	await local.close();
 	const before = opfsOf(storage).files(`Epicenter/local/${id}`);
 

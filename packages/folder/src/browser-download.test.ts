@@ -183,7 +183,6 @@ async function open(
 			author,
 			remote,
 			httpFetch,
-			commitOnEdit: false,
 			...browserStorage(storage),
 			...options,
 		},
@@ -244,7 +243,7 @@ test('opening first publishes epicenter.json as an unrelated root; downloading f
 	// The defect: another profile opens before getting the remote, and its
 	// published epicenter.json becomes a root the remote does not share.
 	const early = expectOk(await open(createTestStorage(), httpFetch));
-	expect((await early.git.commit()).status).toBe('committed');
+	await early.git.commit();
 	expect(expectOk(await early.git.fetch()).oid).toBe(head);
 	const unrelated = expectErr(await early.git.mergeIncoming());
 	expect(unrelated).toMatchObject({ name: 'UnsupportedHistory', bases: 0 });
@@ -273,16 +272,16 @@ test('opening first publishes epicenter.json as an unrelated root; downloading f
 
 	const folder = expectOk(await open(storage, httpFetch));
 	expect(folder.location).toEqual(landed.location);
-	const history = expectOk(await folder.git.log(10)).map((c) => c.oid);
-	expect(history).toEqual([head, first]);
 	expect(expectOk(await folder.kv.get())?.values.language).toBe('Chinese');
-	// Opening replaced the other version's description; it commits on top.
+	// Opening replaced the other version's description and committed it on top.
 	const published = decoder.decode(
 		expectOk(await folder.files.read('epicenter.json')).bytes,
 	);
 	expect(published).not.toBe(REMOTE_FILES['epicenter.json']);
-	const committed = await folder.git.commit();
-	expect(committed).toMatchObject({ status: 'committed', parent: head });
+	await folder.git.commit();
+	const [publication, ...history] = expectOk(await folder.git.log(10));
+	expect(history.map((commit) => commit.oid)).toEqual([head, first]);
+	expect(publication!.parents).toEqual([head]);
 	expect(expectOk(await folder.git.fetch()).oid).toBe(head);
 	expect(expectOk(await folder.git.pullFastForward()).status).toBe('ahead');
 	expect((await folder.git.push()).status).toBe('pushed');
@@ -421,8 +420,8 @@ test('an existing folder, its history, and its uncommitted files are refused unc
 		await open(storage, httpFetch, { remote: { url: other, branch: 'main' } }),
 	);
 	expectOk(await local.files.create('entries/mine.md', 'Committed.\n'));
-	expect((await local.git.commit()).status).toBe('committed');
-	expectOk(await local.files.create('entries/draft.md', 'Not committed.\n'));
+	await local.git.commit();
+	expectOk(await local.files.create('entries/draft.md', 'Saved.\n'));
 	await local.close();
 	const { directory } = local.location as { directory: string };
 	const before = everything(storage, directory);
@@ -474,12 +473,12 @@ test('a remote without the branch leaves an unborn main that opening and pushing
 	).toBeUndefined();
 
 	const folder = expectOk(await open(storage, httpFetch));
-	const committed = await folder.git.commit();
-	expect(committed).toMatchObject({ status: 'committed', parent: undefined });
+	await folder.git.commit();
+	const [committed, ...earlier] = expectOk(await folder.git.log(10));
+	expect(earlier).toEqual([]);
+	expect(committed!.parents).toEqual([]);
 	expect((await folder.git.push()).status).toBe('pushed');
-	expect(await git(bare, 'rev-parse', 'main')).toBe(
-		(committed as { oid: string }).oid,
-	);
+	expect(await git(bare, 'rev-parse', 'main')).toBe(committed!.oid);
 });
 
 test('a fetched head the remote no longer advertises is refused, kept, and replaced by the next fresh fetch', async () => {
@@ -834,13 +833,10 @@ test('Local download lands remote history before definition publication and refu
 			createIfMissing: false,
 		}),
 	);
-	expect(
-		expectOk(await folder.git.log(10)).map((commit) => commit.oid),
-	).toEqual([head, first]);
-	expect(await folder.git.commit()).toMatchObject({
-		status: 'committed',
-		parent: head,
-	});
+	await folder.git.commit();
+	const [publication, ...history] = expectOk(await folder.git.log(10));
+	expect(history.map((commit) => commit.oid)).toEqual([head, first]);
+	expect(publication!.parents).toEqual([head]);
 	const before = everything(storage, directory);
 	requests.length = 0;
 	const refused = expectErr(

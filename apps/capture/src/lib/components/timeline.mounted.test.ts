@@ -61,7 +61,7 @@ test('the New capture text box writes nothing once the timeline is gone, though 
 	flushSync();
 	type(box, 'delivered after the timeline went');
 	expect(t.captures.newCapture).toBe('typed in the dialog');
-	expect(t.captures.fenced).toBe(false);
+	expect(t.captures.locked).toBe(false);
 });
 
 test('a file that is not a valid capture is named with why, and Edit as text opens it', async () => {

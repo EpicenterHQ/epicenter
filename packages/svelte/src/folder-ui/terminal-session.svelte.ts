@@ -1,24 +1,35 @@
 /**
- * One terminal session over the folder: its output, command history, typed
+ * One terminal session over a folder: its output, command history, typed
  * command, and working directory. It lives as long as the opened folder, so
  * hiding the terminal or switching layouts keeps everything on screen.
  */
-import type { FolderTerminal } from '@epicenter/folder';
+import type { FolderTerminal, TerminalResult } from '@epicenter/folder';
 
+/** One command the session ran, and its result once it finished. */
 export type TerminalRun = {
 	readonly id: number;
 	readonly cwd: string;
 	readonly command: string;
-	result?: { stdout: string; stderr: string; exitCode: number };
+	result?: TerminalResult;
 };
 
 export type TerminalSession = ReturnType<typeof createTerminalSession>;
 
-export function createTerminalSession(
-	terminal: FolderTerminal,
+export function createTerminalSession({
+	terminal,
+	afterRun,
+	locked = () => false,
+}: {
+	/** The shell, such as `folder.terminal()` or an app's wrapper around it. */
+	terminal: Pick<FolderTerminal, 'cwd' | 'exec'>;
 	/** Shell writes are saved files; the app shows them and rechecks status. */
-	afterRun: () => Promise<void>,
-) {
+	afterRun: () => Promise<void>;
+	/**
+	 * While true, typing, recall, and Enter change nothing: the command,
+	 * history, and output stay exactly as they are, as while the app closes.
+	 */
+	locked?: () => boolean;
+}) {
 	let runs = $state<TerminalRun[]>([]);
 	let command = $state('');
 	let running = $state(false);
@@ -42,12 +53,17 @@ export function createTerminalSession(
 			return command;
 		},
 		set command(value: string) {
+			if (locked()) return;
 			command = value;
+		},
+		/** Typing, recall, and Enter are refused. */
+		get locked() {
+			return locked();
 		},
 		/** Run the typed command. `clear` empties the output without running. */
 		async run() {
 			const line = command.trim();
-			if (line === '' || running) return;
+			if (line === '' || running || locked()) return;
 			command = '';
 			cursor = -1;
 			if (line === 'clear') {
@@ -74,7 +90,7 @@ export function createTerminalSession(
 		},
 		/** Step through earlier commands. Returns false when there is none to recall. */
 		recall(direction: 'previous' | 'next'): boolean {
-			if (history.length === 0) return false;
+			if (history.length === 0 || locked()) return false;
 			if (direction === 'previous')
 				cursor = cursor < 0 ? history.length - 1 : Math.max(0, cursor - 1);
 			else

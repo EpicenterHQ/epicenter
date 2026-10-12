@@ -33,30 +33,6 @@ export const GitError = defineErrors({
 		message: `Stopped waiting for Git ${operation}; the shared attempt may still complete`,
 		operation,
 	}),
-	InvalidMessage: ({ reason }: { reason: string }) => ({
-		message: `The commit message is not usable: ${reason}`,
-		reason,
-	}),
-	NothingToCommit: () => ({ message: 'Nothing is staged to commit' }),
-	AutomaticHistory: () => ({
-		message: 'Staged authoring requires commitOnEdit: false',
-	}),
-	BranchMoved: ({
-		expected,
-		actual,
-	}: {
-		expected: string | undefined;
-		actual: string | undefined;
-	}) => ({
-		message: 'The branch moved while the commit was being written',
-		expected,
-		actual,
-	}),
-	/** An incoming update has not finished; staging waits for `recoverIncoming()`. */
-	IncomingPending: ({ pending }: { pending: PendingIncoming }) => ({
-		message: `${incomingName(pending)} has not finished; recover it before staging or committing`,
-		pending,
-	}),
 });
 export type GitError = InferErrors<typeof GitError>;
 

@@ -2,7 +2,7 @@
  * Row views, mounted.
  *
  * The real library over a real directory (the Bun opener), and the real
- * FileView, RecordingDetail, and TransformationDetail components mounted in
+ * FileDraftView, RecordingDetail, and TransformationDetail components mounted in
  * jsdom inside a fixture that renders them as the recordings and
  * transformations pages do.
  *

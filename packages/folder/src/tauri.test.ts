@@ -98,7 +98,6 @@ const definition = defineFolder({
 const wireSnapshot = (overrides: Record<string, unknown> = {}) => ({
 	branch: 'main',
 	remote: null,
-	commitOnEdit: true,
 	files: { state: 'unknown', error: null },
 	sync: { state: 'unknown', error: null },
 	activity: Object.fromEntries(
@@ -147,7 +146,7 @@ async function attached() {
 		withdraw_request: () => null,
 	};
 	const folder = expectOk(await openFolder({ id: 'notes', definition }));
-	expect(sent('attach')[0]?.args).toEqual({ scope: 'notes', protocol: 9 });
+	expect(sent('attach')[0]?.args).toEqual({ scope: 'notes', protocol: 10 });
 	expect(folder.location).toEqual({
 		kind: 'directory',
 		root: '/Users/someone/Epicenter/notes',
@@ -170,7 +169,7 @@ test('the folder opened is the scope the opener names', async () => {
 			session: 7,
 			root: '/Users/someone/Epicenter/notes',
 			sequence: 3,
-			snapshot: wireSnapshot({ commitOnEdit: false }),
+			snapshot: wireSnapshot(),
 		}),
 		detach: () => null,
 		apply: () => null,
@@ -179,15 +178,14 @@ test('the folder opened is the scope the opener names', async () => {
 		await openFolder({
 			id: 'so.epicenter.taurifoldertest',
 			definition,
-			// Browser settings do not reach the shell: its own policy is in effect.
-			browser: { commitOnEdit: true },
+			// Browser settings do not reach the shell.
+			browser: { createIfMissing: false },
 		}),
 	);
 	expect(sent('attach')[0]?.args).toEqual({
 		scope: 'so.epicenter.taurifoldertest',
-		protocol: 9,
+		protocol: 10,
 	});
-	expect(folder.git.snapshot.commitOnEdit).toBe(false);
 	await folder.close();
 });
 
@@ -261,13 +259,13 @@ test('a desktop app that speaks another protocol is refused at attach, before an
 	calls = [];
 	replies = {
 		// A desktop app from before it merged.
-		attach: () => refuse({ name: 'Incompatible', host: 8, page: 9 }),
+		attach: () => refuse({ name: 'Incompatible', host: 9, page: 10 }),
 	};
 	const refused = expectErr(await openFolder({ id: 'notes', definition }));
-	expect(refused).toMatchObject({ name: 'Incompatible', host: 8, page: 9 });
+	expect(refused).toMatchObject({ name: 'Incompatible', host: 9, page: 10 });
 	expect(refused.message).toContain('Update the app');
 	expect(calls).toEqual([
-		{ cmd: 'attach', args: { scope: 'notes', protocol: 9 } },
+		{ cmd: 'attach', args: { scope: 'notes', protocol: 10 } },
 	]);
 });
 
@@ -300,7 +298,6 @@ test('a read whose reply is lost is an ordinary failure, and Git changes are Unc
 		read: lose,
 		commit: lose,
 		push: lose,
-		stage: lose,
 		status: lose,
 	};
 
@@ -314,8 +311,7 @@ test('a read whose reply is lost is an ordinary failure, and Git changes are Unc
 		status: 'unconfirmed',
 		error: 'connection lost',
 	});
-	expect(expectErr(await folder.git.stage('all')).name).toBe('Unconfirmed');
-	for (const cmd of ['read', 'commit', 'push', 'stage', 'status'])
+	for (const cmd of ['read', 'commit', 'push', 'status'])
 		expect(sent(cmd)).toHaveLength(1);
 });
 
@@ -1139,11 +1135,6 @@ test('history work a pending update holds back is refused with the record that h
 		name: 'IncomingPending',
 		pending: RECORDED,
 	});
-	replies.stage = () => refuse({ name: 'IncomingPending', pending: RECORD });
-	expect(expectErr(await folder.git.stage('all'))).toMatchObject({
-		name: 'IncomingPending',
-		pending: RECORDED,
-	});
 });
 
 // ============================================================================
@@ -1277,9 +1268,9 @@ test('merge refusals keep their names, and a lost reply is Unconfirmed and sent 
 		[
 			{
 				name: 'Pull',
-				error: { name: 'Git', error: { name: 'AutomaticHistory' } },
+				error: { name: 'Git', error: { name: 'NoRemote' } },
 			},
-			{ name: 'AutomaticHistory' },
+			{ name: 'NoRemote' },
 		],
 	] as const) {
 		replies.merge_incoming = () => refuse(refusal);
@@ -1330,21 +1321,6 @@ test('the snapshot shows merge activity, its last attempt, and a pending merge p
 	await folder.close();
 });
 
-test('a staged commit names its commit and parent', async () => {
-	const folder = await attached();
-	replies.commit_staged = () => ({ oid: MERGED, parent: LOCAL });
-	expect(expectOk(await folder.git.commitStaged('Plain'))).toEqual({
-		oid: MERGED,
-		parent: LOCAL,
-	});
-	replies.commit_staged = () => ({ oid: MERGED, parent: null });
-	expect(expectOk(await folder.git.commitStaged('First'))).toEqual({
-		oid: MERGED,
-		parent: undefined,
-	});
-	await folder.close();
-});
-
 test('closing waits for a Git call already running, then detaches, and later Git calls invoke nothing', async () => {
 	const folder = await attached();
 	const commit = held<typeof committed>();
@@ -1374,9 +1350,7 @@ test('closing waits for a Git call already running, then detaches, and later Git
 		await folder.git.pullFastForward(),
 		await folder.git.mergeIncoming(),
 		await folder.git.paths(),
-		await folder.git.stage('all'),
-		await folder.git.commitStaged('message'),
-		await folder.git.diff({ staged: false, paths: [] }),
+		await folder.git.diff([]),
 		await folder.git.log(1),
 	])
 		expect(expectErr(refused).name).toBe('Closed');

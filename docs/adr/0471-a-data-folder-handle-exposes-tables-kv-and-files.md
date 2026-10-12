@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-30
 - **Amended by:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) and [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md), replacing table snapshots with one read pipeline and the retained table editor with guarded edit sessions. Folder composition and ordinary table/file commands remain.
+- **Amended by:** [ADR-0528](0528-folder-history-commits-every-save-and-has-no-manual-mode.md), proposed: withdraws `browser.commitOnEdit`, `git.commitOnEdit`, the shell-supplied commit policy, the snapshot's `commitOnEdit`, and the Todos CLI's manual history. The handle's members and its status snapshot remain.
 - **Relates:** [ADR-0450](0450-current-files-own-portable-document-data.md) defines authoritative current files; [ADR-0480](0480-file-tables-own-only-their-markdown-row-files.md) defines single-file rows; [ADR-0430](0430-define-store-declares-data-and-products-compose-resources.md) separates stores from product composition.
 
 ## Context

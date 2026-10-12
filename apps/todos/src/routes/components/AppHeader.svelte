@@ -28,7 +28,7 @@
 		uncommittedLine,
 	} from '$lib/status.js';
 	import type { Todos } from '$lib/todos.svelte.js';
-	import { copyPath } from './file-actions.js';
+	import { copyPath } from '@epicenter/svelte/folder-ui';
 
 	let {
 		todos,

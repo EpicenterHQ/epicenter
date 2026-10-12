@@ -86,10 +86,7 @@ test('the legacy import writes the marked file and reports it as source-only', a
 		await openFolder({
 			root,
 			definition: captureDefinition,
-			git: {
-				author: { name: 'Test', email: 'test@localhost' },
-				commitOnEdit: false,
-			},
+			git: { author: { name: 'Test', email: 'test@localhost' } },
 		}),
 	);
 	const report = await runLegacyImport(folder.files, {

@@ -5,31 +5,16 @@
  * scratch file and rename). Everything that mutates shared state uses the
  * real `git` CLI, whose `index.lock` and ref locks other Git processes
  * respect: `update-ref` with an expected old value is the branch
- * compare-and-swap, `reset` and `update-index` update index entries, and
- * staging runs `git add`. A staged commit is written as objects and moved
- * onto the branch by compare-and-swap (below). isomorphic-git never writes
- * the native index.
+ * compare-and-swap, and `reset` and `update-index` update index entries.
+ * isomorphic-git never writes the native index.
  *
  * A merge with conflicts is never left in the folder: the folder never
  * writes `MERGE_HEAD`, and one another Git program began blocks commits and
  * incoming updates until it is finished or abandoned with Git.
- *
- * A staged commit pins its parent first, the branch head. It then writes, as
- * objects, the index's tree and a commit naming that parent, and moves the
- * branch from it by compare-and-swap. `git commit`
- * would take whatever `HEAD` names when it runs. Like a whole-folder commit,
- * a staged commit runs no commit hooks and is not signed.
  */
 import { spawn } from 'node:child_process';
 import * as nodeFs from 'node:fs';
-import {
-	copyFile,
-	readFile,
-	rename,
-	rm,
-	stat,
-	writeFile,
-} from 'node:fs/promises';
+import { readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type * as git from 'isomorphic-git';
 import type { FileBoundary } from '../boundary.js';
@@ -44,13 +29,7 @@ import type {
 import { capturedIndexMatchesHead } from './captured-index.js';
 import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
-import {
-	type CommitSummary,
-	commitTree,
-	EMPTY_TREE,
-	type ObjectAccess,
-	writeCommitObject,
-} from './objects.js';
+import { type CommitSummary, type ObjectAccess } from './objects.js';
 
 const ZERO = '0000000000000000000000000000000000000000';
 const REMOTE_NAME = 'origin';
@@ -219,30 +198,6 @@ export async function createNativeGitBackend({
 		}
 	}
 
-	/**
-	 * The tree the index names now, by Git's own rules: an unmerged path
-	 * fails it, and an intent-to-add entry (`git add -N`) is left out.
-	 * `write-tree` runs on a private copy, because on the live index it
-	 * rewrites the cached trees: a commit the compare-and-swap refuses then
-	 * leaves the index byte for byte as it was.
-	 */
-	async function indexTree(): Promise<string> {
-		const copy = join(gitdir, `index.tmp-${crypto.randomUUID()}`);
-		try {
-			await copyFile(join(gitdir, 'index'), copy).catch((cause: unknown) => {
-				// No index is an empty one.
-				if ((cause as { code?: string }).code !== 'ENOENT') throw cause;
-			});
-			// Keep the scratch index from creating an unreferenced shared index.
-			const written = await run(['-c', 'core.splitIndex=false', 'write-tree'], {
-				env: { GIT_INDEX_FILE: copy },
-			});
-			return text(written.stdout).trim();
-		} finally {
-			await rm(copy, { force: true }).catch(() => {});
-		}
-	}
-
 	function parsePorcelain(output: Uint8Array): PathStatus[] {
 		const tokens = text(output).split('\0');
 		const result: PathStatus[] = [];
@@ -375,42 +330,12 @@ export async function createNativeGitBackend({
 			]);
 			return parsePorcelain(result.stdout);
 		},
-		async stage(paths) {
-			if (paths === 'all') await run(['add', '--all']);
-			else await run([...literal, 'add', '--all', '--', ...paths]);
-		},
-		async commitIndex(message, author) {
-			// The parent is pinned before anything is written; the branch moves
-			// only from it.
-			const parent = await resolve(branchRef);
-			const tree = await indexTree();
-			if (
-				tree ===
-				(parent === undefined ? EMPTY_TREE : await commitTree(access, parent))
-			)
-				return { status: 'nothing' };
-			const oid = await writeCommitObject(access, {
-				tree,
-				parents: parent === undefined ? [] : [parent],
-				message,
-				author,
-			});
-			const moved = await backend.casBranch(parent, oid);
-			if (!moved.ok)
-				return {
-					status: 'branchMoved',
-					expected: parent,
-					actual: moved.actual,
-				};
-			return { status: 'committed', oid, parent };
-		},
-		async diff({ staged, paths }) {
+		async diff(paths) {
 			const result = await run([
 				...literal,
 				'diff',
 				'--no-color',
 				'--no-ext-diff',
-				...(staged ? ['--cached'] : []),
 				'--',
 				...paths,
 			]);

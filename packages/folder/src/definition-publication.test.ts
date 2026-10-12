@@ -1,7 +1,7 @@
 /**
  * Opening-time definition publication through production Bun and browser adapters.
- * Covers replacement, changed declarations, unchanged history, manual history,
- * and best-effort failures while saved rows remain usable.
+ * Covers replacement, changed declarations, unchanged history, and
+ * best-effort failures while saved rows remain usable.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
@@ -54,37 +54,38 @@ test('opening before downloading an existing browser remote preserves incoming p
 	const root = await scratch('definition-existing-remote-');
 	await createBareRemote(root);
 	const httpFetch = await gitHttpFetch(root);
-	const open = (commitOnEdit: boolean) =>
+	// Different authors keep the two opening commits apart even when they
+	// land in the same second with the same tree.
+	const open = (opener = author) =>
 		openBrowser({
 			id: 'publication-remote',
 			definition,
 			browser: {
-				author,
-				commitOnEdit,
+				author: opener,
 				remote: { url: 'http://git.test/remote.git', branch: 'main' },
 				httpFetch,
 				...browserStorage(createTestStorage()),
 			},
 		});
-	const sender = expectOk(await open(false));
+	const sender = expectOk(
+		await open({ name: 'Sender', email: 'sender@example.test' }),
+	);
 	try {
 		expectOk(await sender.kv.set('theme', 'remote'));
 		expect((await sender.git.commitAndPush()).push.status).toBe('pushed');
-		for (const automatic of [false, true]) {
-			const receiver = expectOk(await open(automatic));
-			try {
-				await settled(receiver);
-				expectOk(await receiver.git.fetch());
-				expect(expectErr(await receiver.git.pullFastForward()).name).toBe(
-					automatic ? 'Diverged' : 'Dirty',
-				);
-				expect(expectErr(await receiver.git.mergeIncoming()).name).toBe(
-					automatic ? 'UnsupportedHistory' : 'Dirty',
-				);
-				expect(expectOk(await receiver.kv.get())).toBeUndefined();
-			} finally {
-				await receiver.close();
-			}
+		const receiver = expectOk(await open());
+		try {
+			await settled(receiver);
+			expectOk(await receiver.git.fetch());
+			expect(expectErr(await receiver.git.pullFastForward()).name).toBe(
+				'Diverged',
+			);
+			expect(expectErr(await receiver.git.mergeIncoming()).name).toBe(
+				'UnsupportedHistory',
+			);
+			expect(expectOk(await receiver.kv.get())).toBeUndefined();
+		} finally {
+			await receiver.close();
 		}
 	} finally {
 		await sender.close();
@@ -93,7 +94,7 @@ test('opening before downloading an existing browser remote preserves incoming p
 });
 
 for (const adapter of ['browser', 'bun'] as const) {
-	test(`${adapter}: fresh publication, replacement and changed declarations preserve data in manual history`, async () => {
+	test(`${adapter}: fresh publication, replacement and changed declarations preserve data`, async () => {
 		const root = await scratch('definition-publication-');
 		const environment = createTestStorage();
 		const open = async <TSchema extends FolderDefinition>(schema: TSchema) =>
@@ -102,7 +103,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 					? await openBun({
 							root,
 							definition: schema,
-							git: { author, commitOnEdit: false },
+							git: { author },
 						})
 					: await openBrowser({
 							id: 'publication',
@@ -110,7 +111,6 @@ for (const adapter of ['browser', 'bun'] as const) {
 							browser: {
 								...browserStorage(environment),
 								author,
-								commitOnEdit: false,
 							},
 						}),
 			);
@@ -155,8 +155,8 @@ for (const adapter of ['browser', 'bun'] as const) {
 			expect(expectOk(await folder.files.read('kv.json')).bytes).toEqual(
 				kv.bytes,
 			);
-			expect(expectOk(await folder.git.log(10))).toEqual([]);
-			expect(folder.git.snapshot.activity.commit.active).toBe(false);
+			await settled(folder);
+			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 		} finally {
 			await folder.close();
 			await rm(root, { recursive: true, force: true });
@@ -198,9 +198,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 test('Bun publication failure leaves the folder usable and reports the actual destination failure', async () => {
 	const root = await scratch('definition-failure-');
 	await mkdir(join(root, 'epicenter.json'));
-	const folder = expectOk(
-		await openBun({ root, definition, git: { author, commitOnEdit: false } }),
-	);
+	const folder = expectOk(await openBun({ root, definition, git: { author } }));
 	try {
 		expectOk(await folder.files.create('usable.txt', 'usable'));
 		expect(

@@ -77,7 +77,6 @@ async function setup() {
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
-				commitOnEdit: false,
 				...browserStorage(storage),
 			},
 		}),
@@ -441,7 +440,7 @@ test('Files opens the complete text and the list opens fields; a malformed todo 
 	flushSync();
 	const bad = selectedText();
 	expect(todos.current).toEqual({ path: 'todos/bad.md', workspace: 'todos' });
-	expect(find('[data-testid="row-issues"]')?.textContent).toContain(
+	expect(find('[data-testid="needs-repair"]')?.textContent).toContain(
 		'Needs repair',
 	);
 	expect(find(TITLE)).toBeNull();
@@ -455,7 +454,7 @@ test('Files opens the complete text and the list opens fields; a malformed todo 
 	await eventually(
 		() =>
 			bad.state.status === 'saved' &&
-			find('[data-testid="row-issues"]') === null,
+			find('[data-testid="needs-repair"]') === null,
 	);
 	expect(await text('todos/bad.md')).toBe(ROW('Fixed'));
 	expect(button(target, 'Open as todo').disabled).toBe(false);

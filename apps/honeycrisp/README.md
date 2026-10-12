@@ -192,11 +192,9 @@ History is ordinary Git in `<root>/.git`. A successful content save from an
 editor or the file browser is committed, and the save does not wait for the
 commit. A commit that fails is reported under **Git history** and leaves the
 saved file saved; it is never shown as a save error. The browser terminal
-follows the same automatic history policy. Desktop terminal commands and other
-programs edit disk directly; their changes enter the next commit, automatic or
-explicit. In the browser terminal, automatic history refuses `git add` and
-`git commit`; staged authoring requires a folder opened with
-`commitOnEdit: false`.
+commits each save the same way, and has no `git add` or `git commit`. Desktop
+terminal commands and other programs edit disk directly; their changes enter
+the next commit, automatic or explicit.
 
 Each note has a **History** button listing its commits. Choosing a version
 puts it in the open note, which saves it like any edit. A version that
@@ -361,9 +359,9 @@ delivers events to it.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the draft, and semantic state replacement. `EditorView.state` owns live editing state. |
 | `src/lib/note-source.ts` | The body replacement Rich and Source share (`withBody`), and list previews. |
-| `src/lib/notes.svelte.ts` | Listings, the one open item (in `@epicenter/svelte/open-item`) and its edit session, conflict choices, note and folder actions (counted by `@epicenter/svelte/admissions`), and `close`. |
+| `src/lib/notes.svelte.ts` | Listings, the one open item (in `@epicenter/svelte/open-item`) and its edit session, conflict choices, note and folder actions (counted by `@epicenter/svelte/admissions`), the terminal session, and `close`. |
 | `src/lib/platform/` | The `#platform/notes-host` seam, its two leaves, and `shell.tauri.ts`, the page side of the shell's commands; the `#platform/window` seam, which hears the window asked to close. |
-| `src/routes/components/` | Header, folder list, note list, the note view and its save bar, files, terminal. |
+| `src/routes/components/` | Header, folder list, note list, the note view and its save bar. Files, the file view, and the terminal are the shared ones from `@epicenter/svelte/folder-ui`, with note icons and Reveal folder. |
 | `src-tauri/src/lib.rs` | The desktop shell: the folder plugin, the notes scope, the window, and the Quit menu item, which closes it. |
 | `src-tauri/src/root.rs` | Choosing and resolving the root directory. |
 | `src/lib/platform/first-open.ts` | Setting up a folder that has no layout yet, through the attached folder. |

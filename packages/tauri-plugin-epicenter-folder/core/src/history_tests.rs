@@ -89,12 +89,11 @@ fn save(owner: &FolderOwner, path: &str, content: &str) {
     owner.apply(&[overwrite(path, content)]).unwrap();
 }
 
-fn manual(root: &Path) -> FolderOwner {
-    FolderOwner::open(FolderConfig {
-        commit_on_edit: false,
-        ..config(root)
-    })
-    .unwrap()
+/// Write a file as another program would: no commit is asked for.
+fn outside(root: &Path, path: &str, content: &str) {
+    let file = root.join(path);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, content).unwrap();
 }
 
 fn subjects(root: &Path) -> Vec<String> {
@@ -198,8 +197,8 @@ fn saves_made_while_the_git_lock_is_held_are_committed_once_it_is_released() {
 fn an_explicit_commit_waits_for_the_git_lock_and_commits_what_landed_meanwhile() {
     let temp = TempDir::new("explicit-wait");
     let root = temp.folder("notes");
-    let owner = manual(&root);
-    save(&owner, "a.md", "A");
+    let owner = open(&root);
+    outside(&root, "a.md", "A");
     let (hook, at_hash, release) = hold_once();
     owner.hooks().before_hash = Some(hook);
 
@@ -241,16 +240,32 @@ fn an_explicit_commit_waits_for_the_git_lock_and_commits_what_landed_meanwhile()
     };
     assert_eq!(message, "Add a.md");
     // The second read the folder only once it held both locks: it holds the
-    // save that landed while it waited, on top of the first commit.
+    // save that landed while it waited, on top of the first commit, unless
+    // that save's own automatic commit got the locks first.
+    settled(&owner);
+    let head = git(&root, &["rev-parse", "HEAD"]);
     assert!(
-        matches!(
-            second,
-            CommitOutcome::Committed { ref parent, ref message, changed_paths: 1, .. }
-                if parent.as_deref() == Some(first_oid.as_str()) && message == "Add b.md"
-        ),
+        match &second {
+            CommitOutcome::Committed {
+                parent,
+                message,
+                changed_paths: 1,
+                oid,
+                ..
+            } =>
+                parent.as_deref() == Some(first_oid.as_str())
+                    && message == "Add b.md"
+                    && *oid == head,
+            CommitOutcome::Unchanged {
+                head: Some(unchanged),
+                ..
+            } => *unchanged == head,
+            _ => false,
+        },
         "{second:?}"
     );
     assert_eq!(subjects(&root), vec!["Add b.md", "Add a.md"]);
+    assert_eq!(git(&root, &["rev-parse", "HEAD^"]), *first_oid);
     assert!(matches!(
         owner.snapshot().files,
         Observation::Observed { stale: false, ref value, .. } if value.changes.is_empty()
@@ -261,7 +276,7 @@ fn an_explicit_commit_waits_for_the_git_lock_and_commits_what_landed_meanwhile()
 fn a_rename_cannot_land_inside_a_snapshot_so_the_pass_never_commits_an_empty_tree() {
     let temp = TempDir::new("coherent");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     save(&owner, "todos/old.md", "row");
     save(&owner, "todos/old.png", "image");
     owner.commit();
@@ -269,7 +284,7 @@ fn a_rename_cannot_land_inside_a_snapshot_so_the_pass_never_commits_an_empty_tre
         git(&root, &["ls-tree", "-r", "--name-only", "HEAD"]),
         "todos/old.md\ntodos/old.png"
     );
-    save(&owner, "todos/old.md", "row, edited");
+    outside(&root, "todos/old.md", "row, edited");
 
     // While the pass holds the file gate to snapshot, a rename of the row and
     // its attachment is requested. It must not land until the snapshot exists.
@@ -324,17 +339,13 @@ fn a_rename_cannot_land_inside_a_snapshot_so_the_pass_never_commits_an_empty_tre
         vec!["new.md", "new.png"]
     );
 
-    assert!(matches!(
-        owner.commit(),
-        CommitOutcome::Committed {
-            changed_paths: 4,
-            ..
-        }
-    ));
+    // The rename asked for its own commit.
+    settled(&owner);
     assert_eq!(
         git(&root, &["ls-tree", "-r", "--name-only", "HEAD"]),
         "todos/new.md\ntodos/new.png"
     );
+    assert_eq!(subjects(&root)[0], "Update 4 files");
     assert!(
         !root
             .join(".git/epicenter/scratch")
@@ -425,12 +436,15 @@ fn a_commit_holds_exactly_what_it_snapshotted_while_later_saves_land() {
 fn an_observation_captured_before_a_save_is_stale_until_a_later_commit() {
     let temp = TempDir::new("stale");
     let root = temp.folder("notes");
-    let owner = manual(&root);
-    save(&owner, "a.md", "A");
+    let owner = open(&root);
+    outside(&root, "a.md", "A");
     let saver = owner.clone();
     let once = AtomicBool::new(true);
+    let (hold, at_hash, release) = hold_once();
     owner.hooks().after_capture = Some(Arc::new(move || {
         if once.swap(false, Ordering::SeqCst) {
+            // The save's own commit waits before hashing until released.
+            saver.hooks().before_hash = Some(Arc::clone(&hold));
             save(&saver, "b.md", "B");
         }
     }));
@@ -447,9 +461,12 @@ fn an_observation_captured_before_a_save_is_stale_until_a_later_commit() {
     ));
     assert_eq!(git(&root, &["status", "--porcelain"]), "?? b.md");
 
+    at_hash.recv().unwrap();
+    release.send(()).unwrap();
+    settled(&owner);
     assert!(matches!(
-        owner.commit(),
-        CommitOutcome::Committed { ref message, .. } if message == "Add b.md"
+        &owner.snapshot().last_commit.as_ref().unwrap().result,
+        CommitOutcome::Committed { message, .. } if message == "Add b.md"
     ));
     assert!(matches!(
         owner.snapshot().files,
@@ -461,7 +478,7 @@ fn an_observation_captured_before_a_save_is_stale_until_a_later_commit() {
 fn a_branch_moved_by_another_git_process_is_reported_and_never_overwritten() {
     let temp = TempDir::new("branch-moved");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     save(&owner, "a.md", "A");
     let base = match owner.commit() {
         CommitOutcome::Committed { oid, .. } => oid,
@@ -525,7 +542,7 @@ fn a_branch_moved_by_another_git_process_is_reported_and_never_overwritten() {
 fn bytes_snapshotted_for_one_parent_are_never_committed_on_another() {
     let temp = TempDir::new("requeue");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     save(&owner, "a.md", "A");
     owner.commit();
 
@@ -570,7 +587,7 @@ fn bytes_snapshotted_for_one_parent_are_never_committed_on_another() {
 fn a_held_ref_lock_fails_the_commit_and_leaves_the_saved_bytes() {
     let temp = TempDir::new("ref-lock");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     save(&owner, "a.md", "A");
     owner.commit();
     let head = git(&root, &["rev-parse", "HEAD"]);
@@ -706,10 +723,10 @@ fn a_save_during_a_failing_automatic_commit_gets_one_more_and_the_failure_alone_
 fn a_held_index_lock_commits_with_a_warning_and_a_later_pass_reconciles() {
     let temp = TempDir::new("index-lock");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     save(&owner, "a.md", "A");
     owner.commit();
-    save(&owner, "a.md", "A2");
+    outside(&root, "a.md", "A2");
     // Staged content that differs from the working bytes, and a staged-only add.
     std::fs::write(root.join("staged-only.md"), "staged").unwrap();
     git(&root, &["add", "staged-only.md"]);
@@ -755,19 +772,15 @@ fn a_held_index_lock_commits_with_a_warning_and_a_later_pass_reconciles() {
 fn status_writes_nothing_into_the_folder_or_its_git_directory() {
     let temp = TempDir::new("read-only");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     save(&owner, "a.md", "A");
     save(&owner, "keep/b.md", "B");
     owner.commit();
+    settled(&owner);
     // Uncommitted work of every kind, plus an index whose stat data is stale.
-    save(&owner, "a.md", "A changed");
-    save(&owner, "new.md", "untracked");
-    owner
-        .apply(&[FileChange::Remove {
-            path: "keep/b.md".into(),
-            expected_sha256: None,
-        }])
-        .unwrap();
+    outside(&root, "a.md", "A changed");
+    outside(&root, "new.md", "untracked");
+    std::fs::remove_dir_all(root.join("keep")).unwrap();
     std::thread::sleep(Duration::from_millis(20));
     let before = tree(&root);
 
@@ -782,7 +795,7 @@ fn status_writes_nothing_into_the_folder_or_its_git_directory() {
     );
     assert_eq!(observed.head, Some(git(&root, &["rev-parse", "HEAD"])));
     owner.paths().unwrap();
-    owner.diff(false, &[]).unwrap();
+    owner.diff(&[]).unwrap();
     owner.log(5).unwrap();
     owner.poll_external();
 
@@ -805,22 +818,22 @@ fn status_writes_nothing_into_the_folder_or_its_git_directory() {
 fn ignore_rules_narrow_untracked_files_and_tracked_files_survive_them() {
     let temp = TempDir::new("ignore");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     save(&owner, "keep.log", "tracked before the rule");
     owner.commit();
-    save(&owner, ".gitignore", "*.log\nbuild/\n");
-    save(&owner, "keep.log", "tracked and edited");
-    save(&owner, "new.log", "ignored");
-    save(&owner, "build/out.txt", "ignored directory");
-    save(
-        &owner,
+    outside(&root, ".gitignore", "*.log\nbuild/\n");
+    outside(&root, "keep.log", "tracked and edited");
+    outside(&root, "new.log", "ignored");
+    outside(&root, "build/out.txt", "ignored directory");
+    outside(
+        &root,
         "sub/index.sqlite3",
         "a file that happens to share the name",
     );
     std::fs::write(root.join("index.sqlite3"), "generated").unwrap();
     std::fs::write(root.join(".DS_Store"), "scratch").unwrap();
     std::fs::write(root.join(".git/info/exclude"), "excluded.md\n").unwrap();
-    save(&owner, "excluded.md", "ignored by info/exclude");
+    outside(&root, "excluded.md", "ignored by info/exclude");
 
     let expected = vec![
         change(".gitignore", ChangeKind::Add),
@@ -889,7 +902,7 @@ fn what_a_plain_file_commit_cannot_represent_blocks_the_pass_but_not_status() {
     for (label, arrange, reason) in cases {
         let temp = TempDir::new(label);
         let root = temp.folder("notes");
-        let owner = manual(&root);
+        let owner = open(&root);
         save(&owner, "a.md", "A");
         owner.commit();
         let head = git(&root, &["rev-parse", "HEAD"]);
@@ -919,7 +932,7 @@ fn sixty_four_mebibytes_of_audio_commit_exactly_and_no_response_carries_a_byte()
     const SIZE: usize = 8 * 1024 * 1024;
     let temp = TempDir::new("audio");
     let root = temp.folder("recordings");
-    let owner = manual(&root);
+    let owner = open(&root);
     let mut digests = Vec::new();
     for index in 0..FILES {
         // Incompressible enough that every blob is really written.
@@ -933,15 +946,11 @@ fn sixty_four_mebibytes_of_audio_commit_exactly_and_no_response_carries_a_byte()
             })
             .collect();
         digests.push(Sha256::digest(&bytes));
-        owner
-            .apply(&[
-                FileChange::Create {
-                    path: format!("rec/{index}.wav"),
-                    bytes,
-                },
-                create(&format!("rec/{index}.md"), "---\ntitle: take\n---\n"),
-            ])
-            .unwrap();
+        // Written as a recorder process would, so only the commit below
+        // hashes them.
+        std::fs::create_dir_all(root.join("rec")).unwrap();
+        std::fs::write(root.join(format!("rec/{index}.wav")), bytes).unwrap();
+        outside(&root, &format!("rec/{index}.md"), "---\ntitle: take\n---\n");
     }
 
     // The commit hashes and stores 64 MiB. A short save must not wait for it.
@@ -1015,223 +1024,48 @@ fn sixty_four_mebibytes_of_audio_commit_exactly_and_no_response_carries_a_byte()
 // ============================================================================
 
 #[test]
-fn staged_authoring_is_refused_under_automatic_history_and_works_in_manual_mode() {
-    let temp = TempDir::new("staged");
-    let automatic_root = temp.folder("automatic");
-    let automatic = open(&automatic_root);
-    assert_eq!(automatic.stage(None), Err(GitError::AutomaticHistory));
-    assert_eq!(
-        automatic.commit_staged("message"),
-        Err(GitError::AutomaticHistory)
-    );
+fn paths_diff_and_log_inspect_the_history_saves_made() {
+    let temp = TempDir::new("inspect");
+    let root = temp.folder("notes");
+    let owner = open(&root);
+    save(&owner, "a.md", "A\n");
+    settled(&owner);
+    save(&owner, "b.md", "B\n");
+    settled(&owner);
+    // Another program changes a file the folder committed.
+    std::fs::write(root.join("a.md"), "changed\n").unwrap();
 
-    let root = temp.folder("manual");
-    let owner = manual(&root);
-    save(&owner, "a.md", "A");
-    save(&owner, "b.md", "B");
-    std::thread::sleep(Duration::from_millis(50));
-    assert!(
-        owner.snapshot().last_commit.is_none(),
-        "manual mode never commits on save"
-    );
-    assert_eq!(
-        owner.commit_staged("nothing staged"),
-        Err(GitError::NothingToCommit)
-    );
-    assert_eq!(
-        owner.commit_staged("  "),
-        Err(GitError::InvalidMessage {
-            reason: "the commit message is empty".into()
-        })
-    );
-
-    owner.stage(Some(&["a.md".to_string()])).unwrap();
     let paths = owner.paths().unwrap();
     assert_eq!(
         paths
             .iter()
             .map(|p| format!("{}{} {}", p.index, p.worktree, p.path))
             .collect::<Vec<_>>(),
-        vec!["A  a.md", "?? b.md"]
+        vec![" M a.md"]
     );
-    assert!(owner
-        .diff(true, &["a.md".to_string()])
-        .unwrap()
-        .contains("+A"));
-    let crate::history::StagedCommit { oid, parent } = owner
-        .commit_staged("Add the first note\n\nWith a body.")
-        .unwrap();
-    assert_eq!(parent, None);
-    assert_eq!(git(&root, &["rev-parse", "HEAD"]), oid);
-    assert_eq!(
-        git(&root, &["ls-tree", "-r", "--name-only", "HEAD"]),
-        "a.md"
-    );
-
-    owner.stage(None).unwrap();
-    owner.commit_staged("Add the second").unwrap();
+    let diff = owner.diff(&["a.md".to_string()]).unwrap();
+    assert!(diff.contains("-A") && diff.contains("+changed"), "{diff}");
+    assert_eq!(owner.diff(&["b.md".to_string()]).unwrap(), "");
     let log = owner.log(10).unwrap();
-    assert_eq!(log.len(), 2);
-    assert_eq!(log[0].message.trim_end(), "Add the second");
     assert_eq!(
-        log[1].message.trim_end(),
-        "Add the first note\n\nWith a body."
+        log.iter()
+            .map(|commit| commit.message.trim_end())
+            .collect::<Vec<_>>(),
+        vec!["Add b.md", "Add a.md"]
     );
-    assert_eq!(log[0].parents, vec![oid]);
+    assert_eq!(log[0].parents, vec![log[1].oid.clone()]);
     assert_eq!(log[0].author.name, "Test Author");
     assert_eq!(owner.log(1).unwrap().len(), 1);
 }
 
-/// Index files the commit left in the Git directory: its private copy, or a lock.
-#[cfg(unix)]
-fn index_leftovers(root: &Path) -> Vec<String> {
-    std::fs::read_dir(root.join(".git"))
-        .unwrap()
-        .flatten()
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| {
-            name.starts_with("index.")
-                || name.starts_with("sharedindex.")
-                || name.ends_with(".lock")
-        })
-        .collect()
-}
-
 #[cfg(unix)]
 #[test]
-fn a_branch_moved_after_a_staged_commit_pins_its_parent_is_refused_and_keeps_the_index() {
-    let temp = TempDir::new("staged-moved");
-    let root = temp.folder("manual");
-    let owner = manual(&root);
-    save(&owner, "a.md", "A");
-    owner.stage(None).unwrap();
-    let first = owner.commit_staged("First").unwrap().oid;
-    save(&owner, "b.md", "B");
-    owner.stage(None).unwrap();
-    // Enable split indexes after staging: the private write must not leave
-    // a shared index that no live index references.
-    git(&root, &["config", "core.splitIndex", "true"]);
-    // Another program commits beside the first commit, unpublished for now.
-    let first_tree = format!("{first}^{{tree}}");
-    let sibling = git(
-        &root,
-        &["commit-tree", &first_tree, "-p", &first, "-m", "outside"],
-    );
-    let index = std::fs::read(root.join(".git/index")).unwrap();
-    let listed = git(&root, &["ls-files", "--stage"]);
-
-    crate::testing::move_branch_before_commit_tree(&root, &sibling);
-    assert_eq!(
-        owner.commit_staged("Second"),
-        Err(GitError::BranchMoved {
-            expected: Some(first.clone()),
-            actual: Some(sibling.clone()),
-        })
-    );
-    assert_eq!(git(&root, &["rev-parse", "refs/heads/main"]), sibling);
-    assert_eq!(std::fs::read(root.join(".git/index")).unwrap(), index);
-    assert_eq!(git(&root, &["ls-files", "--stage"]), listed);
-    assert_eq!(index_leftovers(&root), Vec::<String>::new());
-
-    // The next commit is written on the branch as it is, and says so.
-    let committed = owner.commit_staged("Second").unwrap();
-    assert_eq!(committed.parent, Some(sibling.clone()));
-    assert_eq!(
-        git(&root, &["log", "-1", "--format=%P", &committed.oid]),
-        sibling
-    );
-    assert_eq!(git(&root, &["rev-parse", "refs/heads/main"]), committed.oid);
-}
-
-#[cfg(unix)]
-#[test]
-fn a_staged_commit_records_the_tree_git_writes_with_modes_deletions_and_empty_files() {
-    use std::os::unix::fs::{symlink, PermissionsExt};
-
-    let temp = TempDir::new("staged-tree");
-    let root = temp.folder("manual");
-    let owner = manual(&root);
-    save(&owner, "base.md", "base");
-    save(&owner, "gone.md", "gone");
-    owner.stage(None).unwrap();
-    let base = owner.commit_staged("Base").unwrap().oid;
-
-    // An intent-to-add entry alone is nothing to commit.
-    std::fs::write(root.join("planned.txt"), "later").unwrap();
-    git(&root, &["add", "--intent-to-add", "planned.txt"]);
-    assert_eq!(owner.commit_staged("Plan"), Err(GitError::NothingToCommit));
-
-    let executable = std::fs::Permissions::from_mode(0o755);
-    std::fs::write(root.join("tool.sh"), "#!/bin/sh\n").unwrap();
-    std::fs::set_permissions(root.join("tool.sh"), executable).unwrap();
-    symlink("base.md", root.join("link")).unwrap();
-    std::fs::write(root.join("empty.txt"), "").unwrap();
-    std::fs::remove_file(root.join("gone.md")).unwrap();
-    git(
-        &root,
-        &["add", "--", "tool.sh", "link", "empty.txt", "gone.md"],
-    );
-    let gitlink = format!("160000,{base},vendor/sub");
-    git(&root, &["update-index", "--add", "--cacheinfo", &gitlink]);
-    let index = std::fs::read(root.join(".git/index")).unwrap();
-
-    let committed = owner.commit_staged("Tools").unwrap();
-
-    assert_eq!(committed.parent, Some(base));
-    assert_eq!(std::fs::read(root.join(".git/index")).unwrap(), index);
-    let listed: Vec<String> = git(&root, &["ls-tree", "-r", &committed.oid])
-        .lines()
-        .map(|line| {
-            let (meta, path) = line.split_once('\t').unwrap();
-            let mut fields = meta.split(' ');
-            format!(
-                "{} {} {path}",
-                fields.next().unwrap(),
-                fields.next().unwrap()
-            )
-        })
-        .collect();
-    assert_eq!(
-        listed,
-        vec![
-            "100644 blob base.md",
-            "100644 blob empty.txt",
-            "120000 blob link",
-            "100755 blob tool.sh",
-            "160000 commit vendor/sub",
-        ]
-    );
-    assert_eq!(
-        git(
-            &root,
-            &["rev-parse", &format!("{}:empty.txt", committed.oid)]
-        ),
-        git(&root, &["hash-object", "-t", "blob", "/dev/null"])
-    );
-    assert_eq!(
-        git(
-            &root,
-            &["rev-parse", &format!("{}^{{tree}}", committed.oid)]
-        ),
-        git(&root, &["write-tree"])
-    );
-    // The intended file stays in the index, outside the commit.
-    assert_eq!(
-        git(&root, &["ls-files", "--", "planned.txt"]),
-        "planned.txt"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn built_in_staged_commits_run_no_commit_hooks_and_ignore_configured_signing() {
+fn automatic_commits_run_no_commit_hooks_and_ignore_configured_signing() {
     use std::os::unix::fs::PermissionsExt;
 
-    let temp = TempDir::new("staged-no-hooks");
-    let root = temp.folder("manual");
-    let owner = manual(&root);
-    save(&owner, "a.md", "A");
-    owner.stage(None).unwrap();
+    let temp = TempDir::new("no-hooks");
+    let root = temp.folder("notes");
+    let owner = open(&root);
     let hook = root.join(".git/hooks/pre-commit");
     std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
     std::fs::write(&hook, "#!/bin/sh\nprintf ran > hook-ran\nexit 1\n").unwrap();
@@ -1242,19 +1076,20 @@ fn built_in_staged_commits_run_no_commit_hooks_and_ignore_configured_signing() {
         &["config", "gpg.program", "/nonexistent-folder-test-signer"],
     );
 
-    let committed = owner.commit_staged("First").unwrap();
+    save(&owner, "a.md", "A");
+    settled(&owner);
 
+    let head = git(&root, &["rev-parse", "HEAD"]);
     assert!(!root.join("hook-ran").exists());
-    assert!(!git(&root, &["cat-file", "commit", &committed.oid]).contains("\ngpgsig "));
+    assert!(!git(&root, &["cat-file", "commit", &head]).contains("\ngpgsig "));
 }
 
 // ============================================================================
 // Remote
 // ============================================================================
 
-fn with_remote(root: &Path, bare: &Path, commit_on_edit: bool) -> FolderOwner {
+fn with_remote(root: &Path, bare: &Path) -> FolderOwner {
     FolderOwner::open(FolderConfig {
-        commit_on_edit,
         remote: Some(Remote {
             url: bare.display().to_string(),
             branch: "main".to_string(),
@@ -1273,7 +1108,7 @@ fn a_save_is_committed_locally_then_explicitly_pushed_and_another_folder_fast_fo
         &["init", "--quiet", "--bare", "--initial-branch=main"],
     );
     let first_root = temp.folder("first");
-    let first = with_remote(&first_root, &bare, true);
+    let first = with_remote(&first_root, &bare);
     assert_eq!(
         first.fetch(None).unwrap().oid,
         None,
@@ -1300,7 +1135,7 @@ fn a_save_is_committed_locally_then_explicitly_pushed_and_another_folder_fast_fo
     );
 
     let second_root = temp.folder("second");
-    let second = with_remote(&second_root, &bare, false);
+    let second = with_remote(&second_root, &bare);
     assert_eq!(second.pull_fast_forward(), Err(PullError::NoFetchedHead));
     std::fs::write(second_root.join(".git/info/exclude"), "ignored.md\n").unwrap();
     std::fs::write(second_root.join("ignored.md"), "kept").unwrap();
@@ -1400,13 +1235,13 @@ fn a_fast_forward_asked_for_during_a_commit_waits_for_it_and_is_not_undone_by_it
         &["init", "--quiet", "--bare", "--initial-branch=main"],
     );
     let upstream_root = temp.folder("upstream");
-    let upstream = with_remote(&upstream_root, &bare, false);
+    let upstream = with_remote(&upstream_root, &bare);
     save(&upstream, "shared.md", "one");
     upstream.commit();
     assert!(matches!(upstream.push(None), PushOutcome::Pushed { .. }));
 
     let root = temp.folder("local");
-    let owner = with_remote(&root, &bare, false);
+    let owner = with_remote(&root, &bare);
     owner.fetch(None).unwrap();
     owner.pull_fast_forward().unwrap();
     save(&upstream, "shared.md", "two, from upstream");
@@ -1465,14 +1300,14 @@ fn a_fast_forward_never_overwrites_bytes_written_after_it_found_the_folder_clean
         &["init", "--quiet", "--bare", "--initial-branch=main"],
     );
     let upstream_root = temp.folder("upstream");
-    let upstream = with_remote(&upstream_root, &bare, false);
+    let upstream = with_remote(&upstream_root, &bare);
     save(&upstream, "edited.md", "committed");
     save(&upstream, "removed.md", "committed");
     upstream.commit();
     upstream.push(None);
 
     let root = temp.folder("local");
-    let owner = with_remote(&root, &bare, false);
+    let owner = with_remote(&root, &bare);
     owner.fetch(None).unwrap();
     owner.pull_fast_forward().unwrap();
     let head = git(&root, &["rev-parse", "HEAD"]);
@@ -1735,7 +1570,7 @@ fn incoming(label: &str) -> Incoming {
     git(&upstream, &["push", "--quiet", "origin", "main"]);
 
     let root = temp.folder("local");
-    let owner = with_remote(&root, &bare, false);
+    let owner = with_remote(&root, &bare);
     owner.fetch(None).unwrap();
     assert!(matches!(
         owner.pull_fast_forward(),
@@ -1918,7 +1753,7 @@ fn a_push_withdrawn_before_its_transport_starts_never_runs_and_others_are_kept()
         &["init", "--quiet", "--bare", "--initial-branch=main"],
     );
     let root = temp.folder("notes");
-    let owner = with_remote(&root, &bare, false);
+    let owner = with_remote(&root, &bare);
     save(&owner, "a.md", "A");
     owner.commit();
     let first = git(&root, &["rev-parse", "HEAD"]);
@@ -2047,7 +1882,7 @@ fn a_fetch_and_a_push_in_flight_hold_no_save_and_no_commit_back() {
         &["init", "--quiet", "--bare", "--initial-branch=main"],
     );
     let upstream_root = temp.folder("upstream");
-    let upstream = with_remote(&upstream_root, &bare, false);
+    let upstream = with_remote(&upstream_root, &bare);
     save(&upstream, "shared.md", "one");
     upstream.commit();
     assert!(matches!(upstream.push(None), PushOutcome::Pushed { .. }));
@@ -2055,7 +1890,7 @@ fn a_fetch_and_a_push_in_flight_hold_no_save_and_no_commit_back() {
     // A folder that commits on edit, level with the remote. The remote then
     // moves on, so the fetch below has a commit to bring in.
     let root = temp.folder("local");
-    let owner = with_remote(&root, &bare, true);
+    let owner = with_remote(&root, &bare);
     owner.fetch(None).unwrap();
     owner.pull_fast_forward().unwrap();
     let base = git(&root, &["rev-parse", "HEAD"]);
@@ -2156,7 +1991,7 @@ fn a_fetch_and_a_push_in_flight_hold_no_save_and_no_commit_back() {
 fn remote_operations_without_a_remote_say_so() {
     let temp = TempDir::new("no-remote");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     assert_eq!(owner.push(None), PushOutcome::NoRemote);
     assert_eq!(owner.fetch(None), Err(GitError::NoRemote));
     assert_eq!(
@@ -2172,7 +2007,7 @@ fn an_unreachable_remote_fails_the_push_and_the_fetch_but_not_the_commit() {
     let temp = TempDir::new("bad-remote");
     let root = temp.folder("notes");
     let missing = temp.path().join("no-such-remote.git");
-    let owner = with_remote(&root, &missing, true);
+    let owner = with_remote(&root, &missing);
     save(&owner, "a.md", "A");
     settled(&owner);
     assert!(owner.snapshot().last_push.is_none());
@@ -2305,8 +2140,8 @@ fn a_published_commit_survives_a_failed_observation_after_the_root_moves() {
     let temp = TempDir::new("post-publication-observation");
     let root = temp.folder("notes");
     let moved_root = temp.path().join("notes-moved");
-    let owner = manual(&root);
-    save(&owner, "saved.md", "published bytes");
+    let owner = open(&root);
+    outside(&root, "saved.md", "published bytes");
     owner.status().unwrap();
     // Plain Git invokes this after committing the ref transaction. Moving
     // the root then makes the owner's later Git process fail to start in its
@@ -2394,7 +2229,7 @@ fn a_published_fast_forward_survives_a_failed_observation_after_the_root_moves()
     // The move could not be read back, so the record was not cleared. An
     // explicit recovery finds the branch at the target and clears it,
     // writing no file.
-    let reopened = manual(&incoming.root);
+    let reopened = open(&incoming.root);
     assert!(matches!(
         reopened.snapshot().pending_incoming,
         Some(PendingIncoming::Recorded { ref next_head, .. }) if *next_head == to

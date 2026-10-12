@@ -34,13 +34,14 @@ import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openFolder as openBrowserFolder } from './browser.js';
+import { downloadFolder, openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
 	createTestStorage,
 	dumpStorage,
 } from './browser-storage.test-support.js';
 import { defineFolder, type Folder } from './contract.js';
+import { formatDeclaration } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import {
 	createBareRemote,
@@ -123,6 +124,12 @@ async function incoming(kind: 'browser' | 'directory') {
 	await writeFile(join(upstream, 'notes.md'), 'line one\nline two\n');
 	// Lets the folder keep a local, ignored attribute file of its own.
 	await writeFile(join(upstream, '.gitignore'), '.gitattributes\n');
+	// The folder's own declaration, so opening over this history changes
+	// nothing and commits nothing of its own.
+	await writeFile(
+		join(upstream, 'epicenter.json'),
+		formatDeclaration(definition),
+	);
 	await git(upstream, 'add', '--all');
 	await git(upstream, 'commit', '--quiet', '-m', 'audio');
 	await git(upstream, 'push', '--quiet', 'origin', 'main');
@@ -132,13 +139,21 @@ async function incoming(kind: 'browser' | 'directory') {
 	if (kind === 'browser') {
 		globalThis.fetch = await gitHttpFetch(root);
 		const environment = createTestStorage();
+		const remote = { url: 'http://git.test/remote.git', branch: 'main' };
+		expectOk(
+			await downloadFolder({
+				id: 'so.epicenter.incomingtest',
+				scope: { channel: 'release' },
+				remote,
+				...browserStorage(environment),
+			}),
+		);
 		folder = expectOk(
 			await openBrowserFolder({
 				id: 'so.epicenter.incomingtest',
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					remote: { url: 'http://git.test/remote.git', branch: 'main' },
 					...browserStorage(environment),
 				},
@@ -157,28 +172,22 @@ async function incoming(kind: 'browser' | 'directory') {
 			);
 	} else {
 		const local = join(root, 'local');
-		await mkdir(local);
+		await git(root, 'clone', '--quiet', bare, local);
 		folder = await openNativeFolder({
 			root: local,
 			definition,
 			git: {
 				author,
-				commitOnEdit: false,
 				remote: { url: bare, branch: 'main' },
 			},
 		});
 		untouched = () => dumpDirectory(local);
 	}
 	opened.push(folder);
-	// Seed the initial remote tree before testing later incoming attributes.
-	expectOk(
-		await folder.files.remove(
-			expectOk(await folder.files.read('epicenter.json')),
-		),
-	);
-	expectOk(await folder.git.fetch());
-	expect(expectOk(await folder.git.pullFastForward()).status).toBe(
-		'fastForwarded',
+	// The folder starts at the upstream commit.
+	await folder.git.commit();
+	expect(expectOk(await folder.git.log(1))[0]?.oid).toBe(
+		await git(upstream, 'rev-parse', 'HEAD'),
 	);
 
 	const text = async (path: string) =>

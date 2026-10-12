@@ -17,7 +17,7 @@
  * - A record whose creation never published is `unadmitted`: no authored file
  *   changed, and only an explicit recovery removes it
  * - Reopening, committing, and status resume nothing. Saves continue;
- *   staging, commits, and new incoming updates wait, across openings
+ *   commits and new incoming updates wait, across openings
  * - Recovery removes, then writes, then sets the index and the branch; a
  *   branch already at the published commit clears the record without writing
  * - Paths, the index, the branch, or the record in neither state are refused
@@ -109,7 +109,6 @@ async function folderAt(opfs = memoryOpfs()) {
 		backend,
 		boundary,
 		author,
-		commitOnEdit: false,
 	});
 	opened.push(history);
 
@@ -223,10 +222,7 @@ function folderFiles(opfs: MemoryOpfs) {
 
 const stored = (opfs: MemoryOpfs, path: string) => opfs.files(ROOT).get(path);
 
-async function reopen(
-	opfs: MemoryOpfs,
-	options: { commitOnEdit?: boolean } = {},
-) {
+async function reopen(opfs: MemoryOpfs) {
 	const folder = expectOk(
 		await openFolder({
 			id: 'merge',
@@ -234,7 +230,6 @@ async function reopen(
 			browser: {
 				author,
 				remote,
-				commitOnEdit: options.commitOnEdit ?? false,
 				opfs: opfsEnvironment(opfs),
 			},
 		}),
@@ -311,7 +306,7 @@ test('the record names the operation, branch, admitted head, and published commi
 	expect(decoder.decode(stored(opfs, PIN_EXPECTED)).trim()).toBe(ours);
 });
 
-test('while pending, saves land; staging, commits, and new incoming updates wait; nothing resumes it', async () => {
+test('while pending, saves land; commits and new incoming updates wait; nothing resumes it', async () => {
 	const { opfs, folder, ours } = await interrupted((opfs) =>
 		failWrite(opfs, `${ROOT}/c.md`),
 	);
@@ -334,12 +329,6 @@ test('while pending, saves land; staging, commits, and new incoming updates wait
 		pending,
 	});
 	expect(expectErr(await folder.git.pullFastForward())).toMatchObject({
-		name: 'IncomingPending',
-	});
-	expect(expectErr(await folder.git.stage(['notes.md']))).toMatchObject({
-		name: 'IncomingPending',
-	});
-	expect(expectErr(await folder.git.commitStaged('Notes'))).toMatchObject({
 		name: 'IncomingPending',
 	});
 	await folder.close();
@@ -392,7 +381,8 @@ test('recovery finishes an update stopped at a file, at the index, or at the bra
 	]) {
 		const { opfs, folder, ours, theirs } = await interrupted(fault);
 		expect(folder.git.snapshot.pendingIncoming?.state).toBe('recorded');
-		expectOk(await folder.files.create('notes.md', 'kept'));
+		// Another tab's save beside the update, whose commit has not run.
+		opfs.put(`${ROOT}/notes.md`, encoder.encode('kept'));
 		const heard: string[] = [];
 		folder.onFilesChanged((paths) => heard.push(...paths));
 		const recovered = expectOk(await folder.git.recoverIncoming());

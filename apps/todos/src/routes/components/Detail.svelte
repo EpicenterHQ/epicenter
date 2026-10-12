@@ -8,8 +8,11 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+	import { rowStemOf } from '@epicenter/folder';
+	import { FileView } from '@epicenter/svelte/folder-ui';
+	import { todosDefinition } from '$lib/definition.js';
 	import { pathOf, type Todos } from '$lib/todos.svelte.js';
-	import FileView from './FileView.svelte';
+	import { confirmDelete, openItem } from './file-actions.js';
 	import TodoDetail from './TodoDetail.svelte';
 
 	let { todos, onBack }: { todos: Todos; onBack?: () => void } = $props();
@@ -31,6 +34,24 @@
 	{/key}
 {:else}
 	{#key item}
-		<FileView {todos} path={pathOf(item)} {item} {onBack} />
+		{@const path = pathOf(item)}
+		<FileView
+			{path}
+			{item}
+			row={rowStemOf(todos.folder.tables.todos.name, path) === undefined
+				? undefined
+				: {
+						table: todosDefinition.tables.todos,
+						noun: 'todo',
+						onOpenAsRow: () => void openItem(todos, path, 'todos'),
+					}}
+			backLabel="Back to todos"
+			{onBack}
+			onRetry={() => void todos.reload()}
+			onReloadTheirs={(session) => todos.reloadTheirs(session)}
+			onKeepMine={(session) => todos.keepMine(session)}
+			onRename={(next) => todos.rename(path, next)}
+			onDelete={() => void confirmDelete(todos, path)}
+		/>
 	{/key}
 {/if}

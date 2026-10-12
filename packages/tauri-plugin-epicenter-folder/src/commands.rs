@@ -20,7 +20,6 @@ use epicenter_folder_core::git::{CommitSummary, PathStatus};
 use epicenter_folder_core::history::{
     CommitOutcome, FetchOutcome, FilesObservation, GitError, GitSnapshot, MergeError, MergeOutcome,
     MergePolicy, OwnerEvent, PullError, PullOutcome, PushOutcome, RecoverOutcome, Settled,
-    StagedCommit,
 };
 use epicenter_folder_core::owner::{Caller, FolderOwner};
 use epicenter_folder_core::registry::AttachError;
@@ -80,8 +79,15 @@ pub struct FolderFilesChanged {
 /// `mergeStateWarning` are gone. A Git merge a person began outside
 /// Epicenter blocks commits and incoming updates instead. A version 8 page
 /// asking to leave conflicts would get a refusal, and would read the missing
-/// `merging` as no merge in progress. Any other version is refused at attach.
-pub const PROTOCOL: u32 = 9;
+/// `merging` as no merge in progress.
+///
+/// Version 10 removed manual history: every save commits. The snapshot's
+/// `commitOnEdit`, the `stage` and `commit_staged` commands, `diff`'s
+/// `staged`, and the `InvalidMessage`, `NothingToCommit`, `AutomaticHistory`,
+/// `BranchMoved`, and `IncomingPending` Git refusals are gone. A version 9
+/// page would read the missing `commitOnEdit` as manual history and call
+/// commands that no longer exist. Any other version is refused at attach.
+pub const PROTOCOL: u32 = 10;
 
 /// What a window receives when it attaches to a scope.
 #[derive(Debug, Clone, Serialize, Type)]
@@ -675,47 +681,15 @@ pub async fn paths<R: Runtime>(
     blocking(move || owner.paths(), git_lost("status")).await
 }
 
-/// Stage current contents of `paths`, including deletions; `null` stages everything.
-#[tauri::command]
-#[specta::specta]
-pub async fn stage<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    paths: Option<Vec<String>>,
-) -> Result<(), GitError> {
-    let owner = owner(&webview, session).map_err(git_denied)?;
-    blocking(
-        move || owner.stage(paths.as_deref()),
-        |cause| Err(git_unconfirmed("add")(cause)),
-    )
-    .await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn commit_staged<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    message: String,
-) -> Result<StagedCommit, GitError> {
-    let owner = owner(&webview, session).map_err(git_denied)?;
-    blocking(
-        move || owner.commit_staged(&message),
-        |cause| Err(git_unconfirmed("commit")(cause)),
-    )
-    .await
-}
-
 #[tauri::command]
 #[specta::specta]
 pub async fn diff<R: Runtime>(
     webview: Webview<R>,
     session: u32,
-    staged: bool,
     paths: Vec<String>,
 ) -> Result<String, GitError> {
     let owner = owner(&webview, session).map_err(git_denied)?;
-    blocking(move || owner.diff(staged, &paths), git_lost("diff")).await
+    blocking(move || owner.diff(&paths), git_lost("diff")).await
 }
 
 #[tauri::command]

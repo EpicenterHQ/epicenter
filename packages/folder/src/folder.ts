@@ -37,7 +37,6 @@ import type {
 	PullOutcome,
 	PushOutcome,
 	RecoverOutcome,
-	StagedCommit,
 } from './git/history.js';
 import type { Author, CommitSummary } from './git/objects.js';
 import type { SyncAttempt, SyncChoices, SyncOutcome } from './git/sync.js';
@@ -49,15 +48,10 @@ import type { FolderTerminal } from './terminal.js';
 
 /** History settings for a folder whose history this process records. */
 export type FolderGitOptions = {
-	/** Author and committer for automatic and staged commits. */
+	/** Author and committer for automatic commits. */
 	readonly author: Author;
 	/** The remote branch to push to and fetch from. */
 	readonly remote?: GitRemote;
-	/**
-	 * Whether complete content saves request automatic local commits.
-	 * Transfers remain explicit. Fixed for this handle's lifetime. Default `true`.
-	 */
-	readonly commitOnEdit?: boolean;
 };
 
 export type FolderGit = {
@@ -116,19 +110,8 @@ export type FolderGit = {
 	recoverIncoming(): Promise<Result<RecoverOutcome, PullError | GitError>>;
 	/** Per-path staged and unstaged state, as `git status` reports it. */
 	paths(): Promise<Result<PathStatus[], GitError>>;
-	/** Staged authoring requires `commitOnEdit: false`. */
-	stage(paths: readonly string[] | 'all'): Promise<Result<undefined, GitError>>;
-	/**
-	 * Commit staged changes with a user-authored message in manual mode. The
-	 * commit pins its parent and moves the branch only if it still names that
-	 * parent; otherwise it is `BranchMoved` and keeps the index unchanged.
-	 * Built-in commits run no commit hooks and are unsigned.
-	 */
-	commitStaged(message: string): Promise<Result<StagedCommit, GitError>>;
-	diff(options: {
-		staged: boolean;
-		paths: readonly string[];
-	}): Promise<Result<string, GitError>>;
+	/** Unstaged changes of `paths`, every path when empty, as `git diff` shows them. */
+	diff(paths: readonly string[]): Promise<Result<string, GitError>>;
 	log(depth: number): Promise<Result<CommitSummary[], GitError>>;
 };
 
@@ -308,9 +291,7 @@ function createFolderGit(history: FolderHistory): FolderGit {
 		mergeIncoming: (options) => history.mergeIncoming(options),
 		recoverIncoming: () => history.recoverIncoming(),
 		paths: () => history.paths(),
-		stage: (paths) => history.stage(paths),
-		commitStaged: (message) => history.commitStaged(message),
-		diff: (options) => history.diff(options),
+		diff: (paths) => history.diff(paths),
 		log: (depth) => history.log(depth),
 	} satisfies FolderGit);
 }

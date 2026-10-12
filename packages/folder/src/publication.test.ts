@@ -24,7 +24,7 @@ test('a directory move hints its uncertain destination after a completed prefix'
 		await openFolder({
 			id: 'partial-publication',
 			definition: defineFolder({ kv: {}, tables: {} }),
-			browser: { ...browserStorage(storage), commitOnEdit: false },
+			browser: browserStorage(storage),
 		}),
 	);
 	try {

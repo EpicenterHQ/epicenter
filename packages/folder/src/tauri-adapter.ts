@@ -36,7 +36,7 @@
  *
  * A fast-forward or merge that stops partway leaves the owner's incoming
  * record (ADR-0474). The snapshot reports it as `pendingIncoming`; until it
- * is settled, commits, staging, and new updates are refused and saves
+ * is settled, commits and new updates are refused and saves
  * continue. `recoverIncoming()` is the only way it is resumed, and the owner
  * decides from what the folder holds then.
  *
@@ -214,21 +214,6 @@ function gitError(error: WireGitError, operation: string): GitError {
 			return GitError.Failed({ operation, cause: error.reason }).error;
 		case 'NoRemote':
 			return GitError.NoRemote().error;
-		case 'InvalidMessage':
-			return GitError.InvalidMessage(error).error;
-		case 'NothingToCommit':
-			return GitError.NothingToCommit().error;
-		case 'AutomaticHistory':
-			return GitError.AutomaticHistory().error;
-		case 'BranchMoved':
-			return GitError.BranchMoved({
-				expected: orUndefined(error.expected),
-				actual: orUndefined(error.actual),
-			}).error;
-		case 'IncomingPending':
-			return GitError.IncomingPending({
-				pending: pendingFromWire(error.pending),
-			}).error;
 	}
 }
 
@@ -445,7 +430,6 @@ function snapshotFromWire(wire: WireGitSnapshot): GitSnapshot {
 	return Object.freeze({
 		branch: wire.branch,
 		remote: orUndefined(wire.remote),
-		commitOnEdit: wire.commitOnEdit,
 		files: observation(wire.files, (files) => ({
 			head: orUndefined(files.head),
 			changes: files.changes,
@@ -808,20 +792,6 @@ function createHistory(
 		});
 	}
 
-	/** A command that may have changed history when its reply is lost. */
-	async function change<T, U>(
-		operation: string,
-		request: () => Promise<Wire<T, WireGitError>>,
-		value: (data: T) => U,
-	): Promise<Result<U, GitError>> {
-		const result = await call(request());
-		if (!result.sent)
-			return GitError.Unconfirmed({ operation, cause: result.cause });
-		if (result.settled === 'refused')
-			return Err(gitError(result.error, operation));
-		return Ok(value(result.data));
-	}
-
 	const stoppedPush = (): PushOutcome => ({ status: 'stoppedWaiting' });
 	const closedPush = (): PushOutcome => ({ status: 'closed' });
 	const stoppedFetch = () => GitError.StoppedWaiting({ operation: 'fetch' });
@@ -950,29 +920,10 @@ function createHistory(
 						worktree: path.worktree as StatusCode,
 					})),
 			),
-		stage: (paths) =>
-			client.local(closed, () =>
-				change(
-					'add',
-					() => commands.stage(session, paths === 'all' ? null : [...paths]),
-					() => undefined,
-				),
-			),
-		commitStaged: (message) =>
-			client.local(closed, () =>
-				change(
-					'commit',
-					() => commands.commitStaged(session, message),
-					(staged) => ({
-						oid: staged.oid,
-						parent: orUndefined(staged.parent),
-					}),
-				),
-			),
-		diff: ({ staged, paths }) =>
+		diff: (paths) =>
 			observe(
 				'diff',
-				() => commands.diff(session, staged, [...paths]),
+				() => commands.diff(session, [...paths]),
 				(text) => text,
 			),
 		log: (depth) =>

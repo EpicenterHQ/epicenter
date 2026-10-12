@@ -9,11 +9,15 @@
 	import { type Session, setSession } from '$lib/session.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import BottomNav from './BottomNav.svelte';
-	import FileBrowser from './FileBrowser.svelte';
-	import FolderTerminal from './FolderTerminal.svelte';
+	import { joinPath } from '@epicenter/folder/file-browser';
+	import { FileBrowser, FolderTerminal } from '@epicenter/svelte/folder-ui';
+	import AudioLinesIcon from '@lucide/svelte/icons/audio-lines';
+	import MicIcon from '@lucide/svelte/icons/mic';
+	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
+	import { audioMimeTypeOf } from '$lib/audio-format.js';
 	import RecoveryNotices from './RecoveryNotices.svelte';
 	import VerticalNav from './VerticalNav.svelte';
-	import { openItem } from './file-actions.js';
+	import { confirmDelete, openItem } from './file-actions.js';
 
 	/**
 	 * The frame every page sits in: navigation, the header with status and
@@ -109,8 +113,36 @@
 	/>
 {/snippet}
 
+{#snippet files()}
+	<FileBrowser
+		listing={library.listing}
+		listingError={library.listingError}
+		expanded={library.expanded}
+		selected={(path) => library.selectedPath === path || library.selectedTransformationPath === path}
+		icon={(path) =>
+			library.isRecording(path)
+				? MicIcon
+				: library.isTransformation(path)
+					? WandSparklesIcon
+					: audioMimeTypeOf(path) !== undefined
+						? AudioLinesIcon
+						: undefined}
+		emptyDescription="Record something, or create a file or folder above."
+		onRefresh={() => void library.refresh()}
+		onOpen={(path) => void openItem(library, path).then((opened) => opened && showOpened(path))}
+		onCreate={async (directory, name, type) => {
+			const problem =
+				type === 'file' ? await library.createFile(directory, name) : await library.createFolder(directory, name);
+			if (problem === undefined && type === 'file') showOpened(joinPath(directory, name));
+			return problem;
+		}}
+		onRename={(path, name) => library.rename(path, name)}
+		onDelete={(path) => void confirmDelete(library, path)}
+	/>
+{/snippet}
+
 {#snippet terminalPane()}
-	<FolderTerminal session={library.terminal} note={library.workspace.terminalNote} onClose={() => void toggleTerminal()} />
+	<FolderTerminal session={library.terminal} description={library.workspace.terminalNote} onClose={() => void toggleTerminal()} />
 {/snippet}
 
 {#if wide.current}
@@ -123,7 +155,7 @@
 					<Resizable.PaneGroup direction="horizontal">
 						{#if view.filesPane}
 							<Resizable.Pane id="files" order={1} defaultSize={22} minSize={14} maxSize={40}>
-								<FileBrowser {library} onOpen={showOpened} />
+								{@render files()}
 							</Resizable.Pane>
 							<Resizable.Handle />
 						{/if}
@@ -155,7 +187,7 @@
 		<Sheet.Root bind:open={view.filesSheet}>
 			<!-- Named directly: the browser's own visible heading is the only "Files" heading. -->
 			<Sheet.Content side="left" class="gap-0 p-0" aria-label="Files">
-				<FileBrowser {library} onOpen={showOpened} />
+				{@render files()}
 			</Sheet.Content>
 		</Sheet.Root>
 	</div>

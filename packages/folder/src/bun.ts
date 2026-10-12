@@ -93,7 +93,6 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 			backend,
 			boundary,
 			author: git.author,
-			commitOnEdit: git.commitOnEdit ?? true,
 			definition: prepared,
 			landed: (paths) => hints.emit(paths),
 		});

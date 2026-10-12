@@ -25,7 +25,7 @@ out. Nothing told the person why, and nothing would commit it on its own.
 answered are one pending obligation.** It stores no file bytes or paths. Only
 saves published through the handle or owner ask: `noteEdit`, external
 changes, partial or unconfirmed publications, and incoming updates do not.
-With `commitOnEdit` off nothing asks.
+Every opened folder asks; there is no setting that turns this off.
 
 ```txt
 requested   newest request, numbered by the saves that made them

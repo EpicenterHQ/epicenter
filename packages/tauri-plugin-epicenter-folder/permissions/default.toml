@@ -24,8 +24,6 @@ permissions = [
   "allow-merge-incoming",
   "allow-recover-incoming",
   "allow-paths",
-  "allow-stage",
-  "allow-commit-staged",
   "allow-diff",
   "allow-log",
 ]

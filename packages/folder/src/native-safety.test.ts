@@ -202,7 +202,7 @@ describe('native listings name what reads refuse', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		const listed = expectOk(await folder.tables.todos.list());
 		await folder.close();
@@ -288,30 +288,25 @@ describe('native pull with a locked index', () => {
 		const remote = { url: bare, branch: 'main' };
 		const writerRoot = join(root, 'writer');
 		const readerRoot = join(root, 'reader');
-		for (const path of [writerRoot, readerRoot])
-			await git(root, 'init', '--quiet', '--initial-branch=main', path);
+		await git(root, 'init', '--quiet', '--initial-branch=main', writerRoot);
 		const writer = await openNativeFolder({
 			root: writerRoot,
 			definition,
-			git: { author, remote, commitOnEdit: false },
-		});
-		const reader = await openNativeFolder({
-			root: readerRoot,
-			definition,
-			git: { author, remote, commitOnEdit: false },
+			git: { author, remote },
 		});
 		await writer.files.create('readme.md', 'A\n');
 		await writer.git.commitAndPush();
-		expectOk(
-			await reader.files.remove(
-				expectOk(await reader.files.read('epicenter.json')),
-			),
-		);
-		await reader.git.fetch();
-		expect((await reader.git.pullFastForward()).data?.status).toBe(
-			'fastForwarded',
-		);
+		// The reader starts from the writer's history, so opening it, which
+		// writes the same epicenter.json, commits nothing of its own.
+		await git(root, 'clone', '--quiet', bare, readerRoot);
+		const reader = await openNativeFolder({
+			root: readerRoot,
+			definition,
+			git: { author, remote },
+		});
+		await reader.git.commit();
 		const headA = await git(readerRoot, 'rev-parse', 'HEAD');
+		expect(headA).toBe(await git(writerRoot, 'rev-parse', 'HEAD'));
 		expect((await reader.git.status()).data?.changes).toEqual([]);
 
 		await writer.files.overwrite('readme.md', 'B\n');
@@ -360,7 +355,7 @@ describe('native checkpoints refuse what they would misrepresent', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		// A plain edit through the folder still saves.
 		expectOk(await folder.files.overwrite('a.md', 'edited\n'));
@@ -458,9 +453,11 @@ describe('native checkpoints refuse what they would misrepresent', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
-		await folder.files.overwrite('a.md', 'edited\n');
+		// Opening's own commit of epicenter.json, answered first.
+		await folder.git.commit();
+		await writeFile(join(root, 'a.md'), 'edited\n');
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		await folder.close();

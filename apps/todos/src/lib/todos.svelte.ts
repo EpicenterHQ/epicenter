@@ -68,13 +68,13 @@ import {
 } from '@epicenter/svelte/edit-session';
 import { createOpenItem, type Opening } from '@epicenter/svelte/open-item';
 import { createSyncController } from '@epicenter/svelte/sync';
+import { createTerminalSession } from '@epicenter/svelte/terminal-session';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { TodoFields } from './definition.js';
 import { nameProblem, readTextFile } from './files.js';
 import type { TodosFolder } from './platform/types.js';
-import { createTerminalSession } from './terminal.svelte.js';
 
 const log = createLogger('todos');
 
@@ -367,8 +367,8 @@ export function createTodos(folder: TodosFolder) {
 	});
 
 	const shell = folder.terminal();
-	const terminal = createTerminalSession(
-		{
+	const terminal = createTerminalSession({
+		terminal: {
 			get cwd() {
 				return shell.cwd;
 			},
@@ -381,8 +381,8 @@ export function createTodos(folder: TodosFolder) {
 						})
 					: admissions.admit(() => shell.exec(command, options)),
 		},
-		() => check(),
-	);
+		afterRun: () => check(),
+	});
 
 	/** One listing pass. A pass that a newer one overtook, or that answers after close began, changes nothing. */
 	async function refresh() {

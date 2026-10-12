@@ -1,8 +1,8 @@
 # Git lab
 
 Git lab is a browser and standalone Tauri testbed for `@epicenter/folder`.
-Each working copy owns its files, index, and local history. Git transfers
-changes between copies. Opening two views of one folder would miss that boundary.
+Each working copy owns its files, index, and local history, and every save
+commits. Sync transfers changes between copies. Opening two views of one folder would miss that boundary.
 
 Start from the repository root:
 
@@ -26,21 +26,21 @@ the tree and clean editor. The terminal below the editor keeps its session,
 output, and typed command while hidden. Binary files stay visible with an
 explanation. Text editing is limited to UTF-8 files of at most 2 MiB.
 
-**Sync** brings a working copy and the remote together: it commits what
-the copy saved, fetches, merges, and pushes (`@epicenter/svelte/sync`). Edits
+**Sync** brings a working copy and the remote together: it commits anything
+not yet committed, fetches, merges, and pushes (`@epicenter/svelte/sync`). Edits
 to different lines combine on their own. When both copies changed the same
 lines, the review shows each version beside a result and replaces the
 editor and terminal until you press **Apply and sync** or **Cancel**;
 nothing is written before you choose, and Cancel forgets the review. A copy
-with no history of its own adopts the remote's on its first Sync. The
-desktop build's folder owner does not sync yet; there the terminal's Merge
-button stays.
+that has not yet fetched from or pushed to the remote adopts the remote's
+history on its first Sync. The desktop build's folder owner does not sync
+yet; there the terminal's Merge button stays.
 
-Automatic commits are disabled. The terminal still runs `git add`,
-`git commit -m`, `git fetch`, `git merge`, `git pull --ff-only`, and
-`git push` explicitly. Fetch updates remote knowledge without updating
-working files. Status separates index and worktree columns; ahead and behind
-are relative to the last fetched head. `git merge` merges the last fetched
+Every save, from the editor or the terminal, commits on its own. There is no
+`git add` or `git commit`. The terminal runs `git status`, `git diff`,
+`git log`, `git fetch`, `git merge`, `git pull --ff-only`, and `git push`.
+Fetch updates remote knowledge without updating working files. Ahead and
+behind are relative to the last fetched head. `git merge` merges the last fetched
 head when it fast-forwards or merges cleanly; a conflict writes nothing and
 points to Sync. If publication stops partway, the page shows the pending
 update and offers explicit recovery.
@@ -68,7 +68,9 @@ bun run --cwd apps/git build:desktop-ui
 bun run --cwd apps/git build:desktop
 ```
 
-Computer use has demonstrated native editor saves reaching terminal reads,
+The demonstrations below predate automatic history; the staging and terminal
+commits they mention are gone. Computer use has demonstrated native editor
+saves reaching terminal reads,
 native staging and commits, native pushes reaching the loopback remote,
 browser fetch changing ahead/behind without receiving files, and pull refusing
 uncommitted changes. Browser interaction also demonstrated clean-editor refresh,

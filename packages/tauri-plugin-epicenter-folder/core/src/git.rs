@@ -129,19 +129,6 @@ pub enum Cas {
     },
 }
 
-pub enum IndexCommit {
-    Committed {
-        oid: String,
-        parent: Option<String>,
-    },
-    Nothing,
-    /// The branch no longer named the pinned parent `expected`.
-    BranchMoved {
-        expected: Option<String>,
-        actual: Option<String>,
-    },
-}
-
 /// What the working files look like against the branch head.
 pub struct Observed {
     pub head: Option<String>,
@@ -271,15 +258,6 @@ pub struct Snapshot {
 impl Drop for Snapshot {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.directory);
-    }
-}
-
-/// A private file of the Git directory, removed when dropped.
-struct Scratch(PathBuf);
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
     }
 }
 
@@ -1442,76 +1420,6 @@ impl Git {
         Ok(result)
     }
 
-    /// Stage current contents of `paths`, including deletions; `None` stages everything.
-    pub fn stage(&self, paths: Option<&[String]>) -> Result<(), Failure> {
-        match paths {
-            None => self.ok(&["add", "--all"], None, &[])?,
-            Some(paths) => {
-                let mut args = vec!["--literal-pathspecs", "add", "--all", "--"];
-                args.extend(paths.iter().map(String::as_str));
-                self.ok(&args, None, &[])?
-            }
-        };
-        Ok(())
-    }
-
-    /// The tree the index names now, by Git's own rules: an unmerged path
-    /// fails it, and an intent-to-add entry (`git add -N`) is left out.
-    /// `write-tree` runs on a private copy, because on the live index it
-    /// rewrites the cached trees: a commit the compare-and-swap refuses then
-    /// leaves the index byte for byte as it was.
-    fn index_tree(&self) -> Result<String, Failure> {
-        let copy = Scratch(self.gitdir.join(format!(
-            "index.epicenter-{}-{}",
-            std::process::id(),
-            SNAPSHOT_SEQUENCE.fetch_add(1, Ordering::SeqCst)
-        )));
-        match fs::copy(self.gitdir.join("index"), &copy.0) {
-            Ok(_) => {}
-            // No index is an empty one.
-            Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => {}
-            Err(cause) => return Err(format!(".git/index could not be copied: {cause}")),
-        }
-        let index_file = copy
-            .0
-            .to_str()
-            .ok_or_else(|| format!("{} is not a UTF-8 path", copy.0.display()))?;
-        // Keep the scratch index from creating an unreferenced shared index.
-        let output = self.ok(
-            &["-c", "core.splitIndex=false", "write-tree"],
-            None,
-            &[("GIT_INDEX_FILE", index_file)],
-        )?;
-        Ok(text(&output).trim().to_string())
-    }
-
-    /// Commit the index's tree onto the branch head, pinned before anything
-    /// is written. A tree equal to the parent's is `Nothing`. The branch
-    /// moves only from that parent, by compare-and-swap, so a commit it
-    /// refuses leaves the index and the files as they were. `git commit`
-    /// would take whatever `HEAD` names when it runs. Like a whole-folder
-    /// commit, no commit hook runs and nothing is signed.
-    pub fn commit_index(&self, message: &str, author: &Author) -> Result<IndexCommit, Failure> {
-        let parent = self.read_branch()?;
-        let tree = self.index_tree()?;
-        let parent_tree = match &parent {
-            Some(parent) => self.tree_of(parent)?,
-            None => EMPTY_TREE.to_string(),
-        };
-        if tree == parent_tree {
-            return Ok(IndexCommit::Nothing);
-        }
-        let parents: Vec<&str> = parent.as_deref().into_iter().collect();
-        let oid = self.write_commit_with_parents(&tree, &parents, message, author)?;
-        match self.move_branch(parent.as_deref(), &oid, "epicenter: commit")? {
-            Cas::Moved => Ok(IndexCommit::Committed { oid, parent }),
-            Cas::Lost { actual } => Ok(IndexCommit::BranchMoved {
-                expected: parent,
-                actual,
-            }),
-        }
-    }
-
     // ------------------------------------------------------------------
     // Merges
     // ------------------------------------------------------------------
@@ -1631,12 +1539,15 @@ impl Git {
         Ok(entries)
     }
 
-    pub fn diff(&self, staged: bool, paths: &[String]) -> Result<String, Failure> {
-        let mut args = vec!["--literal-pathspecs", "diff", "--no-color", "--no-ext-diff"];
-        if staged {
-            args.push("--cached");
-        }
-        args.push("--");
+    /// Unstaged changes of `paths`: the index against the working files.
+    pub fn diff(&self, paths: &[String]) -> Result<String, Failure> {
+        let mut args = vec![
+            "--literal-pathspecs",
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--",
+        ];
         args.extend(paths.iter().map(String::as_str));
         Ok(text(&self.ok(&args, None, &[])?))
     }

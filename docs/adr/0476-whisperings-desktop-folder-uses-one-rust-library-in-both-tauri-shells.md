@@ -323,7 +323,7 @@ Tests for drafts, conflicts, partial saves, history, and shutdown remain.
 The cost is a second implementation of publication and history behavior.
 Shared `Folder` conformance scenarios must cover browser, existing Bun native,
 and Rust implementations, including partial outcomes, fast-forward refusals,
-automatic and manual history, cancellation, and page detachment. Formatter
+automatic history, cancellation, and page detachment. Formatter
 fixtures alone cannot establish parity. Generated bindings check command types;
 the conformance scenarios check their behavior.
 

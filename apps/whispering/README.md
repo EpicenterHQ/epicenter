@@ -381,9 +381,8 @@ outcomes and the status reports them separately.
   **Commit now** tries again.
 - Quitting commits nothing. Saves that are underway finish, and whatever was
   saved and not yet committed stays that way until the next commit.
-- The browser terminal follows the folder's automatic history policy and refuses
-  `git add` and `git commit` in automatic mode. Staged authoring requires a folder
-  opened with `commitOnEdit: false`.
+- The browser terminal's saves commit like any other, and it has no `git add` or
+  `git commit`.
 - Desktop terminal commands and other programs edit disk directly. Their changes
   enter the next automatic checkpoint or an explicit commit.
 

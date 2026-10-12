@@ -81,10 +81,7 @@ export const commands = {
 	 */
 	recoverIncoming: (session: number) => typedError<RecoverOutcome, PullError>(__TAURI_INVOKE("plugin:epicenter-folder|recover_incoming", { session })),
 	paths: (session: number) => typedError<PathStatus[], GitError>(__TAURI_INVOKE("plugin:epicenter-folder|paths", { session })),
-	/**  Stage current contents of `paths`, including deletions; `null` stages everything. */
-	stage: (session: number, paths: string[] | null) => typedError<null, GitError>(__TAURI_INVOKE("plugin:epicenter-folder|stage", { session, paths })),
-	commitStaged: (session: number, message: string) => typedError<StagedCommit, GitError>(__TAURI_INVOKE("plugin:epicenter-folder|commit_staged", { session, message })),
-	diff: (session: number, staged: boolean, paths: string[]) => typedError<string, GitError>(__TAURI_INVOKE("plugin:epicenter-folder|diff", { session, staged, paths })),
+	diff: (session: number, paths: string[]) => typedError<string, GitError>(__TAURI_INVOKE("plugin:epicenter-folder|diff", { session, paths })),
 	log: (session: number, depth: number) => typedError<CommitSummary[], GitError>(__TAURI_INVOKE("plugin:epicenter-folder|log", { session, depth })),
 };
 
@@ -95,7 +92,7 @@ export const events = {
 };
 
 /* Constants */
-export const FOLDER_PROTOCOL = 9 as const;
+export const FOLDER_PROTOCOL = 10 as const;
 
 /* Types */
 export type Activities = {
@@ -306,19 +303,11 @@ export type GitError =
  */
 { name: "Withdrawn" } |
 /**  The caller has no session for this folder, or names another window's. */
-{ name: "Denied"; reason: string } | { name: "NoRemote" } | { name: "InvalidMessage"; reason: string } | { name: "NothingToCommit" } |
-/**  Staged authoring requires `commitOnEdit: false`. */
-{ name: "AutomaticHistory" } | { name: "BranchMoved"; expected: string | null; actual: string | null } |
-/**
- *  An incoming update has not finished; staging and staged commits wait
- *  for `recoverIncoming`. Saves continue.
- */
-{ name: "IncomingPending"; pending: PendingIncoming };
+{ name: "Denied"; reason: string } | { name: "NoRemote" };
 
 export type GitSnapshot = {
 	branch: string,
 	remote: Remote | null,
-	commitOnEdit: boolean,
 	files: Observation<FilesObservation>,
 	sync: Observation<SyncObservation>,
 	activity: Activities,
@@ -329,7 +318,7 @@ export type GitSnapshot = {
 	lastMerge: Attempt<Settled<MergeOutcome, MergeError>> | null,
 	/**
 	 *  An incoming update whose record exists, as last read. While there is
-	 *  one, staging, commits, and new incoming updates wait for
+	 *  one, commits and new incoming updates wait for
 	 *  `recoverIncoming`; file saves continue.
 	 */
 	pendingIncoming: PendingIncoming | null,
@@ -499,12 +488,6 @@ export type Remote = {
 
 /**  A settled attempt recorded in the snapshot. */
 export type Settled<T, E> = { status: "ok"; value: T } | { status: "err"; error: E };
-
-/**  A staged commit that landed. */
-export type StagedCommit = {
-	oid: string,
-	parent: string | null,
-};
 
 export type SyncObservation = {
 	head: string | null,

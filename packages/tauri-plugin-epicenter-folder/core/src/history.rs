@@ -36,21 +36,6 @@ pub enum GitError {
         reason: String,
     },
     NoRemote,
-    InvalidMessage {
-        reason: String,
-    },
-    NothingToCommit,
-    /// Staged authoring requires `commitOnEdit: false`.
-    AutomaticHistory,
-    BranchMoved {
-        expected: Option<String>,
-        actual: Option<String>,
-    },
-    /// An incoming update has not finished; staging and staged commits wait
-    /// for `recoverIncoming`. Saves continue.
-    IncomingPending {
-        pending: PendingIncoming,
-    },
 }
 
 impl GitError {
@@ -402,14 +387,6 @@ impl From<GitError> for MergeError {
     }
 }
 
-/// A staged commit that landed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct StagedCommit {
-    pub oid: String,
-    pub parent: Option<String>,
-}
-
 /// A settled attempt recorded in the snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -488,7 +465,6 @@ pub struct Attempt<T> {
 pub struct GitSnapshot {
     pub branch: String,
     pub remote: Option<Remote>,
-    pub commit_on_edit: bool,
     pub files: Observation<FilesObservation>,
     pub sync: Observation<SyncObservation>,
     pub activity: Activities,
@@ -498,7 +474,7 @@ pub struct GitSnapshot {
     pub last_pull: Option<Attempt<Settled<PullOutcome, PullError>>>,
     pub last_merge: Option<Attempt<Settled<MergeOutcome, MergeError>>>,
     /// An incoming update whose record exists, as last read. While there is
-    /// one, staging, commits, and new incoming updates wait for
+    /// one, commits and new incoming updates wait for
     /// `recoverIncoming`; file saves continue.
     pub pending_incoming: Option<PendingIncoming>,
     pub closed: bool,

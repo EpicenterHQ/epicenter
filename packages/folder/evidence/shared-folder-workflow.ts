@@ -143,7 +143,7 @@ const encoder = new TextEncoder();
 const PREFIX = 'epicenter-shared-folder-workflow-';
 const root = await realpath(await mkdtemp(join(tmpdir(), PREFIX)));
 
-/** Open the shared directory as one application. History stays manual: no commit is part of this experiment. */
+/** Open the shared directory as one application. Every save commits; commits are not part of this experiment. */
 async function open<const TDefinition extends FolderDefinition>(
 	definition: TDefinition,
 ) {
@@ -151,7 +151,7 @@ async function open<const TDefinition extends FolderDefinition>(
 		await openFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		}),
 	);
 }
@@ -857,8 +857,8 @@ try {
 		'--count',
 	]);
 	check(
-		'with commitOnEdit: false, no save made a commit',
-		commits.stdout.toString().trim() === '0',
+		'saves made commits on their own',
+		Number(commits.stdout.toString().trim()) > 0,
 		commits.stdout.toString() + commits.stderr.toString(),
 	);
 } finally {

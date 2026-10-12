@@ -11,7 +11,7 @@
 	import type { Todos } from '$lib/todos.svelte.js';
 	import SaveBar from '@epicenter/svelte/save-bar';
 	import { confirmDelete, openItem } from './file-actions.js';
-	import FileNameBar from './FileNameBar.svelte';
+	import { FileNameBar } from '@epicenter/svelte/folder-ui';
 
 	let {
 		todos,

@@ -90,7 +90,7 @@ describe('native folder', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		try {
 			expectOk(await folder.files.create('saved.txt', 'saved'));
@@ -164,7 +164,7 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
-	test('a complete file save checkpoints external bytes and refuses staged authoring', async () => {
+	test('a complete file save checkpoints external bytes', async () => {
 		const root = await scratch('native-content-policy-');
 		const folder = await openNativeFolder({
 			root,
@@ -183,12 +183,6 @@ describe('native folder', () => {
 			await settled(folder);
 			expect(await git(root, 'show', 'HEAD:external.md')).toBe('external');
 			expect(await git(root, 'show', 'HEAD:saved.md')).toBe('saved');
-			expect(expectErr(await folder.git.stage('all')).name).toBe(
-				'AutomaticHistory',
-			);
-			expect(expectErr(await folder.git.commitStaged('Authored')).name).toBe(
-				'AutomaticHistory',
-			);
 			expect(await git(root, 'status', '--porcelain')).toBe('');
 		} finally {
 			await folder.close();
@@ -252,7 +246,7 @@ describe('native folder', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		await folder.files.create(
 			'todos/Plan.md',
@@ -301,7 +295,7 @@ describe('native folder', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		const stems = ['', '.hidden', 'trailing ', 'a: b', 'q?*'];
 		for (const stem of stems) {
@@ -347,7 +341,7 @@ describe('native folder', () => {
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
 		// Audio recorded under the old model sits beside the row it was saved with.
 		const audio = new Uint8Array([1, 2, 3]);
@@ -408,7 +402,6 @@ describe('native folder', () => {
 			},
 			boundary,
 			author,
-			commitOnEdit: false,
 		});
 		await writeFile(join(root, 'a.txt'), 'a');
 		const outcome = await history.commit();
@@ -424,30 +417,30 @@ describe('native folder', () => {
 		await history.close();
 	});
 
-	test('explicit staging uses real Git commands', async () => {
-		const root = await scratch('native-stage-');
+	test('paths, diff, and log use real Git', async () => {
+		const root = await scratch('native-inspect-');
 		const folder = await openNativeFolder({
 			root,
 			definition,
-			git: { author, commitOnEdit: false },
+			git: { author },
 		});
-		await folder.files.create('a.txt', 'a\n');
-		await folder.files.create('b.txt', 'b\n');
-		expectOk(await folder.git.stage(['a.txt']));
-		expect((await folder.git.paths()).data).toEqual([
-			{ path: 'a.txt', index: 'A', worktree: ' ' },
-			{ path: 'b.txt', index: '?', worktree: '?' },
-			{ path: 'epicenter.json', index: '?', worktree: '?' },
-		]);
-		expectOk(await folder.git.commitStaged('Stage one file'));
-
-		expect(await git(root, 'log', '--format=%s%n%an')).toBe(
-			'Stage one file\nApp',
-		);
-		expect(expectErr(await folder.git.commitStaged('again')).name).toBe(
-			'NothingToCommit',
-		);
-		await folder.close();
+		try {
+			await settled(folder);
+			expectOk(await folder.files.create('a.txt', 'a\n'));
+			await settled(folder);
+			await writeFile(join(root, 'a.txt'), 'changed\n');
+			expect((await folder.git.paths()).data).toEqual([
+				{ path: 'a.txt', index: ' ', worktree: 'M' },
+			]);
+			const diff = expectOk(await folder.git.diff(['a.txt']));
+			expect(diff).toContain('-a\n+changed');
+			expect(
+				expectOk(await folder.git.log(5)).map((commit) => commit.message),
+			).toEqual(['Add a.txt\n', 'Add epicenter.json\n']);
+			expect(await git(root, 'log', '-1', '--format=%an')).toBe('App');
+		} finally {
+			await folder.close();
+		}
 	});
 });
 
@@ -464,12 +457,11 @@ describe('browser and native exchange through a real bare repository', () => {
 				browser: {
 					author,
 					...browserStorage(environment),
-					commitOnEdit: false,
 				},
 			}),
 		);
 		expectOk(await local.files.create('local.txt', 'local'));
-		expect((await local.git.commit()).status).toBe('committed');
+		await local.git.commit();
 		const first = expectOk(await local.git.log(10))[0]!.oid;
 		await local.close();
 
@@ -480,7 +472,6 @@ describe('browser and native exchange through a real bare repository', () => {
 				browser: {
 					author,
 					...browserStorage(environment),
-					commitOnEdit: false,
 					remote: { url: 'http://git.test/remote.git', branch: 'backup' },
 				},
 			}),
@@ -488,7 +479,7 @@ describe('browser and native exchange through a real bare repository', () => {
 		try {
 			expect(expectOk(await browser.git.log(10))[0]!.oid).toBe(first);
 			expectOk(await browser.files.create('second.txt', 'second'));
-			expect((await browser.git.commit()).status).toBe('committed');
+			await browser.git.commit();
 			expect((await browser.git.push()).status).toBe('pushed');
 			expect(await git(bare, 'rev-parse', 'backup^')).toBe(first);
 			expect(await git(bare, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
@@ -509,7 +500,6 @@ describe('browser and native exchange through a real bare repository', () => {
 				definition,
 				git: {
 					author,
-					commitOnEdit: false,
 					remote: { url: bare, branch: 'backup' },
 				},
 			});
@@ -536,10 +526,10 @@ describe('browser and native exchange through a real bare repository', () => {
 				native = await openNativeFolder({
 					root: nativeRoot,
 					definition,
-					git: { author, commitOnEdit: false },
+					git: { author },
 				});
 				expectOk(await native.files.create('third.txt', 'third'));
-				expect((await native.git.commit()).status).toBe('committed');
+				await native.git.commit();
 				const third = await git(nativeRoot, 'rev-parse', 'HEAD');
 				await native.close();
 				native = await openNativeFolder({
@@ -547,7 +537,6 @@ describe('browser and native exchange through a real bare repository', () => {
 					definition,
 					git: {
 						author,
-						commitOnEdit: false,
 						remote: { url: bare, branch: 'backup' },
 					},
 				});

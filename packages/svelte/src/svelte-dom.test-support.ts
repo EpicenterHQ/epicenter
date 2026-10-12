@@ -141,6 +141,11 @@ window.Element.prototype.animate ??= function animate() {
 	queueMicrotask(() => animation.onfinish?.());
 	return animation as unknown as Animation;
 };
+// jsdom has no `CSS`. Components escape only quoted attribute values, where
+// a quote and a backslash are what need escaping.
+globalThis.CSS ??= {
+	escape: (value: string) => value.replace(/["\\]/g, '\\$&'),
+} as unknown as typeof CSS;
 
 if (!Bun.resolveSync('svelte', import.meta.dir).endsWith('index-client.js'))
 	throw new Error(

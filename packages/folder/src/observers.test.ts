@@ -326,7 +326,6 @@ describe('browser channel', () => {
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					...testBrowserStorage({ BroadcastChannel: Channel }),
 				},
 			}),
@@ -345,7 +344,6 @@ describe('browser channel', () => {
 					definition,
 					browser: {
 						author,
-						commitOnEdit: false,
 						...browserStorage(environment),
 					},
 				}),
@@ -369,16 +367,16 @@ describe('browser channel', () => {
 
 test('a cross-tab file hint marks history stale without requesting an automatic commit', async () => {
 	const environment = createTestStorage({ BroadcastChannel });
-	const open = async (commitOnEdit: boolean) =>
+	const open = async () =>
 		expectOk(
 			await openBrowserFolder({
 				id: 'so.epicenter.observerstest',
 				definition,
-				browser: { author, commitOnEdit, ...browserStorage(environment) },
+				browser: { author, ...browserStorage(environment) },
 			}),
 		);
-	const reader = await open(true);
-	const writer = await open(false);
+	const reader = await open();
+	const writer = await open();
 	opened.push(reader, writer);
 	await settled(reader);
 	await Bun.sleep(20);
@@ -401,10 +399,11 @@ test('a cross-tab file hint marks history stale without requesting an automatic 
 	});
 	expect(reader.git.snapshot.lastCommit).toBe(previousAttempt);
 	expect(reader.git.snapshot.activity.commit.active).toBe(false);
-	expect(expectOk(await reader.git.status()).changes).toEqual([
-		{ path: 'external.txt', kind: 'add' },
-	]);
+	// The writer commits its own save; the reader asked for nothing.
+	await settled(writer);
+	await Bun.sleep(20);
 	expect(reader.git.snapshot.lastCommit).toBe(previousAttempt);
+	expect(expectOk(await reader.git.status()).changes).toEqual([]);
 });
 
 // Automatic commits need the shared lock; this runtime has none of its own.

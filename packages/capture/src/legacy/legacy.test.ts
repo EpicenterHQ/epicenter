@@ -53,10 +53,7 @@ async function setup() {
 		await openFolder({
 			root,
 			definition: captureDefinition,
-			git: {
-				author: { name: 'Test', email: 'test@localhost' },
-				commitOnEdit: false,
-			},
+			git: { author: { name: 'Test', email: 'test@localhost' } },
 		}),
 	);
 	const captureFiles = async () =>

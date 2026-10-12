@@ -32,13 +32,7 @@ import type {
 import { capturedIndexMatchesHead } from './captured-index.js';
 import { abortableHttp, type HttpFetch } from './http.js';
 import { orphanStagesProblem, parseIndex } from './index-file.js';
-import {
-	commitTree,
-	EMPTY_TREE,
-	logCommits,
-	type ObjectAccess,
-	readBlob,
-} from './objects.js';
+import { logCommits, type ObjectAccess, readBlob } from './objects.js';
 import { gitignoreMatcher } from './scope.js';
 
 const decoder = new TextDecoder();
@@ -350,9 +344,8 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 
 	async function blobText(
 		access: ObjectAccess,
-		oid: string | undefined,
+		oid: string,
 	): Promise<{ text: string; binary: boolean }> {
-		if (oid === undefined) return { text: '', binary: false };
 		const { blob } = await git.readBlob({ ...access, oid });
 		return { text: decoder.decode(blob), binary: blob.includes(0) };
 	}
@@ -453,94 +446,21 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			}
 			return result;
 		},
-		async stage(paths) {
-			await settled();
-			await withObjects(async (access) => {
-				const rows = await matrix(
-					access,
-					paths === 'all' ? undefined : [...paths],
-				);
-				if (paths !== 'all') {
-					for (const path of paths) {
-						if (path === '.') continue;
-						const matched = rows.some(
-							([filepath]) =>
-								filepath === path || filepath.startsWith(`${path}/`),
-						);
-						if (!matched)
-							throw new Error(`pathspec '${path}' did not match any files`);
-					}
-				}
-				for (const [filepath, , workdir, stage] of rows) {
-					if (workdir === 0) {
-						if (stage !== 0)
-							await git.remove({ ...access, dir: WORKDIR, filepath });
-					} else if (stage !== 2 || workdir !== 2) {
-						await git.add({ ...access, dir: WORKDIR, filepath });
-					}
-				}
-			});
-		},
-		async commitIndex(message, author) {
-			await settled();
-			const session = store.session();
-			const access: ObjectAccess = {
-				fs: session.fs,
-				gitdir: GITDIR,
-				cache: {},
-			};
-			const parent = await readRef(branchKey);
-			const now = new Date();
-			const signature = {
-				name: author.name,
-				email: author.email,
-				timestamp: Math.floor(now.getTime() / 1000),
-				timezoneOffset: now.getTimezoneOffset(),
-			};
-			const oid = await git.commit({
-				...access,
-				dir: WORKDIR,
-				message: message.endsWith('\n') ? message : `${message}\n`,
-				author: signature,
-				committer: signature,
-				noUpdateBranch: true,
-				parent: parent === undefined ? [] : [parent],
-			});
-			const tree = await commitTree(access, oid);
-			const parentTree =
-				parent === undefined ? EMPTY_TREE : await commitTree(access, parent);
-			if (tree === parentTree) return { status: 'nothing' };
-			await session.flush();
-			const moved = await store.casRef(branchKey, parent, oid);
-			if (!moved.ok)
-				return {
-					status: 'branchMoved',
-					expected: parent,
-					actual: moved.actual,
-				};
-			return { status: 'committed', oid, parent };
-		},
-		async diff({ staged, paths }) {
+		async diff(paths) {
 			// Loaded when a diff is first asked for. The shell uses the same
 			// library, and a bundler keeps one copy: imported statically here, that
 			// copy would sit in this adapter's chunk, and a desktop page running a
 			// shell command would load the browser's Git with it.
 			const { createTwoFilesPatch } = await import('diff');
 			return withObjects(async (access) => {
-				const head = await readRef(branchKey);
 				const filepaths = paths.length === 0 ? undefined : [...paths];
 				const outputs: string[] = [];
-				// No index refresh, as in `matrix`: a diff never writes the index.
-				const workdir = git.WORKDIR({ refresh: false });
-				const trees =
-					head === undefined
-						? [git.STAGE(), workdir]
-						: [git.TREE({ ref: head }), git.STAGE(), workdir];
 				await git.walk({
 					...access,
 					dir: WORKDIR,
-					trees,
-					map: async (filepath, entries) => {
+					// No index refresh, as in `matrix`: a diff never writes the index.
+					trees: [git.STAGE(), git.WORKDIR({ refresh: false })],
+					map: async (filepath, [stageEntry, workEntry]) => {
 						if (filepath === '.') return undefined;
 						if (
 							filepaths &&
@@ -553,34 +473,24 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 							)
 						)
 							return null;
-						const [headEntry, stageEntry, workEntry] =
-							head === undefined ? [null, entries[0], entries[1]] : entries;
 						const types = await Promise.all(
-							[headEntry, stageEntry, workEntry].map((entry) => entry?.type()),
+							[stageEntry, workEntry].map((entry) => entry?.type()),
 						);
 						if (types.includes('tree')) return undefined;
-						const oids = await Promise.all(
-							[headEntry, stageEntry, workEntry].map((entry) => entry?.oid()),
-						);
-						const [headOid, stageOid, workOid] = oids;
-						// Unstaged diff compares the index with files; untracked files are not shown.
-						const [before, after] = staged
-							? [headOid, stageOid]
-							: [stageOid, workOid];
-						if (!staged && stageOid === undefined) return undefined;
+						// The index against the files; untracked files are not shown.
+						const before = await stageEntry?.oid();
+						if (before === undefined) return undefined;
+						const after = await workEntry?.oid();
 						if (before === after) return undefined;
 						const [left, right] = await Promise.all([
 							blobText(access, before),
-							!staged && workEntry
-								? (async () => {
-										const content = await workEntry.content();
-										const bytes = content ?? new Uint8Array();
-										return {
-											text: decoder.decode(bytes),
-											binary: bytes.includes(0),
-										};
-									})()
-								: blobText(access, after),
+							(async () => {
+								const bytes = (await workEntry?.content()) ?? new Uint8Array();
+								return {
+									text: decoder.decode(bytes),
+									binary: bytes.includes(0),
+								};
+							})(),
 						]);
 						const header = `diff --git a/${filepath} b/${filepath}\n`;
 						if (left.binary || right.binary) {
@@ -588,10 +498,8 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 							return undefined;
 						}
 						const patch = createTwoFilesPatch(
-							before === undefined ? '/dev/null' : `a/${filepath}`,
-							after === undefined && !(!staged && workEntry)
-								? '/dev/null'
-								: `b/${filepath}`,
+							`a/${filepath}`,
+							workEntry ? `b/${filepath}` : '/dev/null',
 							left.text,
 							right.text,
 							undefined,

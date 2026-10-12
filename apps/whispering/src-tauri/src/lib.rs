@@ -721,7 +721,6 @@ mod tests {
         let attached = attach(&main, host, FOLDER_SCOPE).expect("the main window attaches");
         assert_eq!(attached["root"], root.to_str().unwrap());
         assert_eq!(attached["snapshot"]["branch"], "main");
-        assert_eq!(attached["snapshot"]["commitOnEdit"], true);
         // Local history only: no remote, so nothing is ever pushed.
         assert_eq!(attached["snapshot"]["remote"], Value::Null);
         assert!(root.join(".git").exists());

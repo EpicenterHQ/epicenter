@@ -237,7 +237,6 @@ test('a browser folder defaults to a local author and local automatic history; a
 	);
 	// The policy in effect is observable on the handle.
 	expect(folder.git.snapshot).toMatchObject({
-		commitOnEdit: true,
 		remote: undefined,
 		branch: 'main',
 	});
@@ -264,7 +263,6 @@ test('handles sharing browser storage hear each other, when the storage carries 
 				definition,
 				browser: {
 					author,
-					commitOnEdit: false,
 					...browserStorage(environment),
 				},
 			}),

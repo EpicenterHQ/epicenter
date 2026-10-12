@@ -39,6 +39,7 @@ import type {
 import { parseRow, rowPath, rowStemOf } from '@epicenter/folder';
 import { ancestorsOf, dirname, joinPath } from '@epicenter/folder/file-browser';
 import { createAdmissions } from '@epicenter/svelte/admissions';
+import { createTerminalSession } from '@epicenter/svelte/terminal-session';
 import { customAlphabet } from 'nanoid';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -92,7 +93,6 @@ import {
 	publishRecording,
 } from './recordings/publish.js';
 import { createRuns } from './runs.svelte.js';
-import { createTerminalSession } from './terminal.svelte.js';
 import type { Workspace } from './workspace/index.js';
 
 export type Library = ReturnType<typeof createLibrary>;
@@ -342,8 +342,8 @@ export function createLibrary(workspace: Workspace) {
 		}
 	}
 
-	const terminal = createTerminalSession(
-		{
+	const terminal = createTerminalSession({
+		terminal: {
 			get cwd() {
 				return workspace.terminal.cwd;
 			},
@@ -352,8 +352,8 @@ export function createLibrary(workspace: Workspace) {
 					? admissions.admit(() => workspace.terminal.exec(command, options))
 					: Promise.reject(new Error(CLOSING)),
 		},
-		refreshAll,
-	);
+		afterRun: refreshAll,
+	});
 	const input = createMicrophoneInput({
 		capture: workspace.capture,
 		preferences: workspace.preferences,

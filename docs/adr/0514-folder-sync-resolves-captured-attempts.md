@@ -11,7 +11,7 @@
 `pullFastForward()`, `mergeIncoming()`, and `push()`. `mergeIncoming()` merges
 root `kv.json` by key (`mergeKv`) and every other path by Git's line rules.
 A competing change refuses the whole merge (`MergeError.Conflicted`), or, in
-manual history only, leaves conflict markers in the files. Markers in a row
+manual history, which no longer exists, left conflict markers in the files. Markers in a row
 file make it read as `InvalidRow`, so two devices that changed one todo's
 title leave the person a text repair of the whole file.
 
@@ -53,15 +53,17 @@ merge splits a path both sides changed into units:
   chooses is written as it is; if it is not a valid row, the table reads it
   as `InvalidRow` and the app opens it for repair as text (ADR-0518).
   `kv.json` deleted on one side or not one JSON object is a `file` unit too.
-- A folder whose first commit the run made adopts the remote's history
-  by merging over an empty base, so a fresh copy can join a remote it did
-  not clone.
+- A folder that has never fetched from or pushed to the remote adopts the
+  remote's history by merging over an empty base, so a fresh copy can join
+  a remote it did not clone. Every save commits, so such a copy already has
+  commits of its own, starting with the `epicenter.json` its opening
+  published; what marks it is the missing remote-tracking ref.
 - Any other text file merges by line, so a README both sides edited is one
   `file` unit only when their lines compete.
 - A binary file, a link, executable, or submodule, and a file against a
   directory are `SyncError.Unreviewable`, listing every conflict. Nothing is
   written or sent; the person repairs them with Git outside the app, since
-  `git merge` in the folder terminal needs manual history.
+  `git merge` in the folder terminal refuses the same conflicts.
 
 A conflict is reported as `SyncAttempt`:
 
@@ -106,7 +108,7 @@ type SyncChoices = Partial<Record<string, SyncChoice>>; // keyed by conflict id
   `MERGE_HEAD`, `MERGE_MSG`, and `ORIG_HEAD` it wrote are removed, in the
   browser, Bun, and desktop owners alike, with the staged commit that
   finished such a merge. A conflicted `git merge` in the folder terminal
-  refuses in both history modes and points to Sync (`CONFLICTS_NEED_SYNC`).
+  refuses and points to Sync (`CONFLICTS_NEED_SYNC`).
   A merge another Git program began still blocks commits and incoming
   updates until it is finished with Git.
 - A row both sides changed is rewritten in the standard form, even when the

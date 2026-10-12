@@ -41,7 +41,6 @@ test('a folder routes only its Git requests through the injected transport and k
 				author: { name: 'Test', email: 'test@example.test' },
 				remote: { url: canonical, branch: 'main' },
 				httpFetch,
-				commitOnEdit: false,
 				...browserStorage(createTestStorage()),
 			},
 		});

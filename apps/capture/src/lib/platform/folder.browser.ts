@@ -24,7 +24,6 @@ export const openCaptureHost: OpenCaptureHost = async () => {
 		// History stays in this browser, with no remote to push to.
 		browser: {
 			author: { name: 'Capture', email: 'capture@localhost' },
-			commitOnEdit: true,
 		},
 	});
 	if (error) throw new Error(error.message, { cause: error });

@@ -187,7 +187,7 @@ test('a checkpoint that overlaps a table rename commits the files from before it
 	const opened = await openNativeFolder({
 		root: folder,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	try {
 		const entry = expectOk(
@@ -199,7 +199,8 @@ test('a checkpoint that overlaps a table rename commits the files from before it
 		expectOk(
 			await opened.files.create('todos/old.png', new Uint8Array([1, 2, 3])),
 		);
-		expect((await opened.git.commit()).status).toBe('committed');
+		// The saves' automatic commit, or this one if it gets there first.
+		await opened.git.commit();
 		const tree = () => git(folder, 'ls-tree', '-r', '--name-only', 'HEAD');
 		expect(await tree()).toBe('epicenter.json\ntodos/old.md\ntodos/old.png');
 		const pause = pauseCaptureBeforeReading(join(folder, 'todos', 'old.md'));
@@ -207,15 +208,16 @@ test('a checkpoint that overlaps a table rename commits the files from before it
 		const committing = opened.git.commit();
 		await pause.paused;
 		const renaming = pause.during(opened.tables.todos.rename(entry, 'new'));
-		await committing;
+		// The overlapping commit read the files from before the rename: nothing
+		// had changed, so it committed nothing, and never an empty tree.
+		expect((await committing).status).toBe('unchanged');
 		expectOk(await renaming);
 		expect(expectOk(await opened.tables.todos.get('new'))?.sha256).toBe(
 			entry.sha256,
 		);
-
-		expect(await tree()).toBe('epicenter.json\ntodos/old.md\ntodos/old.png');
 		expect(pause.overlapped).toBe(false);
-		expect((await opened.git.commit()).status).toBe('committed');
+		// The rename's own commit, or this one.
+		await opened.git.commit();
 		// Only the row moved; the image beside it stays where it was.
 		expect(await tree()).toBe('epicenter.json\ntodos/new.md\ntodos/old.png');
 	} finally {

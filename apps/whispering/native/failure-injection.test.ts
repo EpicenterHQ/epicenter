@@ -53,7 +53,7 @@ async function directory() {
 /** A directory the owner has opened, so Git exists in it. */
 async function open() {
 	const root = await directory();
-	const folder = await openTestFolder(root, { commitOnEdit: false });
+	const folder = await openTestFolder(root);
 	cleanups.push(() => folder.close());
 	return {
 		root,
@@ -95,7 +95,7 @@ test('the lock is taken on the branch HEAD names, and is refused before Git exis
 	expect(injection.state.commitsBlocked).toBe(false);
 	expect(await readdir(root)).toEqual([]);
 
-	const folder = await openTestFolder(root, { commitOnEdit: false });
+	const folder = await openTestFolder(root);
 	cleanups.push(() => folder.close());
 	execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/drafts/one'], {
 		cwd: root,
@@ -158,7 +158,7 @@ test('a lock asked for at launch waits for the folder to be opened, and is taken
 	// Asked before the owner opened the folder: refused, and still owed.
 	await expect(injection.armLaunch()).rejects.toThrow('no Git history yet');
 
-	const folder = await openTestFolder(root, { commitOnEdit: false });
+	const folder = await openTestFolder(root);
 	cleanups.push(() => folder.close());
 	const lock = join(root, '.git', 'refs', 'heads', 'main.lock');
 	expect((await injection.armLaunch()).commitsBlocked).toBe(true);
@@ -272,7 +272,8 @@ test('starting and stopping a debug host leaves an existing branch lock in place
 test('the real lock blocks a real Git ref update, and releasing it unblocks it', async () => {
 	const { root, folder } = await open();
 	expectOk(await folder.files.create('note.md', 'one\n'));
-	expect((await folder.git.commit()).status).toBe('committed');
+	// The save's automatic commit, or this one if it gets there first.
+	await folder.git.commit();
 	const head = execFileSync('git', ['rev-parse', 'HEAD'], {
 		cwd: root,
 		encoding: 'utf8',

@@ -52,7 +52,6 @@ fn open_copy(
             scope: scope.clone(),
             windows: vec!["copy-a".into(), "copy-b".into()],
             folder: FolderConfig {
-                commit_on_edit: false,
                 remote: if remote.is_empty() {
                     None
                 } else {

@@ -411,7 +411,6 @@ test('an invalid row keeps unknown and invalid fields through a guarded raw save
 			definition,
 			browser: {
 				author: { name: 'Canonical', email: 'canonical@example.test' },
-				commitOnEdit: false,
 				...testBrowserStorage(),
 			},
 		}),

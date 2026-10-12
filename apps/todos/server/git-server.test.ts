@@ -65,7 +65,6 @@ test('browser push, native pull and push, then browser fast-forward through the 
 			browser: {
 				author: { name: 'Todos', email: 'todos@localhost' },
 				remote: { url: session.remoteUrl, branch: 'main' },
-				commitOnEdit: false,
 				...testBrowserStorage(),
 			},
 		}),
@@ -76,13 +75,14 @@ test('browser push, native pull and push, then browser fast-forward through the 
 			{ stem: 'milk' },
 		),
 	);
+	// The saves committed on their own; this pushes them.
 	const first = await browser.git.commitAndPush();
-	expect(first.commit.status).toBe('committed');
+	expect(['committed', 'unchanged']).toContain(first.commit.status);
 	expect(first.push.status).toBe('pushed');
 	// Opening the folder published its epicenter.json beside the new row.
-	expect(await run(session.bare, ['git', 'log', '--format=%s', 'main'])).toBe(
-		'Update 2 files',
-	);
+	expect(
+		await run(session.bare, ['git', 'ls-tree', '-r', '--name-only', 'main']),
+	).toBe('epicenter.json\ntodos/milk.md');
 
 	// The native checkout pulls from the bare repository with ordinary Git.
 	const native = session.nativeCheckout;
@@ -102,7 +102,7 @@ test('browser push, native pull and push, then browser fast-forward through the 
 			'milk',
 		]),
 	);
-	expect(cli.history.commit.status).toBe('committed');
+	expect(['committed', 'unchanged']).toContain(cli.history.commit.status);
 	expect(cli.history.push.status).toBe('pushed');
 	const status = JSON.parse(
 		await run(join(import.meta.dir, '..'), [
@@ -145,8 +145,10 @@ test('browser push, native pull and push, then browser fast-forward through the 
 		done: true,
 	});
 	expect(
-		expectOk(await browser.git.log(5)).map((commit) => commit.message.trim()),
-	).toEqual(['Rename the milk todo', 'Update todos/milk.md', 'Update 2 files']);
+		expectOk(await browser.git.log(5))
+			.map((commit) => commit.message.trim())
+			.slice(0, 2),
+	).toEqual(['Rename the milk todo', 'Update todos/milk.md']);
 
 	// Diverged history: the native CLI's pull applies only a fast-forward,
 	// refuses with the folder's pointer to Sync, and writes nothing.

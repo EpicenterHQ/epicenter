@@ -1,8 +1,7 @@
 /**
- * Commit-On-Edit Request Tests
+ * Automatic Commit Request Tests
  *
- * With `commitOnEdit`, each save this handle published asks for an automatic
- * commit. Requests not yet answered are one obligation, carried by at most
+ * Each save this handle published asks for an automatic commit. Requests not yet answered are one obligation, carried by at most
  * one worker that waits for the backend's protection. These tests pin what
  * that promises and what it does not.
  *
@@ -88,11 +87,7 @@ async function until(condition: () => boolean) {
  * `probe.hold` stops the next commit after it captured and wrote its commit,
  * just before the branch moves. `holds` stop the named backend call.
  */
-async function tab(
-	environment: TestStorage,
-	name: string,
-	{ commitOnEdit = true } = {},
-) {
+async function tab(environment: TestStorage, name: string) {
 	const raw = await rawBrowserFolder({ id: name, storage: environment });
 	const base = raw.boundary;
 	const holds: {
@@ -216,7 +211,7 @@ async function tab(
 			return real.casBranch(expected, next);
 		},
 	};
-	const history = createHistory({ backend, boundary, author, commitOnEdit });
+	const history = createHistory({ backend, boundary, author });
 	async function land(path: string, text: string) {
 		const bytes = encoder.encode(text);
 		const { error: applyError } = await boundary.apply([
@@ -306,22 +301,10 @@ test('a published save makes one commit of the folder with a subject from the co
 	await history.close();
 });
 
-test('with commitOnEdit off, a save asks for nothing', async () => {
-	const { history, probe, save } = await tab(createTestStorage(), 'off', {
-		commitOnEdit: false,
-	});
-	await save('a.txt', 'one');
-	await Bun.sleep(20);
-	expect(probe.admissions).toBe(0);
-	expect(history.snapshot.activity.commit).toEqual({ active: false });
-	expect(history.snapshot.lastCommit).toBeUndefined();
-	await history.close();
-});
-
 test('a write this handle did not publish, and a noted edit alone, ask for nothing', async () => {
 	const environment = createTestStorage();
 	const mine = await tab(environment, 'external');
-	const other = await tab(environment, 'external', { commitOnEdit: false });
+	const other = await tab(environment, 'external');
 	// Another tab writes to the shared store; this handle only hears a hint.
 	await other.land('a.txt', 'from another tab');
 	// A partial publication notes the edit and asks for nothing.
@@ -713,7 +696,6 @@ test('explicit commit is local; commitAndPush pushes', async () => {
 	const { history, probe, land } = await tab(
 		createTestStorage(),
 		'explicit-local',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -733,7 +715,6 @@ test('a caller that stops waiting on commitAndPush leaves its commit to finish a
 	const { history, probe, land, committed } = await tab(
 		createTestStorage(),
 		'abandoned',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	const held = gate();
@@ -803,7 +784,7 @@ test("closing refuses an explicit commit still waiting on another tab's Web Lock
 	try {
 		const environment = createTestStorage();
 		const a = await tab(environment, 'close-waiting');
-		const b = await tab(environment, 'close-waiting', { commitOnEdit: false });
+		const b = await tab(environment, 'close-waiting');
 		const held = gate();
 		a.probe.hold = held;
 		await a.save('a.txt', 'from a');
@@ -1032,7 +1013,6 @@ test('a push whose caller leaves while it is queued behind a held push starts no
 	const { history, probe, holds, land } = await tab(
 		createTestStorage(),
 		'push-queued',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -1062,7 +1042,6 @@ test('a push asked for with an already aborted signal starts no transport', asyn
 	const { history, probe, land } = await tab(
 		createTestStorage(),
 		'push-aborted',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -1084,7 +1063,6 @@ test('a caller that leaves commitAndPush while its push is queued keeps its comm
 	const { history, probe, holds, land } = await tab(
 		createTestStorage(),
 		'both-queued',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -1120,7 +1098,6 @@ test('a caller that leaves after its push started is told so; the transport fini
 	const { history, probe, holds, land } = await tab(
 		createTestStorage(),
 		'push-admitted',
-		{ commitOnEdit: false },
 	);
 	await land('a.txt', 'one');
 	expect((await history.commit()).status).toBe('committed');
@@ -1150,7 +1127,6 @@ test('a fetch whose caller leaves while it is queued, or before it asks, starts 
 	const { history, probe, holds } = await tab(
 		createTestStorage(),
 		'fetch-queued',
-		{ commitOnEdit: false },
 	);
 	const transport = gate();
 	holds.transport = transport;
@@ -1179,10 +1155,9 @@ test('a fetch whose caller leaves while it is queued, or before it asks, starts 
 // A directory with the real `git`
 // ============================================================================
 
-async function directory(prefix: string, commitOnEdit: boolean) {
+async function directory(prefix: string) {
 	const root = await scratch(prefix);
-	const open = () =>
-		openNativeFolder({ root, definition, git: { author, commitOnEdit } });
+	const open = () => openNativeFolder({ root, definition, git: { author } });
 	return { root, open, folder: await open() };
 }
 
@@ -1194,7 +1169,7 @@ async function settled(
 }
 
 test('a held ref lock fails the attempt, records the error, keeps the save, and nothing retries until the next save', async () => {
-	const { root, folder } = await directory('attempt-ref-lock-', true);
+	const { root, folder } = await directory('attempt-ref-lock-');
 	expectOk(await folder.files.create('a.md', 'first'));
 	await settled(folder);
 	const head = await git(root, 'rev-parse', 'HEAD');
@@ -1231,7 +1206,7 @@ test('a held ref lock fails the attempt, records the error, keeps the save, and 
 });
 
 test('a held index lock still commits, reports the index warning, and the next commit repairs it', async () => {
-	const { root, folder } = await directory('attempt-index-lock-', true);
+	const { root, folder } = await directory('attempt-index-lock-');
 	expectOk(await folder.files.create('a.md', 'first'));
 	await settled(folder);
 
@@ -1258,8 +1233,12 @@ test('a held index lock still commits, reports the index warning, and the next c
 });
 
 test('many callers in one handle and across two each take a commit and leave a linear branch, sound objects, and a usable index', async () => {
-	const { root, open, folder: one } = await directory('attempt-many-', false);
+	const { root, open, folder: one } = await directory('attempt-many-');
 	const two = await open();
+	// Opening committed epicenter.json before any caller here asked.
+	await settled(one);
+	await settled(two);
+	const opening = Number(await git(root, 'rev-list', '--count', 'HEAD'));
 	const tally: Record<string, number> = {};
 	const committedOids: string[] = [];
 	for (let round = 0; round < 8; round++) {
@@ -1293,7 +1272,7 @@ test('many callers in one handle and across two each take a commit and leave a l
 	).toBe(true);
 	// The branch moved once per reported commit and never by force.
 	expect(Number(await git(root, 'rev-list', '--count', 'HEAD'))).toBe(
-		committedOids.length,
+		opening + committedOids.length,
 	);
 	await git(root, 'fsck', '--strict', '--no-dangling');
 
@@ -1306,7 +1285,9 @@ test('many callers in one handle and across two each take a commit and leave a l
 });
 
 test('the subject and count describe the committed tree, not the files on disk', async () => {
-	const { root, folder } = await directory('attempt-subject-', false);
+	const { root, folder } = await directory('attempt-subject-');
+	// Opening committed epicenter.json on its own.
+	await settled(folder);
 	await writeFile(join(root, '.gitignore'), '*.log\n');
 	await writeFile(join(root, 'a.md'), 'a');
 	await writeFile(join(root, 'b.md'), 'b');
@@ -1324,18 +1305,13 @@ test('the subject and count describe the committed tree, not the files on disk',
 				'HEAD',
 			)
 		).split('\n');
-	expect(await changed()).toEqual([
-		'.gitignore',
-		'a.md',
-		'b.md',
-		'epicenter.json',
-	]);
+	expect(await changed()).toEqual(['.gitignore', 'a.md', 'b.md']);
 	expect(first).toMatchObject({
 		status: 'committed',
-		message: 'Update 4 files',
-		changedPaths: 4,
+		message: 'Update 3 files',
+		changedPaths: 3,
 	});
-	expect(await git(root, 'log', '-1', '--format=%s')).toBe('Update 4 files');
+	expect(await git(root, 'log', '-1', '--format=%s')).toBe('Update 3 files');
 
 	// Four files change on disk; one is ignored and one ends as it began.
 	await writeFile(join(root, 'a.md'), 'a2');

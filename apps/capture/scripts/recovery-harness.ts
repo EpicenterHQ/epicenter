@@ -38,7 +38,6 @@ const opened = await openFolder({
 	definition: captureDefinition,
 	git: {
 		author: { name: 'Capture', email: 'capture@localhost' },
-		commitOnEdit: false,
 	},
 });
 if (opened.error) {

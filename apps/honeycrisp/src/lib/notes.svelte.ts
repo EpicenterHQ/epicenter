@@ -52,6 +52,7 @@ import {
 	type TextSession,
 } from '@epicenter/svelte/edit-session';
 import { createOpenItem, type Opening } from '@epicenter/svelte/open-item';
+import { createTerminalSession } from '@epicenter/svelte/terminal-session';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -68,7 +69,6 @@ import {
 import { nameProblem, readTextFile } from './files.js';
 import { displayTitle } from './note-source.js';
 import type { NotesHost } from './platform/types.js';
-import { createTerminalSession } from './terminal.svelte.js';
 
 const log = createLogger('honeycrisp');
 
@@ -310,7 +310,11 @@ export function createNotes(host: NotesHost) {
 			: undefined;
 	}
 
-	const terminal = createTerminalSession(host.terminal, check, () => !locked());
+	const terminal = createTerminalSession({
+		terminal: host.terminal,
+		afterRun: check,
+		locked,
+	});
 
 	/**
 	 * One listing pass. A pass that a newer one overtook, or that answers

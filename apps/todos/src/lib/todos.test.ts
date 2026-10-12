@@ -77,7 +77,6 @@ async function open(
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
-				commitOnEdit: false,
 				remote,
 				opfs: {
 					locks: testLocks,

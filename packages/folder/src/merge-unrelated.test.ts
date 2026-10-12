@@ -43,7 +43,6 @@ async function setup() {
 		backend,
 		boundary,
 		author,
-		commitOnEdit: false,
 		landed: (paths) => landed.push(...paths),
 	});
 	async function write(path: string, value: string) {

@@ -417,7 +417,7 @@ test('inherited GIT_DIR, GIT_WORK_TREE, and GIT_INDEX_FILE do not redirect the f
 	const opened = await openNativeFolder({
 		root: folder,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	try {
 		expectOk(
@@ -427,15 +427,16 @@ test('inherited GIT_DIR, GIT_WORK_TREE, and GIT_INDEX_FILE do not redirect the f
 			),
 		);
 
-		expect((await opened.git.commit()).status).toBe('committed');
-		expectOk(await opened.git.stage('all'));
+		await opened.git.commit();
 		expect((await opened.git.paths()).data).toEqual([]);
 	} finally {
 		await opened.close();
 	}
 	for (const name of REDIRECTS) delete process.env[name];
 
-	expect(await git(folder, 'log', '--format=%s')).toBe('Update 2 files');
+	expect(await git(folder, 'ls-tree', '-r', '--name-only', 'HEAD')).toBe(
+		'epicenter.json\ntodos/one.md',
+	);
 	expect(await git(sentinel, 'for-each-ref')).toBe(sentinelRefs);
 	expect(await readdir(sentinel)).toEqual(sentinelFiles);
 	expect(
@@ -456,13 +457,13 @@ test('a root that lost its .git never resolves to a repository above it', async 
 	const opened = await openNativeFolder({
 		root: folder,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	try {
 		await writeFile(join(folder, 'note.md'), 'text');
 		await rm(join(folder, '.git'), { recursive: true });
 
-		expect(expectErr(await opened.git.stage('all')).name).toBe('Failed');
+		expect(expectErr(await opened.git.diff([])).name).toBe('Failed');
 		expect(expectErr(await opened.git.paths()).name).toBe('Failed');
 	} finally {
 		await opened.close();

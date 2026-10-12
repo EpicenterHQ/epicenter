@@ -36,7 +36,6 @@ const snapshot = () =>
 		pendingIncoming: null,
 		branch: 'main',
 		remote: null,
-		commitOnEdit: true,
 		files: { state: 'unknown', error: null },
 		sync: { state: 'unknown', error: null },
 		activity: {

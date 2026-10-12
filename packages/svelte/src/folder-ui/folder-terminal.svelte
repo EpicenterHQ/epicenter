@@ -1,17 +1,27 @@
+<!--
+	The terminal pane over one terminal session. Up and Down recall earlier
+	commands; output kept while the pane was hidden reappears scrolled to its
+	end.
+-->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { tick } from 'svelte';
-	import type { TerminalSession } from '$lib/terminal.svelte.js';
+	import type { TerminalSession } from './terminal-session.svelte.js';
 
-	let { session, note, onClose }: {
+	let {
+		session,
+		description,
+		onClose,
+	}: {
 		session: TerminalSession;
-		/** What kind of terminal this is, and what it cannot do. */
-		note: string;
+		/** What the shell is and what it can do, shown above the output. */
+		description: string;
 		onClose: () => void;
 	} = $props();
 
+	const cwdId = $props.id();
 	let output = $state<HTMLDivElement | null>(null);
 	let input = $state<HTMLInputElement | null>(null);
 
@@ -37,7 +47,6 @@
 			<XIcon />
 		</Button>
 	</div>
-	<!-- Output kept while the terminal was hidden reappears scrolled to its end. -->
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 	<div
 		bind:this={output}
@@ -46,7 +55,7 @@
 		onclick={() => input?.focus()}
 		{@attach (node) => node.scrollTo({ top: node.scrollHeight })}
 	>
-		<p class="mb-2 font-sans text-muted-foreground" data-testid="terminal-note">{note}</p>
+		<p class="mb-2 font-sans text-muted-foreground" data-testid="terminal-note">{description}</p>
 		{#each session.runs as item (item.id)}
 			<div class="mb-1">
 				<div><span class="text-muted-foreground">{item.cwd} $</span> {item.command}</div>
@@ -64,18 +73,18 @@
 				bind:value={session.command}
 				class="h-8 flex-1 font-mono md:text-xs"
 				aria-label="Terminal command"
-				aria-describedby="terminal-cwd"
+				aria-describedby={cwdId}
 				autocomplete="off"
 				autocapitalize="off"
 				spellcheck={false}
-				disabled={session.running}
+				disabled={session.running || session.locked}
 				{@attach (node: HTMLInputElement) => node.focus()}
 				onkeydown={(event) => {
 					if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
 					if (session.recall(event.key === 'ArrowUp' ? 'previous' : 'next')) event.preventDefault();
 				}}
 			/>
-			<span id="terminal-cwd" class="sr-only">Working directory {session.cwd}</span>
+			<span id={cwdId} class="sr-only">Working directory {session.cwd}</span>
 		</form>
 	</div>
 </section>

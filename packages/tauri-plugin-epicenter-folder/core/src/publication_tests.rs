@@ -38,19 +38,11 @@ fn settled(owner: &FolderOwner) {
     });
 }
 
-fn manual(root: &std::path::Path) -> FolderOwner {
-    FolderOwner::open(FolderConfig {
-        commit_on_edit: false,
-        ..config(root)
-    })
-    .expect("open the folder")
-}
-
 #[test]
 fn two_replacements_conditional_on_one_hash_land_exactly_once() {
     let temp = TempDir::new("conflict");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     owner.apply(&[create("a.md", "base")]).unwrap();
     let base = owner.read("a.md").unwrap().sha256;
     assert_eq!(base, sha256(b"base"));
@@ -98,7 +90,7 @@ fn private_git_traversal_and_links_are_refused_and_outside_files_untouched() {
     let root = temp.folder("notes");
     let outside = temp.folder("outside");
     std::fs::write(outside.join("sentinel.txt"), "untouched").unwrap();
-    let owner = manual(&root);
+    let owner = open(&root);
     std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
     std::os::unix::fs::symlink(outside.join("sentinel.txt"), root.join("alias.txt")).unwrap();
     let config_before = std::fs::read(root.join(".git/config")).unwrap();
@@ -308,7 +300,7 @@ fn a_partial_batch_keeps_its_prefix_and_attempts_no_commit_until_a_complete_save
 fn exclusive_creation_and_moves_never_replace_an_existing_file() {
     let temp = TempDir::new("exclusive");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     owner.apply(&[create("a.md", "a")]).unwrap();
     owner.apply(&[create("b.md", "b")]).unwrap();
 
@@ -350,7 +342,7 @@ fn exclusive_creation_and_moves_never_replace_an_existing_file() {
 fn a_named_hash_guards_replacement_removal_and_moves_and_its_absence_guards_nothing() {
     let temp = TempDir::new("guards");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     owner.apply(&[create("a.md", "a")]).unwrap();
     let stale = sha256(b"what the caller read earlier");
     let conflict = |path: &str, actual: Option<&[u8]>| {
@@ -458,7 +450,7 @@ fn a_named_hash_guards_replacement_removal_and_moves_and_its_absence_guards_noth
 fn a_differently_cased_name_never_overwrites_the_existing_file() {
     let temp = TempDir::new("case");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     owner.apply(&[create("Note.md", "upper")]).unwrap();
     let lower = owner.apply(&[create("note.md", "lower")]);
     assert_eq!(owner.read("Note.md").unwrap().bytes, b"upper");
@@ -507,7 +499,7 @@ fn entries(owner: &FolderOwner) -> (Vec<String>, Vec<String>) {
 fn no_change_lands_on_an_entry_through_another_spelling_of_its_name_or_directory() {
     let temp = TempDir::new("alias");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     owner
         .apply(&[create("Note.md", "upper"), create("Dir/inner.md", "inner")])
         .unwrap();
@@ -589,7 +581,7 @@ fn aliased_directory(path: &str, existing: &str) -> Result<(), FileError> {
 fn a_differently_normalized_spelling_never_changes_the_existing_file() {
     let temp = TempDir::new("alias-unicode");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     let (composed, decomposed) = ("caf\u{e9}.md", "cafe\u{301}.md");
     owner.apply(&[create(composed, "composed")]).unwrap();
     // APFS resolves either normalization to the one entry; most Linux
@@ -644,7 +636,7 @@ fn directory_changes_and_reads_attempt_no_commit() {
 fn every_listener_hears_a_save_made_through_any_handle() {
     let temp = TempDir::new("events");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     let heard: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
     let subscriptions: Vec<_> = (0..2)
         .map(|_| {
@@ -672,7 +664,7 @@ fn every_listener_hears_a_save_made_through_any_handle() {
 fn outside_changes_are_reported_and_own_saves_are_not_mistaken_for_them() {
     let temp = TempDir::new("external");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     owner.apply(&[create("a.md", "a")]).unwrap();
     owner.status().unwrap();
     let heard: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
@@ -755,7 +747,7 @@ fn an_outside_change_marks_history_stale_and_starts_no_commit_and_no_scan() {
 fn events_for_git_objects_scratch_and_lock_files_announce_nothing() {
     let temp = TempDir::new("event-noise");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
 
     owner.announce(&[
         ".git/objects/ab/cdef",
@@ -783,7 +775,6 @@ fn a_filesystem_event_reports_an_edit_that_left_size_and_time_unchanged() {
     let temp = TempDir::new("events");
     let root = temp.folder("notes");
     let owner = FolderOwner::open(FolderConfig {
-        commit_on_edit: false,
         watch_events: true,
         ..config(&root)
     })
@@ -854,7 +845,6 @@ fn the_platform_watcher_announces_an_outside_write() {
     let temp = TempDir::new("platform-events");
     let root = temp.folder("notes");
     let owner = FolderOwner::open(FolderConfig {
-        commit_on_edit: false,
         watch_events: true,
         ..config(&root)
     })
@@ -888,7 +878,7 @@ fn the_platform_watcher_announces_an_outside_write() {
 fn a_write_built_on_an_earlier_read_is_refused_once_another_caller_wrote_between_them() {
     let temp = TempDir::new("interleaved");
     let root = temp.folder("notes");
-    let owner = manual(&root);
+    let owner = open(&root);
     owner.apply(&[create("a.md", "base")]).unwrap();
 
     // One caller's command reads, and makes a directory, as a terminal's

@@ -7,10 +7,10 @@
  * shared index to build that commit. A moved branch leaves the candidate
  * unreachable and is reported; there is no retry loop.
  *
- * The backend's exclusive protection is the only thing that orders commits,
- * pulls, and staging, in this handle and across tabs. This module adds no
- * queue of its own for them. With `commitOnEdit`, a save this handle
- * published asks for an automatic commit. Every request not yet answered is
+ * The backend's exclusive protection is the only thing that orders commits
+ * and pulls, in this handle and across tabs. This module adds no queue of
+ * its own for them. Every save this handle published asks for an automatic
+ * commit. Every request not yet answered is
  * one obligation, carried by at most one worker of this handle that waits for
  * the protection like an explicit request does. Saves made while it waits,
  * or while a checkpoint runs, only renumber that obligation, so the worker
@@ -32,7 +32,7 @@
  * publishes a clean fast-forward or a two-parent merge. Both go through one
  * publication owner, which in the browser requires every captured file and
  * the index unchanged before it writes. A browser update that stops partway
- * stays pending: staging, commits, and new incoming updates wait until
+ * stays pending: commits and new incoming updates wait until
  * `recoverIncoming` is asked for, and nothing else resumes it. File saves
  * are not held back.
  *
@@ -81,7 +81,7 @@ import {
 	SyncError,
 } from './errors.js';
 import { type MergePath, mergeBases, prepareMerge } from './merge.js';
-import { commitSubject, messageProblem, type PathChange } from './messages.js';
+import { commitSubject, type PathChange } from './messages.js';
 import {
 	type Author,
 	type CommitSummary,
@@ -201,12 +201,6 @@ export type MergeConflictPolicy = {
 	readonly versions?: boolean;
 };
 
-/** A staged commit that landed. */
-export type StagedCommit = {
-	readonly oid: string;
-	readonly parent: string | undefined;
-};
-
 /** What `recoverIncoming` did with a pending incoming update. */
 export type RecoverOutcome =
 	/** Nothing was pending. */
@@ -261,7 +255,6 @@ export type Attempt<T> = T & { readonly at: number };
 export type GitSnapshot = {
 	readonly branch: string;
 	readonly remote: GitRemote | undefined;
-	readonly commitOnEdit: boolean;
 	readonly files: Observation<FilesObservation>;
 	readonly sync: Observation<SyncObservation>;
 	readonly activity: {
@@ -290,7 +283,7 @@ export type GitSnapshot = {
 		| undefined;
 	/**
 	 * An incoming update whose publication began and has not been recovered,
-	 * as last read. While there is one, staging, commits, and new incoming
+	 * as last read. While there is one, commits and new incoming
 	 * updates wait for `recoverIncoming()`; file saves continue. Absent where
 	 * none is pending, and on folders that never keep one.
 	 */
@@ -309,14 +302,12 @@ export function createHistory({
 	backend,
 	boundary,
 	author,
-	commitOnEdit,
 	definition,
 	landed = () => {},
 }: {
 	backend: GitBackend;
 	boundary: FileBoundary;
 	author: Author;
-	commitOnEdit: boolean;
 	/** The prepared definition whose rows sync merges by field; without it, rows merge as text. */
 	definition?: FolderDefinition;
 	/** Paths an incoming update wrote or removed, whether or not it completed. */
@@ -372,7 +363,6 @@ export function createHistory({
 		snapshot = Object.freeze({
 			branch: backend.branch,
 			remote: backend.remote,
-			commitOnEdit,
 			files: publicFiles,
 			sync,
 			activity: {
@@ -585,8 +575,8 @@ export function createHistory({
 			if (!pending && trigger === 'automatic') return undefined;
 			const blocked = await wholeFolderProblem();
 			if (blocked !== undefined) return { status: 'blocked', reason: blocked };
-			// Pin the parent, then capture, both inside the Git lock. A pull or
-			// staged commit that changed files and the branch while this pass
+			// Pin the parent, then capture, both inside the Git lock. A pull
+			// that changed files and the branch while this pass
 			// waited is part of the capture, so an older capture can never be
 			// committed on top of a newer parent. An external branch move after
 			// this point still fails the compare-and-swap below.
@@ -626,9 +616,10 @@ export function createHistory({
 					};
 			}
 			const head = built?.oid ?? parent;
-			// A whole-folder checkpoint supersedes staged-only intent: every index
-			// entry, including staged-only additions and deletions, is reset to
-			// the head. This also repairs staging when nothing new was committed.
+			// A whole-folder checkpoint supersedes staged-only intent another
+			// Git program left: every index entry, including staged-only
+			// additions and deletions, is reset to the head, even when nothing
+			// new was committed.
 			let indexWarning: string | undefined;
 			if (head !== undefined)
 				try {
@@ -1475,73 +1466,6 @@ export function createHistory({
 		return manual<T>(operation, async () => Ok(await work()));
 	}
 
-	/**
-	 * Commit the index onto the branch head. Refused, writing nothing, while
-	 * an incoming update is pending or the repository is blocked, including a
-	 * merge another Git program began.
-	 */
-	async function commitStaged(
-		message: string,
-	): Promise<Result<StagedCommit, GitError>> {
-		const problem = messageProblem(message);
-		if (problem !== undefined)
-			return GitError.InvalidMessage({ reason: problem });
-		const pending = await backend.pendingIncoming?.();
-		if (pending !== undefined) return GitError.IncomingPending({ pending });
-		const blocked = await backend.blocked();
-		if (blocked !== undefined)
-			return GitError.Failed({ operation: 'commit', cause: blocked });
-		let changedPaths = 0;
-		let result:
-			| Awaited<ReturnType<GitBackend['commitIndex']>>
-			| { readonly status: 'pending'; readonly pending: PendingIncoming }
-			| { readonly status: 'blocked'; readonly reason: string };
-		try {
-			result = await exclusive(async () => {
-				const pending = await backend.pendingIncoming?.();
-				if (pending !== undefined)
-					return { status: 'pending', pending } as const;
-				const blocked = await backend.blocked();
-				if (blocked !== undefined)
-					return { status: 'blocked', reason: blocked } as const;
-				changedPaths = (await backend.pathStatus()).filter(
-					(path) => path.index !== ' ' && path.index !== '?',
-				).length;
-				return backend.commitIndex(message, author);
-			});
-		} catch (cause) {
-			if (refusedByClose(cause)) return GitError.Closed();
-			return thrown('commit', cause);
-		}
-		if (result.status === 'committed') {
-			lastCommit = {
-				...result,
-				message,
-				changedPaths,
-				indexWarning: undefined,
-				at: Date.now(),
-			};
-		}
-		await refreshSync();
-		if (files.state === 'observed') files = { ...files, stale: true };
-		emit();
-		switch (result.status) {
-			case 'pending':
-				return GitError.IncomingPending({ pending: result.pending });
-			case 'blocked':
-				return GitError.Failed({ operation: 'commit', cause: result.reason });
-			case 'nothing':
-				return GitError.NothingToCommit();
-			case 'branchMoved':
-				return GitError.BranchMoved({
-					expected: result.expected,
-					actual: result.actual,
-				});
-			case 'committed':
-				return Ok({ oid: result.oid, parent: result.parent });
-		}
-	}
-
 	/** The one attempt `sync.resolve` accepts now, and how its choices settle. */
 	let current: HeldAttempt | undefined;
 	/** Numbers runs, so a run another one overtook never becomes current. */
@@ -1609,6 +1533,11 @@ export function createHistory({
 			if (remote === undefined) return SyncError.NoRemote();
 			const run = ++runs;
 			current = undefined;
+			// A folder that has never fetched from or pushed to this remote has
+			// only its own commits, made as it saved: its first sync adopts the
+			// remote's history by merging over an empty base, where two
+			// different files at one path are a conflict.
+			const firstExchange = (await backend.readRemoteTracking()) === undefined;
 			let capturedAt = 0;
 			const checkpoint = await commitNow((at) => {
 				capturedAt = at;
@@ -1624,11 +1553,6 @@ export function createHistory({
 			}
 			let head =
 				checkpoint.status === 'committed' ? checkpoint.oid : checkpoint.head;
-			// A folder this run gave its first commit has no history of its own
-			// yet: its first sync adopts the remote's by merging over an empty
-			// base, where two different files at one path are a conflict.
-			const firstHistory =
-				checkpoint.status === 'committed' && checkpoint.parent === undefined;
 			const { data: fetched, error: fetchError } = await fetchRunner.request();
 			if (fetchError !== null)
 				return fetchError.name === 'Closed'
@@ -1641,7 +1565,7 @@ export function createHistory({
 					'merge',
 					() =>
 						merge({
-							allowUnrelatedHistories: firstHistory,
+							allowUnrelatedHistories: firstExchange,
 							sync: {
 								mergePath: rules.mergePath,
 								pinned: (pinned) => {
@@ -1776,7 +1700,7 @@ export function createHistory({
 		 * by the save. Requests made before a checkpoint starts share it.
 		 */
 		requestAutomaticCommit() {
-			if (!commitOnEdit || closing.signal.aborted) return;
+			if (closing.signal.aborted) return;
 			requested++;
 			if (automatic) return;
 			// Claim the worker before `owned` reports it: a listener that saves
@@ -1833,32 +1757,8 @@ export function createHistory({
 		}),
 		paths: (): Promise<Result<PathStatus[], GitError>> =>
 			guarded('status', () => exclusive(() => backend.pathStatus())),
-		async stage(
-			paths: readonly string[] | 'all',
-		): Promise<Result<undefined, GitError>> {
-			if (closing.signal.aborted) return GitError.Closed();
-			if (commitOnEdit) return GitError.AutomaticHistory();
-			return manual('add', async () => {
-				const staged = await exclusive(
-					async (): Promise<Result<undefined, GitError>> => {
-						const pending = await backend.pendingIncoming?.();
-						if (pending !== undefined)
-							return GitError.IncomingPending({ pending });
-						await backend.stage(paths);
-						return Ok(undefined);
-					},
-				);
-				emit();
-				return staged;
-			});
-		},
-		commitStaged(message: string): Promise<Result<StagedCommit, GitError>> {
-			if (closing.signal.aborted) return Promise.resolve(GitError.Closed());
-			if (commitOnEdit) return Promise.resolve(GitError.AutomaticHistory());
-			return manual('commit', () => commitStaged(message));
-		},
-		diff: (options: { staged: boolean; paths: readonly string[] }) =>
-			guarded('diff', () => exclusive(() => backend.diff(options))),
+		diff: (paths: readonly string[]) =>
+			guarded('diff', () => exclusive(() => backend.diff(paths))),
 		log: (depth: number): Promise<Result<CommitSummary[], GitError>> =>
 			guarded('log', () => backend.log(depth)),
 		/**

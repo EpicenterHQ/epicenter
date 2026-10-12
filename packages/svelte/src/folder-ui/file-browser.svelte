@@ -1,4 +1,15 @@
+<!--
+	The folder's files as a tree. Arrow keys move between rows and open or
+	close folders, F2 renames, Delete asks to delete, and the right-click menu
+	and the visible "…" menu offer the same actions. Names are typed in place,
+	for a rename or a new file or folder.
+
+	What opening a file does, what the app's own items look like, and how a
+	create, rename, or delete is carried out and confirmed stay with the app.
+-->
 <script lang="ts">
+	import type { FileListing } from '@epicenter/folder';
+	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { Button } from '@epicenter/ui/button';
 	import * as ContextMenu from '@epicenter/ui/context-menu';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
@@ -14,22 +25,53 @@
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
-	import AudioLinesIcon from '@lucide/svelte/icons/audio-lines';
-	import MicIcon from '@lucide/svelte/icons/mic';
-	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
-	import { tick } from 'svelte';
-	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
-	import { audioMimeTypeOf } from '$lib/audio-format.js';
-	import type { Library } from '$lib/library.svelte.js';
-	import { confirmDelete, copyPath, openItem } from './file-actions.js';
+	import FolderSearchIcon from '@lucide/svelte/icons/folder-search';
+	import { type Component, tick } from 'svelte';
+	import { copyPath } from './file-actions.js';
 
-	let { library, onOpen }: {
-		library: Library;
-		/** Called once a file is selected, so the shell can show the page it opens on. */
+	let {
+		listing,
+		listingError,
+		expanded,
+		selected,
+		icon,
+		emptyDescription,
+		location,
+		onRefresh,
+		onReveal,
+		onOpen,
+		onCreate,
+		onRename,
+		onDelete,
+	}: {
+		/** The last listing read, or undefined before the first one. */
+		listing: FileListing | undefined;
+		/** Why the last read failed; the last listing stays shown. */
+		listingError: string | undefined;
+		/** The open folders. A reactive set, such as `SvelteSet`, owned by the app. */
+		expanded: Set<string>;
+		/** Whether a row shows as the open item. */
+		selected: (path: string) => boolean;
+		/** The icon for one of the app's own items, or undefined for a plain file. */
+		icon?: (path: string) => Component | undefined;
+		/** What an empty folder suggests doing first. */
+		emptyDescription: string;
+		/** Where the files are, in words a person can act on, shown under the heading. */
+		location?: string;
+		onRefresh: () => void;
+		/** Show the folder in the system file manager. Returns a problem to show. */
+		onReveal?: () => Promise<string | undefined>;
+		/** Open a file. Folders open and close in place. */
 		onOpen: (path: string) => void;
+		/** Create a file or folder. Returns a problem to show, or undefined once it exists. */
+		onCreate: (directory: string, name: string, type: 'file' | 'folder') => Promise<string | undefined>;
+		/** Returns a problem to show, or undefined once the file has its new name. */
+		onRename: (path: string, name: string) => Promise<string | undefined>;
+		/** Ask before deleting `path`, and delete it. */
+		onDelete: (path: string) => void;
 	} = $props();
 
-	const rows = $derived(library.listing ? visibleRows(library.listing, library.expanded) : []);
+	const rows = $derived(listing ? visibleRows(listing, expanded) : []);
 
 	/** The inline name field: renaming a file, or creating one in a folder. */
 	let editing = $state<
@@ -52,22 +94,22 @@
 
 	function activate(row: TreeRow) {
 		if (row.kind === 'directory') {
-			if (library.expanded.has(row.path)) library.expanded.delete(row.path);
-			else library.expanded.add(row.path);
+			if (expanded.has(row.path)) expanded.delete(row.path);
+			else expanded.add(row.path);
 			return;
 		}
-		void openItem(library, row.path).then((opened) => opened && onOpen(row.path));
+		onOpen(row.path);
 	}
 
 	function startCreate(directory: string, type: 'file' | 'folder') {
-		if (directory !== '') library.expanded.add(directory);
+		if (directory !== '') expanded.add(directory);
 		editing = { kind: 'create', directory, type };
 	}
 
 	/** The same actions back the right-click menu and the visible "…" menu. */
 	function actionGroups(row: TreeRow): Action[][] {
 		const copy: Action = { label: 'Copy path', run: () => void copyPath(row.path) };
-		const remove = () => void confirmDelete(library, row.path);
+		const remove = () => onDelete(row.path);
 		if (row.kind === 'directory')
 			return [
 				[
@@ -103,7 +145,7 @@
 		const index = rows.findIndex((row) => row.path === path);
 		const row = rows[index];
 		if (row === undefined) return;
-		const open = row.kind === 'directory' && library.expanded.has(row.path);
+		const open = row.kind === 'directory' && expanded.has(row.path);
 		switch (event.key) {
 			case 'ArrowDown':
 				focusRow(rows[index + 1]?.path);
@@ -120,10 +162,10 @@
 			case 'ArrowRight':
 				if (row.kind !== 'directory') return;
 				if (open) focusRow(rows[index + 1]?.path);
-				else library.expanded.add(row.path);
+				else expanded.add(row.path);
 				break;
 			case 'ArrowLeft':
-				if (open) library.expanded.delete(row.path);
+				if (open) expanded.delete(row.path);
 				else focusRow(dirname(row.path) || undefined);
 				break;
 			case 'F2':
@@ -132,7 +174,7 @@
 				break;
 			case 'Delete':
 			case 'Backspace':
-				void confirmDelete(library, row.path);
+				onDelete(row.path);
 				break;
 			case 'ContextMenu':
 				menuPath = row.path;
@@ -157,24 +199,27 @@
 			await cancel();
 			return;
 		}
+		const action = current.kind === 'rename' ? 'rename' : `create the ${current.type}`;
 		committing = true;
-		const problem =
-			current.kind === 'rename'
-				? await library.rename(current.path, name)
-				: current.type === 'file'
-					? await library.createFile(directory, name)
-					: await library.createFolder(directory, name);
-		committing = false;
-		if (problem) {
-			const action =
-				current.kind === 'rename' ? 'rename' : `create the ${current.type}`;
-			toast.error(`Could not ${action}`, { description: problem });
-			return;
+		try {
+			const problem =
+				current.kind === 'rename'
+					? await onRename(current.path, name)
+					: await onCreate(directory, name, current.type);
+			if (problem) {
+				toast.error(`Could not ${action}`, { description: problem });
+				return;
+			}
+			editing = undefined;
+			await tick();
+			focusRow(joinPath(directory, name));
+		} catch (cause) {
+			toast.error(`Could not ${action}`, {
+				description: cause instanceof Error ? cause.message : String(cause),
+			});
+		} finally {
+			committing = false;
 		}
-		editing = undefined;
-		if (current.kind === 'create' && current.type === 'file') onOpen(joinPath(directory, name));
-		await tick();
-		focusRow(joinPath(directory, name));
 	}
 
 	async function cancel() {
@@ -239,11 +284,37 @@
 	{/if}
 {/snippet}
 
+{#snippet actionItems(row: TreeRow, Menu: typeof ContextMenu | typeof DropdownMenu)}
+	{#each actionGroups(row) as group, index (index)}
+		{#if index > 0}<Menu.Separator />{/if}
+		{#each group as action (action.label)}
+			<Menu.Item variant={action.destructive ? 'destructive' : 'default'} disabled={action.disabled} onSelect={action.run}>
+				{action.label}
+				{#if action.shortcut}<Menu.Shortcut>{action.shortcut}</Menu.Shortcut>{/if}
+			</Menu.Item>
+		{/each}
+	{/each}
+{/snippet}
+
 <section class="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
-	<!-- On narrow screens this sits in a sheet whose close button takes the top-right corner. -->
-	<div class="flex h-11 shrink-0 items-center gap-1 border-b ps-3 pe-12 md:pe-1.5">
+	<!-- In a sheet, the sheet's close button takes the top-right corner. -->
+	<div class="flex h-11 shrink-0 items-center gap-1 border-b ps-3 pe-1.5 in-data-[slot=sheet-content]:pe-12">
 		<h2 class="text-sm font-medium">Files</h2>
 		<div class="ml-auto flex items-center">
+			{#if onReveal}
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					tooltip="Reveal folder"
+					aria-label="Reveal folder"
+					onclick={async () => {
+						const problem = await onReveal();
+						if (problem) toast.error('Could not open the folder', { description: problem });
+					}}
+				>
+					<FolderSearchIcon />
+				</Button>
+			{/if}
 			<Button variant="ghost" size="icon-sm" tooltip="New file" aria-label="New file" onclick={() => startCreate('', 'file')}>
 				<FilePlusIcon />
 			</Button>
@@ -252,29 +323,35 @@
 			</Button>
 		</div>
 	</div>
+	{#if location !== undefined}
+		<p class="truncate border-b px-3 py-1 font-mono text-[11px] text-muted-foreground" title={location}>
+			{location}
+		</p>
+	{/if}
 
-	{#if library.listing === undefined}
-		{#if library.listingError}
+	{#if listing === undefined}
+		{#if listingError}
 			<Empty.Root class="flex-1 p-6">
 				<Empty.Title>Could not read the folder</Empty.Title>
-				<Empty.Description>{library.listingError}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void library.refresh()}>Try again</Button>
+				<Empty.Description>{listingError}</Empty.Description>
+				<Button variant="outline" size="sm" onclick={onRefresh}>Try again</Button>
 			</Empty.Root>
 		{:else}
 			<Loading class="flex-1" label="Reading files…" />
 		{/if}
 	{:else}
-		{#if library.listingError}
+		{#if listingError}
 			<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-				Could not read the folder: {library.listingError}. Showing the last list that was read.
+				Could not read the folder: {listingError}. Showing the last list that was read.
 			</p>
 		{/if}
 		<nav class="min-h-0 flex-1 overflow-y-auto p-1.5" aria-label="Folder files">
 			<Sidebar.Menu bind:ref={tree} class="gap-0.5" onkeydown={navigate}>
 				{@render createField('', 0)}
 				{#each rows as row (row.path)}
-					{@const selected = library.selectedPath === row.path || library.selectedTransformationPath === row.path}
-					{@const open = row.kind === 'directory' && library.expanded.has(row.path)}
+					{@const isSelected = selected(row.path)}
+					{@const open = row.kind === 'directory' && expanded.has(row.path)}
+					{@const ItemIcon = row.kind === 'file' ? icon?.(row.path) : undefined}
 					<Sidebar.MenuItem>
 						{#if editing?.kind === 'rename' && editing.path === row.path}
 							{@render nameField(row.name, row.depth, `New name for ${row.name}`)}
@@ -285,22 +362,18 @@
 										<Sidebar.MenuButton
 											{...props}
 											size="sm"
-											isActive={selected}
+											isActive={isSelected}
 											data-row={row.path}
 											aria-expanded={row.kind === 'directory' ? open : undefined}
-											aria-current={selected ? 'true' : undefined}
+											aria-current={isSelected ? 'true' : undefined}
 											title={row.path}
 											style="padding-inline-start: {indent(row.depth)}"
 											onclick={() => activate(row)}
 										>
 											{#if row.kind === 'directory'}
 												{#if open}<FolderOpenIcon />{:else}<FolderIcon />{/if}
-											{:else if library.isRecording(row.path)}
-												<MicIcon />
-											{:else if library.isTransformation(row.path)}
-												<WandSparklesIcon />
-										{:else if audioMimeTypeOf(row.path) !== undefined}
-											<AudioLinesIcon />
+											{:else if ItemIcon}
+												<ItemIcon />
 											{:else if /\.(md|txt|json|ya?ml|csv)$/i.test(row.name) || row.name.startsWith('.')}
 												<FileTextIcon />
 											{:else}
@@ -311,19 +384,7 @@
 									{/snippet}
 								</ContextMenu.Trigger>
 								<ContextMenu.Content class="min-w-44" onCloseAutoFocus={keepFieldFocus}>
-									{#each actionGroups(row) as group, index (index)}
-										{#if index > 0}<ContextMenu.Separator />{/if}
-										{#each group as action (action.label)}
-											<ContextMenu.Item
-												variant={action.destructive ? 'destructive' : 'default'}
-												disabled={action.disabled}
-												onSelect={action.run}
-											>
-												{action.label}
-												{#if action.shortcut}<ContextMenu.Shortcut>{action.shortcut}</ContextMenu.Shortcut>{/if}
-											</ContextMenu.Item>
-										{/each}
-									{/each}
+									{@render actionItems(row, ContextMenu)}
 								</ContextMenu.Content>
 							</ContextMenu.Root>
 							<DropdownMenu.Root
@@ -338,19 +399,7 @@
 									{/snippet}
 								</DropdownMenu.Trigger>
 								<DropdownMenu.Content class="min-w-44" align="start" onCloseAutoFocus={keepFieldFocus}>
-									{#each actionGroups(row) as group, index (index)}
-										{#if index > 0}<DropdownMenu.Separator />{/if}
-										{#each group as action (action.label)}
-											<DropdownMenu.Item
-												variant={action.destructive ? 'destructive' : 'default'}
-												disabled={action.disabled}
-												onSelect={action.run}
-											>
-												{action.label}
-												{#if action.shortcut}<DropdownMenu.Shortcut>{action.shortcut}</DropdownMenu.Shortcut>{/if}
-											</DropdownMenu.Item>
-										{/each}
-									{/each}
+									{@render actionItems(row, DropdownMenu)}
 								</DropdownMenu.Content>
 							</DropdownMenu.Root>
 						{/if}
@@ -361,7 +410,7 @@
 						<li>
 							<Empty.Root class="p-6">
 								<Empty.Title>No files yet</Empty.Title>
-								<Empty.Description>Record something, or create a file or folder above.</Empty.Description>
+								<Empty.Description>{emptyDescription}</Empty.Description>
 							</Empty.Root>
 						</li>
 					{/if}

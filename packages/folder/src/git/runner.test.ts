@@ -22,7 +22,7 @@
  * - `history.test.ts` for close ordering across commit and push runners
  */
 import { describe, expect, test } from 'bun:test';
-import { commitSubject, escapePath, messageProblem } from './messages.js';
+import { commitSubject, escapePath } from './messages.js';
 import { createPassRunner } from './runner.js';
 
 function gate() {
@@ -276,11 +276,5 @@ describe('commit subjects', () => {
 		expect(
 			commitSubject([{ path: `${'a'.repeat(70)}.md`, kind: 'modify' }]),
 		).toBe('Update 1 file');
-	});
-
-	test('user messages must be nonempty and free of control characters', () => {
-		expect(messageProblem('  ')).toBeDefined();
-		expect(messageProblem('ok\x00')).toBeDefined();
-		expect(messageProblem('Fix typo\n\nDetails')).toBeUndefined();
 	});
 });

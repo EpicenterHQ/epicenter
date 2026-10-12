@@ -7,7 +7,7 @@
 	import { MediaQuery } from 'svelte/reactivity';
 	import { basename } from '@epicenter/folder/file-browser';
 	import { getSession } from '$lib/session.svelte.js';
-	import FileView from '../components/FileView.svelte';
+	import FileDraftView from '../components/FileDraftView.svelte';
 	import RecordingDetail from '../components/RecordingDetail.svelte';
 	import RecordingList from '../components/RecordingList.svelte';
 
@@ -42,7 +42,7 @@
 		{/key}
 	{:else if selection?.kind === 'file'}
 		{#key selection.path}
-			<FileView {library} path={selection.path} draft={selection.draft} onBack={onBack ?? onClose} />
+			<FileDraftView {library} path={selection.path} draft={selection.draft} onBack={onBack ?? onClose} />
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">

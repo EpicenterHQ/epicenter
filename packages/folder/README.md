@@ -88,7 +88,7 @@ TypeBox `~` keys. The JSON uses two-space indentation, declared order, and a
 trailing newline. Opening uses the application declaration; it never reads
 this file as configuration.
 
-Publication replaces manual descriptions and descriptions from another app
+Publication replaces hand-written descriptions and descriptions from another app
 version. It migrates no saved rows or settings. A prepared definition is
 plain JSON, so formatting cannot fail; a failed write is logged through
 `wellcrafted/logger`, with the destination and actual failure, while the
@@ -96,12 +96,12 @@ folder remains usable. A failed attempt can leave discovery missing, stale, or
 uncertain.
 
 Publication always writes through `files.overwrite`, including on unchanged
-reopening. It uses `commitOnEdit`: opening awaits the file attempt while
-history settles separately, and identical trees create no additional commit.
-Publication never explicitly commits or pushes. Opening an empty folder before
-pulling an existing remote changes bootstrap behavior: with history disabled,
-the uncommitted `epicenter.json` blocks incoming updates; with history enabled,
-its local initial commit creates unrelated history. Get the remote's history
+reopening. Like any save, it asks for an automatic commit: opening awaits the
+file attempt while history settles separately, and identical trees create no
+additional commit. Publication never explicitly commits or pushes. Opening an
+empty folder before pulling an existing remote commits `epicenter.json` as a
+local initial commit, a history unrelated to the remote's. Only a first
+[Sync](#sync) adopts the remote's history from there. Get the remote's history
 before the first opening: a browser account folder uses
 [`downloadFolder`](#downloading-a-browser-folder), and a runtime with a clone
 operation clones first. The current Todos browser startup opens first and
@@ -147,7 +147,7 @@ nothing. On a server, opening returns a refusal.
 openFolder({
   id,        // required: which folder, such as 'so.epicenter.todos'. Never a path.
   definition,
-  browser,   // optional: { scope, author, remote, httpFetch, commitOnEdit, createIfMissing, opfs }
+  browser,   // optional: { scope, author, remote, httpFetch, createIfMissing, opfs }
 }): Promise<Result<Folder, OpenFolderError>>
 ```
 
@@ -407,7 +407,7 @@ import { openFolder } from '@epicenter/folder/bun';
 const opened = await openFolder({
   root: '/path/to/an/existing/directory',
   definition,
-  git: { author: { name: 'Tool', email: 'tool@example.test' }, commitOnEdit: false },
+  git: { author: { name: 'Tool', email: 'tool@example.test' } },
 });
 ```
 
@@ -482,7 +482,7 @@ successful reading does not mean an application can open the folder.
 | `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `get(stem)` returns a `StoredRow` (`path`, `sha256`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `replace`, `rename`, and `delete` take a capture and are refused as `Conflict` when its bytes are gone. `autosave(capture)` coordinates one editing session's saves. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
 | `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` merges one key into the current file, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and re-applies itself when another writer got there first. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `files` | Ordinary files at literal paths. See below. |
-| `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, `recoverIncoming()`, and `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |
+| `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, `recoverIncoming()`, and `paths()`, `diff(paths)`, `log()`. |
 | `sync` | `run()` commits saved files, fetches, merges, and pushes; competing settings, row fields, row bodies, and whole row files come back as a `SyncAttempt` that `resolve(attempt, choices)` settles. See [Sync](#sync). |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
 | `onFilesChanged(listener)` | A hint that paths changed, so read again. Returns the function that stops listening. |
@@ -895,18 +895,18 @@ requests its commit, and the other listeners still hear. The same holds for a
 ### Terminal
 
 `folder.terminal()` runs a just-bash shell over the same files, loaded when
-its first command runs. Its `git` command supports `status`, `diff [--cached]`,
-`log`, `add`, `commit -m`, `push`, `fetch`, `pull --ff-only`, and `merge`. A
-redirection is a deliberate overwrite; a rewrite of a file the same command
-read is conditional on what it read. `add` and staged `commit -m` need
-`commitOnEdit: false`. `git merge` merges the already fetched remote branch
-(`pull --ff-only` fetches first) when it fast-forwards or merges cleanly. A
-conflict, in either history mode, writes nothing: it prints Git's
+its first command runs. Its `git` command supports `status`, `diff`, `log`,
+`push`, `fetch`, `pull --ff-only`, and `merge`. There is no `add` or `commit`:
+every save commits on its own. A redirection is a deliberate overwrite; a
+rewrite of a file the same command read is conditional on what it read.
+`git merge` merges the already fetched remote branch (`pull --ff-only`
+fetches first) when it fast-forwards or merges cleanly. A conflict writes
+nothing: it prints Git's
 `CONFLICT` lines and `CONFLICTS_NEED_SYNC`, which points to Sync, and exits
 1. A command holds nothing between its steps, in the
 browser or the desktop app: another tab's or window's save can land between
 them, and a command that stops partway leaves its earlier steps saved. Each
-save follows the folder's automatic history policy. The terminal ends with
+save asks for a commit like any other. The terminal ends with
 the folder: closing stops a running command at its next step.
 
 The filesystem adapter maps reads to `storage.read`, file mutations to
@@ -937,11 +937,12 @@ subject derived from the tree difference, and moves the branch only with a
 compare-and-swap. A moved branch is reported and not retried. Commit and push
 failures never undo a save.
 
-With `commitOnEdit` (default `true`), each complete table, KV, or file save
-this handle published asks for a commit in the background. If another tab, a
-pull, a staged command, or an earlier commit holds the folder's Git work, the
-request waits for it, together with every later request: when that work ends,
-one commit captures the latest files without another save. Each handle keeps
+History is automatic: each complete table, KV, or file save this handle
+published asks for a commit in the background. There is no staging and no
+commit with a message of its own. If another tab, a pull, or an earlier
+commit holds the folder's Git work, the request waits for it, together with
+every later request: when that work ends, one commit captures the latest
+files without another save. Each handle keeps
 at most one such waiting request, and no copy of the saved bytes. Any
 whole-folder commit, including an explicit `commit()`, answers the requests
 made before it started. An automatic waiter whose requests were already
@@ -953,7 +954,13 @@ There is no timer and no commit when the folder closes: a request still
 waiting then is dropped, so the last save can stay uncommitted indefinitely.
 Edits made by another program or tab ask for nothing. A save that stopped
 partway or whose outcome is unknown asks like any other: a commit records the
-folder's files as they are, never a claim about which save put them there. `git.snapshot.files` turns `stale` when
+folder's files as they are, never a claim about which save put them there.
+A desktop or directory folder is a real directory with a real `.git`, and
+people can still use their own Git there. A whole-folder commit, automatic or
+explicit, covers the whole folder, not what is staged, and resets every index
+entry to the new head, so changes that were only staged, such as a
+force-added ignored file or a file removed from the index but kept on disk,
+do not survive it. `git.snapshot.files` turns `stale` when
 a save lands after the last capture, and `git.status()` lists what is
 uncommitted.
 
@@ -1020,9 +1027,10 @@ if (ran.kind === 'needsChoices') return review(ran); // nothing conflicted was w
 // ran.kind: 'synced', or 'saved' when the push is not confirmed
 ```
 
-A folder that had no history before the run, whose first commit the run
-made, adopts the remote's history by merging over an empty base; two
-different files at one path are then a conflict like any other.
+A folder that has never fetched from or pushed to the remote has only its
+own commits, made as it saved. Its first run adopts the remote's history by
+merging over an empty base; two different files at one path are then a
+conflict like any other.
 
 Its merge is `mergeIncoming`'s with two additions for paths both sides
 changed:
@@ -1201,8 +1209,8 @@ with `git merge-file` and root `kv.json` with `kv_merge`, the Rust
 counterpart of `mergeKv`.
 
 A merge another Git program began in the repository (`.git/MERGE_HEAD`), or
-unmerged index stages it left, blocks whole-folder commits, staged commits,
-pulls, and merges, writing nothing, until it is finished or abandoned with
+unmerged index stages it left, blocks whole-folder commits, pulls, and
+merges, writing nothing, until it is finished or abandoned with
 Git. The folder never begins or finishes such a merge.
 
 A whole-folder commit or fast-forward on disk writes every file as plain

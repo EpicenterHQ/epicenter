@@ -1,6 +1,7 @@
 # @epicenter/svelte
 
-Svelte utilities for synchronizing state with external systems.
+Svelte utilities for synchronizing state with external systems, and the
+shared folder UI: file browser, file view, and terminal.
 
 ## Overview
 
@@ -145,6 +146,61 @@ Show it in place of the page while the attempt waits, keyed on
 `attempt.id`. Pass the `problems` of an `InvalidChoices` refusal back in;
 each shows beside its row until the person changes that row's choice. The
 sides read "This device" and "Remote" unless `labels` says otherwise.
+
+### Folder UI (`@epicenter/svelte/folder-ui`)
+
+The general file browser, file view, and terminal every folder app shows
+beside its own item views. They work on any folder; what an app's own items
+are, how they open, and how a change is carried out and confirmed stay with
+the app, passed in as callbacks.
+
+`FileBrowser` is the tree over a `FileListing`: folders first, `.git` hidden,
+the app's `expanded` set deciding which folders show their contents. Arrow
+keys move between rows and open or close folders, Home and End reach the
+ends, F2 renames in place, Delete asks to delete, and Shift+F10 or the
+context-menu key opens the same actions the right-click and "…" menus offer.
+The app gives `onOpen`, `onCreate`, `onRename`, and `onDelete`, an `icon`
+for its own items, what an empty folder suggests, and optionally a
+`location` line and `onReveal`.
+
+```svelte
+<FileBrowser
+	listing={todos.listing}
+	listingError={todos.listingError}
+	expanded={todos.expanded}
+	selected={(path) => todos.current?.path === path}
+	icon={(path) => (todos.isTodo(path) ? ListTodoIcon : undefined)}
+	emptyDescription="Add a todo, or create a file or folder above."
+	onRefresh={() => void todos.refresh()}
+	onOpen={(path) => void openItem(todos, path, 'files')}
+	onCreate={(directory, name, type) =>
+		type === 'file' ? todos.createFile(directory, name) : todos.createFolder(directory, name)}
+	onRename={(path, name) => todos.rename(path, name)}
+	onDelete={(path) => void confirmDelete(todos, path)}
+/>
+```
+
+`FileView` shows one open file: its exact text in a text session with the
+`SaveBar`, or why it does not open, then `FileNameBar` to rename or delete it.
+Mount one per open item, keyed by it. `item` is a `FileViewItem`; an app's
+own item types carry more fields and pass as they are. For a row file, `row`
+names the table and a `noun`: text that does not read as a row shows its
+issues while it is typed, and `onOpenAsRow` adds "Open as <noun>" once it
+reads. An item the view does not know, such as audio, passes `item` as
+undefined and its body as `children`; `notice` adds a line above the text.
+
+`FileNameBar` is the name field with Rename and Delete, for an app's own item
+views too. `copyPath` copies a path and says so; `fileDetails` names a file's
+type and size.
+
+`FolderTerminal` shows a terminal session: its `description`, the output,
+and the prompt, with Up and Down recalling earlier commands.
+`createTerminalSession({ terminal, afterRun, locked })`, also at
+`@epicenter/svelte/terminal-session` so a state module can create one
+without loading components, keeps the output, history, typed command, and
+working directory for as long as the folder is open. `clear` empties the
+output without running; while `locked()` is true, typing, recall, and Enter
+change nothing.
 
 ### `createSyncController` (`@epicenter/svelte/sync`)
 
@@ -344,3 +400,5 @@ This package depends on:
 - `svelte`: For reactive state primitives
 - `@standard-schema/spec`: For schema validation types
 - `wellcrafted`: For error handling utilities
+- `@epicenter/folder`: For folders, edit sessions, and file-browser mechanics
+- `@epicenter/ui` and `@lucide/svelte`: For the save bar, sync review, and folder UI components

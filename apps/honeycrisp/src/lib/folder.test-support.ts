@@ -38,7 +38,7 @@ export async function openNotesFolder() {
 		await openFolder({
 			id: ID,
 			definition: honeycrispDefinition,
-			browser: { commitOnEdit: false, ...browserStorage(storage) },
+			browser: browserStorage(storage),
 		}),
 	);
 	await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));

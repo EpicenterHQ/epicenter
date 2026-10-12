@@ -7,7 +7,7 @@
 <script lang="ts">
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import type { Library } from '$lib/library.svelte.js';
-	import FileView from '../FileView.svelte';
+	import FileDraftView from '../FileDraftView.svelte';
 	import RecordingDetail from '../RecordingDetail.svelte';
 	import TransformationDetail from '../TransformationDetail.svelte';
 
@@ -28,7 +28,7 @@
 			{/key}
 		{:else if selection?.kind === 'file'}
 			{#key selection.path}
-				<FileView {library} path={selection.path} draft={selection.draft} />
+				<FileDraftView {library} path={selection.path} draft={selection.draft} />
 			{/key}
 		{/if}
 	{:else if page.shown && page.tab === 'transformations'}

@@ -1,21 +1,12 @@
 /**
- * Actions the file browser, the todo editor, and the file view share: copy a
- * path, and delete with a confirmation that names what will be removed.
+ * Actions the file browser, the todo editor, and the file view share: open
+ * an item, and delete with a confirmation that names what will be removed.
  */
 
 import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import type { Deletion, Todos, Workspace } from '$lib/todos.svelte.js';
-
-export async function copyPath(path: string) {
-	try {
-		await navigator.clipboard.writeText(path);
-		toast.success(`Copied ${path}`);
-	} catch {
-		toast.error('Could not copy the path', { description: path });
-	}
-}
 
 function describe(deletion: Deletion) {
 	switch (deletion.kind) {

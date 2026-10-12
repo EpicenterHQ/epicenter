@@ -15,7 +15,7 @@ without its application source.
 
 `folder.files.overwrite(path, content)` already creates or replaces an ordinary
 file through the accounted storage boundary. A complete save requests local
-history when `commitOnEdit` is enabled. A checkpoint captures the included
+history, as every save does. A checkpoint captures the included
 files in the whole folder and creates no commit when its tree matches the
 parent. Saving, local history, and remote transfer have separate owners.
 

@@ -107,7 +107,6 @@ async function open(
 	options: {
 		remote?: boolean;
 		definition?: typeof definition;
-		commitOnEdit?: boolean;
 	} = {},
 ) {
 	used.add(id);
@@ -117,7 +116,6 @@ async function open(
 		browser: {
 			scope,
 			author,
-			commitOnEdit: options.commitOnEdit ?? false,
 			remote: options.remote ? remote : undefined,
 		},
 	});
@@ -314,21 +312,17 @@ const allBytes = Uint8Array.from({ length: 256 }, (_, index) => index);
 /** Publication uses real OPFS; history-enabled acquisition is a separate case. */
 async function publication(id: string) {
 	await check(
-		'opening publishes the prepared definition before returning, without manual-mode history',
+		'opening publishes the prepared definition before returning',
 		async () => {
-			const folder = await open(id);
+			await open(id);
 			const expected = formatDeclaration(definition);
 			const stored = decoder.decode(await rawRead(id, DECLARATION_PATH));
 			assert(stored === expected, `stored ${stored}`);
-			assert(
-				ok(await folder.git.log(10)).length === 0,
-				'manual mode committed',
-			);
 			return `epicenter.json: ${stored}`;
 		},
 	);
 	await check(
-		'reopening replaces a manual description and changed declarations leave row bytes intact',
+		'reopening replaces a hand-written description and changed declarations leave row bytes intact',
 		async () => {
 			const folder = await open(id);
 			ok(
@@ -341,7 +335,7 @@ async function publication(id: string) {
 			ok(
 				await folder.files.overwrite(
 					DECLARATION_PATH,
-					'manual malformed description',
+					'hand-written malformed description',
 				),
 			);
 			await folder.close();
@@ -349,7 +343,7 @@ async function publication(id: string) {
 			assert(
 				decoder.decode(await rawRead(id, DECLARATION_PATH)) ===
 					formatDeclaration(definition),
-				'manual description stayed',
+				'hand-written description stayed',
 			);
 			await reopened.close();
 			const changed = defineFolder({
@@ -366,7 +360,7 @@ async function publication(id: string) {
 				sameBytes(await rawRead(id, 'rows/kept.md'), before),
 				'row bytes changed',
 			);
-			return 'manual description replaced; changed title published; saved Markdown unchanged';
+			return 'hand-written description replaced; changed title published; saved Markdown unchanged';
 		},
 	);
 	await check(
@@ -380,12 +374,12 @@ async function publication(id: string) {
 				}
 				throw new Error('automatic history did not settle');
 			};
-			const first = await open(historyId, { commitOnEdit: true });
+			const first = await open(historyId);
 			await settle(first);
 			const commits = ok(await first.git.log(10));
 			assert(commits.length === 1, `initial commits ${commits.length}`);
 			await first.close();
-			const second = await open(historyId, { commitOnEdit: true });
+			const second = await open(historyId);
 			await settle(second);
 			const after = ok(await second.git.log(10));
 			assert(
@@ -881,7 +875,7 @@ async function identity(id: string) {
 		const { data: folder, error } = await openFolder({
 			id: folderId,
 			definition,
-			browser: { scope, author, commitOnEdit: false },
+			browser: { scope, author },
 		});
 		if (error === null) opened.push(folder);
 		return error;

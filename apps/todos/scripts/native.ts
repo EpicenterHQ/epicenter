@@ -9,11 +9,11 @@
  *   bun apps/todos/scripts/native.ts <checkout> fetch
  *   bun apps/todos/scripts/native.ts <checkout> pull
  *
- * The CLI opens the folder with `commitOnEdit: false`: a command saves files,
- * then `create` and `complete` request one explicit commit and push. `pull`
- * applies only a fast-forward; diverged history is refused with the folder's
- * pointer to Sync, and nothing is written. A
- * checkout that cannot be opened prints the refusal and exits 1.
+ * Every save commits, as it does in the apps. `create` and `complete` then
+ * commit anything their save's own commit has not reached yet and push, as
+ * `commit-and-push` does on its own. `pull` applies only a fast-forward;
+ * diverged history is refused with the folder's pointer to Sync, and nothing
+ * is written. A checkout that cannot be opened prints the refusal and exits 1.
  */
 import { CONFLICTS_NEED_SYNC } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/bun';
@@ -53,7 +53,6 @@ const { data: openedFolder, error: openedError } = await openFolder({
 		},
 		remote:
 			remoteUrl === undefined ? undefined : { url: remoteUrl, branch: 'main' },
-		commitOnEdit: false,
 	},
 });
 if (openedError) {

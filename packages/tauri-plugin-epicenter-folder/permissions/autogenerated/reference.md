@@ -23,8 +23,6 @@ Attach to the folders the shell registered for this window, then read, publish, 
 - `allow-merge-incoming`
 - `allow-recover-incoming`
 - `allow-paths`
-- `allow-stage`
-- `allow-commit-staged`
 - `allow-diff`
 - `allow-log`
 
@@ -137,32 +135,6 @@ Enables the commit command without any pre-configured scope.
 <td>
 
 Denies the commit command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-commit-staged`
-
-</td>
-<td>
-
-Enables the commit_staged command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-commit-staged`
-
-</td>
-<td>
-
-Denies the commit_staged command without any pre-configured scope.
 
 </td>
 </tr>
@@ -553,32 +525,6 @@ Enables the rmdir command without any pre-configured scope.
 <td>
 
 Denies the rmdir command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-stage`
-
-</td>
-<td>
-
-Enables the stage command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-stage`
-
-</td>
-<td>
-
-Denies the stage command without any pre-configured scope.
 
 </td>
 </tr>

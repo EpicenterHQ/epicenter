@@ -63,7 +63,6 @@ fresh();
 
 async function open(
 	options: {
-		commitOnEdit?: boolean;
 		id?: string;
 		hints?: boolean;
 		scope?: Parameters<typeof openFolder>[0]['browser'] extends infer B
@@ -79,7 +78,6 @@ async function open(
 			definition,
 			browser: {
 				author,
-				commitOnEdit: options.commitOnEdit ?? false,
 				scope: options.scope,
 				opfs: opfsEnvironment(opfs, {
 					BroadcastChannel: options.hints ? BroadcastChannel : undefined,
@@ -152,8 +150,9 @@ describe('one path is one stored file', () => {
 		expectOk(await first.files.create('empty.txt', new Uint8Array()));
 		expectOk(await first.files.create('ünïcode/ノート.md', 'text'));
 		expectOk(await first.files.mkdir('empty/nested'));
-		const committed = await first.git.commit();
-		expect(committed.status).toBe('committed');
+		// Each save asked for a commit; this one answers any still waiting.
+		await first.git.commit();
+		const committed = expectOk(await first.git.log(5));
 		await first.close();
 
 		const again = await open();
@@ -171,16 +170,14 @@ describe('one path is one stored file', () => {
 		expect(expectOk(await again.files.list()).directories).toContain(
 			'empty/nested',
 		);
-		const log = expectOk(await again.git.log(5));
-		expect(log.map((commit) => commit.oid)).toEqual([
-			committed.status === 'committed' ? committed.oid : '',
-		]);
+		expect(expectOk(await again.git.log(5))).toEqual(committed);
 		expect(expectOk(await again.git.status()).changes).toEqual([]);
 	});
 
 	test('identity is the hash of the bytes read, not size or time', async () => {
 		const folder = await open();
 		const saved = expectOk(await folder.files.create('a.txt', 'aaaa'));
+		await folder.git.commit();
 		// Another writer changes the bytes without changing their size.
 		opfs.put(`${ROOT}/a.txt`, encoder.encode('bbbb'));
 		const read = expectOk(await folder.files.read('a.txt'));
@@ -192,15 +189,14 @@ describe('one path is one stored file', () => {
 		});
 		// Git sees the change too: stat caches are never trusted.
 		expect(expectOk(await folder.git.paths())).toEqual([
-			{ path: 'a.txt', index: '?', worktree: '?' },
-			{ path: 'epicenter.json', index: '?', worktree: '?' },
+			{ path: 'a.txt', index: ' ', worktree: 'M' },
 		]);
 	});
 
 	test('status sees a committed file rewritten in the same second, at the same size or another', async () => {
 		const folder = await open();
 		expectOk(await folder.files.create('a.txt', 'aaaa'));
-		expect((await folder.git.commit()).status).toBe('committed');
+		await folder.git.commit();
 		expect(expectOk(await folder.git.paths())).toEqual([]);
 		for (const next of ['bbbb', 'cccccc']) {
 			opfs.put(`${ROOT}/a.txt`, encoder.encode(next));
@@ -448,7 +444,7 @@ describe('outcomes a caller can rely on', () => {
 			// The bytes did land; the reply still says nothing of it.
 			['lost', encoder.encode('x')],
 		] as const) {
-			const folder = await open({ commitOnEdit: true, hints: true });
+			const folder = await open({ hints: true });
 			const other = await open({ hints: true });
 			while (folder.git.snapshot.activity.commit.active) await Bun.sleep(5);
 			await Bun.sleep(20);
@@ -559,7 +555,7 @@ describe('scopes and history', () => {
 	});
 
 	test('automatic commits, status, and the shell work over the same files', async () => {
-		const folder = await open({ commitOnEdit: true });
+		const folder = await open();
 		expectOk(
 			await folder.tables.notes.create(
 				{ fields: { title: 'First' }, body: '' },

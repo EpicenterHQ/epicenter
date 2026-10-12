@@ -49,7 +49,7 @@ async function open(opfs: MemoryOpfs) {
 	return openFolder({
 		id,
 		definition,
-		browser: { commitOnEdit: false, opfs: opfsEnvironment(opfs) },
+		browser: { opfs: opfsEnvironment(opfs) },
 	});
 }
 
@@ -70,14 +70,16 @@ describe('a ready marker names the folder', () => {
 		expect(markerOf(opfs)).toEqual({ address: ADDRESS });
 		const marker = opfs.files().get(MARKER);
 		expectOk(await first.files.create('notes/a.md', '# A\n'));
-		expect((await first.git.commit()).status).toBe('committed');
+		await first.git.commit();
+		const log = expectOk(await first.git.log(10));
+		expect(log.length).toBeGreaterThan(0);
 		await first.close();
 
 		const again = expectOk(await open(opfs));
 		expect(
 			decoder.decode(expectOk(await again.files.read('notes/a.md')).bytes),
 		).toBe('# A\n');
-		expect(expectOk(await again.git.log(10))).toHaveLength(1);
+		expect(expectOk(await again.git.log(10))).toEqual(log);
 		expect(opfs.files().get(MARKER)).toEqual(marker!);
 		await again.close();
 	});
@@ -310,7 +312,6 @@ describe('an opener that does not create', () => {
 			id,
 			definition,
 			browser: {
-				commitOnEdit: false,
 				createIfMissing: false,
 				opfs: opfsEnvironment(opfs),
 			},
@@ -500,12 +501,14 @@ describe('the browser globals', () => {
 						() => (globalThis as { indexedDB?: unknown }).indexedDB,
 					).toThrow();
 				touched = 0;
-				const options = { id, definition, browser: { commitOnEdit: false } };
+				const options = { id, definition };
 				const first = expectOk(await openFolder(options));
 				expectOk(await first.files.create('a.md', 'saved'));
-				expect((await first.git.commit()).status).toBe('committed');
+				expect(['committed', 'unchanged']).toContain(
+					(await first.git.commit()).status,
+				);
 				const history = expectOk(await first.git.log(10));
-				expect(history).toHaveLength(1);
+				expect(history.length).toBeGreaterThan(0);
 				await first.close();
 				const again = expectOk(await openFolder(options));
 				expect(

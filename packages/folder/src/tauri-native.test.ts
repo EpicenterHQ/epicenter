@@ -35,8 +35,8 @@
  *   wrote between its steps, and the steps before it stay landed
  * - A terminal `git fetch` in flight at the remote delays no save and no commit
  * - A terminal `git merge` of red against green is refused and writes
- *   nothing; a merge the person's own Git begins blocks commits, staged
- *   commits, and merges until Git outside Epicenter finishes it
+ *   nothing; a merge the person's own Git begins blocks commits and merges
+ *   until Git outside Epicenter finishes it
  * - Closing a page mid-command stops the command's later steps; the save the
  *   owner already admitted lands and is committed without the page
  * - Closing one window's folder leaves the other window and the owner working,
@@ -92,9 +92,7 @@ class Bridge {
 		readonly root: string,
 	) {}
 
-	static async start(
-		options: { manual?: boolean; remote?: string } = {},
-	): Promise<Bridge> {
+	static async start(options: { remote?: string } = {}): Promise<Bridge> {
 		const root = await realpath(await scratch('tauri-folder-'));
 		const harness = [
 			'tests::invoke_bridge',
@@ -128,7 +126,6 @@ class Bridge {
 				env: {
 					...process.env,
 					FOLDER_BRIDGE_ROOT: root,
-					...(options.manual ? { FOLDER_BRIDGE_MANUAL: '1' } : {}),
 					...(options.remote ? { FOLDER_BRIDGE_REMOTE: options.remote } : {}),
 				},
 			},
@@ -263,7 +260,7 @@ const as =
 const a = as('a');
 const b = as('b');
 
-async function setup(options: { manual?: boolean; remote?: string } = {}) {
+async function setup(options: { remote?: string } = {}) {
 	bridge = await Bridge.start(options);
 	const running = bridge;
 	const attach = (window: ReturnType<typeof as>) =>
@@ -420,13 +417,13 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		await a(() => reopened.close());
 	});
 
-	test('manual native opening replaces the previous description without committing or changing saved row bytes', async () => {
-		const { root, folder } = await setup({ manual: true });
+	test('native opening replaces the previous description without changing saved row bytes', async () => {
+		const { root, folder } = await setup();
 		expectOk(await a(() => folder.tables.todos.create(...row('kept'))));
 		const before = await readFile(join(root, 'todos/kept.md'), 'utf8');
 		expectOk(
 			await a(() =>
-				folder.files.overwrite('epicenter.json', 'manual description'),
+				folder.files.overwrite('epicenter.json', 'a hand-written description'),
 			),
 		);
 		const changed = defineFolder({
@@ -440,15 +437,11 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 			formatDeclaration(changed),
 		);
 		expect(await readFile(join(root, 'todos/kept.md'), 'utf8')).toBe(before);
-		expect(await a(() => reopened.git.log(10))).toEqual({
-			data: [],
-			error: null,
-		});
 		await a(() => reopened.close());
 	});
 
 	test('a kv set creates kv.json and keeps untouched raw values through the native owner', async () => {
-		const { root, folder, other } = await setup({ manual: true });
+		const { root, folder, other } = await setup();
 		expect(
 			await a(async () => expectOk(await folder.kv.get())),
 		).toBeUndefined();
@@ -528,7 +521,6 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 			'epicenter.json\ntodos/take.md\ntodos/take.png',
 		);
 		expect(statuses.at(-1)).toBe('committed');
-		expect(folder.git.snapshot.commitOnEdit).toBe(true);
 		expect(expectOk(await a(() => folder.git.status())).changes).toEqual([]);
 		// Each save's capture is the version the owner now reads back.
 		const reread = expectOk(await a(() => todos.get('take')));
@@ -547,13 +539,10 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		expect(log[0]?.author.name).toBe('Test Author');
 		expect(await a(() => folder.git.push())).toEqual({ status: 'noRemote' });
 		expect(expectErr(await a(() => folder.git.fetch())).name).toBe('NoRemote');
-		expect(expectErr(await a(() => folder.git.stage('all'))).name).toBe(
-			'AutomaticHistory',
-		);
 	});
 
 	test('raw bytes round-trip exactly and the returned sha256 is the content hash', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const bytes = Uint8Array.from({ length: 4096 }, (_, index) => index % 256);
 
 		const created = expectOk(
@@ -574,7 +563,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a capture stays the bytes that were saved while another window replaces the file', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const mine = expectOk(await a(() => folder.files.create('a.md', 'mine')));
 		const theirs = expectOk(
 			await b(() => other.files.overwrite('a.md', 'theirs')),
@@ -607,7 +596,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('two windows saving over one version: one lands and one conflicts', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const base = expectOk(await a(() => folder.files.create('a.md', 'base')));
 
 		const results = await Promise.all([
@@ -625,7 +614,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a row another window changed after this window captured it is an exact-sha256 conflict', async () => {
-		const { folder, todos, other, files } = await setup({ manual: true });
+		const { folder, todos, other, files } = await setup();
 		expectOk(await a(() => folder.files.create('todos/take.png', IMAGE)));
 		const entry = expectOk(await a(() => todos.create(...row('take'))));
 		const changed = '---\ntitle: Changed\ndone: true\n---\n';
@@ -710,7 +699,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('the terminal preserves binary pipelines and moves a directory tree through the real owner', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const bytes = Uint8Array.from({ length: 256 }, (_, index) => index);
 		expectOk(await a(() => folder.files.create('raw.bin', bytes)));
 		const result = await a(() =>
@@ -731,7 +720,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a terminal rewrite of a file it read is refused when another window wrote between its steps', async () => {
-		const { folder, other, root } = await setup({ manual: true });
+		const { folder, other, root } = await setup();
 		expectOk(await a(() => folder.files.create('note.md', 'first\n')));
 		const terminal = folder.terminal();
 		const running = active();
@@ -835,7 +824,6 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 		try {
 			const bare = await createBareRemote(remoteRoot);
 			const { folder, other, root } = await setup({
-				manual: true,
 				remote: bare,
 			});
 			expectOk(await a(() => folder.files.create('notes/color.txt', 'blue\n')));
@@ -852,8 +840,9 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 			expectOk(
 				await a(() => folder.files.overwrite('notes/color.txt', 'red\n')),
 			);
-			const red = await a(() => folder.git.commit());
-			if (red.status !== 'committed') throw new Error(red.status);
+			// The save's automatic commit, or this one if it gets there first.
+			await a(() => folder.git.commit());
+			const red = { oid: await git(root, 'rev-parse', 'main') };
 			expectOk(await a(() => folder.git.fetch()));
 			const index = await readFile(join(root, '.git/index'));
 
@@ -890,9 +879,6 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 			expect(committed).toMatchObject({ status: 'blocked' });
 			if (committed.status !== 'blocked') throw new Error(committed.status);
 			expect(committed.reason).toContain(blocked);
-			const staged = expectErr(await b(() => other.git.commitStaged('Merge')));
-			expect(staged.name).toBe('Failed');
-			expect(staged.message).toContain(blocked);
 			expect(
 				expectErr(await a(() => folder.git.mergeIncoming())),
 			).toMatchObject({ name: 'Blocked' });
@@ -906,7 +892,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('close detaches before a landed native save replies, and that save returns success', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const reached = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		active().afterApply = async () => {
@@ -925,7 +911,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a save the shell receives after its session saved again lands last and stays', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const reached = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		// The earlier save is held before Rust receives it.
@@ -970,7 +956,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	}
 
 	test('a save still hashing when a later save of the page lands, lands after it, through one handle or two', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const second = await a(async () =>
 			expectOk(await openFolder({ id: 'notes', definition })),
 		);
@@ -992,7 +978,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('a table replace still hashing when a raw save lands is refused, and the raw save stays', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const created = expectOk(
 			await a(() =>
 				folder.tables.todos.create(
@@ -1019,7 +1005,7 @@ describe.skipIf(!enabled)('tauri folder against the native owner', () => {
 	});
 
 	test('an apply delivered after detach returns the owner refusal without writing or replay', async () => {
-		const { folder, other } = await setup({ manual: true });
+		const { folder, other } = await setup();
 		const reached = Promise.withResolvers<void>();
 		const release = Promise.withResolvers<void>();
 		active().beforeApply = async () => {

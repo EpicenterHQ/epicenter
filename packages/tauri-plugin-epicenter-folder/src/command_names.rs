@@ -20,8 +20,6 @@ pub const COMMANDS: &[&str] = &[
     "merge_incoming",
     "recover_incoming",
     "paths",
-    "stage",
-    "commit_staged",
     "diff",
     "log",
 ];

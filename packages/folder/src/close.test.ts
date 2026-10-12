@@ -10,6 +10,8 @@
  * - Git work and reentrant close retain their resource lifetime guarantees
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { FileBoundary } from './boundary.js';
 import { openFolder as openBrowserFolder } from './browser.js';
@@ -92,11 +94,14 @@ test('a directory helper still hashing at close is refused; the caller must awai
 	const reopened = await openNativeFolder({
 		root,
 		definition,
-		git: { author, commitOnEdit: false },
+		git: { author },
 	});
 	expectOk(await reopened.files.create('saved.md', 'awaited by caller'));
 	await reopened.close();
-	expect(await git(root, 'status', '--porcelain')).toBe('?? saved.md');
+	// The awaited save landed, whether or not its commit ran before closing.
+	expect(await readFile(join(root, 'saved.md'), 'utf8')).toBe(
+		'awaited by caller',
+	);
 });
 
 /** A real browser history over a boundary whose next publication the test holds. */
@@ -140,7 +145,6 @@ async function held() {
 		backend,
 		boundary,
 		author,
-		commitOnEdit: true,
 	});
 	const hints = createFileHints();
 	const folder = assembleFolder<typeof definition>({

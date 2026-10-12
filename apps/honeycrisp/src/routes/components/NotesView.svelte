@@ -4,12 +4,14 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { tick } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
-	import type { Notes } from '$lib/notes.svelte.js';
+	import { rowStemOf } from '@epicenter/folder';
+	import { FileBrowser, FileView, FolderTerminal } from '@epicenter/svelte/folder-ui';
+	import NotebookTextIcon from '@lucide/svelte/icons/notebook-text';
+	import { honeycrispDefinition, noteIdOf } from '$lib/data.js';
+	import { type Notes, pathOf } from '$lib/notes.svelte.js';
 	import AppHeader from './AppHeader.svelte';
-	import FileBrowser from './FileBrowser.svelte';
-	import FileView from './FileView.svelte';
+	import { confirmDelete, openItem } from './file-actions.js';
 	import FolderNav from './FolderNav.svelte';
-	import FolderTerminal from './FolderTerminal.svelte';
 	import NoteDetail from './NoteDetail.svelte';
 	import NoteList from './NoteList.svelte';
 
@@ -31,6 +33,19 @@
 		await tick();
 		if (document.activeElement === null || document.activeElement === document.body)
 			document.querySelector<HTMLElement>('[data-terminal-toggle]')?.focus();
+	}
+
+	/** The table a row file at `path` belongs to, so its text is checked as a row. */
+	function rowOf(path: string) {
+		if (noteIdOf(path) !== undefined)
+			return {
+				table: honeycrispDefinition.tables.notes,
+				noun: 'note',
+				onOpenAsRow: () => void openItem(notes, path, 'note'),
+			};
+		if (rowStemOf('folders', path) !== undefined)
+			return { table: honeycrispDefinition.tables.folders, noun: 'folder' };
+		return undefined;
 	}
 </script>
 
@@ -95,7 +110,17 @@
 						{/key}
 					{:else if opened !== undefined}
 						{#key opened}
-							<FileView {notes} item={opened} />
+							{@const path = pathOf(opened)}
+							<FileView
+								{path}
+								item={opened}
+								row={rowOf(path)}
+								onRetry={() => void openItem(notes, path)}
+								onReloadTheirs={(session) => notes.reloadTheirs(session)}
+								onKeepMine={(session) => notes.keepMine(session)}
+								onRename={(next) => notes.rename(path, next)}
+								onDelete={() => void confirmDelete(notes, path)}
+							/>
 						{/key}
 					{:else}
 						<Empty.Root class="h-full">
@@ -107,7 +132,22 @@
 				{#if filesOpen}
 					<Resizable.Handle />
 					<Resizable.Pane id="files" order={4} defaultSize={20} minSize={14} maxSize={40}>
-						<FileBrowser {notes} />
+						<FileBrowser
+							listing={notes.listing}
+							listingError={notes.listingError}
+							expanded={notes.expanded}
+							selected={(path) => notes.selectedPath === path}
+							icon={(path) => (notes.isNote(path) ? NotebookTextIcon : undefined)}
+							emptyDescription="Create a note, or a file or folder above."
+							location={notes.host.location}
+							onRefresh={() => void notes.refresh()}
+							onReveal={notes.host.reveal}
+							onOpen={(path) => void openItem(notes, path)}
+							onCreate={(directory, name, type) =>
+								type === 'file' ? notes.createFile(directory, name) : notes.createDirectory(directory, name)}
+							onRename={(path, name) => notes.rename(path, name)}
+							onDelete={(path) => void confirmDelete(notes, path)}
+						/>
 					</Resizable.Pane>
 				{/if}
 			</Resizable.PaneGroup>
@@ -115,7 +155,7 @@
 		{#if terminalOpen}
 			<Resizable.Handle />
 			<Resizable.Pane id="terminal" order={2} defaultSize={32} minSize={15} maxSize={70}>
-				<FolderTerminal session={notes.terminal} onClose={() => void toggleTerminal()} />
+				<FolderTerminal session={notes.terminal} description={notes.host.terminal.description} onClose={() => void toggleTerminal()} />
 			</Resizable.Pane>
 		{/if}
 	</Resizable.PaneGroup>

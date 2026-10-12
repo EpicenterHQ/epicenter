@@ -1,5 +1,5 @@
 /**
- * Actions the screens share: copy a path or some text, open a file, delete
+ * Actions the screens share: copy some text, open a file, delete
  * with a confirmation that names what will be removed, and textarea newlines.
  */
 
@@ -10,15 +10,6 @@ import { describeDeletion } from '$lib/deletion.js';
 import type { DraftSession, Library } from '$lib/library.svelte.js';
 
 export { recordingTitle } from '$lib/deletion.js';
-
-export async function copyPath(path: string) {
-	try {
-		await navigator.clipboard.writeText(path);
-		toast.success(`Copied ${path}`);
-	} catch {
-		toast.error('Could not copy the path', { description: path });
-	}
-}
 
 /** Copy text the person asked for. `what` names it: "the transcript". */
 export async function copyText(text: string, what: string) {

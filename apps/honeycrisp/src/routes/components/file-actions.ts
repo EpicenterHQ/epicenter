@@ -1,22 +1,13 @@
 /**
- * Actions the lists, the note view, and the file view share: copy a path,
- * open an item (asking first when the open one holds a draft it could not
- * save), and delete with a confirmation that names what will be removed.
+ * Actions the lists, the note view, and the file view share: open an item
+ * (asking first when the open one holds a draft it could not save), and
+ * delete with a confirmation that names what will be removed.
  */
 
 import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import type { Deletion, Notes, OpenAs } from '$lib/notes.svelte.js';
-
-export async function copyPath(path: string) {
-	try {
-		await navigator.clipboard.writeText(path);
-		toast.success(`Copied ${path}`);
-	} catch {
-		toast.error('Could not copy the path', { description: path });
-	}
-}
 
 function describe(deletion: Deletion) {
 	switch (deletion.kind) {

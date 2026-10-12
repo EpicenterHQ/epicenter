@@ -44,7 +44,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 				name: `Working copy ${copy.toUpperCase()}`,
 				email: `${copy}@git-lab.localhost`,
 			},
-			commitOnEdit: false,
 			...(remote && { remote: { url: remote, branch: 'main' } }),
 		},
 	});
