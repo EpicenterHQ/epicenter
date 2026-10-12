@@ -4,9 +4,8 @@
  * `tables`, `kv`, and `files` publish through one file boundary, one file
  * change per operation. A caller that needs several changes makes several
  * calls; each one that succeeded stays published when a later one fails.
- * `git` observes and records history. A complete content save requests an
- * automatic commit when the folder's history policy says so. Requests made
- * before a checkpoint starts share that checkpoint.
+ * `git` observes and records history. A save never commits: commits happen
+ * only through `git.commit()` or sync's checkpoint (ADR-0529).
  *
  * Closing fences new file work and this handle's history requests at once.
  * Browser and Bun handles cancel pending history and network work, then drain
