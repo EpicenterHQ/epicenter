@@ -269,18 +269,26 @@ export function createTodos(
 		return undefined;
 	}
 
-	// Every file write is local: nothing waits for a network, and nothing retries.
+	// Every read and write is local: nothing waits for a network. A file that
+	// does not read will not read on a retry either, so a failure shows at once.
 	queryClient.setQueryDefaults(todosKeys.all, {
 		networkMode: 'always',
+		retry: false,
 		// Nothing goes stale on its own: a view that mounts shows what the cache
 		// holds, and reads happen only when asked for, never while a write runs.
 		staleTime: Number.POSITIVE_INFINITY,
 		refetchOnWindowFocus: () => (writing() ? false : 'always'),
 	});
-	queryClient.setMutationDefaults(todosKeys.all, {
-		networkMode: 'always',
-		retry: false,
-	});
+	// Mutations never retry by default.
+	queryClient.setMutationDefaults(todosKeys.all, { networkMode: 'always' });
+
+	/**
+	 * Todos and file texts whose cached value holds an edit no write has sent.
+	 * A write sends only these, so the write waiting behind one that failed
+	 * does not write back the file it just reread.
+	 */
+	const unsentRows = new Set<string>();
+	const unsentTexts = new Set<string>();
 
 	/** Whether a write of a row or a file's text is running or waiting. */
 	const writing = () =>
@@ -356,6 +364,7 @@ export function createTodos(
 	 * that write saves the file's own bytes instead of the failed edit.
 	 */
 	async function reloadRow(stem: string) {
+		unsentRows.delete(stem);
 		await queryClient.cancelQueries({ queryKey: todosKeys.rows, exact: true });
 		const { data: stored, error } = await table.get(stem);
 		queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
@@ -369,6 +378,7 @@ export function createTodos(
 
 	/** After a failed write of a file's text, the cache takes the file as it is now. */
 	async function reloadText(path: string) {
+		unsentTexts.delete(path);
 		const key = todosKeys.text(path);
 		await queryClient.cancelQueries({ queryKey: key, exact: true });
 		const read = await readTextFile(folder.files, path);
@@ -592,6 +602,7 @@ export function createTodos(
 				row: change(stored.row),
 			}));
 			if (!changed) return false;
+			unsentRows.add(stem);
 			return (
 				queryClient.isMutating({
 					mutationKey: todosKeys.write(rowPath(table.name, stem)),
@@ -608,6 +619,7 @@ export function createTodos(
 			});
 			const changed = mapText(path, (file) => ({ ...file, text }));
 			if (!changed) return false;
+			unsentTexts.add(path);
 			return (
 				queryClient.isMutating({
 					mutationKey: todosKeys.writeText(path),
@@ -634,7 +646,8 @@ export function createTodos(
 					>
 				> => {
 					const stored = rowOf(stem);
-					if (stored === undefined) return Ok(undefined);
+					if (stored === undefined || !unsentRows.delete(stem))
+						return Ok(undefined);
 					return table.replace(stored, stored.row);
 				},
 				onSuccess: (saved) => {
@@ -669,7 +682,8 @@ export function createTodos(
 					Result<FileCapture | undefined, FileError>
 				> => {
 					const opened = textData(path);
-					if (opened?.kind !== 'text') return Ok(undefined);
+					if (opened?.kind !== 'text' || !unsentTexts.delete(path))
+						return Ok(undefined);
 					return folder.files.replace(opened.file, opened.file.text);
 				},
 				onSuccess: (saved) => {

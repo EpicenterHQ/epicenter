@@ -280,6 +280,32 @@ test('a write that fails rolls back, and the write waiting behind it leaves the 
 	expect(cached(todos, stem).row.fields.title).toBe('Milk');
 });
 
+test('after a conflict, the write waiting behind it writes nothing over the file found', async () => {
+	const { todos, counter, failures } = await open();
+	const { stem, path } = await addTodo(todos, 'Milk');
+	// Hand-written: a write of the same row would reformat it.
+	const elsewhere = "---\ntitle:   'Milk from the shop'\ndone: true\n---\n";
+	await writeElsewhere(todos, path, elsewhere);
+	const writes = counter.mdWrites;
+	const set = rowEditor(todos, stem);
+
+	set(titled('First'));
+	set(titled('Second'));
+	expect(
+		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
+	).toBe(2);
+	await quiet(todos);
+	expect(failures).toMatchObject([{ path, error: { name: 'Conflict' } }]);
+	expect(counter.mdWrites - writes).toBe(0);
+	expect(await text(todos, path)).toBe(elsewhere);
+	expect(cached(todos, stem).row.fields.title).toBe('Milk from the shop');
+
+	// The next edit writes again, over the file it now holds.
+	set(titled('Third'));
+	await quiet(todos);
+	expect(await text(todos, path)).toContain('title: Third');
+});
+
 test('the folder refuses a value it cannot hold, and the cache rolls back', async () => {
 	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
