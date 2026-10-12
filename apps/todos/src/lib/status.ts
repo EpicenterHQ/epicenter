@@ -16,7 +16,6 @@ import type {
 	PullError,
 	PullOutcome,
 	PushOutcome,
-	SyncAttempt,
 	SyncError,
 	SyncOutcome,
 } from '@epicenter/folder';
@@ -602,7 +601,7 @@ export function recoveryLine(attempt: RecoveryAttempt): StatusLine {
  * for the push of a merge that is not synced yet.
  */
 export function syncOutcomeLine(
-	result: Result<SyncOutcome | SyncAttempt, SyncError>,
+	result: Result<SyncOutcome, SyncError>,
 	git: GitSnapshot,
 ): StatusLine {
 	const { error } = result;

@@ -9,6 +9,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { describe, type FileError, type FileStep } from '../errors.js';
 import type { PendingIncoming } from './backend.js';
 import type { CommitOutcome } from './history.js';
+import type { SyncAttempt } from './sync.js';
 
 export const GitError = defineErrors({
 	Unconfirmed: ({
@@ -325,10 +326,19 @@ export type SyncChoiceProblem = {
 
 /**
  * Why `folder.sync` stopped. Each names the step that stopped it and
- * carries that step's own result. Only `InvalidChoices` keeps an attempt
- * current.
+ * carries that step's own result. `NeedsChoices` and `InvalidChoices` keep an
+ * attempt current.
  */
 export const SyncError = defineErrors({
+	/**
+	 * The run merged everything it could; `attempt` holds the conflicts that
+	 * need a person's choice. Nothing conflicted was written and nothing was
+	 * sent. Answer it with `resolve(attempt, choices)`.
+	 */
+	NeedsChoices: ({ attempt }: { attempt: SyncAttempt }) => ({
+		message: `${attempt.conflicts.length} ${attempt.conflicts.length === 1 ? 'change needs' : 'changes need'} a choice`,
+		attempt,
+	}),
 	Closed: () => ({ message: 'The folder is closed' }),
 	NoRemote: () => ({ message: 'No remote is configured for this folder' }),
 	/** This folder's runtime does not sync yet. Nothing ran. */

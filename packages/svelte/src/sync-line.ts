@@ -3,12 +3,7 @@
  * status line. A plain module, so a page's status helpers can import it
  * without loading Svelte runes.
  */
-import type {
-	PushOutcome,
-	SyncAttempt,
-	SyncError,
-	SyncOutcome,
-} from '@epicenter/folder';
+import type { PushOutcome, SyncError, SyncOutcome } from '@epicenter/folder';
 import type { Result } from 'wellcrafted/result';
 
 /** A sync result as a person reads it. */
@@ -23,12 +18,18 @@ export type SyncLine = {
  * merge that is not synced yet, for a page with its own push wording.
  */
 export function describeSync(
-	{ data: outcome, error }: Result<SyncOutcome | SyncAttempt, SyncError>,
+	{ data: outcome, error }: Result<SyncOutcome, SyncError>,
 	describePush: (push: PushOutcome) => string | undefined = (push) =>
 		push.status === 'failed' ? push.error : undefined,
 ): SyncLine {
 	if (error) {
 		switch (error.name) {
+			case 'NeedsChoices':
+				return {
+					label: `${error.attempt.conflicts.length} ${error.attempt.conflicts.length === 1 ? 'change needs' : 'changes need'} your choice`,
+					detail: 'Nothing was changed yet.',
+					tone: 'warning',
+				};
 			case 'InvalidChoices':
 				return {
 					label: 'Some choices need a fix',
@@ -53,12 +54,6 @@ export function describeSync(
 		}
 	}
 	switch (outcome.kind) {
-		case 'needsChoices':
-			return {
-				label: `${outcome.conflicts.length} ${outcome.conflicts.length === 1 ? 'change needs' : 'changes need'} your choice`,
-				detail: 'Nothing was changed yet.',
-				tone: 'warning',
-			};
 		case 'synced':
 			return {
 				label: 'Synced',

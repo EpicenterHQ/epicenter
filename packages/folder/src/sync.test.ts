@@ -134,17 +134,17 @@ async function setup() {
 	};
 }
 
-function synced(result: SyncOutcome | SyncAttempt): string {
+function synced(result: SyncOutcome): string {
 	if (result.kind !== 'synced')
 		throw new Error(`Expected synced, got ${JSON.stringify(result)}`);
 	return result.head;
 }
 
 async function attempted(folder: Opened): Promise<SyncAttempt> {
-	const ran = expectOk(await folder.sync.run());
-	if (ran.kind !== 'needsChoices')
-		throw new Error(`Expected an attempt, got ${JSON.stringify(ran)}`);
-	return ran;
+	const error = expectErr(await folder.sync.run());
+	if (error.name !== 'NeedsChoices')
+		throw new Error(`Expected choices, got ${error.message}`);
+	return error.attempt;
 }
 
 async function text(folder: Opened, path: string) {

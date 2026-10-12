@@ -167,9 +167,10 @@ test('competing edits wait for the review, and the choice is applied and shown',
 		'---\ntitle: Buy soy milk\ndone: false\n---\nOne carton.\n',
 	);
 
-	const ran = expectOk(await todos.sync());
-	if (ran.kind !== 'needsChoices')
-		throw new Error(`Expected choices, got ${ran.kind}`);
+	const needs = expectErr(await todos.sync());
+	if (needs.name !== 'NeedsChoices')
+		throw new Error(`Expected choices, got ${needs.message}`);
+	const ran = needs.attempt;
 	expect(todos.syncAttempt).toBe(ran);
 	// The review is modal: the open todo takes no input while it waits.
 	const typed = todoSession(todos);
@@ -221,7 +222,7 @@ test('Cancel discards the attempt and gives the open todo back', async () => {
 		session,
 		'---\ntitle: Buy soy milk\ndone: false\n---\nOne carton.\n',
 	);
-	expect(expectOk(await todos.sync()).kind).toBe('needsChoices');
+	expect((await todos.sync()).error?.name).toBe('NeedsChoices');
 	expect((await todos.sync()).error?.name).toBe('Failed');
 
 	todos.cancelSync();

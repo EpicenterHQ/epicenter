@@ -27,7 +27,6 @@ import { Ok, type Result } from 'wellcrafted/result';
 const { createSyncController, describeSync } = await import('./sync.svelte.ts');
 
 const attempt: SyncAttempt = {
-	kind: 'needsChoices',
 	id: 'attempt-1',
 	local: 'a'.repeat(40),
 	incoming: 'b'.repeat(40),
@@ -46,7 +45,7 @@ const attempt: SyncAttempt = {
 const SYNCED: SyncOutcome = { kind: 'synced', head: 'c'.repeat(40) };
 
 function setup(answers: {
-	run?: () => Result<SyncOutcome | SyncAttempt, SyncErrorType>;
+	run?: () => Result<SyncOutcome, SyncErrorType>;
 	resolve?: () => Result<SyncOutcome, SyncErrorType>;
 }) {
 	const log: string[] = [];
@@ -86,7 +85,9 @@ test('a run calls the folder between the hooks, with syncing set only in between
 });
 
 test('a waiting attempt locks the page until Cancel discards it, and no run starts meanwhile', async () => {
-	let next: Result<SyncOutcome | SyncAttempt, SyncErrorType> = Ok(attempt);
+	let next: Result<SyncOutcome, SyncErrorType> = SyncError.NeedsChoices({
+		attempt,
+	});
 	const { controller, log } = setup({ run: () => next });
 	await controller.run();
 	expect(controller.attempt).toBe(attempt);
@@ -111,7 +112,7 @@ test('refused choices stay with the attempt; any other Apply result ends it', as
 		],
 	});
 	const { controller } = setup({
-		run: () => Ok(attempt),
+		run: () => SyncError.NeedsChoices({ attempt }),
 		resolve: () => resolved,
 	});
 	await controller.run();
@@ -168,7 +169,9 @@ test('describeSync words outcomes and refusals for a person', () => {
 		detail: 'ccccccc',
 		tone: 'good',
 	});
-	expect(describeSync(Ok(attempt)).label).toBe('1 change needs your choice');
+	expect(describeSync(SyncError.NeedsChoices({ attempt })).label).toBe(
+		'1 change needs your choice',
+	);
 	expect(describeSync(SyncError.Stale({ reason: 'replaced' })).tone).toBe(
 		'warning',
 	);

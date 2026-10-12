@@ -157,7 +157,7 @@
 		working = 'sync';
 		try {
 			const ran = await todos.sync();
-			if (ran.data?.kind !== 'needsChoices') show(syncOutcomeLine(ran, todos.git));
+			if (ran.error?.name !== 'NeedsChoices') show(syncOutcomeLine(ran, todos.git));
 		} finally {
 			working = undefined;
 		}

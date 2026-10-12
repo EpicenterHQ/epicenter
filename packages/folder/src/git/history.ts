@@ -1525,8 +1525,8 @@ export function createHistory({
 	 * `Unreviewable`. Anything merged is published and pushed. Starting a run
 	 * retires the previous attempt.
 	 */
-	function runSync(): Promise<Result<SyncOutcome | SyncAttempt, SyncError>> {
-		return syncing<SyncOutcome | SyncAttempt>(async () => {
+	function runSync(): Promise<Result<SyncOutcome, SyncError>> {
+		return syncing<SyncOutcome>(async () => {
 			const remote = backend.remote;
 			if (remote === undefined) return SyncError.NoRemote();
 			const run = ++runs;
@@ -1584,7 +1584,7 @@ export function createHistory({
 						});
 					const held = rules.attempt(commits);
 					if (run === runs && !closing.signal.aborted) current = held;
-					return Ok(held.attempt);
+					return SyncError.NeedsChoices({ attempt: held.attempt });
 				}
 				if (mergeError !== null) return SyncError.Merge({ error: mergeError });
 				head =

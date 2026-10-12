@@ -899,7 +899,7 @@ export function createTodos(folder: TodosFolder) {
 		 * attempt the review shows; a new sync replaces an earlier one.
 		 */
 		sync: admissions.command(
-			async (): Promise<Result<SyncOutcome | SyncAttempt, SyncError>> =>
+			async (): Promise<Result<SyncOutcome, SyncError>> =>
 				closing !== undefined ? SyncError.Closed() : syncs.run(),
 		),
 		/**

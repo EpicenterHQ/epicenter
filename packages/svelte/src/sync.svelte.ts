@@ -98,7 +98,7 @@ export function createSyncController({
 			return problems;
 		},
 		/** Commit, fetch, merge, and push; conflicts keep an attempt for the review. */
-		async run(): Promise<Result<SyncOutcome | SyncAttempt, SyncError>> {
+		async run(): Promise<Result<SyncOutcome, SyncError>> {
 			const why =
 				attempt !== undefined
 					? 'Finish or cancel the review first.'
@@ -107,7 +107,7 @@ export function createSyncController({
 			return step(
 				() => folder.sync.run(),
 				(ran) => {
-					if (ran.data?.kind === 'needsChoices') attempt = ran.data;
+					if (ran.error?.name === 'NeedsChoices') attempt = ran.error.attempt;
 				},
 			);
 		},

@@ -1013,8 +1013,8 @@ the remote branch, merges, and pushes without force:
 
 ```ts
 const { data: ran, error } = await folder.sync.run();
+if (error?.name === 'NeedsChoices') return review(error.attempt); // nothing conflicted was written or sent
 if (error !== null) return show(error.message);
-if (ran.kind === 'needsChoices') return review(ran); // nothing conflicted was written or sent
 // ran.kind: 'synced', or 'saved' when the push is not confirmed
 ```
 
@@ -1038,7 +1038,7 @@ comments never conflict; the body merges by line. A merged row is written by
 submodule, and a file against a directory are `Unreviewable` and nothing is
 written; repair them with Git outside the folder.
 
-A `SyncAttempt` is `{ kind: 'needsChoices', id, local, incoming, conflicts }`.
+A `SyncAttempt`, carried by `SyncError.NeedsChoices`, is `{ id, local, incoming, conflicts }`.
 Each conflict has an opaque `id`, its `kind`, `path`, `key` or `field`, and
 `base`, `local`, and `incoming` versions, each `{ present: false }` or
 `{ present: true, value }`. `resolve` takes one choice per conflict ID:

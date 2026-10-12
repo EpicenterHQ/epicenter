@@ -79,7 +79,6 @@ export type SyncConflict = Versions &
  * and nothing was sent. The checkpoint and the fetch already happened.
  */
 export type SyncAttempt = {
-	readonly kind: 'needsChoices';
 	/** Names this attempt to the owner that captured it. */
 	readonly id: string;
 	/** The local head after the checkpoint: the merge's first parent. */
@@ -488,7 +487,6 @@ export function syncMerge(
 				.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
 				.flatMap(([, entry]) => entry.conflicts);
 			const attempt: SyncAttempt = Object.freeze({
-				kind: 'needsChoices',
 				id: crypto.randomUUID(),
 				local: commits.head,
 				incoming: commits.fetched,

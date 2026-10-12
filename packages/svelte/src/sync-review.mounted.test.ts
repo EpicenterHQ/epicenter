@@ -33,7 +33,6 @@ const { default: SyncReviewHost } = await import(
 );
 
 const attempt: SyncAttempt = {
-	kind: 'needsChoices',
 	id: 'attempt-1',
 	local: 'a'.repeat(40),
 	incoming: 'b'.repeat(40),

@@ -133,12 +133,12 @@ export type FolderGit = {
  * folder.
  *
  * ```ts
- * const { data: ran, error } = await folder.sync.run();
- * if (error !== null) return show(error.message);
- * if (ran.kind === 'needsChoices') {
+ * const { data: done, error } = await folder.sync.run();
+ * if (error?.name === 'NeedsChoices') {
  *   // Usually from the shared review (`@epicenter/svelte/sync-review`).
- *   const choices = { [ran.conflicts[0].id]: { kind: 'take', side: 'incoming' } };
- *   const { data: done, error: resolveError } = await folder.sync.resolve(ran, choices);
+ *   const { attempt } = error;
+ *   const choices = { [attempt.conflicts[0].id]: { kind: 'take', side: 'incoming' } };
+ *   const resolved = await folder.sync.resolve(attempt, choices);
  * }
  * ```
  *
@@ -158,12 +158,12 @@ export type FolderSync = {
 	 * by key, each row of a declared table by field and body, written in the
 	 * standard form, and any other text file by line. Competing settings,
 	 * fields, bodies, and whole text files (deleted on one side, unreadable as
-	 * a row, or with competing lines) return `needsChoices`; nothing
+	 * a row, or with competing lines) are `NeedsChoices`; nothing
 	 * conflicted is written and nothing is sent. Binary files and file
 	 * against directory are `Unreviewable`. A run retires the attempt before
 	 * it.
 	 */
-	run(): Promise<Result<SyncOutcome | SyncAttempt, SyncError>>;
+	run(): Promise<Result<SyncOutcome, SyncError>>;
 	/**
 	 * Settle this folder's current attempt with one choice per conflict,
 	 * without fetching again. The choices are read before this returns.
