@@ -15,7 +15,6 @@
 		"deploy": "wrangler deploy"
 	},
 	"dependencies": {
-		"openai": "^7.12.1",
 		"@epicenter/agent": "workspace:*",
 		"@epicenter/app": "workspace:*",
 		"@epicenter/app-shell": "workspace:*",
@@ -27,8 +26,10 @@
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
+		"@tanstack/svelte-query": "catalog:",
 		"buffer": "^6.0.3",
 		"mode-watcher": "^1.1.0",
+		"openai": "^7.12.1",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},

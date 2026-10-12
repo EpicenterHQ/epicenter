@@ -50,10 +50,11 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
-		"@epicenter/svelte": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
+		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"bits-ui": "catalog:",
 		"buffer": "^6.0.3",
