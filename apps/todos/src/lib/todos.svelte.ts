@@ -62,6 +62,7 @@ import {
 	type MutationFilters,
 	QueryClient,
 } from '@tanstack/query-core';
+import { createContext } from 'svelte';
 import { createSubscriber, SvelteSet } from 'svelte/reactivity';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import {
@@ -190,21 +191,16 @@ export type TodosOptions = {
 };
 
 /**
- * The store for the open folder. The page opens the folder, then calls
- * `startTodos` once; every component imports `todos` from here. Views render
- * only after that, so `todos` is set whenever one reads it.
+ * The store of the folder a view belongs to. `FolderScope` sets it for its
+ * subtree, with the store's query client; a component calls `getTodos()`
+ * while it initializes. Each opened folder has its own scope.
  */
-export let todos: Todos;
+export const [getTodos, setTodos] = createContext<Todos>();
 
-/** Start the store over the opened folder, and make it the one `todos`. */
-export function startTodos(folder: TodosFolder, options: TodosOptions = {}) {
-	todos = createTodos(folder, options);
-	return todos;
-}
-
-function createTodos(
+/** The store over one opened folder. Its query client and state live as long as the folder. */
+export function createTodos(
 	folder: TodosFolder,
-	{ onWriteFailed = () => {} }: TodosOptions,
+	{ onWriteFailed = () => {} }: TodosOptions = {},
 ) {
 	const table = folder.tables.todos;
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));

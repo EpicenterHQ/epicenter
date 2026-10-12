@@ -8,7 +8,7 @@ import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeError } from '$lib/describe-error.js';
-import { type Deletion, todos } from '$lib/todos.svelte.js';
+import type { Deletion, Todos } from '$lib/todos.svelte.js';
 
 export async function copyPath(path: string) {
 	try {
@@ -53,7 +53,7 @@ export function describeDeletion(deletion: Deletion) {
  * writes, so it removes what the app saved last; a file changed elsewhere
  * since is refused.
  */
-export async function confirmDelete(path: string) {
+export async function confirmDelete(todos: Todos, path: string) {
 	const { data: deletion, error: captureError } = await todos.deletionFor(path);
 	if (captureError !== null) {
 		toast.error(`Could not delete ${basename(path)}`, {

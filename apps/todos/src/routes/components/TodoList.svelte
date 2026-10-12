@@ -8,8 +8,10 @@
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { describeError } from '$lib/describe-error.js';
-	import { repairsOf, todos, todosOf } from '$lib/todos.svelte.js';
+	import { getTodos, repairsOf, todosOf } from '$lib/todos.svelte.js';
 	import TodoRow from './TodoRow.svelte';
+
+	const todos = getTodos();
 
 	let { onOpen }: { onOpen?: () => void } = $props();
 

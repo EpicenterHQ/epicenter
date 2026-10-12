@@ -19,9 +19,11 @@
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import type { TodoFields } from '$lib/definition.js';
 	import { describeError } from '$lib/describe-error.js';
-	import { todos } from '$lib/todos.svelte.js';
+	import { getTodos } from '$lib/todos.svelte.js';
 	import { confirmDelete } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
+
+	const todos = getTodos();
 
 	let {
 		stem,
@@ -105,7 +107,7 @@
 				const { error } = await todos.rename(path, `${next}.md`);
 				return error === null ? undefined : describeError(error);
 			}}
-			onDelete={() => void confirmDelete(path)}
+			onDelete={() => void confirmDelete(todos, path)}
 		/>
 	{:else if todo.data?.result.error}
 		{@const error = todo.data.result.error}

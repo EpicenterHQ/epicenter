@@ -38,7 +38,7 @@ import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { startTodos } = await import('../../lib/todos.svelte.ts');
+const { createTodos } = await import('../../lib/todos.svelte.ts');
 const { default: TodosViewHost } = await import(
 	'./fixtures/TodosViewHost.svelte'
 );
@@ -123,7 +123,7 @@ async function competing() {
 			},
 		}),
 	);
-	const todos = startTodos(folder);
+	const todos = createTodos(folder);
 	cleanup.push(() => todos.close());
 	expectOk(
 		await folder.tables.todos.create(
@@ -144,7 +144,7 @@ async function competing() {
 
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(TodosViewHost, { target });
+	const view = mount(TodosViewHost, { target, props: { todos } });
 	cleanup.push(() => {
 		void unmount(view);
 		target.remove();

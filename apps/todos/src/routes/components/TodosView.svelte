@@ -10,7 +10,7 @@
 	import { Err, Ok } from 'wellcrafted/result';
 	import { beforeNavigate } from '$app/navigation';
 	import { syncOutcomeLine } from '$lib/status.js';
-	import { todos } from '$lib/todos.svelte.js';
+	import { getTodos } from '$lib/todos.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import Detail from './Detail.svelte';
 	import IncomingBanner from './IncomingBanner.svelte';
@@ -19,6 +19,8 @@
 	import TodoList from './TodoList.svelte';
 	import DepartureNotice from './DepartureNotice.svelte';
 	import type { Departure } from '@epicenter/epicenter/departure/page';
+
+	const todos = getTodos();
 
 	let { departure }: { departure?: Departure } = $props();
 

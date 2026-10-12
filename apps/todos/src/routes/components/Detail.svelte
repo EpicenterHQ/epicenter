@@ -9,9 +9,11 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { rowStemOf } from '@epicenter/folder';
-	import { todos } from '$lib/todos.svelte.js';
+	import { getTodos } from '$lib/todos.svelte.js';
 	import FileView from './FileView.svelte';
 	import TodoDetail from './TodoDetail.svelte';
+
+	const todos = getTodos();
 
 	let { onBack }: { onBack?: () => void } = $props();
 

@@ -29,8 +29,10 @@
 		versionOutcomeLine,
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
-	import { todos, type TodosError } from '$lib/todos.svelte.js';
+	import { getTodos, type TodosError } from '$lib/todos.svelte.js';
 	import { copyPath } from './file-actions.js';
+
+	const todos = getTodos();
 
 	let {
 		sync,

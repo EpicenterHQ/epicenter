@@ -1,13 +1,13 @@
-<!-- What the page supplies to the views: the store's query client and the tooltip provider. -->
+<!-- What the page supplies to the views: the folder's scope, and the tooltip provider the layout adds. -->
 <script lang="ts">
 	import * as Tooltip from '@epicenter/ui/tooltip';
-	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import type { Snippet } from 'svelte';
-	import { todos } from '$lib/todos.svelte.js';
+	import type { Todos } from '$lib/todos.svelte.js';
+	import FolderScope from '../FolderScope.svelte';
 
-	let { children }: { children: Snippet } = $props();
+	let { todos, children }: { todos: Todos; children: Snippet } = $props();
 </script>
 
-<QueryClientProvider client={todos.queryClient}>
+<FolderScope {todos}>
 	<Tooltip.Provider>{@render children()}</Tooltip.Provider>
-</QueryClientProvider>
+</FolderScope>

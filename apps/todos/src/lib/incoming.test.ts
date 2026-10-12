@@ -52,7 +52,7 @@ import {
 } from './status.js';
 import type { Todos } from './todos.svelte.js';
 
-const { startTodos } = await import('./todos.svelte.ts');
+const { createTodos } = await import('./todos.svelte.ts');
 
 const originalFetch = globalThis.fetch;
 const env = {
@@ -133,7 +133,7 @@ async function openDemo() {
 				},
 			}),
 		);
-		const todos = startTodos(folder);
+		const todos = createTodos(folder);
 		const stop = observe(todos);
 		cleanup.push(() => todos.close());
 		cleanup.push(stop);

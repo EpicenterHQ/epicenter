@@ -48,7 +48,7 @@ import {
 } from './query.test-support.js';
 import type { Todos, WriteFailure } from './todos.svelte.js';
 
-const { startTodos, repairsOf, todosKeys, todosOf } = await import(
+const { createTodos, repairsOf, todosKeys, todosOf } = await import(
 	'./todos.svelte.ts'
 );
 
@@ -92,7 +92,7 @@ async function open() {
 		}),
 	);
 	const failures: WriteFailure[] = [];
-	const todos = startTodos(folder, {
+	const todos = createTodos(folder, {
 		onWriteFailed: (failure) => failures.push(failure),
 	});
 	cleanup.push(() => todos.close());

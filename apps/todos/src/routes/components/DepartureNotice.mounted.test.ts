@@ -26,7 +26,7 @@ import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { startTodos } = await import('../../lib/todos.svelte.ts');
+const { createTodos } = await import('../../lib/todos.svelte.ts');
 const { createDeparture } = await import('@epicenter/epicenter/departure/page');
 const { default: DepartureNotice } = await import('./DepartureNotice.svelte');
 
@@ -45,7 +45,7 @@ async function setup() {
 			browser: { ...testBrowserStorage() },
 		}),
 	);
-	const todos: Todos = startTodos(folder);
+	const todos: Todos = createTodos(folder);
 	cleanup.push(() => todos.close());
 	const host = createFakeHost();
 	const departure = createDeparture(host.port);

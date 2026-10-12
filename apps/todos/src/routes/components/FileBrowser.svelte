@@ -20,8 +20,10 @@
 	import { rowPath } from '@epicenter/folder';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { describeError } from '$lib/describe-error.js';
-	import { todos } from '$lib/todos.svelte.js';
+	import { getTodos } from '$lib/todos.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
+
+	const todos = getTodos();
 
 	let { onOpen }: { onOpen?: () => void } = $props();
 
@@ -69,7 +71,7 @@
 	/** The same actions back the right-click menu and the visible "…" menu. */
 	function actionGroups(row: TreeRow): Action[][] {
 		const copy: Action = { label: 'Copy path', run: () => void copyPath(row.path) };
-		const remove = () => void confirmDelete(row.path);
+		const remove = () => void confirmDelete(todos, row.path);
 		if (row.kind === 'directory')
 			return [
 				[
@@ -134,7 +136,7 @@
 				break;
 			case 'Delete':
 			case 'Backspace':
-				void confirmDelete(row.path);
+				void confirmDelete(todos, row.path);
 				break;
 			case 'ContextMenu':
 				menuPath = row.path;

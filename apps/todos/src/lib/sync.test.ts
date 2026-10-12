@@ -34,7 +34,7 @@ import {
 import { todosDefinition } from './definition.js';
 import { cached, observe, quiet, rowEditor } from './query.test-support.js';
 
-const { startTodos } = await import('./todos.svelte.ts');
+const { createTodos } = await import('./todos.svelte.ts');
 
 const originalFetch = globalThis.fetch;
 const env = {
@@ -96,7 +96,7 @@ async function openDemo() {
 			},
 		}),
 	);
-	const todos = startTodos(folder);
+	const todos = createTodos(folder);
 	cleanup.push(() => todos.close());
 	cleanup.push(observe(todos));
 	expectOk(

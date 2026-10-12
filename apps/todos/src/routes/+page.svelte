@@ -7,14 +7,14 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
-	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { onDestroy } from 'svelte';
 	import { Ok } from 'wellcrafted/result';
 	import { departurePort } from '#platform/departure';
 	import { openTodosFolder } from '#platform/folder';
 	import { describeError } from '$lib/describe-error.js';
-	import { startTodos, type WriteFailure } from '$lib/todos.svelte.js';
+	import { createTodos, type WriteFailure } from '$lib/todos.svelte.js';
+	import FolderScope from './components/FolderScope.svelte';
 	import TodosView from './components/TodosView.svelte';
 
 	// Inside Epicenter, quitting or restarting asks this page first; a browser
@@ -54,7 +54,7 @@
 			const opened = await openTodosFolder();
 			return opened.error
 				? opened
-				: Ok(startTodos(opened.data, { onWriteFailed: writeFailed }));
+				: Ok(createTodos(opened.data, { onWriteFailed: writeFailed }));
 		},
 		(opened) => opened.data?.departure,
 	);
@@ -95,9 +95,9 @@
 	{#if opened.error}
 		{@render refused(opened.error.message)}
 	{:else}
-		<QueryClientProvider client={opened.data.queryClient}>
+		<FolderScope todos={opened.data}>
 			<TodosView {departure} />
-		</QueryClientProvider>
+		</FolderScope>
 	{/if}
 {:catch error}
 	{@render refused(error instanceof Error ? error.message : String(error))}

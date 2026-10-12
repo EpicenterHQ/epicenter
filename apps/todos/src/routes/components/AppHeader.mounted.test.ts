@@ -24,7 +24,7 @@ import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { startTodos } = await import('../../lib/todos.svelte.ts');
+const { createTodos } = await import('../../lib/todos.svelte.ts');
 const { default: AppHeaderHost } = await import(
 	'./fixtures/AppHeaderHost.svelte'
 );
@@ -43,11 +43,11 @@ async function setup(adapt: (folder: TodosFolder) => TodosFolder = (f) => f) {
 			browser: { ...testBrowserStorage() },
 		}),
 	);
-	const todos: Todos = startTodos(adapt(folder));
+	const todos: Todos = createTodos(adapt(folder));
 	cleanup.push(() => todos.close());
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(AppHeaderHost, { target });
+	const view = mount(AppHeaderHost, { target, props: { todos } });
 	flushSync();
 	cleanup.push(() => {
 		void unmount(view);
