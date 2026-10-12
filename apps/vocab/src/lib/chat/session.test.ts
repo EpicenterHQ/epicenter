@@ -28,9 +28,15 @@ import {
 	gatedMessages,
 	tableFiles,
 } from '../folder.test-support.js';
-import { createChatMessageStore, startChat } from './messages.js';
+import { createQueryClient } from '../query.test-support.js';
+import {
+	createChatMessageStore,
+	type MessageWrite,
+	startChat,
+} from './messages.js';
 
 const { createVocabChat } = await import('./session.svelte.js');
+const { createVocab } = await import('../vocab.svelte.ts');
 
 type ChatOptions = Parameters<typeof createVocabChat>[0];
 
@@ -112,9 +118,13 @@ async function setup() {
 			);
 		},
 	});
-	const open = (target: Pick<VocabFolder, 'tables' | 'files'> = gatedFolder) =>
+	const open = (
+		target: Pick<VocabFolder, 'tables' | 'files'> = gatedFolder,
+		write?: MessageWrite,
+	) =>
 		createVocabChat({
 			folder: target,
+			write,
 			chatId,
 			focus: [{ text: 'lucid' }],
 			catalog: {
@@ -131,6 +141,7 @@ async function setup() {
 	return {
 		browser,
 		folder,
+		gatedFolder,
 		chatId,
 		gate,
 		tutor,
@@ -538,4 +549,37 @@ test('the tutor is asked over the transcript the folder holds now, not the one f
 		'user',
 		'assistant',
 	]);
+});
+
+test('a tutor reply is written by a mutation scoped to its chat, and close waits for it', async () => {
+	await using context = await setup();
+	const vocab = createVocab(
+		{ ...context.folder, ...context.gatedFolder } as VocabFolder,
+		createQueryClient(),
+	);
+	using chat = await ready(
+		context.open(
+			context.gatedFolder,
+			vocab.chats.messageWriter(context.chatId),
+		),
+	);
+	const writing = Promise.withResolvers<void>();
+	context.gate.heldCreate = writing.promise;
+	const asking = chat.retry();
+	while (context.gate.creates === 0 && vocab.queryClient.isMutating() === 0)
+		await nextTurn();
+	await asking;
+	// The finished reply is on screen while its file is being written.
+	expect(roles(chat)).toEqual(['assistant']);
+	expect(vocab.busy).toBe(true);
+	let closed = false;
+	const closing = vocab.close().then(() => {
+		closed = true;
+	});
+	await Bun.sleep(5);
+	expect(closed).toBe(false);
+	writing.resolve();
+	await closing;
+	expect(chat.unsaved).toEqual([]);
+	expect(await context.savedRoles()).toEqual(['assistant']);
 });

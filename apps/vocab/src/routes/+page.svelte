@@ -2,32 +2,41 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
+	import { toast } from '@epicenter/ui/sonner';
+	import { useQueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { createChatsState } from '$lib/chat/chats.svelte.js';
-	import { createEntriesState } from '$lib/entries.svelte.js';
+	import { describeError } from '$lib/entries.svelte.js';
 	import { openVocabFolder } from '$lib/folder.js';
+	import type { WriteFailure } from '$lib/query.js';
+	import { createVocab } from '$lib/vocab.svelte.js';
 	import VocabShell from './components/VocabShell.svelte';
+
+	const queryClient = useQueryClient();
+
+	/** A write that failed was rolled back to the file; say so, and offer the text it held. */
+	function writeFailed({ path, error, lost }: WriteFailure) {
+		toast.error(`Could not save ${path}`, {
+			description: describeError(error),
+			action:
+				lost === ''
+					? undefined
+					: {
+							label: 'Copy your text',
+							onClick: () => void navigator.clipboard.writeText(lost).catch(() => {}),
+						},
+		});
+	}
 
 	// The mounted page opens the folder; importing modules opens nothing. There
 	// is no sign-in on this path: words and chats are in this browser's folder
 	// whether or not an account is signed in.
-	const opening = openVocabFolder().then(async (folder) => {
-		const entries = createEntriesState({ table: folder.tables.entries, files: folder.files });
-		const chats = createChatsState(folder);
-		// Read now; the shell reads again after its own actions and when the
-		// learner returns to the window.
-		await Promise.all([entries.refresh(), chats.refresh()]);
-		return { folder, entries, chats };
-	});
+	const opening = openVocabFolder().then((folder) =>
+		createVocab(folder, queryClient, { onWriteFailed: writeFailed }),
+	);
 
+	// Every write and action under way lands before the folder closes.
 	onDestroy(() => {
-		// Changes under way and the open word's saves land before the folder closes.
-		void opening
-			.then(async ({ folder, entries, chats }) => {
-				await Promise.all([entries.close(), chats.close()]);
-				await folder.close();
-			})
-			.catch(() => {});
+		void opening.then((vocab) => vocab.close()).catch(() => {});
 	});
 </script>
 

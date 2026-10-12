@@ -4,7 +4,7 @@
 	import { Label } from '@epicenter/ui/label';
 	import * as Popover from '@epicenter/ui/popover';
 	import { tick, untrack } from 'svelte';
-	import type { EntriesState } from '$lib/entries.svelte.js';
+	import type { Entries } from '$lib/entries.svelte.js';
 	import { capturePhrase, sourceHoldsPhrase } from '$lib/phrase-capture.js';
 
 	// Saving a phrase from one saved tutor message. The conversation binds
@@ -20,7 +20,7 @@
 		resetKey,
 	}: {
 		root: HTMLElement | null | undefined;
-		entries: EntriesState;
+		entries: Entries;
 		/** Changes when the conversation moves on; the open candidate is dropped. */
 		resetKey: unknown;
 	} = $props();

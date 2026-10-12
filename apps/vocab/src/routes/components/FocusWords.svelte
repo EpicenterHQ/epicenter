@@ -1,31 +1,30 @@
+<!--
+	A chat's focus words and their stages. A stage press is an edit like any
+	other: it changes the cached word and its write saves it at once.
+-->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import { toast } from '@epicenter/ui/sonner';
-	import { type Entry, type FocusItem, focusWord, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
-	import type { EntriesState } from '$lib/entries.svelte.js';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { type FocusItem, focusWord, STAGE_LABELS, STAGES } from '$lib/data.js';
+	import { type Entries, wordsOf } from '$lib/entries.svelte.js';
 
 	let { focus, entries }: {
 		focus: readonly FocusItem[];
-		entries: EntriesState;
+		entries: Entries;
 	} = $props();
 
-	/** Press a stage of a saved word: the open word's draft, or the word as listed. */
-	async function press(entry: Entry, stage: Stage) {
-		const problem = await entries.setStage(entry, stage);
-		if (problem) toast.error(problem);
-	}
+	const words = createQuery(() => entries.entriesQuery(wordsOf));
 </script>
 
 <h2 class="mb-3 text-sm font-semibold">Focus words</h2>
 {#each focus as item (item.entryId)}
-	{@const entry = focusWord(entries.entries, item)}
+	{@const entry = focusWord(words.data ?? [], item)}
 	<div class="mb-4">
 		<p class="font-medium">{item.text}</p>
 		{#if entry}
-			{@const current = entries.fieldsOf(entry).stage}
 			<div class="mt-1 flex flex-wrap gap-1" aria-label="Your stage for {item.text}">
 				{#each STAGES as stage}
-					<Button size="sm" variant={current === stage ? 'default' : 'outline'} aria-pressed={current === stage} disabled={entries.isLocked(entry.id)} onclick={() => press(entry, stage)}>{STAGE_LABELS[stage]}</Button>
+					<Button size="sm" variant={entry.stage === stage ? 'default' : 'outline'} aria-pressed={entry.stage === stage} disabled={entries.isLocked(entry.id)} onclick={() => entries.setStage(entry.id, stage)}>{STAGE_LABELS[stage]}</Button>
 				{/each}
 			</div>
 		{/if}

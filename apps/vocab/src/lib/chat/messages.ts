@@ -11,7 +11,6 @@ import {
 	rowPath,
 	rowStemOf,
 } from '@epicenter/folder';
-import type { Admissions } from '@epicenter/svelte/admissions';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -119,6 +118,16 @@ export async function readMessages(
 }
 
 /**
+ * How one message's save runs: by default at once; in the app, as a
+ * mutation scoped to its chat, so a chat's messages are written in order and
+ * closing waits for them.
+ */
+export type MessageWrite = (
+	message: AgentMessage,
+	save: () => Promise<Result<undefined, AgentMessageStoreError>>,
+) => Promise<Result<undefined, AgentMessageStoreError>>;
+
+/**
  * One chat's finished messages, presented to the tutor loop.
  *
  * A message's file is `messages/<chat ID>.<message ID>.md`, so a chat reads
@@ -135,8 +144,8 @@ export async function readMessages(
 export function createChatMessageStore(
 	{ tables, files }: Pick<VocabFolder, 'tables' | 'files'>,
 	chatId: string,
-	/** Counts each write until it settles, so closing the page waits for it. */
-	admit: Admissions['admit'] = (work) => work(),
+	/** Runs each message's save; the app makes it a mutation. */
+	write: MessageWrite = (_message, save) => save(),
 ): AgentMessageStore & {
 	/** Message files of this chat that cannot be shown or sent to the tutor. */
 	readonly unreadable: UnreadableFile[];
@@ -227,7 +236,7 @@ export function createChatMessageStore(
 			notify();
 			return Ok(undefined);
 		},
-		set: (key, value) => admit(() => save(key, value)),
+		set: (key, value) => write(value, () => save(key, value)),
 		*entries() {
 			for (const [key, val] of listed)
 				if (!created.has(key)) yield { key, val };
@@ -270,6 +279,30 @@ export async function startChat(
 	return Ok({ id: rowStemOf(chats.name, created.path) ?? '', ...chat });
 }
 
+/** One chat as the chat list shows it. */
+export type ChatSummary = {
+	id: string;
+	title: string;
+	focus: FocusItem[];
+	updatedAt: number;
+	legacy: boolean;
+};
+
+/** A `chats` row as the chat list shows it: titled by its focus, placed by when it started. */
+export function summaryOf(chat: Chat): ChatSummary {
+	return {
+		id: chat.id,
+		title: chat.focus.map((item) => item.text).join(', '),
+		focus: chat.focus,
+		updatedAt: Date.parse(chat.createdAt),
+		legacy: false,
+	};
+}
+
+/** Newest first, then by ID. */
+export const byRecency = (a: ChatSummary, b: ChatSummary) =>
+	b.updatedAt - a.updatedAt || a.id.localeCompare(b.id);
+
 /**
  * Every chat, newest first. A chat is a `chats` row, placed by when it
  * started. `messages` are the files an earlier version saved, named by message
@@ -281,26 +314,9 @@ export function listChats(
 	chats: readonly Chat[],
 	messages: readonly ChatMessage[],
 ) {
-	const summaries = new Map<
-		string,
-		{
-			id: string;
-			title: string;
-			focus: FocusItem[];
-			updatedAt: number;
-			legacy: boolean;
-		}
-	>();
+	const summaries = new Map<string, ChatSummary>();
 	const firstQuestion = new Map<string, { time: number; stem: string }>();
-	for (const row of chats) {
-		summaries.set(row.id, {
-			id: row.id,
-			title: row.focus.map((item) => item.text).join(', '),
-			focus: row.focus,
-			updatedAt: Date.parse(row.createdAt),
-			legacy: false,
-		});
-	}
+	for (const row of chats) summaries.set(row.id, summaryOf(row));
 	for (const { stem, chat: chatId, message } of messages) {
 		let chat = summaries.get(chatId);
 		if (!chat) {
@@ -327,7 +343,5 @@ export function listChats(
 				agentMessageText(message).trim().slice(0, 60) || 'Earlier chat';
 		}
 	}
-	return [...summaries.values()].sort(
-		(a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id),
-	);
+	return [...summaries.values()].sort(byRecency);
 }
