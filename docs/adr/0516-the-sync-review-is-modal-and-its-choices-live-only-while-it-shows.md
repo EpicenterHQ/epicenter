@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-11
-- **Relates:** [ADR-0514](0514-folder-sync-resolves-captured-attempts.md) (the attempt and choices), [ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) (shared Svelte helpers own lifecycle, apps own wording)
+- **Relates:** [ADR-0514](0514-folder-sync-resolves-captured-attempts.md) (the attempt and choices), ADR-0528 (actions are mutations; apps own wording)
 - **Unbuilt:** the review in Vocab, Capture, Honeycrisp, and Whispering.
 
 ## Context
@@ -45,13 +45,16 @@ state is that attempt's `SyncChoices`, kept only while it shows.**
 - The folder validates and publishes. The review decodes nothing it sends:
   `take` names a side.
 
-**A page keeps the attempt in `createSyncController` from
-`@epicenter/svelte/sync`.** It holds `syncing`, `attempt`, `locked`
-(from a run's start until its attempt ends), and `problems`, and calls
-`folder.sync` between the page's `beforeSync` (wait for the open item's
-saves) and `afterSync` (read again). A run that needs choices keeps its
-attempt for the review. Refused choices stay as `problems`; any other result
-of an Apply ends the attempt, and `cancel()` discards it. `describeSync` in `@epicenter/svelte/sync-line` words each result.
+**The attempt lives where the run's result lives.** A sync that needs
+choices fails with `SyncError.NeedsChoices({ attempt })`. In Todos the sync
+is a TanStack mutation, so the review shows while `sync.error` is
+`NeedsChoices`, and `sync.reset()` is Cancel. Apply is a second mutation
+that calls `folder.sync.resolve(attempt, choices)`; refused choices return
+`InvalidChoices` and keep the attempt, and any other result ends it. The Git
+app, which has no query client, keeps the same three facts in runes:
+`syncing`, `attempt`, and the refused choices. Both wait for writes in flight
+before a run or an Apply and read again afterward. `describeSync` in
+`@epicenter/svelte/sync-line` words each result.
 
 ## Consequences
 

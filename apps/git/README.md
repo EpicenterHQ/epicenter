@@ -27,7 +27,7 @@ output, and typed command while hidden. Binary files stay visible with an
 explanation. Text editing is limited to UTF-8 files of at most 2 MiB.
 
 **Sync** brings a working copy and the remote together: it commits what
-the copy saved, fetches, merges, and pushes (`@epicenter/svelte/sync`). Edits
+the copy saved, fetches, merges, and pushes. Edits
 to different lines combine on their own. When both copies changed the same
 lines, the review shows each version beside a result and replaces the
 editor and terminal until you press **Apply and sync** or **Cancel**;
@@ -36,7 +36,7 @@ with no history of its own adopts the remote's on its first Sync. The
 desktop build's folder owner does not sync yet; there the terminal's Merge
 button stays.
 
-Automatic commits are disabled. The terminal still runs `git add`,
+Nothing commits on its own. The terminal still runs `git add`,
 `git commit -m`, `git fetch`, `git merge`, `git pull --ff-only`, and
 `git push` explicitly. Fetch updates remote knowledge without updating
 working files. Status separates index and worktree columns; ahead and behind

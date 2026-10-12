@@ -26,19 +26,22 @@ in flight, at the cost of all of that machinery.
   `resultQueryOptions` from `wellcrafted/query`, so errors stay typed. A detail
   view reads the same query narrowed with `select`. An invalid row is an
   `Err(InvalidRow)` entry in that same listing.
-- **When reads happen.** On open, on window focus (TanStack's default), and
-  after the app's own sync. Editing apps do not subscribe to file changes.
+- **When reads happen.** On open, on window focus, and after the app's own
+  actions. Editing apps do not subscribe to file changes. No read starts
+  while a write runs: an edit cancels reads in flight, the listing never goes
+  stale on its own, focus does not refetch while writing, and the app rereads
+  once the last write settles.
 - **Edits.** One immutable `map` over the listing in the cache changes one row.
 - **Writes.** Each edit is written with guarded `table.replace(stored, row)`
-  from a mutation built with `resultMutationOptions` and `scope: { id: stem }`.
+  from a mutation keyed and scoped by the file's path, so row writes, text
+  writes, rename, and delete of one file run one at a time.
   The mutation reads the cache when it runs, so it saves the newest row and
   guards with the newest confirmed `sha256`. A file has at most one write
   running and one waiting: an edit queues a write only when none is waiting.
   `onSuccess` on the mutation options moves the guard forward and keeps the
   newest row; TanStack awaits it before the next write in the scope starts.
-  Rename and delete use the same scope.
-- **Failure.** A failed write invalidates the query, which rolls the row back
-  to the file, and a toast says what happened. A toast for discarded typing
+- **Failure.** A failed write reads that one file again, which rolls the row
+  back, and a toast says what happened. A toast for discarded typing
   offers to copy the text.
 - **Validity.** An input commits only a value the schema accepts: pickers and
   typed fields commit on Enter or blur. The folder keeps refusing invalid
@@ -47,7 +50,9 @@ in flight, at the cost of all of that machinery.
 - **State.** `$state` holds only input that is not committed yet: a new-item
   box, a search, a typed field that does not parse yet.
 - **Leaving and closing** wait for writes in flight and never ask to discard.
-  `admissions` still tracks other work that close must wait for.
+  Every app action is a mutation, so close waits until the mutation cache is
+  idle; loading and outcome state for commit and sync come from mutation
+  state.
 - **Delete** warns when the file has changes that are in no saved version.
 
 ## Consequences
