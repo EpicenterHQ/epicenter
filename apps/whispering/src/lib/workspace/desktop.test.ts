@@ -6,7 +6,7 @@
  * what the page itself decides: which storage it asks for, that it names a
  * folder and never a path, that a refusal from either side is returned and
  * nothing else is opened in its place, that the folder's calls go to the
- * shell and not to the host, and how the shell's close signal reaches the page.
+ * shell and not to the host.
  * Nothing here runs the Rust owner or a WebView; `packages/folder` tests the
  * adapter against the real owner.
  *
@@ -39,8 +39,6 @@ mock.module('@tauri-apps/api/core', () => ({
 	async invoke(cmd: string, args: Record<string, unknown> = {}) {
 		const name = cmd.replace('plugin:epicenter-folder|', '');
 		calls.push({ cmd: name, args });
-		// The page's answer to a close: the shell takes it and returns nothing.
-		if (name === 'flush_done') return null;
 		const reply = replies[name];
 		if (reply === undefined) throw new Error(`no scripted reply for ${name}`);
 		return reply({ cmd: name, args });
@@ -167,12 +165,6 @@ function setup(
 	const scope = globalThis as { window?: unknown; location?: unknown };
 	scope.window = { __WHISPERING_BRIDGE__: bridge };
 	scope.location = { origin: CONNECTION.origin };
-}
-
-/** The shell sends the page its close signal, as `src-tauri/src/lib.rs` does. */
-function shellCloses() {
-	for (const listener of listeners.get('whispering://close-requested') ?? [])
-		listener({ payload: null });
 }
 
 /** The real host over a real directory, reached through its own request handler. */
@@ -489,61 +481,10 @@ test('a row save whose reply the shell never sent stays unknown, and later input
 });
 
 // ============================================================================
-// The shell's close signal
+// When the host stops
 // ============================================================================
 
-test('whether a recording is in progress is told to the shell as one boolean', async () => {
-	setup();
-	attachable();
-	replies.set_recording = () => null;
-	const served = host();
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-	workspace.setRecording?.(true);
-	workspace.setRecording?.(false);
-	await settle();
-	expect(sent('set_recording').map((call) => call.args)).toEqual([
-		{ recording: true },
-		{ recording: false },
-	]);
-	await workspace.close();
-});
-
-test('the shell’s close signal reaches the page as a Tauri event, and the page answers once its flush ends', async () => {
-	setup();
-	attachable();
-	const served = host();
-	const workspace = expectOk(
-		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
-	);
-	const flush = Promise.withResolvers<'flushed'>();
-	let flushes = 0;
-	const stop = await workspace.hostClose!(() => {
-		flushes += 1;
-		return flush.promise;
-	});
-
-	shellCloses();
-	await settle();
-	expect(flushes).toBe(1);
-	// Still flushing: no answer yet.
-	expect(sent('flush_done')).toEqual([]);
-
-	flush.resolve('flushed');
-	await until(() => sent('flush_done').length === 1, 'the page to answer');
-	// The signal is a Tauri event and the answer a shell command; the host is
-	// not involved.
-	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
-
-	stop();
-	shellCloses();
-	await settle();
-	expect(flushes).toBe(1);
-	await workspace.close();
-});
-
-test('a host that stops answering does not close the folder: the page keeps saving and still hears the close signal', async () => {
+test('a host that stops answering does not close the folder: the page keeps saving', async () => {
 	setup();
 	attachable();
 	Object.assign(replies, { apply: () => null });
@@ -558,8 +499,6 @@ test('a host that stops answering does not close the folder: the page keeps savi
 			},
 		}),
 	);
-	const stop = await workspace.hostClose!(async () => 'flushed');
-
 	hostUp = false;
 
 	// The owner is the shell's, so a save still lands with the host gone.
@@ -571,10 +510,6 @@ test('a host that stops answering does not close the folder: the page keeps savi
 		model: 'm',
 	});
 	expect(transcribeError?.name).toBe('HostUnavailable');
-	// The close signal does not pass through the host.
-	shellCloses();
-	await until(() => sent('flush_done').length === 1, 'the page to answer');
-	stop();
 	await workspace.close();
 	expect(sent('detach')).toHaveLength(1);
 });

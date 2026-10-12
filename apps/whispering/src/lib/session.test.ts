@@ -11,8 +11,6 @@
  * - Internal navigation is allowed even while the session holds unsaved work
  * - A navigation that unloads the document is held back only while something
  *   exists only in the window
- * - The shell is told when a recording starts and when it ends, so a quit
- *   during one can confirm; a cancelled recording says it ended too
  * - A layout released before its session starts closes what it opened
  */
 import './svelte-modules.test-support.js';
@@ -76,20 +74,6 @@ test('internal navigation is allowed while unloading is blocked only by unsaved 
 
 	await library.stopRecording();
 	expect(session.blocksNavigation(UNLOAD)).toBe(false);
-});
-
-test('the shell is told when a recording starts and when it ends', async () => {
-	const { library, test } = await open();
-	expect(test.recordingSaid).toEqual([]);
-
-	await library.startRecording();
-	expect(test.recordingSaid).toEqual([true]);
-	await library.stopRecording();
-	expect(test.recordingSaid).toEqual([true, false]);
-
-	await library.startRecording();
-	library.cancelRecording();
-	expect(test.recordingSaid).toEqual([true, false, true, false]);
 });
 
 test('a session whose first read fails releases the folder it opened', async () => {

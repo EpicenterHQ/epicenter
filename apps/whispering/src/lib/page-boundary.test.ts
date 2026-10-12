@@ -75,17 +75,11 @@ test('the page imports no Node or Bun module, and Tauri only in the workspace', 
 				specifier.includes('/native/'),
 		),
 	).toEqual([]);
-	// The Tauri APIs the page names: the opener asks whether it is inside a
-	// desktop app, and the desktop workspace hears the shell's close signal
-	// and answers it with `flush_done`. Folder commands and events are the
-	// folder adapter's.
+	// The Tauri API the page names: the opener asks whether it is inside a
+	// desktop app. Folder commands and events are the folder adapter's.
 	expect(
 		importers((specifier) => specifier.startsWith('@tauri-apps/')).sort(),
-	).toEqual([
-		'lib/workspace/desktop.ts imports @tauri-apps/api/core',
-		'lib/workspace/desktop.ts imports @tauri-apps/api/event',
-		'lib/workspace/index.ts imports @tauri-apps/api/core',
-	]);
+	).toEqual(['lib/workspace/index.ts imports @tauri-apps/api/core']);
 });
 
 test('a folder is opened only by the two workspaces, each through its own entry', () => {
@@ -157,7 +151,6 @@ const FOLDER_ENTRIES = new Set([
 	'@epicenter/svelte/open-item',
 	'@epicenter/svelte/admissions',
 	'@epicenter/svelte/save-bar',
-	'@epicenter/svelte/flush-on-close',
 ]);
 
 test('the page imports no Yjs store, sync, or account module', () => {
@@ -168,8 +161,8 @@ test('the page imports no Yjs store, sync, or account module', () => {
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
 				// The page uses only the folder-file entries of `@epicenter/svelte`:
-				// edit sessions, open-item slots, admissions, the save bar, and
-				// flushing on close. None holds a store.
+				// edit sessions, open-item slots, admissions, and the save bar.
+				// None holds a store.
 				(specifier.startsWith('@epicenter/svelte') &&
 					!FOLDER_ENTRIES.has(specifier)) ||
 				specifier.startsWith('@epicenter/auth') ||

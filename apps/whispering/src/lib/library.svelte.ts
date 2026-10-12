@@ -284,16 +284,6 @@ export function createLibrary(workspace: Workspace) {
 
 	let pending = $state.raw<PendingRecording[]>([]);
 	let recorder = $state.raw<RecorderState>({ phase: 'idle' });
-	/**
-	 * Change the recorder, and tell the desktop shell when a recording starts
-	 * or ends, so a quit during one asks first.
-	 */
-	function setRecorder(next: RecorderState) {
-		const was = recorder.phase !== 'idle';
-		recorder = next;
-		const is = next.phase !== 'idle';
-		if (was !== is) workspace.setRecording?.(is);
-	}
 	let recorderError = $state<string | undefined>();
 	let active: ActiveCapture | undefined;
 	/** The start that has not answered yet. Aborting it releases a microphone that opens late. */
@@ -946,7 +936,7 @@ export function createLibrary(workspace: Workspace) {
 		async startRecording() {
 			if (recorder.phase !== 'idle' || refused() !== undefined) return;
 			recorderError = undefined;
-			setRecorder({ phase: 'starting' });
+			recorder = { phase: 'starting' };
 			// A test or a pending enable holds the microphone: release it before the recording opens one.
 			input.release();
 			const attempt = new AbortController();
@@ -963,13 +953,13 @@ export function createLibrary(workspace: Workspace) {
 			}
 			starting = undefined;
 			if (startError !== null) {
-				setRecorder({ phase: 'idle' });
+				recorder = { phase: 'idle' };
 				recorderError = startError.message;
 				input.noteRecordingError(startError);
 				return;
 			}
 			active = recording;
-			setRecorder({ phase: 'recording', startedAt: recording.startedAt });
+			recorder = { phase: 'recording', startedAt: recording.startedAt };
 		},
 		/**
 		 * Stop, keep the audio in this window, and publish it to the folder.
@@ -980,9 +970,9 @@ export function createLibrary(workspace: Workspace) {
 			if (closing) return;
 			const capture = active;
 			active = undefined;
-			setRecorder({ phase: 'stopping' });
+			recorder = { phase: 'stopping' };
 			const { data: captured, error: stopError } = await capture.stop();
-			setRecorder({ phase: 'idle' });
+			recorder = { phase: 'idle' };
 			if (stopError !== null) {
 				recorderError = stopError.message;
 				return;
@@ -994,7 +984,7 @@ export function createLibrary(workspace: Workspace) {
 			starting = undefined;
 			active?.cancel();
 			active = undefined;
-			setRecorder({ phase: 'idle' });
+			recorder = { phase: 'idle' };
 		},
 		/** Publish a held capture again, under the same id and with the same bytes. */
 		retryPending: command(async (id: string) => {

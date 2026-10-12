@@ -3,7 +3,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { onDestroy } from 'svelte';
-	import { hostSignals, openCaptureHost } from '#platform/folder';
+	import { onHostStopped, openCaptureHost } from '#platform/folder';
 	import { createCaptures } from '$lib/captures.svelte.js';
 	import CaptureApp from '$lib/components/CaptureApp.svelte';
 
@@ -14,8 +14,7 @@
 	const opening = (async () => {
 		const host = await openCaptureHost();
 		const captures = createCaptures(host);
-		void hostSignals
-			.stopped?.(() => captures.markServiceStopped())
+		void onHostStopped?.(() => captures.markServiceStopped())
 			.then((stop) => stops.push(stop), () => {});
 		await captures.refresh();
 		return captures;

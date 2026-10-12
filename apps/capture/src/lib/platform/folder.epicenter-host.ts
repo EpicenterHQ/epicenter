@@ -11,17 +11,16 @@
  * A refused or missing plugin fails the open with its reason. There is no
  * browser folder to fall back to in this build.
  *
- * Before Epicenter quits or restarts, it sends this window one flush signal
- * and waits about a second (`@epicenter/epicenter/page-close`). Its events
- * are heard only when sent to this window, and the host knows the caller by
- * its window.
+ * When the Bun host that served the page stops, the shell keeps this window
+ * and tells it (`@epicenter/epicenter/host-stopped`). The event is heard only
+ * when sent to this window.
  */
 import { captureDefinition } from '@epicenter/capture';
-import { onHostClose, onHostStopped } from '@epicenter/epicenter/page-close';
+import { onHostStopped as hearHostStopped } from '@epicenter/epicenter/host-stopped';
 import { openFolder } from '@epicenter/folder/tauri';
 import {
 	CAPTURE_FOLDER_ID,
-	type HostSignals,
+	type OnHostStopped,
 	type OpenCaptureHost,
 } from './types.js';
 
@@ -40,7 +39,4 @@ export const openCaptureHost: OpenCaptureHost = async () => {
 };
 
 /** Registered by the mounted page once the captures exist. */
-export const hostSignals: HostSignals = {
-	close: onHostClose,
-	stopped: onHostStopped,
-};
+export const onHostStopped: OnHostStopped | undefined = hearHostStopped;

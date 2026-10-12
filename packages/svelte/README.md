@@ -85,27 +85,6 @@ it. `command(fn)` wraps a whole method so each call counts from the call,
 before its first await; `admit(fn)` counts one piece; `quiet()` waits for all
 of it; `busy` is reactive.
 
-### `flush-on-close` (`@epicenter/svelte/flush-on-close`)
-
-Closing never asks. `flushOnClose(flush, { hostClose })` gives saves already
-in flight a bounded moment when the page is about to end: on the host's close
-signal, if the page has one, and on `pagehide`. `flush` waits for what is in
-flight, usually `admissions.quiet()` and each open session's `settled()`.
-`flushWithin(flush, ms)` bounds the wait (800 ms by default, under the
-desktop hosts' 1 second) and never throws, so a hung save or a draft whose
-save failed cannot hold the close. The host binding acknowledges once the
-returned promise resolves.
-
-```ts
-const stop = flushOnClose(
-	async () => {
-		await admissions.quiet();
-		await session?.settled();
-	},
-	{ hostClose }, // the desktop host's binding; omit it in a browser
-);
-```
-
 ### `SaveBar` (`@epicenter/svelte/save-bar`)
 
 The save state and conflict prompt for one edit session: Reload theirs or

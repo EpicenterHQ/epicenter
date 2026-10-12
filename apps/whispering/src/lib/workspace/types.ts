@@ -12,7 +12,6 @@ import type {
 	FolderTerminal,
 	OpenFolderError,
 } from '@epicenter/folder';
-import type { HostCloseSignal } from '@epicenter/svelte/flush-on-close';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
@@ -176,19 +175,6 @@ export type Workspace = {
 			microphone: MicrophonePreference | undefined,
 		): Promise<string | undefined>;
 	};
-	/**
-	 * The desktop shell's close signal: the page flushes its saves in flight
-	 * and answers, and the shell exits on that answer or after its own wait.
-	 * It never asks whether to close. Undefined in a browser tab, where
-	 * `pagehide` starts the same flush.
-	 */
-	readonly hostClose: HostCloseSignal | undefined;
-	/**
-	 * Tell the desktop shell whether a recording is in progress, each time
-	 * that changes. While one is, the shell confirms a quit with one native
-	 * dialog. Undefined in a browser tab, which has no shell to tell.
-	 */
-	readonly setRecording: ((recording: boolean) => void) | undefined;
 	/** Whether debug controls are offered. */
 	readonly debugControls: boolean;
 	/** Failure injection, in a debug desktop shell only. */

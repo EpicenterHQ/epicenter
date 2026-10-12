@@ -13,9 +13,6 @@
  * device is kept beside them. The host holds no folder; what its terminal
  * writes reaches this page as the owner's hints, like any other program's.
  *
- * The shell's close signal is a Tauri event, answered with another, so it
- * reaches the page whether or not the host is running.
- *
  * Both are required to open. A host that does not answer, an owner that
  * refuses, and the two naming different directories are each returned as that
  * refusal, and nothing else is opened in their place.
@@ -29,9 +26,6 @@
  */
 
 import { openFolder } from '@epicenter/folder/tauri';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type BridgeConnection, createHttpBridge } from '../bridge/http.js';
 import {
@@ -72,15 +66,6 @@ type ShellRun = {
 	readonly exitCode: number;
 	readonly cwd: string;
 };
-
-/** Sent by the shell when the window closes or the app quits (`src-tauri/src/lib.rs`). */
-const CLOSE_REQUESTED = 'whispering://close-requested';
-/** The page's one answer, a shell command: its flush has finished or run out of time. */
-const FLUSH_DONE = 'flush_done';
-/** Tells the shell whether a recording is in progress, so a quit can confirm. */
-const SET_RECORDING = 'set_recording';
-
-const log = createLogger('whispering/workspace');
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -181,23 +166,6 @@ export async function openDesktopWorkspace(
 		},
 		transformNote:
 			'Requests are sent by Whispering’s host, not by this window, over the text connection in Settings. Its key is never given to the window or written to the folder.',
-		setRecording(recording) {
-			invoke(SET_RECORDING, { recording }).catch((cause: unknown) => {
-				log.warn(
-					new Error(
-						'The shell was not told whether a recording is in progress.',
-						{
-							cause,
-						},
-					),
-				);
-			});
-		},
-		hostClose: (respond) =>
-			listen(CLOSE_REQUESTED, async () => {
-				await respond();
-				await invoke(FLUSH_DONE);
-			}),
 		// The host holds the keys and answers with what is set, never a key.
 		connections: {
 			storedIn:

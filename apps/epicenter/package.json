@@ -6,7 +6,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/host.ts",
-		"./page-close": "./src/page-close.ts"
+		"./host-stopped": "./src/host-stopped.ts"
 	},
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",

@@ -58,7 +58,7 @@ describe('#platform/folder', () => {
 			const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
 			for (const required of [
 				'platform/folder.epicenter-host.ts',
-				'epicenter/src/page-close.ts',
+				'epicenter/src/host-stopped.ts',
 				'folder/src/tauri.ts',
 				'folder/src/tauri-adapter.ts',
 				'folder/src/native/bindings.gen.ts',
@@ -76,13 +76,13 @@ describe('#platform/folder', () => {
 			expect(
 				modules.filter((path) => /legacy\/|open-store\.ts$|@y[+/]/.test(path)),
 			).toEqual([]);
-			// Of the host package, only its page side of the close flush: never
-			// the Bun host.
+			// Of the host package, only its page side of the host-stopped signal:
+			// never the Bun host.
 			expect(
 				modules.filter(
 					(path) =>
 						/epicenter\/src\//.test(path) &&
-						!/epicenter\/src\/page-close\.ts$/.test(path),
+						!/epicenter\/src\/host-stopped\.ts$/.test(path),
 				),
 			).toEqual([]);
 		},

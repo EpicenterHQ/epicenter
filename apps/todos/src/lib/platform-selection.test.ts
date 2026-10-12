@@ -71,27 +71,9 @@ describe('#platform/folder', () => {
 			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 			expect(modules.some(folderModule('tauri-adapter.ts'))).toBe(true);
 			expect(modules.some(folderModule('native/bindings.gen.ts'))).toBe(true);
-			// The close leaf reaches the host's published page side and this
-			// window's Tauri API, never the host's Bun entry.
+			// Nothing of the host package: the page never reaches its Bun entry.
 			expect(
-				modules.some((path) =>
-					path.endsWith('platform/close.epicenter-host.ts'),
-				),
-			).toBe(true);
-			expect(
-				modules.some((path) =>
-					path.endsWith('apps/epicenter/src/page-close.ts'),
-				),
-			).toBe(true);
-			expect(
-				modules.some((path) => /@tauri-apps\/api\/.*webviewWindow/.test(path)),
-			).toBe(true);
-			expect(
-				modules.filter(
-					(path) =>
-						/apps\/epicenter\/src\/(?!page-close\.ts$)/.test(path) ||
-						/platform\/close\.browser\.ts$/.test(path),
-				),
+				modules.filter((path) => /apps\/epicenter\/src\//.test(path)),
 			).toEqual([]);
 			expect(
 				modules.filter(
@@ -120,15 +102,10 @@ describe('#platform/folder', () => {
 			expect(modules.some((path) => path.includes('isomorphic-git'))).toBe(
 				true,
 			);
-			// The browser has no host close signal and reaches nothing of the host's.
-			expect(
-				modules.some((path) => path.endsWith('platform/close.browser.ts')),
-			).toBe(true);
+			// The browser reaches nothing of the host's.
 			expect(
 				modules.filter((path) =>
-					/apps\/epicenter\/|platform\/close\.epicenter-host\.ts$|@tauri-apps\/api\/.*webviewWindow/.test(
-						path,
-					),
+					/apps\/epicenter\/|@tauri-apps\/api\/.*webviewWindow/.test(path),
 				),
 			).toEqual([]);
 			expect(

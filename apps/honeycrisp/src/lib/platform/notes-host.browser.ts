@@ -3,21 +3,15 @@
  * files and Git history as the desktop directory, and the folder's own shell
  * emulated over those files. Nothing native is imported here, and this entry
  * refuses inside the desktop app.
- *
- * A tab has no host close signal: `pagehide` starts the page's flush, and the
- * page's leave prompt is the browser's.
  */
 
 import { openFolder } from '@epicenter/folder/browser';
-import type { HostCloseSignal } from '@epicenter/svelte/flush-on-close';
 import { honeycrispDefinition } from '../data.js';
 import {
 	HONEYCRISP_FOLDER_ID,
 	type NotesHost,
 	type OpenHost,
 } from './types.js';
-
-export const hostClose: HostCloseSignal | undefined = undefined;
 
 export const openHost: OpenHost = async (): Promise<NotesHost> => {
 	const { data: folder, error } = await openFolder({

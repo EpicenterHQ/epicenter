@@ -30,7 +30,7 @@
 import '../svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { readLegacyBundle } from '@epicenter/capture/legacy';
-import { HOST_STOPPED_EVENT } from '@epicenter/epicenter/page-close';
+import { HOST_STOPPED_EVENT } from '@epicenter/epicenter/host-stopped';
 import { expectOk } from 'wellcrafted/testing';
 import type {
 	FileChange as Change,
@@ -216,7 +216,7 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 	}),
 }));
 
-const { openCaptureHost, hostSignals } = await import(
+const { openCaptureHost, onHostStopped } = await import(
 	'./folder.epicenter-host.js'
 );
 const { createCaptures } = await import('../captures.svelte.ts');
@@ -354,7 +354,7 @@ test('the page names the Capture scope and is told the directory', async () => {
 test('the host stopping is heard on this window only', async () => {
 	const { captures } = await opened();
 	let stopped = 0;
-	const stopHearing = await hostSignals.stopped?.(() => stopped++);
+	const stopHearing = await onHostStopped?.(() => stopped++);
 	// Targeted at this window, not any window's global listener.
 	expect(windowListeners.get(HOST_STOPPED_EVENT)?.size).toBe(1);
 	expect(listeners.has(HOST_STOPPED_EVENT)).toBe(false);
