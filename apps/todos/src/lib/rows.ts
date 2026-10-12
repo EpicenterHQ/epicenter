@@ -148,18 +148,6 @@ export function createRows({
 		return changed;
 	}
 
-	/** Read the file at `stem` again into the cache, whatever else is writing. */
-	async function rereadRow(stem: string) {
-		const { data: stored, error } = await table.get(stem);
-		queryClient.setQueryData<TodoListing>(todosKeys.rows, (entries) =>
-			entries?.flatMap((entry) => {
-				if (entry.stem !== stem) return [entry];
-				if (error !== null) return [{ stem, result: Err(error) }];
-				return stored === undefined ? [] : [{ stem, result: Ok(stored) }];
-			}),
-		);
-	}
-
 	/** Whether a rename or delete of `stem` runs or waits, which pauses its edits. */
 	function moving(stem: string) {
 		return (
@@ -271,13 +259,14 @@ export function createRows({
 						sha256: saved.sha256,
 					}));
 				},
-				// Roll back: the cache takes the row as the file holds it now.
-				// TanStack awaits this before the next write of the file runs, so
-				// that write finds no unsent edit and writes nothing.
+				// Roll back: the listing is read again, so the cache takes the row as
+				// the file holds it now. TanStack awaits this before the next write
+				// of the file runs, so that write finds no unsent edit and writes
+				// nothing.
 				onError: async (error) => {
 					const lost = rowOf(stem)?.row;
 					unsent.delete(stem);
-					await rereadRow(stem);
+					await invalidate(todosKeys.rows);
 					onWriteFailed({
 						path,
 						error,
@@ -345,7 +334,7 @@ export function createRows({
 				},
 				// The view shows the written text before the draft goes.
 				onSuccess: async () => {
-					await rereadRow(stem);
+					await invalidate(todosKeys.rows);
 					drafts.delete(stem);
 				},
 				onError: (error, { text }) =>

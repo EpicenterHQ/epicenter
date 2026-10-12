@@ -38,7 +38,7 @@ in flight, at the cost of all of that machinery.
   running and one waiting: an edit queues a write only when none is waiting.
   `onSuccess` on the mutation options moves the guard forward and keeps the
   newest row; TanStack awaits it before the next write in the scope starts.
-- **Failure.** A failed write reads that one file again, which rolls the row
+- **Failure.** A failed write reads the listing again, which rolls the row
   back, and a toast says what happened. A toast for discarded typing
   offers to copy the text.
 - **Validity.** An input commits only a value the schema accepts: pickers and

@@ -414,7 +414,7 @@ immutable `map` over the listing, and queues its own write mutation
 file. The write reads the cache when it runs and calls guarded
 `table.replace`. Its `onSuccess` moves the cached hash forward and keeps the
 newest row; TanStack awaits it before the next write in the scope runs. Its
-`onError` reads the file again, which rolls the cache back, and reports
+`onError` reads the listing again, which rolls the cache back, and reports
 what was lost. Reads are never held back: one may land while a write runs,
 and the last write to settle reads everything again. Nothing goes stale on
 its own. Writes never wait for the page to be visible. A repair
