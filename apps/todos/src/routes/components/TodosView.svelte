@@ -17,12 +17,12 @@
 
 	let { todos }: { todos: Todos } = $props();
 
-	// Drafts live only in this open page. While any editor has typing, a save
-	// in flight, a failed save, or a conflict, leaving is cancelled; for a
-	// reload or closed tab ('leave'), SvelteKit turns the cancel into the
-	// browser's own leave confirmation.
-	beforeNavigate(({ cancel }) => {
-		if (todos.unsaved) cancel();
+	// Drafts live only in this open page. Unloading it, by a reload, a closed
+	// tab, or a navigation out of the app, while the open item has a save in
+	// flight or one that failed, raises the browser's own "Leave site?".
+	// Navigating inside the app unmounts the page, which closes the todos.
+	beforeNavigate((navigation) => {
+		if (navigation.willUnload && todos.unsaved) navigation.cancel();
 	});
 
 	const directory = $derived(

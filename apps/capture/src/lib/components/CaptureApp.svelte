@@ -24,10 +24,11 @@
 	// Leaving would lose something: unsaved or unadded text, or running work.
 	const mustStay = $derived(captures.unsettled > 0);
 
-	// Drafts live only in this page. A reload, a tab close, or a navigation out
-	// of the app is held back here; quitting the desktop app does not ask.
+	// Drafts live only in this page. Unloading it while they are held, by a
+	// reload, a tab close, or a navigation out of the app, raises the browser's
+	// own "Leave site?". Closing the desktop window waits for the page's close.
 	beforeNavigate((navigation) => {
-		if (mustStay && navigation.willUnload) navigation.cancel();
+		if (navigation.willUnload && mustStay) navigation.cancel();
 	});
 
 
@@ -75,9 +76,6 @@
 />
 <svelte:window
 	onfocus={() => void captures.check()}
-	onbeforeunload={(event) => {
-		if (mustStay) event.preventDefault();
-	}}
 	onkeydown={(event) => {
 		const mod = event.metaKey || event.ctrlKey;
 		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && mustStay) {

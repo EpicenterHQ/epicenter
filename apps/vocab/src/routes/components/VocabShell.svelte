@@ -9,7 +9,6 @@
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import { onDestroy } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
-	import { page } from '$app/state';
 	import { auth } from '$lib/auth.svelte.js';
 	import type { ChatsState } from '$lib/chat/chats.svelte.js';
 	import { type FocusItem, VOCAB_MODEL, type VocabFolder } from '$lib/data.js';
@@ -97,12 +96,13 @@
 		void sources.then(({ account, connections }) => Promise.allSettled([account?.close(), connections?.close()]));
 	});
 
-	// The open word holds a save running or one that failed, which may be in
-	// this page alone. Leaving it asks first, and the browser's prompt lets the
-	// learner leave anyway; the open chat's unsaved message asks on its own.
+	// What exists in this page alone: the open word's save running or failed,
+	// a chat change under way, and the open chat's unsaved message or unsent
+	// text. Unloading the page while any is held raises the browser's own
+	// "Leave site?"; navigating inside the app unmounts it, and the page closes.
 	beforeNavigate((navigation) => {
-		if (!entries.unsaved && !chats.busy) return;
-		if (navigation.willUnload || navigation.to?.route.id !== page.route.id) navigation.cancel();
+		if (navigation.willUnload && (entries.unsaved || chats.busy || conversation?.hasUnsent()))
+			navigation.cancel();
 	});
 
 	/** Returning to the window: read the lists again, and take a newer version of the open word when it holds nothing unsaved. */
@@ -112,7 +112,7 @@
 	}
 </script>
 
-<svelte:window onbeforeunload={(event) => { if (entries.unsaved || chats.busy) event.preventDefault(); }} onfocus={check} />
+<svelte:window onfocus={check} />
 <svelte:document onvisibilitychange={() => { if (document.visibilityState === 'visible') check(); }} />
 
 <div class="flex h-dvh min-w-0 flex-col">

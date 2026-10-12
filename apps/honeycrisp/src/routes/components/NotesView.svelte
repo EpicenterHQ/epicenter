@@ -18,12 +18,11 @@
 	let filesOpen = $state(false);
 	let terminalOpen = $state(false);
 
-	// Drafts live only in this window. A reload or in-page navigation is held
-	// back while the open item's save runs or failed, and the webview asks
-	// first. Closing the window or quitting never asks: `+page.svelte` flushes
-	// a save in flight for a bounded moment, then the app exits.
-	beforeNavigate(({ cancel }) => {
-		if (notes.unsettled > 0) cancel();
+	// Drafts live only in this window. Unloading it while the open item's save
+	// runs or failed, or an action runs, raises the browser's own "Leave
+	// site?". Closing the desktop window waits for `+page.svelte`'s close.
+	beforeNavigate((navigation) => {
+		if (navigation.willUnload && notes.unsettled > 0) navigation.cancel();
 	});
 
 	async function toggleTerminal() {
@@ -44,14 +43,11 @@
 />
 <svelte:window
 	onfocus={() => void notes.check()}
-	onbeforeunload={(event) => {
-		if (notes.unsettled > 0) event.preventDefault();
-	}}
 	onkeydown={async (event) => {
 		const mod = event.metaKey || event.ctrlKey;
 		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && notes.unsettled > 0) {
-			// A reload would end this window's drafts. The leave prompt below is
-			// the webview's to show or not; refusing the shortcut does not depend on it.
+			// A reload would end this window's drafts. The leave prompt is the
+			// webview's to show or not; refusing the shortcut does not depend on it.
 			event.preventDefault();
 			toast.warning('Reload stopped: the open note is not saved', {
 				description: 'Wait for them to save, or resolve them in the note, then reload.',

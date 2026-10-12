@@ -61,6 +61,14 @@
 		return chat.unsaved.length > 0;
 	}
 
+	/**
+	 * Whether unloading the page would drop something of this chat's: a
+	 * message the folder has not confirmed, or text typed and not sent.
+	 */
+	export function hasUnsent() {
+		return hasUnsaved() || chat.inputValue.trim() !== '';
+	}
+
 	// The element holding the messages; phrase capture listens inside it.
 	let list = $state<HTMLElement | null>(null);
 
@@ -75,8 +83,6 @@
 	const lastMessage = $derived(chat.messages.at(-1));
 	const unsavedIds = $derived(new Set(chat.unsaved.map((unsaved) => unsaved.id)));
 </script>
-
-<svelte:window onbeforeunload={(event) => { if (hasUnsaved()) event.preventDefault(); }} />
 
 <PhraseCapture root={list} {entries} resetKey={`${chat.messages.length}:${chat.isGenerating}`} />
 
