@@ -121,6 +121,11 @@
 			// here still satisfies the library's optional CloudAuthBindings fields.
 			"GITHUB_CLIENT_ID",
 			"GITHUB_CLIENT_SECRET",
+			// Separate GitHub App credentials and the key that seals its grants.
+			"GIT_GITHUB_CLIENT_ID",
+			"GIT_GITHUB_CLIENT_SECRET",
+			"GIT_GITHUB_APP_SLUG",
+			"GIT_GRANT_ENCRYPTION_KEY",
 			"MICROSOFT_CLIENT_ID",
 			"MICROSOFT_CLIENT_SECRET",
 			// House AI keys are required here even though the library types them
