@@ -56,10 +56,12 @@ starting: a prior session may already have completed it.
 
 ## Complete the account-folder journey from sign-in to explicit cloud transfer
 
-- Revised direction (2026-10-11): ADR-0521 replaces folder-ID pairings with each
-  checkout's Git origin and a provider interface in the hosted API, and the CLI
-  keeps no Epicenter account system; developers use Git and `gh`. Bullets below
-  that assume a server pairing table or CLI sign-in predate that decision.
+- Proposed direction (2026-10-11): ADR-0521 explores replacing folder-ID
+  pairings with each checkout's Git origin and a provider interface. That
+  provider and its repository-based discovery are unbuilt. Todos currently
+  uses the connector's account pairing so a second browser can find the
+  repository before it has a checkout. The CLI keeps no Epicenter account
+  system; developers use Git and `gh`.
 - Current direction (2026-10-05): One GitHub connection supports several
   account-folder pairings, each with its own private repository and history.
   GitHub owns remote storage; Epicenter owns connection authorization, pairing,
