@@ -8,6 +8,7 @@
 	import { Alert, AlertDescription } from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
+	import { onDestroy } from 'svelte';
 	import { auth } from '#platform/auth';
 	import type { GitHubReturnProps } from '../platform/types.js';
 	import { finishGitHubConnect, isGitHubReturn } from './github-connect.js';
@@ -16,24 +17,37 @@
 	let { url, onfinished }: GitHubReturnProps = $props();
 
 	let problem = $state<{ message: string; installUrl?: string }>();
+	let alive = true;
+	onDestroy(() => {
+		alive = false;
+	});
 
 	async function finish() {
 		if (!isGitHubReturn(url)) return onfinished();
 		const state = auth?.getState();
-		const { data, error } = await finishGitHubConnect({
-			url,
-			account: state?.status === 'signed-in' ? state.account : undefined,
-			storage: sessionStorage,
-		});
-		if (error) {
-			problem = {
-				message: error.message,
-				installUrl: 'installUrl' in error ? error.installUrl : undefined,
-			};
+		if (state?.status === 'reauth-required') {
+			problem = { message: 'Your sign-in expired. Sign in again, then connect GitHub.' };
 			return;
 		}
-		noteConnected(sessionStorage, data.login);
-		onfinished();
+		try {
+			const { data, error } = await finishGitHubConnect({
+				url,
+				account: state?.account,
+				storage: sessionStorage,
+			});
+			if (!alive) return;
+			if (error) {
+				problem = {
+					message: error.message,
+					installUrl: 'installUrl' in error ? error.installUrl : undefined,
+				};
+				return;
+			}
+			noteConnected(sessionStorage, data.login);
+			onfinished();
+		} catch {
+			if (alive) problem = { message: 'GitHub could not finish connecting. Try again.' };
+		}
 	}
 
 	void finish();

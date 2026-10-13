@@ -6,17 +6,22 @@
 	let errorMessage = $state<string | null>(null);
 
 	$effect(() => {
+		let alive = true;
 		if (auth === undefined) {
 			errorMessage = 'Sign-in is unavailable in this build.';
-			return;
+			return () => { alive = false; };
 		}
 		void auth.completeSignIn().then(({ error }) => {
+			if (!alive) return;
 			if (error !== null) {
 				errorMessage = error.message;
 				return;
 			}
 			window.location.replace(resolve('/'));
+		}).catch(() => {
+			if (alive) errorMessage = 'Sign-in could not finish. Try again.';
 		});
+		return () => { alive = false; };
 	});
 </script>
 
