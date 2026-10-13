@@ -13,9 +13,9 @@
  *   again, which rolls the edit back.
  * - A file that does not read as a todo is listed with why; Todos does not
  *   edit its text. Another editor fixes it, and the next read shows it.
- * - Rename moves the version the cache holds when it runs, after the file's
- *   queued writes. Delete carries the version the person confirmed: `shown`
- *   waits for that todo's queued writes to land before it reads the
+ * - Todos does not rename files: a file's name is the file system's, Git's,
+ *   or another program's to change. Delete carries the version the person
+ *   confirmed: `shown` waits for that todo's queued writes to land before it reads the
  *   version, so nothing this app does changes the file while the person
  *   decides; a different version when the delete runs came from elsewhere,
  *   and is refused.
@@ -24,8 +24,6 @@ import {
 	type FileCapture,
 	type FileError,
 	formatRow,
-	type MoveError,
-	pathProblem,
 	type Row,
 	type StoredRow,
 	type TableCreateError,
@@ -41,18 +39,6 @@ import {
 	todosOf,
 	unreadableOf,
 } from './todo-listing.js';
-
-/**
- * Why `stem` cannot name a todo, in words a person acts on. Any name the
- * folder can hold works, the empty stem (`todos/.md`) included.
- */
-function stemProblem(stem: string): string | undefined {
-	if (stem.includes('/')) return 'A name cannot contain "/".';
-	const problem = pathProblem(todoPath(stem));
-	return problem === undefined
-		? undefined
-		: `This name is not usable: ${problem}.`;
-}
 
 export function createRows({
 	folder,
@@ -133,10 +119,10 @@ export function createRows({
 		return changed;
 	}
 
-	/** Whether a rename or delete of `stem` runs or waits, which pauses its edits. */
-	function moving(stem: string) {
+	/** Whether a delete of `stem` runs or waits, which pauses its edits. */
+	function deleting(stem: string) {
 		return (
-			queryClient.isMutating({ mutationKey: todosKeys.moving(todoPath(stem)) }) >
+			queryClient.isMutating({ mutationKey: todosKeys.remove(todoPath(stem)) }) >
 			0
 		);
 	}
@@ -158,9 +144,9 @@ export function createRows({
 			});
 		},
 		/**
-		 * The version of `stem` a rename or delete confirms: what the cache holds
-		 * once that todo's queued writes have landed. Ask for it when the person
-		 * opens the confirmation, and pass it to `rename` or `remove`.
+		 * The version of `stem` a delete confirms: what the cache holds once
+		 * that todo's queued writes have landed. Ask for it when the person
+		 * opens the confirmation, and pass it to `remove`.
 		 */
 		async shown(stem: string): Promise<FileCapture | undefined> {
 			const path = todoPath(stem);
@@ -174,10 +160,10 @@ export function createRows({
 		 * should queue a write: an edit queues one only when fewer than two are
 		 * running or waiting for that file, since the waiting one saves whatever
 		 * the cache holds when it runs. Refused, changing nothing, while
-		 * Epicenter asks to leave and while a rename or delete of the file runs.
+		 * Epicenter asks to leave and while a delete of the file runs.
 		 */
 		edit(stem: string, change: (row: Row<TodoFields>) => Row<TodoFields>) {
-			if (refused() !== undefined || moving(stem)) return false;
+			if (refused() !== undefined || deleting(stem)) return false;
 			const changed = mapRow(stem, (stored) => ({
 				...stored,
 				row: change(stored.row),
@@ -200,7 +186,7 @@ export function createRows({
 			const path = todoPath(stem);
 			return defineMutation({
 				mutationKey: todosKeys.write(path),
-				// Every write, rename, delete, and repair of one file shares its queue.
+				// Every write and the delete of one file share its queue.
 				scope: { id: path },
 				mutationFn: async (): Promise<
 					Result<
@@ -246,8 +232,8 @@ export function createRows({
 			});
 		},
 		/**
-		 * Add a todo. The caller decides whether to show it. Create, rename,
-		 * and delete read the listing again in `onSettled`, which TanStack
+		 * Add a todo. The caller decides whether to show it. Create and delete
+		 * read the listing again in `onSettled`, which TanStack
 		 * awaits, so the listing holds the change before the caller hears of it.
 		 */
 		create: defineMutation({
@@ -263,43 +249,6 @@ export function createRows({
 				),
 			onSettled: () => invalidate(todosKeys.rows),
 		}),
-		/**
-		 * Rename a todo's file to `todos/<nextStem>.md`. It runs after the
-		 * file's queued writes and moves the version the cache holds then,
-		 * guarded by its hash: a file changed elsewhere since is `Conflict`. No
-		 * other file moves with it, and edits of the todo wait meanwhile.
-		 */
-		async rename(
-			stem: string,
-			nextStem: string,
-		): Promise<
-			Result<
-				FileCapture | undefined,
-				FileError | MoveError | TableError | TodosError
-			>
-		> {
-			const problem = stemProblem(nextStem);
-			if (problem !== undefined)
-				return TodosError.NotStarted({ reason: problem });
-			if (nextStem === stem) return Ok(undefined);
-			const path = todoPath(stem);
-			return defineMutation({
-				mutationKey: todosKeys.rename(path),
-				scope: { id: path },
-				mutationFn: async (): Promise<
-					Result<FileCapture, FileError | MoveError | TableError | TodosError>
-				> => {
-					const capture = capturedOf(stem);
-					if (capture === undefined)
-						return TodosError.NotStarted({
-							reason:
-								'This file is not in the list as Todos last read it, so nothing was renamed.',
-						});
-					return table.rename(capture, nextStem);
-				},
-				onSettled: () => invalidate(todosKeys.rows),
-			})();
-		},
 		/**
 		 * Delete a todo's file. `shown` is the version the view showed when the
 		 * person asked. It runs after the file's queued writes, and only on

@@ -84,7 +84,7 @@ export function cached(todos: Todos, stem: string): StoredRow<TodoFields> {
 
 /**
  * The bytes the cache holds for `stem`, a row's or an `InvalidRow`'s, as a
- * view shows them when the person asks to rename or delete it.
+ * view shows them when the person asks to delete it.
  */
 export function shown(todos: Todos, stem: string): FileCapture {
 	const result = listing(todos).find((entry) => entry.stem === stem)?.result;

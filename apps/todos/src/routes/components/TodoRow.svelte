@@ -27,7 +27,7 @@
 	const write = createMutation(() => todos.rows.write(entry.stem).options);
 	// The list keys each row by its stem, so a row's path never changes.
 	// svelte-ignore state_referenced_locally
-	const moving = useIsMutating({ mutationKey: todosKeys.moving(entry.path) });
+	const deleting = useIsMutating({ mutationKey: todosKeys.remove(entry.path) });
 	const done = $derived(entry.row.fields.done);
 	const title = $derived.by(() => {
 		const typed = entry.row.fields.title;
@@ -50,7 +50,7 @@
 					write.mutate();
 			}
 		}
-		disabled={moving.current > 0}
+		disabled={deleting.current > 0}
 		aria-label="{done ? 'Reopen' : 'Complete'} {title}"
 	/>
 	<Button

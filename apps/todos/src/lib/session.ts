@@ -19,10 +19,8 @@ export const todosKeys = defineKeys({
 	/** Every write of a todo's fields. */
 	writes: ['todos', 'write'],
 	write: (path: string) => ['todos', 'write', path] as const,
-	/** A rename or a delete of the file at `path`: either pauses its edits. */
-	moving: (path: string) => ['todos', 'moving', path] as const,
-	rename: (path: string) => ['todos', 'moving', path, 'rename'] as const,
-	remove: (path: string) => ['todos', 'moving', path, 'delete'] as const,
+	/** The delete of the file at `path`, which pauses its edits. */
+	remove: (path: string) => ['todos', 'remove', path] as const,
 	recoverIncoming: ['todos', 'recover-incoming'],
 });
 

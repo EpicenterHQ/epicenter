@@ -4,8 +4,9 @@
 	view's own write mutation saves it: one write at a time for this file,
 	each saving whatever the cache holds when it runs. A file that does not
 	read as a todo shows its text and what to fix, read-only: another editor
-	fixes it, and Todos reads it again when the person returns. Rename moves the version saved when it runs; delete carries the version
-	this view shows when the person asks.
+	fixes it, and Todos reads it again when the person returns. Delete carries
+	the version this view shows when the person asks. Todos does not rename
+	files; the file system, Git, or another program does.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -33,15 +34,12 @@
 	let {
 		stem,
 		onBack,
-		onRenamed,
 		onDeleted,
 	}: {
 		/** The todo shown. The parent keys this view by it. */
 		stem: string;
 		/** Shown on narrow screens, where the list and the editor take turns. */
 		onBack?: () => void;
-		/** The todo's file was renamed to `nextStem`. */
-		onRenamed?: (nextStem: string) => void;
 		/** The todo's file was deleted. */
 		onDeleted?: () => void;
 	} = $props();
@@ -50,13 +48,13 @@
 	const todo = createQuery(() => todos.rows.entry(stem).options);
 	const write = createMutation(() => todos.rows.write(stem).options);
 	/**
-	 * Edits, rename, and delete wait while this file is renamed or deleted.
-	 * While Epicenter asks to leave, the page is inert and the store refuses
-	 * them; this does not cover that.
+	 * Edits and delete wait while this file is deleted. While Epicenter asks
+	 * to leave, the page is inert and the store refuses them; this does not
+	 * cover that.
 	 */
 	// svelte-ignore state_referenced_locally
-	const moving = useIsMutating({ mutationKey: todosKeys.moving(todoPath(stem)) });
-	const locked = $derived(moving.current > 0);
+	const deleting = useIsMutating({ mutationKey: todosKeys.remove(todoPath(stem)) });
+	const locked = $derived(deleting.current > 0);
 
 	/** Change the row in the cache, and queue a write when one is needed. */
 	function set(change: (row: Row<TodoFields>) => Row<TodoFields>) {
@@ -65,19 +63,6 @@
 
 	/** Textareas report LF, so views show LF; the setters restore the file's convention. */
 	const lf = (text: string) => text.replace(/\r\n?/g, '\n');
-
-	const id = $props.id();
-	/** The file name typed for a rename; it follows the file's name until the person types. */
-	let nextName = $derived(stem);
-
-	async function rename(event: SubmitEvent) {
-		event.preventDefault();
-		const name = nextName;
-		if (locked || name === stem) return;
-		const { error } = await todos.rows.rename(stem, name);
-		if (error !== null) toast.error('Could not rename the file', { description: describeError(error) });
-		else onRenamed?.(name);
-	}
 
 	/** What deleting this file loses, as Git status reports it now. */
 	async function history() {
@@ -119,19 +104,11 @@
 	{/if}
 {/snippet}
 
-{#snippet nameBar(title?: string)}
-	<form class="flex shrink-0 flex-wrap items-center gap-2 border-t px-4 py-2" onsubmit={rename}>
-		<label class="text-xs text-muted-foreground" for={id}>File name</label>
-		<div class="flex min-w-0 items-center gap-1">
-			<span class="font-mono text-xs text-muted-foreground">todos/</span>
-			<Input {id} class="h-8 w-44 font-mono md:text-xs" bind:value={nextName} autocomplete="off" spellcheck={false} disabled={locked} />
-			<span class="font-mono text-xs text-muted-foreground">.md</span>
-		</div>
-		<Button type="submit" size="sm" variant="outline" disabled={locked || nextName === stem}>
-			Rename file
-		</Button>
+{#snippet fileBar(title?: string)}
+	<div class="flex shrink-0 items-center gap-2 border-t px-4 py-2">
+		<span class="min-w-0 truncate font-mono text-xs text-muted-foreground" data-testid="file-path">{path}</span>
 		<Button class="ml-auto" size="sm" variant="ghost-destructive" disabled={locked} onclick={() => void confirmDelete(title)}>Delete</Button>
-	</form>
+	</div>
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
@@ -173,7 +150,7 @@
 			/>
 		</div>
 
-		{@render nameBar(row.fields.title)}
+		{@render fileBar(row.fields.title)}
 	{:else if todo.data?.result.error?.name === 'InvalidRow'}
 		{@const error = todo.data.result.error}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
@@ -194,7 +171,7 @@
 		<pre
 			class="min-h-48 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap"
 			aria-label="Text of {path}">{lf(error.text)}</pre>
-		{@render nameBar()}
+		{@render fileBar()}
 	{:else if todo.data?.result.error}
 		<Empty.Root class="flex-1">
 			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>

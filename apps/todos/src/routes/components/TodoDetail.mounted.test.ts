@@ -28,7 +28,6 @@
  *   is shown
  * - Notes show LF and keep the file's CRLF
  * - Completion from the list and the detail keep notes and undeclared keys
- * - Renaming the file keeps the todo open under its new name
  *
  * jsdom implements no layout, focus, selection, IME, or `inert`. Toasts,
  * the clipboard, and the confirmation dialog are not exercised.
@@ -371,19 +370,6 @@ test('completion from the list and from the detail keeps notes and undeclared ke
 		fields: { title: 'Milk', done: false, owner: 'keep-me' },
 		body: 'Current notes.',
 	});
-});
-
-test('renaming the file keeps the todo open under its new name', async () => {
-	const { todos, target, get, text } = await setup();
-	const path = await addTodo(todos, target, 'Milk');
-	type(get<HTMLInputElement>(`${DETAIL} form input`), 'milk');
-	flushSync();
-	click(get(DETAIL), 'Rename file');
-	await settle(todos);
-	await eventually(() => opened() === 'milk');
-	expect(await text(path)).toBeUndefined();
-	expect(await text('todos/milk.md')).toContain('title: Milk');
-	expect(get<HTMLInputElement>(TITLE).value).toBe('Milk');
 });
 
 test('a file that cannot be read as text is labelled "Could not read", with no repair', async () => {

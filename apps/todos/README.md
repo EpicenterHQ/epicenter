@@ -22,8 +22,9 @@ to browser storage.
 
 A todo is its Markdown file and nothing else. A file that shares a todo's stem,
 such as `todos/milk.png` or `todos/milk.webm` beside `todos/milk.md`, is an
-ordinary file: renaming or deleting the todo leaves it where it is, and you
-rename or delete it yourself with another program.
+ordinary file: deleting the todo leaves it where it is. Todos does not
+rename files; rename a todo's file, or any other file, with another program
+or with Git.
 
 ## Desktop, inside Epicenter
 
@@ -86,8 +87,8 @@ last read until one of those moments.
   checked immediately before the file is replaced, so an edit that lands in
   that instant is overwritten. It is not an operating-system compare-and-swap,
   and nothing merges on a write.
-- A rename or delete of a todo changes one file, its Markdown file. It
-  carries the version the editor showed when you asked. It runs after the
+- A delete of a todo changes one file, its Markdown file. It carries the
+  version the editor showed when you asked. It runs after the
   file's writes, and only on that version or one Todos itself wrote from it
   since; a file changed elsewhere is refused, whether or not Todos has read
   the change yet. A failure is reported as it happened: a
@@ -222,9 +223,8 @@ the window. The header holds the rest:
 The open todo is part of the address, `?todo=<stem>`, so a reload or a
 change of window width keeps it open. On narrow screens the list and the
 editor take turns: opening a todo adds a history entry, so the browser's Back
-returns to the list, and the editor has its own Back button. Renaming or
-deleting the open todo replaces the entry, so Back never lands on a name
-that is gone.
+returns to the list, and the editor has its own Back button. Deleting the
+open todo replaces the entry, so Back never lands on a name that is gone.
 
 The list opens a todo's title, done, and notes. A file in `todos/` whose text
 is not a valid todo shows under "Needs repair" and opens as its text,
@@ -252,12 +252,11 @@ time, and switching never waits or asks.
 - Inputs hold only values a todo can hold. A title or notes with a lone
   surrogate is written with U+FFFD in its place, as shown. The folder still
   refuses a value it cannot hold, and the editor then shows the file again.
-- Rename and delete run after the file's writes. Rename moves the file as
-  Todos last read or wrote it. Delete carries the version shown when the
-  confirmation opened, or one Todos wrote from it since, so a delete you
+- Delete runs after the file's writes. It carries the version shown when
+  the confirmation opened, or one Todos wrote from it since, so a delete you
   confirmed while your last edit was still being written removes that
   edit's file. A file changed elsewhere since is refused, and so is a todo
-  Todos no longer lists. Typing into that file waits while they run.
+  Todos no longer lists. Typing into that file waits while it runs.
 - The first write of a file written by hand rewrites it in Todos' standard
   form: plain YAML frontmatter, declared keys first, unknown keys kept.
   Comments and custom quoting in the frontmatter are not kept.
@@ -272,7 +271,7 @@ line of the status details. It never resumes the update on its own: opening
 the folder, "Check again", and returning to the window only read the record.
 
 - Sync and Save version wait while the update is pending; their buttons are
-  off and say why. Editing, writing, renaming, and deleting keep working.
+  off and say why. Editing, writing, and deleting keep working.
 - **Recover incoming update** runs only when you press it. Writes still
   running land first. Afterward the list is read again and shows what the
   update wrote.
@@ -303,9 +302,9 @@ without Sync.
    editor shows that version. Change it elsewhere without returning, then
    edit here: the write changes nothing, the editor shows their version, and
    a message offers to copy your text.
-3. Rename a todo's file or delete it from the bar under its notes. Renaming
-   or deleting changes that one Markdown file: a file with the same stem,
-   such as an image or a recording, stays where it is. Delete always asks
+3. Delete a todo from the bar under its notes, which shows its file's path.
+   Deleting changes that one Markdown file: a file with the same stem, such
+   as an image or a recording, stays where it is. Delete always asks
    first, naming what it removes and whether its latest changes are in no
    saved version. A file changed elsewhere after the confirmation opened is
    refused.
@@ -366,7 +365,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
 | `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry, the quit fence), leaving, and closing. It composes the namespaces below over one `Session`. |
 | `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError` and `DEPARTING`, the `WriteFailure` type, and the `Session` type. |
-| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), `edit`, the scoped `write(stem)` each view creates its mutation from, `create`, `rename`, and `remove`. Views ask TanStack's `useIsMutating` whether a write, rename, or delete runs. |
+| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), `edit`, the scoped `write(stem)` each view creates its mutation from, `create`, and `remove`. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, Save version, and incoming recovery. |
 | `src/lib/sync.ts` | `todos.sync`: `run` and the review's `apply`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
@@ -401,9 +400,8 @@ what was lost. Reads are never held back: one may land while a write runs,
 and the last write to settle reads everything again. Nothing goes stale on
 its own. Writes never wait for the page to be visible. Todos does not
 write a file that does not read as a todo; another editor repairs it, and
-the next read shows the result. Rename and delete join the same
-queue. `rename(stem, next)` moves what the cache holds when it runs, guarded
-by its hash. Delete carries the version the person confirmed:
+the next read shows the result. Todos does not rename files. Delete joins
+the same queue and carries the version the person confirmed:
 `todos.rows.shown(stem)` waits for that todo's queued writes to land, then
 reads it, so nothing the app does changes the file while the person decides
 (`remove(stem, shown)`). When it runs, the cached hash must still be that

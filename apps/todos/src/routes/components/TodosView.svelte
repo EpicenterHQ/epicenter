@@ -80,7 +80,7 @@
 
 	/**
 	 * Show the todo `stem`, or none. Opening adds a history entry, so Back
-	 * returns to the list; a rename or delete replaces the entry, so Back
+	 * returns to the list; a delete replaces the entry, so Back
 	 * never lands on a name that is gone.
 	 */
 	async function show(stem: string | undefined, { replaceState = false } = {}) {
@@ -112,7 +112,6 @@
 			<TodoDetail
 				stem={open}
 				{onBack}
-				onRenamed={(next) => void show(next, { replaceState: true })}
 				onDeleted={() => void show(undefined, { replaceState: true })}
 			/>
 		{/key}
