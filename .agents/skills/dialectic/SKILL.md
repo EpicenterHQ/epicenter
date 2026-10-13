@@ -9,7 +9,8 @@ Dialectic works toward an articulation the user can recognize with “that’s
 right.” The agent contributes to finding that articulation: it offers a
 thoughtful understanding of what the user is reaching for and gives the
 emerging thought concrete expression. The user can often recognize what is
-right or missing before they can articulate it themselves.
+right or missing before they can articulate it themselves; a concrete expression
+gives them something specific to recognize, correct, or extend.
 
 Let that recognition and correction develop the next attempt. Preserve what
 landed, replace what missed, and develop what their response shows matters
