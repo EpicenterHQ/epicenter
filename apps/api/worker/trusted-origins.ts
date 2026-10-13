@@ -43,6 +43,7 @@ const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = [
  */
 const DEVELOPMENT_TRUSTED_ORIGINS: readonly string[] = [
 	'http://localhost:5177',
+	`http://127.0.0.1:${APPS.TODOS.port}`,
 	...Object.values(APPS).map((app) => localUrl(app)),
 	`http://${new URL(APPS.API.url).host}`,
 ];

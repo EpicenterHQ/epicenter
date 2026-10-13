@@ -48,6 +48,11 @@ export const APPS = {
 		url: 'https://capture.epicenter.so',
 		id: 'so.epicenter.capture',
 	},
+	TODOS: {
+		port: 5186,
+		url: 'https://todos.epicenter.so',
+		id: 'so.epicenter.todos',
+	},
 	ZHONGWEN: {
 		port: 5207,
 		url: 'https://zhongwen.bradenwong.com',

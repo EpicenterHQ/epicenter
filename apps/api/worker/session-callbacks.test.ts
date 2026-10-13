@@ -1,6 +1,6 @@
 /**
  * Session handoff destinations are exact URLs, independent of CORS trust.
- * Production permits the native callback, hosted session callback, and four
+ * Production permits the native callback, hosted session callback, and app
  * app callbacks. Only loopback deployments add the app development callbacks.
  */
 import { expect, test } from 'bun:test';
@@ -11,15 +11,18 @@ const appCallbacks = [
 	'https://whispering.epicenter.so/auth/callback',
 	'https://vocab.epicenter.so/auth/callback',
 	'https://capture.epicenter.so/auth/callback',
+	'https://todos.epicenter.so/auth/callback',
 	'https://zhongwen.bradenwong.com/auth/callback',
 ];
 const localAppCallbacks = [
 	'http://127.0.0.1:39131/_epicenter/sign-in/callback',
 	'http://localhost:5177/auth/callback',
+	'http://127.0.0.1:5186/auth/callback',
 	'http://localhost:5175/auth/callback',
 	'http://localhost:1420/auth/callback',
 	'http://localhost:8888/auth/callback',
 	'http://localhost:5179/auth/callback',
+	'http://localhost:5186/auth/callback',
 	'http://localhost:5207/auth/callback',
 ];
 

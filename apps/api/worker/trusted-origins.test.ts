@@ -38,12 +38,15 @@ describe('buildEpicenterTrustedOrigins', () => {
 		expect(LOCAL).toContain('http://localhost:5177');
 		expect(PROD).not.toContain('http://localhost:5177');
 		expect(LOCAL).toContain(localUrl(APPS.HONEYCRISP));
+		expect(LOCAL).toContain('http://127.0.0.1:5186');
+		expect(PROD).not.toContain('http://127.0.0.1:5186');
 		expect(LOCAL).toContain(localUrl(APPS.API));
 		expect(LOCAL).toContain(`http://${new URL(APPS.API.url).host}`);
 	});
 
 	test('both deployments trust the production app origins', () => {
 		expect(PROD).toContain(APPS.HONEYCRISP.url);
+		expect(PROD).toContain(APPS.TODOS.url);
 		expect(LOCAL).toContain(APPS.HONEYCRISP.url);
 		expect(PROD).toContain('https://zhongwen.bradenwong.com');
 		expect(LOCAL).toContain('https://zhongwen.bradenwong.com');

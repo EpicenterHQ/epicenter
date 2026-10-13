@@ -21,6 +21,8 @@ export function buildSessionCallbacks(baseURL: string, desktopPort = '39131') {
 			: []),
 		// Local Mail has a development browser build and no hosted origin.
 		...(local ? ['http://localhost:5177/auth/callback'] : []),
+		// Todos listens on 127.0.0.1 during local browser development.
+		...(local ? [`http://127.0.0.1:${APPS.TODOS.port}/auth/callback`] : []),
 		// Outside /auth/*, which belongs to Better Auth on the issuer origin.
 		`${origin}/session/callback`,
 		...[
@@ -28,6 +30,7 @@ export function buildSessionCallbacks(baseURL: string, desktopPort = '39131') {
 			APPS.WHISPERING,
 			APPS.VOCAB,
 			APPS.CAPTURE,
+			APPS.TODOS,
 			APPS.ZHONGWEN,
 		].flatMap((app) =>
 			[...prodOrigins(app), ...(local ? [localUrl(app)] : [])].map(

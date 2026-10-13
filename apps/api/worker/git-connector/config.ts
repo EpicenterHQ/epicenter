@@ -47,22 +47,29 @@ export async function readGitConnectorSecrets(
 	};
 }
 
-/** The Zhongwen sync page, the only production destination for a handoff code. */
+/** Production destinations for a GitHub handoff code. */
 export const ZHONGWEN_SYNC_CALLBACK = `${APPS.ZHONGWEN.url}/sync`;
+export const TODOS_SYNC_CALLBACK = `${APPS.TODOS.url}/sync`;
 
 /**
  * Exact `redirectUri` values the connector accepts. A loopback API origin
- * (local `wrangler dev`) also accepts the Zhongwen dev server's `/sync`; a
- * deployed origin accepts only production.
+ * (local `wrangler dev`) also accepts development `/sync` pages; a deployed
+ * origin accepts only production.
  */
 export function gitHubConnectorCallbacks(apiOrigin: string): string[] {
 	const { hostname } = new URL(apiOrigin);
 	const local = ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
-	const developmentCallback = `${localUrl(APPS.ZHONGWEN)}/sync`;
-	const loopbackCallback = new URL(developmentCallback);
-	loopbackCallback.hostname = '127.0.0.1';
+	const zhongwenCallback = `${localUrl(APPS.ZHONGWEN)}/sync`;
+	const zhongwenLoopback = new URL(zhongwenCallback);
+	zhongwenLoopback.hostname = '127.0.0.1';
+	const todosCallback = `${localUrl(APPS.TODOS)}/sync`;
+	const todosLoopback = new URL(todosCallback);
+	todosLoopback.hostname = '127.0.0.1';
 	return [
 		ZHONGWEN_SYNC_CALLBACK,
-		...(local ? [developmentCallback, loopbackCallback.href] : []),
+		TODOS_SYNC_CALLBACK,
+		...(local
+			? [zhongwenCallback, zhongwenLoopback.href, todosCallback, todosLoopback.href]
+			: []),
 	];
 }
