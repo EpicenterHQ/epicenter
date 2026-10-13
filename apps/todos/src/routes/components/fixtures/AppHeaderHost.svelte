@@ -1,12 +1,16 @@
-<!-- The header as TodosView mounts it, with the page's Sync, inside the folder's scope. -->
+<!-- The header as TodosView mounts it: the folder's store and query client in context, and the page's Sync. -->
 <script lang="ts">
-	import type { Todos } from '$lib/todos.svelte.js';
-	import QueryHost from './QueryHost.svelte';
-	import SyncedHeader from './SyncedHeader.svelte';
+	import * as Tooltip from '@epicenter/ui/tooltip';
+	import { createMutation, setQueryClientContext } from '@tanstack/svelte-query';
+	import { setTodos, type Todos } from '$lib/todos.svelte.js';
+	import AppHeader from '../AppHeader.svelte';
 
 	let { todos }: { todos: Todos } = $props();
+	// svelte-ignore state_referenced_locally
+	setTodos(todos);
+	// svelte-ignore state_referenced_locally
+	setQueryClientContext(todos.queryClient);
+	const sync = createMutation(() => todos.sync.run.options);
 </script>
 
-<QueryHost {todos}>
-	<SyncedHeader />
-</QueryHost>
+<Tooltip.Provider><AppHeader {sync} /></Tooltip.Provider>

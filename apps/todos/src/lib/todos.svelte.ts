@@ -55,7 +55,7 @@ type TodosOptions = {
 };
 
 /**
- * The store of the folder a view belongs to. `FolderScope` sets it for its
+ * The store of the folder a view belongs to. `TodosView` sets it for its
  * subtree, with the store's query client; a component calls `getTodos()`
  * while it initializes.
  */
@@ -178,7 +178,7 @@ export function createTodos(
 		/** The opened folder; `folder.location` says where the todos are. */
 		folder,
 		/**
-		 * This folder's cache, for `FolderScope`'s `QueryClientProvider` only.
+		 * This folder's cache, set as svelte-query's client by `TodosView` only.
 		 * Views read and write through the store's definitions.
 		 */
 		queryClient,

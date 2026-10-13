@@ -15,7 +15,6 @@
 	import { describeError } from '$lib/describe-error.js';
 	import type { WriteFailure } from '$lib/session.js';
 	import { createTodos } from '$lib/todos.svelte.js';
-	import FolderScope from './components/FolderScope.svelte';
 	import TodosView from './components/TodosView.svelte';
 
 	// Inside Epicenter, quitting or restarting asks this page first; a browser
@@ -96,9 +95,7 @@
 	{#if opened.error}
 		{@render refused(opened.error.message)}
 	{:else}
-		<FolderScope todos={opened.data}>
-			<TodosView {departure} />
-		</FolderScope>
+		<TodosView todos={opened.data} {departure} />
 	{/if}
 {:catch error}
 	{@render refused(error instanceof Error ? error.message : String(error))}

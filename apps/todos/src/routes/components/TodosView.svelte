@@ -3,7 +3,7 @@
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
 	import SyncReview from '@epicenter/svelte/sync-review';
-	import { createMutation } from '@tanstack/svelte-query';
+	import { createMutation, setQueryClientContext } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { SyncAttempt, SyncChoices } from '@epicenter/folder';
@@ -12,7 +12,7 @@
 	import { page } from '$app/state';
 	import { syncOutcomeLine } from '$lib/status.js';
 	import { todoPath } from '$lib/todo-listing.js';
-	import { getTodos } from '$lib/todos.svelte.js';
+	import { setTodos, type Todos } from '$lib/todos.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import IncomingBanner from './IncomingBanner.svelte';
 	import TodoDetail from './TodoDetail.svelte';
@@ -20,9 +20,16 @@
 	import DepartureNotice from './DepartureNotice.svelte';
 	import type { Departure } from '@epicenter/epicenter/departure/page';
 
-	const todos = getTodos();
+	let { todos, departure }: { todos: Todos; departure?: Departure } = $props();
 
-	let { departure }: { departure?: Departure } = $props();
+	// The views below find this folder's store with `getTodos()`, and its
+	// query client through svelte-query. Svelte sets context only while a
+	// component initializes, and the page has the store only after the folder
+	// opens, so this view sets both. It belongs to one folder for its life.
+	// svelte-ignore state_referenced_locally
+	setTodos(todos);
+	// svelte-ignore state_referenced_locally
+	setQueryClientContext(todos.queryClient);
 
 	// A write or action still running lives only in this page. Leaving the page then is cancelled; for a
 	// reload or closed tab ('leave'), SvelteKit turns the cancel into the

@@ -1,12 +1,10 @@
-<!-- The whole Todos view as the page mounts it, inside the folder's scope. -->
+<!-- The whole Todos view as the page mounts it, with the tooltip provider the layout adds. -->
 <script lang="ts">
+	import * as Tooltip from '@epicenter/ui/tooltip';
 	import type { Todos } from '$lib/todos.svelte.js';
 	import TodosView from '../TodosView.svelte';
-	import QueryHost from './QueryHost.svelte';
 
 	let { todos }: { todos: Todos } = $props();
 </script>
 
-<QueryHost {todos}>
-	<TodosView />
-</QueryHost>
+<Tooltip.Provider><TodosView {todos} /></Tooltip.Provider>
