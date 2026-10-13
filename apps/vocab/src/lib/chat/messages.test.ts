@@ -32,6 +32,7 @@ import {
 	fileText,
 	gated,
 	gatedMessages,
+	settle,
 	tableFiles,
 } from '../folder.test-support.js';
 import { setVocabDefaults, vocabKeys, type WriteFailure } from '../query.js';
@@ -430,17 +431,12 @@ test('a tutor conversation over a folder that refuses writes asks nothing, then 
 		engine,
 		generateId: () => crypto.randomUUID(),
 	});
-	const settle = async () => {
-		const isActive = () =>
-			conversation.snapshot().isGenerating || conversation.snapshot().isSaving;
-		for (let count = 0; count < 200 && isActive(); count++) await Bun.sleep(0);
-	};
 	const roles = () =>
 		conversation.snapshot().messages.map((message) => message.role);
 
 	gate.failing = true;
 	expectErr(await conversation.send('What does "lucid" mean?'));
-	await settle();
+	await settle(conversation);
 	expect(calls).toBe(0);
 	expect(roles()).toEqual(['user']);
 	expect(await tableFiles(folder, 'messages')).toEqual([]);
@@ -451,7 +447,7 @@ test('a tutor conversation over a folder that refuses writes asks nothing, then 
 	expect(await tableFiles(folder, 'messages')).toHaveLength(1);
 
 	conversation.retry();
-	await settle();
+	await settle(conversation);
 	expect(calls).toBe(1);
 	const unsavedAnswer = conversation.snapshot().unsaved;
 	expect(unsavedAnswer.map((message) => message.role)).toEqual(['assistant']);
@@ -501,12 +497,10 @@ test('a listing delivered after a newer message was saved does not remove that m
 	gate.heldListing = delivery.promise;
 	const stale = store.load();
 	gate.heldListing = undefined;
-	await Bun.sleep(5);
+	await gate.listingRead.promise;
 
 	expectOk(await conversation.send('Is "lucid" formal?'));
-	const isActive = () =>
-		conversation.snapshot().isGenerating || conversation.snapshot().isSaving;
-	for (let count = 0; count < 200 && isActive(); count++) await Bun.sleep(0);
+	await settle(conversation);
 	expect(roles()).toEqual(['assistant', 'user', 'assistant']);
 	expect([...store.entries()]).toHaveLength(3);
 
@@ -535,7 +529,7 @@ test('an older listing delivered after a newer one does not replace it', async (
 	gate.heldListing = delivery.promise;
 	const older = store.load();
 	gate.heldListing = undefined;
-	await Bun.sleep(5);
+	await gate.listingRead.promise;
 
 	// Another tab saves a message, and a second load reads it.
 	const otherTab = createChatMessageStore(folder, 'chat-a');

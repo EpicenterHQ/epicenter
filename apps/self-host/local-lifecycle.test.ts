@@ -18,7 +18,7 @@ test('one Bun process persists enrollment, sync, and local blobs across restart'
 	const origin = `http://localhost:${port}`;
 	let child: ReturnType<typeof spawn> | undefined;
 	async function start() {
-		child = spawn(process.execPath, ['apps/self-host/server.ts'], {
+		const running = spawn(process.execPath, ['apps/self-host/server.ts'], {
 			cwd: join(import.meta.dir, '../..'),
 			env: {
 				...process.env,
@@ -29,13 +29,17 @@ test('one Bun process persists enrollment, sync, and local blobs across restart'
 			},
 			stdio: ['ignore', 'pipe', 'pipe'],
 		});
-		for (let i = 0; i < 100; i++) {
+		child = running;
+		// No attempt budget: startup time depends on machine load, and a server
+		// that never answers fails on the test timeout.
+		for (;;) {
 			try {
 				if ((await fetch(origin)).ok) return;
 			} catch {}
+			if (running.exitCode !== null || running.signalCode !== null)
+				throw new Error('Bun server exited before it answered');
 			await Bun.sleep(20);
 		}
-		throw new Error('Bun server failed to start');
 	}
 	async function stop() {
 		if (!child) return;

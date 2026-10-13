@@ -465,7 +465,11 @@ test('retirement aborts an HTTP response after its headers and first body chunk'
 	await context.auth.signOut();
 	// Host closes its upstream body; the downstream response terminates too.
 	await context.streamCancelled.promise;
-	await reader.cancel();
+	// Read to its end. Linux reports the closed connection to this reader as a
+	// reset, so a read may reject; a response that kept streaming times out.
+	try {
+		while (!(await reader.read()).done);
+	} catch {}
 });
 
 test('cancelling one caller during shared verification leaves the other request active', async () => {

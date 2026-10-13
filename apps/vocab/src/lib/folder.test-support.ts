@@ -26,6 +26,23 @@ export async function until(done: () => boolean, what: string) {
 	throw new Error(`Timed out waiting for ${what}`);
 }
 
+/**
+ * Wait until a conversation has nothing in flight.
+ *
+ * The folder hashes files with `crypto.subtle`, which answers from a worker
+ * thread, so how many turns a write takes depends on machine load. There is
+ * no turn budget: a conversation that never settles fails on the test timeout.
+ */
+export async function settle(conversation: {
+	snapshot(): { isGenerating: boolean; isSaving: boolean };
+}) {
+	while (
+		conversation.snapshot().isGenerating ||
+		conversation.snapshot().isSaving
+	)
+		await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 /** What the words list is given from an open folder, as the page gives it. */
 export const entriesOf = (folder: VocabFolder) => ({
 	table: folder.tables.entries,
@@ -123,6 +140,8 @@ export function gated<TTable extends VocabTables[keyof VocabTables]>(
 		heldList: undefined as Promise<void> | undefined,
 		/** A listing is read at once and delivered only after this resolves. */
 		heldListing: undefined as Promise<void> | undefined,
+		/** Settles once a held listing has been read, before it is delivered. */
+		listingRead: Promise.withResolvers<void>(),
 		creates: 0,
 		lists: 0,
 	};
@@ -155,6 +174,7 @@ export function gated<TTable extends VocabTables[keyof VocabTables]>(
 				await gate.heldList;
 				if (gate.failing) return refused('list');
 				const listed = await table.list();
+				if (heldListing) gate.listingRead.resolve();
 				await heldListing;
 				return listed;
 			},
@@ -182,6 +202,7 @@ export function gatedMessages(folder: VocabFolder) {
 					cause: new Error('storage refused'),
 				});
 			const listed = await folder.files.children(directory);
+			if (heldListing) gate.listingRead.resolve();
 			await heldListing;
 			return listed;
 		},

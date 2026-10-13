@@ -139,6 +139,35 @@ try {
 					IDBDatabase.prototype.transaction = transaction;
 				};
 			},
+			/**
+			 * Hand the page each SQL run's answer only after `release`. The run
+			 * still reaches the storage worker at once, so a test can let the
+			 * worker answer, change the page, and only then deliver the answer.
+			 */
+			holdQueries() {
+				const { query } = mail;
+				const gate = Promise.withResolvers<void>();
+				const held: Promise<unknown>[] = [];
+				mail.query = (...args) => {
+					const answer = query(...args);
+					held.push(answer);
+					return answer.finally(() => gate.promise);
+				};
+				return {
+					/** Settles once the worker has answered every held run. */
+					async answered() {
+						await Promise.allSettled(held);
+					},
+					/** Deliver the held answers; settles once the page has them. */
+					async release() {
+						mail.query = query;
+						gate.resolve();
+						await Promise.allSettled(held);
+						// A macrotask: the page has acted on every answer by then.
+						await new Promise((resolve) => setTimeout(resolve, 0));
+					},
+				};
+			},
 		},
 	});
 } catch (error) {

@@ -19,6 +19,13 @@ import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 
 const appDir = join(import.meta.dir, '..', '..');
+/**
+ * Each test runs a Vite production build of the app's resolution graph. It
+ * takes under a second alone, but `bun run check` tests every package at
+ * once, and on CI's 4-vCPU runner one build outlasted the default 5s.
+ */
+const BUNDLE_TIMEOUT = 30_000;
+
 /** Every module that reaches a bundle of `entry`, as paths. Built in its own process. */
 async function inputs(
 	entry: string,
@@ -45,66 +52,80 @@ async function inputs(
 const SEAM_ENTRY = 'src/lib/platform-selection.test-support.ts';
 
 describe('#platform/folder', () => {
-	test('the host build opens through the desktop adapter and carries nothing that stores a folder', async () => {
-		const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
-		for (const required of [
-			'platform/folder.epicenter-host.ts',
-			'epicenter/src/departure-page.svelte.ts',
-			'epicenter/src/departure-window.ts',
-			'epicenter/src/departure-wire.ts',
-			'folder/src/tauri.ts',
-			'folder/src/tauri-adapter.ts',
-			'folder/src/native/bindings.gen.ts',
-		])
-			expect(modules.filter((path) => path.endsWith(required))).toHaveLength(1);
-		expect(
-			modules.filter((path) =>
-				/platform\/folder\.browser\.ts$|folder\/src\/(browser|browser-adapter|opfs-store|bun|native-store)\.ts$|folder\/src\/git\/(browser|native)-|isomorphic-git|^node:|^bun:/.test(
-					path,
-				),
-			),
-		).toEqual([]);
-		expect(
-			modules.filter((path) => /legacy\/|open-store\.ts$|@y[+/]/.test(path)),
-		).toEqual([]);
-		// Of the host package, only its departure wire, page client, and window
-		// port: never the Bun host.
-		expect(
-			modules.filter(
-				(path) =>
-					/epicenter\/src\//.test(path) &&
-					!/epicenter\/src\/departure-(wire|window|page\.svelte)\.ts$/.test(
+	test(
+		'the host build opens through the desktop adapter and carries nothing that stores a folder',
+		async () => {
+			const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
+			for (const required of [
+				'platform/folder.epicenter-host.ts',
+				'epicenter/src/departure-page.svelte.ts',
+				'epicenter/src/departure-window.ts',
+				'epicenter/src/departure-wire.ts',
+				'folder/src/tauri.ts',
+				'folder/src/tauri-adapter.ts',
+				'folder/src/native/bindings.gen.ts',
+			])
+				expect(modules.filter((path) => path.endsWith(required))).toHaveLength(
+					1,
+				);
+			expect(
+				modules.filter((path) =>
+					/platform\/folder\.browser\.ts$|folder\/src\/(browser|browser-adapter|opfs-store|bun|native-store)\.ts$|folder\/src\/git\/(browser|native)-|isomorphic-git|^node:|^bun:/.test(
 						path,
 					),
-			),
-		).toEqual([]);
-	});
-
-	test('the browser build opens through the browser adapter, with no desktop adapter and no departure gate', async () => {
-		const modules = await inputs(SEAM_ENTRY, 'browser');
-		for (const required of [
-			'platform/folder.browser.ts',
-			'folder/src/browser.ts',
-			'folder/src/browser-adapter.ts',
-			'folder/src/opfs-store.ts',
-		])
-			expect(modules.filter((path) => path.endsWith(required))).toHaveLength(1);
-		expect(
-			modules.filter((path) =>
-				/folder\/src\/browser-(store|migration)\.ts$|fake-indexeddb/.test(path),
-			),
-		).toEqual([]);
-		expect(
-			modules.filter((path) =>
-				// The browser adapter asks `isTauri()` so it can refuse there; that one
-				// module of the Tauri API is its only use of it.
-				/platform\/folder\.epicenter-host\.ts$|epicenter\/src\/|folder\/src\/(tauri|tauri-adapter|bun|native-store)\.ts$|folder\/src\/native\/|@tauri-apps\/api\/(event|webviewWindow)|^bun:/.test(
-					path,
 				),
-			),
-		).toEqual([]);
-		expect(
-			modules.filter((path) => /legacy\/|open-store\.ts$|@y[+/]/.test(path)),
-		).toEqual([]);
-	});
+			).toEqual([]);
+			expect(
+				modules.filter((path) => /legacy\/|open-store\.ts$|@y[+/]/.test(path)),
+			).toEqual([]);
+			// Of the host package, only its departure wire, page client, and window
+			// port: never the Bun host.
+			expect(
+				modules.filter(
+					(path) =>
+						/epicenter\/src\//.test(path) &&
+						!/epicenter\/src\/departure-(wire|window|page\.svelte)\.ts$/.test(
+							path,
+						),
+				),
+			).toEqual([]);
+		},
+		BUNDLE_TIMEOUT,
+	);
+
+	test(
+		'the browser build opens through the browser adapter, with no desktop adapter and no departure gate',
+		async () => {
+			const modules = await inputs(SEAM_ENTRY, 'browser');
+			for (const required of [
+				'platform/folder.browser.ts',
+				'folder/src/browser.ts',
+				'folder/src/browser-adapter.ts',
+				'folder/src/opfs-store.ts',
+			])
+				expect(modules.filter((path) => path.endsWith(required))).toHaveLength(
+					1,
+				);
+			expect(
+				modules.filter((path) =>
+					/folder\/src\/browser-(store|migration)\.ts$|fake-indexeddb/.test(
+						path,
+					),
+				),
+			).toEqual([]);
+			expect(
+				modules.filter((path) =>
+					// The browser adapter asks `isTauri()` so it can refuse there; that one
+					// module of the Tauri API is its only use of it.
+					/platform\/folder\.epicenter-host\.ts$|epicenter\/src\/|folder\/src\/(tauri|tauri-adapter|bun|native-store)\.ts$|folder\/src\/native\/|@tauri-apps\/api\/(event|webviewWindow)|^bun:/.test(
+						path,
+					),
+				),
+			).toEqual([]);
+			expect(
+				modules.filter((path) => /legacy\/|open-store\.ts$|@y[+/]/.test(path)),
+			).toEqual([]);
+		},
+		BUNDLE_TIMEOUT,
+	);
 });

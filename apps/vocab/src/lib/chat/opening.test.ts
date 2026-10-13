@@ -8,7 +8,7 @@ import { expect, test } from 'bun:test';
 import { type AgentEngineRequest, createConversation } from '@epicenter/agent';
 import { expectOk } from 'wellcrafted/testing';
 import type { VocabFolder } from '../data.js';
-import { createBrowser, tableFiles } from '../folder.test-support.js';
+import { createBrowser, settle, tableFiles } from '../folder.test-support.js';
 import { createChatMessageStore } from './messages.js';
 import { withTutorOpening } from './opening.js';
 
@@ -38,7 +38,7 @@ test('empty tutor opening supplies model content without storing a learner messa
 	};
 	const chat = await open(folder, engine);
 	chat.retry();
-	await Bun.sleep(10);
+	await settle(chat);
 	expect(requests).toHaveLength(1);
 	expect(requests[0]?.messages).toEqual([
 		{ role: 'user', content: 'Begin our conversation.' },
@@ -49,7 +49,7 @@ test('empty tutor opening supplies model content without storing a learner messa
 	expect(await tableFiles(folder, 'messages')).toHaveLength(1);
 	chat[Symbol.dispose]();
 	const reopened = await open(folder, engine);
-	await Bun.sleep(10);
+	await settle(reopened);
 	expect(requests).toHaveLength(1);
 	expect(reopened.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',
@@ -83,12 +83,12 @@ test('stopped opening saves no partial answer and retries from empty history', a
 	await Bun.sleep(0);
 	first.stop();
 	release();
-	await Bun.sleep(10);
+	await settle(first);
 	expect(await tableFiles(folder, 'messages')).toEqual([]);
 	first[Symbol.dispose]();
 	const reopened = await open(folder, engine);
 	reopened.retry();
-	await Bun.sleep(10);
+	await settle(reopened);
 	expect(calls).toBe(2);
 	expect(reopened.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',

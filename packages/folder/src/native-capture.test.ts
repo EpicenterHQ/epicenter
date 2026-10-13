@@ -171,7 +171,11 @@ test('a rename through the same boundary cannot land between enumerating and rea
 	]);
 	expect(captured.unreadable).toEqual([]);
 	expect(pause.overlapped).toBe(false);
-	expect(await readdir(join(folder, 'todos'))).toEqual(['new.md', 'new.png']);
+	// Directory order is the filesystem's: ext4 lists in hash order.
+	expect((await readdir(join(folder, 'todos'))).sort()).toEqual([
+		'new.md',
+		'new.png',
+	]);
 	expect([...expectOk(await boundary.capture()).files.keys()]).toEqual([
 		'todos/new.md',
 		'todos/new.png',

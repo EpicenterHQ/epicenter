@@ -314,17 +314,21 @@ test('saved queries, offline storage and failure recovery', async ({
 	});
 	await test.step('cancel account-bound runs and reopen without transient results', async () => {
 		await page.getByLabel('Gmail account', { exact: true }).selectOption('two');
-		await sql.fill(
-			'WITH RECURSIVE numbers(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM numbers WHERE x<100000000) SELECT sum(x) FROM numbers',
+		await sql.fill('SELECT subject FROM messages');
+		// The storage worker bounds every run to a million VM steps or one
+		// second, so no query stays in flight long enough to switch accounts
+		// under it. Hold the run's answer instead: let the worker answer, switch,
+		// and only then hand the page its result for the other account.
+		await page.evaluate(
+			'globalThis.heldQueries = globalThis.evidence.holdQueries()',
 		);
 		await run.click();
 		await page
 			.getByRole('button', { name: 'Cancel run', exact: true })
 			.waitFor();
+		await page.evaluate('globalThis.heldQueries.answered()');
 		await page.getByLabel('Gmail account', { exact: true }).selectOption('one');
-		// A bounded late-result observation, not proof that the worker has stopped.
-		// The Cancel run button disappears before the underlying query settles.
-		await page.waitForTimeout(500);
+		await page.evaluate('globalThis.heldQueries.release()');
 		assert(
 			(await page.getByLabel('Query results', { exact: true }).count()) === 0,
 			'Late result appeared under another account',
@@ -336,7 +340,7 @@ test('saved queries, offline storage and failure recovery', async ({
 			.getByRole('cell', { name: 'one subject', exact: true })
 			.waitFor();
 		observations.push(
-			'Account switch cancels a production worker query and suppresses late results; subsequent queries recover',
+			'Account switch suppresses a production worker result that arrives after it; subsequent queries recover',
 		);
 		await page.evaluate('globalThis.evidence.close()');
 		await page.reload();

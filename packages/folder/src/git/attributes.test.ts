@@ -50,7 +50,13 @@ async function gitVerdicts(fixture: Fixture) {
 		await mkdir(dirname(join(root, path)), { recursive: true });
 		await writeFile(join(root, path), content);
 	}
+	// A case-insensitive checkout holds one file for paths that differ only in
+	// case, and Git with core.ignorecase refuses to add the second. Write each
+	// such file once, as that checkout would, on a case-sensitive disk too.
+	const written = new Set<string>();
 	for (const path of fixture.paths) {
+		if (written.has(path.toLowerCase())) continue;
+		written.add(path.toLowerCase());
 		await mkdir(dirname(join(root, path)), { recursive: true });
 		await writeFile(join(root, path), 'plain\n');
 	}
