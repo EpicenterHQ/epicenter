@@ -395,6 +395,33 @@ export const OpenFolderError = defineErrors({
 		message: `The folder could not be opened: ${describe(cause)}`,
 		cause,
 	}),
+	/**
+	 * A ready browser folder is bound to a different remote, or to none, than
+	 * the one it was opened with. Nothing was written: no file, marker, Git
+	 * configuration, or definition. `stored` is what the folder records
+	 * (`branch` is `undefined` for a folder an earlier version bound by URL
+	 * alone), and `undefined` for a folder with no remote. The URLs are omitted
+	 * from the message: stored configuration may contain credentials.
+	 */
+	RemoteMismatch: ({
+		directory,
+		stored,
+		requested,
+	}: {
+		directory: string;
+		stored: { url: string; branch: string | undefined } | undefined;
+		requested: { url: string; branch: string };
+	}) => ({
+		message:
+			stored === undefined
+				? `The folder at '${directory}' has no remote, and opening it with one would attach that remote to it. It was left unchanged`
+				: stored.url !== requested.url
+					? `The folder at '${directory}' is bound to a different remote repository than the one requested. It was left unchanged`
+					: `The folder at '${directory}' is bound to branch '${stored.branch}', not the requested branch '${requested.branch}'. It was left unchanged`,
+		directory,
+		stored,
+		requested,
+	}),
 	ShuttingDown: () => ({ message: 'The desktop app is shutting down' }),
 	/** This page and the desktop app were built for different folder contracts. */
 	Incompatible: ({ host, page }: { host: number; page: number }) => ({

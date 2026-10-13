@@ -224,8 +224,9 @@ const receipt = (
 	address = addressOf(directory),
 ) => JSON.stringify({ download: { address, remote: pending } });
 
+/** The ready marker text of a download of `remote` into `directory`. */
 const ready = (directory: string) =>
-	JSON.stringify({ address: addressOf(directory) });
+	JSON.stringify({ address: addressOf(directory), remote });
 
 /** The account directory a download of `id` uses, found without writing. */
 async function directoryOf(storage: TestStorage, httpFetch: HttpFetch) {
@@ -263,6 +264,7 @@ test('opening first publishes epicenter.json as an unrelated root; downloading f
 			directory.split('/')[2],
 			id,
 		]),
+		remote,
 	});
 	expect(requests.length).toBeGreaterThan(0);
 	expect(
@@ -826,6 +828,7 @@ test('Local download lands remote history before definition publication and refu
 	expect(folderFiles(storage, directory)).toEqual(REMOTE_FILES);
 	expect(JSON.parse(marker(storage, directory) ?? 'null')).toEqual({
 		address: JSON.stringify(['release', 'local', null, id]),
+		remote,
 	});
 	const folder = expectOk(
 		await open(storage, httpFetch, {

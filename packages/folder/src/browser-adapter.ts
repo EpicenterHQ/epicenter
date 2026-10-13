@@ -10,15 +10,18 @@
  *
  * The captured address (channel, owner, folder ID) names the directory, the
  * Web Locks, and the hint channel. The directory is the folder only while its
- * ready marker names that address (`claimDirectory`). IndexedDB is never
- * required, read, or written.
+ * ready marker names that address (`claimDirectory`). The ready marker also
+ * records the remote the folder was made with, and a ready folder opens only
+ * with that remote. IndexedDB is never required, read, or written.
  *
  * `downloadFolder` makes a folder from a remote's history before
  * anything opens it. Its marker records the pending download first and
  * becomes the ready marker last, so a download that stops leaves a directory
  * the opener refuses and only the same download continues.
  *
- * This module exports the opener and the download. `browser.ts` is the
+ * `inspectFolder` reads the same decision without writing.
+ *
+ * This module exports the opener, the inspection, and the download. `browser.ts` is the
  * public entry; the automatic entry loads this module directly, so choosing
  * an adapter at run time never drags the other adapter's code along through
  * shared re-exports.
@@ -207,17 +210,48 @@ type PendingDownload = {
 };
 
 /**
+ * What a ready marker says about the folder's remote: nothing (a folder made
+ * without one, or by a version that kept the remote only in Git
+ * configuration), a URL and branch, or a `remote` property that is not one.
+ */
+type RecordedRemote =
+	| { readonly kind: 'unrecorded' }
+	| { readonly kind: 'recorded'; readonly remote: GitRemote }
+	| { readonly kind: 'malformed' };
+
+/** A ready marker: the address whose folder this is, and its remote. */
+type ReadyMarker = {
+	readonly kind: 'ready';
+	readonly address: string;
+	readonly remote: RecordedRemote;
+};
+
+/**
  * What a marker with bytes records: the address whose folder this is, a
  * download in progress, or neither. A pending download has no top-level
  * `address`, so an opener that knows only ready markers refuses it too.
  */
 type MarkerRecord =
-	| { readonly kind: 'ready'; readonly address: string }
+	| ReadyMarker
 	| { readonly kind: 'pending'; readonly download: PendingDownload }
 	| { readonly kind: 'none' };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null;
+
+function recordedRemote(value: unknown): RecordedRemote {
+	if (value === undefined) return { kind: 'unrecorded' };
+	if (
+		isRecord(value) &&
+		typeof value.url === 'string' &&
+		typeof value.branch === 'string'
+	)
+		return {
+			kind: 'recorded',
+			remote: { url: value.url, branch: value.branch },
+		};
+	return { kind: 'malformed' };
+}
 
 function markerRecord(bytes: Uint8Array): MarkerRecord {
 	let marker: unknown;
@@ -232,7 +266,11 @@ function markerRecord(bytes: Uint8Array): MarkerRecord {
 	if (!isRecord(marker)) return { kind: 'none' };
 	// Extra record properties do not affect directory identity.
 	if (typeof marker.address === 'string')
-		return { kind: 'ready', address: marker.address };
+		return {
+			kind: 'ready',
+			address: marker.address,
+			remote: recordedRemote(marker.remote),
+		};
 	const download = marker.download;
 	if (
 		isRecord(download) &&
@@ -254,10 +292,15 @@ function markerRecord(bytes: Uint8Array): MarkerRecord {
 const describePending = ({ address, remote }: PendingDownload) =>
 	`holds an unfinished download for ${address} of ${remote.url} (branch ${remote.branch})`;
 
-/** Write the marker. Throws when the write is not confirmed. */
+/**
+ * Write the marker. Throws when the write is not confirmed. A ready marker
+ * records the remote the folder was made with, if it has one.
+ */
 function writeMarker(
 	root: OpfsDirectoryHandle,
-	record: { address: string } | { download: PendingDownload },
+	record:
+		| { address: string; remote?: GitRemote }
+		| { download: PendingDownload },
 ) {
 	return writePrivateFile(
 		root,
@@ -325,22 +368,122 @@ async function inspectDirectory(
 	};
 }
 
+/** What a directory is to the folder at one address. */
+type Standing =
+	/** Missing, or empty as an interrupted first open leaves it. */
+	| { readonly kind: 'empty' }
+	/** Records an unfinished download, for any address. */
+	| { readonly kind: 'pending'; readonly download: PendingDownload }
+	/** Its ready marker names the address. */
+	| {
+			readonly kind: 'ready';
+			readonly handle: OpfsDirectoryHandle;
+			readonly marker: ReadyMarker;
+	  }
+	/** Not this folder's, and not empty: `reason` says why. */
+	| { readonly kind: 'refused'; readonly reason: string };
+
+function standingAt(found: Destination, address: string): Standing {
+	switch (found.kind) {
+		case 'absent':
+			return { kind: 'empty' };
+		case 'notDirectory':
+			return { kind: 'refused', reason: 'is not a directory' };
+		case 'unmarked':
+			return found.occupant === undefined
+				? { kind: 'empty' }
+				: {
+						kind: 'refused',
+						reason: `holds '${found.occupant}' but no ready marker for ${address}`,
+					};
+		case 'marked': {
+			const { record } = found;
+			if (record.kind === 'none')
+				return {
+					kind: 'refused',
+					reason: 'has a ready marker that names no address',
+				};
+			if (record.kind === 'pending')
+				return { kind: 'pending', download: record.download };
+			if (record.address !== address)
+				return {
+					kind: 'refused',
+					reason: `is marked for ${record.address}, not ${address}`,
+				};
+			return { kind: 'ready', handle: found.handle, marker: record };
+		}
+	}
+}
+
+/** The remote a ready folder is bound to, as its marker and configuration say. */
+type RemoteBinding =
+	| { readonly kind: 'none' }
+	/** `branch` is `undefined` where only the URL was recorded: a folder an earlier version made. */
+	| {
+			readonly kind: 'bound';
+			readonly url: string;
+			readonly branch: string | undefined;
+	  }
+	| { readonly kind: 'ambiguous'; readonly reason: string };
+
+/**
+ * Read, without writing, what remote a ready folder is bound to. The marker
+ * records the URL and branch the folder was made with; an earlier version
+ * recorded only `remote.origin.url` in Git configuration, which still binds
+ * the URL. A marker and a configuration that name different URLs, a
+ * `remote` property that is no URL and branch, and a configuration that
+ * cannot be read are ambiguous: nothing says which remote the folder keeps.
+ */
+async function remoteBinding(
+	root: OpfsDirectoryHandle,
+	marker: ReadyMarker,
+): Promise<RemoteBinding> {
+	const ambiguous = (reason: string): RemoteBinding => ({
+		kind: 'ambiguous',
+		reason,
+	});
+	if (marker.remote.kind === 'malformed')
+		return ambiguous('has a ready marker whose remote is not a URL and branch');
+	const origin = await readOrigin(root);
+	if (!origin.readable)
+		return ambiguous('has Git configuration that cannot be read');
+	if (marker.remote.kind === 'unrecorded')
+		return origin.url === undefined
+			? { kind: 'none' }
+			: { kind: 'bound', url: origin.url, branch: undefined };
+	const { url, branch } = marker.remote.remote;
+	if (origin.url !== undefined && origin.url !== url)
+		return ambiguous(
+			'has a ready marker and Git configuration that name different remotes',
+		);
+	return { kind: 'bound', url, branch };
+}
+
 /**
  * Make `directory` the folder at `address`, under the folder's open lock. A
  * directory whose ready marker names `address` is the folder. One whose
  * marker names another address, records an unfinished download, or names
  * nothing, is refused, and so is one that holds anything without a marker:
- * nothing there is overwritten or adopted. A missing or empty directory becomes the folder once its marker
- * is written; a marker write that fails, or whose close is unconfirmed,
+ * nothing there is overwritten or adopted. A missing or empty directory
+ * becomes the folder once its marker, recording `remote` if there is one, is
+ * written; a marker write that fails, or whose close is unconfirmed,
  * throws, and the open is refused. An empty marker publishes nothing, so a
  * directory holding only one is still empty. Without `createIfMissing`, a
  * missing or empty directory is `Absent` and nothing is written.
+ *
+ * A ready folder opens with `remote` only if it is bound to that URL (and
+ * branch. An older folder with no recorded branch needs explicit confirmation
+ * before that branch is recorded. Another remote, a folder with none, or an
+ * ambiguous binding is refused before anything is written. Opening without a
+ * remote asks nothing of the binding.
  */
 async function claimDirectory(
 	origin: OpfsDirectoryHandle,
 	directory: string,
 	address: string,
+	remote: GitRemote | undefined,
 	createIfMissing: boolean,
+	confirmLegacyRemoteBranch: boolean,
 ): Promise<Result<OpfsDirectoryHandle, OpenFolderError>> {
 	const refused = (reason: string) =>
 		OpenFolderError.Unavailable({
@@ -348,24 +491,38 @@ async function claimDirectory(
 				`The directory '${directory}' ${reason}; it was left unchanged`,
 			),
 		});
-	const found = await inspectDirectory(origin, directory);
-	if (found.kind === 'notDirectory') return refused('is not a directory');
-	if (found.kind === 'marked') {
-		const { record } = found;
-		if (record.kind === 'none')
-			return refused('has a ready marker that names no address');
-		if (record.kind === 'pending')
-			return refused(
-				`${describePending(record.download)}; downloading it again finishes it`,
-			);
-		if (record.address !== address)
-			return refused(`is marked for ${record.address}, not ${address}`);
-		return Ok(found.handle);
-	}
-	if (found.kind === 'unmarked' && found.occupant !== undefined)
+	const standing = standingAt(
+		await inspectDirectory(origin, directory),
+		address,
+	);
+	if (standing.kind === 'refused') return refused(standing.reason);
+	if (standing.kind === 'pending')
 		return refused(
-			`holds '${found.occupant}' but no ready marker for ${address}`,
+			`${describePending(standing.download)}; downloading it again finishes it`,
 		);
+	if (standing.kind === 'ready') {
+		if (remote === undefined) return Ok(standing.handle);
+		const binding = await remoteBinding(standing.handle, standing.marker);
+		if (binding.kind === 'ambiguous') return refused(binding.reason);
+		const stored =
+			binding.kind === 'none'
+				? undefined
+				: { url: binding.url, branch: binding.branch };
+		if (
+			stored === undefined ||
+			stored.url !== remote.url ||
+			(stored.branch !== remote.branch &&
+				!(stored.branch === undefined && confirmLegacyRemoteBranch))
+		)
+			return OpenFolderError.RemoteMismatch({
+				directory,
+				stored,
+				requested: { url: remote.url, branch: remote.branch },
+			});
+		if (stored?.branch === undefined)
+			await writeMarker(standing.handle, { address, remote });
+		return Ok(standing.handle);
+	}
 	if (!createIfMissing) return OpenFolderError.Absent({ directory });
 	const { data: made, error: directoryError } = await ensureDirectory(
 		origin,
@@ -373,7 +530,7 @@ async function claimDirectory(
 	);
 	if (directoryError !== null)
 		return OpenFolderError.Unavailable({ cause: directoryError });
-	await writeMarker(made, { address });
+	await writeMarker(made, { address, remote });
 	return Ok(made);
 }
 
@@ -444,7 +601,14 @@ export const openFolder: OpenFolder = async ({
 	if (isTauri()) return OpenFolderError.InsideTauri();
 	if (typeof id !== 'string' || id.trim() === '')
 		return OpenFolderError.InvalidId({ id: String(id) });
-	const { remote, createIfMissing = true } = browser;
+	const { createIfMissing = true } = browser;
+	const { confirmLegacyRemoteBranch = false } = browser;
+	// Copied before the first await, like the scope: the marker records this
+	// pair, not whatever the caller's object holds later.
+	const remote =
+		browser.remote === undefined
+			? undefined
+			: { url: browser.remote.url, branch: browser.remote.branch };
 	if (remote !== undefined && browser.author === undefined)
 		return OpenFolderError.AuthorRequired();
 	const author = browser.author ?? LOCAL_AUTHOR;
@@ -461,6 +625,7 @@ export const openFolder: OpenFolder = async ({
 		remote,
 		httpFetch,
 		createIfMissing,
+		confirmLegacyRemoteBranch,
 	});
 };
 
@@ -473,6 +638,7 @@ async function openOpfsFolder<TDefinition extends FolderDefinition>(
 		readonly remote: GitRemote | undefined;
 		readonly httpFetch: HttpFetch | undefined;
 		readonly createIfMissing: boolean;
+		readonly confirmLegacyRemoteBranch: boolean;
 	},
 ): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
 	const { at } = captured;
@@ -487,7 +653,9 @@ async function openOpfsFolder<TDefinition extends FolderDefinition>(
 				origin,
 				at.directory,
 				at.address,
+				captured.remote,
 				captured.createIfMissing,
+				captured.confirmLegacyRemoteBranch,
 			),
 		);
 	} catch (cause) {
@@ -563,6 +731,126 @@ async function openOpfsFolder<TDefinition extends FolderDefinition>(
 	} catch (cause) {
 		release();
 		return OpenFolderError.Unavailable({ cause });
+	}
+}
+
+export type InspectFolderOptions = {
+	/** The folder ID within its scope, as `openFolder` takes it. */
+	readonly id: string;
+	/**
+	 * The channel and optional captured account, as `BrowserFolderOptions.scope`:
+	 * omitted is release Local. Read before the first await.
+	 */
+	readonly scope?: BrowserFolderOptions['scope'];
+	/** Injected origin private file system and Web Locks; for tests. */
+	readonly opfs?: OpfsEnvironment;
+};
+
+/**
+ * The remote a ready folder is bound to. `branch` is `undefined` for a folder
+ * an earlier version bound by URL alone, which recorded no branch.
+ */
+export type FolderRemote = {
+	readonly url: string;
+	readonly branch: string | undefined;
+};
+
+/** What one browser folder's directory holds, read without writing. */
+export type FolderInspection =
+	/** No folder: the directory is missing or empty. Opening would create one. */
+	| { readonly kind: 'absent'; readonly location: FolderLocation }
+	/** An unfinished download of `remote`. Opening refuses it; downloading again finishes it. */
+	| {
+			readonly kind: 'pending';
+			readonly location: FolderLocation;
+			readonly remote: GitRemote;
+	  }
+	/** A folder at this address. `remote` is `undefined` when it has none. */
+	| {
+			readonly kind: 'ready';
+			readonly location: FolderLocation;
+			readonly remote: FolderRemote | undefined;
+	  };
+
+/** Inspection's refusals: those of an opener that has no definition to prepare. */
+export type InspectError =
+	| AddressError
+	| Extract<OpenFolderError, { name: 'Unavailable' }>;
+
+/**
+ * Report what the directory of folder `id` holds, without creating or writing
+ * anything: no directory, marker, Git state, or `epicenter.json`, and the
+ * folder is not opened. The scope and address rules are `openFolder`'s, and
+ * the decision is made under the same open Web Lock, so it is the one an
+ * opener would reach and it never observes a marker claim or download midway.
+ * A directory that is not this folder's, or whose binding cannot be told, is
+ * `Unavailable`, as `openFolder` refuses it.
+ */
+export async function inspectFolder({
+	id,
+	scope,
+	opfs,
+}: InspectFolderOptions): Promise<Result<FolderInspection, InspectError>> {
+	if (isTauri()) return OpenFolderError.InsideTauri();
+	if (typeof id !== 'string' || id.trim() === '')
+		return OpenFolderError.InvalidId({ id: String(id) });
+	const { data: captured, error: captureError } = await captureAddress(
+		id,
+		scope,
+		opfs,
+	);
+	if (captureError !== null) return Err(captureError);
+	const { environment, at } = captured;
+	try {
+		const origin = await environment.getDirectory();
+		return await holding(environment.locks, at.openLock, () =>
+			inspectAt(origin, at),
+		);
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
+}
+
+async function inspectAt(
+	origin: OpfsDirectoryHandle,
+	at: FolderAddress,
+): Promise<Result<FolderInspection, InspectError>> {
+	const { directory } = at;
+	const location: FolderLocation = { kind: 'opfs', directory };
+	const refused = (reason: string) =>
+		OpenFolderError.Unavailable({
+			cause: new Error(
+				`The directory '${directory}' ${reason}; it was left unchanged`,
+			),
+		});
+	const standing = standingAt(
+		await inspectDirectory(origin, directory),
+		at.address,
+	);
+	switch (standing.kind) {
+		case 'empty':
+			return Ok({ kind: 'absent', location });
+		case 'refused':
+			return refused(standing.reason);
+		case 'pending': {
+			const { download } = standing;
+			// A record for another address is not this folder's download.
+			if (download.address !== at.address)
+				return refused(describePending(download));
+			return Ok({ kind: 'pending', location, remote: { ...download.remote } });
+		}
+		case 'ready': {
+			const binding = await remoteBinding(standing.handle, standing.marker);
+			if (binding.kind === 'ambiguous') return refused(binding.reason);
+			return Ok({
+				kind: 'ready',
+				location,
+				remote:
+					binding.kind === 'none'
+						? undefined
+						: { url: binding.url, branch: binding.branch },
+			});
+		}
 	}
 }
 
@@ -652,20 +940,38 @@ export async function downloadFolder({
 	}
 }
 
-/** The `origin` URL a directory's Git configuration names, if it can be read. */
-async function configuredOrigin(
+/**
+ * The `origin` URL a directory's Git configuration names. A configuration
+ * with no `origin` is readable and has no URL; one that cannot be read is not
+ * readable, which is not the same as having none.
+ */
+async function readOrigin(
 	root: OpfsDirectoryHandle,
-): Promise<string | undefined> {
+): Promise<
+	| { readonly readable: true; readonly url: string | undefined }
+	| { readonly readable: false }
+> {
 	try {
 		const value: unknown = await git.getConfig({
 			fs: createOpfsGitSession(root).fs,
 			gitdir: GITDIR,
 			path: 'remote.origin.url',
 		});
-		return typeof value === 'string' ? value : undefined;
+		return {
+			readable: true,
+			url: typeof value === 'string' ? value : undefined,
+		};
 	} catch {
-		return undefined;
+		return { readable: false };
 	}
+}
+
+/** The `origin` URL a directory's Git configuration names, if it can be read. */
+async function configuredOrigin(
+	root: OpfsDirectoryHandle,
+): Promise<string | undefined> {
+	const origin = await readOrigin(root);
+	return origin.readable ? origin.url : undefined;
 }
 
 /** The first entry of `root` that is not its private `.git`. */
@@ -815,7 +1121,10 @@ async function downloadInto(
 		}
 		if (signal?.aborted) return incomplete(signal.reason);
 		try {
-			await writeMarker(root, { address: at.address });
+			await writeMarker(root, {
+				address: at.address,
+				remote: download.remote,
+			});
 		} catch (cause) {
 			return incomplete(
 				new Error(

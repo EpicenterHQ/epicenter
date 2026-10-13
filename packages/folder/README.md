@@ -132,13 +132,14 @@ The managed native layout is described in
 | Import | Opens | Use it when |
 | --- | --- | --- |
 | `@epicenter/folder` | The desktop app's folder when the page runs in Tauri, this browser's storage otherwise. Decided when `openFolder` is called, and only the chosen adapter is loaded. | Ordinary application code. |
-| `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. Also exports `downloadFolder`. | A web-only build, a browser account folder downloaded before its first opening, or a test that injects an OPFS stand-in with `browser.opfs`. |
+| `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. Also exports `downloadFolder` and `inspectFolder`. | A web-only build, a browser account folder inspected or downloaded before its first opening, or a test that injects an OPFS stand-in with `browser.opfs`. |
 | `@epicenter/folder/tauri` | The desktop shell's folder only. Refuses outside it. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 
 The first three export the same `openFolder` signature and the same contract,
-so one application source builds against any of them. `downloadFolder` is
-the browser entry's alone; import it from `@epicenter/folder/browser`. Importing an entry opens
+so one application source builds against any of them. `downloadFolder` and
+`inspectFolder` are the browser entry's alone; import them from
+`@epicenter/folder/browser`. Importing an entry opens
 nothing. On a server, opening returns a refusal.
 
 ```ts
@@ -151,7 +152,8 @@ openFolder({
 
 `browser` applies to a browser folder only. A browser folder uses a local
 author by default. Saves never commit (ADR-0529). A `remote` needs an explicit
-`author`.
+`author`. A new folder records its `remote`, and a ready folder opens only
+with the remote it records ([the folder's remote](#the-folders-remote)).
 `httpFetch` supplies a fetch-compatible HTTP function for Git fetch and push.
 It defaults to regular fetch; applications can supply an authenticated relay.
 It receives the canonical remote URL and the operation's abort signal. It does
@@ -234,8 +236,8 @@ at once.
 
 | The directory holds | Opening |
 | --- | --- |
-| A marker naming this address | Opens it. Other properties the marker records are kept and ignored. |
-| Nothing (or it does not exist), or only an empty `.git` with at most an empty marker | Writes the marker, then opens it. With `createIfMissing: false`, `Absent` and nothing is written. |
+| A marker naming this address | Opens it, subject to its remote ([below](#the-folders-remote)). Other properties the marker records are kept and ignored. |
+| Nothing (or it does not exist), or only an empty `.git` with at most an empty marker | Writes the marker, recording `browser.remote` when given, then opens it. With `createIfMissing: false`, `Absent` and nothing is written. |
 | A marker naming another address, or one that names none | `Unavailable`. |
 | A marker recording an unfinished download (`{ download: { address, remote } }`) | `Unavailable`, naming the download. Downloading again finishes it. |
 | Anything else without a marker, or the path is not a directory | `Unavailable`. |
@@ -256,6 +258,62 @@ adopted. A marker write that fails, or whose stream close is unconfirmed, is
 `Unavailable` too, and no folder is started. Opening again starts over only
 where the marker is absent or empty; a marker the close did publish opens,
 and one naming another address stays refused.
+
+### The folder's remote
+
+A ready folder is bound to the remote it was made with. Creating a folder
+with `browser.remote`, and a completed download, record the URL and branch in
+the ready marker, `{ address, remote: { url, branch } }`, and the URL in Git
+configuration as `origin`. A folder made without a remote records none.
+Opening decides, under the open lock and before it writes any file, marker,
+Git configuration, or `epicenter.json`:
+
+| The folder is bound to | Opening with `browser.remote` R | Opening without one |
+| --- | --- | --- |
+| The same URL and branch as R | Opens it. | Opens it. |
+| Another URL, or another branch | `RemoteMismatch`, naming what the folder records. Nothing is written. | Opens it. |
+| No remote | `RemoteMismatch` with `stored: undefined`. | Opens it. |
+| A marker and configuration that name different URLs, a `remote` property that is no URL and branch, or configuration that cannot be read | `Unavailable`. Nothing is written. | Opens it. |
+
+URLs compare as exact strings. A folder an earlier version made records its
+remote only as `remote.origin.url`, with a marker of `{ address }`. That URL
+binds it, but its branch is unrecorded. Remote opening returns `RemoteMismatch`
+until the caller explicitly confirms the branch with
+`browser.confirmLegacyRemoteBranch: true`. The URL must still match. The
+confirmed URL and branch are recorded in the marker; later opens require both
+to match. An open without a remote keeps working without confirmation. A
+marker without a remote beside a configuration with none is a folder with no
+remote. The confirmation option never changes a recorded URL or branch.
+`RemoteMismatch` omits the URLs from its message, since stored configuration
+may contain credentials, and carries them as `stored` and `requested`.
+
+`inspectFolder` reads the same decision without opening or writing:
+
+```ts
+import { inspectFolder } from '@epicenter/folder/browser';
+
+const { data: found, error } = await inspectFolder({ id, scope });  // scope as openFolder takes it
+if (error !== null) return show(error.message);
+switch (found.kind) {
+  case 'absent':  // no folder; Start (open) or Download
+  case 'pending': // found.remote is the unfinished download's { url, branch }
+  case 'ready':   // found.remote: { url, branch } | undefined; branch is undefined for an earlier version's folder
+}
+```
+
+| Directory | `inspectFolder` |
+| --- | --- |
+| Missing, or only an empty `.git` with at most an empty marker | `absent` |
+| A pending record for this address | `pending`, with its `remote` |
+| A marker naming this address | `ready`, with the remote it is bound to, or `remote: undefined` |
+| Any directory `openFolder` refuses, or a ready folder whose binding is ambiguous | `Unavailable`, unchanged |
+
+Inspection takes `id`, `scope` (omitted is release Local), and `opfs`, and
+refuses with `InvalidId`, `InvalidBrowserScope`, `NoFileSystem`, and
+`InsideTauri` before it reads anything. It creates no directory, marker, Git
+state, or `epicenter.json`, and loads no history. It waits for the address's
+open lock, so an opening or download in progress finishes first and
+inspection reports what it left. Nothing remembers the answer.
 
 ### Downloading a browser folder
 
@@ -281,13 +339,20 @@ Account startup that must not make a folder before the person chooses opens
 with `createIfMissing: false`:
 
 ```text
-openFolder(createIfMissing: false) -> Ok           use the folder
-                                   -> Absent       offer Download, or start empty
-                                   -> Unavailable  show the cause; an unfinished download continues when downloaded again
+openFolder(createIfMissing: false) -> Ok             use the folder
+                                   -> Absent         offer Download, or start empty
+                                   -> RemoteMismatch the folder is bound to another remote, or to none
+                                   -> Unavailable    show the cause; an unfinished download continues when downloaded again
 Download    -> downloadFolder -> Ok           -> openFolder(createIfMissing: false)
                               -> Exists       inspect the refusal before opening
 Start empty -> openFolder (default), which creates the folder
 ```
+
+A caller that must choose before it opens, such as one that offers Start or
+Download and then opens with a paired remote, uses
+[`inspectFolder`](#the-folders-remote) first: `absent` offers both, `pending`
+offers Download of `found.remote`, and `ready` is opened with a remote that
+equals `found.remote` or refused by the caller, with no write either way.
 
 Only an explicit call downloads. Sign-in, discovery, and opening never do.
 A download needs an explicit scope; without one it is `InvalidBrowserScope`
@@ -302,7 +367,7 @@ file, `{ download: { address, remote: { url, branch } } }`, and confirms that
 write before any Git state exists. It then fetches the remote branch into the
 address's `.git`, fast-forwards the unborn local `main` to it through the
 ordinary incoming publication, and replaces the record with the ready marker
-`{ address }` last. `landed.head` is the
+`{ address, remote: { url, branch } }` last. `landed.head` is the
 downloaded commit. Opening afterward publishes `epicenter.json` as an
 ordinary save over that history, so its commit has the downloaded head as
 parent, or there is none when the bytes match.
@@ -328,13 +393,14 @@ Only the record decides ownership. A configured `origin` is reported in
 
 After `Exists`, only `reason: 'is this folder'` confirms a ready folder at
 this address. Other refusals must not be treated as a successful download.
-A caller that opens with a remote must also check the reported `origin`:
-opening with a different URL would replace that configuration. A launcher
-may attach a remote to an unconnected Local folder, but must refuse a
-different existing origin. Use `createIfMissing: false` after downloading
-or accepting a ready folder, so a vanished directory does not become a
-new, unrelated history. Ready folders, including ready folders with no
-files, are outside download ownership; synchronize them explicitly.
+A ready folder keeps the remote it records. Opening it with a different
+remote, or with one when it has none, is `RemoteMismatch` and writes nothing
+([the folder's remote](#the-folders-remote)); `origin` in `Exists` tells a
+caller which remote the folder has before it chooses what to open with. Use
+`createIfMissing: false` after downloading or accepting a ready folder, so a
+vanished directory does not become a new, unrelated history. Ready folders,
+including ready folders with no files, are outside download ownership;
+synchronize them explicitly.
 
 The download holds the address's open Web Lock throughout. An opener of the
 same address waits, then opens what landed; a second download gets
@@ -375,7 +441,9 @@ is gone for good, the cached ref is the entry to remove.
 `httpFetch` is used for this download only. Credentials stay in it, and the
 folder's Git configuration records only the canonical `remote.url`. A download
 never rewrites the `origin` of a directory it refuses. Opening with
-`browser.remote` still writes that remote's URL as `origin` at each opening.
+`browser.remote` writes that remote's URL as `origin` at each opening, but
+only after the folder is created with it or found bound to it; another remote
+is refused first.
 
 ### Building for one environment
 

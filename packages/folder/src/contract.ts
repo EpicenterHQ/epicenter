@@ -182,6 +182,13 @@ export type BrowserFolderOptions = {
 	 */
 	readonly createIfMissing?: boolean;
 	/**
+	 * Confirm the branch of an older folder whose ready marker recorded only
+	 * its origin URL. Requires the same URL in `remote`; records that URL and
+	 * branch in the marker before opening. Use only after an explicit choice
+	 * of destination. A folder with a recorded branch cannot be changed here.
+	 */
+	readonly confirmLegacyRemoteBranch?: boolean;
+	/**
 	 * Injected origin private file system, Web Locks, and hint channel; for
 	 * tests. Defaults to the browser globals.
 	 */

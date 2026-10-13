@@ -9,6 +9,8 @@
  *
  * `downloadFolder` is this entry's alone: it makes a browser folder in an
  * explicit Local or account scope from remote history before the first open.
+ * `inspectFolder` is too: it reports what a folder's directory holds, and the
+ * remote a ready one is bound to, without creating or writing anything.
  *
  * Importing this module opens nothing.
  */
@@ -17,6 +19,11 @@ export {
 	type DownloadFolderOptions,
 	downloadFolder,
 	type FolderDownload,
+	type FolderInspection,
+	type FolderRemote,
+	type InspectError,
+	type InspectFolderOptions,
+	inspectFolder,
 	openFolder,
 } from './browser-adapter.js';
 export * from './contract.js';

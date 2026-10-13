@@ -277,11 +277,11 @@ expectTypeOf<Extract<contract.OpenFolderError, { name: 'Absent' }>>()
 	.toHaveProperty('directory')
 	.toEqualTypeOf<string>();
 
-// The browser entry adds only its download, which no other entry has.
+// The browser entry adds only its download and inspection, which no other entry has.
 expectTypeOf<Pick<typeof browser, keyof Contract>>().toEqualTypeOf<Contract>();
 expectTypeOf<
 	Exclude<keyof typeof browser, keyof Contract | 'openFolder'>
->().toEqualTypeOf<'downloadFolder' | 'DownloadFolderError'>();
+>().toEqualTypeOf<'downloadFolder' | 'DownloadFolderError' | 'inspectFolder'>();
 expectTypeOf<EntryPoint<typeof tauri>>().toEqualTypeOf<Contract>();
 expectTypeOf<Pick<typeof bun, keyof Contract>>().toEqualTypeOf<Contract>();
 

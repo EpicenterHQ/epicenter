@@ -84,7 +84,7 @@ async function folderAt(opfs = memoryOpfs()) {
 	await writePrivateFile(
 		root,
 		READY_MARKER,
-		encoder.encode(JSON.stringify({ address })),
+		encoder.encode(JSON.stringify({ address, remote })),
 	);
 	const backend = await createStoredGitBackend({
 		store: createOpfsGitStore({

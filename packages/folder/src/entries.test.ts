@@ -98,9 +98,14 @@ test('every entry exports the same contract beside its opener', () => {
 	expect(shared).toContain('FileError');
 	expect(names(root)).toEqual(shared);
 	expect(names(tauri)).toEqual(shared);
-	// The browser entry adds only its download.
+	// The browser entry adds only its download and inspection.
 	expect(names(browser)).toEqual(
-		[...shared, 'DownloadFolderError', 'downloadFolder'].sort(),
+		[
+			...shared,
+			'DownloadFolderError',
+			'downloadFolder',
+			'inspectFolder',
+		].sort(),
 	);
 	// The directory entry adds its own tools to the same contract.
 	expect(names(bun)).toEqual(expect.arrayContaining(shared));
@@ -206,6 +211,10 @@ test('the browser entry refuses inside the desktop app even when handed storage'
 		}),
 	);
 	expect(download.name).toBe('InsideTauri');
+	const inspected = expectErr(
+		await browser.inspectFolder({ id, ...browserStorage(storage) }),
+	);
+	expect(inspected.name).toBe('InsideTauri');
 	expect(storage.opfs.directories()).toEqual([]);
 	expect(invoked).toEqual([]);
 });

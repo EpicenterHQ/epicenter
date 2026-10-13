@@ -435,7 +435,7 @@ describe('native folder', () => {
 });
 
 describe('browser and native exchange through a real bare repository', () => {
-	test('attaching a remote branch preserves local main and exchanges that history', async () => {
+	test('a remote branch preserves local main and exchanges that history', async () => {
 		const root = await scratch('exchange-other-branch-');
 		const bare = await createBareRemote(root);
 		globalThis.fetch = await gitHttpFetch(root);
@@ -447,6 +447,7 @@ describe('browser and native exchange through a real bare repository', () => {
 				browser: {
 					author,
 					...browserStorage(environment),
+					remote: { url: 'http://git.test/remote.git', branch: 'backup' },
 				},
 			}),
 		);
