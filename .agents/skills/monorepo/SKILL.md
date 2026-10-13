@@ -34,7 +34,7 @@ The monorepo uses consistent script naming conventions.
 
 Start apps from the repo root, not by cd-ing into the app. Root
 `bun dev:<app>` runs every process the app needs; for apps that talk to the
-hosted API (honeycrisp, vocab, and the
+hosted API (honeycrisp, todos, vocab, and the
 api dashboard), it also starts `@epicenter/api` on `localhost:8787` via
 `bun run --filter`. Root `bun dev:<app>:ui` runs the app's frontend
 alone when that split exists; for Tauri apps, it maps to the package's

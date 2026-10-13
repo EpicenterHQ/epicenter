@@ -19,8 +19,21 @@
 	import TodoList from './TodoList.svelte';
 	import DepartureNotice from './DepartureNotice.svelte';
 	import type { Departure } from '@epicenter/epicenter/departure/page';
+	import type { TodosPlace } from '$lib/platform/types.js';
 
-	let { todos, departure }: { todos: Todos; departure?: Departure } = $props();
+	let {
+		todos,
+		departure,
+		place,
+		onchangeplace,
+	}: {
+		todos: Todos;
+		departure?: Departure;
+		/** In a browser: the Local demo or the account's repository, as the header names it. */
+		place?: TodosPlace;
+		/** In a browser: close this folder and choose again. */
+		onchangeplace?: () => void;
+	} = $props();
 
 	// The views below find this folder's store with `getTodos()`, and its
 	// query client through svelte-query. Svelte sets context only while a
@@ -124,7 +137,7 @@
 	outside this element.
 -->
 <div class="flex h-dvh flex-col overflow-hidden" inert={todos.departing}>
-	<AppHeader {sync} reviewing={attempt !== undefined} />
+	<AppHeader {sync} reviewing={attempt !== undefined} {place} {onchangeplace} />
 	{#if departure}
 		<DepartureNotice {departure} />
 	{/if}

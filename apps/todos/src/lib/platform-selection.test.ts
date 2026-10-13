@@ -1,7 +1,7 @@
 /**
  * Platform Selection Tests
  *
- * Bundles the `#platform/folder` seam the way each build resolves it, with
+ * Bundles the `#platform/*` seams the way each build resolves them, with
  * the conditions and aliases `vite.config.ts` declares, and reads every module
  * the bundle pulls in. A dropped leaf or alias fails no build: resolution
  * falls back silently, so the selection is proved here.
@@ -9,8 +9,10 @@
  * Key behaviors:
  * - The host build reaches the desktop adapter and its generated bindings,
  *   and no OPFS storage, directory opener, or Git implementation
+ * - The host build reaches no start page, sign-in, or GitHub connector
  * - The browser build reaches OPFS storage and isomorphic-git, and no
  *   desktop adapter or generated bindings
+ * - The browser build reaches the start page, sign-in, and the connector
  * - Neither build reaches the automatic entry, which loads either adapter,
  *   or `@epicenter/app`
  */
@@ -104,6 +106,21 @@ describe('#platform/folder', () => {
 						),
 				),
 			).toEqual([]);
+			// The desktop folder opens at once: no start page, account, sign-in,
+			// or GitHub connector.
+			for (const leaf of ['start', 'auth'])
+				expect(
+					modules.some((path) =>
+						path.endsWith(`platform/${leaf}.epicenter-host.ts`),
+					),
+				).toBe(true);
+			expect(
+				modules.filter((path) =>
+					/platform\/(start|auth)\.browser\.ts$|src\/lib\/account\/|packages\/auth\/src\//.test(
+						path,
+					),
+				),
+			).toEqual([]);
 		},
 		BUNDLE_TIMEOUT,
 	);
@@ -147,6 +164,21 @@ describe('#platform/folder', () => {
 						/platform\/folder\.epicenter-host\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|bun|native-store)\.ts$|packages\/folder\/src\/native\/|packages\/folder\/src\/git\/(native-backend|native-checkpoint)\.ts$|tauri-plugin-epicenter-folder|^bun:/.test(
 							path,
 						),
+				),
+			).toEqual([]);
+			// The start page, sign-in, and the GitHub connector are the browser's.
+			for (const module of [
+				'platform/start.browser.ts',
+				'platform/auth.browser.ts',
+				'account/Start.svelte',
+				'account/account-folder.ts',
+				'account/connector.ts',
+				'auth/src/browser-redirect-auth.ts',
+			])
+				expect(modules.some((path) => path.endsWith(module))).toBe(true);
+			expect(
+				modules.filter((path) =>
+					/platform\/(start|auth)\.epicenter-host\.ts$/.test(path),
 				),
 			).toEqual([]);
 		},

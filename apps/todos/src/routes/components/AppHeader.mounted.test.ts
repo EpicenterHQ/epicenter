@@ -9,6 +9,8 @@
  *   touches history: no Fetch, Pull, Merge, or Commit and push (ADR-0529)
  * - A folder that does not sync yet, as on the desktop, offers Save version
  * - Save version records the saved files as a version and says so
+ * - A browser folder names where it is kept (the Local demo or the
+ *   account's repository) and offers Change; a desktop folder names none
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
@@ -18,7 +20,7 @@ import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
 import { testBrowserStorage } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
-import type { TodosFolder } from '../../lib/platform/types.js';
+import type { TodosFolder, TodosPlace } from '../../lib/platform/types.js';
 import { quiet } from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
@@ -35,7 +37,10 @@ afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
 });
 
-async function setup(adapt: (folder: TodosFolder) => TodosFolder = (f) => f) {
+async function setup(
+	adapt: (folder: TodosFolder) => TodosFolder = (f) => f,
+	props: { place?: TodosPlace; onchangeplace?: () => void } = {},
+) {
 	const folder = expectOk(
 		await openFolder({
 			id: `app-header-${count++}`,
@@ -47,7 +52,7 @@ async function setup(adapt: (folder: TodosFolder) => TodosFolder = (f) => f) {
 	cleanup.push(() => todos.close());
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(AppHeaderHost, { target, props: { todos } });
+	const view = mount(AppHeaderHost, { target, props: { todos, ...props } });
 	flushSync();
 	cleanup.push(() => {
 		void unmount(view);
@@ -79,6 +84,35 @@ test('a folder that does not sync yet offers Save version', async () => {
 		sync: { ...folder.sync, supported: false },
 	}));
 	expect(testids(target)).toEqual(['save-version']);
+});
+
+test('a browser folder names where it is kept, and Change asks again', async () => {
+	let changed = 0;
+	const { target } = await setup(undefined, {
+		place: {
+			kind: 'account',
+			label: 'alice/todos',
+			detail: 'Sync sends versions to alice/todos on GitHub, branch main.',
+		},
+		onchangeplace: () => changed++,
+	});
+	const place = target.querySelector('[data-testid="place"]');
+	expect(place?.getAttribute('aria-label')).toBe(
+		'Todos kept in: alice/todos. Show details',
+	);
+	expect(place?.textContent).toContain('alice/todos');
+	place?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	flushSync();
+	expect(
+		document.querySelector('[data-testid="place-label"]')?.textContent,
+	).toBe('alice/todos');
+	click(document.body, 'Change');
+	expect(changed).toBe(1);
+});
+
+test('without a place, as on the desktop, the header names none', async () => {
+	const { target } = await setup();
+	expect(target.querySelector('[data-testid="place"]')).toBeNull();
 });
 
 test('Save version records the saved files as a version', async () => {

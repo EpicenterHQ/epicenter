@@ -2,10 +2,15 @@
 <script lang="ts">
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { createMutation, setQueryClientContext } from '@tanstack/svelte-query';
+	import type { TodosPlace } from '$lib/platform/types.js';
 	import { setTodos, type Todos } from '$lib/todos.svelte.js';
 	import AppHeader from '../AppHeader.svelte';
 
-	let { todos }: { todos: Todos } = $props();
+	let {
+		todos,
+		place,
+		onchangeplace,
+	}: { todos: Todos; place?: TodosPlace; onchangeplace?: () => void } = $props();
 	// svelte-ignore state_referenced_locally
 	setTodos(todos);
 	// svelte-ignore state_referenced_locally
@@ -13,4 +18,4 @@
 	const sync = createMutation(() => todos.sync.run.options);
 </script>
 
-<Tooltip.Provider><AppHeader {sync} /></Tooltip.Provider>
+<Tooltip.Provider><AppHeader {sync} {place} {onchangeplace} /></Tooltip.Provider>

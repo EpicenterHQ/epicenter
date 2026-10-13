@@ -1,8 +1,9 @@
 /**
- * `bun dev:todos`: the loopback Git backend plus the Vite UI.
+ * The local demo Git backend plus the Vite UI. The repository-root
+ * `bun dev:todos` command also starts the hosted API for the account flow.
  *
- * No hosted API, account, or secrets are involved. The printed session names
- * the native checkout to edit with ordinary Git and the UI to open.
+ * The printed session names the native checkout to edit with ordinary Git and
+ * the UI to open.
  */
 import { DEFAULT_GIT_PORT, startGitServer } from '../server/git-server.js';
 
@@ -14,16 +15,16 @@ const ui = 'http://127.0.0.1:5186';
 console.log(
 	[
 		'',
-		'Epicenter Todos (file-first demo)',
+		'Epicenter Todos (local demo)',
 		`  UI:              ${ui}`,
 		`  Remote:          ${session.remoteUrl}  (browser: ${ui}${session.browserRemotePath})`,
 		`  Bare repository: ${session.bare}`,
 		`  Native checkout: ${session.nativeCheckout}`,
 		'',
-		'  After pressing Commit and push in the browser:',
+		'  After pressing Sync in the Local demo:',
 		`    cd ${session.nativeCheckout} && git pull --ff-only`,
 		`    bun apps/todos/scripts/native.ts ${session.nativeCheckout} status`,
-		'  Then edit, commit, and push natively, and press Pull in the browser.',
+		'  Then edit, commit, and push natively, and press Sync in the browser.',
 		'',
 		`Session: ${JSON.stringify(session)}`,
 		'',

@@ -6,6 +6,8 @@
 	import type { SyncError, SyncOutcome } from '@epicenter/folder';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import FolderIcon from '@lucide/svelte/icons/folder';
+	import FolderGitIcon from '@lucide/svelte/icons/folder-git-2';
+	import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 	import HistoryIcon from '@lucide/svelte/icons/history';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import {
@@ -28,6 +30,7 @@
 		versionOutcomeLine,
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
+	import type { TodosPlace } from '$lib/platform/types.js';
 	import { type TodosError, todosKeys } from '$lib/session.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 
@@ -36,11 +39,17 @@
 	let {
 		sync,
 		reviewing = false,
+		place,
+		onchangeplace,
 	}: {
 		/** The page's Sync; a sync that needs choices opens the review the page shows. */
 		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, void, unknown>;
 		/** Whether the sync review shows, which holds every other Git action. */
 		reviewing?: boolean;
+		/** In a browser: the Local demo or the account's repository. */
+		place?: TodosPlace;
+		/** In a browser: close this folder and choose again. */
+		onchangeplace?: () => void;
 	} = $props();
 
 	// Git status is a read like any other: on open, on focus, and after actions.
@@ -148,6 +157,33 @@
 			<span class="truncate">{directory}</span>
 		</Button>
 	{/if}
+	{#if place}
+		<!-- In a browser, say which list this is: the Local demo, or the account's repository. -->
+		<Popover.Root>
+			<Popover.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						variant="ghost"
+						size="sm"
+						class="max-w-56 min-w-0 shrink font-normal"
+						aria-label="Todos kept in: {place.label}. Show details"
+						data-testid="place"
+					>
+						{#if place.kind === 'account'}<FolderGitIcon />{:else}<HardDriveIcon />{/if}
+						<span class="truncate max-sm:sr-only">{place.label}</span>
+					</Button>
+				{/snippet}
+			</Popover.Trigger>
+			<Popover.Content align="start" class="w-80 max-w-[calc(100vw-1rem)] space-y-2 text-sm">
+				<p class="font-medium" data-testid="place-label">{place.label}</p>
+				<p class="text-xs text-muted-foreground">{place.detail}</p>
+				{#if onchangeplace}
+					<Button variant="outline" size="sm" disabled={busy} onclick={onchangeplace}>Change</Button>
+				{/if}
+			</Popover.Content>
+		</Popover.Root>
+	{/if}
 
 	<Popover.Root>
 		<Popover.Trigger>
@@ -178,6 +214,9 @@
 								Each todo is a file in <code>todos/</code> here. Edits made by other programs show up when you return to this window.
 							</span>
 							<Button class="mt-1.5" variant="outline" size="sm" onclick={() => void copyPath(directory)}>Copy path</Button>
+						{:else if place}
+							<span class="font-medium" data-testid="status-folder">{place.label}</span>
+							<span class="mt-0.5 block text-xs text-muted-foreground">{place.detail}</span>
 						{:else}
 							<span class="font-medium" data-testid="status-folder">This browser</span>
 							<span class="mt-0.5 block text-xs text-muted-foreground">Saved in this browser's storage, not in a folder on this computer.</span>

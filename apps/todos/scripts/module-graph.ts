@@ -1,6 +1,11 @@
 #!/usr/bin/env bun
-/** Print the modules Vite emits for one entry using this app's resolution config. */
+/**
+ * Print the modules Vite emits for one entry using this app's resolution
+ * config. Svelte components compile as the app's build compiles them, since
+ * a seam leaf may export one.
+ */
 import { join } from 'node:path';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { build } from 'vite';
 
 const appDir = join(import.meta.dir, '..');
@@ -20,6 +25,7 @@ const result = await build({
 	root: appDir,
 	configFile: false,
 	logLevel: 'silent',
+	plugins: [svelte()],
 	resolve: config.resolve,
 	build: {
 		write: false,

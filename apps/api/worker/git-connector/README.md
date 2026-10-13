@@ -17,8 +17,9 @@ Status: deployed at `api.epicenter.so` on October 8 from source commit
 `17724f7fd6`, Worker version `fa1829a1-b36a-4c13-a741-45c0016ba0f4`. The Worker
 build and focused tests pass. Live checks confirm unauthenticated pairing
 requests receive 401, invalid callbacks receive 400, and sign-in serves 200.
-GitHub authorization and transfers remain unverified. No browser or native
-application calls it yet. The
+GitHub authorization and transfers remain unverified. Todos now has a browser
+caller in source; the deployed Worker does not yet allow its `/sync` callback.
+The
 journey fixture under `work/zhongwen-github-connector-20261007/` targets the
 earlier fixed-repository prototype; it no longer compiles against this code
 and does not describe the current flow.
@@ -435,9 +436,11 @@ grant fail to unseal; each is deleted at next use and its pairings stay.
 
 ### Callbacks
 
-A deployed API origin allows only `https://zhongwen.bradenwong.com/sync`. A
-loopback `API_PUBLIC_ORIGIN` also allows `http://localhost:5207/sync` and
-`http://127.0.0.1:5207/sync`.
+This source allows `https://zhongwen.bradenwong.com/sync` and
+`https://todos.epicenter.so/sync` for a deployed API origin. A loopback
+`API_PUBLIC_ORIGIN` also allows `localhost` and `127.0.0.1` callbacks on
+Zhongwen's port 5207 and Todos's port 5186. The deployed Worker will allow
+Todos only after this change is deployed.
 
 ## Tests
 

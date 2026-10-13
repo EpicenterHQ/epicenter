@@ -119,13 +119,15 @@ directory. The shared Rust Folder plugin owns that directory,
 and the window reaches it through typed Tauri invoke commands; `#platform/folder`
 selects that at build time. `bun dev:todos` starts the browser demo instead,
 with the folder in the browser's origin private file system (OPFS) and a
-loopback Git backend. Neither needs the hosted API.
+loopback Git backend for Local. The browser can instead sign in and open an
+account-scoped OPFS folder paired with a private GitHub repository through the
+hosted API. The desktop build still needs no hosted API for its folder.
 
 A browser folder is one OPFS directory holding its files and `.git`. Opening
 uses only OPFS; it does not read or migrate earlier IndexedDB databases
 ([ADR-0497](../docs/adr/0497-browser-folders-use-scoped-opfs-directories.md)).
-Capture, Honeycrisp, Todos, Vocab, and Whispering open release Local browser
-folders; none selects a development or account scope yet.
+Capture, Honeycrisp, Vocab, and Whispering open release Local browser folders.
+Todos offers Local and a captured account scope in its browser build.
 
 Honeycrisp's [README](honeycrisp/README.md) explains its standalone Tauri shell,
 native Markdown folder, and local editing drafts. It needs neither the Epicenter
