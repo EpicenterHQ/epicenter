@@ -22,7 +22,7 @@ test('dashboard startup supplies its public origin without changing ordinary API
 	);
 });
 
-test('dev launcher forwards the loopback override after validating it before side effects', async () => {
+test('dev launcher validates the loopback override and removes production routes before starting Wrangler', async () => {
 	const source = await Bun.file(new URL('./dev.ts', import.meta.url)).text();
 	expect(source).toContain(
 		'const publicOrigin = process.env.API_PUBLIC_ORIGIN ?? localUrl(APPS.API);',
@@ -36,6 +36,6 @@ test('dev launcher forwards the loopback override after validating it before sid
 	expect(rejection).toBeGreaterThan(-1);
 	expect(rejection).toBeLessThan(source.indexOf('await mkdir('));
 	expect(source).toContain('API_PUBLIC_ORIGIN:${publicOrigin}');
-	expect(source).toContain('--local-upstream ${publicUrl.host}');
-	expect(source).toContain('--upstream-protocol http');
+	expect(source).toContain('JSON.stringify({ ...config, routes: [] })');
+	expect(source).toContain('--config ${localConfig}');
 });
