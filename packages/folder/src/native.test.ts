@@ -284,14 +284,23 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
-	test('literal stems are rows on disk: an empty stem, a leading dot, a trailing space, and punctuation', async () => {
+	test('literal stems are rows on disk: an empty stem, a leading dot, and a trailing space; a name some disk reads as another is refused', async () => {
 		const root = await scratch('native-literal-');
 		const folder = await openNativeFolder({
 			root,
 			definition,
 			git: { author },
 		});
-		const stems = ['', '.hidden', 'trailing ', 'a: b', 'q?*'];
+		for (const refused of ['a: b', 'q?*', 'con'])
+			expect(
+				(
+					await folder.tables.todos.create(
+						{ fields: { title: refused, done: false }, body: '' },
+						{ stem: refused },
+					)
+				).error,
+			).not.toBeNull();
+		const stems = ['', '.hidden', 'trailing ', 'naïve 日本'];
 		for (const stem of stems) {
 			const created = expectOk(
 				await folder.tables.todos.create(

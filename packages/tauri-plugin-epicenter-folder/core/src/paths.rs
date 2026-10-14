@@ -1,16 +1,61 @@
 //! Literal folder-relative paths.
 //!
-//! This is the Rust owner of the rules in `packages/app/src/files/paths.ts`.
-//! Paths are never normalized, case folded, or aliased: a path that would need
-//! rewriting to be usable is refused.
+//! The same rules as `pathProblem` in `packages/folder/src/paths.ts`; both are
+//! held to `fixtures/path-rules.json`. Paths are never normalized, case folded,
+//! or aliased: a path that would need rewriting to be usable is refused.
 
 /// The root generated query index; derived data, never history source.
 pub const GENERATED_INDEX: &str = "index.sqlite3";
 /// Operating-system scratch files that commits and status never include.
 const SCRATCH_NAMES: [&str; 1] = [".DS_Store"];
 
+/// A Windows short name such as `GIT~1`, which can name `.git` itself.
+pub(crate) fn is_short_name(name: &str) -> bool {
+    name.as_bytes()
+        .windows(2)
+        .any(|pair| pair[0] == b'~' && pair[1].is_ascii_digit())
+}
+
+/// A code point HFS+ ignores when it compares names, or that Unicode marks
+/// default-ignorable: a name holding one can resolve to a name without it.
+fn is_ignorable(c: char) -> bool {
+    matches!(u32::from(c),
+        0x00AD | 0x034F | 0x061C | 0x115F..=0x1160 | 0x17B4..=0x17B5
+        | 0x180B..=0x180F | 0x200B..=0x200F | 0x202A..=0x202E
+        | 0x2060..=0x206F | 0x3164 | 0xFE00..=0xFE0F | 0xFEFF | 0xFFA0
+        | 0xFFF0..=0xFFF8 | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A
+        | 0xE0000..=0xE0FFF)
+}
+
+/// A name Windows reserves for a device, with or without an extension.
+fn is_device_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").trim_end().to_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            stem.strip_prefix(prefix).is_some_and(|rest| {
+                matches!(rest, "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³")
+            })
+        })
+}
+
+/// Whether `name` means only itself on every disk a folder can live on. A
+/// name Windows rewrites (a trailing dot or space, a reserved character, a
+/// device name, a short name) or that HFS+ compares without an ignorable
+/// character could resolve to another entry, `.git` among them.
+pub(crate) fn names_only_itself(name: &str) -> bool {
+    !name.ends_with(['.', ' '])
+        && !name
+            .chars()
+            .any(|c| matches!(c, ':' | '<' | '>' | '"' | '|' | '?' | '*') || is_ignorable(c))
+        && !is_device_name(name)
+        && !is_short_name(name)
+}
+
 /// Why a literal path is unusable, or `None` when it is a valid
-/// folder-relative path.
+/// folder-relative path: nonempty `/`-separated segments, no `.` or `..`, no
+/// leading slash, backslash, or control character; no segment that is `.git`
+/// or `HEAD` in any case; and every segment a name that means only itself on
+/// every disk. Leading dots are ordinary.
 pub fn path_problem(path: &str) -> Option<&'static str> {
     if path.is_empty() {
         return Some("the path is empty");
@@ -34,6 +79,12 @@ pub fn path_problem(path: &str) -> Option<&'static str> {
         // Git refuses `.git` at any depth, in any case, as a tracked path.
         if segment.to_lowercase() == ".git" {
             return Some("the path is inside private Git state");
+        }
+        if segment.eq_ignore_ascii_case("head") {
+            return Some("the path contains a segment named HEAD, which Git reads as a repository");
+        }
+        if !names_only_itself(segment) {
+            return Some("the path contains a name that can name another file on some disks");
         }
     }
     None
@@ -62,6 +113,25 @@ pub fn ancestors(path: &str) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(serde::Deserialize)]
+    struct Rules {
+        refused: Vec<String>,
+        allowed: Vec<String>,
+    }
+
+    /// The vectors `paths.test.ts` reads too, so both languages agree.
+    #[test]
+    fn path_problem_follows_the_shared_vectors() {
+        let rules: Rules =
+            serde_json::from_str(include_str!("../../fixtures/path-rules.json")).unwrap();
+        for path in &rules.refused {
+            assert!(path_problem(path).is_some(), "{path:?} allowed");
+        }
+        for path in &rules.allowed {
+            assert_eq!(path_problem(path), None, "{path:?}");
+        }
+    }
 
     #[test]
     fn path_problem_refuses_what_paths_ts_refuses() {

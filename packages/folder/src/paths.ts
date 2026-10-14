@@ -14,10 +14,47 @@ const SCRATCH_NAMES = new Set(['.DS_Store']);
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this rejects.
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
+/** Characters Windows refuses in a name. */
+const RESERVED = /[<>:"|?*]/;
+/**
+ * Code points HFS+ ignores when it compares names, or that Unicode marks
+ * default-ignorable: a name holding one can resolve to a name without it.
+ */
+const IGNORABLE =
+	/[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFF8\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E0FFF}]/u;
+/** A Windows short name such as `GIT~1`, which can name `.git` itself. */
+const SHORT_NAME = /~[0-9]/;
+
+/** A name Windows reserves for a device, with or without an extension. */
+function isDeviceName(segment: string): boolean {
+	const stem = (segment.split('.')[0] ?? '').trimEnd().toUpperCase();
+	return /^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(COM|LPT)[0-9¹²³])$/.test(stem);
+}
+
+/**
+ * Whether `segment` means only itself on every disk a folder can live on. A
+ * name Windows rewrites (a trailing dot or space, a reserved character, a
+ * device name, a short name) or that HFS+ compares without an ignorable
+ * character could resolve to another entry, `.git` among them.
+ */
+function namesOnlyItself(segment: string): boolean {
+	return (
+		!/[. ]$/.test(segment) &&
+		!RESERVED.test(segment) &&
+		!IGNORABLE.test(segment) &&
+		!isDeviceName(segment) &&
+		!SHORT_NAME.test(segment)
+	);
+}
+
 /**
  * Why a literal path is unusable, or `undefined` when it is a valid
  * folder-relative path: nonempty `/`-separated segments, no `.` or `..`, no
- * leading slash, backslash, or control character.
+ * leading slash, backslash, or control character; no segment that is `.git`
+ * or `HEAD` in any case, so no path reaches Git's private state or assembles
+ * a repository; and every segment a name that means only itself on every disk
+ * (`namesOnlyItself`). Leading dots are ordinary. The Rust shell applies the
+ * same rule (`paths.rs`); `fixtures/path-rules.json` holds both to it.
  */
 export function pathProblem(path: string): string | undefined {
 	if (path === '') return 'the path is empty';
@@ -31,6 +68,10 @@ export function pathProblem(path: string): string | undefined {
 		// Git refuses `.git` at any depth, in any case, as a tracked path.
 		if (PRIVATE_SEGMENTS.has(segment.toLowerCase()))
 			return 'the path is inside private Git state';
+		if (segment.toUpperCase() === 'HEAD')
+			return 'the path contains a segment named HEAD, which Git reads as a repository';
+		if (!namesOnlyItself(segment))
+			return `the name '${segment}' can name another file on some disks`;
 	}
 	return undefined;
 }
@@ -76,8 +117,9 @@ export function rowPath(table: string, stem: string): string {
 /**
  * Why a stem does not address a row of the table, or `undefined` when it
  * does. A stem is one literal filename segment, so the only rules are the
- * folder's own path rules: there is no portable-name grammar (ADR-0457).
- * Whether the backing filesystem can store the name is its answer to give.
+ * folder's own path rules (`pathProblem`): a row file's name must mean only
+ * itself on every disk a folder can live on, so a stem like `a: b` or `con`
+ * is refused while `.hidden` and a trailing space are ordinary.
  */
 export function rowAddressProblem(
 	table: string,
