@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-14
 - **Relates:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) keeps the remote in `remote.origin.url`; [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) names the three hosts an app runs in; [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) gives each synced folder its own repository; [ADR-0489](0489-folder-transfers-happen-only-when-a-person-syncs.md) keeps transfers explicit; [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) syncs only a repository-root data folder.
-- **Unbuilt:** `mountGitApp` and its repository store interface in `@epicenter/server`; the Artifacts store in `apps/api`; the disk store in `apps/self-host`; LFS routes on the blob stores; the folder engine's LFS client; the browser transport without GitHub rewriting; Todos' Sync panel in place of its GitHub picker; deleting the GitHub connector and the desktop relays; pushes over the Worker's request limit.
+- **Unbuilt:** `mountGitApp` and its repository store interface in `@epicenter/server`; the Artifacts store in `apps/api`; the disk store in `apps/self-host`; LFS routes on the blob stores; the folder engine's LFS client; the browser transport without GitHub rewriting; Todos' Sync panel in place of its GitHub picker; deleting the GitHub connector; pushes over the Worker's request limit.
 
 ## Context
 

@@ -4,7 +4,7 @@
 - **Superseded by:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md), still Proposed: a browser folder is the directory its ID names, with no channel or owner in its address.
 - **Date:** 2026-10-03
 - **Amended:** 2026-10-04: OPFS opens directly; IndexedDB migration and legacy admission are removed.
-- **Relates:** [ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md) defines authored owners; [ADR-0496](0496-native-app-runtime-storage-is-independent-of-the-shell.md) defines private native runtime ownership; [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) defines transient query sessions.
+- **Relates:** [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) defines transient query sessions.
 - **Unbuilt:** application selection of development and account scopes, and private SQL channel and account ownership in the `so.epicenter/<app-id>/<owner-path>/` namespace.
 
 ## Context
@@ -58,7 +58,7 @@ API, database lookup or legacy admission. It never falls back to another store.
 
 **Capture the address before acquiring resources.**
 Channel means release or development. Owner means Local or a specific account
-key under ADR-0461. One captured address determines the OPFS directory, the
+key. One captured address determines the OPFS directory, the
 files and Git Web Lock names and the notification channel. Changing login cannot
 retarget an opened folder. Separate origins do not replace channel isolation.
 Omitted scope opens release Local; applications choose any other scope

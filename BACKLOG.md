@@ -81,7 +81,7 @@ starting: a prior session may already have completed it.
   without landing on 2026-10-11 (ADR-0520, ADR-0521). Whispering still opens
   its Local default; its browser opener names no account. Cloud serves the
   existing store-sync authority, with no folder repository lifecycle/listing or
-  Git endpoint. ADR-0461, ADR-0488, and ADR-0489 describe the remaining design;
+  Git endpoint. ADR-0488 and ADR-0489 describe the remaining design;
   they do not establish its implementation. No live cloud journey was
   exercised.
 - Smallest discovery continuation: With a designated development GitHub App

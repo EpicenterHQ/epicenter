@@ -713,7 +713,6 @@ When you add an ADR, add its row here.
 | [0458](0458-markdown-links-may-cross-data-folders-by-relative-path.md) | Markdown links may cross data folders by relative path | Proposed (cross-folder link resolution unbuilt) |
 | [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |
 | [0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md) | Vocab and Whispering are Braden Wong's apps built on Epicenter | Proposed (personal-domain homes and Whispering ID migration unbuilt) |
-| [0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md) | An account directory name is a hash of the exact account identity | Proposed (only intended consumer is the private runtime root of 0496) |
 | [0463](0463-queryable-exports-contain-completed-sqlite-snapshots.md) | Completed SQLite query exports are deferred | Proposed (historical proposal; SQL export has no caller and is not planned work) |
 | [0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) | File table updates conditionally replace the captured whole file | Proposed |
 | [0466](0466-opened-media-provides-stable-input-bytes.md) | Opened media provides stable input bytes | Proposed (stable media reads and transcription migration unbuilt) |
@@ -739,7 +738,6 @@ When you add an ADR, add its row here.
 | [0493](0493-whispering-runs-as-one-application-in-three-deployment-forms.md) | Whispering runs as one application in three deployment forms | Proposed (Epicenter integration, remaining shared native services, and release distribution unbuilt) |
 | [0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) | File-folder queries use transient captured projections | Proposed (query sessions, capture contract, managed ignore initialization, and file-first resource composition unbuilt; persistence and SQL export deferred) |
 | [0495](0495-the-ark-community-profiles-use-at-handle-paths.md) | The Ark community profiles use at-handle paths | Proposed (community routing and stable profile identity unbuilt; custom domains open) |
-| [0496](0496-native-app-runtime-storage-is-independent-of-the-shell.md) | Native app runtime storage is independent of the shell | Proposed (shared root, cross-process admission, credentials, and migration unbuilt) |
 | [0497](0497-browser-folders-use-scoped-opfs-directories.md) | Browser folders use scoped OPFS directories | Accepted (app selection of development and account scopes and private SQL channel ownership unbuilt) |
 | [0498](0498-vocab-opens-one-local-folder-before-sign-in.md) | Vocab opens one local folder before sign-in | Accepted (native distribution and configured synchronization unbuilt) |
 | [0500](0500-svelte-tracks-native-data-reads-without-holding-row-values.md) | Svelte tracks native data reads without holding row values | Proposed |

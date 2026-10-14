@@ -3,8 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-10-14
 - **Supersedes:** [ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)
-- **Relates:** [ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md) no longer reaches authored folders. [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) publishes the declaration with a handle's first write. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) lets a desktop page set `origin` only to a network URL. [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) is the test each dropped guarantee was held to. [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server a remote names and how a folder reaches it.
-- **Unbuilt:** the desktop host still opens installed apps' folders at `<folderDir>/local/<app-id>` or `<folderDir>/accounts/<account-key>/<app-id>` and relays their Git through connector pairings (`installed_apps.rs`, `hosted.rs`, `account-git-relay.ts`), and the browser transport still rewrites GitHub URLs to the connector; both go with ADR-0521. Existing desktop folders under `local/` and `accounts/<account-key>/` have no move to `<root>/<folder-id>/` yet; it must keep their bytes, history, and `origin`, and two copies with one folder ID stay two copies until a person chooses.
+- **Relates:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) publishes the declaration with a handle's first write. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) lets a desktop page set `origin` only to a network URL. [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) is the test each dropped guarantee was held to. [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server a remote names and how a folder reaches it.
+- **Unbuilt:** the browser transport still rewrites GitHub URLs to the connector, which goes with ADR-0521.
 
 ## Context
 
@@ -17,10 +17,12 @@ without writing. Opening created the directory, the marker, the repository,
 and `epicenter.json`, so a person who opened Todos to download an account's
 todos already had local changes the download refused.
 
-The desktop host grouped folders the same way under `~/Epicenter`
-([ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md)
-before its revision): `local/<id>` signed out, `accounts/<account-key>/<id>`
-signed in, so signing in changed which dataset an app opened.
+The desktop host grouped installed apps' folders the same way under
+`~/Epicenter`, under a hash of the account identity: `local/<id>` signed out,
+`accounts/<account-key>/<id>` signed in, so signing in changed which dataset an
+app opened. Signed in, an app's folder arrived only by an explicit download
+from the connector, and its pushes went through a loopback relay in the Bun
+host to the account's pairing (`hosted.rs`, `account-git-relay.ts`).
 
 The account layer above both paired a folder ID with a GitHub repository on
 the hosted connector. A browser relayed Git through a path pinned to the
@@ -98,9 +100,12 @@ which repository it uses.
 - Browser folders at the old layout are left where they are and are no longer
   opened. Work that was synced comes back through Connect; work that never
   synced stays in the browser's storage at its old path.
-- Private runtime state (SQLite, pending provider work, provider credentials)
-  keeps its app and account ownership outside the folder
-  ([ADR-0496](0496-native-app-runtime-storage-is-independent-of-the-shell.md)).
+- Private runtime state (SQLite, keyring entries, blobs) keeps its app and
+  account ownership outside the folder, in the host's private storage.
+- Installed apps open `<folderDir>/<app-id>/` whoever is signed in, beside
+  the compiled apps' folders, and sync with whatever `origin` their
+  repository names. Folders left under `local/` and `accounts/` are not moved
+  or opened; they stay where they are.
 - Deleted: the ready marker, `downloadFolder`, `inspectFolder`, browser scopes,
   `browser.remote`, `createIfMissing`, `confirmLegacyRemoteBranch`, the
   `Absent`, `RemoteMismatch`, `AuthorRequired`, and `InvalidBrowserScope`

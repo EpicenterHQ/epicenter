@@ -3,7 +3,6 @@
 - **Status:** Superseded
 - **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store.
 - **Date:** 2026-09-23
-- **Amended by:** [ADR-0496](0496-native-app-runtime-storage-is-independent-of-the-shell.md) proposes shell-independent native roots and bounded owner addresses; acquisition remains unchanged until migration.
 - **Implemented:** Store-owned SQL acquisition, complete isolated runtimes, and consumer API migration. See the [implementation evidence](../reports/20260923-store-owned-sqlite.md). Local Mail takes a greenfield break; there are no existing users or data to migrate.
 - **Relates:** [ADR-0430](0430-define-store-declares-data-and-products-compose-resources.md) names declarations and product composition. Its proposed composition is updated alongside this record.
 - **Relates:** [ADR-0429](0429-store-handles-keep-account-identity-private.md), whose private captured account identity remains; [ADR-0437](0437-sign-out-offers-removal-of-downloaded-account-data.md) separates account departure from data removal.
