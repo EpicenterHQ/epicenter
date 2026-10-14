@@ -822,6 +822,7 @@
       "dependencies": {
         "@epicenter/definition": "workspace:*",
         "@epicenter/principal": "workspace:*",
+        "@epicenter/sqlite": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "buffer": "^6.0.3",
         "diff": "^8.0.4",
