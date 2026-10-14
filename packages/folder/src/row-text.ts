@@ -15,7 +15,7 @@
  * `formatRow` writes always reads back through `parseRow` as the same row.
  */
 
-import { type CreateRowOf, check } from '@epicenter/definition';
+import { type CheckMode, type CreateRowOf, check } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	type CanonicalDocument,
@@ -54,6 +54,15 @@ export type Issue = {
 export type Issues = readonly [Issue, ...Issue[]];
 
 /**
+ * How a row's stored keys are checked. An open table ignores a key it does not
+ * declare and keeps it; a closed one reads its file as strictly as a whole row
+ * is written, so an undeclared key is an issue at its line.
+ */
+function storedMode(table: PreparedFolderTable): CheckMode {
+	return table.additionalProperties === false ? 'input' : 'read';
+}
+
+/**
  * Read text as a row of a prepared table: parse the complete frontmatter,
  * then check every declared field. Synchronous and pure, so it reads an
  * unsaved buffer as readily as a file.
@@ -80,7 +89,7 @@ export function parseRow<const TTable extends PreparedFolderTable>(
 			]),
 		);
 	const { document, lineOf } = parsed;
-	const { issues } = check(table.fields, document.fields, 'read');
+	const { issues } = check(table.fields, document.fields, storedMode(table));
 	if (issues.length > 0)
 		return Err(
 			issueList(
@@ -135,7 +144,11 @@ export function writeRow<const TTable extends PreparedFolderTable>(
 		Object.keys(table.fields),
 	);
 	if (refusal !== null) return Err(issueList([writeIssue(refusal)]));
-	const { issues } = check(table.fields, written.document.fields, 'read');
+	const { issues } = check(
+		table.fields,
+		written.document.fields,
+		storedMode(table),
+	);
 	if (issues.length > 0)
 		return Err(
 			issueList(issues.map(({ field, message }) => ({ message, field }))),

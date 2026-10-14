@@ -48,10 +48,19 @@ export type TableBody = {
 	readonly decode: (text: string) => unknown;
 };
 
-/** Value-field schemas and the optional conversion for the row's separately edited body. */
+/**
+ * Value-field schemas, the optional conversion for the row's separately
+ * edited body, and whether the table is closed.
+ *
+ * `additionalProperties: false` is JSON Schema's own keyword for a closed
+ * object: a stored row with a key `fields` does not declare does not conform.
+ * Only a storage whose rows people write by hand keeps a closed table; one
+ * that must read keys a newer release added refuses it.
+ */
 export type TableDeclaration<TBody extends TableBody = TableBody> = {
 	readonly fields: FieldMap;
 	readonly body?: TBody;
+	readonly additionalProperties?: false;
 };
 
 /**

@@ -572,8 +572,9 @@ can be saved back. `path` and `sha256` describe the read and never change; a
 guarded write takes them as its capture.
 
 `InvalidRow` is every way readable text fails to be a row: no fences,
-malformed YAML, a value with no exact JSON form, or a declared field that is
-missing or does not conform. It carries the exact text, the hash of its
+malformed YAML, a value with no exact JSON form, a declared field that is
+missing or does not conform, or, in a closed table, a key the table does not
+declare. It carries the exact text, the hash of its
 bytes, and `issues`, located like compiler diagnostics:
 
 ```ts
@@ -1104,7 +1105,11 @@ conversion, because a row's body is the file's Markdown text. An opener given
 such a definition returns `InvalidDefinition` before it acquires anything.
 
 `epicenter.json` holds each table, and `kv`, as one JSON Schema object whose
-properties are the fields. A field's references must mean the same there as
+properties are the fields. A table declared with `additionalProperties: false`
+beside `fields` is closed: the file holds the same keyword beside `properties`,
+and a row with a key the table does not declare does not conform (ADR-0533).
+Open is the default, and a closed table is for folders people write by hand;
+a dataset refuses one. A field's references must mean the same there as
 in the field alone, so a folder also refuses two fields of one table that
 define the same `$id`, such as two recursive types both named `Node`, and a
 `#` reference outside any `$id`, which the file would resolve against the

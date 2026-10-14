@@ -263,6 +263,40 @@ test('a body conversion missing a verb, and an unknown table option, are malform
 	expect(extra.message).toContain('unknown option');
 });
 
+test('a table closes with additionalProperties false, only where no newer release adds keys', () => {
+	const closed = {
+		fields: { title: Type.String() },
+		additionalProperties: false,
+	} as const;
+	const prepared = expectOk(
+		prepareSchema({ kv: {}, tables: { notes: defineTable(closed) } }),
+	);
+	expect(prepared.tables.notes.additionalProperties).toBe(false);
+	expect(
+		expectErr(
+			prepareData({
+				id: 'so.epicenter.notes',
+				kv: {},
+				tables: { notes: defineTable(closed) },
+			}),
+		).message,
+	).toContain('a dataset must read the keys a newer release adds');
+	expect(
+		expectErr(
+			prepareSchema({
+				kv: {},
+				tables: {
+					notes: defineTable({
+						fields: {},
+						// @ts-expect-error Only false closes a table.
+						additionalProperties: true,
+					}),
+				},
+			}),
+		).message,
+	).toContain('the only value is false');
+});
+
 test('field and table names keep their grammar for raw schemas', () => {
 	for (const name of ['id', 'ID', '1st', 'a-b', ''])
 		expect(expectErr(prepareKv({ [name]: Type.String() })).name).toBe(
