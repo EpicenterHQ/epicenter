@@ -1,8 +1,8 @@
 //! The desktop terminal: one command at a time in `/bin/sh`, starting in the
 //! notes directory. It is the real directory and the real `git`, so anything a
-//! command does is exactly what an outside program would do. The folder owner
-//! is not told and no commit is requested; it finds the change the way it
-//! finds any other outside write.
+//! command does is exactly what an outside program would do. No commit is
+//! requested; the page reads the folder again after each command, as it does
+//! after any outside write.
 //!
 //! It is a command runner, not a terminal emulator: a command gets no input
 //! and no TTY, and its output arrives when it ends. The working directory

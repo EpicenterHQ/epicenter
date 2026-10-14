@@ -493,6 +493,30 @@ test('a rename runs after the queued writes and moves what they saved; the open 
 	expect(await notes.rename('notes/renamed.md', 'plain.txt')).toContain('.md');
 });
 
+test('a name some disk reads as another file is refused in words a person reads, and a leading dot works', async () => {
+	const { notes, disk } = await open();
+	expect(await notes.createFile('notes', '.hidden.md')).toBeUndefined();
+	expect(disk.text('notes/.hidden.md')).toBe('');
+	for (const [name, reason] of [
+		['draft.', 'cannot end with a dot or a space'],
+		['draft ', 'cannot end with a dot or a space'],
+		['a:b.md', 'cannot contain < > : " | ? or *'],
+		['con.md', 'Windows keeps for a device'],
+		['NOTES~1', '"~" followed by a digit'],
+		['HEAD', 'Git keeps for itself'],
+	] as const) {
+		expect(await notes.createFile('notes', name)).toContain(reason);
+		expect(disk.text(`notes/${name}`)).toBeUndefined();
+	}
+	expect(await notes.createDirectory('', 'old ')).toContain(
+		'cannot end with a dot or a space',
+	);
+	expect(await notes.rename(A, 'a.md.')).toContain(
+		'cannot end with a dot or a space',
+	);
+	expect(disk.text(A)).toContain('Alpha');
+});
+
 test('a delete runs after the queued writes and removes what they saved', async () => {
 	const { notes, disk, failures } = await open();
 	notes.open(A);

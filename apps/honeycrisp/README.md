@@ -31,7 +31,7 @@ Checks, from `apps/honeycrisp`:
 | `bun run test` | The page: the editor, the notes state over the browser folder, first open over a real directory, bundle contents, then `test:dom`. Needs no Rust or C compiler. |
 | `bun run test:dom` | The note view, mounted with its UI library over jsdom, in its own process. |
 | `bun run test:native` | The shell: its Rust tests, then the page's close handling against the shell's real close gate. Needs Rust. |
-| `bun run test:quit` | macOS only, run by hand in a login session: the real app, on a fixture page in a fresh directory, quit through AppKit's `terminate:` twice. The first quit is declined; the second is approved while a save is still being written. See [the quit evidence](evidence/native-quit/README.md). Opens a window. |
+| `bun run test:quit` | macOS only, run by hand in a login session: the real app, on a fixture page in a fresh directory, quit through AppKit's `terminate:` twice. The first quit is declined; the second is approved while writes are still running, and every file they leave must be whole. See [the quit evidence](evidence/native-quit/README.md). Opens a window. |
 
 ## Where notes live
 
@@ -86,8 +86,18 @@ file in `notes/` that is not text at all, and a file in `folders/` that does
 not read as a folder, are listed apart and open nothing here; Files, rename,
 delete, and the terminal still work on them.
 
-Any file name works, for notes and for folders, including a leading dot, a
-trailing space, and `notes/.md` itself. A folder's id is its file stem.
+A file name may start with a dot: `notes/.hidden.md` and `notes/.md` itself
+are notes like any other, and `.gitignore` is an ordinary file. A folder's id
+is its file stem. A name that some disk would read as another file is
+refused, on every platform, so a folder copied to Windows still means the same
+files: a name ending in a dot or a space (`draft.`, `old `), one holding
+`< > : " | ? *`, a Windows device name (`con`, `nul.md`, `com1.txt`), a
+`~` followed by a digit (`NOTES~1`), and `HEAD` or `.git` in any case. Creating
+or renaming to such a name in **Files** writes nothing and shows why, for
+example "A name cannot end with a dot or a space." A note's own stem may still
+end in a space, since its file name ends in `.md`. A file another program
+gave such a name cannot be changed from Honeycrisp; rename it from the
+terminal.
 
 Deleting a folder first moves its notes out, each as a list action above. It
 is refused while any note cannot say which folder it is in (a note that needs
@@ -203,6 +213,13 @@ never shown as a save error. Terminal commands, including `git add` and
 `git commit`, and other programs edit disk directly; their changes are in the
 next version.
 
+A version's author is the repository's Git identity: `user.name` and
+`user.email` from its own configuration or your global one, as for any Git
+program. Whichever of the two is not configured is `Honeycrisp` or
+`honeycrisp@localhost`. Honeycrisp reads an `origin` the repository already
+names, but it has no Sync: it never pushes or fetches, and history goes
+nowhere but the directory unless you push it yourself from the terminal.
+
 Deleting a file says whether its latest changes are in no saved version, so
 you can save one first.
 
@@ -219,20 +236,23 @@ Tauri shell (src-tauri)          one program and one window. It registers the
         │                        notes directory with the shared folder plugin
         │                        and asks the page before a close or quit.
         ▼
-Folder plugin                    owns the directory: conditional file writes,
-        │                        the root lock, change detection, Git history.
-        │                        It is the Rust crate in
+Folder plugin and fs plugin      grant the window the directory and hold its
+        │                        lock. The page reads through the fs plugin;
+        │                        the folder plugin makes every change and runs
+        │                        the folder's `git`, checking each path. The
+        │                        Rust crate is in
         │                        packages/tauri-plugin-epicenter-folder.
         ▼
-Page (build-desktop, bundled)    opens the folder by its ID through
-                                 @epicenter/folder and calls the shell's own
+Page (build-desktop, bundled)    runs @epicenter/folder's own engine over the
+                                 granted directory and calls the shell's own
                                  commands. It keeps what it read in a TanStack
                                  Query cache and writes each edit at once.
 ```
 
 The page chooses where its folder lives at build time through
 `#platform/notes-host`. The desktop leaf opens the shell's folder with
-`openFolder` from `@epicenter/folder/tauri`; the browser leaf opens one OPFS
+`openFolder` from `@epicenter/folder/tauri`, which asks the shell for the
+directory and runs the engine over it; the browser leaf opens one OPFS
 directory, `Epicenter/local/so.epicenter.honeycrisp`, holding the notes and
 their `.git`, with `openFolder` from `@epicenter/folder/browser`. A browser
 folder an earlier version kept in IndexedDB is not read, copied, or deleted;
@@ -264,15 +284,26 @@ decides the rest in Rust, before any page exists:
 
 - The root: `HONEYCRISP_ROOT`, else the default directory above. The shell
   makes the directory itself if it is missing and writes nothing inside it.
-- The commit author: the owner reads the root's Git identity after taking its
-  lock, with `Honeycrisp <honeycrisp@localhost>` as the fallback.
-- Where history goes: nowhere but the directory. The folder is registered
-  with no remote, and a repository that names an `origin` is still opened
-  without one.
+- That the page's own engine opens it (`page_engine`), for the one window
+  `main`. On the page's first `grant_directory` the folder plugin takes the
+  directory's cross-process lock, refuses a linked `.git`, and adds a
+  capability that lets that window read the directory and everything in it
+  through the fs plugin. The fs plugin is configured with
+  `requireLiteralLeadingDot: false`, so `.git` and dot files are readable.
+- What the page may change: any path in the directory that the folder's path
+  rule allows (see the file names above), plus the engine's own staging files
+  in `.git`. The folder plugin checks each path on disk and makes the change;
+  the page never writes a file itself. `git` runs in Rust as the exact
+  operations the engine uses.
+- The fallback commit author, `Honeycrisp <honeycrisp@localhost>`. The
+  engine reads the identity and any `origin` from Git's configuration
+  (see Git, above).
 - Which window may use the folder and the commands: `main`, through
   `src-tauri/capabilities/main.json`. The window loads the bundled page and
   refuses to navigate anywhere else, including the same host on another port
-  or an address carrying credentials.
+  or an address carrying credentials. Tauri treats the bundled page as local
+  (`tauri://localhost`, or `http://tauri.localhost` on Windows), so the
+  capability lists no remote origin.
 
 The layout is set up by the page, through the folder, after the folder plugin
 holds the directory's lock (`src/lib/platform/first-open.ts`). It looks first:
@@ -330,6 +361,10 @@ If the method cannot be added, the app does not start. Each way out asks
 4. Only an approval naming the current page and the current request lets the
    close through. A declined request, a request from before a reload, and a
    second answer are refused.
+5. On exit the folder plugin refuses any new file or Git command from the
+   page, waits up to 10 seconds for the ones already running, and unlocks the
+   folder. The page approves only after every write it started has landed;
+   this wait covers what else is still running, such as a status check.
 
 A page that never answers is asked the same request again on the next attempt.
 Nothing in the shell approves on its behalf, so if the page's process dies
@@ -346,15 +381,16 @@ Use a disposable directory, never the default one:
 HONEYCRISP_ROOT=/tmp/honeycrisp-test bun dev:honeycrisp
 ```
 
-Both failures below are real, made from the app's terminal or any other one,
-and `src-tauri/src/tests.rs` runs the same two through the folder plugin.
+The failures below are real, made from the app's terminal or any other one.
+`src-tauri/src/tests.rs` runs the first through the folder plugin; the
+folder engine's own tests cover a commit that fails.
 
 | To see | Do this in the notes directory | Undo |
 | --- | --- | --- |
 | A save that fails: the note goes back to the file, with **Copy your text** | `chmod a-w notes`, then edit a note | `chmod u+w notes`, then type again |
 | A commit that fails while the files stay saved | `touch .git/refs/heads/main.lock`, then **Save version** | `rm .git/refs/heads/main.lock`, then **Save version** |
 | An outside edit reaches the open note | With a note open, edit `notes/<id>.md` in the terminal | The note shows the new text |
-| A change made elsewhere refuses a save | Open the folder in two windows, change a note in one, then type in the same note in the other before it regains focus | The second window's note goes back to the first window's version, with **Copy your text** |
+| A change made elsewhere refuses a save | With a note open, run `sleep 5; echo changed >> notes/<id>.md` in a terminal outside the app, and keep typing in the note until it lands | The note goes back to the changed file, with **Copy your text** |
 | A note file deleted under you | With a note open, `rm notes/<id>.md`, then type in it | The note leaves the list; nothing writes it back |
 
 What cannot be produced by hand in the running app is a save held open or
@@ -379,13 +415,13 @@ view and delivers events to it.
 | `src/lib/notes.svelte.ts` | The query cache: listing and text queries, edits and their per-file write mutations, rollback after a failed write, note, folder, and file actions, Save version, what the detail shows, and the input fence. |
 | `src/lib/platform/` | The `#platform/notes-host` seam, its two leaves, and `shell.tauri.ts`, the page side of the shell's commands. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files, terminal. |
-| `src-tauri/src/lib.rs` | The desktop shell: the folder plugin, the notes scope, the window, close routing. |
+| `src-tauri/src/lib.rs` | The desktop shell: the folder and fs plugins, the notes scope, the window, close routing. |
 | `src-tauri/src/root.rs` | Choosing and resolving the root directory. |
 | `src/lib/platform/first-open.ts` | Setting up a folder that has no layout yet, through the attached folder. |
 | `src-tauri/src/commands.rs` | The shell's commands, each a thin call into a module below. |
 | `src-tauri/src/close.rs` | Whether a close or quit may go ahead. |
 | `src-tauri/src/quit.rs` | macOS: a quit from the system becomes an exit request the gate answers. |
-| `src-tauri/examples/quit/` | macOS: the real app quit through `terminate:` on a fixture page (`bun run test:quit`). |
+| `src-tauri/examples/quit/` | macOS: the real app quit through `terminate:` on a fixture page that approves before its writes land (`bun run test:quit`). |
 | `src-tauri/src/terminal.rs`, `history.rs`, `reveal.rs` | The terminal, per-file history, and reveal. |
 | `src-tauri/capabilities/main.json` | What the notes window may call. |
 | `native-tests/` | The page's close handling against the shell's real close gate. |
@@ -401,7 +437,7 @@ replaced the host and which native checks are still to be run.
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
 - `@epicenter/folder` for the folder, its note and folder listings, and guarded writes; [TanStack Query](https://tanstack.com/query) for the cache the page reads and edits; and `@epicenter/definition` for the declaration
-- [Tauri](https://tauri.app) for the desktop shell, with the `tauri-plugin-epicenter-folder` crate owning the directory and its Git history
+- [Tauri](https://tauri.app) for the desktop shell, with the `tauri-plugin-epicenter-folder` crate granting the directory, making changes, and running `git`, and `tauri-plugin-fs` for reading
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises
@@ -429,3 +465,10 @@ when you ask (ADR-0529). It drops several promises of the version before it:
 - Every list action reads and writes the same cached note as the note view,
   so a pin or move from the list shows in the open note at once, and the other
   way around.
+
+Since the desktop app moved to the page's own engine:
+
+- A file name that some disk would read as another file is refused (see
+  [Where notes live](#where-notes-live)). Leading dots still work.
+- An `origin` the repository names is read instead of ignored. Honeycrisp
+  still never pushes or fetches.

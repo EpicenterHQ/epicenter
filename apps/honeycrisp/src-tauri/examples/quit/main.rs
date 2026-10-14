@@ -7,23 +7,28 @@
 //! gate, and the notes window with its navigation rule. Only the window's
 //! page differs: its `index.html` is replaced by `page.html`, and the harness
 //! evaluates `page.js` in it, a page-like voter that uses the window's real
-//! IPC and capability. The folder is a fresh directory, never the default one.
+//! IPC and capability. The folder is a fresh directory, never the default one,
+//! with an empty repository, as the folder engine leaves a new folder.
 //!
 //! The harness asks AppKit to quit the way the Dock, a logout, or an Apple
 //! Event does: `[NSApp terminate:]`, sent from the main run loop with
 //! `performSelector:withObject:afterDelay:0`, outside every Tao callback.
 //!
-//! 1. The page attaches the folder and says it is open.
+//! 1. The page takes the folder's grant and says it is open.
 //! 2. First quit. The guard cancels it and asks for an exit; the exit request
-//!    is held; the page is asked and declines, then writes through its
-//!    session. The process, the gate, and the folder's lock are still there.
-//! 3. The page sends one batch of `--files` new files and does not wait for
-//!    it. Once the owner is writing it, second quit. The page is asked again,
-//!    under a new request, and approves without settling the batch.
-//! 4. The approved exit goes ahead while the batch is still being written.
-//!    On `RunEvent::Exit`, after the folder plugin's own shutdown, every file
-//!    of the batch is there with its bytes, the last one written after the
-//!    approval, nothing is left in scratch, and the folder is unlocked.
+//!    is held; the page is asked and declines, then writes to its folder. The
+//!    process, the gate, and the folder's lock are still there.
+//! 3. The page sends `--files` writes of new files, each its own command, and
+//!    waits for none. Once the shell is writing them, second quit. The page
+//!    is asked again, under a new request, and approves without settling.
+//! 4. The approved exit goes ahead while writes are still running. On
+//!    `RunEvent::Exit`, after the folder plugin's own shutdown, which refuses
+//!    new page work and waits for the commands already running, every batch
+//!    file that exists is whole, and the folder is unlocked. A write the
+//!    shell refused at shutdown leaves no file; that is the page's loss, and
+//!    the notes page never approves before its writes settle. Files left in
+//!    `.git/epicenter/scratch` are counted, not failed: the engine clears
+//!    scratch the next time it opens the folder.
 //!
 //! One JSON object per line on stdout; the last is the verdict. The exit
 //! status is 0 only when every check held. The folder is kept for
@@ -54,6 +59,7 @@ mod mac {
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use epicenter_folder_core::lock::{LockError, RootLock};
+    use std::process::Command;
     use serde_json::{json, Value};
     use tauri::http::header::CONTENT_LENGTH;
     use tauri::webview::PageLoadEvent;
@@ -204,7 +210,7 @@ mod mac {
     }
 
     // ------------------------------------------------------------------
-    // The folder, as the harness sees it from outside the owner
+    // The folder, as the harness sees it from outside the shell
     // ------------------------------------------------------------------
 
     fn batch_file(root: &Path, index: usize) -> PathBuf {
@@ -216,7 +222,7 @@ mod mac {
     }
 
     /// Whether another holder has the folder's cross-process lock. The probe
-    /// is the owner's own lock; taken, it is released at once.
+    /// is the folder plugin's own lock; taken, it is released at once.
     fn locked(root: &Path) -> Result<bool, String> {
         match RootLock::acquire(root) {
             Ok(lock) => {
@@ -304,6 +310,16 @@ mod mac {
         }
         fs::create_dir_all(&root)
             .map_err(|cause| format!("{} could not be created: {cause}", root.display()))?;
+        // The engine makes the repository before its first write; the fixture
+        // page does not run the engine, so the harness makes it.
+        let initialized = Command::new("git")
+            .args(["init", "--quiet", "--initial-branch=main"])
+            .current_dir(&root)
+            .status()
+            .map_err(|cause| format!("git could not run: {cause}"))?;
+        if !initialized.success() {
+            return Err(format!("git init failed in {}", root.display()));
+        }
         fs::canonicalize(&root)
             .map_err(|cause| format!("{} could not be resolved: {cause}", root.display()))
     }
@@ -388,9 +404,7 @@ mod mac {
         if guard.as_deref() != Some("Q@:@") {
             return Err("the delegate does not answer applicationShouldTerminate: as Q@:@".into());
         }
-        let page = PAGE_JS
-            .replace("__SCOPE__", SCOPE)
-            .replace("__PROTOCOL__", &tauri_plugin_epicenter_folder::PROTOCOL.to_string());
+        let page = PAGE_JS.replace("__SCOPE__", SCOPE);
         app.get_webview_window(WINDOW)
             .ok_or("the notes window is missing")?
             .eval(page.as_str())
@@ -438,16 +452,13 @@ mod mac {
         }
         run.stage.store(DECLINED, Ordering::SeqCst);
 
-        // Step 3: a batch the owner is writing, then the second quit.
+        // Step 3: writes the shell is running, then the second quit.
         app.get_webview_window(WINDOW)
             .ok_or("the notes window is missing")?
             .eval(format!("window.__quitFixture.startBatch({})", run.files).as_str())
             .map_err(|cause| format!("the batch could not be started: {cause}"))?;
-        let last = batch_file(root, run.files - 1);
-        wait_for("the owner writing the batch", || {
-            batch_file(root, 0).exists().then_some(())
-        })?;
-        if last.exists() {
+        wait_for("the shell writing the batch", || (landed(root) > 0).then_some(()))?;
+        if landed(root) >= run.files {
             return Err("the batch finished before the quit; run with more --files".into());
         }
         run.stage.store(SECOND_QUIT, Ordering::SeqCst);
@@ -482,7 +493,8 @@ mod mac {
     }
 
     /// Step 4, on `RunEvent::Exit`: Tauri gives it to the folder plugin, which
-    /// shuts the owner down, before this callback.
+    /// refuses new page work and waits for the running commands, before this
+    /// callback.
     fn exited() {
         let run = run();
         let root = &run.root;
@@ -532,37 +544,35 @@ mod mac {
                 );
             }
         }
+        // Every file a write left is whole: a write either landed with its
+        // bytes or left nothing at that path.
         let mut wrong = Vec::new();
+        let mut present = 0;
         for index in 0..run.files {
             match fs::read(batch_file(root, index)) {
-                Ok(bytes) if bytes == format!("{index}\n").as_bytes() => {}
+                Ok(bytes) if bytes == format!("{index}\n").as_bytes() => present += 1,
                 Ok(_) => wrong.push(format!("{index}: other bytes")),
+                Err(cause) if cause.kind() == std::io::ErrorKind::NotFound => {}
                 Err(cause) => wrong.push(format!("{index}: {cause}")),
             }
         }
         if !wrong.is_empty() {
             problems.push(format!(
-                "{} of {} batch files are missing or wrong at exit, first {}",
+                "{} of {} batch files are not whole at exit, first {}",
                 wrong.len(),
                 run.files,
                 wrong[0]
             ));
         }
-        let last_written = fs::metadata(batch_file(root, run.files - 1))
-            .and_then(|stats| stats.modified())
-            .ok();
-        if let (Some(approved), Some(written)) = (approved, last_written) {
-            if written <= approved.at {
-                problems.push(
-                    "the last batch file was written before the approved exit request".to_string(),
-                );
-            }
-        }
+        let written_after_approval = approved.map_or(0, |approved| {
+            (0..run.files)
+                .filter_map(|index| fs::metadata(batch_file(root, index)).ok())
+                .filter_map(|stats| stats.modified().ok())
+                .filter(|written| *written > approved.at)
+                .count()
+        });
         let scratch = fs::read_dir(root.join(".git").join("epicenter").join("scratch"))
             .map_or(0, |entries| entries.count());
-        if scratch != 0 {
-            problems.push(format!("{scratch} files are left in scratch"));
-        }
         let unlocked = match locked(root) {
             Ok(held) => !held,
             Err(cause) => {
@@ -578,10 +588,10 @@ mod mac {
             "exit",
             json!({
                 "stage": stage,
-                "landed": landed(root),
+                "landed": present,
                 "of": run.files,
+                "writtenAfterApproval": written_after_approval,
                 "approvedExitRequestedAt": approved.map(|request| millis(request.at)),
-                "lastBatchFileWrittenAt": last_written.map(millis),
                 "exitAt": millis(at),
                 "scratchFiles": scratch,
                 "folderUnlocked": unlocked,

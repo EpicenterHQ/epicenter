@@ -62,8 +62,9 @@ the existing
 `ExitRequested` → `hold` → `CloseGate` path, exactly like the Quit menu item.
 The gate and its page are the only things that consent. An exit the gate lets
 through ends with `stop:`, never `terminate:`, so the method is not asked
-again. The folder plugin drains and unlocks the folder on `RunEvent::Exit`,
-as for every other exit.
+again. On `RunEvent::Exit` the folder plugin refuses new page work, waits up
+to 10 seconds for the page's file and Git commands already running, and
+unlocks the folder, as for every other exit.
 
 There is no `NSTerminateNow` or `NSTerminateLater` branch, no modal check, no
 mirror of the gate's state, and no resumed logout. These are deliberate. A
@@ -92,8 +93,11 @@ the folder plugin and its scope, the close gate, the capability, and
 replaces `index.html` with `page.html`. After the page loads, the harness
 evaluates `page.js` in it, a page-like voter that uses the window's real
 IPC: `close_register`, `plugin:event|listen` for `close-requested`,
-`plugin:epicenter-folder|attach`, `close_opened`, `apply`, `close_decline`,
-and `close_approve`. The harness itself never touches the gate.
+`plugin:epicenter-folder|grant_directory`, `make_folder_directory`,
+`write_folder_file`, `close_opened`, `close_decline`, and `close_approve`.
+These are the commands the folder engine writes with; the fixture page does
+not run the engine, so the harness makes the empty repository the engine
+would. The harness itself never touches the gate.
 
 Each quit is `[NSApp performSelector:@selector(terminate:) withObject:nil
 afterDelay:0]`, posted from a main-thread task. AppKit sends `terminate:` on
@@ -102,11 +106,11 @@ a later turn of the main run loop, outside every Tao callback.
 | Step | What the harness checks |
 | --- | --- |
 | Page loaded | `TaoAppDelegateParent` answers `applicationShouldTerminate:` with encoding `Q@:@`. |
-| Ready | The page attached, said its folder is open, and wrote `harness/ready.json` through its session. The folder's cross-process lock is held. |
-| First quit | Exactly one `ExitRequested`, code `Some(0)`, held by the app's own `hold_exit`. The shell sent the page one `close-requested` request, and the page declined that request. Afterward it still wrote `harness/declined.json` through its session. The lock is still held and the process is still running. |
-| Batch | The page sends one `apply` of `--files` new files (default 4000) and does not wait for it. The harness waits until the first file exists and the last does not: the owner admitted the batch and is writing it. |
-| Second quit | A held `ExitRequested`, and a second `close-requested` to the same page under a higher request number, so the gate is alive and not closing. The page approves through `close_approve` without settling the batch. That `close_approve` calls `app.exit(0)`, and the resulting `ExitRequested` is not held. At that moment fewer than all the files exist. |
-| `RunEvent::Exit` | In the app's own callback, which runs after the folder plugin's handler for the same event: every batch file exists with its exact bytes, the last one was written after the approved exit request, `.git/epicenter/scratch` is empty, and the lock can be taken. A plugin handler that ran after the callback would fail these checks. |
+| Ready | The page took the folder's grant, said its folder is open, and wrote `harness/ready.json`. The folder's cross-process lock is held. |
+| First quit | Exactly one `ExitRequested`, code `Some(0)`, held by the app's own `hold_exit`. The shell sent the page one `close-requested` request, and the page declined that request. Afterward it still wrote `harness/declined.json`. The lock is still held and the process is still running. |
+| Batch | The page sends `--files` writes of new files (default 4000), each its own `write_folder_file`, and waits for none. The harness waits until some exist and not all: the shell is writing them. |
+| Second quit | A held `ExitRequested`, and a second `close-requested` to the same page under a higher request number, so the gate is alive and not closing. The page approves through `close_approve` without settling its writes. That `close_approve` calls `app.exit(0)`, and the resulting `ExitRequested` is not held. At that moment fewer than all the files exist. |
+| `RunEvent::Exit` | In the app's own callback, which runs after the folder plugin's handler for the same event: every batch file that exists has its exact bytes, and the lock can be taken. Files missing are writes the shell refused at shutdown; files left in `.git/epicenter/scratch` are counted, not failed, because the engine clears scratch the next time it opens the folder. The log also counts the files written after the approved exit request, which the shell's wait let finish. |
 
 Every line of output is one JSON object. The last line is
 `{"event":"verdict","pass":...}`, and the exit status is 0 only on a pass.
@@ -130,6 +134,15 @@ rustc --edition 2021 -O -o "$TMPDIR/late-method-probe" evidence/native-quit/late
 ```
 
 ## Results
+
+These results were recorded with the earlier harness, while a Rust folder
+owner held the directory: the page sent one batch through the owner's
+`apply`, and the owner's drain wrote every file after the approval. The
+folder is now opened by the page's own engine and the owner is gone. The
+harness above was rewritten for that and has been compiled
+(`cargo build --example quit`), not run. The guard, the gate, and the
+`terminate:` facts below do not depend on the folder and still hold as
+recorded; the batch lines describe the old owner.
 
 The delegated worker wrote this wave in a restricted execution context.
 The coordinating agent built and ran that same source in the dedicated clone.
@@ -204,7 +217,8 @@ above are copied from them.
   was used, on any physical machine.
 - The notes page, or any production GUI. The fixture page is not the notes
   page. It approves without settling, which the notes page never does, and it
-  shows no dialog. Whether a person sees the prompt after a Dock quit is a GUI
+  shows no dialog. That the notes page settles before it approves is covered
+  by `bun run test:native` against the real gate, not by this harness. Whether a person sees the prompt after a Dock quit is a GUI
   check this does not make. An attempt to drive the bundled app's window found
   no window to drive.
 - A bundled, signed app. The harness is a debug example binary with the same
@@ -218,5 +232,5 @@ above are copied from them.
   AppKit asks a method added after the delegate was set is not something
   startup can check. Rerun the probe and `bun run test:quit` after any of
   those upgrades.
-- The probe of the lock is the owner's own `RootLock` from the same process.
+- The probe of the lock is the folder plugin's own `RootLock` from the same process.
   It relies on SQLite reporting a second connection in one process as busy.

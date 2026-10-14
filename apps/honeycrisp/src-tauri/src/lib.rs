@@ -4,15 +4,16 @@
 //! two things:
 //!
 //! - Its folder, through the shared folder plugin. The shell registers one
-//!   scope for the window `main`: the root from `HONEYCRISP_ROOT` or the
-//!   default, and the fallback author and local history policy. The plugin
-//!   reads the person's Git identity under its lock and owns the files,
-//!   change detection, and Git history. The
-//!   page names the scope and nothing else.
+//!   page-engine scope for the window `main`: the root from `HONEYCRISP_ROOT`
+//!   or the default, and the fallback author. The page names the scope and
+//!   runs `@epicenter/folder`'s own engine over the directory the plugin
+//!   grants it: it reads through the fs plugin, and the folder plugin makes
+//!   every change and runs the folder's `git` for it. The engine reads the
+//!   author and any `origin` from Git's configuration.
 //! - Honeycrisp's own commands (`commands.rs`): close consent, the terminal,
 //!   per-file history, and reveal.
 //!
-//! Drafts exist only in the page, so every way out asks it first: the
+//! Pending writes exist only in the page, so every way out asks it first: the
 //! window's close button, an exit request from the runtime, the macOS Quit
 //! menu item, and on macOS a quit from the system: the Dock, a logout, an
 //! Apple Event (`quit.rs`). `close.rs` decides; nothing here approves a close
@@ -56,11 +57,12 @@ use terminal::Terminal;
 
 const QUIT_MENU_ITEM: &str = "quit-notes";
 
-/// The plugin, the commands, and the close routing of the notes window. The
+/// The plugins, the commands, and the close routing of the notes window. The
 /// folder and the window are added in setup, once paths can be resolved.
 fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
         .plugin(tauri_plugin_epicenter_folder::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             commands::close_register,
             commands::close_opened,
@@ -86,13 +88,12 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
         })
 }
 
-/// Local history, using the repository's author after the owner takes its lock.
-/// An origin never turns this app into a syncing folder.
+/// The notes folder, opened by the page's own engine. The engine reads the
+/// author and `origin` from Git's configuration; this author is the fallback
+/// for whichever of `user.name` and `user.email` is not configured.
 fn folder_config(root: &Path) -> FolderConfig {
     FolderConfig {
-        remote: None,
-        use_repository_author: true,
-        use_repository_origin: false,
+        page_engine: true,
         ..FolderConfig::new(
             root,
             Author {
@@ -105,7 +106,7 @@ fn folder_config(root: &Path) -> FolderConfig {
 
 /// Register the notes directory for the notes window and hold the shell's own
 /// state for that window. Nothing is written inside the directory here: the
-/// owner takes its lock on the first attach, and the page sets up a missing
+/// plugin takes its lock on the first grant, and the page sets up a missing
 /// layout through it.
 fn install<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), String> {
     let root = root::locate(&root)?;
@@ -191,8 +192,8 @@ where
     shell(tauri::Builder::default())
         .setup(move |app| {
             let handle = app.handle();
-            // First: a system quit must reach the gate before anything can
-            // hold a draft, and the app does not start without that.
+            // First: a system quit must reach the gate before the page can
+            // start a write, and the app does not start without that.
             #[cfg(target_os = "macos")]
             quit::install(handle)?;
             #[cfg(target_os = "macos")]
@@ -216,7 +217,9 @@ where
 }
 
 /// Hold an exit request back while the page holds its folder; whether it was
-/// held. The folder plugin drains and unlocks the folder on exit itself.
+/// held. The page settles its writes before it approves. On exit the folder
+/// plugin refuses new page work, waits for the native file and Git commands
+/// already running, and unlocks the folder.
 /// Public for `examples/quit`, like `build`.
 #[doc(hidden)]
 pub fn hold_exit(handle: &AppHandle, event: &RunEvent) -> bool {

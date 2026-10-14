@@ -14,14 +14,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# The folder's path rules and root resolution, shared with the owner.
+# The folder's path rule and root resolution, shared with the folder plugin.
 epicenter-folder-core = { path = "../../../packages/tauri-plugin-epicenter-folder/core" }
 serde = { version = "1", features = ["derive"] }
+# The generated context carries the fs plugin's configuration as JSON.
+serde_json = "1"
 tauri = { version = "2.11", features = [] }
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+# The page reads its granted folder through the fs plugin's commands.
+tauri-plugin-fs = "2"
 
 [dev-dependencies]
-serde_json = "1"
 # The mock runtime drives the real invoke handler in tests. Test builds only.
 tauri = { version = "2.11", features = ["test"] }
 

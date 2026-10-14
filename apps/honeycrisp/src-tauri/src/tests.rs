@@ -8,12 +8,13 @@
 //! Key behaviors:
 //! - Every listed command is registered and granted to the notes window, and
 //!   refused for any other window.
-//! - The folder scope serves the notes window only. The shell writes nothing
-//!   inside the root; opening an existing folder changes no file and nothing
-//!   in its repository, born or unborn; a root another process holds is busy
-//!   and gains no file.
-//! - A new folder is set up through the owner, and its settings are in the
-//!   first commit asked for. A save commits nothing.
+//! - The folder scope is granted to the notes window only, for the page's own
+//!   engine. The shell writes nothing inside the root; granting an existing
+//!   folder and reading it change no file and nothing in its repository, born
+//!   or unborn; a root another process holds is busy and gains no file.
+//! - The grant lets the window read its directory, dot names included, and
+//!   nothing outside it. Writes go through the folder plugin under the shared
+//!   path rule, and a save commits nothing.
 //! - A held close reaches the page as an event; refusals reach it as text.
 //! - The terminal keeps its working directory in the shell.
 //!
@@ -30,6 +31,8 @@ use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{mock_builder, MockRuntime, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
 use tauri::{App, Listener, WebviewWindow, WebviewWindowBuilder};
+
+use tauri_plugin_epicenter_folder::FolderExt;
 
 use crate::commands::{hold, CLOSE_REQUESTED, WINDOW};
 use crate::testing::{git, temp, TempDirectory};
@@ -116,12 +119,12 @@ fn another_window_is_denied_every_command_and_the_folder() {
         let reply = text(&invoke(&other, command, json!({})).unwrap_err());
         assert!(reply.contains("not allowed"), "{command}: {reply}");
     }
-    let attach = invoke(
+    let granted = invoke(
         &other,
-        "plugin:epicenter-folder|attach",
-        json!({ "scope": root::SCOPE, "protocol": tauri_plugin_epicenter_folder::PROTOCOL }),
+        "plugin:epicenter-folder|grant_directory",
+        json!({ "scope": root::SCOPE }),
     );
-    assert!(text(&attach.unwrap_err()).contains("not allowed"));
+    assert!(text(&granted.unwrap_err()).contains("not allowed"));
 }
 
 #[test]
@@ -136,6 +139,10 @@ fn the_capability_grants_exactly_the_listed_commands_to_the_notes_window() {
         capability.get("remote").is_none(),
         "no remote page reaches the shell"
     );
+    assert!(
+        capability.get("local").is_none(),
+        "the bundled page is local, the default"
+    );
     let mut expected: Vec<String> = COMMANDS
         .iter()
         .map(|command| format!("allow-{}", command.replace('_', "-")))
@@ -147,6 +154,10 @@ fn the_capability_grants_exactly_the_listed_commands_to_the_notes_window() {
             "epicenter-folder:default",
         ]
         .map(str::to_string),
+    );
+    // The fs commands a grant scopes, listed without a path.
+    expected.extend(
+        tauri_plugin_epicenter_folder::DIRECTORY_COMMANDS.map(str::to_string),
     );
     expected.sort();
     let mut granted: Vec<String> = capability["permissions"]
@@ -175,6 +186,11 @@ fn the_capability_grants_exactly_the_listed_commands_to_the_notes_window() {
         "{policy}"
     );
     assert!(policy.contains("script-src 'self';"), "{policy}");
+    assert_eq!(
+        config["plugins"]["fs"]["requireLiteralLeadingDot"],
+        json!(false),
+        "a granted folder's .git and dot files are readable"
+    );
 }
 
 #[test]
@@ -216,64 +232,46 @@ fn the_window_shows_the_bundled_page_and_nothing_else() {
 // ============================================================================
 
 #[test]
-fn history_is_local_and_the_repository_configuration_adds_no_remote() {
+fn the_page_runs_the_folder_with_honeycrisp_as_the_fallback_author() {
     let directory = temp("config");
-    git(
-        directory.path(),
-        &["init", "--quiet", "--initial-branch=main"],
-    );
-    git(
-        directory.path(),
-        &["remote", "add", "origin", "https://example.com/notes.git"],
-    );
     let config = folder_config(directory.path());
-    assert!(config.remote.is_none());
-    assert!(config.use_repository_author);
-    assert!(!config.use_repository_origin);
+    assert!(config.page_engine);
     assert_eq!(config.branch, "main");
+    assert_eq!(config.author.name, "Honeycrisp");
+    assert_eq!(config.author.email, "honeycrisp@localhost");
 }
 
-/// The owner agrees: a folder whose repository names an `origin` is opened
-/// with no remote, so nothing is pushed or fetched.
-#[test]
-fn repository_author_is_used_for_local_history_without_adopting_origin() {
-    let fixture = fixture("origin", |root| {
-        git(root, &["init", "--quiet", "--initial-branch=main"]);
-        git(
-            root,
-            &["remote", "add", "origin", "https://example.com/notes.git"],
-        );
-        git(root, &["config", "user.name", "Local Person"]);
-        git(root, &["config", "user.email", "local@example.com"]);
-    });
-    let main = window(&fixture.app, WINDOW);
-    let attached = attach(&main).unwrap();
-    assert_eq!(attached["snapshot"]["remote"], Value::Null);
+fn grant(window: &WebviewWindow<MockRuntime>) -> Result<Value, Value> {
     invoke(
-        &main,
-        "plugin:epicenter-folder|apply",
+        window,
+        "plugin:epicenter-folder|grant_directory",
+        json!({ "scope": root::SCOPE }),
+    )
+}
+
+/// A path inside the root, as the page's engine names it to the plugin.
+fn inside(fixture: &Fixture, relative: &str) -> String {
+    fixture.root.join(relative).to_str().unwrap().to_string()
+}
+
+/// One file written the way the page's engine writes it.
+fn write(
+    fixture: &Fixture,
+    window: &WebviewWindow<MockRuntime>,
+    relative: &str,
+    text: &str,
+    create_new: bool,
+) -> Result<Value, Value> {
+    invoke(
+        window,
+        "plugin:epicenter-folder|write_folder_file",
         json!({
-            "session": attached["session"],
-            "changes": [{ "kind": "create", "path": "kv.json", "bytes": b"{}\n" }],
+            "scope": root::SCOPE,
+            "path": inside(fixture, relative),
+            "bytes": text.as_bytes(),
+            "createNew": create_new,
         }),
     )
-    .unwrap();
-    let committed = invoke(
-        &main,
-        "plugin:epicenter-folder|commit",
-        json!({ "session": attached["session"] }),
-    )
-    .unwrap();
-    assert_eq!(committed["status"], "committed", "{committed}");
-    assert_eq!(
-        git(&fixture.root, &["log", "-1", "--format=%an <%ae>"]),
-        "Local Person <local@example.com>"
-    );
-    assert_eq!(git(&fixture.root, &["for-each-ref", "refs/remotes"]), "");
-    assert_eq!(
-        git(&fixture.root, &["config", "remote.origin.url"]),
-        "https://example.com/notes.git"
-    );
 }
 
 const NOTE: &str = "---\r\ntitle:   \"Spaced\"  # keep\r\nextra: [1, 2]\r\n---\r\n\r\n* a\r\n";
@@ -286,36 +284,19 @@ fn existing(root: &Path) {
     std::fs::write(root.join("kv.json"), SETTINGS).unwrap();
 }
 
-fn attach(window: &WebviewWindow<MockRuntime>) -> Result<Value, Value> {
-    invoke(
-        window,
-        "plugin:epicenter-folder|attach",
-        json!({ "scope": root::SCOPE, "protocol": tauri_plugin_epicenter_folder::PROTOCOL }),
-    )
-}
-
-/// What the page does on every open: list, then read the settings and a note.
-fn look(window: &WebviewWindow<MockRuntime>, session: &Value) {
-    invoke(
-        window,
-        "plugin:epicenter-folder|list",
-        json!({ "session": session }),
-    )
-    .unwrap();
-    for path in ["kv.json", "notes/old.md"] {
+/// What the page reads on every open, through the fs plugin's commands.
+fn look(fixture: &Fixture, window: &WebviewWindow<MockRuntime>) {
+    for path in ["", "notes"] {
         invoke(
             window,
-            "plugin:epicenter-folder|read",
-            json!({ "session": session, "path": path }),
+            "plugin:fs|read_dir",
+            json!({ "path": inside(fixture, path).trim_end_matches('/') }),
         )
         .unwrap();
     }
-    invoke(
-        window,
-        "plugin:epicenter-folder|status",
-        json!({ "session": session }),
-    )
-    .unwrap();
+    for path in ["kv.json", "notes/old.md"] {
+        invoke(window, "plugin:fs|lstat", json!({ "path": inside(fixture, path) })).unwrap();
+    }
 }
 
 /// `git` output whether or not it succeeded, for a repository that may have
@@ -363,8 +344,50 @@ fn installing_the_shell_writes_nothing_inside_the_root() {
 }
 
 #[test]
+fn the_notes_window_is_granted_its_root_with_the_fallback_author() {
+    let fixture = fixture("grant", |_| {});
+    let main = window(&fixture.app, WINDOW);
+    let granted = grant(&main).expect("the notes window is granted its folder");
+    assert_eq!(
+        granted,
+        json!({
+            "root": fixture.root.to_str().unwrap(),
+            "branch": "main",
+            "authorName": "Honeycrisp",
+            "authorEmail": "honeycrisp@localhost",
+        })
+    );
+    // Granting writes nothing inside the root.
+    assert_eq!(std::fs::read_dir(&fixture.root).unwrap().count(), 0);
+}
+
+/// The fs plugin reads the granted directory and nothing else, dot names
+/// included (`requireLiteralLeadingDot: false`), and only after the grant.
+#[test]
+fn the_grant_lets_the_window_read_its_folder_dot_names_included_and_nothing_else() {
+    let fixture = fixture("read", |root| {
+        existing(root);
+        git(root, &["init", "--quiet", "--initial-branch=main"]);
+        std::fs::write(root.join("notes/.hidden.md"), "hidden\n").unwrap();
+    });
+    let outside = fixture.root.parent().unwrap().join("outside.txt");
+    std::fs::write(&outside, "outside\n").unwrap();
+    let main = window(&fixture.app, WINDOW);
+    let lstat = |path: &str| invoke(&main, "plugin:fs|lstat", json!({ "path": path }));
+    let head = inside(&fixture, ".git/HEAD");
+    assert!(lstat(&head).is_err(), "nothing is readable before the grant");
+
+    grant(&main).unwrap();
+    for path in [".git/HEAD", "notes/.hidden.md", "kv.json", "notes/old.md"] {
+        lstat(&inside(&fixture, path)).unwrap_or_else(|error| panic!("{path}: {error}"));
+    }
+    assert!(lstat(outside.to_str().unwrap()).is_err());
+    assert!(lstat(fixture.root.parent().unwrap().to_str().unwrap()).is_err());
+}
+
+#[test]
 fn an_existing_folder_with_history_is_opened_without_changing_its_files_or_its_repository() {
-    let fixture = fixture("attach", |root| {
+    let fixture = fixture("existing", |root| {
         existing(root);
         git(root, &["init", "--quiet", "--initial-branch=main"]);
         git(root, &["add", "--all"]);
@@ -375,11 +398,8 @@ fn an_existing_folder_with_history_is_opened_without_changing_its_files_or_its_r
     });
     let before = saved_state(&fixture.root);
     let main = window(&fixture.app, WINDOW);
-    let attached = attach(&main).expect("the notes window attaches");
-    assert_eq!(attached["root"], json!(fixture.root.to_str().unwrap()));
-    look(&main, &attached["session"]);
-    // Long enough for a commit to have been made, had one been requested.
-    std::thread::sleep(Duration::from_millis(300));
+    grant(&main).expect("the notes window is granted its folder");
+    look(&fixture, &main);
     assert_eq!(saved_state(&fixture.root), before);
     assert_eq!(
         git(&fixture.root, &["log", "--format=%s"]),
@@ -395,9 +415,8 @@ fn an_existing_folder_with_an_unborn_repository_stays_unborn_when_opened() {
     });
     let before = saved_state(&fixture.root);
     let main = window(&fixture.app, WINDOW);
-    let attached = attach(&main).unwrap();
-    look(&main, &attached["session"]);
-    std::thread::sleep(Duration::from_millis(300));
+    grant(&main).unwrap();
+    look(&fixture, &main);
     assert_eq!(saved_state(&fixture.root), before);
     assert!(!git_output(&fixture.root, &["rev-parse", "--verify", "--quiet", "HEAD"]).0);
     assert_eq!(git_output(&fixture.root, &["for-each-ref"]).1, "");
@@ -413,72 +432,11 @@ fn a_root_another_holder_locks_is_busy_and_gains_no_file() {
     let other = epicenter_folder_core::lock::RootLock::acquire(&fixture.root)
         .unwrap_or_else(|_| panic!("the test takes the root lock"));
     let main = window(&fixture.app, WINDOW);
-    let refused = attach(&main).unwrap_err();
+    let refused = grant(&main).unwrap_err();
     assert_eq!(refused["name"], json!("Busy"));
-    // No layout, no settings, no repository: nothing was written without the lock.
     assert_eq!(std::fs::read_dir(&fixture.root).unwrap().count(), 0);
     drop(other);
-    attach(&main).expect("the folder opens once the other holder is gone");
-}
-
-/// The calls the page's setup makes for a folder that has nothing yet, in its
-/// order, through the owner.
-#[test]
-fn a_new_folder_is_set_up_through_the_owner_and_its_settings_are_the_first_commit() {
-    let fixture = fixture("fresh", |_| {});
-    let main = window(&fixture.app, WINDOW);
-    let attached = attach(&main).unwrap();
-    let session = &attached["session"];
-    let missing = invoke(
-        &main,
-        "plugin:epicenter-folder|read",
-        json!({ "session": session, "path": "kv.json" }),
-    )
-    .unwrap_err();
-    assert_eq!(missing["name"], json!("NotFound"));
-    for table in ["notes", "folders"] {
-        invoke(
-            &main,
-            "plugin:epicenter-folder|mkdir",
-            json!({ "session": session, "path": table }),
-        )
-        .unwrap();
-        assert!(fixture.root.join(table).is_dir());
-    }
-    let create = |text: &str| {
-        invoke(
-            &main,
-            "plugin:epicenter-folder|apply",
-            json!({
-                "session": session,
-                "changes": [{
-                    "kind": "create",
-                    "path": "kv.json",
-                    "bytes": text.as_bytes(),
-                }],
-            }),
-        )
-    };
-    create("{}\n").expect("the default settings are published");
-    // The save commits nothing; the first commit asked for holds it.
-    assert!(!git_output(&fixture.root, &["rev-parse", "--verify", "--quiet", "HEAD"]).0);
-    let committed = invoke(
-        &main,
-        "plugin:epicenter-folder|commit",
-        json!({ "session": session }),
-    )
-    .unwrap();
-    assert_eq!(committed["status"], "committed", "{committed}");
-    assert_eq!(git(&fixture.root, &["log", "--format=%s"]), "Add kv.json");
-
-    // A second creation loses to the file that is there and changes nothing.
-    let refused = create("{\"overwritten\":true}\n").unwrap_err();
-    assert_eq!(refused["name"], json!("Refused"));
-    assert_eq!(refused["error"]["name"], json!("Exists"));
-    assert_eq!(
-        std::fs::read_to_string(fixture.root.join("kv.json")).unwrap(),
-        "{}\n"
-    );
+    grant(&main).expect("the folder opens once the other holder is gone");
 }
 
 #[test]
@@ -487,79 +445,136 @@ fn a_scope_the_shell_did_not_register_is_unknown() {
     let main = window(&fixture.app, WINDOW);
     let refused = invoke(
         &main,
-        "plugin:epicenter-folder|attach",
-        json!({ "scope": "so.epicenter.other", "protocol": tauri_plugin_epicenter_folder::PROTOCOL }),
+        "plugin:epicenter-folder|grant_directory",
+        json!({ "scope": "so.epicenter.other" }),
     )
     .unwrap_err();
     assert_eq!(refused["name"], json!("UnknownScope"));
 }
 
-/// The two failures the acceptance route produces by hand in a disposable
-/// folder, with nothing injected: a save that cannot be written, and a commit
-/// that cannot be recorded.
+/// The calls the page's setup makes for a folder that has nothing yet, after
+/// its engine made the repository: a directory per table, then `kv.json`
+/// only where it is absent. A save commits nothing.
+#[test]
+fn a_new_folder_is_set_up_through_the_plugin_and_a_save_commits_nothing() {
+    let fixture = fixture("fresh", |root| {
+        git(root, &["init", "--quiet", "--initial-branch=main"]);
+    });
+    let main = window(&fixture.app, WINDOW);
+    grant(&main).unwrap();
+    for table in ["notes", "folders"] {
+        invoke(
+            &main,
+            "plugin:epicenter-folder|make_folder_directory",
+            json!({ "scope": root::SCOPE, "path": inside(&fixture, table) }),
+        )
+        .unwrap();
+        assert!(fixture.root.join(table).is_dir());
+    }
+    write(&fixture, &main, "kv.json", "{}\n", true).expect("the default settings are written");
+    assert!(!git_output(&fixture.root, &["rev-parse", "--verify", "--quiet", "HEAD"]).0);
+
+    // A second creation loses to the file that is there and changes nothing.
+    write(&fixture, &main, "kv.json", "{\"overwritten\":true}\n", true).unwrap_err();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("kv.json")).unwrap(),
+        "{}\n"
+    );
+    let scratch = fixture.root.join(".git/epicenter/scratch");
+    assert_eq!(std::fs::read_dir(scratch).unwrap().count(), 0);
+}
+
+/// The README's promise about names: leading dots work; a name some disk
+/// reads as another file, and `HEAD`, are refused and write nothing.
+#[test]
+fn a_note_may_have_a_leading_dot_but_not_a_name_some_disk_reads_as_another() {
+    let fixture = fixture("names", |root| {
+        git(root, &["init", "--quiet", "--initial-branch=main"]);
+        std::fs::create_dir(root.join("notes")).unwrap();
+    });
+    let main = window(&fixture.app, WINDOW);
+    grant(&main).unwrap();
+    for allowed in ["notes/.md", "notes/.hidden.md", "notes/a .md", ".gitignore"] {
+        write(&fixture, &main, allowed, "kept\n", true)
+            .unwrap_or_else(|error| panic!("{allowed}: {error}"));
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join(allowed)).unwrap(),
+            "kept\n"
+        );
+    }
+    for refused in [
+        "notes/a.",
+        "notes/a ",
+        "notes/a:b.md",
+        "notes/a?.md",
+        "notes/con.md",
+        "notes/NUL",
+        "notes/GIT~1.md",
+        "HEAD",
+        "notes/head",
+        ".git/config",
+        ".GIT/hooks/pre-commit",
+    ] {
+        let error = write(&fixture, &main, refused, "refused\n", true).unwrap_err();
+        assert!(text(&error).contains("is not one this page may change"), "{refused}: {error}");
+    }
+    let mut names: Vec<String> = std::fs::read_dir(fixture.root.join("notes"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, [".hidden.md", ".md", "a .md"]);
+    assert!(!fixture.root.join("HEAD").exists());
+}
+
+/// The failure the acceptance route produces by hand in a disposable folder,
+/// with nothing injected: a save that cannot be written.
 #[cfg(unix)]
 #[test]
-fn a_save_that_cannot_be_written_fails_alone_and_a_commit_that_cannot_be_recorded_leaves_the_save()
-{
+fn a_save_that_cannot_be_written_fails_and_leaves_the_file() {
     use std::os::unix::fs::PermissionsExt;
 
-    let fixture = fixture("failures", |_| {});
+    let fixture = fixture("failures", |root| {
+        git(root, &["init", "--quiet", "--initial-branch=main"]);
+        std::fs::create_dir(root.join("notes")).unwrap();
+    });
     let main = window(&fixture.app, WINDOW);
-    let attached = invoke(
-        &main,
-        "plugin:epicenter-folder|attach",
-        json!({ "scope": root::SCOPE, "protocol": tauri_plugin_epicenter_folder::PROTOCOL }),
-    )
-    .unwrap();
-    let session = &attached["session"];
-    let write = |path: &str, text: &str| {
-        invoke(
-            &main,
-            "plugin:epicenter-folder|apply",
-            json!({
-                "session": session,
-                "changes": [{
-                    "kind": "overwrite",
-                    "path": path,
-                    "bytes": text.as_bytes(),
-                }],
-            }),
-        )
-    };
-    let commit = || {
-        invoke(
-            &main,
-            "plugin:epicenter-folder|commit",
-            json!({ "session": session }),
-        )
-        .unwrap()["status"]
-            .clone()
-    };
-    write("notes/a.md", "first\n").expect("an ordinary save lands");
-    assert_eq!(commit(), json!("committed"));
+    grant(&main).unwrap();
+    write(&fixture, &main, "notes/a.md", "first\n", false).expect("an ordinary save lands");
 
     // `chmod a-w notes`: the save fails and nothing is written.
     let notes = fixture.root.join("notes");
     std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o555)).unwrap();
-    let refused = write("notes/a.md", "second\n");
+    let refused = write(&fixture, &main, "notes/a.md", "second\n", false);
     std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(refused.is_err(), "{refused:?}");
     assert_eq!(
         std::fs::read_to_string(notes.join("a.md")).unwrap(),
         "first\n"
     );
+}
 
-    // `touch .git/refs/heads/main.lock`: the save lands, the commit fails.
-    let lock = fixture.root.join(".git/refs/heads/main.lock");
-    std::fs::write(&lock, "").unwrap();
-    write("notes/a.md", "third\n").expect("the save does not wait for history");
-    assert_eq!(commit(), json!("failed"));
+/// Quit: once the shell shuts the folder down, a write the page sends late is
+/// refused and the folder is unlocked.
+#[test]
+fn after_shutdown_a_late_write_is_refused_and_the_folder_is_unlocked() {
+    let fixture = fixture("shutdown", |root| {
+        git(root, &["init", "--quiet", "--initial-branch=main"]);
+    });
+    let main = window(&fixture.app, WINDOW);
+    grant(&main).unwrap();
+    write(&fixture, &main, "kv.json", "{}\n", true).unwrap();
+    fixture.app.handle().folders().shutdown();
+    let refused = write(&fixture, &main, "kv.json", "late\n", false).unwrap_err();
+    assert!(text(&refused).contains("ShuttingDown"), "{refused}");
     assert_eq!(
-        std::fs::read_to_string(notes.join("a.md")).unwrap(),
-        "third\n"
+        std::fs::read_to_string(fixture.root.join("kv.json")).unwrap(),
+        "{}\n"
     );
-    std::fs::remove_file(&lock).unwrap();
-    assert_eq!(commit(), json!("committed"));
+    drop(
+        epicenter_folder_core::lock::RootLock::acquire(&fixture.root)
+            .unwrap_or_else(|_| panic!("the folder is unlocked after shutdown")),
+    );
 }
 
 // ============================================================================

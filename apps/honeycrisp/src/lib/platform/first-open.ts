@@ -2,8 +2,8 @@
  * What a notes folder needs before it is shown, done through the folder
  * itself: a directory for each declared table, and a `kv.json`.
  *
- * This runs after the desktop folder is attached, so every change goes
- * through the owner that holds the directory's lock. It looks first and
+ * This runs after the desktop folder is granted, so the directory's lock is
+ * already held and every change goes through the folder. It looks first and
  * changes only what is missing:
  *
  * - A table directory is made when the listing does not have it.

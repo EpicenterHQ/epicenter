@@ -1,13 +1,13 @@
 //! One file's Git history: its commits, and its text at one of them.
 //!
-//! The shared folder plugin lists the folder's commits; it has no per-path
-//! log and no way to read a file at a commit, so Honeycrisp asks `git` itself.
-//! Both operations only read.
+//! The folder engine lists the folder's commits; it has no per-path log and
+//! no way to read a file at a commit, so the shell asks `git` itself. Both
+//! operations only read.
 //!
 //! What the page supplies is checked before `git` sees it:
 //!
-//! - A path must be a literal folder-relative path by the folder owner's own
-//!   rule, so it cannot name `.git` or leave the root. It goes after `--`
+//! - A path must be a literal folder-relative path by the folder's shared
+//!   path rule, so it cannot name `.git` or leave the root. It goes after `--`
 //!   under `--literal-pathspecs`, or after the commit in `<commit>:<path>`,
 //!   so it is never read as an option or a pattern, whatever it starts with.
 //! - A commit is 7 to 64 lowercase hexadecimal digits, so it is never a
@@ -279,21 +279,26 @@ mod tests {
     fn a_path_with_pattern_characters_names_one_literal_file() {
         let directory = repository("history-literal");
         let root = directory.path();
-        std::fs::write(root.join("notes/*.md"), "starred\n").unwrap();
+        std::fs::write(root.join("notes/[ab].md"), "bracketed\n").unwrap();
         run_git(root, &["add", "--all"]);
         run_git(
             root,
-            &["commit", "--quiet", "--message", "Add the starred file"],
+            &["commit", "--quiet", "--message", "Add the bracketed file"],
         );
-        // As a pattern this would match every note.
-        let revisions = file_log(root, "notes/*.md", 10).unwrap();
+        // As a pattern this would also match `notes/a.md`.
+        let revisions = file_log(root, "notes/[ab].md", 10).unwrap();
         assert_eq!(revisions.len(), 1);
-        assert_eq!(revisions[0].subject, "Add the starred file");
+        assert_eq!(revisions[0].subject, "Add the bracketed file");
         assert_eq!(
-            show(root, &revisions[0].oid, "notes/*.md").unwrap(),
-            "starred\n"
+            show(root, &revisions[0].oid, "notes/[ab].md").unwrap(),
+            "bracketed\n"
         );
-        assert_eq!(file_log(root, ":(glob)notes/**", 10).unwrap(), []);
+        // `*` and `:` are names the shared path rule refuses, so a pathspec
+        // with magic never reaches `git`.
+        assert!(matches!(
+            file_log(root, ":(glob)notes/**", 10),
+            Err(HistoryError::Path(_))
+        ));
     }
 
     #[test]

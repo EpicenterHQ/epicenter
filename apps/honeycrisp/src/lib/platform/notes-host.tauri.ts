@@ -1,10 +1,10 @@
 /**
- * The desktop leaf: the notes are a real directory the desktop shell owns.
+ * The desktop leaf: the notes are a real directory the desktop shell grants.
  *
- * The folder comes from the shell's folder owner through
- * `@epicenter/folder/tauri`. The page names the folder's ID and nothing else:
- * the root, the commit author, and the history policy are the shell's.
- * Frontmatter and every draft stay in this page.
+ * `openFolder` from `@epicenter/folder/tauri` asks the shell for the folder
+ * by its ID and runs the folder engine over the directory it grants. The page
+ * names the ID and nothing else: the root and the fallback commit author are
+ * the shell's, and the author and any `origin` come from Git's configuration.
  *
  * The terminal is the shell's own `/bin/sh`, an outside writer, not the
  * folder's emulated one.
@@ -29,7 +29,8 @@ async function acquire(): Promise<NotesHost> {
 	});
 	if (error) throw new Error(error.message);
 	try {
-		// The owner holds the directory now. An existing folder is left as it is.
+		// The shell holds the directory's lock now. An existing folder is left
+		// as it is.
 		await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));
 		return {
 			folder,

@@ -2,7 +2,8 @@
 //!
 //! The shell chooses the directory from `HONEYCRISP_ROOT` or the default
 //! under the home directory. It creates only the root directory itself.
-//! The page creates missing layout through the attached owner under its lock.
+//! The page creates missing layout through its granted folder, under the
+//! lock the folder plugin takes on the first grant.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ pub fn choose(
 }
 
 /// Make the directory if it is missing and return its canonical path: the one
-/// the folder owner holds and the terminal starts in. Nothing is created
+/// the folder plugin grants and the terminal starts in. Nothing is created
 /// inside it.
 pub fn locate(root: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(root).map_err(|cause| {
@@ -69,7 +70,7 @@ mod tests {
         let directory = temp("root-fresh");
         let root = locate(&directory.path().join("deep").join("notes-root")).unwrap();
         assert!(root.is_dir());
-        // No layout, no settings, no repository: those wait for the owner.
+        // No layout, no settings, no repository: those wait for the page.
         assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
     }
 

@@ -3,33 +3,37 @@
 // runs with that window's real IPC, capability, and folder scope.
 //
 // It keeps the production page's order (`src/lib/platform/shell.tauri.ts`):
-// register, listen for close requests, attach the folder, then say the folder
-// is open. It answers the first close request with "keep editing" and every
-// later one with an approval. Unlike the notes page, it approves without
-// settling its saves first, so a save it started is still running when the
-// shell exits: that is what the harness checks the folder plugin drains.
+// register, listen for close requests, take the folder's grant, then say the
+// folder is open. It answers the first close request with "keep editing" and
+// every later one with an approval. Unlike the notes page, it approves
+// without settling its writes first, so writes it started are still running
+// when the shell exits: the harness checks that each file they leave is
+// whole.
 //
-// It reports through the folder itself, under `harness/`, because the
-// window's capability lets it emit nothing else. `__SCOPE__` and
-// `__PROTOCOL__` are filled in by the harness.
+// It writes the way the folder engine does, through the folder plugin's
+// `write_folder_file`, and reports through the folder itself under
+// `harness/`, because the window's capability lets it emit nothing else.
+// `__SCOPE__` is filled in by the harness.
 (async () => {
 	const internals = window.__TAURI_INTERNALS__;
 	const invoke = (command, args) => internals.invoke(command, args);
 	const bytes = (text) => Array.from(new TextEncoder().encode(text));
-	let session;
-	const apply = (changes) =>
-		invoke('plugin:epicenter-folder|apply', {
-			session,
-			changes,
+	const scope = '__SCOPE__';
+	let root;
+	const mkdir = (path) =>
+		invoke('plugin:epicenter-folder|make_folder_directory', {
+			scope,
+			path: `${root}/${path}`,
+		});
+	const write = (path, text, createNew) =>
+		invoke('plugin:epicenter-folder|write_folder_file', {
+			scope,
+			path: `${root}/${path}`,
+			bytes: bytes(text),
+			createNew,
 		});
 	const report = (name, value) =>
-		apply([
-			{
-				kind: 'overwrite',
-				path: `harness/${name}.json`,
-				bytes: bytes(JSON.stringify(value)),
-			},
-		]);
+		write(`harness/${name}.json`, JSON.stringify(value), false);
 
 	const generation = await invoke('close_register');
 	const answered = new Set();
@@ -51,26 +55,26 @@
 		target: { kind: 'Any' },
 		handler,
 	});
-	const attached = await invoke('plugin:epicenter-folder|attach', {
-		scope: '__SCOPE__',
-		protocol: __PROTOCOL__,
+	const granted = await invoke('plugin:epicenter-folder|grant_directory', {
+		scope,
 	});
-	session = attached.session;
+	root = granted.root;
+	await mkdir('harness');
+	await mkdir('batch');
 	await invoke('close_opened', { generation });
 
 	window.__quitFixture = {
-		// One batch of `count` new files, sent and not awaited: the owner admits
-		// it as one operation and writes the files in order.
+		// `count` new files, each its own write, all sent at once and none
+		// awaited. The shell admits each as it arrives and writes them on its
+		// blocking pool.
 		startBatch(count) {
-			const changes = [];
 			for (let index = 0; index < count; index += 1)
-				changes.push({
-					kind: 'create',
-					path: `batch/${String(index).padStart(6, '0')}.md`,
-					bytes: bytes(`${index}\n`),
-				});
-			apply(changes).catch(() => {});
+				write(
+					`batch/${String(index).padStart(6, '0')}.md`,
+					`${index}\n`,
+					true,
+				).catch(() => {});
 		},
 	};
-	await report('ready', { generation, root: attached.root });
+	await report('ready', { generation, root });
 })();
