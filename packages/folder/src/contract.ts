@@ -133,6 +133,13 @@ export {
 	rowStemOf,
 } from './paths.js';
 export {
+	describeTables,
+	type ProjectedTable,
+	projectionProblem,
+	projectTables,
+	readingStatementProblem,
+} from './projection.js';
+export {
 	formatRow,
 	type Issue,
 	type Issues,
