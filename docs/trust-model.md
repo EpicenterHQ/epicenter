@@ -10,8 +10,10 @@ keeps the whole folder (ADR-0532). It syncs over plain Git, with a token, to the
 remote in its own `remote.origin.url` (ADR-0521). The files that carry it:
 
 - `packages/folder/src/git/`: history, and the transport that pushes and fetches
-- `apps/api/worker/git-connector/`: the hosted relay a browser uses to reach
-  GitHub today, which ADR-0521 replaces with a Git server the person chooses
+- `packages/server/src/routes/git.ts`: the hosted Git module, Git smart HTTP
+  with a token for one repository
+- `apps/api/worker/git-repositories.ts`: where Epicenter's hosted Git keeps
+  repositories, in Cloudflare Artifacts
 - `packages/server/src/s3-blob-store.ts`: hosted blobs
 
 The Yjs store sync that came before this, an authority that held each document's
@@ -37,13 +39,15 @@ Who that is depends on the remote you choose:
 | Remote | Who can read your files |
 | --- | --- |
 | A Git server you run | you, and anyone who reaches your box |
-| Epicenter's hosted Git (ADR-0521, unbuilt) | Epicenter's operators |
+| Epicenter's hosted Git | Epicenter's operators, and Cloudflare, which stores it |
 | GitHub, GitLab, any other host | that host's operators |
 
-The GitHub relay in `apps/api/worker/git-connector/` passes every byte a
-browser exchanges with GitHub through Epicenter's Worker; it stores none of
-them, but Epicenter can read them in transit. A desktop app talks to its remote
-directly with your own Git credentials, and Epicenter sees nothing.
+Epicenter's hosted Git passes every byte through Epicenter's Worker to
+Cloudflare Artifacts, which stores each folder as a repository. The token
+`/api/git/connect` returns reaches that one repository, for writing, and
+expires after an hour. Epicenter runs no relay to GitHub or any other host: a
+desktop app talks to such a remote directly with your own Git credentials, and
+Epicenter sees nothing.
 
 Content is only half of what a server learns. The server also sees the metadata
 around the bytes: who pushed, to which repository, when, how much, and from which

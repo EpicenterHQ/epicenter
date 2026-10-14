@@ -56,6 +56,7 @@ import {
 	createDb,
 	createServerApp,
 	mountAuthRoutes,
+	mountGitApp,
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
@@ -173,6 +174,9 @@ export function startBunApiServer(
 		requireBearerPrincipal(resolveBearerPrincipal),
 	);
 	mountSessionApp(app, { auth: bearer });
+	// Hosted Git needs the Worker's Artifacts binding. Mounting it with no store
+	// keeps the routes in the shared profile and answers 503 `GitUnavailable`.
+	mountGitApp(app, { auth: bearer, resolveStore: () => null });
 	mountInferenceApp(app, { auth: bearer });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered
 	// here for the same reason inference is: this host composes no billing, so

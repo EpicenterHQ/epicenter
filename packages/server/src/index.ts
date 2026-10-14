@@ -56,6 +56,11 @@ export {
 	type HostedBlobStore,
 	mountPersonalAuthorityBlobs,
 } from './routes/authority-blobs.js';
+export {
+	type GitRepositoryStore,
+	type GitService,
+	mountGitApp,
+} from './routes/git.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';

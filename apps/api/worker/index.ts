@@ -20,6 +20,7 @@ import {
 	createCloudContextMiddleware,
 	createServerApp,
 	mountAuthRoutes,
+	mountGitApp,
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
@@ -38,12 +39,7 @@ import {
 	chargeOpenAiTranscriptionCredits,
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
-import { createGitHubConnectorApp } from './git-connector/app.js';
-import {
-	type GitConnectorWorkerBindings,
-	GitHubConnection,
-	resolveWorkerGitHubConnector,
-} from './git-connector/worker.js';
+import { createArtifactsRepositoryStore } from './git-repositories.js';
 import { buildSessionCallbacks } from './session-callbacks.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
@@ -123,17 +119,23 @@ const bearer = every(
 
 // Principal-partitioned reusable surfaces.
 mountSessionApp(app, { auth: bearer });
-app.route(
-	'/',
-	createGitHubConnectorApp<CloudEnv>({
-		auth: bearer,
-		resolve: (env) =>
-			resolveWorkerGitHubConnector(
-				env as Cloudflare.Env & GitConnectorWorkerBindings,
-				resolveApiOrigin(env),
-			),
-	}),
-);
+// Hosted Git over Cloudflare Artifacts (ADR-0521). Unmetered like hosted
+// blobs. Local `wrangler dev` has no Artifacts emulation, so without the
+// account id the store resolves to null and connect answers 503.
+mountGitApp(app, {
+	auth: bearer,
+	resolveStore: (env) => {
+		const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } =
+			env as Partial<Cloudflare.Env>;
+		if (!ARTIFACTS || !ARTIFACTS_ACCOUNT_ID || !ARTIFACTS_NAMESPACE)
+			return null;
+		return createArtifactsRepositoryStore({
+			artifacts: ARTIFACTS,
+			accountId: ARTIFACTS_ACCOUNT_ID,
+			namespace: ARTIFACTS_NAMESPACE,
+		});
+	},
+});
 // Owner-addressed hosted blobs are currently unmetered. Autumn's check()
 // denies by default without a plan, so this route has no billing policy.
 mountPersonalAuthorityBlobs(app, {
@@ -183,4 +185,3 @@ app.get('/billing', (c) => c.redirect('/dashboard'));
 export default {
 	fetch: app.fetch,
 };
-export { GitHubConnection };

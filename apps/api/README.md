@@ -6,14 +6,16 @@ This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and 
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See `apps/self-host` for the self-hosted reference and the trust model below.
 
-Runs on Cloudflare Workers with Durable Objects. Folder data syncs over plain
-Git with a token to a server the person chooses (ADR-0521); the hosted Git
-module is unbuilt. The GitHub connector (`worker/git-connector/`) still relays
-the browser's Git to GitHub until it is replaced.
+Runs on Cloudflare Workers. Folder data syncs over plain Git with a token to a
+server the person chooses (ADR-0521). This Worker is Epicenter's hosted choice:
+it mounts `mountGitApp` from `@epicenter/server` over Cloudflare Artifacts
+(`worker/git-repositories.ts`). See [Hosted Git](#hosted-git).
 
 The Yjs store sync this Worker used to serve is removed (ADR-0534). Migration
 `v6` in `wrangler.jsonc` deletes its Durable Object classes, `StoreAuthority`
-and `GenerationsLedger`, and everything they stored, on the next deploy.
+and `GenerationsLedger`, and everything they stored, on the next deploy. The
+GitHub connector that relayed a browser's Git to GitHub is removed too;
+migration `v7` deletes its `GitHubConnection` class and every grant it held.
 
 ## Why a hub exists
 
@@ -25,7 +27,7 @@ The hub handles auth, blobs, and AI. Local servers handle filesystem access, off
 
 Hono handles HTTP routing. We originally wanted Elysia: it's faster, the API is more ergonomic, and it runs natively on Bun. But Elysia depends on Bun-specific APIs that don't exist in the Cloudflare Workers runtime, and Workers compatibility was non-negotiable. Hono runs on Cloudflare Workers, Node.js, Deno, Bun, and AWS Lambda, so when the server moved to a second runtime (ADR-0066), the route layer came along for free.
 
-Cloudflare Workers are the hosted deployment target. Durable Objects hold per-principal state where one object per person is the natural owner, such as a GitHub connection. Routes, auth, AI, and validation are plain runtime-portable Hono.
+Cloudflare Workers are the hosted deployment target. Routes, auth, AI, Git, and validation are plain runtime-portable Hono; the Worker holds no Durable Objects, and hosted Git repositories live in Cloudflare Artifacts.
 
 `apps/self-host` is the sibling deployable: the single-partition instance, a Bun
 binary or a Cloudflare Worker that composes no Better Auth and no Postgres
@@ -33,10 +35,11 @@ binary or a Cloudflare Worker that composes no Better Auth and no Postgres
 community-supported, not Epicenter-operated. `apps/api/server.ts` here is this hosted cloud on Bun (local dev and the
 runtime-parity smoke), booting the same composition against plain Postgres and
 any S3 endpoint with no Cloudflare account. The surfaces that need Worker-only
-bindings are absent there: the GitHub connector rides a Durable Object, the
-dashboard shell comes from `ASSETS`, and billing needs the Autumn secret and the
-after-response drain. `runtime-profile.test.ts` is where that divergence is
-declared and checked against both entries.
+bindings are absent there: the dashboard shell comes from `ASSETS`, account
+deletion is a hosted resource sweep, and billing needs the Autumn secret and the
+after-response drain. Hosted Git is mounted there with no repository store, so
+it answers 503 `GitUnavailable`. `runtime-profile.test.ts` is where that
+divergence is declared and checked against both entries.
 
 Better Auth owns identity and sessions. Hosted Epicenter configures Google,
 GitHub, Microsoft, and Apple social sign-in, with optional passkeys and no
@@ -90,11 +93,13 @@ Cloudflare Workers
 │   ├── /sign-in               hosted browser sign-in
 │   ├── /session/callback      dashboard handoff completion
 │   ├── /api/session           the principal projection
+│   ├── /api/git/connect       find or create a folder's repository, mint its token
+│   ├── /git/:name.git/*       Git smart HTTP, forwarded to Artifacts
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   ├── /api/blobs/personal/:principalId/:visibility owner-pinned hosted blobs (S3-compatible backend)
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
-└── GitHubConnection (Durable Object): one per principal
+└── Artifacts (ARTIFACTS binding): one Git repository per principal and folder
 ```
 
 API keys for AI providers are environment secrets (`wrangler secret put`). They never leave the hub. The client sends a session token, the hub validates it and swaps in the real key before forwarding to the provider.
@@ -170,6 +175,24 @@ runs `apps/api/scripts/smoke.ts`, keeps its server log and data directory under 
 temporary directory, and skips the blob leg unless `BLOBS_S3_*` points at a
 local S3-compatible store.
 
+### Hosted Git
+
+`mountGitApp` serves two planes over one repository store.
+`POST /api/git/connect` with `{ "folder": "so.epicenter.todos" }` and a session
+bearer answers `{ remote, token, expiresAt }`. The remote is
+`https://api.epicenter.so/git/<folder>.<tag>.git`, where `tag` is the first 16
+hex characters of SHA-256 over the principal ID, and the token is a one-hour
+Artifacts write token for that repository alone. The data plane,
+`/git/<name>.git/{info/refs,git-upload-pack,git-receive-pack}`, holds no
+session: Artifacts checks the token, and the Worker forwards each request to
+`https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<name>.git`
+without a binding lookup. Hosted Git is unmetered.
+
+Deploying needs the `ARTIFACTS_ACCOUNT_ID` secret (`wrangler secret put`) and
+an account on the Workers Paid plan. Artifacts has no local simulator, so
+`bun run dev` drops the `ARTIFACTS` binding from its local Wrangler config, and
+hosted Git answers 503 locally.
+
 ### Local blob storage
 
 Blob storage is optional: omit `BLOBS_S3_*` and the blob routes answer 503
@@ -209,7 +232,7 @@ bun run db:studio:local  # Open Drizzle Studio (local)
 bun run db:studio:remote # Open Drizzle Studio (remote, via Infisical)
 ```
 
-See `wrangler.jsonc` for Durable Object bindings and Hyperdrive (Postgres connection pool) configuration.
+See `wrangler.jsonc` for the Artifacts binding, the Durable Object migration history, and Hyperdrive (Postgres connection pool) configuration.
 
 ## License
 

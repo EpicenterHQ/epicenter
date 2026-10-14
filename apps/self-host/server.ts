@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { asPrincipalId } from '@epicenter/principal';
 import {
 	createServerApp,
+	mountGitApp,
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
@@ -86,6 +87,9 @@ export function startSelfHostServer(): void {
 	app.get('/auth/sign-in.js', () => signInScript());
 	app.all('/auth/*', (c) => authentication.auth.handle(c.req.raw));
 	mountSessionApp(app, { auth });
+	// A self-hosted repository store is unbuilt (ADR-0521), so connect answers
+	// a readable 503 `GitUnavailable` instead of a 404.
+	mountGitApp(app, { auth, resolveStore: () => null });
 	mountInferenceApp(app, {
 		auth,
 		policies: [rateLimit({ requests: 120, windowSeconds: 60 })],

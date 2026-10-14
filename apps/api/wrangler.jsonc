@@ -43,18 +43,31 @@
 	// worker bakes `PRODUCTION_API_URL` from @epicenter/constants and local dev
 	// overrides it via `API_PUBLIC_ORIGIN` (apps/api/scripts/dev.ts). This keeps
 	// a single source of truth in TypeScript instead of a duplicated string.
-	"vars": {},
-	// --- Durable Objects ---
-	"durable_objects": {
-		"bindings": [
-			{
-				"name": "GIT_GITHUB_CONNECTIONS",
-				"class_name": "GitHubConnection"
-			}
-		]
+	//
+	// ARTIFACTS_NAMESPACE repeats the Artifacts binding's namespace below: the
+	// binding manages repositories, while the Git data plane forwards to
+	// `https://<account>.artifacts.cloudflare.net/git/<namespace>/...` directly.
+	// worker/git-repositories.test.ts asserts the two agree.
+	"vars": {
+		"ARTIFACTS_NAMESPACE": "epicenter-production"
 	},
+	// --- Artifacts: hosted Git repositories (ADR-0521) ---
+	// One repository per principal and folder. The binding has no local
+	// emulation; `wrangler dev` warns and the store's calls fail there.
+	"artifacts": [
+		{
+			"binding": "ARTIFACTS",
+			"namespace": "epicenter-production"
+		}
+	],
+	// --- Durable Objects ---
+	// The Worker has none. The migrations stay: Cloudflare applies each tag once,
+	// in order, and a deploy needs the full history.
+	//
 	// StoreAuthority and GenerationsLedger belonged to the Yjs store sync, removed
 	// with ADR-0534. v6 deletes both classes and every object they stored.
+	// GitHubConnection held the GitHub connector's encrypted grants and folder
+	// pairings, removed with ADR-0521. v7 deletes the class and every grant.
 	//
 	// The deployed Worker already uses the current authority and ledger names.
 	// These class migrations preserve their existing state and retire the former
@@ -93,6 +106,10 @@
 		{
 			"tag": "v6",
 			"deleted_classes": ["StoreAuthority", "GenerationsLedger"]
+		},
+		{
+			"tag": "v7",
+			"deleted_classes": ["GitHubConnection"]
 		}
 	],
 	// --- Secrets (set via `wrangler secret put`, typed via `wrangler types`) ---
@@ -112,11 +129,6 @@
 			// here still satisfies the library's optional CloudAuthBindings fields.
 			"GITHUB_CLIENT_ID",
 			"GITHUB_CLIENT_SECRET",
-			// Separate GitHub App credentials and the key that seals its grants.
-			"GIT_GITHUB_CLIENT_ID",
-			"GIT_GITHUB_CLIENT_SECRET",
-			"GIT_GITHUB_APP_SLUG",
-			"GIT_GRANT_ENCRYPTION_KEY",
 			"MICROSOFT_CLIENT_ID",
 			"MICROSOFT_CLIENT_SECRET",
 			// House AI keys are required here even though the library types them
@@ -134,7 +146,11 @@
 			// (`epicenter-blobs`) and region (`auto`) default in code.
 			"BLOBS_S3_ENDPOINT",
 			"BLOBS_S3_ACCESS_KEY_ID",
-			"BLOBS_S3_SECRET_ACCESS_KEY"
+			"BLOBS_S3_SECRET_ACCESS_KEY",
+			// The Cloudflare account that owns the Artifacts namespace. The Git
+			// data plane forwards to `https://<accountId>.artifacts.cloudflare.net`,
+			// grouped as a secret so the account id stays out of committed config.
+			"ARTIFACTS_ACCOUNT_ID"
 		]
 	},
 	// --- Hyperdrive: Postgres connection pool ---

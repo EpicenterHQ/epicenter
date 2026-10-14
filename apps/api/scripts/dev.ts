@@ -51,13 +51,20 @@ if (auth.exitCode !== 0 || !auth.stdout.toString().trim()) {
 }
 
 // Wrangler rewrites localhost Origin headers when a local Worker keeps the
-// production custom-domain route. A development copy removes only that route;
-// all bindings, assets, and build settings stay from the committed config.
-// Keep it beside wrangler.jsonc so its relative paths still resolve.
+// production custom-domain route, so a development copy removes that route.
+// It also removes the Artifacts binding: Artifacts has no local simulator, and
+// Wrangler would otherwise open a remote session to the production namespace,
+// which fails outright on an account without the Workers Paid plan. Without
+// the binding, hosted Git answers 503 locally. Every other binding, the assets,
+// and the build settings stay from the committed config. Keep the copy beside
+// wrangler.jsonc so its relative paths still resolve.
 const config = Bun.JSONC.parse(
 	await Bun.file(resolve(apiRoot, 'wrangler.jsonc')).text(),
 ) as Record<string, unknown>;
-await writeFile(localConfig, JSON.stringify({ ...config, routes: [] }));
+await writeFile(
+	localConfig,
+	JSON.stringify({ ...config, routes: [], artifacts: [] }),
+);
 let exitCode: number;
 try {
 	const wrangler =

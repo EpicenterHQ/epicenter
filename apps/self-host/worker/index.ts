@@ -2,6 +2,7 @@
 import { asPrincipalId } from '@epicenter/principal';
 import {
 	createServerApp,
+	mountGitApp,
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
@@ -48,6 +49,9 @@ app.all('/auth/*', (c) =>
 	authentication(c.env as Cloudflare.Env).fetch(c.req.raw),
 );
 mountSessionApp(app, { auth });
+// A self-hosted repository store is unbuilt (ADR-0521), so connect answers a
+// readable 503 `GitUnavailable` instead of a 404.
+mountGitApp(app, { auth, resolveStore: () => null });
 mountInferenceApp(app, {
 	auth,
 	policies: [rateLimit({ requests: 120, windowSeconds: 60 })],

@@ -46,10 +46,6 @@ mock.module('pg', () => ({
 	Pool: ProbeClient,
 }));
 
-// The Worker entry re-exports Durable Objects whose modules import
-// `cloudflare:workers`. Only the class identity matters for route composition.
-mock.module('cloudflare:workers', () => ({ DurableObject: class {} }));
-
 type Presence = 'served' | 'absent';
 
 type Surface = {
@@ -106,6 +102,20 @@ const PROFILE: Surface[] = [
 		surface: 'Personal authority object',
 		method: 'DELETE',
 		url: `${ORIGIN}/api/blobs/personal/probe/private/AAAAAAAAAAAAAAAAAAAAAA`,
+		worker: 'served',
+		bun: 'served',
+	},
+	{
+		surface: 'Git connect',
+		method: 'POST',
+		url: `${ORIGIN}/api/git/connect`,
+		worker: 'served',
+		bun: 'served',
+	},
+	{
+		surface: 'Git data plane',
+		method: 'GET',
+		url: `${ORIGIN}/git/probe.git/info/refs?service=git-upload-pack`,
 		worker: 'served',
 		bun: 'served',
 	},
@@ -343,10 +353,12 @@ test('both runtime compositions fail closed on protected operations during a dat
 			[worker, 'worker'],
 			[bun, 'bun'],
 		] as const) {
+			// The Git data plane holds no session: its repository token is
+			// checked by the store's backend, so it never reaches Postgres.
 			for (const row of PROFILE.filter(
 				(row) =>
 					row[runtime] === 'served' &&
-					!['health', 'dashboard SPA'].includes(row.surface),
+					!['health', 'dashboard SPA', 'Git data plane'].includes(row.surface),
 			)) {
 				const callsBefore = databaseCalls;
 				const response = await fetcher(

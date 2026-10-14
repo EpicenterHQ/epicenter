@@ -12,6 +12,11 @@ one persistent data root. Applications fix their issuer
 per build. Rebuild and redeploy an app to change its server. Optional passwords
 remain unbuilt.
 
+Folder sync over Git is not hosted here yet. Both entries mount the Git routes
+without a repository store, so `POST /api/git/connect` answers 503
+`GitUnavailable` until a disk store exists (ADR-0521). A folder can still sync
+with any Git server you run that sends CORS headers, such as Forgejo.
+
 ## Run the Bun issuer locally
 
 From the repository root:
