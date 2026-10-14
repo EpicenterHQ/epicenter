@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { APPS, localUrl } from '@epicenter/constants/apps';
+import type { Unstable_RawConfig as WranglerConfig } from 'wrangler';
 import { buildSessionCallbacks } from '../worker/session-callbacks.js';
 
 const apiRoot = resolve(import.meta.dir, '..');
@@ -52,18 +53,27 @@ if (auth.exitCode !== 0 || !auth.stdout.toString().trim()) {
 
 // Wrangler rewrites localhost Origin headers when a local Worker keeps the
 // production custom-domain route, so a development copy removes that route.
-// It also removes the Artifacts binding: Artifacts has no local simulator, and
-// Wrangler would otherwise open a remote session to the production namespace,
-// which fails outright on an account without the Workers Paid plan. Without
-// the binding, hosted Git answers 503 locally. Every other binding, the assets,
-// and the build settings stay from the committed config. Keep the copy beside
-// wrangler.jsonc so its relative paths still resolve.
+// Artifacts has no local simulator. Remove its binding, namespace, and required
+// account secret so local dev needs no Artifacts configuration or remote session.
+// Hosted Git answers 503 locally. Keep the copy beside wrangler.jsonc so its
+// relative paths still resolve.
 const config = Bun.JSONC.parse(
 	await Bun.file(resolve(apiRoot, 'wrangler.jsonc')).text(),
-) as Record<string, unknown>;
+) as WranglerConfig;
+delete config.vars?.ARTIFACTS_NAMESPACE;
 await writeFile(
 	localConfig,
-	JSON.stringify({ ...config, routes: [], artifacts: [] }),
+	JSON.stringify({
+		...config,
+		routes: [],
+		artifacts: [],
+		secrets: {
+			...config.secrets,
+			required: config.secrets?.required?.filter(
+				(name) => name !== 'ARTIFACTS_ACCOUNT_ID',
+			),
+		},
+	}),
 );
 let exitCode: number;
 try {

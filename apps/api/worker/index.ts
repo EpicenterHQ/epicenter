@@ -120,8 +120,8 @@ const bearer = every(
 // Principal-partitioned reusable surfaces.
 mountSessionApp(app, { auth: bearer });
 // Hosted Git over Cloudflare Artifacts (ADR-0521). Unmetered like hosted
-// blobs. Local `wrangler dev` has no Artifacts emulation, so without the
-// account id the store resolves to null and connect answers 503.
+// blobs. The local dev launcher removes the Artifacts binding and required
+// account secret, so the store resolves to null and hosted Git answers 503.
 mountGitApp(app, {
 	auth: bearer,
 	resolveStore: (env) => {

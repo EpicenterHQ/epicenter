@@ -102,7 +102,7 @@ Cloudflare Workers
 └── Artifacts (ARTIFACTS binding): one Git repository per principal and folder
 ```
 
-API keys for AI providers are environment secrets (`wrangler secret put`). They never leave the hub. The client sends a session token, the hub validates it and swaps in the real key before forwarding to the provider.
+API keys for AI providers come from Infisical's production `/api` secret sync to this Worker. Clients never receive provider keys. The client sends a session token, the hub validates it and swaps in the real key before forwarding to the provider.
 
 ## Development
 
@@ -114,6 +114,14 @@ Prerequisites: Bun, local PostgreSQL, and Infisical CLI authentication
 environment into Wrangler via `process.env`, so Postgres alone is not enough.
 This package owns the hosted API `.infisical.json`; account-wide operator
 commands live in `ops`. The monorepo root intentionally has no Infisical config.
+
+`bun dev:api` runs the Worker locally for sign-in, sessions, the dashboard,
+AI requests, and billing integration. Wrangler serves local assets and connects
+directly to local Postgres. Infisical's `dev /api` supplies provider credentials;
+OAuth, AI, and billing still call their external services. For billing tests,
+use the Autumn sandbox described in [Local account integration](./ACCOUNT-INTEGRATION.md).
+Hosted Git is unavailable in this local process because Artifacts has no local
+simulator. Local dev does not require an Artifacts account secret.
 
 The launcher rebuilds the hosted UI at startup. After editing that UI while
 Wrangler is running, restart the root dev command or run
@@ -188,10 +196,14 @@ session: Artifacts checks the token, and the Worker forwards each request to
 `https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<name>.git`
 without a binding lookup. Hosted Git is unmetered.
 
-Deploying needs the `ARTIFACTS_ACCOUNT_ID` secret (`wrangler secret put`) and
-an account on the Workers Paid plan. Artifacts has no local simulator, so
-`bun run dev` drops the `ARTIFACTS` binding from its local Wrangler config, and
-hosted Git answers 503 locally.
+Deploying needs the production-only `ARTIFACTS_ACCOUNT_ID` secret and an account
+on the Workers Paid plan. Keep the secret in Infisical's `prod /api`; the
+Cloudflare Workers secret sync copies it to the `api` Worker. Artifacts has no
+local simulator, so `bun dev:api` removes the `ARTIFACTS` binding, namespace
+variable, and required account secret from its local config. Hosted Git answers
+503 locally. Testing Artifacts itself requires Cloudflare resources; use a
+separate development namespace to keep test repositories separate from
+production data.
 
 ### Local blob storage
 
