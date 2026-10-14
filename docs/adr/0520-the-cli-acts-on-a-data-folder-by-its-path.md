@@ -4,6 +4,7 @@
 - **Date:** 2026-10-11
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (a data folder is a directory with `epicenter.json`), [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) (queries build transient projections), [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) (the CLI keeps no account system)
 - **Amended by:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) at running the folder's code: `epicenter generate` runs `epicenter.ts`; `check` and `query` still never do.
+- **Amended:** 2026-10-14, `query` answers from the files that conform and names the rest (below).
 - **Unbuilt:** running the CLI outside an Epicenter checkout.
 
 ## Context
@@ -45,16 +46,23 @@ field:
 posts/2026-10-20-launch.md:3: status does not conform: must be equal to one of the allowed values
 ```
 
-Both commands exit 0 on success, 1 when a file does not conform, and 2 when
-the folder, the declaration, a file, or a statement cannot be used. A row or
+`check` exits 0 when every file conforms, 1 when a file does not, and 2 when
+a file cannot be read. `query` exits 0 when it answers. Both exit 2 when the
+folder, the declaration, or a statement cannot be used. A row or
 `kv.json` that does not conform, bytes that are not UTF-8, and a path the
 folder cannot hold, such as a symbolic link, are files to fix. Nothing outside
 the data folder is read.
 
-**`query` answers only when `check` passes.** A broken file is fixed first.
-Otherwise `query` prints how many files do not conform and the `check` command
-that names them, and returns no rows. An answer is therefore never computed
-from part of the folder, and diagnostics have one home.
+**`query` answers from the files that conform, and names the rest.** A file
+that does not conform, or cannot be read, is left out of every table whole:
+no row is projected from part of a file. `query` prints the rows, then names
+each file it left out on stderr with the `check` command that says why; with
+`--json`, they are listed in `excluded`. Diagnostics still have one home:
+`query` names a file, and `check` explains it.
+
+This follows ADR-0503: a folder edited by people and agents is often briefly
+broken somewhere, and one half-written file elsewhere should not stop every
+question. The answer is partial only in the way it says it is.
 
 `query` builds an in-memory SQLite database under ADR-0494 with one table per
 declared table and nothing else. Each table has `stem` (the row's file is
@@ -86,6 +94,8 @@ agents use Git and the host's own tools for cloning, history, and transfer.
   file they both read.
 - An agent's first call in an unfamiliar repository is `epicenter query <dir>`,
   which describes the data folder well enough to write SQL.
+- An answer may come from part of the folder. A caller that needs the whole
+  folder checks that `excluded` is empty, or runs `check` first.
 - Every query reads the current working tree. Pulling newer commits is the
   caller's job; `query` never changes files.
 - A statement that writes is refused, so no agent can believe an in-memory
@@ -112,9 +122,12 @@ agents use Git and the host's own tools for cloning, history, and transfer.
   data.
 - **`sql` or a separate `describe` command.** `query` without a statement
   already describes the folder.
-- **Answering from the rows that conform** and reporting what was excluded.
-  An answer computed from part of the folder invites acting on it before the
-  broken rows are fixed.
+- **Answering only when every file conforms.** The original decision. One
+  broken file anywhere stopped every question, including questions about
+  tables it is not in, so a half-written journal entry blocked planning.
+- **Refusing only when the statement reads a table with a broken file.**
+  Narrower, but it still blocks on a file the answer may not involve, and it
+  adds a second rule beside the exclusion that `--json` already reports.
 - **Invalid rows or metadata in the database** (an `_invalid` table, an
   attached `epicenter` schema, `_path` and `_sha256` columns, `kv.json` as a
   table). Diagnostics belong to `check`, a row's path is `<table>/<stem>.md`,
