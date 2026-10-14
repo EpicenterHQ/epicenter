@@ -134,7 +134,8 @@ export function directoryHandle(
 					throw domError('NotFoundError', `'${path}' does not exist`);
 				if (found.kind === 'directory')
 					throw domError('TypeMismatchError', `'${path}' is a directory`);
-				if (found.kind === 'link' || found.kind === 'other')
+				if (found.kind === 'link') throw linked(path);
+				if (found.kind === 'other')
 					return {
 						size: found.size,
 						arrayBuffer: () =>
@@ -208,6 +209,18 @@ export function directoryHandle(
 	}
 
 	/**
+	 * A symbolic link is never followed, and never stands for what it points
+	 * at: `NotFoundError` marked `link`, which the file storage reports as an
+	 * unusable path.
+	 */
+	function linked(at: string) {
+		return Object.assign(
+			domError('NotFoundError', `'${at}' is a symbolic link and is not followed`),
+			{ link: true },
+		);
+	}
+
+	/**
 	 * Refuse an entry `lstat` found under a case-variant of `child`: on a
 	 * case-insensitive file system `plan.md` reaches `Plan.md`. A lookup gets
 	 * `NotFoundError` marked `occupied`, so a read sees nothing there and a
@@ -248,6 +261,7 @@ export function directoryHandle(
 				checkName(child);
 				const at = join(path, child);
 				const found = await primitives.lstat(at);
+				if (found?.kind === 'link') throw linked(at);
 				if (found !== undefined) await literally(path, child, found, options);
 				if (found === undefined) {
 					if (!options?.create)
@@ -261,6 +275,7 @@ export function directoryHandle(
 				checkName(child);
 				const at = join(path, child);
 				const found = await primitives.lstat(at);
+				if (found?.kind === 'link') throw linked(at);
 				if (found !== undefined) await literally(path, child, found, options);
 				if (found === undefined) {
 					// Nothing is written until the stream closes and its bytes

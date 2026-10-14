@@ -151,13 +151,30 @@ export type Lookup =
 	| { readonly kind: 'absent' }
 	/** Nothing is stored under this exact name, but a case-variant is. */
 	| { readonly kind: 'occupied' }
+	/** A symbolic link, which is never followed. */
+	| { readonly kind: 'link' }
 	/** `ancestor` is a file, so nothing can be below it. */
 	| { readonly kind: 'underFile'; readonly ancestor: string };
 
+/** Whether `cause` is a directory handle's refusal of a symbolic link. */
+const isLink = (cause: unknown) =>
+	typeof cause === 'object' &&
+	cause !== null &&
+	(cause as { link?: unknown }).link === true;
+
 const absentOrOccupied = (cause: unknown): Lookup =>
-	(cause as { occupied?: unknown }).occupied === true
-		? { kind: 'occupied' }
-		: { kind: 'absent' };
+	isLink(cause)
+		? { kind: 'link' }
+		: (cause as { occupied?: unknown }).occupied === true
+			? { kind: 'occupied' }
+			: { kind: 'absent' };
+
+/** What a symbolic link at `path` is reported as. */
+const linkRefusal = (path: string) =>
+	FileError.InvalidPath({
+		path,
+		reason: 'the path passes through a symbolic link',
+	});
 
 /** What `path` names below `root`; the empty path is `root` itself. */
 export async function lookup(
@@ -210,6 +227,7 @@ export async function ensureDirectory(
 			});
 		} catch (cause) {
 			const at = segments.slice(0, index + 1).join('/');
+			if (isLink(cause)) return linkRefusal(at);
 			if (errorName(cause) === 'TypeMismatchError')
 				return FileError.NotADirectory({ path: at });
 			return FileError.Io({ path: at, operation: 'create directory', cause });
@@ -402,6 +420,7 @@ async function plan(
 		| { kind: 'directory' }
 		| { kind: 'absent' }
 		| { kind: 'occupied' }
+		| { kind: 'link' }
 		| { kind: 'underFile'; ancestor: string };
 
 	/** `hash: false` answers whether a file is there without reading it. */
@@ -432,6 +451,7 @@ async function plan(
 	function blocked(path: string, found: Current): FileError | undefined {
 		if (found.kind === 'directory') return FileError.NotAFile({ path }).error;
 		if (found.kind === 'occupied') return FileError.Exists({ path }).error;
+		if (found.kind === 'link') return linkRefusal(path).error;
 		if (found.kind === 'underFile')
 			return FileError.NotADirectory({ path: found.ancestor }).error;
 		return undefined;
@@ -462,6 +482,7 @@ async function plan(
 				);
 				if (found.kind === 'directory')
 					return FileError.NotAFile({ path: change.path });
+				if (found.kind === 'link') return linkRefusal(change.path);
 				if (found.kind !== 'file')
 					return FileError.NotFound({ path: change.path });
 				const refused = conflict(change.path, found, change.expectedSha256);
@@ -474,6 +495,7 @@ async function plan(
 				const found = await current(change.from);
 				if (found.kind === 'directory')
 					return FileError.NotAFile({ path: change.from });
+				if (found.kind === 'link') return linkRefusal(change.from);
 				if (found.kind !== 'file' || found.sha256 === undefined)
 					return FileError.NotFound({ path: change.from });
 				const refused = conflict(change.from, found, change.expectedSha256);
@@ -790,10 +812,12 @@ export function createOpfsFileBoundary({
 		try {
 			const found = await lookup(root, path);
 			if (found.kind === 'directory') return FileError.NotAFile({ path });
+			if (found.kind === 'link') return linkRefusal(path);
 			if (found.kind !== 'file') return FileError.NotFound({ path });
 			const bytes = await readHandle(found.handle);
 			return Ok({ bytes, sha256: await hashBytes(bytes) });
 		} catch (cause) {
+			if (isLink(cause)) return linkRefusal(path);
 			if (errorName(cause) === 'NotFoundError')
 				return FileError.NotFound({ path });
 			return FileError.Io({ path, operation: 'read', cause });
@@ -810,7 +834,9 @@ export function createOpfsFileBoundary({
 						try {
 							files.push({ path, size: (await handle.getFile()).size });
 						} catch (cause) {
-							if (errorName(cause) !== 'NotFoundError') throw cause;
+							// A link is listed, so reading it reports why it is unusable.
+							if (isLink(cause)) files.push({ path, size: 0 });
+							else if (errorName(cause) !== 'NotFoundError') throw cause;
 						}
 					},
 					directory: (path) => directories.push(path),
@@ -833,6 +859,7 @@ export function createOpfsFileBoundary({
 				const found = await lookup(root, directory);
 				if (found.kind === 'file')
 					return FileError.NotADirectory({ path: directory });
+				if (found.kind === 'link') return linkRefusal(directory);
 				if (found.kind !== 'directory')
 					return FileError.NotFound({ path: directory });
 				const files: string[] = [];
