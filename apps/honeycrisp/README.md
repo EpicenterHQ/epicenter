@@ -28,7 +28,7 @@ Checks, from `apps/honeycrisp`:
 | Command | What it checks |
 | --- | --- |
 | `bun run typecheck` | Both page builds and the scripts. |
-| `bun run test` | The page: the editor, the notes state over the browser folder, first open over a real directory, bundle contents, then `test:dom`. Needs no Rust. It first prepares the folder package's file exchange addon, which needs a C compiler on macOS and Linux. |
+| `bun run test` | The page: the editor, the notes state over the browser folder, first open over a real directory, bundle contents, then `test:dom`. Needs no Rust or C compiler. |
 | `bun run test:dom` | The note view, mounted with its UI library over jsdom, in its own process. |
 | `bun run test:native` | The shell: its Rust tests, then the page's close handling against the shell's real close gate. Needs Rust. |
 | `bun run test:quit` | macOS only, run by hand in a login session: the real app, on a fixture page in a fresh directory, quit through AppKit's `terminate:` twice. The first quit is declined; the second is approved while a save is still being written. See [the quit evidence](evidence/native-quit/README.md). Opens a window. |

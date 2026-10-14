@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "tauri dev",
 		"dev:ui": "vite dev",
-		"test": "bun ../../packages/folder/scripts/build-addon.ts && bun test --isolate --path-ignore-patterns='src/routes/**' && bun run test:mounted",
+		"test": "bun test --isolate --path-ignore-patterns='src/routes/**' && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/routes",
 		"test:quit": "cargo run --locked --manifest-path src-tauri/Cargo.toml --example quit --",
 		"build": "NODE_ENV=production vite build",

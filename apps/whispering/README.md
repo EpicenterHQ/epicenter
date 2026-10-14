@@ -96,7 +96,6 @@ shell starts it, with the folder it chose.
 Checks, from `apps/whispering`:
 
 ```sh
-bun run --filter @epicenter/folder build:addon   # once: the Bun opener's file exchange (macOS, Linux)
 bun run typecheck                 # the page, then the host
 bun run test                      # host, workspace, publication, and workflow tests, then the mounted row views
 bun run build                     # the page, into build/

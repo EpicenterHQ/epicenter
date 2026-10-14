@@ -315,30 +315,13 @@ const opened = await openFolder({
 });
 ```
 
-This is a different opener: it takes the directory and the history settings
-explicitly, and this process records history itself with the `git` program. It
-is not the desktop adapter, and it does not watch the directory.
-
-Its replacements need a small Node-API addon, `addon/exchange.c`, on macOS
-and Linux, built before the process runs:
-
-```sh
-bun run --filter @epicenter/folder build:addon
-```
-
-`packages/folder/scripts/build-addon.ts` compiles it with `$CC` (else `cc`) against the
-`node-api-headers` development dependency into the ignored `addon/build/`;
-it does nothing on other platforms. These package scripts run it first: `test`
-here and in `apps/whispering`, `apps/capture`, `apps/todos`,
-`apps/honeycrisp`, and `packages/capture`; `test:native` in
-`apps/honeycrisp`; `native` in `apps/todos`; and `harness:recovery` in
-`apps/capture`. Anything else, including `bun test` run directly and other
-Bun tools, needs the command above first. Without a current build, a
-replacement fails as `Io`, writes nothing, and names that command; it lands
-once the build exists. An addon whose source cannot be read or whose build
-cannot be loaded fails the same way with the actual cause, which rebuilding
-may not fix. Nothing compiles at install time or at run time, and browser,
-server, and desktop builds never load the addon or need a compiler.
+This opener takes the directory and the history settings explicitly, and this
+process reaches the disk itself, with `node:fs` and its own `git`. It opens
+the same directory folder a desktop page does (`openDirectoryFolder`), so files
+are replaced the same way: a staged copy under `.git/epicenter/scratch` is
+renamed over the file. Locks are this process's own, so a script and an open
+desktop window on one directory coordinate only through Git's lock files. It
+does not watch the directory.
 
 ### Reading a data folder without opening it
 
@@ -369,8 +352,7 @@ on a field, or a field preparation refuses, such as one with an unknown
 `InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
 migration.
 
-It writes nothing: no Git repository, lock, or declaration, and it
-loads no native addon. It can read a folder an application has open, or one
+It writes nothing: no Git repository, lock, or declaration. It can read a folder an application has open, or one
 nested anywhere in another repository. Each file is read whole, but the
 reading is not a snapshot across files: a save in progress elsewhere can show
 in one table and not yet in another.
@@ -441,26 +423,15 @@ as an `overwrite`, and a move's destination must be empty. Browser OPFS, the
 Bun directory, and the desktop owner enforce this where they publish. There
 is no sentinel union mixing hashes with `'absent'` or `'any'`.
 
-A `replace` requires its file when its bytes land, not only at a check
-before, so a file another program removes is never put back: the save is
-`NotFound`, or `Conflict` with no actual hash when guarded. The Bun directory
-and the desktop owner exchange a staged file with the file in one system call
-on macOS and Linux (and, for the desktop owner, iOS and Android), and a
-filesystem there that cannot exchange fails the save as `Io`. The exchange is
-the only operation on the path. If what it displaced is not a regular file,
-or cannot be inspected, it stays where the exchange left it under
-`.git/epicenter/scratch`: the save landed, and is reported as `Unconfirmed`
-(a raw batch reports `Partial`) with a message that names that location.
-Inspect the file, and anything written to it since, before restoring from
-it. On Windows, and any other platform without an exchange, the Bun
-directory and the desktop owner have no `replace` until a mechanism that
-requires the file at publication is proven: the save is `Io` naming the
-platform, the staged copy is removed, and this operation does not change the
-destination. The caller keeps its input to copy or export; nothing retries.
-Creation, reads, overwrites, moves, and removals are unchanged by this repair;
-none is verified on Windows. Replace-based native suites are expected to fail
-there with `Io`. The desktop owner has not been built for Windows. Browser folders, in any browser on any
-operating system, are unaffected. OPFS opens the file without creating it
+A directory folder, in Bun or a desktop page, checks that a `replace`'s file
+is there and then renames a staged copy over it. A file another program
+removes between that check and the rename comes back with the new bytes; it
+shows as an ordinary file and can be removed again (ADR-0533). The desktop
+owner instead exchanges the staged file with the file in one system call on
+macOS and Linux, and refuses `replace` elsewhere, until it is deleted.
+A directory folder reads names literally: on a case-insensitive file system,
+`plan.md` does not reach `Plan.md`, and creating or moving to `plan.md`
+there is `Exists`. Browser folders are unaffected. OPFS opens the file without creating it
 and checks again once its writable stream holds the lock that, in Chromium,
 refuses removing the file or a directory above it; a Chrome 142 probe showed
 that, and other engines are unverified. Bytes another program writes in that
@@ -1078,16 +1049,15 @@ dangle.
 | `src/svelte/` | Svelte boundary tests and the sync review's mounted tests. |
 | `src/reading.ts` | KV's reading diagnostics: `ParseError`, `FieldIssue`, `DeepReadonly`, and the ownership every checked value has: parsed values frozen and supplied values copied before a field sees them. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
-| `src/native-store.ts`, `git/native-*.ts` | The directory entry's files and `git` program. "Native" here means an ordinary directory in Bun, not the desktop shell. |
-| `src/native-exchange.ts`, `addon/exchange.c`, `packages/folder/scripts/build-addon.ts` | The directory entry's atomic exchange for replacements: the Node-API addon, its loader and errno mapping, and the script that builds it. |
+| `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or Tauri's fs plugin. |
+| `src/process-locks.ts`, `git/native-*.ts` | Web Locks for a process that has none, and the `git` program a directory folder records history with. |
 | `src/native/bindings.gen.ts` | Commands and events generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
 | `evidence/` | Tests that build real bundles and read real import closures; `evidence/opfs`, a page that runs the browser checks in a real browser. |
 
 ## Commands
 
 ```sh
-bun run test              # build the addon, then native/core and mounted Svelte tests
-bun run build:addon       # compile the Bun directory's exchange addon
+bun run test              # core and directory tests, then mounted Svelte tests
 bun run test:svelte       # only the mounted Svelte tests; they need --conditions=browser
 bun run typecheck         # svelte-check: TypeScript and the .svelte test fixtures
 

@@ -33,7 +33,10 @@ import {
 	gitHttpFetch,
 	scratch,
 } from './git-http.test-support.js';
-import { createNativeFileBoundary } from './native-store.js';
+import { directoryHandle } from './directory-handle.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createOpfsFileBoundary } from './opfs-store.js';
+import { createProcessLocks } from './process-locks.js';
 import { parseRow } from './row-text.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
@@ -369,7 +372,12 @@ describe('native folder', () => {
 	test('a competing native commit refuses the checkpoint; the branch is never forced', async () => {
 		const root = await scratch('native-cas-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
-		const boundary = createNativeFileBoundary(root);
+		const boundary = createOpfsFileBoundary({
+			root: directoryHandle(nodeDirectoryPrimitives, root),
+			locks: createProcessLocks(),
+			filesLock: 'native-cas',
+			landed: () => {},
+		});
 		const backend = await createNativeGitBackend({
 			root,
 			branch: 'main',

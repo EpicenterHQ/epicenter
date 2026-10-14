@@ -7,10 +7,7 @@
  * the signal changes nothing.
  */
 import { afterAll } from 'bun:test';
-
-type Lock = { name: string };
-type Work<T> = (lock: Lock) => Promise<T> | T;
-type Options = { signal?: AbortSignal };
+import { createProcessLocks } from './process-locks.js';
 
 function setNavigator(value: unknown) {
 	const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -31,41 +28,7 @@ export function installWebLocks(): () => void {
 }
 
 /** A stand-in lock manager of its own, shared by whoever is handed it. */
-export function createWebLocks() {
-	const tails = new Map<string, Promise<unknown>>();
-	const locks = {
-		request<T>(
-			name: string,
-			optionsOrWork: Options | Work<T>,
-			maybeWork?: Work<T>,
-		): Promise<T> {
-			const work = (
-				typeof optionsOrWork === 'function' ? optionsOrWork : maybeWork
-			) as Work<T>;
-			const options = typeof optionsOrWork === 'function' ? {} : optionsOrWork;
-			const { signal } = options;
-			if (signal?.aborted) return Promise.reject(signal.reason);
-			let granted = false;
-			const turn = async () => {
-				if (signal?.aborted) throw signal.reason;
-				granted = true;
-				return work({ name });
-			};
-			const result = (tails.get(name) ?? Promise.resolve()).then(turn, turn);
-			tails.set(name, result);
-			if (signal === undefined) return result;
-			return new Promise<T>((resolve, reject) => {
-				signal.addEventListener('abort', () => {
-					// Use a distinct error to test cancellation normalization.
-					if (!granted)
-						reject(new DOMException('Lock wait aborted', 'AbortError'));
-				});
-				result.then(resolve, reject);
-			});
-		},
-	};
-	return locks;
-}
+export const createWebLocks = createProcessLocks;
 
 /**
  * Give every test in the calling file `navigator.locks`. A browser folder

@@ -7,11 +7,13 @@ import {
 	mkdir,
 	readdir,
 	readFile,
+	realpath,
 	rename,
 	rm,
 	rmdir,
 	writeFile,
 } from 'node:fs/promises';
+import { basename } from 'node:path';
 import type { DirectoryPrimitives, EntryKind } from './directory-handle.js';
 
 const kindOf = (entry: {
@@ -35,7 +37,13 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 	async lstat(path) {
 		try {
 			const stats = await lstat(path);
-			return { kind: kindOf(stats), size: stats.size, mode: stats.mode };
+			const kind = kindOf(stats);
+			// `realpath` answers with the stored spelling; a link is not followed.
+			const name =
+				kind === 'file' || kind === 'directory'
+					? basename(await realpath(path))
+					: undefined;
+			return { kind, size: stats.size, mode: stats.mode, name };
 		} catch (cause) {
 			if ((cause as { code?: string }).code === 'ENOENT') return undefined;
 			throw cause;

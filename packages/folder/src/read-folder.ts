@@ -3,14 +3,14 @@
  *
  * A data folder is a directory holding `epicenter.json`. `readFolder` reads
  * and prepares that declaration, then reads every declared table and
- * `kv.json` through the same tables, settings, and native file boundary an
+ * `kv.json` through the same tables, settings, and directory file storage an
  * opened folder uses, so a tool and an application reach the same verdict
  * on every file: path policy, symbolic links, names, UTF-8, and row
  * validity included.
  *
  * It writes nothing. It takes no lock, leaves no marker, initializes no Git
- * repository, publishes no declaration, and loads no native addon, so it can
- * read a folder an application has open, or one nested in any repository.
+ * repository, and publishes no declaration, so it can read a folder an
+ * application has open, or one nested in any repository.
  */
 
 import { lstat, realpath } from 'node:fs/promises';
@@ -28,7 +28,10 @@ import {
 	type TableEnumerationError,
 } from './errors.js';
 import { createKv, type KvReading } from './kv.js';
-import { createNativeFileBoundary } from './native-store.js';
+import { directoryHandle } from './directory-handle.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createOpfsFileBoundary } from './opfs-store.js';
+import { createProcessLocks } from './process-locks.js';
 import { DECLARATION_PATH } from './paths.js';
 import { createTable, type TableListing } from './table.js';
 
@@ -94,7 +97,14 @@ export async function readFolder(
 			? FileError.NotFound({ path: root })
 			: FileError.Io({ path: root, operation: 'open', cause });
 	}
-	const storage = createNativeFileBoundary(resolved);
+	// Reads take no lock; the boundary's lock guards only writes, which a
+	// reading never makes.
+	const storage = createOpfsFileBoundary({
+		root: directoryHandle(nodeDirectoryPrimitives, resolved),
+		locks: createProcessLocks(),
+		filesLock: `epicenter-folder-read:${resolved}`,
+		landed: () => {},
+	});
 
 	const { data: read, error: readError } = await storage.read(DECLARATION_PATH);
 	if (readError !== null)

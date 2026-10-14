@@ -20,7 +20,7 @@
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
 		"tauri": "tauri",
-		"test": "bun run --filter @epicenter/folder build:addon && bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
+		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
 		"test:dom": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte ./src/routes/components/NoteDetail.dom.test.ts",
 		"test:native": "bun run build:desktop-ui && cargo test --locked --manifest-path src-tauri/Cargo.toml && cargo build --locked --manifest-path src-tauri/Cargo.toml --example harness && bun test --isolate --conditions=browser ./native-tests",
 		"test:quit": "bun run build:desktop-ui && cargo run --locked --manifest-path src-tauri/Cargo.toml --example quit --",

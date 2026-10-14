@@ -116,7 +116,7 @@ describe('#platform/folder', () => {
 				modules.filter(
 					(path) =>
 						SHARED_FORBIDDEN.test(path) ||
-						/platform\/folder\.browser\.ts$|packages\/folder\/src\/(browser|browser-adapter|bun|native-store|directory-node)\.ts$|packages\/folder\/src\/git\/(opfs-git|native-host)\.ts$|^node:|^bun:/.test(
+						/platform\/folder\.browser\.ts$|packages\/folder\/src\/(browser|browser-adapter|bun|directory-node)\.ts$|packages\/folder\/src\/git\/(opfs-git|native-host)\.ts$|^node:|^bun:/.test(
 							path,
 						),
 				),
@@ -175,7 +175,7 @@ describe('#platform/folder', () => {
 				modules.filter(
 					(path) =>
 						SHARED_FORBIDDEN.test(path) ||
-						/platform\/folder\.epicenter-host\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|bun|native-store)\.ts$|packages\/folder\/src\/native\/|packages\/folder\/src\/git\/(native-backend|native-checkpoint)\.ts$|tauri-plugin-epicenter-folder|^bun:/.test(
+						/platform\/folder\.epicenter-host\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|bun)\.ts$|packages\/folder\/src\/native\/|packages\/folder\/src\/git\/(native-backend|native-checkpoint)\.ts$|tauri-plugin-epicenter-folder|^bun:/.test(
 							path,
 						),
 				),

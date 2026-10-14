@@ -307,7 +307,6 @@ The package exports nothing. No host imports a part of this app.
 ## Checks
 
 ```sh
-bun run --cwd packages/folder build:addon   # once: the exchange a directory folder replaces files with
 bun test packages/capture
 bun run --cwd apps/capture test             # unit tests, then the mounted components
 bun run --cwd packages/capture typecheck
@@ -338,7 +337,7 @@ checked by hand in the Epicenter shell.
 | Script | What it checks |
 | --- | --- |
 | `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, a conflicting write rolled back across pages, Save version, leave warnings, deletion, and an import. Needs a free local port and `bun x playwright install chromium`. |
-| `bun apps/capture/scripts/recovery-harness.ts [dir] [bundle.json]` | A standalone tool, not the desktop backend: imports a bundle into a real directory twice, through `@epicenter/folder/bun` with an explicit author and no remote, and prints both reports. Exits nonzero if the retry creates anything. Run `bun run --filter @epicenter/folder build:addon` first, or use `bun run harness:recovery` here, which does. |
+| `bun apps/capture/scripts/recovery-harness.ts [dir] [bundle.json]` | A standalone tool, not the desktop backend: imports a bundle into a real directory twice, through `@epicenter/folder/bun` with an explicit author and no remote, and prints both reports. Exits nonzero if the retry creates anything. `bun run harness:recovery` runs it from here. |
 
 ## Changed promises
 

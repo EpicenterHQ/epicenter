@@ -47,7 +47,7 @@ const FORBIDDEN =
 	/(^|\/)(@y[+/]|yjs[\/@]|y-prosemirror[\/@]|y-protocols[\/@])|packages\/(auth|sync)\/src\//;
 /** A Node or Bun built-in, or the directory folder and Git host that run on them. */
 const NODE =
-	/^(node|bun):|folder\/src\/(bun|native-store|directory-node)\.ts$|git\/native-host\.ts$/;
+	/^(node|bun):|folder\/src\/(bun|directory-node)\.ts$|git\/native-host\.ts$/;
 
 describe('bundles', () => {
 	test(

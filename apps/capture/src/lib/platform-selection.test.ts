@@ -74,7 +74,7 @@ describe('#platform/folder', () => {
 			// `packages/folder/evidence/bundles` checks that it stays lazy.
 			expect(
 				modules.filter((path) =>
-					/platform\/folder\.browser\.ts$|folder\/src\/(browser|browser-adapter|bun|native-store|directory-node)\.ts$|folder\/src\/git\/(browser-|native-host)|^node:|^bun:/.test(
+					/platform\/folder\.browser\.ts$|folder\/src\/(browser|browser-adapter|bun|directory-node)\.ts$|folder\/src\/git\/(browser-|native-host)|^node:|^bun:/.test(
 						path,
 					),
 				),
@@ -121,7 +121,7 @@ describe('#platform/folder', () => {
 				modules.filter((path) =>
 					// The browser adapter asks `isTauri()` so it can refuse there; that one
 					// module of the Tauri API is its only use of it.
-					/platform\/folder\.epicenter-host\.ts$|epicenter\/src\/|folder\/src\/(tauri|tauri-adapter|bun|native-store)\.ts$|folder\/src\/native\/|@tauri-apps\/api\/(event|webviewWindow)|^bun:/.test(
+					/platform\/folder\.epicenter-host\.ts$|epicenter\/src\/|folder\/src\/(tauri|tauri-adapter|bun)\.ts$|folder\/src\/native\/|@tauri-apps\/api\/(event|webviewWindow)|^bun:/.test(
 						path,
 					),
 				),

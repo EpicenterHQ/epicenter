@@ -1,7 +1,7 @@
 //! Ordinary files in a native folder.
 //!
-//! The Rust owner of what `packages/folder/src/native-store.ts` does for a
-//! Bun process. Current files are the source. A replacement hashes the
+//! The Rust owner's counterpart of the folder engine's directory file storage
+//! (`packages/folder/src/directory-handle.ts`). Current files are the source. A replacement hashes the
 //! current bytes and replaces them only when they match the SHA-256 the caller
 //! captured; this is a best-effort check, not an operating-system-wide
 //! compare-and-swap against other programs. Creation and moves use hard links,

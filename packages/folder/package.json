@@ -13,11 +13,10 @@
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun run build:addon && bun test --isolate --path-ignore-patterns='src/svelte/**' && bun run test:svelte",
+		"test": "bun test --isolate --path-ignore-patterns='src/svelte/**' && bun run test:svelte",
 		"test:svelte": "bun test --isolate --conditions=browser src/svelte",
 		"test:native": "EPICENTER_FOLDER_BRIDGE=1 bun test --isolate src/tauri-native.test.ts",
-		"gen:vectors": "bun src/git/commit-subject-vectors.ts",
-		"build:addon": "bun scripts/build-addon.ts"
+		"gen:vectors": "bun src/git/commit-subject-vectors.ts"
 	},
 	"dependencies": {
 		"@epicenter/definition": "workspace:*",
@@ -47,8 +46,7 @@
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"jsdom": "26.1.0",
-		"@types/jsdom": "21.1.7",
-		"node-api-headers": "^1.9.0"
+		"@types/jsdom": "21.1.7"
 	},
 	"license": "AGPL-3.0-or-later"
 }

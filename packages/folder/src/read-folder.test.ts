@@ -339,7 +339,8 @@ test('a symbolically linked table directory is refused, not followed, and the ot
 	await writeFile(join(root, 'notes', 'n.md'), '---\nbody: Inside\n---\n');
 
 	const reading = expectOk(await readFolder(root));
-	expect(expectErr(reading.tables.todos!).name).toBe('InvalidPath');
+	// The directory layer sees the link as something other than a directory.
+	expect(expectErr(reading.tables.todos!).name).toBe('NotADirectory');
 	expect(expectOk(reading.tables.notes!)).toHaveLength(1);
 });
 

@@ -149,8 +149,15 @@ export type Lookup =
 	| { readonly kind: 'file'; readonly handle: OpfsFileHandle }
 	| { readonly kind: 'directory'; readonly handle: OpfsDirectoryHandle }
 	| { readonly kind: 'absent' }
+	/** Nothing is stored under this exact name, but a case-variant is. */
+	| { readonly kind: 'occupied' }
 	/** `ancestor` is a file, so nothing can be below it. */
 	| { readonly kind: 'underFile'; readonly ancestor: string };
+
+const absentOrOccupied = (cause: unknown): Lookup =>
+	(cause as { occupied?: unknown }).occupied === true
+		? { kind: 'occupied' }
+		: { kind: 'absent' };
 
 /** What `path` names below `root`; the empty path is `root` itself. */
 export async function lookup(
@@ -165,7 +172,7 @@ export async function lookup(
 			directory = await directory.getDirectoryHandle(segments[index]!);
 		} catch (cause) {
 			const name = errorName(cause);
-			if (name === 'NotFoundError') return { kind: 'absent' };
+			if (name === 'NotFoundError') return absentOrOccupied(cause);
 			if (name === 'TypeMismatchError')
 				return {
 					kind: 'underFile',
@@ -179,7 +186,7 @@ export async function lookup(
 		return { kind: 'file', handle: await directory.getFileHandle(last) };
 	} catch (cause) {
 		const name = errorName(cause);
-		if (name === 'NotFoundError') return { kind: 'absent' };
+		if (name === 'NotFoundError') return absentOrOccupied(cause);
 		if (name !== 'TypeMismatchError') throw cause;
 	}
 	return {
@@ -394,6 +401,7 @@ async function plan(
 		| { kind: 'file'; sha256: string | undefined }
 		| { kind: 'directory' }
 		| { kind: 'absent' }
+		| { kind: 'occupied' }
 		| { kind: 'underFile'; ancestor: string };
 
 	/** `hash: false` answers whether a file is there without reading it. */
@@ -423,6 +431,7 @@ async function plan(
 	/** A file may be written at `path` where no file is. */
 	function blocked(path: string, found: Current): FileError | undefined {
 		if (found.kind === 'directory') return FileError.NotAFile({ path }).error;
+		if (found.kind === 'occupied') return FileError.Exists({ path }).error;
 		if (found.kind === 'underFile')
 			return FileError.NotADirectory({ path: found.ancestor }).error;
 		return undefined;

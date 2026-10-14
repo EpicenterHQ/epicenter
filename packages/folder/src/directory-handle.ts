@@ -55,12 +55,17 @@ export type DirectoryPrimitives = {
 	/**
 	 * What `path` is, without following a final link, or `undefined` when
 	 * absent. `mode` is the Unix permission bits where the platform has them.
+	 * `name` is the final segment as the file system stores it, which differs
+	 * from the one asked for only on a case-insensitive file system; a
+	 * platform that cannot say leaves it out, and the handle lists the parent
+	 * instead.
 	 */
 	lstat(path: string): Promise<
 		| {
 				readonly kind: EntryKind;
 				readonly size: number;
 				readonly mode?: number;
+				readonly name?: string;
 		  }
 		| undefined
 	>;
@@ -202,6 +207,39 @@ export function directoryHandle(
 		};
 	}
 
+	/**
+	 * Refuse an entry `lstat` found under a case-variant of `child`: on a
+	 * case-insensitive file system `plan.md` reaches `Plan.md`. A lookup gets
+	 * `NotFoundError` marked `occupied`, so a read sees nothing there and a
+	 * write refuses to land on the other file; asking to create it is
+	 * `InvalidModificationError`.
+	 */
+	async function literally(
+		parent: string,
+		child: string,
+		found: { readonly kind: EntryKind; readonly name?: string },
+		options?: { readonly create?: boolean },
+	): Promise<void> {
+		if (found.kind === 'link' || found.kind === 'other') return;
+		const stored =
+			found.name !== undefined
+				? found.name === child
+				: (await primitives.readDir(parent)).some(
+						(entry) => entry.name === child,
+					);
+		if (stored) return;
+		const at = join(parent, child);
+		if (options?.create)
+			throw domError(
+				'InvalidModificationError',
+				`'${at}' is stored under another name`,
+			);
+		throw Object.assign(
+			domError('NotFoundError', `'${at}' is stored under another name`),
+			{ occupied: true },
+		);
+	}
+
 	function directoryAt(path: string, name: string): OpfsDirectoryHandle {
 		return {
 			kind: 'directory',
@@ -210,6 +248,7 @@ export function directoryHandle(
 				checkName(child);
 				const at = join(path, child);
 				const found = await primitives.lstat(at);
+				if (found !== undefined) await literally(path, child, found, options);
 				if (found === undefined) {
 					if (!options?.create)
 						throw domError('NotFoundError', `'${at}' does not exist`);
@@ -222,6 +261,7 @@ export function directoryHandle(
 				checkName(child);
 				const at = join(path, child);
 				const found = await primitives.lstat(at);
+				if (found !== undefined) await literally(path, child, found, options);
 				if (found === undefined) {
 					// Nothing is written until the stream closes and its bytes
 					// are renamed into place: another program never meets an
@@ -238,6 +278,7 @@ export function directoryHandle(
 				const found = await primitives.lstat(at);
 				if (found === undefined)
 					throw domError('NotFoundError', `'${at}' does not exist`);
+				await literally(path, child, found);
 				if (found.kind === 'directory' && !options?.recursive) {
 					const inside = await primitives.readDir(at);
 					if (inside.length > 0)

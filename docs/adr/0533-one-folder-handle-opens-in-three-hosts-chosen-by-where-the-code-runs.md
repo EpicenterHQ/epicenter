@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-10-14
 - **Relates:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) runs the engine in a desktop page; [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) names the directory a page opens.
-- **Unbuilt:** one way to replace a file on disk: `@epicenter/folder/bun` swaps a staged copy in with an atomic exchange (`native-exchange.ts`, `addon/exchange.c`), a desktop page with a plain rename (`page_files.rs`).
 
 ## Context
 
@@ -43,6 +42,13 @@ definition, and the commit author from the caller, because no app or shell
 supplies them. A script kept inside a folder can import that folder's
 `epicenter.json` as its definition and pass its own directory as `root`.
 
+**A script and a desktop page open the same directory folder.** `openFolder`
+in `bun.ts` calls `openDirectoryFolder`, as `tauri-adapter.ts` does, over
+`nodeDirectoryPrimitives` and the system `git`, with `createProcessLocks` in
+place of Web Locks. Both replace a file by renaming a staged copy over it, and
+both read names literally: on a case-insensitive file system `plan.md` does
+not reach `Plan.md`, and creating `plan.md` there is `Exists`.
+
 ## Consequences
 
 - A table, row, or Sync rule is written once and runs in all three hosts.
@@ -57,8 +63,13 @@ supplies them. A script kept inside a folder can import that folder's
 - Neither the Bun opener nor a desktop page watches the directory, so an open
   window shows a script's edits only after it reads again
   ([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-- A script and a desktop page write the same disk, so a different file
-  replacement in each gives a race two outcomes.
+- A file another program removes between a `replace`'s check and its rename
+  comes back with the new bytes, as an ordinary file a person can remove
+  again ([ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md)).
+- Deleted with the Bun-only file storage: `native-store.ts`,
+  `native-exchange.ts`, the `addon/exchange.c` Node-API addon and its build
+  script, and their tests. Bun folders run on Windows, and no package test
+  compiles C first.
 
 ## Considered alternatives
 
@@ -67,6 +78,10 @@ supplies them. A script kept inside a folder can import that folder's
   names a folder ID while a script names a directory.
 - **Route a script's writes through the desktop shell.** A script has no
   webview to call `invoke()` from, and would need the app running.
+- **An atomic exchange for Bun replacements** (`renamex_np`, `renameat2`).
+  It kept a just-removed file from coming back, at the cost of a C addon built
+  before every test run, no Windows support, and a second file storage that
+  behaved differently from the desktop's.
 - **Let scripts edit plain files and run `git` without the engine.** Row
   formats, `kv.json` merging, and the declaration would be reimplemented or
   skipped by every script.
