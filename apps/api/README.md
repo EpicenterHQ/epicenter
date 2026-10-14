@@ -122,6 +122,7 @@ OAuth, AI, and billing still call their external services. For billing tests,
 use the Autumn sandbox described in [Local account integration](./ACCOUNT-INTEGRATION.md).
 Hosted Git is unavailable in this local process because Artifacts has no local
 simulator. Local dev does not require an Artifacts account secret.
+For client Git transfers without Cloudflare, use [Todos' loopback demo remote](../todos/README.md#developing).
 
 The launcher rebuilds the hosted UI at startup. After editing that UI while
 Wrangler is running, restart the root dev command or run
@@ -201,9 +202,9 @@ on the Workers Paid plan. Keep the secret in Infisical's `prod /api`; the
 Cloudflare Workers secret sync copies it to the `api` Worker. Artifacts has no
 local simulator, so `bun dev:api` removes the `ARTIFACTS` binding, namespace
 variable, and required account secret from its local config. Hosted Git answers
-503 locally. Testing Artifacts itself requires Cloudflare resources; use a
-separate development namespace to keep test repositories separate from
-production data.
+503 locally. The [Artifacts integration checks in ADR-0521](../../docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)
+used a separate Worker and namespace. The local launcher does not enable that
+integration path.
 
 ### Local blob storage
 

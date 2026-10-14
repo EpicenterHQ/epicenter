@@ -53,7 +53,8 @@
 	},
 	// --- Artifacts: hosted Git repositories (ADR-0521) ---
 	// One repository per principal and folder. The binding has no local
-	// emulation; `wrangler dev` warns and the store's calls fail there.
+	// emulation: direct `wrangler dev` opens a remote Artifacts session.
+	// Use `bun dev:api`, whose launcher removes this production binding.
 	"artifacts": [
 		{
 			"binding": "ARTIFACTS",
@@ -98,7 +99,7 @@
 			"deleted_classes": ["GitHubConnection"]
 		}
 	],
-	// --- Secrets (set via `wrangler secret put`, typed via `wrangler types`) ---
+	// --- Secrets (synced from Infisical prod /api, typed via `wrangler types`) ---
 	"secrets": {
 		"required": [
 			"BETTER_AUTH_SECRET",

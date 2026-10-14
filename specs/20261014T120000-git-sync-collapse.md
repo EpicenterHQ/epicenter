@@ -69,10 +69,17 @@ the previous one, and ends with the checks it names passing.
 - Done 2026-10-15: every desktop folder (Todos, Capture, Honeycrisp,
   Whispering, the Git lab) runs the page's folder engine, and the Rust folder
   owner is deleted; installed apps are parked (ADR-0531, ADR-0358).
-- Before deploying `apps/api`: `wrangler secret put ARTIFACTS_ACCOUNT_ID`
-  (required secret). The deploy runs migrations `v6` and `v7`, which delete the
-  store sync's Durable Objects and every stored GitHub grant. The Artifacts
-  namespace is `epicenter-production`.
+- `ARTIFACTS_ACCOUNT_ID` is configured in Infisical's `prod /api`; its existing
+  secret sync copies it to the `api` Worker. It is production-only. Ordinary API
+  dev omits Artifacts; Todos' loopback demo remote covers local Git transfers.
+  Artifacts integration checks use a separate Worker and namespace. A disk Git
+  backend is not required for ordinary development.
+- Before deploying `apps/api`, approve the remaining deletions. The read-only
+  audit on 2026-10-14 found production at `v5`, with zero `StoreAuthority` and
+  `GenerationsLedger` objects, and one `GitHubConnection` object occupying
+  16,384 bytes, owned by Braden's account. Migration `v7` deletes that connection
+  state; `v6` deletes the two empty namespaces. The audit did not deploy or apply
+  migrations. The Artifacts namespace is `epicenter-production`.
 - The empty Artifacts namespace `epicenter-livetest` from the live check is
   left on the Epicenter account: wrangler cannot delete a namespace; the REST
   API (`DELETE /artifacts/namespaces/epicenter-livetest`) or the dashboard can.
