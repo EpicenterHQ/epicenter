@@ -29,7 +29,6 @@
 		"ignore": "^7.0.5",
 		"isomorphic-git": "1.38.5",
 		"jsonc-parser": "^3.3.1",
-		"just-bash": "3.4.2",
 		"nanoid": "catalog:",
 		"wellcrafted": "catalog:",
 		"yaml": "catalog:"

@@ -7,56 +7,10 @@
  * no commit (ADR-0529).
  */
 import { expect, test } from 'bun:test';
-import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openFolder } from './browser.js';
-import {
-	browserStorage,
-	createTestStorage,
-	rawBrowserFolder,
-} from './browser-storage.test-support.js';
-import { defineFolder } from './contract.js';
+import { expectErr } from 'wellcrafted/testing';
+import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { ApplyError, FileError, type FileStep } from './errors.js';
 import { withPublication } from './storage.js';
-
-test('a directory move hints its uncertain destination after a completed prefix', async () => {
-	const storage = createTestStorage();
-	const folder = expectOk(
-		await openFolder({
-			id: 'partial-publication',
-			definition: defineFolder({ kv: {}, tables: {} }),
-			browser: { ...browserStorage(storage) },
-		}),
-	);
-	try {
-		for (const name of ['a', 'b', 'c'])
-			expectOk(await folder.files.create(`source/${name}.md`, name));
-		const heard: string[] = [];
-		folder.onFilesChanged((paths) => heard.push(...paths));
-		storage.opfs.faults.close = (path) =>
-			path.endsWith('/destination/b.md') ? 'lost' : undefined;
-		const result = await folder.terminal().exec('mv source destination');
-		expect(result.exitCode).toBe(1);
-		expect(result.stderr).toContain('did not confirm');
-		expect([...new Set(heard)].sort()).toEqual([
-			'destination/a.md',
-			'destination/b.md',
-			'source/a.md',
-			'source/b.md',
-		]);
-		expect(expectOk(await folder.files.read('destination/b.md')).bytes).toEqual(
-			new TextEncoder().encode('b'),
-		);
-		expect(expectOk(await folder.files.read('source/b.md')).bytes).toEqual(
-			new TextEncoder().encode('b'),
-		);
-		expect(expectErr(await folder.files.read('destination/c.md')).name).toBe(
-			'NotFound',
-		);
-	} finally {
-		storage.opfs.faults.close = undefined;
-		await folder.close();
-	}
-});
 
 for (const failed of [
 	{ kind: 'move', from: 'source/b.md', to: 'destination/b.md' },

@@ -118,8 +118,8 @@ async function open({
 		terminal: {
 			cwd: '/',
 			exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
+			note: 'test',
 		},
-		terminalNote: 'test',
 		capture: createFixtureDevice({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
@@ -627,9 +627,12 @@ test('while the person decides nothing new starts, and keep working admits work 
 	expect(await library.editSource(session.path)).toContain('closing');
 	expect(await library.createFile('', 'note.md')).toContain('closing');
 	expect(await Bun.file(join(root, 'note.md')).exists()).toBe(false);
-	library.terminal.command = 'echo hi';
-	await library.terminal.run();
-	expect(library.terminal.runs.at(-1)?.result?.stderr).toContain('closing');
+	const terminal = library.terminal;
+	if (terminal === undefined)
+		throw new Error('The native workspace has a terminal');
+	terminal.command = 'echo hi';
+	await terminal.run();
+	expect(terminal.runs.at(-1)?.result?.stderr).toContain('closing');
 	expect((await library.saveVersion()).status).toBe('blocked');
 
 	await guard.stay();

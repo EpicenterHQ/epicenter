@@ -77,11 +77,7 @@ export async function openNotesFolder() {
 
 	const host: NotesHost = {
 		folder,
-		terminal: {
-			cwd: '/',
-			description: '',
-			exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
-		},
+		terminal: undefined,
 		location: 'This browser',
 		reveal: undefined,
 		history: undefined,

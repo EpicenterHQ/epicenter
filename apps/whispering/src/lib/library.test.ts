@@ -162,8 +162,8 @@ async function open({
 		terminal: {
 			cwd: '/',
 			exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
+			note: 'test',
 		},
-		terminalNote: 'test',
 		capture: createFixtureDevice({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),

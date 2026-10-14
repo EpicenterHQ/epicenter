@@ -12,7 +12,7 @@
  *   captured sha256; a stale capture is a `Conflict`
  * - A stem is one literal segment; `todos/a/b.md` is not a row, while an
  *   externally written row with an invalid stem stays listable
- * - An empty directory lists, removes, and works from the terminal
+ * - An empty directory lists and removes
  *
  * See also:
  * - `browser.test.ts` for table CRUD and history
@@ -203,7 +203,7 @@ describe('row files', () => {
 });
 
 describe('empty directories', () => {
-	test('an empty directory lists, is removable, and works from the terminal', async () => {
+	test('an empty directory lists and is removable', async () => {
 		const folder = await open();
 		expectOk(await folder.files.mkdir('empty'));
 		expect((await folder.files.children('empty')).data).toEqual({
@@ -217,13 +217,5 @@ describe('empty directories', () => {
 		expect(expectErr(await folder.files.children('empty')).name).toBe(
 			'NotFound',
 		);
-
-		const terminal = folder.terminal();
-		const made = await terminal.exec('mkdir -p a/b && ls a && ls a/b');
-		expect(made.stderr).toBe('');
-		expect(made.stdout).toBe('b\n');
-		const removed = await terminal.exec('rmdir a/b && ls a');
-		expect(removed.stderr).toBe('');
-		expect(removed.stdout).toBe('');
 	});
 });

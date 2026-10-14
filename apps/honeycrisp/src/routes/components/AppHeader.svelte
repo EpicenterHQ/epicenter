@@ -176,16 +176,18 @@
 			<FolderTreeIcon />
 			Files
 		</Button>
-		<Button
-			variant={terminalOpen ? 'secondary' : 'ghost'}
-			size="sm"
-			tooltip={terminalOpen ? 'Hide terminal (Ctrl+`)' : 'Show terminal (Ctrl+`)'}
-			aria-pressed={terminalOpen}
-			data-terminal-toggle
-			onclick={onToggleTerminal}
-		>
-			<SquareTerminalIcon />
-			Terminal
-		</Button>
+		{#if notes.terminal}
+			<Button
+				variant={terminalOpen ? 'secondary' : 'ghost'}
+				size="sm"
+				tooltip={terminalOpen ? 'Hide terminal (Ctrl+`)' : 'Show terminal (Ctrl+`)'}
+				aria-pressed={terminalOpen}
+				data-terminal-toggle
+				onclick={onToggleTerminal}
+			>
+				<SquareTerminalIcon />
+				Terminal
+			</Button>
+		{/if}
 	</div>
 </header>

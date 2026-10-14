@@ -162,10 +162,9 @@ against the code. The constraints below apply to every edit here.
   `src-tauri/src/command_names.rs`, the handler list in `lib.rs`, and
   `src-tauri/capabilities/main.json`. `src-tauri/src/tests.rs` checks them
   against each other. Update the README's command table with them.
-- The desktop terminal is the shell's own `/bin/sh`, an outside writer. Do
-  not replace it with `folder.terminal()`, which is the browser leaf's
-  emulated shell; do not route it through the folder's publication, and do
-  not make it request a commit.
+- The terminal is the desktop shell's own `/bin/sh`, an outside writer; the
+  browser build has none. Do not route it through the folder's publication,
+  and do not make it request a commit.
 - A path from the page is checked with the folder owner's `path_problem`
   before `git` sees it, and a commit must be a hexadecimal id. Keep both
   checks in `history.rs`.

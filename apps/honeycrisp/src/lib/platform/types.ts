@@ -54,7 +54,8 @@ export type FileRevision = {
 
 export type NotesHost = {
 	readonly folder: NotesFolder;
-	readonly terminal: NotesTerminal;
+	/** The person's own shell in the notes directory; absent in a browser. */
+	readonly terminal: NotesTerminal | undefined;
 	/** Where the notes are, in words a person can act on: a path, or the browser. */
 	readonly location: string;
 	/** Open the notes directory in the system file manager; absent in a browser. */

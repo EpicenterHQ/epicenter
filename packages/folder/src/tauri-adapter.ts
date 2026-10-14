@@ -20,11 +20,6 @@
  * requests alive for other windows. Owner shutdown cancels waiting requests
  * and drains checkpoints already inside protection; it makes no final commit.
  *
- * Nothing holds the folder between two commands. The terminal is the same
- * one every folder has: each step is an ordinary command, other windows'
- * saves land between its steps, and a rewrite of a file it read is refused
- * if the file changed since.
- *
  * An `invoke` that fails after it was sent leaves the outcome unknown. Reads
  * report that as an ordinary failure. Anything that could have changed files
  * or history reports `Unconfirmed` and is never retried here.
@@ -984,8 +979,7 @@ function createHistory(
 }
 
 /**
- * This page's Git calls: one lifetime for all of them, a terminal's
- * included. `fence` refuses new ones all at once and stops this page waiting
+ * This page's Git calls: one lifetime for all of them. `fence` refuses new ones all at once and stops this page waiting
  * for network work. `close` also waits for local work that was already
  * running, so the session is not detached under it. Network work is the
  * owner's: closing stops this page waiting and withdraws its requests, so a

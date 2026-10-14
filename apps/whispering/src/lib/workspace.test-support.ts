@@ -314,8 +314,8 @@ export async function openTestWorkspace({
 				if (command.startsWith('cd ')) cwd = `/${command.slice(3)}`;
 				return { stdout: `ran ${command}\n`, stderr: '', exitCode: 0 };
 			},
+			note: 'test',
 		},
-		terminalNote: 'test',
 		capture: createFixtureDevice({
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),

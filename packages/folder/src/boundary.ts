@@ -1,10 +1,10 @@
 /**
  * Domain methods share one storage API. Openers attach local-save accounting
- * before assembly gives it to files, tables, KV, and the terminal. Git keeps
+ * before assembly gives it to files, tables, and KV. Git keeps
  * raw storage for its own publication sequence and captures.
  *
- * `apply` takes ordered changes for Git publication, the terminal, and the
- * native transport. Files, tables, KV, and editors publish one change at a
+ * `apply` takes ordered changes for Git publication and the native
+ * transport. Files, tables, KV, and editors publish one change at a
  * time through `applyOne` (`storage.ts`), which restates the raw outcome.
  *
  * Saves are not ordered by when their methods were called: the last to land

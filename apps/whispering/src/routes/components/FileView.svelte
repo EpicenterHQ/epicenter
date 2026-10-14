@@ -189,7 +189,7 @@
 				{opened.data.kind === 'binary'
 					? 'This file is not text, so it is listed here but not opened for editing.'
 					: 'This text file is larger than 1 MB, so it is not opened in the editor.'}
-				Rename, delete, and the terminal still work on it.
+				Rename and delete still work on it.
 			</Empty.Description>
 		</Empty.Root>
 	{:else if opened.isError}

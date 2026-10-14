@@ -165,8 +165,6 @@ folder.location;                // { kind: 'directory', root }, for showing to a
 await folder.tables.todos.create({ stem: 'buy-milk', fields: { title: 'Buy milk', done: false } });
 folder.git.subscribe((snapshot) => render(snapshot));
 folder.onFilesChanged((paths) => refresh(paths));
-const terminal = folder.terminal();
-await terminal.exec('git status');
 await folder.close();           // detaches this page only
 ```
 
@@ -179,7 +177,7 @@ refusals a pending update causes, version 6 the optional `expectedSha256` on
 `Superseded` refusal, version 8 added `merge_incoming` with unfinished
 merges, and version 9 removed unfinished merges: every conflict is refused
 (see [Merging incoming history](#merging-incoming-history)). No command
-holds the folder across calls or names a terminal lease.
+holds the folder across calls.
 A page built for a different version is refused at attach. It never opens
 browser storage instead. `@epicenter/folder/tauri` is the same opener without the
 browser adapter in the build.
@@ -352,21 +350,15 @@ take the target away. Ordinary saves keep no record.
   commit, or a push or fetch the owner already started, and never affects
   another window. It withdraws the session's pushes and fetches that the
   owner had not started.
-- **`folder.close()`** in a page refuses that page's new file, Git, and
-  terminal calls without invoking anything, stops waiting for its pushes and
+- **`folder.close()`** in a page refuses that page's new file and Git
+  calls without invoking anything, stops waiting for its pushes and
   fetches and withdraws them, waits for the Git calls it already sent, and
   then detaches. It does not wait for file calls already sent: one the
   owner admitted before the detach still lands and replies to its caller,
   and one that arrives after it is denied and writes nothing. A save that
-  was called but not yet sent is refused as closed. A terminal command
-  running then sends no later step. Close commits nothing. A page that needs
+  was called but not yet sent is refused as closed. Close commits nothing. A page that needs
   its saves settled first awaits them, or flushes its row editors, before
   closing.
-- **A terminal command** holds nothing. Each of its steps is an ordinary
-  command of its session, so other windows' saves land between its steps. A
-  rewrite of a file the command read names the hash it read and is
-  refused as a `Conflict` if the file changed since. A command that stops
-  partway leaves its earlier steps landed.
 
 Each webview keeps its own lifecycle identity in its resource table. The plugin
 holds a weak index so it can end sessions after Tauri removes a destroyed

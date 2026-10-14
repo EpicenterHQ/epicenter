@@ -539,9 +539,6 @@ describe('browser and native exchange through a real bare repository', () => {
 				expect(expectOk(await browser.git.pullFastForward()).status).toBe(
 					'fastForwarded',
 				);
-				expect((await browser.terminal().exec('git status')).stdout).toContain(
-					'## main',
-				);
 			} finally {
 				await native.close();
 			}

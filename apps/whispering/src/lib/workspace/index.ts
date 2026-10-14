@@ -19,9 +19,11 @@ import { type Workspace, WorkspaceError } from './types.js';
 export type {
 	CloseDecision,
 	InjectionState,
+	TerminalResult,
 	WhisperingFolder,
 	Workspace,
 	WorkspaceError,
+	WorkspaceTerminal,
 } from './types.js';
 
 declare global {

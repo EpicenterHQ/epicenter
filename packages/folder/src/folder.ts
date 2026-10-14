@@ -44,7 +44,6 @@ import { createKv, type FileKv } from './kv.js';
 import { callObserver } from './observer.js';
 import { fenceStorage } from './storage.js';
 import { createTable, type FileTable } from './table.js';
-import type { FolderTerminal } from './terminal.js';
 
 /** History settings for a folder whose history this process records. */
 export type FolderGitOptions = {
@@ -212,12 +211,6 @@ export type Folder<TDefinition extends FolderDefinition> =
 		 * Returns the function that stops listening; closing stops all of them.
 		 */
 		onFilesChanged(listener: (paths: readonly string[]) => void): () => void;
-		/**
-		 * A shell over this folder's files and history. A redirection is a
-		 * deliberate overwrite; a rewrite of a file the same command read is
-		 * conditional on what it read. The terminal ends with the folder.
-		 */
-		terminal(options?: { cwd?: string }): FolderTerminal;
 		/** Aborts when closing starts. */
 		readonly signal: AbortSignal;
 		/**
@@ -309,39 +302,6 @@ function createFolderGit(history: FolderHistory): FolderGit {
 	} satisfies FolderGit);
 }
 
-/** Load one terminal per caller; the terminal owns command ordering. */
-function createLocalTerminal(
-	{
-		storage,
-		git,
-		signal,
-	}: { storage: FolderStorage; git: FolderGit; signal: AbortSignal },
-	{ cwd = '/' }: { cwd?: string } = {},
-): FolderTerminal {
-	let terminal: FolderTerminal | undefined;
-	let loading: Promise<FolderTerminal> | undefined;
-	return {
-		get cwd() {
-			return terminal?.cwd ?? cwd;
-		},
-		async exec(command, options) {
-			if (signal.aborted)
-				return { stdout: '', stderr: 'The folder is closed\n', exitCode: 1 };
-			loading ??= import('./terminal.js').then(({ createTerminal }) => {
-				terminal = createTerminal({ storage, git }, { cwd });
-				return terminal;
-			});
-			const loaded = await loading;
-			return loaded.exec(command, {
-				signal:
-					options?.signal === undefined
-						? signal
-						: AbortSignal.any([signal, options.signal]),
-			});
-		},
-	};
-}
-
 /**
  * Assemble the handle over acquired storage. `prepared` is the opener's
  * `prepareFolderDefinition` result, taken before it acquired anything: the
@@ -390,8 +350,6 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 		sync: history.sync,
 		onFilesChanged: (listener: (paths: readonly string[]) => void) =>
 			hints.subscribe(listener),
-		terminal: (options) =>
-			createLocalTerminal({ storage, git, signal: controller.signal }, options),
 		signal: controller.signal,
 		close() {
 			if (closing !== undefined) return closing;

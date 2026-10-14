@@ -17,7 +17,7 @@
  *   application source is the same file
  * - Importing an explicit entry directly gives the same output as the alias
  * - The desktop adapter's first chunk never includes isomorphic-git
- * - The shell is a separate chunk in every build
+ * - No build carries a shell
  *
  * The alias here is the one the package documents, and the specifiers are
  * resolved through the package's own `exports`.
@@ -38,7 +38,7 @@ const GIT = 'git-upload-pack';
 const GRANTED = 'epicenter-folder-directory-files:';
 /** Text only Tauri's fs plugin client contains. */
 const TAURI_FS = 'plugin:fs|';
-/** Text only the shell contains: a command the terminal offers. */
+/** Text only just-bash contains: a command its shell offers. No build carries it. */
 const SHELL = 'sha256sum';
 
 type Built = {
@@ -125,7 +125,7 @@ describe('what a Vite build of the same application emits', () => {
 		expect(built.initial).not.toContain(DESKTOP);
 		expect(built.initial).not.toContain(BROWSER);
 		expect(built.initial).not.toContain(GIT);
-		expect(built.initial).not.toContain(SHELL);
+		expect(built.everything).not.toContain(SHELL);
 
 		// One artifact carries both adapters, each behind its own `import()`.
 		// The desktop adapter loads the page engine for a granted folder
@@ -149,15 +149,6 @@ describe('what a Vite build of the same application emits', () => {
 		// Loading the browser adapter loads no desktop commands.
 		expect(browser[0]).toContain(GIT);
 		expect(browser[0]).not.toContain(DESKTOP);
-		// The shell is its own chunk, loaded when a command first runs. A
-		// desktop page that runs one loads no Git and no browser storage with it.
-		const shell = built.lazy.filter((code) => code.includes(SHELL));
-		expect(shell).toHaveLength(1);
-		expect(shell[0]).not.toContain(GIT);
-		expect(shell[0]).not.toContain(BROWSER);
-		expect(shell[0]).not.toContain(DESKTOP);
-		expect(desktop[0]).not.toContain(SHELL);
-		expect(browser[0]).not.toContain(SHELL);
 	}, 120_000);
 
 	test('exact alias to the browser entry: no desktop adapter is emitted at all', async () => {
@@ -172,8 +163,7 @@ describe('what a Vite build of the same application emits', () => {
 		expect(built.everything).not.toContain('IDBKeyRange');
 		// With one adapter there is nothing to choose, so it loads with the page.
 		expect(built.initial).toContain(BROWSER);
-		expect(built.lazy.some((code) => code.includes(SHELL))).toBe(true);
-		expect(built.initial).not.toContain(SHELL);
+		expect(built.everything).not.toContain(SHELL);
 	}, 120_000);
 
 	test('exact alias to the desktop entry: the desktop adapter first, and the page engine only for a granted folder', async () => {
@@ -191,8 +181,7 @@ describe('what a Vite build of the same application emits', () => {
 		// isomorphic-git transport and storage address never load.
 		expect(built.everything).not.toContain(BROWSER);
 		expect(built.initial).not.toContain(GIT);
-		expect(built.lazy.some((code) => code.includes(SHELL))).toBe(true);
-		expect(built.initial).not.toContain(SHELL);
+		expect(built.everything).not.toContain(SHELL);
 	}, 120_000);
 
 	test('importing an explicit entry gives what the alias gives', async () => {

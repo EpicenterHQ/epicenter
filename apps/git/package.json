@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/git",
-	"description": "Independent working copies, a file editor, and a Git terminal",
+	"description": "Independent working copies, a file editor, and Git by hand",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",

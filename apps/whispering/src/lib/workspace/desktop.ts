@@ -150,8 +150,8 @@ export async function openDesktopWorkspace(
 				cwd = run.cwd;
 				return run;
 			},
+			note: `${info.shell} in ${root}. Each command is a new shell that starts in the directory the last one ended in; there is no interactive terminal device, so full-screen programs do not run.`,
 		},
-		terminalNote: `${info.shell} in ${root}. Each command is a new shell that starts in the directory the last one ended in; there is no interactive terminal device, so full-screen programs do not run.`,
 		capture,
 		captureNotice: info.fixtureRefused
 			? 'WHISPERING_AUDIO_FIXTURE is set, but this build does not allow fixture audio. Recordings use the microphone.'

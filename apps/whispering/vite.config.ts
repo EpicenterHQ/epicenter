@@ -28,13 +28,6 @@ export default defineConfig(
 				},
 				// The package directory, so both `buffer` and `buffer/` resolve.
 				{ find: 'buffer', replacement: dirname(fromFolder.resolve('buffer/')) },
-				// just-bash's browser bundle imports gzip helpers the terminal never enables.
-				{
-					find: 'node:zlib',
-					replacement: fileURLToPath(
-						new URL('./src/lib/shims/zlib.ts', import.meta.url),
-					),
-				},
 			],
 		},
 		server: { host: '127.0.0.1' },

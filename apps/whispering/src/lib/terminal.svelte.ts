@@ -3,7 +3,7 @@
  * command, and working directory. It lives as long as the opened folder, so
  * hiding the terminal or switching layouts keeps everything on screen.
  */
-import type { FolderTerminal } from '@epicenter/folder';
+import type { WorkspaceTerminal } from './workspace/types.js';
 
 export type TerminalRun = {
 	readonly id: number;
@@ -15,7 +15,7 @@ export type TerminalRun = {
 export type TerminalSession = ReturnType<typeof createTerminalSession>;
 
 export function createTerminalSession(
-	terminal: FolderTerminal,
+	terminal: Pick<WorkspaceTerminal, 'cwd' | 'exec'>,
 	/** Shell writes are saved files; the app shows them and rechecks status. */
 	afterRun: () => Promise<void>,
 ) {

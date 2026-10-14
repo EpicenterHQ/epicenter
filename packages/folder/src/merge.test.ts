@@ -19,8 +19,6 @@
  *   a branch move between planning and publication refuses the whole update
  * - A directory folder refuses the same conflicts with its files, index,
  *   and branch untouched, and merges independent changes in one commit
- * - A conflicted `git merge` in the folder terminal writes nothing and
- *   points to Sync, in either history mode
  * - A merge another Git program began blocks commits, staged commits, and
  *   incoming updates until it is finished with Git
  *
@@ -49,12 +47,7 @@ import {
 	type TestStorage,
 } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
-import {
-	CONFLICTS_NEED_SYNC,
-	defineFolder,
-	type Folder,
-	field,
-} from './contract.js';
+import { defineFolder, type Folder, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import type { GitBackend } from './git/backend.js';
 import { GITDIR, WORKDIR } from './git/browser-backend.js';
@@ -816,26 +809,6 @@ test('a directory folder merges independent changes in one commit with both pare
 		(await git(local, 'rev-list', '--parents', '-n', '1', 'main')).split(' '),
 	).toEqual([merged.to, ours.oid, merged.fetched]);
 	expect(await git(local, 'status', '--porcelain')).toBe('');
-});
-
-test('a conflicted git merge in the terminal writes nothing and points to Sync', async () => {
-	const { directory, local, push } = await directoryWithUpstream();
-	await push('a.md', 'one\nTWO, theirs\nthree\n');
-	expectOk(await directory.files.overwrite('a.md', 'one\nTWO, ours\nthree\n'));
-	expect((await directory.git.commit()).status).toBe('committed');
-	const shell = directory.terminal();
-	expect((await shell.exec('git fetch')).exitCode).toBe(0);
-	const head = await git(local, 'rev-parse', 'main');
-
-	const merged = await shell.exec('git merge');
-	expect(merged.exitCode).toBe(1);
-	expect(merged.stderr).toContain('CONFLICT (content): Merge conflict in a.md');
-	expect(merged.stderr).toContain(CONFLICTS_NEED_SYNC);
-	expect(await readFile(join(local, 'a.md'), 'utf8')).toBe(
-		'one\nTWO, ours\nthree\n',
-	);
-	expect(await git(local, 'rev-parse', 'main')).toBe(head);
-	await expect(readFile(join(local, '.git/MERGE_HEAD'))).rejects.toThrow();
 });
 
 test('a merge another Git program began blocks commits and updates until Git finishes it', async () => {

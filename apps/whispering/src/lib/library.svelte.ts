@@ -44,7 +44,6 @@ import type {
 	StoredRow,
 	TableError,
 	TableListing,
-	TerminalResult,
 } from '@epicenter/folder';
 import { formatRow, parseRow, rowPath, rowStemOf } from '@epicenter/folder';
 import {
@@ -113,7 +112,11 @@ import {
 } from './recordings/publish.js';
 import { createRuns } from './runs.svelte.js';
 import { createTerminalSession } from './terminal.svelte.js';
-import type { Workspace } from './workspace/index.js';
+import type {
+	TerminalResult,
+	Workspace,
+	WorkspaceTerminal,
+} from './workspace/index.js';
 
 export type Library = ReturnType<typeof createLibrary>;
 
@@ -889,33 +892,38 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		track,
 	});
 
-	const shell = workspace.terminal;
 	/** A terminal command may write anything, so it is a mutation, and everything is read again after it. */
 	const runCommand = defineMutation({
 		mutationKey: keys.action('terminal'),
 		mutationFn: async ({
+			shell,
 			command,
 			options,
 		}: {
+			shell: WorkspaceTerminal;
 			command: string;
 			options?: { signal?: AbortSignal };
 		}) => Ok(await shell.exec(command, options)),
 	});
-	const terminal = createTerminalSession(
-		{
-			get cwd() {
-				return shell.cwd;
-			},
-			async exec(command, options) {
-				if (refused() !== undefined) throw new Error(LEAVING);
-				// A command that throws is shown in the terminal's output.
-				const ran = await runCommand({ command, options });
-				if (ran.error !== null) throw ran.error;
-				return ran.data as TerminalResult;
-			},
-		},
-		() => invalidate(),
-	);
+	const shell = workspace.terminal;
+	const terminal =
+		shell === undefined
+			? undefined
+			: createTerminalSession(
+					{
+						get cwd() {
+							return shell.cwd;
+						},
+						async exec(command, options) {
+							if (refused() !== undefined) throw new Error(LEAVING);
+							// A command that throws is shown in the terminal's output.
+							const ran = await runCommand({ shell, command, options });
+							if (ran.error !== null) throw ran.error;
+							return ran.data as TerminalResult;
+						},
+					},
+					() => invalidate(),
+				);
 	const input = createMicrophoneInput({
 		capture: workspace.capture,
 		preferences: workspace.preferences,

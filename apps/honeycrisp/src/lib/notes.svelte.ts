@@ -83,7 +83,7 @@ import {
 import type { NoteBody } from './editor/rich-text.js';
 import { nameProblem, readTextFile } from './files.js';
 import { displayTitle } from './note-source.js';
-import type { NotesHost } from './platform/types.js';
+import type { NotesHost, NotesTerminal } from './platform/types.js';
 import { createTerminalSession } from './terminal.svelte.js';
 
 export type Notes = ReturnType<typeof createNotes>;
@@ -763,25 +763,34 @@ export function createNotes(
 	/** A terminal command may write anything, so it is a mutation, and everything is read again after it. */
 	const runCommand = defineMutation({
 		mutationKey: ['honeycrisp', 'terminal'],
-		mutationFn: async (command: string) =>
-			Ok(await host.terminal.exec(command)),
+		mutationFn: async ({
+			shell,
+			command,
+		}: {
+			shell: NotesTerminal;
+			command: string;
+		}) => Ok(await shell.exec(command)),
 		onSettled: () => invalidate(),
 	});
-	const terminal = createTerminalSession(
-		{
-			get cwd() {
-				return host.terminal.cwd;
-			},
-			description: host.terminal.description,
-			async exec(command) {
-				// A command that throws is shown in the terminal's output.
-				const ran = await runCommand(command);
-				if (ran.data === null) throw ran.error;
-				return ran.data;
-			},
-		},
-		() => refused() === undefined,
-	);
+	const shell = host.terminal;
+	const terminal =
+		shell === undefined
+			? undefined
+			: createTerminalSession(
+					{
+						get cwd() {
+							return shell.cwd;
+						},
+						description: shell.description,
+						async exec(command) {
+							// A command that throws is shown in the terminal's output.
+							const ran = await runCommand({ shell, command });
+							if (ran.data === null) throw ran.error;
+							return ran.data;
+						},
+					},
+					() => refused() === undefined,
+				);
 
 	const createNote = defineMutation({
 		mutationKey: ['honeycrisp', 'create-note'],

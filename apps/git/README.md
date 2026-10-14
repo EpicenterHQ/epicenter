@@ -21,29 +21,28 @@ remote URLs, so their browser working copies start separately.
 
 Select a file to edit raw text, including Markdown. Autosaves replace the
 captured file conditionally. An outside change cannot discard typed input:
-a failed save offers explicit replacement or discard. Terminal writes refresh
-the tree and clean editor. The terminal below the editor keeps its session,
-output, and typed command while hidden. Binary files stay visible with an
-explanation. Text editing is limited to UTF-8 files of at most 2 MiB.
+a failed save offers explicit replacement or discard. **New file** creates an
+empty file at a path and opens it. The Git panel below the editor keeps its
+output while hidden. Binary files stay visible with an explanation. Text editing is limited to UTF-8 files of at most 2 MiB.
 
 **Sync** brings a working copy and the remote together: it commits what
 the copy saved, fetches, merges, and pushes. Edits
 to different lines combine on their own. When both copies changed the same
 lines, the review shows each version beside a result and replaces the
-editor and terminal until you press **Apply and sync** or **Cancel**;
+editor and Git actions until you press **Apply and sync** or **Cancel**;
 nothing is written before you choose, and Cancel forgets the review. A copy
 with no history of its own adopts the remote's on its first Sync. The
-desktop build's folder owner does not sync yet; there the terminal's Merge
-button stays.
+desktop build's folder owner does not sync yet; there **Merge** brings in
+the fetched head.
 
-Nothing commits on its own. The terminal still runs `git add`,
-`git commit -m`, `git fetch`, `git merge`, `git pull --ff-only`, and
-`git push` explicitly. Fetch updates remote knowledge without updating
-working files. Status separates index and worktree columns; ahead and behind
-are relative to the last fetched head. `git merge` merges the last fetched
-head when it fast-forwards or merges cleanly; a conflict writes nothing and
-points to Sync. If publication stops partway, the page shows the pending
-update and offers explicit recovery.
+Nothing commits on its own. **Save version**, **Fetch**, **Pull**,
+**Merge**, and **Push** each do one step by hand. Fetch updates remote
+knowledge without updating working files. The changes list separates index
+and worktree columns; ahead and behind are relative to the last fetched head.
+Pull applies the fetched head only as a fast-forward. Merge merges it when it
+fast-forwards or merges cleanly; a conflict writes nothing and points to Sync.
+If publication stops partway, the page shows the pending update and offers
+explicit recovery.
 
 Enter an HTTP(S) remote or leave the URL empty for local history. Browser
 transport uses fetch and needs a same-origin endpoint or a server that permits
@@ -51,8 +50,7 @@ Git requests through CORS. The development proxy only reaches the disposable
 loopback remote. There is no browser credential flow or general CORS proxy.
 GitHub support has not been demonstrated. Desktop uses installed Git with
 interactive credential prompts disabled; configured Git credential helpers
-can apply. The terminal is the folder's supported shell, not an unrestricted
-system shell. SSH remotes are not accepted by this app.
+can apply. SSH remotes are not accepted by this app.
 
 The standalone bundle embeds the same page through the Tauri folder adapter.
 Rust chooses directories under app data (or `GIT_LAB_ROOT` during development)
@@ -68,7 +66,7 @@ bun run --cwd apps/git build:desktop-ui
 bun run --cwd apps/git build:desktop
 ```
 
-Computer use has demonstrated native editor saves reaching terminal reads,
+Computer use, with the terminal this lab had then, demonstrated native editor saves reaching terminal reads,
 native staging and commits, native pushes reaching the loopback remote,
 browser fetch changing ahead/behind without receiving files, and pull refusing
 uncommitted changes. Browser interaction also demonstrated clean-editor refresh,

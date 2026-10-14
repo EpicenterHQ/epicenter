@@ -54,7 +54,7 @@
 		} else if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
 			event.preventDefault();
 			filesOpen = !filesOpen;
-		} else if (event.ctrlKey && event.key === '`') {
+		} else if (notes.terminal && event.ctrlKey && event.key === '`') {
 			event.preventDefault();
 			void toggleTerminal();
 		} else if (mod && !event.shiftKey && event.key.toLowerCase() === 'n') {
@@ -113,7 +113,7 @@
 				{/if}
 			</Resizable.PaneGroup>
 		</Resizable.Pane>
-		{#if terminalOpen}
+		{#if terminalOpen && notes.terminal}
 			<Resizable.Handle />
 			<Resizable.Pane id="terminal" order={2} defaultSize={32} minSize={15} maxSize={70}>
 				<FolderTerminal session={notes.terminal} onClose={() => void toggleTerminal()} />

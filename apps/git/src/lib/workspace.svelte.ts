@@ -69,15 +69,13 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	let readAgain = false;
 	let closed = false;
 	let selectGeneration = 0;
-	let command = $state('');
 	let running = $state(false);
 	let output = $state('');
-	const terminal = folder.terminal();
 	/**
 	 * Sync with the remote: commit, fetch, merge, and push, asking before a
 	 * conflict is written. A run or Apply in flight, and the attempt a sync
 	 * that needs choices left for the review. The review is modal: the
-	 * editor and the terminal take no input until it is applied or
+	 * editor and the Git actions take no input until it is applied or
 	 * cancelled. Nothing outlives an attempt.
 	 */
 	let syncing = $state(false);
@@ -127,8 +125,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			return;
 		}
 		if (result.data.kind !== 'text') {
-			saveMessage =
-				'This file is binary or too large to edit. Use the terminal to inspect it.';
+			saveMessage = 'This file is binary or too large to edit here.';
 			capture = undefined;
 			buffer = '';
 			saved = '';
@@ -197,6 +194,17 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			await saving;
 		}
 	}
+	/** What a Git call returned, as the output shows it. */
+	function outcome(result: unknown): string {
+		if (typeof result !== 'object' || result === null) return `${result}\n`;
+		if ('error' in result && result.error !== null)
+			return `${(result.error as { message: string }).message}\n`;
+		const value = 'data' in result ? result.data : result;
+		return `${JSON.stringify(value, null, 2)}\n`;
+	}
+	/** One Git call, reported in the output under its label. */
+	const action = (label: string, call: () => Promise<unknown>) => () =>
+		execute(label, async () => outcome(await call()));
 	async function execute(label: string, work: () => Promise<string>) {
 		if (running || closed || syncLocked()) return;
 		running = true;
@@ -227,9 +235,11 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			folder.git.snapshot.files.value.head === undefined &&
 			(await folder.files.list()).data?.files.length === 0
 		) {
-			output = '$ git pull --ff-only\n';
-			const result = await terminal.exec('git pull --ff-only');
-			output += result.stdout + result.stderr;
+			output = '$ Fetch and pull\n';
+			const fetched = await folder.git.fetch();
+			output += outcome(fetched);
+			if (fetched.error === null)
+				output += outcome(await folder.git.pullFastForward());
 			await refresh();
 		}
 	} catch (error) {
@@ -264,12 +274,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		get editable() {
 			return capture !== undefined;
 		},
-		get command() {
-			return command;
-		},
-		set command(next: string) {
-			command = next;
-		},
 		get running() {
 			return running;
 		},
@@ -289,7 +293,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		get locked() {
 			return running || syncLocked();
 		},
-		/** Sync, reporting the result in the terminal output. A conflict opens the review. */
+		/** Sync, reporting the result in the output. A conflict opens the review. */
 		async sync() {
 			if (running || closed || syncLocked()) return;
 			running = true;
@@ -303,7 +307,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			}
 		},
 		/**
-		 * Apply the review's choices, reporting the result in the terminal
+		 * Apply the review's choices, reporting the result in the
 		 * output. Refused choices stay in the review with what to fix; any
 		 * other result ends the attempt.
 		 */
@@ -368,17 +372,22 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		},
 		flush,
 		refresh,
-		async run(line = command) {
-			if (running || closed || !line.trim()) return;
-			command = '';
-			await execute(line, async () => {
-				const result = await terminal.exec(line);
-				return (
-					result.stdout +
-					result.stderr +
-					(result.exitCode ? `[exit ${result.exitCode}]\n` : '')
-				);
+		status: action('Status', () => folder.git.status()),
+		commit: action('Save version', () => folder.git.commit()),
+		fetch: action('Fetch', () => folder.git.fetch()),
+		pull: action('Pull', () => folder.git.pullFastForward()),
+		merge: action('Merge', () => folder.git.mergeIncoming()),
+		push: action('Push', () => folder.git.push()),
+		/** Create an empty file at a folder-relative path and open it. */
+		async create(path: string) {
+			path = path.trim();
+			if (!path) return;
+			await execute(`New file ${path}`, async () => {
+				const created = await folder.files.create(path, '');
+				if (created.error !== null) throw new Error(created.error.message);
+				return '';
 			});
+			await this.select(path);
 		},
 		async recover() {
 			await execute('Recover incoming update', async () => {

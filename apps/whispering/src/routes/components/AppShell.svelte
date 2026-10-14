@@ -91,7 +91,7 @@
 		if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') {
 			event.preventDefault();
 			toggleFiles();
-		} else if (event.ctrlKey && event.key === '`') {
+		} else if (library.terminal && event.ctrlKey && event.key === '`') {
 			event.preventDefault();
 			void toggleTerminal();
 		}
@@ -114,7 +114,9 @@
 {/snippet}
 
 {#snippet terminalPane()}
-	<FolderTerminal session={library.terminal} note={library.workspace.terminalNote} onClose={() => void toggleTerminal()} />
+	{#if library.terminal && library.workspace.terminal}
+		<FolderTerminal session={library.terminal} note={library.workspace.terminal.note} onClose={() => void toggleTerminal()} />
+	{/if}
 {/snippet}
 
 <LeavePrompt guard={leave} />
@@ -138,7 +140,7 @@
 						</Resizable.Pane>
 					</Resizable.PaneGroup>
 				</Resizable.Pane>
-				{#if view.terminalOpen}
+				{#if view.terminalOpen && library.terminal}
 					<Resizable.Handle />
 					<Resizable.Pane id="terminal" order={2} defaultSize={32} minSize={15} maxSize={70}>
 						{@render terminalPane()}
@@ -151,7 +153,7 @@
 	<div class="flex h-dvh flex-col overflow-hidden">
 		{@render header()}
 		<main class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="page">
-			{#if view.terminalOpen}
+			{#if view.terminalOpen && library.terminal}
 				{@render terminalPane()}
 			{:else}
 				{@render children()}

@@ -22,10 +22,6 @@
  * - A page built for another protocol version is refused at attach
  * - A commit replies with its outcome alone, and a push names no pass to join
  * - Closing during a commit starts no push afterward
- * - A terminal command's steps are the same commands any save sends: nothing
- *   holds the folder around them, and a rewrite names the sha256 it read
- * - Closing stops a terminal command's later steps and waits for the one
- *   already sent
  * - Snapshot events replace the snapshot in order; a stale one is dropped
  * - A merge is one `merge_incoming` with its unrelated-history consent and
  *   whether it wants conflict versions; its outcomes, refusals (a conflict
@@ -682,127 +678,6 @@ test('a partial report that is not a move keeping its source is Unconfirmed, nev
 	expect(sent('apply')).toHaveLength(1);
 });
 
-/**
- * How a terminal command failed. A file step the folder refused ends the
- * command, either as a failed result or as the folder's own error thrown
- * out of a redirection; both say the same thing to a person.
- */
-const failure = (running: Promise<{ exitCode: number; stderr: string }>) =>
-	running.then(
-		(result) => {
-			expect(result.exitCode).not.toBe(0);
-			return result.stderr;
-		},
-		(error: Error) => error.message,
-	);
-
-test("a terminal command's steps are the commands any save sends, and nothing holds the folder around them", async () => {
-	const folder = await attached();
-	const original = new TextEncoder().encode('first\n');
-	const sha256 = await hashBytes(original);
-	replies.list = () => ({
-		files: [{ path: 'note.md', size: original.byteLength }],
-		directories: [],
-	});
-	replies.read = () => ({ bytes: [...original], sha256 });
-	replies.apply = () => null;
-	const terminal = folder.terminal();
-
-	// A redirection overwrites; an append rewrites what the command read.
-	const result = await terminal.exec(
-		'echo fresh > other.md && echo second >> note.md',
-	);
-
-	expect(result).toEqual({ stdout: '', stderr: '', exitCode: 0 });
-	// Listings, a read, and two saves: no command acquires or releases
-	// anything, before, between, or after them.
-	expect([...new Set(calls.map((call) => call.cmd))].sort()).toEqual([
-		'apply',
-		'list',
-		'read',
-	]);
-	const applied = sent('apply').flatMap((call) => {
-		const { changes, ...rest } = call.args as {
-			changes: { kind: string; path: string; expectedSha256?: string }[];
-		};
-		// The same arguments a page's own save sends.
-		expect(rest).toEqual({ session: 7 });
-		return changes;
-	});
-	const firstTo = (path: string) =>
-		applied.find((change) => change.path === path)?.expectedSha256;
-	expect(applied.find((change) => change.path === 'other.md')?.kind).toBe(
-		'overwrite',
-	);
-	// The owner refuses this if another writer replaced the file since.
-	expect(firstTo('note.md')).toEqual(sha256);
-
-	// The owner's refusal of that rewrite reaches the command as a failure.
-	calls = [];
-	replies.apply = () =>
-		refuse({
-			name: 'Refused',
-			error: {
-				name: 'Conflict',
-				path: 'note.md',
-				expectedSha256: sha256,
-				actualSha256: 'e'.repeat(64),
-			},
-		});
-	const stale = await failure(
-		terminal.exec('echo third >> note.md && echo x > c.md'),
-	);
-	expect(stale).toContain(
-		"The file at 'note.md' does not match the captured SHA-256",
-	);
-	// The step after the refused one never ran.
-	expect(sent('apply')).toHaveLength(1);
-});
-
-test('a recursive copy whose source read is held sends its write after a save made meanwhile; nothing orders them', async () => {
-	const folder = await attached();
-	const source = new TextEncoder().encode('source\n');
-	const sha256 = await hashBytes(source);
-	replies.list = () => ({
-		files: [{ path: 'source/note.md', size: source.byteLength }],
-		directories: ['source'],
-	});
-	replies.mkdir = () => null;
-	replies.apply = () => null;
-	const reading = Promise.withResolvers<void>();
-	const released = Promise.withResolvers<void>();
-	replies.read = async () => {
-		reading.resolve();
-		await released.promise;
-		return { bytes: [...source], sha256 };
-	};
-
-	// The copy's read of its source is held; a raw save of the copy's
-	// destination is asked for meanwhile and lands.
-	const copying = folder.terminal().exec('cp -r source copy');
-	await reading.promise;
-	expectOk(await folder.files.overwrite('copy/note.md', 'later'));
-	released.resolve();
-	expect((await copying).exitCode).toBe(0);
-
-	// The copy reaches the shell second, and the owner lands it last.
-	expect(applies()).toEqual(['later', 'source\n']);
-});
-
-test('a terminal command whose listing is lost fails and sends nothing else', async () => {
-	const folder = await attached();
-	replies.list = () => {
-		throw new Error('connection lost');
-	};
-
-	const failed = await failure(
-		folder.terminal({ cwd: '/' }).exec('echo x > a.md'),
-	);
-
-	expect(failed).toContain('connection lost');
-	expect(calls.map((call) => call.cmd)).toEqual(['list']);
-});
-
 test('snapshot events replace the snapshot in order and a stale one is dropped', async () => {
 	const folder = await attached();
 	const heard: (string | undefined)[] = [];
@@ -1386,12 +1261,6 @@ test('closing waits for a Git call already running, then detaches, and later Git
 		await folder.git.log(1),
 	])
 		expect(expectErr(refused).name).toBe('Closed');
-	const terminal = await folder.terminal().exec('ls');
-	expect(terminal).toEqual({
-		stdout: '',
-		stderr: 'The folder is closed\n',
-		exitCode: 1,
-	});
 	expect(calls).toEqual([]);
 });
 
@@ -1433,41 +1302,6 @@ test('closing stops this page waiting for a push and a fetch and withdraws both 
 	).toEqual(requests.map((request) => ({ session: 7, request })));
 	push.settle({ status: 'pushed', oid: 'c'.repeat(40) });
 	fetch.settle({ oid: null });
-});
-
-test('closing detaches while a terminal save is awaiting its reply, and its later steps send nothing', async () => {
-	const folder = await attached();
-	replies.list = () => ({ files: [], directories: [] });
-	const saving = held<null>();
-	replies.apply = saving.reply;
-	const terminal = folder.terminal();
-
-	const running = failure(terminal.exec('echo one > a.md && echo two > b.md'));
-	const queued = terminal.exec('echo three > c.md');
-	await untilSent('apply');
-	const closing = folder.close();
-	await Bun.sleep(20);
-	// The sent apply owns its outcome; detaching does not wait for its reply.
-	expect(sent('detach')).toHaveLength(1);
-	saving.settle(null);
-	await closing;
-
-	// The save that was sent landed; nothing of the command followed it.
-	expect(await running).toContain('The folder is closed');
-	expect(sent('apply')).toHaveLength(1);
-	expect(
-		(sent('apply')[0]?.args.changes as { path: string }[]).map(
-			(change) => change.path,
-		),
-	).toEqual(['a.md']);
-	expect(calls.at(-1)?.cmd).toBe('detach');
-	expect(sent('detach')).toHaveLength(1);
-	// The command queued behind it never started.
-	expect(await queued).toEqual({
-		stdout: '',
-		stderr: 'EIO: The folder is closed\n',
-		exitCode: 1,
-	});
 });
 
 test('a commit whose outcome is unknown leaves the push unknown, not skipped', async () => {

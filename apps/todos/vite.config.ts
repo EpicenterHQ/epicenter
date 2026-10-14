@@ -35,15 +35,6 @@ export default defineConfig(
 					find: /^buffer$/,
 					replacement: fileURLToPath(import.meta.resolve('buffer/')),
 				},
-				// `@epicenter/folder` lazily imports its shell, just-bash, whose browser
-				// bundle imports gzip helpers. Todos never opens the shell; the build
-				// still has to resolve them.
-				{
-					find: 'node:zlib',
-					replacement: fileURLToPath(
-						new URL('./src/lib/shims/zlib.ts', import.meta.url),
-					),
-				},
 			],
 		},
 		server: {

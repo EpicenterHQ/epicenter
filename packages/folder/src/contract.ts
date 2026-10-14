@@ -136,7 +136,6 @@ export {
 	wellFormed,
 } from './row-text.js';
 export type { FileTable, StoredRow, TableListing } from './table.js';
-export type { FolderTerminal, TerminalResult } from './terminal.js';
 
 /**
  * Settings for a folder kept in this browser's own storage. They apply to a

@@ -523,10 +523,6 @@ With `/tauri`, no browser storage and no Git implementation is emitted. With
 emitted as separate chunks and neither loads until a folder is opened.
 `evidence/bundles` builds these and reads the output.
 
-The shell's terminal uses just-bash, whose browser bundle references
-`node:zlib` for gzip commands the terminal does not enable; an application
-aliases that module.
-
 ### The directory entry
 
 ```ts
@@ -614,7 +610,6 @@ successful reading does not mean an application can open the folder.
 | `sync` | `run()` commits saved files, fetches, merges, and pushes; competing settings, row fields, row bodies, and whole row files come back as a `SyncAttempt` that `resolve(attempt, choices)` settles. See [Sync](#sync). |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
 | `onFilesChanged(listener)` | A hint that paths changed, so read again. Returns the function that stops listening. |
-| `terminal({ cwd })` | A shell over the folder's files and history. |
 | `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no commit. |
 
 ### Files
@@ -977,39 +972,6 @@ requests its commit, and the other listeners still hear. The same holds for a
 | Desktop | Every change the owner sees: this window, other windows, and other programs. |
 | Browser | This handle's saves and incoming updates, and those of other tabs on the same origin. |
 | Directory (Bun) | This handle's saves and incoming updates. Other programs are not watched. |
-
-### Terminal
-
-`folder.terminal()` runs a just-bash shell over the same files, loaded when
-its first command runs. Its `git` command supports `status`, `diff [--cached]`,
-`log`, `add`, `commit -m`, `push`, `fetch`, `pull --ff-only`, and `merge`. A
-redirection is a deliberate overwrite; a rewrite of a file the same command
-read is conditional on what it read. `git merge` merges the already fetched
-remote branch (`pull --ff-only` fetches first) when it fast-forwards or merges
-cleanly. A conflict writes nothing: it prints Git's
-`CONFLICT` lines and `CONFLICTS_NEED_SYNC`, which points to Sync, and exits
-1. A command holds nothing between its steps, in the
-browser or the desktop app: another tab's or window's save can land between
-them, and a command that stops partway leaves its earlier steps saved. Each
-save follows the folder's automatic history policy. The terminal ends with
-the folder: closing stops a running command at its next step.
-
-The filesystem adapter maps reads to `storage.read`, file mutations to
-`storage.apply`, and directory changes to `storage.mkdir` and `storage.rmdir`.
-File and directory metadata share an inventory read at command start and
-refreshed after the command's own changes and a successful Git pull. Reads
-fetch current bytes. Append reads the destination before saving, uses exclusive
-creation for a missing file, and replaces an existing file conditionally.
-Binary pipelines and redirection preserve bytes. Recursive copies preserve
-empty directories; directory moves relocate captured paths without reading
-file contents. A file added to the source during a move stays there and can
-prevent the source directory from being removed.
-
-This is a virtual filesystem over literal Folder entries. Move destinations
-must be unoccupied, including directory destinations; moves refuse existing
-files instead of overwriting them. Content writes and directory moves can
-create missing parent directories. Permissions and timestamps are synthetic,
-and entry identity does not expose native hard-link aliases.
 
 ## History
 
@@ -1377,7 +1339,7 @@ what the Web Locks can see.
 
 ## Internal composition
 
-Files, tables, KV, and the terminal use one storage API. Its `apply`
+Files, tables, and KV use one storage API. Its `apply`
 accounts for content changes, so a domain method cannot accidentally choose a
 write that skips history or change hints.
 

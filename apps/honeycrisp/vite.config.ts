@@ -31,13 +31,6 @@ export default defineConfig(
 					find: /^buffer$/,
 					replacement: fileURLToPath(import.meta.resolve('buffer/')),
 				},
-				// just-bash's browser bundle imports gzip helpers the terminal never enables.
-				{
-					find: /^node:zlib$/,
-					replacement: fileURLToPath(
-						new URL('./src/lib/shims/zlib.ts', import.meta.url),
-					),
-				},
 			],
 		},
 		optimizeDeps: { include: ['buffer'] },

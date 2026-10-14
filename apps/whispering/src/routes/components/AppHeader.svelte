@@ -251,17 +251,19 @@
 			<FolderTreeIcon />
 			<span class="max-md:sr-only">Files</span>
 		</Button>
-		<Button
-			variant={terminalOpen ? 'secondary' : 'ghost'}
-			size="sm"
-			tooltip={terminalOpen ? 'Hide terminal (Ctrl+`)' : 'Show terminal (Ctrl+`)'}
-			aria-pressed={terminalOpen}
-			data-terminal-toggle
-			onclick={onToggleTerminal}
-			data-testid="toggle-terminal"
-		>
-			<SquareTerminalIcon />
-			<span class="max-md:sr-only">Terminal</span>
-		</Button>
+		{#if library.terminal}
+			<Button
+				variant={terminalOpen ? 'secondary' : 'ghost'}
+				size="sm"
+				tooltip={terminalOpen ? 'Hide terminal (Ctrl+`)' : 'Show terminal (Ctrl+`)'}
+				aria-pressed={terminalOpen}
+				data-terminal-toggle
+				onclick={onToggleTerminal}
+				data-testid="toggle-terminal"
+			>
+				<SquareTerminalIcon />
+				<span class="max-md:sr-only">Terminal</span>
+			</Button>
+		{/if}
 	</div>
 </header>

@@ -399,7 +399,7 @@
 							Nothing has “{view.recordingQuery.trim()}” in its title, notes, or transcripts.
 						{:else}
 							Record from <Link href={resolve('/')}>Home</Link>, or add
-							<code class="font-mono">recordings/&lt;id&gt;.md</code> in the terminal.
+							<code class="font-mono">recordings/&lt;id&gt;.md</code> to the folder.
 						{/if}
 					</Empty.Description>
 				</Empty.Header>

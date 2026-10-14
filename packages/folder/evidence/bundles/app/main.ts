@@ -21,7 +21,5 @@ export async function start() {
 		definition,
 	});
 	if (openError !== null) return openError.name;
-	const terminal = folder.terminal();
-	await terminal.exec('ls');
 	return folder.location.kind;
 }

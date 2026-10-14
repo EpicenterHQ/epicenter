@@ -15,12 +15,6 @@ export default defineConfig(
 					find: /^buffer$/,
 					replacement: fileURLToPath(import.meta.resolve('buffer/')),
 				},
-				{
-					find: 'node:zlib',
-					replacement: fileURLToPath(
-						new URL('./src/lib/shims/zlib.ts', import.meta.url),
-					),
-				},
 			],
 		},
 		server: {

@@ -7,11 +7,7 @@
  * is the same code for both. Capabilities a storage cannot offer are
  * `undefined` here, not emulated: a browser folder has no directory to reveal.
  */
-import type {
-	FolderAccess,
-	FolderTerminal,
-	OpenFolderError,
-} from '@epicenter/folder';
+import type { FolderAccess, OpenFolderError } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
@@ -112,14 +108,31 @@ export type RecordingWriteHook = <T>(
 
 export type CloseDecision = 'proceed' | 'asking' | 'cancel';
 
+export type TerminalResult = {
+	readonly stdout: string;
+	readonly stderr: string;
+	readonly exitCode: number;
+};
+
+/** A shell whose working directory starts in the folder. */
+export type WorkspaceTerminal = {
+	/** The working directory the next command starts in, as shown in the prompt. */
+	readonly cwd: string;
+	/** One line under the terminal's title saying what kind of terminal this is. */
+	readonly note: string;
+	exec(
+		command: string,
+		options?: { signal?: AbortSignal },
+	): Promise<TerminalResult>;
+};
+
 export type Workspace = {
 	readonly kind: 'native' | 'browser';
 	readonly folder: WhisperingFolder;
 	/** Where the files are: an absolute directory, or a description of browser storage. */
 	readonly location: string;
-	readonly terminal: FolderTerminal;
-	/** One line under the terminal's title saying what kind of terminal this is. */
-	readonly terminalNote: string;
+	/** The person's own shell in the folder; absent in a browser, which has none. */
+	readonly terminal: WorkspaceTerminal | undefined;
 	/** What this session records from. Fixed when the workspace opens. */
 	readonly capture: CaptureDevice;
 	/** Something the person should know about capture, such as a refused fixture. */

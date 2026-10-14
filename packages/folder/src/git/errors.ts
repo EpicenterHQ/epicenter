@@ -226,7 +226,7 @@ export type MergeConflict =
 	  };
 
 /**
- * What a terminal or CLI says when a merge or pull refuses competing changes:
+ * What a command-line tool says when a merge or pull refuses competing changes:
  * the folder never leaves a conflict in its files, and Sync is how a person
  * settles one.
  */

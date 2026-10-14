@@ -156,7 +156,7 @@ page, is anything that is not saved yet.
 | Settings | The two connections, transcription and text: each an endpoint, a default model, and an optional key, kept on this device and outside history. See [Connections](#connections). |
 | Reveal folder | Opens the data folder in Finder. |
 | Files (Ctrl+Shift+E) | The folder's files, beside any page. A recording row opens on Recordings and a transformation on Transformations; an audio file opens a player and other text a plain editor, both on Recordings. |
-| Terminal (Ctrl+\`) | Commands in the data folder, under any page. Its output, history, typed command, and directory stay when it is hidden. |
+| Terminal (Ctrl+\`) | Desktop only. Commands in the data folder, under any page. Its output, history, typed command, and directory stay when it is hidden. |
 
 ### Working with recordings
 

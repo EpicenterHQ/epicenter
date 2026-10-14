@@ -119,7 +119,7 @@ implementation when the app layout mounts:
 | | Desktop (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
 | Folder | The real directory, through the shell's owner (`openFolder` from `@epicenter/folder/tauri`) | One OPFS directory, files and `.git` together (`openFolder` from `@epicenter/folder/browser`); a folder an earlier build kept in IndexedDB is not read |
-| Terminal | Your shell in the directory, run by the host | The folder's own in-page shell (`folder.terminal()`) |
+| Terminal | Your shell in the directory, run by the host | None |
 | Transcription | The host reads the connection, then the audio, and makes the request | The page does the same |
 | Transformation | The host reads the text connection and makes the request | The page makes the request, so the endpoint must allow its origin (CORS) |
 | Connections and keys | Fields of a file under `.git`; the page is told no key | `whispering.connections` in `localStorage` |

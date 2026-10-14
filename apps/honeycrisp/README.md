@@ -183,15 +183,14 @@ is asked again on the next attempt, and the window stays.
 | Status | The most important current fact, usually **Saved**. Open it for three separate lines: **Saves** (whether a save is running), **Changes** (files changed since the last version), and **Versions** (the last **Save version** this session), plus recent versions and **Check again**. |
 | Save version | Records every saved file as one version in Git history. Nothing else does: saves never make a version. |
 | Files (Ctrl+B) | The file browser for the same directory: open, create, rename, and delete any file. **Reveal folder** opens the directory in the system file manager. |
-| Terminal (Ctrl+`) | A shell in the same directory. Its output, history, typed command, and working directory stay while it is hidden. |
+| Terminal (Ctrl+`) | Desktop only. A shell in the same directory. Its output, history, typed command, and working directory stay while it is hidden. |
 
 On the desktop the terminal runs each command in `/bin/sh` with the real
 `git`, so it is exactly an outside program editing the same files. It is a
 command runner, not a terminal emulator: a command gets no keyboard input, and
 its output appears when it ends. `cd` carries to the next command; environment
 changes do not. A command is stopped after two minutes, along with anything it
-started, and output past 1 MB is cut off. In the browser build the terminal is
-an emulated shell over the browser folder with a subset of Git commands.
+started, and output past 1 MB is cut off. The browser build has no terminal.
 
 ## Git
 

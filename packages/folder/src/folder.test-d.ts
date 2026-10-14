@@ -21,7 +21,6 @@ import {
 	type FileTable,
 	type Folder,
 	type FolderLocation,
-	type FolderTerminal,
 	field,
 	formatRow,
 	type Issue,
@@ -536,7 +535,6 @@ async function typedValues(
 	folder.batch;
 
 	expectTypeOf(folder.location).toEqualTypeOf<FolderLocation>();
-	expectTypeOf(folder.terminal()).toEqualTypeOf<FolderTerminal>();
 	expectTypeOf(folder.onFilesChanged(() => {})).toEqualTypeOf<() => void>();
 }
 void typedValues;

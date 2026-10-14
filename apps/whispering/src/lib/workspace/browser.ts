@@ -144,9 +144,7 @@ export async function openBrowserWorkspace(): Promise<
 		kind: 'browser',
 		folder,
 		location: 'Private files for this site in this browser',
-		terminal: folder.terminal(),
-		terminalNote:
-			'An in-page shell over the browser folder: common file commands and git status, diff, log. Saves request history.',
+		terminal: undefined,
 		capture: wantsToneFixture()
 			? createFixtureDevice({
 					name: 'generated tone',
