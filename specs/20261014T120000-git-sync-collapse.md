@@ -32,11 +32,23 @@ the previous one, and ends with the checks it names passing.
 | --- | --- | --- | --- |
 | 1 | Records match the decisions: ADR-0521 fixes the issuer per build; ADR-0489 rewritten; ADR-0490 and the GitHub pairing spec deleted | `claude/folder-greenfield` | done, `0eb16600c8` |
 | 2 | `@epicenter/folder/bun` opens through the shared directory layer; native store, exchange add-on, and their tests deleted; names read literally | `claude/folder-greenfield` | done, `063f598956`; symlink classification restored in `a70f1b7269` |
-| 3 | Desktop gate: Save version, private-remote Sync, two windows, outside `git` against `index.lock`, on a real desktop run of branch 1 | `claude/folder-engine-tauri-fs` | waiting for a person at the desktop |
+| 3 | Desktop gate: Save version, private-remote Sync, two windows, outside `git` against `index.lock`, on a real desktop run of branch 1 | `claude/folder-engine-tauri-fs` | waiting for a person at the desktop; two windows settled from code: the host keeps one window per app (`ensure_window`), so a second Todos window cannot open |
 | 4 | Yjs removed: Local Mail, Skills, sync lab deleted (`280bdf4d44`); AI moved to `@epicenter/ai` (`52ddcdc2b8`); store, sync, relay, and sockets deleted with empty Durable Object placeholders (`9f75a9bd51`); ADR-0534 | `claude/remove-yjs` | done |
-| 5 | Account partitions removed: installed apps open `<root>/<app-id>/`; hosted pairing relays (`hosted.rs`, `binding.rs`, `account-git-relay.ts`), `account_key`, `accountKey`, ADR-0461 and ADR-0496 deleted | `claude/remove-yjs` | next |
+| 5 | Account partitions removed: installed apps open `<root>/<app-id>/`; hosted pairing relays (`hosted.rs`, `binding.rs`, `account-git-relay.ts`), the folder plugin's download and relayed transport, `require_existing_repository`, the ready frame's `bootAccount` and the native folder owner capture, Home's Download, `account_key`, `accountKey`, ADR-0461 and ADR-0496 deleted | `claude/remove-partitions` | done |
 | 6 | Hosted Todos: `mountGitApp` with the Artifacts store in `apps/api`, `/git/connect`, the plain-token transport, the Sync panel; the GitHub connector and picker deleted | `claude/hosted-git` | after 3 and 5 |
 | 7 | Whispering audio through LFS: the engine's LFS client and an R2 LFS endpoint | later | |
+
+## Decisions made while building
+
+- Zero users: no migration and no compatibility. Folders left under `local/`
+  and `accounts/` are neither moved nor opened (ADR-0532). The standalone
+  Honeycrisp and Whispering shells still write `~/Epicenter/local/<scope>`;
+  that is theirs and unchanged.
+- Installed apps get hosted sync back by moving to page-engine scopes
+  (ADR-0531), not by a token in the Rust owner, so the plugin's `Transport`
+  seam is deleted rather than kept for phase 6.
+- The ready frame names only the installed IDs (protocol 11): nothing about an
+  installed app's folder depends on who is signed in.
 
 ## Open items
 
