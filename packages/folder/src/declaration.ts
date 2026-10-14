@@ -3,8 +3,10 @@
  *
  * Each table is one object schema, `{ type: 'object', properties, required }`,
  * whose properties are the table's fields exactly as a prepared definition
- * holds them. `kv` is the same without `required`, since every setting may be
- * unset. Each field is ordinary JSON Schema plus an `x-field` editor hint, so
+ * holds them. A closed table adds `"additionalProperties": false`, so a row
+ * with an undeclared key does not conform, exactly as JSON Schema reads it.
+ * `kv` is the same without `required`, since every setting may be unset.
+ * Each field is ordinary JSON Schema plus an `x-field` editor hint, so
  * a tool can check a row's values field by field without knowing Epicenter,
  * as Epicenter itself does.
  *
@@ -42,6 +44,9 @@ export function formatDeclaration(definition: FolderDefinition): string {
 			required: Object.keys(table.fields).filter(
 				(key) => !isOptional(table.fields[key]!),
 			),
+			...(table.additionalProperties === false
+				? { additionalProperties: false }
+				: {}),
 		};
 	return `${JSON.stringify(
 		{
@@ -84,11 +89,24 @@ export function parseDeclaration(
 		return refuse("'tables' must map table names to object schemas");
 	// Without a prototype, so a table named `__proto__` is an entry that
 	// preparation refuses by name.
-	const tables: Record<string, { fields: FieldMap }> = Object.create(null);
+	const tables: Record<
+		string,
+		{ fields: FieldMap; additionalProperties?: false }
+	> = Object.create(null);
 	for (const [name, table] of Object.entries(declared.tables)) {
 		const fields = objectSchema(table, `tables.${name}`, true);
 		if (fields.error !== null) return fields;
-		tables[name] = { fields: fields.data };
+		const { additionalProperties } = table as Record<string, unknown>;
+		if (additionalProperties !== undefined && additionalProperties !== false)
+			return refuse(
+				`'tables.${name}' declares "additionalProperties"; the only value is false, which closes the table`,
+			);
+		tables[name] = {
+			fields: fields.data,
+			...(additionalProperties === false
+				? { additionalProperties: false as const }
+				: {}),
+		};
 	}
 	return Ok({
 		...(declared.title === undefined
@@ -112,11 +130,13 @@ function objectSchema(
 	if (!isPlainObject(value)) return refuse('must be an object schema');
 	const unknown = unknownKeys(
 		value,
-		table ? ['type', 'properties', 'required'] : ['type', 'properties'],
+		table
+			? ['type', 'properties', 'required', 'additionalProperties']
+			: ['type', 'properties'],
 	);
 	if (unknown !== undefined)
 		return refuse(
-			`has unknown key ${unknown}; expected type, properties${table ? ', or required' : ''}`,
+			`has unknown key ${unknown}; expected type, properties${table ? ', required, or additionalProperties' : ''}`,
 		);
 	if (value.type !== 'object') return refuse('must say "type": "object"');
 	const { properties } = value;

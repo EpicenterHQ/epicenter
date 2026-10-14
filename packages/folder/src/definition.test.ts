@@ -42,7 +42,9 @@ import {
 	defineFolder,
 	defineTable,
 	field,
+	formatDeclaration,
 	formatRow,
+	parseDeclaration,
 	parseRow,
 } from './contract.js';
 import { prepareFolderDefinition } from './definition.js';
@@ -449,4 +451,49 @@ test('a table is one JSON Schema in epicenter.json, so its fields cannot reuse a
 			}),
 		),
 	);
+});
+
+test('a closed table reports an undeclared key at its line, and epicenter.json keeps it closed', () => {
+	const fields = { title: field.string() };
+	const definition = defineFolder({
+		kv: {},
+		tables: {
+			open: defineTable({ fields }),
+			closed: defineTable({ fields, additionalProperties: false }),
+		},
+	});
+	const text = '---\ntitle: Launch\nsubtitel: A typo\n---\n';
+
+	// An open table keeps the undeclared key on the row, outside its type.
+	const kept: Record<string, unknown> = expectOk(
+		parseRow(definition.tables.open, text),
+	).fields;
+	expect(kept).toEqual({ title: 'Launch', subtitel: 'A typo' });
+	expect(expectErr(parseRow(definition.tables.closed, text))).toEqual([
+		{ message: 'subtitel is not declared', line: 3, field: 'subtitel' },
+	]);
+
+	const declaration = formatDeclaration(definition);
+	expect(JSON.parse(declaration).tables.closed.additionalProperties).toBe(
+		false,
+	);
+	expect(JSON.parse(declaration).tables.open).not.toHaveProperty(
+		'additionalProperties',
+	);
+	const reread = prepareFolderDefinition(
+		expectOk(parseDeclaration(declaration)),
+	);
+	expect(expectOk(reread).tables.closed?.additionalProperties).toBe(false);
+	expect(
+		expectErr(
+			parseDeclaration(
+				JSON.stringify({
+					kv: { type: 'object', properties: {} },
+					tables: {
+						notes: { type: 'object', properties: {}, additionalProperties: {} },
+					},
+				}),
+			),
+		).reason,
+	).toContain('the only value is false');
 });
