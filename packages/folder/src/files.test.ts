@@ -365,11 +365,18 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 				{ stem: 'row' },
 			),
 		);
-		expect(heard).toEqual(['a.txt', 'a.txt', 'b.txt', 'todos/row.md']);
+		// The first save publishes the declaration before its own file.
+		expect(heard).toEqual([
+			'epicenter.json',
+			'a.txt',
+			'a.txt',
+			'b.txt',
+			'todos/row.md',
+		]);
 
 		stop();
 		expectOk(await folder.files.remove(moved));
-		expect(heard).toHaveLength(4);
+		expect(heard).toHaveLength(5);
 
 		// Closing fences callbacks: a listener hears nothing more, however
 		// the close and the last save interleave.
@@ -422,7 +429,12 @@ describe('a save never reads its bytes back', () => {
 			pullFastForward: unused,
 			mergeIncoming: unused,
 			recoverIncoming: unused,
-			sync: { supported: false, run: unused, resolve: unused },
+			sync: {
+				supported: false,
+				run: unused,
+				resolve: unused,
+				connect: unused,
+			},
 			paths: unused,
 			stage: unused,
 			commitStaged: unused,

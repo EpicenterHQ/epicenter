@@ -51,9 +51,9 @@ encoding rule, including replacement of unpaired surrogates.
 
 ## Dataset names, definitions, and addresses
 
-A folder ID names a dataset relative to its owner. In the managed native layout,
-`so.epicenter.todos` names `local/so.epicenter.todos/` or
-`accounts/<account-key>/so.epicenter.todos/` under the selected Epicenter root.
+A folder ID names a dataset. In a browser, `so.epicenter.todos` names the
+directory `so.epicenter.todos/` at the root of the app's origin private file
+system. On the desktop the shell maps it to a directory it registered.
 Reverse-DNS names provide a shared convention for compatible tools. A name such
 as `so.epicenter.todos.work` denotes another dataset in a literal sibling
 directory; dots do not create nested directories or inherited permissions.
@@ -64,8 +64,9 @@ Different tools can use different definitions to interpret the same files.
 Compatible field meanings still matter when those tools write to the same
 dataset.
 
-Each successful browser, Bun, or Tauri acquisition attempts to overwrite root
-`epicenter.json` before returning, with `formatDeclaration(definition)`. Each
+Opening writes nothing. A handle publishes root `epicenter.json`, with
+`formatDeclaration(definition)`, just before its first write, through every
+opener (ADR-0508). Each
 table is one JSON Schema object, `{ type: 'object', properties, required }`,
 whose properties are the table's fields as the prepared definition holds them;
 `kv` is `{ type: 'object', properties }`, since every setting may be unset:
@@ -100,15 +101,10 @@ plain JSON, so formatting cannot fail; a failed write is logged through
 folder remains usable. A failed attempt can leave discovery missing, stale, or
 uncertain.
 
-Publication always writes through `files.overwrite`, including on unchanged
-reopening. Publication never commits or pushes, so the published
-`epicenter.json` stays uncommitted until a sync or an explicit commit. Opening
-an empty folder before pulling an existing remote leaves that uncommitted file
-in the way of incoming updates. Get the remote's history
-before the first opening: a browser account folder uses
-[`downloadFolder`](#downloading-a-browser-folder), and a runtime with a clone
-operation clones first. The current Todos browser startup opens first and
-requires a separate remote-bootstrap repair.
+Publication writes through `files.overwrite` once per handle, before that
+handle's first save. It never commits or pushes, so the published
+`epicenter.json` is recorded with the next version. A folder opened only to
+read, or to take a remote's history, is never written by opening.
 
 ```ts
 const personal = await openFolder({ id: 'so.epicenter.todos', definition });
@@ -123,78 +119,80 @@ datasets, and several compatible applications can reach the same dataset. Its
 app ID and private SQLite namespace are separate choices even when they use the
 same string.
 
-The complete managed address includes the channel, owner, and folder ID.
-Browser storage also belongs to one origin. Opening captures the address for
-the handle's lifetime; signing in later does not move its data or retarget its
-writes. Browser callers select `browser.scope`; a native shell registers the
-selected directory. The Bun opener instead receives an explicit directory and
-no folder ID.
-The managed native layout is described in
-[ADR-0461](../../docs/adr/0461-portable-data-folders-live-under-local-and-derived-account-scopes.md).
+A browser folder's address is its ID alone ([ADR-0532](../../docs/adr/0532-a-browser-folder-is-its-id-written-lazily-and-its-remote-is-its-git-configuration.md)):
+each browser app is its own origin, so its storage already belongs to it.
+Signing in does not move data or retarget writes. A desktop shell registers the
+selected directory; the Bun opener receives an explicit directory and no
+folder ID.
 
 ## Entries
 
 | Import | Opens | Use it when |
 | --- | --- | --- |
 | `@epicenter/folder` | The desktop app's folder when the page runs in Tauri, this browser's storage otherwise. Decided when `openFolder` is called, and only the chosen adapter is loaded. | Ordinary application code. |
-| `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. Also exports `downloadFolder` and `inspectFolder`. | A web-only build, a browser account folder inspected or downloaded before its first opening, or a test that injects an OPFS stand-in with `browser.opfs`. |
+| `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. | A web-only build, or a test that injects an OPFS stand-in with `browser.opfs`. |
 | `@epicenter/folder/tauri` | The desktop shell's folder only: opened by the shell's Rust owner, or by this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 
 The first three export the same `openFolder` signature and the same contract,
-so one application source builds against any of them. `downloadFolder` and
-`inspectFolder` are the browser entry's alone; import them from
-`@epicenter/folder/browser`. Importing an entry opens
-nothing. On a server, opening returns a refusal.
+so one application source builds against any of them. Importing an entry
+opens nothing. On a server, opening returns a refusal.
 
 ```ts
 openFolder({
   id,        // required: which folder, such as 'so.epicenter.todos'. Never a path.
   definition,
-  browser,   // optional: { scope, author, remote, httpFetch, createIfMissing, opfs }
+  browser,   // optional: { author, httpFetch, opfs }
 }): Promise<Result<Folder, OpenFolderError>>
 ```
 
 `browser` applies to a browser folder only. A browser folder uses a local
-author by default. Saves never commit (ADR-0529). A `remote` needs an explicit
-`author`. A new folder records its `remote`, and a ready folder opens only
-with the remote it records ([the folder's remote](#the-folders-remote)).
-`httpFetch` supplies a fetch-compatible HTTP function for Git fetch and push.
-It defaults to regular fetch; applications can supply an authenticated relay.
-It receives the canonical remote URL and the operation's abort signal. It does
-not replace global fetch or change the stored remote. Credentials belong to
-the transport, outside the folder's files and Git configuration.
+author by default. Saves never commit (ADR-0529). `httpFetch` supplies a
+fetch-compatible HTTP function for Git fetch and push. It defaults to regular
+fetch; applications can supply an authenticated relay. It receives the
+remote URL Git configuration names and the operation's abort signal. It does
+not replace global fetch or change the remote. Credentials belong to the
+transport, outside the folder's files and Git configuration.
 In the desktop app the shell chooses the directory. A folder its Rust owner
 opens also takes the author, the remote, and the history policy from the
 shell; one the page opens itself reads the author and remote from the
 repository. The policy in effect is on `folder.git.snapshot` either way.
 
-Browser storage ownership can be supplied explicitly:
+### The folder, opened lazily, and its remote
+
+Opening a browser folder writes nothing. The folder's first write creates its
+directory and its repository together, and publishes `epicenter.json` just
+before it; each table's directory appears with its first row. Reads never
+write: a folder nobody wrote to lists nothing, has no history, and a commit of
+it writes nothing. An ID that cannot name one directory (empty, `.` or `..`,
+or with a slash, backslash, or control character) is `InvalidId`. A directory
+someone else wrote under the ID is that folder.
+
+A folder's remote is `remote.origin.url` in its Git configuration, on the
+folder's own branch, `main`. `folder.git.snapshot.remote` shows it, and every
+transfer reads the configuration again, so a remote another tab or program
+set is used. `folder.sync.connect(url)` sets it, then syncs:
 
 ```ts
-openFolder({
-  id,
-  definition,
-  browser: { scope: { channel: 'development' } },
-});
-// For an account: scope: { channel: 'release', account }
-// account is the captured { authorityId, principalId }, without credentials.
+const { data, error } = await folder.sync.connect('https://github.com/you/todos.git');
+if (error?.name === 'Unrelated') {
+  // The remote has a history of its own. Ask, then combine both:
+  await folder.sync.connect(url, { allowUnrelatedHistories: true });
+}
 ```
 
-The browser derives the folder's directory, its Web Lock names, and its hint
-channel from the same captured channel, scope, account key, and folder ID.
-Later login changes do not retarget an open handle. Omitted scope and explicit
-release Local open `Epicenter/local/<id>`; development uses `Epicenter Dev/`,
-and an account `accounts/<account-key>/` in place of `local/`. A folder ID or
-account key is one directory name: `/`, `\`, `%`, and control characters are
-escaped, so distinct IDs stay distinct directories. Development and account
-scopes do not change private app SQL.
+| Folder | Remote | Connect |
+| --- | --- | --- |
+| files, no history | no branch | commits and pushes |
+| empty | history | takes it |
+| files, no history | history | merges them over an empty base; a differing path is a choice in the review |
+| its own history | related | syncs |
+| its own history | unrelated | `Unrelated`, writing nothing, until `allowUnrelatedHistories` |
 
-A scoped folder starts beside the release Local folder of the same ID and
-never reads it. The package does not infer which account owns Local data,
-move it, or provide an assignment UI. Apps must choose their scope
-explicitly; existing callers are not automatically switched to development
-or account storage.
+The remote stays set whatever the sync answers. A sync that stopped partway
+keeps no record: the files it wrote are local files, and the next sync merges
+them with identical remote files cleanly. On the desktop the shell lets a page
+set the remote only to a network URL.
 
 A desktop page whose folder cannot be opened (no plugin, no permission, an
 unregistered ID, another protocol version, a folder another process holds)
@@ -247,8 +245,8 @@ then opens a directory folder (`directory-adapter.ts`):
 | --- | --- | --- |
 | Files | OPFS | The real directory, through Tauri's fs plugin |
 | History | isomorphic-git in a private OPFS `.git` | The system `git` in the real `.git`, which the shell runs (`run_git`) |
-| Identity | A ready marker naming the address | The shell's registration and lock; no marker |
-| Remote and author | `browser.remote` and `browser.author` | Git's own configuration: `remote.origin.url`, `user.name`, `user.email`, with the shell's author as fallback |
+| Identity | The directory its ID names | The shell's registration and lock |
+| Remote and author | `remote.origin.url`, set by `sync.connect`, and `browser.author` | Git's own configuration: `remote.origin.url`, `user.name`, `user.email`, with the shell's author as fallback |
 | Transfers | `httpFetch`, regular fetch by default | Git's own, with the person's credential helper or SSH |
 | Pages of one folder | Web Locks and a `BroadcastChannel` | The same, across the shell's windows |
 
@@ -288,224 +286,6 @@ Nothing watches the directory for other programs' changes; a page reads
 again when it chooses to. A page that reloads ends the work it was running.
 An incoming update that stops partway keeps no record here: the files it
 wrote show as changes, and the next Sync records and merges them.
-
-### Which directory is the folder
-
-A directory is a folder only while its ready marker,
-`.git/epicenter-folder.json`, names that folder's captured address. Opening
-decides this under the address's open Web Lock, so two tabs never decide it
-at once.
-
-| The directory holds | Opening |
-| --- | --- |
-| A marker naming this address | Opens it, subject to its remote ([below](#the-folders-remote)). Other properties the marker records are kept and ignored. |
-| Nothing (or it does not exist), or only an empty `.git` with at most an empty marker | Writes the marker, recording `browser.remote` when given, then opens it. With `createIfMissing: false`, `Absent` and nothing is written. |
-| A marker naming another address, or one that names none | `Unavailable`. |
-| A marker recording an unfinished download (`{ download: { address, remote } }`) | `Unavailable`, naming the download. Downloading again finishes it. |
-| Anything else without a marker, or the path is not a directory | `Unavailable`. |
-
-A pending download record has no top-level `address`, so an opener that
-predates it refuses it as a marker naming no address.
-
-`browser.createIfMissing` defaults to `true`. With `false`, opening decides
-under the same open lock and creates nothing where no folder exists: no
-directory, marker, `.git`, or `epicenter.json`. `Absent` names the
-directory. A folder that exists opens as usual, offline too, and publishes
-its `epicenter.json`; every refusal above is unchanged. An opener queued
-behind one that creates sees the folder it made. Nothing remembers an
-`Absent` answer, and nothing polls; each opening decides again.
-
-Identity refusals write nothing, so no marker is replaced and no unknown file is
-adopted. A marker write that fails, or whose stream close is unconfirmed, is
-`Unavailable` too, and no folder is started. Opening again starts over only
-where the marker is absent or empty; a marker the close did publish opens,
-and one naming another address stays refused.
-
-### The folder's remote
-
-A ready folder is bound to the remote it was made with. Creating a folder
-with `browser.remote`, and a completed download, record the URL and branch in
-the ready marker, `{ address, remote: { url, branch } }`, and the URL in Git
-configuration as `origin`. A folder made without a remote records none.
-Opening decides, under the open lock and before it writes any file, marker,
-Git configuration, or `epicenter.json`:
-
-| The folder is bound to | Opening with `browser.remote` R | Opening without one |
-| --- | --- | --- |
-| The same URL and branch as R | Opens it. | Opens it. |
-| Another URL, or another branch | `RemoteMismatch`, naming what the folder records. Nothing is written. | Opens it. |
-| No remote | `RemoteMismatch` with `stored: undefined`. | Opens it. |
-| A marker and configuration that name different URLs, a `remote` property that is no URL and branch, or configuration that cannot be read | `Unavailable`. Nothing is written. | Opens it. |
-
-URLs compare as exact strings. A folder an earlier version made records its
-remote only as `remote.origin.url`, with a marker of `{ address }`. That URL
-binds it, but its branch is unrecorded. Remote opening returns `RemoteMismatch`
-until the caller explicitly confirms the branch with
-`browser.confirmLegacyRemoteBranch: true`. The URL must still match. The
-confirmed URL and branch are recorded in the marker; later opens require both
-to match. An open without a remote keeps working without confirmation. A
-marker without a remote beside a configuration with none is a folder with no
-remote. The confirmation option never changes a recorded URL or branch.
-`RemoteMismatch` omits the URLs from its message, since stored configuration
-may contain credentials, and carries them as `stored` and `requested`.
-
-`inspectFolder` reads the same decision without opening or writing:
-
-```ts
-import { inspectFolder } from '@epicenter/folder/browser';
-
-const { data: found, error } = await inspectFolder({ id, scope });  // scope as openFolder takes it
-if (error !== null) return show(error.message);
-switch (found.kind) {
-  case 'absent':  // no folder; Start (open) or Download
-  case 'pending': // found.remote is the unfinished download's { url, branch }
-  case 'ready':   // found.remote: { url, branch } | undefined; branch is undefined for an earlier version's folder
-}
-```
-
-| Directory | `inspectFolder` |
-| --- | --- |
-| Missing, or only an empty `.git` with at most an empty marker | `absent` |
-| A pending record for this address | `pending`, with its `remote` |
-| A marker naming this address | `ready`, with the remote it is bound to, or `remote: undefined` |
-| Any directory `openFolder` refuses, or a ready folder whose binding is ambiguous | `Unavailable`, unchanged |
-
-Inspection takes `id`, `scope` (omitted is release Local), and `opfs`, and
-refuses with `InvalidId`, `InvalidBrowserScope`, `NoFileSystem`, and
-`InsideTauri` before it reads anything. It creates no directory, marker, Git
-state, or `epicenter.json`, and loads no history. It waits for the address's
-open lock, so an opening or download in progress finishes first and
-inspection reports what it left. Nothing remembers the answer.
-
-### Downloading a browser folder
-
-A fresh browser signed into an account whose folder already has a paired
-remote gets that history before the folder is first opened:
-
-```ts
-import { downloadFolder, openFolder } from '@epicenter/folder/browser';
-
-const scope = { channel: 'release', account };   // the captured { authorityId, principalId }
-const { data: landed, error } = await downloadFolder({
-  id: 'com.bradenwong.zhongwen',
-  scope,
-  remote: { url, branch: 'main' },               // the paired repository
-  httpFetch,                                     // the session-bound transport
-  signal,
-});
-if (error !== null) return show(error.message);
-const opened = await openFolder({ id, definition, browser: { scope, author, remote, httpFetch, createIfMissing: false } });
-```
-
-Account startup that must not make a folder before the person chooses opens
-with `createIfMissing: false`:
-
-```text
-openFolder(createIfMissing: false) -> Ok             use the folder
-                                   -> Absent         offer Download, or start empty
-                                   -> RemoteMismatch the folder is bound to another remote, or to none
-                                   -> Unavailable    show the cause; an unfinished download continues when downloaded again
-Download    -> downloadFolder -> Ok           -> openFolder(createIfMissing: false)
-                              -> Exists       inspect the refusal before opening
-Start empty -> openFolder (default), which creates the folder
-```
-
-A caller that must choose before it opens, such as one that offers Start or
-Download and then opens with a paired remote, uses
-[`inspectFolder`](#the-folders-remote) first: `absent` offers both, `pending`
-offers Download of `found.remote`, and `ready` is opened with a remote that
-equals `found.remote` or refused by the caller, with no write either way.
-
-Only an explicit call downloads. Sign-in, discovery, and opening never do.
-A download needs an explicit scope; without one it is `InvalidBrowserScope`
-and nothing is created. `{ channel: 'release' }` targets Local. Adding the
-captured `account` targets its separate directory. A launcher can download a
-fresh Local folder before opening it, using the same protocol as an account
-download. An ordinary Local opening still makes no network request.
-
-Downloading opens no folder, publishes no `epicenter.json`,
-and writes no settings. It first records the pending download in the marker
-file, `{ download: { address, remote: { url, branch } } }`, and confirms that
-write before any Git state exists. It then fetches the remote branch into the
-address's `.git`, fast-forwards the unborn local `main` to it through the
-ordinary incoming publication, and replaces the record with the ready marker
-`{ address, remote: { url, branch } }` last. `landed.head` is the
-downloaded commit. Opening afterward publishes `epicenter.json` as an
-ordinary save over that history, so its commit has the downloaded head as
-parent, or there is none when the bytes match.
-
-A remote without the branch is downloaded as `head: undefined`: local `main`
-stays unborn, `origin` names the remote, and the folder is marked ready with
-no files. No fast-forward checks the folder then, so a folder file the
-download did not write, such as one put beside a pending record, is
-`Incomplete`, named and kept, and the record stays. The first opening
-publishes `epicenter.json` as the root commit, and the first push creates
-the branch.
-
-| The directory holds | Download |
-| --- | --- |
-| Nothing, or it does not exist, or only an empty `.git` with at most an empty marker | Records the pending download, then downloads. |
-| A pending record with this exact address, URL, and branch | Continues: recovers an incoming update left pending, fetches again, fast-forwards, and marks it ready. |
-| A pending record for another address, URL, or branch | `Exists`, naming that download. Nothing is written. |
-| A ready marker, for this address or another, or one that names nothing | `Exists`, with its `origin`. Nothing is written. |
-| Any entry without a marker, or the path is not a directory | `Exists`, naming the entry and any `origin`. Nothing is written. |
-
-Only the record decides ownership. A configured `origin` is reported in
-`Exists` and never makes Git state or files without a record continuable.
-
-After `Exists`, only `reason: 'is this folder'` confirms a ready folder at
-this address. Other refusals must not be treated as a successful download.
-A ready folder keeps the remote it records. Opening it with a different
-remote, or with one when it has none, is `RemoteMismatch` and writes nothing
-([the folder's remote](#the-folders-remote)); `origin` in `Exists` tells a
-caller which remote the folder has before it chooses what to open with. Use
-`createIfMissing: false` after downloading or accepting a ready folder, so a
-vanished directory does not become a new, unrelated history. Ready folders,
-including ready folders with no files, are outside download ownership;
-synchronize them explicitly.
-
-The download holds the address's open Web Lock throughout. An opener of the
-same address waits, then opens what landed; a second download gets
-`Exists`. No handle can be open on the directory meanwhile, because the
-opener refuses a pending record and an unmarked directory that holds anything.
-
-A download that fails, or whose `signal` aborts, is `Incomplete`, and nothing
-is rolled back. What landed stays for inspection: the record, Git objects,
-refs, configuration, an incoming record, and any files it wrote. The
-transfer is cancelled. Usually the record still stands, so opening refuses
-the directory as `Unavailable` and publishes nothing there, and calling
-`downloadFolder` again with the same address, URL, and branch continues.
-
-`Incomplete` does not always mean the folder is not ready. Two marker writes
-can end unconfirmed:
-
-| Write | Did not publish | Published, unconfirmed |
-| --- | --- | --- |
-| The pending record | Nothing else was written; at most an empty marker remains. Opening without creating is `Absent`; downloading again starts over. | The record stands alone. Opening refuses it; downloading again continues. |
-| The ready marker | The record stands beside the complete download. Opening refuses it; downloading again marks it ready. | The folder is ready. Opening with `createIfMissing: false` opens the complete history; downloading again is `Exists`. |
-
-Opening with `createIfMissing: false`, or downloading again, shows which
-state is durable. A path that holds neither an incoming update's before nor
-its after state, such as an empty file a closed tab never finished writing,
-is named in the `Incomplete` cause, and nothing is written. Remove that path;
-the next download continues. Nothing removes or resets the directory, and the
-folder API cannot open a pending one.
-
-Every download fetches before it marks anything ready, and the tracking ref
-`refs/remotes/origin/<branch>` must then name exactly what that fetch found.
-Isomorphic-git's fetch leaves the ref an earlier attempt wrote when the
-remote no longer has the branch, and a later pull would adopt that cached
-commit. Such a download is `Incomplete`, naming the cached commit; the ref,
-its objects, and any files stay. The next download after the remote has the
-branch again replaces the ref with the fresh head and continues. If the branch
-is gone for good, the cached ref is the entry to remove.
-
-`httpFetch` is used for this download only. Credentials stay in it, and the
-folder's Git configuration records only the canonical `remote.url`. A download
-never rewrites the `origin` of a directory it refuses. Opening with
-`browser.remote` writes that remote's URL as `origin` at each opening, but
-only after the folder is created with it or found bound to it; another remote
-is refused first.
 
 ### Building for one environment
 
@@ -589,7 +369,7 @@ on a field, or a field preparation refuses, such as one with an unknown
 `InvalidDeclaration`. The older `{ fields }` shape is refused; there is no
 migration.
 
-It writes nothing: no Git repository, marker, lock, or declaration, and it
+It writes nothing: no Git repository, lock, or declaration, and it
 loads no native addon. It can read a folder an application has open, or one
 nested anywhere in another repository. Each file is read whole, but the
 reading is not a snapshot across files: a save in progress elsewhere can show
@@ -1056,7 +836,10 @@ if (error !== null) return show(error.message);
 
 A folder that had no history before the run, whose first commit the run
 made, adopts the remote's history by merging over an empty base; two
-different files at one path are then a conflict like any other.
+different files at one path are then a conflict like any other. A folder
+with a history of its own meets an unrelated remote as `Unrelated`, writing
+nothing; `run({ allowUnrelatedHistories: true })` combines them. `connect(url)`
+sets the remote, then runs ([above](#the-folder-opened-lazily-and-its-remote)).
 
 Its merge is `mergeIncoming`'s with two additions for paths both sides
 changed:

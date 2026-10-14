@@ -1,7 +1,8 @@
 /**
- * Opening-time definition publication through production Bun and browser adapters.
- * Covers replacement, changed declarations, unchanged history, manual history,
- * and best-effort failures while saved rows remain usable.
+ * Definition publication through production Bun and browser adapters: a
+ * handle publishes `epicenter.json` just before its first write, never on
+ * open. Covers a folder nobody wrote to, replacement, changed declarations,
+ * unchanged history, and best-effort failures while saved rows remain usable.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
@@ -10,6 +11,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	defineFolder,
 	defineTable,
+	type Folder,
 	type FolderDefinition,
 	field,
 } from './contract.js';
@@ -41,36 +43,34 @@ const definition = defineFolder({
 const author = { name: 'Publication', email: 'publication@example.test' };
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
-test('opening before downloading an existing browser remote preserves incoming protections', async () => {
+test('opening writes nothing, so a fresh browser copy takes an existing remote as it is', async () => {
 	const root = await scratch('definition-existing-remote-');
 	await createBareRemote(root);
 	const httpFetch = await gitHttpFetch(root);
-	const open = () =>
+	const url = 'http://git.test/remote.git';
+	const open = (environment = createTestStorage()) =>
 		openBrowser({
 			id: 'publication-remote',
 			definition,
-			browser: {
-				author,
-				remote: { url: 'http://git.test/remote.git', branch: 'main' },
-				httpFetch,
-				...browserStorage(createTestStorage()),
-			},
+			browser: { author, httpFetch, ...browserStorage(environment) },
 		});
 	const sender = expectOk(await open());
 	try {
 		expectOk(await sender.kv.set('theme', 'remote'));
-		expect((await sender.git.commitAndPush()).push.status).toBe('pushed');
-		const receiver = expectOk(await open());
+		expect(expectOk(await sender.sync.connect(url)).kind).toBe('synced');
+		const environment = createTestStorage();
+		const receiver = expectOk(await open(environment));
 		try {
-			// Opening wrote the definition and committed nothing, so the
-			// receiver's folder is dirty before anything arrives.
-			expect(receiver.git.snapshot.lastCommit).toBeUndefined();
-			expectOk(await receiver.git.fetch());
-			expect(expectErr(await receiver.git.pullFastForward()).name).toBe(
-				'Dirty',
-			);
-			expect(expectErr(await receiver.git.mergeIncoming()).name).toBe('Dirty');
-			expect(expectOk(await receiver.kv.get())).toBeUndefined();
+			expect(environment.opfs.directories()).toEqual([]);
+			expect(expectOk(await receiver.files.list()).files).toEqual([]);
+			expect(expectOk(await receiver.sync.connect(url)).kind).toBe('synced');
+			expect(expectOk(await receiver.kv.get())).toMatchObject({
+				values: { theme: 'remote' },
+			});
+			expect(
+				decode(expectOk(await receiver.files.read('epicenter.json')).bytes),
+			).toBe(formatDeclaration(definition));
+			expect(expectOk(await receiver.git.status()).changes).toEqual([]);
 		} finally {
 			await receiver.close();
 		}
@@ -81,7 +81,7 @@ test('opening before downloading an existing browser remote preserves incoming p
 });
 
 for (const adapter of ['browser', 'bun'] as const) {
-	test(`${adapter}: fresh publication, replacement and changed declarations preserve data in manual history`, async () => {
+	test(`${adapter}: the first write publishes the declaration, and each later handle's first write replaces it, preserving data in manual history`, async () => {
 		const root = await scratch('definition-publication-');
 		const environment = createTestStorage();
 		const open = async <TSchema extends FolderDefinition>(schema: TSchema) =>
@@ -101,17 +101,21 @@ for (const adapter of ['browser', 'bun'] as const) {
 							},
 						}),
 			);
+		const declaration = async (folder: {
+			files: Folder<typeof definition>['files'];
+		}) => decode(expectOk(await folder.files.read('epicenter.json')).bytes);
 		let folder = await open(definition);
 		try {
-			expect(
-				decode(expectOk(await folder.files.read('epicenter.json')).bytes),
-			).toBe(formatDeclaration(definition));
+			expect(expectErr(await folder.files.read('epicenter.json')).name).toBe(
+				'NotFound',
+			);
 			expectOk(
 				await folder.tables.notes!.create(
 					{ fields: { title: 'Saved' }, body: 'Body stays\n' },
 					{ stem: 'kept' },
 				),
 			);
+			expect(await declaration(folder)).toBe(formatDeclaration(definition));
 			expectOk(await folder.kv.set('theme', 'dark'));
 			const row = expectOk(await folder.files.read('notes/kept.md'));
 			const kv = expectOk(await folder.files.read('kv.json'));
@@ -122,10 +126,11 @@ for (const adapter of ['browser', 'bun'] as const) {
 				),
 			);
 			await folder.close();
+			// Reopening writes nothing; the next write publishes again.
 			folder = await open(definition);
-			expect(
-				decode(expectOk(await folder.files.read('epicenter.json')).bytes),
-			).toBe(formatDeclaration(definition));
+			expect(await declaration(folder)).toBe('malformed manual description');
+			expectOk(await folder.kv.set('theme', 'dark'));
+			expect(await declaration(folder)).toBe(formatDeclaration(definition));
 			await folder.close();
 			const changed = defineFolder({
 				...definition,
@@ -133,9 +138,8 @@ for (const adapter of ['browser', 'bun'] as const) {
 				kv: { theme: field.string({ minLength: 4 }) },
 			});
 			folder = await open(changed);
-			expect(
-				decode(expectOk(await folder.files.read('epicenter.json')).bytes),
-			).toBe(formatDeclaration(changed));
+			expectOk(await folder.kv.set('theme', 'dark'));
+			expect(await declaration(folder)).toBe(formatDeclaration(changed));
 			expect(expectOk(await folder.files.read('notes/kept.md')).bytes).toEqual(
 				row.bytes,
 			);
@@ -150,7 +154,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 		}
 	});
 
-	test(`${adapter}: identical reopening writes the definition again and leaves nothing to commit`, async () => {
+	test(`${adapter}: an identical declaration written again leaves nothing to commit`, async () => {
 		const root = await scratch('definition-history-');
 		const environment = createTestStorage();
 		const open = async () =>
@@ -165,11 +169,13 @@ for (const adapter of ['browser', 'bun'] as const) {
 			);
 		let folder = await open();
 		try {
+			expectOk(await folder.kv.set('theme', 'dark'));
 			expect((await folder.git.commit()).status).toBe('committed');
 			const before = expectOk(await folder.git.log(10));
 			expect(before).toHaveLength(1);
 			await folder.close();
 			folder = await open();
+			expectOk(await folder.kv.set('theme', 'dark'));
 			expect(folder.git.snapshot.lastCommit).toBeUndefined();
 			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 			expect((await folder.git.commit()).status).toBe('unchanged');

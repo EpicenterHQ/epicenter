@@ -31,7 +31,7 @@ const APP = join(import.meta.dir, 'app');
 /** Text only the desktop adapter contains: the plugin's command names. */
 const DESKTOP = 'plugin:epicenter-folder|attach';
 /** Text only the browser adapter contains: its lock names. */
-const BROWSER = 'epicenter-folder-opfs-git:';
+const BROWSER = 'epicenter-folder:${id}:git';
 /** Text only isomorphic-git contains: its Git protocol client. */
 const GIT = 'git-upload-pack';
 /** Text only the page engine over a granted directory contains. */

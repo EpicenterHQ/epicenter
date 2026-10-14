@@ -14,7 +14,6 @@ import {
 import { SCRATCH_DIRECTORY } from './directory-handle.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
-import type { GitRemote } from './git/backend.js';
 import { createHistory } from './git/history.js';
 import {
 	createNativeGitBackend,
@@ -86,17 +85,12 @@ export async function openDirectoryFolder<
 		const value = new TextDecoder().decode(stdout).trim();
 		return code === 0 && value !== '' ? value : undefined;
 	};
-	let remote: GitRemote | undefined;
 	let committer: Author;
 	try {
 		// Read before Git work is set up; a folder with no repository yet has
 		// none of these, and `git init` follows.
 		const isRepository =
 			(await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined;
-		const url = isRepository
-			? await configured('remote.origin.url')
-			: undefined;
-		remote = url === undefined ? undefined : { url, branch };
 		committer = {
 			name:
 				(isRepository ? await configured('user.name') : undefined) ??
@@ -153,7 +147,6 @@ export async function openDirectoryFolder<
 					createNativeGitBackend({
 						root: rootPath,
 						branch,
-						remote,
 						boundary,
 						host,
 						exclusive: webLockExclusive(locks, at.gitLock),

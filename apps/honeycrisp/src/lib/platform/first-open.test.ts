@@ -7,7 +7,9 @@
  * showing the notes.
  *
  * Key behaviors:
- * - Opening publishes discovery JSON and preserves existing notes and settings
+ * - Opening writes nothing; setup's first write publishes discovery JSON, so
+ *   a folder that needs no setup is left exactly as it was
+ * - Existing notes and settings are preserved
  * - A missing layout is created; setup records no commit (ADR-0529)
  * - A `kv.json` that appears first is kept, and nothing is retried
  * - A read that fails for any reason but absence writes nothing
@@ -108,7 +110,7 @@ async function existing() {
 // ============================================================================
 
 describe('an existing folder', () => {
-	test('with history gains its definition while saved note and setting bytes stay intact, and records no commit', async () => {
+	test('with history and nothing missing is left exactly as it was: no definition, no commit', async () => {
 		const { root, git } = await existing();
 		git('init', '--quiet', '--initial-branch=main');
 		git('add', '--all');
@@ -127,18 +129,15 @@ describe('an existing folder', () => {
 		expect(committed.status).toBe(0);
 		const prior = git('rev-parse', 'HEAD').stdout.trim();
 		const savedFiles = async () =>
-			(await fingerprint(root)).filter(
-				(line) => !line.includes('/.git') && !line.includes('/epicenter.json '),
-			);
+			(await fingerprint(root)).filter((line) => !line.includes('/.git'));
 		const before = await savedFiles();
 		const folder = await open(root);
 		await setUpFolder(folder.files, TABLES);
+		// Setup found nothing to write, so the definition was never published.
 		expect(await savedFiles()).toEqual(before);
 		expect(git('rev-parse', 'HEAD').stdout.trim()).toBe(prior);
-		expect(git('status', '--porcelain').stdout).toBe('?? epicenter.json\n');
-		expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
-			formatDeclaration(honeycrispDefinition),
-		);
+		expect(git('status', '--porcelain').stdout).toBe('');
+		expect(await Bun.file(join(root, 'epicenter.json')).exists()).toBe(false);
 		expect(await readFile(join(root, 'notes', 'old.md'), 'utf8')).toBe(NOTE);
 		expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe(KV);
 	});
@@ -153,9 +152,7 @@ describe('an existing folder', () => {
 		await setUpFolder(folder.files, TABLES);
 		expect(git('rev-parse', '--verify', '--quiet', 'HEAD').status).not.toBe(0);
 		expect(
-			(await fingerprint(root)).filter(
-				(line) => !line.includes('/.git') && !line.includes('/epicenter.json '),
-			),
+			(await fingerprint(root)).filter((line) => !line.includes('/.git')),
 		).toEqual(files);
 	});
 
@@ -171,6 +168,10 @@ describe('an existing folder', () => {
 		const folder = await open(root);
 		await setUpFolder(folder.files, TABLES);
 		expect((await stat(join(root, 'folders'))).isDirectory()).toBe(true);
+		// Making the directory was the first write, so it published the definition.
+		expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
+			formatDeclaration(honeycrispDefinition),
+		);
 		expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe(KV);
 		expect(
 			[
@@ -197,15 +198,11 @@ describe('a new folder', () => {
 		expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
 			formatDeclaration(honeycrispDefinition),
 		);
-		// Opening always republishes epicenter.json; everything else stays as it was.
-		const saved = async () =>
-			(await fingerprint(root)).filter(
-				(line) => !line.includes('/epicenter.json '),
-			);
-		const files = await saved();
+		// Setting up again writes nothing, so even epicenter.json is untouched.
+		const files = await fingerprint(root);
 		const reopened = await open(root);
 		await setUpFolder(reopened.files, TABLES);
-		expect(await saved()).toEqual(files);
+		expect(await fingerprint(root)).toEqual(files);
 		expect(git('rev-parse', '--verify', '--quiet', 'HEAD').status).not.toBe(0);
 	});
 });

@@ -95,6 +95,7 @@ import {
 	type SyncAttempt,
 	type SyncChoices,
 	type SyncCommits,
+	type SyncOptions,
 	type SyncOutcome,
 	syncMerge,
 } from './sync.js';
@@ -416,6 +417,8 @@ export function createHistory({
 	async function refreshSync() {
 		await refreshPending();
 		try {
+			// Another page or program may have set the remote.
+			await backend.refreshRemote();
 			const [head, remote] = await Promise.all([
 				backend.readBranch(),
 				backend.readRemoteTracking(),
@@ -556,25 +559,32 @@ export function createHistory({
 			const current = await capture();
 			const committed = await headFiles(parent);
 			const included = await source(current, committed);
-			const built = await backend.withObjects(async (access) => {
-				const tree = await writeFilesTree(access, included);
-				const parentTree =
-					parent === undefined ? EMPTY_TREE : await commitTree(access, parent);
-				if (tree === parentTree) return undefined;
-				const changes = diffFileMaps(
-					committed,
-					await readTreeFiles(access, tree),
-				);
-				const message = commitSubject(changes);
-				if (message === undefined) return undefined;
-				const oid = await writeCommitObject(access, {
-					tree,
-					parents: parent === undefined ? [] : [parent],
-					message,
-					author,
-				});
-				return { oid, message, changes };
-			});
+			// An empty folder with no history has nothing to record, and writes
+			// nothing: not even an empty tree.
+			const built =
+				parent === undefined && included.size === 0
+					? undefined
+					: await backend.withObjects(async (access) => {
+							const tree = await writeFilesTree(access, included);
+							const parentTree =
+								parent === undefined
+									? EMPTY_TREE
+									: await commitTree(access, parent);
+							if (tree === parentTree) return undefined;
+							const changes = diffFileMaps(
+								committed,
+								await readTreeFiles(access, tree),
+							);
+							const message = commitSubject(changes);
+							if (message === undefined) return undefined;
+							const oid = await writeCommitObject(access, {
+								tree,
+								parents: parent === undefined ? [] : [parent],
+								message,
+								author,
+							});
+							return { oid, message, changes };
+						});
 			if (built !== undefined) {
 				const moved = await backend.casBranch(parent, built.oid);
 				if (!moved.ok)
@@ -686,7 +696,8 @@ export function createHistory({
 
 	const pushRunner = createPassRunner<void, PushOutcome>({
 		async run(_input, signal) {
-			if (backend.remote === undefined) return { status: 'noRemote' };
+			if ((await backend.refreshRemote()) === undefined)
+				return { status: 'noRemote' };
 			const oid = await backend.readBranch();
 			if (oid === undefined) return { status: 'nothingToPush' };
 			const sequence = ++remoteSeq;
@@ -712,7 +723,8 @@ export function createHistory({
 
 	const fetchRunner = createPassRunner<void, Result<FetchOutcome, GitError>>({
 		async run(_input, signal) {
-			if (backend.remote === undefined) return GitError.NoRemote();
+			if ((await backend.refreshRemote()) === undefined)
+				return GitError.NoRemote();
 			const sequence = ++remoteSeq;
 			let result: Result<FetchOutcome, GitError>;
 			try {
@@ -1016,7 +1028,8 @@ export function createHistory({
 	}
 
 	async function pull(): Promise<Result<PullOutcome, PullError | GitError>> {
-		if (backend.remote === undefined) return GitError.NoRemote();
+		if ((await backend.refreshRemote()) === undefined)
+			return GitError.NoRemote();
 		return exclusive(async () => {
 			const capturedAt = ++clock;
 			const { data: incoming, error: pinError } = await pinIncoming();
@@ -1062,7 +1075,7 @@ export function createHistory({
 			readonly pinned?: (commits: SyncCommits, capturedAt: number) => void;
 		};
 	} = {}): Promise<Result<MergeOutcome, MergeError | PullError | GitError>> {
-		const remote = backend.remote;
+		const remote = await backend.refreshRemote();
 		if (remote === undefined) return GitError.NoRemote();
 		return exclusive(
 			async (): Promise<
@@ -1523,11 +1536,14 @@ export function createHistory({
 	 * Checkpoint saved files, fetch, and merge with sync's rules. Held units
 	 * and nothing else return a new current attempt; any other conflict is
 	 * `Unreviewable`. Anything merged is published and pushed. Starting a run
-	 * retires the previous attempt.
+	 * retires the previous attempt. Histories that share no commit merge only
+	 * on this folder's first commit, or with `allowUnrelatedHistories`.
 	 */
-	function runSync(): Promise<Result<SyncOutcome, SyncError>> {
+	function runSync({
+		allowUnrelatedHistories = false,
+	}: SyncOptions = {}): Promise<Result<SyncOutcome, SyncError>> {
 		return syncing<SyncOutcome>(async () => {
-			const remote = backend.remote;
+			const remote = await backend.refreshRemote();
 			if (remote === undefined) return SyncError.NoRemote();
 			const run = ++runs;
 			current = undefined;
@@ -1563,7 +1579,7 @@ export function createHistory({
 					'merge',
 					() =>
 						merge({
-							allowUnrelatedHistories: firstHistory,
+							allowUnrelatedHistories: firstHistory || allowUnrelatedHistories,
 							sync: {
 								mergePath: rules.mergePath,
 								pinned: (pinned) => {
@@ -1586,6 +1602,8 @@ export function createHistory({
 					if (run === runs && !closing.signal.aborted) current = held;
 					return SyncError.NeedsChoices({ attempt: held.attempt });
 				}
+				if (mergeError?.name === 'UnsupportedHistory' && mergeError.bases === 0)
+					return SyncError.Unrelated({ head: mergeError.head });
 				if (mergeError !== null) return SyncError.Merge({ error: mergeError });
 				head =
 					merged.status === 'upToDate' || merged.status === 'ahead'
@@ -1715,7 +1733,7 @@ export function createHistory({
 							? { status: 'stoppedWaiting' }
 							: { status: 'skipped', reason: 'the commit did not complete' },
 				};
-			if (backend.remote === undefined)
+			if ((await backend.refreshRemote()) === undefined)
 				return { commit, push: { status: 'noRemote' } };
 			// The push is this caller's next step, not the commit's. A caller
 			// that stopped waiting starts none; the commit it left still finishes.
@@ -1739,6 +1757,15 @@ export function createHistory({
 			supported: true,
 			run: runSync,
 			resolve: resolveSync,
+			async connect(
+				url: string,
+				options?: SyncOptions,
+			): Promise<Result<SyncOutcome, SyncError>> {
+				if (closing.signal.aborted) return SyncError.Closed();
+				await backend.setRemote(url);
+				emit();
+				return runSync(options);
+			},
 		}),
 		paths: (): Promise<Result<PathStatus[], GitError>> =>
 			guarded('status', () => exclusive(() => backend.pathStatus())),

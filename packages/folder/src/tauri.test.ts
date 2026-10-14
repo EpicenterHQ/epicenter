@@ -151,6 +151,9 @@ async function attached() {
 		kind: 'directory',
 		root: '/Users/someone/Epicenter/notes',
 	});
+	// A handle's first write publishes its declaration first; these tests
+	// are about the writes after it.
+	expectOk(await folder.files.create('first.md', 'first'));
 	calls = [];
 	return folder;
 }
@@ -178,10 +181,9 @@ test('the folder opened is the scope the opener names', async () => {
 		await openFolder({
 			id: 'so.epicenter.taurifoldertest',
 			definition,
-			// Browser settings do not reach the shell: its own remote is in effect.
+			// Browser settings do not reach the shell: its own author is in effect.
 			browser: {
 				author: { name: 'Browser', email: 'browser@example.test' },
-				remote: { url: 'http://git.test/remote.git', branch: 'browser' },
 			},
 		}),
 	);

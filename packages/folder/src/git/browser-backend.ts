@@ -81,6 +81,15 @@ export type BrowserGitStore<TSession extends GitFsSession> = {
 };
 
 /** isomorphic-git's view of private Git state. */
+/**
+ * A backend over a private repository it creates when first needed. A
+ * browser folder creates it with its directory, by `ensureRepository`; any
+ * Git write creates it too. Until then reads find no history.
+ */
+export type StoredGitBackend = GitBackend & {
+	ensureRepository(): Promise<void>;
+};
+
 export const GITDIR = '/git';
 /** isomorphic-git's read-only view of the folder's files. */
 export const WORKDIR = '/files';
@@ -152,7 +161,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	lockName,
 	createLock,
 	branch,
-	remote,
 	httpFetch,
 }: {
 	store: BrowserGitStore<TSession>;
@@ -166,13 +174,12 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	 */
 	createLock?: string;
 	branch: string;
-	remote: GitRemote | undefined;
 	httpFetch?: HttpFetch;
-}): Promise<GitBackend> {
+}): Promise<StoredGitBackend> {
 	const branchKey = `${GITDIR}/refs/heads/${branch}`;
 	const indexKey = `${GITDIR}/index`;
 	const mergeHeadKey = `${GITDIR}/MERGE_HEAD`;
-	const trackingKey = `${GITDIR}/refs/remotes/${REMOTE_NAME}/${remote?.branch ?? branch}`;
+	const trackingKey = `${GITDIR}/refs/remotes/${REMOTE_NAME}/${branch}`;
 
 	async function withObjects<T>(
 		work: (access: ObjectAccess) => Promise<T>,
@@ -191,12 +198,11 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		if (pending !== undefined) throw new Error(pendingReason(pending));
 	}
 
-	// Create the private repository once. Only creation writes `HEAD`, so a
-	// missing or empty `HEAD` means creation did not finish: `init` stops at
-	// a `config` it already wrote, so `HEAD` is written here. Two handles can
-	// open a new folder at once, so creation runs under `createLock` and asks
-	// again there. Only openers take it, and only when there is no `HEAD`:
-	// Git work never waits for it.
+	// Create the private repository when it is first needed. Only creation
+	// writes `HEAD`, so a missing or empty `HEAD` means creation did not
+	// finish: `init` stops at a `config` it already wrote, so `HEAD` is
+	// written here. Two handles can create it at once, so creation runs under
+	// `createLock` and asks again there, only when there is no `HEAD`.
 	const created = async () => {
 		const head = await store.readPrivate(`${GITDIR}/HEAD`);
 		return head !== undefined && head.byteLength > 0;
@@ -222,27 +228,57 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			});
 		});
 	};
-	if (!(await created()))
-		await (createLock === undefined
-			? create()
-			: locks.request(createLock, {}, create));
-	// The configuration names the remote so isomorphic-git records fetched
-	// and pushed heads as tracking refs.
-	if (remote !== undefined)
-		await withObjects(async ({ fs, gitdir }) => {
-			await git.setConfig({
-				fs,
-				gitdir,
-				path: `remote.${REMOTE_NAME}.url`,
-				value: remote.url,
-			});
-			await git.setConfig({
-				fs,
-				gitdir,
-				path: `remote.${REMOTE_NAME}.fetch`,
-				value: `+refs/heads/*:refs/remotes/${REMOTE_NAME}/*`,
-			});
+	/** The creation this handle is running, whose own writes make the directory. */
+	let creating: Promise<void> | undefined;
+	/** Create the repository if there is none: a write needs one. */
+	async function ensureCreated() {
+		if (await created()) return;
+		creating ??= (
+			createLock === undefined
+				? create()
+				: locks.request(createLock, {}, create)
+		).finally(() => {
+			creating = undefined;
 		});
+		await creating;
+	}
+	/**
+	 * Create the repository with the folder's directory. The directory may be
+	 * made by this handle's own creation, which already holds the lock; that
+	 * creation finishes the repository.
+	 */
+	async function ensureRepository() {
+		if (creating !== undefined) return;
+		await ensureCreated();
+	}
+	/** Whether there is a repository to read. A read never creates one. */
+	const available = created;
+	/**
+	 * Whether a write has a repository to write to, creating it for files a
+	 * directory holds without one (a creation that stopped partway). A folder
+	 * with no files stays as it is.
+	 */
+	async function writable() {
+		if (await created()) return true;
+		const files = await withObjects(({ fs }) =>
+			fs.promises.readdir(WORKDIR).then(
+				(entries: string[]) => entries.length > 0,
+				() => false,
+			),
+		);
+		if (files) await ensureCreated();
+		return files;
+	}
+
+	/** The remote Git configuration names, read without writing. */
+	async function configuredRemote(): Promise<GitRemote | undefined> {
+		if (!(await created())) return undefined;
+		const url: unknown = await withObjects(({ fs, gitdir }) =>
+			git.getConfig({ fs, gitdir, path: `remote.${REMOTE_NAME}.url` }),
+		);
+		return typeof url === 'string' && url !== '' ? { url, branch } : undefined;
+	}
+	let remote = await configuredRemote();
 
 	const exclusive = webLockExclusive(locks, lockName);
 
@@ -251,6 +287,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		next: string,
 	): Promise<CasResult> {
 		await settled();
+		await ensureCreated();
 		return store.casRef(branchKey, expected, next);
 	}
 
@@ -357,9 +394,37 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		return { text: decoder.decode(blob), binary: blob.includes(0) };
 	}
 
-	const backend: GitBackend = {
+	const backend: StoredGitBackend = {
+		ensureRepository,
 		branch,
-		remote,
+		get remote() {
+			return remote;
+		},
+		async refreshRemote() {
+			remote = await configuredRemote();
+			return remote;
+		},
+		async setRemote(url) {
+			await ensureCreated();
+			// The fetch refspec makes isomorphic-git record fetched and pushed
+			// heads as tracking refs.
+			await withObjects(async ({ fs, gitdir }) => {
+				await git.setConfig({
+					fs,
+					gitdir,
+					path: `remote.${REMOTE_NAME}.url`,
+					value: url,
+				});
+				await git.setConfig({
+					fs,
+					gitdir,
+					path: `remote.${REMOTE_NAME}.fetch`,
+					value: `+refs/heads/*:refs/remotes/${REMOTE_NAME}/*`,
+				});
+			});
+			remote = { url, branch };
+			return remote;
+		},
 		withObjects,
 		exclusive,
 		readBranch: () => readRef(branchKey),
@@ -375,6 +440,8 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			} catch (cause) {
 				return `The incoming update record cannot be read: ${cause instanceof Error ? cause.message : String(cause)}`;
 			}
+			// A folder with no repository yet has nothing in progress.
+			if (!(await available())) return undefined;
 			const head = await store.readPrivate(`${GITDIR}/HEAD`);
 			if (head === undefined || !decoder.decode(head).startsWith('ref: '))
 				return 'HEAD is detached';
@@ -402,6 +469,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		},
 		async reconcileIndex(commit) {
 			await settled();
+			await ensureCreated();
 			return withObjects(async (access) => {
 				const mismatched: string[] = [];
 				await git.walk({
@@ -441,6 +509,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		},
 		readIndex: () => store.readPrivate(indexKey),
 		async pathStatus() {
+			if (!(await available())) return [];
 			const rows = await withObjects((access) => matrix(access));
 			const result: PathStatus[] = [];
 			for (const [path, head, workdir, stage] of rows) {
@@ -455,6 +524,8 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		},
 		async stage(paths) {
 			await settled();
+			// A folder with no files has nothing to stage.
+			if (!(await writable())) return;
 			await withObjects(async (access) => {
 				const rows = await matrix(
 					access,
@@ -483,6 +554,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		},
 		async commitIndex(message, author) {
 			await settled();
+			if (!(await writable())) return { status: 'nothing' };
 			const session = store.session();
 			const access: ObjectAccess = {
 				fs: session.fs,
@@ -526,6 +598,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			// copy would sit in this adapter's chunk, and a desktop page running a
 			// shell command would load the browser's Git with it.
 			const { createTwoFilesPatch } = await import('diff');
+			if (!(await available())) return '';
 			return withObjects(async (access) => {
 				const head = await readRef(branchKey);
 				const filepaths = paths.length === 0 ? undefined : [...paths];
@@ -612,6 +685,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		},
 		async push(oid, signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
+			const { url, branch: remoteBranch } = remote;
 			await withObjects(async (access) => {
 				let result: Awaited<ReturnType<typeof git.push>>;
 				try {
@@ -619,10 +693,10 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 						...access,
 						http: abortableHttp(signal, httpFetch),
 						dir: WORKDIR,
-						url: remote.url,
+						url: url,
 						remote: REMOTE_NAME,
 						ref: oid,
-						remoteRef: `refs/heads/${remote.branch}`,
+						remoteRef: `refs/heads/${remoteBranch}`,
 						force: false,
 					});
 				} catch (cause) {
@@ -633,12 +707,12 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 						cause.data.reason === 'not-fast-forward'
 					)
 						throw new Error(
-							`The remote branch '${remote.branch}' cannot be updated by a fast-forward`,
+							`The remote branch '${remoteBranch}' cannot be updated by a fast-forward`,
 							{ cause },
 						);
 					throw cause;
 				}
-				const status = result.refs[`refs/heads/${remote.branch}`];
+				const status = result.refs[`refs/heads/${remoteBranch}`];
 				if (!result.ok || (status && !status.ok))
 					throw new Error(
 						status?.error ?? result.error ?? 'The remote rejected the push',
@@ -647,16 +721,18 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		},
 		async fetch(signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
+			const { url, branch: remoteBranch } = remote;
+			await ensureCreated();
 			return withObjects(async (access) => {
 				try {
 					const result = await git.fetch({
 						...access,
 						http: abortableHttp(signal, httpFetch),
 						dir: WORKDIR,
-						url: remote.url,
+						url: url,
 						remote: REMOTE_NAME,
-						ref: remote.branch,
-						remoteRef: remote.branch,
+						ref: remoteBranch,
+						remoteRef: remoteBranch,
 						singleBranch: true,
 						tags: false,
 					});
@@ -665,7 +741,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 					if (
 						cause instanceof Error &&
 						(cause as { code?: string }).code === 'NotFoundError' &&
-						cause.message.includes(remote.branch)
+						cause.message.includes(remoteBranch)
 					)
 						return undefined;
 					throw cause;
@@ -674,6 +750,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		},
 		async publishIncoming(plan: IncomingPlan) {
 			await settled();
+			await ensureCreated();
 			// Compute index entries for the new head without writing them; the
 			// store publishes them with the files and the branch.
 			const session = store.session();

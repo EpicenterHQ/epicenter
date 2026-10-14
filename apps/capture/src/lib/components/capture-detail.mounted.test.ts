@@ -74,6 +74,11 @@ async function settle(harness: Harness) {
 	flushSync();
 }
 
+/** Wait a few turns for `ready`; the assertion after it says what was expected. */
+async function until(ready: () => boolean) {
+	for (let tries = 0; tries < 50 && !ready(); tries++) await Bun.sleep(1);
+}
+
 test('the capture text and Add a thought are written to the file', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	expect(field('capture-text')?.value).toBe('Text');
@@ -150,6 +155,8 @@ test('a file that is not a valid capture shows its issues as typed, and opens as
 	await settle(harness);
 	expect(await harness.text(PATH)).toBe(fixed);
 	click(button('Open as capture'));
+	// Opening from text first reads the row again, which no query tracks.
+	await until(() => harness.captures.opened?.mode === 'capture');
 	await settle(harness);
 	expect(harness.captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(field('capture-text')?.value).toBe('Repaired');

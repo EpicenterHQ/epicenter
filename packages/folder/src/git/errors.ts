@@ -341,6 +341,15 @@ export const SyncError = defineErrors({
 	}),
 	Closed: () => ({ message: 'The folder is closed' }),
 	NoRemote: () => ({ message: 'No remote is configured for this folder' }),
+	/**
+	 * The remote's history shares no commit with this folder's. Nothing was
+	 * written or sent; run again with `allowUnrelatedHistories` to combine them.
+	 */
+	Unrelated: ({ head }: { head: string }) => ({
+		message:
+			'This folder and the remote have separate histories. Combining them keeps both.',
+		head,
+	}),
 	/** This folder's runtime does not sync yet. Nothing ran. */
 	Unsupported: ({ runtime }: { runtime: string }) => ({
 		message: `Sync is not available for ${runtime} folders yet`,

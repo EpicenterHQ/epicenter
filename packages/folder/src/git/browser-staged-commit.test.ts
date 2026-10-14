@@ -15,6 +15,9 @@ const author = { name: 'Stager', email: 'stager@example.test' };
 test('an empty initial index publishes no commit and changes no stored state', async () => {
 	const raw = await rawBrowserFolder({ id: 'empty-index' });
 	const backend = await raw.backend();
+	// The first Git write creates the repository. Staging the empty folder is
+	// that write here; this test is about the commit after it.
+	await backend.exclusive(() => backend.stage('all'));
 	const before = await raw.dump();
 
 	expect(

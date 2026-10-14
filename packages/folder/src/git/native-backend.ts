@@ -87,14 +87,12 @@ const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 export async function createNativeGitBackend({
 	root,
 	branch,
-	remote,
 	boundary,
 	host,
 	exclusive,
 }: {
 	root: string;
 	branch: string;
-	remote: GitRemote | undefined;
 	boundary: FileBoundary;
 	host: NativeGitHost;
 	/**
@@ -122,11 +120,22 @@ export async function createNativeGitBackend({
 		gitdir,
 	};
 	const branchRef = `refs/heads/${branch}`;
-	const trackingRef = `refs/remotes/${REMOTE_NAME}/${remote?.branch ?? branch}`;
+	const trackingRef = `refs/remotes/${REMOTE_NAME}/${branch}`;
 
 	const isRepository = (await files.lstat(`${gitdir}/HEAD`)) !== undefined;
 	if (!isRepository)
 		await run(['init', '--quiet', `--initial-branch=${branch}`]);
+
+	/** The remote Git configuration names: `remote.origin.url`, on this branch. */
+	async function configuredRemote(): Promise<GitRemote | undefined> {
+		const { code, stdout } = await run(
+			['config', '--get', `remote.${REMOTE_NAME}.url`],
+			{ allowFailure: true },
+		);
+		const url = text(stdout).trim();
+		return code === 0 && url !== '' ? { url, branch } : undefined;
+	}
+	let remote = await configuredRemote();
 
 	// This handle's own work only. Another process is met at Git's lock
 	// files, where a held lock fails the command instead of delaying it.
@@ -211,7 +220,18 @@ export async function createNativeGitBackend({
 
 	const backend: GitBackend = {
 		branch,
-		remote,
+		get remote() {
+			return remote;
+		},
+		async refreshRemote() {
+			remote = await configuredRemote();
+			return remote;
+		},
+		async setRemote(url) {
+			await run(['config', `remote.${REMOTE_NAME}.url`, url]);
+			remote = { url, branch };
+			return remote;
+		},
 		async withObjects(work) {
 			return work(access);
 		},

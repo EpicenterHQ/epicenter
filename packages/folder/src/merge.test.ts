@@ -42,6 +42,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
+	configureRemote,
 	createTestStorage,
 	rawBrowserFolder,
 	type TestStorage,
@@ -55,9 +56,10 @@ import { createHistory } from './git/history.js';
 import { writeCommitObject, writeFilesTree } from './git/objects.js';
 import {
 	createBareRemote,
-	GIT_ENV,
 	git,
+	GIT_ENV,
 	gitHttpFetch,
+	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
 
@@ -645,13 +647,17 @@ describe('the browser journey', () => {
 	});
 
 	async function open(environment: TestStorage): Promise<Opened> {
+		await configureRemote(
+			environment,
+			'so.epicenter.mergetest',
+			'http://git.test/remote.git',
+		);
 		const opened = expectOk(
 			await openBrowserFolder({
 				id: 'so.epicenter.mergetest',
 				definition,
 				browser: {
 					author,
-					remote: { url: 'http://git.test/remote.git', branch: 'main' },
 					...browserStorage(environment),
 				},
 			}),
@@ -728,6 +734,7 @@ test('a directory folder refuses a conflict by default and changes nothing', asy
 	const bare = await createBareRemote(root);
 	const local = join(root, 'local');
 	await mkdir(local);
+	await initWithOrigin(local, bare);
 	const definition = defineFolder({
 		kv: {},
 		tables: {},
@@ -735,10 +742,7 @@ test('a directory folder refuses a conflict by default and changes nothing', asy
 	const directory = await openNativeFolder({
 		root: local,
 		definition,
-		git: {
-			author,
-			remote: { url: bare, branch: 'main' },
-		},
+		git: { author },
 	});
 	try {
 		expectOk(await directory.files.create('a.md', 'base\n'));
@@ -773,10 +777,11 @@ async function directoryWithUpstream() {
 	const bare = await createBareRemote(root);
 	const local = join(root, 'local');
 	await mkdir(local);
+	await initWithOrigin(local, bare);
 	const directory = await openNativeFolder({
 		root: local,
 		definition: defineFolder({ kv: {}, tables: {} }),
-		git: { author, remote: { url: bare, branch: 'main' } },
+		git: { author },
 	});
 	opened.push(directory);
 	expectOk(await directory.files.create('a.md', 'one\ntwo\nthree\n'));

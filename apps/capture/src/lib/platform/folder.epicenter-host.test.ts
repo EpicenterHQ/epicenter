@@ -13,6 +13,9 @@
  * - The page names the Capture scope and is told the directory; departure is
  *   heard on this window only
  * - Closing detaches this page once, and a sibling page keeps saving
+ * - Opening writes nothing; a page's first write publishes `epicenter.json`
+ *   just before it. The scripted shell lets that publication through
+ *   unrecorded, so the tests below count the writes after it
  * - A write sends the whole row as one replacement guarded by the bytes
  *   this page last saved, and keeps undeclared metadata
  * - An edit made elsewhere is a conflict: it is not overwritten, and the
@@ -185,6 +188,12 @@ function own({ cmd, args }: Call): unknown {
 	}
 }
 
+/** An `apply` whose changes all write the folder's declaration. */
+const declares = ({ args }: Call) =>
+	(args.changes as Change[]).every(
+		(change) => change.kind !== 'move' && change.path === DECLARATION,
+	);
+
 /** The departure status the host reports; this file only reads it. */
 const IDLE = { version: 1, generation: 1, phase: 'idle' };
 
@@ -196,6 +205,10 @@ mock.module('@tauri-apps/api/core', () => ({
 		// is refused, and is not part of what these tests record.
 		if (call.cmd === 'grant_directory' && overrides[call.cmd] === undefined)
 			throw { name: 'UsesOwner', scope: args.scope };
+		// A handle's first write publishes its declaration first; these tests
+		// are about the writes after it, so it lands without being recorded,
+		// held, or faulted.
+		if (call.cmd === 'apply' && declares(call)) return own(call);
 		calls.push(call);
 		if (name === DEPARTURE_STATUS_COMMAND) return IDLE;
 		const override = overrides[call.cmd];
@@ -255,6 +268,7 @@ const put = (path: string, source: string | Uint8Array) =>
 const SAVED =
 	'---\ncapturedAt: 2026-10-01T10:30:00+08:00\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n  nested line\n';
 const PATH = 'captures/one.md';
+const DECLARATION = 'epicenter.json';
 /** SAVED as a save writes it: plain YAML frontmatter, the body byte for byte. */
 const FORMATTED = SAVED.replace(
 	'capturedAt: 2026-10-01T10:30:00+08:00\n',
@@ -414,10 +428,13 @@ test('a write sends the whole row as one replacement guarded by the bytes this p
 	const { host, captures } = await opened();
 	const { form } = openOne(captures);
 	calls = [];
+	// Opening wrote nothing; the first write publishes the declaration first.
+	expect(files.has(DECLARATION)).toBe(false);
 
 	form.inputNewThought('second');
 	expect(form.addThought()).toBe(true);
 	await quiet(captures);
+	expect(files.has(DECLARATION)).toBe(true);
 
 	const expected = `${FORMATTED}- second\n`;
 	expect(text(PATH)).toBe(expected);

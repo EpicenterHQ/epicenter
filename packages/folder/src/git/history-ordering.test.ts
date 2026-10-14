@@ -50,11 +50,12 @@ async function setup(
 ) {
 	const raw = await rawBrowserFolder({ id: 'ordering' });
 	const base = raw.boundary;
-	const real = await raw.backend();
+	const real = await raw.backend({
+		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
+	});
 	let pushStarts = 0;
 	const backend: GitBackend = {
 		...real,
-		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
 		async push() {
 			pushStarts++;
 		},
@@ -115,7 +116,7 @@ test('a staged commit that waited while an incoming record was admitted refuses 
 		entered.open();
 		await held.opened;
 		raw.opfs.put(
-			'Epicenter/local/ordering/.git/epicenter-incoming.json',
+			'ordering/.git/epicenter-incoming.json',
 			encoder.encode(
 				JSON.stringify({
 					operationId: 'stopped',

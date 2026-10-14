@@ -21,11 +21,12 @@ import {
 } from './browser.js';
 import {
 	browserStorage,
+	configureRemote,
 	createTestStorage,
 	opfsOf,
 	rawBrowserFolder,
-	type TestStorage,
 	testBrowserStorage,
+	type TestStorage,
 } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
 import { createHistory } from './git/history.js';
@@ -564,13 +565,17 @@ describe('browser folder persistence and history', () => {
 		}) as typeof fetch;
 		try {
 			environment = createTestStorage();
+			await configureRemote(
+				environment,
+				'stall',
+				'http://stall.test/remote.git',
+			);
 			const folder = expectOk(
 				await openFolder({
 					id: 'stall',
 					definition,
 					browser: {
 						author,
-						remote: { url: 'http://stall.test/remote.git', branch: 'main' },
 						...browserStorage(environment),
 					},
 				}),

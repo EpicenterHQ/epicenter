@@ -22,7 +22,6 @@
  * - Closing refuses new work; a save already begun returns its real outcome
  */
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-import { asPrincipalId } from '@epicenter/principal';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	defineFolder,
@@ -32,6 +31,7 @@ import {
 	openFolder,
 } from './browser.js';
 import { hashBytes } from './capture.js';
+import { formatDeclaration } from './declaration.js';
 import {
 	type MemoryOpfs,
 	memoryOpfs,
@@ -51,7 +51,7 @@ const definition = defineFolder({
 const author = { name: 'Browser', email: 'browser@example.test' };
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const ROOT = 'Epicenter/local/test';
+const ROOT = 'test';
 
 let opfs: MemoryOpfs;
 const opened: Folder<typeof definition>[] = [];
@@ -61,24 +61,13 @@ function fresh() {
 }
 fresh();
 
-async function open(
-	options: {
-		id?: string;
-		hints?: boolean;
-		scope?: Parameters<typeof openFolder>[0]['browser'] extends infer B
-			? B extends { scope?: infer S }
-				? S
-				: never
-			: never;
-	} = {},
-) {
+async function open(options: { id?: string; hints?: boolean } = {}) {
 	const folder = expectOk(
 		await openFolder({
 			id: options.id ?? 'test',
 			definition,
 			browser: {
 				author,
-				scope: options.scope,
 				opfs: opfsEnvironment(opfs, {
 					BroadcastChannel: options.hints ? BroadcastChannel : undefined,
 				}),
@@ -109,6 +98,7 @@ describe('one path is one stored file', () => {
 		expect(decoder.decode(stored.get('notes/a.md'))).toBe('# A\n');
 		expect(stored.get('bytes.bin')).toEqual(allBytes);
 		expect(stored.get('empty.txt')).toEqual(new Uint8Array());
+		// The repository comes with the folder's first write.
 		expect(stored.has('.git/HEAD')).toBe(true);
 		expect(opfs.directories(ROOT)).toContain('drafts/later');
 
@@ -221,13 +211,9 @@ describe('one path is one stored file', () => {
 		const blob = expectOk(await folder.files.open('take.webm'));
 		// A raw snapshot of the same file stops reading once it is replaced.
 		const root = await opfs.getDirectory();
-		const handle = await (
-			await (
-				await (
-					await root.getDirectoryHandle('Epicenter')
-				).getDirectoryHandle('local')
-			).getDirectoryHandle('test')
-		).getFileHandle('take.webm');
+		const handle = await (await root.getDirectoryHandle('test')).getFileHandle(
+			'take.webm',
+		);
 		const snapshot = await handle.getFile();
 		expectOk(await folder.files.replace(saved, 'replaced'));
 		expect(new Uint8Array(await blob.arrayBuffer())).toEqual(allBytes);
@@ -448,7 +434,8 @@ describe('outcomes a caller can rely on', () => {
 		] as const) {
 			const folder = await open({ hints: true });
 			const other = await open({ hints: true });
-			// Drain the second opening's cross-context publication hint.
+			// The first write publishes the declaration; drain its hints.
+			expectOk(await folder.files.create('first.md', 'first'));
 			await Bun.sleep(20);
 			const heardHere: string[] = [];
 			const heardThere: string[] = [];
@@ -503,52 +490,52 @@ describe('outcomes a caller can rely on', () => {
 	});
 });
 
-describe('scopes and history', () => {
-	test('channels and owners are separate directories', async () => {
-		const local = await open();
-		const development = await open({ scope: { channel: 'development' } });
-		const account = await open({
-			scope: {
-				channel: 'release',
-				account: {
-					authorityId: 'https://auth.example',
-					principalId: asPrincipalId('p1'),
-				},
-			},
+describe('address and history', () => {
+	test('a folder is the directory its ID names, made by its first write and not by opening', async () => {
+		const folder = await open();
+		expect(folder.location).toEqual({ kind: 'opfs', directory: 'test' });
+		expect(opfs.directories()).toEqual([]);
+		expect(expectOk(await folder.files.list())).toEqual({
+			files: [],
+			directories: [],
 		});
-		expectOk(await local.files.create('who.md', 'local'));
-		expectOk(await development.files.create('who.md', 'development'));
-		expectOk(await account.files.create('who.md', 'account'));
-		expect(development.location).toEqual({
-			kind: 'opfs',
-			directory: 'Epicenter Dev/local/test',
-		});
-		expect(account.location.kind).toBe('opfs');
-		const accountDirectory =
-			account.location.kind === 'opfs' ? account.location.directory : '';
-		expect(accountDirectory).toMatch(
-			/^Epicenter\/accounts\/[0-9a-f]{64}\/test$/,
+		expect(expectOk(await folder.git.status()).changes).toEqual([]);
+		expect(expectOk(await folder.git.log(10))).toEqual([]);
+		expect(await folder.git.commit()).toMatchObject({ status: 'unchanged' });
+		expect(opfs.directories()).toEqual([]);
+
+		expectOk(await folder.files.create('who.md', 'first'));
+		expect(decoder.decode(opfs.files('test').get('who.md'))).toBe('first');
+		// The repository came with the directory; reading it writes nothing.
+		expect(opfs.files('test').has('.git/HEAD')).toBe(true);
+		const stored = () =>
+			[...opfs.files('test')].map(([path, bytes]) => [path, [...bytes]]);
+		const before = stored();
+		expectOk(await folder.git.status());
+		expectOk(await folder.git.paths());
+		expectOk(await folder.git.diff({ staged: false, paths: [] }));
+		expectOk(await folder.git.log(10));
+		expect(stored()).toEqual(before);
+		expect(decoder.decode(opfs.files('test').get('epicenter.json'))).toBe(
+			formatDeclaration(definition),
 		);
-		expect(
-			decoder.decode(opfs.files('Epicenter Dev/local/test').get('who.md')),
-		).toBe('development');
-		expect(decoder.decode(opfs.files(accountDirectory).get('who.md'))).toBe(
-			'account',
-		);
-		expect(decoder.decode(opfs.files(ROOT).get('who.md'))).toBe('local');
+		const other = await open({ id: 'other' });
+		expectOk(await other.files.create('who.md', 'other'));
+		expect(decoder.decode(opfs.files('other').get('who.md'))).toBe('other');
 	});
 
-	test('a folder ID a directory name cannot hold is escaped, not merged', async () => {
-		const slashed = await open({ id: 'a/b' });
-		const literal = await open({ id: 'a%2Fb' });
-		expectOk(await slashed.files.create('x.md', 'slash'));
-		expectOk(await literal.files.create('x.md', 'percent'));
-		expect(
-			decoder.decode(opfs.files('Epicenter/local/a%2Fb').get('x.md')),
-		).toBe('slash');
-		expect(
-			decoder.decode(opfs.files('Epicenter/local/a%252Fb').get('x.md')),
-		).toBe('percent');
+	test('an ID that cannot name one directory is refused, and nothing is opened', async () => {
+		for (const id of ['', ' ', '.', '..', 'a/b', 'a\\b', 'a\u0000b'])
+			expect(
+				expectErr(
+					await openFolder({
+						id,
+						definition,
+						browser: { author, opfs: opfsEnvironment(opfs) },
+					}),
+				).name,
+			).toBe('InvalidId');
+		expect(opfs.directories()).toEqual([]);
 	});
 
 	test('commits and status work over the same files', async () => {

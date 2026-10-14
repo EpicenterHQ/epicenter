@@ -2,7 +2,7 @@
  * Real Git smart HTTP for tests without binding a port: requests are answered
  * by the system `git http-backend` CGI against bare repositories on disk.
  */
-import { mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -109,4 +109,11 @@ export async function gitHttpFetch(projectRoot: string): Promise<typeof fetch> {
 		return new Response(bytes.subarray(split + 4), { status, headers });
 	};
 	return handler as typeof fetch;
+}
+
+/** Make `directory` a repository whose `origin` is `url`, as a person would. */
+export async function initWithOrigin(directory: string, url: string) {
+	await mkdir(directory, { recursive: true });
+	await git(directory, 'init', '--quiet', '--initial-branch=main');
+	await git(directory, 'remote', 'add', 'origin', url);
 }

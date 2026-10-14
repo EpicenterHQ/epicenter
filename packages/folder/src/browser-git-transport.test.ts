@@ -39,26 +39,20 @@ test('a folder routes only its Git requests through the injected transport and k
 			definition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
-				remote: { url: canonical, branch: 'main' },
 				httpFetch,
 				...browserStorage(createTestStorage()),
 			},
 		});
 	const sender = expectOk(await open());
 	const receiver = expectOk(await open());
-	expectOk(
-		await receiver.files.remove(
-			expectOk(await receiver.files.read('epicenter.json')),
-		),
-	);
 	try {
 		expectOk(await sender.kv.set('language', 'Chinese'));
-		expect((await sender.git.commitAndPush()).push.status).toBe('pushed');
+		expect(expectOk(await sender.sync.connect(canonical)).kind).toBe('synced');
 		const remoteHead = await git(bare, 'rev-parse', 'main');
-		expect(expectOk(await receiver.git.fetch()).oid).toBe(remoteHead);
-		expect(expectOk(await receiver.git.mergeIncoming()).status).toBe(
-			'fastForwarded',
-		);
+		expect(expectOk(await receiver.sync.connect(canonical))).toEqual({
+			kind: 'synced',
+			head: remoteHead,
+		});
 		expect(expectOk(await receiver.kv.get())?.values.language).toBe('Chinese');
 		expect(receiver.git.snapshot.remote).toEqual({
 			url: canonical,

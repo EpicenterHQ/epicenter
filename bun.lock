@@ -833,7 +833,6 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/definition": "workspace:*",
-        "@epicenter/principal": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "@tauri-apps/plugin-fs": "catalog:",
         "buffer": "^6.0.3",

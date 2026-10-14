@@ -119,17 +119,17 @@ directory. The shell locks that directory and grants it to the window; the
 page opens it with `@epicenter/folder`'s file storage through Tauri's fs
 plugin and keeps its history with the system `git`, which the shell runs for
 it. `#platform/folder` selects the desktop adapter at build time. Capture and installed apps still reach their folders through the
-shared Rust Folder plugin's owner. `bun dev:todos` starts the browser demo instead,
-with the folder in the browser's origin private file system (OPFS) and a
-loopback Git backend for Local. The browser can instead sign in and open an
-account-scoped OPFS folder paired with a private GitHub repository through the
-hosted API. The desktop build still needs no hosted API for its folder.
+shared Rust Folder plugin's owner. `bun dev:todos` starts the browser build
+instead, with the folder in the browser's origin private file system (OPFS)
+and a loopback Git backend for development. A browser connects its folder to a
+private GitHub repository through the hosted API's connector. The desktop
+build still needs no hosted API for its folder.
 
-A browser folder is one OPFS directory holding its files and `.git`. Opening
-uses only OPFS; it does not read or migrate earlier IndexedDB databases
-([ADR-0497](../docs/adr/0497-browser-folders-use-scoped-opfs-directories.md)).
-Capture, Honeycrisp, Vocab, and Whispering open release Local browser folders.
-Todos offers Local and a captured account scope in its browser build.
+A browser folder is the OPFS directory its ID names, holding its files and
+`.git`. Opening writes nothing; the first write creates it. Its remote is its
+own Git configuration, set by Connect
+([ADR-0532](../docs/adr/0532-a-browser-folder-is-its-id-written-lazily-and-its-remote-is-its-git-configuration.md)).
+Opening uses only OPFS and does not read earlier IndexedDB databases.
 
 Honeycrisp's [README](honeycrisp/README.md) explains its standalone Tauri shell,
 native Markdown folder, and local editing drafts. It needs neither the Epicenter

@@ -43,6 +43,13 @@ export function describeSync(
 					detail: `${error.message}. Nothing was changed.`,
 					tone: 'warning',
 				};
+			case 'Unrelated':
+				return {
+					label: 'The remote has its own history',
+					detail:
+						'Nothing was changed. Combine them to keep both, or choose another remote.',
+					tone: 'warning',
+				};
 			case 'Unreviewable':
 				return {
 					label: 'Sync stopped: changes conflict',

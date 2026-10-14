@@ -37,16 +37,19 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
+	configureRemote,
 	createTestStorage,
 	dumpStorage,
 } from './browser-storage.test-support.js';
 import { defineFolder, type Folder } from './contract.js';
+import { formatDeclaration } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import {
 	createBareRemote,
-	GIT_ENV,
 	git,
+	GIT_ENV,
 	gitHttpFetch,
+	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
 
@@ -123,6 +126,12 @@ async function incoming(kind: 'browser' | 'directory') {
 	await writeFile(join(upstream, 'notes.md'), 'line one\nline two\n');
 	// Lets the folder keep a local, ignored attribute file of its own.
 	await writeFile(join(upstream, '.gitignore'), '.gitattributes\n');
+	// The declaration a folder of this definition publishes before its first
+	// write, so that write leaves the folder clean.
+	await writeFile(
+		join(upstream, 'epicenter.json'),
+		formatDeclaration(definition),
+	);
 	await git(upstream, 'add', '--all');
 	await git(upstream, 'commit', '--quiet', '-m', 'audio');
 	await git(upstream, 'push', '--quiet', 'origin', 'main');
@@ -132,13 +141,17 @@ async function incoming(kind: 'browser' | 'directory') {
 	if (kind === 'browser') {
 		globalThis.fetch = await gitHttpFetch(root);
 		const environment = createTestStorage();
+		await configureRemote(
+			environment,
+			'so.epicenter.incomingtest',
+			'http://git.test/remote.git',
+		);
 		folder = expectOk(
 			await openBrowserFolder({
 				id: 'so.epicenter.incomingtest',
 				definition,
 				browser: {
 					author,
-					remote: { url: 'http://git.test/remote.git', branch: 'main' },
 					...browserStorage(environment),
 				},
 			}),
@@ -157,23 +170,16 @@ async function incoming(kind: 'browser' | 'directory') {
 	} else {
 		const local = join(root, 'local');
 		await mkdir(local);
+		await initWithOrigin(local, bare);
 		folder = await openNativeFolder({
 			root: local,
 			definition,
-			git: {
-				author,
-				remote: { url: bare, branch: 'main' },
-			},
+			git: { author },
 		});
 		untouched = () => dumpDirectory(local);
 	}
 	opened.push(folder);
 	// Seed the initial remote tree before testing later incoming attributes.
-	expectOk(
-		await folder.files.remove(
-			expectOk(await folder.files.read('epicenter.json')),
-		),
-	);
 	expectOk(await folder.git.fetch());
 	expect(expectOk(await folder.git.pullFastForward()).status).toBe(
 		'fastForwarded',
@@ -275,7 +281,8 @@ describe.each([
 		expectOk(
 			await masked.folder.files.create('.gitattributes', '*.wav -filter\n'),
 		);
-		// Ignored by the committed `.gitignore`, so the folder is still clean.
+		// Ignored by the committed `.gitignore`, and the declaration this first
+		// write published matches the committed one, so the folder is still clean.
 		expect(expectOk(await masked.folder.git.status()).changes).toEqual([]);
 		await writeFile(
 			join(masked.upstream, '.gitattributes'),

@@ -10,7 +10,8 @@
  * an absent path. A test decides when a change is applied (`beforeApply`),
  * whether it is refused before it lands (`refuseNext`), and whether its reply
  * is lost after it landed (`loseReplies`): the adapter then sees no reply,
- * which is the owner's answer it reports as unknown. Nothing here is the
+ * which is the owner's answer it reports as unknown. The declaration a
+ * handle publishes before its first write lands outside those controls. Nothing here is the
  * Rust owner; it is a stand-in for its replies, as `desktop.test.ts`
  * scripts them.
  */
@@ -53,6 +54,10 @@ const snapshot = () =>
 		lastMerge: null,
 		closed: false,
 	}) satisfies GitSnapshot;
+
+/** A change that writes the folder's declaration, `epicenter.json`. */
+const declares = (change: WireChange) =>
+	'path' in change && change.path === 'epicenter.json';
 
 const sha256 = (bytes: Uint8Array) =>
 	createHash('sha256').update(bytes).digest('hex');
@@ -191,6 +196,15 @@ export function createScriptedOwner(root = '/scripted/whispering') {
 				}
 			}),
 		async apply({ changes }) {
+			// A handle's first write publishes its declaration first; tests
+			// script the writes after it, so it lands outside every control.
+			if ((changes as WireChange[]).every(declares)) {
+				for (const change of changes as WireChange[]) {
+					apply(change);
+					applied.push(change);
+				}
+				return null;
+			}
 			for (const change of changes as WireChange[]) {
 				await control.beforeApply?.(change);
 				if (control.refuseNext > 0) {

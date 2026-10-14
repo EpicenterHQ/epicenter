@@ -441,13 +441,11 @@ test('saves and history go to the shell’s owner and never to the host', async 
 	expect(readError?.name).toBe('NotFound');
 
 	expect(
-		sent('apply')
-			.map((call) =>
-				(call.args.changes as { path: string }[]).map((change) => change.path),
-			)
-			// Attaching publishes the folder's definition first.
-			.filter((paths) => !paths.includes('epicenter.json')),
-	).toEqual([['recordings/a.wav'], ['notes.md']]);
+		sent('apply').map((call) =>
+			(call.args.changes as { path: string }[]).map((change) => change.path),
+		),
+		// The first write publishes the folder's definition just before it.
+	).toEqual([['epicenter.json'], ['recordings/a.wav'], ['notes.md']]);
 	expect(sent('commit')).toHaveLength(1);
 	// The host was asked who it is, and for its event stream. Nothing else.
 	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
@@ -483,10 +481,12 @@ test('a row write whose reply the shell never sent is unknown, not refused, and 
 		},
 		// The owner writes, and the reply never reaches the page.
 		apply: ({ args }: Call) => {
-			for (const change of args.changes as {
-				path: string;
-				bytes: number[];
-			}[]) {
+			const changes = args.changes as { path: string; bytes: number[] }[];
+			// A handle's first write publishes its declaration first; this test
+			// is about the writes after it.
+			if (changes.every((change) => change.path === 'epicenter.json'))
+				return null;
+			for (const change of changes) {
 				disk.set(change.path, Uint8Array.from(change.bytes));
 				written.push(new TextDecoder().decode(Uint8Array.from(change.bytes)));
 			}

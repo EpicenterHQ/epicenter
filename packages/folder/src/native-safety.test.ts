@@ -44,7 +44,12 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
-import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import {
+	git,
+	GIT_ENV,
+	initWithOrigin,
+	scratch,
+} from './git-http.test-support.js';
 import { createNativeFileBoundary } from './native-store.js';
 
 const definition = defineFolder({
@@ -278,28 +283,22 @@ describe('native pull with a locked index', () => {
 		const root = await scratch('native-pull-lock-');
 		const bare = join(root, 'remote.git');
 		await git(root, 'init', '--quiet', '--bare', '--initial-branch=main', bare);
-		const remote = { url: bare, branch: 'main' };
 		const writerRoot = join(root, 'writer');
 		const readerRoot = join(root, 'reader');
 		for (const path of [writerRoot, readerRoot])
-			await git(root, 'init', '--quiet', '--initial-branch=main', path);
+			await initWithOrigin(path, bare);
 		const writer = await openNativeFolder({
 			root: writerRoot,
 			definition,
-			git: { author, remote },
+			git: { author },
 		});
 		const reader = await openNativeFolder({
 			root: readerRoot,
 			definition,
-			git: { author, remote },
+			git: { author },
 		});
 		await writer.files.create('readme.md', 'A\n');
 		await writer.git.commitAndPush();
-		expectOk(
-			await reader.files.remove(
-				expectOk(await reader.files.read('epicenter.json')),
-			),
-		);
 		await reader.git.fetch();
 		expect((await reader.git.pullFastForward()).data?.status).toBe(
 			'fastForwarded',

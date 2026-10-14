@@ -114,8 +114,6 @@ export type OpfsEnvironment = {
 
 /** The folder's private Git directory. `pathProblem` refuses it as a path. */
 export const PRIVATE_DIRECTORY = '.git';
-/** Inside `.git`: the record naming the address whose folder the directory is. */
-export const READY_MARKER = 'epicenter-folder.json';
 
 /** The name a DOM exception or a thrown error-like object carries. */
 export function errorName(cause: unknown): string | undefined {

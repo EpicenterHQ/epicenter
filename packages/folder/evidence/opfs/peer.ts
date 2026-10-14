@@ -40,7 +40,7 @@ async function handle(request: PeerRequest): Promise<PeerReply> {
 		const { data: opened, error: openError } = await openFolder({
 			id: request.id,
 			definition,
-			browser: { scope: { channel: 'development' } },
+			browser: {},
 		});
 		if (openError !== null) return { ok: false, error: openError.message };
 		folder = opened;

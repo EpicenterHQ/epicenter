@@ -30,7 +30,9 @@ const author = { name: 'History', email: 'history@example.test' };
 async function setup() {
 	const raw = await rawBrowserFolder({ id: 'history' });
 	const boundary = raw.boundary;
-	const real = await raw.backend();
+	const real = await raw.backend({
+		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
+	});
 	const probe = {
 		pushStarts: 0,
 		pushAborts: 0,
@@ -38,7 +40,6 @@ async function setup() {
 	};
 	const backend: GitBackend = {
 		...real,
-		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
 		async blocked() {
 			await probe.hold;
 			return undefined;

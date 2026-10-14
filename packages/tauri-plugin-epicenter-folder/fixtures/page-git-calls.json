@@ -1,18 +1,18 @@
 [
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-IFdVtZ",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR",
 		"args": [
 			"--literal-pathspecs",
 			"add",
 			"--all",
 			"--",
-			"todos/zb74r28zwd.md"
+			"todos/j64q96wtyf.md"
 		],
 		"indexFile": null,
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-IFdVtZ",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR",
 		"args": [
 			"--literal-pathspecs",
 			"diff",
@@ -21,18 +21,18 @@
 			"--no-textconv",
 			"--cached",
 			"--",
-			"todos/zb74r28zwd.md"
+			"todos/j64q96wtyf.md"
 		],
 		"indexFile": null,
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"--literal-pathspecs",
 			"reset",
 			"--quiet",
-			"e3712a17b06eaa4571821977a524d7c15cbf7bea",
+			"59841562396eec2f0686795b83317018666723bd",
 			"--pathspec-from-file=-",
 			"--pathspec-file-nul"
 		],
@@ -40,17 +40,17 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-IFdVtZ",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR",
 		"args": [
 			"-c",
 			"core.splitIndex=false",
 			"write-tree"
 		],
-		"indexFile": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-IFdVtZ/.git/index.tmp-55f4feae-0f78-4740-8e63-11409ecf9721",
+		"indexFile": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR/.git/index.tmp-f1289cf2-4918-48a4-b0c6-0fff6ce4bea1",
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-IFdVtZ",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR",
 		"args": [
 			"add",
 			"--all"
@@ -59,10 +59,10 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-hnL5wE/desktop",
 		"args": [
 			"check-attr",
-			"--source=e3712a17b06eaa4571821977a524d7c15cbf7bea",
+			"--source=b0be8784216d74fc0b59ab879efcf7687986fbb2",
 			"--stdin",
 			"-z",
 			"text",
@@ -76,7 +76,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"check-attr",
 			"--stdin",
@@ -92,7 +92,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"check-ignore",
 			"--no-index",
@@ -103,7 +103,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"config",
 			"--get",
@@ -113,7 +113,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"config",
 			"--get",
@@ -123,7 +123,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"config",
 			"--get",
@@ -133,7 +133,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"config",
 			"--get",
@@ -143,32 +143,42 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
+		"args": [
+			"config",
+			"remote.origin.url",
+			"/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/remote.git"
+		],
+		"indexFile": null,
+		"origin": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/remote.git"
+	},
+	{
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"diff-index",
 			"--cached",
 			"--name-only",
 			"--no-renames",
 			"-z",
-			"4cc3c815c3c7746a20125efe332dcddb17d735ec"
+			"59841562396eec2f0686795b83317018666723bd"
 		],
 		"indexFile": null,
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"fetch",
 			"--no-tags",
 			"--quiet",
-			"/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/remote.git",
+			"/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/remote.git",
 			"+refs/heads/main:refs/remotes/origin/main"
 		],
 		"indexFile": null,
-		"origin": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/remote.git"
+		"origin": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/remote.git"
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"hash-object",
 			"-w",
@@ -180,7 +190,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"hash-object",
 			"-w",
@@ -192,7 +202,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"hash-object",
 			"-w",
@@ -204,7 +214,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-race-PFoobw",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-race-A3495b",
 		"args": [
 			"init",
 			"--quiet",
@@ -214,7 +224,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-IFdVtZ",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR",
 		"args": [
 			"log",
 			"-n5",
@@ -225,7 +235,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"ls-files",
 			"--stage",
@@ -235,30 +245,30 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-hnL5wE/desktop",
 		"args": [
 			"ls-tree",
 			"-r",
 			"-z",
 			"--full-tree",
-			"4cc3c815c3c7746a20125efe332dcddb17d735ec"
+			"aabf549b5c99bfcc06ad19aeba598892563e24cf"
 		],
 		"indexFile": null,
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"push",
 			"--porcelain",
-			"/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/remote.git",
-			"4cc3c815c3c7746a20125efe332dcddb17d735ec:refs/heads/main"
+			"/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/remote.git",
+			"59841562396eec2f0686795b83317018666723bd:refs/heads/main"
 		],
 		"indexFile": null,
-		"origin": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/remote.git"
+		"origin": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/remote.git"
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"rev-parse",
 			"--verify",
@@ -269,7 +279,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"rev-parse",
 			"--verify",
@@ -280,7 +290,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-IFdVtZ",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR",
 		"args": [
 			"status",
 			"--porcelain=v1",
@@ -291,7 +301,7 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"symbolic-ref",
 			"--quiet",
@@ -301,24 +311,24 @@
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"update-ref",
 			"-m",
 			"epicenter: commit",
 			"refs/heads/main",
-			"e3712a17b06eaa4571821977a524d7c15cbf7bea",
-			"4cc3c815c3c7746a20125efe332dcddb17d735ec"
+			"59841562396eec2f0686795b83317018666723bd",
+			"0000000000000000000000000000000000000000"
 		],
 		"indexFile": null,
 		"origin": null
 	},
 	{
-		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-sync-EqS0Yj/desktop",
+		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
 		"args": [
 			"update-ref",
 			"refs/remotes/origin/main",
-			"4cc3c815c3c7746a20125efe332dcddb17d735ec"
+			"59841562396eec2f0686795b83317018666723bd"
 		],
 		"indexFile": null,
 		"origin": null

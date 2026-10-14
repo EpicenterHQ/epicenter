@@ -12,7 +12,8 @@
 //!   attribute name, paths after `--`), so no argument names another
 //!   directory, another program, or another repository;
 //! - pushing and fetching only `origin`, the remote Git's own configuration
-//!   names, which the page cannot write;
+//!   names, which a page may set only to a network URL (`is_network_url`):
+//!   never a local path, so a push cannot write another repository on disk;
 //! - only while the root's `.git` is its own directory, not a link or a
 //!   `gitdir:` file;
 //! - with no hook and no fsmonitor, whatever the repository configures:
@@ -66,6 +67,42 @@ fn is_oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// A remote a page may name: `https://` or `ssh://` with a host, or SSH's
+/// `user@host:path`. Never a local path, `file://`, or a `transport::address`
+/// helper such as `ext::`, which would run a program or write another
+/// repository on this computer.
+fn is_network_url(url: &str) -> bool {
+    if url.is_empty()
+        || url.starts_with('-')
+        || url.contains("::")
+        || url.chars().any(|c| c.is_control() || c.is_whitespace())
+    {
+        return false;
+    }
+    for scheme in ["https://", "ssh://"] {
+        if let Some(rest) = url.strip_prefix(scheme) {
+            let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+            let host = host.rsplit('@').next().unwrap_or("");
+            return !host.is_empty() && !host.starts_with('-');
+        }
+    }
+    // `user@host:path`: Git reads it as SSH only with no slash before the colon.
+    let Some((user, rest)) = url.split_once('@') else {
+        return false;
+    };
+    let Some((host, path)) = rest.split_once(':') else {
+        return false;
+    };
+    let name = |part: &str| {
+        !part.is_empty()
+            && !part.starts_with('-')
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    };
+    name(user) && name(host) && !path.is_empty() && !path.starts_with('-')
+}
+
 /// A branch name as the folder records it: no option, no `..`, no glob or
 /// revision syntax.
 fn is_branch(value: &str) -> bool {
@@ -104,7 +141,8 @@ fn are_paths(values: &[String]) -> bool {
 /// Every option is spelled as the engine spells it and every value is
 /// checked for its kind, so no argument can name another directory, another
 /// program, or another repository. Push and fetch reach only `origin`, the
-/// remote Git's own configuration names, which a page cannot write.
+/// remote Git's own configuration names; a page may set it only to a
+/// network URL.
 pub fn validate(
     root: &Path,
     args: &[String],
@@ -192,6 +230,7 @@ pub fn validate(
         }
         ["ls-tree", "-r", "-z", "--full-tree", commit] => is_oid(commit),
         ["config", "--get", key] => READABLE_CONFIG.contains(key),
+        ["config", "remote.origin.url", url] => is_network_url(url),
         _ => false,
     };
     // The global options belong only to the operations that use them.
@@ -415,6 +454,9 @@ mod tests {
             vec!["hash-object", "-w", "-t", "blob", "--stdin"],
             vec!["ls-tree", "-r", "-z", "--full-tree", OID],
             vec!["config", "--get", "remote.origin.url"],
+            vec!["config", "remote.origin.url", ORIGIN],
+            vec!["config", "remote.origin.url", "ssh://git@github.com/o/r.git"],
+            vec!["config", "remote.origin.url", "git@github.com:o/r.git"],
         ] {
             assert_eq!(validate(root, &args(&allowed), None, Some(ORIGIN)), Ok(()), "{allowed:?}");
         }
@@ -464,6 +506,21 @@ mod tests {
             vec!["add", "--all", "--", "todos/a.md"],
             vec!["config", "--get", "credential.helper"],
             vec!["config", "core.sshCommand", "sh"],
+            // A remote that is a local path, a local file URL, or a program.
+            vec!["config", "remote.origin.url", "/Users/someone/other-repo"],
+            vec!["config", "remote.origin.url", "../other-repo"],
+            vec!["config", "remote.origin.url", "file:///Users/someone/other-repo"],
+            vec!["config", "remote.origin.url", "ext::sh -c touch% /tmp/x"],
+            vec!["config", "remote.origin.url", "https::/x"],
+            vec!["config", "remote.origin.url", "--upload-pack=sh"],
+            vec!["config", "remote.origin.url", "https://"],
+            vec!["config", "remote.origin.url", "https://-oProxyCommand=sh/x"],
+            vec!["config", "remote.origin.url", "ssh://-oProxyCommand=sh/x"],
+            vec!["config", "remote.origin.url", "git@-oProxyCommand=sh:x"],
+            vec!["config", "remote.origin.url", "https://github.com/o/r.git x"],
+            vec!["config", "remote.origin.url", "c:/repo"],
+            vec!["config", "remote.origin.fetch", "+refs/*:refs/*"],
+            vec!["config", "remote.origin.url"],
             vec!["clone", "https://example.test/r.git"],
             vec!["gc"],
             vec!["hash-object", "-w", "-t", "blob", "--literally", "--stdin"],
@@ -508,12 +565,18 @@ mod tests {
         .expect("the recorded calls");
         assert!(calls.len() >= 20, "the fixture records the engine's calls");
         for call in calls {
+            // The tests' remote is a local repository; it stands for the
+            // network remote a person connects to.
+            let args: Vec<String> = match &call.origin {
+                Some(origin) => call.args.iter().map(|arg| arg.replace(origin, ORIGIN)).collect(),
+                None => call.args.clone(),
+            };
             assert_eq!(
                 validate(
                     Path::new(&call.root),
-                    &call.args,
+                    &args,
                     call.index_file.as_deref(),
-                    call.origin.as_deref(),
+                    call.origin.as_ref().map(|_| ORIGIN),
                 ),
                 Ok(()),
                 "{:?}",

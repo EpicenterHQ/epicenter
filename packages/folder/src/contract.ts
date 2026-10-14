@@ -9,12 +9,10 @@
  * This module is inert. Importing it opens nothing and loads no storage, no
  * Git implementation, and no runtime-specific module.
  */
-import type { AccountIdentity } from '@epicenter/principal';
 import type { Result } from 'wellcrafted/result';
 import type { FolderDefinition } from './definition.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
-import type { GitRemote } from './git/backend.js';
 import type { HttpFetch } from './git/http.js';
 import type { Author } from './git/objects.js';
 import type { OpfsEnvironment } from './opfs-store.js';
@@ -108,6 +106,7 @@ export type {
 	SyncChoice,
 	SyncChoices,
 	SyncConflict,
+	SyncOptions,
 	SyncOutcome,
 	SyncSide,
 	SyncVersion,
@@ -145,48 +144,18 @@ export type { FileTable, StoredRow, TableListing } from './table.js';
  */
 export type BrowserFolderOptions = {
 	/**
-	 * Captured storage ownership, independent of login changes after opening.
-	 * Omitted: release Local. Each channel, owner, and folder ID is its own
-	 * origin private file system directory, Web Locks, and hint channel. A
-	 * scoped folder never reads the Local folder of the same ID. This option
-	 * does not change private application SQL.
-	 */
-	readonly scope?: {
-		channel: 'release' | 'development';
-		account?: AccountIdentity;
-	};
-	/**
 	 * Author and committer of the commits this browser records. Defaults to a
-	 * local identity, which is enough for history that stays in the browser. A
-	 * folder with a `remote` needs an explicit author.
+	 * local identity.
 	 */
 	readonly author?: Author;
-	/** The remote branch to push to and fetch from. Requires `author`. */
-	readonly remote?: GitRemote;
 	/**
 	 * Fetch-compatible HTTP transport used for Git fetch and push. An application
-	 * can route the canonical remote through its authenticated relay without
-	 * replacing the page's fetch. Defaults to global fetch and receives the
-	 * operation's abort signal. Authentication belongs to the supplied transport,
-	 * not to the folder or remote configuration.
+	 * can route the remote through its authenticated relay without replacing
+	 * the page's fetch. Defaults to global fetch and receives the operation's
+	 * abort signal. Authentication belongs to the supplied transport, not to
+	 * the folder or its Git configuration.
 	 */
 	readonly httpFetch?: HttpFetch;
-	/**
-	 * Whether opening makes a folder where none exists. Default `true`. With
-	 * `false`, a missing or empty directory is `Absent`, decided under the
-	 * same open lock that would create it, and nothing is created: no
-	 * directory, marker, private Git state, or `epicenter.json`. A folder
-	 * already there opens either way. An account app can then offer an
-	 * explicit download or start instead of creating one at startup.
-	 */
-	readonly createIfMissing?: boolean;
-	/**
-	 * Confirm the branch of an older folder whose ready marker recorded only
-	 * its origin URL. Requires the same URL in `remote`; records that URL and
-	 * branch in the marker before opening. Use only after an explicit choice
-	 * of destination. A folder with a recorded branch cannot be changed here.
-	 */
-	readonly confirmLegacyRemoteBranch?: boolean;
 	/**
 	 * Injected origin private file system, Web Locks, and hint channel; for
 	 * tests. Defaults to the browser globals.
@@ -198,10 +167,9 @@ export type OpenFolderOptions<TDefinition extends FolderDefinition> = {
 	/** How this caller reads the folder's files. It names no folder. */
 	readonly definition: TDefinition;
 	/**
-	 * Which folder to open: its dataset name relative to the owner, such as
-	 * `so.epicenter.todos`. Required, and never a path. A browser names its
-	 * directory after it; the desktop shell maps it to a directory it
-	 * registered.
+	 * Which folder to open, such as `so.epicenter.todos`. Required, and never
+	 * a path. A browser names its directory after it; the desktop shell maps
+	 * it to a directory it registered.
 	 */
 	readonly id: string;
 	readonly browser?: BrowserFolderOptions;

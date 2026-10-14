@@ -63,7 +63,6 @@ async function folder() {
 	const backend = await createNativeGitBackend({
 		root,
 		branch: 'main',
-		remote: undefined,
 		boundary,
 		// Another program acts between the pinned parent and the
 		// compare-and-swap: when the backend writes its private index copy.

@@ -129,7 +129,10 @@ command only in a root granted to the calling window, only while that root's
 `.git` is its own directory (not a link or a `gitdir:` file), and only when
 the arguments are exactly one of the operations the folder engine runs, each
 value checked for its kind. Push and fetch reach only the URL
-`remote.origin.url` names. Every command runs with `core.hooksPath` naming an
+`remote.origin.url` names, and a page may set that only to a network URL
+(`https://`, `ssh://`, or `user@host:path`), never a local path, a `file://`
+URL, or a `transport::address` helper, so a push cannot write another
+repository on the computer. Every command runs with `core.hooksPath` naming an
 empty directory only this crate writes, fsmonitor off, without the inherited
 variables that point Git elsewhere or trace it, and without a terminal
 prompt. `GIT_INDEX_FILE` may name only a private index copy in the root's

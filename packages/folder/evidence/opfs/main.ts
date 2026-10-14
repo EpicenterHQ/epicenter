@@ -3,7 +3,7 @@
  *
  * Every check opens folders through the production browser opener, in this
  * origin's real OPFS, Web Locks, and BroadcastChannel, under fresh disposable
- * `development` scope IDs. A same-origin iframe (`peer.ts`) is a second
+ * IDs, each the directory of that name at the origin's private root. A same-origin iframe (`peer.ts`) is a second
  * browsing context on the same folder. The run removes its OPFS directories
  * when it finishes.
  *
@@ -23,9 +23,9 @@
  * with the browser's own OPFS API, then use only `git.recoverIncoming()` and
  * the folder's public methods. No remote is reached.
  *
- * The identity check writes a stray file into an unmarked directory, and a
- * ready marker naming another address into another, with the browser's own
- * OPFS API, and opens each. The row check reads malformed and
+ * The address check opens a folder and finds nothing written, then writes
+ * once and finds the directory, its repository, and its declaration. A
+ * directory someone else wrote under an ID is that folder. The row check reads malformed and
  * schema-invalid text as `InvalidRow` and repairs it with a guarded
  * `replace`. The stream probes use the browser's own OPFS API on a directory of their
  * own: the lock an open write stream holds, and what a stream for a removed
@@ -55,10 +55,9 @@ const definition = defineFolder({
 	kv: {},
 	tables: { rows: defineTable({ fields: { title: field.string() } }) },
 });
-const scope = { channel: 'development' as const };
 const author = { name: 'Evidence', email: 'evidence@example.test' };
 /** Never reached: merges and pulls are refused before any transfer here. */
-const remote = { url: 'http://127.0.0.1:9/unreachable.git', branch: 'main' };
+const REMOTE_URL = 'http://127.0.0.1:9/unreachable.git';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const used = new Set<string>();
@@ -110,14 +109,22 @@ async function open(
 	} = {},
 ) {
 	used.add(id);
+	// The remote is Git configuration, as Connect leaves it.
+	if (options.remote) {
+		const config = decoder.decode(await rawRead(id, '.git/config'));
+		if (!config.includes('[remote "origin"]'))
+			await rawWrite(
+				id,
+				'.git/config',
+				encoder.encode(
+					`${config}[remote "origin"]\n\turl = ${REMOTE_URL}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`,
+				),
+			);
+	}
 	const { data: folder, error: openError } = await openFolder({
 		id,
 		definition: options.definition ?? definition,
-		browser: {
-			scope,
-			author,
-			remote: options.remote ? remote : undefined,
-		},
+		browser: { author },
 	});
 	if (openError !== null) throw new Error(`open refused: ${openError.message}`);
 	opened.push(folder);
@@ -141,9 +148,7 @@ function randomBytes(size: number) {
 /** The folder's directory, read with the browser's own OPFS API. */
 async function rawDirectory(id: string, create = false) {
 	const origin = await navigator.storage.getDirectory();
-	const channel = await origin.getDirectoryHandle('Epicenter Dev', { create });
-	const local = await channel.getDirectoryHandle('local', { create });
-	return local.getDirectoryHandle(id, { create });
+	return origin.getDirectoryHandle(id, { create });
 }
 
 async function rawParent(id: string, path: string, create = false) {
@@ -177,6 +182,18 @@ async function rawRemove(id: string, path: string) {
 async function rawExists(id: string, path: string) {
 	try {
 		await rawRead(id, path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Whether the folder's directory, or a directory inside it, exists. */
+async function rawDirectoryExists(id: string, path = '') {
+	try {
+		let directory = await rawDirectory(id);
+		for (const part of path.split('/').filter(Boolean))
+			directory = await directory.getDirectoryHandle(part);
 		return true;
 	} catch {
 		return false;
@@ -246,10 +263,7 @@ async function cleanup() {
 	const origin = await navigator.storage.getDirectory();
 	for (const id of used) {
 		try {
-			const local = await (
-				await origin.getDirectoryHandle('Epicenter Dev')
-			).getDirectoryHandle('local');
-			await local.removeEntry(id, { recursive: true });
+			await origin.removeEntry(id, { recursive: true });
 		} catch {
 			// Already gone.
 		}
@@ -284,7 +298,7 @@ async function showLayout(folder: Folder<typeof definition>, id: string) {
 		row.dataset.path = path;
 		for (const text of [
 			path,
-			`Epicenter Dev/local/${id}/${path}`,
+			`${id}/${path}`,
 			String(size),
 			viaFolder.slice(0, 16),
 			stored.slice(0, 16),
@@ -302,7 +316,7 @@ async function showLayout(folder: Folder<typeof definition>, id: string) {
 	element('layout-caption').textContent =
 		`${listing.files.length} files and ${listing.directories.length} directories ` +
 		`(${listing.directories.join(', ')}). Private Git state: ` +
-		`Epicenter Dev/local/${id}/.git holds ${git} files and is never listed. ` +
+		`${id}/.git holds ${git} files and is never listed. ` +
 		`${mismatches} mismatches.`;
 	return mismatches;
 }
@@ -312,12 +326,20 @@ const allBytes = Uint8Array.from({ length: 256 }, (_, index) => index);
 /** Publication uses real OPFS; history-enabled acquisition is a separate case. */
 async function publication(id: string) {
 	await check(
-		'opening publishes the prepared definition before returning, without manual-mode history',
+		'opening writes nothing; the first write publishes the definition, without manual-mode history',
 		async () => {
 			const folder = await open(id);
+			assert(!(await rawDirectoryExists(id)), 'opening made the directory');
+			ok(
+				await folder.files.create('rows/first.md', '---\ntitle: First\n---\n'),
+			);
 			const expected = formatDeclaration(definition);
 			const stored = decoder.decode(await rawRead(id, DECLARATION_PATH));
 			assert(stored === expected, `stored ${stored}`);
+			assert(
+				await rawExists(id, '.git/HEAD'),
+				'the repository did not come with it',
+			);
 			assert(
 				ok(await folder.git.log(10)).length === 0,
 				'manual mode committed',
@@ -326,7 +348,7 @@ async function publication(id: string) {
 		},
 	);
 	await check(
-		'reopening replaces a manual description and changed declarations leave row bytes intact',
+		"each handle's first write replaces a manual description, and changed declarations leave row bytes intact",
 		async () => {
 			const folder = await open(id);
 			ok(
@@ -346,15 +368,27 @@ async function publication(id: string) {
 			const reopened = await open(id);
 			assert(
 				decoder.decode(await rawRead(id, DECLARATION_PATH)) ===
+					'manual malformed description',
+				'reopening wrote',
+			);
+			ok(
+				await reopened.files.create(
+					'rows/second.md',
+					'---\ntitle: Second\n---\n',
+				),
+			);
+			assert(
+				decoder.decode(await rawRead(id, DECLARATION_PATH)) ===
 					formatDeclaration(definition),
-				'manual description stayed',
+				'manual description stayed after a write',
 			);
 			await reopened.close();
 			const changed = defineFolder({
 				...definition,
 				title: 'Changed publication',
 			});
-			await open(id, { definition: changed });
+			const third = await open(id, { definition: changed });
+			ok(await third.files.create('rows/third.md', '---\ntitle: Third\n---\n'));
 			assert(
 				decoder.decode(await rawRead(id, DECLARATION_PATH)) ===
 					formatDeclaration(changed),
@@ -364,33 +398,35 @@ async function publication(id: string) {
 				sameBytes(await rawRead(id, 'rows/kept.md'), before),
 				'row bytes changed',
 			);
-			return 'manual description replaced; changed title published; saved Markdown unchanged';
+			return 'opening wrote nothing; the next write replaced the manual description; changed title published; saved Markdown unchanged';
 		},
 	);
 	await check(
-		'publication makes no commit, and identical reopening leaves nothing to commit',
+		'publication makes no commit, and the same declaration written again leaves nothing to commit',
 		async () => {
 			const historyId = `${id}-history`;
 			const first = await open(historyId);
-			assert(ok(await first.git.log(10)).length === 0, 'opening made a commit');
+			ok(await first.files.create('rows/a.md', '---\ntitle: A\n---\n'));
+			assert(ok(await first.git.log(10)).length === 0, 'writing made a commit');
 			const made = await first.git.commit();
 			assert(made.status === 'committed', `first commit ${made.status}`);
 			const commits = ok(await first.git.log(10));
 			assert(commits.length === 1, `initial commits ${commits.length}`);
 			await first.close();
 			const second = await open(historyId);
+			ok(await second.files.overwrite('rows/a.md', '---\ntitle: A\n---\n'));
 			const reopened = await second.git.commit();
 			assert(reopened.status === 'unchanged', `reopening ${reopened.status}`);
 			const after = ok(await second.git.log(10));
 			assert(
 				JSON.stringify(after) === JSON.stringify(commits),
-				'identical reopening added history',
+				'the same declaration added history',
 			);
 			assert(
 				ok(await second.git.status()).changes.length === 0,
 				'committed tree is dirty',
 			);
-			return `one commit ${commits[0]?.oid}; unchanged reopening keeps it`;
+			return `one commit ${commits[0]?.oid}; the same bytes again keep it`;
 		},
 	);
 }
@@ -400,8 +436,7 @@ async function filesAndLayout(id: string) {
 	await check('one path is one stored file; .git is private', async () => {
 		const folder = await open(id);
 		assert(
-			folder.location.kind === 'opfs' &&
-				folder.location.directory === `Epicenter Dev/local/${id}`,
+			folder.location.kind === 'opfs' && folder.location.directory === id,
 			`location ${JSON.stringify(folder.location)}`,
 		);
 		ok(await folder.files.create('notes/a.md', '# A\n'));
@@ -868,55 +903,24 @@ async function recovery(id: string) {
 	);
 }
 
-async function identity(id: string) {
-	/** Open `folderId`, expecting a refusal; a folder that opens anyway is closed with the run. */
-	async function refusal(folderId: string) {
-		used.add(folderId);
-		const { data: folder, error } = await openFolder({
-			id: folderId,
-			definition,
-			browser: { scope, author },
-		});
-		if (error === null) opened.push(folder);
-		return error;
-	}
-
+async function address(id: string) {
 	await check(
-		"a directory that is not this folder's is refused and left as it is",
+		'a folder is the directory its ID names, and a directory someone else wrote there is that folder',
 		async () => {
-			const unmarked = `${id}-unmarked`;
-			await rawWrite(unmarked, 'found.txt', encoder.encode('found'));
-			const stray = await refusal(unmarked);
+			const found = `${id}-found`;
+			await rawWrite(found, 'found.txt', encoder.encode('found'));
+			const folder = await open(found);
+			const listed = ok(await folder.files.list()).files.map(
+				(file) => file.path,
+			);
+			assert(listed.join() === 'found.txt', `listed ${listed}`);
 			assert(
-				stray?.name === 'Unavailable',
-				`unmarked: ${stray?.name ?? 'opened'}`,
+				!(await rawDirectoryExists(found, '.git')),
+				'opening wrote a repository beside found.txt',
 			);
-			assert(
-				decoder.decode(await rawRead(unmarked, 'found.txt')) === 'found',
-				'found.txt changed',
-			);
-			assert(
-				!(await rawExists(unmarked, '.git/epicenter-folder.json')),
-				'a marker was written beside found.txt',
-			);
-
-			const marked = `${id}-marked`;
-			const marker = encoder.encode(
-				JSON.stringify({
-					address: JSON.stringify(['release', 'local', null, marked]),
-				}),
-			);
-			await rawWrite(marked, '.git/epicenter-folder.json', marker);
-			const foreign = await refusal(marked);
-			assert(
-				foreign?.name === 'Unavailable',
-				`marked: ${foreign?.name ?? 'opened'}`,
-			);
-			assert(
-				sameBytes(await rawRead(marked, '.git/epicenter-folder.json'), marker),
-				'the other address marker was rewritten',
-			);
-			return `${stray.message}; ${foreign.message}`;
+			const made = await folder.git.commit();
+			assert(made.status === 'committed', `commit ${made.status}`);
+			return `found.txt opened as the folder and committed (${made.status})`;
 		},
 	);
 }
@@ -942,7 +946,7 @@ async function rowRepair(id: string) {
 					untitled.issues[0].field === 'title',
 				`untitled read as ${JSON.stringify(untitled)}`,
 			);
-			const repaired = '---\n"title": "Repaired"\n---\n';
+			const repaired = '---\ntitle: Repaired\n---\n';
 			ok(
 				await folder.tables.rows.replace(broken, {
 					fields: { title: 'Repaired' },
@@ -1154,7 +1158,7 @@ async function main() {
 			await twoContexts(runId);
 			await history(runId);
 			await recovery(runId);
-			await identity(runId);
+			await address(runId);
 			await rowRepair(`${runId}-rows`);
 			await streams(`${runId}-streams`);
 			await closing(runId);

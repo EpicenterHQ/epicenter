@@ -127,7 +127,9 @@ describe.each(['browser', 'directory'])('%s folder observers', (kind) => {
 		);
 
 		// The second listener heard everything the first one threw on.
+		// The first save publishes the declaration before its own file.
 		expect(heard).toEqual([
+			'epicenter.json',
 			'note.txt',
 			'notes/a.md',
 			'notes/a.md',
@@ -189,6 +191,9 @@ describe.each(['browser', 'directory'])('%s folder observers', (kind) => {
 
 	test('a listener stopped, or added, during a dispatch is not called in it', async () => {
 		const folder = await open();
+		// A handle's first write publishes its declaration first, a dispatch of
+		// its own; this test is about the dispatches after it.
+		expectOk(await folder.files.create('first.txt', 'first'));
 		const calls: string[] = [];
 		let stopSecond = () => {};
 		folder.onFilesChanged(() => {
@@ -295,7 +300,8 @@ describe('browser channel', () => {
 
 		expectOk(await folder.files.create('note.txt', 'submitted'));
 		expectOk(await folder.files.create('b.txt', 'b'));
-		expect(heard).toEqual(['note.txt', 'b.txt']);
+		// The first save publishes the declaration before its own file.
+		expect(heard).toEqual(['epicenter.json', 'note.txt', 'b.txt']);
 		expect((await folder.git.commit()).status).toBe('committed');
 		expect(expectOk(await folder.git.status()).changes).toEqual([]);
 		await folder.close();
@@ -361,7 +367,16 @@ test('a cross-tab file hint marks history stale and makes no commit', async () =
 	const reader = await open();
 	const writer = await open();
 	opened.push(reader, writer);
-	// Commit what opening wrote, so the folder starts clean.
+	// A handle's first write publishes its declaration first; this test is
+	// about a write after it. Commit that first write once the reader has
+	// heard it, so the folder starts clean.
+	const seeded = Promise.withResolvers<void>();
+	const stopSeeded = reader.onFilesChanged((paths) => {
+		if (paths.includes('first.txt')) seeded.resolve();
+	});
+	expectOk(await writer.files.create('first.txt', 'first'));
+	await seeded.promise;
+	stopSeeded();
 	expect((await reader.git.commit()).status).toBe('committed');
 	const previousAttempt = reader.git.snapshot.lastCommit;
 	expectOk(await reader.git.status());

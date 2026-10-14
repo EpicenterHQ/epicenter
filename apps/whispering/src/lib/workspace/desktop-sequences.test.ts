@@ -87,7 +87,7 @@ const type = (session: ReturnType<typeof transformationEditor>, body: string) =>
 		row.body = body;
 	});
 
-/** The changes the owner applied to the data; opening publishes `epicenter.json` first. */
+/** The changes the owner applied to the data; the first write publishes `epicenter.json` before it. */
 const changes = () =>
 	owner.applied.filter(
 		(change) => !('path' in change) || change.path !== 'epicenter.json',

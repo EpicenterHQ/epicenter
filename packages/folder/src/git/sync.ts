@@ -128,6 +128,17 @@ export type SyncOutcome =
 			readonly changedSince: boolean;
 	  };
 
+/** How one sync run may merge. */
+export type SyncOptions = {
+	/**
+	 * Merge a remote history that shares no commit with this folder's, over
+	 * an empty base: both roots stay in history, and a path both hold with
+	 * different bytes is a choice. Without it, such a run is `Unrelated` and
+	 * writes nothing. A folder's first commit merges this way on its own.
+	 */
+	readonly allowUnrelatedHistories?: boolean;
+};
+
 /** The commits a merge used; no `base` for a first sync over unrelated history. */
 export type SyncCommits = {
 	readonly base: string | undefined;

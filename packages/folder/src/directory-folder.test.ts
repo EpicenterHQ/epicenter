@@ -187,9 +187,16 @@ function open(
 	const files = recording(root, options.primitives ?? nodeDirectoryPrimitives);
 	const system = createGitRunner(root);
 	const run: typeof system = async (args, runOptions) => {
-		// `push --porcelain <url> …` and `fetch --no-tags --quiet <url> …`.
+		// `push --porcelain <url> …`, `fetch --no-tags --quiet <url> …`, and
+		// the URL `config remote.origin.url <url>` makes the remote.
 		const url =
-			args[0] === 'push' ? args[2] : args[0] === 'fetch' ? args[3] : undefined;
+			args[0] === 'push'
+				? args[2]
+				: args[0] === 'fetch'
+					? args[3]
+					: args[0] === 'config' && args[1] === 'remote.origin.url'
+						? args[2]
+						: undefined;
 		recorded.push({
 			root,
 			args: [...args],
@@ -238,11 +245,14 @@ describe('a folder over an ordinary directory', () => {
 		expect(existsSync(join(root, 'todos'))).toBe(false);
 		expect(expectOk(await folder.tables.todos.list())).toEqual([]);
 		expect(existsSync(join(root, 'todos'))).toBe(false);
-		// A new repository is a whole one before anything is committed.
+		// A new repository is a whole one before anything is committed, and
+		// opening and reading wrote nothing into it.
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		const created = await addTodo(folder, 'Buy milk');
+		// The first write published the declaration before its own file.
 		expect(await git(root, 'status', '--porcelain')).toContain(
 			'epicenter.json',
 		);
-		const created = await addTodo(folder, 'Buy milk');
 		expect(existsSync(join(root, 'todos'))).toBe(true);
 		expect(await readFile(join(root, created.path), 'utf8')).toContain(
 			'title: Buy milk',
@@ -528,6 +538,24 @@ describe('a folder over an ordinary directory', () => {
 		);
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		await git(root, 'fsck', '--strict');
+		await folder.close();
+	});
+
+	test("connects through Git's own configuration: the remote is origin, and the first sync sends the folder", async () => {
+		const project = await scratch('directory-folder-connect-');
+		const bare = await createBareRemote(project);
+		const root = join(project, 'desktop');
+		await git(project, 'init', '--quiet', '--initial-branch=main', root);
+		const folder = expectOk(await open(root));
+		expect(folder.git.snapshot.remote).toBeUndefined();
+		await addTodo(folder, 'Connected');
+		const synced = expectOk(await folder.sync.connect(bare));
+		expect(synced.kind).toBe('synced');
+		expect(await git(root, 'config', '--get', 'remote.origin.url')).toBe(bare);
+		expect(folder.git.snapshot.remote).toEqual({ url: bare, branch: 'main' });
+		expect(await git(bare, 'rev-parse', 'main')).toBe(
+			await git(root, 'rev-parse', 'main'),
+		);
 		await folder.close();
 	});
 });

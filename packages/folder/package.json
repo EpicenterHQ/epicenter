@@ -21,7 +21,6 @@
 	},
 	"dependencies": {
 		"@epicenter/definition": "workspace:*",
-		"@epicenter/principal": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"@tauri-apps/plugin-fs": "catalog:",
 		"buffer": "^6.0.3",

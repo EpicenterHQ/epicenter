@@ -20,7 +20,6 @@ import {
 import type { createHistory } from './git/history.js';
 import { callObserver } from './observer.js';
 import type { OpfsEnvironment } from './opfs-store.js';
-import { publishDefinition } from './publish-definition.js';
 import { withPublication } from './storage.js';
 
 /** One folder's captured address and every name derived from it. */
@@ -112,7 +111,6 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 			hints,
 			release: async () => release(),
 		});
-		await publishDefinition(prepared, folder.files);
 		return Ok(folder);
 	} catch (cause) {
 		release();

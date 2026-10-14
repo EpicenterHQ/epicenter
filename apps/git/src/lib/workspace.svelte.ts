@@ -44,12 +44,10 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		id,
 		definition,
 		browser: {
-			scope: { channel: 'development' },
 			author: {
 				name: `Working copy ${copy.toUpperCase()}`,
 				email: `${copy}@git-lab.localhost`,
 			},
-			...(remote && { remote: { url: remote, branch: 'main' } }),
 		},
 	});
 	if (opened.error !== null) throw new Error(opened.error.message);
@@ -229,18 +227,16 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	});
 	try {
 		await refresh();
+		// A copy that has no remote yet connects to the one it was opened
+		// with: an empty copy takes the remote's history, and one with files
+		// sends them. The desktop owner keeps the remote it was registered with.
 		if (
 			remote &&
-			folder.git.snapshot.files.state === 'observed' &&
-			folder.git.snapshot.files.value.head === undefined &&
-			(await folder.files.list()).data?.files.length === 0
+			folder.sync.supported &&
+			folder.git.snapshot.remote?.url !== remote
 		) {
-			output = '$ Fetch and pull\n';
-			const fetched = await folder.git.fetch();
-			output += outcome(fetched);
-			if (fetched.error === null)
-				output += outcome(await folder.git.pullFastForward());
-			await refresh();
+			output = '$ Connect\n';
+			report(await syncStep(() => folder.sync.connect(remote)));
 		}
 	} catch (error) {
 		stopFiles();

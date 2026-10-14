@@ -19,7 +19,12 @@ import {
 	locationOf,
 	rawBrowserFolder,
 } from './browser-storage.test-support.js';
-import { defineFolder, defineTable, field } from './contract.js';
+import {
+	DECLARATION_PATH,
+	defineFolder,
+	defineTable,
+	field,
+} from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { assembleFolder, createFileHints } from './folder.js';
 import type { GitBackend } from './git/backend.js';
@@ -71,10 +76,11 @@ test('browser helpers still preparing when close starts are refused without writ
 	);
 	expect(folder.git.snapshot.closed).toBe(true);
 	expect(folder.git.snapshot.lastCommit).toBeUndefined();
+	// Nothing landed, so nothing was written: not even the declaration.
 	const reopened = await open();
 	expect(
 		expectOk(await reopened.files.list()).files.map((file) => file.path),
-	).toEqual(['epicenter.json']);
+	).toEqual([]);
 	await reopened.close();
 });
 
@@ -84,8 +90,8 @@ test('a directory helper still hashing at close is refused; the caller must awai
 	const preparing = folder.files.create('refused.md', 'not yet published');
 	await folder.close();
 	expect(expectErr(await preparing).name).toBe('Closed');
-	// Opening wrote the definition; nothing commits it.
-	expect(await git(root, 'status', '--porcelain')).toBe('?? epicenter.json');
+	// Opening wrote nothing, and the refused save wrote nothing either.
+	expect(await git(root, 'status', '--porcelain')).toBe('');
 	const reopened = await openNativeFolder({
 		root,
 		definition,
@@ -108,6 +114,14 @@ async function held() {
 	const boundary: FileBoundary = {
 		...base,
 		async apply(changes) {
+			// The declaration a handle publishes before its first write is not
+			// the save under test.
+			if (
+				changes.every(
+					(change) => 'path' in change && change.path === DECLARATION_PATH,
+				)
+			)
+				return base.apply(changes);
 			const applying = base.apply(changes);
 			reach();
 			await released;
@@ -116,7 +130,9 @@ async function held() {
 			return result;
 		},
 	};
-	const real = await raw.backend();
+	const real = await raw.backend({
+		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
+	});
 	let pushes = 0;
 	const commits = {
 		/** Set to hold the next commit just before it moves the branch. */
@@ -126,7 +142,6 @@ async function held() {
 	};
 	const backend: GitBackend = {
 		...real,
-		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
 		async push() {
 			pushes++;
 		},
@@ -238,13 +253,16 @@ test('a commit running when the folder closes finishes and stays local before st
 	letGo();
 	await closing;
 	expect(order).toEqual(['saved', 'committed', 'released']);
+	// The first commit holds the declaration published before the first
+	// save, and `kv.json`.
 	expect(await committing).toMatchObject({
 		status: 'committed',
-		message: 'Add kv.json',
+		message: 'Update 2 files',
+		changedPaths: 2,
 	});
 	expect(folder.git.snapshot.lastCommit).toMatchObject({
 		status: 'committed',
-		message: 'Add kv.json',
+		message: 'Update 2 files',
 	});
 	// The commit finished during close, so it stayed local.
 	expect(pushes()).toBe(0);

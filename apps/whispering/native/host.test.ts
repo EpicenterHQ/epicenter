@@ -903,9 +903,9 @@ test('a connection’s key is kept out of the versioned folder and out of every 
 		expect(
 			await readFile(join(root, file.path), 'utf8').catch(() => ''),
 		).not.toContain('secret-key');
-	// The folder's published definition is the only change, and holds no key.
+	// Saving a connection writes nothing to the folder, not even its definition.
 	const status = expectOk(await folder.git.status());
-	expect(status?.changes).toEqual([{ kind: 'add', path: 'epicenter.json' }]);
+	expect(status?.changes).toEqual([]);
 	expect(
 		await readFile(
 			join(root, '.git', 'epicenter', 'whispering', 'device.json'),

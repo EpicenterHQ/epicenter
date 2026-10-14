@@ -40,12 +40,7 @@ import {
 	memoryOpfs,
 	opfsEnvironment,
 } from '../opfs.test-support.js';
-import {
-	createOpfsFileBoundary,
-	ensureDirectory,
-	READY_MARKER,
-	writePrivateFile,
-} from '../opfs-store.js';
+import { createOpfsFileBoundary, ensureDirectory } from '../opfs-store.js';
 import { useWebLocks } from '../web-locks.test-support.js';
 import { createStoredGitBackend, GITDIR, WORKDIR } from './browser-backend.js';
 import { createHistory } from './history.js';
@@ -58,13 +53,12 @@ const author = { name: 'Merger', email: 'merger@example.test' };
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const remote = { url: 'http://unused.test/remote.git', branch: 'main' };
-const ROOT = 'Epicenter/local/merge';
+const ROOT = 'merge';
 const RECORD = '.git/epicenter-incoming.json';
 const PIN_NEXT = '.git/refs/epicenter/incoming/next';
 const PIN_EXPECTED = '.git/refs/epicenter/incoming/expected';
-const address = JSON.stringify(['release', 'local', null, 'merge']);
-const FILES_LOCK = `epicenter-folder-opfs-files:${address}`;
-const GIT_LOCK = `epicenter-folder-opfs-git:${address}`;
+const FILES_LOCK = 'epicenter-folder:merge:files';
+const GIT_LOCK = 'epicenter-folder:merge:git';
 const definition = defineFolder({ kv: {}, tables: {} });
 const discovery = formatDeclaration(definition);
 
@@ -81,11 +75,6 @@ async function folderAt(opfs = memoryOpfs()) {
 	const root = expectOk(
 		await ensureDirectory(await environment.getDirectory(), ROOT),
 	);
-	await writePrivateFile(
-		root,
-		READY_MARKER,
-		encoder.encode(JSON.stringify({ address, remote })),
-	);
 	const backend = await createStoredGitBackend({
 		store: createOpfsGitStore({
 			root,
@@ -97,8 +86,8 @@ async function folderAt(opfs = memoryOpfs()) {
 		locks: environment.locks,
 		lockName: GIT_LOCK,
 		branch: 'main',
-		remote,
 	});
+	await backend.setRemote(remote.url);
 	const boundary = createOpfsFileBoundary({
 		root,
 		locks: environment.locks,
@@ -229,7 +218,6 @@ async function reopen(opfs: MemoryOpfs) {
 			definition,
 			browser: {
 				author,
-				remote,
 				opfs: opfsEnvironment(opfs),
 			},
 		}),

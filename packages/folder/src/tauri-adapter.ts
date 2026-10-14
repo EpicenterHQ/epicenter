@@ -106,7 +106,6 @@ import {
 	type RecoverOutcome as WireRecoverOutcome,
 } from './native/bindings.gen.js';
 import { callObserver } from './observer.js';
-import { publishDefinition } from './publish-definition.js';
 
 type Wire<T, E> = { data: T; error: null } | { data: null; error: E };
 
@@ -890,6 +889,7 @@ function createHistory(
 			supported: false,
 			run: async () => SyncError.Unsupported({ runtime: 'desktop' }),
 			resolve: async () => SyncError.Unsupported({ runtime: 'desktop' }),
+			connect: async () => SyncError.Unsupported({ runtime: 'desktop' }),
 		}),
 		// Only because the page asked: the owner reports a pending update on
 		// opening and in status, and never resumes it by itself.
@@ -1193,6 +1193,5 @@ export const openFolder: OpenFolder = async ({ definition, id }) => {
 			await commands.detach(session).catch(() => {});
 		},
 	});
-	await publishDefinition(prepared, folder.files);
 	return Ok(folder);
 };

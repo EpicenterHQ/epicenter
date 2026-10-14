@@ -23,7 +23,12 @@ import { testBrowserStorage } from './browser-storage.test-support.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { gitignoreMatcher } from './git/scope.js';
-import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import {
+	git,
+	GIT_ENV,
+	initWithOrigin,
+	scratch,
+} from './git-http.test-support.js';
 
 const definition = defineFolder({
 	kv: {},
@@ -159,26 +164,20 @@ describe('native folder scope', () => {
 		const writerRoot = join(root, 'writer');
 		const readerRoot = join(root, 'reader');
 		for (const path of [writerRoot, readerRoot])
-			await git(root, 'init', '--quiet', '--initial-branch=main', path);
-		const remote = { url: bare, branch: 'main' };
+			await initWithOrigin(path, bare);
 		const writer = await openNativeFolder({
 			root: writerRoot,
 			definition,
-			git: { author, remote },
+			git: { author },
 		});
 		const reader = await openNativeFolder({
 			root: readerRoot,
 			definition,
-			git: { author, remote },
+			git: { author },
 		});
 
 		await writer.files.create('.gitignore', '*.log\n');
 		expect((await writer.git.commitAndPush()).push.status).toBe('pushed');
-		expectOk(
-			await reader.files.remove(
-				expectOk(await reader.files.read('epicenter.json')),
-			),
-		);
 		await reader.git.fetch();
 		expect((await reader.git.pullFastForward()).data?.status).toBe(
 			'fastForwarded',

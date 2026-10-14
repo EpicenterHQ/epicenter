@@ -235,8 +235,8 @@ test('the first launch creates no files or history, and saving a connection writ
 	expect(await Bun.file(join(root, '.git/refs/heads/main')).exists()).toBe(
 		false,
 	);
-	// The folder publishes its definition beside the data; nothing else is there.
-	expect(git(root, 'status', '--porcelain').trim()).toBe('?? epicenter.json');
+	// Opening writes nothing: not even the definition, which waits for a write.
+	expect(git(root, 'status', '--porcelain').trim()).toBe('');
 	expect(library.connections).toEqual({
 		transcription: undefined,
 		text: undefined,
@@ -260,7 +260,7 @@ test('the first launch creates no files or history, and saving a connection writ
 	});
 	expect(device.stored.transcription?.apiKey).toBe('typed-key');
 	expect(await readdir(root)).not.toContain('kv.json');
-	expect(git(root, 'status', '--porcelain').trim()).toBe('?? epicenter.json');
+	expect(git(root, 'status', '--porcelain').trim()).toBe('');
 });
 
 test('kv.json from an earlier build is offered, never written, and never where a request goes', async () => {

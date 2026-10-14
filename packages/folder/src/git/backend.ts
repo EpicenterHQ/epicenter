@@ -29,6 +29,10 @@ export type PathStatus = {
 	readonly worktree: StatusCode;
 };
 
+/**
+ * The folder's remote: Git configuration's `remote.origin.url`, and the
+ * remote branch, which is always the local branch.
+ */
 export type GitRemote = {
 	readonly url: string;
 	readonly branch: string;
@@ -164,7 +168,18 @@ export type RecoverIncomingResult =
 
 export type GitBackend = {
 	readonly branch: string;
+	/** The remote as this backend last read or set it. */
 	readonly remote: GitRemote | undefined;
+	/**
+	 * Read `remote.origin.url` again, so a remote another page or program set
+	 * is used. Writes nothing; a folder with no repository yet has none.
+	 */
+	refreshRemote(): Promise<GitRemote | undefined>;
+	/**
+	 * Make `url` the folder's remote in Git configuration, creating the
+	 * repository if the folder has none yet. Transfers nothing.
+	 */
+	setRemote(url: string): Promise<GitRemote>;
 	/** Run object work. The browser flushes new objects durably before returning. */
 	withObjects<T>(work: (access: ObjectAccess) => Promise<T>): Promise<T>;
 	/**

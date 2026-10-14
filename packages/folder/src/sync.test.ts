@@ -91,7 +91,6 @@ async function setup() {
 			definition,
 			browser: {
 				author: { name: 'Local', email: 'local@example.test' },
-				remote: { url: 'http://git.test/remote.git', branch: 'main' },
 				httpFetch,
 				...browserStorage(createTestStorage()),
 			},
@@ -101,7 +100,8 @@ async function setup() {
 	expectOk(await local.files.create(TODO, SEED));
 	expectOk(await local.kv.set('theme', 'light'));
 	expectOk(await local.kv.set('size', 1));
-	synced(expectOk(await local.sync.run()));
+	// Connecting a folder with files to an empty remote sends them.
+	synced(expectOk(await local.sync.connect('http://git.test/remote.git')));
 	const peer = join(root, 'peer');
 	await git(root, 'clone', '--quiet', bare, peer);
 	const base = await git(bare, 'rev-parse', 'main');
@@ -530,7 +530,6 @@ test('a folder with no history adopts the remote on its first sync, merging over
 			definition,
 			browser: {
 				author: { name: 'Fresh', email: 'fresh@example.test' },
-				remote: { url: 'http://git.test/remote.git', branch: 'main' },
 				httpFetch: context.httpFetch,
 				...browserStorage(createTestStorage()),
 			},
@@ -539,7 +538,9 @@ test('a folder with no history adopts the remote on its first sync, merging over
 	opened.push(fresh);
 	expectOk(await fresh.files.create('notes.txt', 'Fresh\n'));
 
-	const head = synced(expectOk(await fresh.sync.run()));
+	const head = synced(
+		expectOk(await fresh.sync.connect('http://git.test/remote.git')),
+	);
 	expect(await context.remoteHead()).toBe(head);
 	expect((await context.remoteParents()).length).toBe(3);
 	expect(await text(fresh, TODO)).toBe(SEED);

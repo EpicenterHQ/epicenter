@@ -101,7 +101,9 @@ async function tab(environment: TestStorage, name: string) {
 		entered.open();
 		await hold.opened;
 	}
-	const real = await raw.backend();
+	const real = await raw.backend({
+		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
+	});
 	const probe = {
 		/** Requests to enter the protection, by any operation of this handle. */
 		admissions: 0,
@@ -141,7 +143,6 @@ async function tab(environment: TestStorage, name: string) {
 	};
 	const backend: GitBackend = {
 		...real,
-		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
 		async exclusive(work, signal) {
 			probe.admissions++;
 			const refused = probe.refuseNext;
@@ -609,7 +610,7 @@ test('closing after a Web Lock grant but before its callback refuses Git work wi
 		const callback = gate();
 		locks.request = (name, options, work) =>
 			request(name, options, async (lock) => {
-				if (name.startsWith('epicenter-folder-opfs-git:')) {
+				if (name === 'epicenter-folder:granted-close:git') {
 					granted.open();
 					// The host has granted this lock and ignores a later abort.
 					// Hold before the backend callback starts actual Git work.
@@ -1092,6 +1093,8 @@ test('the subject and count describe the committed tree, not the files on disk',
 	await writeFile(join(root, 'a.md'), 'a');
 	await writeFile(join(root, 'b.md'), 'b');
 	await writeFile(join(root, 'debug.log'), 'ignored');
+	// These files were written outside the handle, so no declaration was
+	// published.
 	const first = await folder.git.commit();
 	const changed = async () =>
 		(
@@ -1105,18 +1108,13 @@ test('the subject and count describe the committed tree, not the files on disk',
 				'HEAD',
 			)
 		).split('\n');
-	expect(await changed()).toEqual([
-		'.gitignore',
-		'a.md',
-		'b.md',
-		'epicenter.json',
-	]);
+	expect(await changed()).toEqual(['.gitignore', 'a.md', 'b.md']);
 	expect(first).toMatchObject({
 		status: 'committed',
-		message: 'Update 4 files',
-		changedPaths: 4,
+		message: 'Update 3 files',
+		changedPaths: 3,
 	});
-	expect(await git(root, 'log', '-1', '--format=%s')).toBe('Update 4 files');
+	expect(await git(root, 'log', '-1', '--format=%s')).toBe('Update 3 files');
 
 	// Four files change on disk; one is ignored and one ends as it began.
 	await writeFile(join(root, 'a.md'), 'a2');

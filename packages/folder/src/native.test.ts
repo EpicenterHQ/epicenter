@@ -10,9 +10,9 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
+	configureRemote,
 	createTestStorage,
 	rawBrowserFolder,
-	testBrowserStorage,
 } from './browser-storage.test-support.js';
 import {
 	type DirectoryFolderOptions,
@@ -373,7 +373,6 @@ describe('native folder', () => {
 		const backend = await createNativeGitBackend({
 			root,
 			branch: 'main',
-			remote: undefined,
 			boundary,
 			host: nodeGitHost(root),
 		});
@@ -437,131 +436,22 @@ describe('native folder', () => {
 });
 
 describe('browser and native exchange through a real bare repository', () => {
-	test('a remote branch preserves local main and exchanges that history', async () => {
-		const root = await scratch('exchange-other-branch-');
-		const bare = await createBareRemote(root);
-		globalThis.fetch = await gitHttpFetch(root);
-		const environment = createTestStorage();
-		const local = expectOk(
-			await openBrowserFolder({
-				id: 'attach-backup',
-				definition,
-				browser: {
-					author,
-					...browserStorage(environment),
-					remote: { url: 'http://git.test/remote.git', branch: 'backup' },
-				},
-			}),
-		);
-		expectOk(await local.files.create('local.txt', 'local'));
-		expect((await local.git.commit()).status).toBe('committed');
-		const first = expectOk(await local.git.log(10))[0]!.oid;
-		await local.close();
-
-		const browser = expectOk(
-			await openBrowserFolder({
-				id: 'attach-backup',
-				definition,
-				browser: {
-					author,
-					...browserStorage(environment),
-					remote: { url: 'http://git.test/remote.git', branch: 'backup' },
-				},
-			}),
-		);
-		try {
-			expect(expectOk(await browser.git.log(10))[0]!.oid).toBe(first);
-			expectOk(await browser.files.create('second.txt', 'second'));
-			expect((await browser.git.commit()).status).toBe('committed');
-			expect((await browser.git.push()).status).toBe('pushed');
-			expect(await git(bare, 'rev-parse', 'backup^')).toBe(first);
-			expect(await git(bare, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
-			const second = await git(bare, 'rev-parse', 'backup');
-			// isomorphic-git 1.38.5 requires a resolvable advertised HEAD,
-			// even when fetching another branch explicitly.
-			expect(expectErr(await browser.git.fetch()).message).toContain(
-				'Could not find HEAD',
-			);
-			expect(expectOk(await browser.git.log(10))[0]!.oid).toBe(second);
-			await git(bare, 'update-ref', 'refs/heads/main', second);
-			expect(expectOk(await browser.git.fetch()).oid).toBe(second);
-
-			const nativeRoot = await scratch('native-other-branch-');
-			await git(root, 'clone', '--quiet', bare, nativeRoot);
-			let native = await openNativeFolder({
-				root: nativeRoot,
-				definition,
-				git: {
-					author,
-					remote: { url: bare, branch: 'backup' },
-				},
-			});
-			try {
-				expect(await git(nativeRoot, 'symbolic-ref', 'HEAD')).toBe(
-					'refs/heads/main',
-				);
-				expect(expectOk(await native.git.fetch()).oid).toBe(second);
-				expect(expectOk(await native.git.pullFastForward()).status).toBe(
-					'upToDate',
-				);
-				expect(
-					await git(nativeRoot, 'rev-parse', 'refs/remotes/origin/backup'),
-				).toBe(second);
-				expect(
-					await git(
-						nativeRoot,
-						'for-each-ref',
-						'--format=%(refname)',
-						'refs/heads',
-					),
-				).toBe('refs/heads/main');
-				await native.close();
-				native = await openNativeFolder({
-					root: nativeRoot,
-					definition,
-					git: { author },
-				});
-				expectOk(await native.files.create('third.txt', 'third'));
-				expect((await native.git.commit()).status).toBe('committed');
-				const third = await git(nativeRoot, 'rev-parse', 'HEAD');
-				await native.close();
-				native = await openNativeFolder({
-					root: nativeRoot,
-					definition,
-					git: {
-						author,
-						remote: { url: bare, branch: 'backup' },
-					},
-				});
-				expect((await native.git.push()).status).toBe('pushed');
-				expect(await git(bare, 'rev-parse', 'backup^')).toBe(second);
-				expect(expectOk(await browser.git.fetch()).oid).toBe(third);
-				expect(expectOk(await browser.git.pullFastForward()).status).toBe(
-					'fastForwarded',
-				);
-			} finally {
-				await native.close();
-			}
-		} finally {
-			await browser.close();
-			globalThis.fetch = originalFetch;
-		}
-	});
-
 	test('browser push, native pull, native push, browser fast-forward', async () => {
 		const root = await scratch('exchange-');
 		const bare = await createBareRemote(root);
 		globalThis.fetch = await gitHttpFetch(root);
-		const browserRemote = { url: 'http://git.test/remote.git', branch: 'main' };
-
 		const environment = createTestStorage();
+		await configureRemote(
+			environment,
+			'exchange',
+			'http://git.test/remote.git',
+		);
 		const browser = expectOk(
 			await openBrowserFolder({
 				id: 'exchange',
 				definition,
 				browser: {
 					author: { name: 'Browser', email: 'browser@example.test' },
-					remote: browserRemote,
 					...browserStorage(environment),
 				},
 			}),
@@ -582,10 +472,8 @@ describe('browser and native exchange through a real bare repository', () => {
 		const native = await openNativeFolder({
 			root: nativeRoot,
 			definition,
-			git: {
-				author: { name: 'Native', email: 'native@example.test' },
-				remote: { url: bare, branch: 'main' },
-			},
+			// The clone's `origin` is the remote.
+			git: { author: { name: 'Native', email: 'native@example.test' } },
 		});
 		expect((await native.git.fetch()).data?.oid).toBe(
 			await git(bare, 'rev-parse', 'main'),
@@ -665,14 +553,19 @@ describe('browser and native exchange through a real bare repository', () => {
 	});
 
 	test('an unreachable remote leaves the local commit and reports the push failure', async () => {
+		const environment = createTestStorage();
+		await configureRemote(
+			environment,
+			'offline',
+			'http://127.0.0.1:9/offline.git',
+		);
 		const browser = expectOk(
 			await openBrowserFolder({
 				id: 'offline',
 				definition,
 				browser: {
 					author,
-					remote: { url: 'http://127.0.0.1:9/offline.git', branch: 'main' },
-					...testBrowserStorage(),
+					...browserStorage(environment),
 				},
 			}),
 		);

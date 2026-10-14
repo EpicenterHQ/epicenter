@@ -20,7 +20,7 @@ import type { Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
 import { createFiles, type FolderFiles } from './files.js';
-import type { GitRemote, PathStatus } from './git/backend.js';
+import type { PathStatus } from './git/backend.js';
 import type { SyncError } from './git/errors.js';
 import type {
 	CommitAndPushResult,
@@ -39,9 +39,15 @@ import type {
 	StagedCommit,
 } from './git/history.js';
 import type { Author, CommitSummary } from './git/objects.js';
-import type { SyncAttempt, SyncChoices, SyncOutcome } from './git/sync.js';
+import type {
+	SyncAttempt,
+	SyncChoices,
+	SyncOptions,
+	SyncOutcome,
+} from './git/sync.js';
 import { createKv, type FileKv } from './kv.js';
 import { callObserver } from './observer.js';
+import { declaring } from './publish-definition.js';
 import { fenceStorage } from './storage.js';
 import { createTable, type FileTable } from './table.js';
 
@@ -49,8 +55,6 @@ import { createTable, type FileTable } from './table.js';
 export type FolderGitOptions = {
 	/** Author and committer for the folder's commits. */
 	readonly author: Author;
-	/** The remote branch to push to and fetch from. */
-	readonly remote?: GitRemote;
 };
 
 export type FolderGit = {
@@ -161,7 +165,7 @@ export type FolderSync = {
 	 * against directory are `Unreviewable`. A run retires the attempt before
 	 * it.
 	 */
-	run(): Promise<Result<SyncOutcome, SyncError>>;
+	run(options?: SyncOptions): Promise<Result<SyncOutcome, SyncError>>;
 	/**
 	 * Settle this folder's current attempt with one choice per conflict,
 	 * without fetching again. The choices are read before this returns.
@@ -174,6 +178,19 @@ export type FolderSync = {
 	resolve(
 		attempt: SyncAttempt,
 		choices: SyncChoices,
+	): Promise<Result<SyncOutcome, SyncError>>;
+	/**
+	 * Make `url` the folder's remote (`remote.origin.url` in its Git
+	 * configuration), then sync. This is how a folder gets a remote, or
+	 * changes it. An empty folder takes the remote's history; a folder with
+	 * files and no history of its own merges them with it; a remote with no
+	 * branch receives this folder's. Separate histories are `Unrelated` until
+	 * `allowUnrelatedHistories` combines them. The remote stays set whatever
+	 * the sync answers, and a later `run` continues.
+	 */
+	connect(
+		url: string,
+		options?: SyncOptions,
 	): Promise<Result<SyncOutcome, SyncError>>;
 };
 
@@ -328,7 +345,10 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 	const controller = new AbortController();
 	let closing: Promise<void> | undefined;
 
-	const storage = fenceStorage(suppliedStorage, controller.signal);
+	const storage = fenceStorage(
+		declaring(suppliedStorage, prepared),
+		controller.signal,
+	);
 	const tables: Record<string, FileTable<unknown>> = {};
 	// A table's key is its name and its directory.
 	// The opener prepared every table, which is what the type's mark records.

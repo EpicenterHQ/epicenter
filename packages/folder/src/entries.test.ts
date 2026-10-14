@@ -98,15 +98,7 @@ test('every entry exports the same contract beside its opener', () => {
 	expect(shared).toContain('FileError');
 	expect(names(root)).toEqual(shared);
 	expect(names(tauri)).toEqual(shared);
-	// The browser entry adds only its download and inspection.
-	expect(names(browser)).toEqual(
-		[
-			...shared,
-			'DownloadFolderError',
-			'downloadFolder',
-			'inspectFolder',
-		].sort(),
-	);
+	expect(names(browser)).toEqual(shared);
 	// The directory entry adds its own tools to the same contract.
 	expect(names(bun)).toEqual(expect.arrayContaining(shared));
 	for (const entry of [root, browser, tauri, bun]) {
@@ -164,9 +156,8 @@ test('the automatic entry decides when it is called: the desktop adapter in the 
 	expect(inBrowser.location).toEqual(locationOf('so.epicenter.entriestest'));
 	await inBrowser.close();
 	expect(invoked).toEqual([]);
-	expect(storage.opfs.directories()).toContain(
-		'Epicenter/local/so.epicenter.entriestest',
-	);
+	// Opening wrote nothing.
+	expect(storage.opfs.directories()).toEqual([]);
 
 	inShell = true;
 	const other = createTestStorage();
@@ -198,42 +189,12 @@ test('the browser entry refuses inside the desktop app even when handed storage'
 		}),
 	);
 	expect(refused.name).toBe('InsideTauri');
-	const download = expectErr(
-		await browser.downloadFolder({
-			id,
-			scope: {
-				channel: 'release',
-				account: {
-					authorityId: 'https://api.epicenter.test',
-					principalId: 'alice' as never,
-				},
-			},
-			remote: { url: 'https://example.test/data.git', branch: 'main' },
-			...browserStorage(storage),
-		}),
-	);
-	expect(download.name).toBe('InsideTauri');
-	const inspected = expectErr(
-		await browser.inspectFolder({ id, ...browserStorage(storage) }),
-	);
-	expect(inspected.name).toBe('InsideTauri');
 	expect(storage.opfs.directories()).toEqual([]);
 	expect(invoked).toEqual([]);
 });
 
-test('a browser folder defaults to a local author and no remote; a remote needs an explicit author', async () => {
+test('a browser folder defaults to a local author and no remote', async () => {
 	const environment = createTestStorage();
-	const withoutAuthor = expectErr(
-		await browser.openFolder({
-			id,
-			definition,
-			browser: {
-				remote: { url: 'http://git.test/remote.git', branch: 'main' },
-				...browserStorage(environment),
-			},
-		}),
-	);
-	expect(withoutAuthor.name).toBe('AuthorRequired');
 	expect(
 		expectErr(await browser.openFolder({ definition, id: ' ' })).name,
 	).toBe('InvalidId');
@@ -277,7 +238,9 @@ test('handles sharing browser storage hear each other, when the storage carries 
 		);
 	const first = await open();
 	const second = await open();
-	// Drain the second opening's cross-context publication hint.
+	// Each handle's first write publishes the declaration; drain those hints.
+	expectOk(await first.files.create('first.md', 'x'));
+	expectOk(await second.files.create('second.md', 'x'));
 	await Bun.sleep(20);
 	const heardByFirst: string[] = [];
 	const heardBySecond: string[] = [];

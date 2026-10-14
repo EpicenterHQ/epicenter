@@ -182,19 +182,13 @@ test('a granted folder opens over its real directory and never attaches', async 
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
 	// The grant comes first; every later call is the folder's Git, for the
-	// granted scope. Nothing attaches to an owner.
+	// granted scope. Opening writes nothing, and nothing attaches to an owner.
 	const commands = () => new Set(calls.map(({ cmd }) => cmd));
 	expect(calls[0]).toEqual({
 		cmd: 'grant_directory',
 		args: { scope: 'so.epicenter.todos' },
 	});
-	expect([...commands()].sort()).toEqual([
-		'grant_directory',
-		'make_folder_directory',
-		'rename_folder_path',
-		'run_git',
-		'write_folder_file',
-	]);
+	expect([...commands()].sort()).toEqual(['grant_directory', 'run_git']);
 	for (const call of calls.slice(1))
 		expect(call.args.scope).toBe('so.epicenter.todos');
 	expect(folder.location).toEqual({ kind: 'directory', root });

@@ -6,7 +6,8 @@
  * its folder through `@epicenter/folder/tauri`, where the shell's own process
  * holds the directory.
  *
- * The root is explicit, and the caller supplies the author and remote. Its
+ * The root is explicit, and the caller supplies the author. The remote is
+ * `remote.origin.url` in the directory's Git configuration. Its
  * files are the live source, edited concurrently by people, agents, and Git.
  * Checks against the observed version are best effort: another program can
  * race them. Multi-file operations are ordered steps that report partial
@@ -35,7 +36,6 @@ import {
 	resolveNativeRoot,
 	verifyNativeLayout,
 } from './native-store.js';
-import { publishDefinition } from './publish-definition.js';
 import { withPublication } from './storage.js';
 
 export * from './contract.js';
@@ -83,7 +83,6 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 		const backend = await createNativeGitBackend({
 			root: resolved,
 			branch: 'main',
-			remote: git.remote,
 			boundary,
 			host: nodeGitHost(resolved),
 		});
@@ -107,7 +106,6 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 			hints,
 			release: async () => {},
 		});
-		await publishDefinition(prepared, folder.files);
 		return Ok(folder);
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });

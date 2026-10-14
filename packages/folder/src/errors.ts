@@ -321,13 +321,10 @@ export const OpenFolderError = defineErrors({
 		message: `This definition cannot be opened as a folder: ${reason}`,
 		reason,
 	}),
+	/** A folder ID names one directory: not empty, `.`, or `..`, with no slash, backslash, or control character. */
 	InvalidId: ({ id }: { id: string }) => ({
-		message: `A folder needs a nonempty id, not '${id}'`,
+		message: `'${id}' cannot name a folder`,
 		id,
-	}),
-	InvalidBrowserScope: ({ reason }: { reason: string }) => ({
-		message: `Invalid browser folder scope: ${reason}`,
-		reason,
 	}),
 	/** The desktop adapter was asked to open outside the desktop shell. */
 	NotTauri: () => ({
@@ -346,11 +343,6 @@ export const OpenFolderError = defineErrors({
 	NoFileSystem: ({ missing }: { missing: string }) => ({
 		message: `Browser folders are stored in the origin private file system, which is not usable here: ${missing}`,
 		missing,
-	}),
-	/** A browser folder with a remote records pushed commits under a named author. */
-	AuthorRequired: () => ({
-		message:
-			'A browser folder with a remote needs an explicit author for the commits it pushes',
 	}),
 	/** The directory an explicit opener was given cannot hold a folder. */
 	InvalidRoot: ({ root, cause }: { root: string; cause: unknown }) => ({
@@ -377,50 +369,10 @@ export const OpenFolderError = defineErrors({
 		message: `Another Epicenter is already using the folder at ${root}. Quit the other Epicenter, then open this one again.`,
 		root,
 	}),
-	/**
-	 * A browser opener told not to create found no folder: the directory is
-	 * missing, or empty apart from what an interrupted first open leaves.
-	 * Nothing was created or written.
-	 */
-	Absent: ({ directory }: { directory: string }) => ({
-		message: `No folder exists at '${directory}'; none was created`,
-		directory,
-	}),
-	/**
-	 * The folder's storage could not be reached or made ready. In a browser
-	 * this includes a directory that is not this folder's: marked for another
-	 * address, with a marker naming none, or holding entries without a marker.
-	 */
+	/** The folder's storage could not be reached or made ready. */
 	Unavailable: ({ cause }: { cause: unknown }) => ({
 		message: `The folder could not be opened: ${describe(cause)}`,
 		cause,
-	}),
-	/**
-	 * A ready browser folder is bound to a different remote, or to none, than
-	 * the one it was opened with. Nothing was written: no file, marker, Git
-	 * configuration, or definition. `stored` is what the folder records
-	 * (`branch` is `undefined` for a folder an earlier version bound by URL
-	 * alone), and `undefined` for a folder with no remote. The URLs are omitted
-	 * from the message: stored configuration may contain credentials.
-	 */
-	RemoteMismatch: ({
-		directory,
-		stored,
-		requested,
-	}: {
-		directory: string;
-		stored: { url: string; branch: string | undefined } | undefined;
-		requested: { url: string; branch: string };
-	}) => ({
-		message:
-			stored === undefined
-				? `The folder at '${directory}' has no remote, and opening it with one would attach that remote to it. It was left unchanged`
-				: stored.url !== requested.url
-					? `The folder at '${directory}' is bound to a different remote repository than the one requested. It was left unchanged`
-					: `The folder at '${directory}' is bound to branch '${stored.branch}', not the requested branch '${requested.branch}'. It was left unchanged`,
-		directory,
-		stored,
-		requested,
 	}),
 	ShuttingDown: () => ({ message: 'The desktop app is shutting down' }),
 	/** This page and the desktop app were built for different folder contracts. */
@@ -431,58 +383,6 @@ export const OpenFolderError = defineErrors({
 	}),
 });
 export type OpenFolderError = InferErrors<typeof OpenFolderError>;
-
-/**
- * Why a browser download did not land. Refusals it shares with opening
- * (`InvalidId`, `InvalidBrowserScope`, `NoFileSystem`, `InsideTauri`) are
- * `OpenFolderError`s and acquire nothing.
- */
-export const DownloadFolderError = defineErrors({
-	/**
-	 * The destination is already a folder, holds anything without a marker,
-	 * or its marker records another download (address, URL, or branch).
-	 * Nothing was written: no marker, file, or Git configuration changed.
-	 * `origin` is its configured `remote.origin.url`, when it has one; it is
-	 * reported, never used to decide ownership. It is omitted from the message:
-	 * existing configuration may contain credentials.
-	 */
-	Exists: ({
-		directory,
-		reason,
-		origin,
-	}: {
-		directory: string;
-		reason: string;
-		origin: string | undefined;
-	}) => ({
-		message: `Nothing was downloaded: '${directory}' ${reason}. It was left unchanged`,
-		directory,
-		reason,
-		origin,
-	}),
-	/**
-	 * The download did not confirm that it finished. Whatever it wrote, Git
-	 * objects, refs, an incoming record, or some files, is kept; nothing is
-	 * rolled back. Usually its marker still records the pending download, the
-	 * opener refuses the directory, and downloading again with the same
-	 * address, URL, and branch continues it. When `cause` says the ready
-	 * marker's write was not confirmed, the folder may already be ready:
-	 * opening with `createIfMissing: false`, or downloading again (`Exists`),
-	 * shows which.
-	 */
-	Incomplete: ({
-		directory,
-		cause,
-	}: {
-		directory: string;
-		cause: unknown;
-	}) => ({
-		message: `The download into '${directory}' did not confirm that it finished, and what it wrote was kept: ${describe(cause)}`,
-		directory,
-		cause,
-	}),
-});
-export type DownloadFolderError = InferErrors<typeof DownloadFolderError>;
 
 /**
  * Internal: a private write whose outcome is unknown, such as a stream that

@@ -38,8 +38,8 @@ declared for the folder (`page_files`) with no dot-named, short-name, or
 copies. Git stores every object (`hash-object -w`). Rust runs `git`
 for the page (`run_git`) only in a granted root whose `.git` is its own
 directory, only as the exact operations the engine uses, pushing and
-fetching only `origin`, with no hook, fsmonitor, terminal prompt, or
-inherited repository variables. Fixtures recorded from the engine's real-Git
+fetching only `origin`, which a page may set only to a network URL, with no
+hook, fsmonitor, terminal prompt, or inherited repository variables. Fixtures recorded from the engine's real-Git
 tests keep both checks and the engine in step.
 
 The page opens a directory folder: the browser's file storage over a

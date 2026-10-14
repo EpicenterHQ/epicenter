@@ -28,7 +28,8 @@ import { setUpFolder } from './platform/first-open.js';
 import type { NotesHost } from './platform/types.js';
 
 const ID = 'so.epicenter.honeycrisp.test';
-const ROOT = `Epicenter/local/${ID}`;
+/** A browser folder lives at the OPFS root under its ID. */
+const ROOT = ID;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: false });
 

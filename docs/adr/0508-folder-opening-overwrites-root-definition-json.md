@@ -1,8 +1,8 @@
-# 0508. Folder opening overwrites root definition.json
+# 0508. A folder handle's first write publishes its declaration
 
 - **Status:** Proposed
 - **Date:** 2026-10-07
-- **Remaining:** a decision and repair for Todos browser remote bootstrap. Real-OPFS run/reload and Honeycrisp browser/native note creation, editing, and reopening passed on 2026-10-08; see [computer-use evidence](../../packages/folder/evidence/definition-publication/computer-use-20261008/README.md). Declaration formatting, all three opener paths, diagnostics, and history regressions are implemented and checked. This ADR remains Proposed.
+- **Revised:** 2026-10-14: publication moved from opening to a handle's first write ([ADR-0532](0532-a-browser-folder-is-its-id-written-lazily-and-its-remote-is-its-git-configuration.md)), which also settles the Todos browser bootstrap this record left open. The real-OPFS harness (`packages/folder/evidence/opfs`) checks the new rule in Chromium. The 2026-10-08 [computer-use evidence](../../packages/folder/evidence/definition-publication/computer-use-20261008/README.md) checked publication at opening.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) renamed the published file to `epicenter.json` (`DECLARATION_PATH`). Where this record says root `definition.json`, read `epicenter.json`; an old `definition.json` is now an ordinary file.
 
 ## Context
@@ -21,17 +21,18 @@ parent. Saving, local history, and remote transfer have separate owners.
 
 ## Decision
 
-**Every successful `openFolder` acquisition attempts to overwrite root
-`definition.json` with its caller's prepared definition before returning.**
-The automatic entry selects its adapter; browser, Bun, and Tauri openers share
-the publication behavior. After assembling the handle, serialize the portable
-definition and await `folder.files.overwrite('definition.json', text)`. Handle
-the result before returning. Do not read or compare the existing file first.
-Do not acquire a retained editor or bypass the ordinary file boundary.
+**A folder handle publishes root `epicenter.json` with its caller's prepared
+definition just before its first write, and never on open.** Every opener,
+browser, Bun, and desktop, assembles the handle the same way: the storage
+under its files, tables, and KV publishes once, through the ordinary file
+boundary, before the first change the handle makes. Reads publish nothing. A
+folder opened and never written to is left exactly as it was, and in a
+browser it does not exist ([ADR-0532](0532-a-browser-folder-is-its-id-written-lazily-and-its-remote-is-its-git-configuration.md)).
+Do not read or compare the existing file first.
 
 ```text
 dataset/
-  definition.json     generated description of the opening caller's schema
+  epicenter.json      generated description of the last writer's schema
   kv.json             saved settings, when present
   <table>/<stem>.md   saved rows
   .git/               local history
@@ -44,27 +45,27 @@ including validation keywords and editor hints. It adds
 no dataset ID or credentials. Use deterministic JSON formatting with two-space
 indentation, declared property order, and a trailing newline; do not add timestamps
 or other opening-dependent values. Opening does
-not read this file to configure the application. A later opener can replace a
-manual edit or another application's description, including a newer version's
-description. The file describes the last successful publication, not every
-possible interpretation of the dataset.
+not read this file to configure the application. A later handle's first write
+can replace a manual edit or another application's description, including a
+newer version's description. The file describes the last successful
+publication, not every possible interpretation of the dataset.
 
 **Publication is best effort and reports failures without refusing an otherwise
 usable folder.** A failed publication is reported through
-`wellcrafted/logger` with `definition.json` as the destination.
+`wellcrafted/logger` with `epicenter.json` as the destination, and the write
+it preceded still runs.
 `formatDeclaration` cannot fail: every prepared field is already JSON
 (ADR-0525), so no constraint is lost in serialization. Report an
 uncertain write as uncertain. Do not roll back a landed save, retry in a loop,
-or claim the previous file is current after a failed attempt. A subsequent
-opening makes a new attempt.
+or claim the previous file is current after a failed attempt. The next handle
+makes a new attempt.
 
 **Definition publication uses the existing automatic-history policy.**
 Do not call `git.commit()` or `commitAndPush()` from the publication step.
-With automatic history enabled, the complete save requests a background
-whole-folder checkpoint; opening waits for file publication, not that checkpoint.
-With automatic history disabled, it requests no commit. Neither case pushes.
-Do not promise a definition-only commit, one commit per opening, or a commit
-before the handle is returned.
+It is an ordinary save: it requests no commit and pushes nothing
+([ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md)),
+and the next version records it with the files written beside it. Do not
+promise a definition-only commit.
 
 ## Consequences
 
@@ -73,30 +74,31 @@ Generic readers can inspect its field schemas and editing hints without the
 original source. Building a generic editor or importing definitions is separate
 work.
 
-Repeated openings pay for serialization and a write, and successful writes emit
-change hints and may request checkpoints even when bytes are identical. Tree
-equality prevents empty commits. A checkpoint can record other uncommitted
-source files; it does not infer the application action that triggered it.
+Each handle that writes pays for one serialization and one write, and its
+first write announces `epicenter.json` with the file the caller wrote. Tree
+equality keeps an identical declaration out of history.
 
-An empty folder opened before downloading an existing remote is no longer a
-clean bootstrap destination. With automatic history disabled, the generated
-file blocks incoming updates as dirty. With automatic history enabled, its
-initial commit creates unrelated local history. The current Todos browser
-startup follows this order and cannot complete its first pull. Repairing that
-startup requires a separate bootstrap operation or an explicit decision about
-combining histories. Publication does not relax Git's incoming protections.
+A folder opened only to read, or to download an existing remote, stays clean:
+an empty folder takes the remote's history as it is, and the remote's own
+`epicenter.json` arrives with it.
 
-Opening is a mutating operation. Concurrent openers and different application
-versions can replace each other's descriptions. A malformed or manually edited
-`definition.json` can also be replaced. Saved rows and settings are not migrated
-by publishing their description. Failed publication leaves discovery missing,
-stale, or uncertain while the application can continue using its declaration.
+Writing is the mutating operation. Concurrent handles and different
+application versions can replace each other's descriptions. A malformed or
+manually edited `epicenter.json` is replaced by the next handle's first write,
+not by opening. Saved rows and settings are not migrated by publishing their
+description. Failed publication leaves discovery missing, stale, or uncertain
+while the application can continue using its declaration.
 
 ## Considered alternatives
 
-- Compare bytes before writing: avoids repeated publication and checkpoint
-  attempts, but adds a read and comparison to every opening. Start with
-  unconditional overwrite; revisit deduplication for demonstrated cost.
+- Publish on every open (this record's first decision): an empty folder opened
+  before a download already held a local change the download refused, and a
+  folder that was only read was still written.
+- Publish with each commit: a folder with saves but no version would not
+  describe itself, and a staged commit would miss it.
+- Compare bytes before writing: avoids repeated publication, but adds a read
+  and comparison to every handle's first write. Start with unconditional
+  overwrite; revisit deduplication for demonstrated cost.
 - Publish a definition-only commit: introduces separate history behavior and
   makes opening depend on Git rather than reusing the save policy.
 - Store the description in hidden metadata or application installation files:

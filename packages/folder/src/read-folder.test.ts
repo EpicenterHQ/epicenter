@@ -256,7 +256,7 @@ test('a hand-written declaration with optional fields reads sparse rows as valid
 	]);
 });
 
-test('an opened folder publishes each table as a standard object schema, and reads it back the same', async () => {
+test('a written folder publishes each table as a standard object schema, and reads it back the same', async () => {
 	const root = await scratch();
 	const sparse = defineFolder({
 		kv: { theme: field.select(['light', 'dark']) },
@@ -276,6 +276,8 @@ test('an opened folder publishes each table as a standard object schema, and rea
 			git: { author: { name: 'T', email: 't@example.test' } },
 		}),
 	);
+	// Opening writes nothing; the first write publishes the declaration.
+	expectOk(await folder.kv.set('theme', 'dark'));
 	await folder.close();
 	const published = JSON.parse(
 		await readFile(join(root, DECLARATION_PATH), 'utf8'),

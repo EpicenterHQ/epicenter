@@ -1,6 +1,7 @@
 # 0497. Browser folders use scoped OPFS directories
 
 - **Status:** Accepted
+- **Superseded by:** [ADR-0532](0532-a-browser-folder-is-its-id-written-lazily-and-its-remote-is-its-git-configuration.md), still Proposed: a browser folder is the directory its ID names, with no channel or owner in its address.
 - **Date:** 2026-10-03
 - **Amended:** 2026-10-04: OPFS opens directly; IndexedDB migration and legacy admission are removed.
 - **Relates:** [ADR-0461](0461-portable-data-folders-live-under-local-and-derived-account-scopes.md) defines authored owners; [ADR-0496](0496-native-app-runtime-storage-is-independent-of-the-shell.md) defines private native runtime ownership; [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) defines transient query sessions.
