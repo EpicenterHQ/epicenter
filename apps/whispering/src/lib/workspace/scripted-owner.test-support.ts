@@ -160,6 +160,10 @@ export function createScriptedOwner(root = '/scripted/whispering') {
 	};
 
 	const replies: Record<string, (args: Call) => unknown> = {
+		// The owner opens this folder, so the shell refuses the page engine's grant.
+		grant_directory: ({ scope }) => {
+			throw { name: 'UsesOwner', scope };
+		},
 		attach: () => ({ session: 1, root, sequence: 0, snapshot: snapshot() }),
 		detach: () => null,
 		list: () => ({

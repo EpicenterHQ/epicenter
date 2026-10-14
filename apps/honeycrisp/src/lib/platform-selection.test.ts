@@ -45,9 +45,9 @@ async function inputs(
 
 const FORBIDDEN =
 	/(^|\/)(@y[+/]|yjs[\/@]|y-prosemirror[\/@]|y-protocols[\/@])|packages\/(auth|sync)\/src\//;
-/** A Node or Bun built-in, or the directory folder that runs on them. */
+/** A Node or Bun built-in, or the directory folder and Git host that run on them. */
 const NODE =
-	/^(node|bun):|folder\/src\/(bun|native-store)\.ts$|git\/native-backend\.ts$/;
+	/^(node|bun):|folder\/src\/(bun|native-store|directory-node)\.ts$|git\/native-host\.ts$/;
 
 describe('bundles', () => {
 	test(
@@ -77,17 +77,17 @@ describe('bundles', () => {
 					/folder\/src\/(index|browser)\.ts$/.test(path),
 				),
 			).toEqual([]);
-			// No second store, and no Git implementation in the page.
+			// No browser folder. The page engine for a granted directory, with
+			// its history, file storage, and isomorphic-git's object code, is a
+			// chunk the desktop adapter loads only when the shell grants a folder;
+			// `packages/folder/evidence/bundles` checks that it stays lazy.
 			expect(
 				modules.filter((path) =>
-					/folder\/src\/(browser-adapter|opfs-store)\.ts$|folder\/src\/git\/(history|browser-backend)\.ts$/.test(
+					/folder\/src\/browser-adapter\.ts$|folder\/src\/git\/browser-backend\.ts$/.test(
 						path,
 					),
 				),
 			).toEqual([]);
-			expect(modules.filter((path) => path.includes('isomorphic-git'))).toEqual(
-				[],
-			);
 		},
 		BUNDLE_TIMEOUT,
 	);

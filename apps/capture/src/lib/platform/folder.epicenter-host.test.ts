@@ -192,6 +192,10 @@ mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
 	async invoke(name: string, args: Record<string, unknown> = {}) {
 		const call = { cmd: name.replace(PLUGIN, ''), args };
+		// The shell's owner opens Capture's folder: the grant that comes first
+		// is refused, and is not part of what these tests record.
+		if (call.cmd === 'grant_directory' && overrides[call.cmd] === undefined)
+			throw { name: 'UsesOwner', scope: args.scope };
 		calls.push(call);
 		if (name === DEPARTURE_STATUS_COMMAND) return IDLE;
 		const override = overrides[call.cmd];

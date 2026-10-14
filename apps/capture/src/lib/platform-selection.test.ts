@@ -53,7 +53,7 @@ const SEAM_ENTRY = 'src/lib/platform-selection.test-support.ts';
 
 describe('#platform/folder', () => {
 	test(
-		'the host build opens through the desktop adapter and carries nothing that stores a folder',
+		'the host build opens through the desktop adapter and carries no browser folder',
 		async () => {
 			const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
 			for (const required of [
@@ -68,9 +68,13 @@ describe('#platform/folder', () => {
 				expect(modules.filter((path) => path.endsWith(required))).toHaveLength(
 					1,
 				);
+			// No browser folder and nothing that runs on Node. The page engine for
+			// a granted directory, with its file storage and Git, is a chunk the
+			// desktop adapter loads only when the shell grants a folder;
+			// `packages/folder/evidence/bundles` checks that it stays lazy.
 			expect(
 				modules.filter((path) =>
-					/platform\/folder\.browser\.ts$|folder\/src\/(browser|browser-adapter|opfs-store|bun|native-store)\.ts$|folder\/src\/git\/(browser|native)-|isomorphic-git|^node:|^bun:/.test(
+					/platform\/folder\.browser\.ts$|folder\/src\/(browser|browser-adapter|bun|native-store|directory-node)\.ts$|folder\/src\/git\/(browser-|native-host)|^node:|^bun:/.test(
 						path,
 					),
 				),

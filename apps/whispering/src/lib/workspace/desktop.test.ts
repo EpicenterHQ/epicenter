@@ -39,6 +39,10 @@ mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
 	async invoke(cmd: string, args: Record<string, unknown> = {}) {
 		const name = cmd.replace('plugin:epicenter-folder|', '');
+		// The shell's owner opens Whispering's folder: the grant that comes
+		// first is refused, and is not part of what these tests record.
+		if (name === 'grant_directory' && replies[name] === undefined)
+			throw { name: 'UsesOwner', scope: args.scope };
 		calls.push({ cmd: name, args });
 		const reply = replies[name];
 		if (reply === undefined) throw new Error(`no scripted reply for ${name}`);
