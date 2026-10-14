@@ -21,7 +21,7 @@ console.log(
 		`  Bare repository: ${session.bare}`,
 		`  Native checkout: ${session.nativeCheckout}`,
 		'',
-		'  After pressing Sync in the Local demo:',
+		'  After connecting to the demo remote and pressing Sync:',
 		`    cd ${session.nativeCheckout} && git pull --ff-only`,
 		`    bun apps/todos/scripts/native.ts ${session.nativeCheckout} status`,
 		'  Then edit, commit, and push natively, and press Sync in the browser.',

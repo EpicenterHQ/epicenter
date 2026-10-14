@@ -12,12 +12,11 @@ There are two builds of the same UI, and the build decides where the folder is:
 | Build | Folder | History |
 | --- | --- | --- |
 | Desktop, inside Epicenter | An ordinary directory on this computer, which the Epicenter host locks and grants to the page. | The system `git` in that directory's `.git`. Syncs with the `origin` you add, using your own Git credentials. |
-| Browser, Local demo | A folder in this browser's origin private file system (OPFS). | Git in the folder's `.git`, in OPFS beside the files, with a loopback remote for the demo. |
-| Browser, your Epicenter account | A folder in OPFS that belongs to the signed-in account. | Git in OPFS, with a private GitHub repository you choose as its remote, reached through Epicenter's GitHub connector. |
+| Browser | A folder in this browser's origin private file system (OPFS), `so.epicenter.todos`. | Git in the folder's `.git`, in OPFS beside the files. Syncs with the private GitHub repository you connect, through Epicenter's GitHub connector, or in development with a loopback demo remote. |
 
-The desktop build uses no hosted API, account, or secrets, and opens its
-folder at once. In a browser, you choose first: the Local demo, which also
-needs no account, or your Epicenter account. Todos is built on
+Both builds open their folder at once, and opening writes nothing: the first
+todo creates the folder. The desktop build uses no hosted API, account, or
+secrets. Todos is built on
 `@epicenter/folder` and TanStack Query, and does not depend on
 `@epicenter/app`. A folder that cannot be opened is shown as that refusal.
 The desktop build never falls back to browser storage.
@@ -199,27 +198,57 @@ Both run the same UI, file storage, history rules, and merge review.
 
 ## In a browser
 
-Before any folder opens, Todos asks where to keep the list: **Local demo** or
-**Your Epicenter account**. Nothing opens, signs in, or transfers until you
-choose. The choice is remembered in this browser, so a reload reopens it. The
-header names the open list (Local demo, or the repository's name); its
-**Change** closes the folder, once its writes land, and asks again.
+Todos opens this browser's folder, `so.epicenter.todos` in the origin private
+file system, at once. Nothing is written until you write: the first todo
+creates the folder, its Git history, and `epicenter.json`. The folder has no
+remote until you connect one, and works without one. Versions are committed as
+`Todos <todos@epicenter.so>`. Another tab of the same origin edits the same
+folder; each tab reads again when you return to it.
 
-### Local demo
+### Connect
 
-The demo is for developing `@epicenter/folder` and the UI without the
-desktop host or an account. The folder and its Git history live in one
-directory of this browser's origin private file system,
-`Epicenter/local/so.epicenter.todos`, and a loopback Git server lets the
-browser push to a bare repository that an ordinary native checkout pulls from
-and pushes to. The browser commits as `Todos <todos@localhost>`. Another tab
-of the same origin edits the same folder; each tab reads again when you
-return to it.
+**Connect** (the header's remote button, or Sync's place while there is no
+remote) chooses where the todos sync:
 
-A demo folder an earlier version made recorded only its remote's URL. Choosing
-the Local demo confirms that remote's branch, `main`, and records it; a demo
-folder kept with another remote is refused, not changed. A folder an earlier
-version of the demo kept in IndexedDB is not read, copied, or deleted.
+1. **Sign in** to Epicenter. Its sign-in returns to `/auth/callback`.
+2. **Show my repositories** lists the private repositories the Epicenter
+   Folder Sync GitHub App reaches for you. If GitHub is not connected,
+   **Connect GitHub** leaves for GitHub and returns to `/sync`, which
+   finishes the connection, returns to the list, and opens Connect again.
+3. **Use this repository** connects the folder to the repository's clone URL,
+   `https://github.com/<owner>/<name>.git`, which the folder keeps in its own
+   Git configuration, and syncs once:
+   - a folder with todos and an empty repository: the todos are sent;
+   - an empty folder: it takes the repository's todos, so a second browser
+     signs in, connects to the same repository, and has the list;
+   - a repository with todos of its own when this folder has a history of its
+     own: Connect says so, changes nothing, and **Combine them** keeps both;
+     where the same todo differs, the review asks.
+
+Listing repositories transfers nothing. Connect again to change the remote.
+In development, **Use the demo remote on this computer** connects to the
+loopback remote `bun dev:todos` starts instead.
+
+Credentials stay out of the folder. Each Git request for a GitHub clone URL is
+rewritten when it is sent to the connector's relay for that repository
+(`<api>/api/git/github/repos/<owner>/<name>.git/...`), through the signed-in
+Account's own `fetch`, which adds the Epicenter session. The connector holds
+the GitHub grant and reaches the repository only with a token GitHub scopes to
+it. A request for any other GitHub URL is refused before it is sent, and only
+`Accept`, `Content-Type`, `Content-Encoding`, and `Git-Protocol` are
+forwarded. A refusal reaches Sync's message in words a person can act on.
+Signed out, Sync says to sign in; the folder stays editable, and signing in
+again is enough.
+
+The connector accepts this origin's `/sync` as GitHub's return only where its
+allow-list names it: `https://todos.epicenter.so/sync`, and, against a
+loopback API, `http://localhost:5186/sync` and `http://127.0.0.1:5186/sync`.
+
+A folder an earlier version kept under `Epicenter/local/` or
+`Epicenter/accounts/` is not opened, moved, or deleted; connect to the
+repository it synced with to get its todos back.
+
+### Developing
 
 From the repository root:
 
@@ -227,94 +256,30 @@ From the repository root:
 bun dev:todos
 ```
 
-This starts the Git backend on `127.0.0.1:5187` and the UI on
-`http://127.0.0.1:5186`, and prints the session: the bare repository, the
-native checkout, and the remote URL. The UI reaches the backend same-origin
-through the Vite proxy at `/git/todos.git`. `bun dev:todos:ui` starts the UI
-alone; Sync then fails and says so, while writes and Save version keep
-working. Set `TODOS_DEMO_ROOT` to a directory printed by an earlier run to
-reopen it.
-
-### Your Epicenter account
-
-Two browsers (or two browser profiles) signed in to the same Epicenter
-account share one Todos list through a private GitHub repository the person
-chooses once. Each browser keeps its own copy in OPFS under
-`Epicenter/accounts/<account key>/so.epicenter.todos`, scoped to the account
-identity (`authorityId`, `principalId`) captured at sign-in, so it is never
-the Local demo's folder or another account's. Versions are committed as
-`Todos <todos@epicenter.so>`.
-
-1. **Sign in.** Epicenter's sign-in returns to `/auth/callback`, then to the
-   start page. Signing in transfers nothing.
-2. **Choose a repository** (once per account). **Show my repositories** lists
-   the private repositories the Epicenter Folder Sync GitHub App reaches for
-   you; if GitHub is not connected, **Connect GitHub** leaves for GitHub and
-   returns to `/sync`, which finishes the connection and returns to the start
-   page. **Use this repository** pairs Todos (`so.epicenter.todos`) with it on
-   its default branch. Listing and pairing transfer nothing. Todos never
-   replaces a pairing; one made elsewhere meanwhile is read and shown instead.
-3. **Download.** A browser that does not have the account's Todos yet offers
-   Download, which fetches the repository's history into this browser before
-   the folder first opens (an empty repository downloads as an empty list).
-   **Stop** keeps what landed; **Download again** continues it.
-4. **Edit and Sync.** A save never commits. Sync records a version, fetches,
-   merges, and pushes, with the same review as the demo.
-
-The second browser signs in, finds the account's pairing, offers Download,
-and opens the history the first one pushed.
-
-What the start page offers for the account's folder, decided from the
-pairing and a read of this browser's folder that writes nothing:
-
-| Pairing | This browser holds | Offered |
-| --- | --- | --- |
-| None | Anything | Choose a repository. A folder already here is described first: choosing does not change it, and Todos opens it afterward only if it is kept with the repository and branch you choose. |
-| Paired | Nothing | Download |
-| Paired | An unfinished download of the same URL and branch | Download again |
-| Paired | A folder kept with the same URL and branch | Opens it |
-| Paired | A folder kept with another URL or branch, with no branch recorded, with no remote, or an unfinished download of another remote | Refused, naming both; nothing is changed |
-
-Opening never creates the account's folder: a folder that vanished between
-the read and the open is read again, not made anew. If GitHub needs
-connecting again (expired, revoked, or a different GitHub account), a folder
-already here can be opened without syncing, and Download waits for **Connect
-GitHub**.
-
-Credentials stay out of the folder. The folder's Git configuration and ready
-marker record the repository's canonical clone URL,
-`https://github.com/<owner>/<name>.git`, and its branch. Each Git request is
-rewritten when it is sent, to the connector's relay for the pairing's pinned
-revision (`<api>/api/git/github/git/so.epicenter.todos/<revision>/...`),
-through the signed-in Account's own `fetch`, which adds the Epicenter session.
-The connector holds the GitHub grant. A request for any other URL is refused
-before it is sent, and only `Accept`, `Content-Type`, `Content-Encoding`, and
-`Git-Protocol` are forwarded. A refusal from the connector reaches Sync's
-message in words a person can act on. If the captured Account is retired
-while the folder is open (signed out, or replaced by another sign-in), the
-folder stays editable and Sync fails, saying to sign in again; nothing moves
-the folder to another account.
-
-The connector accepts this origin's `/sync` as GitHub's return only where its
-allow-list names it: `https://todos.epicenter.so/sync`, and, against a
-loopback API, `http://localhost:5186/sync` and `http://127.0.0.1:5186/sync`.
-`bun dev:todos` serves the UI at `http://127.0.0.1:5186` and starts the local
-API. The account choice needs the API's auth and GitHub connector secrets.
+This starts the loopback Git backend on `127.0.0.1:5187`, the UI on
+`http://127.0.0.1:5186`, and the local API, and prints the session: the bare
+repository, the native checkout, and the remote URL. The UI reaches the
+backend same-origin through the Vite proxy at `/git/todos.git`. `bun
+dev:todos:ui` starts the UI alone; connecting to the demo remote then fails
+and says so, while writes and Save version keep working. Set
+`TODOS_DEMO_ROOT` to a directory printed by an earlier run to reopen it.
+Connecting GitHub needs the API's auth and GitHub connector secrets.
 
 ## Controls
 
-Both builds share these, and run the same engine. Every folder offers Sync
-beside Save version; Sync is off while the folder has no remote. Todos asks
+Both builds share these, and run the same engine. Every folder offers Save
+version, and Sync once it has a remote; until then Connect takes Sync's place. Todos asks
 the folder (`folder.sync.supported`), not the build. The todo list and its editor fill
 the window. The header holds the rest:
 
 | Control | What it does |
 | --- | --- |
 | Folder path (desktop) | The directory the todos are in. Click to copy it. |
-| Where (browser) | Local demo, or the account's repository. Open it for where the todos are kept and where Sync sends them, and **Change**, which closes the folder once its writes land and returns to the start page. |
+| Remote | Where the todos sync: the repository's `owner/name`, the URL, or **Not connected**. Click it to connect, or to change the remote. In a browser Connect lists your GitHub repositories; on the desktop it takes any Git URL your own Git reaches. |
 | Status button | Shows the most important current fact, shortened on narrow screens. Open it for where the folder is, whether every edit is written, the changes since the last version, the last version, and the remote, with the times they were observed, plus "Check again", which reads everything again. |
 | Save version | Records the written files as a version in history (`folder.git.commit()`). Writes still running land first. Nothing is sent. |
-| Sync | Waits for writes still running, records a version, fetches, merges, and pushes (`folder.sync`, ADR-0514). Edits to different fields, or to different lines of the notes, merge on their own; a merged todo is rewritten in the standard form. When both sides changed the same title, done, notes, or a whole todo (one side deleted it, or a version is not a valid todo), the review replaces the workspace and nothing is written until you apply your choices. The review is modal: the workspace and the Git buttons wait until you apply or cancel, and Cancel forgets the attempt and your choices. A choice the folder refuses shows beside its row and keeps the review. Afterwards the list and Git status are read again. Off when the folder has no remote. |
+| Sync | Waits for writes still running, records a version, fetches, merges, and pushes (`folder.sync`, ADR-0514). Edits to different fields, or to different lines of the notes, merge on their own; a merged todo is rewritten in the standard form. When both sides changed the same title, done, notes, or a whole todo (one side deleted it, or a version is not a valid todo), the review replaces the workspace and nothing is written until you apply your choices. The review is modal: the workspace and the Git buttons wait until you apply or cancel, and Cancel forgets the attempt and your choices. A choice the folder refuses shows beside its row and keeps the review. Afterwards the list and Git status are read again. |
+| Connect | Shown instead of Sync while the folder has no remote; opens Connect. |
 | Recover incoming update | Shown only while an incoming update has not finished; see below. Sync and Save version are off until then, and say why. |
 
 The open todo is part of the address, `?todo=<stem>`, so a reload or a
@@ -460,19 +425,19 @@ todo; `todos/a.MD` is an ordinary file.
 | --- | --- |
 | `src/lib/definition.ts` | The inert `defineFolder` declaration, written with the shared `defineTable` and `field` vocabulary. It names no folder. |
 | `src/routes/+layout.svelte` | The tooltip provider and toasts; no app state. |
-| `src/routes/+page.svelte` | Opens the folder and creates its store (`createTodos`), then mounts `TodosView` with it. Inside Epicenter it starts the shared departure client (`@epicenter/epicenter/departure/page`) and opens the folder at once, only once a status is known, attaching `todos.departure` the moment it exists (`openForDeparture`). In a browser it shows the start page (`#platform/start`) until a folder is open, and returns to it on Change. It turns a failed write into a toast with **Copy your text**. |
+| `src/routes/+page.svelte` | Opens the folder and creates its store (`createTodos`), then mounts `TodosView` with it. Inside Epicenter it starts the shared departure client (`@epicenter/epicenter/departure/page`) and opens the folder only once a status is known, attaching `todos.departure` the moment it exists (`openForDeparture`); in a browser it opens at once. It turns a failed write into a toast with **Copy your text**. |
 | `src/routes/sync/+page.svelte` | Where GitHub returns (`/sync?github_code&github_state`); the browser leaf's `GitHubReturn` finishes the connection. |
 | `src/routes/auth/callback/+page.svelte` | Where Epicenter's sign-in returns. |
-| `src/lib/platform/` | The `#platform/departure` seam: the host leaf is the shared Tauri window port (`@epicenter/epicenter/departure/window`); the browser leaf has no port. The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens the Local demo through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: sign-in for the browser, none for the host. The `#platform/start` seam: the browser leaf is the start page and the GitHub return (`src/lib/account/`); the host leaf is `undefined`. Importing any of them opens nothing. |
-| `src/lib/account/` | Browser only, reached through `#platform/start`. `Start.svelte` (the choice), `AccountStart.svelte` (the account's folder), `GitHubReturn.svelte`; `account-folder.ts` (the gate, `decideAccountFolder`, and inspect, download, and open over the account scope); `connector.ts` (the GitHub connector over `Account.fetch`, and `relayFetch`, the Git transport); `github-connect.ts` (the authorization kept across the redirect); `start-choice.ts` (the remembered choice). |
+| `src/lib/platform/` | The `#platform/departure` seam: the host leaf is the shared Tauri window port (`@epicenter/epicenter/departure/window`); the browser leaf has no port. The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens this browser's folder through `@epicenter/folder/browser` with a transport that relays GitHub through the connector, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: sign-in for the browser, none for the host. The `#platform/connect` seam: Connect's picker, the GitHub repositories in a browser (`src/lib/account/`) and a remote URL on the host (`RemoteUrlPicker.svelte`), and the browser's GitHub return. Importing any of them opens nothing. |
+| `src/lib/account/` | Browser only, reached through `#platform/connect`. `GitHubPicker.svelte` (sign in, connect GitHub, choose a repository), `GitHubReturn.svelte`; `github-connect.ts` (the GitHub authorization across the redirect); `connector.ts` (the connector client and `githubRelay`, the Git transport). |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
 | `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry, the quit fence), leaving, and closing. It composes the namespaces below over one `Session`. |
 | `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError` and `DEPARTING`, the `WriteFailure` type, and the `Session` type. |
 | `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), `edit`, the scoped `write(stem)` each view creates its mutation from, `create`, and `remove`. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, Save version, and incoming recovery. |
-| `src/lib/sync.ts` | `todos.sync`: `run` and the review's `apply`. |
+| `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL, and the review's `apply`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
-| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), and the sync review. `TodosView` sets the store and its query client as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
+| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), the sync review, and Connect (`ConnectDialog`). `TodosView` sets the store and its query client as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
 | `server/git-server.ts` | `git http-backend` over a bare repository, plus the native checkout. |
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |
@@ -525,7 +490,16 @@ after the other.
 
 ## Changed promises
 
-This version edits through the query cache (ADR-0528) and records versions
+This version opens its folder lazily, keeps its remote in the folder's Git
+configuration, and connects with **Connect** (ADR-0532). It dropped:
+
+- The browser's start page, the Local demo as a separate place, and
+  **Change**. There is one folder per browser.
+- The account's pairing: a browser's copy is no longer kept apart per
+  account, Download is gone (connecting an empty folder takes the remote's
+  todos), and a remote change no longer needs the server's agreement.
+
+Before that, this version edits through the query cache (ADR-0528) and records versions
 only on request or sync (ADR-0529). It dropped several promises of the
 version before it:
 

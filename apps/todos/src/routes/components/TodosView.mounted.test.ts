@@ -25,6 +25,7 @@ import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
+	configureRemote,
 	createTestStorage,
 } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import {
@@ -112,14 +113,16 @@ async function competing() {
 	const handle = await createGitHandler(session);
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
 		handle(new Request(input, init))) as typeof fetch;
+	const storage = createTestStorage();
+	const id = `todos-view-${count++}`;
+	await configureRemote(storage, id, session.remoteUrl);
 	const folder = expectOk(
 		await openFolder({
-			id: `todos-view-${count++}`,
+			id,
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Todos', email: 'todos@localhost' },
-				remote: { url: session.remoteUrl, branch: 'main' },
-				...browserStorage(createTestStorage()),
+				...browserStorage(storage),
 			},
 		}),
 	);

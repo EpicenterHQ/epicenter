@@ -2,17 +2,21 @@
 	/**
 	 * `/sync`: where GitHub returns, through the connector, after the person
 	 * connects it. The attempt this tab began is completed once, for the
-	 * account that began it; then Todos returns to its start page, which reads
-	 * the account again. Nothing is paired or transferred here.
+	 * account that began it; then Todos returns to its list, and Connect opens
+	 * again to choose a repository. Nothing is transferred here.
 	 */
 	import { Alert, AlertDescription } from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
 	import { onDestroy } from 'svelte';
 	import { auth } from '#platform/auth';
+	import { requestConnect } from '../connect-request.js';
 	import type { GitHubReturnProps } from '../platform/types.js';
-	import { finishGitHubConnect, isGitHubReturn } from './github-connect.js';
-	import { noteConnected } from './start-choice.js';
+	import {
+		finishGitHubConnect,
+		isGitHubReturn,
+		noteConnected,
+	} from './github-connect.js';
 
 	let { url, onfinished }: GitHubReturnProps = $props();
 
@@ -44,6 +48,7 @@
 				return;
 			}
 			noteConnected(sessionStorage, data.login);
+			requestConnect();
 			onfinished();
 		} catch {
 			if (alive) problem = { message: 'GitHub could not finish connecting. Try again.' };

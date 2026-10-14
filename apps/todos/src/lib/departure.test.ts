@@ -173,6 +173,10 @@ function heldSync(run: ReturnType<typeof gate>) {
 				await run.wait();
 				return folder.sync.run();
 			},
+			async connect(url, options) {
+				await run.wait();
+				return folder.sync.connect(url, options);
+			},
 			resolve: (attempt, choices) => folder.sync.resolve(attempt, choices),
 		},
 	});

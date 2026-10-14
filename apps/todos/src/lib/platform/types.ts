@@ -14,52 +14,40 @@ import type { todosDefinition } from '../definition.js';
 export type TodosFolder = Folder<typeof todosDefinition>;
 
 /**
- * The folder both leaves open. The browser names its scoped OPFS directory after
- * it; the desktop shell registers its directory under it.
+ * The folder both leaves open. The browser names its OPFS directory after it;
+ * the desktop shell registers its directory under it.
  */
 export const TODOS_FOLDER_ID = 'so.epicenter.todos';
 
 /**
- * Opens the build's folder. A refusal is returned for the page to show; a
- * leaf never opens another kind of storage instead. In the browser this is
- * the Local demo, opened only once the person chooses it.
+ * Opens the build's folder, writing nothing. A refusal is returned for the
+ * page to show; a leaf never opens another kind of storage instead.
  */
 export type OpenTodosFolder = () => Promise<
 	Result<TodosFolder, OpenFolderError>
 >;
 
-/** Where an open browser folder is kept and what Sync reaches, as the header names it. */
-export type TodosPlace = {
-	readonly kind: 'local' | 'account';
-	/** Short: "Local demo", or the repository's full name. */
-	readonly label: string;
-	/** Where the todos are kept and where Sync sends them. */
-	readonly detail: string;
-};
-
-export type StartProps = {
-	/** Reopen the person's remembered choice; `false` shows the choice first. */
-	readonly resume: boolean;
-	/** The chosen folder is open. The page shows it until the person changes it. */
-	readonly onopen: (folder: TodosFolder, place: TodosPlace) => void;
+/** What Connect shows to choose a remote: the account's GitHub repositories, or a URL. */
+export type ConnectPickerProps = {
+	/** A connect is running; nothing new is chosen until it ends. */
+	readonly busy: boolean;
+	/** Connect the folder to this remote URL. */
+	readonly onchoose: (url: string) => void;
 };
 
 export type GitHubReturnProps = {
 	/** The address GitHub returned to: `/sync?github_code&github_state`, or `github_error`. */
 	readonly url: URL;
-	/** Leave `/sync` for the start page. */
+	/** Leave `/sync` for the list. */
 	readonly onfinished: () => void;
 };
 
 /**
- * `#platform/start`: what the browser shows before any folder opens, the
- * choice between the Local demo and the person's Epicenter account, and the
- * `/sync` page GitHub returns to. The desktop host has neither: it opens its
- * folder at once.
+ * `#platform/connect`: how a person chooses the folder's remote. In a browser,
+ * a private GitHub repository through their Epicenter account, and the `/sync`
+ * page GitHub returns to; on the desktop, any Git URL their own Git reaches.
  */
-export type TodosStart =
-	| {
-			readonly Start: Component<StartProps>;
-			readonly GitHubReturn: Component<GitHubReturnProps>;
-	  }
-	| undefined;
+export type TodosConnect = {
+	readonly Picker: Component<ConnectPickerProps>;
+	readonly GitHubReturn?: Component<GitHubReturnProps>;
+};

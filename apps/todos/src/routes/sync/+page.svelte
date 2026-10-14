@@ -3,9 +3,9 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import * as Empty from '@epicenter/ui/empty';
-	import { start } from '#platform/start';
+	import { connect } from '#platform/connect';
 
-	const GitHubReturn = start?.GitHubReturn;
+	const GitHubReturn = connect.GitHubReturn;
 	// The address GitHub returned to, read once: the handoff code is used once.
 	const url = new URL(page.url);
 </script>
@@ -15,6 +15,6 @@
 {:else}
 	<Empty.Root class="h-dvh">
 		<Empty.Title>GitHub sync is not part of this build</Empty.Title>
-		<Empty.Description>Todos inside Epicenter keeps its folder on this computer.</Empty.Description>
+		<Empty.Description>Todos inside Epicenter syncs with the remote its own Git reaches.</Empty.Description>
 	</Empty.Root>
 {/if}

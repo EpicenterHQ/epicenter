@@ -7,13 +7,14 @@
  * Key behaviors:
  * - Every call goes through the Account's own fetch, to the connector on the
  *   Account's server, without cookies; no credential is added here
- * - The relay rewrites only smart-HTTP requests for the pairing's canonical
- *   URL to the pinned revision, forwards only the headers the connector
- *   admits, and refuses any other URL before sending
+ * - The relay rewrites only smart-HTTP requests for a canonical GitHub
+ *   clone URL to that repository's relay path, forwards only the headers the
+ *   connector admits, and refuses any other URL before sending
+ * - The relay asks for the account at each request; with none signed in it
+ *   sends nothing and says to sign in
  * - A connector refusal comes back with its status and a reason phrase a
  *   person can read; an Epicenter 401 says to sign in again
- * - Pairings and repositories are validated; a pairing whose remote is not a
- *   canonical GitHub clone URL is refused as malformed
+ * - Repositories are validated, and only a canonical clone URL names one
  * - The PKCE verifier and state are 43 base64url characters, and the
  *   challenge is the S256 of the verifier
  */
@@ -24,21 +25,15 @@ import {
 	type ConnectorAccount,
 	challengeOf,
 	createConnector,
-	type Pairing,
+	githubRelay,
+	githubRepository,
 	randomSecret,
-	relayFetch,
 } from './connector.js';
 
 const API = 'https://api.epicenter.test';
 const CONNECTOR = `${API}/api/git/github`;
-const REVISION = 'AbCdEfGhIjKlMnOpQrStUv';
-const pairing: Pairing = {
-	folderId: 'so.epicenter.todos',
-	revision: REVISION,
-	status: 'ready',
-	repository: { id: 9001, installationId: 7001, fullName: 'alice/todos' },
-	remote: { url: 'https://github.com/alice/todos.git', branch: 'main' },
-};
+const REMOTE = 'https://github.com/alice/todos.git';
+const RELAY = `${CONNECTOR}/repos/alice/todos.git`;
 
 type Sent = { url: string; init: RequestInit | undefined };
 
@@ -64,8 +59,8 @@ const refusal = (status: number, code: string, extra: object = {}) =>
 		{ status, headers: { 'X-Epicenter-Git-Error': code } },
 	);
 
-describe('relayFetch', () => {
-	test('rewrites the canonical smart-HTTP URL to the pinned revision and forwards admitted headers only', async () => {
+describe('githubRelay', () => {
+	test('rewrites a canonical smart-HTTP URL to the relay path of its repository and forwards admitted headers only', async () => {
 		const { account: alice, sent } = account(
 			() =>
 				new Response('advertisement', {
@@ -75,9 +70,9 @@ describe('relayFetch', () => {
 					},
 				}),
 		);
-		const transport = relayFetch(alice, pairing);
+		const transport = githubRelay(() => alice);
 		const response = await transport(
-			`${pairing.remote.url}/info/refs?service=git-upload-pack`,
+			`${REMOTE}/info/refs?service=git-upload-pack`,
 			{
 				method: 'GET',
 				headers: {
@@ -90,9 +85,7 @@ describe('relayFetch', () => {
 		);
 		expect(await response.text()).toBe('advertisement');
 		expect(sent).toHaveLength(1);
-		expect(sent[0]?.url).toBe(
-			`${CONNECTOR}/git/so.epicenter.todos/${REVISION}/info/refs?service=git-upload-pack`,
-		);
+		expect(sent[0]?.url).toBe(`${RELAY}/info/refs?service=git-upload-pack`);
 		const headers = new Headers(sent[0]?.init?.headers);
 		expect([...headers.keys()].sort()).toEqual(['accept', 'git-protocol']);
 		expect(sent[0]?.init).toMatchObject({
@@ -106,38 +99,58 @@ describe('relayFetch', () => {
 	test('sends a pack request body to the relay path for its service', async () => {
 		const { account: alice, sent } = account(() => new Response('result'));
 		const body = new Uint8Array([1, 2, 3]);
-		await relayFetch(alice, pairing)(`${pairing.remote.url}/git-receive-pack`, {
+		await githubRelay(() => alice)(`${REMOTE}/git-receive-pack`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/x-git-receive-pack-request' },
 			body,
 		});
-		expect(sent[0]?.url).toBe(
-			`${CONNECTOR}/git/so.epicenter.todos/${REVISION}/git-receive-pack`,
-		);
+		expect(sent[0]?.url).toBe(`${RELAY}/git-receive-pack`);
 		expect(sent[0]?.init?.body).toBe(body);
 	});
 
 	test('refuses any other URL before sending', async () => {
 		const { account: alice, sent } = account(() => new Response('never'));
-		const transport = relayFetch(alice, pairing);
+		const transport = githubRelay(() => alice);
 		for (const url of [
-			'https://github.com/mallory/todos.git/info/refs?service=git-upload-pack',
-			`${pairing.remote.url}/objects/info/packs`,
-			`${pairing.remote.url}/info/refs?service=git-upload-pack&x=1`,
+			'https://token@github.com/alice/todos.git/info/refs?service=git-upload-pack',
+			'https://github.com/-alice/todos.git/info/refs?service=git-upload-pack',
+			'https://example.com/alice/todos.git/info/refs?service=git-upload-pack',
+			`${REMOTE}/objects/info/packs`,
+			`${REMOTE}/info/refs?service=git-upload-pack&x=1`,
 			`${API}/api/session`,
 		])
 			await expect(transport(url, { method: 'GET' })).rejects.toThrow(
-				'only to the repository it is connected to',
+				'only to a GitHub repository',
 			);
 		expect(sent).toEqual([]);
+	});
+
+	test('another repository is its own relay path', async () => {
+		const { account: alice, sent } = account(() => new Response('ok'));
+		await githubRelay(() => alice)(
+			'https://github.com/acme/notes.git/info/refs?service=git-upload-pack',
+			{ method: 'GET' },
+		);
+		expect(sent[0]?.url).toBe(
+			`${CONNECTOR}/repos/acme/notes.git/info/refs?service=git-upload-pack`,
+		);
+	});
+
+	test('with nobody signed in it sends nothing and says to sign in', async () => {
+		await expect(
+			githubRelay(() => undefined)(
+				`${REMOTE}/info/refs?service=git-upload-pack`,
+				{ method: 'GET' },
+			),
+		).rejects.toThrow('Sign in to Epicenter');
 	});
 
 	test('a connector refusal keeps its status and says what to do', async () => {
 		const { account: alice } = account(() =>
 			refusal(403, 'github_authorization_required'),
 		);
-		const response = await relayFetch(alice, pairing)(
-			`${pairing.remote.url}/info/refs?service=git-receive-pack`,
+		const response = await githubRelay(() => alice)(
+			`${REMOTE}/info/refs?service=git-receive-pack`,
 			{ method: 'GET' },
 		);
 		expect(response.status).toBe(403);
@@ -148,8 +161,8 @@ describe('relayFetch', () => {
 		const { account: alice } = account(
 			() => new Response(null, { status: 401 }),
 		);
-		const response = await relayFetch(alice, pairing)(
-			`${pairing.remote.url}/info/refs?service=git-upload-pack`,
+		const response = await githubRelay(() => alice)(
+			`${REMOTE}/info/refs?service=git-upload-pack`,
 			{ method: 'GET' },
 		);
 		expect(response.status).toBe(401);
@@ -161,84 +174,14 @@ describe('relayFetch', () => {
 			throw new DOMException('Session retired', 'AbortError');
 		});
 		await expect(
-			relayFetch(alice, pairing)(
-				`${pairing.remote.url}/info/refs?service=git-upload-pack`,
-				{ method: 'GET' },
-			),
+			githubRelay(() => alice)(`${REMOTE}/info/refs?service=git-upload-pack`, {
+				method: 'GET',
+			}),
 		).rejects.toThrow('Sign in again');
 	});
 });
 
 describe('createConnector', () => {
-	test('reads the folder pairing from the list and validates it', async () => {
-		const { account: alice, sent } = account(() =>
-			Response.json({
-				pairings: [
-					{ ...pairing, folderId: 'other.folder' },
-					{
-						folderId: pairing.folderId,
-						revision: REVISION,
-						status: 'github_authorization_required',
-						repository: pairing.repository,
-						remote: pairing.remote,
-					},
-				],
-			}),
-		);
-		const found = expectOk(
-			await createConnector(alice).pairing('so.epicenter.todos'),
-		);
-		expect(found).toEqual({
-			...pairing,
-			status: 'github_authorization_required',
-		});
-		expect(sent[0]?.url).toBe(`${CONNECTOR}/pairings`);
-		expect(sent[0]?.init).toMatchObject({ method: 'GET', credentials: 'omit' });
-	});
-
-	test('a folder with no pairing reads as undefined', async () => {
-		const { account: alice } = account(() => Response.json({ pairings: [] }));
-		expect(
-			expectOk(await createConnector(alice).pairing('so.epicenter.todos')),
-		).toBeUndefined();
-	});
-
-	test('a pairing whose remote is not a canonical GitHub clone URL is malformed', async () => {
-		const { account: alice } = account(() =>
-			Response.json({
-				pairings: [
-					{
-						...pairing,
-						remote: {
-							url: 'https://token@github.com/alice/todos.git',
-							branch: 'main',
-						},
-					},
-				],
-			}),
-		);
-		expect(
-			expectErr(await createConnector(alice).pairing('so.epicenter.todos'))
-				.name,
-		).toBe('Malformed');
-	});
-
-	test('pairing sends numeric ids and never asks to replace', async () => {
-		const { account: alice, sent } = account(() => Response.json({ pairing }));
-		expectOk(
-			await createConnector(alice).pair('so.epicenter.todos', {
-				id: 9001,
-				installationId: 7001,
-			}),
-		);
-		expect(sent[0]?.url).toBe(`${CONNECTOR}/pairings/so.epicenter.todos`);
-		expect(sent[0]?.init?.method).toBe('PUT');
-		expect(JSON.parse(String(sent[0]?.init?.body))).toEqual({
-			repositoryId: 9001,
-			installationId: 7001,
-		});
-	});
-
 	test('a refusal carries its code and install link', async () => {
 		const { account: alice } = account(() =>
 			refusal(403, 'repository_unavailable', {
@@ -263,6 +206,23 @@ describe('createConnector', () => {
 			'Session',
 		);
 	});
+});
+
+test('a canonical GitHub clone URL names its repository, and nothing else does', () => {
+	expect(githubRepository(REMOTE)).toEqual({ owner: 'alice', name: 'todos' });
+	for (const url of [
+		'https://github.com/alice/todos',
+		'https://github.com/alice/todos.git/',
+		'https://token@github.com/alice/todos.git',
+		'http://github.com/alice/todos.git',
+		'https://github.com:443/alice/todos.git',
+		'https://github.com/alice/todos.git?x=1',
+		'https://github.com/a/b/c.git',
+		'https://github.com/-alice/todos.git',
+		'https://github.com/alice/...git',
+		'git@github.com:alice/todos.git',
+	])
+		expect(githubRepository(url)).toBeUndefined();
 });
 
 test('state and verifier are 43 base64url characters, and the challenge is their S256', async () => {

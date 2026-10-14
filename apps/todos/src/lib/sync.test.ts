@@ -24,6 +24,7 @@ import { openFolder } from '@epicenter/folder/browser';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
+	configureRemote,
 	createTestStorage,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
 import {
@@ -85,14 +86,16 @@ async function openDemo() {
 	const handle = await createGitHandler(session);
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
 		handle(new Request(input, init))) as typeof fetch;
+	const storage = createTestStorage();
+	const id = `sync-${count++}`;
+	await configureRemote(storage, id, session.remoteUrl);
 	const folder = expectOk(
 		await openFolder({
-			id: `sync-${count++}`,
+			id,
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Todos', email: 'todos@localhost' },
-				remote: { url: session.remoteUrl, branch: 'main' },
-				...browserStorage(createTestStorage()),
+				...browserStorage(storage),
 			},
 		}),
 	);
@@ -208,4 +211,60 @@ test('competing edits need choices and write nothing; refused choices keep the a
 	expect(await run(session.bare, ['git', 'show', `main:${MILK}`])).toContain(
 		'title: Buy soy milk',
 	);
+});
+
+test('Connect sends a first folder, gives the next one its todos, and asks before combining separate histories', async () => {
+	const session = await prepareGitSession(5990);
+	const handle = await createGitHandler(session);
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+		handle(new Request(input, init))) as typeof fetch;
+	const open = async () => {
+		const folder = expectOk(
+			await openFolder({
+				id: `connect-${count++}`,
+				definition: todosDefinition,
+				browser: {
+					author: { name: 'Todos', email: 'todos@localhost' },
+					...browserStorage(createTestStorage()),
+				},
+			}),
+		);
+		const todos = createTodos(folder);
+		cleanup.push(() => todos.close());
+		cleanup.push(observe(todos));
+		return todos;
+	};
+	const titles = async (todos: Awaited<ReturnType<typeof open>>) =>
+		expectOk(await todos.folder.tables.todos.list())
+			.map(({ result }) => result.data?.row.fields.title)
+			.sort();
+	const url = session.remoteUrl;
+
+	// A folder with todos connects to an empty remote: they are sent.
+	const first = await open();
+	expect(first.git.snapshot.remote).toBeUndefined();
+	expectOk(await first.rows.create('Buy milk'));
+	expect(expectOk(await first.sync.run({ url }))).toMatchObject({
+		kind: 'synced',
+	});
+	expect(first.git.snapshot.remote?.url).toBe(url);
+
+	// An empty folder connects: it takes the remote's todos.
+	const second = await open();
+	expect(expectOk(await second.sync.run({ url }))).toMatchObject({
+		kind: 'synced',
+	});
+	expect(await titles(second)).toEqual(['Buy milk']);
+
+	// A folder with a history of its own is not combined without consent.
+	const third = await open();
+	expectOk(await third.rows.create('Buy bread'));
+	expect((await third.folder.git.commit()).status).toBe('committed');
+	expect(expectErr(await third.sync.run({ url })).name).toBe('Unrelated');
+	expect(await titles(third)).toEqual(['Buy bread']);
+	expect(third.git.snapshot.remote?.url).toBe(url);
+	expect(expectOk(await third.sync.run({ url, combine: true }))).toMatchObject({
+		kind: 'synced',
+	});
+	expect(await titles(third)).toEqual(['Buy bread', 'Buy milk']);
 });

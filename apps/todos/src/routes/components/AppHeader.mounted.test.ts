@@ -7,10 +7,10 @@
  * Key behaviors:
  * - A folder that syncs offers Save version and Sync, and nothing else that
  *   touches history: no Fetch, Pull, Merge, or Commit and push (ADR-0529)
- * - A folder that does not sync yet, as on the desktop, offers Save version
+ * - A folder with no remote offers Connect in Sync's place and says it is
+ *   not connected; a connected one names its repository, which opens Connect
+ * - A folder that does not sync yet offers Save version alone
  * - Save version records the saved files as a version and says so
- * - A browser folder names where it is kept (the Local demo or the
- *   account's repository) and offers Change; a desktop folder names none
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
@@ -18,9 +18,13 @@ import '../../lib/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
-import { testBrowserStorage } from '../../../../../packages/folder/src/browser-storage.test-support.js';
+import {
+	browserStorage,
+	configureRemote,
+	createTestStorage,
+} from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
-import type { TodosFolder, TodosPlace } from '../../lib/platform/types.js';
+import type { TodosFolder } from '../../lib/platform/types.js';
 import { quiet } from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
@@ -39,13 +43,16 @@ afterEach(async () => {
 
 async function setup(
 	adapt: (folder: TodosFolder) => TodosFolder = (f) => f,
-	props: { place?: TodosPlace; onchangeplace?: () => void } = {},
+	{ remote, ...props }: { remote?: string; onconnect?: () => void } = {},
 ) {
+	const storage = createTestStorage();
+	const id = `app-header-${count++}`;
+	if (remote !== undefined) await configureRemote(storage, id, remote);
 	const folder = expectOk(
 		await openFolder({
-			id: `app-header-${count++}`,
+			id,
 			definition: todosDefinition,
-			browser: { ...testBrowserStorage() },
+			browser: { ...browserStorage(storage) },
 		}),
 	);
 	const todos: Todos = createTodos(adapt(folder));
@@ -64,6 +71,7 @@ async function setup(
 const testids = (target: HTMLElement) =>
 	[
 		'sync',
+		'connect-open',
 		'save-version',
 		'pull',
 		'fetch',
@@ -71,48 +79,40 @@ const testids = (target: HTMLElement) =>
 		'commit-and-push',
 	].filter((id) => target.querySelector(`[data-testid="${id}"]`) !== null);
 
-test('a folder that syncs offers Save version and Sync, and no other history action', async () => {
-	const { target } = await setup();
+test('a folder with no remote offers Save version and Connect, and says it is not connected', async () => {
+	let opened = 0;
+	const { target } = await setup(undefined, { onconnect: () => opened++ });
+	expect(testids(target)).toEqual(['connect-open', 'save-version']);
+	const remote = target.querySelector('[data-testid="remote"]');
+	expect(remote?.textContent).toContain('Not connected');
+	click(target, 'Connect');
+	expect(opened).toBe(1);
+});
+
+test('a connected folder offers Save version and Sync, names its repository, and no other history action', async () => {
+	let opened = 0;
+	const { target } = await setup(undefined, {
+		remote: 'https://github.com/alice/todos.git',
+		onconnect: () => opened++,
+	});
 	expect(testids(target)).toEqual(['sync', 'save-version']);
 	expect(target.textContent).not.toContain('Fetch');
 	expect(target.textContent).not.toContain('Commit and push');
+	const remote = target.querySelector('[data-testid="remote"]');
+	expect(remote?.getAttribute('aria-label')).toBe(
+		'Syncs with alice/todos. Change remote',
+	);
+	remote?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+	expect(opened).toBe(1);
 });
 
-test('a folder that does not sync yet offers Save version', async () => {
+test('a folder that does not sync yet offers Save version alone', async () => {
 	const { target } = await setup((folder) => ({
 		...folder,
 		sync: { ...folder.sync, supported: false },
 	}));
 	expect(testids(target)).toEqual(['save-version']);
-});
-
-test('a browser folder names where it is kept, and Change asks again', async () => {
-	let changed = 0;
-	const { target } = await setup(undefined, {
-		place: {
-			kind: 'account',
-			label: 'alice/todos',
-			detail: 'Sync sends versions to alice/todos on GitHub, branch main.',
-		},
-		onchangeplace: () => changed++,
-	});
-	const place = target.querySelector('[data-testid="place"]');
-	expect(place?.getAttribute('aria-label')).toBe(
-		'Todos kept in: alice/todos. Show details',
-	);
-	expect(place?.textContent).toContain('alice/todos');
-	place?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	flushSync();
-	expect(
-		document.querySelector('[data-testid="place-label"]')?.textContent,
-	).toBe('alice/todos');
-	click(document.body, 'Change');
-	expect(changed).toBe(1);
-});
-
-test('without a place, as on the desktop, the header names none', async () => {
-	const { target } = await setup();
-	expect(target.querySelector('[data-testid="place"]')).toBeNull();
+	expect(target.querySelector('[data-testid="remote"]')).toBeNull();
 });
 
 test('Save version records the saved files as a version', async () => {

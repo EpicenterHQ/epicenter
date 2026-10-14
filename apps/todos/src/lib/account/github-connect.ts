@@ -208,3 +208,18 @@ export async function finishGitHubConnect({
 		redirectUri: pending.redirectUri,
 	});
 }
+
+/** This tab just connected GitHub; Connect says so once. */
+const CONNECTED_KEY = 'so.epicenter.todos.github-connected';
+
+/** Note that GitHub was just connected as `login`, for Connect to show. */
+export function noteConnected(storage: KeyValueStorage, login: string) {
+	storage.setItem(CONNECTED_KEY, login);
+}
+
+/** The login GitHub was just connected as, read once. */
+export function takeConnected(storage: KeyValueStorage): string | undefined {
+	const login = storage.getItem(CONNECTED_KEY);
+	storage.removeItem(CONNECTED_KEY);
+	return login ?? undefined;
+}

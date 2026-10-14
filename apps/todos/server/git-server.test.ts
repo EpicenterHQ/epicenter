@@ -9,7 +9,11 @@ import { join } from 'node:path';
 import { CONFLICTS_NEED_SYNC } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
-import { testBrowserStorage } from '../../../packages/folder/src/browser-storage.test-support.js';
+import {
+	browserStorage,
+	configureRemote,
+	createTestStorage,
+} from '../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from '../src/lib/definition.js';
 import { createGitHandler, prepareGitSession } from './git-server.js';
 
@@ -58,14 +62,15 @@ test('browser push, native pull and push, then browser fast-forward through the 
 		await (await handle(new Request('http://127.0.0.1:5999/session'))).json(),
 	).toEqual(session);
 
+	const storage = createTestStorage();
+	await configureRemote(storage, 'demo', session.remoteUrl);
 	const browser = expectOk(
 		await openFolder({
 			id: 'demo',
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Todos', email: 'todos@localhost' },
-				remote: { url: session.remoteUrl, branch: 'main' },
-				...testBrowserStorage(),
+				...browserStorage(storage),
 			},
 		}),
 	);

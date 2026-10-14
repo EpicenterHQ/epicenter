@@ -7,7 +7,7 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import FolderGitIcon from '@lucide/svelte/icons/folder-git-2';
-	import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
+	import LinkIcon from '@lucide/svelte/icons/link';
 	import HistoryIcon from '@lucide/svelte/icons/history';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import {
@@ -23,6 +23,7 @@
 		incomingLine,
 		lastVersionLine,
 		pushLine,
+		remoteLabel,
 		type StatusLine,
 		summaryLine,
 		syncOutcomeLine,
@@ -30,8 +31,8 @@
 		versionOutcomeLine,
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
-	import type { TodosPlace } from '$lib/platform/types.js';
 	import { type TodosError, todosKeys } from '$lib/session.js';
+	import type { ConnectTo } from '$lib/sync.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 
 	const todos = getTodos();
@@ -39,17 +40,14 @@
 	let {
 		sync,
 		reviewing = false,
-		place,
-		onchangeplace,
+		onconnect,
 	}: {
 		/** The page's Sync; a sync that needs choices opens the review the page shows. */
-		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, void, unknown>;
+		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, ConnectTo | void, unknown>;
 		/** Whether the sync review shows, which holds every other Git action. */
 		reviewing?: boolean;
-		/** In a browser: the Local demo or the account's repository. */
-		place?: TodosPlace;
-		/** In a browser: close this folder and choose again. */
-		onchangeplace?: () => void;
+		/** Open Connect, to choose or change the remote. */
+		onconnect: () => void;
 	} = $props();
 
 	// Git status is a read like any other: on open, on focus, and after actions.
@@ -86,8 +84,7 @@
 	);
 	/** Whether this folder syncs; a desktop folder records versions but does not sync yet. */
 	const syncs = $derived(todos.folder.sync.supported);
-	const hasRemote = $derived(todos.git.snapshot.remote !== undefined);
-	const NO_REMOTE = 'This folder has no Git remote, so there is nothing to sync with.';
+	const connected = $derived(todos.git.snapshot.remote);
 
 	const tones: Record<StatusLine['tone'], string> = {
 		neutral: 'bg-muted-foreground/50',
@@ -157,32 +154,21 @@
 			<span class="truncate">{directory}</span>
 		</Button>
 	{/if}
-	{#if place}
-		<!-- In a browser, say which list this is: the Local demo, or the account's repository. -->
-		<Popover.Root>
-			<Popover.Trigger>
-				{#snippet child({ props })}
-					<Button
-						{...props}
-						variant="ghost"
-						size="sm"
-						class="max-w-56 min-w-0 shrink font-normal"
-						aria-label="Todos kept in: {place.label}. Show details"
-						data-testid="place"
-					>
-						{#if place.kind === 'account'}<FolderGitIcon />{:else}<HardDriveIcon />{/if}
-						<span class="truncate max-sm:sr-only">{place.label}</span>
-					</Button>
-				{/snippet}
-			</Popover.Trigger>
-			<Popover.Content align="start" class="w-80 max-w-[calc(100vw-1rem)] space-y-2 text-sm">
-				<p class="font-medium" data-testid="place-label">{place.label}</p>
-				<p class="text-xs text-muted-foreground">{place.detail}</p>
-				{#if onchangeplace}
-					<Button variant="outline" size="sm" disabled={busy} onclick={onchangeplace}>Change</Button>
-				{/if}
-			</Popover.Content>
-		</Popover.Root>
+	{#if syncs}
+		<!-- Where the todos sync: a repository, a URL, or nowhere yet. -->
+		<Button
+			variant="ghost"
+			size="sm"
+			class="max-w-56 min-w-0 shrink font-normal"
+			tooltip={connected === undefined ? 'Choose where your todos sync' : `Syncs with ${connected.url}. Click to change.`}
+			aria-label={connected === undefined ? 'Not connected. Connect' : `Syncs with ${remoteLabel(connected.url)}. Change remote`}
+			disabled={busy}
+			data-testid="remote"
+			onclick={onconnect}
+		>
+			{#if connected === undefined}<LinkIcon />{:else}<FolderGitIcon />{/if}
+			<span class="truncate max-sm:sr-only">{connected === undefined ? 'Not connected' : remoteLabel(connected.url)}</span>
+		</Button>
 	{/if}
 
 	<Popover.Root>
@@ -214,9 +200,6 @@
 								Each todo is a file in <code>todos/</code> here. Edits made by other programs show up when you return to this window.
 							</span>
 							<Button class="mt-1.5" variant="outline" size="sm" onclick={() => void copyPath(directory)}>Copy path</Button>
-						{:else if place}
-							<span class="font-medium" data-testid="status-folder">{place.label}</span>
-							<span class="mt-0.5 block text-xs text-muted-foreground">{place.detail}</span>
 						{:else}
 							<span class="font-medium" data-testid="status-folder">This browser</span>
 							<span class="mt-0.5 block text-xs text-muted-foreground">Saved in this browser's storage, not in a folder on this computer.</span>
@@ -265,16 +248,18 @@
 			{#if saveVersion.isPending}<Spinner class="size-3.5" />{:else}<HistoryIcon />{/if}
 			<span class="max-sm:sr-only">Save version</span>
 		</Button>
-		<!-- Where the folder syncs (the browser demo); a desktop folder does not sync yet. -->
-		{#if syncs}
+		{#if syncs && connected === undefined}
+			<Button size="sm" disabled={busy} tooltip="Choose where your todos sync" data-testid="connect-open" onclick={onconnect}>
+				<LinkIcon />
+				<span class="max-sm:sr-only">Connect</span>
+			</Button>
+		{:else if syncs}
 			<Button
 				size="sm"
-				disabled={busy || !hasRemote || pending}
-				tooltip={!hasRemote
-					? NO_REMOTE
-					: pending
-						? INCOMING_WAITS
-						: 'Save a version, get the remote, combine them, and send the result. Conflicts ask you first.'}
+				disabled={busy || pending}
+				tooltip={pending
+					? INCOMING_WAITS
+					: 'Save a version, get the remote, combine them, and send the result. Conflicts ask you first.'}
 				data-testid="sync"
 				onclick={runSync}
 			>

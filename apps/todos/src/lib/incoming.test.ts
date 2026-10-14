@@ -28,6 +28,7 @@ import { openFolder } from '@epicenter/folder/browser';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
+	configureRemote,
 	createTestStorage,
 	opfsOf,
 } from '../../../../packages/folder/src/browser-storage.test-support.js';
@@ -121,6 +122,7 @@ async function openDemo() {
 		handle(new Request(input, init))) as typeof fetch;
 	const storage = createTestStorage();
 	const id = `incoming-${count++}`;
+	await configureRemote(storage, id, session.remoteUrl);
 	const openTodos = async () => {
 		const folder = expectOk(
 			await openFolder({
@@ -128,7 +130,6 @@ async function openDemo() {
 				definition: todosDefinition,
 				browser: {
 					author: { name: 'Todos', email: 'todos@localhost' },
-					remote: { url: session.remoteUrl, branch: 'main' },
 					...browserStorage(storage),
 				},
 			}),

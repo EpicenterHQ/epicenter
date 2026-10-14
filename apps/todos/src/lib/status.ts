@@ -257,6 +257,17 @@ function pushOutcomeLine(outcome: PushOutcome, git: GitSnapshot): StatusLine {
 	}
 }
 
+/**
+ * A remote as a person recognizes it: `owner/name` for a GitHub
+ * repository, the demo remote by name, and any other URL as written.
+ */
+export function remoteLabel(url: string): string {
+	const github = /^https:\/\/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/.exec(url);
+	if (github) return github[1]!;
+	if (/^https?:\/\/[^/]+\/git\/todos\.git$/.test(url)) return 'the demo remote';
+	return url;
+}
+
 export function pushLine(git: GitSnapshot): StatusLine {
 	if (git.remote === undefined)
 		return {

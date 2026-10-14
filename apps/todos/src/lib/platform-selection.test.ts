@@ -9,10 +9,10 @@
  * Key behaviors:
  * - The host build reaches the desktop adapter and its generated bindings,
  *   and no OPFS storage, directory opener, or Git implementation
- * - The host build reaches no start page, sign-in, or GitHub connector
+ * - The host build reaches no sign-in or GitHub connector; its Connect takes a URL
  * - The browser build reaches OPFS storage and isomorphic-git, and no
  *   desktop adapter or generated bindings
- * - The browser build reaches the start page, sign-in, and the connector
+ * - The browser build reaches Connect's GitHub picker, sign-in, and the connector
  * - Neither build reaches the automatic entry, which loads either adapter,
  *   or `@epicenter/app`
  */
@@ -121,9 +121,8 @@ describe('#platform/folder', () => {
 						),
 				),
 			).toEqual([]);
-			// The desktop folder opens at once: no start page, account, sign-in,
-			// or GitHub connector.
-			for (const leaf of ['start', 'auth'])
+			// The desktop folder has no account, sign-in, or GitHub connector.
+			for (const leaf of ['connect', 'auth'])
 				expect(
 					modules.some((path) =>
 						path.endsWith(`platform/${leaf}.epicenter-host.ts`),
@@ -131,7 +130,7 @@ describe('#platform/folder', () => {
 				).toBe(true);
 			expect(
 				modules.filter((path) =>
-					/platform\/(start|auth)\.browser\.ts$|src\/lib\/account\/|packages\/auth\/src\//.test(
+					/platform\/(connect|auth)\.browser\.ts$|src\/lib\/account\/|packages\/auth\/src\//.test(
 						path,
 					),
 				),
@@ -181,19 +180,18 @@ describe('#platform/folder', () => {
 						),
 				),
 			).toEqual([]);
-			// The start page, sign-in, and the GitHub connector are the browser's.
+			// Connect's GitHub picker, sign-in, and the connector are the browser's.
 			for (const module of [
-				'platform/start.browser.ts',
+				'platform/connect.browser.ts',
 				'platform/auth.browser.ts',
-				'account/Start.svelte',
-				'account/account-folder.ts',
+				'account/GitHubPicker.svelte',
 				'account/connector.ts',
 				'auth/src/browser-redirect-auth.ts',
 			])
 				expect(modules.some((path) => path.endsWith(module))).toBe(true);
 			expect(
 				modules.filter((path) =>
-					/platform\/(start|auth)\.epicenter-host\.ts$/.test(path),
+					/platform\/(connect|auth)\.epicenter-host\.ts$/.test(path),
 				),
 			).toEqual([]);
 		},

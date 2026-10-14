@@ -5,4 +5,4 @@
 export { auth } from '#platform/auth';
 export { departurePort } from '#platform/departure';
 export { openTodosFolder } from '#platform/folder';
-export { start } from '#platform/start';
+export { connect } from '#platform/connect';

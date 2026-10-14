@@ -4,12 +4,14 @@
  * `Account`'s own `fetch`, which adds the Epicenter bearer, so no credential
  * is held here, put in a URL, or written to the folder's Git configuration.
  *
- * Git transfers keep the canonical clone URL the pairing recorded as the
- * folder's remote. `relayFetch` rewrites each smart-HTTP request at request
- * time to the pinned pairing revision's relay path, and forwards only the
- * headers the connector admits.
+ * A folder's remote is the repository's canonical clone URL,
+ * `https://github.com/<owner>/<name>.git`, in its own Git configuration.
+ * `githubRelay` rewrites each smart-HTTP request for such a URL, at request
+ * time, to the connector's relay for that repository, and forwards only the
+ * headers the connector admits. Nothing records which repository a folder
+ * uses except the folder.
  *
- * Browser-only: reached through `#platform/start`, never from the desktop
+ * Browser-only: reached through `#platform/connect`, never from the desktop
  * build.
  */
 import type { Account } from '@epicenter/auth';
@@ -35,44 +37,20 @@ export type Repository = {
 	readonly fullName: string;
 	readonly cloneUrl: string;
 	readonly defaultBranch: string;
-	/** Whether the user can push; pairing requires it. */
+	/** Whether the user can push; syncing requires it. */
 	readonly push: boolean;
-};
-
-/**
- * One folder's pairing, pinned at its revision. `status` compares the stored
- * GitHub grant with the user who paired it: `ready`,
- * `github_authorization_required`, or `github_account_mismatch`.
- */
-export type Pairing = {
-	readonly folderId: string;
-	readonly revision: string;
-	readonly status: string;
-	readonly repository: {
-		readonly id: number;
-		readonly installationId: number;
-		readonly fullName: string;
-	};
-	readonly remote: { readonly url: string; readonly branch: string };
 };
 
 /** What a person is told for each connector code. ASCII, so it fits an HTTP reason phrase. */
 const CODE_MESSAGES: Record<string, string> = {
 	github_authorization_required:
 		'GitHub is not connected for your account, or the connection expired. Connect GitHub again.',
-	github_account_mismatch:
-		'This repository was chosen with a different GitHub account than the one connected now. Connect that GitHub account again.',
 	repository_unavailable:
 		'GitHub does not let Epicenter reach this private repository with write access. Check that the Epicenter Folder Sync app is installed on it.',
 	repository_mismatch:
 		'GitHub redirected the repository request, so it stopped.',
 	scoped_token_rejected:
 		'GitHub refused this request. Try again; each request gets a new repository token.',
-	pairing_not_found: 'Todos is not connected to a repository for your account.',
-	pairing_conflict:
-		'Todos is already connected to another repository for your account.',
-	pairing_superseded:
-		'Todos was connected to a repository again elsewhere. Reload to use the current connection.',
 	access_denied: 'GitHub authorization was declined.',
 	authorization_failed: 'GitHub authorization failed. Connect GitHub again.',
 	invalid_grant:
@@ -128,56 +106,42 @@ const isId = (value: unknown): value is number =>
 	typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 const isText = (value: unknown): value is string =>
 	typeof value === 'string' && value.length > 0;
-const REVISION = /^[A-Za-z0-9_-]{22}$/;
-const FOLDER_ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/;
+/** The owner and name GitHub allows, as the connector checks them. */
+const OWNER = /^[A-Za-z0-9](?:-?[A-Za-z0-9])*$/;
+const NAME = /^[A-Za-z0-9._-]{1,100}$/;
 
-/** `https://github.com/<owner>/<name>.git`, written exactly as the URL parser would. */
-export function isCanonicalCloneUrl(value: unknown): value is string {
-	if (typeof value !== 'string' || !URL.canParse(value)) return false;
+/**
+ * The owner and name of `https://github.com/<owner>/<name>.git`, written
+ * exactly as the URL parser would, or `undefined` for any other URL.
+ */
+export function githubRepository(
+	value: unknown,
+): { readonly owner: string; readonly name: string } | undefined {
+	if (typeof value !== 'string' || !URL.canParse(value)) return undefined;
 	const url = new URL(value);
-	return (
-		url.href === value &&
-		url.protocol === 'https:' &&
-		url.hostname === 'github.com' &&
-		url.port === '' &&
-		!url.username &&
-		!url.password &&
-		!url.search &&
-		!url.hash &&
-		/^\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\.git$/.test(url.pathname)
-	);
-}
-
-export function parsePairing(value: unknown): Pairing | undefined {
+	const match = /^\/([^/]+)\/([^/]+)\.git$/.exec(url.pathname);
 	if (
-		!isObject(value) ||
-		!isObject(value.repository) ||
-		!isObject(value.remote)
+		url.href !== value ||
+		url.protocol !== 'https:' ||
+		url.hostname !== 'github.com' ||
+		url.port !== '' ||
+		url.username ||
+		url.password ||
+		url.search ||
+		url.hash ||
+		match === null
 	)
 		return undefined;
-	const { folderId, revision, status } = value;
-	const { id, installationId, fullName } = value.repository;
-	const { url, branch } = value.remote;
+	const [, owner = '', name = ''] = match;
 	if (
-		typeof folderId !== 'string' ||
-		!FOLDER_ID.test(folderId) ||
-		typeof revision !== 'string' ||
-		!REVISION.test(revision) ||
-		!isText(status) ||
-		!isId(id) ||
-		!isId(installationId) ||
-		!isText(fullName) ||
-		!isCanonicalCloneUrl(url) ||
-		!isText(branch)
+		owner.length > 39 ||
+		!OWNER.test(owner) ||
+		!NAME.test(name) ||
+		name === '.' ||
+		name === '..'
 	)
 		return undefined;
-	return {
-		folderId,
-		revision,
-		status,
-		repository: { id, installationId, fullName },
-		remote: { url, branch },
-	};
+	return { owner, name };
 }
 
 function parseRepository(value: unknown): Repository | undefined {
@@ -351,50 +315,6 @@ export function createConnector(account: ConnectorAccount) {
 				return ConnectorError.Malformed({ what: 'a repository' });
 			return Ok(parsed as Repository[]);
 		},
-
-		/** `folderId`'s pairing, or `undefined` when it has none. A read. */
-		async pairing(
-			folderId: string,
-		): Promise<Result<Pairing | undefined, ConnectorError>> {
-			const { data, error } = await call('/pairings');
-			if (error) return Err(error);
-			if (!isObject(data) || !Array.isArray(data.pairings))
-				return ConnectorError.Malformed({ what: 'a pairing list' });
-			const entry: unknown = data.pairings.find(
-				(candidate: unknown) =>
-					isObject(candidate) && candidate.folderId === folderId,
-			);
-			if (entry === undefined) return Ok(undefined);
-			const parsed = parsePairing(entry);
-			if (parsed === undefined || parsed.folderId !== folderId)
-				return ConnectorError.Malformed({ what: 'a pairing' });
-			return Ok(parsed);
-		},
-
-		/**
-		 * Pair `folderId` with `repository` on its default branch. Never
-		 * replaces another pairing: that is `pairing_conflict`.
-		 */
-		async pair(
-			folderId: string,
-			repository: Pick<Repository, 'id' | 'installationId'>,
-		): Promise<Result<Pairing, ConnectorError>> {
-			const { data, error } = await call(
-				`/pairings/${encodeURIComponent(folderId)}`,
-				{
-					method: 'PUT',
-					body: {
-						repositoryId: repository.id,
-						installationId: repository.installationId,
-					},
-				},
-			);
-			if (error) return Err(error);
-			const parsed = isObject(data) ? parsePairing(data.pairing) : undefined;
-			if (parsed === undefined || parsed.folderId !== folderId)
-				return ConnectorError.Malformed({ what: 'a pairing' });
-			return Ok(parsed);
-		},
 	};
 }
 
@@ -411,18 +331,17 @@ const SMART_HTTP =
 	/^\/(info\/refs\?service=git-(upload|receive)-pack|git-(upload|receive)-pack)$/;
 
 /**
- * Git transport for one pinned pairing. A request for the pairing's
- * canonical `remote.url` is sent through `account.fetch` to
- * `<connector>/git/<folderId>/<revision>/...` instead; anything else is
- * refused before it is sent. A refusal comes back with its status and a
- * reason phrase a person can read, which Git reports as the transfer's error.
+ * Git transport for repositories on GitHub. A smart-HTTP request for a
+ * canonical clone URL is sent through the account's `fetch` to
+ * `<connector>/repos/<owner>/<name>.git/...`, which reaches that repository
+ * with a token GitHub scopes to it; anything else is refused before it is
+ * sent. `account` is asked for at each request, so signing in later is
+ * enough. A refusal comes back with its status and a reason phrase a person
+ * can read, which Git reports as the transfer's error.
  */
-export function relayFetch(
-	account: Pick<Account, 'baseURL' | 'fetch'>,
-	pairing: Pick<Pairing, 'folderId' | 'revision' | 'remote'>,
+export function githubRelay(
+	account: () => Pick<Account, 'baseURL' | 'fetch'> | undefined,
 ): HttpFetch {
-	const target = `${connectorBase(account)}/git/${encodeURIComponent(pairing.folderId)}/${pairing.revision}`;
-	const prefix = pairing.remote.url;
 	return async (input, init) => {
 		const url =
 			input instanceof Request
@@ -430,11 +349,23 @@ export function relayFetch(
 				: input instanceof URL
 					? input.href
 					: input;
-		const rest = url.startsWith(prefix) ? url.slice(prefix.length) : undefined;
-		if (rest === undefined || !SMART_HTTP.test(rest))
+		const split = /^(https:\/\/github\.com\/[^/]+\/[^/]+\.git)(\/.*)$/.exec(
+			url,
+		);
+		const repository = split ? githubRepository(split[1]) : undefined;
+		const rest = split?.[2];
+		if (
+			repository === undefined ||
+			rest === undefined ||
+			!SMART_HTTP.test(rest)
+		)
 			throw new TypeError(
-				'Todos sends Git requests only to the repository it is connected to.',
+				'Todos sends Git requests only to a GitHub repository, through Epicenter.',
 			);
+		const current = account();
+		if (current === undefined)
+			throw new Error('Sign in to Epicenter to sync with GitHub.');
+		const target = `${connectorBase(current)}/repos/${repository.owner}/${repository.name}.git`;
 		const given = new Headers(
 			init?.headers ?? (input instanceof Request ? input.headers : undefined),
 		);
@@ -447,7 +378,7 @@ export function relayFetch(
 			init?.method ?? (input instanceof Request ? input.method : 'GET');
 		let response: Response;
 		try {
-			response = await account.fetch(`${target}${rest}`, {
+			response = await current.fetch(`${target}${rest}`, {
 				method,
 				headers,
 				body: method === 'GET' ? undefined : init?.body,

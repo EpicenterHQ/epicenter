@@ -51,8 +51,6 @@ const { data: openedFolder, error: openedError } = await openFolder({
 			name: (await output(root, 'config', 'user.name')) ?? 'Native Todos',
 			email: (await output(root, 'config', 'user.email')) ?? 'native@localhost',
 		},
-		remote:
-			remoteUrl === undefined ? undefined : { url: remoteUrl, branch: 'main' },
 	},
 });
 if (openedError) {
