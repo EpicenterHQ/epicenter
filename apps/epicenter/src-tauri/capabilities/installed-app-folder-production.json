@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "installed-app-folder-production",
-	"description": "An installed app window reads and saves the folder the Rust shell registered for it. The grant lets every app- window call the Folder plugin; the plugin admits each window only to the scope registered for its exact label, which Rust registers for an ID the active host generation installed, at <folderDir>/local/<app-id>.",
+	"description": "An installed app window reads and saves the folder the Rust shell registered for it. The grant lets every app- window call the Folder plugin; the plugin admits each window only to the scope registered for its exact label, which Rust registers for an ID the active host generation installed, at <folderDir>/<app-id>.",
 	"local": false,
 	"windows": ["app-*"],
 	"remote": {

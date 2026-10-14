@@ -14,7 +14,6 @@ import { type BunBlobStore, createBunBlobStore } from '@epicenter/blobs/bun';
 import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
 import OpenAI from 'openai';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { createAccountGitRelay } from './account-git-relay.ts';
 import { discoverInstalledApplications } from './app-installation.ts';
 import { createNativeAppSecrets } from './app-secrets.ts';
 import {
@@ -72,10 +71,6 @@ async function main(): Promise<void> {
 					: undefined,
 		});
 		desktopAuth = auth;
-		// Read before the first await: the ready frame names this boot Account,
-		// which Rust holds as the owner of installed apps' folders until the
-		// native process restarts.
-		const bootAccount = auth.account;
 
 		const { engine, model } = homeEngineFromEnvironment(process.env);
 
@@ -127,13 +122,6 @@ async function main(): Promise<void> {
 			installedApplications,
 		);
 		const origin = `http://127.0.0.1:${boot.port}`;
-		// Native Git relays forward through the same boot Account the ready
-		// frame names, and all retire when that Account is disposed.
-		const gitRelay = createAccountGitRelay({
-			account: bootAccount,
-			origin,
-			signal: auth.signal,
-		});
 		const { app, websocket } = createHomeServer({
 			host,
 			origin,
@@ -145,7 +133,6 @@ async function main(): Promise<void> {
 			appSecrets,
 			aiCatalog,
 			noAccountAiCatalog,
-			gitRelay,
 		});
 
 		server = Bun.serve({
@@ -160,7 +147,6 @@ async function main(): Promise<void> {
 				createReadyFrame(
 					boot.port,
 					installedApplications.map((application) => application.id),
-					bootAccount,
 				),
 			)}\n`,
 		);

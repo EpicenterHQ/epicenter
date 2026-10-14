@@ -1,13 +1,13 @@
 #[cfg(feature = "runtime-evidence")]
 pub mod runtime_evidence;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex, OnceLock};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -106,7 +106,7 @@ const APP_WINDOW_PREFIX: &str = "app-";
 const PRODUCTION_PORT: u16 = 39_130;
 #[cfg(any(debug_assertions, test))]
 const DEVELOPMENT_PORT: u16 = 39_131;
-const PROTOCOL_VERSION: u8 = 10;
+const PROTOCOL_VERSION: u8 = 11;
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long Bun gets to shut down after its stdin closes before it is killed.
@@ -221,18 +221,12 @@ struct ReadyFrame {
     /// The installed applications this Bun generation discovered and serves.
     /// `read_ready_frame` refuses the whole frame when one is invalid.
     installed_app_ids: Vec<String>,
-    /// The credential-free Account this Bun generation booted with, or `null`
-    /// when it booted signed out. Required: `deserialize_with` stops serde
-    /// from reading an absent field as `null`, which would capture Local.
-    #[serde(deserialize_with = "Option::deserialize")]
-    boot_account: Option<device_owner::AccountIdentity>,
 }
 
 /// What one ready frame established about its Bun generation.
 #[derive(Debug, PartialEq, Eq)]
 struct Readiness {
     installed_app_ids: BTreeSet<String>,
-    boot_account: Option<device_owner::AccountIdentity>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -356,17 +350,6 @@ struct HostState {
     /// every Bun generation because the plugin keeps a scope for the native
     /// process and refuses to register one twice.
     installed_folders: Mutex<BTreeSet<String>>,
-    /// Whose folders installed apps open for this native process: the Account
-    /// the first ready Bun generation booted with, or Local (`Some(None)`).
-    /// Unset until that frame arrives. Replacing the account restarts the
-    /// whole native process, so a Bun recovery that names another owner is
-    /// refused (`capture_folder_owner`); otherwise a Folder scope registered
-    /// for one owner would keep serving that owner's directory to the next.
-    folder_owner: OnceLock<Option<device_owner::AccountIdentity>>,
-    /// Installed apps whose account data is downloading, each with the flag
-    /// that cancels it. One download per app at a time in this process; the
-    /// destination's lock keeps other processes out.
-    downloads: Mutex<BTreeMap<String, Download>>,
     pending_apps: Mutex<Vec<BuiltInApp>>,
     pending_auth_callback: Mutex<Option<String>>,
     /// A section of Home an application asked the shell to open, held until Home
@@ -385,8 +368,6 @@ impl HostState {
             process: Mutex::new(None),
             active: Mutex::new(None),
             installed_folders: Mutex::new(BTreeSet::new()),
-            folder_owner: OnceLock::new(),
-            downloads: Mutex::new(BTreeMap::new()),
             pending_apps: Mutex::new(Vec::new()),
             pending_auth_callback: Mutex::new(None),
             pending_home_section: Mutex::new(None),
@@ -441,29 +422,15 @@ impl HostState {
             .take()
     }
 
-    /// Capture the first ready generation's boot Account as the folder owner
-    /// for this native process, or refuse a later generation that booted with
-    /// another one. The same owner may come back in any number of recoveries.
-    fn capture_folder_owner(&self, boot_account: Option<device_owner::AccountIdentity>) -> Result<()> {
-        if *self.folder_owner.get_or_init(|| boot_account.clone()) != boot_account {
-            bail!(OWNER_CHANGED);
-        }
-        Ok(())
-    }
-
     fn activate(&self, token: &str, installed_app_ids: BTreeSet<String>) {
         *self.active.lock().expect("active host lock poisoned") = Some(ActiveHost {
             token: token.to_string(),
             installed_app_ids,
         });
-        self.cancel_downloads_outside(Some(token));
     }
 
-    /// The generation is gone: so is every download it started, whose relay
-    /// went with it.
     fn deactivate(&self) {
         *self.active.lock().expect("active host lock poisoned") = None;
-        self.cancel_downloads_outside(None);
     }
 
     fn active_token(&self) -> Option<String> {
@@ -491,95 +458,6 @@ impl HostState {
             .as_ref()
             .is_some_and(|active| active.token == token && active.installed_app_ids.contains(id))
     }
-
-    /// Whether the active generation lists `id` as installed.
-    fn lists_installed(&self, id: &str) -> std::result::Result<(), String> {
-        let token = self
-            .active_token()
-            .ok_or_else(|| "the Epicenter host is not ready".to_string())?;
-        if !self.admits_installed(&token, id) {
-            return Err(format!("{id} is not an installed application"));
-        }
-        Ok(())
-    }
-
-    /// Start tracking a download of `id` for the active generation, and
-    /// return its cancel flag. The generation's token is held with the flag,
-    /// so the download is cancelled when that generation stops being active.
-    fn begin_download(&self, id: &str) -> std::result::Result<Arc<AtomicBool>, String> {
-        let mut downloads = self.downloads.lock().expect("download lock poisoned");
-        if self.shutting_down.load(Ordering::Acquire) {
-            return Err("Epicenter is quitting.".to_string());
-        }
-        if downloads.contains_key(id) {
-            return Err("This app's data is already downloading.".to_string());
-        }
-        let token = self
-            .active_token()
-            .ok_or_else(|| "the Epicenter host is not ready".to_string())?;
-        let cancel = Arc::new(AtomicBool::new(false));
-        downloads.insert(
-            id.to_string(),
-            Download {
-                token,
-                cancel: Arc::clone(&cancel),
-            },
-        );
-        Ok(cancel)
-    }
-
-    fn end_download(&self, id: &str) {
-        self.downloads.lock().expect("download lock poisoned").remove(id);
-    }
-
-    fn download_running(&self, id: &str) -> bool {
-        self.downloads.lock().expect("download lock poisoned").contains_key(id)
-    }
-
-    /// Ask a running download of `id` to stop. Whether one was running.
-    fn cancel_download(&self, id: &str) -> bool {
-        match self.downloads.lock().expect("download lock poisoned").get(id) {
-            Some(download) => {
-                download.cancel.store(true, Ordering::SeqCst);
-                true
-            }
-            None => false,
-        }
-    }
-
-    fn cancel_downloads(&self) {
-        self.cancel_downloads_outside(None);
-    }
-
-    /// Cancel every download not started by the generation `token` names.
-    /// Taken after the active lock is released, never inside it.
-    fn cancel_downloads_outside(&self, token: Option<&str>) {
-        for download in self.downloads.lock().expect("download lock poisoned").values() {
-            if Some(download.token.as_str()) != token {
-                download.cancel.store(true, Ordering::SeqCst);
-            }
-        }
-    }
-}
-
-/// One running download: the generation that started it, and its cancel flag.
-struct Download {
-    token: String,
-    cancel: Arc<AtomicBool>,
-}
-
-/// The active Bun generation's control address, read again each time it is
-/// asked: a hosted transfer that starts after a Bun recovery uses the new
-/// generation, and one already running keeps the generation that started it.
-fn current_generation<R: Runtime>(app: &AppHandle<R>) -> installed_apps::CurrentGeneration {
-    let app = app.clone();
-    Arc::new(move || {
-        let state = app.state::<HostState>();
-        Some(installed_apps::Generation {
-            port: state.port().ok()?,
-            token: state.active_token()?,
-        })
-    })
 }
 
 struct LaunchedHost {
@@ -771,7 +649,7 @@ enum Application {
 ///
 /// That check matters because an installed app's window is a grant, not only
 /// a page: it gets a native Folder registered for its label under
-/// `<folderDir>/local/<id>`. An ID that shape-checks but names no member opens
+/// `<folderDir>/<id>`. An ID that shape-checks but names no member opens
 /// nothing and registers nothing, even though Home only offers listed IDs.
 ///
 /// # Why it waits
@@ -802,104 +680,6 @@ fn launch_application(
     let port = state.port().map_err(|error| format!("{error:#}"))?;
 
     launch_on_main_thread(&app, application, port, &token, true).map_err(|error| format!("{error:#}"))
-}
-
-/// Where one application's data stands on this device, as Home's Apps pane
-/// shows it beside the launch action. Read from the folder itself each time;
-/// nothing records that a download happened.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "kebab-case")]
-enum ApplicationData {
-    /// A compiled application, which owns its own data.
-    Compiled,
-    /// Signed out: an installed app opens its Local folder.
-    Local,
-    /// The account's dataset is a repository here; launching opens it.
-    Available,
-    /// The account's dataset is not here yet: download it first.
-    NotDownloaded,
-    /// Something that is not a repository is at the dataset's path. It is
-    /// neither opened nor downloaded over; `message` says how to repair it.
-    Unclaimed { message: String },
-    /// A download is running.
-    Downloading,
-}
-
-/// Read where one listed application's data stands. Creates and opens
-/// nothing, so Home can offer Download without the app's folder opening.
-#[tauri::command(async)]
-fn application_data(
-    app: DesktopAppHandle,
-    state: State<'_, HostState>,
-    app_id: String,
-) -> std::result::Result<ApplicationData, String> {
-    let Some(application) = parse_application_id(&app_id) else {
-        return Err(format!("{app_id} is not an application Home offers"));
-    };
-    let Application::Admitted(id) = application else {
-        return Ok(ApplicationData::Compiled);
-    };
-    state.lists_installed(&id)?;
-    if state.download_running(&id) {
-        return Ok(ApplicationData::Downloading);
-    }
-    let owner = state
-        .folder_owner
-        .get()
-        .ok_or_else(|| "the Epicenter host is not ready".to_string())?;
-    let paths = app.state::<app_data::DesktopPaths>();
-    match installed_apps::installed_data(&paths.folder_dir, owner.as_ref(), &id) {
-        Ok(installed_apps::InstalledData::Local) => Ok(ApplicationData::Local),
-        Ok(installed_apps::InstalledData::Available) => Ok(ApplicationData::Available),
-        Ok(installed_apps::InstalledData::NotDownloaded) => Ok(ApplicationData::NotDownloaded),
-        Ok(installed_apps::InstalledData::Unclaimed { message }) => {
-            Ok(ApplicationData::Unclaimed { message })
-        }
-        Err(error) => Err(format!("{error:#}")),
-    }
-}
-
-/// Download the signed-in account's data for one installed application,
-/// before that app opens it for the first time. Home's explicit verb; nothing
-/// downloads on launch, sign-in, or listing.
-///
-/// The folder is the dataset named exactly by the app's ID, under the Account
-/// this native process captured. Its repository is the one the account's
-/// pairing names now; that selection is recorded in the folder and never
-/// replaced by later discovery. Anything already at the destination is
-/// refused and left as it is. Resolves once the folder is in place and its
-/// transfer retired; the caller then launches the app as usual.
-#[tauri::command(async)]
-fn download_application(
-    app: DesktopAppHandle,
-    state: State<'_, HostState>,
-    app_id: String,
-) -> std::result::Result<(), String> {
-    let Some(Application::Admitted(id)) = parse_application_id(&app_id) else {
-        return Err(format!("{app_id} has no data to download"));
-    };
-    state.lists_installed(&id)?;
-    let Some(Some(account)) = state.folder_owner.get() else {
-        return Err("Sign in to Epicenter to download this app's data.".to_string());
-    };
-    let cancel = state.begin_download(&id)?;
-    let paths = app.state::<app_data::DesktopPaths>();
-    let downloaded = installed_apps::download_dataset(
-        &paths.folder_dir,
-        account,
-        &id,
-        &current_generation(&app),
-        &cancel,
-    );
-    state.end_download(&id);
-    downloaded.map(|_| ()).map_err(|error| format!("{error:#}"))
-}
-
-/// Stop a running download of one application's data before it is put in
-/// place. Whether one was running.
-#[tauri::command]
-fn cancel_application_download(state: State<'_, HostState>, app_id: String) -> bool {
-    state.cancel_download(&app_id)
 }
 
 /// Create or reveal the window on the main thread and report what happened.
@@ -995,22 +775,15 @@ fn app_window_label(id: &str) -> String {
 /// create a window against a dead token.
 const HOST_RESTARTED: &str = "the Epicenter host restarted before the window opened";
 
-/// A Bun recovery booted with another account than the one this native process
-/// captured. Only a full restart opens the other account's folders.
-const OWNER_CHANGED: &str =
-    "the Epicenter host restarted signed in to a different account; quit and reopen Epicenter";
-
 /// Admit one launch of an installed application on the main thread, and return
 /// the label of the window it may open.
 ///
 /// The active generation must be the one `token` came from, and it must have
 /// named `id` in its ready frame; both are read under one lock before anything
-/// is created. The launch that creates the window first prepares the folder
-/// the captured owner holds under the root native startup captured,
-/// `<folderDir>/local/<id>` or `<folderDir>/accounts/<account-key>/<id>`, and
-/// registers it as the Folder scope `id` for exactly this label, so the page
-/// names a scope and never a path. A refusal there, including an account
-/// dataset that has not been downloaded, opens no window. A window that
+/// is created. The launch that creates the window first prepares
+/// `<folderDir>/<id>` under the root native startup captured, and registers it
+/// as the Folder scope `id` for exactly this label, so the page names a scope
+/// and never a path. A refusal there opens no window. A window that
 /// already exists was registered when it was created and is revealed as it is,
 /// with whatever its page holds.
 fn admit_installed_app<R: Runtime>(app: &AppHandle<R>, token: &str, id: &str) -> Result<String> {
@@ -1023,19 +796,11 @@ fn admit_installed_app<R: Runtime>(app: &AppHandle<R>, token: &str, id: &str) ->
     }
     let label = app_window_label(id);
     if app.get_webview_window(&label).is_none() {
-        // Captured before any generation is activated, so an admitted launch
-        // always finds it.
-        let owner = state
-            .folder_owner
-            .get()
-            .context("no Bun generation has named the folder owner")?;
         let paths = app.state::<app_data::DesktopPaths>();
         installed_apps::ensure_folder(
             app,
             &state.installed_folders,
             &paths.folder_dir,
-            owner.as_ref(),
-            current_generation(app),
             id,
             &label,
         )?;
@@ -1122,9 +887,6 @@ pub fn run() {
     let native_handler = tauri::generate_handler![
         encode_recording_for_upload,
         launch_application,
-        application_data,
-        download_application,
-        cancel_application_download,
         departure::departure_status,
         departure::departure_answer
     ] as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
@@ -1184,9 +946,6 @@ pub fn run() {
                 invoke.message.command(),
                 "encode_recording_for_upload"
                     | "launch_application"
-                    | "application_data"
-                    | "download_application"
-                    | "cancel_application_download"
                     | "departure_status"
                     | "departure_answer"
             ) {
@@ -1632,13 +1391,7 @@ fn launch_host(app: &DesktopAppHandle, port: u16) -> Result<LaunchedHost> {
         }
     };
 
-    // The owner is checked before the caller wires any transport to this
-    // generation or opens a window for it.
-    let installed_app_ids = match ready.and_then(|readiness| {
-        app.state::<HostState>()
-            .capture_folder_owner(readiness.boot_account)?;
-        Ok(readiness.installed_app_ids)
-    }) {
+    let installed_app_ids = match ready.map(|readiness| readiness.installed_app_ids) {
         Ok(installed_app_ids) => installed_app_ids,
         Err(error) => {
             stop_starting_child(child, stdin);
@@ -2179,8 +1932,6 @@ fn stop_child(mut process: ManagedChild) {
 fn shutdown_host(app: &DesktopAppHandle) {
     let state = app.state::<HostState>();
     state.shutting_down.store(true, Ordering::Release);
-    // A download stops before publication; its relay is retired before Git is.
-    state.cancel_downloads();
     state.deactivate();
     let process = state
         .process
@@ -2480,14 +2231,8 @@ fn read_ready_frame(reader: &mut impl BufRead, expected_port: u16) -> Result<Rea
     }
     let installed_app_ids = installed_apps::validate_installed_ids(frame.installed_app_ids)
         .context("Bun named an installed application Epicenter cannot admit")?;
-    if let Some(account) = &frame.boot_account {
-        device_owner::account_key(account)
-            .map_err(|error| anyhow!(error))
-            .context("Bun named a boot account Epicenter cannot hold folders for")?;
-    }
     Ok(Readiness {
         installed_app_ids: installed_app_ids.into_iter().collect(),
-        boot_account: frame.boot_account,
     })
 }
 
@@ -2650,39 +2395,27 @@ mod tests {
     }
 
     fn ready_line(version: u8, port: u16, installed: &str) -> String {
-        ready_line_for(version, port, installed, "null")
-    }
-
-    fn ready_line_for(version: u8, port: u16, installed: &str, boot_account: &str) -> String {
         format!(
-            "{{\"type\":\"ready\",\"protocolVersion\":{version},\"port\":{port},\"installedAppIds\":{installed},\"bootAccount\":{boot_account}}}\n"
+            "{{\"type\":\"ready\",\"protocolVersion\":{version},\"port\":{port},\"installedAppIds\":{installed}}}\n"
         )
     }
 
-    fn identity(authority_id: &str, principal_id: &str) -> device_owner::AccountIdentity {
-        device_owner::AccountIdentity {
-            authority_id: authority_id.into(),
-            principal_id: principal_id.into(),
-        }
-    }
-
     #[test]
-    fn parses_only_the_expected_v10_ready_frame_and_its_installed_apps() {
+    fn parses_only_the_expected_v11_ready_frame_and_its_installed_apps() {
         assert_eq!(
             read_ready_frame(
-                &mut Cursor::new(ready_line(10, PRODUCTION_PORT, "[]")),
+                &mut Cursor::new(ready_line(11, PRODUCTION_PORT, "[]")),
                 PRODUCTION_PORT,
             )
             .unwrap(),
             Readiness {
                 installed_app_ids: BTreeSet::new(),
-                boot_account: None,
             }
         );
         assert_eq!(
             read_ready_frame(
                 &mut Cursor::new(ready_line(
-                    10,
+                    11,
                     PRODUCTION_PORT,
                     "[\"com.example.notes\",\"com.bradenwong.zhongwen\"]"
                 )),
@@ -2699,246 +2432,35 @@ mod tests {
         let longest = format!("\"a.{}\"", "b".repeat(126));
         let too_long = format!("[\"a.{}\"]", "b".repeat(127));
         read_ready_frame(
-            &mut Cursor::new(ready_line(10, PRODUCTION_PORT, &format!("[{longest}]"))),
+            &mut Cursor::new(ready_line(11, PRODUCTION_PORT, &format!("[{longest}]"))),
             PRODUCTION_PORT,
         )
         .unwrap();
         for invalid in [
             "preamble\n".to_string(),
-            // Earlier protocols, which named no installed applications or no
-            // boot Account.
-            "{\"type\":\"ready\",\"protocolVersion\":8,\"port\":39130}\n".to_string(),
-            ready_line(8, PRODUCTION_PORT, "[]"),
-            "{\"type\":\"ready\",\"protocolVersion\":9,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
-            ready_line(9, PRODUCTION_PORT, "[]"),
-            "{\"type\":\"ready\",\"protocolVersion\":10,\"port\":39130,\"bootAccount\":null}\n".to_string(),
-            ready_line(10, 39_131, "[]"),
-            "{\"type\":\"ready\",\"protocolVersion\":10,\"port\":39130,\"installedAppIds\":[],\"bootAccount\":null,\"extra\":true}\n".to_string(),
-            ready_line(10, PRODUCTION_PORT, "[]").trim_end().to_string(),
-            ready_line(10, PRODUCTION_PORT, "\"com.example.notes\""),
-            ready_line(10, PRODUCTION_PORT, "[null]"),
+            // An earlier protocol, and one that named a boot Account.
+            ready_line(10, PRODUCTION_PORT, "[]"),
+            "{\"type\":\"ready\",\"protocolVersion\":11,\"port\":39130}\n".to_string(),
+            ready_line(11, 39_131, "[]"),
+            "{\"type\":\"ready\",\"protocolVersion\":11,\"port\":39130,\"installedAppIds\":[],\"bootAccount\":null}\n".to_string(),
+            ready_line(11, PRODUCTION_PORT, "[]").trim_end().to_string(),
+            ready_line(11, PRODUCTION_PORT, "\"com.example.notes\""),
+            ready_line(11, PRODUCTION_PORT, "[null]"),
             // One bad ID refuses the frame, not just that ID.
-            ready_line(10, PRODUCTION_PORT, "[\"com.example.notes\",\"zhongwen\"]"),
-            ready_line(10, PRODUCTION_PORT, "[\"com.example.notes\",\"../escape\"]"),
-            ready_line(10, PRODUCTION_PORT, "[\"com.example.notes\",\"com.example.notes\"]"),
-            ready_line(10, PRODUCTION_PORT, "[\"con.example\"]"),
-            ready_line(10, PRODUCTION_PORT, &too_long),
+            ready_line(11, PRODUCTION_PORT, "[\"com.example.notes\",\"zhongwen\"]"),
+            ready_line(11, PRODUCTION_PORT, "[\"com.example.notes\",\"../escape\"]"),
+            ready_line(11, PRODUCTION_PORT, "[\"com.example.notes\",\"com.example.notes\"]"),
+            ready_line(11, PRODUCTION_PORT, "[\"con.example\"]"),
+            ready_line(11, PRODUCTION_PORT, &too_long),
             // The compiled applications' Folder scopes are not installable.
-            ready_line(10, PRODUCTION_PORT, "[\"so.epicenter.todos\"]"),
-            ready_line(10, PRODUCTION_PORT, "[\"so.epicenter.capture\"]"),
+            ready_line(11, PRODUCTION_PORT, "[\"so.epicenter.todos\"]"),
+            ready_line(11, PRODUCTION_PORT, "[\"so.epicenter.capture\"]"),
         ] {
             assert!(
                 read_ready_frame(&mut Cursor::new(invalid.as_bytes()), PRODUCTION_PORT).is_err(),
                 "{invalid:?}"
             );
         }
-    }
-
-    #[test]
-    fn a_ready_frame_names_exactly_one_valid_credential_free_boot_account() {
-        assert_eq!(
-            read_ready_frame(
-                &mut Cursor::new(ready_line_for(
-                    10,
-                    PRODUCTION_PORT,
-                    "[]",
-                    r#"{"authorityId":"epicenter-api","principalId":"user-123"}"#
-                )),
-                PRODUCTION_PORT,
-            )
-            .unwrap()
-            .boot_account,
-            Some(identity("epicenter-api", "user-123"))
-        );
-        // Exact bytes: nothing is trimmed or normalized on the way in.
-        assert_eq!(
-            read_ready_frame(
-                &mut Cursor::new(ready_line_for(
-                    10,
-                    PRODUCTION_PORT,
-                    "[]",
-                    r#"{"authorityId":" A","principalId":"é"}"#
-                )),
-                PRODUCTION_PORT,
-            )
-            .unwrap()
-            .boot_account,
-            Some(identity(" A", "e\u{301}"))
-        );
-
-        let missing_owner =
-            "{\"type\":\"ready\",\"protocolVersion\":10,\"port\":39130,\"installedAppIds\":[]}\n";
-        assert!(
-            read_ready_frame(&mut Cursor::new(missing_owner), PRODUCTION_PORT).is_err(),
-            "an absent bootAccount must not read as Local"
-        );
-        for boot_account in [
-            // Not an identity.
-            "false",
-            "\"epicenter-api\"",
-            "[]",
-            "{}",
-            r#"{"authorityId":"epicenter-api"}"#,
-            r#"{"principalId":"user-123"}"#,
-            r#"{"authorityId":"epicenter-api","principalId":null}"#,
-            r#"{"authorityId":7,"principalId":"user-123"}"#,
-            // Anything beyond the identity, a credential above all, is refused.
-            r#"{"authorityId":"epicenter-api","principalId":"user-123","token":"secret"}"#,
-            r#"{"authorityId":"epicenter-api","principalId":"user-123","baseURL":"https://api.epicenter.so"}"#,
-            // An identity no account directory can be derived from.
-            r#"{"authorityId":"","principalId":"user-123"}"#,
-            r#"{"authorityId":"epicenter-api","principalId":""}"#,
-            r#"{"authorityId":"epicenter-api\n","principalId":"user-123"}"#,
-            r#"{"authorityId":"epicenter-api","principalId":"user\u0085"}"#,
-            r#"{"authorityId":"\ud800","principalId":"user-123"}"#,
-            r#"{"authorityId":"epicenter-api","principalId":"\udfff"}"#,
-        ] {
-            let line = ready_line_for(10, PRODUCTION_PORT, "[]", boot_account);
-            assert!(
-                read_ready_frame(&mut Cursor::new(line.as_bytes()), PRODUCTION_PORT).is_err(),
-                "{boot_account}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_first_ready_owner_holds_for_the_native_process() {
-        let account = Some(identity("epicenter-api", "user-123"));
-        let other = Some(identity("epicenter-api", "user-456"));
-        let other_authority = Some(identity("instance-6869", "user-123"));
-
-        // Uncaptured until the first ready frame, then Local is captured,
-        // which is not the same as uncaptured.
-        let state = HostState::new(Ok(PRODUCTION_PORT));
-        assert_eq!(state.folder_owner.get(), None);
-        state.capture_folder_owner(None).unwrap();
-        assert_eq!(state.folder_owner.get(), Some(&None));
-        // A Bun recovery that signed in refuses, and Local stays captured.
-        assert_eq!(
-            state.capture_folder_owner(account.clone()).unwrap_err().to_string(),
-            OWNER_CHANGED
-        );
-        assert_eq!(state.folder_owner.get(), Some(&None));
-        // The same owner recovers any number of times.
-        state.capture_folder_owner(None).unwrap();
-        state.capture_folder_owner(None).unwrap();
-
-        // An account captured first refuses Local and every other account.
-        let state = HostState::new(Ok(PRODUCTION_PORT));
-        state.capture_folder_owner(account.clone()).unwrap();
-        for refused in [None, other, other_authority] {
-            assert_eq!(
-                state.capture_folder_owner(refused).unwrap_err().to_string(),
-                OWNER_CHANGED
-            );
-        }
-        state.capture_folder_owner(account.clone()).unwrap();
-        assert_eq!(state.folder_owner.get(), Some(&account));
-        // Capturing activates nothing: the refused generation never served.
-        assert_eq!(state.active_token(), None);
-    }
-
-    /// Home reads these exact shapes (`ui/runtime.ts`, `ApplicationData`).
-    #[test]
-    fn application_data_reaches_home_as_one_tagged_state() {
-        for (data, expected) in [
-            (ApplicationData::Compiled, serde_json::json!({ "state": "compiled" })),
-            (ApplicationData::Local, serde_json::json!({ "state": "local" })),
-            (ApplicationData::Available, serde_json::json!({ "state": "available" })),
-            (
-                ApplicationData::NotDownloaded,
-                serde_json::json!({ "state": "not-downloaded" }),
-            ),
-            (
-                ApplicationData::Unclaimed {
-                    message: "move it aside".into(),
-                },
-                serde_json::json!({ "state": "unclaimed", "message": "move it aside" }),
-            ),
-            (ApplicationData::Downloading, serde_json::json!({ "state": "downloading" })),
-        ] {
-            assert_eq!(serde_json::to_value(&data).unwrap(), expected);
-        }
-    }
-
-    #[test]
-    fn a_download_runs_once_per_app_and_quitting_cancels_every_one() {
-        let state = HostState::new(Ok(PRODUCTION_PORT));
-        let id = "com.bradenwong.zhongwen";
-        assert!(!state.cancel_download(id));
-        // Only a running generation can start one.
-        assert!(state.begin_download(id).is_err());
-        state.activate("first", BTreeSet::new());
-        let first = state.begin_download(id).unwrap();
-        assert!(state.download_running(id));
-        assert_eq!(
-            state.begin_download(id).unwrap_err(),
-            "This app's data is already downloading."
-        );
-        let other = state.begin_download("com.example.notes").unwrap();
-        assert!(state.cancel_download(id));
-        assert!(first.load(Ordering::SeqCst));
-        assert!(!other.load(Ordering::SeqCst));
-        state.end_download(id);
-        assert!(!state.download_running(id));
-        // Quitting stops what is running and refuses anything new.
-        state.shutting_down.store(true, Ordering::Release);
-        state.cancel_downloads();
-        assert!(other.load(Ordering::SeqCst));
-        assert!(state.begin_download(id).is_err());
-    }
-
-    /// A download belongs to the generation that started it: its relay ends
-    /// with that generation, so the download is cancelled when the generation
-    /// is deactivated (a Bun exit before recovery) or replaced, and never runs
-    /// on into the next one. A new download after recovery starts as usual.
-    #[test]
-    fn a_generation_that_ends_cancels_the_downloads_it_started() {
-        let state = HostState::new(Ok(PRODUCTION_PORT));
-        state.activate("first", BTreeSet::new());
-        let id = "com.bradenwong.zhongwen";
-        let started = state.begin_download(id).unwrap();
-        // The same generation re-announced keeps it.
-        state.activate("first", BTreeSet::new());
-        assert!(!started.load(Ordering::SeqCst));
-        state.deactivate();
-        assert!(started.load(Ordering::SeqCst), "cancelled with its generation");
-        // Its own completion still clears it, and nothing new starts until a
-        // generation is active again.
-        state.end_download(id);
-        assert!(state.begin_download(id).is_err());
-        state.activate("second", BTreeSet::new());
-        let retried = state.begin_download(id).unwrap();
-        assert!(!retried.load(Ordering::SeqCst), "a retry after recovery runs");
-        state.end_download(id);
-
-        // A generation replaced without a deactivation cancels too.
-        let older = state.begin_download(id).unwrap();
-        state.activate("third", BTreeSet::new());
-        assert!(older.load(Ordering::SeqCst));
-    }
-
-    #[test]
-    fn hosted_transfers_resolve_the_active_generation_each_time() {
-        let app = tauri::test::mock_builder()
-            .manage(HostState::new(Ok(PRODUCTION_PORT)))
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
-        let current = current_generation(app.handle());
-        assert_eq!(current(), None);
-        let state = app.handle().state::<HostState>();
-        state.activate("first", BTreeSet::new());
-        assert_eq!(
-            current(),
-            Some(installed_apps::Generation {
-                port: PRODUCTION_PORT,
-                token: "first".into()
-            })
-        );
-        state.activate("second", BTreeSet::new());
-        assert_eq!(current().unwrap().token, "second");
-        state.deactivate();
-        assert_eq!(current(), None);
     }
 
     #[test]
@@ -3269,9 +2791,6 @@ mod tests {
         const HANDWRITTEN: &[&str] = &[
             "encode_recording_for_upload",
             "launch_application",
-            "application_data",
-            "download_application",
-            "cancel_application_download",
             "departure_status",
             "departure_answer",
         ];
@@ -3566,13 +3085,8 @@ mod tests {
             );
             assert_eq!(
                 capability["permissions"],
-                serde_json::json!([
-                    "allow-launch-application",
-                    "allow-application-data",
-                    "allow-download-application",
-                    "allow-cancel-application-download"
-                ]),
-                "Home's Apps pane launches, and downloads an installed app's data first"
+                serde_json::json!(["allow-launch-application"]),
+                "Home's Apps pane launches"
             );
         }
     }
@@ -3811,7 +3325,7 @@ mod tests {
         let id = "com.bradenwong.zhongwen";
         let unknown = "com.example.unknown";
         let label = app_window_label(id);
-        let root = folder_dir.join("local").join(id);
+        let root = folder_dir.join(id);
 
         let origin = directory.0.join("origin.git");
         fs::create_dir_all(&origin).unwrap();
@@ -3860,9 +3374,6 @@ mod tests {
         // Before any generation is ready, nothing is admitted.
         assert_eq!(refusal("first", id), HOST_RESTARTED);
 
-        // The first ready generation booted signed out: installed apps open
-        // their Local folders for this whole native process.
-        state.capture_folder_owner(None).unwrap();
         state.activate("first", BTreeSet::from([id.to_string()]));
         // An ID that has the right shape but was never installed opens no
         // window, creates no folder, and registers no scope.
@@ -3870,7 +3381,7 @@ mod tests {
             refusal("first", unknown),
             format!("{unknown} is not an installed application")
         );
-        assert!(!folder_dir.join("local").join(unknown).exists());
+        assert!(!folder_dir.join(unknown).exists());
         assert_eq!(
             attach_folder(&window(&app_window_label(unknown)), unknown).unwrap_err()["name"],
             "UnknownScope"
@@ -3978,181 +3489,6 @@ mod tests {
             git(&root, &["rev-parse", "HEAD"])
         );
 
-        handle.folders().shutdown();
-    }
-
-    /// Every entry below `root`, so a test can show what a step wrote.
-    fn tree(root: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
-        let mut entries = Vec::new();
-        let mut stack = vec![root.to_path_buf()];
-        while let Some(directory) = stack.pop() {
-            for entry in fs::read_dir(&directory).unwrap() {
-                let path = entry.unwrap().path();
-                if fs::symlink_metadata(&path).unwrap().is_dir() {
-                    stack.push(path.clone());
-                    entries.push((path, Vec::new()));
-                } else {
-                    let bytes = fs::read(&path).unwrap();
-                    entries.push((path, bytes));
-                }
-            }
-        }
-        entries.sort();
-        entries
-    }
-
-    fn installed_test_app(
-        directory: &std::path::Path,
-    ) -> tauri::App<tauri::test::MockRuntime> {
-        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
-        for command in tauri_plugin_epicenter_folder::COMMANDS {
-            context.runtime_authority_mut().__allow_command(
-                format!("plugin:epicenter-folder|{command}"),
-                tauri::utils::acl::ExecutionContext::Local,
-            );
-        }
-        tauri::test::mock_builder()
-            .plugin(tauri_plugin_epicenter_folder::init())
-            .manage(HostState::new(Ok(PRODUCTION_PORT)))
-            .manage(app_data::DesktopPaths {
-                data_dir: directory.join("data"),
-                folder_dir: directory.join("Epicenter"),
-            })
-            .build(context)
-            .unwrap()
-    }
-
-    /// A process whose first ready generation booted with an Account opens
-    /// that account's dataset through the real Folder invoke path, under the
-    /// same scope ID, and never reads or writes the Local folder beside it.
-    #[test]
-    fn an_account_launch_opens_only_the_account_dataset() {
-        std::env::set_var("GIT_CONFIG_GLOBAL", "/dev/null");
-        std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
-        let directory = test_directory("account-launch");
-        let folder_dir = directory.0.join("Epicenter");
-        let id = "com.bradenwong.zhongwen";
-        let label = app_window_label(id);
-        let account = identity("epicenter-api", "user-123");
-        // `account-key.test.ts`'s golden vector for this identity.
-        let dataset = folder_dir
-            .join("accounts")
-            .join("b7efec8b3e072ff278fe2e331ce495dee36882be0ad2981c4e0196aeecbc1fc7")
-            .join(id);
-
-        let local = folder_dir.join("local").join(id);
-        fs::create_dir_all(&local).unwrap();
-        fs::write(local.join("local.md"), "Local").unwrap();
-        let local_before = tree(&folder_dir.join("local"));
-        // An explicit download left this dataset here; launching never does.
-        fs::create_dir_all(&dataset).unwrap();
-        git(&dataset, &["init", "--quiet", "--initial-branch=main"]);
-        git(&dataset, &["config", "user.name", "Zhongwen Learner"]);
-        git(&dataset, &["config", "user.email", "learner@example.com"]);
-        fs::write(dataset.join("account.md"), "Account").unwrap();
-
-        let app = installed_test_app(&directory.0);
-        let handle = app.handle();
-        let state = handle.state::<HostState>();
-        state.capture_folder_owner(Some(account.clone())).unwrap();
-        state.activate("first", BTreeSet::from([id.to_string()]));
-        // A Bun recovery under another account, or signed out, never serves.
-        assert!(state.capture_folder_owner(None).is_err());
-        assert!(state
-            .capture_folder_owner(Some(identity("epicenter-api", "user-456")))
-            .is_err());
-        // The same account recovers with a new token and membership.
-        state.capture_folder_owner(Some(account)).unwrap();
-        state.activate(
-            "second",
-            BTreeSet::from([id.to_string(), "com.example.notes".to_string()]),
-        );
-        assert_eq!(admit_installed_app(handle, "second", id).unwrap(), label);
-
-        let zhongwen = WebviewWindowBuilder::new(&app, &label, Default::default())
-            .build()
-            .unwrap();
-        let attached = attach_folder(&zhongwen, id).unwrap();
-        assert_eq!(attached["root"], dataset.display().to_string());
-        let session = attached["session"].as_u64().unwrap();
-        let read = folder_invoke(
-            &zhongwen,
-            "read",
-            serde_json::json!({ "session": session, "path": "account.md" }),
-        )
-        .unwrap();
-        assert_eq!(read["bytes"], serde_json::json!("Account".as_bytes()));
-        assert_eq!(
-            folder_invoke(
-                &zhongwen,
-                "read",
-                serde_json::json!({ "session": session, "path": "local.md" }),
-            )
-            .unwrap_err()["name"],
-            "NotFound"
-        );
-        folder_invoke(
-            &zhongwen,
-            "apply",
-            serde_json::json!({
-                "session": session,
-                "changes": [{ "kind": "create", "path": "decks/hsk1.md", "bytes": "你好".as_bytes() }],
-            }),
-        )
-        .unwrap();
-        assert_eq!(
-            fs::read_to_string(dataset.join("decks/hsk1.md")).unwrap(),
-            "你好"
-        );
-        folder_invoke(
-            &zhongwen,
-            "commit",
-            serde_json::json!({ "session": session }),
-        )
-        .unwrap();
-        assert_eq!(tree(&folder_dir.join("local")), local_before);
-
-        handle.folders().shutdown();
-    }
-
-    /// An account dataset that was never downloaded refuses the launch with a
-    /// request to download it, and the launch writes nothing anywhere.
-    #[test]
-    fn an_account_launch_without_its_dataset_creates_nothing() {
-        let directory = test_directory("account-launch-missing");
-        let folder_dir = directory.0.join("Epicenter");
-        let id = "com.bradenwong.zhongwen";
-        let local = folder_dir.join("local").join(id);
-        fs::create_dir_all(&local).unwrap();
-        fs::write(local.join("local.md"), "Local").unwrap();
-        let before = tree(&directory.0);
-
-        let app = installed_test_app(&directory.0);
-        let handle = app.handle();
-        let state = handle.state::<HostState>();
-        state
-            .capture_folder_owner(Some(identity("epicenter-api", "user-123")))
-            .unwrap();
-        state.activate("first", BTreeSet::from([id.to_string()]));
-
-        let refusal = admit_installed_app(handle, "first", id).unwrap_err();
-        assert!(
-            format!("{refusal:#}").contains(&format!(
-                "Download it explicitly before opening {id}"
-            )),
-            "{refusal:#}"
-        );
-        assert_eq!(tree(&directory.0), before);
-        assert!(state.installed_folders.lock().unwrap().is_empty());
-        // No scope was registered, so a window under the label reaches nothing.
-        let window = WebviewWindowBuilder::new(&app, app_window_label(id), Default::default())
-            .build()
-            .unwrap();
-        assert_eq!(
-            attach_folder(&window, id).unwrap_err()["name"],
-            "UnknownScope"
-        );
-        assert_eq!(tree(&directory.0), before);
         handle.folders().shutdown();
     }
 
@@ -4376,7 +3712,7 @@ mod tests {
         assert_eq!(
             frame,
             serde_json::json!({
-                "type": "boot", "protocolVersion": 10, "token": "safe_token",
+                "type": "boot", "protocolVersion": 11, "token": "safe_token",
                 "port": PRODUCTION_PORT, "authCell": "opaque",
                 "authServer": configured_auth_server().unwrap().server,
                 "accountManagement": configured_auth_server().unwrap().account_management,

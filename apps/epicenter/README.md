@@ -9,7 +9,6 @@ trusted SPA source                 Epicenter build output
 
 apps/whispering/src  -----------> dist/whispering
 apps/capture/src     -----------> dist/capture
-apps/local-mail/ui   -----------> dist/mail
 apps/todos/src       -----------> dist/todos
 apps/epicenter/src/ui -----------> dist/home
                                           |
@@ -20,21 +19,23 @@ apps/epicenter/src/ui -----------> dist/home
                               apps/epicenter/src-tauri
 ```
 
-The host serves Home and four compiled applications: Whispering, Capture,
-Local Mail, and Todos. Application routes live below `/apps/<id>/`. The
-`epicenter-host` build condition selects each product's host integrations.
-Honeycrisp has a separate desktop shell.
+The host serves Home and three compiled applications: Whispering, Capture, and
+Todos. Application routes live below `/apps/<id>/`; the Mail and Books routes
+serve placeholder pages (`src/placeholder-pages.ts`). The `epicenter-host` build
+condition selects each product's host integrations. Honeycrisp has a separate
+desktop shell.
 
-Capture and Todos reach native file folders through the shared Folder plugin.
-Installed applications also reach the native folder registered for their ID.
-Local Mail uses its account-bound store and SQLite capability. The shared-host
-Whispering bundle currently has no supported folder bridge and refuses before
-acquiring a folder; its inclusion in the catalog does not establish usable
-hosted editing. Standalone Whispering owns its own folder and lifecycle.
+Capture, Todos, and installed applications reach native file folders through
+the shared Folder plugin. Todos' page runs `@epicenter/folder`'s own engine over
+a directory the shell grants (ADR-0531); Capture and installed applications
+attach to the plugin's Rust folder owner. The shared-host Whispering bundle
+currently has no supported folder bridge and refuses before acquiring a folder;
+its inclusion in the catalog does not establish usable hosted editing.
+Standalone Whispering owns its own folder and lifecycle.
 
 The host brokers credentials and owns native resources. Product pages own
-unsaved input. The native Folder owner owns file publication, watching, and Git;
-the Bun sidecar serves product bundles without owning their row input.
+unsaved input. The Bun sidecar serves product bundles without owning their row
+input.
 
 ## Configure the server
 
@@ -109,27 +110,6 @@ macOS development executable has no registered URL scheme. Packaged builds keep
 `epicenter://auth/callback`. If you set `EPICENTER_DEV_PORT`, set it on this root
 command so the API approves the same exact callback port the host binds.
 
-Local Mail's Google client arrives at build time, because a page cannot read a
-machine's environment. The launcher supplies it and changes nothing else:
-
-```bash
-bun dev:epicenter:mail
-```
-
-It is `bun dev:epicenter` wrapped in `infisical run` against the development
-environment, reading `VITE_GMAIL_CLIENT_ID` and `VITE_GMAIL_CLIENT_SECRET` from
-Infisical `/apps/local-mail`. They are stored under the names the build reads,
-so no secret is named twice and the launcher stays one command. Without it the
-build is honest about having no client and says so where a person would click
-Connect.
-
-A release needs the same values or it ships that honest refusal to everyone, so
-`desktop:build:remote` is the packaging command rather than bare `desktop:build`
-(`:remote` means production Infisical, per the suffix convention in the root
-`AGENTS.md`). The client identifies Local Mail to Google and is compiled into
-the bundle by design; the per-account refresh token is the secret, and it never
-leaves the machine's keychain (ADR-0310).
-
 Epicenter opens Home, which is an application beside the others rather than a
 shell above them (ADR-0209). Its Apps pane lists what this build can launch, the
 compiled applications plus the selected catalog generation's members, and
@@ -150,22 +130,23 @@ open 'epicenter://app/home'
 
 ## The Todos folder
 
-Todos keeps each todo as a Markdown file in an ordinary directory:
+Todos keeps each todo as a Markdown file in an ordinary Git repository:
 `so.epicenter.todos` under the authored folder root native startup resolved
 (`~/Epicenter` in production, `~/Epicenter Dev` in development, or
-`EPICENTER_FOLDER_DIR`). Other programs edit the same files.
+`EPICENTER_FOLDER_DIR`). Other programs edit the same files and run `git` in
+the same repository.
 
 The Rust shell installs the shared `tauri-plugin-epicenter-folder` and registers
-`so.epicenter.todos` for the `todos` window. Registration selects the directory;
-first attach opens it. The folder owner survives page reloads and sibling
-client departures until native shutdown drains it.
-
-The page uses the shared TypeScript Folder adapter over generated Tauri invoke
-commands. Todos has its own capability grant for the trusted production or
-development origin. The Bun host serves its compiled UI; Todos file operations
-have no HTTP route. Markdown interpretation and the restricted terminal remain
-shared TypeScript code, while Rust owns file publication, Git, watching, and the
-cross-process lock.
+`so.epicenter.todos` for the `todos` window as a page-engine folder (ADR-0531).
+The first grant creates the directory, takes the cross-process lock until
+shutdown, and lets the window read beneath it. The page opens the folder with
+`@epicenter/folder`'s own engine: files through Tauri's fs plugin, writes and
+Git through the shell (`write_folder_file`, `run_git`), which change only the
+files Todos declares and run only the Git operations the engine uses. History
+is real Git, so Save version is a commit and Sync pushes to and fetches from the
+repository's own `origin` with the person's own Git credentials. Todos has its
+own capability grant for the trusted production or development origin; its file
+operations have no HTTP route.
 
 A window close hides the loaded page and preserves its drafts. Quitting or
 restarting Epicenter asks the page first (see [Leaving Epicenter](#leaving-epicenter));
@@ -201,8 +182,8 @@ its 400 ms batch. So before the process quits, or restarts for an account
 change, the native host runs one departure round
 (`src-tauri/src/departure.rs`) and asks both windows. The pages own their
 drafts; the host owns the round and a generation for each page. Nothing else
-takes part: Whispering's shared-host build has no folder root, and Home, Mail,
-and admitted apps hold no file-backed drafts.
+takes part: Whispering's shared-host build has no folder root, and Home and
+admitted apps hold no file-backed drafts.
 
 - **Who is asked.** The `capture` and `todos` windows that exist when the round
   starts, hidden ones included. No window joins later: while a round runs, a
@@ -332,91 +313,11 @@ outside `bundle/`. Restart Epicenter after installation so startup discovers the
 new application and composes it with the compiled applications.
 
 An installed app opens `@epicenter/folder` with its manifest ID. Native launch
-registers that scope for the app's exact window label, at one dataset named by
-the app ID under the owner the native process captured from Bun's first ready
-frame (ADR-0461):
-
-```text
-signed out   <folderDir>/local/<app-id>                    created on launch
-signed in    <folderDir>/accounts/<account-key>/<app-id>   downloaded first
-```
-
-The shell supplies the path; the page never chooses a native directory. The
-folder uses the repository's author and `origin` when configured, with local
-history otherwise. A Bun recovery that boots with another account is refused;
-only a full restart opens another owner's folders. Signing out never redirects
-a missing account dataset to Local.
-
-A signed-in installed app opens its account dataset only once that folder is a
-Git repository on this device: a real `.git` with `HEAD`, `objects`, and `refs`,
-which a download or a clone leaves, including an unborn `main`. Home's Apps pane
-reads this from the folder each time and shows "Available locally"; nothing
-records that a download happened. Where nothing is there it offers Download,
-and launching alone refuses with a request to download. A directory at that
-path that is not a repository, empty, holding files, or holding an empty
-`.git`, is neither opened nor downloaded over: Home shows how to repair it by
-hand (move it aside, download, copy files back in), and nothing in it changes.
-The Folder owner checks the same rule again under the folder's lock, so a
-`.git` that disappears after Home looked never becomes new history. The
-download:
-
-1. confirms the active generation lists the app, and asks Bun for the account's
-   GitHub pairing of the folder named by the app ID;
-2. reserves `<folderDir>/accounts/<account-key>/<app-id>` with the folder's
-   sibling lock, refusing anything already there;
-3. fetches `main` through a relay into a dot-prefixed sibling, writes its files
-   as their exact bytes, and refuses links, executables, attribute
-   conversions, and case collisions. A repository with no ref at all gives an
-   unborn `main`; one with any other branch or tag but no `main` is refused
-   with its refs named and its staging kept. This is narrower than the browser
-   folder's download, which can start `main` beside other refs;
-4. records the canonical `origin` and `.git/epicenter/hosted.json`: the account,
-   folder ID, GitHub repository ID, pairing revision, URL, and branch;
-5. retires the relay in the Bun generation that started it, which must confirm
-   the transfer finished: a relay already gone (the Account was disposed or Bun
-   restarted), a refusal it saw, or a host that cannot answer keeps the
-   staging directory and publishes nothing;
-6. unless cancelled by then, publishes with a rename that refuses anything at
-   the destination, even an empty directory, and Home launches the app.
-
-A failure after history arrived keeps the staging directory and names it; a
-cancellation or an earlier failure leaves nothing. A running download belongs
-to the Bun generation that started it and is cancelled when that generation is
-deactivated or replaced, as on quitting. A cancel that lands with the rename
-leaves the complete folder in place and is reported, not opened: Home then
-shows it as available locally. Download never returns success after a cancel. Windows refuses before
-reserving anything until such a publication is proven there.
-
-`hosted.json` is the one record of the repository a person selected. It holds
-no credential, is never replaced, and is read under the folder's lock when a
-transfer starts. Each transfer is then admitted only if the folder's `origin`
-is that canonical URL and branch, and the pairing the account's server holds
-now, read through the boot Account, equals the record in every field:
-account, folder, repository ID, revision, URL, and branch. A replacement
-repository at the same URL, a replaced pairing, or a record edited by hand
-starts no relay. Discovery never rewrites the record. A missing, malformed,
-linked, or foreign record refuses hosted transfers and nothing else: editing
-never needs the network, the session, or the pairing. A changed `origin` is
-not repeated in the refusal, since a configured URL can carry a credential.
-
-Git never holds an Epicenter or GitHub credential. For each fetch or push the
-folder's owner asks the current Bun generation, on its own loopback listener
-with the launch token, for a relay (`src/account-git-relay.ts`): a capability
-path that forwards one service of one pairing revision through the boot
-Account. Git receives only the relay URL, under fixed controls: HTTP only, no
-hooks, fsmonitor, maintenance, proxy, or trace, and its destination pinned
-against URL rewrites. The relay URL is a capability while it lives: Git's
-output is redacted before any error, snapshot, or log reads it, naming the
-canonical repository instead. Redirects, session refusals, and connector refusals reach Git as a
-plain 502, so no credential helper or prompt runs. A cancel retires the relay
-before Git is stopped; completion and failure retire it too, and disposing the
-Account retires every relay at once. Only the original generation's own
-confirmation counts as a finished transfer: when retiring finds the relay
-already gone, sees a recorded refusal, or cannot reach that generation, a push
-Git completed is reported as unconfirmed (it may have landed; nothing is undone
-or retried) and a fetch is not reported as fetched. The relay's upstream fetch sets
-`keepalive: false`, which the Account passes to the underlying fetch even for
-a streamed body.
+registers that scope for the app's exact window label, at `<folderDir>/<app-id>`
+beside the compiled applications' folders, whoever is signed in (ADR-0532). The
+shell supplies the path; the page never chooses a native directory. The folder
+uses the repository's author and `origin` when configured, with local history
+otherwise, and syncs with the person's own Git credentials.
 
 Bun discovers installed IDs once and names them in its versioned ready frame.
 Rust admits launches against that list and its matching launch token before
@@ -433,9 +334,6 @@ bun run --cwd apps/epicenter build:desktop
 
 # Package the complete native application
 bun run --cwd apps/epicenter desktop:build
-
-# Package it for release, with Local Mail's Google client compiled in
-bun run --cwd apps/epicenter desktop:build:remote
 
 # Typecheck the host and Home
 bun run --cwd apps/epicenter typecheck

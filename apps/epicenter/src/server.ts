@@ -30,20 +30,10 @@ import {
 	deviceOwnerPath,
 	isDeviceOwnerPath,
 } from '@epicenter/principal';
-import type { Server } from 'bun';
 import { type Context, Hono, type Next } from 'hono';
-import { createBunWebSocket, getBunServer } from 'hono/bun';
+import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
-import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { createLogger } from 'wellcrafted/logger';
-import {
-	type AccountGitRelay,
-	GIT_RELAY_ROUTE,
-	isGitService,
-	NATIVE_GIT_ROUTE,
-	parseAccountIdentity,
-	refuseInvalidNativeGitRequest,
-} from './account-git-relay.ts';
 import type { AppSecretOwner } from './app-secrets.ts';
 import type { Application } from './applications.ts';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
@@ -98,8 +88,6 @@ export type HomeServerOptions = {
 	appSecrets?: AppSecretOwner;
 	aiCatalog?: AiCatalog;
 	noAccountAiCatalog?: AiCatalog;
-	/** The boot Account's native Git relays; absent, their routes do not exist. */
-	gitRelay?: AccountGitRelay;
 };
 
 const SESSION_COOKIE = 'epicenter_session';
@@ -118,7 +106,6 @@ export function createHomeServer({
 	appSecrets,
 	aiCatalog,
 	noAccountAiCatalog,
-	gitRelay,
 }: HomeServerOptions) {
 	if (launchToken === '') {
 		throw new Error('Device refuses to serve without a launch token.');
@@ -188,78 +175,6 @@ export function createHomeServer({
 		});
 		return c.body(null, 204);
 	});
-	if (gitRelay) {
-		// The native host's own calls. Rust sends the launch token and never an
-		// Origin or a cookie; a page always sends an Origin on a POST, so no
-		// page reaches these through its browser session.
-		app.use(`${NATIVE_GIT_ROUTE}/*`, async (c, next) => {
-			c.header('cache-control', 'no-store');
-			if (
-				c.req.header('origin') !== undefined ||
-				c.req.header('cookie') !== undefined
-			)
-				return c.text('Forbidden', 403);
-			const header = c.req.header('authorization');
-			const candidate = header?.startsWith('Bearer ')
-				? header.slice('Bearer '.length)
-				: undefined;
-			if (candidate === undefined || !tokensMatch(candidate, launchToken))
-				return c.text('Unauthorized', 401);
-			await next();
-		});
-		app.post(`${NATIVE_GIT_ROUTE}/pairing`, async (c) => {
-			const body = await readJsonObject(c.req.raw);
-			const account = parseAccountIdentity(body?.account);
-			if (
-				!body ||
-				!account ||
-				typeof body.folderId !== 'string' ||
-				Object.keys(body).length !== 2
-			)
-				return c.json(refuseInvalidNativeGitRequest(), 400);
-			const result = await gitRelay.pairing(account, body.folderId, {
-				signal: c.req.raw.signal,
-			});
-			if ('error' in result)
-				return c.json(result, result.status as ContentfulStatusCode);
-			return c.json(result);
-		});
-		app.post(`${NATIVE_GIT_ROUTE}/relays`, async (c) => {
-			const body = await readJsonObject(c.req.raw);
-			const account = parseAccountIdentity(body?.account);
-			if (
-				!body ||
-				!account ||
-				typeof body.folderId !== 'string' ||
-				typeof body.revision !== 'string' ||
-				!isGitService(body.service) ||
-				Object.keys(body).length !== 4
-			)
-				return c.json(refuseInvalidNativeGitRequest(), 400);
-			const result = gitRelay.start({
-				account,
-				folderId: body.folderId,
-				revision: body.revision,
-				service: body.service,
-			});
-			if ('error' in result)
-				return c.json(result, result.status as ContentfulStatusCode);
-			return c.json({ relay: result });
-		});
-		app.post(`${NATIVE_GIT_ROUTE}/relays/:id/retire`, (c) =>
-			c.json(gitRelay.retire(c.req.param('id'))),
-		);
-		// Git's own requests. The path is the capability; the launch token
-		// never reaches Git or anything upstream.
-		app.all(`${GIT_RELAY_ROUTE}/:token/*`, (c) => {
-			const token = c.req.param('token');
-			const prefix = `${GIT_RELAY_ROUTE}/${token}`;
-			const pathname = new URL(c.req.url).pathname;
-			// A long pack exchange can be silent for longer than the idle timeout.
-			if (c.env) getBunServer<Server<undefined>>(c)?.timeout(c.req.raw, 0);
-			return gitRelay.handle(c.req.raw, token, pathname.slice(prefix.length));
-		});
-	}
 	// Development has no installed macOS URL handler. The pending authority
 	// accepts only its exact callback and random state; no Home cookie is used.
 	if (desktopAuth.callbackUrl === SIGN_IN_CALLBACK_ROUTE.url(origin)) {

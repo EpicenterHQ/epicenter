@@ -103,8 +103,6 @@ export function createDesktopAuthAuthority({
 		credentialUnreadable,
 	};
 	let disposed = false;
-	/** Aborted by disposal, so owners of the boot Account's work retire with it. */
-	const lifetime = new AbortController();
 	/**
 	 * A relaunch preparation is outstanding. Set before its first await, so one
 	 * account change at a time reaches Rust: synchronous disposal used to give
@@ -155,7 +153,6 @@ export function createDesktopAuthAuthority({
 	function dispose() {
 		if (disposed) return;
 		disposed = true;
-		lifetime.abort();
 		cancelAttempt();
 		stopCallbacks();
 		auth[Symbol.dispose]();
@@ -243,8 +240,6 @@ export function createDesktopAuthAuthority({
 		acceptSignInCallback,
 		bootSnapshot,
 		account,
-		/** Aborts once, when this authority and its boot Account are disposed. */
-		signal: lifetime.signal,
 		get restartRequired() {
 			return (
 				disposed ||

@@ -180,7 +180,6 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 			acceptSignInCallback: () => false,
 			account,
 			bootSnapshot: bootstrap,
-			signal: new AbortController().signal,
 			getState() {
 				const state = auth.getState();
 				return state.status === 'signed-out' || state.account !== account

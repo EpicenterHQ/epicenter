@@ -23,7 +23,7 @@ const SHUTDOWN_GRACE_MS = 10_000;
 const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_NATIVE_PENDING = 64;
 
-export const SIDECAR_PROTOCOL_VERSION = 10;
+export const SIDECAR_PROTOCOL_VERSION = 11;
 export const PRODUCTION_PORT = 39_130;
 
 export type SidecarRuntimeMode = 'production' | 'development';
@@ -47,19 +47,12 @@ export type BootFrame = {
  * scopes for. Bun discovers it once at boot; Rust never reads the catalog from
  * disk, and refuses the frame when an ID breaks the managed folder-name rules
  * or repeats.
- *
- * `bootAccount` is the Account this generation booted with, `null` when it
- * booted signed out, as exactly `authorityId` and `principalId`; no credential
- * crosses here. Rust captures the first one it reads as the owner of every
- * installed app's folder for the native process, and refuses a later
- * generation that names another.
  */
 export type ReadyFrame = {
 	type: 'ready';
 	protocolVersion: typeof SIDECAR_PROTOCOL_VERSION;
 	port: number;
 	installedAppIds: string[];
-	bootAccount: AccountIdentity | null;
 };
 
 type SidecarServer = {
@@ -257,28 +250,15 @@ export function parseBootFrame(
 	return frame as BootFrame;
 }
 
-/**
- * Build the ready frame. `bootAccount` is projected to its two identity
- * fields, so passing a live Account never puts its fetch or anything else it
- * carries on the pipe.
- */
 export function createReadyFrame(
 	port: number,
 	installedAppIds: readonly string[],
-	bootAccount: AccountIdentity | null,
 ): ReadyFrame {
 	return {
 		type: 'ready',
 		protocolVersion: SIDECAR_PROTOCOL_VERSION,
 		port,
 		installedAppIds: [...installedAppIds],
-		bootAccount:
-			bootAccount === null
-				? null
-				: {
-						authorityId: bootAccount.authorityId,
-						principalId: bootAccount.principalId,
-					},
 	};
 }
 
