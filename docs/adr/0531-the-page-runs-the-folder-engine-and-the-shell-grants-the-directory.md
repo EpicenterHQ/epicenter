@@ -39,7 +39,10 @@ copies. Git stores every object (`hash-object -w`). Rust runs `git`
 for the page (`run_git`) only in a granted root whose `.git` is its own
 directory, only as the exact operations the engine uses, pushing and
 fetching only `origin`, which a page may set only to a network URL, with no
-hook, fsmonitor, terminal prompt, or inherited repository variables. Fixtures recorded from the engine's real-Git
+hook, fsmonitor, terminal prompt, or inherited repository variables. A push or
+fetch to an `https` origin may carry one credential, which Git reads from its
+environment as a header for that URL alone
+([ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)). Fixtures recorded from the engine's real-Git
 tests keep both checks and the engine in step.
 
 The page opens a directory folder: the browser's file storage over a

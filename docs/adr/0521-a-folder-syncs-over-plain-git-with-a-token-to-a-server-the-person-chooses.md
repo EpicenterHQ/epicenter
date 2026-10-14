@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-14
 - **Relates:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) keeps the remote in `remote.origin.url`; [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) names the three hosts an app runs in; [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) gives each synced folder its own repository; [ADR-0489](0489-folder-transfers-happen-only-when-a-person-syncs.md) keeps transfers explicit; [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) syncs only a repository-root data folder.
-- **Unbuilt:** `mountGitApp` and its repository store interface in `@epicenter/server`; the Artifacts store in `apps/api`; the disk store in `apps/self-host`; LFS routes on the blob stores; the folder engine's LFS client; the browser transport without GitHub rewriting; Todos' Sync panel in place of its GitHub picker; deleting the GitHub connector; pushes over the Worker's request limit.
+- **Unbuilt:** the disk store in `apps/self-host`; listing a principal's repositories; LFS routes on the blob stores; the folder engine's LFS client; pushes over the Worker's request limit; hosted sync for installed apps, which comes with moving them to page-engine folders ([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)); a desktop run of Todos syncing with Epicenter.
 
 ## Context
 
@@ -66,6 +66,19 @@ Measured on 2026-10-14:
     `expiresAt`. A namespace appears with its first repository and was
     removed with `DELETE /artifacts/namespaces/<name>` (204), which the docs
     do not list.
+- **The built module, live, on 2026-10-14**, deployed as a throwaway Worker
+  with a fixed test principal in place of Better Auth, on its own namespace:
+  - Connect created a repository in 5.5 seconds and answered again in 0.7.
+    An 81-character repository name was accepted.
+  - The binding's errors crossed into the Worker as a plain `Error` with no
+    `code`, its kind only in the message (`ArtifactsError: Repository not
+    found: <name>.`, `ArtifactsError: repo already exists: <name>`).
+  - Chromium on two other origins, as two devices, pushed, fetched, and read
+    each other's change through the real browser folder engine in 1.3 to 3.4
+    seconds a sync. A wrong token reached the engine as a readable 401.
+  - System `git` pushed and cloned with the token as a URL-scoped header from
+    its environment, and through Git's own Basic challenge, in about 3
+    seconds; another principal's token was refused with 403.
 - **A disk store** was prototyped earlier (`apps/api/evidence/folder-git-host`,
   kept in commit `010c22492c`): a Bun router, SQLite repository records, and
   native `git http-backend`, with 134 passing checks against ordinary Git
@@ -84,44 +97,64 @@ response, 401 included.
 ```text
 app            browser | desktop page | Bun            remote URL + token
 ═══════════════ Git smart HTTP + token (+ CORS) ═══════  everything an app depends on
-control plane  POST /git/connect { folder } → { remote, token }     GET /git/repos
-git front      /git/<owner>/<folder>.git/*    token check, CORS, forwarding
+control plane  POST /api/git/connect { folder } → { remote, token, expiresAt, expiresIn }
+git front      /git/<name>.git/*              CORS, header hygiene, forwarding
 ═══════════════ repository store ═══════════════════════
 storage        Artifacts | bare repositories on disk
 ```
 
-**Epicenter's server implements the contract once, as a Hono module both
-deployments mount.** `mountGitApp(app, { repos, blobs, resolvePrincipal, policy })`
-in `@epicenter/server`, beside the existing `mountSessionApp` and
-`mountPersonalAuthorityBlobs`:
+**Epicenter's server implements the contract once, as a Hono module every
+deployment mounts.** `mountGitApp(app, { auth, resolveStore })` in
+`@epicenter/server`, beside `mountSessionApp` and `mountPersonalAuthorityBlobs`:
 
 | Route | Does |
 | --- | --- |
-| `POST /git/connect` | creates the folder's repository if it is missing, then returns its URL and a write token for that repository alone |
-| `GET /git/repos` | lists the signed-in principal's repositories |
-| `/git/<owner>/<folder>.git/{info/refs,git-upload-pack,git-receive-pack}` | checks the token, adds CORS, hands the request to `repos.serve` |
-| `/git/<owner>/<folder>.git/info/lfs/objects/batch` | Git LFS over the existing blob stores |
+| `POST /api/git/connect` | for the session's principal, finds or creates the folder's repository and returns its URL and a write token for it alone |
+| `GET /git/<name>.git/info/refs?service=…`, `POST /git/<name>.git/git-upload-pack`, `POST /git/<name>.git/git-receive-pack` | hands the request to the store with only `Authorization`, `Content-Type`, `Content-Encoding`, `Accept`, and `Git-Protocol`; answers 401 itself when there is no `Authorization` |
 
-The repository store is the replaceable part. Its interface settles once the
-disk store exists beside the Artifacts store; the Artifacts store needs:
+- Connect is under `/api/` because a desktop page reaches its server only
+  through the host's account relay, which forwards `/api/` and `/v1/`. The
+  Git routes are outside it because the cookie-CSRF guard on `/api/*` would
+  refuse a terminal `git` push, which carries Basic credentials and no
+  `Origin`.
+- The Git routes check no session: the token is the credential, and the store
+  checks it. The global trusted-origin CORS answers preflights and decorates
+  every response, 401 included. `WWW-Authenticate` is removed when the request
+  has an `Origin`, so a browser reads a 401 instead of prompting, and kept for
+  a terminal client, which needs the challenge.
+- The remote is `<server>/git/<name>.git`, built from the deployment's
+  configured origin. The Artifacts store names a repository
+  `<folder>.<tag>`, `tag` being 16 hex characters of SHA-256 over the
+  principal ID, so the principal ID is in no URL and two principals never
+  share a repository.
+- A store returns `null` where a deployment keeps none: self-host and the API
+  on Bun answer connect with 503 `GitUnavailable`.
 
-| Need | Artifacts |
-| --- | --- |
-| find or create a folder's repository | `get` throws for a missing repository, so `create` follows it |
-| mint a token for one repository | `createToken(scope, ttl)`; the store passes the token through and Artifacts checks it, so the front holds no token check of its own |
-| the upstream Git URL | `https://<account>.artifacts.cloudflare.net/git/<namespace>/<repo>.git`, derived from configuration rather than looked up per request |
-| forward one Git request | the request with its `Authorization`, `Content-Type`, `Accept`, and `Git-Protocol` headers; the response with `WWW-Authenticate` removed and CORS added |
+The repository store is the replaceable part:
 
-A disk store checks tokens itself, so the token check sits inside the store,
-not in the front.
+```ts
+type GitRepositoryStore = {
+  connect(principal, folder): Promise<{ name; token; expiresAt }>;
+  serve(name, { service, advertisement, headers, body, signal }): Promise<Response>;
+};
+```
 
-| Deployment | Runtime | Repository store | LFS bytes | Sign-in | `policy` |
-| --- | --- | --- | --- | --- | --- |
-| hosted | `apps/api` Worker | Artifacts binding | R2 | Better Auth | Autumn quotas |
-| self-host | `apps/self-host` Bun | bare repositories served by `git http-backend` | local blob store or S3 | passkeys | allows everything |
+The Artifacts store finds a repository with `get`, creates it on `main` when
+`get` reports it missing, and mints a one-hour write token with
+`createToken`. It serves without touching the binding: the upstream URL is
+`https://<account>.artifacts.cloudflare.net/git/<namespace>/<name>.git`, from
+the `ARTIFACTS_ACCOUNT_ID` secret and the `ARTIFACTS_NAMESPACE` variable, and
+Artifacts checks the token. A disk store would check tokens itself, so the
+token check sits inside the store, not in the front.
 
-Billing stays in `apps/api`; the module only asks `policy` before creating a
-repository or accepting a push.
+| Deployment | Runtime | Repository store | Sign-in |
+| --- | --- | --- | --- |
+| hosted | `apps/api` Worker | Artifacts binding, one namespace per environment | Better Auth |
+| self-host | `apps/self-host` | none yet | passkeys |
+
+Hosted Git is unmetered, like hosted blobs. Billing would stay in `apps/api`
+as one more `auth` middleware before connect; a token can also reach
+Artifacts directly, so a front-only meter could not be complete.
 
 **A build fixes the server an app signs in to, and that server hosts its Git.**
 Epicenter's builds sign in to `https://api.epicenter.so`; a self-hoster builds
@@ -129,16 +162,26 @@ the same apps with `SELF_HOST_ORIGIN` set, the switch Todos already reads in
 `src/lib/platform/auth.browser.ts`. There is no server picker and no stored
 choice of server. Apps are static files on their own origins, and anyone may
 host them or ship apps of their own; a sync server never serves app pages.
-The remote is never part of a build: `/git/connect` returns it, and the folder
-keeps it in `remote.origin.url`.
+The remote is never part of a build: `/api/git/connect` returns it, and the
+folder keeps it in `remote.origin.url`.
 
 **A token reaches one repository and comes from the sign-in.** Connect returns
-a write token for one repository, and the app asks for a fresh one with its
-session before it expires. A desktop page passes it to its own `git` runs. For
-any other server, the person enters the URL and a token they pasted or scanned.
-A desktop page also accepts any network URL with the person's own Git
-credentials ([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-No app registers as an OAuth client in this version.
+a write token for one repository. The folder engine asks the app for a
+credential right before each push and fetch with the exact URL it is about to
+reach (`credentials` in `@epicenter/folder`), and keeps nothing it is given.
+The app gives Epicenter's token only to the remote the server named, renews it
+five minutes before `expiresIn` (the server's clock, not the device's) runs
+out, and forgets it when the account signs out or changes. Forgetting it is
+local: a token already given out stays valid at Artifacts until it expires,
+and a transfer already running finishes. In the browser the credential is a Basic header on isomorphic-git's
+requests, with no cookies and no redirects. On the desktop the shell passes it
+to `git` through Git's environment, never its arguments, as
+`http.<origin>.extraHeader` with redirects off and no credential helper, and
+only for a push or fetch to the folder's own `https` origin
+([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
+For any other server, the person enters the URL and a token, kept on the device
+for that URL. A desktop page also accepts any network URL with the person's
+own Git credentials. No app registers as an OAuth client in this version.
 
 | Server | Desktop page | Browser |
 | --- | --- | --- |
@@ -152,10 +195,15 @@ merged back.
 
 ## Consequences
 
-- Deleted once the apps move: `apps/api/worker/git-connector/` (the GitHub App,
-  encrypted grants, pairings, relay, and `/sync` callbacks), Todos'
-  `GitHubPicker` and `GitHubReturn`, the browser transport's GitHub rewriting,
-  `hosted.rs`, and `account-git-relay.ts`.
+- Deleted: `apps/api/worker/git-connector/` (the GitHub App, encrypted grants,
+  pairings, relay, and `/sync` callbacks) with its Durable Object, whose
+  migration `v7` deletes every stored grant on the next deploy; Todos'
+  `GitHubPicker`, `GitHubReturn`, and `/sync`; the browser transport's GitHub
+  rewriting; and the desktop's hosted download and relay.
+- A token in a desktop `git` process's environment is readable by other
+  processes of the same user, as the person's other secrets on that account
+  are. A credential helper fed over a private channel would hide it from them
+  too, at the cost of a bundled helper and its lifecycle; it was not built.
 - One Sync journey on every device: sign in, connect, sync. A person needs no
   GitHub account.
 - A token from Epicenter's server reaches one repository and expires. A
@@ -173,6 +221,11 @@ merged back.
 - Safari may clear a site's private file system after a week without a visit
   unless the app is installed, which leaves the server's copy as the durable
   one. Unverified.
+- Connect is scoped by principal, not by app: anything holding the person's
+  session, including any window the desktop host serves through its account
+  relay, can mint a write token for any folder ID. That is acceptable while
+  every app is Epicenter's own; installed apps' hosted sync needs per-app
+  scoping first.
 - Third-party web apps on arbitrary servers need per-app permission and OAuth
   registration before people outside development use them.
 
@@ -184,7 +237,7 @@ merged back.
   repeats an OAuth app, an adapter, and a relay.
 - **Forgejo as Epicenter's server.** It brings accounts, CORS, LFS, mirrors, and
   a web interface, but its tokens reach every repository and it does not serve
-  `/git/connect`, so self-host sign-in would differ from hosted. It stays a
+  `/api/git/connect`, so self-host sign-in would differ from hosted. It stays a
   supported server.
 - **Artifacts' own URLs in `remote.origin.url`.** Its Git routes refuse a
   browser's preflight, and every folder's remote would name one storage vendor.

@@ -35,7 +35,7 @@ the previous one, and ends with the checks it names passing.
 | 3 | Desktop gate: Save version, private-remote Sync, two windows, outside `git` against `index.lock`, on a real desktop run of branch 1 | `claude/folder-engine-tauri-fs` | waiting for a person at the desktop; two windows settled from code: the host keeps one window per app (`ensure_window`), so a second Todos window cannot open |
 | 4 | Yjs removed: Local Mail, Skills, sync lab deleted (`280bdf4d44`); AI moved to `@epicenter/ai` (`52ddcdc2b8`); store, sync, relay, and sockets deleted with empty Durable Object placeholders (`9f75a9bd51`); ADR-0534 | `claude/remove-yjs` | done |
 | 5 | Account partitions removed: installed apps open `<root>/<app-id>/`; hosted pairing relays (`hosted.rs`, `binding.rs`, `account-git-relay.ts`), the folder plugin's download and relayed transport, `require_existing_repository`, the ready frame's `bootAccount` and the native folder owner capture, Home's Download, `account_key`, `accountKey`, ADR-0461 and ADR-0496 deleted | `claude/remove-partitions` | done |
-| 6 | Hosted Todos: `mountGitApp` with the Artifacts store in `apps/api`, `/git/connect`, the plain-token transport, the Sync panel; the GitHub connector and picker deleted | `claude/hosted-git` | after 3 and 5 |
+| 6 | Hosted Todos: `mountGitApp` with the Artifacts store in `apps/api`, `/api/git/connect`, the folder engine's per-transfer `credentials`, the desktop's URL-scoped credential in `run_git`, the Sync panel; the GitHub connector (migration `v7`) and picker deleted | `claude/hosted-git` | built and checked live in Chromium and with system `git` on a throwaway Worker; a desktop run of it waits on phase 3 |
 | 7 | Whispering audio through LFS: the engine's LFS client and an R2 LFS endpoint | later | |
 
 ## Decisions made while building
@@ -50,9 +50,36 @@ the previous one, and ends with the checks it names passing.
 - The ready frame names only the installed IDs (protocol 11): nothing about an
   installed app's folder depends on who is signed in.
 
+- Phase 6's design was reviewed before building (two independent reviewers
+  converged; ADR-0521 records it) and after. The second review's fixes are in:
+  the Bun runner drops inherited trace settings, which could print the
+  credential header; a sign-out during token renewal refuses the transfer
+  instead of sending none; renewal follows the server's `expiresIn`; a remote
+  URL carrying a password is refused; `run_git` takes only the header value and
+  scopes it to the origin it reads itself.
+- Not built, by choice: `GET /git/repos` (no caller; Artifacts lists only whole
+  namespaces); metering hosted Git; a bundled credential helper to keep the
+  desktop token out of the `git` process's environment (ADR-0521 Consequences).
+
 ## Open items
 
-- Phase 3 needs a person at the desktop, or a computer-use session.
+- Phase 3 needs a person at the desktop, or a computer-use session approved
+  for "Epicenter Dev". Two windows on one folder cannot happen: the host keeps
+  one window per app (`ensure_window`).
+- Next wave: move Capture and installed apps to page-engine folders, then
+  delete the Rust folder owner (both reviewers' largest deletion prize). It also
+  gives installed apps hosted sync, after connect is scoped per app
+  (ADR-0521 Consequences), and makes their transfers reread `origin`
+  (ADR-0532 Unbuilt).
+- Before deploying `apps/api`: `wrangler secret put ARTIFACTS_ACCOUNT_ID`
+  (required secret). The deploy runs migrations `v6` and `v7`, which delete the
+  store sync's Durable Objects and every stored GitHub grant. The Artifacts
+  namespace is `epicenter-production`.
+- The empty Artifacts namespace `epicenter-livetest` from the live check is
+  left on the Epicenter account: wrangler cannot delete a namespace; the REST
+  API (`DELETE /artifacts/namespaces/epicenter-livetest`) or the dashboard can.
+- `@epicenter/folder`'s `browser.httpFetch` has only test callers now; folding
+  it into an internal test seam is a separate cleanup.
 - The next `apps/api` deploy runs migration `v6`, which deletes the store sync's
   Durable Objects and their data; the self-host Worker's `v3-retire-store-sync`
   does the same.
