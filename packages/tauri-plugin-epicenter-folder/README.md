@@ -72,6 +72,8 @@ once registered.
 | `require_existing_repository` | `false` | Refuse to open a root that is not already a repository (`has_repository`: a real `.git` with `HEAD`, `objects`, and `refs`) instead of initializing one. Checked inside the open, with the lock held. |
 | `watch_events` | `true` | Watch filesystem events for changes made outside the owner. |
 | `watch_interval` | 2 s | Also compare file sizes and times this often. |
+| `page_engine` | `false` | Open no owner: grant the page the directory and run its `git` instead (see "A folder the page opens itself"). Only `root`, `author`, `branch`, and `page_files` then apply. |
+| `page_files` | none | For a page-engine folder, the files the page may write, as glob patterns relative to the root. |
 
 The two `use_repository_*` options select author and transfer destination
 independently. Neither enables automatic network work. Leaving
@@ -81,6 +83,73 @@ never read. A
 origin discovery is on and the repository has no `origin`. Both are read once,
 inside the open, after the cross-process lock is held and the Git layout is
 verified.
+
+## A folder the page opens itself
+
+A scope whose `FolderConfig` sets `page_engine` has no owner. A permitted
+window calls `grant_directory(scope)` instead of `attach`;
+`@epicenter/folder/tauri` does this first for every scope and attaches only
+when the grant answers `UsesOwner`. An `attach` to such a scope is
+`UsesPageEngine`. The first grant:
+
+1. creates the root if it is missing and resolves it to its canonical path;
+2. takes the same cross-process lock an owner takes (`lock.rs`), held until
+   `shutdown`;
+3. refuses a `.git`, `.git/epicenter`, or scratch directory linked elsewhere.
+
+Each window's first grant then adds a capability for that window alone
+(`directory_capability`): the fs plugin's reading commands
+(`DIRECTORY_COMMANDS`) on the root and everything beneath it. The fs scope
+resolves every existing path, links included, before matching, so a link in
+the folder that points outside it is refused. A grant returns
+`{ root, branch, authorName, authorEmail }`; later grants return the same
+root.
+
+The page changes files through this crate instead (`write_folder_file`,
+`rename_folder_path`, `remove_folder_path`, `make_folder_directory`), because
+a scope matches a path that does not exist yet as text, and under a link
+that already points elsewhere a new file's path would look like the
+folder's. `page_files.rs` checks the whole path on disk first: it must be
+under the granted root with no `.` or `..`, and no existing component on the
+way may be a link. Then it must be a file the shell declared
+(`FolderConfig::page_files`, such as `todos/*.md`) or a directory on the way
+to one, with no component that starts with a dot, is a Windows short name
+such as `GIT~1`, or is named `HEAD`, so no nested repository can be
+assembled; or, inside `.git` (compared case-insensitively), the engine's
+staging directory and its private index copies. A declared file is replaced
+by a staged copy renamed over it, so a hard link is replaced, not written
+through. The page writes no Git object: the engine stores each with
+`git hash-object -w`, which names and checks it.
+`fixtures/page-file-changes.json` records every change the engine makes in
+`@epicenter/folder`'s real-Git tests, and this crate's tests check each.
+
+The page keeps the folder's history with the system `git`, which it asks
+this crate to run (`run_git`, stopped by `cancel_git`). `page_git.rs` runs a
+command only in a root granted to the calling window, only while that root's
+`.git` is its own directory (not a link or a `gitdir:` file), and only when
+the arguments are exactly one of the operations the folder engine runs, each
+value checked for its kind. Push and fetch reach only the URL
+`remote.origin.url` names. Every command runs with `core.hooksPath` naming an
+empty directory only this crate writes, fsmonitor off, without the inherited
+variables that point Git elsewhere or trace it, and without a terminal
+prompt. `GIT_INDEX_FILE` may name only a private index copy in the root's
+`.git`. Transfers use the person's own credential helper or SSH.
+`fixtures/page-git-calls.json` records every call the engine makes in
+`@epicenter/folder`'s real-Git tests, and this crate's tests run the
+validator over each.
+
+A shell that registers a page-engine folder must:
+
+- install `tauri-plugin-fs` and set `plugins.fs.requireLiteralLeadingDot` to
+  `false`, so `.git` and other dot files inside the granted root are
+  reachable;
+- list `DIRECTORY_COMMANDS` in the window's capability with no path, so its
+  build checks the names; only a grant gives them a directory. No fs
+  command that changes files is listed.
+
+Nothing in this crate reads, writes, or records history for such a folder
+but these `git` commands. The page's work drains through the host's
+departure round before shutdown releases the lock.
 
 ## Using a folder from a page
 

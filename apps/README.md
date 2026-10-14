@@ -115,9 +115,11 @@ bindings that resource needs.
 [Todos](todos/README.md) keeps a file-first folder (`@epicenter/folder`)
 rather than a Yjs store. Inside Epicenter it is a compiled application over an
 ordinary directory, `so.epicenter.todos` under the host's working-copy
-directory. The shared Rust Folder plugin owns that directory,
-and the window reaches it through typed Tauri invoke commands; `#platform/folder`
-selects that at build time. `bun dev:todos` starts the browser demo instead,
+directory. The shell locks that directory and grants it to the window; the
+page opens it with `@epicenter/folder`'s file storage through Tauri's fs
+plugin and keeps its history with the system `git`, which the shell runs for
+it. `#platform/folder` selects the desktop adapter at build time. Capture and installed apps still reach their folders through the
+shared Rust Folder plugin's owner. `bun dev:todos` starts the browser demo instead,
 with the folder in the browser's origin private file system (OPFS) and a
 loopback Git backend for Local. The browser can instead sign in and open an
 account-scoped OPFS folder paired with a private GitHub repository through the

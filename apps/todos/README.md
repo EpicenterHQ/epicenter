@@ -11,7 +11,7 @@ There are two builds of the same UI, and the build decides where the folder is:
 
 | Build | Folder | History |
 | --- | --- | --- |
-| Desktop, inside Epicenter | An ordinary directory on this computer, opened by the Epicenter host. | Real Git in that directory's `.git`. No remote unless you add one. |
+| Desktop, inside Epicenter | An ordinary directory on this computer, which the Epicenter host locks and grants to the page. | The system `git` in that directory's `.git`. Syncs with the `origin` you add, using your own Git credentials. |
 | Browser, Local demo | A folder in this browser's origin private file system (OPFS). | Git in the folder's `.git`, in OPFS beside the files, with a loopback remote for the demo. |
 | Browser, your Epicenter account | A folder in OPFS that belongs to the signed-in account. | Git in OPFS, with a private GitHub repository you choose as its remote, reached through Epicenter's GitHub connector. |
 
@@ -65,9 +65,14 @@ last read until one of those moments.
   own: not a save, a timer, or closing the app.
 - The status details count the changes since the last version as plain
   detail, not as a warning.
-- A new folder has no Git remote, and the desktop folder does not sync yet,
-  so the desktop app offers Save version and no Sync. To use a remote, add
-  one named `origin` with your own Git in the directory.
+- A new folder has no Git remote. Add one named `origin` with your own Git
+  in the directory (`git remote add origin <url>`), and reopen Todos: Sync
+  then works as it does in a browser, with the same review. Todos reads the
+  remote and the author (`user.name`, `user.email`) from Git's configuration
+  when the folder opens. Fetch and push are Git's own, so a private remote
+  works with whatever your Git already uses: a credential helper such as the
+  macOS keychain or `gh auth`, or SSH. Git cannot ask you for a password
+  here; set credentials up with your own Git first.
 
 ### What is and is not protected
 
@@ -102,9 +107,17 @@ last read until one of those moments.
   `.git/epicenter/scratch` is linked elsewhere. It checks this when it opens
   the directory; it does not defend against a program that swaps a link in
   while it runs. Symbolic links among the files are not followed.
-- Git commands Epicenter runs ignore inherited `GIT_DIR`, `GIT_WORK_TREE`, and
-  `GIT_INDEX_FILE`, and never fall through to a repository in a parent
-  directory.
+- History is recorded with the system `git`, in the directory's own `.git`
+  and never in a repository in a parent directory. Your own Git, editors,
+  `git gc`, and Todos share the repository the way Git programs do: through
+  Git's lock files, with the branch moved only from the commit Todos read.
+  A Save version while another Git program holds the index lands, says the
+  index could not be refreshed, and the next Save version refreshes it.
+- Git hooks and fsmonitor never run for Todos' Git commands. The page
+  changes only `todos/*.md`, `epicenter.json`, and `kv.json`, which the
+  shell declares for it, and its own staging files in `.git`: the shell
+  makes every change and refuses any other path, or one with a link on the
+  way. Git stores every object itself.
 
 ### Closing, quitting, and unsaved typing
 
@@ -136,48 +149,53 @@ alone: it stays while the window is open, and quitting or reloading drops it.
 - The browser demo has none of this: leaving the tab while a write or action
   runs asks first with the browser's leave warning. Opening another todo changes only the address's
   `?todo=` and never asks.
-- On quit, the Rust Folder owner fences new work, drains accepted local
-  writes, stops network work, and releases the directory lock.
-- A page reload or explicit client close ends that page's access. The shared
-  owner remains open for sibling windows and finishes accepted work. The
-  client's network wait can end while the native operation continues.
+- On quit, the page drains its own writes and Git work through the departure
+  round above; Epicenter then releases the directory lock.
+- A page reload ends that page's work. A write is published whole or not at
+  all (its bytes are renamed into place), but a Save version or Sync the
+  page was running stops where it was. An incoming update that stops
+  partway leaves the files it wrote as changes, and the next Sync records
+  and merges them; the browser's recovery button does not appear on the
+  desktop. Other Todos windows keep working.
 - Git hashing and network traffic do not block writes.
 
 ### How it is wired
 
-The Rust shell installs `tauri-plugin-epicenter-folder` once and registers the
-Todos folder under the ID the page opens, `so.epicenter.todos`, with its
-directory, author, remote, history policy, and allowed window label. Importing
-the page's adapter acquires nothing; opening Todos calls `openFolder` from
-`@epicenter/folder/tauri`, which attaches this page to that folder and sends
-none of those settings.
+The Rust shell registers the Todos folder under the ID the page opens,
+`so.epicenter.todos`, with its directory and allowed window label, and marks
+it as opened by the page's own engine (`page_engine`). Opening Todos calls
+`openFolder` from `@epicenter/folder/tauri`, which asks the shell to grant
+the folder (`grant_directory`). The first grant creates the directory if it
+is missing, refuses a linked `.git`, takes the cross-process lock, and gives
+the Todos window Tauri's fs plugin commands for that directory alone.
 
 ```text
 Todos window (WebView)
-        | generated, typed Tauri invoke commands and change events
+        | @epicenter/folder directory folder: the browser's file storage
+        |   over Tauri's fs plugin, and the native Git backend
+        |   (`run_git`: the shell runs `git` in the granted directory only)
         v
-shared Rust Folder plugin
-        | canonical-root owner, file admission, Git queue, OS lock
-        v
-~/Epicenter/so.epicenter.todos
+~/Epicenter/so.epicenter.todos          (locked and granted by the Rust shell)
 ```
 
-Rust reads and publishes bytes and owns Git history. Shared TypeScript code
-interprets Markdown tables against that byte boundary. Events announce changes; the page rereads through invoke. No file
-contents or history are mirrored in browser storage on desktop.
-
-Every page attached to the same root shares its owner. File admission orders
-managed writes. A separate Git queue hashes a captured
-file view after file admission is released, so a large file cannot hold up the
-next write. Other programs do not participate in these queues; edits
-made in place while capture is underway remain best effort.
+The page reads and writes files through an OPFS-shaped directory handle
+(`directory-handle.ts` in `@epicenter/folder`); a write's bytes are staged
+under `.git/epicenter/scratch` and renamed into place. History is the native
+Git backend a Bun directory folder uses, with its `git` run by the shell:
+only the operations the folder engine needs, with no hook, fsmonitor, or
+terminal prompt. Several Todos windows share the folder through Web Locks
+and a `BroadcastChannel`, as browser tabs do. Nothing watches the directory
+for other programs' edits; Todos reads again at the moments listed
+[above](#where-the-files-are).
 
 The `epicenter-host` build condition selects the desktop leaf of
 `#platform/folder`, and `vite.config.ts` resolves the bare `@epicenter/folder`
-specifier to `@epicenter/folder/tauri` for that build, so it carries no
-browser storage and no Git implementation. The browser build selects the
-browser leaf and resolves the same specifier to `@epicenter/folder/browser`,
-so it carries no desktop adapter. Both use the same UI and file interpretation.
+specifier to `@epicenter/folder/tauri` for that build. That build carries the
+directory folder and Tauri's fs plugin client, and none of the browser
+folder's storage address, download, or private Git, and no Node or Bun
+module. The browser build selects the browser leaf and resolves the same
+specifier to `@epicenter/folder/browser`, so it carries no desktop adapter.
+Both run the same UI, file storage, history rules, and merge review.
 
 ## In a browser
 
@@ -285,10 +303,9 @@ API. The account choice needs the API's auth and GitHub connector secrets.
 
 ## Controls
 
-Both builds share these. A folder that syncs (either browser folder) offers Sync
-beside Save version; one that does not sync yet (the desktop app, whose
-folder owner has no sync) offers Save version alone. Todos asks the folder
-(`folder.sync.supported`), not the build. The todo list and its editor fill
+Both builds share these, and run the same engine. Every folder offers Sync
+beside Save version; Sync is off while the folder has no remote. Todos asks
+the folder (`folder.sync.supported`), not the build. The todo list and its editor fill
 the window. The header holds the rest:
 
 | Control | What it does |
@@ -343,6 +360,9 @@ time, and switching never waits or asks.
 
 ### When an incoming update stops partway
 
+This section is the browser's. On the desktop, an update that stops partway
+leaves its written files as changes, and the next Sync finishes it.
+
 A sync in the browser writes the incoming files one at a time. If it stops
 partway (the tab closed, or a file could not be written), the folder keeps a
 record of the update. Todos reports it under the header as "Incoming update
@@ -367,8 +387,8 @@ the folder, "Check again", and returning to the window only read the record.
 ## What to try
 
 These steps are written for the browser demo, where a remote is always
-present. On the desktop, steps 1 to 3 work the same over the real directory,
-without Sync.
+present. On the desktop they work the same over the real directory once it
+has an `origin`.
 
 1. Add a todo. The file is written immediately, and nothing is committed or
    pushed. The status details report whether every edit is written, the
@@ -509,6 +529,15 @@ This version edits through the query cache (ADR-0528) and records versions
 only on request or sync (ADR-0529). It dropped several promises of the
 version before it:
 
+- The desktop folder is no longer opened by a Rust owner shared by every
+  window. The page opens it with `@epicenter/folder`'s own file storage and
+  history rules, over the real directory the shell locks and grants, with
+  the system `git`. Desktop Todos gains Sync and the merge review, with your
+  own Git credentials. It loses three things the owner gave: a Save version
+  or Sync a reloading page was running no longer finishes on its own; edits
+  other programs make are no longer watched for, only read at the usual
+  moments; and an incoming update that stops partway is finished by the
+  next Sync instead of a recovery button.
 - A write that meets a change made elsewhere is no longer merged with your
   edit and reviewed. The write changes nothing, the editor shows the file as
   it is now, and you can copy the text that was not written. You lose at
@@ -518,8 +547,8 @@ version before it:
 - Saves no longer commit. A version is recorded by **Save version** or by
   Sync, and the status details no longer warn about uncommitted changes.
 - Fetch, Pull, Merge incoming changes, and Commit and push are gone, with
-  their status lines. Sync and Save version replace them. The desktop app,
-  whose folder owner does not sync yet, offers Save version alone.
+  their status lines. Sync and Save version replace them, on the desktop
+  too.
 - Delete no longer says that committed versions stay in Git history; it says
   when the file has changes in no saved version.
 - Change reports from the folder still do not reread anything while you

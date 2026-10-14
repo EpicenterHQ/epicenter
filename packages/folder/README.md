@@ -32,6 +32,11 @@ else {
 await folder.close();                                  // closed either way
 ```
 
+Declared tables are available as `folder.tables.<name>` without creating their
+directories. Listing a missing table directory returns an empty list. Creating
+the first row creates its parent directory if needed; apps do not need to call
+`files.mkdir` to prepare a table.
+
 ## File-browser helpers
 
 `@epicenter/folder/file-browser` provides path helpers, visible tree rows,
@@ -133,7 +138,7 @@ The managed native layout is described in
 | --- | --- | --- |
 | `@epicenter/folder` | The desktop app's folder when the page runs in Tauri, this browser's storage otherwise. Decided when `openFolder` is called, and only the chosen adapter is loaded. | Ordinary application code. |
 | `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. Also exports `downloadFolder` and `inspectFolder`. | A web-only build, a browser account folder inspected or downloaded before its first opening, or a test that injects an OPFS stand-in with `browser.opfs`. |
-| `@epicenter/folder/tauri` | The desktop shell's folder only. Refuses outside it. | A desktop-only build. |
+| `@epicenter/folder/tauri` | The desktop shell's folder only: opened by the shell's Rust owner, or by this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 
 The first three export the same `openFolder` signature and the same contract,
@@ -159,9 +164,10 @@ It defaults to regular fetch; applications can supply an authenticated relay.
 It receives the canonical remote URL and the operation's abort signal. It does
 not replace global fetch or change the stored remote. Credentials belong to
 the transport, outside the folder's files and Git configuration.
-In the desktop app the shell owns the directory, the
-author, the remote, and the history policy. The policy in effect is on
-`folder.git.snapshot` either way.
+In the desktop app the shell chooses the directory. A folder its Rust owner
+opens also takes the author, the remote, and the history policy from the
+shell; one the page opens itself reads the author and remote from the
+repository. The policy in effect is on `folder.git.snapshot` either way.
 
 Browser storage ownership can be supplied explicitly:
 
@@ -226,6 +232,62 @@ A save that hashes or waits longer can land after one asked for later, from
 the same page or another, and whichever lands last on a path stays. A save
 that must not overwrite bytes its caller did not review names them with
 a capture and is refused as `Conflict` instead.
+
+### A directory the desktop shell grants
+
+A desktop shell can register a folder for the page's own engine instead of
+its Rust owner (`page_engine` in the shell's `FolderConfig`). Opening it with
+`@epicenter/folder/tauri` then asks the shell to grant it
+(`grant_directory`): the shell creates the directory if it is missing,
+refuses a linked `.git`, takes the folder's cross-process lock, and gives
+this window Tauri's fs plugin commands for that directory alone. The page
+then opens a directory folder (`directory-adapter.ts`):
+
+| | Browser folder | Granted desktop folder |
+| --- | --- | --- |
+| Files | OPFS | The real directory, through Tauri's fs plugin |
+| History | isomorphic-git in a private OPFS `.git` | The system `git` in the real `.git`, which the shell runs (`run_git`) |
+| Identity | A ready marker naming the address | The shell's registration and lock; no marker |
+| Remote and author | `browser.remote` and `browser.author` | Git's own configuration: `remote.origin.url`, `user.name`, `user.email`, with the shell's author as fallback |
+| Transfers | `httpFetch`, regular fetch by default | Git's own, with the person's credential helper or SSH |
+| Pages of one folder | Web Locks and a `BroadcastChannel` | The same, across the shell's windows |
+
+Files go through the browser folder's file storage (`opfs-store.ts`) over a
+directory handle (`directory-handle.ts`) built on seven calls: `readDir`,
+`lstat`, `readFile`, `writeFile` with `createNew`, `rename`, `remove`, and
+`mkdir`. `directory-tauri.ts` supplies them from Tauri's fs plugin and
+`directory-node.ts` from `node:fs`. A write's bytes are staged under
+`.git/epicenter/scratch` and renamed over the path, so another program sees
+the old file or the new one, never an empty or partial one; opening clears
+what a stopped write left there. Symbolic links and special entries are
+listed and never followed. On the desktop the shell makes every change and
+checks its whole path: only the files the shell declared for the folder
+(Todos: `todos/*.md`, `epicenter.json`, `kv.json`), no link on the way, and
+inside `.git` only the engine's staging and private index copies. Objects
+are stored with `git hash-object -w` through the host (`ObjectStore` in
+`git/primitive-fs.ts`), in Bun as on the desktop, so no object file is
+written by hand.
+
+History is the native Git backend (`git/native-backend.ts`), the one a Bun
+directory folder uses. It reaches the machine only through a host: a `git`
+runner and the same directory primitives (`git/native-host.ts` in Bun,
+`tauri-git.ts` on desktop). So the folder shares the repository with every
+other Git program the way Git programs share one: index and ref changes go
+through `git`, a branch moves only by `update-ref` from the commit it was
+read at, and Git's configuration, packed refs, and garbage collection are
+Git's. A commit that lands while another program holds `.git/index.lock`
+moves the branch and reports that the index could not be refreshed; the next
+Save version refreshes it. A repository that tracks an executable, a link,
+or a submodule, or converts line endings, refuses a commit and names why.
+
+Several windows order the folder's index and branch work through one Web
+Lock. Two that open a new folder at once create one repository: `git init`
+runs under the folder's open lock.
+
+Nothing watches the directory for other programs' changes; a page reads
+again when it chooses to. A page that reloads ends the work it was running.
+An incoming update that stops partway keeps no record here: the files it
+wrote show as changes, and the next Sync records and merges them.
 
 ### Which directory is the folder
 
