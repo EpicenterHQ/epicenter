@@ -119,7 +119,7 @@ datasets, and several compatible applications can reach the same dataset. Its
 app ID and private SQLite namespace are separate choices even when they use the
 same string.
 
-A browser folder's address is its ID alone ([ADR-0532](../../docs/adr/0532-a-browser-folder-is-its-id-written-lazily-and-its-remote-is-its-git-configuration.md)):
+A browser folder's address is its ID alone ([ADR-0532](../../docs/adr/0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)):
 each browser app is its own origin, so its storage already belongs to it.
 Signing in does not move data or retarget writes. A desktop shell registers the
 selected directory; the Bun opener receives an explicit directory and no
@@ -1072,7 +1072,7 @@ dangle.
 | --- | --- |
 | `src/contract.ts` | Everything an application names besides the opener. Every entry exports it unchanged. Loads no storage, Git implementation, or runtime module. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
-| `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter also decides which OPFS directory is the folder and downloads an account folder before its first opening. |
+| `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory. |
 | `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | Svelte boundary tests and the sync review's mounted tests. |

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-03
 - **Amends:** [ADR-0436](0436-stores-own-local-sqlite-namespaces.md), only its preserved physical namespace encoding and shell-specific storage root. Store-owned acquisition remains the implemented API.
-- **Relates:** [ADR-0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) defines SQL retention; [ADR-0461](0461-portable-data-folders-live-under-local-and-derived-account-scopes.md) defines authored folder owners.
+- **Relates:** [ADR-0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) defines SQL retention; [ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md) defines the account directory name.
 - **Unbuilt:** shared native root resolution, cross-process runtime admission, shared provider credentials, migration, and a standalone native Local Mail shell. Current host SQL remains under its bundle-specific AppData root.
 
 ## Context
@@ -36,10 +36,8 @@ root without installing or running the Epicenter host.
 
 On Linux, an unset local-data base defaults to `~/.local/share`. Default authored
 roots are exactly `~/Epicenter` for release and `~/Epicenter Dev` for development,
-including capitalization and the space. These names match
-[ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)'s
-browser authored roots and private SQL namespace conventions; browser authored
-folders live in the scoped OPFS tree selected there.
+including capitalization and the space. An authored folder is `<root>/<folder-id>/` with no owner level
+([ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)).
 
 These bases follow [Tauri's local-data resolver](https://docs.rs/tauri/latest/tauri/path/struct.PathResolver.html#method.local_data_dir).
 Use the persistent local-data directory, not the cache directory or the OS
@@ -53,14 +51,13 @@ do not become application directories merely by moving this namespace.
 
 The owner is Local for account-independent work, or a specific account. Its
 path is `local` or `accounts/<account-key>`, respectively. The bounded SHA-256 key
-defined by ADR-0461 includes authority and principal. These owner paths match authored
-folders, while private storage groups owners beneath their application.
+defined by ADR-0461 includes authority and principal. Only private storage groups
+by owner, beneath its application.
 Google subjects select mailbox names inside the captured Epicenter account;
 they do not replace its owner.
 
 The app comes first because it owns schema migration, repair, and pending-work
-delivery. Authored folders group by owner because copying an owner’s
-directory preserves its files and sibling links. Private account-wide erasure still requires each
+delivery. Private account-wide erasure still requires each
 affected app to retire its executor and handle pending obligations; directory
 order does not make raw deletion or restore safe. The private namespace uses
 an app ID, never a selected folder ID. Several saved-query folders can use the
@@ -84,8 +81,7 @@ OS local-data directory/
     so.epicenter.local-mail/...
 
 ~/Epicenter/
-  local/<folder-id>/...
-  accounts/<account-key>/<folder-id>/...
+  <folder-id>/...
 ```
 
 New application databases use `.sqlite3`. This layout does not relocate or

@@ -17,7 +17,7 @@ The user chose ordinary files, trusted hosting, and account-based recovery over 
 
 ## Decision
 
-**Each paired account folder has one private GitHub repository.** Its committed `main` tree is the cloud counterpart of `accounts/<account-key>/<folderId>/` in [ADR-0461](0461-portable-data-folders-live-under-local-and-derived-account-scopes.md). An account-local folder can exist without a remote. One GitHub connection may serve several folder pairings, each with independent history. Local scope folders stay outside managed account publication.
+**Each paired account folder has one private GitHub repository.** Its committed `main` tree is the cloud counterpart of `accounts/<account-key>/<folderId>/` in [ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md). An account-local folder can exist without a remote. One GitHub connection may serve several folder pairings, each with independent history. Local scope folders stay outside managed account publication.
 
 **A folder ID names a dataset; the GitHub repository ID identifies the paired remote.** Folder IDs are unique within an account. A reverse-DNS name such as `so.epicenter.whispering` is the normal application default, not a globally unique repository identity. The same name can exist in Local and in several accounts. Repository names need not equal folder IDs:
 

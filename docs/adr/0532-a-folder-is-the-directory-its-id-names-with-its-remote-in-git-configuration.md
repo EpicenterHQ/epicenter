@@ -1,0 +1,137 @@
+# 0532. A folder is the directory its ID names, with its remote in Git configuration
+
+- **Status:** Proposed
+- **Date:** 2026-10-14
+- **Supersedes:** [ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)
+- **Relates:** [ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md) no longer reaches authored folders. [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) publishes the declaration with a handle's first write. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) lets a desktop page set `origin` only to a network URL. [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) is the test each dropped guarantee was held to.
+- **Unbuilt:** the desktop host still opens installed apps' folders at `<folderDir>/local/<app-id>` or `<folderDir>/accounts/<account-key>/<app-id>` and relays their Git through connector pairings (`installed_apps.rs`, `hosted.rs`, `account-git-relay.ts`); after they move, the pairing routes and their storage go. Existing desktop folders under `local/` and `accounts/<account-key>/` have no move to `<root>/<folder-id>/` yet; it must keep their bytes, history, and `origin`, and two copies with one folder ID stay two copies until a person chooses. A redirect from a renamed GitHub repository answers `upstream_unavailable` instead of naming the rename.
+
+## Context
+
+A browser folder lived at `Epicenter|Epicenter Dev / local|accounts/<key> / <id>`
+in the origin private file system. A ready marker in `.git` named that address
+and the remote the folder was made with, and an opener refused a directory
+whose marker named anything else. `downloadFolder` recorded a pending download
+in the marker and turned it ready last; `inspectFolder` read the same decision
+without writing. Opening created the directory, the marker, the repository,
+and `epicenter.json`, so a person who opened Todos to download an account's
+todos already had local changes the download refused.
+
+The desktop host grouped folders the same way under `~/Epicenter`
+([ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md)
+before its revision): `local/<id>` signed out, `accounts/<account-key>/<id>`
+signed in, so signing in changed which dataset an app opened.
+
+The account layer above both paired a folder ID with a GitHub repository on
+the hosted connector. A browser relayed Git through a path pinned to the
+pairing's revision, the desktop host relayed it the same way, and Todos asked
+a person to choose the Local demo or their account before anything opened.
+
+Each browser app is its own origin, so its private file system already belongs
+to that app alone.
+
+## Decision
+
+**A folder is the directory its ID names at its root.** The root is the
+origin's private file system in a browser and the Epicenter root on the
+desktop:
+
+```text
+browser    <OPFS root>/so.epicenter.todos/
+desktop    ~/Epicenter/so.epicenter.todos/        (~/Epicenter Dev/ in development)
+```
+
+`openFolder({ id: 'so.epicenter.todos' })` opens that directory. An ID that
+cannot name one directory is refused; nothing is escaped. There is no marker,
+scope, channel, owner, or account in the address, and a directory someone else
+wrote under that ID is that folder. Signing in, signing out, or changing
+accounts opens the same folder. Web Locks and the hint channel are named from
+the ID.
+
+**In a browser, opening writes nothing; the first write creates the folder.**
+The directory and its repository appear together with the folder's first
+write, which publishes `epicenter.json` just before it
+([ADR-0508](0508-folder-opening-overwrites-root-definition-json.md)). Each
+table's directory appears with its first row. Reads never write: a folder
+nobody wrote to lists nothing and has no history, and a commit of it writes
+nothing. On the desktop the shell creates the directory when it grants it
+([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
+
+**The remote is `remote.origin.url` in the folder's Git configuration, on the
+folder's own branch, and `folder.sync.connect(url)` is the only call that sets
+it.** The folder records no account and no pairing. Connecting sets the URL, then runs Sync:
+
+| Folder | Remote | Sync does |
+| --- | --- | --- |
+| files, no history | no branch | commits and pushes |
+| empty | history | takes it |
+| files, no history | history | merges them over an empty base; a differing path is a choice |
+| its own history | related | an ordinary sync |
+| its own history | unrelated | `Unrelated`, writing nothing, until `allowUnrelatedHistories` combines them |
+
+The remote stays set whatever the sync answers. Every transfer reads the
+configuration again, so a remote another tab or program set is the one used.
+Connecting again with another URL swaps the remote. On the desktop the page
+sets it through the shell, which allows only a network URL (`https://`,
+`ssh://`, `user@host:path`), so a push never writes another repository on the
+computer.
+
+**A transfer runs as whoever is signed in when it runs.** A browser reaches
+GitHub through the connector by the repository's canonical clone URL. The
+folder keeps `https://github.com/<owner>/<name>.git`. The app's Git transport
+rewrites each smart-HTTP request for it to
+`/api/git/github/repos/<owner>/<name>.git/...` as the signed-in account. The
+connector reads the repository by name with that account's GitHub grant, then
+reaches it only with a token scoped to its ID. A desktop page's `git` uses the
+person's own credential helper or SSH key for any network URL. Nothing but the
+folder records which repository it uses.
+
+## Consequences
+
+- One folder per folder ID per root. Accounts share it: signing in as another
+  account does not give it another copy, and a repository the new account
+  cannot reach is refused at the relay, visibly.
+- A download that stops partway leaves some files and no record of it. The
+  next Sync commits them and merges them with the remote; identical files
+  merge cleanly. Nothing is lost, and nothing needs repair.
+- The same URL works in Git, in the desktop app, and in any clone, because it
+  is the repository's own URL rather than an Epicenter address.
+- A repository deleted and recreated under the same name is the folder's
+  remote; no stored repository ID tells them apart.
+- Browser folders at the old layout are left where they are and are no longer
+  opened. Work that was synced comes back through Connect; work that never
+  synced stays in the browser's storage at its old path.
+- Private runtime state (SQLite, pending provider work, provider credentials)
+  keeps its app and account ownership outside the folder
+  ([ADR-0496](0496-native-app-runtime-storage-is-independent-of-the-shell.md)).
+- A relayed Git request costs one more GitHub REST call than a paired one, to
+  read the repository by name.
+- Deleted: the ready marker, `downloadFolder`, `inspectFolder`, browser scopes,
+  `browser.remote`, `createIfMissing`, `confirmLegacyRemoteBranch`, the
+  `Absent`, `RemoteMismatch`, `AuthorRequired`, and `InvalidBrowserScope`
+  refusals, `DownloadFolderError`, and Todos' account folder gate and start
+  choice. Todos opens its folder at once in every build, and Connect replaces
+  the Local-or-account choice.
+
+## Considered alternatives
+
+- **Keep `local` and `accounts/<key>` directories.** Separate copies per
+  account on one device, at the cost of a scope on every opener, a dataset
+  that changes with sign-in, and a download path that must not mix them. The
+  relay already refuses a repository the signed-in account cannot reach.
+- **Record the account in Git configuration and refuse a transfer as anyone
+  else.** The relay already refuses an account that cannot reach the
+  repository, and an account that can reach it is allowed by GitHub. The
+  record would only block legitimate syncs and add a second record that must
+  agree with the session.
+- **Storage Buckets for named roots.** Chromium only, and a folder ID already
+  names a directory.
+- **A marker or record of the remote outside Git.** A second source of truth
+  for what Git configuration already says, which every Git program can read
+  and change.
+- **Publish `epicenter.json` with each commit.** A folder with saves but no
+  version would not describe itself, and a staged commit would miss it.
+- **Create the repository on the first read that needs one.** Then reading
+  status would write; the repository comes with the directory instead.
+- **Keep pairings and relay by folder ID and revision.** A second record of
+  the folder's remote on the server, which every client had to agree with.

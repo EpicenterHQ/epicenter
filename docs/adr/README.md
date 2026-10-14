@@ -713,7 +713,7 @@ When you add an ADR, add its row here.
 | [0458](0458-markdown-links-may-cross-data-folders-by-relative-path.md) | Markdown links may cross data folders by relative path | Proposed (cross-folder link resolution unbuilt) |
 | [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |
 | [0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md) | Vocab and Whispering are Braden Wong's apps built on Epicenter | Proposed (personal-domain homes and Whispering ID migration unbuilt) |
-| [0461](0461-portable-data-folders-live-under-local-and-derived-account-scopes.md) | Portable data folders group by Local or account owner | Proposed (Whispering Local default implemented; account folders and explicit transfers unbuilt) |
+| [0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md) | An account directory name is a hash of the exact account identity | Proposed (only intended consumer is the private runtime root of 0496) |
 | [0463](0463-queryable-exports-contain-completed-sqlite-snapshots.md) | Completed SQLite query exports are deferred | Proposed (historical proposal; SQL export has no caller and is not planned work) |
 | [0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) | File table updates conditionally replace the captured whole file | Proposed |
 | [0466](0466-opened-media-provides-stable-input-bytes.md) | Opened media provides stable input bytes | Proposed (stable media reads and transcription migration unbuilt) |
@@ -749,7 +749,6 @@ When you add an ADR, add its row here.
 | [0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) | File-authoritative workflows preserve information and tolerate repairable states | Proposed (application refusal review and simpler Honeycrisp folder deletion unbuilt) |
 | [0506](0506-capture-composes-values-through-a-source-preserving-body-codec.md) | Capture composes values through a source-preserving body codec | Proposed |
 | [0509](0509-folder-remotes-and-http-fetch-have-separate-contracts.md) | Folder remotes and HTTP fetch have separate contracts | Proposed |
-| [0510](0510-authored-dataset-locations-are-independent-of-sign-in.md) | Authored dataset locations are independent of sign-in | Proposed (stable-location startup, transition of existing scoped folders, connection controls, and account-change acceptance unbuilt) |
 | [0512](0512-ai-reply-is-independent-of-openai-protocol-compatibility.md) | AI reply is independent of OpenAI protocol compatibility | Proposed (Zhongwen adoption and authenticated browser bridge unbuilt) |
 | [0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) | Snapshot saves serialize writes and retain only the latest pending text | Superseded by 0528 |
 | [0517](0517-a-data-folder-can-live-inside-any-repository.md) | A data folder can live inside any repository | Proposed (epicenter.json discovery in apps, opener refusal inside a host, extraction tooling, and submodule-hosted opening unbuilt) |
@@ -764,3 +763,6 @@ When you add an ADR, add its row here.
 | [0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) | A data folder may keep its declaration as TypeScript | Accepted |
 | [0528](0528-applications-edit-files-through-the-query-cache.md) | Applications edit files through the query cache | Accepted |
 | [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Accepted |
+| [0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) | The page runs the folder engine and the shell grants the directory | Proposed (other apps, Rust owner deletion, file watcher, desktop run unbuilt) |
+| [0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) | A folder is the directory its ID names, with its remote in Git configuration | Proposed (desktop installed apps still use owner paths and pairings) |
+| [0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) | One folder handle opens in three hosts, chosen by where the code runs | Proposed (one file replacement for Bun and desktop unbuilt) |

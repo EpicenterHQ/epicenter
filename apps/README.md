@@ -128,7 +128,7 @@ build still needs no hosted API for its folder.
 A browser folder is the OPFS directory its ID names, holding its files and
 `.git`. Opening writes nothing; the first write creates it. Its remote is its
 own Git configuration, set by Connect
-([ADR-0532](../docs/adr/0532-a-browser-folder-is-its-id-written-lazily-and-its-remote-is-its-git-configuration.md)).
+([ADR-0532](../docs/adr/0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)).
 Opening uses only OPFS and does not read earlier IndexedDB databases.
 
 Honeycrisp's [README](honeycrisp/README.md) explains its standalone Tauri shell,

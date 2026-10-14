@@ -23,7 +23,7 @@ Standalone applications such as Whispering still need their own download and upl
 | `epicenter create <folder-id>` | Explicitly allocate an empty private GitHub repository, pair its repository ID with the folder, and report its current URL. |
 | `epicenter git <folder-id> <git-arguments...>` | Resolve and lock the directory, then invoke Git there. |
 
-`--account` selects the session and is required when more than one account is signed in. `--root` selects a root other than `~/Epicenter`. Epicenter options precede `git`; the explicit folder ID precedes all Git arguments. Account folders follow [ADR-0461](0461-portable-data-folders-live-under-local-and-derived-account-scopes.md). An arbitrary or moved clone can be operated on through raw Git at its explicit path; it is not silently registered.
+`--account` selects the session and is required when more than one account is signed in. `--root` selects a root other than `~/Epicenter`. Epicenter options precede `git`; the explicit folder ID precedes all Git arguments. Account folders follow [ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md). An arbitrary or moved clone can be operated on through raw Git at its explicit path; it is not silently registered.
 
 **`folders` derives presence rather than storing installations.** The cloud listing comes from [ADR-0488](0488-cloud-folders-use-independent-git-histories.md). Local entries come from immediate child directories of the selected account root. Local scope entries are shown separately and have no expected account remote. For an account folder, report cloud presence, local directory presence, and configured origin agreement as separate facts:
 
@@ -53,7 +53,7 @@ bun run epicenter --local git so.epicenter.notes add notes/n8.md
 bun run epicenter --local git so.epicenter.notes commit -m "Update note"
 ```
 
-These commands operate on an existing `~/Epicenter/local/<folder-id>` directory. `--root` can select another Epicenter root. Discovery takes no lock, creates nothing, and reads no Git configuration. Its `git: directory` observation means only that a `.git` directory exists; it does not certify repository health. Git initialization is an explicit Git command and retains Git's configured default branch. No remote is required. Inherited `GIT_CONFIG` is cleared because it selects a configuration file directly; ordinary runtime configuration overrides remain available.
+These commands operate on an existing `~/Epicenter/<folder-id>` directory ([ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)). `--root` can select another Epicenter root. Discovery takes no lock, creates nothing, and reads no Git configuration. Its `git: directory` observation means only that a `.git` directory exists; it does not certify repository health. Git initialization is an explicit Git command and retains Git's configured default branch. No remote is required. Inherited `GIT_CONFIG` is cleared because it selects a configuration file directly; ordinary runtime configuration overrides remain available.
 
 The CLI forwards SIGINT, SIGTERM, and SIGHUP and keeps the lock until the direct Git child exits. SIGKILL or SIGQUIT can terminate the CLI while Git survives. Detached descendants, including background Git maintenance, can outlive that child and are outside the lock's lifetime. This is cooperative ownership coordination, not a process sandbox.
 

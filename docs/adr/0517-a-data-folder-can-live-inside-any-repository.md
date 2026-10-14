@@ -3,12 +3,12 @@
 - **Status:** Proposed
 - **Date:** 2026-10-11
 - **Amended by:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) at executing a declaration: `epicenter generate` may run a folder's `epicenter.ts` on request; readers still read only `epicenter.json`.
-- **Relates:** [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) (queries build transient projections), [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) (a private repository per synced folder), [ADR-0521](0521-a-data-folder-syncs-with-its-git-origin-through-a-provider.md) (sync with the Git origin), [ADR-0490](0490-the-cli-discovers-folders-and-delegates-history-to-git.md) (discovery lists repositories), [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) (opening publishes the declaration), [ADR-0510](0510-authored-dataset-locations-are-independent-of-sign-in.md) (stable authored locations)
+- **Relates:** [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) (queries build transient projections), [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) (a private repository per synced folder), [ADR-0521](0521-a-data-folder-syncs-with-its-git-origin-through-a-provider.md) (sync with the Git origin), [ADR-0490](0490-the-cli-discovers-folders-and-delegates-history-to-git.md) (discovery lists repositories), [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) (opening publishes the declaration), [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) (a folder is the directory its ID names)
 - **Unbuilt:** discovering data folders by `epicenter.json` in apps, opener refusal of a root inside another repository, extraction tooling, and opening a submodule-hosted data folder in the native engine.
 
 ## Context
 
-ADR-0510 gives one dataset one stable directory containing its files and Git
+ADR-0532 gives one dataset one stable directory containing its files and Git
 history, and ADR-0488 names each dataset by a folder ID paired with one
 repository. Together they treat a data folder as one directory, one Git
 repository, and one folder ID. That equivalence serves app sync: transfers,
@@ -94,7 +94,7 @@ ADR-0494; nothing persists a database beside the data folder.
 lock, and receive credentials per repository (ADR-0488). An app never holds
 credentials to a host repository in order to reach a data folder inside it.
 Discovery lists repositories (ADR-0490); data folders inside a repository are
-found by their `epicenter.json`, not registered. ADR-0510's one-directory rule
+found by their `epicenter.json`, not registered. ADR-0532's one-directory rule
 applies to repository-root data folders, which sync with their Git origin
 (ADR-0521). A hosted data folder's address is its host repository and its path
 inside it.

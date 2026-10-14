@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-07
-- **Revised:** 2026-10-14: publication moved from opening to a handle's first write ([ADR-0532](0532-a-browser-folder-is-its-id-written-lazily-and-its-remote-is-its-git-configuration.md)), which also settles the Todos browser bootstrap this record left open. The real-OPFS harness (`packages/folder/evidence/opfs`) checks the new rule in Chromium. The 2026-10-08 [computer-use evidence](../../packages/folder/evidence/definition-publication/computer-use-20261008/README.md) checked publication at opening.
+- **Revised:** 2026-10-14: publication moved from opening to a handle's first write ([ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)), which also settles the Todos browser bootstrap this record left open. The real-OPFS harness (`packages/folder/evidence/opfs`) checks the new rule in Chromium. The 2026-10-08 [computer-use evidence](../../packages/folder/evidence/definition-publication/computer-use-20261008/README.md) checked publication at opening.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) renamed the published file to `epicenter.json` (`DECLARATION_PATH`). Where this record says root `definition.json`, read `epicenter.json`; an old `definition.json` is now an ordinary file.
 
 ## Context
@@ -27,7 +27,7 @@ browser, Bun, and desktop, assembles the handle the same way: the storage
 under its files, tables, and KV publishes once, through the ordinary file
 boundary, before the first change the handle makes. Reads publish nothing. A
 folder opened and never written to is left exactly as it was, and in a
-browser it does not exist ([ADR-0532](0532-a-browser-folder-is-its-id-written-lazily-and-its-remote-is-its-git-configuration.md)).
+browser it does not exist ([ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)).
 Do not read or compare the existing file first.
 
 ```text
