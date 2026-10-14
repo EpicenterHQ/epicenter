@@ -153,7 +153,9 @@ function prepareDefinition(
 			reason: 'it declares an invalid id',
 		});
 	}
-	const schema = prepareShape(value);
+	// A dataset is shared across releases, and an older one must read the keys
+	// a newer one added, so it has no closed tables.
+	const schema = prepareShape(value, { closable: false });
 	if (schema.error !== null) return schema;
 	return Ok(Object.freeze({ id, ...schema.data }));
 }
@@ -169,12 +171,16 @@ function prepareIdentityFree(
 		return DataDefinitionParseError.Malformed({
 			reason: 'it declares an id, and a schema names no dataset',
 		});
-	return prepareShape(value);
+	return prepareShape(value, { closable: true });
 }
 
-/** The prepared title, kv, and tables of a plain-object declaration. */
+/**
+ * The prepared title, kv, and tables of a plain-object declaration. A table
+ * may be closed only when `closable`.
+ */
 function prepareShape(
 	value: Record<string, unknown>,
+	{ closable }: { closable: boolean },
 ): Result<DataSchema, DataDefinitionParseError> {
 	const { title, kv, tables } = value as Partial<DataSchema>;
 	if (
@@ -221,10 +227,25 @@ function prepareShape(
 			});
 		}
 		const table = declaration as TableDeclaration;
-		if (Object.keys(table).some((key) => key !== 'fields' && key !== 'body')) {
+		if (
+			Object.keys(table).some(
+				(key) =>
+					key !== 'fields' && key !== 'body' && key !== 'additionalProperties',
+			)
+		) {
 			return DataDefinitionParseError.Malformed({
 				reason: `table '${tableName}' declares an unknown option`,
 			});
+		}
+		if (Object.hasOwn(table, 'additionalProperties')) {
+			if (table.additionalProperties !== false)
+				return DataDefinitionParseError.Malformed({
+					reason: `table '${tableName}' declares additionalProperties; the only value is false, which closes the table`,
+				});
+			if (!closable)
+				return DataDefinitionParseError.Malformed({
+					reason: `table '${tableName}' is closed, but a dataset must read the keys a newer release adds; remove additionalProperties`,
+				});
 		}
 		if (table.body !== undefined && !isBodyCodec(table.body)) {
 			return DataDefinitionParseError.Malformed({
@@ -239,6 +260,9 @@ function prepareShape(
 		preparedTables[tableName] = Object.freeze({
 			fields: fields.data,
 			...(table.body === undefined ? {} : { body: table.body }),
+			...(table.additionalProperties === false
+				? { additionalProperties: false as const }
+				: {}),
 		});
 	}
 	return Ok(

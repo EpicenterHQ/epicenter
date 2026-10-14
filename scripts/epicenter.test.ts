@@ -127,6 +127,36 @@ test('check reports invalid rows compiler style and exits 1', async () => {
 	);
 });
 
+test('a closed table reports an undeclared key, and query leaves its file out', async () => {
+	const { folder, write, run } = await setup();
+	await write(
+		'epicenter.json',
+		JSON.stringify({
+			...declaration,
+			tables: {
+				...declaration.tables,
+				accounts: {
+					...declaration.tables.accounts,
+					additionalProperties: false,
+				},
+			},
+		}),
+	);
+	await write('accounts/instagram.md', '---\nkind: social\nhandle: x\n---\n');
+	await write('accounts/threads.md', '---\nkind: social\n---\n');
+
+	const result = run('check', folder);
+	expect(result.exitCode).toBe(1);
+	expect(result.stdout).toContain(
+		'accounts/instagram.md:3: handle is not declared',
+	);
+	const query = run('query', folder, 'SELECT stem FROM accounts', '--json');
+	expect(JSON.parse(query.stdout)).toMatchObject({
+		rows: [{ stem: 'threads' }],
+		excluded: ['accounts/instagram.md'],
+	});
+});
+
 test('a missing or unusable epicenter.json is a tool failure with exit 2', async () => {
 	const { folder, write, run } = await setup();
 	const empty = await mkdtemp(join(tmpdir(), 'epicenter-cli-test-'));
