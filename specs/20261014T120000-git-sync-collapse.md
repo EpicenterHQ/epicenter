@@ -28,20 +28,25 @@ pairing, or account-partitioned folders is removed.
 Each phase lands as its own commits on its own `claude/*` branch, stacked on
 the previous one, and ends with the checks it names passing.
 
-| # | Phase | Branch | Done when |
+| # | Phase | Branch | State |
 | --- | --- | --- | --- |
-| 1 | Records match the decisions: ADR-0521 fixes the issuer per build; ADR-0489 rewritten against 0521; ADR-0490 deleted; dead references in 0515 and 0516 repointed | `claude/folder-greenfield` | `check:doc-paths`, `check:doc-hygiene` show nothing new |
-| 2 | `@epicenter/folder/bun` opens through the shared directory layer; the native store, exchange add-on, and their tests are deleted | `claude/folder-greenfield` | `packages/folder` tests and typecheck pass |
-| 3 | Desktop gate: Save version, private-remote Sync, two windows, outside `git` against `index.lock`, on a real desktop run of branch 1 | `claude/folder-engine-tauri-fs` | results recorded in ADR-0531 |
-| 4 | Yjs removed: sign-in and blobs untangled from `@epicenter/sync`; sync routes, Durable Objects, packages, and the three apps deleted; `capture` and `vocab` keep their folder features | `claude/remove-yjs` | root `check` passes for the remaining workspace |
-| 5 | Account partitions removed: installed apps open `<root>/<app-id>/`; hosted pairing relays, `account_key`, `accountKey`, ADR-0461 and ADR-0496 deleted | `claude/remove-yjs` | desktop host tests pass |
-| 6 | Hosted Todos: `mountGitApp` with the Artifacts store in `apps/api`, `/git/connect`, the plain-token transport, the Sync panel; the GitHub connector and picker deleted | `claude/hosted-git` | Todos syncs through a dev deployment in a real browser |
-| 7 | Whispering audio through LFS: the engine's LFS client and an R2 LFS endpoint | later | — |
+| 1 | Records match the decisions: ADR-0521 fixes the issuer per build; ADR-0489 rewritten; ADR-0490 and the GitHub pairing spec deleted | `claude/folder-greenfield` | done, `0eb16600c8` |
+| 2 | `@epicenter/folder/bun` opens through the shared directory layer; native store, exchange add-on, and their tests deleted; names read literally | `claude/folder-greenfield` | done, `063f598956`; symlink classification restored in `a70f1b7269` |
+| 3 | Desktop gate: Save version, private-remote Sync, two windows, outside `git` against `index.lock`, on a real desktop run of branch 1 | `claude/folder-engine-tauri-fs` | waiting for a person at the desktop |
+| 4 | Yjs removed: Local Mail, Skills, sync lab deleted (`280bdf4d44`); AI moved to `@epicenter/ai` (`52ddcdc2b8`); store, sync, relay, and sockets deleted with empty Durable Object placeholders (`9f75a9bd51`); ADR-0534 | `claude/remove-yjs` | done |
+| 5 | Account partitions removed: installed apps open `<root>/<app-id>/`; hosted pairing relays (`hosted.rs`, `binding.rs`, `account-git-relay.ts`), `account_key`, `accountKey`, ADR-0461 and ADR-0496 deleted | `claude/remove-yjs` | next |
+| 6 | Hosted Todos: `mountGitApp` with the Artifacts store in `apps/api`, `/git/connect`, the plain-token transport, the Sync panel; the GitHub connector and picker deleted | `claude/hosted-git` | after 3 and 5 |
+| 7 | Whispering audio through LFS: the engine's LFS client and an R2 LFS endpoint | later | |
 
 ## Open items
 
 - Phase 3 needs a person at the desktop, or a computer-use session.
-- Phase 4's removal order comes from an inventory of what `@epicenter/auth`
-  and `@epicenter/server` import from the Yjs packages.
-- Durable Objects removed in phase 4 need deleted-class migrations, not
-  silent removal, in each `wrangler.jsonc` that declared them.
+- The retired `StoreAuthority` and `GenerationsLedger` data stays on Cloudflare
+  until someone decides to delete it with a `deleted_classes` migration.
+- ADR-0534 names the store records to mark superseded; changing an Accepted
+  record's status is the owner's call.
+- `@epicenter/device` and `@epicenter/sqlite` lost their main consumers;
+  `packages/vite-config` still carries `@epicenter/device`'s worker settings.
+- `apps/landing` still advertises `@epicenter/app/store`.
+- The committed `worker-configuration.d.ts` files predate the installed
+  wrangler; regenerating them rewrites about 25,000 lines.
