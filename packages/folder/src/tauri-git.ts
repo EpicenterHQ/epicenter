@@ -6,13 +6,6 @@
 import { GitCommandError, type GitRun } from './git/native-backend.js';
 import { commands } from './native/bindings.gen.js';
 
-/**
- * A run's name for `cancel_git`, counted within this page. The shell keys
- * runs by window, the page loaded in it, and this number, so no two runs
- * share a name, and a reloaded page starts again from zero.
- */
-let nextRequest = 0;
-
 const encoder = new TextEncoder();
 
 /** `git` for the granted folder `scope`. */
@@ -32,7 +25,11 @@ export function tauriGitRun(scope: string): GitRun {
 							? encoder.encode(options.input)
 							: options.input,
 					);
-		const request = nextRequest++;
+		// The run's name for `cancel_git`. The shell keys runs by window and
+		// this ID, so a random one never names a run another page started,
+		// such as the one this page replaced. A reload or a closed window
+		// stops every run of the page before it.
+		const request = crypto.randomUUID();
 		const cancel = () => {
 			void commands.cancelGit(request);
 		};

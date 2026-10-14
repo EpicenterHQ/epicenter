@@ -43,7 +43,7 @@
 		input: null,
 		indexFile: null,
 		authorization: null,
-		request: 1,
+		request: crypto.randomUUID(),
 	});
 	for (const directory of [scratch, `${root}/harness`, `${root}/batch`])
 		await invoke('make_folder_directory', { scope, path: directory });

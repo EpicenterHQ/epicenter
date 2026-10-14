@@ -25,15 +25,15 @@
 //! case-insensitively, so on a disk that ignores case `.GIT/Hooks/x` is
 //! refused as `.git/hooks/x` would be. Git objects are never written here: the
 //! engine stores them with `git hash-object -w` (`page_git`), which names and
-//! checks them itself. A file is replaced by a staged copy renamed over it,
-//! so an existing hard link is replaced, never written through. A link
+//! checks them itself. A data file is never written in place: the engine
+//! writes a new staged file and renames it over the path, so an existing
+//! hard link is replaced, never written through. A link
 //! another program swaps in between the check and the change is not
 //! defended against; a page cannot make one.
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::paths;
 
@@ -157,11 +157,12 @@ fn expect(kind: Kind, allowed: &[Kind], path: &Path) -> Result<(), String> {
     }
 }
 
-static STAGED: AtomicU64 = AtomicU64::new(0);
-
-/// Write `bytes` to `path`; with `create_new`, refuse a path that exists. A
-/// data file's bytes are staged under `.git/epicenter/scratch` and
-/// renamed (or, for a new file, linked) into place.
+/// Write `bytes` to a new file the engine stages in `.git`: a staged file
+/// under `.git/epicenter/scratch` or a private index copy. A path that
+/// exists is refused (`create_new`), so nothing already there, a hard link
+/// another program planted included, is written through. A data file is
+/// never written here: the engine stages its bytes and renames the staged
+/// copy over it (`rename`).
 pub fn write_file(
     root: &Path,
     path: &Path,
@@ -169,49 +170,32 @@ pub fn write_file(
     create_new: bool,
 ) -> Result<(), String> {
     let (kind, target) = classify(root, path)?;
-    expect(kind, &[Kind::Data, Kind::Staged, Kind::IndexCopy], path)?;
-    let failed =
-        |cause: std::io::Error| format!("'{}' could not be written: {cause}", target.display());
-    if kind != Kind::Data {
-        // The engine's own private files: plain writes in `.git`.
-        let mut options = fs::OpenOptions::new();
-        options.write(true);
-        if create_new {
-            options.create_new(true);
-        } else {
-            options.create(true).truncate(true);
-        }
-        return options
-            .open(&target)
-            .and_then(|mut file| file.write_all(bytes))
-            .map_err(failed);
+    expect(kind, &[Kind::Staged, Kind::IndexCopy], path)?;
+    if !create_new {
+        return Err(refused(
+            path,
+            "a staged file or index copy is only ever written new",
+        ));
     }
-    // The staging directory is checked like any page path: made only where
-    // no link is on the way, and the staged file too.
-    let scratch = root.join(".git").join("epicenter").join("scratch");
-    mkdir(root, &scratch)?;
-    let staged = scratch.join(format!(
-        "rust-{}-{}",
-        std::process::id(),
-        STAGED.fetch_add(1, Ordering::SeqCst)
-    ));
-    let (staged_kind, staged) = classify(root, &staged)?;
-    expect(staged_kind, &[Kind::Staged], &staged)?;
     fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&staged)
+        .open(&target)
         .and_then(|mut file| file.write_all(bytes))
-        .map_err(failed)?;
-    let published = if create_new {
-        fs::hard_link(&staged, &target).and_then(|()| fs::remove_file(&staged))
-    } else {
-        fs::rename(&staged, &target)
+        .map_err(|cause| format!("'{}' could not be written: {cause}", target.display()))
+}
+
+/// Whether `index_file` names a private index copy directly in the root's
+/// `.git` (`.git/index.tmp-*`), compared name by name so either separator
+/// counts: the page joins `/` onto a root Windows writes with `\`.
+pub(crate) fn is_index_copy(root: &Path, index_file: &str) -> bool {
+    let Some(base) = root.to_str() else {
+        return false;
     };
-    if published.is_err() {
-        let _ = fs::remove_file(&staged);
-    }
-    published.map_err(failed)
+    relative_parts(base, index_file).is_some_and(|parts| {
+        parts.first().map(String::as_str) == Some(".git")
+            && classify_parts(&parts) == Some(Kind::IndexCopy)
+    })
 }
 
 /// Rename `from` over `to`: a staged file into a data path, or one data path
@@ -387,6 +371,14 @@ mod tests {
         }
     }
 
+    /// A new staged file holding `bytes`, as the engine writes one.
+    fn staged(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = root.join(".git/epicenter/scratch").join(name);
+        mkdir(root, path.parent().unwrap()).unwrap();
+        write_file(root, &path, bytes, true).unwrap();
+        path
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_link_on_the_way_refuses_the_change() {
@@ -395,12 +387,14 @@ mod tests {
         fs::create_dir_all(root.join(".git")).unwrap();
         let elsewhere = temp.folder("elsewhere");
         std::os::unix::fs::symlink(root.join(".git"), root.join("todos")).unwrap();
-        assert!(write_file(&root, &root.join("todos/config.md"), b"x", false).is_err());
+        let copy = staged(&root, "a", b"x");
+        assert!(rename(&root, &copy, &root.join("todos/config.md")).is_err());
         assert!(!root.join(".git/config.md").exists());
         let other = temp.folder("other");
         fs::create_dir_all(other.join(".git")).unwrap();
         std::os::unix::fs::symlink(&elsewhere, other.join("todos")).unwrap();
-        assert!(write_file(&other, &other.join("todos/a.md"), b"x", false).is_err());
+        let copy = staged(&other, "a", b"x");
+        assert!(rename(&other, &copy, &other.join("todos/a.md")).is_err());
         assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
         assert!(mkdir(&other, &other.join("todos")).is_err());
     }
@@ -435,12 +429,9 @@ mod tests {
             let link = root.join(linked);
             fs::create_dir_all(link.parent().unwrap()).unwrap();
             std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
-            fs::create_dir_all(root.join("todos")).unwrap();
-            assert!(
-                write_file(&root, &root.join("todos/a.md"), b"x", false).is_err(),
-                "{linked}"
-            );
-            assert!(!root.join("todos/a.md").exists());
+            let copy = root.join(".git/epicenter/scratch/a");
+            assert!(write_file(&root, &copy, b"x", true).is_err(), "{linked}");
+            assert!(mkdir(&root, &root.join(".git/epicenter/scratch")).is_err(), "{linked}");
         }
         assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
     }
@@ -454,10 +445,17 @@ mod tests {
         fs::create_dir_all(root.join("todos")).unwrap();
         let outside = temp.path().join("outside.md");
         fs::write(&outside, b"theirs").unwrap();
+        // A data file is replaced by the staged copy renamed over it.
         fs::hard_link(&outside, root.join("todos/a.md")).unwrap();
-        write_file(&root, &root.join("todos/a.md"), b"mine", false).unwrap();
+        let copy = staged(&root, "a", b"mine");
+        rename(&root, &copy, &root.join("todos/a.md")).unwrap();
         assert_eq!(fs::read(&outside).unwrap(), b"theirs");
         assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"mine");
+        // A private file is only ever written new, so one planted in its
+        // place is refused, not written through.
+        fs::hard_link(&outside, root.join(".git/index.tmp-1")).unwrap();
+        assert!(write_file(&root, &root.join(".git/index.tmp-1"), b"mine", true).is_err());
+        assert_eq!(fs::read(&outside).unwrap(), b"theirs");
     }
 
     #[test]
@@ -469,12 +467,20 @@ mod tests {
         assert!(write_file(&root, &root.join(".git/epicenter"), b"x", false).is_err());
         assert!(mkdir(&root, &root.join(".git/epicenter/no-hooks")).is_err());
         mkdir(&root, &root.join("todos")).unwrap();
-        write_file(&root, &root.join("todos/a.md"), b"a", true).unwrap();
-        assert!(write_file(&root, &root.join("todos/a.md"), b"b", true).is_err());
+        // A data path is never written; only new private files are.
+        for create_new in [true, false] {
+            assert!(write_file(&root, &root.join("todos/a.md"), b"a", create_new).is_err());
+        }
+        assert!(!root.join("todos/a.md").exists());
         let staged = root.join(".git/epicenter/scratch/s");
+        assert!(write_file(&root, &staged, b"b", false).is_err());
         write_file(&root, &staged, b"b", true).unwrap();
+        assert!(write_file(&root, &staged, b"c", true).is_err());
         rename(&root, &staged, &root.join("todos/a.md")).unwrap();
         assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"b");
+        let index = root.join(".git/index.tmp-1");
+        write_file(&root, &index, b"i", true).unwrap();
+        remove(&root, &index, false).unwrap();
         assert!(rename(
             &root,
             &root.join("todos/a.md"),

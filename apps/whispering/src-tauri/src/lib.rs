@@ -1007,18 +1007,40 @@ mod tests {
             }),
         )
         .expect("the page makes a data directory");
+        // A data file is written as the engine writes one: a new staged
+        // file, renamed over the path.
+        let scratch = root.join(".git").join("epicenter").join("scratch");
+        let staged = scratch.join("take");
+        invoke(
+            &main,
+            host,
+            "plugin:epicenter-folder|make_folder_directory",
+            json!({ "scope": FOLDER_SCOPE, "path": scratch.to_str().unwrap() }),
+        )
+        .expect("the page makes its staging directory");
         invoke(
             &main,
             host,
             "plugin:epicenter-folder|write_folder_file",
             json!({
                 "scope": FOLDER_SCOPE,
-                "path": root.join("recordings").join("take.md").to_str().unwrap(),
+                "path": staged.to_str().unwrap(),
                 "bytes": [104, 105],
                 "createNew": true,
             }),
         )
-        .expect("the page writes a data file");
+        .expect("the page stages a data file");
+        invoke(
+            &main,
+            host,
+            "plugin:epicenter-folder|rename_folder_path",
+            json!({
+                "scope": FOLDER_SCOPE,
+                "from": staged.to_str().unwrap(),
+                "to": root.join("recordings").join("take.md").to_str().unwrap(),
+            }),
+        )
+        .expect("the page renames it into place");
         assert_eq!(
             fs::read(root.join("recordings").join("take.md")).unwrap(),
             b"hi"

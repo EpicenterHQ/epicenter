@@ -191,10 +191,10 @@ impl Registry {
     }
 
     /// Give `window` the directory of `scope`. The first grant creates the
-    /// directory if it is missing, refuses a directory that is a link or a
-    /// `.git` or scratch directory linked elsewhere, and takes the folder's
-    /// cross-process lock; a later grant, such as a reloaded page's, returns
-    /// the same root.
+    /// directory if it is missing, refuses a directory that is a link or Git
+    /// state that would send writes elsewhere (`verify_layout`), and takes
+    /// the folder's cross-process lock; a later grant, such as a reloaded
+    /// page's, returns the same root.
     pub fn grant(&self, scope: &str, window: &str) -> Result<Granted, GrantError> {
         let mut scopes = self.scopes();
         if self.fenced.load(Ordering::SeqCst) {

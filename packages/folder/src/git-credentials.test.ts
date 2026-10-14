@@ -215,13 +215,15 @@ test('a Bun folder passes its credential to `git` through configuration, scoped 
 test('a credential becomes URL-scoped Git configuration and nothing else', () => {
 	const remote = 'https://api.example.test/git/todos.git';
 	expect(credentialEnvironment({ url: remote, authorization: AUTHORIZATION })).toEqual({
-		GIT_CONFIG_COUNT: '3',
+		GIT_CONFIG_COUNT: '4',
 		GIT_CONFIG_KEY_0: `http.${remote}.extraHeader`,
 		GIT_CONFIG_VALUE_0: `Authorization: ${AUTHORIZATION}`,
 		GIT_CONFIG_KEY_1: 'http.followRedirects',
 		GIT_CONFIG_VALUE_1: 'false',
-		GIT_CONFIG_KEY_2: 'credential.helper',
-		GIT_CONFIG_VALUE_2: '',
+		GIT_CONFIG_KEY_2: `http.${remote}.followRedirects`,
+		GIT_CONFIG_VALUE_2: 'false',
+		GIT_CONFIG_KEY_3: 'credential.helper',
+		GIT_CONFIG_VALUE_3: '',
 	});
 	for (const authorization of [
 		'',
@@ -231,4 +233,22 @@ test('a credential becomes URL-scoped Git configuration and nothing else', () =>
 		'Basic abc\r\nX-Other: 1',
 	])
 		expect(() => credentialEnvironment({ url: remote, authorization })).toThrow();
+});
+
+test('a credential refuses redirects even where the repository allows them for that remote', async () => {
+	const root = await scratch('folder-credentials-redirects-');
+	const remote = 'https://api.example.test/git/todos.git';
+	try {
+		await git(root, 'init', '--quiet');
+		await git(root, 'config', `http.${remote}.followRedirects`, 'true');
+		const run = createGitRunner(root);
+		const ask = ['config', '--get-urlmatch', 'http.followRedirects', remote];
+		expect(new TextDecoder().decode((await run(ask)).stdout).trim()).toBe('true');
+		const scoped = await run(ask, {
+			credential: { url: remote, authorization: AUTHORIZATION },
+		});
+		expect(new TextDecoder().decode(scoped.stdout).trim()).toBe('false');
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });

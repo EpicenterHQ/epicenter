@@ -115,6 +115,32 @@ fn a_linked_git_directory_is_refused() {
     ));
 }
 
+/// Git state that would send `hash-object -w` or `update-ref` elsewhere is
+/// refused at the grant, as before every `git` run.
+#[cfg(unix)]
+#[test]
+fn git_state_linked_elsewhere_is_refused() {
+    let temp = TempDir::new("grant-linked-state");
+    let elsewhere = temp.folder("elsewhere");
+    for planted in ["objects", "refs", "logs", "commondir"] {
+        let root = temp.folder(&format!("notes-{planted}"));
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        let path = root.join(".git").join(planted);
+        if planted == "commondir" {
+            std::fs::write(&path, "../elsewhere\n").unwrap();
+        } else {
+            std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
+        }
+        assert!(
+            matches!(
+                registry(&root, "main").grant("notes", "main"),
+                Err(GrantError::Unavailable { message }) if message.contains(&format!(".git/{planted}"))
+            ),
+            "{planted}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn a_folder_directory_that_is_a_link_is_refused_and_a_linked_parent_is_not() {

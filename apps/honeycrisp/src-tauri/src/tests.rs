@@ -253,23 +253,40 @@ fn inside(fixture: &Fixture, relative: &str) -> String {
     fixture.root.join(relative).to_str().unwrap().to_string()
 }
 
-/// One file written the way the page's engine writes it.
+/// One file written the way the page's engine writes it: its bytes to a new
+/// staged file under `.git/epicenter/scratch`, which is then renamed over the
+/// path.
 fn write(
     fixture: &Fixture,
     window: &WebviewWindow<MockRuntime>,
     relative: &str,
     text: &str,
-    create_new: bool,
 ) -> Result<Value, Value> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let scratch = inside(fixture, ".git/epicenter/scratch");
+    let staged = format!(
+        "{scratch}/staged-{}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    );
+    invoke(
+        window,
+        "plugin:epicenter-folder|make_folder_directory",
+        json!({ "scope": root::SCOPE, "path": scratch }),
+    )?;
     invoke(
         window,
         "plugin:epicenter-folder|write_folder_file",
         json!({
             "scope": root::SCOPE,
-            "path": inside(fixture, relative),
+            "path": staged,
             "bytes": text.as_bytes(),
-            "createNew": create_new,
+            "createNew": true,
         }),
+    )?;
+    invoke(
+        window,
+        "plugin:epicenter-folder|rename_folder_path",
+        json!({ "scope": root::SCOPE, "from": staged, "to": inside(fixture, relative) }),
     )
 }
 
@@ -470,11 +487,23 @@ fn a_new_folder_is_set_up_through_the_plugin_and_a_save_commits_nothing() {
         .unwrap();
         assert!(fixture.root.join(table).is_dir());
     }
-    write(&fixture, &main, "kv.json", "{}\n", true).expect("the default settings are written");
+    write(&fixture, &main, "kv.json", "{}\n").expect("the default settings are written");
     assert!(!git_output(&fixture.root, &["rev-parse", "--verify", "--quiet", "HEAD"]).0);
 
-    // A second creation loses to the file that is there and changes nothing.
-    write(&fixture, &main, "kv.json", "{\"overwritten\":true}\n", true).unwrap_err();
+    // A data file is never written in place, new or not: it changes nothing.
+    for create_new in [true, false] {
+        invoke(
+            &main,
+            "plugin:epicenter-folder|write_folder_file",
+            json!({
+                "scope": root::SCOPE,
+                "path": inside(&fixture, "kv.json"),
+                "bytes": b"{\"overwritten\":true}\n",
+                "createNew": create_new,
+            }),
+        )
+        .unwrap_err();
+    }
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("kv.json")).unwrap(),
         "{}\n"
@@ -494,7 +523,7 @@ fn a_note_may_have_a_leading_dot_but_not_a_name_some_disk_reads_as_another() {
     let main = window(&fixture.app, WINDOW);
     grant(&main).unwrap();
     for allowed in ["notes/.md", "notes/.hidden.md", "notes/a .md", ".gitignore"] {
-        write(&fixture, &main, allowed, "kept\n", true)
+        write(&fixture, &main, allowed, "kept\n")
             .unwrap_or_else(|error| panic!("{allowed}: {error}"));
         assert_eq!(
             std::fs::read_to_string(fixture.root.join(allowed)).unwrap(),
@@ -514,7 +543,7 @@ fn a_note_may_have_a_leading_dot_but_not_a_name_some_disk_reads_as_another() {
         ".git/config",
         ".GIT/hooks/pre-commit",
     ] {
-        let error = write(&fixture, &main, refused, "refused\n", true).unwrap_err();
+        let error = write(&fixture, &main, refused, "refused\n").unwrap_err();
         assert!(text(&error).contains("is not one this page may change"), "{refused}: {error}");
     }
     let mut names: Vec<String> = std::fs::read_dir(fixture.root.join("notes"))
@@ -539,12 +568,12 @@ fn a_save_that_cannot_be_written_fails_and_leaves_the_file() {
     });
     let main = window(&fixture.app, WINDOW);
     grant(&main).unwrap();
-    write(&fixture, &main, "notes/a.md", "first\n", false).expect("an ordinary save lands");
+    write(&fixture, &main, "notes/a.md", "first\n").expect("an ordinary save lands");
 
     // `chmod a-w notes`: the save fails and nothing is written.
     let notes = fixture.root.join("notes");
     std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o555)).unwrap();
-    let refused = write(&fixture, &main, "notes/a.md", "second\n", false);
+    let refused = write(&fixture, &main, "notes/a.md", "second\n");
     std::fs::set_permissions(&notes, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(refused.is_err(), "{refused:?}");
     assert_eq!(
@@ -562,9 +591,9 @@ fn after_shutdown_a_late_write_is_refused_and_the_folder_is_unlocked() {
     });
     let main = window(&fixture.app, WINDOW);
     grant(&main).unwrap();
-    write(&fixture, &main, "kv.json", "{}\n", true).unwrap();
+    write(&fixture, &main, "kv.json", "{}\n").unwrap();
     fixture.app.handle().folders().shutdown();
-    let refused = write(&fixture, &main, "kv.json", "late\n", false).unwrap_err();
+    let refused = write(&fixture, &main, "kv.json", "late\n").unwrap_err();
     assert!(text(&refused).contains("ShuttingDown"), "{refused}");
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("kv.json")).unwrap(),

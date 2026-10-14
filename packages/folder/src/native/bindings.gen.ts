@@ -9,24 +9,28 @@ export const commands = {
 	 *  The folder is locked on its first grant and stays locked until shutdown.
 	 *  The window is given the file system plugin's reading commands for that
 	 *  directory and everything beneath it, dot files included, through a
-	 *  capability added at run time for this window alone. Nothing else on disk
-	 *  becomes reachable.
+	 *  capability added at run time for this window (`directory_capability`).
+	 *  Nothing else on disk becomes reachable.
 	 */
 	grantDirectory: (scope: string) => typedError<Granted, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|grant_directory", { scope })),
 	/**
 	 *  Run one Git operation for a folder this window was granted.
 	 *  `page_git` decides which operations and options are allowed, and fixes
 	 *  the environment. `authorization`, for a push or fetch to an `https`
-	 *  origin, is sent to that origin alone. `request` names the run, so
-	 *  `cancel_git` can stop it.
+	 *  origin, is sent to that origin alone. `request` is an ID the page makes
+	 *  up for the run, a random UUID, so `cancel_git` can stop it (`git_runs`).
 	 */
-	runGit: (scope: string, args: string[], input: number[] | null, indexFile: string | null, authorization: string | null, request: number) => typedError<GitOutput, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|run_git", { scope, args, input, indexFile, authorization, request })),
+	runGit: (scope: string, args: string[], input: number[] | null, indexFile: string | null, authorization: string | null, request: string) => typedError<GitOutput, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|run_git", { scope, args, input, indexFile, authorization, request })),
 	/**
-	 *  Stop a `run_git` this window started. Stopping one that has finished, or
-	 *  another window's, does nothing.
+	 *  Stop a `run_git` this window's page started, named by its ID. A run that
+	 *  has not started yet is stopped as it starts. Stopping one that has
+	 *  finished, or another window's, does nothing.
 	 */
-	cancelGit: (request: number) => typedError<null, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|cancel_git", { request })),
-	/**  Write a file in a granted folder (`page_files::write_file`). */
+	cancelGit: (request: string) => typedError<null, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|cancel_git", { request })),
+	/**
+	 *  Write a new file the engine stages in a granted folder's `.git`: a
+	 *  staged copy or a private index copy (`page_files::write_file`).
+	 */
 	writeFolderFile: (scope: string, path: string, bytes: number[], createNew: boolean) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|write_folder_file", { scope, path, bytes, createNew })),
 	/**  Rename within a granted folder (`page_files::rename`). */
 	renameFolderPath: (scope: string, from: string, to: string) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|rename_folder_path", { scope, from, to })),

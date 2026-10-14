@@ -40,7 +40,7 @@ pub use epicenter_folder_core::registry::{
 
 mod command_names;
 mod commands;
-mod lifecycle;
+mod git_runs;
 
 pub use command_names::COMMANDS;
 pub use commands::DIRECTORY_COMMANDS;
@@ -51,15 +51,8 @@ const PLUGIN_NAME: &str = "epicenter-folder";
 #[derive(Default)]
 pub struct Folders {
     registry: Registry,
-    /// Which page of which webview each `git` run belongs to. See
-    /// `lifecycle`.
-    lifecycles: lifecycle::Lifecycles,
-    /// Cancel flags of the `git` runs still running, keyed by window label,
-    /// the page loaded in it, and the page's own request number, so a
-    /// reloaded page never reaches the runs of the page before it.
-    git_requests: std::sync::Mutex<
-        std::collections::HashMap<(String, u64, u32), std::sync::Arc<std::sync::atomic::AtomicBool>>,
-    >,
+    /// The `git` runs each window's page started. See `git_runs`.
+    git_runs: git_runs::GitRuns,
     /// The windows and scopes `grant_directory` has added a capability for.
     granted_capabilities: std::sync::Mutex<std::collections::HashSet<(String, String)>>,
 }
@@ -112,20 +105,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app, _api| {
             app.manage(Folders::default());
-            // Webviews that exist before the plugin is installed were never
-            // announced to it.
-            for window in app.webview_windows().values() {
-                commands::adopt(window.as_ref());
-            }
             Ok(())
         })
-        // Each actual webview gets its own identity as Tauri announces it.
-        .on_webview_ready(|webview| commands::adopt(&webview))
-        // A webview's resources outlive its pages. When a page starts loading,
-        // the request numbers of the page before it stop naming its runs.
         .on_page_load(|webview, payload| {
             if payload.event() == PageLoadEvent::Started {
-                commands::page_started(webview);
+                page_started(webview);
             }
         })
         .on_event(|app, event| match event {
@@ -140,12 +124,20 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .build()
 }
 
-/// A window was destroyed. Tauri's manager removes the window and its
-/// webviews before a plugin hears of it, so nothing here asks the manager for
-/// them: the plugin's own index says which webview instances were that
-/// window's.
+/// A page started loading in `webview`: the page before it is over, and so
+/// are the `git` runs it started.
+fn page_started<R: Runtime>(webview: &tauri::Webview<R>) {
+    webview
+        .folders()
+        .git_runs
+        .page_ended(webview.window().label());
+}
+
+/// A window was destroyed, and with it its page and that page's `git` runs.
+/// Tauri has already forgotten the window when a plugin hears of it, so this
+/// needs only its label.
 fn window_destroyed<R: Runtime>(app: &tauri::AppHandle<R>, window: &str) {
-    app.folders().lifecycles.window_destroyed(window);
+    app.folders().git_runs.page_ended(window);
 }
 
 #[cfg(test)]

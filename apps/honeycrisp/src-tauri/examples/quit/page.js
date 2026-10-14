@@ -10,8 +10,11 @@
 // when the shell exits: the harness checks that each file they leave is
 // whole.
 //
-// It writes the way the folder engine does, through the folder plugin's
-// `write_folder_file`, and reports through the folder itself under
+// It writes the way the folder engine does (`directory-handle.ts` in
+// `packages/folder`): the bytes go to a new file under
+// `.git/epicenter/scratch` through the folder plugin's `write_folder_file`,
+// which is then renamed over the path. It reports through the folder itself
+// under
 // `harness/`, because the window's capability lets it emit nothing else.
 // `__SCOPE__` is filled in by the harness.
 (async () => {
@@ -25,15 +28,23 @@
 			scope,
 			path: `${root}/${path}`,
 		});
-	const write = (path, text, createNew) =>
-		invoke('plugin:epicenter-folder|write_folder_file', {
+	let staged = 0;
+	const write = async (path, text) => {
+		const copy = `${root}/.git/epicenter/scratch/fixture-${staged++}`;
+		await invoke('plugin:epicenter-folder|write_folder_file', {
 			scope,
-			path: `${root}/${path}`,
+			path: copy,
 			bytes: bytes(text),
-			createNew,
+			createNew: true,
 		});
+		await invoke('plugin:epicenter-folder|rename_folder_path', {
+			scope,
+			from: copy,
+			to: `${root}/${path}`,
+		});
+	};
 	const report = (name, value) =>
-		write(`harness/${name}.json`, JSON.stringify(value), false);
+		write(`harness/${name}.json`, JSON.stringify(value));
 
 	const generation = await invoke('close_register');
 	const answered = new Set();
@@ -59,6 +70,7 @@
 		scope,
 	});
 	root = granted.root;
+	await mkdir('.git/epicenter/scratch');
 	await mkdir('harness');
 	await mkdir('batch');
 	await invoke('close_opened', { generation });
@@ -72,7 +84,6 @@
 				write(
 					`batch/${String(index).padStart(6, '0')}.md`,
 					`${index}\n`,
-					true,
 				).catch(() => {});
 		},
 	};

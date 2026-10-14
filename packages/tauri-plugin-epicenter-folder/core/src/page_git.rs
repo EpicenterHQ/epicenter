@@ -14,11 +14,12 @@
 //! - pushing and fetching only `origin`, the remote Git's own configuration
 //!   names, which a page may set only to a network URL (`is_network_url`):
 //!   never a local path, so a push cannot write another repository on disk;
-//! - only while the root's `.git` is its own directory, not a link or a
-//!   `gitdir:` file;
+//! - only while the root's `.git` is its own directory, not a link, a
+//!   `gitdir:` file, or a `commondir`, with no link at its objects, refs, or
+//!   logs (`root::verify_layout`, checked before every command);
 //! - with no hook and no fsmonitor, whatever the repository configures:
-//!   `core.hooksPath` names an empty directory under `.git/epicenter` that
-//!   only this crate writes;
+//!   `core.hooksPath` names `.git/epicenter/no-hooks`, which must be an
+//!   empty directory before every command;
 //! - with the inherited variables that would point Git at another
 //!   repository, index, or object store removed, no terminal prompt, and no
 //!   trace output. `GIT_INDEX_FILE` may name only a private index copy
@@ -27,10 +28,10 @@
 //! Credentials come from the person's own Git configuration (a credential
 //! helper or SSH), as for any `git` they run, unless the page passes an
 //! `Authorization` value for a push or fetch to the folder's own `https` origin:
-//! then Git sends that one header to that one URL, follows no redirect, and
-//! asks no credential helper (`credential_config`). The credential reaches Git
-//! through its environment, never its arguments, so a process list shows no
-//! token. It goes to `origin`, which the push or fetch must name.
+//! then Git sends that one header to that one URL, follows no redirect from
+//! it whatever the repository configures, and asks no credential helper
+//! (`credential_config`). The credential reaches Git through its
+//! environment, never its arguments, so a process list shows no token. It goes to `origin`, which the push or fetch must name.
 
 use std::io::{Read, Write};
 use std::path::Path;
@@ -257,14 +258,7 @@ pub fn validate(
         return deny();
     }
     if let Some(index_file) = index_file {
-        let private = root.join(".git");
-        let path = Path::new(index_file);
-        let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
-        if !uses_split
-            || path.parent() != Some(private.as_path())
-            || !name.starts_with("index.tmp-")
-            || name.contains("..")
-        {
+        if !uses_split || !crate::page_files::is_index_copy(root, index_file) {
             return Err(refused(args));
         }
     }
@@ -340,15 +334,25 @@ pub fn validate_authorization(
 /// variables: the header for exactly `origin`, no redirect to anywhere else,
 /// and an empty credential helper list, so the person's helper is neither
 /// asked for this server nor told its token.
-fn credential_config(origin: &str, authorization: &str) -> [(String, String); 7] {
+///
+/// Redirects are turned off for `origin` by name as well as in general: Git
+/// takes a URL-specific setting over the general one wherever it is set, so
+/// an `http.<origin>.followRedirects=true` in the repository's configuration
+/// would otherwise win. Settings from the environment are read last, so this
+/// one wins over one for the same URL.
+type CredentialConfig = [(String, String); 9];
+
+fn credential_config(origin: &str, authorization: &str) -> CredentialConfig {
     [
-        ("GIT_CONFIG_COUNT".into(), "3".into()),
+        ("GIT_CONFIG_COUNT".into(), "4".into()),
         ("GIT_CONFIG_KEY_0".into(), format!("http.{origin}.extraHeader")),
         ("GIT_CONFIG_VALUE_0".into(), format!("Authorization: {authorization}")),
         ("GIT_CONFIG_KEY_1".into(), "http.followRedirects".into()),
         ("GIT_CONFIG_VALUE_1".into(), "false".into()),
-        ("GIT_CONFIG_KEY_2".into(), "credential.helper".into()),
-        ("GIT_CONFIG_VALUE_2".into(), String::new()),
+        ("GIT_CONFIG_KEY_2".into(), format!("http.{origin}.followRedirects")),
+        ("GIT_CONFIG_VALUE_2".into(), "false".into()),
+        ("GIT_CONFIG_KEY_3".into(), "credential.helper".into()),
+        ("GIT_CONFIG_VALUE_3".into(), String::new()),
     ]
 }
 
@@ -362,19 +366,20 @@ pub fn run(
     authorization: Option<&str>,
     cancel: &AtomicBool,
 ) -> Result<GitOutput, String> {
-    // The repository is the root's own `.git` directory, as the grant found
-    // it: never a link or a `gitdir:` file a page left in its place, which
-    // would point every command at another repository.
+    // The repository is the root's own `.git` directory, checked again
+    // before every command (`verify_layout`): never a link, a `gitdir:` file,
+    // or a `commondir`, and with no link at its objects, refs, or logs,
+    // whichever program left it, since each would send this command's writes
+    // to another repository.
     let initializing = args.first().map(String::as_str) == Some("init");
     match std::fs::symlink_metadata(root.join(".git")) {
-        Ok(metadata) if metadata.is_dir() => {}
-        Err(missing) if missing.kind() == std::io::ErrorKind::NotFound && initializing => {}
-        _ => {
+        Err(missing) if missing.kind() == std::io::ErrorKind::NotFound && !initializing => {
             return Err(format!(
-                "'{}' is not this folder's own Git directory, so no Git command runs there",
-                root.join(".git").display()
+                "'{}' has no Git repository yet, so only `git init` runs there",
+                root.display()
             ))
         }
+        _ => crate::root::verify_layout(root)?,
     }
     let transfers = matches!(args.first().map(String::as_str), Some("push" | "fetch"));
     let origin = if transfers {
@@ -402,22 +407,84 @@ pub fn run(
     execute(root, args, input, index_file, credential, cancel)
 }
 
+/// The directory `core.hooksPath` names for every page command: no hook is
+/// found there on any platform, whatever the repository or the person
+/// configures. It is made when missing, and before each command it must be a
+/// real, empty directory: a hook another program planted there would run on
+/// `git add`.
+fn no_hooks_directory(root: &Path) -> Result<std::path::PathBuf, String> {
+    let no_hooks = root.join(".git").join("epicenter").join("no-hooks");
+    if !root.join(".git").is_dir() {
+        // `git init` runs no hook; the next command makes the directory.
+        return Ok(no_hooks);
+    }
+    let failed = |cause: std::io::Error| {
+        format!("the folder's empty hooks directory could not be made: {cause}")
+    };
+    match std::fs::symlink_metadata(&no_hooks) {
+        Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => {
+            // `.git/epicenter` is no link (`verify_layout`).
+            std::fs::create_dir_all(&no_hooks).map_err(failed)?;
+        }
+        Err(cause) => return Err(failed(cause)),
+        Ok(_) => {}
+    }
+    let kind = std::fs::symlink_metadata(&no_hooks).map_err(failed)?.file_type();
+    let empty = !kind.is_symlink()
+        && kind.is_dir()
+        && std::fs::read_dir(&no_hooks)
+            .map_err(failed)?
+            .next()
+            .is_none();
+    if !empty {
+        return Err(format!(
+            "'{}' must be an empty directory, because every Git command the page runs looks for hooks there; remove it, and it is made again empty",
+            no_hooks.display()
+        ));
+    }
+    Ok(no_hooks)
+}
+
+/// Kill `git` and the processes it started. A transfer runs a helper such as
+/// `git-remote-https`, which holds the output pipes open and would otherwise
+/// keep waiting on a server that never answers after `git` itself is gone.
+fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    if let Ok(group) = libc::pid_t::try_from(child.id()) {
+        // SAFETY: `kill` takes no pointers. The group is the one `git` leads
+        // (`process_group(0)`), which it keeps until it is reaped below.
+        unsafe {
+            libc::kill(-group, libc::SIGKILL);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &child.id().to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+    let _ = child.kill();
+}
+
 /// Run one validated command with the fixed controls.
 fn execute(
     root: &Path,
     args: &[String],
     input: Option<&[u8]>,
     index_file: Option<&str>,
-    credential: Option<[(String, String); 7]>,
+    credential: Option<CredentialConfig>,
     cancel: &AtomicBool,
 ) -> Result<GitOutput, String> {
-    // An empty directory only this crate writes: no hook is found there on
-    // any platform, whatever the repository or the person configures.
-    let no_hooks = root.join(".git/epicenter/no-hooks");
-    if root.join(".git").is_dir() {
-        std::fs::create_dir_all(&no_hooks)
-            .map_err(|cause| format!("the folder's empty hooks directory could not be made: {cause}"))?;
+    if cancel.load(Ordering::SeqCst) {
+        return Err("the Git command was cancelled before it started".to_string());
     }
+    let no_hooks = no_hooks_directory(root)?;
     let mut command = Command::new("git");
     command
         .arg("-c")
@@ -448,6 +515,12 @@ fn execute(
     if let Some(index_file) = index_file {
         command.env("GIT_INDEX_FILE", index_file);
     }
+    // Its own process group, so a cancel reaches the helpers it starts.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     // After the inherited `GIT_CONFIG_*` variables were removed above.
     if let Some(credential) = credential {
         command.envs(credential);
@@ -475,9 +548,11 @@ fn execute(
         let _ = stderr.read_to_end(&mut bytes);
         bytes
     });
+    let mut killed = false;
     let status = loop {
-        if cancel.load(Ordering::SeqCst) {
-            let _ = child.kill();
+        if !killed && cancel.load(Ordering::SeqCst) {
+            kill_tree(&mut child);
+            killed = true;
         }
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -614,12 +689,26 @@ mod tests {
             "/elsewhere/index",
             "/folders/todos/.git/index",
             "/folders/todos/.git/sub/index.tmp-1",
+            "/folders/todos/.GIT/index.tmp-1",
+            "/folders/todos/.git/index.tmp-1/x",
+            "/folders/todos2/.git/index.tmp-1",
+            "/folders/todos/.git/../.git/index.tmp-1",
         ] {
             assert!(
                 validate(root, &args(&["-c", "core.splitIndex=false", "write-tree"]), Some(index), None).is_err(),
                 "{index}"
             );
         }
+        // On Windows the page joins `/` onto a root written with `\\`.
+        assert_eq!(
+            validate(
+                Path::new("C:\\folders\\todos"),
+                &args(&["-c", "core.splitIndex=false", "write-tree"]),
+                Some("C:\\folders\\todos/.git/index.tmp-1234"),
+                None,
+            ),
+            Ok(())
+        );
         // Without an index copy, write-tree would write the live index's tree.
         assert!(validate(root, &args(&["-c", "core.splitIndex=false", "write-tree"]), None, None).is_err());
         // With no origin configured, nothing is pushed.
@@ -689,6 +778,99 @@ mod tests {
         let init = run(&fresh, &args(&["init", "--quiet", "--initial-branch=main"]), None, None, None, &cancel)
             .unwrap();
         assert_eq!(init.code, Some(0), "{}", init.stderr);
+    }
+
+    /// A repository whose objects, refs, or logs live elsewhere is refused
+    /// before every command, however it came to be that way.
+    #[cfg(unix)]
+    #[test]
+    fn linked_git_state_refuses_every_command() {
+        let temp = crate::testing::TempDir::new("page-git-linked-state");
+        let elsewhere = temp.folder("elsewhere");
+        let cancel = AtomicBool::new(false);
+        let status = args(&["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
+        let hash = args(&["hash-object", "-w", "-t", "blob", "--stdin"]);
+        for (n, planted) in [
+            "objects",
+            "objects/ab",
+            "refs",
+            "refs/heads",
+            "logs",
+            "logs/refs/heads/main",
+            "commondir",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let root = temp.folder(&format!("notes-{n}"));
+            let init = run(&root, &args(&["init", "--quiet", "--initial-branch=main"]), None, None, None, &cancel)
+                .unwrap();
+            assert_eq!(init.code, Some(0), "{}", init.stderr);
+            assert_eq!(run(&root, &status, None, None, None, &cancel).unwrap().code, Some(0));
+            let path = root.join(".git").join(planted);
+            if path.is_dir() {
+                std::fs::remove_dir_all(&path).unwrap();
+            }
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            if planted == "commondir" {
+                std::fs::write(&path, format!("{}\n", elsewhere.display())).unwrap();
+            } else {
+                std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
+            }
+            let refused = run(&root, &hash, Some(b"x"), None, None, &cancel).unwrap_err();
+            assert!(refused.contains(&format!(".git/{planted}")), "{planted}: {refused}");
+            assert!(run(&root, &status, None, None, None, &cancel).is_err(), "{planted}");
+            assert!(crate::root::verify_layout(&root).is_err(), "{planted}");
+        }
+        assert!(std::fs::read_dir(&elsewhere).unwrap().next().is_none());
+    }
+
+    /// Anything in the hooks directory, or the directory as a link, stops
+    /// every command until it is removed; a planted hook never runs.
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_hook_directory_refuses_every_command() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = crate::testing::TempDir::new("page-git-planted-hooks");
+        let root = temp.folder("notes");
+        let cancel = AtomicBool::new(false);
+        let init = run(&root, &args(&["init", "--quiet", "--initial-branch=main"]), None, None, None, &cancel)
+            .unwrap();
+        assert_eq!(init.code, Some(0), "{}", init.stderr);
+        let add = args(&["add", "--all"]);
+        assert_eq!(run(&root, &add, None, None, None, &cancel).unwrap().code, Some(0));
+        let no_hooks = root.join(".git/epicenter/no-hooks");
+        assert!(no_hooks.is_dir());
+
+        let marker = root.join("hook-ran");
+        let hook = no_hooks.join("post-index-change");
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(root.join("a.md"), "a\n").unwrap();
+        let refused = run(&root, &add, None, None, None, &cancel).unwrap_err();
+        assert!(refused.contains("must be an empty directory") && refused.contains("remove it"), "{refused}");
+        assert!(!marker.exists(), "the planted hook never runs");
+
+        // A link in its place is refused too, even to an empty directory.
+        std::fs::remove_dir_all(&no_hooks).unwrap();
+        let empty = temp.folder("empty");
+        std::os::unix::fs::symlink(&empty, &no_hooks).unwrap();
+        assert!(run(&root, &add, None, None, None, &cancel).is_err());
+
+        // Removed, it is made again empty, and commands run.
+        std::fs::remove_file(&no_hooks).unwrap();
+        assert_eq!(run(&root, &add, None, None, None, &cancel).unwrap().code, Some(0));
+        assert!(no_hooks.is_dir() && !marker.exists());
+    }
+
+    #[test]
+    fn a_run_cancelled_before_it_starts_never_starts() {
+        let temp = crate::testing::TempDir::new("page-git-cancelled");
+        let root = temp.folder("notes");
+        let cancel = AtomicBool::new(true);
+        let init = args(&["init", "--quiet", "--initial-branch=main"]);
+        assert!(run(&root, &init, None, None, None, &cancel).is_err());
+        assert!(!root.join(".git").exists());
     }
 
     #[test]
@@ -776,6 +958,8 @@ mod tests {
         // The configuration names exactly the origin.
         let config = credential_config(ORIGIN, good);
         assert!(config.contains(&("GIT_CONFIG_KEY_0".into(), format!("http.{ORIGIN}.extraHeader"))));
+        let count: usize = config[0].1.parse().unwrap();
+        assert_eq!(config.len(), 1 + 2 * count, "every key and value is counted");
     }
 
     #[test]
@@ -875,6 +1059,105 @@ mod tests {
         assert!(
             !other_request.iter().any(|line| line.to_ascii_lowercase().starts_with("authorization")),
             "{other_request:?}"
+        );
+    }
+
+    /// Real `git`, in a repository whose configuration turns redirects on for
+    /// the credential's URL: the credential's configuration still turns them
+    /// off, so the header never follows a redirect to another host.
+    #[test]
+    fn a_redirect_the_repository_allows_for_the_origin_is_not_followed() {
+        use std::io::{BufRead, BufReader};
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+
+        // Answer every request with `response`, reporting its headers.
+        fn serve(listener: TcpListener, response: String, seen: mpsc::Sender<Vec<String>>) {
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { return };
+                    let mut lines = Vec::new();
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                            break;
+                        }
+                        lines.push(line.trim_end().to_string());
+                    }
+                    let _ = stream.write_all(response.as_bytes());
+                    if seen.send(lines).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+        let listen = || {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).ok()?;
+            let port = listener.local_addr().ok()?.port();
+            Some((listener, port))
+        };
+        let (Some((origin, origin_port)), Some((target, target_port))) = (listen(), listen()) else {
+            eprintln!("SKIPPED a_redirect_the_repository_allows_for_the_origin_is_not_followed: no loopback listener");
+            return;
+        };
+        let url = format!("http://127.0.0.1:{origin_port}/git/r.git");
+        let (origin_seen, origin_requests) = mpsc::channel();
+        let (target_seen, target_requests) = mpsc::channel();
+        serve(
+            origin,
+            format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{target_port}/git/r.git/info/refs?service=git-upload-pack\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            ),
+            origin_seen,
+        );
+        serve(
+            target,
+            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
+            target_seen,
+        );
+        let temp = crate::testing::TempDir::new("page-git-redirect");
+        let repo = temp.folder("notes");
+        let git = |args: &[&str], credential: bool| {
+            let mut command = std::process::Command::new("git");
+            command
+                .args(args)
+                .current_dir(&repo)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_TERMINAL_PROMPT", "0");
+            if credential {
+                command.envs(credential_config(&url, "Basic eDpzZWNyZXQ="));
+            }
+            command.output().unwrap()
+        };
+        assert!(git(&["init", "--quiet"], false).status.success());
+        let allow = format!("http.{url}.followRedirects");
+        assert!(git(&["config", &allow, "true"], false).status.success());
+        let effective = |credential: bool| {
+            let output = git(&["config", "--get-urlmatch", "http.followRedirects", &url], credential);
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+        assert_eq!(effective(false), "true", "the repository allows redirects for the origin");
+        assert_eq!(effective(true), "false", "the credential's configuration wins");
+
+        let timeout = Duration::from_secs(10);
+        // Without the credential's configuration, the repository's setting
+        // is followed to the other host: the test can see a redirect.
+        git(&["ls-remote", &url], false);
+        origin_requests.recv_timeout(timeout).unwrap();
+        target_requests.recv_timeout(timeout).unwrap();
+        // With it, the header goes to the origin and nowhere else.
+        let refused = git(&["ls-remote", &url], true);
+        assert!(!refused.status.success());
+        let request = origin_requests.recv_timeout(timeout).unwrap();
+        assert!(
+            request.iter().any(|line| line == "Authorization: Basic eDpzZWNyZXQ="),
+            "{request:?}"
+        );
+        assert!(
+            target_requests.recv_timeout(Duration::from_secs(1)).is_err(),
+            "the redirect was not followed"
         );
     }
 }

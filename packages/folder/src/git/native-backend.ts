@@ -1,14 +1,14 @@
 /**
  * Native Git storage: a real repository in `<root>/.git`.
  *
- * isomorphic-git writes immutable objects for checkpoints (atomically, via a
- * scratch file and rename). Everything that mutates shared state uses the
- * real `git` CLI, whose `index.lock` and ref locks other Git processes
- * respect: `update-ref` with an expected old value is the branch
- * compare-and-swap, `reset` and `update-index` update index entries, and
- * staging runs `git add`. A staged commit is written as objects and moved
- * onto the branch by compare-and-swap (below). isomorphic-git never writes
- * the native index.
+ * isomorphic-git builds checkpoint trees and commits, and every object it
+ * writes is stored by `git hash-object -w`, so nothing writes an object file
+ * by hand. Everything that mutates shared state uses the real `git` CLI,
+ * whose `index.lock` and ref locks other Git processes respect: `update-ref`
+ * with an expected old value is the branch compare-and-swap, `reset` updates
+ * index entries, and staging runs `git add`. A staged commit is written as
+ * objects and moved onto the branch by compare-and-swap (below).
+ * isomorphic-git never writes the native index.
  *
  * A merge with conflicts is never left in the folder: the folder never
  * writes `MERGE_HEAD`, and one another Git program began blocks commits and
@@ -22,7 +22,8 @@
  *
  * The backend reaches the machine only through its host: a `git` runner and
  * directory primitives. `native-host.ts` supplies them in Bun and Node; the
- * desktop app supplies them through its shell (`tauri-directory.ts`).
+ * desktop app supplies them through its shell (`tauri-git.ts` runs `git`,
+ * `tauri-directory.ts` assembles the host).
  */
 import type { FileBoundary } from '../boundary.js';
 import type { DirectoryPrimitives } from '../directory-handle.js';
@@ -93,8 +94,11 @@ export type GitAuthorization = {
 /**
  * The Git configuration that sends `credential`'s header to its URL alone,
  * follows no redirect, and asks no credential helper, as environment
- * variables, so the header never appears in a process list. The desktop
- * shell builds the same configuration (`page_git.rs`).
+ * variables, so the header never appears in a process list. Redirects are
+ * refused for the URL too: Git prefers a URL-specific
+ * `http.<url>.followRedirects` from any other configuration over a plain
+ * `http.followRedirects`. The desktop shell builds the same configuration
+ * (`page_git.rs`).
  */
 export function credentialEnvironment({
 	url,
@@ -103,13 +107,15 @@ export function credentialEnvironment({
 	if (!/^(Basic|Bearer) [\x21-\x7e]+$/.test(authorization))
 		throw new Error('A Git credential must be one Basic or Bearer header');
 	return {
-		GIT_CONFIG_COUNT: '3',
+		GIT_CONFIG_COUNT: '4',
 		GIT_CONFIG_KEY_0: `http.${url}.extraHeader`,
 		GIT_CONFIG_VALUE_0: `Authorization: ${authorization}`,
 		GIT_CONFIG_KEY_1: 'http.followRedirects',
 		GIT_CONFIG_VALUE_1: 'false',
-		GIT_CONFIG_KEY_2: 'credential.helper',
-		GIT_CONFIG_VALUE_2: '',
+		GIT_CONFIG_KEY_2: `http.${url}.followRedirects`,
+		GIT_CONFIG_VALUE_2: 'false',
+		GIT_CONFIG_KEY_3: 'credential.helper',
+		GIT_CONFIG_VALUE_3: '',
 	};
 }
 
