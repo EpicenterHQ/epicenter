@@ -733,7 +733,7 @@ When you add an ADR, add its row here.
 | [0482](0482-folder-mutations-publish-one-file-at-a-time.md) | Folder mutations publish one file at a time | Accepted |
 | [0483](0483-honeycrisp-shares-one-canonical-editor-per-open-row.md) | Honeycrisp shares one canonical editor per open row | Superseded by 0523 |
 | [0486](0486-folder-domain-methods-share-accounted-storage.md) | Folder domain methods share accounted storage | Proposed |
-| [0488](0488-cloud-folders-use-independent-git-histories.md) | Cloud folders pair with independent private GitHub repositories | Proposed (unbuilt; GitHub connection, private creation, account pairing, credential and browser gates; first-party hosting evidence retained) |
+| [0488](0488-cloud-folders-use-independent-git-histories.md) | Each synced folder is an independent Git repository | Proposed (audio history measurement unbuilt) |
 | [0489](0489-cloud-folder-transfers-are-explicit-and-bootstrap-before-opening.md) | Account identity selects local folders and cloud transfers are explicit | Proposed (local history and Local CLI locks implemented; account setup, managed Sync, unrelated-history combination, and save/adoption/refresh coordination unbuilt) |
 | [0490](0490-the-cli-discovers-folders-and-delegates-history-to-git.md) | The CLI discovers folders and delegates history to Git | Proposed (Local CLI and source account commands implemented; cloud folders and transfers unbuilt) |
 | [0491](0491-field-helpers-build-native-typebox-schemas-with-ui-metadata.md) | Field helpers build native TypeBox schemas with UI metadata | Accepted |
@@ -755,7 +755,7 @@ When you add an ADR, add its row here.
 | [0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) | A row is read through one pipeline and repaired as text | Accepted (kv.json unbuilt) |
 | [0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) | Row frontmatter is YAML every common reader reads identically | Accepted (continuous cross-reader check unbuilt) |
 | [0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) | The CLI acts on a data folder by its path | Accepted (running outside an Epicenter checkout unbuilt) |
-| [0521](0521-a-data-folder-syncs-with-its-git-origin-through-a-provider.md) | A data folder syncs with its Git origin through a provider | Proposed (provider interface, repository-addressed GitHub transfers, listing by epicenter.json, and Artifacts provider unbuilt) |
+| [0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) | A folder syncs over plain Git with a token, to a server the person chooses | Proposed (`mountGitApp`, both stores, LFS, Sync panel, connector deletion unbuilt) |
 | [0522](0522-settings-are-independent-keys-set-one-at-a-time.md) | Settings are independent keys set one at a time | Proposed (application adoption unbuilt) |
 | [0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) | Applications own drafts in edit sessions and leave one open item | Superseded by 0528 |
 | [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Accepted |

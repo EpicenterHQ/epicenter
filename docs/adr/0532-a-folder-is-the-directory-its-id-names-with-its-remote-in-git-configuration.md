@@ -3,8 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-10-14
 - **Supersedes:** [ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)
-- **Relates:** [ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md) no longer reaches authored folders. [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) publishes the declaration with a handle's first write. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) lets a desktop page set `origin` only to a network URL. [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) is the test each dropped guarantee was held to.
-- **Unbuilt:** the desktop host still opens installed apps' folders at `<folderDir>/local/<app-id>` or `<folderDir>/accounts/<account-key>/<app-id>` and relays their Git through connector pairings (`installed_apps.rs`, `hosted.rs`, `account-git-relay.ts`); after they move, the pairing routes and their storage go. Existing desktop folders under `local/` and `accounts/<account-key>/` have no move to `<root>/<folder-id>/` yet; it must keep their bytes, history, and `origin`, and two copies with one folder ID stay two copies until a person chooses. A redirect from a renamed GitHub repository answers `upstream_unavailable` instead of naming the rename.
+- **Relates:** [ADR-0461](0461-an-account-directory-name-is-a-hash-of-the-exact-account-identity.md) no longer reaches authored folders. [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) publishes the declaration with a handle's first write. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) lets a desktop page set `origin` only to a network URL. [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) is the test each dropped guarantee was held to. [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server a remote names and how a folder reaches it.
+- **Unbuilt:** the desktop host still opens installed apps' folders at `<folderDir>/local/<app-id>` or `<folderDir>/accounts/<account-key>/<app-id>` and relays their Git through connector pairings (`installed_apps.rs`, `hosted.rs`, `account-git-relay.ts`), and the browser transport still rewrites GitHub URLs to the connector; both go with ADR-0521. Existing desktop folders under `local/` and `accounts/<account-key>/` have no move to `<root>/<folder-id>/` yet; it must keep their bytes, history, and `origin`, and two copies with one folder ID stay two copies until a person chooses.
 
 ## Context
 
@@ -76,26 +76,23 @@ sets it through the shell, which allows only a network URL (`https://`,
 `ssh://`, `user@host:path`), so a push never writes another repository on the
 computer.
 
-**A transfer runs as whoever is signed in when it runs.** A browser reaches
-GitHub through the connector by the repository's canonical clone URL. The
-folder keeps `https://github.com/<owner>/<name>.git`. The app's Git transport
-rewrites each smart-HTTP request for it to
-`/api/git/github/repos/<owner>/<name>.git/...` as the signed-in account. The
-connector reads the repository by name with that account's GitHub grant, then
-reaches it only with a token scoped to its ID. A desktop page's `git` uses the
-person's own credential helper or SSH key for any network URL. Nothing but the
-folder records which repository it uses.
+**A transfer uses the URL as written and a token for that server.** Every
+host sends Git to `remote.origin.url` itself, with no rewriting, and presents
+the token the server issued for that repository, or, on the desktop, the
+person's own Git credentials
+([ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)). Nothing but the folder records
+which repository it uses.
 
 ## Consequences
 
 - One folder per folder ID per root. Accounts share it: signing in as another
-  account does not give it another copy, and a repository the new account
-  cannot reach is refused at the relay, visibly.
+  account does not give it another copy, and a server that refuses the new
+  account's token refuses the transfer, visibly.
 - A download that stops partway leaves some files and no record of it. The
   next Sync commits them and merges them with the remote; identical files
   merge cleanly. Nothing is lost, and nothing needs repair.
 - The same URL works in Git, in the desktop app, and in any clone, because it
-  is the repository's own URL rather than an Epicenter address.
+  is the repository's own URL.
 - A repository deleted and recreated under the same name is the folder's
   remote; no stored repository ID tells them apart.
 - Browser folders at the old layout are left where they are and are no longer
@@ -104,8 +101,6 @@ folder records which repository it uses.
 - Private runtime state (SQLite, pending provider work, provider credentials)
   keeps its app and account ownership outside the folder
   ([ADR-0496](0496-native-app-runtime-storage-is-independent-of-the-shell.md)).
-- A relayed Git request costs one more GitHub REST call than a paired one, to
-  read the repository by name.
 - Deleted: the ready marker, `downloadFolder`, `inspectFolder`, browser scopes,
   `browser.remote`, `createIfMissing`, `confirmLegacyRemoteBranch`, the
   `Absent`, `RemoteMismatch`, `AuthorRequired`, and `InvalidBrowserScope`
@@ -118,12 +113,11 @@ folder records which repository it uses.
 - **Keep `local` and `accounts/<key>` directories.** Separate copies per
   account on one device, at the cost of a scope on every opener, a dataset
   that changes with sign-in, and a download path that must not mix them. The
-  relay already refuses a repository the signed-in account cannot reach.
+  server already refuses a token that cannot reach the repository.
 - **Record the account in Git configuration and refuse a transfer as anyone
-  else.** The relay already refuses an account that cannot reach the
-  repository, and an account that can reach it is allowed by GitHub. The
-  record would only block legitimate syncs and add a second record that must
-  agree with the session.
+  else.** The server already refuses a token that cannot reach the repository,
+  and one that can reach it is allowed. The record would only block legitimate
+  syncs and add a second record that must agree with the session.
 - **Storage Buckets for named roots.** Chromium only, and a folder ID already
   names a directory.
 - **A marker or record of the remote outside Git.** A second source of truth
