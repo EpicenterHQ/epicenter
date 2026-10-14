@@ -14,7 +14,7 @@ the scope and nothing else: it never supplies a root or an author.
 | Path | What it is |
 | --- | --- |
 | `core/` | `epicenter-folder-core`: the registry, the cross-process lock, the shared path rule, and the checked file changes and `git` runs. No Tauri; its tests need only `git` and `bun`. |
-| `src/` | The Tauri plugin: the commands, the run-time capability a grant adds, and which page each `git` run belongs to. |
+| `src/` | The Tauri plugin: the commands, the run-time capability a grant adds, and the `git` runs each window's page started. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 | `fixtures/page-file-changes.json` | Every file change the engine makes in `@epicenter/folder`'s real-Git tests; `page_files.rs` allows each. |
@@ -85,19 +85,26 @@ first grant:
 
 1. creates the root if it is missing (its parent may be a link a person
    chose; the root itself must be a real directory) and resolves it to its
-   canonical path;
+   canonical path, a plain drive path on Windows rather than a `\\?\` one;
 2. takes the folder's cross-process lock (`lock.rs`), held until shutdown, or
    answers `Busy` when another process holds it;
-3. refuses a `.git`, `.git/epicenter`, or scratch directory linked elsewhere,
-   or a `.git` file that points at another Git directory.
+3. refuses Git state that would send writes elsewhere (`root::verify_layout`):
+   `.git` as a link or a file that points at another Git directory, a
+   `.git/commondir` file, a link at or inside `.git/objects` (one level),
+   `.git/refs`, or `.git/logs`, and a linked `.git/epicenter` or scratch
+   directory.
 
-The window's first grant then adds a capability for that window alone
+The window's first grant then adds a capability for that window
 (`directory_capability`): the fs plugin's reading commands
-(`DIRECTORY_COMMANDS`) on the root and everything beneath it. The fs scope
-resolves every existing path, links included, before matching, so a link in
-the folder that points outside it is refused. A grant returns
-`{ root, branch, authorName, authorEmail }`; a later grant, such as a
-reloaded page's, returns the same root.
+(`DIRECTORY_COMMANDS`) on the root and everything beneath it. It applies to
+the window's local pages, the app's own bundle, and, when the page that asked
+was served over `http(s)` (a shell's loopback host), to pages at that origin.
+Tauri checks a page's URL against the capability on every call, so other
+content reaches the window only by navigating it, which the shell's
+navigation guards keep out. The fs scope resolves every existing path, links
+included, before matching, so a link in the folder that points outside it is
+refused. A grant returns `{ root, branch, authorName, authorEmail }`; a later
+grant, such as a reloaded page's, returns the same root.
 
 ## File changes
 
@@ -114,7 +121,7 @@ on the way may be a link. Then it must be:
   `@epicenter/folder`). The rule refuses an alias of `.git` in any segment
   (any case, trailing dots and spaces, ignorable code points, `git~1`),
   `HEAD`, and names that do not survive every desktop file system: a
-  trailing dot or space, a Windows device name, a `~digit` short name, a
+  trailing dot or space, a Windows device name, a Windows short name such as `GIT~1`, a
   reserved or control character. Leading dots are ordinary. The shell keeps
   no list of a folder's files; which data paths a folder has is the page's
   business;
@@ -122,41 +129,54 @@ on the way may be a link. Then it must be:
   directory `.git/epicenter/scratch` and its files, and the private index
   copies `.git/index.tmp-*`.
 
-A data file is written by staging its bytes in scratch and renaming the
-staged copy over it (or linking it, for a new file), so a hard link is
-replaced, never written through. A directory is removed only when empty;
-nothing removes a tree whole. The page writes no Git object: the engine
-stores each with `git hash-object -w`, which names and checks it.
+`write_folder_file` writes only a new staged file or index copy, and only
+with `createNew`, so nothing already at the path, such as a hard link another
+program planted, is written through. A data file is never written in place:
+the engine writes a staged copy and renames it over the path
+(`rename_folder_path`), which replaces a hard link rather than writing
+through it. A directory is removed only when empty; nothing removes a tree
+whole. The page writes no Git object: the engine stores each with
+`git hash-object -w`, which names and checks it.
 
 ## Git
 
 The page keeps the folder's history with the system `git`, which it asks
 this crate to run (`run_git`, stopped by `cancel_git`). `page_git.rs` runs a
-command only in a root granted to the calling window, only while that root's
-`.git` is its own directory (not a link or a `gitdir:` file), and only when
-the arguments are exactly one of the operations the folder engine runs, each
-value checked for its kind. Push and fetch reach only the URL
+command only in a root granted to the calling window, and only when the
+arguments are exactly one of the operations the folder engine runs, each
+value checked for its kind. Before every command it checks the root's Git
+state again, as the grant did (`root::verify_layout`), since another program
+may change `.git` while the folder is open. Push and fetch reach only the URL
 `remote.origin.url` names, and a page may set that only to a network URL
-(`https://`, `ssh://`, or `user@host:path`), never a local path, a `file://`
-URL, or a `transport::address` helper, so a push cannot write another
-repository on the computer. Every command runs with `core.hooksPath` naming an
-empty directory only this crate writes, fsmonitor off, without the inherited
-variables that point Git elsewhere or trace it, and without a terminal
-prompt. `GIT_INDEX_FILE` may name only a private index copy in the root's
-`.git`.
+(`https://`, `ssh://`, `user@host:path`, or plain `http://` to this
+computer's loopback, `127.0.0.1` or `localhost`), never a local path, a
+`file://` URL, or a `transport::address` helper, so a push cannot write
+another repository on the computer. Every command runs with `core.hooksPath`
+naming `.git/epicenter/no-hooks`, which must be a real, empty directory: if
+another program put anything there, or a link in its place, every command is
+refused until it is removed. Commands also run with fsmonitor off, without
+the inherited variables that point Git elsewhere or trace it, and without a
+terminal prompt. `GIT_INDEX_FILE` may name only a private index copy directly
+in the root's `.git`, compared name by name so either separator counts.
 
 A push or fetch may carry one credential, a `Basic` or `Bearer` header value
 for exactly the folder's `https` origin
 ([ADR-0521](../../docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
 Git gets it from its environment as `http.<origin>.extraHeader`, with
-redirects off and the credential helper list empty, so the token is in no
-argument list and no helper is asked or told. Without one, transfers use the
-person's own credential helper or SSH.
+redirects off both in general and for that URL by name (a repository's own
+`http.<origin>.followRedirects=true` would otherwise win), and the credential
+helper list empty, so the token is in no argument list and no helper is asked
+or told. Without one, transfers use the person's own credential helper or
+SSH.
 
-A run is named by the page's own request number. The plugin keys it by window,
-the page loaded in that webview, and that number (`lifecycle.rs`), so a
-reloaded page, or a window created later under the same label, never reaches
-the runs of the page before it.
+The page names each run with a random ID (`crypto.randomUUID()`), and the
+plugin keys it by window label and that ID (`git_runs.rs`), so no run is
+reachable from another window, or from a page with another ID. When a page
+starts loading in a window, or the window is destroyed, every run registered
+for it belongs to the page before, which is gone: each is cancelled. A
+`cancel_git` that arrives before its `run_git` is remembered, and the run is
+refused as it starts; a page change forgets those. Cancelling kills `git`
+and the helpers it started, such as `git-remote-https`.
 
 ## Shutdown
 
@@ -182,7 +202,8 @@ they did. A late change is refused as `ShuttingDown` and writes nothing.
   visible and repairable from the reflog and the remote.
 - File bytes cross IPC as JSON number arrays. That is acceptable for
   Markdown and slow for large audio saves.
-- Whether this crate builds or runs on Windows has not been checked.
+- Whether this crate builds or runs on Windows has not been checked. There,
+  cancelling a run kills `git`'s process tree with `taskkill /T`.
 
 ## Commands
 

@@ -31,12 +31,13 @@ The shell registers each folder for exactly one window: one live editor per
 folder, so the engine never shares files with another window's engine. The
 first `grant_directory` creates the directory, refuses a directory that is a
 link and a linked `.git`, takes the cross-process lock until shutdown, and
-adds a capability for the calling window: the fs plugin's reading commands
-on the root and beneath it. The fs plugin must not require a literal leading
+adds a capability for the calling window, wherever its page loads from: the
+fs plugin's reading commands on the root and beneath it. The fs plugin must not require a literal leading
 dot. Rust makes every change itself (`write_folder_file` and its siblings),
 after checking the whole path on disk: under the root, no link on the way,
 and either a data path the shared path rule accepts or, inside `.git`, only
-the engine's staging and private index copies. The shell keeps no list of a
+the engine's staging files and private index copies, each created as a new
+file. The shell keeps no list of a
 folder's files: an app's definition, a Sync, or a file browser may write any
 data path.
 
@@ -44,13 +45,14 @@ data path.
 `pathProblem` in `@epicenter/folder` and `path_problem` in the plugin refuse
 the same paths, checked against one vector file: `.git` and `HEAD` in any
 case, and any name that does not mean only itself on every disk (a trailing
-dot or space, a reserved character, a Windows device name, a `~1` short
-name, an ignorable code point), since such a name can reach `.git` or
+dot or space, a reserved or control character, a Windows device name, a
+Windows short name such as `GIT~1`, an ignorable code point), since such a name can reach `.git` or
 another file by another spelling. Leading dots are ordinary. Sync checks an
 incoming update against the rule before it writes anything. Git stores every
 object (`hash-object -w`). Rust runs `git`
 for the page (`run_git`) only in a granted root whose `.git` is its own
-directory, only as the exact operations the engine uses, pushing and
+directory, checked again before every run (no shared object store, no link
+for its objects, refs, or logs, and an empty no-hooks directory), only as the exact operations the engine uses, pushing and
 fetching only `origin`, which a page may set only to a network URL (plain
 `http` only to this computer's loopback), with no
 hook, fsmonitor, terminal prompt, or inherited repository variables. A push or
@@ -71,7 +73,9 @@ its page protocol, and the desktop adapter that spoke it are deleted.
 **A page settles its own work before it lets the shell quit.** Pages answer
 the shell's quit or close question only after their admitted saves land.
 The shell then refuses new page work and waits up to ten seconds for any
-change or `git` run still in flight before it releases the folder.
+change or `git` run still in flight before it releases the folder. A page
+reload or a closed window cancels that window's `git` runs, killing the
+process and its helpers. The Git lab, a testbed, has no quit question.
 
 ## Consequences
 
@@ -82,8 +86,8 @@ change or `git` run still in flight before it releases the folder.
 - The browser and the desktop differ only in their history backend, behind
   one interface; their merge, review, and recovery rules are shared.
 - Guarantees of the Rust owner are dropped, each because the state it
-  protected stays visible and repairable: work a reloading page was running
-  stops; other programs' edits are not watched for, and pages read again on
+  protected stays visible and repairable: a `git` run a reloading page started
+  is cancelled; other programs' edits are not watched for, and pages read again on
   focus and after their own actions; an incoming update that stops partway
   keeps no record, and the next Sync records and merges what it wrote; two
   windows no longer share one view of a folder, because a folder has one
@@ -102,14 +106,13 @@ change or `git` run still in flight before it releases the folder.
 - Each object is a `git` process on the desktop, so a commit of many new
   files is slower than an in-process write.
 - A link another program swaps in between Rust's check and its change is
-  not defended against; a page cannot make one. The engine's own staging
-  files and index copies in `.git` are written in place, so a hard link
-  another program planted there would be written through.
+  not defended against; a page cannot make one. Links deeper than the first
+  level of `.git/objects`, `.git/refs`, and `.git/logs` are not looked for.
 - A compromised page keeps the powers the engine needs, which are about
   integrity, not escalation: it can move the branch (`update-ref`), reset
   the index, and change or delete the folder's data. Each is visible and
   repairable from the reflog and the remote.
-- Verified on macOS on 2026-10-15 with Whispering's native quit harness: a
+- Verified on macOS on 2026-10-14 with Whispering's native quit harness: a
   page settles a 4000-file batch before approving, and an early approval
   leaves only whole files.
 

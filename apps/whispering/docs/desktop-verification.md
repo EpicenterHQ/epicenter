@@ -1,5 +1,11 @@
 # Standalone desktop verification
 
+> **Historical record.** This file describes the desktop as it ran under the
+> shell's Rust folder owner, a design retired on 2026-10-15 by
+> [ADR-0531](../../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md).
+> The page now runs the folder engine over a directory the shell grants. Read
+> this file as what was checked then, not as current behavior.
+
 This file has four dated parts. The first records moving the desktop folder to
 the shell's Rust owner, which has TypeScript checks only and an uncompiled
 shell. The second records the adoption of the shared folder package, which has

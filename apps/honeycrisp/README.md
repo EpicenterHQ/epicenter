@@ -92,7 +92,8 @@ is its file stem. A name that some disk would read as another file is
 refused, on every platform, so a folder copied to Windows still means the same
 files: a name ending in a dot or a space (`draft.`, `old `), one holding
 `< > : " | ? *`, a Windows device name (`con`, `nul.md`, `com1.txt`), a
-`~` followed by a digit (`NOTES~1`), and `HEAD` or `.git` in any case. Creating
+Windows short name (`NOTES~1`, `PROGRA~1.TXT`; `Notes ~2.md` is fine), and
+`HEAD` or `.git` in any case. Creating
 or renaming to such a name in **Files** writes nothing and shows why, for
 example "A name cannot end with a dot or a space." A note's own stem may still
 end in a space, since its file name ends in `.md`. A file another program

@@ -152,11 +152,13 @@ Git is about to reach, and its answer goes to that URL alone as an HTTP Basic
 `Authorization` header (a token is the password). `undefined` sends none; a
 throw refuses the transfer with its message. The folder keeps nothing it is
 given: not in `origin`, its files, or its Git configuration. In the browser
-the header rides isomorphic-git's request with no cookies and no redirects. On
-the desktop the shell passes it to `git` through Git's environment
-(`http.<url>.extraHeader`, no redirects, no credential helper), never its
-arguments, and only for a push or fetch to the folder's own `https` origin.
-Without one, desktop `git` uses the person's own credential helper or SSH key.
+the header rides isomorphic-git's request with no cookies and no redirects. In
+Bun and on the desktop it reaches `git` through Git's environment, never its
+arguments: `http.<url>.extraHeader`, `http.followRedirects` and
+`http.<url>.followRedirects` false, so no repository or global setting turns
+redirects back on, and no credential helper. The desktop shell passes it only
+for a push or fetch to the folder's own `https` origin. Without one, `git`
+uses the person's own credential helper or SSH key.
 
 `browser` applies to a browser folder only. A browser folder uses a local
 author by default. Saves never commit (ADR-0529). `httpFetch` supplies a
@@ -571,15 +573,22 @@ path that is not a row of that table, including `a.MD`, which is an ordinary
 file.
 
 A stem is one literal filename segment. Nothing trims it, folds its case,
-normalizes its Unicode, or strips an extension. `'bad '`, `'.hidden'`,
-`'a: b'`, and the empty stem (`todos/.md`) are addresses like any other, and
-a name is never a diagnostic. An empty stem is an address, so compare a stem
-with `undefined` explicitly rather than by truthiness.
+normalizes its Unicode, or strips an extension. `'bad '`, `'.hidden'`, and
+the empty stem (`todos/.md`) are addresses like any other, and a name is
+never a diagnostic. An empty stem is an address, so compare a stem with
+`undefined` explicitly rather than by truthiness.
 
-A stem with a path separator, a backslash, or a control character is
-`InvalidPath`, so no stem can address a nested path such as `todos/a/b.md`.
-Whether a name can be stored, and whether two spellings are one file, is the
-backing storage's answer. Browser storage keeps names exactly, so `Plan` and
+A stem whose row path the folder's path rule (`pathProblem` in `paths.ts`)
+refuses is `InvalidPath`: a path separator, so no stem can address a nested
+path such as `todos/a/b.md`; a backslash or a control character (C0, DEL, or
+C1); or a file name that could name another file on some disk. That last
+group is a trailing dot or space in a directory name, a reserved character (`< > : " | ? *`, so `'a: b'`), a default
+ignorable code point, a Windows device name (`con`, `com1 .txt`: the part
+before the first dot, without trailing spaces), a Windows 8.3 short name
+(`NOTES~1`, `PROGRA~1.TXT`; `Notes ~2` is ordinary), and `HEAD` or `.git` in
+any case. The desktop shell applies the same rule, and both are held to
+`fixtures/path-rules.json` in `tauri-plugin-epicenter-folder`. Whether two
+spellings are one file is the backing storage's answer. Browser storage keeps names exactly, so `Plan` and
 `plan` are two rows. A directory on a filesystem that holds one file for both
 refuses the second with `Exists`. Incoming history has its own rule and may
 refuse paths a filesystem could not hold apart; see Incoming changes.

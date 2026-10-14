@@ -68,8 +68,9 @@ are not UTF-8 text are listed apart and not opened.
   next change writes on top of what is there now.
 - A write that fails for another reason is handled the same way: the capture
   shows the file as it is, and the notice names the failure and offers your
-  text to copy. A write whose reply was lost is checked by the folder; if it
-  landed, it is saved.
+  text to copy. A write whose reply was lost is one of these failures: the
+  notice says the change may or may not have happened, and the capture shows
+  what the file holds now.
 - Text you type is kept well formed, so a lone surrogate becomes U+FFFD as
   you type and what is written is what you see.
 - The first write of a file written by hand rewrites its frontmatter in the

@@ -21,8 +21,8 @@ against the code. The constraints below apply to every edit here.
   even when its repository has no commit yet. Only missing layout/defaults
   are initialized. Do not request a commit because a folder has no head.
 - The shell writes nothing inside the notes directory. A missing layout is
-  created by the page through the attached folder, after the owner holds the
-  lock, in `src/lib/platform/first-open.ts`: look first, write `kv.json`
+  created by the page through the attached folder, after the shell's grant
+  takes the folder's lock, in `src/lib/platform/first-open.ts`: look first, write `kv.json`
   only when a read confirmed it absent and only if it is still absent, and
   never retry an outcome that is unknown. Table directories come from the
   declaration; do not list them a second time in Rust.
@@ -151,9 +151,10 @@ against the code. The constraints below apply to every edit here.
 - The root, the commit author, and the window allowed to use them are decided
   in `src-tauri`. No command accepts a root or a working directory from the
   page.
-- History stays in the directory. Register the folder with no remote, and do
-  not enable `use_repository_origin`. Use `use_repository_author` to read
-  identity under the owner lock.
+- History stays in the directory. The shell registers only the root and the
+  fallback author (`folder_config` in `lib.rs`); the remote and the person's
+  `user.name` and `user.email` are the repository's Git configuration, which
+  the page's engine reads. Do not give the shell a remote.
 - The notes window loads the bundled page's exact origin only. Keep the port
   and credentials checks in `is_app_page`.
 - A shell command exists in three places that change together:
