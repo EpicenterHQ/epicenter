@@ -25,7 +25,7 @@ use epicenter_folder_core::history::{
 use epicenter_folder_core::owner::{Caller, FolderOwner};
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::page_git::{self, GitOutput};
-use epicenter_folder_core::registry::{AttachError, Granted};
+use epicenter_folder_core::registry::{AttachError, Granted, PageWork};
 use serde::Serialize;
 use specta::Type;
 use tauri::{Manager, Resource, ResourceId, Runtime, Webview};
@@ -365,16 +365,17 @@ fn directory_capability(
     capability
 }
 
-/// The root this window was granted for `scope`, and the files it may write.
+/// The root this window was granted for `scope`, and the admission the change
+/// holds until it ends, so a quit waits for it.
 fn changing_root<R: Runtime>(
     webview: &Webview<R>,
     scope: &str,
-) -> Result<(std::path::PathBuf, Vec<String>), String> {
+) -> Result<(std::path::PathBuf, PageWork), String> {
     webview
         .app_handle()
         .state::<Folders>()
         .registry
-        .granted_files(scope, webview.label())
+        .admit_page_work(scope, webview.label())
         .map_err(|refusal| format!("{refusal:?}"))
 }
 
@@ -388,10 +389,11 @@ pub async fn write_folder_file<R: Runtime>(
     bytes: Vec<u8>,
     create_new: bool,
 ) -> Result<(), String> {
-    let (root, patterns) = changing_root(&webview, &scope)?;
+    let (root, work) = changing_root(&webview, &scope)?;
     blocking(
         move || {
-            page_files::write_file(&root, &patterns, std::path::Path::new(&path), &bytes, create_new)
+            let _work = work;
+            page_files::write_file(&root, std::path::Path::new(&path), &bytes, create_new)
         },
         Err,
     )
@@ -407,12 +409,12 @@ pub async fn rename_folder_path<R: Runtime>(
     from: String,
     to: String,
 ) -> Result<(), String> {
-    let (root, patterns) = changing_root(&webview, &scope)?;
+    let (root, work) = changing_root(&webview, &scope)?;
     blocking(
         move || {
+            let _work = work;
             page_files::rename(
                 &root,
-                &patterns,
                 std::path::Path::new(&from),
                 std::path::Path::new(&to),
             )
@@ -431,9 +433,12 @@ pub async fn remove_folder_path<R: Runtime>(
     path: String,
     recursive: bool,
 ) -> Result<(), String> {
-    let (root, patterns) = changing_root(&webview, &scope)?;
+    let (root, work) = changing_root(&webview, &scope)?;
     blocking(
-        move || page_files::remove(&root, &patterns, std::path::Path::new(&path), recursive),
+        move || {
+            let _work = work;
+            page_files::remove(&root, std::path::Path::new(&path), recursive)
+        },
         Err,
     )
     .await
@@ -447,9 +452,12 @@ pub async fn make_folder_directory<R: Runtime>(
     scope: String,
     path: String,
 ) -> Result<(), String> {
-    let (root, patterns) = changing_root(&webview, &scope)?;
+    let (root, work) = changing_root(&webview, &scope)?;
     blocking(
-        move || page_files::mkdir(&root, &patterns, std::path::Path::new(&path)),
+        move || {
+            let _work = work;
+            page_files::mkdir(&root, std::path::Path::new(&path))
+        },
         Err,
     )
     .await
@@ -473,10 +481,10 @@ pub async fn run_git<R: Runtime>(
 ) -> Result<GitOutput, AttachError> {
     let label = webview.label().to_string();
     let app = webview.app_handle().clone();
-    let root = app
+    let (root, work) = app
         .state::<Folders>()
         .registry
-        .granted_root(&scope, &label)?;
+        .admit_page_work(&scope, &label)?;
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let cancel_entry = cancel.clone();
     let page = instance(&webview)
@@ -503,6 +511,7 @@ pub async fn run_git<R: Runtime>(
     let running = app.clone();
     let result = blocking(
         move || {
+            let _work = work;
             page_git::run(
                 &root,
                 &args,

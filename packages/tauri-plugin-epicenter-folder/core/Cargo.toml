@@ -11,7 +11,6 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [dependencies]
-glob = "0.3"
 log = "0.4"
 notify = "8"
 rusqlite = { version = "=0.40.2", features = ["bundled"] }

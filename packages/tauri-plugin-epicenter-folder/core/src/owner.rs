@@ -117,11 +117,6 @@ pub struct FolderConfig {
     /// shell's file system plugin. Every other field but `root`, `author`,
     /// and `branch` is the page engine's business, read from the repository.
     pub page_engine: bool,
-    /// For a page-engine folder: the files the page may write, as glob
-    /// patterns relative to the root (`todos/*.md`). Directories on the way
-    /// to them may be made and removed. Nothing else is changed by the page
-    /// (`page_files`).
-    pub page_files: Vec<String>,
 }
 
 impl FolderConfig {
@@ -136,7 +131,6 @@ impl FolderConfig {
             watch_events: true,
             watch_interval: Some(Duration::from_secs(2)),
             page_engine: false,
-            page_files: Vec::new(),
         }
     }
 }

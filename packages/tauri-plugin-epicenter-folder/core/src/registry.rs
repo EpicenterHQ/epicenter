@@ -13,11 +13,15 @@
 //! A scope whose folder sets `page_engine` has no owner. `grant` takes the
 //! same cross-process lock on first use and hands the window the canonical
 //! root; the page runs `@epicenter/folder`'s engine over it. The lock is held
-//! until `shutdown`, so no other process opens the folder meanwhile.
+//! until `shutdown`, so no other process opens the folder meanwhile. Each
+//! file change or `git` run the page asks for holds a `PageWork` while it
+//! runs; `shutdown` refuses new ones and waits a bounded time for those
+//! running, so a quit never cuts a rename or a `git` run short.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use serde::Serialize;
 use specta::Type;
@@ -110,10 +114,34 @@ impl Session {
     }
 }
 
+/// How long `shutdown` waits for page work already running.
+const PAGE_WORK_GRACE: Duration = Duration::from_secs(10);
+
+/// The page-engine changes and `git` runs in progress.
+#[derive(Default)]
+struct Running {
+    count: Mutex<usize>,
+    settled: Condvar,
+}
+
+/// One admitted page change or `git` run; dropping it ends it.
+pub struct PageWork(Arc<Running>);
+
+impl Drop for PageWork {
+    fn drop(&mut self) {
+        let mut count = self.0.count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *count -= 1;
+        if *count == 0 {
+            self.0.settled.notify_all();
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Registry {
     scopes: Mutex<BTreeMap<String, Scope>>,
     fenced: AtomicBool,
+    running: Arc<Running>,
 }
 
 impl Registry {
@@ -135,6 +163,15 @@ impl Registry {
         }
         if config.scope.trim().is_empty() {
             return Err("a folder scope needs a nonempty ID".to_string());
+        }
+        // One live editor per page-engine folder: its engine coordinates only
+        // the page that opened it, so a second window would edit the same
+        // files with no shared view of them.
+        if config.folder.page_engine && config.windows.len() != 1 {
+            return Err(format!(
+                "the page-engine folder scope '{}' must name exactly one window",
+                config.scope
+            ));
         }
         let mut scopes = self.scopes();
         if scopes.contains_key(&config.scope) {
@@ -207,8 +244,9 @@ impl Registry {
     }
 
     /// Give `window` the directory of a page-engine `scope`. The first grant
-    /// creates the directory if it is missing, refuses a `.git` or scratch
-    /// directory linked elsewhere, and takes the folder's cross-process lock;
+    /// creates the directory if it is missing, refuses a directory that is a
+    /// link or a `.git` or scratch directory linked elsewhere, and takes the
+    /// folder's cross-process lock;
     /// later grants, from any permitted window, return the same root.
     pub fn grant(&self, scope: &str, window: &str) -> Result<Granted, AttachError> {
         let mut scopes = self.scopes();
@@ -234,12 +272,7 @@ impl Registry {
         }
         if entry.granted.is_none() {
             let unavailable = |message: String| AttachError::Unavailable { message };
-            std::fs::create_dir_all(&folder.root).map_err(|cause| {
-                unavailable(format!(
-                    "The folder directory '{}' could not be created: {cause}",
-                    folder.root.display()
-                ))
-            })?;
+            prepare_directory(&folder.root).map_err(unavailable)?;
             let root = resolve_root(&folder.root).map_err(unavailable)?;
             let lock = RootLock::acquire(&root).map_err(|error| match error {
                 LockError::Busy { root } => AttachError::Busy {
@@ -259,20 +292,21 @@ impl Registry {
         })
     }
 
-    /// The canonical root of a page-engine `scope` already granted to a
-    /// window that may use it, and the files the page may write there.
-    pub fn granted_files(
+    /// Admit one page change or `git` run for `window`'s grant of `scope`:
+    /// its canonical root, and the `PageWork` to hold until it ends. Refused
+    /// once `shutdown` has begun.
+    pub fn admit_page_work(
         &self,
         scope: &str,
         window: &str,
-    ) -> Result<(std::path::PathBuf, Vec<String>), AttachError> {
+    ) -> Result<(std::path::PathBuf, PageWork), AttachError> {
         let root = self.granted_root(scope, window)?;
-        let scopes = self.scopes();
-        let patterns = scopes
-            .get(scope)
-            .map(|entry| entry.config.folder.page_files.clone())
-            .unwrap_or_default();
-        Ok((root, patterns))
+        let mut count = self.running.count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.fenced.load(Ordering::SeqCst) {
+            return Err(AttachError::ShuttingDown);
+        }
+        *count += 1;
+        Ok((root, PageWork(Arc::clone(&self.running))))
     }
 
     /// The canonical root of a page-engine `scope` already granted to a
@@ -304,14 +338,24 @@ impl Registry {
         }
     }
 
-    /// Fence new attaches and grants, drain every owner, then release every
-    /// folder's cross-process lock. Returns once all of that has happened.
-    /// A page-engine folder's pages drain their own work before the shell
-    /// shuts down, through the host's departure round.
+    /// Fence new attaches, grants, and page work; wait up to ten seconds for
+    /// page work already running; drain every owner; then release every
+    /// folder's cross-process lock. A page-engine folder's pages settle their
+    /// own work before they approve the quit; the wait covers a change or a
+    /// `git` run still in flight when they did.
     pub fn shutdown(&self) {
+        {
+            // Fenced under the count's lock, so no work is admitted after the
+            // wait below has seen zero.
+            let count = self.running.count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            self.fenced.store(true, Ordering::SeqCst);
+            let _ = self
+                .running
+                .settled
+                .wait_timeout_while(count, PAGE_WORK_GRACE, |count| *count > 0);
+        }
         let (opened, granted): (Vec<Opened>, Vec<RootLock>) = {
             let mut scopes = self.scopes();
-            self.fenced.store(true, Ordering::SeqCst);
             let opened = scopes
                 .values_mut()
                 .filter_map(|scope| scope.opened.take())
@@ -328,4 +372,29 @@ impl Registry {
         }
         drop(granted);
     }
+}
+
+/// Make `root` exist as a real directory. Its parent may be a link a person
+/// chose and is created when missing; `root` itself must be a directory, not
+/// a link to one, so the folder never resolves outside where the shell put it.
+fn prepare_directory(root: &std::path::Path) -> Result<(), String> {
+    let failed = |cause: std::io::Error| {
+        format!("The folder directory '{}' could not be created: {cause}", root.display())
+    };
+    if let Some(parent) = root.parent() {
+        std::fs::create_dir_all(parent).map_err(failed)?;
+    }
+    match std::fs::create_dir(root) {
+        Ok(()) => {}
+        Err(cause) if cause.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(cause) => return Err(failed(cause)),
+    }
+    let kind = std::fs::symlink_metadata(root).map_err(failed)?.file_type();
+    if kind.is_symlink() || !kind.is_dir() {
+        return Err(format!(
+            "The folder directory '{}' is a link or not a directory, so it was not opened",
+            root.display()
+        ));
+    }
+    Ok(())
 }

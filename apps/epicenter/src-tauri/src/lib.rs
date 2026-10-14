@@ -970,13 +970,6 @@ pub fn run() {
             // directory; the shell locks it and grants it, and owns nothing
             // else. The repository's own author and origin are read there.
             todos_folder.page_engine = true;
-            // All the page writes: its table's rows and the folder's two
-            // declared files. Every other file is the person's.
-            todos_folder.page_files = vec![
-                "epicenter.json".into(),
-                "kv.json".into(),
-                "todos/*.md".into(),
-            ];
             app.folders().register(ScopeConfig {
                 scope: "so.epicenter.todos".into(),
                 folder: todos_folder,

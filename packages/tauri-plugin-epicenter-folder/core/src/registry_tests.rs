@@ -11,6 +11,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
@@ -293,7 +294,7 @@ fn page_engine_registry(root: &Path, windows: &[&str]) -> Registry {
 fn a_page_engine_scope_is_granted_locked_and_never_owned() {
     let temp = TempDir::new("page-engine");
     let root = temp.path().join("missing").join("notes");
-    let registry = page_engine_registry(&root, &["main", "second"]);
+    let registry = page_engine_registry(&root, &["main"]);
     assert_eq!(
         registry.grant("notes", "intruder").err(),
         Some(AttachError::WindowNotPermitted {
@@ -311,8 +312,8 @@ fn a_page_engine_scope_is_granted_locked_and_never_owned() {
         !root.join(".git").exists(),
         "granting initializes nothing; the page engine does"
     );
-    // Another window of the same shell gets the same root under the same lock.
-    assert_eq!(registry.grant("notes", "second").unwrap(), granted);
+    // The same window asks again, as a reloaded page does: same root, same lock.
+    assert_eq!(registry.grant("notes", "main").unwrap(), granted);
     // No other holder can take the folder meanwhile.
     assert!(matches!(
         RootLock::acquire(&canonical),
@@ -357,4 +358,68 @@ fn an_owned_scope_refuses_a_grant_and_a_linked_git_refuses_one() {
             Err(AttachError::Unavailable { .. })
         ));
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_folder_directory_that_is_a_link_is_refused_and_a_linked_parent_is_not() {
+    let temp = TempDir::new("page-engine-linked-root");
+    let elsewhere = temp.folder("elsewhere");
+    let leaf = temp.path().join("leaf");
+    std::os::unix::fs::symlink(&elsewhere, &leaf).unwrap();
+    let linked = page_engine_registry(&leaf, &["main"]);
+    assert!(matches!(
+        linked.grant("notes", "main"),
+        Err(AttachError::Unavailable { .. })
+    ));
+    assert!(std::fs::read_dir(&elsewhere).unwrap().next().is_none());
+
+    // The root's parent may be a link a person chose.
+    let real = temp.folder("real");
+    let alias = temp.path().join("alias");
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    let granted = page_engine_registry(&alias.join("notes"), &["main"]);
+    granted.grant("notes", "main").unwrap();
+    assert!(real.join("notes").is_dir());
+    granted.shutdown();
+}
+
+#[test]
+fn a_page_engine_scope_names_exactly_one_window() {
+    let temp = TempDir::new("page-engine-one-window");
+    for windows in [&[][..], &["main", "second"][..]] {
+        let mut folder = config(&temp.path().join("notes"));
+        folder.page_engine = true;
+        let registered = Registry::new().register(ScopeConfig {
+            scope: "notes".to_string(),
+            folder,
+            windows: windows.iter().map(|window| window.to_string()).collect(),
+        });
+        assert!(registered.is_err(), "{windows:?}");
+    }
+}
+
+#[test]
+fn shutdown_waits_for_running_page_work_and_refuses_new_work() {
+    let temp = TempDir::new("page-engine-work");
+    let registry = std::sync::Arc::new(page_engine_registry(&temp.path().join("notes"), &["main"]));
+    registry.grant("notes", "main").unwrap();
+    let (_, work) = registry.admit_page_work("notes", "main").unwrap();
+    let finished = std::sync::Arc::new(AtomicBool::new(false));
+    let shutting = {
+        let registry = std::sync::Arc::clone(&registry);
+        let finished = std::sync::Arc::clone(&finished);
+        std::thread::spawn(move || {
+            registry.shutdown();
+            assert!(finished.load(Ordering::SeqCst), "shutdown waited for the work");
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(matches!(
+        registry.admit_page_work("notes", "main"),
+        Err(AttachError::ShuttingDown)
+    ));
+    finished.store(true, Ordering::SeqCst);
+    drop(work);
+    shutting.join().unwrap();
 }

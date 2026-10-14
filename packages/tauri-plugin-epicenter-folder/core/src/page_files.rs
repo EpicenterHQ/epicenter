@@ -11,11 +11,12 @@
 //! `.` or `..` component, and every component from the root down that exists
 //! must be what it says, never a link. Then it must be one of:
 //!
-//! - a file the shell declared the page may write (`FolderConfig::page_files`,
-//!   glob patterns relative to the root, such as `todos/*.md`), or a
-//!   directory on the way to one. No component may start with a dot, be a
-//!   Windows short name such as `GIT~1`, or be named `HEAD`, so no nested
-//!   repository, bare or not, can be assembled even under a broad pattern;
+//! - a data path: any file or directory whose path the shared path rule
+//!   accepts (`paths::path_problem`, the same rule as the folder engine's
+//!   `pathProblem`). It names no `.git` or `HEAD` in any case and only names
+//!   that mean only themselves on every disk, so no nested repository can be
+//!   assembled and no name reaches `.git` by another spelling. Which data
+//!   paths a folder has is the page's business: the shell keeps no list;
 //! - inside `.git`, the folder engine's staging directory
 //!   `.git/epicenter/scratch` and its files, and the private index copies
 //!   `.git/index.tmp-*` that `git write-tree` reads.
@@ -34,13 +35,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::paths;
+
 /// What a path is to a page that changes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
-    /// A file the shell declared the page may write.
-    File,
-    /// A directory on the way to a declared file.
-    Directory,
+    /// A file or directory of the folder's data.
+    Data,
     /// `.git/epicenter/scratch`, the engine's staging directory.
     Scratch,
     /// A staged file in it.
@@ -55,50 +56,14 @@ fn refused(path: &Path, why: &str) -> String {
     format!("'{}' is not one this page may change: {why}", path.display())
 }
 
-/// A Windows short name such as `GIT~1`, which can name `.git` itself.
-fn is_short_name(name: &str) -> bool {
-    name.as_bytes()
-        .windows(2)
-        .any(|pair| pair[0] == b'~' && pair[1].is_ascii_digit())
-}
-
-/// A code point HFS+ ignores when it compares names, or that Unicode marks
-/// default-ignorable: a name holding one can resolve to a name without it.
-fn is_ignorable(c: char) -> bool {
-    matches!(u32::from(c),
-        0x00AD | 0x034F | 0x061C | 0x115F..=0x1160 | 0x17B4..=0x17B5
-        | 0x180B..=0x180F | 0x200B..=0x200F | 0x202A..=0x202E
-        | 0x2060..=0x206F | 0x3164 | 0xFE00..=0xFE0F | 0xFEFF | 0xFFA0
-        | 0xFFF0..=0xFFF8 | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A
-        | 0xE0000..=0xE0FFF)
-}
-
-/// A name Windows reserves for a device, with or without an extension.
-fn is_device_name(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
-    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
-        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
-            && stem.len() == 4
-            && (stem.as_bytes()[3].is_ascii_digit()
-                || ["¹", "²", "³"].iter().any(|digit| stem.ends_with(digit))))
-        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
-            && ["¹", "²", "³"].iter().any(|digit| stem == format!("{}{digit}", &stem[..3])))
-}
-
-/// Whether `name` means only itself on every disk the folder can live on.
-/// A name Windows rewrites (a trailing dot or space, a `:` stream, a device
-/// name, a short name, a character it forbids) or that HFS+ compares without
-/// an ignorable character could resolve to another entry, `.git` among them.
+/// Whether `name` is a name at all, and one that means only itself on every
+/// disk (`paths::names_only_itself`).
 fn names_only_itself(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
-        && !name.ends_with(['.', ' '])
-        && !name
-            .chars()
-            .any(|c| c.is_control() || matches!(c, ':' | '<' | '>' | '"' | '|' | '?' | '*' | '\\' | '/') || is_ignorable(c))
-        && !is_device_name(name)
-        && !is_short_name(name)
+        && !name.chars().any(|c| c.is_control() || matches!(c, '\\' | '/'))
+        && paths::names_only_itself(name)
 }
 
 /// A name the engine itself gives a staged file or an index copy.
@@ -109,34 +74,8 @@ fn is_plain(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
-fn glob_options() -> glob::MatchOptions {
-    glob::MatchOptions {
-        case_sensitive: true,
-        require_literal_separator: true,
-        require_literal_leading_dot: true,
-    }
-}
-
-/// Directories on the way to the files `patterns` declare: each pattern's
-/// leading components that hold no pattern syntax.
-fn declared_directories(patterns: &[String]) -> Vec<Vec<String>> {
-    let mut directories = Vec::new();
-    for pattern in patterns {
-        let parts: Vec<&str> = pattern.split('/').collect();
-        let mut prefix = Vec::new();
-        for part in &parts[..parts.len().saturating_sub(1)] {
-            if part.contains(['*', '?', '[', ']']) {
-                break;
-            }
-            prefix.push(part.to_string());
-            directories.push(prefix.clone());
-        }
-    }
-    directories
-}
-
-fn classify_parts(parts: &[String], patterns: &[String]) -> Option<Kind> {
-    if !parts.iter().all(|part| names_only_itself(part)) {
+fn classify_parts(parts: &[String]) -> Option<Kind> {
+    if parts.is_empty() || !parts.iter().all(|part| names_only_itself(part)) {
         return None;
     }
     let lower: Vec<String> = parts.iter().map(|part| part.to_ascii_lowercase()).collect();
@@ -152,27 +91,9 @@ fn classify_parts(parts: &[String], patterns: &[String]) -> Option<Kind> {
         }
         _ => {}
     }
-    if parts.is_empty()
-        || parts.iter().any(|part| {
-            part.starts_with('.') || is_short_name(part) || part.eq_ignore_ascii_case("head")
-        })
-    {
-        return None;
-    }
-    let relative = parts.join("/");
-    if patterns.iter().any(|pattern| {
-        glob::Pattern::new(pattern)
-            .is_ok_and(|pattern| pattern.matches_with(&relative, glob_options()))
-    }) {
-        return Some(Kind::File);
-    }
-    if declared_directories(patterns)
-        .iter()
-        .any(|directory| directory == parts)
-    {
-        return Some(Kind::Directory);
-    }
-    None
+    paths::path_problem(&parts.join("/"))
+        .is_none()
+        .then_some(Kind::Data)
 }
 
 /// The names of `raw` below `base`, as the page wrote them, or `None`
@@ -191,7 +112,7 @@ fn relative_parts(base: &str, raw: &str) -> Option<Vec<String>> {
 }
 
 /// What `path` is, if a page may change it, and its full path.
-fn classify(root: &Path, patterns: &[String], path: &Path) -> Result<(Kind, PathBuf), String> {
+fn classify(root: &Path, path: &Path) -> Result<(Kind, PathBuf), String> {
     // The path as the page wrote it, split on every separator: `components`
     // would quietly drop a `.` or a doubled separator, and each name the page
     // supplied must be checked as written.
@@ -204,8 +125,8 @@ fn classify(root: &Path, patterns: &[String], path: &Path) -> Result<(Kind, Path
     let parts = relative_parts(base, raw)
         .ok_or_else(|| refused(path, "it is outside the folder, or names `.`, `..`, or an empty name"))?;
     let relative: PathBuf = parts.iter().collect();
-    let kind = classify_parts(&parts, patterns).ok_or_else(|| {
-        refused(path, "the shell lets this page change only its declared files")
+    let kind = classify_parts(&parts).ok_or_else(|| {
+        refused(path, "it is Git's own state or a name some disk reads as another")
     })?;
     // Every existing component, the last included, is itself, not a link.
     let mut current = root.to_path_buf();
@@ -239,20 +160,19 @@ fn expect(kind: Kind, allowed: &[Kind], path: &Path) -> Result<(), String> {
 static STAGED: AtomicU64 = AtomicU64::new(0);
 
 /// Write `bytes` to `path`; with `create_new`, refuse a path that exists. A
-/// declared file's bytes are staged under `.git/epicenter/scratch` and
+/// data file's bytes are staged under `.git/epicenter/scratch` and
 /// renamed (or, for a new file, linked) into place.
 pub fn write_file(
     root: &Path,
-    patterns: &[String],
     path: &Path,
     bytes: &[u8],
     create_new: bool,
 ) -> Result<(), String> {
-    let (kind, target) = classify(root, patterns, path)?;
-    expect(kind, &[Kind::File, Kind::Staged, Kind::IndexCopy], path)?;
+    let (kind, target) = classify(root, path)?;
+    expect(kind, &[Kind::Data, Kind::Staged, Kind::IndexCopy], path)?;
     let failed =
         |cause: std::io::Error| format!("'{}' could not be written: {cause}", target.display());
-    if kind != Kind::File {
+    if kind != Kind::Data {
         // The engine's own private files: plain writes in `.git`.
         let mut options = fs::OpenOptions::new();
         options.write(true);
@@ -269,13 +189,13 @@ pub fn write_file(
     // The staging directory is checked like any page path: made only where
     // no link is on the way, and the staged file too.
     let scratch = root.join(".git").join("epicenter").join("scratch");
-    mkdir(root, patterns, &scratch)?;
+    mkdir(root, &scratch)?;
     let staged = scratch.join(format!(
         "rust-{}-{}",
         std::process::id(),
         STAGED.fetch_add(1, Ordering::SeqCst)
     ));
-    let (staged_kind, staged) = classify(root, patterns, &staged)?;
+    let (staged_kind, staged) = classify(root, &staged)?;
     expect(staged_kind, &[Kind::Staged], &staged)?;
     fs::OpenOptions::new()
         .write(true)
@@ -294,15 +214,15 @@ pub fn write_file(
     published.map_err(failed)
 }
 
-/// Rename `from` over `to`: a staged file into a declared file, or within
-/// the declared files.
-pub fn rename(root: &Path, patterns: &[String], from: &Path, to: &Path) -> Result<(), String> {
-    let (source_kind, source) = classify(root, patterns, from)?;
-    let (target_kind, target) = classify(root, patterns, to)?;
-    expect(source_kind, &[Kind::File, Kind::Staged], from)?;
-    expect(target_kind, &[Kind::File, Kind::Staged], to)?;
-    if source_kind == Kind::File && target_kind == Kind::Staged {
-        return Err(refused(to, "a declared file is not moved into staging"));
+/// Rename `from` over `to`: a staged file into a data path, or one data path
+/// to another.
+pub fn rename(root: &Path, from: &Path, to: &Path) -> Result<(), String> {
+    let (source_kind, source) = classify(root, from)?;
+    let (target_kind, target) = classify(root, to)?;
+    expect(source_kind, &[Kind::Data, Kind::Staged], from)?;
+    expect(target_kind, &[Kind::Data, Kind::Staged], to)?;
+    if source_kind == Kind::Data && target_kind == Kind::Staged {
+        return Err(refused(to, "a data file is not moved into staging"));
     }
     fs::rename(&source, &target).map_err(|cause| {
         format!(
@@ -313,13 +233,13 @@ pub fn rename(root: &Path, patterns: &[String], from: &Path, to: &Path) -> Resul
     })
 }
 
-/// Remove a declared file, an empty declared directory, a staged file, or a
-/// private index copy. A directory's contents are never removed with it.
-pub fn remove(root: &Path, patterns: &[String], path: &Path, recursive: bool) -> Result<(), String> {
-    let (kind, target) = classify(root, patterns, path)?;
+/// Remove a data file, an empty data directory, a staged file, or a private
+/// index copy. A directory's contents are never removed with it.
+pub fn remove(root: &Path, path: &Path, recursive: bool) -> Result<(), String> {
+    let (kind, target) = classify(root, path)?;
     expect(
         kind,
-        &[Kind::File, Kind::Directory, Kind::Staged, Kind::IndexCopy],
+        &[Kind::Data, Kind::Staged, Kind::IndexCopy],
         path,
     )?;
     if recursive {
@@ -335,11 +255,11 @@ pub fn remove(root: &Path, patterns: &[String], path: &Path, recursive: bool) ->
     removed.map_err(|cause| format!("'{}' could not be removed: {cause}", target.display()))
 }
 
-/// Make the directory at `path` and any missing ancestors, each one a
-/// declared directory or the engine's staging directory on its way.
-pub fn mkdir(root: &Path, patterns: &[String], path: &Path) -> Result<(), String> {
-    let (kind, target) = classify(root, patterns, path)?;
-    expect(kind, &[Kind::Directory, Kind::Scratch], path)?;
+/// Make the directory at `path` and any missing ancestors, each one a data
+/// directory or the engine's staging directory on its way.
+pub fn mkdir(root: &Path, path: &Path) -> Result<(), String> {
+    let (kind, target) = classify(root, path)?;
+    expect(kind, &[Kind::Data, Kind::Scratch], path)?;
     let relative = target.strip_prefix(root).expect("checked under the root");
     let mut current = root.to_path_buf();
     for component in relative.components() {
@@ -347,10 +267,10 @@ pub fn mkdir(root: &Path, patterns: &[String], path: &Path) -> Result<(), String
         if fs::symlink_metadata(&current).is_ok() {
             continue;
         }
-        let (kind, _) = classify(root, patterns, &current)?;
+        let (kind, _) = classify(root, &current)?;
         expect(
             kind,
-            &[Kind::Directory, Kind::Scratch, Kind::Epicenter],
+            &[Kind::Data, Kind::Scratch, Kind::Epicenter],
             &current,
         )?;
         fs::create_dir(&current)
@@ -364,20 +284,12 @@ pub fn mkdir(root: &Path, patterns: &[String], path: &Path) -> Result<(), String
 mod tests {
     use super::*;
 
-    fn todos() -> Vec<String> {
-        vec![
-            "epicenter.json".into(),
-            "kv.json".into(),
-            "todos/*.md".into(),
-        ]
-    }
-
     fn may(root: &Path, relative: &str) -> bool {
-        classify(root, &todos(), &root.join(relative)).is_ok()
+        classify(root, &root.join(relative)).is_ok()
     }
 
     #[test]
-    fn a_page_changes_its_declared_files_and_the_engines_own_git_files_only() {
+    fn a_page_changes_its_data_and_the_engines_own_git_files_only() {
         let temp = crate::testing::TempDir::new("page-files");
         let root = temp.folder("notes");
         fs::create_dir_all(root.join(".git/objects")).unwrap();
@@ -388,6 +300,17 @@ mod tests {
             "todos/café.md",
             "epicenter.json",
             "kv.json",
+            ".gitignore",
+            ".obsidian/workspace.json",
+            ".DS_Store",
+            "todos/.hidden.md",
+            "todos/.md",
+            "todos/notes.txt",
+            "todos/sub/a.md",
+            "todos/config",
+            "todos/objects/x",
+            "other.md",
+            "attachments/manual.txt",
             ".git/epicenter/scratch",
             ".git/epicenter/scratch/staged",
             ".git/index.tmp-1",
@@ -410,20 +333,12 @@ mod tests {
             ".git/refs/heads/main",
             ".git/epicenter/no-hooks/post-commit",
             ".git/epicenter/scratch/nested/x",
-            ".gitignore",
-            ".DS_Store",
             "todos/../.git/config",
-            "todos/.hidden.md",
             "todos/.git/config",
             "todos/HEAD",
             "todos/head",
-            "todos/objects/x",
-            "todos/config",
-            "todos/notes.txt",
-            "todos/sub/a.md",
             "GIT~1/hooks/post-commit",
             "todos/NOTES~1.md",
-            "other.md",
             "HEAD",
             // Names Windows or HFS+ resolve to another entry.
             ".git/epicenter/scratch/.. ",
@@ -449,20 +364,12 @@ mod tests {
         ] {
             assert!(!may(&root, refused), "{refused}");
         }
-        assert!(classify(&root, &todos(), &temp.path().join("outside.md")).is_err());
-        // Even a pattern that reaches everything assembles no repository.
-        let all = vec!["**".to_string()];
-        for refused in ["todos/HEAD", "todos/.git/config", "x/Head"] {
-            assert!(
-                classify(&root, &all, &root.join(refused)).is_err(),
-                "{refused}"
-            );
-        }
+        assert!(classify(&root, &temp.path().join("outside.md")).is_err());
     }
 
     /// Every path the folder engine changed in its real-Git tests
     /// (`packages/folder/src/directory-folder.test.ts`, which keeps the
-    /// fixture current) is one a page with Todos' declared files may change.
+    /// fixture current) is one a page may change.
     #[test]
     fn every_change_the_folder_engine_makes_is_allowed() {
         let changes: Vec<String> =
@@ -488,15 +395,14 @@ mod tests {
         fs::create_dir_all(root.join(".git")).unwrap();
         let elsewhere = temp.folder("elsewhere");
         std::os::unix::fs::symlink(root.join(".git"), root.join("todos")).unwrap();
-        let patterns = todos();
-        assert!(write_file(&root, &patterns, &root.join("todos/config.md"), b"x", false).is_err());
+        assert!(write_file(&root, &root.join("todos/config.md"), b"x", false).is_err());
         assert!(!root.join(".git/config.md").exists());
         let other = temp.folder("other");
         fs::create_dir_all(other.join(".git")).unwrap();
         std::os::unix::fs::symlink(&elsewhere, other.join("todos")).unwrap();
-        assert!(write_file(&other, &patterns, &other.join("todos/a.md"), b"x", false).is_err());
+        assert!(write_file(&other, &other.join("todos/a.md"), b"x", false).is_err());
         assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
-        assert!(mkdir(&other, &patterns, &other.join("todos")).is_err());
+        assert!(mkdir(&other, &other.join("todos")).is_err());
     }
 
     #[test]
@@ -504,12 +410,12 @@ mod tests {
         let temp = crate::testing::TempDir::new("page-files-roots");
         let root = temp.folder("notes");
         let slashed = PathBuf::from(format!("{}/", root.display()));
-        assert!(classify(&slashed, &todos(), &root.join("todos/a.md")).is_ok());
-        assert!(classify(&slashed, &todos(), &root.join("todos/.git/config")).is_err());
+        assert!(classify(&slashed, &root.join("todos/a.md")).is_ok());
+        assert!(classify(&slashed, &root.join("todos/.git/config")).is_err());
         // A sibling whose name extends the root's is outside it.
         let sibling = PathBuf::from(format!("{}2/todos/a.md", root.display()));
-        assert!(classify(&root, &todos(), &sibling).is_err());
-        assert!(classify(&slashed, &todos(), &sibling).is_err());
+        assert!(classify(&root, &sibling).is_err());
+        assert!(classify(&slashed, &sibling).is_err());
         // Drive and filesystem roots, as their names are written.
         let parts = |names: &[&str]| Some(names.iter().map(|name| name.to_string()).collect::<Vec<_>>());
         assert_eq!(relative_parts("C:\\", "C:\\todos\\a.md"), parts(&["todos", "a.md"]));
@@ -531,7 +437,7 @@ mod tests {
             std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
             fs::create_dir_all(root.join("todos")).unwrap();
             assert!(
-                write_file(&root, &todos(), &root.join("todos/a.md"), b"x", false).is_err(),
+                write_file(&root, &root.join("todos/a.md"), b"x", false).is_err(),
                 "{linked}"
             );
             assert!(!root.join("todos/a.md").exists());
@@ -549,7 +455,7 @@ mod tests {
         let outside = temp.path().join("outside.md");
         fs::write(&outside, b"theirs").unwrap();
         fs::hard_link(&outside, root.join("todos/a.md")).unwrap();
-        write_file(&root, &todos(), &root.join("todos/a.md"), b"mine", false).unwrap();
+        write_file(&root, &root.join("todos/a.md"), b"mine", false).unwrap();
         assert_eq!(fs::read(&outside).unwrap(), b"theirs");
         assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"mine");
     }
@@ -558,28 +464,26 @@ mod tests {
     fn writes_renames_removals_and_directories_land_in_the_folder() {
         let temp = crate::testing::TempDir::new("page-files-ops");
         let root = temp.folder("notes");
-        let patterns = todos();
         fs::create_dir_all(root.join(".git")).unwrap();
-        mkdir(&root, &patterns, &root.join(".git/epicenter/scratch")).unwrap();
-        assert!(write_file(&root, &patterns, &root.join(".git/epicenter"), b"x", false).is_err());
-        assert!(mkdir(&root, &patterns, &root.join(".git/epicenter/no-hooks")).is_err());
-        mkdir(&root, &patterns, &root.join("todos")).unwrap();
-        write_file(&root, &patterns, &root.join("todos/a.md"), b"a", true).unwrap();
-        assert!(write_file(&root, &patterns, &root.join("todos/a.md"), b"b", true).is_err());
+        mkdir(&root, &root.join(".git/epicenter/scratch")).unwrap();
+        assert!(write_file(&root, &root.join(".git/epicenter"), b"x", false).is_err());
+        assert!(mkdir(&root, &root.join(".git/epicenter/no-hooks")).is_err());
+        mkdir(&root, &root.join("todos")).unwrap();
+        write_file(&root, &root.join("todos/a.md"), b"a", true).unwrap();
+        assert!(write_file(&root, &root.join("todos/a.md"), b"b", true).is_err());
         let staged = root.join(".git/epicenter/scratch/s");
-        write_file(&root, &patterns, &staged, b"b", true).unwrap();
-        rename(&root, &patterns, &staged, &root.join("todos/a.md")).unwrap();
+        write_file(&root, &staged, b"b", true).unwrap();
+        rename(&root, &staged, &root.join("todos/a.md")).unwrap();
         assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"b");
         assert!(rename(
             &root,
-            &patterns,
             &root.join("todos/a.md"),
             &root.join(".git/epicenter/scratch/t")
         )
         .is_err());
-        assert!(remove(&root, &patterns, &root.join("todos"), true).is_err());
-        remove(&root, &patterns, &root.join("todos/a.md"), false).unwrap();
-        remove(&root, &patterns, &root.join("todos"), false).unwrap();
+        assert!(remove(&root, &root.join("todos"), true).is_err());
+        remove(&root, &root.join("todos/a.md"), false).unwrap();
+        remove(&root, &root.join("todos"), false).unwrap();
         assert!(!root.join("todos").exists());
     }
 }

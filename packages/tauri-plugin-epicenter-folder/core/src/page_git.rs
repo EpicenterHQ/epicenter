@@ -72,8 +72,9 @@ fn is_oid(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// A remote a page may name: `https://` or `ssh://` with a host, or SSH's
-/// `user@host:path`. Never a local path, `file://`, or a `transport::address`
+/// A remote a page may name: `https://` or `ssh://` with a host, `http://`
+/// only to this computer's loopback (`127.0.0.1` or `localhost`, for a
+/// development server), or SSH's `user@host:path`. Never a local path, `file://`, or a `transport::address`
 /// helper such as `ext::`, which would run a program or write another
 /// repository on this computer; and never a URL that carries a password,
 /// which Git would keep in the folder's configuration and put in its
@@ -85,6 +86,15 @@ fn is_network_url(url: &str) -> bool {
         || url.chars().any(|c| c.is_control() || c.is_whitespace())
     {
         return false;
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        let (host, port) = authority.split_at(authority.find(':').unwrap_or(authority.len()));
+        let port_ok = port.is_empty()
+            || port
+                .strip_prefix(':')
+                .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()));
+        return port_ok && matches!(host, "127.0.0.1" | "localhost");
     }
     for scheme in ["https://", "ssh://"] {
         if let Some(rest) = url.strip_prefix(scheme) {
@@ -766,6 +776,28 @@ mod tests {
         // The configuration names exactly the origin.
         let config = credential_config(ORIGIN, good);
         assert!(config.contains(&("GIT_CONFIG_KEY_0".into(), format!("http.{ORIGIN}.extraHeader"))));
+    }
+
+    #[test]
+    fn plain_http_reaches_only_this_computer() {
+        for allowed in [
+            "http://127.0.0.1:5191/git/lab.git",
+            "http://localhost/r.git",
+            "http://localhost:8787/git/x.git",
+        ] {
+            assert!(is_network_url(allowed), "{allowed}");
+        }
+        for refused in [
+            "http://192.168.1.2/r.git",
+            "http://localhost.evil.test/r.git",
+            "http://127.0.0.1.nip.io/r.git",
+            "http://user@127.0.0.1/r.git",
+            "http://127.0.0.1:x/r.git",
+            "http://127.0.0.1:/r.git",
+            "http://[::1]/r.git",
+        ] {
+            assert!(!is_network_url(refused), "{refused}");
+        }
     }
 
     #[test]

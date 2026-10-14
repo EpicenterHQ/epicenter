@@ -1521,7 +1521,6 @@ dependencies = [
 name = "epicenter-folder-core"
 version = "0.0.1"
 dependencies = [
- "glob",
  "libc",
  "log",
  "notify",
