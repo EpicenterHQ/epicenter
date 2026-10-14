@@ -17,8 +17,8 @@
  *
  * `scalar` has no ordinary meaning here, so it is checked almost everywhere. It
  * survives in three kinds of place, all excluded by subsystem: Matter keeps its
- * own copy of the field palette and its own words, `local-books` and
- * `local-mail` genuinely lift scalar columns into SQLite mirrors of their own,
+ * own copy of the field palette and its own words, `local-books` genuinely
+ * lifts scalar columns into SQLite mirrors of its own,
  * and YAML calls a plain node a scalar.
  *
  * `prose` is an ordinary English word, so checking it everywhere would flag the
@@ -88,9 +88,8 @@ const RULES: readonly Rule[] = [
 			// Matter's universe: its own palette copy, its own words (ADR-0309).
 			'apps/matter/',
 			'packages/matter-core/',
-			// Their own SQLite mirrors, with real extracted scalar columns.
+			// Its own SQLite mirrors, with real extracted scalar columns.
 			'apps/local-books/',
-			'apps/local-mail/',
 			// YAML's word for a plain node, not ours.
 			'.agents/skills/agent-instructions/',
 		],
@@ -101,14 +100,12 @@ const RULES: readonly Rule[] = [
 		excludes: [],
 		scope: [
 			'packages/app/src/data/',
-			'packages/skills/',
 			'packages/svelte/',
 			'packages/server/workers/',
 			'packages/app-shell/',
 			'apps/honeycrisp/',
 			'apps/whispering/',
 			'apps/vocab/',
-			'apps/sync-lab/',
 			'apps/epicenter/',
 			'.agents/skills/yjs/',
 			'.agents/skills/svelte/',

@@ -6,7 +6,6 @@
 		"security": {
 			"capabilities": [
 				"home-model-administration-development",
-				"mail-gmail-authorization-development",
 				"home-launch-application-development",
 				"trusted-app-windows-development",
 				"trusted-whispering-native-development",

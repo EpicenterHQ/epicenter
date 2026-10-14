@@ -17,7 +17,6 @@
 		"security": {
 			"capabilities": [
 				"home-model-administration-production",
-				"mail-gmail-authorization-production",
 				"home-launch-application-production",
 				"trusted-app-windows-production",
 				"trusted-whispering-native-production",

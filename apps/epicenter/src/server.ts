@@ -24,7 +24,6 @@ import {
 	type SqliteStatement,
 	stringifySqliteFrame,
 } from '@epicenter/device/protocol';
-import type { PendingCallback } from '@epicenter/local-mail/authorization-return';
 import {
 	type AccountIdentity,
 	asPrincipalId,
@@ -63,8 +62,6 @@ import {
 	APPLICATIONS_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
-	MAIL_CALLBACK_ROUTE,
-	MAIL_PENDING_CALLBACK_ROUTE,
 	SESSION_ROUTE,
 	SESSION_STREAM_ROUTE,
 	SIGN_IN_CALLBACK_ROUTE,
@@ -109,13 +106,6 @@ export type HomeServerOptions = {
 
 const SESSION_COOKIE = 'epicenter_session';
 const MAX_BROWSER_SESSIONS = 32;
-/**
- * What the person's browser shows once Google has answered. It carries no
- * script, so it needs no hash in the policy, and it says nothing about what
- * happened: whether the account connected is decided in the Mail window, which
- * is where the person is about to look.
- */
-const MAIL_CALLBACK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Local Mail</title></head><body><p>Google has answered. You can close this tab and return to Device.</p></body></html>`;
 const SESSION_SHELL = `<!doctype html><html><head><meta charset="utf-8"><title>Device</title><script>window.__EPICENTER_SESSION_READY__.then(() => window.location.reload())</script></head><body></body></html>`;
 const RESTART_REQUIRED_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Restart Epicenter</title></head><body><h1>Restart Epicenter to continue</h1><p>This session has ended. Quit and reopen Epicenter. If the account change failed, your saved sign-in may not have changed.</p></body></html>`;
 
@@ -139,11 +129,6 @@ export function createHomeServer({
 	const activeUrl = validateOrigin(origin);
 	const activeHost = activeUrl.host;
 	const sessionHashes = new Set<string>();
-	// The single callback Google has delivered and Local Mail has not collected
-	// yet. One slot rather than a queue: a person authorizes one account at a
-	// time, and a stale callback is a spent code, so the latest is the only one
-	// worth keeping.
-	let pendingMailCallback: string | null = null;
 	const hostPages = {
 		home: injectAuthBootstrap(staticAssets.homePage, desktopAuth.bootSnapshot),
 		...PLACEHOLDER_PAGES,
@@ -162,14 +147,6 @@ export function createHomeServer({
 		SESSION_SHELL,
 	].join('\n');
 	const csp = contentSecurityPolicy(everyPage);
-	const applicationCsp = new Map(
-		servedApps
-			.filter(({ id }) => APPLICATION_CONNECT_ORIGINS[id] !== undefined)
-			.map(({ id }) => [
-				id,
-				contentSecurityPolicy(everyPage, APPLICATION_CONNECT_ORIGINS[id]),
-			]),
-	);
 	const { upgradeWebSocket, websocket: homeWebsocket } = createBunWebSocket();
 	const relay = createAccountRelay(homeWebsocket);
 	const app = new Hono();
@@ -516,7 +493,11 @@ export function createHomeServer({
 
 	// Home and the release-bundled placeholders: one document each, no asset
 	// tree behind them.
-	for (const builtInRoute of [BUILT_IN_ROUTES.home, BUILT_IN_ROUTES.books]) {
+	for (const builtInRoute of [
+		BUILT_IN_ROUTES.home,
+		BUILT_IN_ROUTES.mail,
+		BUILT_IN_ROUTES.books,
+	]) {
 		app.get(builtInRoute.pattern, (c) => {
 			c.header('cache-control', 'no-store');
 			if (desktopAuth.restartRequired) return c.html(RESTART_REQUIRED_PAGE);
@@ -524,37 +505,11 @@ export function createHomeServer({
 			return c.html(hostPages[builtInRoute.id]);
 		});
 	}
-	// Google's answer, arriving in the person's own browser.
-	//
-	// This is the one route on the origin a browser outside the WebView is
-	// expected to reach, so it is deliberately unguarded: a browser following a
-	// redirect carries no session cookie, and there is nothing here to protect.
-	// The host holds an opaque URL for one collection and reads nothing out of
-	// it. The code is worthless without the PKCE verifier, which never leaves
-	// the Mail window, and a forged callback fails that window's `state` check.
-	//
-	// Only a request carrying `code` or `error` is a callback. Anything else is
-	// the WebView loading its own client route, and falls through to the SPA.
-	app.get(MAIL_CALLBACK_ROUTE.pattern, (c, next) => {
-		const url = new URL(c.req.url);
-		const isCallback =
-			url.searchParams.has('code') || url.searchParams.has('error');
-		if (!isCallback) return next();
-		pendingMailCallback = url.toString();
-		c.header('cache-control', 'no-store');
-		return c.html(MAIL_CALLBACK_PAGE);
-	});
 	// One contained asset tree each, with the document served from memory so
 	// every client route lands on the stamped page.
 	for (const application of servedApps) {
 		const prefix = `/apps/${application.id}/`;
-		// The session shell is the host's own document and keeps the host's own
-		// policy; only this application's page carries the wider one.
-		const widened = applicationCsp.get(application.id);
-		const servePage = (c: Context) => {
-			if (widened !== undefined) c.header('content-security-policy', widened);
-			return c.html(application.page);
-		};
+		const servePage = (c: Context) => c.html(application.page);
 		app.get(`${prefix}*`, async (c) => {
 			const pathname = new URL(c.req.url).pathname;
 			if (pathname === prefix || pathname === `${prefix}index.html`) {
@@ -585,15 +540,6 @@ export function createHomeServer({
 	// generic application listing is already guarded above; this wildcard keeps
 	// newly added app routes behind the same browser session by default.
 	app.use('/api/apps/*', requireBrowserSession);
-	app.use('/api/mail/*', requireBrowserSession);
-	// Taking is destructive, because one authorization is redeemable once and a
-	// second reader would be redeeming a code Google has already spent.
-	app.get(MAIL_PENDING_CALLBACK_ROUTE.pattern, (c) => {
-		const callback = pendingMailCallback;
-		pendingMailCallback = null;
-		if (callback === null) return c.body(null, 204);
-		return c.json({ callbackUrl: callback } satisfies PendingCallback);
-	});
 	app.use('/api/home/*', requireBrowserSession);
 	app.use(`${DEVICE_PATH}/*`, requirePrivateBroker);
 	app.get(`${DEVICE_PATH}/sqlite`, async (c, next) => {
@@ -1251,35 +1197,12 @@ function tokensMatch(candidate: string, expected: string): boolean {
 }
 
 /**
- * Origins an application's own document may reach, beyond this one.
- *
- * The default is nothing: `connect-src 'self'` plus the IPC endpoints, so an
- * application talks to the host and to no one else. Tauri's `security.csp`
- * does not reach these windows at all, because it is injected into assets
- * Tauri's own protocol serves and every application here is served over
- * `http://127.0.0.1`. This header is the only policy the WebView enforces.
- *
- * Mail is the one entry. The host holds no Gmail token and proxies no Gmail
- * request (ADR-0226), so the WebView redeems Google's authorization code and
- * calls the Gmail API itself. `accounts.google.com` is deliberately absent:
- * consent happens in the person's own browser through the opener, never in
- * this WebView.
- *
- * Widening one entry widens one application. The policy is a response header
- * and every application document is served its own, which is the same scoping
- * the capability files apply to native commands.
+ * The one policy every document on this origin is served: an application
+ * talks to the host and to no one else. Tauri's `security.csp` does not reach
+ * these windows, because every application is served over
+ * `http://127.0.0.1`, so this header is the only policy the WebView enforces.
  */
-const APPLICATION_CONNECT_ORIGINS: Record<string, readonly string[]> = {
-	[BUILT_IN_ROUTES.mail.id]: [
-		'https://oauth2.googleapis.com',
-		'https://gmail.googleapis.com',
-	],
-};
-
-function contentSecurityPolicy(
-	page: string,
-	connectOrigins: readonly string[] = [],
-): string {
+function contentSecurityPolicy(page: string): string {
 	const scriptHashes = [
 		...page.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi),
 	]
@@ -1299,9 +1222,7 @@ function contentSecurityPolicy(
 		// refuses the compile and the recording trigger dies mid-boot.
 		`script-src 'self' 'wasm-unsafe-eval' ${scriptHashes.join(' ')}`,
 		"style-src 'self' 'unsafe-inline'",
-		["connect-src 'self' ipc: http://ipc.localhost", ...connectOrigins].join(
-			' ',
-		),
+		"connect-src 'self' ipc: http://ipc.localhost",
 		"img-src 'self' data: blob:",
 		"media-src 'self' data: blob:",
 		"worker-src 'self' blob:",

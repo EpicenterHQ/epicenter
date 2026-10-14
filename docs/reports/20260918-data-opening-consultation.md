@@ -15,6 +15,7 @@ Read-only research; no source edits, no experiments. Status: **complete**.
 
 This is not a naming choice. The two functions are different layers, and only one of them can be the boundary:
 
+<!-- doc-path-check: ignore-next-line -->
 - `openMemory` statically imports `bun:sqlite` (`packages/app/src/data/store/memory.ts:18,21`). It cannot be bundled into workerd or a browser. Three Durable Object harnesses and one sqlite-wasm page need a data-only store and can never call it (`packages/server/workers/replica.ts:105-111`, `apps/sync-lab/worker/test-peer.ts:51-55`, `packages/app/evidence/data/workerd/probe.ts:82`, `apps/sync-lab/ui/main.ts:39-43`). `import-boundaries.test.ts:59` already has to special-case `memory` as `target: 'bun'`.
 - `openMemory` is six lines over the general opener (`memory.ts:54-59`). The reverse derivation is impossible. So the general opener earns its place by necessity; `openMemory` earns its place by volume (20 files, ~150 callsites, 44 in `store.test.ts` alone) and by encoding one ownership rule. Neither should be deleted; only one is the boundary.
 - "Memory" is false for every caller of the general opener: DO SQLite is durable, `20084e6ac9:apps/whispering/src/lib/whispering/recordings.test.ts:36` opens a file. "Account" is equally unearned: the opener takes no account and "claims no address" (`memory.ts:13-16`). The opener returns `Data<T>` (`store/handles.ts:320-322`), as `openApp` returns `App`; that is the grounding for `openData`.
@@ -25,6 +26,7 @@ This is not a naming choice. The two functions are different layers, and only on
 | Population | Files | Need | Served by |
 | --- | --- | --- | --- |
 | Bun tests, throwaway store | 20 files call `openMemory(def)` | typed `tables`/`kv`, `await using`, no thought about the record | `openMemory(def)` |
+<!-- doc-path-check: ignore-next-line -->
 | Bun tests, close + reopen same bytes | `20084e6ac9:packages/chat/src/index.test.ts:36-61`, `packages/skills/src/skills.test.ts:67-115` (historical definition then current over ONE record = the historical-data refusal/upgrade case), `apps/local-mail/ui/src/lib/data.test.ts:16-30`, `store.test.ts`, `artifact/import.test.ts`, `checkout.bench.ts:34-35,166` | record outlives stores; caller closes it | `createMemoryRecord()` + `openMemory(def, record)` |
 | Non-Bun runtime, caller-owned SQLite | `replica.ts`, `test-peer.ts`, `probe.ts` (DO SQLite), `sync-lab/ui/main.ts` (sqlite-wasm) | `{definition, sqlite}` only; never `dispose`, never `log` | `openData(def, sqlite)` |
 | Hand-rolled `openMemory` | `packages/server/src/store-sync/browser-dial.test.ts:99-106`, `packages/app/src/data/sync/attach.test.ts:45-51`, `20084e6ac9:apps/whispering/src/lib/operations/pipeline.test.ts:125-130`, `connection.test.ts:159,504,568` | identical to `openMemory(def)`; `dispose: () => live.close()` exists only to rebuild it | migrate to `openMemory(def)` |
@@ -33,6 +35,7 @@ This is not a naming choice. The two functions are different layers, and only on
 
 Every external use of `dispose` is a hand-rolled `openMemory`; no external caller passes `log`. So the public general opener needs exactly two positional arguments.
 
+<!-- doc-path-check: ignore-next-line -->
 `apps/skills/src/lib/application.ts:48` uses a third opener, `openDatabase` from `/store/browser`. Skills is documented as deliberately broken (`application.ts:5-10`); it should move to `openApp`, not to `openData`. Out of scope for this decision, but it must not be used as an argument for a browser data-only opener.
 
 ## Ownership and semantics (to preserve exactly)

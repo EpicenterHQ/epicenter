@@ -9,7 +9,7 @@
  * Key behaviors:
  * - The launch token is accepted only by the bootstrap route
  * - Home APIs and WebSockets require an HttpOnly browser session
- * - Home and each compiled application serve their builds; Books stays a placeholder
+ * - Home and each compiled application serve their builds; Mail and Books stay placeholders
  * - Unknown, non-canonical, and traversal-shaped app paths stay closed
  * - Host, Origin, CSP, frame, and referrer policies are enforced
  * - Malformed WebSocket frames drop silently without killing the socket
@@ -40,7 +40,6 @@ import { generateBlobId } from '@epicenter/blobs';
 import { type BunBlobStore, createBunBlobStore } from '@epicenter/blobs/bun';
 import { createDesktopSqliteOwner } from '@epicenter/device/desktop';
 import { DEVICE_PATH } from '@epicenter/device/protocol';
-import { LOCAL_MAIL_APP_ID } from '@epicenter/local-mail/storage';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	type AppSecretOwner,
@@ -59,8 +58,6 @@ import {
 	CAPTURE_ROUTE,
 	HOME_ROUTE,
 	HONEYCRISP_ROUTE,
-	MAIL_CALLBACK_ROUTE,
-	MAIL_PENDING_CALLBACK_ROUTE,
 	MAIL_ROUTE,
 	SESSION_ROUTE,
 	SESSION_STREAM_ROUTE,
@@ -514,6 +511,9 @@ const settledWith =
 		);
 	};
 
+/** Any admitted application ID serves the device SQLite tests. */
+const SQLITE_TEST_APP_ID = 'so.epicenter.local-mail';
+
 describe('loadStaticAssets', () => {
 	test('every declared compiled application must have built, and so must Home', async () => {
 		// One omission at a time, so the message names the application that is
@@ -830,14 +830,11 @@ describe('createHomeServer', () => {
 				applicationPage('Capture'),
 			);
 
-			// Mail is a compiled application now, so its route owes the stamped
-			// build rather than a placeholder.
+			// Mail's place is reserved while it is away: a placeholder, not an app.
 			const mail = await fetch(MAIL_ROUTE.url(server.url.origin), {
 				headers: authenticatedHeaders(server),
 			});
-			const mailPage = await mail.text();
-			expect(mailPage).toContain('id="epicenter-auth-bootstrap"');
-			expect(withoutAuthBootstrap(mailPage)).toBe(applicationPage('Mail'));
+			expect(await mail.text()).toBe(PLACEHOLDER_PAGES.mail);
 
 			const todos = await fetch(TODOS_ROUTE.url(server.url.origin), {
 				headers: authenticatedHeaders(server),
@@ -906,14 +903,14 @@ describe('createHomeServer', () => {
 			expect(withoutAuthBootstrap(await queryState.text())).toBe(PAGE);
 
 			// URL fragments are browser state and are not sent in an HTTP request.
-			// The server therefore sees this as the one canonical Mail path.
+			// The server therefore sees this as the one canonical Todos path.
 			const browserFragment = await fetch(
-				`${MAIL_ROUTE.url(server.url.origin)}#compose`,
+				`${TODOS_ROUTE.url(server.url.origin)}#compose`,
 				{ headers: authenticatedHeaders(server) },
 			);
 			expect(browserFragment.status).toBe(200);
 			expect(withoutAuthBootstrap(await browserFragment.text())).toBe(
-				applicationPage('Mail'),
+				applicationPage('Todos'),
 			);
 		} finally {
 			await server.stop(true);
@@ -1001,7 +998,7 @@ describe('createHomeServer', () => {
 		}
 	});
 
-	test('only Mail reaches Google, and only from its own document', async () => {
+	test('every application document reaches only this host', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),
 		});
@@ -1018,28 +1015,11 @@ describe('createHomeServer', () => {
 			);
 		};
 		try {
-			// The host holds no Gmail token and proxies no Gmail request, so the
-			// token exchange and the API calls happen in this WebView.
-			const mail = await connectSrc(MAIL_ROUTE.url(origin));
-			expect(mail).toEqual([
-				"'self'",
-				'ipc:',
-				'http://ipc.localhost',
-				'https://oauth2.googleapis.com',
-				'https://gmail.googleapis.com',
-			]);
-			// Consent happens in the person's own browser, through the opener.
-			expect(mail).not.toContain('https://accounts.google.com');
-
-			// A client route inside Mail is the same document and keeps the same
-			// reach; an asset it loads runs under the document's policy anyway.
-			expect(await connectSrc(`${origin}/apps/mail/connected`)).toEqual(mail);
-
-			// Nothing else on this origin gained an inch.
 			const closed = ["'self'", 'ipc:', 'http://ipc.localhost'];
 			expect(await connectSrc(HOME_ROUTE.url(origin))).toEqual(closed);
 			expect(await connectSrc(WHISPERING_ROUTE.url(origin))).toEqual(closed);
 			expect(await connectSrc(HONEYCRISP_ROUTE.url(origin))).toEqual(closed);
+			expect(await connectSrc(TODOS_ROUTE.url(origin))).toEqual(closed);
 		} finally {
 			await server.stop(true);
 		}
@@ -1333,94 +1313,6 @@ describe('createHomeServer', () => {
 				});
 				expect(outcome).toBe('refused');
 			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-});
-
-describe("Local Mail's desktop authorization callback", () => {
-	test('takes what Google delivered to the browser and hands it to the window once', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
-		const origin = server.url.origin;
-		try {
-			// Nothing has arrived, so the window is told there is nothing.
-			const empty = await fetch(MAIL_PENDING_CALLBACK_ROUTE.url(origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(empty.status).toBe(204);
-
-			// Google answers in the person's own browser, which carries no
-			// session cookie and must still be served.
-			const callback = `${MAIL_CALLBACK_ROUTE.url(origin)}?code=the-code&state=the-state`;
-			const delivered = await fetch(callback);
-			expect(delivered.status).toBe(200);
-			expect(await delivered.text()).toContain('close this tab');
-
-			const collected = await fetch(MAIL_PENDING_CALLBACK_ROUTE.url(origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(collected.status).toBe(200);
-			expect(await collected.json()).toEqual({ callbackUrl: callback });
-
-			// One authorization is redeemable once, so a second read finds
-			// nothing rather than a code Google has already spent.
-			const again = await fetch(MAIL_PENDING_CALLBACK_ROUTE.url(origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(again.status).toBe(204);
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('an error Google reports is a callback too', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
-		const origin = server.url.origin;
-		try {
-			const denied = `${MAIL_CALLBACK_ROUTE.url(origin)}?error=access_denied&state=the-state`;
-			expect((await fetch(denied)).status).toBe(200);
-			const collected = await fetch(MAIL_PENDING_CALLBACK_ROUTE.url(origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(await collected.json()).toEqual({ callbackUrl: denied });
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('without a code it is the WebView loading its own route, and the SPA is served', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
-		const origin = server.url.origin;
-		try {
-			const page = await fetch(MAIL_CALLBACK_ROUTE.url(origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(page.status).toBe(200);
-			expect(await page.text()).not.toContain('close this tab');
-
-			const collected = await fetch(MAIL_PENDING_CALLBACK_ROUTE.url(origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(collected.status).toBe(204);
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('collecting requires a browser session, so only a window may read it', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
-		const origin = server.url.origin;
-		try {
-			await fetch(`${MAIL_CALLBACK_ROUTE.url(origin)}?code=the-code`);
-			const unauthenticated = await fetch(
-				MAIL_PENDING_CALLBACK_ROUTE.url(origin),
-			);
-			expect(unauthenticated.status).toBe(401);
 		} finally {
 			await server.stop(true);
 		}
@@ -2254,7 +2146,7 @@ describe('the application storage owner', () => {
 			webSocket: AuthenticatedSocket as unknown as typeof WebSocket,
 		});
 		try {
-			const lifetime = await owner.acquire(LOCAL_MAIL_APP_ID);
+			const lifetime = await owner.acquire(SQLITE_TEST_APP_ID);
 			try {
 				const database = await lifetime.open('binary');
 				expectOk(
@@ -2303,7 +2195,7 @@ describe('the application storage owner', () => {
 		});
 		const { cookie, origin } = authenticationFor(server);
 		const url = `${server.url.origin}${DEVICE_PATH}/sqlite`;
-		const address = { appId: LOCAL_MAIL_APP_ID };
+		const address = { appId: SQLITE_TEST_APP_ID };
 		const sockets: WebSocket[] = [];
 		async function connect() {
 			const socket = new BunWebSocket(url.replace('http:', 'ws:'), {
@@ -2363,7 +2255,7 @@ describe('the application storage owner', () => {
 					name: 'mail',
 					statement: { sql: 'SELECT 1' },
 				},
-				{ kind: 'secret-get', appId: LOCAL_MAIL_APP_ID, label: 'secret' },
+				{ kind: 'secret-get', appId: SQLITE_TEST_APP_ID, label: 'secret' },
 			])
 				expect((await request(socket, body)).failure).toBeDefined();
 			const acquired = await request(socket, {
@@ -2487,7 +2379,7 @@ describe('the application storage owner', () => {
 		try {
 			const stored = await post(server, {
 				kind: 'secret-put',
-				appId: LOCAL_MAIL_APP_ID,
+				appId: SQLITE_TEST_APP_ID,
 				label: 'account-one',
 				value: 'refresh-token',
 			});
@@ -2495,7 +2387,7 @@ describe('the application storage owner', () => {
 
 			const read = await post(server, {
 				kind: 'secret-get',
-				appId: LOCAL_MAIL_APP_ID,
+				appId: SQLITE_TEST_APP_ID,
 				label: 'account-one',
 			});
 			expect(await read.json()).toEqual({
@@ -2517,12 +2409,12 @@ describe('the application storage owner', () => {
 
 			await post(server, {
 				kind: 'secret-delete',
-				appId: LOCAL_MAIL_APP_ID,
+				appId: SQLITE_TEST_APP_ID,
 				label: 'account-one',
 			});
 			const gone = await post(server, {
 				kind: 'secret-get',
-				appId: LOCAL_MAIL_APP_ID,
+				appId: SQLITE_TEST_APP_ID,
 				label: 'account-one',
 			});
 			expect(await gone.json()).toEqual({ kind: 'secret-get', value: null });
@@ -2540,7 +2432,7 @@ describe('the application storage owner', () => {
 			for (const label of ['../other', 'a/b', 'a:b', '']) {
 				const refused = await post(server, {
 					kind: 'secret-get',
-					appId: LOCAL_MAIL_APP_ID,
+					appId: SQLITE_TEST_APP_ID,
 					label,
 				});
 				expect(refused.status).toBe(400);
@@ -2556,7 +2448,7 @@ describe('the application storage owner', () => {
 		try {
 			const unavailable = await post(server, {
 				kind: 'secret-get',
-				appId: LOCAL_MAIL_APP_ID,
+				appId: SQLITE_TEST_APP_ID,
 				label: 'account-one',
 			});
 			expect(unavailable.status).toBe(503);

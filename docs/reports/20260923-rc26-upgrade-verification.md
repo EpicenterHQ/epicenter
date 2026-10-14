@@ -111,6 +111,7 @@ three failures. This is not inferred from unchanged source alone. Logs are
 
 Whole-repository typechecking retains the two failures observed before edits:
 
+<!-- doc-path-check: ignore-next-line -->
 - `apps/local-mail/evidence/native-storage.ts`: unused `asPrincipalId` import.
 - Honeycrisp `src/routes/[collection=notes]/+page.svelte`: incompatible inferred
   store types at the Notes data prop.

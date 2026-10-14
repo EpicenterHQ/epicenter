@@ -18,9 +18,11 @@ Calling it the home of "application work" would give ordinary settings and
 records a reason to leave data folders without identifying a requirement. Calling
 every SQLite database disposable would lose pending user work.
 
+<!-- doc-path-check: ignore-next-line -->
 Local Mail demonstrates both uses. `apps/local-mail/src/storage.ts` separates
 the downloaded `mail-<sub>` database from the durable `local` database.
 Gmail owns the current mailbox facts. The local outbox owns changes Gmail has
+<!-- doc-path-check: ignore-next-line -->
 not yet confirmed. `apps/local-mail/src/intent-store.ts` reserves revisions and
 saves assertions in one transaction, then retires only the revision a delivery
 confirmed.

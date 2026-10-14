@@ -143,15 +143,15 @@ impl BuiltInApp {
     ///
     /// Every variant here is an app in the product model; this says only which
     /// ones Home offers. Home is absent because you are already looking at it,
-    /// not because it is above the others (ADR-0209). Books is a
-    /// release-bundled placeholder document with nothing behind it to open.
+    /// not because it is above the others (ADR-0209). Mail and Books are
+    /// release-bundled placeholder documents with nothing behind them to open.
     /// Honeycrisp now ships its own desktop shell, outside this host.
     /// All stay reserved IDs the catalog refuses to admit, so "not launchable"
     /// never means "free for someone else to claim".
     const fn is_launchable(self) -> bool {
         matches!(
             self,
-            Self::Whispering | Self::Capture | Self::Mail | Self::Todos
+            Self::Whispering | Self::Capture | Self::Todos
         )
     }
 
@@ -2997,7 +2997,7 @@ mod tests {
             .collect();
         assert_eq!(
             launchable,
-            ["whispering", "capture", "mail", "todos"]
+            ["whispering", "capture", "todos"]
         );
     }
 
@@ -3013,10 +3013,7 @@ mod tests {
             parse_application_id("capture"),
             Some(Application::Compiled(BuiltInApp::Capture))
         ));
-        assert!(matches!(
-            parse_application_id("mail"),
-            Some(Application::Compiled(BuiltInApp::Mail))
-        ));
+        assert!(parse_application_id("mail").is_none());
         assert!(matches!(
             parse_application_id("todos"),
             Some(Application::Compiled(BuiltInApp::Todos))
@@ -3513,14 +3510,6 @@ mod tests {
                 include_str!("../tauri.conf.json"),
                 "home-model-administration-production",
             ),
-            (
-                include_str!("../tauri.dev.conf.json"),
-                "mail-gmail-authorization-development",
-            ),
-            (
-                include_str!("../tauri.conf.json"),
-                "mail-gmail-authorization-production",
-            ),
             (include_str!("../tauri.dev.conf.json"), "departure-development"),
             (include_str!("../tauri.conf.json"), "departure-production"),
             (
@@ -3697,46 +3686,6 @@ mod tests {
     }
 
     /// Google refuses a custom URI scheme for a Desktop OAuth client, so Local
-    /// Mail's consent screen has to open in the person's own browser and return
-    /// to the host's loopback socket. Opening it is the only native verb the
-    /// Mail window holds, and it is scoped to the one endpoint that verb exists
-    /// for: this is a grant nobody may widen into a general "open any link"
-    /// power for an app window without deciding to.
-    #[test]
-    fn only_the_mail_window_may_open_google_and_only_google() {
-        for encoded in [
-            include_str!("../capabilities/mail-gmail-authorization-development.json"),
-            include_str!("../capabilities/mail-gmail-authorization-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert_eq!(
-                capability["windows"],
-                serde_json::json!(["mail"]),
-                "the Gmail consent grant belongs to the Mail window alone"
-            );
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!([{
-                    "identifier": "opener:allow-open-url",
-                    "allow": [{ "url": "https://accounts.google.com/*" }]
-                }]),
-                "opening Google is the whole grant, and Google is its whole scope"
-            );
-        }
-    }
-
-    /// The Mail window's grant is its own capability rather than a line in the
-    /// shared app slice, so no other window inherits it.
-    #[test]
-    fn no_app_window_inherits_the_gmail_consent_grant() {
-        for encoded in APP_WINDOW_CAPABILITIES {
-            assert!(
-                !encoded.contains("opener:"),
-                "the shared app slice must not carry an opener grant"
-            );
-        }
-    }
-
     /// ADR-0181 keeps `openHome(section)` and `openApp(appId)` apart because a
     /// built-in window and an admitted member have different identity and
     /// authority rules. Home's launch verb crosses that line by design, which is

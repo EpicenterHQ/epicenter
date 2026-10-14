@@ -111,7 +111,7 @@ installed apps, for now.
 Markdown files. Its rich-text editor keeps a local draft and undo history;
 saved files and ordinary Git hold the durable data.
 
-Vocab, skills, and the Epicenter host now compile against the store. Whispering
+Vocab and the Epicenter host now compile against the store. Whispering
 is a standalone desktop app over a Git-versioned folder of files, not the store.
 The superseded data stack was deleted before they were migrated, deliberately,
 so old data is not imported into the new model.
@@ -119,9 +119,7 @@ so old data is not imported into the new model.
 [Matter](apps/matter) edits user-owned Markdown folders directly and keeps a
 disposable `matter.sqlite` query mirror beside them. [Local
 Books](apps/local-books) is a headless mirror that pulls a QuickBooks account
-into local SQLite. [Local Mail](apps/local-mail) is an Epicenter application
-with no CLI: it mirrors Gmail into local SQLite and reconciles from its own
-window. Those three do not use the store.
+into local SQLite. Those two do not use the store.
 
 ## Trust Boundaries
 
@@ -146,11 +144,10 @@ Signed-in sync sends your data to a trusted server that reads it in plaintext. O
 | [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Standalone Markdown notes. Metadata stays in frontmatter, logical folders preserve note identity, and Git records saved files. |
 | [Matter](apps/matter) | Runs, separately | Typed grid over user-owned Markdown folders. It edits ordinary `.md` files directly; `matter.sqlite` is a disposable query mirror. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
-| [Local Mail](apps/local-mail) | Runs, separately | Gmail mirror with a triage window. No CLI; it reconciles in the foreground only. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns the store authority binding, hosted-only billing, and the dashboard. |
 | [Self-host](apps/self-host) | Reference deployable | Community-supported single-partition instance without hosted billing. |
 | [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are files in one Git-versioned folder. |
-| [vocab](apps/vocab), [skills](apps/skills), [Epicenter](apps/epicenter) | Compile | Migrated onto the store. |
+| [vocab](apps/vocab), [Epicenter](apps/epicenter) | Compile | Migrated onto the store. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 
 ### Packages

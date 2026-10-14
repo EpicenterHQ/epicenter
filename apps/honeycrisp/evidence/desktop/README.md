@@ -142,6 +142,7 @@ repaired findings. [Runtime audit](runtime-audit.json) includes the real Svelte
 editor and draft modules, rather than relying only on a synthetic import probe.
 
 Two broader checks remain outside this milestone's passing checks.
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/src/product-startup.test.ts` fails its LocalMail and Vocab cases
 resolving `wellcrafted/logger` and `wellcrafted/error`; the same failures were
 reproduced against unchanged task-start source in the isolated checkout

@@ -47,11 +47,6 @@ export const CAPTURE_APPLICATION: Application = {
 	title: BUILT_IN_ROUTES.capture.title,
 };
 
-export const MAIL_APPLICATION: Application = {
-	id: BUILT_IN_ROUTES.mail.id,
-	title: BUILT_IN_ROUTES.mail.title,
-};
-
 export const TODOS_APPLICATION: Application = {
 	id: BUILT_IN_ROUTES.todos.id,
 	title: BUILT_IN_ROUTES.todos.title,
@@ -67,7 +62,6 @@ export const TODOS_APPLICATION: Application = {
 export const COMPILED_APPLICATIONS: readonly Application[] = [
 	WHISPERING_APPLICATION,
 	CAPTURE_APPLICATION,
-	MAIL_APPLICATION,
 	TODOS_APPLICATION,
 ];
 

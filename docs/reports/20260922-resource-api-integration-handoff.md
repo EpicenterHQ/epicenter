@@ -58,6 +58,7 @@ Previous verification, to re-establish as appropriate after your changes:
 - Client, Blobs, and Whispering typechecks passed.
 - Browser recording smoke passed capture, offline playback, cancellation, and reopened bytes.
 - `git diff --check` passed.
+<!-- doc-path-check: ignore-next-line -->
 - Full workspace typecheck reported an unused `asPrincipalId` import in `apps/local-mail/evidence/native-storage.ts:17`. This pass did not fix or establish baseline attribution for it. Verify current state before reporting it. Physical microphone and installed desktop acceptance were not established by the synthetic browser and loopback host checks.
 
 Likely commands include `bun run --cwd packages/app test`, `bun run --cwd packages/app typecheck`, `bun run --cwd apps/whispering typecheck`, `bun run --cwd packages/app smoke:recording`, focused operation tests from Whispering's working directory, host transport tests, and `git diff --check`. Select tests that prove outcome propagation, partial success, cancellation, delayed release, and one presentation owner; avoid tests that merely mirror forwarding methods.

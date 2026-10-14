@@ -73,8 +73,7 @@ export const APPS = {
  * for it found the wrong concept.
  *
  * The three application rows carry an id, so one row is everything a build needs
- * to name itself. `apps/local-mail` is deliberately absent: it has no hosted
- * origin, so it keeps its id beside its storage.
+ * to name itself.
  */
 export type AppKey = keyof typeof APPS;
 

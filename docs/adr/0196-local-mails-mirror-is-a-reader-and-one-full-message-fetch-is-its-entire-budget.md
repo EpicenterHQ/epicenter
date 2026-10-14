@@ -19,6 +19,7 @@ questions.
 The code answered both by accident. `messages` stores the parsed
 `messages.get(format=full)` resource in a column named `raw`, which is exactly
 the name of the format the app never fetches
+<!-- doc-path-check: ignore-next-line -->
 (`apps/local-mail/src/gmail-client.ts` sends `format: 'full'`). Three scalar
 columns sit beside it (`subject`, `sender`, `body_text`) while `thread_id`,
 `snippet`, `label_ids`, and `internal_date` are SQLite generated columns and
@@ -98,8 +99,10 @@ because under ADR-0197 it bumps the corpus version and costs a full re-pull.
   and grammar-scoped `reclaim` cover mirror artifacts only; a byte store beside
   them would be unnamed, unreclaimed, and would silently survive every rebuild.
 - **Fetching or rendering remote and inline media in the UI.**
+<!-- doc-path-check: ignore-next-line -->
   `apps/local-mail/ui/src/lib/sanitize-email.ts` already strips `src`, `srcset`,
   `background`, `poster`, `lowsrc`, and `url(...)` styles, and
+<!-- doc-path-check: ignore-next-line -->
   `apps/local-mail/ui/src/lib/components/MessageBody.svelte` renders only that
   sanitized output. That was written as a tracking-pixel defence; this record
   makes it a storage decision too. There is no inline-media path for locally
@@ -132,6 +135,7 @@ is named `resource`. `raw` is Gmail's own term for a precisely different thing:
 fetches. A column named `raw` holding a parsed resource is a false statement in
 <!-- doc-path-check: ignore-next-line -->
 the schema, and it has already leaked into prose (`apps/local-mail/src/db.ts` and
+<!-- doc-path-check: ignore-next-line -->
 `apps/local-mail/src/message-fields.ts` both describe deriving HTML "from `raw`",
 meaning the parsed JSON).
 

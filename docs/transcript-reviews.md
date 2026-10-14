@@ -256,6 +256,7 @@ returned **7 pass, 2 fail** on the existing working tree:
 
 The client calls `GENERATIONS_ROUTE.initial`, but
 `packages/server/src/store-sync/mount.ts` mounts current-library routes, not
+<!-- doc-path-check: ignore-next-line -->
 that legacy initial route. `apps/skills/src/lib/application.ts` still calls
 `resolveGeneration`; it is not dead code. The three store apps use the App's
 current-library startup instead.

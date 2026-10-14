@@ -52,7 +52,6 @@ endpoint gets its own workflow on its own trigger, as the two below do.
 | File | Trigger | What it does |
 |---|---|---|
 | `auto.release.yml` | PR merged to `main` | Bumps version, collects `## Changelog` entries from merged PRs, commits release, tags, creates GitHub Release with grouped changelog. |
-| `local-mail.gmail-drift.yml` | Weekly (Mondays 12:00 UTC), manual | Fetches Gmail's Discovery document and asserts the methods and fields `apps/local-mail` reads still exist. A network call, so it never gates a PR. |
 | npm release (manual) | Manual | `bun run release` (`changeset version` + `scripts/publish-packages.ts`). See "Package Releases (npm)" below. `@changesets/action` will automate this later. |
 
 ## Package Releases (npm)

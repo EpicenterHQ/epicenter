@@ -229,6 +229,7 @@ which rewrites a historical statement about `@epicenter/data` into something tha
 ### Regression RISKS that pass today (report, do not block)
 
 - K1. Three workerd harnesses now execute the browser platform's module top-levels inside workerd:
+<!-- doc-path-check: ignore-next-line -->
   `packages/server/workers/replica.ts:1`, `apps/sync-lab/worker/test-peer.ts:21`, `packages/app/evidence/data/workerd/probe.ts`.
   That includes `createBrowserSqliteOwner()` and `createBrowserAppBlobs()` at `src/platform/browser.ts:27-32@30eb69b`, the openai SDK, and
   `@ricky0123/vad-web` with its onnxruntime dependency. The report says the 32 Worker tests pass, and I believe it. The exposure is that
@@ -236,7 +237,9 @@ which rewrites a historical statement about `@epicenter/data` into something tha
   `import-boundaries.test.ts` checks the root under Bun with globals deleted; it does not check workerd.
 - K2. `import-boundaries.test.ts:42-48` covers `definition, store, direct, sync, artifact/format`. It omits `field`, `memory`, `artifact`,
   `artifact/checkout`. Its forbidden-path pattern omits `ai.ts`, `ai-connections*.ts`, `native-ai.ts`, and the `openai` package.
+<!-- doc-path-check: ignore-next-line -->
 - K3. Deployed Workers are safe: `packages/server/src/store-sync/authority.ts:2-8` and `apps/sync-lab/worker/index.ts:13-19` import only `/sync`.
+<!-- doc-path-check: ignore-next-line -->
   Test entries alone mount the harnesses (`apps/sync-lab/worker/test-entry.ts:13`).
 
 ## 4. Optional rearrangement, in priority order
@@ -294,6 +297,7 @@ does not survive the measurements above: seven migrated consumers and 24 engine 
 byte copy: `sync/authority.ts:67 -> store/log.ts:181 copyBytes`, and `log.ts:15` imports `@y/y`.
 Move `copyBytes` into `frames.ts` or a `bytes.ts` leaf. Add `./sync/authority` exporting authority + hub + frames. The deployed Worker's
 graph drops from 34 modules with Yjs, typebox, arktype, nanoid to 3 modules with wellcrafted. Pre-existing at `@619afff`, not a regression.
+<!-- doc-path-check: ignore-next-line -->
 Callers: `packages/server/src/store-sync/authority.ts`, four server tests, `apps/sync-lab/worker/index.ts`, and the `CurrentAuthority`/`Frame`
 type imports in `apps/honeycrisp`. Add the new entry to `import-boundaries.test.ts` with `@y/y` forbidden.
 
