@@ -35,4 +35,4 @@ The [current repository API](https://docs.github.com/en/rest/repos/repos#create-
 
 The live proof must still establish creation under the intended personal owner, access to a newly created repository when the installation selects specific repositories, scoped token delivery, authorization races, and browser transport. The demo does not exercise `@epicenter/folder`, OPFS, Postgres, OAuth callbacks, or production credentials.
 
-The ordered implementation remains in the [pairing spec](../../../../specs/20261005T134823-github-folder-pairing.md). Retire the runnable prototype after review, or absorb the demonstrated behavior into that implementation. Keep these findings as evidence.
+The pairing spec this prototype served was deleted when [ADR-0521](../../../../docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) replaced pairings with a folder's own remote; read it with `git log --all -- specs/20261005T134823-github-folder-pairing.md`. This prototype goes with the GitHub connector.

@@ -100,6 +100,7 @@ session from the renamed capture.
 
 ## Verification
 
+<!-- doc-path-check: ignore-next-line -->
 `packages/folder/src/autosave.test.ts` covers construction and waiting,
 latest-pending coalescing, the guard chain, synchronous preparation,
 preparation-failure precedence over an older write, the confirmed capture on

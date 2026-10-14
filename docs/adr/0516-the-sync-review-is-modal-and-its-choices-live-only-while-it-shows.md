@@ -84,5 +84,3 @@ and covers both versions per conflict, Apply waiting for every choice,
 take, text and JSON replacement, removal, a body with no removal, the
 choices handed over once and never changed afterwards, Cancel
 discarding the attempt, and refused choices beside their rows.
-`packages/svelte/src/sync.svelte.test.ts` covers the controller's hooks,
-the lock while an attempt waits, Cancel, refusals, and wording.

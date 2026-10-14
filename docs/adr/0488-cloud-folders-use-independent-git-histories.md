@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-02
-- **Relates:** [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server and how a folder reaches it; [ADR-0489](0489-cloud-folder-transfers-are-explicit-and-bootstrap-before-opening.md) keeps transfers explicit.
+- **Relates:** [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server and how a folder reaches it; [ADR-0489](0489-folder-transfers-happen-only-when-a-person-syncs.md) keeps transfers explicit.
 - **Unbuilt:** a measurement of Whispering's audio history in a remote repository.
 
 ## Context

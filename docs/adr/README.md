@@ -734,8 +734,7 @@ When you add an ADR, add its row here.
 | [0483](0483-honeycrisp-shares-one-canonical-editor-per-open-row.md) | Honeycrisp shares one canonical editor per open row | Superseded by 0523 |
 | [0486](0486-folder-domain-methods-share-accounted-storage.md) | Folder domain methods share accounted storage | Proposed |
 | [0488](0488-cloud-folders-use-independent-git-histories.md) | Each synced folder is an independent Git repository | Proposed (audio history measurement unbuilt) |
-| [0489](0489-cloud-folder-transfers-are-explicit-and-bootstrap-before-opening.md) | Account identity selects local folders and cloud transfers are explicit | Proposed (local history and Local CLI locks implemented; account setup, managed Sync, unrelated-history combination, and save/adoption/refresh coordination unbuilt) |
-| [0490](0490-the-cli-discovers-folders-and-delegates-history-to-git.md) | The CLI discovers folders and delegates history to Git | Proposed (Local CLI and source account commands implemented; cloud folders and transfers unbuilt) |
+| [0489](0489-folder-transfers-happen-only-when-a-person-syncs.md) | Folder transfers happen only when a person syncs | Proposed (selective refresh unbuilt) |
 | [0491](0491-field-helpers-build-native-typebox-schemas-with-ui-metadata.md) | Field helpers build native TypeBox schemas with UI metadata | Accepted |
 | [0493](0493-whispering-runs-as-one-application-in-three-deployment-forms.md) | Whispering runs as one application in three deployment forms | Proposed (Epicenter integration, remaining shared native services, and release distribution unbuilt) |
 | [0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) | File-folder queries use transient captured projections | Proposed (query sessions, capture contract, managed ignore initialization, and file-first resource composition unbuilt; persistence and SQL export deferred) |

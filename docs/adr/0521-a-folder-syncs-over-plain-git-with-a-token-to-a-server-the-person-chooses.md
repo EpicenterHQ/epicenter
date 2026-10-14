@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-14
-- **Relates:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) keeps the remote in `remote.origin.url`; [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) names the three hosts an app runs in; [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) gives each synced folder its own repository; [ADR-0489](0489-cloud-folder-transfers-are-explicit-and-bootstrap-before-opening.md) keeps transfers explicit; [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) syncs only a repository-root data folder.
+- **Relates:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) keeps the remote in `remote.origin.url`; [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) names the three hosts an app runs in; [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) gives each synced folder its own repository; [ADR-0489](0489-folder-transfers-happen-only-when-a-person-syncs.md) keeps transfers explicit; [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) syncs only a repository-root data folder.
 - **Unbuilt:** `mountGitApp` and its repository store interface in `@epicenter/server`; the Artifacts store in `apps/api`; the disk store in `apps/self-host`; LFS routes on the blob stores; the folder engine's LFS client; the browser transport without GitHub rewriting; Todos' Sync panel in place of its GitHub picker; deleting the GitHub connector and the desktop relays; pushes over the Worker's request limit.
 
 ## Context
@@ -123,11 +123,14 @@ not in the front.
 Billing stays in `apps/api`; the module only asks `policy` before creating a
 repository or accepting a push.
 
-**Apps are static and choose their server at run time.** Epicenter publishes
-official builds, and anyone may host the same files or ship apps of their own.
-A sync server never serves app pages: each browser app keeps its own origin, so
-its private file system survives a change of server. The server an app signs in
-to is the server it syncs with.
+**A build fixes the server an app signs in to, and that server hosts its Git.**
+Epicenter's builds sign in to `https://api.epicenter.so`; a self-hoster builds
+the same apps with `SELF_HOST_ORIGIN` set, the switch Todos already reads in
+`src/lib/platform/auth.browser.ts`. There is no server picker and no stored
+choice of server. Apps are static files on their own origins, and anyone may
+host them or ship apps of their own; a sync server never serves app pages.
+The remote is never part of a build: `/git/connect` returns it, and the folder
+keeps it in `remote.origin.url`.
 
 **A token reaches one repository and comes from the sign-in.** Connect returns
 a write token for one repository, and the app asks for a fresh one with its
@@ -185,9 +188,13 @@ merged back.
   supported server.
 - **Artifacts' own URLs in `remote.origin.url`.** Its Git routes refuse a
   browser's preflight, and every folder's remote would name one storage vendor.
-- **The sync server serves the apps.** Changing servers strands browser data,
-  and apps on one origin share storage with each other and with the server's
-  session.
+- **The sync server serves the apps.** Apps on one origin share storage with
+  each other and with the server's session.
+- **A server chosen at run time.** Every server would have to trust every
+  app origin for sign-in, every app would need a picker and a stored choice,
+  and a crafted link could point an app at a hostile server. A fixed build
+  costs a self-hoster one build setting. Moving to another server's build
+  starts an empty browser folder, which Connect fills from the server.
 - **The desktop app as the server, or a glue repository it merges.** Phone
   changes would wait for a computer that is on and reachable.
 - **A native mobile app first.** It avoids CORS, at the cost of two app stores
