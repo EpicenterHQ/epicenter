@@ -23,9 +23,15 @@ import { pathToFileURL } from 'node:url';
 import {
 	DECLARATION_PATH,
 	defineFolder,
+	describeTables,
 	formatDeclaration,
+	type ProjectedTable,
+	projectionProblem,
+	projectTables,
 	readFolder,
+	readingStatementProblem,
 } from '../packages/folder/src/bun.js';
+import { createBunSqliteAdapter } from '../packages/sqlite/src/bun.js';
 
 /** The authored TypeScript declaration `generate` reads (ADR-0527). */
 const SOURCE_PATH = 'epicenter.ts';
@@ -63,8 +69,7 @@ type Finding = { path: string; line?: number; field?: string; message: string };
 
 type Row = { stem: string; fields: Record<string, unknown>; body: string };
 
-type Table = {
-	name: string;
+type Table = ProjectedTable & {
 	fields: { name: string; schema: object }[];
 	rows: Row[];
 };
@@ -201,139 +206,23 @@ async function check(dir: string, json: boolean) {
 // query
 // ============================================================================
 
-/** A SQL identifier, quoted, because declared field names may be keywords. */
-function quote(name: string) {
-	return `"${name.replaceAll('"', '""')}"`;
-}
-
-/** A field value as SQLite stores it: JSON text for lists and objects. */
-function toSql(value: unknown) {
-	if (value === undefined || value === null) return null;
-	if (typeof value === 'boolean') return value ? 1 : 0;
-	if (typeof value === 'object') return JSON.stringify(value);
-	return value as string | number;
-}
-
-/** Columns the projection adds beside the declared fields. */
-const ROW_COLUMNS = ['stem', 'body'];
-
-/**
- * Refuse a declaration that cannot be one SQLite table per declared table:
- * SQLite compares column names without case, and `stem` and `body` are the
- * projection's own columns.
- */
-function assertProjectable(table: Table) {
-	const seen = new Map(ROW_COLUMNS.map((column) => [column, column]));
-	for (const { name } of table.fields) {
-		const other = seen.get(name.toLowerCase());
-		if (other !== undefined)
-			throw new Error(
-				ROW_COLUMNS.includes(other)
-					? `table '${table.name}' declares a field '${name}', but query uses '${other}' for the row itself`
-					: `table '${table.name}' declares '${other}' and '${name}', which differ only by case`,
-			);
-		seen.set(name.toLowerCase(), name);
-	}
-}
-
-/**
- * Build the projection ADR-0520 describes, one table per declared table,
- * then make it read-only, so a statement that changes rows fails rather than
- * appearing to succeed.
- */
-function project(tables: Table[]) {
-	const db = new Database(':memory:');
-	db.transaction(() => {
-		for (const table of tables) {
-			const fields = table.fields.map(({ name }) => quote(name));
-			db.run(
-				`CREATE TABLE ${quote(table.name)} (stem TEXT PRIMARY KEY, ${[...fields, 'body'].join(', ')})`,
-			);
-			const insert = db.prepare(
-				`INSERT INTO ${quote(table.name)} VALUES (${['?', ...fields.map(() => '?'), '?'].join(', ')})`,
-			);
-			for (const row of table.rows)
-				insert.run(
-					row.stem,
-					...table.fields.map(({ name }) => toSql(row.fields[name])),
-					row.body,
-				);
-		}
-	})();
-	db.run('PRAGMA query_only = ON');
-	return db;
-}
-
-const LEADING_TRIVIA = /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/;
 const TRAILING_TRIVIA = /--[^\n]*|\/\*[\s\S]*?\*\/|[\s;]/g;
 
 /**
- * Prepare exactly one statement that only reads. `query_only` stops changes
- * to the projection, but not `ATTACH` or `VACUUM INTO`, which create files,
- * so the statement must start with a reading keyword. SQLite prepares only
- * the first of several statements, so anything after it is refused rather
- * than silently ignored.
+ * Prepare exactly one statement that only reads. The folder package refuses
+ * a statement that does not start with a reading keyword; SQLite prepares
+ * only the first of several statements, so anything after it is refused
+ * rather than silently ignored.
  */
 function prepareRead(db: Database, sql: string) {
-	const keyword = sql
-		.replace(LEADING_TRIVIA, '')
-		.match(/^[A-Za-z]+/)?.[0]
-		?.toUpperCase();
-	if (!keyword)
-		throw new Error('query takes one SQL statement; this one is empty');
-	if (!['SELECT', 'WITH', 'VALUES', 'EXPLAIN'].includes(keyword))
-		throw new Error(
-			`query only reads: a statement must start with SELECT, WITH, VALUES, or EXPLAIN, not ${keyword}`,
-		);
+	const problem = readingStatementProblem(sql);
+	if (problem !== undefined) throw new Error(problem);
 	const statement = db.query(sql);
 	if (sql.slice(statement.toString().length).replace(TRAILING_TRIVIA, ''))
 		throw new Error(
 			'query runs one statement; remove everything after the first',
 		);
 	return statement;
-}
-
-/**
- * What a field holds, read for a person writing SQL: its allowed values when
- * it has them, otherwise its JSON Schema type, format, or reference target.
- */
-function valuesOf(schema: object): string {
-	const node = schema as {
-		const?: unknown;
-		enum?: unknown[];
-		anyOf?: object[];
-		type?: string | string[];
-		format?: string;
-		items?: object;
-		'x-field'?: { kind?: string; target?: string };
-	};
-	const literal = (value: unknown) =>
-		typeof value === 'string' ? value : JSON.stringify(value);
-	if ('const' in node) return literal(node.const);
-	if (Array.isArray(node.enum)) return node.enum.map(literal).join('|');
-	if (Array.isArray(node.anyOf)) return node.anyOf.map(valuesOf).join('|');
-	if (node['x-field']?.kind === 'reference' && node['x-field'].target)
-		return `stem in ${node['x-field'].target}`;
-	if (node.format) return node.format;
-	if (node.type === 'array' && node.items)
-		return `list of ${valuesOf(node.items)}`;
-	if (node.type) return [node.type].flat().join('|');
-	return 'any JSON';
-}
-
-/** The declaration as SQL sees it: tables, columns, and what each column holds. */
-function describe(tables: Table[]) {
-	return tables.map((table) => ({
-		name: table.name,
-		columns: [
-			{ name: 'stem', values: `the row's file is ${table.name}/<stem>.md` },
-			...table.fields.map(({ name, schema }) => ({
-				name,
-				values: valuesOf(schema),
-			})),
-			{ name: 'body', values: 'Markdown after the frontmatter' },
-		],
-	}));
 }
 
 /**
@@ -358,7 +247,7 @@ function formatRows(columns: string[], rows: Record<string, unknown>[]) {
 async function query(dir: string, sql: string | undefined, json: boolean) {
 	const { tables, invalid, unreadable } = await readDataFolder(dir);
 	if (sql === undefined) {
-		const description = describe(tables);
+		const description = describeTables(tables);
 		process.stdout.write(
 			json
 				? `${JSON.stringify({ tables: description }, null, 2)}\n`
@@ -373,13 +262,17 @@ async function query(dir: string, sql: string | undefined, json: boolean) {
 		);
 		return 0;
 	}
-	for (const table of tables) assertProjectable(table);
+	for (const table of tables) {
+		const problem = projectionProblem(table);
+		if (problem !== undefined) throw new Error(problem);
+	}
 	// A file that does not conform is left out whole and named, never read in part.
 	const excluded = [
 		...new Set([...unreadable, ...invalid].map(({ path }) => path)),
 	];
-	const db = project(tables);
+	const db = new Database(':memory:');
 	try {
+		projectTables(createBunSqliteAdapter(db), tables);
 		const statement = prepareRead(db, sql);
 		const rows = statement.all() as Record<string, unknown>[];
 		const columns = statement.columnNames;

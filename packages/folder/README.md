@@ -641,6 +641,19 @@ misread them, and quoted otherwise. Floats keep a decimal point (`1.0e-7`),
 and negative zero is `-0.0`. Comments, quoting, key order, a byte-order mark,
 and header CRLF in source are normalized away by the first save.
 
+### Rows as SQL
+
+`projectTables(db, tables)` builds the projection `epicenter query` reads
+(ADR-0520) in any `@epicenter/sqlite` handle, so Bun and a browser's SQLite
+build the same tables. Each table has `stem`, one quoted column per declared
+field, and `body`; a list or object is JSON text and a boolean is `0` or `1`.
+Pass only rows that conform and name the files you left out. The database is
+read-only afterwards. `projectionProblem` names a table that cannot be one
+SQLite table, `readingStatementProblem` refuses a statement that does not
+start with `SELECT`, `WITH`, `VALUES`, or `EXPLAIN`, and `describeTables`
+says what each column holds. Preparing the statement, and refusing anything
+after the first one, stays with the engine.
+
 ### Names
 
 A stored row's `path` is `rowPath(table.name, stem)`, and

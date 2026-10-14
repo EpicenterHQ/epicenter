@@ -136,6 +136,13 @@ export {
 	rowStemOf,
 } from './paths.js';
 export {
+	describeTables,
+	type ProjectedTable,
+	projectionProblem,
+	projectTables,
+	readingStatementProblem,
+} from './projection.js';
+export {
 	type AnyRow,
 	type BodyConflict,
 	type FieldConflict,
