@@ -93,9 +93,11 @@ safe, and both also fix the script-and-window case that exists today:
 1. **Coordination names derive from the canonical root alone.** Web Lock
    names and the hint channel stop including the scope ID, so Todos and a
    browser window on `~/Epicenter/so.epicenter.todos` share them.
-2. **Each engine stages under its own scratch directory,**
-   `.git/epicenter/scratch/<engine>/`, and opening clears only directories
-   no live engine owns, so no engine deletes another's staged bytes.
+2. **Each engine names its scratch files with its own prefix,**
+   `.git/epicenter/scratch/<engine>-<uuid>`, and opening clears only its own
+   prefix and files old enough that no write can still be staging them, so
+   no engine deletes another's staged bytes. Names stay one level deep, which
+   the shell's write check (`page_files.rs`) already admits.
 
 Then the shell grants a directory to every window that asks for it, holds no
 writer lock, and counts admitted work per window for the quit wait. A save
