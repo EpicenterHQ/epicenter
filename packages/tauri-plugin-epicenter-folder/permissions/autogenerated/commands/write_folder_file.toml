@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-write-folder-file"
+description = "Enables the write_folder_file command without any pre-configured scope."
+commands.allow = ["write_folder_file"]
+
+[[permission]]
+identifier = "deny-write-folder-file"
+description = "Denies the write_folder_file command without any pre-configured scope."
+commands.deny = ["write_folder_file"]

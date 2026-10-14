@@ -2004,3 +2004,4 @@ fn merge_options_are_optional_arguments_that_reach_the_owner() {
         })
     );
 }
+

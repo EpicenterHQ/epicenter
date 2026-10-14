@@ -187,6 +187,13 @@ pub(crate) struct Instance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Page(u64);
 
+impl Page {
+    /// The page's number within its webview: a reload is the next one.
+    pub(crate) fn number(self) -> u64 {
+        self.0
+    }
+}
+
 impl Instance {
     fn new() -> Arc<Self> {
         Arc::new(Self {

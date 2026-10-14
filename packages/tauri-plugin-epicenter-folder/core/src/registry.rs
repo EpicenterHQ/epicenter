@@ -9,6 +9,11 @@
 //! cross-process lock for the canonical root, and keeps it until `shutdown`.
 //! Detaching a window drops that window's session and nothing else: the owner,
 //! the work it already admitted, and every other window's session carry on.
+//!
+//! A scope whose folder sets `page_engine` has no owner. `grant` takes the
+//! same cross-process lock on first use and hands the window the canonical
+//! root; the page runs `@epicenter/folder`'s engine over it. The lock is held
+//! until `shutdown`, so no other process opens the folder meanwhile.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,7 +22,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 use specta::Type;
 
-use crate::files::resolve_root;
+use crate::files::{resolve_root, verify_layout};
 use crate::lock::{LockError, RootLock};
 use crate::owner::{FolderConfig, FolderOwner};
 
@@ -45,6 +50,10 @@ pub enum AttachError {
     ShuttingDown,
     /// The page was built against another version of the command contract.
     Incompatible { host: u32, page: u32 },
+    /// A grant named a scope the shell's owner opens: attach to it instead.
+    UsesOwner { scope: String },
+    /// An attach named a scope the page's own engine opens: grant it instead.
+    UsesPageEngine { scope: String },
 }
 
 struct Opened {
@@ -56,6 +65,20 @@ struct Opened {
 struct Scope {
     config: ScopeConfig,
     opened: Option<Opened>,
+    /// For a page-engine scope: its canonical root and the lock held for it.
+    granted: Option<(std::path::PathBuf, RootLock)>,
+}
+
+/// What a page-engine scope's window is given: where its folder is, and the
+/// shell's fallbacks for what the repository does not configure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Granted {
+    /// The canonical root, as an absolute path.
+    pub root: String,
+    pub branch: String,
+    pub author_name: String,
+    pub author_email: String,
 }
 
 /// One window's use of one scope.
@@ -125,6 +148,7 @@ impl Registry {
             Scope {
                 config,
                 opened: None,
+                granted: None,
             },
         );
         Ok(())
@@ -152,6 +176,11 @@ impl Registry {
                 window: window.to_string(),
             });
         }
+        if entry.config.folder.page_engine {
+            return Err(AttachError::UsesPageEngine {
+                scope: scope.to_string(),
+            });
+        }
         if entry.opened.is_none() {
             let unavailable = |message: String| AttachError::Unavailable { message };
             // Lock the canonical directory before Git is initialized there.
@@ -177,20 +206,126 @@ impl Registry {
         })
     }
 
-    /// Fence new attaches, drain every owner, then release every folder's
-    /// cross-process lock. Returns once all of that has happened.
+    /// Give `window` the directory of a page-engine `scope`. The first grant
+    /// creates the directory if it is missing, refuses a `.git` or scratch
+    /// directory linked elsewhere, and takes the folder's cross-process lock;
+    /// later grants, from any permitted window, return the same root.
+    pub fn grant(&self, scope: &str, window: &str) -> Result<Granted, AttachError> {
+        let mut scopes = self.scopes();
+        if self.fenced.load(Ordering::SeqCst) {
+            return Err(AttachError::ShuttingDown);
+        }
+        let Some(entry) = scopes.get_mut(scope) else {
+            return Err(AttachError::UnknownScope {
+                scope: scope.to_string(),
+            });
+        };
+        if !entry.config.windows.iter().any(|permitted| permitted == window) {
+            return Err(AttachError::WindowNotPermitted {
+                scope: scope.to_string(),
+                window: window.to_string(),
+            });
+        }
+        let folder = &entry.config.folder;
+        if !folder.page_engine {
+            return Err(AttachError::UsesOwner {
+                scope: scope.to_string(),
+            });
+        }
+        if entry.granted.is_none() {
+            let unavailable = |message: String| AttachError::Unavailable { message };
+            std::fs::create_dir_all(&folder.root).map_err(|cause| {
+                unavailable(format!(
+                    "The folder directory '{}' could not be created: {cause}",
+                    folder.root.display()
+                ))
+            })?;
+            let root = resolve_root(&folder.root).map_err(unavailable)?;
+            let lock = RootLock::acquire(&root).map_err(|error| match error {
+                LockError::Busy { root } => AttachError::Busy {
+                    root: root.display().to_string(),
+                },
+                LockError::Failed { message } => unavailable(message),
+            })?;
+            verify_layout(&root).map_err(unavailable)?;
+            entry.granted = Some((root, lock));
+        }
+        let (root, _) = entry.granted.as_ref().expect("the scope was just granted");
+        Ok(Granted {
+            root: root.to_string_lossy().into_owned(),
+            branch: folder.branch.clone(),
+            author_name: folder.author.name.clone(),
+            author_email: folder.author.email.clone(),
+        })
+    }
+
+    /// The canonical root of a page-engine `scope` already granted to a
+    /// window that may use it, and the files the page may write there.
+    pub fn granted_files(
+        &self,
+        scope: &str,
+        window: &str,
+    ) -> Result<(std::path::PathBuf, Vec<String>), AttachError> {
+        let root = self.granted_root(scope, window)?;
+        let scopes = self.scopes();
+        let patterns = scopes
+            .get(scope)
+            .map(|entry| entry.config.folder.page_files.clone())
+            .unwrap_or_default();
+        Ok((root, patterns))
+    }
+
+    /// The canonical root of a page-engine `scope` already granted to a
+    /// window that may use it: where that window's Git commands run.
+    pub fn granted_root(&self, scope: &str, window: &str) -> Result<std::path::PathBuf, AttachError> {
+        let scopes = self.scopes();
+        if self.fenced.load(Ordering::SeqCst) {
+            return Err(AttachError::ShuttingDown);
+        }
+        let Some(entry) = scopes.get(scope) else {
+            return Err(AttachError::UnknownScope {
+                scope: scope.to_string(),
+            });
+        };
+        if !entry.config.windows.iter().any(|permitted| permitted == window) {
+            return Err(AttachError::WindowNotPermitted {
+                scope: scope.to_string(),
+                window: window.to_string(),
+            });
+        }
+        match &entry.granted {
+            Some((root, _)) => Ok(root.clone()),
+            None if entry.config.folder.page_engine => Err(AttachError::Unavailable {
+                message: format!("the folder scope '{scope}' has not been granted yet"),
+            }),
+            None => Err(AttachError::UsesOwner {
+                scope: scope.to_string(),
+            }),
+        }
+    }
+
+    /// Fence new attaches and grants, drain every owner, then release every
+    /// folder's cross-process lock. Returns once all of that has happened.
+    /// A page-engine folder's pages drain their own work before the shell
+    /// shuts down, through the host's departure round.
     pub fn shutdown(&self) {
-        let opened: Vec<Opened> = {
+        let (opened, granted): (Vec<Opened>, Vec<RootLock>) = {
             let mut scopes = self.scopes();
             self.fenced.store(true, Ordering::SeqCst);
-            scopes
+            let opened = scopes
                 .values_mut()
                 .filter_map(|scope| scope.opened.take())
-                .collect()
+                .collect();
+            let granted = scopes
+                .values_mut()
+                .filter_map(|scope| scope.granted.take().map(|(_, lock)| lock))
+                .collect();
+            (opened, granted)
         };
         for Opened { owner, lock } in opened {
             owner.shutdown();
             drop(lock);
         }
+        drop(granted);
     }
 }

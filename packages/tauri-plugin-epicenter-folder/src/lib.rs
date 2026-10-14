@@ -34,7 +34,8 @@ pub use epicenter_folder_core::files::has_repository;
 pub use epicenter_folder_core::git::{Author, Remote};
 pub use epicenter_folder_core::owner::FolderConfig;
 use epicenter_folder_core::registry::Registry;
-pub use epicenter_folder_core::registry::ScopeConfig;
+pub use epicenter_folder_core::page_git::GitOutput;
+pub use epicenter_folder_core::registry::{Granted, ScopeConfig};
 /// A shell's own transfers: staged first downloads, and the per-transfer
 /// relays a folder's owner can be given in [`FolderConfig::transport`].
 pub use epicenter_folder_core::{download, transport};
@@ -44,7 +45,9 @@ mod commands;
 mod lifecycle;
 
 pub use command_names::COMMANDS;
-pub use commands::{Attached, FolderFilesChanged, FolderSnapshotChanged, PROTOCOL};
+pub use commands::{
+    Attached, FolderFilesChanged, FolderSnapshotChanged, DIRECTORY_COMMANDS, PROTOCOL,
+};
 pub use epicenter_folder_core::history::StagedCommit;
 
 const PLUGIN_NAME: &str = "epicenter-folder";
@@ -56,6 +59,16 @@ pub struct Folders {
     /// Which page each session belongs to, so sessions end with their page
     /// and their window. See `lifecycle`.
     lifecycles: lifecycle::Lifecycles,
+    /// Cancel flags of the page-engine Git commands still running, by window
+    /// label and the page's request number.
+    /// Keyed by window label, the page loaded in it, and the page's own
+    /// request number, so a reloaded page never reaches the runs of the
+    /// page before it.
+    git_requests: std::sync::Mutex<
+        std::collections::HashMap<(String, u64, u32), std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    >,
+    /// The windows and scopes `grant_directory` has added a capability for.
+    granted_capabilities: std::sync::Mutex<std::collections::HashSet<(String, String)>>,
 }
 
 impl Folders {
@@ -88,6 +101,13 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
+            commands::grant_directory::<tauri::Wry>,
+            commands::run_git::<tauri::Wry>,
+            commands::cancel_git::<tauri::Wry>,
+            commands::write_folder_file::<tauri::Wry>,
+            commands::rename_folder_path::<tauri::Wry>,
+            commands::remove_folder_path::<tauri::Wry>,
+            commands::make_folder_directory::<tauri::Wry>,
             commands::attach::<tauri::Wry>,
             commands::detach::<tauri::Wry>,
             commands::list::<tauri::Wry>,

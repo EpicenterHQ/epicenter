@@ -23,7 +23,9 @@ use epicenter_folder_core::history::{
     StagedCommit,
 };
 use epicenter_folder_core::owner::{Caller, FolderOwner};
-use epicenter_folder_core::registry::AttachError;
+use epicenter_folder_core::page_files;
+use epicenter_folder_core::page_git::{self, GitOutput};
+use epicenter_folder_core::registry::{AttachError, Granted};
 use serde::Serialize;
 use specta::Type;
 use tauri::{Manager, Resource, ResourceId, Runtime, Webview};
@@ -259,6 +261,284 @@ fn git_unconfirmed(operation: &'static str) -> impl FnOnce(String) -> GitError {
 // ============================================================================
 // Sessions
 // ============================================================================
+
+/// Give this window the directory of a scope the shell registered for the
+/// page's own engine. The folder is locked on its first grant and stays
+/// locked until shutdown. The window is given the file system plugin's
+/// commands for that directory and everything beneath it, dot files
+/// included, through a capability added at run time for this window alone.
+/// Nothing else on disk becomes reachable.
+#[tauri::command]
+#[specta::specta]
+pub async fn grant_directory<R: Runtime>(
+    webview: Webview<R>,
+    scope: String,
+) -> Result<Granted, AttachError> {
+    let label = webview.label().to_string();
+    let app = webview.app_handle().clone();
+    let granting = (scope.clone(), label.clone());
+    let granted = blocking(
+        move || {
+            app.state::<Folders>()
+                .registry
+                .grant(&granting.0, &granting.1)
+        },
+        |message| Err(AttachError::Unavailable { message }),
+    )
+    .await?;
+    let app = webview.app_handle();
+    let folders = app.state::<Folders>();
+    let key = (label.clone(), scope.clone());
+    let mut capabilities = folders
+        .granted_capabilities
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if !capabilities.contains(&key) {
+        let url = webview.url().map_err(|cause| AttachError::Unavailable {
+            message: format!("the page's address could not be read: {cause}"),
+        })?;
+        app.add_capability(directory_capability(
+            &label,
+            &scope,
+            std::path::Path::new(&granted.root),
+            &url,
+        ))
+        .map_err(|cause| AttachError::Unavailable {
+            message: format!(
+                "the folder directory '{}' could not be granted: {cause}",
+                granted.root
+            ),
+        })?;
+        capabilities.insert(key);
+    }
+    Ok(granted)
+}
+
+/// The fs plugin commands a page-engine folder's storage reads with. A shell
+/// lists the same permissions, unscoped, in the window's capability, so its
+/// build checks every name; only a grant gives them a path. Changes go
+/// through this crate's own commands (`write_folder_file` and the rest),
+/// which check the whole path on disk (`page_files`).
+pub const DIRECTORY_COMMANDS: [&str; 3] = [
+    "fs:allow-read-dir",
+    "fs:allow-lstat",
+    "fs:allow-read-file",
+];
+
+/// The glob patterns a window may read, as Tauri's fs scope compiles them
+/// (`glob::Pattern::new`). The root is escaped, so a `[`, `*`, or `?` in its
+/// name stays literal. The scope resolves every existing path, links
+/// included, before matching, so a link inside the folder that points
+/// outside it is refused.
+pub(crate) fn directory_patterns(root: &std::path::Path) -> Vec<String> {
+    let base = glob::Pattern::escape(&root.to_string_lossy());
+    vec![base.clone(), format!("{base}/**")]
+}
+
+/// One window's reading access to one folder: the fs plugin's reading
+/// commands on the root and everything beneath it. A capability's scope
+/// matches dot files when the fs plugin is configured with
+/// `requireLiteralLeadingDot: false`, which a page-engine shell must set:
+/// `.git` and files other programs leave behind live there.
+fn directory_capability(
+    label: &str,
+    scope: &str,
+    root: &std::path::Path,
+    url: &tauri::Url,
+) -> tauri::ipc::CapabilityBuilder {
+    let readable: Vec<serde_json::Value> = directory_patterns(root)
+        .into_iter()
+        .map(|path| serde_json::json!({ "path": path }))
+        .collect();
+    let mut capability = tauri::ipc::CapabilityBuilder::new(format!(
+        "epicenter-folder-directory:{label}:{scope}"
+    ))
+    .window(label);
+    capability = match url.scheme() {
+        "http" | "https" => capability.remote(url.origin().ascii_serialization()),
+        _ => capability.local(true),
+    };
+    for command in DIRECTORY_COMMANDS {
+        capability =
+            capability.permission_scoped(command, readable.clone(), Vec::<serde_json::Value>::new());
+    }
+    capability
+}
+
+/// The root this window was granted for `scope`, and the files it may write.
+fn changing_root<R: Runtime>(
+    webview: &Webview<R>,
+    scope: &str,
+) -> Result<(std::path::PathBuf, Vec<String>), String> {
+    webview
+        .app_handle()
+        .state::<Folders>()
+        .registry
+        .granted_files(scope, webview.label())
+        .map_err(|refusal| format!("{refusal:?}"))
+}
+
+/// Write a file in a granted folder (`page_files::write_file`).
+#[tauri::command]
+#[specta::specta]
+pub async fn write_folder_file<R: Runtime>(
+    webview: Webview<R>,
+    scope: String,
+    path: String,
+    bytes: Vec<u8>,
+    create_new: bool,
+) -> Result<(), String> {
+    let (root, patterns) = changing_root(&webview, &scope)?;
+    blocking(
+        move || {
+            page_files::write_file(&root, &patterns, std::path::Path::new(&path), &bytes, create_new)
+        },
+        Err,
+    )
+    .await
+}
+
+/// Rename within a granted folder (`page_files::rename`).
+#[tauri::command]
+#[specta::specta]
+pub async fn rename_folder_path<R: Runtime>(
+    webview: Webview<R>,
+    scope: String,
+    from: String,
+    to: String,
+) -> Result<(), String> {
+    let (root, patterns) = changing_root(&webview, &scope)?;
+    blocking(
+        move || {
+            page_files::rename(
+                &root,
+                &patterns,
+                std::path::Path::new(&from),
+                std::path::Path::new(&to),
+            )
+        },
+        Err,
+    )
+    .await
+}
+
+/// Remove within a granted folder (`page_files::remove`).
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_folder_path<R: Runtime>(
+    webview: Webview<R>,
+    scope: String,
+    path: String,
+    recursive: bool,
+) -> Result<(), String> {
+    let (root, patterns) = changing_root(&webview, &scope)?;
+    blocking(
+        move || page_files::remove(&root, &patterns, std::path::Path::new(&path), recursive),
+        Err,
+    )
+    .await
+}
+
+/// Make a directory in a granted folder (`page_files::mkdir`).
+#[tauri::command]
+#[specta::specta]
+pub async fn make_folder_directory<R: Runtime>(
+    webview: Webview<R>,
+    scope: String,
+    path: String,
+) -> Result<(), String> {
+    let (root, patterns) = changing_root(&webview, &scope)?;
+    blocking(
+        move || page_files::mkdir(&root, &patterns, std::path::Path::new(&path)),
+        Err,
+    )
+    .await
+}
+
+/// Run one Git operation for a page-engine folder this window was granted.
+/// `page_git` decides which operations and options are allowed, and fixes
+/// the environment. `request` names the run, so `cancel_git` can stop it.
+#[tauri::command]
+#[specta::specta]
+pub async fn run_git<R: Runtime>(
+    webview: Webview<R>,
+    scope: String,
+    args: Vec<String>,
+    input: Option<Vec<u8>>,
+    index_file: Option<String>,
+    request: u32,
+) -> Result<GitOutput, AttachError> {
+    let label = webview.label().to_string();
+    let app = webview.app_handle().clone();
+    let root = app
+        .state::<Folders>()
+        .registry
+        .granted_root(&scope, &label)?;
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cancel_entry = cancel.clone();
+    let page = instance(&webview)
+        .and_then(|instance| instance.page())
+        .ok_or_else(|| AttachError::Unavailable {
+            message: "the page that asked for Git is gone".to_string(),
+        })?;
+    let key = (label, page.number(), request);
+    {
+        let folders = app.state::<Folders>();
+        let mut requests = folders
+            .git_requests
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // One running command per number: a second would take over the
+        // first's cancel, and its end would remove the first's.
+        if requests.contains_key(&key) {
+            return Err(AttachError::Unavailable {
+                message: format!("a Git command numbered {request} is already running"),
+            });
+        }
+        requests.insert(key.clone(), cancel.clone());
+    }
+    let running = app.clone();
+    let result = blocking(
+        move || page_git::run(&root, &args, input.as_deref(), index_file.as_deref(), &cancel),
+        |message| Err(message),
+    )
+    .await;
+    {
+        let folders = running.state::<Folders>();
+        let mut requests = folders
+            .git_requests
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if requests
+            .get(&key)
+            .is_some_and(|current| Arc::ptr_eq(current, &cancel_entry))
+        {
+            requests.remove(&key);
+        }
+    }
+    result.map_err(|message| AttachError::Unavailable { message })
+}
+
+/// Stop a `run_git` this window started. Stopping one that has finished, or
+/// another window's, does nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn cancel_git<R: Runtime>(webview: Webview<R>, request: u32) -> Result<(), AttachError> {
+    let Some(page) = instance(&webview).and_then(|instance| instance.page()) else {
+        return Ok(());
+    };
+    let key = (webview.label().to_string(), page.number(), request);
+    let app = webview.app_handle().clone();
+    let folders = app.state::<Folders>();
+    let requests = folders
+        .git_requests
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(cancel) = requests.get(&key) {
+        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    Ok(())
+}
 
 /// Attach this window to a scope the shell registered for it. The folder is
 /// locked and opened on its first attach and stays open afterward.
@@ -725,4 +1005,30 @@ pub async fn log<R: Runtime>(
 ) -> Result<Vec<CommitSummary>, GitError> {
     let owner = owner(&webview, session).map_err(git_denied)?;
     blocking(move || owner.log(depth), git_lost("log")).await
+}
+
+#[cfg(test)]
+mod directory_scope_tests {
+    use super::directory_patterns;
+    use std::path::Path;
+
+    #[test]
+    fn a_page_reads_the_folder_and_nothing_outside_it() {
+        let options = glob::MatchOptions {
+            require_literal_separator: true,
+            require_literal_leading_dot: false,
+            ..Default::default()
+        };
+        let patterns = directory_patterns(Path::new("/Users/a/Epicenter [dev]/todos"));
+        let matches = |path: &str| {
+            patterns
+                .iter()
+                .any(|pattern| glob::Pattern::new(pattern).unwrap().matches_with(path, options))
+        };
+        for path in ["", "/.git/HEAD", "/.DS_Store", "/todos/a.md"] {
+            assert!(matches(&format!("/Users/a/Epicenter [dev]/todos{path}")), "{path}");
+        }
+        assert!(!matches("/Users/a/Epicenter d/todos/a.md"));
+        assert!(!matches("/Users/a/other/a.md"));
+    }
 }

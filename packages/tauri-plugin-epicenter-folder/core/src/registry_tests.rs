@@ -274,3 +274,87 @@ fn another_process_is_excluded_and_a_killed_holder_leaves_the_folder_free() {
     std::io::stdout().flush().unwrap();
     std::thread::sleep(Duration::from_millis(10));
 }
+
+fn page_engine_registry(root: &Path, windows: &[&str]) -> Registry {
+    let registry = Registry::new();
+    let mut folder = config(root);
+    folder.page_engine = true;
+    registry
+        .register(ScopeConfig {
+            scope: "notes".to_string(),
+            folder,
+            windows: windows.iter().map(|window| window.to_string()).collect(),
+        })
+        .unwrap();
+    registry
+}
+
+#[test]
+fn a_page_engine_scope_is_granted_locked_and_never_owned() {
+    let temp = TempDir::new("page-engine");
+    let root = temp.path().join("missing").join("notes");
+    let registry = page_engine_registry(&root, &["main", "second"]);
+    assert_eq!(
+        registry.grant("notes", "intruder").err(),
+        Some(AttachError::WindowNotPermitted {
+            scope: "notes".into(),
+            window: "intruder".into()
+        })
+    );
+    assert!(!root.exists(), "a refused grant creates nothing");
+
+    let granted = registry.grant("notes", "main").unwrap();
+    let canonical = root.canonicalize().unwrap();
+    assert_eq!(granted.root, canonical.to_string_lossy());
+    assert_eq!(granted.branch, "main");
+    assert!(
+        !root.join(".git").exists(),
+        "granting initializes nothing; the page engine does"
+    );
+    // Another window of the same shell gets the same root under the same lock.
+    assert_eq!(registry.grant("notes", "second").unwrap(), granted);
+    // No other holder can take the folder meanwhile.
+    assert!(matches!(
+        RootLock::acquire(&canonical),
+        Err(LockError::Busy { .. })
+    ));
+    assert_eq!(
+        registry.attach("notes", "main").err(),
+        Some(AttachError::UsesPageEngine {
+            scope: "notes".into()
+        })
+    );
+
+    registry.shutdown();
+    assert_eq!(
+        registry.grant("notes", "main").err(),
+        Some(AttachError::ShuttingDown)
+    );
+    drop(RootLock::acquire(&canonical).expect("shutdown releases the lock"));
+}
+
+#[test]
+fn an_owned_scope_refuses_a_grant_and_a_linked_git_refuses_one() {
+    let temp = TempDir::new("page-engine-refusals");
+    let owned_root = temp.folder("owned");
+    let owned = registry(&owned_root, &["main"]);
+    assert_eq!(
+        owned.grant("notes", "main").err(),
+        Some(AttachError::UsesOwner {
+            scope: "notes".into()
+        })
+    );
+
+    let linked_root = temp.folder("linked");
+    let elsewhere = temp.folder("elsewhere");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&elsewhere, linked_root.join(".git")).unwrap();
+    #[cfg(unix)]
+    {
+        let linked = page_engine_registry(&linked_root, &["main"]);
+        assert!(matches!(
+            linked.grant("notes", "main"),
+            Err(AttachError::Unavailable { .. })
+        ));
+    }
+}

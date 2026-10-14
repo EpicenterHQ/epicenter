@@ -15,6 +15,8 @@ pub mod lock;
 pub mod merge;
 pub mod messages;
 pub mod owner;
+pub mod page_files;
+pub mod page_git;
 pub mod paths;
 pub mod registry;
 mod runner;

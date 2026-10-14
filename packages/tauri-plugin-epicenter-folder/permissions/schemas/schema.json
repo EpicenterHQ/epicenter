@@ -280,6 +280,18 @@
 					"markdownDescription": "Denies the attach command without any pre-configured scope."
 				},
 				{
+					"description": "Enables the cancel_git command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-cancel-git",
+					"markdownDescription": "Enables the cancel_git command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the cancel_git command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-cancel-git",
+					"markdownDescription": "Denies the cancel_git command without any pre-configured scope."
+				},
+				{
 					"description": "Enables the children command without any pre-configured scope.",
 					"type": "string",
 					"const": "allow-children",
@@ -352,6 +364,18 @@
 					"markdownDescription": "Denies the fetch command without any pre-configured scope."
 				},
 				{
+					"description": "Enables the grant_directory command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-grant-directory",
+					"markdownDescription": "Enables the grant_directory command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the grant_directory command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-grant-directory",
+					"markdownDescription": "Denies the grant_directory command without any pre-configured scope."
+				},
+				{
 					"description": "Enables the list command without any pre-configured scope.",
 					"type": "string",
 					"const": "allow-list",
@@ -374,6 +398,18 @@
 					"type": "string",
 					"const": "deny-log",
 					"markdownDescription": "Denies the log command without any pre-configured scope."
+				},
+				{
+					"description": "Enables the make_folder_directory command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-make-folder-directory",
+					"markdownDescription": "Enables the make_folder_directory command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the make_folder_directory command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-make-folder-directory",
+					"markdownDescription": "Denies the make_folder_directory command without any pre-configured scope."
 				},
 				{
 					"description": "Enables the merge_incoming command without any pre-configured scope.",
@@ -484,6 +520,30 @@
 					"markdownDescription": "Denies the recover_incoming command without any pre-configured scope."
 				},
 				{
+					"description": "Enables the remove_folder_path command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-remove-folder-path",
+					"markdownDescription": "Enables the remove_folder_path command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the remove_folder_path command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-remove-folder-path",
+					"markdownDescription": "Denies the remove_folder_path command without any pre-configured scope."
+				},
+				{
+					"description": "Enables the rename_folder_path command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-rename-folder-path",
+					"markdownDescription": "Enables the rename_folder_path command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the rename_folder_path command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-rename-folder-path",
+					"markdownDescription": "Denies the rename_folder_path command without any pre-configured scope."
+				},
+				{
 					"description": "Enables the rmdir command without any pre-configured scope.",
 					"type": "string",
 					"const": "allow-rmdir",
@@ -494,6 +554,18 @@
 					"type": "string",
 					"const": "deny-rmdir",
 					"markdownDescription": "Denies the rmdir command without any pre-configured scope."
+				},
+				{
+					"description": "Enables the run_git command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-run-git",
+					"markdownDescription": "Enables the run_git command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the run_git command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-run-git",
+					"markdownDescription": "Denies the run_git command without any pre-configured scope."
 				},
 				{
 					"description": "Enables the stage command without any pre-configured scope.",
@@ -532,10 +604,22 @@
 					"markdownDescription": "Denies the withdraw_request command without any pre-configured scope."
 				},
 				{
-					"description": "Attach to the folders the shell registered for this window, then read, publish, and record history through them.\n#### This default permission set includes:\n\n- `allow-attach`\n- `allow-detach`\n- `allow-list`\n- `allow-children`\n- `allow-read`\n- `allow-read-many`\n- `allow-apply`\n- `allow-mkdir`\n- `allow-rmdir`\n- `allow-status`\n- `allow-commit`\n- `allow-open-request`\n- `allow-withdraw-request`\n- `allow-push`\n- `allow-fetch`\n- `allow-pull-fast-forward`\n- `allow-merge-incoming`\n- `allow-recover-incoming`\n- `allow-paths`\n- `allow-stage`\n- `allow-commit-staged`\n- `allow-diff`\n- `allow-log`",
+					"description": "Enables the write_folder_file command without any pre-configured scope.",
+					"type": "string",
+					"const": "allow-write-folder-file",
+					"markdownDescription": "Enables the write_folder_file command without any pre-configured scope."
+				},
+				{
+					"description": "Denies the write_folder_file command without any pre-configured scope.",
+					"type": "string",
+					"const": "deny-write-folder-file",
+					"markdownDescription": "Denies the write_folder_file command without any pre-configured scope."
+				},
+				{
+					"description": "Attach to the folders the shell registered for this window, then read, publish, and record history through them.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`\n- `allow-attach`\n- `allow-detach`\n- `allow-list`\n- `allow-children`\n- `allow-read`\n- `allow-read-many`\n- `allow-apply`\n- `allow-mkdir`\n- `allow-rmdir`\n- `allow-status`\n- `allow-commit`\n- `allow-open-request`\n- `allow-withdraw-request`\n- `allow-push`\n- `allow-fetch`\n- `allow-pull-fast-forward`\n- `allow-merge-incoming`\n- `allow-recover-incoming`\n- `allow-paths`\n- `allow-stage`\n- `allow-commit-staged`\n- `allow-diff`\n- `allow-log`",
 					"type": "string",
 					"const": "default",
-					"markdownDescription": "Attach to the folders the shell registered for this window, then read, publish, and record history through them.\n#### This default permission set includes:\n\n- `allow-attach`\n- `allow-detach`\n- `allow-list`\n- `allow-children`\n- `allow-read`\n- `allow-read-many`\n- `allow-apply`\n- `allow-mkdir`\n- `allow-rmdir`\n- `allow-status`\n- `allow-commit`\n- `allow-open-request`\n- `allow-withdraw-request`\n- `allow-push`\n- `allow-fetch`\n- `allow-pull-fast-forward`\n- `allow-merge-incoming`\n- `allow-recover-incoming`\n- `allow-paths`\n- `allow-stage`\n- `allow-commit-staged`\n- `allow-diff`\n- `allow-log`"
+					"markdownDescription": "Attach to the folders the shell registered for this window, then read, publish, and record history through them.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`\n- `allow-attach`\n- `allow-detach`\n- `allow-list`\n- `allow-children`\n- `allow-read`\n- `allow-read-many`\n- `allow-apply`\n- `allow-mkdir`\n- `allow-rmdir`\n- `allow-status`\n- `allow-commit`\n- `allow-open-request`\n- `allow-withdraw-request`\n- `allow-push`\n- `allow-fetch`\n- `allow-pull-fast-forward`\n- `allow-merge-incoming`\n- `allow-recover-incoming`\n- `allow-paths`\n- `allow-stage`\n- `allow-commit-staged`\n- `allow-diff`\n- `allow-log`"
 				}
 			]
 		}

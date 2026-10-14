@@ -5,6 +5,13 @@
 [default]
 description = "Attach to the folders the shell registered for this window, then read, publish, and record history through them."
 permissions = [
+  "allow-grant-directory",
+  "allow-run-git",
+  "allow-cancel-git",
+  "allow-write-folder-file",
+  "allow-rename-folder-path",
+  "allow-remove-folder-path",
+  "allow-make-folder-directory",
   "allow-attach",
   "allow-detach",
   "allow-list",

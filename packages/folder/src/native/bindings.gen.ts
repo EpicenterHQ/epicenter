@@ -6,6 +6,34 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	/**
+	 *  Give this window the directory of a scope the shell registered for the
+	 *  page's own engine. The folder is locked on its first grant and stays
+	 *  locked until shutdown. The window is given the file system plugin's
+	 *  commands for that directory and everything beneath it, dot files
+	 *  included, through a capability added at run time for this window alone.
+	 *  Nothing else on disk becomes reachable.
+	 */
+	grantDirectory: (scope: string) => typedError<Granted, AttachError>(__TAURI_INVOKE("plugin:epicenter-folder|grant_directory", { scope })),
+	/**
+	 *  Run one Git operation for a page-engine folder this window was granted.
+	 *  `page_git` decides which operations and options are allowed, and fixes
+	 *  the environment. `request` names the run, so `cancel_git` can stop it.
+	 */
+	runGit: (scope: string, args: string[], input: number[] | null, indexFile: string | null, request: number) => typedError<GitOutput, AttachError>(__TAURI_INVOKE("plugin:epicenter-folder|run_git", { scope, args, input, indexFile, request })),
+	/**
+	 *  Stop a `run_git` this window started. Stopping one that has finished, or
+	 *  another window's, does nothing.
+	 */
+	cancelGit: (request: number) => typedError<null, AttachError>(__TAURI_INVOKE("plugin:epicenter-folder|cancel_git", { request })),
+	/**  Write a file in a granted folder (`page_files::write_file`). */
+	writeFolderFile: (scope: string, path: string, bytes: number[], createNew: boolean) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|write_folder_file", { scope, path, bytes, createNew })),
+	/**  Rename within a granted folder (`page_files::rename`). */
+	renameFolderPath: (scope: string, from: string, to: string) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|rename_folder_path", { scope, from, to })),
+	/**  Remove within a granted folder (`page_files::remove`). */
+	removeFolderPath: (scope: string, path: string, recursive: boolean) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_path", { scope, path, recursive })),
+	/**  Make a directory in a granted folder (`page_files::mkdir`). */
+	makeFolderDirectory: (scope: string, path: string) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { scope, path })),
+	/**
 	 *  Attach this window to a scope the shell registered for it. The folder is
 	 *  locked and opened on its first attach and stays open afterward.
 	 */
@@ -138,7 +166,11 @@ export type AttachError =
 /**  The shell is shutting its folders down. */
 { name: "ShuttingDown" } |
 /**  The page was built against another version of the command contract. */
-{ name: "Incompatible"; host: number; page: number };
+{ name: "Incompatible"; host: number; page: number } |
+/**  A grant named a scope the shell's owner opens: attach to it instead. */
+{ name: "UsesOwner"; scope: string } |
+/**  An attach named a scope the page's own engine opens: grant it instead. */
+{ name: "UsesPageEngine"; scope: string };
 
 /**  What a window receives when it attaches to a scope. */
 export type Attached = {
@@ -311,6 +343,14 @@ export type GitError =
  */
 { name: "IncomingPending"; pending: PendingIncoming };
 
+/**  What one `git` process ended with. */
+export type GitOutput = {
+	/**  The exit code, or `None` when it was killed. */
+	code: number | null,
+	stdout: number[],
+	stderr: string,
+};
+
 export type GitSnapshot = {
 	branch: string,
 	remote: Remote | null,
@@ -329,6 +369,18 @@ export type GitSnapshot = {
 	 */
 	pendingIncoming: PendingIncoming | null,
 	closed: boolean,
+};
+
+/**
+ *  What a page-engine scope's window is given: where its folder is, and the
+ *  shell's fallbacks for what the repository does not configure.
+ */
+export type Granted = {
+	/**  The canonical root, as an absolute path. */
+	root: string,
+	branch: string,
+	authorName: string,
+	authorEmail: string,
 };
 
 export type ListedFile = {
