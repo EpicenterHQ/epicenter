@@ -21,6 +21,9 @@
  *   pairings; only the same GitHub user can use them again
  * - Concurrent transfers share one serialized refresh, and a rotated pair is
  *   persisted before, and used only after, its identity check
+ * - A repository transfer reads the repository by name only to learn its id
+ *   and owner, requires an installation on that owner, and then scopes and
+ *   reads by id exactly as a pairing transfer does
  *
  * See also:
  * - `app.test.ts` for the HTTP protocol, auth seam, CORS, and Git relay
@@ -912,4 +915,151 @@ test('a revoked non-expiring token deletes the grant at the next admission', asy
 	);
 	expect(memory.read(ALICE, 'grant')).toBeUndefined();
 	expect(memory.read(ALICE, `pairing:${FOLDER}`)).toBeDefined();
+});
+
+// ============================================================================
+// Repository-addressed transfers
+// ============================================================================
+
+const ALICE_NOTES = { owner: 'alice', name: 'notes' };
+
+test('a repository transfer locates the repository by name and scopes by id, with no pairing', async () => {
+	const { connect, github, memory, scopeRequests } = await setup();
+	const connection = await connect();
+	const before = github.requests.length;
+	const grant = expectOk(
+		await connection.authorizeRepositoryTransfer(ALICE, ALICE_NOTES),
+	);
+	expect(github.isScoped(grant.accessToken)).toBe(true);
+	expect(github.isParent(grant.accessToken)).toBe(false);
+	expect(grant.cloneUrl).toBe('https://github.com/alice/notes.git');
+
+	const sent = github.requests.slice(before);
+	const byName = sent.find(
+		(r) => r.url === 'https://api.github.com/repos/alice/notes',
+	);
+	// The name is read with the parent token; the id with the scoped token.
+	expect(
+		github.isParent(
+			byName?.headers.get('authorization')?.replace(/^Bearer /, '') ?? '',
+		),
+	).toBe(true);
+	expect(
+		sent
+			.filter(
+				(r) => r.headers.get('authorization') === `Bearer ${grant.accessToken}`,
+			)
+			.map((r) => r.url),
+	).toEqual([REPOSITORY_URL]);
+	const [scope] = scopeRequests();
+	expect(JSON.parse(new TextDecoder().decode(scope?.body))).toMatchObject({
+		target_id: 101,
+		repository_ids: [9001],
+	});
+	expect(memory.keys(ALICE).some((key) => key.startsWith('pairing:'))).toBe(
+		false,
+	);
+});
+
+test('a repository the user cannot reach by name is repository_unavailable', async () => {
+	const { connect, scopeRequests } = await setup();
+	const connection = await connect();
+	for (const repository of [
+		{ owner: 'alice', name: 'missing' },
+		{ owner: 'mallory', name: 'secret' },
+	])
+		expect(
+			expectErr(
+				await connection.authorizeRepositoryTransfer(ALICE, repository),
+			),
+		).toEqual({ code: 'repository_unavailable', installUrl: INSTALL_URL });
+	expect(scopeRequests()).toHaveLength(0);
+});
+
+test('a repository whose owner has no installation is repository_unavailable', async () => {
+	const { connect, github, scopeRequests } = await setup();
+	github.addRepository({
+		id: 9200,
+		owner: github.bob,
+		name: 'scratch',
+		installationId: 7003,
+		access: [
+			[github.bob, 'write'],
+			[github.alice, 'write'],
+		],
+	});
+	github.installations.delete(7003);
+	const connection = await connect();
+	expect(
+		expectErr(
+			await connection.authorizeRepositoryTransfer(ALICE, {
+				owner: 'bob',
+				name: 'scratch',
+			}),
+		),
+	).toEqual({ code: 'repository_unavailable', installUrl: INSTALL_URL });
+	expect(scopeRequests()).toHaveLength(0);
+});
+
+test('a public or read-only repository is refused by name as by id', async () => {
+	const { connect } = await setup();
+	const connection = await connect();
+	for (const name of ['site', 'readonly'])
+		expect(
+			expectErr(
+				await connection.authorizeRepositoryTransfer(ALICE, {
+					owner: 'alice',
+					name,
+				}),
+			).code,
+		).toBe('repository_unavailable');
+});
+
+test('a repository replaced after its name was read cannot get a scoped token', async () => {
+	const { connect, github } = await setup();
+	const connection = await connect();
+	github.beforeScope = () => github.replaceRepository(9001, 9555);
+	expect(
+		expectErr(await connection.authorizeRepositoryTransfer(ALICE, ALICE_NOTES))
+			.code,
+	).toBe('repository_unavailable');
+});
+
+test('a parent revoked before the read by name deletes the grant', async () => {
+	const { connect, github, memory } = await setup();
+	const connection = await connect();
+	const providerFetch = github.fetch;
+	github.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		if (
+			new Request(input, init).url ===
+			'https://api.github.com/repos/alice/notes'
+		)
+			github.revokeAll();
+		return providerFetch(input, init);
+	}) as HttpFetch;
+	expect(
+		expectErr(await connection.authorizeRepositoryTransfer(ALICE, ALICE_NOTES))
+			.code,
+	).toBe('github_authorization_required');
+	expect(memory.read(ALICE, 'grant')).toBeUndefined();
+});
+
+test('a repository transfer needs a grant and the routed principal', async () => {
+	const { connect, connectionOf, github } = await setup();
+	expect(
+		expectErr(
+			await connectionOf(ALICE).authorizeRepositoryTransfer(ALICE, ALICE_NOTES),
+		).code,
+	).toBe('github_authorization_required');
+	const connection = await connect();
+	expect(
+		expectErr(
+			await connection.authorizeRepositoryTransfer(MALLORY, ALICE_NOTES),
+		).code,
+	).toBe('principal_mismatch');
+	github.revokeAll();
+	expect(
+		expectErr(await connection.authorizeRepositoryTransfer(ALICE, ALICE_NOTES))
+			.code,
+	).toBe('github_authorization_required');
 });

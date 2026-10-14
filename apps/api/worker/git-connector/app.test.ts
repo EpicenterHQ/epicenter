@@ -20,6 +20,9 @@
  * - Git requests reach only the paired repository with a scoped token, a
  *   fixed header set, gzip bodies passed through, bounded bodies,
  *   propagated cancellation, no redirects, and no retry
+ * - Repository paths (`/repos/<owner>/<name>.git`) relay with no pairing,
+ *   refuse malformed owners and names before GitHub, and share the pairing
+ *   routes' query, body, and header rules
  *
  * See also:
  * - `connection.test.ts` for grant lifetime, scoping, and refresh ordering
@@ -66,6 +69,18 @@ const UPLOAD_PACK = 'application/x-git-upload-pack-request';
 /** Git endpoints for one pairing revision. */
 function gitPaths(revision: string, folder = FOLDER) {
 	const base = `${BASE}/git/${folder}/${revision}`;
+	return {
+		uploadRefs: `${base}/info/refs?service=git-upload-pack`,
+		receiveRefs: `${base}/info/refs?service=git-receive-pack`,
+		uploadPack: `${base}/git-upload-pack`,
+		receivePack: `${base}/git-receive-pack`,
+		base,
+	};
+}
+
+/** Git endpoints for a repository named as its canonical clone URL does. */
+function repoPaths(owner: string, repo: string) {
+	const base = `${BASE}/repos/${owner}/${repo}`;
 	return {
 		uploadRefs: `${base}/info/refs?service=git-upload-pack`,
 		receiveRefs: `${base}/info/refs?service=git-receive-pack`,
@@ -250,6 +265,7 @@ async function setup(options?: {
 test('every route except the callback requires the Epicenter session', async () => {
 	const { as, memory } = await setup();
 	const git = gitPaths('A'.repeat(22), 'f');
+	const repo = repoPaths('alice', 'notes.git');
 	for (const [method, url] of [
 		['POST', `${BASE}/connect`],
 		['POST', `${BASE}/complete`],
@@ -259,6 +275,8 @@ test('every route except the callback requires the Epicenter session', async () 
 		['DELETE', `${BASE}/pairings/${FOLDER}`],
 		['GET', git.uploadRefs],
 		['POST', git.receivePack],
+		['GET', repo.receiveRefs],
+		['POST', repo.uploadPack],
 	] as const) {
 		for (const origin of [APP_ORIGIN, DEVICE_ORIGIN, null]) {
 			const response = await as(null, url, { method, origin });
@@ -1109,4 +1127,157 @@ test('unsupported credential scoping is 503 and sends nothing to Git', async () 
 		'credential_scoping_unsupported',
 	);
 	expect(gitRequests()).toHaveLength(0);
+});
+
+// ============================================================================
+// Repository-addressed Git relay
+// ============================================================================
+
+test('a repository path relays to the scoped clone URL with no pairing', async () => {
+	const { connect, as, gitRequests, github, basicToken, memory } =
+		await setup();
+	await connect();
+	const repo = repoPaths('alice', 'notes.git');
+	const advertisement = await as(ALICE, repo.uploadRefs, {
+		headers: { 'git-protocol': 'version=2' },
+	});
+	expect(advertisement.status).toBe(200);
+	expect(advertisement.headers.get('content-type')).toBe(
+		'application/x-git-upload-pack-advertisement',
+	);
+	const fetch = await as(ALICE, repo.uploadPack, {
+		method: 'POST',
+		headers: { 'content-type': UPLOAD_PACK },
+		body: new Uint8Array([4, 5]),
+	});
+	expect(fetch.status).toBe(200);
+	expect(fetch.headers.get('content-type')).toBe(
+		'application/x-git-upload-pack-result',
+	);
+
+	const upstream = gitRequests();
+	expect(upstream.map((r) => r.url)).toEqual([
+		'https://github.com/alice/notes.git/info/refs?service=git-upload-pack',
+		'https://github.com/alice/notes.git/git-upload-pack',
+	]);
+	for (const request of upstream) {
+		const token = basicToken(request.headers);
+		expect(github.isScoped(token)).toBe(true);
+		expect(github.isParent(token)).toBe(false);
+	}
+	expect(upstream[1]?.body).toEqual(new Uint8Array([4, 5]));
+	expect(memory.keys(ALICE).some((key) => key.startsWith('pairing:'))).toBe(
+		false,
+	);
+});
+
+test('a repository path outside the user’s reach is repository_unavailable', async () => {
+	const { connect, as, gitRequests, scopeRequests } = await setup();
+	await connect();
+	for (const [owner, repo] of [
+		['alice', 'missing.git'],
+		['mallory', 'secret.git'],
+		['alice', 'site.git'],
+		['alice', 'readonly.git'],
+	] as const) {
+		const response = await as(ALICE, repoPaths(owner, repo).uploadRefs);
+		expect(response.status).toBe(403);
+		expect(response.headers.get(GIT_ERROR_HEADER)).toBe(
+			'repository_unavailable',
+		);
+		expect(await response.json()).toMatchObject({ installUrl: INSTALL_URL });
+	}
+	// Only the public and read-only repositories are found by name and scoped.
+	expect(scopeRequests()).toHaveLength(2);
+	expect(gitRequests()).toHaveLength(0);
+});
+
+test('malformed owners and repository names are refused before GitHub', async () => {
+	const { connect, as, github } = await setup();
+	await connect();
+	const before = github.requests.length;
+	for (const [owner, repo] of [
+		['alice', 'notes'],
+		['alice', '.git'],
+		['alice', '..git'],
+		['alice', '...git'],
+		['alice', 'no%20tes.git'],
+		['alice', 'no%2Ftes.git'],
+		['alice', `${'n'.repeat(101)}.git`],
+		['-alice', 'notes.git'],
+		['alice-', 'notes.git'],
+		['al--ice', 'notes.git'],
+		['al_ice', 'notes.git'],
+		['a'.repeat(40), 'notes.git'],
+	] as const) {
+		const paths = repoPaths(owner, repo);
+		for (const response of [
+			await as(ALICE, paths.uploadRefs),
+			await as(ALICE, paths.receivePack, {
+				method: 'POST',
+				headers: { 'content-type': RECEIVE_PACK },
+				body: new Uint8Array([1]),
+			}),
+		]) {
+			expect(response.status).toBe(400);
+			expect(response.headers.get(GIT_ERROR_HEADER)).toBe('invalid_request');
+		}
+	}
+	expect(github.requests).toHaveLength(before);
+	// The longest valid shapes pass validation and reach GitHub.
+	const longest = await as(
+		ALICE,
+		repoPaths('a'.repeat(39), `${'n'.repeat(100)}.git`).uploadRefs,
+	);
+	expect(longest.headers.get(GIT_ERROR_HEADER)).toBe('repository_unavailable');
+});
+
+test('repository paths keep the query rules of the pairing routes', async () => {
+	const { connect, as, gitRequests } = await setup();
+	await connect();
+	const repo = repoPaths('alice', 'notes.git');
+	for (const url of [
+		`${repo.uploadRefs}&url=https://evil.test`,
+		`${repo.base}/info/refs?service=git-upload-archive`,
+		`${repo.base}/info/refs`,
+		`${repo.uploadPack}?x=1`,
+	])
+		expect(
+			(
+				await as(ALICE, url, {
+					method: url.includes('info/refs') ? 'GET' : 'POST',
+				})
+			).status,
+		).toBe(400);
+	expect(gitRequests()).toHaveLength(0);
+});
+
+test('a repository path without a GitHub grant is 403, not 401', async () => {
+	const { as, gitRequests } = await setup();
+	const response = await as(ALICE, repoPaths('alice', 'notes.git').uploadRefs);
+	expect(response.status).toBe(403);
+	expect(response.headers.get(GIT_ERROR_HEADER)).toBe(
+		'github_authorization_required',
+	);
+	expect(gitRequests()).toHaveLength(0);
+});
+
+test('a malformed Git request is refused before admission calls GitHub', async () => {
+	const { paired, as, github } = await setup();
+	const pairing = await paired();
+	const before = github.requests.length;
+	for (const url of [
+		pairing.receivePack,
+		repoPaths('alice', 'notes.git').receivePack,
+	]) {
+		const response = await as(ALICE, url, {
+			method: 'POST',
+			headers: { 'content-type': 'text/plain' },
+			body: new Uint8Array([1]),
+		});
+		expect(response.status).toBe(400);
+	}
+	// Give an admission started by mistake time to reach the provider.
+	await Bun.sleep(50);
+	expect(github.requests).toHaveLength(before);
 });

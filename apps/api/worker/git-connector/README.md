@@ -2,16 +2,24 @@
 
 The hosted connector lets a signed-in Epicenter principal sync a folder with
 a private GitHub repository without any client holding a GitHub credential.
-The person authorizes the GitHub App separately from Epicenter sign-in, lists
-the private repositories the app can reach for them, and pairs a folder with
-one. GitHub tokens stay sealed in that principal's Durable Object.
+The person authorizes the GitHub App separately from Epicenter sign-in and
+lists the private repositories the app can reach for them. GitHub tokens stay
+sealed in that principal's Durable Object.
 
-The client keeps the folder contract's `remote: { url, branch }` and
-`httpFetch`
-([ADR-0509](../../../../docs/adr/0509-folder-remotes-and-http-fetch-have-separate-contracts.md)).
-`remote.url` is the clone URL recorded at pairing. `httpFetch` routes Git
-requests to this connector, addressed to the pairing revision, with the
-Epicenter session bearer.
+A folder reaches its repository in one of two ways, which differ only in how
+the connector admits a Git request:
+
+- A folder that owns its remote holds the canonical clone URL
+  `https://github.com/<owner>/<name>.git` in `.git/config`. The page's Git
+  transport rewrites requests for that URL to the connector's repository
+  routes. No pairing is stored.
+- An installed app's hosted dataset pairs a folder with a repository by id.
+  The client keeps the folder contract's `remote: { url, branch }` and
+  `httpFetch`
+  ([ADR-0509](../../../../docs/adr/0509-folder-remotes-and-http-fetch-have-separate-contracts.md)).
+  `remote.url` is the clone URL recorded at pairing. `httpFetch` routes Git
+  requests to this connector, addressed to the pairing revision, with the
+  Epicenter session bearer.
 
 Status: deployed at `api.epicenter.so` on October 8 from source commit
 `17724f7fd6`, Worker version `fa1829a1-b36a-4c13-a741-45c0016ba0f4`. The Worker
@@ -192,6 +200,14 @@ access and mints a new revision.
 
 ### 6. Git transfers
 
+Git requests arrive on two route families: pairing routes, addressed to a
+folder and its pairing revision, and repository routes, addressed to a
+repository by owner and name. Both mint a token scoped to one repository id
+and send the request to the clone URL GitHub reports for that id. Every relay
+rule after admission is shared.
+
+#### Pairing routes
+
 The client's `httpFetch` rewrites the pairing's `remote.url` prefix to
 `<api>/api/git/github/git/<folderId>/<revision>` and adds the Epicenter
 bearer:
@@ -224,6 +240,45 @@ Each request is admitted once. The principal's object:
    requires the paired id and owner, private, with pull and push. A denied
    read, or a body naming another id or owner, is `repository_unavailable`;
 8. returns the scoped token and the clone URL GitHub reported for that id.
+
+#### Repository routes
+
+A folder whose `.git/config` names the canonical clone URL
+`https://github.com/<owner>/<name>.git` needs no pairing. Its page's Git
+transport rewrites that URL's prefix to
+`<api>/api/git/github/repos/<owner>/<name>.git` and adds the Epicenter bearer:
+
+| Method | Path |
+| --- | --- |
+| GET | `/repos/<owner>/<name>.git/info/refs?service=git-upload-pack` |
+| GET | `/repos/<owner>/<name>.git/info/refs?service=git-receive-pack` |
+| POST | `/repos/<owner>/<name>.git/git-upload-pack` |
+| POST | `/repos/<owner>/<name>.git/git-receive-pack` |
+
+`<owner>` must be a GitHub login: alphanumerics and single inner hyphens, at
+most 39 characters. `<name>` must be 1 to 100 characters of
+`[A-Za-z0-9._-]`, neither `.` nor `..`, followed by a required `.git`. Any
+other shape is `invalid_request` (400) before any GitHub call. The
+principal's object:
+
+1. confirms the grant with `GET /user`, as for a pairing route;
+2. reads `GET /repos/{owner}/{name}` with the parent token to learn the
+   repository id and owner id. A denied or missing repository is
+   `repository_unavailable`; a 401 means the grant was revoked after `/user`
+   confirmed it, and deletes the grant;
+3. requires an installation whose account is that owner among the user's
+   installations, or answers `repository_unavailable`;
+4. scopes a token to that repository id under that owner and reads it by id,
+   exactly as steps 6 to 8 above.
+
+The name only locates the repository. The scoped token and the read by id
+decide what is reached, so a repository deleted and replaced at that name
+between the two reads gets no scoped token. GitHub answers a renamed
+repository's old name with a redirect, which the connector does not follow;
+such a request is `upstream_unavailable` until the folder's remote names the
+new path.
+
+#### Relay
 
 The installation listing is not used to judge the scoped token: GitHub lists
 every repository in the installation even for a token scoped to one. The read
@@ -362,9 +417,9 @@ connector follows them. They do not show GitHub does.
 
 | File | Owns |
 | --- | --- |
-| `app.ts` | `createGitHubConnectorApp`: routes, auth seam, CORS, Git relay, error codes |
-| `connection.ts` | Per-principal connection: transactions, grant, pairings and revisions, scoping, refresh |
-| `github.ts` | GitHub OAuth token, `/user`, installation, repository-by-id, and scoped-token calls over an injected fetch |
+| `app.ts` | `createGitHubConnectorApp`: routes, auth seam, CORS, Git relay for pairing and repository routes, error codes |
+| `connection.ts` | Per-principal connection: transactions, grant, pairings and revisions, transfer admission, scoping, refresh |
+| `github.ts` | GitHub OAuth token, `/user`, installation, repository-by-id, repository-by-name, and scoped-token calls over an injected fetch |
 | `crypto.ts` | Random secrets, secret hashes, PKCE S256, AES-GCM sealing |
 | `config.ts` | Bindings type, secret reading, exact callback allow-list |
 | `worker.ts` | `GitHubConnection` Durable Object, principal directory, Worker runtime resolver |
@@ -459,9 +514,10 @@ token but serves the read by id and Git only for the scoped repository. No bindi
 
 ## Limits
 
-- Every Git request costs four GitHub REST calls (`/user`, installations,
-  scoping, repository read by id), plus a refresh when due, and one Epicenter
-  session lookup.
+- Every Git request on a pairing route costs four GitHub REST calls (`/user`,
+  installations, scoping, repository read by id), and one on a repository
+  route costs five (the read by name as well), plus a refresh when due, and
+  one Epicenter session lookup.
   User tokens allow 5,000 REST calls per hour. A fetch or push is several Git
   requests.
 - Discovery reads at most 1,000 installations and 1,000 repositories per

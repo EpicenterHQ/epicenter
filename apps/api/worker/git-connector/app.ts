@@ -9,11 +9,22 @@
  * connection object holding its GitHub grant, pending authorizations, and
  * folder pairings.
  *
- * The person authorizes GitHub separately from Epicenter sign-in, lists the
- * private repositories the GitHub App can reach for them, and pairs a folder
- * with one by numeric id. Git smart-HTTP requests name a folder and the
- * pairing revision they were addressed to; the connector relays them to that
- * pairing's repository with a token scoped to the repository id.
+ * The person authorizes GitHub separately from Epicenter sign-in and lists
+ * the private repositories the GitHub App can reach for them. Git smart-HTTP
+ * reaches GitHub through one of two route families, which differ only in how
+ * a request is admitted:
+ *
+ * - `/repos/<owner>/<name>.git/...` relays for a folder whose own Git config
+ *   names the canonical clone URL `https://github.com/<owner>/<name>.git`;
+ *   the page's Git transport rewrites that URL to this prefix. No pairing is
+ *   involved: the connector reads the repository by name with the user's
+ *   token only to learn its id, then admits by id.
+ * - `/git/<folderId>/<revision>/...` relays for a stored folder pairing,
+ *   addressed to the pairing revision. Installed apps' hosted datasets still
+ *   use these routes, with pairings made by numeric repository id.
+ *
+ * Either way the request goes to the clone URL GitHub reports for the
+ * repository id, with a token scoped to that id.
  *
  * The app is portable: storage, the GitHub client, and the Git upstream fetch
  * arrive through {@link GitHubConnectorRuntime}. `worker.ts` supplies the
@@ -28,6 +39,7 @@ import type {
 	ConnectorErrorCode,
 	Pairing,
 	PairingStatus,
+	RepositoryAddress,
 } from './connection.js';
 import type { HttpFetch } from './github.js';
 
@@ -51,7 +63,20 @@ export type ConnectionPort = Pick<
 	| 'pairings'
 	| 'unpair'
 	| 'authorizeTransfer'
+	| 'authorizeRepositoryTransfer'
 >;
+
+/**
+ * How one Git route family admits a request. Validates the path parameters
+ * without any call, returning undefined when they are malformed; otherwise
+ * returns the admission, which the relay runs only after the request's own
+ * checks pass.
+ */
+type Admit<E extends ConnectorHostEnv> = (
+	c: Context<E>,
+	connection: ConnectionPort,
+	principalId: string,
+) => (() => ReturnType<ConnectionPort['authorizeTransfer']>) | undefined;
 
 /**
  * Where connection objects live. Neither call writes state.
@@ -163,6 +188,11 @@ const REVISION = new RegExp(`^${OPAQUE_ID}$`);
 const FOLDER_ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/;
 const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 const GIT_PROTOCOL = /^[A-Za-z0-9=:._,-]{1,64}$/;
+/** GitHub login: alphanumerics and single inner hyphens, at most 39. */
+const GITHUB_OWNER = /^[A-Za-z0-9](?:-?[A-Za-z0-9])*$/;
+const GITHUB_OWNER_MAX = 39;
+/** GitHub repository name, at most 100; `.` and `..` are refused separately. */
+const GITHUB_REPOSITORY_NAME = /^[A-Za-z0-9._-]{1,100}$/;
 const GIT_SERVICES = ['git-upload-pack', 'git-receive-pack'] as const;
 type GitService = (typeof GIT_SERVICES)[number];
 
@@ -230,6 +260,7 @@ export function createGitHubConnectorApp<E extends ConnectorHostEnv>({
 		'/pairings',
 		'/pairings/:folderId',
 		'/git/*',
+		'/repos/*',
 	]) {
 		app.use(path, browserCors);
 		app.use(path, auth);
@@ -399,39 +430,62 @@ export function createGitHubConnectorApp<E extends ConnectorHostEnv>({
 		});
 	});
 
-	app.get('/git/:folderId/:revision/info/refs', (c) => {
-		const url = new URL(c.req.url);
-		const service = single(url, 'service');
-		if ([...url.searchParams.keys()].length !== 1 || !isGitService(service))
-			return failure('invalid_request');
-		return transfer(c, service, 'advertisement');
+	gitRoutes('/git/:folderId/:revision', (c, connection, principalId) => {
+		const folderId = c.req.param('folderId') ?? '';
+		const revision = c.req.param('revision') ?? '';
+		if (!FOLDER_ID.test(folderId) || !REVISION.test(revision)) return;
+		return () => connection.authorizeTransfer(principalId, folderId, revision);
 	});
-	for (const service of GIT_SERVICES)
-		app.post(`/git/:folderId/:revision/${service}`, (c) => {
-			if (new URL(c.req.url).search) return failure('invalid_request');
-			return transfer(c, service, 'result');
-		});
+	gitRoutes('/repos/:owner/:repo', (c, connection, principalId) => {
+		const repository = repositoryAddress(
+			c.req.param('owner'),
+			c.req.param('repo'),
+		);
+		if (!repository) return;
+		return () =>
+			connection.authorizeRepositoryTransfer(principalId, repository);
+	});
 
 	app.all('*', () => failure('invalid_request', 404));
 
 	/**
-	 * Relay one Git smart-HTTP request. Only the pairing's repository URL, a
-	 * fixed header set, a scoped token, and the bounded body leave the Worker;
-	 * only the content type and the bounded body come back. Each request is
-	 * admitted once and sent once: a request admitted before its pairing is
-	 * replaced still finishes against the repository it was admitted for.
+	 * Register the smart-HTTP routes under `prefix`: `info/refs` for either
+	 * service, and a POST per service. Query and body rules are the same for
+	 * every prefix; only `admit` differs.
+	 */
+	function gitRoutes(prefix: string, admit: Admit<E>) {
+		app.get(`${prefix}/info/refs`, (c) => {
+			const url = new URL(c.req.url);
+			const service = single(url, 'service');
+			if ([...url.searchParams.keys()].length !== 1 || !isGitService(service))
+				return failure('invalid_request');
+			return transfer(c, service, 'advertisement', admit);
+		});
+		for (const service of GIT_SERVICES)
+			app.post(`${prefix}/${service}`, (c) => {
+				if (new URL(c.req.url).search) return failure('invalid_request');
+				return transfer(c, service, 'result', admit);
+			});
+	}
+
+	/**
+	 * Relay one Git smart-HTTP request. Only the admitted repository's clone
+	 * URL, a fixed header set, a scoped token, and the bounded body leave the
+	 * Worker; only the content type and the bounded body come back. Each
+	 * request is admitted once and sent once: a request admitted before its
+	 * pairing is replaced still finishes against the repository it was
+	 * admitted for.
 	 */
 	async function transfer(
 		c: Context<E>,
 		service: GitService,
 		kind: 'advertisement' | 'result',
+		admit: Admit<E>,
 	): Promise<Response> {
 		const scope = await principalConnection(c);
 		if (!scope) return failure('not_configured');
-		const folderId = c.req.param('folderId') ?? '';
-		const revision = c.req.param('revision') ?? '';
-		if (!FOLDER_ID.test(folderId) || !REVISION.test(revision))
-			return failure('invalid_request');
+		const admission = admit(c, scope.connection, scope.principalId);
+		if (!admission) return failure('invalid_request');
 
 		const limit = scope.runtime.transferLimitBytes ?? GIT_TRANSFER_LIMIT_BYTES;
 		const post = kind === 'result';
@@ -454,11 +508,7 @@ export function createGitHubConnectorApp<E extends ConnectorHostEnv>({
 		if (gitProtocol !== undefined && !GIT_PROTOCOL.test(gitProtocol))
 			return failure('invalid_request');
 
-		const { data: grant, error } = await scope.connection.authorizeTransfer(
-			scope.principalId,
-			folderId,
-			revision,
-		);
+		const { data: grant, error } = await admission();
 		if (error) return connectorFailure(error);
 		if (!isGitHubCloneUrl(grant.cloneUrl))
 			return failure('repository_mismatch');
@@ -627,6 +677,28 @@ function allowedOrigins(
 function single(url: URL, name: string): string | undefined {
 	const values = url.searchParams.getAll(name);
 	return values.length === 1 ? values[0] : undefined;
+}
+
+/**
+ * The repository a `/repos/<owner>/<name>.git` path names, or undefined for
+ * anything GitHub could not have issued. The `.git` suffix is required, as in
+ * the canonical clone URL.
+ */
+function repositoryAddress(
+	owner: string | undefined,
+	repo: string | undefined,
+): RepositoryAddress | undefined {
+	if (
+		owner === undefined ||
+		owner.length > GITHUB_OWNER_MAX ||
+		!GITHUB_OWNER.test(owner) ||
+		!repo?.endsWith('.git')
+	)
+		return undefined;
+	const name = repo.slice(0, -'.git'.length);
+	if (!GITHUB_REPOSITORY_NAME.test(name) || name === '.' || name === '..')
+		return undefined;
+	return { owner, name };
 }
 
 function isGitService(service: string | undefined): service is GitService {

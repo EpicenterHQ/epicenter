@@ -20,11 +20,13 @@
  *   grant; each remembers the GitHub user that made it, so a different
  *   GitHub user cannot use it without re-pairing.
  *
+ * Git transfers are admitted for a pairing revision, or for a repository
+ * named by owner and name with no pairing; either way the admitted request
+ * receives a token scoped to one repository id, never the parent user token.
+ *
  * Every operation runs exclusively, so concurrent transfers share one token
  * refresh and parallel redemptions observe each other's writes. Secrets are
  * stored only as SHA-256 hashes; provider tokens only sealed with AES-GCM.
- * Git transfers receive a token scoped to the paired repository id, never the
- * parent user token.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -206,9 +208,16 @@ export type PairInput = {
 	replace?: boolean;
 };
 
+/**
+ * A repository named by owner and name, as a canonical clone URL
+ * `https://github.com/<owner>/<name>.git` names it. The name only locates the
+ * repository; access is decided by its id.
+ */
+export type RepositoryAddress = { owner: string; name: string };
+
 /** What the edge needs to run one Git transfer. */
 export type TransferGrant = {
-	/** Token scoped to the paired repository id. Never the parent token. */
+	/** Token scoped to the admitted repository id. Never the parent token. */
 	accessToken: string;
 	/** Current clone URL, read by repository id with the scoped token. */
 	cloneUrl: string;
@@ -400,19 +409,18 @@ export function createGitHubConnection({
 	}
 
 	/**
-	 * One of this app's installations that the granted user can reach, read
-	 * with the parent token. Its account id is the `target_id` for scoping.
+	 * The first of this app's installations that the granted user can reach
+	 * and `matches` accepts, read with the parent token. Its account id is the
+	 * `target_id` for scoping.
 	 */
 	async function reachableInstallation(
 		parentToken: string,
-		installationId: number,
+		matches: (installation: InstallationView) => boolean,
 	): Promise<Result<InstallationView, ConnectorError>> {
 		const { data: installations, error } =
 			await github.installations(parentToken);
 		if (error) return Err({ code: 'upstream_unavailable' });
-		const installation = installations.find(
-			(candidate) => candidate.id === installationId,
-		);
+		const installation = installations.find(matches);
 		return installation ? Ok(installation) : Err(unavailableRepository());
 	}
 
@@ -459,6 +467,20 @@ export function createGitHubConnection({
 		)
 			return Err(unavailableRepository());
 		return Ok({ token, view });
+	}
+
+	/**
+	 * The scoped token and current clone URL for one admitted Git request.
+	 * Both transfer admissions end here; they differ only in how they choose
+	 * the repository id and installation account.
+	 */
+	async function transferGrant(
+		parentToken: string,
+		target: Pick<PairedRepository, 'id' | 'ownerId'>,
+	): Promise<Result<TransferGrant, ConnectorError>> {
+		const { data: access, error } = await scopedAccess(parentToken, target);
+		if (error) return Err(error);
+		return Ok({ accessToken: access.token, cloneUrl: access.view.cloneUrl });
 	}
 
 	function loadPairing(folderId: string): Promise<Pairing | undefined> {
@@ -680,7 +702,10 @@ export function createGitHubConnection({
 					return same ? Ok(existing) : Err({ code: 'pairing_conflict' });
 				}
 				const { data: installation, error: installationError } =
-					await reachableInstallation(live.accessToken, input.installationId);
+					await reachableInstallation(
+						live.accessToken,
+						(candidate) => candidate.id === input.installationId,
+					);
 				if (installationError) return Err(installationError);
 				const { data: access, error: accessError } = await scopedAccess(
 					live.accessToken,
@@ -773,19 +798,50 @@ export function createGitHubConnection({
 				const { data: installation, error: installationError } =
 					await reachableInstallation(
 						live.accessToken,
-						pairing.repository.installationId,
+						(candidate) => candidate.id === pairing.repository.installationId,
 					);
 				if (installationError) return Err(installationError);
 				if (installation.account.id !== pairing.repository.ownerId)
 					return Err(unavailableRepository());
-				const { data: access, error: accessError } = await scopedAccess(
+				return transferGrant(live.accessToken, pairing.repository);
+			});
+		},
+
+		/**
+		 * Admit one Git request for a repository named by owner and name, with
+		 * no pairing: confirm the grant with GitHub (refreshing when due or
+		 * rejected), read the repository by name with the parent token to learn
+		 * its id and owner id, require an installation on that owner among the
+		 * user's installations, then scope a token to the repository id and
+		 * resolve its current clone URL with it. The name is trusted only to
+		 * find the id; the scoped token's read by id decides access.
+		 */
+		authorizeRepositoryTransfer(
+			principalId: string,
+			repository: RepositoryAddress,
+		): Promise<Result<TransferGrant, ConnectorError>> {
+			return exclusive(async () => {
+				if (!(await ownedBy(principalId)))
+					return Err({ code: 'principal_mismatch' });
+				const { data: live, error } = await liveParent();
+				if (error) return Err(error);
+				const { data: view, error: readError } = await github.repositoryByName(
 					live.accessToken,
-					pairing.repository,
+					repository.owner,
+					repository.name,
 				);
-				if (accessError) return Err(accessError);
-				return Ok({
-					accessToken: access.token,
-					cloneUrl: access.view.cloneUrl,
+				// `/user` confirmed the parent just now; a 401 means it was revoked since.
+				if (readError === 'rejected') return revokeGrant();
+				if (readError) return Err(providerError(readError));
+				const { data: installation, error: installationError } =
+					await reachableInstallation(
+						live.accessToken,
+						(candidate) => candidate.account.id === view.ownerId,
+					);
+				if (installationError) return Err(installationError);
+				return transferGrant(live.accessToken, {
+					id: view.id,
+					ownerId: installation.account.id,
 				});
 			});
 		},

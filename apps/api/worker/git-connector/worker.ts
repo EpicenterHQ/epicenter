@@ -23,6 +23,7 @@ import {
 	type Connection,
 	createGitHubConnection,
 	type PairInput,
+	type RepositoryAddress,
 } from './connection.js';
 import { createGitHubClient } from './github.js';
 
@@ -102,6 +103,17 @@ export class GitHubConnection extends DurableObject<GitConnectorBindings> {
 				principalId,
 				folderId,
 				revision,
+			) ?? NOT_CONFIGURED
+		);
+	}
+	async authorizeRepositoryTransfer(
+		principalId: string,
+		repository: RepositoryAddress,
+	) {
+		return (
+			(await this.#open())?.authorizeRepositoryTransfer(
+				principalId,
+				repository,
 			) ?? NOT_CONFIGURED
 		);
 	}

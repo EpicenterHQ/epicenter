@@ -78,8 +78,9 @@ export function createClock(start = Date.UTC(2026, 9, 7)) {
  * endpoints, enough to exercise every connector branch.
  *
  * A scoped token reaches only its repository through `GET /repositories/{id}`
- * (404 elsewhere) and Git (403 elsewhere), but installation listings still
- * show every repository the user can see, as GitHub was observed to do.
+ * and `GET /repos/{owner}/{repo}` (404 elsewhere) and Git (403 elsewhere),
+ * but installation listings still show every repository the user can see,
+ * as GitHub was observed to do.
  *
  * Seeded world:
  * - `alice` (101) installed the app on her account (installation 7001) with
@@ -500,6 +501,21 @@ export function createFakeGitHub(clock: { now(): number }) {
 		const byId = url.pathname.match(/^\/repositories\/(\d+)$/);
 		if (byId) {
 			const repository = repositories.get(Number(byId[1]));
+			if (!repository || !reaches(caller, repository))
+				return Response.json({ message: 'Not Found' }, { status: 404 });
+			return Response.json(repositoryJson(repository, caller.user));
+		}
+		// Owner and name match case-insensitively, as on GitHub.
+		const byName = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)$/);
+		if (byName) {
+			const [owner = '', name = ''] = byName
+				.slice(1)
+				.map((part) => decodeURIComponent(part).toLowerCase());
+			const repository = [...repositories.values()].find(
+				(r) =>
+					r.owner.login.toLowerCase() === owner &&
+					r.name.toLowerCase() === name,
+			);
 			if (!repository || !reaches(caller, repository))
 				return Response.json({ message: 'Not Found' }, { status: 404 });
 			return Response.json(repositoryJson(repository, caller.user));

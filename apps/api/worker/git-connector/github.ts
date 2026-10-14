@@ -331,6 +331,27 @@ export function createGitHubClient({
 		},
 
 		/**
+		 * `GET /repos/{owner}/{repo}`: one repository by its mutable owner and
+		 * name, as the token's own access sees it. A name only locates a
+		 * repository; the caller decides access by the returned id. GitHub
+		 * answers a renamed repository's old name with a redirect, which is not
+		 * followed and reads as `unavailable`.
+		 */
+		async repositoryByName(
+			accessToken: string,
+			owner: string,
+			name: string,
+		): Promise<Result<RepositoryView, ProviderFailure>> {
+			const { data: body, error } = await api(
+				`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+				accessToken,
+			);
+			if (error) return Err(error);
+			const repository = parseRepository(body);
+			return repository ? Ok(repository) : Err('unavailable');
+		},
+
+		/**
 		 * `POST /applications/{client_id}/token/scoped` with client Basic auth:
 		 * mint a user token limited to one repository id under one target
 		 * account, with Contents write. Returns the scoped token, or a failure;
