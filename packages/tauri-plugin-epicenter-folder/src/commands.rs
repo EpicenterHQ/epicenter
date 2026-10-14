@@ -340,6 +340,17 @@ pub(crate) fn directory_patterns(root: &std::path::Path) -> Vec<String> {
 /// matches dot files when the fs plugin is configured with
 /// `requireLiteralLeadingDot: false`, which a page-engine shell must set:
 /// `.git` and files other programs leave behind live there.
+/// Whether `url` is the app's own bundled page, which Tauri matches against
+/// local capabilities: `tauri://localhost`, or `http(s)://tauri.localhost` on
+/// Windows. Any other `http(s)` page is a remote origin, such as a shell's
+/// loopback host.
+fn is_bundled_page(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "http" | "https" => url.host_str() == Some("tauri.localhost"),
+        _ => true,
+    }
+}
+
 fn directory_capability(
     label: &str,
     scope: &str,
@@ -354,9 +365,10 @@ fn directory_capability(
         "epicenter-folder-directory:{label}:{scope}"
     ))
     .window(label);
-    capability = match url.scheme() {
-        "http" | "https" => capability.remote(url.origin().ascii_serialization()),
-        _ => capability.local(true),
+    capability = if is_bundled_page(url) {
+        capability.local(true)
+    } else {
+        capability.remote(url.origin().ascii_serialization())
     };
     for command in DIRECTORY_COMMANDS {
         capability =
@@ -1051,5 +1063,20 @@ mod directory_scope_tests {
         }
         assert!(!matches("/Users/a/Epicenter d/todos/a.md"));
         assert!(!matches("/Users/a/other/a.md"));
+    }
+}
+
+#[cfg(test)]
+mod bundled_page_tests {
+    use super::is_bundled_page;
+
+    #[test]
+    fn a_bundled_page_is_local_on_every_platform_and_a_loopback_host_is_remote() {
+        for local in ["tauri://localhost/", "http://tauri.localhost/", "https://tauri.localhost/index.html"] {
+            assert!(is_bundled_page(&local.parse().unwrap()), "{local}");
+        }
+        for remote in ["http://127.0.0.1:39130/apps/todos/", "http://localhost:5173/", "https://tauri.localhost.evil.test/"] {
+            assert!(!is_bundled_page(&remote.parse().unwrap()), "{remote}");
+        }
     }
 }

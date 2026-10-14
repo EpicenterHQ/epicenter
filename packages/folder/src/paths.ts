@@ -119,7 +119,8 @@ export function rowPath(table: string, stem: string): string {
  * does. A stem is one literal filename segment, so the only rules are the
  * folder's own path rules (`pathProblem`): a row file's name must mean only
  * itself on every disk a folder can live on, so a stem like `a: b` or `con`
- * is refused while `.hidden` and a trailing space are ordinary.
+ * is refused while `.hidden` is ordinary, and so is a stem ending in a space,
+ * since its file name still ends in `.md`.
  */
 export function rowAddressProblem(
 	table: string,
