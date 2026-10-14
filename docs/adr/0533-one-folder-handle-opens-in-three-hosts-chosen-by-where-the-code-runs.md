@@ -39,11 +39,14 @@ specifier `@epicenter/folder` to `@epicenter/folder/browser` or
 **A script imports `@epicenter/folder/bun`, and the bare entry never picks
 it.** `openFolder({ root, definition, git })` takes the directory, the
 definition, and the commit author from the caller, because no app or shell
-supplies them. A script kept inside a folder can import that folder's
-`epicenter.json` as its definition and pass its own directory as `root`.
+supplies them. `epicenter.json` is not a definition as it stands: each table
+in it is a JSON Schema object, `{ type, properties, required }`, where a
+definition holds `fields`. A script kept inside a folder parses it with
+`parseDeclaration`, which every entry exports, and passes the result and its
+own directory as `root`; one that only reads calls `readFolder` instead.
 
 **A script and a desktop page open the same directory folder.** `openFolder`
-in `bun.ts` calls `openDirectoryFolder`, as `tauri-adapter.ts` does, over
+in `bun.ts` calls `openDirectoryFolder`, as `tauri-directory.ts` does, over
 `nodeDirectoryPrimitives` and the system `git`, with `createProcessLocks` in
 place of Web Locks. Both replace a file by renaming a staged copy over it, and
 both read names literally: on a case-insensitive file system `plan.md` does

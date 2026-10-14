@@ -3,6 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-07
 - **Revised:** 2026-10-14: publication moved from opening to a handle's first write ([ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)), which also settles the Todos browser bootstrap this record left open. The real-OPFS harness (`packages/folder/evidence/opfs`) checks the new rule in Chromium. The 2026-10-08 [computer-use evidence](../../packages/folder/evidence/definition-publication/computer-use-20261008/README.md) checked publication at opening.
+- **Amended:** 2026-10-14: the first write reads `epicenter.json` and leaves it unwritten when it already holds the declaration's bytes.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) renamed the published file to `epicenter.json` (`DECLARATION_PATH`). Where this record says root `definition.json`, read `epicenter.json`; an old `definition.json` is now an ordinary file.
 
 ## Context
@@ -28,7 +29,9 @@ under its files, tables, and KV publishes once, through the ordinary file
 boundary, before the first change the handle makes. Reads publish nothing. A
 folder opened and never written to is left exactly as it was, and in a
 browser it does not exist ([ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)).
-Do not read or compare the existing file first.
+Read the existing file through the same boundary first, and skip the write
+when its bytes equal `formatDeclaration`'s output; a failed read falls
+through to the write.
 
 ```text
 dataset/
@@ -74,9 +77,10 @@ Generic readers can inspect its field schemas and editing hints without the
 original source. Building a generic editor or importing definitions is separate
 work.
 
-Each handle that writes pays for one serialization and one write, and its
-first write announces `epicenter.json` with the file the caller wrote. Tree
-equality keeps an identical declaration out of history.
+Each handle that writes pays for one serialization and one read before its
+first write. Only a missing or different declaration is written, and that
+first write then announces `epicenter.json` with the file the caller wrote.
+An unchanged declaration announces nothing and stays out of history.
 
 A folder opened only to read, or to download an existing remote, stays clean:
 an empty folder takes the remote's history as it is, and the remote's own
@@ -96,9 +100,9 @@ while the application can continue using its declaration.
   folder that was only read was still written.
 - Publish with each commit: a folder with saves but no version would not
   describe itself, and a staged commit would miss it.
-- Compare bytes before writing: avoids repeated publication, but adds a read
-  and comparison to every handle's first write. Start with unconditional
-  overwrite; revisit deduplication for demonstrated cost.
+- Overwrite unconditionally (the decision until 2026-10-14): saves
+  the read, but rewrites an identical file on every handle's first write and
+  announces a change to `epicenter.json` that changed nothing.
 - Publish a definition-only commit: introduces separate history behavior and
   makes opening depend on Git rather than reusing the save policy.
 - Store the description in hidden metadata or application installation files:

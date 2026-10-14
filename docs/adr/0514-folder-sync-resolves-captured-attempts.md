@@ -99,8 +99,7 @@ type SyncChoices = Partial<Record<string, SyncChoice>>; // keyed by conflict id
 ## Consequences
 
 - Applications get one Sync action. Pull, merge, and commit-and-push remain
-  on `folder.git`, and an app offers them only where `folder.sync.supported`
-  is false.
+  on `folder.git` for an app that offers separate Git actions.
 - A conflict is never left in the files. `mergeIncoming({ conflicts: 'leave' })`,
   its published merge with markers and unmerged index stages, and the
   `MERGE_HEAD`, `MERGE_MSG`, and `ORIG_HEAD` it wrote are removed, in the
