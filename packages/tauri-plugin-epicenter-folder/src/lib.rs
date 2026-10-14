@@ -28,17 +28,11 @@ use tauri::plugin::TauriPlugin;
 use tauri::webview::PageLoadEvent;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 
-/// Whether a directory already holds a repository: what a shell checks before
-/// offering to open a folder that must not be initialized.
-pub use epicenter_folder_core::files::has_repository;
 pub use epicenter_folder_core::git::{Author, Remote};
 pub use epicenter_folder_core::owner::FolderConfig;
 use epicenter_folder_core::registry::Registry;
 pub use epicenter_folder_core::page_git::GitOutput;
 pub use epicenter_folder_core::registry::{Granted, ScopeConfig};
-/// A shell's own transfers: staged first downloads, and the per-transfer
-/// relays a folder's owner can be given in [`FolderConfig::transport`].
-pub use epicenter_folder_core::{download, transport};
 
 mod command_names;
 mod commands;

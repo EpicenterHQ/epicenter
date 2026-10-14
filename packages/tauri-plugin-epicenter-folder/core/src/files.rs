@@ -1169,32 +1169,6 @@ pub fn verify_layout(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether `root` already holds a Git repository of its own: a real `.git`
-/// directory with `HEAD`, `objects`, and `refs`, as `git init`, `git clone`,
-/// and a download leave it. An unborn branch counts; an empty or partial
-/// `.git`, or none, does not. A link at `.git` is not a repository here
-/// (`verify_layout` refuses it with its own reason). This reads directory
-/// entries only; it is not a repository check beyond that.
-pub fn has_repository(root: &Path) -> Result<bool, String> {
-    let inspect = |path: &Path| match fs::symlink_metadata(path) {
-        Ok(stats) => Ok(Some(stats.file_type())),
-        Err(cause) if cause.kind() == ErrorKind::NotFound => Ok(None),
-        Err(cause) => Err(format!(
-            "{} could not be inspected: {cause}",
-            path.display()
-        )),
-    };
-    let git = root.join(".git");
-    if !inspect(&git)?.is_some_and(|kind| kind.is_dir()) {
-        return Ok(false);
-    }
-    Ok(
-        inspect(&git.join("HEAD"))?.is_some_and(|kind| kind.is_file())
-            && inspect(&git.join("objects"))?.is_some_and(|kind| kind.is_dir())
-            && inspect(&git.join("refs"))?.is_some_and(|kind| kind.is_dir()),
-    )
-}
-
 /// Where the cross-process lock for a canonical root lives: a sibling, outside
 /// the folder's files. The same file the Bun hosts lock (`root-lock.ts`).
 pub fn lock_path(root: &Path) -> Result<PathBuf, String> {

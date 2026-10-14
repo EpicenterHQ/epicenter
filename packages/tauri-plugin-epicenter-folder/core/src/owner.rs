@@ -62,7 +62,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::files::{
-    has_repository, resolve_root, verify_layout, ApplyError, Children, FileChange, FileError,
+    resolve_root, verify_layout, ApplyError, Children, FileChange, FileError,
     FileListing, FileRead, FileStep, Files,
 };
 use crate::git::{Author, Capture, Cas, CommitSummary, Git, IndexCommit, PathStatus, Remote};
@@ -76,20 +76,14 @@ use crate::merge::{self, Prepared};
 use crate::messages::{commit_subject, message_problem, ChangeKind};
 use crate::paths::{ancestors, is_portable_path, path_problem};
 use crate::runner::{CloseMode, Endings, Leaving, PassRunner};
-use crate::transport::{with_report, GitService, Relay, Transport};
 
 mod recovery;
 
 #[derive(Debug, Clone)]
 pub struct FolderConfig {
     /// The folder's directory, chosen by the shell. A Git repository is
-    /// initialized there if absent, unless `require_existing_repository`.
+    /// initialized there if absent.
     pub root: PathBuf,
-    /// Whether opening refuses a root that is not already a repository
-    /// (`files::has_repository`) instead of initializing one. Checked inside
-    /// the open, with the folder's lock held, so a `.git` that went missing
-    /// after the shell looked never becomes a new, unrelated history.
-    pub require_existing_repository: bool,
     /// The local branch history is recorded on.
     pub branch: String,
     /// Author and committer for whole-folder and staged commits.
@@ -107,10 +101,6 @@ pub struct FolderConfig {
     ///
     /// Reading a remote enables explicit transfers, never automatic pushing.
     pub use_repository_origin: bool,
-    /// Where pushes and fetches get a relay (`transport.rs`). `None` hands
-    /// Git the remote's own URL. Either way the remote stays the folder's
-    /// canonical destination.
-    pub transport: Option<Arc<dyn Transport>>,
     /// Whether filesystem events are watched, so a change made outside the
     /// owner is noticed at once, even one that leaves size and time as they
     /// were. Where watching is unavailable the owner says so and relies on
@@ -138,13 +128,11 @@ impl FolderConfig {
     pub fn new(root: impl Into<PathBuf>, author: Author) -> Self {
         Self {
             root: root.into(),
-            require_existing_repository: false,
             branch: "main".to_string(),
             author,
             remote: None,
             use_repository_author: false,
             use_repository_origin: false,
-            transport: None,
             watch_events: true,
             watch_interval: Some(Duration::from_secs(2)),
             page_engine: false,
@@ -414,12 +402,6 @@ impl FolderOwner {
         // Before any Git command, including the configuration reads below: a
         // linked `.git` would send them to someone else's repository.
         verify_layout(&root)?;
-        if config.require_existing_repository && !has_repository(&root)? {
-            return Err(format!(
-                "The folder at {} is not a Git repository, so it was not opened and nothing was created in it. Epicenter opens it once it is a downloaded or cloned repository; to use files already there, move them aside, download, then copy them back in.",
-                root.display()
-            ));
-        }
         let mut git = Git::open(&root, &config.branch, config.remote.clone())?;
         // `git init` may just have created the private layout; check what it left.
         verify_layout(&root)?;
@@ -1612,17 +1594,6 @@ impl Inner {
     // Remote
     // ------------------------------------------------------------------
 
-    /// One transfer's relay when the folder has a transport, started against
-    /// the remote captured at opening; `None` sends Git to that remote itself.
-    fn relay(&self, service: GitService) -> Result<Option<Relay>, String> {
-        match (&self.config.transport, &self.git.remote) {
-            (Some(transport), Some(remote)) => {
-                transport.start(&self.root, remote, service).map(Some)
-            }
-            _ => Ok(None),
-        }
-    }
-
     fn run_push(&self, cancel: &AtomicBool) -> PushOutcome {
         if self.git.remote.is_none() {
             return PushOutcome::NoRemote;
@@ -1640,36 +1611,16 @@ impl Inner {
         };
         #[cfg(test)]
         self.hook(|hooks| &hooks.during_push);
-        let outcome = match self.relay(GitService::ReceivePack) {
-            // Nothing was sent.
+        let outcome = match self.git.push(&oid, cancel) {
+            // Git's own success is not enough when a cancel raced it: the
+            // push may or may not have landed. Nothing is undone or retried;
+            // a later fetch tells.
+            Ok(()) if cancel.load(Ordering::SeqCst) => PushOutcome::Unconfirmed {
+                error: format!("Git finished pushing {oid} as it was cancelled, so it may or may not have landed. Fetch to find out"),
+            },
+            Ok(()) => PushOutcome::Pushed { oid },
+            Err(_) if cancel.load(Ordering::SeqCst) => PushOutcome::Cancelled { oid: Some(oid) },
             Err(error) => PushOutcome::Failed { oid, error },
-            Ok(relay) => {
-                let pushed = self.git.push(&oid, cancel, relay.as_ref());
-                // A cancel already retired it, before Git was stopped.
-                let report = relay.as_ref().and_then(Relay::retire);
-                match pushed {
-                    // Git's own success is not enough when its transport
-                    // could not confirm the transfer, or a cancel raced it:
-                    // the push may or may not have landed. Nothing is undone
-                    // or retried; a later fetch tells.
-                    Ok(()) if report.is_some() || cancel.load(Ordering::SeqCst) => {
-                        PushOutcome::Unconfirmed {
-                            error: with_report(
-                                format!("Git finished pushing {oid}, but the transfer could not be confirmed, so it may or may not have landed. Fetch to find out"),
-                                report,
-                            ),
-                        }
-                    }
-                    Ok(()) => PushOutcome::Pushed { oid },
-                    Err(_) if cancel.load(Ordering::SeqCst) => {
-                        PushOutcome::Cancelled { oid: Some(oid) }
-                    }
-                    Err(error) => PushOutcome::Failed {
-                        oid,
-                        error: with_report(error, report),
-                    },
-                }
-            }
         };
         // A push that started before a newer fetch or push must not replace its observation.
         if lock(&self.state).remote_sequence == sequence {
@@ -1694,28 +1645,15 @@ impl Inner {
         };
         #[cfg(test)]
         self.hook(|hooks| &hooks.during_fetch);
-        let result = match self.relay(GitService::UploadPack) {
+        let result = match self.git.fetch(cancel) {
+            // What Git fetched stays in the tracking ref, but it is not
+            // reported as a fetch when a cancel raced it.
+            Ok(_) if cancel.load(Ordering::SeqCst) => Err(GitError::failed(
+                "fetch",
+                "Git finished fetching as it was cancelled, so it is not reported as fetched".to_string(),
+            )),
+            Ok(oid) => Ok(FetchOutcome { oid }),
             Err(cause) => Err(GitError::failed("fetch", cause)),
-            Ok(relay) => {
-                let fetched = self.git.fetch(cancel, relay.as_ref());
-                let report = relay.as_ref().and_then(Relay::retire);
-                match fetched {
-                    // What Git fetched stays in the tracking ref, but it is
-                    // not reported as a fetch when its transport could not
-                    // confirm the transfer or a cancel raced it.
-                    Ok(_) if report.is_some() || cancel.load(Ordering::SeqCst) => {
-                        Err(GitError::failed(
-                            "fetch",
-                            with_report(
-                                "Git finished fetching, but the transfer could not be confirmed, so it is not reported as fetched".to_string(),
-                                report,
-                            ),
-                        ))
-                    }
-                    Ok(oid) => Ok(FetchOutcome { oid }),
-                    Err(cause) => Err(GitError::failed("fetch", with_report(cause, report))),
-                }
-            }
         };
         if lock(&self.state).remote_sequence == sequence {
             self.refresh_sync();

@@ -28,7 +28,6 @@ use specta::Type;
 
 use crate::messages::{ChangeKind, PathChange};
 use crate::paths::{is_portable_path, path_problem};
-use crate::transport::Relay;
 
 const ZERO: &str = "0000000000000000000000000000000000000000";
 /// Git's empty tree, which every repository can name without storing it.
@@ -60,20 +59,6 @@ const NORMALIZING: [&str; 6] = [
 ];
 /// Ahead and behind counts stop here, as the shared history's bounded walk does.
 const COUNT_LIMIT: &str = "--max-count=10000";
-/// The only protocol a relayed transfer may use: a relay is loopback HTTP.
-/// Tests use the same value; they reach a loopback Git HTTP server.
-const RELAY_PROTOCOLS: &str = "http";
-/// Inherited variables that make Git write traces, which carry its argument
-/// list and URLs, to stderr or to any file they name. Every `GIT_TRACE*`
-/// variable present is removed as well; these are removed whether present or
-/// not, and trace2 is switched off explicitly because its targets can also
-/// come from user configuration, which these variables override.
-const TRACE_ENV_REMOVED: [&str; 2] = ["GIT_CURL_VERBOSE", "GIT_TRACE"];
-const TRACE2_OFF: [(&str, &str); 3] = [
-    ("GIT_TRACE2", "0"),
-    ("GIT_TRACE2_EVENT", "0"),
-    ("GIT_TRACE2_PERF", "0"),
-];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Author {
@@ -196,13 +181,6 @@ fn is_repository_env(name: &str) -> bool {
 
 /// Identity variables a commit must take from the folder's configuration, not
 /// from whatever the parent process inherited.
-/// Proxy variables a relayed transfer must not inherit, in any case.
-fn is_proxy_env(name: &str) -> bool {
-    ["http_proxy", "https_proxy", "all_proxy", "no_proxy"]
-        .iter()
-        .any(|proxy| name.eq_ignore_ascii_case(proxy))
-}
-
 const IDENTITY_ENV: [&str; 6] = [
     "GIT_AUTHOR_NAME",
     "GIT_AUTHOR_EMAIL",
@@ -372,96 +350,17 @@ impl Git {
         env: &[(&str, &str)],
         cancel: Option<&AtomicBool>,
     ) -> Result<Output, Failure> {
-        self.execute(self.command(args, env), args, input, cancel, None)
+        self.execute(self.command(args, env), args, input, cancel)
     }
 
-    /// Run one transfer through `relay`, under the controls the native
-    /// credential probe measured against hostile repository and user
-    /// configuration (`work/native-hosted-20261008/git-probe/NOTES.md`):
-    ///
-    /// - no hook runs (`core.hooksPath` names no directory);
-    /// - no fsmonitor runs;
-    /// - no proxy is used: `http.proxy` is cleared generically and for the
-    ///   relay URL, `NO_PROXY=*`, and inherited proxy variables are removed;
-    /// - the destination is pinned: the relay URL rewrites to itself, so no
-    ///   `insteadOf` or `pushInsteadOf` sends Git anywhere else;
-    /// - only the relay's protocol, HTTP, is allowed;
-    /// - no automatic maintenance or garbage collection runs.
-    ///
-    /// Credential helpers and prompts need no control: the relay never answers
-    /// with a challenge, and `GIT_TERMINAL_PROMPT=0` stays set. A cancel
-    /// retires the relay before Git is stopped, so nothing it already sent
-    /// upstream keeps going after the cancellation.
-    ///
-    /// The relay URL is a capability, so no trace is written, and Git's
-    /// output is redacted before anything reads it: a diagnostic that echoes
-    /// the relay names the canonical remote instead.
-    fn relayed(
-        &self,
-        args: &[&str],
-        relay: &Relay,
-        cancel: &AtomicBool,
-    ) -> Result<Output, Failure> {
-        let command = self.relayed_command(args, relay);
-        let retire = || {
-            relay.retire();
-        };
-        let mut output = self.execute(command, args, None, Some(cancel), Some(&retire))?;
-        let canonical = self
-            .remote
-            .as_ref()
-            .map_or("the remote", |remote| remote.url.as_str());
-        output.stderr = relay.redact(&output.stderr, canonical);
-        output.stdout = relay.redact(&text(&output.stdout), canonical).into_bytes();
-        Ok(output)
-    }
-
-    /// The command for one relayed transfer, with every control applied.
-    fn relayed_command(&self, args: &[&str], relay: &Relay) -> Command {
-        let url = relay.url();
-        let controls = [
-            "core.hooksPath=/dev/null".to_string(),
-            "core.fsmonitor=false".to_string(),
-            "http.proxy=".to_string(),
-            format!("http.{url}.proxy="),
-            format!("url.{url}.insteadOf={url}"),
-            format!("url.{url}.pushInsteadOf={url}"),
-            "maintenance.auto=false".to_string(),
-            "gc.auto=0".to_string(),
-        ];
-        let mut full: Vec<&str> = Vec::with_capacity(controls.len() * 2 + args.len());
-        for control in &controls {
-            full.extend(["-c", control.as_str()]);
-        }
-        full.extend_from_slice(args);
-        let mut command = self.command(&full, &[]);
-        for (name, _) in std::env::vars_os() {
-            if name
-                .to_str()
-                .is_some_and(|name| is_proxy_env(name) || name.starts_with("GIT_TRACE"))
-            {
-                command.env_remove(&name);
-            }
-        }
-        for name in TRACE_ENV_REMOVED {
-            command.env_remove(name);
-        }
-        command
-            .envs(TRACE2_OFF)
-            .env("NO_PROXY", "*")
-            .env("GIT_ALLOW_PROTOCOL", RELAY_PROTOCOLS);
-        command
-    }
-
-    /// Run a prepared `git` command to completion. When `cancel` is set,
-    /// `before_kill` runs first, then the process is killed.
+    /// Run a prepared `git` command to completion. When `cancel` is set, the
+    /// process is killed.
     fn execute(
         &self,
         mut command: Command,
         args: &[&str],
         input: Option<&[u8]>,
         cancel: Option<&AtomicBool>,
-        before_kill: Option<&dyn Fn()>,
     ) -> Result<Output, Failure> {
         let label = Self::label(args);
         let mut child = command
@@ -492,9 +391,6 @@ impl Git {
                     match child.try_wait() {
                         Ok(Some(status)) => break Ok(status),
                         Ok(None) if cancel.load(Ordering::SeqCst) => {
-                            if let Some(before_kill) = before_kill {
-                                before_kill();
-                            }
                             let _ = child.kill();
                             break child.wait();
                         }
@@ -1684,22 +1580,12 @@ impl Git {
         Ok(commits)
     }
 
-    /// Push an exact commit to the configured remote branch, through `relay`
-    /// when the folder has a transport and to the remote's URL otherwise.
-    pub fn push(
-        &self,
-        oid: &str,
-        cancel: &AtomicBool,
-        relay: Option<&Relay>,
-    ) -> Result<(), Failure> {
+    /// Push an exact commit to the configured remote branch.
+    pub fn push(&self, oid: &str, cancel: &AtomicBool) -> Result<(), Failure> {
         let remote = self.remote.as_ref().ok_or("No remote is configured")?;
         let refspec = format!("{oid}:refs/heads/{}", remote.branch);
-        let url = relay.map_or(remote.url.as_str(), Relay::url);
-        let args = ["push", "--porcelain", url, &refspec];
-        let output = match relay {
-            Some(relay) => self.relayed(&args, relay, cancel)?,
-            None => self.run_cancellable(&args, None, &[], Some(cancel))?,
-        };
+        let args = ["push", "--porcelain", remote.url.as_str(), &refspec];
+        let output = self.run_cancellable(&args, None, &[], Some(cancel))?;
         if output.code != Some(0) {
             return Err(Self::failure(&args, &output));
         }
@@ -1708,20 +1594,12 @@ impl Git {
     }
 
     /// Fetch the configured remote branch; its commit, or `None` if the remote
-    /// has no such branch. Through `relay` as `push` is.
-    pub fn fetch(
-        &self,
-        cancel: &AtomicBool,
-        relay: Option<&Relay>,
-    ) -> Result<Option<String>, Failure> {
+    /// has no such branch.
+    pub fn fetch(&self, cancel: &AtomicBool) -> Result<Option<String>, Failure> {
         let remote = self.remote.as_ref().ok_or("No remote is configured")?;
         let refspec = format!("+refs/heads/{}:{}", remote.branch, self.tracking_ref);
-        let url = relay.map_or(remote.url.as_str(), Relay::url);
-        let args = ["fetch", "--no-tags", "--quiet", url, &refspec];
-        let output = match relay {
-            Some(relay) => self.relayed(&args, relay, cancel)?,
-            None => self.run_cancellable(&args, None, &[], Some(cancel))?,
-        };
+        let args = ["fetch", "--no-tags", "--quiet", remote.url.as_str(), &refspec];
+        let output = self.run_cancellable(&args, None, &[], Some(cancel))?;
         if output.code != Some(0) {
             if output
                 .stderr
@@ -1733,18 +1611,6 @@ impl Git {
             return Err(Self::failure(&args, &output));
         }
         self.read_remote_tracking()
-    }
-
-    /// Every ref `relay`'s repository advertises, branches, tags, and any
-    /// other namespace alike, under the same controls as a fetch. An empty
-    /// list is a repository with no history reachable from any ref.
-    pub fn remote_refs(&self, relay: &Relay, cancel: &AtomicBool) -> Result<Vec<String>, Failure> {
-        let args = ["ls-remote", relay.url()];
-        let output = self.relayed(&args, relay, cancel)?;
-        if output.code != Some(0) {
-            return Err(Self::failure(&args, &output));
-        }
-        Ok(advertised_refs(&text(&output.stdout)))
     }
 
     /// Record `remote` as `origin`, fetching only its branch into the
@@ -1802,16 +1668,6 @@ impl Git {
     }
 }
 
-/// The ref names in `git ls-remote` output: `<oid>\t<name>` per line.
-fn advertised_refs(listing: &str) -> Vec<String> {
-    listing
-        .lines()
-        .filter_map(|line| line.split_once('\t'))
-        .map(|(_, name)| name.trim().to_string())
-        .filter(|name| !name.is_empty())
-        .collect()
-}
-
 fn identity(author: &Author) -> [(&'static str, &str); 4] {
     [
         ("GIT_AUTHOR_NAME", author.name.as_str()),
@@ -1833,178 +1689,3 @@ fn is_executable(_stats: &fs::Metadata) -> bool {
     false
 }
 
-#[cfg(test)]
-mod relay_tests {
-    //! The runner's relayed command, checked without a listener: what it is
-    //! built with, that it speaks HTTP only, that a cancel retires before the
-    //! kill, and that Git's own diagnostics never show the relay. Transfers
-    //! that succeed are in `transport_tests.rs` and `download.rs`.
-
-    use std::collections::BTreeMap;
-    use std::ffi::OsStr;
-    use std::sync::{Arc, Mutex};
-
-    use super::*;
-    use crate::testing::{git, TempDir};
-
-    const CANONICAL: &str = "https://github.com/alice/notes.git";
-    const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
-    fn opened(temp: &TempDir) -> Git {
-        let remote = Remote {
-            url: CANONICAL.to_string(),
-            branch: "main".to_string(),
-        };
-        Git::open(&temp.folder("folder"), "main", Some(remote)).unwrap()
-    }
-
-    fn journaled(url: &str) -> (Relay, Arc<Mutex<Vec<&'static str>>>) {
-        let journal = Arc::new(Mutex::new(Vec::new()));
-        let retired = Arc::clone(&journal);
-        let relay = Relay::new(url, move || {
-            retired.lock().unwrap().push("retired");
-            None
-        });
-        (relay, journal)
-    }
-
-    #[test]
-    fn a_relayed_command_carries_every_control_and_writes_no_trace() {
-        let temp = TempDir::new("relay-controls");
-        let git_dir = opened(&temp);
-        let url = format!("http://127.0.0.1:39130/_epicenter/git-relay/{TOKEN}/repo.git");
-        let (relay, _) = journaled(&url);
-        let command = git_dir.relayed_command(&["fetch", relay.url()], &relay);
-
-        let args: Vec<String> = command
-            .get_args()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect();
-        for control in [
-            "core.hooksPath=/dev/null".to_string(),
-            "core.fsmonitor=false".to_string(),
-            "http.proxy=".to_string(),
-            format!("http.{url}.proxy="),
-            format!("url.{url}.insteadOf={url}"),
-            format!("url.{url}.pushInsteadOf={url}"),
-            "maintenance.auto=false".to_string(),
-            "gc.auto=0".to_string(),
-        ] {
-            let at = args.iter().position(|arg| *arg == control);
-            assert!(
-                at.is_some_and(|at| at > 0 && args[at - 1] == "-c"),
-                "{control} in {args:?}"
-            );
-        }
-        // Controls come before the subcommand, so Git applies them to it.
-        let subcommand = args.iter().position(|arg| arg == "fetch").unwrap();
-        assert!(args[..subcommand].iter().all(|arg| arg != relay.url()));
-
-        let envs: BTreeMap<String, Option<String>> = command
-            .get_envs()
-            .map(|(name, value)| {
-                (
-                    name.to_string_lossy().into_owned(),
-                    value.map(|value| value.to_string_lossy().into_owned()),
-                )
-            })
-            .collect();
-        let set = |name: &str| envs.get(name).cloned().flatten();
-        assert_eq!(set("GIT_ALLOW_PROTOCOL").as_deref(), Some("http"));
-        assert_eq!(set("NO_PROXY").as_deref(), Some("*"));
-        assert_eq!(set("GIT_TERMINAL_PROMPT").as_deref(), Some("0"));
-        for trace2 in ["GIT_TRACE2", "GIT_TRACE2_EVENT", "GIT_TRACE2_PERF"] {
-            assert_eq!(set(trace2).as_deref(), Some("0"), "{trace2}");
-        }
-        for removed in ["GIT_TRACE", "GIT_CURL_VERBOSE"] {
-            assert_eq!(envs.get(removed), Some(&None), "{removed} is removed");
-        }
-        assert!(command.get_program() == OsStr::new("git"));
-    }
-
-    #[test]
-    fn a_relay_that_is_not_http_is_refused() {
-        let temp = TempDir::new("relay-http-only");
-        let bare = temp.folder("remote.git");
-        git(
-            &bare,
-            &["init", "--quiet", "--bare", "--initial-branch=main"],
-        );
-        let seed = temp.folder("seed");
-        git(&seed, &["init", "--quiet", "--initial-branch=main"]);
-        git(&seed, &["commit", "--quiet", "--allow-empty", "-m", "seed"]);
-        git(&seed, &["push", "--quiet", bare.to_str().unwrap(), "main"]);
-        let git_dir = opened(&temp);
-        for url in [
-            bare.display().to_string(),
-            format!("file://{}", bare.display()),
-        ] {
-            let (relay, journal) = journaled(&url);
-            let error = git_dir
-                .fetch(&AtomicBool::new(false), Some(&relay))
-                .unwrap_err();
-            assert!(error.contains("not allowed"), "{url}: {error}");
-            assert!(!error.contains(&bare.display().to_string()), "{error}");
-            assert_eq!(git_dir.read_remote_tracking().unwrap(), None);
-            drop(relay);
-            assert_eq!(*journal.lock().unwrap(), vec!["retired"]);
-        }
-    }
-
-    /// Git's own diagnostic for an unreachable relay names the URL it tried.
-    /// The runner shows the canonical remote there and keeps the rest.
-    #[test]
-    fn git_diagnostics_that_echo_the_relay_name_the_canonical_remote() {
-        let temp = TempDir::new("relay-diagnostic");
-        let git_dir = opened(&temp);
-        let (relay, _) = journaled(&format!("http://127.0.0.1:9/{TOKEN}/repo.git"));
-        let error = git_dir
-            .fetch(&AtomicBool::new(false), Some(&relay))
-            .unwrap_err();
-        assert!(error.contains("unable to access"), "{error}");
-        assert!(error.contains(CANONICAL), "{error}");
-        assert!(!error.contains(TOKEN), "{error}");
-        assert!(!error.contains(":9/"), "{error}");
-        let error = git_dir
-            .push(
-                "0000000000000000000000000000000000000001",
-                &AtomicBool::new(false),
-                Some(&relay),
-            )
-            .unwrap_err();
-        assert!(!error.contains(TOKEN), "{error}");
-    }
-
-    /// The cancel path retires the relay first, while Git is still running.
-    /// An alias that waits stands in for a transfer in flight.
-    #[cfg(unix)]
-    #[test]
-    fn a_cancel_retires_the_relay_before_git_is_stopped() {
-        let temp = TempDir::new("relay-cancel");
-        let git_dir = opened(&temp);
-        let (relay, journal) = journaled(&format!("http://127.0.0.1:9/{TOKEN}/repo.git"));
-        let cancel = AtomicBool::new(true);
-        let output = git_dir
-            .relayed(
-                &["-c", "alias.wait=!sleep 5 >/dev/null 2>&1", "wait"],
-                &relay,
-                &cancel,
-            )
-            .unwrap();
-        assert_eq!(output.code, None, "Git was stopped, not finished");
-        // Retired by the cancel path itself, while the relay is still held.
-        assert_eq!(*journal.lock().unwrap(), vec!["retired"]);
-    }
-
-    #[test]
-    fn every_advertised_ref_is_read_from_a_listing() {
-        assert_eq!(advertised_refs(""), Vec::<String>::new());
-        assert_eq!(
-            advertised_refs(
-                "efac070fee53fc0a298aeef0719779c61297a538\trefs/tags/retained\n\
-                 efac070fee53fc0a298aeef0719779c61297a538\trefs/tags/retained^{}\n"
-            ),
-            vec!["refs/tags/retained", "refs/tags/retained^{}"]
-        );
-    }
-}
