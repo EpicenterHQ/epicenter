@@ -26,12 +26,6 @@ declare namespace Cloudflare {
 		SELF_HOST_AUTH: DurableObjectNamespace<
 			import('@epicenter/server/self-host-auth/worker').SelfHostAuthOwner
 		>;
-		STORE_AUTHORITY: DurableObjectNamespace<
-			import('@epicenter/server').StoreAuthority
-		>;
-		GENERATIONS_LEDGER: DurableObjectNamespace<
-			import('@epicenter/server').GenerationsLedger
-		>;
 	}
 }
 

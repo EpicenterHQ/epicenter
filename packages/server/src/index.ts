@@ -51,7 +51,6 @@ export {
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // cloud's Better Auth endpoints are mounted by mountAuthRoutes; an instance
 // composes none of them (ADR-0075).
-export { storeAuthorityName } from './principal.js';
 export { mountAuthRoutes } from './routes/auth.js';
 export {
 	type HostedBlobStore,
@@ -60,6 +59,7 @@ export {
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
+export { GenerationsLedger, StoreAuthority } from './retired-sync.js';
 export { resolveDeploymentBlobStore } from './s3-blob-store.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS,
 // CSRF) and returns the `Hono` every surface mounts onto. It takes one
@@ -71,14 +71,6 @@ export { createServerApp } from './server-app.js';
 // proves its own Env against it (extends in apps/self-host, satisfies in
 // apps/api); a Bun host validates `process.env` with the schema at boot.
 export { ServerBindings } from './server-bindings.js';
-export { StoreAuthority } from './store-sync/authority.js';
-export { GenerationsLedger } from './store-sync/generations.js';
-export {
-	type GenerationsLedgerStub,
-	mountStoreSyncApp,
-	type ResolveStore,
-	type StoreAuthorityStub,
-} from './store-sync/mount.js';
 // Public Hono context types: the portable `Env` (both deployments), the cloud's
 // `CloudEnv` (Env + Better Auth/Postgres state), and the `ResolveBearerPrincipal<E>`
 // seam the deployment closes its auth wrappers over.

@@ -16,13 +16,13 @@ if (state.status !== 'signed-out') {
 ```
 
 `Account` holds a fixed `principalId` and `baseURL`, authenticated `fetch`,
-`openWebSocket`, and `getProfile`. Its object identity lasts through temporary
+and `getProfile`. Its object identity lasts through temporary
 disconnection and uninterrupted same-person reauthentication. Browser
 navigation or desktop host relaunch creates a new runtime and application session.
 
 Sign-out or account replacement permanently retires its network access.
 Signing back in creates a new Account, even for the same person on the same
-server. Retirement aborts HTTP requests and response streams, closes sockets,
+server. Retirement aborts HTTP requests and response streams,
 and prevents pending authorization or retries from borrowing a successor
 credential. It cannot undo an operation the server already processed.
 
@@ -123,7 +123,7 @@ Desktop WebViews use `createDesktopBrokerAuth`; they receive identity and
 loopback access, never the remote credential. Bun owns the same session runtime
 and completes the configured issuer’s handoff through the native deep link.
 
-The host forwards HTTP and live sync through its captured boot Account. Every
+The host forwards HTTP through its captured boot Account. Every
 successful explicit sign-in, including same-person reauthentication, prepares
 credentials for the next process and restarts. The authority disposes its boot
 auth owner before writing the successor behind any queued old-owner writes.
@@ -136,9 +136,6 @@ leaves working windows open. Once accepted, a failed credential write or restart
 leaves the old Account fenced. A failed write may have changed storage; no
 rollback or resumed session is promised. New pages in a retired process show
 restart-required UI instead of receiving its stale bootstrap identity.
-
-Apps own their local stores and sync engines; the host relays bytes and owns no
-application replica or reconnect loop.
 
 ## Lifetime and policy
 
@@ -156,15 +153,11 @@ reopening requires an explicit action. Honeycrisp still uses `AppBoot` and its
 reactivate the retired working UI. Resource disposal and acquisition rollback
 remain independent of navigation.
 
-The hosted server checks live session rows on HTTP requests and socket admission.
+The hosted server checks live session rows on HTTP requests.
 Sessions last 30 days and renew after one day of use. Renewal does not reset
 authentication age. Sensitive account changes require a matching principal and
 a session younger than 600 seconds. A completed social sign-in can satisfy that
 window through provider SSO; it is not proof of fresh human interaction.
-
-Admitted store sockets have a server-enforced 600-second authorization deadline,
-including idle and hibernating connections. Revocation rejects subsequent
-admission; it does not immediately close every existing socket.
 
 Carry forward `src/account-lifetime.test.ts`,
 `src/desktop-broker-auth.test.ts`,

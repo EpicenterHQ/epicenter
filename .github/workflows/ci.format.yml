@@ -66,7 +66,7 @@ jobs:
       - name: Install the tests' Chromium
         # From a package that depends on Playwright, so the browser matches the
         # locked version.
-        working-directory: packages/app
+        working-directory: packages/ui
         run: bun x playwright install --with-deps --only-shell chromium
       - name: Canonical gate
         run: bun run check

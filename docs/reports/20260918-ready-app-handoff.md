@@ -187,6 +187,7 @@ Implemented but unfinished:
 1. `open.ts:100` currently fails TypeScript: ownership.data is possibly null inside
    close's closure. Preserve the narrowed successful claim in a const. Do not use
    a non-null assertion to paper over acquisition semantics.
+<!-- doc-path-check: ignore-next-line -->
 2. `packages/app/src/data/store/browser.test.ts:298` expects direct StorageFailed
    for failed opening plus unsafe cleanup. Adapt it to verify AggregateError and
    the preserved StorageFailed cause. Do not weaken cleanup retention.
@@ -205,6 +206,7 @@ Implemented but unfinished:
 6. Departure ignores App.signal abort after its own resource close starts. Review
    simultaneous external retirement: can it incorrectly allow an auth mutation?
    Prefer an existing lower-level guarantee over a second notification API.
+<!-- doc-path-check: ignore-next-line -->
 7. Migrate `packages/app-shell/smoke/app-boot/application.ts` and `App.svelte`.
    They still use a lower-level store/ready fixture. Prefer a real memory App and
    acquisition/commit gates to another artificial readiness facade.

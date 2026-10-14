@@ -6,7 +6,6 @@ import {
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
-	mountStoreSyncApp,
 	mountTranscriptionApp,
 	OAuthError,
 	type ResolveBearerPrincipal,
@@ -14,7 +13,6 @@ import {
 	requireBearerPrincipal,
 	resolveDeploymentBlobStore,
 	StoreAuthority,
-	type StoreAuthorityStub,
 } from '@epicenter/server';
 import { SelfHostAuthOwner } from '@epicenter/server/self-host-auth/worker';
 import { signInPage, signInScript } from '../sign-in.js';
@@ -52,22 +50,6 @@ app.all('/auth/*', (c) =>
 	authentication(c.env as Cloudflare.Env).fetch(c.req.raw),
 );
 mountSessionApp(app, { auth });
-mountStoreSyncApp(app, {
-	resolveBearerPrincipal,
-	resolveStore: (env) => {
-		const bindings = env as Cloudflare.Env;
-		return {
-			authority: (name) =>
-				bindings.STORE_AUTHORITY.get(
-					bindings.STORE_AUTHORITY.idFromName(name),
-				) as unknown as StoreAuthorityStub,
-			ledger: (name) =>
-				bindings.GENERATIONS_LEDGER.get(
-					bindings.GENERATIONS_LEDGER.idFromName(name),
-				),
-		};
-	},
-});
 mountInferenceApp(app, {
 	auth,
 	policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
@@ -81,6 +63,8 @@ mountPersonalAuthorityBlobs(app, {
 	resolveStore: resolveDeploymentBlobStore,
 });
 export default app;
+// The retired store sync's Durable Objects, empty, so a deploy keeps their
+// stored data (`packages/server/src/retired-sync.ts`).
 export {
 	GenerationsLedger,
 	SelfHostAuthOwner,

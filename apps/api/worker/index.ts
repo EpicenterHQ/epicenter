@@ -24,14 +24,12 @@ import {
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
-	mountStoreSyncApp,
 	mountTranscriptionApp,
 	requireBearerPrincipal,
 	resolveDeploymentBlobStore,
 	resolveRequestSessionPrincipal,
 	type ServerBindings,
 	StoreAuthority,
-	type StoreAuthorityStub,
 } from '@epicenter/server';
 import type { Context } from 'hono';
 import { every } from 'hono/combine';
@@ -138,33 +136,6 @@ app.route(
 			),
 	}),
 );
-// The store transport (ADR-0222, ADR-0292, ADR-0298): one Durable Object per
-// (principal, application id, generation) for the log, and one ledger per
-// (principal, application id) for which generations exist. Both are reached
-// with the same session bearer every other surface uses, and the principal is
-// stamped from that bearer and prefixed onto the object name, so being signed
-// in on two devices is the whole of the sharing model. The authority reads
-// nothing it stores.
-mountStoreSyncApp(app, {
-	setup: cloudContext,
-	resolveBearerPrincipal: resolveRequestSessionPrincipal,
-	resolveStore: (env) => {
-		const bindings = env as Cloudflare.Env & {
-			STORE_AUTHORITY: DurableObjectNamespace<StoreAuthority>;
-			GENERATIONS_LEDGER: DurableObjectNamespace<GenerationsLedger>;
-		};
-		return {
-			authority: (name) =>
-				bindings.STORE_AUTHORITY.get(
-					bindings.STORE_AUTHORITY.idFromName(name),
-				) as unknown as StoreAuthorityStub,
-			ledger: (name) =>
-				bindings.GENERATIONS_LEDGER.get(
-					bindings.GENERATIONS_LEDGER.idFromName(name),
-				),
-		};
-	},
-});
 // Owner-addressed hosted blobs are currently unmetered. Autumn's check()
 // denies by default without a plan, so this route has no billing policy.
 mountPersonalAuthorityBlobs(app, {
@@ -214,4 +185,6 @@ app.get('/billing', (c) => c.redirect('/dashboard'));
 export default {
 	fetch: app.fetch,
 };
+// The retired store sync's Durable Objects, empty, so a deploy keeps their
+// stored data (`packages/server/src/retired-sync.ts`).
 export { GenerationsLedger, GitHubConnection, StoreAuthority };

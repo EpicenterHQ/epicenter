@@ -60,6 +60,7 @@ on its status.**
 `SyncRefusal` in `@epicenter/sync` is the closed union
 `'signed-out' | 'reauth-required' | 'auth-unavailable' | 'no-credential-model'`,
 and `OpenWebSocketDenial` is `{ name, message, code: SyncRefusal }` with no
+<!-- doc-path-check: ignore-next-line -->
 `permanence`. `packages/app/src/data/sync/attach.ts` reports a recognised rejection
 as `closed(cause.code)` and anything else as `onTransportError(cause)` followed
 by `closed()`. The driver has one close callback, records the code on

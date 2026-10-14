@@ -38,9 +38,6 @@ function setup(principalId: string) {
 			});
 		},
 		getProfile: async () => Ok({ id: asPrincipalId(principalId) }),
-		openWebSocket() {
-			throw new Error('Dashboard does not open sockets');
-		},
 	};
 	return {
 		dashboard: createDashboardRuntime(account),

@@ -89,6 +89,7 @@ runs against the actual current API.
 
 The platform instruction and ADR edits describe runtime package selection and
 a constant native grant (ADRs 0402/0403). They run ahead of implementation:
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/package.json` still selects three `#platform/*` entries by build
 condition, and native capability files still grant by window label. The dirty
 App README correctly calls runtime selection unbuilt. Do not interpret the new

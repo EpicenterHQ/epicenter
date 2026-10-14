@@ -96,6 +96,7 @@ The final cumulative suite passed 161 tests with 553 assertions across 25 files.
 Both Whispering typecheck targets passed with zero errors/warnings; the app package
 typecheck and browser production build passed. `git diff --check` passed.
 Changed TypeScript/script lint reports one existing `noAssignInExpressions` error
+<!-- doc-path-check: ignore-next-line -->
 in `packages/app/src/open-store.ts` at `closeBlobs`; the identical expression was
 verified at the task baseline. No new lint errors remain. This is not a claim of
 a clean repository-wide lint run.

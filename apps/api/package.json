@@ -33,7 +33,6 @@
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/server": "workspace:*",
-		"@epicenter/sync": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"arktype": "catalog:",
 		"autumn-js": "^1.2.34",

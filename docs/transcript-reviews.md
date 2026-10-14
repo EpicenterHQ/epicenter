@@ -255,6 +255,7 @@ returned **7 pass, 2 fail** on the existing working tree:
 - The unadmitted-generation socket test expects 404 and receives 403.
 
 The client calls `GENERATIONS_ROUTE.initial`, but
+<!-- doc-path-check: ignore-next-line -->
 `packages/server/src/store-sync/mount.ts` mounts current-library routes, not
 <!-- doc-path-check: ignore-next-line -->
 that legacy initial route. `apps/skills/src/lib/application.ts` still calls

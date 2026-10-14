@@ -1,7 +1,6 @@
 # Commercially relevant code — requires @braden-w review
-# These paths contain the sync server and protocol (AGPL-3.0).
+# These paths contain the hosted and self-hosted servers (AGPL-3.0).
 
 /apps/api/              @braden-w
 /apps/self-host/        @braden-w
-/packages/sync/         @braden-w
 /packages/server/       @braden-w

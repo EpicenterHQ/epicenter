@@ -13,7 +13,9 @@
   Each dial also declares the locally persisted document ID. A pristine client
   performs a bootstrap-only dial, persists the announced ID, then redials
   before it may send or receive live workspace traffic.
+<!-- doc-path-check: ignore-next-line -->
 - Evidence: `packages/app/src/data/sync/connection.test.ts`,
+<!-- doc-path-check: ignore-next-line -->
   `packages/app/evidence/data/workerd/results.md`.
 
 ## Context

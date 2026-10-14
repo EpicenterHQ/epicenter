@@ -1,4 +1,3 @@
-import { bearerSubprotocol } from '@epicenter/sync/auth-subprotocol';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { type Result, tryAsync } from 'wellcrafted/result';
@@ -9,11 +8,7 @@ import type {
 	CallbackAuthClient,
 	SessionAuthClient,
 } from './auth-contract.js';
-import {
-	AccountUnavailable,
-	AuthError,
-	OpenWebSocketDenied,
-} from './auth-errors.js';
+import { AccountUnavailable, AuthError } from './auth-errors.js';
 import type { PersistedAuth } from './auth-types.js';
 import type { PersistedAuthStorage } from './persisted-auth-storage.js';
 import { getProfileVia, readApiSession } from './read-api-session.js';
@@ -32,7 +27,6 @@ type AccountAuthOptions = {
 	baseURL: string;
 	persistedAuthStorage: PersistedAuthStorage;
 	fetch?: AuthFetch;
-	WebSocket?: typeof WebSocket;
 	log?: Logger;
 };
 
@@ -123,7 +117,6 @@ function createBearerAuth(
 		persistedAuthStorage,
 		cancel,
 		fetch: fetchImpl = globalThis.fetch.bind(globalThis),
-		WebSocket: WebSocketImpl = globalThis.WebSocket,
 		log = createLogger('auth/session'),
 	}: AccountAuthOptions & {
 		authorityId: string;
@@ -306,37 +299,6 @@ function createBearerAuth(
 			baseURL,
 			fetch: accountFetch,
 			getProfile: () => getProfileVia(accountFetch, baseURL),
-			async openWebSocket(address: Parameters<Account['openWebSocket']>[0]) {
-				const url = new URL(address.url);
-				if (url.protocol !== 'ws:' && url.protocol !== 'wss:')
-					throw new TypeError('Account sockets must use ws or wss.');
-				url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-				requireServer(url);
-				let credential: Attachment['credential'];
-				try {
-					credential = await authorize(owner, lifetime.signal);
-					lifetime.signal.throwIfAborted();
-				} catch (error) {
-					if (lifetime.signal.aborted)
-						throw OpenWebSocketDenied({ code: 'signed-out' }).error;
-					if (owner.paused)
-						throw OpenWebSocketDenied({ code: 'reauth-required' }).error;
-					throw OpenWebSocketDenied({ code: 'auth-unavailable' }).error;
-				}
-				const socket = new WebSocketImpl(address.url, [
-					...address.protocols,
-					bearerSubprotocol(credential.value.token),
-				]);
-				const close = () => socket.close();
-				lifetime.signal.addEventListener('abort', close, { once: true });
-				socket.addEventListener(
-					'close',
-					() => lifetime.signal.removeEventListener('abort', close),
-					{ once: true },
-				);
-				if (lifetime.signal.aborted) close();
-				return socket;
-			},
 		});
 		const owner: Attachment = {
 			account,

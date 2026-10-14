@@ -141,7 +141,7 @@ test('an app with its own SQLite mirror may lift scalar columns', () => {
 
 test('prose is refused inside the store and allowed outside it', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/app/src/data/row.ts', "// the row's prose\n");
+		write(dir, 'packages/svelte/src/row.ts', "// the row's prose\n");
 		commitAll(dir);
 		expect(run(dir).code).toBe(1);
 	});

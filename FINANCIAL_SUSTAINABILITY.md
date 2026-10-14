@@ -18,6 +18,6 @@ We have other options if that doesn't work, of course. We could pursue a traditi
 
 There is one license: AGPL-3.0-or-later, for everything. An MIT toolkit tier existed until 2026-08 and was dissolved because no external embedder ever arrived; see `docs/licensing/licensing-strategy.md`.
 
-AGPL-3.0-or-later: every app (`apps/api`, `apps/self-host`, `apps/whispering`, `apps/honeycrisp`, `apps/vocab`, `apps/reddit`, `apps/landing`, `apps/posthog-reverse-proxy`, `apps/matter`, `apps/local-books`), the shared server library (`packages/server`), and our internal packages (`packages/auth`, `packages/svelte`, `packages/app-shell`, `packages/constants`, `packages/client`, `packages/matter-core`, `packages/vite-config`).
+AGPL-3.0-or-later: every app (`apps/api`, `apps/self-host`, `apps/whispering`, `apps/honeycrisp`, `apps/vocab`, `apps/reddit`, `apps/landing`, `apps/posthog-reverse-proxy`, `apps/matter`, `apps/local-books`), the shared server library (`packages/server`), and our internal packages (`packages/auth`, `packages/svelte`, `packages/constants`, `packages/client`, `packages/matter-core`, `packages/vite-config`).
 
 Each package under packages/ and apps/ has its own LICENSE file. See the root [LICENSE](LICENSE) for the full breakdown.

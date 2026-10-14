@@ -27,7 +27,6 @@
         "@epicenter/constants": "workspace:*",
         "@epicenter/principal": "workspace:*",
         "@epicenter/server": "workspace:*",
-        "@epicenter/sync": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "arktype": "catalog:",
         "autumn-js": "^1.2.34",
@@ -120,7 +119,6 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/agent": "workspace:*",
-        "@epicenter/app": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/blobs": "workspace:*",
         "@epicenter/client": "workspace:*",
@@ -130,7 +128,6 @@
         "@epicenter/principal": "workspace:*",
         "@epicenter/server": "workspace:*",
         "@epicenter/sqlite": "workspace:*",
-        "@epicenter/sync": "workspace:*",
         "@epicenter/todos": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@epicenter/whispering": "workspace:*",
@@ -370,7 +367,6 @@
       "name": "@epicenter/self-host",
       "version": "0.0.2",
       "dependencies": {
-        "@epicenter/app": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/principal": "workspace:*",
@@ -553,61 +549,7 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
-        "@types/bun": "catalog:",
-        "svelte": "catalog:",
-        "svelte-check": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/app": {
-      "name": "@epicenter/app",
-      "version": "0.0.1",
-      "dependencies": {
-        "@epicenter/auth": "workspace:*",
-        "@epicenter/blobs": "workspace:*",
-        "@epicenter/client": "workspace:*",
-        "@epicenter/constants": "workspace:*",
-        "@epicenter/definition": "workspace:*",
         "@epicenter/device": "workspace:*",
-        "@epicenter/matter-core": "workspace:*",
-        "@epicenter/principal": "workspace:*",
-        "@epicenter/recorder": "workspace:*",
-        "@epicenter/sqlite": "workspace:*",
-        "@epicenter/sync": "workspace:*",
-        "@tauri-apps/api": "catalog:",
-        "@tauri-apps/plugin-clipboard-manager": "^2.3.0",
-        "@y/y": "14.0.0-rc.26",
-        "lib0": "1.0.0-rc.32",
-        "nanoid": "catalog:",
-        "typebox": "catalog:",
-        "wellcrafted": "catalog:",
-        "yaml": "catalog:",
-      },
-      "devDependencies": {
-        "@types/bun": "catalog:",
-        "fake-indexeddb": "^6.2.5",
-        "playwright": "^1.61.1",
-        "typescript": "catalog:",
-        "vite": "catalog:",
-      },
-    },
-    "packages/app-shell": {
-      "name": "@epicenter/app-shell",
-      "version": "0.3.0",
-      "dependencies": {
-        "@epicenter/app": "workspace:*",
-        "@epicenter/auth": "workspace:*",
-        "@epicenter/client": "workspace:*",
-        "@epicenter/principal": "workspace:*",
-        "@epicenter/ui": "workspace:*",
-        "@lucide/svelte": "catalog:",
-        "@standard-schema/spec": "catalog:",
-        "@tanstack/svelte-query": "catalog:",
-        "@y/y": "14.0.0-rc.26",
-        "arktype": "catalog:",
-        "wellcrafted": "catalog:",
-      },
-      "devDependencies": {
         "@types/bun": "catalog:",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
@@ -620,7 +562,6 @@
       "dependencies": {
         "@epicenter/constants": "workspace:*",
         "@epicenter/principal": "workspace:*",
-        "@epicenter/sync": "workspace:*",
         "arktype": "catalog:",
         "wellcrafted": "catalog:",
       },
@@ -804,16 +745,12 @@
       "dependencies": {
         "@better-auth/drizzle-adapter": "catalog:",
         "@better-auth/passkey": "catalog:",
-        "@epicenter/app": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/blobs": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/principal": "workspace:*",
-        "@epicenter/sqlite": "workspace:*",
-        "@epicenter/sync": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "@simplewebauthn/server": "13.3.2",
-        "@y/y": "14.0.0-rc.26",
         "arktype": "catalog:",
         "aws4fetch": "catalog:",
         "better-auth": "catalog:",
@@ -860,14 +797,6 @@
         "@types/bun": "catalog:",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/sync": {
-      "name": "@epicenter/sync",
-      "version": "0.3.0",
-      "devDependencies": {
-        "@types/bun": "catalog:",
         "typescript": "catalog:",
       },
     },
@@ -1224,10 +1153,6 @@
 
     "@epicenter/api-ui": ["@epicenter/api-ui@workspace:apps/api/ui"],
 
-    "@epicenter/app": ["@epicenter/app@workspace:packages/app"],
-
-    "@epicenter/app-shell": ["@epicenter/app-shell@workspace:packages/app-shell"],
-
     "@epicenter/auth": ["@epicenter/auth@workspace:packages/auth"],
 
     "@epicenter/blobs": ["@epicenter/blobs@workspace:packages/blobs"],
@@ -1279,8 +1204,6 @@
     "@epicenter/sqlite": ["@epicenter/sqlite@workspace:packages/sqlite"],
 
     "@epicenter/svelte": ["@epicenter/svelte@workspace:packages/svelte"],
-
-    "@epicenter/sync": ["@epicenter/sync@workspace:packages/sync"],
 
     "@epicenter/todos": ["@epicenter/todos@workspace:apps/todos"],
 
@@ -1789,8 +1712,6 @@
     "@tauri-apps/cli-win32-ia32-msvc": ["@tauri-apps/cli-win32-ia32-msvc@2.10.1", "", { "os": "win32", "cpu": "ia32" }, "sha512-gXyxgEzsFegmnWywYU5pEBURkcFN/Oo45EAwvZrHMh+zUSEAvO5E8TXsgPADYm31d1u7OQU3O3HsYfVBf2moHw=="],
 
     "@tauri-apps/cli-win32-x64-msvc": ["@tauri-apps/cli-win32-x64-msvc@2.10.1", "", { "os": "win32", "cpu": "x64" }, "sha512-6Cn7YpPFwzChy0ERz6djKEmUehWrYlM+xTaNzGPgZocw3BD7OfwfWHKVWxXzdjEW2KfKkHddfdxK1XXTYqBRLg=="],
-
-    "@tauri-apps/plugin-clipboard-manager": ["@tauri-apps/plugin-clipboard-manager@2.3.2", "", { "dependencies": { "@tauri-apps/api": "^2.8.0" } }, "sha512-CUlb5Hqi2oZbcZf4VUyUH53XWPPdtpw43EUpCza5HWZJwxEoDowFzNUDt1tRUXA8Uq+XPn17Ysfptip33sG4eQ=="],
 
     "@tauri-apps/plugin-dialog": ["@tauri-apps/plugin-dialog@2.7.1", "", { "dependencies": { "@tauri-apps/api": "^2.11.0" } }, "sha512-OK1UBXYt+ojcmxMktzzuyonYIFta8CmAASpX+CA+DTGK24KlHjhYI6x2iOJ/TjZF4N7/ACK1oFmEOjIY9IhzOQ=="],
 
@@ -3499,8 +3420,6 @@
     "@tailwindcss/oxide-wasm32-wasi/@tybys/wasm-util": ["@tybys/wasm-util@0.10.1", "", { "dependencies": { "tslib": "^2.4.0" }, "bundled": true }, "sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg=="],
 
     "@tailwindcss/oxide-wasm32-wasi/tslib": ["tslib@2.8.1", "", { "bundled": true }, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
-
-    "@tauri-apps/plugin-clipboard-manager/@tauri-apps/api": ["@tauri-apps/api@2.10.1", "", {}, "sha512-hKL/jWf293UDSUN09rR69hrToyIXBb8CjGaWC7gfinvnQrBVvnLr08FeFi38gxtugAVyVcTa5/FD/Xnkb1siBw=="],
 
     "@tauri-apps/plugin-dialog/@tauri-apps/api": ["@tauri-apps/api@2.11.0", "", {}, "sha512-7CinYODhky9lmO23xHnUFv0Xt43fbtWMyxZcLcRBlFkcgXKuEirBvHpmtJ89YMhyeGcq20Wuc47Fa4XjyniywA=="],
 

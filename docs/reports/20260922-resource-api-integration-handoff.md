@@ -26,6 +26,7 @@ The remaining work is application outcome ownership. Expected failures should st
 
 Start by tracing these current files and their callers:
 
+<!-- doc-path-check: ignore-next-line -->
 - `packages/app/README.md`, `ARCHITECTURE.md`, `src/blobs.ts`, `src/recorder.ts`.
 - `036cf3d9f1:apps/whispering/src/lib/operations/recording.svelte.ts`, `push-to-talk.ts`, `save-audio-recording.ts`, `upload-recording.ts`, `pipeline.ts`, and `transcription-history.ts`.
 - `036cf3d9f1:apps/whispering/src/lib/whispering/recordings.ts` and `resources.ts`.

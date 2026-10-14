@@ -1,5 +1,4 @@
 import type { AccountIdentity } from '@epicenter/principal';
-import type { SocketTransport } from '@epicenter/sync/transport';
 import type { Result } from 'wellcrafted/result';
 import type { createAccountManagementUrl } from './account-management.js';
 import type { AuthError } from './auth-errors.js';
@@ -14,13 +13,12 @@ export type AuthFetch = (
  *
  * Capture this value when opening a data session. Refresh and reauthentication
  * preserve it. Sign-out or account replacement permanently retires its network
- * access, including in-flight requests and sockets. A later sign-in creates a
+ * access, including in-flight requests. A later sign-in creates a
  * new Account even for the same person. Retirement does not erase local data.
  */
 export type Account = AccountIdentity & {
 	readonly baseURL: string;
 	fetch: AuthFetch;
-	openWebSocket: SocketTransport['openWebSocket'];
 	getProfile(): Promise<Result<Principal, AuthError>>;
 };
 

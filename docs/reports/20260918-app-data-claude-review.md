@@ -54,6 +54,7 @@ MEASURED size of that gap:
   after mount, guarded by a test (`apps/honeycrisp/src/lib/boot-node.test.ts:44-56@30eb69b`). The applications already treat
   declaring and opening as two modules. The package does not.
 - There are zero dynamic imports in `packages/app/src` or in the platform modules the root reaches (MEASURED). The words
+<!-- doc-path-check: ignore-next-line -->
   "lazy platform modules" in `packages/app/ARCHITECTURE.md`, `packages/app/README.md:73-75`, and ADR-0407 are inaccurate.
   Modules load eagerly. What is deferred is resource acquisition.
 
@@ -168,6 +169,7 @@ lib.dom to the WHOLE program.
 |----------------------------------------------|-----------|---------------|-----------------------------------------------|
 <!-- doc-path-check: ignore-next-line -->
 | `packages/data/tsconfig.json` @619afff       | 101       | 118           | 0                                             |
+<!-- doc-path-check: ignore-next-line -->
 | `packages/app/tsconfig.data.json` @30eb69b   | 100       | 165           | 6                                             |
 | same, engine sources only (no tests/benches) | 40        | 49            | 0                                             |
 
@@ -221,6 +223,7 @@ The collapse report says no executable constructor named `defineData` remains, w
 ### R4. Documentation states a loading model the code does not have   (MEASURED)
 
 "lazy platform modules" / "yes, lazy" in `packages/app/ARCHITECTURE.md:110,125`,
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/README.md:73-75`, and `docs/adr/0407-app-owns-the-declaration-and-data-engine.md:25` ("Full declarations load lazy application modules"). There is no dynamic import.
 Say instead: the root statically loads the platform modules; constructing them acquires nothing. If move M1 is taken this sentence disappears.
 Also `docs/licensing/licensing-strategy.md` now reads "`@epicenter/app/store`, the headline toolkit root, was never published",
@@ -263,6 +266,7 @@ export function openApp<T extends DataDefinition, A extends Account | undefined>
 What it deletes: the `Application<T>` type and the `Pick<...>` title gymnastics (`index.ts:32-38, 67-70`); the `runtime`/`ai` parameters
 on the constructor; the index.ts <-> open.ts <-> browser.ts type cycle; the special-case fresh-process test for the root (the root joins
 the platform-free list in `import-boundaries.test.ts`); the need for R1's exclusion list; risk K1 entirely.
+<!-- doc-path-check: ignore-next-line -->
 It also makes `packages/app/README.md:50-51` literally true: "Runtime and AI overrides stay in the opener's closure, outside the schema."
 
 What callers change (MEASURED counts):
@@ -376,6 +380,7 @@ are public by accident. Switch `open.ts` and the six `src/data/store/*.ts` self-
 
 ## 6. One-step checks for Codex (all unavailable here)
 
+<!-- doc-path-check: ignore-next-line -->
 1. R1: add `export const probe = window.location;` to `packages/app/src/data/store/log.ts`, run
    `tsc --noEmit -p packages/app/tsconfig.data.json`. I predict NO error at the migrated tree, and an error for the same probe under
 <!-- doc-path-check: ignore-next-line -->

@@ -16,7 +16,6 @@
 
 import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
-import { MAIN_SUBPROTOCOL } from '@epicenter/sync';
 import { expectErr } from 'wellcrafted/testing';
 import { type AuthFetch, isCallbackAuthClient } from './auth-contract.ts';
 import {
@@ -243,23 +242,6 @@ test('getProfile reads the broker projection, never the server transport', async
 	expect(calls[0]?.url).toBe(
 		'http://127.0.0.1:39130/_epicenter/account/http?path=%2Fapi%2Fsession',
 	);
-});
-
-test('a retired desktop account cannot open a socket', async () => {
-	const startup = createDesktopBrokerAuth({
-		bootstrap,
-		brokerBaseURL: 'http://127.0.0.1:39130',
-		fetch: async () => new Response(null, { status: 202 }),
-	});
-	const auth = startup!;
-	const account = selectedAccount(auth);
-	await auth.signOut();
-	await expect(
-		account.openWebSocket({
-			url: 'wss://api.epicenter.so/api/store/v1/sync',
-			protocols: [MAIN_SUBPROTOCOL],
-		}),
-	).rejects.toMatchObject({ name: 'OpenWebSocketDenied', code: 'signed-out' });
 });
 
 test('a late HTTP completion cannot republish an account after sign-out', async () => {

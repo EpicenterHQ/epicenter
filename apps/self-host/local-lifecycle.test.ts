@@ -1,15 +1,14 @@
-/** Real Bun issuer lifecycle: named session, socket update, local blobs, and restart. */
+/** Real Bun issuer lifecycle: named session, local blobs, and restart. */
 import { expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { decodeFrame, encodeFrame } from '@epicenter/app/sync';
 import { openSelfHostAuth } from '@epicenter/server/self-host-auth/bun';
 import { createAuthenticator } from '../../packages/server/evidence/enrollment/authenticator.js';
 
-test('one Bun process persists enrollment, sync, and local blobs across restart', async () => {
+test('one Bun process persists enrollment and local blobs across restart', async () => {
 	const root = mkdtempSync(join(tmpdir(), 'self-host-local-lifecycle-'));
 	const backup = mkdtempSync(join(tmpdir(), 'self-host-local-backup-'));
 	const reservation = Bun.serve({ port: 0, fetch: () => new Response() });
@@ -121,62 +120,6 @@ test('one Bun process persists enrollment, sync, and local blobs across restart'
 		auth.close();
 		await start();
 		const headers = { authorization: `Bearer ${token}` };
-		const currentUrl = `${origin}/api/apps/so.epicenter.notes/personal/data/test.notes/current`;
-		const current = await fetch(currentUrl, {
-			method: 'POST',
-			headers,
-			body: new Uint8Array([1, 2, 3]),
-		});
-		expect(current.status).toBe(200);
-		const firstCapture = new Uint8Array(await current.arrayBuffer());
-		const socketUrl = `${origin.replace('http:', 'ws:')}/api/store/v1/sync?appId=so.epicenter.notes&scope=personal&dataId=test.notes&generation=1`;
-		const socket = new WebSocket(socketUrl, ['epicenter', `bearer.${token}`]);
-		await new Promise<void>((resolve, reject) => {
-			socket.addEventListener('open', () => resolve(), { once: true });
-			socket.addEventListener(
-				'error',
-				() => reject(new Error('WebSocket upgrade failed')),
-				{ once: true },
-			);
-		});
-		expect(socket.protocol).toBe('epicenter');
-		const acknowledged = new Promise<void>((resolve, reject) => {
-			socket.addEventListener('message', async (event) => {
-				const bytes = new Uint8Array(
-					await (event.data instanceof Blob
-						? event.data.arrayBuffer()
-						: event.data),
-				);
-				const frame = decodeFrame(bytes).data;
-				if (frame?.kind === 'ack' && frame.submission === 1) resolve();
-			});
-			socket.addEventListener(
-				'error',
-				() => reject(new Error('Sync socket failed')),
-				{ once: true },
-			);
-		});
-		socket.send(
-			encodeFrame({
-				kind: 'push',
-				submission: 1,
-				chunk: 0,
-				chunks: 1,
-				bytes: new Uint8Array([4, 5]),
-			}),
-		);
-		await acknowledged;
-		socket.close();
-		const updatedCapture = new Uint8Array(
-			await (
-				await fetch(currentUrl, {
-					method: 'POST',
-					headers,
-					body: new Uint8Array([9]),
-				})
-			).arrayBuffer(),
-		);
-		expect(updatedCapture).not.toEqual(firstCapture);
 		const bytes = new Uint8Array([0, 1, 2, 255]);
 		const published = await fetch(`${origin}/api/blobs/personal/alice/public`, {
 			method: 'POST',
@@ -229,7 +172,7 @@ test('one Bun process persists enrollment, sync, and local blobs across restart'
 		);
 		const wavUrl = ((await wavResponse.json()) as { url: string }).url;
 		const { chromium } = createRequire(
-			new URL('../../packages/app/src/data/package.json', import.meta.url),
+			new URL('../../packages/ui/package.json', import.meta.url),
 		)('playwright') as typeof import('playwright');
 		const browser = await chromium.launch({
 			headless: true,
@@ -295,14 +238,6 @@ test('one Bun process persists enrollment, sync, and local blobs across restart'
 		rmSync(root, { recursive: true, force: true });
 		cpSync(join(backup, 'snapshot'), root, { recursive: true });
 		await start();
-		const reopened = await fetch(currentUrl, {
-			method: 'POST',
-			headers,
-			body: new Uint8Array([9]),
-		});
-		expect(new Uint8Array(await reopened.arrayBuffer())).toEqual(
-			updatedCapture,
-		);
 		expect(new Uint8Array(await (await fetch(url)).arrayBuffer())).toEqual(
 			bytes,
 		);

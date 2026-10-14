@@ -17,8 +17,6 @@
 	// Named users enroll through the auth owner. INSTANCE_TOKEN no longer authorizes requests.
 	"durable_objects": {
 		"bindings": [
-			{ "name": "STORE_AUTHORITY", "class_name": "StoreAuthority" },
-			{ "name": "GENERATIONS_LEDGER", "class_name": "GenerationsLedger" },
 			{ "name": "SELF_HOST_AUTH", "class_name": "SelfHostAuthOwner" }
 		]
 	},

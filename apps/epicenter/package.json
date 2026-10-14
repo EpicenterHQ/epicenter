@@ -41,7 +41,6 @@
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/server": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",
-		"@epicenter/sync": "workspace:*",
 		"@epicenter/todos": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@epicenter/whispering": "workspace:*",
@@ -49,8 +48,7 @@
 		"@tauri-apps/api": "catalog:",
 		"hono": "catalog:",
 		"mime": "catalog:",
-		"wellcrafted": "catalog:",
-		"@epicenter/app": "workspace:*"
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@sveltejs/vite-plugin-svelte": "catalog:",

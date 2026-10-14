@@ -62,6 +62,7 @@ prefix is the app id for every application.
 - Tests that pass a custom `runtime` to substitute sqlite and blobs doubles
   lose that option; they mock the seam, as Whispering's boot-failure test
   already does, or open the store directly.
+<!-- doc-path-check: ignore-next-line -->
 - `packages/app/README.md` changes wherever it describes runtime selection,
   `settingsKey`, the `${settingsKey}` storage keys, and the host AI
   composition helpers, and its caveat that TypeScript cannot prove a custom

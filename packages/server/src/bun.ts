@@ -59,8 +59,6 @@ export { createServerApp } from './server-app.js';
 // the Bun entry validates `process.env` against it at boot (merging its own
 // process config and any secrets it re-requires).
 export { ServerBindings } from './server-bindings.js';
-export { openBunStoreSync } from './store-sync/bun.js';
-export { mountStoreSyncApp } from './store-sync/mount.js';
 // Public Hono context types: the portable `Env`, the cloud's `CloudEnv`, and the
 // `ResolveBearerPrincipal<E>` seam the dev Bun entry closes its wrapper over for the smoke.
 export type {

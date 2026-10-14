@@ -1,59 +1,40 @@
 # Epicenter API (Hosted Personal Cloud)
 
-Epicenter Cloud Worker. Handles authentication, real-time sync, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
+Epicenter Cloud Worker. Handles authentication, hosted blobs, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
 This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The self-hosted single-partition instance lives in the sibling `apps/self-host`; it resolves one operator bearer to the literal `instance` principal, has no billing surface, and (because it composes no Better Auth) no Postgres either (ADR-0075, ADR-0076).
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See `apps/self-host` for the self-hosted reference and the trust model below.
 
-Runs on Cloudflare Workers with Durable Objects. Store sync is one WebSocket
-route, `/api/store/v1/sync`, mounted by `mountStoreSyncApp`
-(`packages/server/src/store-sync/`). It resolves one Durable Object per
-(principal, application id, generation), named
-`principals/<principalId>/data/<dataId>/generations/<generation>`, holding an
-opaque positional log (ADR-0292, ADR-0298).
+Runs on Cloudflare Workers with Durable Objects. Folder data syncs over plain
+Git with a token to a server the person chooses (ADR-0521); the hosted Git
+module is unbuilt. The GitHub connector (`worker/git-connector/`) still relays
+the browser's Git to GitHub until it is replaced.
 
-The principal is stamped from the resolved bearer and the Durable Object is
-addressed by it, so a client supplies a workspace id and a cursor and nothing
-else. There is no catalog, grant table, or authorization lookup, and no value a
-client can put in the query that reaches another partition: the isolation is
-structural rather than checked. **Being signed in on two devices is the whole of
-the sharing model.** Both devices resolve to one principal, address one
-authority, and converge; nothing is paired, invited, or approved.
-
-The authority reads nothing it stores (ADR-0298). It holds opaque bytes, hands
-them back in order, and imports neither Yjs nor a workspace.
+The Yjs store sync this Worker used to serve is removed. Its Durable Object
+classes, `StoreAuthority` and `GenerationsLedger`, stay exported and empty
+(`packages/server/src/retired-sync.ts`) so a deploy keeps the data they stored;
+deleting that data is a `deleted_classes` migration nobody has run.
 
 ## Why a hub exists
 
 Local-first doesn't mean no server. It means your data lives on your machine and you aren't dependent on a cloud service to function. But some operations genuinely need a single authority: user identity, API key storage, AI proxying. Trying to make every device a peer for these operations led to three failed attempts at distributed key management before we split into hub (central authority) and local (device-side execution).
 
-The hub handles auth, sync relay, and AI. Local servers handle filesystem access, offline editing, and low-latency operations. Neither tries to do the other's job. See [Why Epicenter Split Into Hub and Local Servers](/docs/articles/why-epicenter-split-into-hub-and-local-servers.md) for the full story.
+The hub handles auth, blobs, and AI. Local servers handle filesystem access, offline editing, and low-latency operations. Neither tries to do the other's job. See [Why Epicenter Split Into Hub and Local Servers](/docs/articles/why-epicenter-split-into-hub-and-local-servers.md) for the full story.
 
 ## Stack and priorities
 
 Hono handles HTTP routing. We originally wanted Elysia: it's faster, the API is more ergonomic, and it runs natively on Bun. But Elysia depends on Bun-specific APIs that don't exist in the Cloudflare Workers runtime, and Workers compatibility was non-negotiable. Hono runs on Cloudflare Workers, Node.js, Deno, Bun, and AWS Lambda, so when the server moved to a second runtime (ADR-0066), the route layer came along for free.
 
-Cloudflare Durable Objects are the hosted deployment target. Three things make them a natural fit for a store authority:
-
-- **Single-threaded per object.** Each authority runs in its own isolate. No mutex, no race conditions on the log. The runtime guarantees it.
-- **Built-in SQLite.** The update log lives inside the Durable Object's storage. No external database for sync state, no connection pooling, no cold-start latency from network hops.
-- **WebSocket Hibernation.** Idle connections don't consume compute. A user can leave a tab open for hours and the object sleeps until the next message arrives. Costs stay proportional to actual sync traffic, not connection count. A woken object rebuilds each socket's position from the attachment the socket carries.
-
-`StoreAuthority` (`packages/server/src/store-sync/authority.ts`) is a thin
-adapter and nothing more. Every rule about who has been sent what lives in
-`@epicenter/app/sync`, so what is deployed here and what the transport's tests
-drive are the same object rather than two that agree today. Routes, auth, AI,
-and validation are plain runtime-portable Hono.
+Cloudflare Workers are the hosted deployment target. Durable Objects hold per-principal state where one object per person is the natural owner, such as a GitHub connection. Routes, auth, AI, and validation are plain runtime-portable Hono.
 
 `apps/self-host` is the sibling deployable: the single-partition instance, a Bun
 binary or a Cloudflare Worker that composes no Better Auth and no Postgres
 (ADR-0075, ADR-0076), so the whole box is one bearer token. It is
-community-supported, not Epicenter-operated, and it does not mount store sync
-today. `apps/api/server.ts` here is this hosted cloud on Bun (local dev and the
+community-supported, not Epicenter-operated. `apps/api/server.ts` here is this hosted cloud on Bun (local dev and the
 runtime-parity smoke), booting the same composition against plain Postgres and
 any S3 endpoint with no Cloudflare account. The surfaces that need Worker-only
-bindings are absent there: store sync and attach ride Durable Objects, the
+bindings are absent there: the GitHub connector rides a Durable Object, the
 dashboard shell comes from `ASSETS`, and billing needs the Autumn secret and the
 after-response drain. `runtime-profile.test.ts` is where that divergence is
 declared and checked against both entries.
@@ -112,11 +93,10 @@ Cloudflare Workers
 │   ├── /api/session           the principal projection
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   ├── /api/blobs/personal/:principalId/:visibility owner-pinned hosted blobs (S3-compatible backend)
-│   ├── /api/billing/*         Autumn (hosted-only, worker/billing/)
-│   └── /api/store/v1/sync     store sync upgrade (mountStoreSyncApp)
+│   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
-├── StoreAuthority (Durable Object, SQLite-backed)
-│   └── One opaque log per (principal, application id, generation)
+├── GitHubConnection (Durable Object): one per principal
+└── StoreAuthority, GenerationsLedger (Durable Objects, empty): the retired store sync, kept so a deploy keeps their data
 ```
 
 API keys for AI providers are environment secrets (`wrangler secret put`). They never leave the hub. The client sends a session token, the hub validates it and swaps in the real key before forwarding to the provider.

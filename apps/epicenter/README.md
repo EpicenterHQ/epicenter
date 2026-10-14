@@ -506,11 +506,11 @@ inference requests identify an immutable connection ID and captured access
 version. Apps receive `hasApiKey`, never the stored key. Their workflow choices
 remain separate. See the [App API](../../packages/app/README.md).
 
-Run `bun packages/app/scripts/shared-ai-catalog.native.mjs` from the repository
+Run `bun packages/ai/scripts/shared-ai-catalog.native.mjs` from the repository
 root for native acceptance with two installed test applications. The runner
 uses a disposable profile and keychain service, restarts both native and Bun
 processes, and checks SSE recovery and request cancellation. See the
-[procedure and recorded evidence](../../packages/app/scripts/shared-ai-catalog-native/README.md)
+[procedure and recorded evidence](../../packages/ai/scripts/shared-ai-catalog-native/README.md)
 for build prerequisites and the scope of the fixture.
 Add `--whispering` with an existing speech fixture and cached model to verify
 the product's desktop picker, imported-audio transcription, and saved result

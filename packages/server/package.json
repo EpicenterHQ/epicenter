@@ -24,11 +24,8 @@
 		"@epicenter/blobs": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",
-		"@epicenter/sqlite": "workspace:*",
-		"@epicenter/sync": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"@simplewebauthn/server": "13.3.2",
-		"@y/y": "14.0.0-rc.26",
 		"arktype": "catalog:",
 		"aws4fetch": "catalog:",
 		"better-auth": "catalog:",
@@ -38,8 +35,7 @@
 		"jose": "catalog:",
 		"nanoid": "catalog:",
 		"pg": "^8.20.0",
-		"wellcrafted": "catalog:",
-		"@epicenter/app": "workspace:*"
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.20.3",

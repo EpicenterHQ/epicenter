@@ -13,6 +13,7 @@ inventing its own storage and schema interpretation.
 
 `openLocal` and `openPersonal` already own separate lifetimes.
 `@epicenter/app/open` exports the explicit store openers from
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/src/open-store.ts`. Independent capability constructors and
 store-owned blobs are implemented. `defineStore` declares their data schema.
 Matter's `createVault` discovers table folders through `matter.json` and follows

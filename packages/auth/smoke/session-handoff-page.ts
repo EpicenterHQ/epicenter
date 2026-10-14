@@ -1,4 +1,3 @@
-import { bearerSubprotocol, MAIN_SUBPROTOCOL } from '@epicenter/sync';
 import { createSessionHandoffClient } from '../src/session-handoff-client.js';
 
 const baseURL = document.body.dataset.authOrigin;
@@ -54,45 +53,7 @@ if (document.body.dataset.role === 'hosted') {
 			principalId: string;
 			email: string;
 		};
-		const protocol = bearerSubprotocol(token);
-		const socketResult = await new Promise<{
-			protocol: string;
-			message: string;
-		}>((resolve, reject) => {
-			const socket = new WebSocket(
-				`${baseURL.replace('http:', 'ws:')}/socket`,
-				[MAIN_SUBPROTOCOL, protocol],
-			);
-			const timeout = setTimeout(() => {
-				socket.close();
-				reject(new Error('Socket timed out'));
-			}, 5_000);
-			socket.addEventListener('open', () => socket.send('browser-proof'));
-			socket.addEventListener('error', () => {
-				clearTimeout(timeout);
-				reject(new Error('Socket failed'));
-			});
-			socket.addEventListener(
-				'message',
-				(event) => {
-					clearTimeout(timeout);
-					const result = {
-						protocol: socket.protocol,
-						message: String(event.data),
-					};
-					socket.addEventListener('close', () => resolve(result), {
-						once: true,
-					});
-					socket.close(1000, 'proof complete');
-				},
-				{ once: true },
-			);
-		});
 		// Report facts, never the credential itself.
-		return {
-			principal,
-			socket: socketResult,
-			encodedPadding: protocol.includes('%3D'),
-		};
+		return { principal };
 	});
 }

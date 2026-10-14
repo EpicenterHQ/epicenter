@@ -1,24 +1,22 @@
 # Trust model
 
 Epicenter does not encrypt your data before syncing it. Whoever operates the
-server holds your rows, your field values, and your prose in the clear. That one
-decision is the trust model, and everything below is a consequence of it.
+server your data syncs with holds your files in the clear. That one decision is
+the trust model, and everything below is a consequence of it.
 
-This page describes what the code does today. The files that carry it:
+This page describes what the code does today. A data folder is a directory of
+Markdown and JSON files with Git history beside them, and every device you use
+keeps the whole folder (ADR-0532). It syncs over plain Git, with a token, to the
+remote in its own `remote.origin.url` (ADR-0521). The files that carry it:
 
-- `packages/server/src/store-sync/authority.ts`: the authority, one Durable
-  Object per principal, application, and generation (ADR-0292, ADR-0298)
-- `packages/server/src/store-sync/mount.ts`: the authenticated upgrade onto it
-- `packages/app/src/data/store/store.ts`: the client-owned store
-- `packages/app/src/data/store/browser.ts`: local persistence, in the client
+- `packages/folder/src/git/`: history, and the transport that pushes and fetches
+- `apps/api/worker/git-connector/`: the hosted relay a browser uses to reach
+  GitHub today, which ADR-0521 replaces with a Git server the person chooses
+- `packages/server/src/s3-blob-store.ts`: hosted blobs
 
-The shape changed with ADR-0298, restoring ADR-0218, and is worth stating
-precisely, because it moves
-the trust boundary in the direction this page is about: **the authority reads
-nothing it stores.** It holds opaque bytes, hands them back in order, and has no
-Yjs import and no verb that could interpret one. What the server can still see
-is what it is handed and when, plus everything auth needs to know about who you
-are; what it no longer does is read a row.
+The Yjs store sync that came before this, an authority that held each document's
+updates as opaque bytes, is removed. Its Durable Objects remain, empty, only so a
+deploy does not delete what they stored (`packages/server/src/retired-sync.ts`).
 
 ## We used to encrypt at rest. We stopped.
 
@@ -30,47 +28,39 @@ The full argument is in `docs/articles/20260615T140000-dont-encrypt-the-data-don
 
 ## What the server sees
 
-Nothing is encrypted before it leaves your device, so the bytes the authority
-holds are your plaintext document updates. Anyone who operates the authority can
-decode them with an ordinary Yjs library.
+Nothing is encrypted before it leaves your device, so the server your folder
+syncs with holds your files as files: readable Markdown and JSON, with their
+whole Git history. Whoever operates that server can read them with `git clone`.
 
-What the authority itself does is narrower, and the difference is worth being
-exact about because it is easy to overstate in either direction. **The authority
-reads nothing it stores** (ADR-0298). It appends opaque entries, hands them back
-in order, and folds acknowledged log prefixes. Nothing
-in `packages/server/src/store-sync/authority.ts` imports Yjs or a workspace, and
-there is no verb there that could interpret an update. So the honest statement
-is not "the server reads your rows" and not "the server cannot read your rows":
-it is that the server does not read them, and could, because it holds them in
-the clear.
+Who that is depends on the remote you choose:
 
-That refusal is what a blind server would also give you, minus the
-end-to-end encryption. What you give up by not encrypting is the guarantee: an
-operator, a bug, or a subpoena can still reach the plaintext. What you keep is
-that a future server-side feature (search, compaction, validation on the way in)
-is a decision rather than a rebuild.
+| Remote | Who can read your files |
+| --- | --- |
+| A Git server you run | you, and anyone who reaches your box |
+| Epicenter's hosted Git (ADR-0521, unbuilt) | Epicenter's operators |
+| GitHub, GitLab, any other host | that host's operators |
 
-Content is only half of what a server learns. Sealed payloads would still leave
-the routing in the clear, so the server sees the metadata around the bytes: the
-authenticated principal id, the application's workspace id, and the timing,
-size, and client IP of every request. That envelope outlives any future blind server,
-which stops reading the values but still routes them; sealing a payload hides
-what is inside it, not the fact that your phone and laptop wrote at this minute.
-Run the deployment yourself and the metadata is yours. Use Epicenter's and it is
-a who-writes-when graph Epicenter can read.
+The GitHub relay in `apps/api/worker/git-connector/` passes every byte a
+browser exchanges with GitHub through Epicenter's Worker; it stores none of
+them, but Epicenter can read them in transit. A desktop app talks to its remote
+directly with your own Git credentials, and Epicenter sees nothing.
+
+Content is only half of what a server learns. The server also sees the metadata
+around the bytes: who pushed, to which repository, when, how much, and from which
+IP. Run the server yourself and that metadata is yours too.
 
 ## The live attach relay follows the same trust model
 
-Super Chat remote attach adds a second, live channel beside CRDT sync, but not a second privacy promise (ADR-0115).
+Super Chat remote attach adds a second, live channel beside folder sync, but not a second privacy promise (ADR-0115).
 
-- **The authority holds plaintext.** It decrypts nothing because nothing is encrypted, and its operator can decode what it holds. It does not read it itself (ADR-0298): serving a sleeping device's catch-up needs the bytes in order, not their meaning.
+- **The sync server holds plaintext.** It decrypts nothing because nothing is encrypted, and its operator can read what it holds.
 - **The live attach relay forwards plaintext live frames.** It carries a Super Chat session (prompts, tool results, approvals) between two of your own signed-in devices, addressed by `principalId`, `hostId`, `deviceId`, and `attachId`. It stores no frames and exposes no route/capability/tool surface, but hosted Epicenter may observe the live payloads while forwarding them. It is endpoint-addressed, not route-addressed, so it is not a resurrection of the deleted relay floor (ADR-0086, ADR-0115).
 
 Confidentiality follows topology. On Cloud, the operator can read live attach frames just as it can read your synced data. On self-host the operator is you. The private answer is to run the deployment yourself.
 
 ## Big files (audio, images) follow the same rule
 
-Rows and documents ride their own planes, but large binaries cannot, so
+Rows and documents ride Git, but large binaries do not belong in history, so
 audio and images go to a separate immutable blob store: an S3-compatible bucket
 reached through `packages/server/src/s3-blob-store.ts`. Those bytes are **not
 encrypted** either. Each object has a random opaque `BlobId`; SigV4 signs the
@@ -104,20 +94,16 @@ Hosted Epicenter signs in with social OAuth: `packages/server/src/auth/base-conf
 
 A self-hosted instance does not use OAuth at all, so there is no Google app to register for your own box. It authenticates with one operator-supplied static bearer (`INSTANCE_TOKEN`): you generate it once (`bun run gen-token`), supply it through the environment, and paste it into the client; every request is constant-time compared against it and resolves the one `principals/instance` partition. No sign-in flow, no first-boot minting, no mode to pick. That is `docs/adr/0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md`, amended by ADR-0092, which supersedes ADR-0070 and an earlier first-boot-minting direction that never became a published ADR. The cost, named honestly: removing one person from a multi-person instance means rotating the token and redistributing it, because per-person revocation is a deliberately unbuilt seam rather than a shipped feature.
 
-Because the instance has no OAuth and no sessions, it composes no Better Auth and no Postgres at all (ADR-0076): the bearer is constant-time compared in-process, and there is nothing for the operator to provision but the token. Neither entry point constructs a database (ADR-0226, ADR-0227), which is what lets the same instance run as a single Bun binary or a Cloudflare Worker. Store sync itself is not mounted on an instance today; only the hosted Worker resolves a store authority.
+Because the instance has no OAuth and no sessions, it composes no Better Auth and no Postgres at all (ADR-0076): the bearer is constant-time compared in-process, and there is nothing for the operator to provision but the token. Neither entry point constructs a database (ADR-0226, ADR-0227), which is what lets the same instance run as a single Bun binary or a Cloudflare Worker.
 
-## Where this is heading: the anchor
+## Where this is heading
 
-Privacy stops being an encryption layer and becomes a topology choice. The direction, validated in a throwaway local spike but not product code yet, is Iroh: every device gets a public-key identity and opens a direct, end-to-end-encrypted QUIC connection addressed by that key. When two devices cannot connect directly, a relay forwards the sealed frames it cannot decode.
-
-The one place a server still has to be an endpoint is when your phone edits and your laptop is asleep: something always-on has to hold that update until the laptop wakes. That something is the anchor, and the anchor decrypts and stores. So "do we encrypt the data" becomes "who runs the anchor":
-
-- Bring your own anchor, and nobody else ever holds your data. This is the privacy choice, stronger than the encrypted key-value ever was, with zero encryption code.
-- Trust Epicenter's anchor, the default, and we hold your data, the same promise as today.
-
-"Become the server" shrinks to "become the anchor": one always-on node instead of a whole auth-and-sync stack. The browser stays a relay-bound leaf (WASM, no UDP hole-punching), and the relay still cannot read the frames. Client-encrypted backup snapshots are the one place a sealed blob still earns its keep, and that primitive returns, minimal, when backup is built.
-
-The local spike proved the shape worth keeping: a Mac Studio home anchor persisted a CRDT doc reached from a MacBook on phone hotspot; a JS/Yjs runtime then used a Rust/Iroh sidecar to stream live updates into that anchor and hydrate them back. That does not solve pairing, auth, packaging, browser access, or serving more than one document. It does prove the important boundary: TypeScript can keep owning Yjs/app semantics while Rust only owns native reachability.
+Privacy is a choice of remote, not an encryption layer. A folder's remote can be
+any Git server, so "who can read my data" is answered by "whose server is in
+`remote.origin.url`". Epicenter ships the apps; you choose who holds the synced
+copy, and every device keeps the full folder either way (ADR-0521). The private
+answer is to run the Git server yourself; the convenient one is to let
+Epicenter run it.
 
 ## Migration
 

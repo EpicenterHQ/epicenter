@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const root = process.cwd(),
-	req = createRequire(`${root}/packages/app/package.json`),
+	req = createRequire(`${root}/packages/ui/package.json`),
 	appReq = createRequire(`${root}/apps/whispering/package.json`);
 const { chromium } = await import(req.resolve('playwright'));
 const { createServer } = await import(req.resolve('vite'));

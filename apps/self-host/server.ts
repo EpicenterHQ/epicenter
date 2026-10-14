@@ -6,10 +6,8 @@ import {
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
-	mountStoreSyncApp,
 	mountTranscriptionApp,
 	OAuthError,
-	openBunStoreSync,
 	openLocalBlobStore,
 	type ResolveBearerPrincipal,
 	rateLimit,
@@ -61,7 +59,6 @@ export function startSelfHostServer(): void {
 		origin,
 		callbacks,
 	});
-	const sync = openBunStoreSync(paths.sync);
 	const localBlobs =
 		env.BLOBS_BACKEND === 's3' ? null : openLocalBlobStore(paths.blobs);
 	const blobStore = s3Blobs ?? localBlobs!.store;
@@ -89,11 +86,6 @@ export function startSelfHostServer(): void {
 	app.get('/auth/sign-in.js', () => signInScript());
 	app.all('/auth/*', (c) => authentication.auth.handle(c.req.raw));
 	mountSessionApp(app, { auth });
-	mountStoreSyncApp(app, {
-		resolveBearerPrincipal,
-		resolveStore: sync.resolveStore,
-		upgrade: sync.upgrade,
-	});
 	mountInferenceApp(app, {
 		auth,
 		policies: [rateLimit({ requests: 120, windowSeconds: 60 })],
@@ -105,53 +97,17 @@ export function startSelfHostServer(): void {
 	mountPersonalAuthorityBlobs(app, { auth, resolveStore: () => blobStore });
 	const requests = new Set<Promise<Response>>();
 	let closing: Promise<void> | undefined;
-	const server = Bun.serve<{
-		name: string;
-		generation: number;
-		cursor: number;
-		authorizedUntil: number;
-	}>({
+	const server = Bun.serve({
 		port,
-		async fetch(request, server) {
+		async fetch(request) {
 			if (closing) return new Response('Server is stopping', { status: 503 });
 			const response = Promise.resolve(app.fetch(request, env));
 			requests.add(response);
 			try {
-				const result = await response;
-				const name = result.headers.get('x-epicenter-bun-upgrade');
-				if (name) {
-					const query = new URL(request.url).searchParams;
-					const offered = request.headers.get('sec-websocket-protocol') ?? '';
-					const upgraded = server.upgrade(request, {
-						data: {
-							name,
-							generation: Number(query.get('generation')),
-							cursor: Number(query.get('cursor') ?? '0'),
-							authorizedUntil: Date.now() + 600_000,
-						},
-						headers: offered
-							? { 'sec-websocket-protocol': 'epicenter' }
-							: undefined,
-					});
-					return upgraded
-						? undefined
-						: new Response('WebSocket upgrade failed', { status: 500 });
-				}
-				return result;
+				return await response;
 			} finally {
 				requests.delete(response);
 			}
-		},
-		websocket: {
-			open(socket) {
-				sync.connect(socket);
-			},
-			message(socket, message) {
-				sync.receive(socket, message);
-			},
-			close(socket) {
-				sync.leave(socket);
-			},
 		},
 	});
 	const shutdown = () => {
@@ -159,7 +115,6 @@ export function startSelfHostServer(): void {
 			server.stop(true);
 			// Closing sockets does not stop WebAuthn verification already awaiting crypto.
 			await Promise.allSettled(requests);
-			sync.close();
 			localBlobs?.close();
 			authentication.close();
 			releaseDataRoot();

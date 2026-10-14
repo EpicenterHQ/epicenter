@@ -25,20 +25,17 @@ anyone who forks and distributes a modified binary shares the changes back.
   Packages:
     packages/agent           @epicenter/agent
     packages/agent-protocol  @epicenter/agent-protocol
-    packages/app-shell       @epicenter/app-shell
     packages/auth            @epicenter/auth
     packages/ai              @epicenter/ai
     packages/blobs           @epicenter/blobs
     packages/client          @epicenter/client
     packages/constants       @epicenter/constants
-    packages/app             @epicenter/app
     packages/matter-core     @epicenter/matter-core
     packages/principal       @epicenter/principal
     packages/recorder        @epicenter/recorder
     packages/server          @epicenter/server
     packages/sqlite          @epicenter/sqlite
     packages/svelte          @epicenter/svelte
-    packages/sync            @epicenter/sync
     packages/ui              @epicenter/ui
     packages/vite-config     @epicenter/vite-config
 

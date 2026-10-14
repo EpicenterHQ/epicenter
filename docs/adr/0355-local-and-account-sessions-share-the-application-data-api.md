@@ -13,6 +13,7 @@
 
 ## Context
 
+<!-- doc-path-check: ignore-next-line -->
 `createEpicenter({ appId, definition, sqlite })` in `packages/app/src/index.ts`
 currently opens one account-bound session through `open(account)`. The store
 apps gate interaction on identity. An existing account replica can open offline,

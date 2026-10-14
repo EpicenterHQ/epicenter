@@ -29,12 +29,6 @@ declare namespace Cloudflare {
 		BLOBS_S3_ENDPOINT: string;
 		BLOBS_S3_ACCESS_KEY_ID: string;
 		BLOBS_S3_SECRET_ACCESS_KEY: string;
-		STORE_AUTHORITY: DurableObjectNamespace<
-			import('./worker/index').StoreAuthority
-		>;
-		GENERATIONS_LEDGER: DurableObjectNamespace<
-			import('./worker/index').GenerationsLedger
-		>;
 		GIT_GITHUB_CONNECTIONS: DurableObjectNamespace<
 			import('./worker/index').GitHubConnection
 		>;

@@ -16,7 +16,6 @@
 	"dependencies": {
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",
-		"@epicenter/sync": "workspace:*",
 		"arktype": "catalog:",
 		"wellcrafted": "catalog:"
 	},

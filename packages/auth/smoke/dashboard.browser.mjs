@@ -24,7 +24,7 @@ import { mountAuthRoutes } from '../../server/src/routes/auth.js';
 import { mountSessionApp } from '../../server/src/routes/session.js';
 
 const { chromium } = createRequire(
-	new URL('../../app/package.json', import.meta.url),
+	new URL('../../ui/package.json', import.meta.url),
 )('playwright');
 const { Hono } = createRequire(
 	new URL('../../server/package.json', import.meta.url),

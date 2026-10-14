@@ -6,9 +6,9 @@ shared credential owner in `@epicenter/server/self-host-auth` stores admission,
 passkeys, sessions, and recovery grants together. Cloud billing remains in
 `apps/api`.
 
-Both runtime entries serve passkey sign-in, named sessions, Personal sync, and
-hosted blobs. The Bun reference runs one long-lived process and stores auth,
-sync, and blobs under one persistent data root. Applications fix their issuer
+Both runtime entries serve passkey sign-in, named sessions, and hosted blobs.
+The Bun reference runs one long-lived process and stores auth and blobs under
+one persistent data root. Applications fix their issuer
 per build. Rebuild and redeploy an app to change its server. Optional passwords
 remain unbuilt.
 
@@ -23,8 +23,9 @@ bun dev:self-host
 The default issuer is `http://localhost:8787`. Set `SELF_HOST_DATA_ROOT` to a
 persistent directory before running the server or operator commands. Relative
 paths resolve from `apps/self-host`; the default is `apps/self-host/data`.
-The root contains `auth.sqlite`, `blobs.sqlite`, `owner.sqlite`, and a `sync/`
-directory of per-document SQLite databases. SQLite may create `-wal` and `-shm`
+The root contains `auth.sqlite`, `blobs.sqlite`, and `owner.sqlite`. A `sync/`
+directory left by an earlier version holds the retired Yjs store sync's data;
+nothing reads it, and it can be archived or removed. SQLite may create `-wal` and `-shm`
 sidecars. Run one active Bun server per root. A second server is refused.
 For a long-lived installation, run `bun apps/self-host/server.ts` under your
 process supervisor; `bun dev:self-host` restarts on source changes.
@@ -58,8 +59,8 @@ Stop the Bun server and wait for it to exit before taking a snapshot. Copy the
 entire data root, including SQLite `-wal` and `-shm` sidecars if present, to a
 protected backup location. Restart the server after the copy completes. To
 restore, stop the server, move the damaged root aside, copy the entire saved
-root into place, and start the server. Check sign-in, Personal current download,
-and a hosted-blob read before admitting writes. Do not copy a live SQLite root
+root into place, and start the server. Check sign-in and a hosted-blob read
+before admitting writes. Do not copy a live SQLite root
 as a consistency guarantee. If S3 is selected, protect its bucket separately
 and restore it to the same point as the data root. Operator commands share the
 auth file but do not start another server.
@@ -173,5 +174,5 @@ bun apps/self-host/smoke/application.browser.mjs --worker
 
 The production Worker credential owner also has real WebAuthn and HTTP handoff
 coverage in `packages/server/evidence/enrollment`. The runtime profile checks
-that both entries mount Personal sync. `local-lifecycle.test.ts` exercises Bun
-enrollment, socket update, local publication, and restart with no S3 service.
+which surfaces both entries mount. `local-lifecycle.test.ts` exercises Bun
+enrollment, local publication, and restart with no S3 service.

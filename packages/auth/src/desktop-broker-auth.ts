@@ -1,5 +1,3 @@
-import { STORE_SYNC_ROUTE } from '@epicenter/sync';
-import { isOpenWebSocketDenial } from '@epicenter/sync/transport';
 import { Ok } from 'wellcrafted/result';
 import { createAccountManagementUrl } from './account-management.js';
 import type {
@@ -8,7 +6,7 @@ import type {
 	AuthFetch,
 	AuthState,
 } from './auth-contract.js';
-import { AuthError, OpenWebSocketDenied } from './auth-errors.js';
+import { AuthError } from './auth-errors.js';
 import type { AuthIdentityState } from './auth-identity-state.js';
 import type { AuthServer } from './auth-server.js';
 import { getProfileVia } from './read-api-session.js';
@@ -92,12 +90,10 @@ export function createDesktopBrokerAuth({
 	bootstrap = readDesktopAuthBootstrap(),
 	brokerBaseURL,
 	fetch: fetchImpl = globalThis.fetch.bind(globalThis),
-	WebSocket: WebSocketImpl = globalThis.WebSocket,
 }: {
 	bootstrap?: DesktopAuthBootstrap;
 	brokerBaseURL: string;
 	fetch?: AuthFetch;
-	WebSocket?: typeof WebSocket;
 }): AuthClient {
 	const baseURL = bootstrap.server.baseURL;
 	const origin = new URL(baseURL).origin;
@@ -178,85 +174,6 @@ export function createDesktopBrokerAuth({
 					baseURL,
 					fetch: accountFetch,
 					getProfile: () => getProfileVia(accountFetch, baseURL),
-					async openWebSocket(address) {
-						if (lifetime.signal.aborted)
-							throw OpenWebSocketDenied({ code: 'signed-out' }).error;
-						const target = new URL(address.url);
-						target.protocol = target.protocol === 'wss:' ? 'https:' : 'http:';
-						if (
-							target.origin !== origin ||
-							target.pathname !== STORE_SYNC_ROUTE.pattern
-						)
-							throw new TypeError('Account sync must target its own server.');
-						const local = new URL('/_epicenter/account/sync', brokerBaseURL);
-						local.protocol = local.protocol === 'https:' ? 'wss:' : 'ws:';
-						local.search = target.search;
-						const socket = new WebSocketImpl(local);
-						socket.binaryType = 'arraybuffer';
-						return new Promise<WebSocket>((resolve, reject) => {
-							let ready = false;
-							const timeout = setTimeout(
-								() => fail(new Error('Desktop sync handshake timed out.')),
-								30_000,
-							);
-							const abort = () =>
-								fail(OpenWebSocketDenied({ code: 'signed-out' }).error);
-							function fail(error: unknown) {
-								clearTimeout(timeout);
-								if (!ready) reject(error);
-								socket.close();
-							}
-							lifetime.signal.addEventListener('abort', abort, { once: true });
-							socket.addEventListener(
-								'close',
-								() => {
-									lifetime.signal.removeEventListener('abort', abort);
-									clearTimeout(timeout);
-									if (!ready)
-										reject(
-											new Error('Desktop sync closed before it was ready.'),
-										);
-								},
-								{ once: true },
-							);
-							socket.addEventListener(
-								'error',
-								() => fail(new Error('Desktop sync connection failed.')),
-								{ once: true },
-							);
-							socket.addEventListener(
-								'message',
-								(event) => {
-									try {
-										const message = JSON.parse(String(event.data));
-										if (message.type === 'refused') {
-											const denial = OpenWebSocketDenied({
-												code: message.code,
-											}).error;
-											if (!isOpenWebSocketDenial(denial))
-												throw new Error('Invalid desktop sync refusal.');
-											if (
-												denial.code === 'signed-out' ||
-												denial.code === 'reauth-required'
-											)
-												publish(denial.code);
-											fail(denial);
-											return;
-										}
-										if (message.type !== 'ready')
-											throw new Error('Invalid desktop sync handshake.');
-										clearTimeout(timeout);
-										ready = true;
-										resolve(socket);
-									} catch (error) {
-										fail(error);
-									}
-								},
-								{ once: true },
-							);
-							if (lifetime.signal.aborted) abort();
-						});
-					},
 				});
 	if (bootstrap.state.status !== 'signed-out' && account)
 		state = { status: bootstrap.state.status, account };

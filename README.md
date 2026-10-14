@@ -3,9 +3,9 @@
     <img width="200" src="https://github.com/user-attachments/assets/9e210c52-2740-43b6-af3f-e6eaf4b5c397" alt="Epicenter">
   </a>
   <h1 align="center">Epicenter</h1>
-  <p align="center"><strong>Local-first apps over a store you own.</strong></p>
-  <p align="center">A store's whole data set is one CRDT document on your machine, complete enough to work with the network off. Sign in on a second device and the two converge. No server holds the only copy, and no app owns your storage.</p>
-  <p align="center"><a href="apps/honeycrisp">Honeycrisp</a>, a local-first notes app, is the app built on it today.</p>
+  <p align="center"><strong>Local-first apps over files you own.</strong></p>
+  <p align="center">An app's data is a folder of Markdown and JSON files with Git history beside it, whole on every device you use. It syncs over plain Git with a server you choose, and any editor, Git tool, or agent can work on the same files.</p>
+  <p align="center"><a href="apps/todos">Todos</a>, <a href="apps/whispering">Whispering</a>, and <a href="apps/honeycrisp">Honeycrisp</a> are built on it today.</p>
   <p align="center">Run the apps freely under AGPL-3.0-or-later. <a href="#license">What that means</a>.</p>
 </p>
 
@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <a href="#the-store">The Store</a> |
+  <a href="#the-folder">The Folder</a> |
   <a href="#status">Status</a> |
   <a href="#trust-boundaries">Trust</a> |
   <a href="#repo-map">Repo Map</a> |
@@ -35,91 +35,51 @@
 
 ---
 
-## The Store
+## The Folder
 
-The hard problem with local-first apps is synchronization. If each device has
-its own SQLite file, how do you keep them in sync?
+A data folder is a directory: one Markdown file per row, `kv.json` for
+settings, `epicenter.json` describing both, and Git history beside them. The
+files are the data. There is no database behind them for an app to own.
 
-Epicenter's answer: **a database is one Yjs document, replayed in full before
-any handle exists, and the surface over it is synchronous.** A read is a
-property access, not a round trip, so nothing is awaited and nothing needs cache
-invalidation or race protection. The rich half is in there too: a row's node is
-a nested type on the row, not a second document with an address of its own.
+```ts
+import { defineFolder, defineTable, field, openFolder } from '@epicenter/folder';
 
-```typescript
-import { defineStore, defineTable, field, plainText } from '@epicenter/app';
-import { openLocal } from '@epicenter/app/open';
-
-const notesDefinition = defineStore({
-	id: 'com.example.notes',
-	kv: {},
-	tables: {
-		notes: defineTable({
-			fields: {
-				title: field.string(),
-				pinned: field.boolean(),
-				folderId: field.nullable(field.string()),
-			},
-			body: plainText(),
-		}),
-	},
+const definition = defineFolder({
+  kv: { theme: field.string() },
+  tables: {
+    todos: defineTable({ fields: { title: field.string(), done: field.boolean() } }),
+  },
 });
 
-// Opening resolves after storage acquisition and replay.
-const data = await openLocal(notesDefinition);
+const { data: folder, error } = await openFolder({ id: 'so.epicenter.todos', definition });
+if (error !== null) throw error;
 
-const note = data.tables.notes.create({ title: 'Hello', pinned: false, folderId: null });
-
-const listed = data.tables.notes.rows;             // synchronous flat rows
-const stop = data.tables.notes.subscribe(() => { /* re-read rows */ });
-
-// Before leaving the application:
-stop();
-await data.close();
+const listed = await folder.tables.todos.list();   // one { stem, result } per row file
+await folder.tables.todos.create({ fields: { title: 'Milk', done: false }, body: '' });
 ```
 
-A store definition describes durable data. `openLocal` acquires its Local store;
-`openPersonal` acquires a Personal store for an explicitly supplied account.
-Applications compose these stores with any other resources they need.
-Constructing a definition opens no storage and captures no account. It is
-release-local and never migrates your data. A row it cannot read is reported
-beside the rows it can, with the reason and the raw values intact, and an
-ordinary write repairs it.
+The same handle opens in a browser tab (the origin's private file system), a
+desktop page (`~/Epicenter/<folder-id>/`, through the desktop shell), and a Bun
+script (any directory), as
+[ADR-0533](docs/adr/0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md)
+records. A folder syncs when a person syncs: it fetches and pushes plain Git, with
+a token, to the remote in its own `remote.origin.url`
+([ADR-0521](docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
 
-The node at `body` merges per character. Declare its codec with
-`body: plainText()` and reach it with `data.tables.notes.body(note.id)`;
-Epicenter never looks inside. The database document's `kv`/`tables:<name>` shape
-is recorded in
-[ADR-0257](docs/adr/0257-the-application-document-has-named-kv-and-table-roots.md)
-and its collapse to one document in
-[ADR-0295](docs/adr/0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md).
-
-Sync is one Cloudflare Durable Object per (account, application). Being signed
-in on two devices is the entire sharing model: nothing is paired, invited, or
-approved.
-
-[Read the application API](packages/app/README.md) | [What it replaced, and why](docs/the-store-and-what-it-replaced.md)
+[Read the folder API](packages/folder/README.md)
 
 ## Status
 
-Store-backed apps run as a desktop SPA in a WebView, over a store the client owns.
-A host serves bundles and brokers credentials; it owns no application data. A
-hosted web runtime with a host-owned replica is refused, and so are third-party
-installed apps, for now.
-
-[Honeycrisp](apps/honeycrisp) is a standalone desktop notes app over native
-Markdown files. Its rich-text editor keeps a local draft and undo history;
-saved files and ordinary Git hold the durable data.
-
-Vocab and the Epicenter host now compile against the store. Whispering
-is a standalone desktop app over a Git-versioned folder of files, not the store.
-The superseded data stack was deleted before they were migrated, deliberately,
-so old data is not imported into the new model.
+Apps run in the browser and as desktop apps, over folders. Todos opens at once
+with no account and syncs through Connect; Whispering, Capture, Vocab, and
+Honeycrisp keep their data in folders too. The Yjs store and its sync were
+removed, with the Local Mail, Skills, and sync-lab apps built on them; Git
+history keeps them for a return.
 
 [Matter](apps/matter) edits user-owned Markdown folders directly and keeps a
 disposable `matter.sqlite` query mirror beside them. [Local
 Books](apps/local-books) is a headless mirror that pulls a QuickBooks account
-into local SQLite. Those two do not use the store.
+into local SQLite. Those two keep their own formats.
 
 ## Trust Boundaries
 
@@ -127,13 +87,13 @@ Pick the trust model you want.
 
 | Path | What leaves your device |
 | --- | --- |
-| Signed out | Nothing. The store is complete on the machine it opened on, and every read comes from a document already in memory. |
-| Signed in | Your application's document, as opaque update bytes, to one authority per account. |
-| Hosted Epicenter | That authority is ours, along with account and session data and any hosted feature you enable. |
+| No remote | Nothing. The folder is complete on the device that holds it. |
+| A Git remote you choose | The folder's files and history, to that server, when you sync. |
+| Hosted Epicenter | Account and session data and any hosted feature you enable; your folder too, if Epicenter's server is its remote. |
 | Self-hosted instance | You control the server, secrets, deployment, and infrastructure boundary. |
 | A provider an app calls | Whatever that app sends it: transcript text to an LLM, audio to a transcription provider. Epicenter servers are not in that path. |
 
-Signed-in sync sends your data to a trusted server that reads it in plaintext. On hosted Epicenter the authority is ours, so that data sits inside our trust boundary; self-hosting puts it on infrastructure you control, so Epicenter never holds it. See the [trust model](docs/trust-model.md) for the details, including where this is heading with the anchor.
+Sync sends your files to the server in `remote.origin.url`, which can read them in plaintext. Choosing that server is choosing who can read your data. See the [trust model](docs/trust-model.md) for the details.
 
 ## Repo Map
 
@@ -144,10 +104,12 @@ Signed-in sync sends your data to a trusted server that reads it in plaintext. O
 | [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Standalone Markdown notes. Metadata stays in frontmatter, logical folders preserve note identity, and Git records saved files. |
 | [Matter](apps/matter) | Runs, separately | Typed grid over user-owned Markdown folders. It edits ordinary `.md` files directly; `matter.sqlite` is a disposable query mirror. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
-| [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns the store authority binding, hosted-only billing, and the dashboard. |
+| [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted blobs, the AI gateways, hosted-only billing, and the dashboard. |
 | [Self-host](apps/self-host) | Reference deployable | Community-supported single-partition instance without hosted billing. |
 | [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are files in one Git-versioned folder. |
-| [vocab](apps/vocab), [Epicenter](apps/epicenter) | Compile | Migrated onto the store. |
+| [Todos](apps/todos) | Runs, development milestone | Opens at once over a folder; Connect sets its Git remote. |
+| [Vocab](apps/vocab) | Runs, development | Words and chats in a folder, with AI over `@epicenter/ai`. |
+| [Epicenter](apps/epicenter) | Runs, development | The desktop host for compiled and installed apps. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 
 ### Packages
@@ -156,9 +118,9 @@ These packages carry the main architecture.
 
 | Package | Role | License |
 | --- | --- | --- |
-| [`@epicenter/app`](packages/app) | Application declarations and lifetime, with the store, persistence, and sync engine inside the package. | AGPL-3.0-or-later |
+| [`@epicenter/folder`](packages/folder) | The data folder: tables, `kv`, files, history, and Git sync, in a browser, a desktop page, or Bun. | AGPL-3.0-or-later |
+| [`@epicenter/ai`](packages/ai) | Inference connections, the AI gateway client, and the inference picker. | AGPL-3.0-or-later |
 | [`@epicenter/sqlite`](packages/sqlite) | Neutral embedded-SQLite driver with Browser, Bun, and Durable Object adapters. It owns no product schema. | AGPL-3.0-or-later |
-| [`@epicenter/sync`](packages/sync) | The WebSocket subprotocol vocabulary both halves of a handshake must agree on. | AGPL-3.0-or-later |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |
 | [`@epicenter/server`](packages/server) | Shared Hono server library composed by the hosted API and the self-host reference deployable. | AGPL-3.0-or-later |
 
@@ -169,7 +131,7 @@ The server side is split into one shared library and two deployable folders:
 ```txt
 packages/server
   shared Hono library
-  route composition for auth, sessions, store sync, blobs,
+  route composition for auth, sessions, blobs,
   and provider-backed inference and transcription
 
 apps/api
@@ -209,7 +171,7 @@ Every app starts from the repo root. `bun dev:<app>` runs every process the app 
 | `bun dev:posthog-reverse-proxy` | PostHog reverse proxy Worker | wrangler default |
 | `bun dev:self-host` | Self-host server (needs `INSTANCE_TOKEN`) | 8787 |
 
-`bun dev:whispering` runs the standalone Whispering desktop app (`bun dev:whispering:ui` runs its page in a browser tab). `bun dev:vocab`, `bun dev:skills`, and `bun dev:epicenter` still exist, and those apps compile against the store.
+`bun dev:whispering` runs the standalone Whispering desktop app (`bun dev:whispering:ui` runs its page in a browser tab). `bun dev:todos`, `bun dev:vocab`, and `bun dev:epicenter` run those apps.
 
 The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Honeycrisp and Matter. Local Books and Local Mail run their own multi-process dev flows; their READMEs document them.
 
@@ -237,7 +199,7 @@ Durable decisions and their reasoning live in [docs/adr/](docs/adr). Specs in [s
 
 ## Contributing
 
-Contributions are welcome. Good entry points are docs, local-first infrastructure, Svelte interfaces, migrating a broken app onto the store, and small changes that make the repo easier to understand.
+Contributions are welcome. Good entry points are docs, local-first infrastructure, Svelte interfaces, moving an app onto folders, and small changes that make the repo easier to understand.
 
 [Read the Contributing Guide](CONTRIBUTING.md)
 
@@ -258,5 +220,5 @@ See the root [LICENSE](LICENSE), [FINANCIAL_SUSTAINABILITY.md](FINANCIAL_SUSTAIN
 </p>
 
 <p align="center">
-  <sub>Your data outlives the app that wrote it. Local-first, open source, built on Yjs.</sub>
+  <sub>Your data outlives the app that wrote it. Local-first, open source, built on plain files and Git.</sub>
 </p>

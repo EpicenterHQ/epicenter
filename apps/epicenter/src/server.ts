@@ -30,7 +30,6 @@ import {
 	deviceOwnerPath,
 	isDeviceOwnerPath,
 } from '@epicenter/principal';
-import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import type { Server } from 'bun';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket, getBunServer } from 'hono/bun';
@@ -45,7 +44,6 @@ import {
 	parseAccountIdentity,
 	refuseInvalidNativeGitRequest,
 } from './account-git-relay.ts';
-import { createAccountRelay } from './account-relay.ts';
 import type { AppSecretOwner } from './app-secrets.ts';
 import type { Application } from './applications.ts';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
@@ -147,8 +145,7 @@ export function createHomeServer({
 		SESSION_SHELL,
 	].join('\n');
 	const csp = contentSecurityPolicy(everyPage);
-	const { upgradeWebSocket, websocket: homeWebsocket } = createBunWebSocket();
-	const relay = createAccountRelay(homeWebsocket);
+	const { upgradeWebSocket, websocket } = createBunWebSocket();
 	const app = new Hono();
 
 	app.use('*', async (c, next) => {
@@ -430,36 +427,6 @@ export function createHomeServer({
 			return c.text('Account transport unavailable', 502);
 		}
 	});
-	app.get('/_epicenter/account/sync', requirePrivateBroker, (c) => {
-		const dataId = c.req.query('dataId') ?? '';
-		const appId = c.req.query('appId');
-		const scope = c.req.query('scope');
-		const generation = Number(c.req.query('generation'));
-		const cursor = Number(c.req.query('cursor'));
-		if (
-			!dataId ||
-			(appId !== undefined && !isAppId(appId)) ||
-			(scope !== undefined && scope !== 'personal') ||
-			(appId === undefined) !== (scope === undefined) ||
-			!Number.isSafeInteger(generation) ||
-			generation < 0 ||
-			!Number.isSafeInteger(cursor) ||
-			cursor < 0
-		)
-			return c.text('Invalid sync address', 400);
-		return relay.upgrade(
-			c,
-			desktopAuth.account,
-			STORE_SYNC_ROUTE.address(desktopAuth.baseURL, {
-				dataId,
-				generation,
-				cursor,
-				appId,
-				scope,
-			}),
-		);
-	});
-
 	app.post(ACCOUNT_CANCEL_CONNECTION_ROUTE.pattern, async (c) => {
 		const { error } = await desktopAuth.cancelConnection();
 		if (error)
@@ -869,7 +836,7 @@ export function createHomeServer({
 		}),
 	);
 
-	return { app, websocket: relay.websocket };
+	return { app, websocket };
 }
 
 /**

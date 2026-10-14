@@ -28,7 +28,8 @@
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"@epicenter/device": "workspace:*"
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",

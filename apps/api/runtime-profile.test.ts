@@ -22,7 +22,6 @@
 
 import { expect, mock, test } from 'bun:test';
 import { API_ROUTES } from '@epicenter/constants/api-routes';
-import { CURRENT_ROUTE, STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { makeSignature } from 'better-auth/crypto';
 
 // Exercise the real runtime compositions with a controllable database outage.
@@ -313,7 +312,9 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 				['GET', '/v1/audio/transcriptions'],
 				['POST', '/api/billing/plans'],
 				['GET', '/api/account'],
+				['GET', '/api/store/v1/sync'],
 				['POST', '/api/store/v1/sync'],
+				['POST', '/api/store/v1/current/so.epicenter.notes/personal/test.data'],
 				['DELETE', '/api/data/v1/test.data/generations'],
 				['POST', '/api/data/v1/test.data/generations/1'],
 			]) {
@@ -357,28 +358,6 @@ test('both runtime compositions fail closed on protected operations during a dat
 				expect(response.status).toBeGreaterThanOrEqual(500);
 				expect(databaseCalls).toBe(callsBefore + 1);
 			}
-		}
-		for (const [method, url] of [
-			['GET', `${ORIGIN}${STORE_SYNC_ROUTE.pattern}`],
-			[
-				'POST',
-				CURRENT_ROUTE.url(
-					ORIGIN,
-					'so.epicenter.notes',
-					'personal',
-					'test.data',
-				),
-			],
-		] as const) {
-			const callsBefore = databaseCalls;
-			const response = await worker(
-				new Request(url, {
-					method,
-					headers: { authorization: `Bearer ${token}` },
-				}),
-			);
-			expect(response.status).toBe(500);
-			expect(databaseCalls).toBe(callsBefore + 1);
 		}
 		for (const path of [
 			'generations',

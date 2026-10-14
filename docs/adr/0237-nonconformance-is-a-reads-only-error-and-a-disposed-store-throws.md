@@ -40,6 +40,7 @@ The mixture produced exactly the symptoms a wrong boundary produces:
   settings).
 - The sync client probed `stampError.name === 'Unstampable'` to separate a
   protocol refusal from a storage failure it could do nothing about.
+<!-- doc-path-check: ignore-next-line -->
 - `packages/app/src/data/README.md` spent paragraphs warning that
   `.data?.rows ?? []` turns an operational failure into "you have never
   written one of these". A surface that needs a standing warning against its

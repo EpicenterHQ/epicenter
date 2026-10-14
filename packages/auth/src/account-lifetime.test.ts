@@ -1,7 +1,6 @@
 /** Captured Accounts survive reauthentication and permanently retire on sign-out, replacement, and disposal. */
 import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
-import { STORE_SYNC_ROUTE } from '@epicenter/sync';
 import { expectOk } from 'wellcrafted/testing';
 import type { AuthFetch } from './auth-contract.js';
 import type { PersistedAuth } from './auth-types.js';
@@ -13,19 +12,7 @@ function setup(options: { fetch?: AuthFetch } = {}) {
 	const writes: (PersistedAuth | null)[] = [];
 	const resources: string[] = [];
 	const revoked: string[] = [];
-	const sockets: FakeSocket[] = [];
 	let launches = 0;
-	class FakeSocket extends EventTarget {
-		closed = false;
-		constructor() {
-			super();
-			sockets.push(this);
-		}
-		close() {
-			this.closed = true;
-			this.dispatchEvent(new Event('close'));
-		}
-	}
 	const auth = createSessionAuth({
 		authorityId: 'epicenter-api',
 		baseURL: 'https://account.test',
@@ -44,7 +31,6 @@ function setup(options: { fetch?: AuthFetch } = {}) {
 				return { status: 'completed', token };
 			},
 		},
-		WebSocket: FakeSocket as unknown as typeof WebSocket,
 		fetch: async (input, init) => {
 			const path = new URL(input instanceof Request ? input.url : String(input))
 				.pathname;
@@ -64,7 +50,6 @@ function setup(options: { fetch?: AuthFetch } = {}) {
 		writes,
 		resources,
 		revoked,
-		sockets,
 		get launches() {
 			return launches;
 		},
@@ -83,12 +68,6 @@ function setup(options: { fetch?: AuthFetch } = {}) {
 		},
 	};
 }
-
-const address = STORE_SYNC_ROUTE.address('https://account.test', {
-	dataId: 'so.test.notes',
-	generation: 1,
-	cursor: 0,
-});
 
 test('verification and uninterrupted same-person sign-in preserve the Account object', async () => {
 	using context = setup();
@@ -121,33 +100,16 @@ test('replacement and same-person sign-in after sign-out never revive an earlier
 	expect(context.resources).toEqual(['Bearer bob-2']);
 });
 
-test('retirement settles pending fetch and socket authorization before verification finishes', async () => {
+test('retirement settles a pending fetch authorization before verification finishes', async () => {
 	const verification = Promise.withResolvers<Response>();
 	using context = setup({ fetch: async () => verification.promise });
 	const fetch = context.account
 		.fetch('/api/example')
 		.catch((error: unknown) => error);
-	const socket = context.account
-		.openWebSocket(address)
-		.catch((error: unknown) => error);
 	await Promise.resolve();
 	expectOk(await context.auth.signOut());
 	expect(await fetch).toMatchObject({ name: 'AbortError' });
-	expect(await socket).toMatchObject({
-		name: 'OpenWebSocketDenied',
-		code: 'signed-out',
-	});
-	expect(context.sockets).toEqual([]);
 	verification.resolve(Response.json({ principalId: 'alice' }));
-});
-
-test('retirement closes every socket belonging to that account', async () => {
-	using context = setup();
-	await context.account.openWebSocket(address);
-	await context.account.openWebSocket(address);
-	expect(context.sockets.every((socket) => !socket.closed)).toBe(true);
-	expectOk(await context.auth.signOut());
-	expect(context.sockets.every((socket) => socket.closed)).toBe(true);
 });
 
 test('canceling one HTTP caller leaves another caller sharing verification active', async () => {
@@ -236,7 +198,7 @@ test.each([
 	expect(context.launches).toBe(0);
 });
 
-test('an account rejects foreign HTTP and socket destinations before requesting credentials', async () => {
+test('an account rejects a foreign HTTP destination before requesting credentials', async () => {
 	using context = setup({
 		fetch: async () => {
 			throw new Error('Must not authorize');
@@ -244,12 +206,6 @@ test('an account rejects foreign HTTP and socket destinations before requesting 
 	});
 	await expect(
 		context.account.fetch('https://other.test/api/example'),
-	).rejects.toThrow('own server');
-	await expect(
-		context.account.openWebSocket({
-			...address,
-			url: address.url.replace('account.test', 'other.test'),
-		}),
 	).rejects.toThrow('own server');
 });
 
@@ -450,66 +406,16 @@ for (const cancellation of ['retirement', 'client abort'] as const) {
 	});
 }
 
-test('socket verification gates bearer emission and shares the result with HTTP', async () => {
-	const verification = Promise.withResolvers<Response>();
-	const entered = Promise.withResolvers<void>();
-	const openings: string[][] = [];
-	class Socket extends EventTarget {
-		constructor(_url: string, protocols: string[]) {
-			super();
-			openings.push(protocols);
-		}
-		close() {
-			this.dispatchEvent(new Event('close'));
-		}
-	}
-	let reads = 0;
-	using auth = createSessionAuth({
-		authorityId: 'epicenter-api',
-		baseURL: 'https://account.test',
-		persistedAuthStorage: {
-			initial: { token: 'session', principalId: asPrincipalId('alice') },
-			set() {},
-		},
-		launcher: {
-			async startSignIn() {
-				return { status: 'launched' };
-			},
-		},
-		WebSocket: Socket as unknown as typeof WebSocket,
-		fetch: async (input) => {
-			if (String(input).endsWith('/api/session')) {
-				reads++;
-				entered.resolve();
-				return verification.promise;
-			}
-			return new Response(null, { status: 204 });
-		},
-	});
-	const captured = auth.getState();
-	if (captured.status === 'signed-out')
-		throw new Error('Expected cached identity');
-	const socket = captured.account.openWebSocket(address);
-	const http = captured.account.fetch('/resource');
-	await entered.promise;
-	expect(openings).toEqual([]);
-	verification.resolve(Response.json({ principalId: 'alice' }));
-	await Promise.all([socket, http]);
-	expect(reads).toBe(1);
-	expect(openings).toEqual([[...address.protocols, 'bearer.session']]);
-});
-
 for (const status of [401, 503]) {
-	test(`socket verification ${status} emits no bearer and preserves the Account`, async () => {
+	test(`verification ${status} refuses the request and preserves the Account`, async () => {
 		using context = setup({
 			fetch: async () => new Response(null, { status }),
 		});
 		const account = context.account;
-		await expect(account.openWebSocket(address)).rejects.toMatchObject({
-			name: 'OpenWebSocketDenied',
+		await expect(account.fetch('/api/example')).rejects.toMatchObject({
+			name: 'AccountUnavailable',
 			code: status === 401 ? 'reauth-required' : 'auth-unavailable',
 		});
 		expect(context.account).toBe(account);
-		expect(context.sockets).toEqual([]);
 	});
 }

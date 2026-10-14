@@ -97,15 +97,17 @@ const PROFILE: Surface[] = [
 		surface: 'store sync',
 		method: 'GET',
 		url: `${ORIGIN}/api/store/v1/sync`,
-		worker: 'served',
-		bun: 'served',
+		worker: 'absent',
+		bun: 'absent',
+		why: 'The Yjs store sync is removed; folders sync over Git (ADR-0521).',
 	},
 	{
 		surface: 'current library',
 		method: 'POST',
 		url: `${ORIGIN}/api/apps/so.epicenter.notes/personal/data/test.notes/current`,
-		worker: 'served',
-		bun: 'served',
+		worker: 'absent',
+		bun: 'absent',
+		why: 'The Yjs store sync is removed; folders sync over Git (ADR-0521).',
 	},
 	...['generations', 'generations/initial', 'generations/1'].flatMap((path) =>
 		(['GET', 'POST'] as const).map((method) => ({
@@ -358,107 +360,4 @@ test('an unmounted path reads as absent on both runtimes', async () => {
 		);
 		expect(response.status).toBe(404);
 	}
-});
-
-test('current startup resolves a live session and refuses owner overrides before addressing storage', async () => {
-	const { default: app } = await import('./worker/index.js');
-	const addressed: string[] = [];
-	const fixture = await authenticationFixture();
-	const env = {
-		API_PUBLIC_ORIGIN: ORIGIN,
-		SELF_HOST_AUTH: fixture.namespace,
-		GENERATIONS_LEDGER: {
-			idFromName: (name: string) => name,
-			get: () => ({ list: () => [] }),
-		},
-		STORE_AUTHORITY: {
-			idFromName(name: string) {
-				addressed.push(name);
-				return name;
-			},
-			get: () => ({
-				fetch: () => new Response('authority reached', { status: 418 }),
-			}),
-		},
-	};
-	const request = (token: string, suffix = '') =>
-		new Request(
-			`${ORIGIN}/api/apps/so.epicenter.notes/personal/data/test.notes/current${suffix}`,
-			{
-				method: 'POST',
-				headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
-				body: new Uint8Array([1]),
-			},
-		);
-	for (const token of ['', 'wrong-token'])
-		expect((await app.fetch(request(token), env as never)).status).toBe(401);
-	for (const suffix of ['?owner=somebody-else', '?principalId=somebody-else'])
-		expect(
-			(await app.fetch(request(fixture.token, suffix), env as never)).status,
-		).toBe(403);
-	expect(addressed).toEqual([]);
-	expect((await app.fetch(request(fixture.token), env as never)).status).toBe(
-		418,
-	);
-	expect(addressed).toEqual([
-		'libraries/apps/so.epicenter.notes/personal/alice/data/test.notes',
-	]);
-	await fixture.auth.revokeSession(fixture.token);
-	expect((await app.fetch(request(fixture.token), env as never)).status).toBe(
-		401,
-	);
-	expect(addressed).toHaveLength(1);
-});
-
-test('store upgrades resolve the subprotocol session and address only its principal authority', async () => {
-	const { default: app } = await import('./worker/index.js');
-	const addressed: string[] = [];
-	const ledgers: string[] = [];
-	const fixture = await authenticationFixture();
-	const env = {
-		API_PUBLIC_ORIGIN: ORIGIN,
-		SELF_HOST_AUTH: fixture.namespace,
-		GENERATIONS_LEDGER: {
-			idFromName(name: string) {
-				ledgers.push(name);
-				return name;
-			},
-			get() {
-				throw new Error('Socket admission must not read the historical ledger');
-			},
-		},
-		STORE_AUTHORITY: {
-			idFromName(name: string) {
-				addressed.push(name);
-				return name;
-			},
-			get() {
-				return {
-					fetch: () => new Response('authority reached', { status: 418 }),
-				};
-			},
-		},
-	};
-	for (const [token, status] of [
-		['invalid', 401],
-		[fixture.token, 418],
-	] as const) {
-		const response = await app.fetch(
-			new Request(
-				`${ORIGIN}/api/store/v1/sync?appId=so.epicenter.notes&scope=personal&dataId=test.notes&generation=2`,
-				{
-					headers: {
-						upgrade: 'websocket',
-						'sec-websocket-protocol': `epicenter, bearer.${token}`,
-					},
-				},
-			),
-			env as never,
-		);
-		expect(response.status).toBe(status);
-	}
-	expect(ledgers).toEqual([]);
-	expect(addressed).toEqual([
-		'libraries/apps/so.epicenter.notes/personal/alice/data/test.notes',
-	]);
 });

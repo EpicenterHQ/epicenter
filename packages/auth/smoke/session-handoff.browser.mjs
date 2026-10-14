@@ -10,13 +10,11 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { bearerSubprotocol, MAIN_SUBPROTOCOL } from '@epicenter/sync';
 import { betterAuth } from 'better-auth';
 import { memoryAdapter } from 'better-auth/adapters/memory';
 import { makeSignature } from 'better-auth/crypto';
 import { bearer } from 'better-auth/plugins/bearer';
 import { BASE_AUTH_CONFIG } from '../../server/src/auth/base-config.js';
-import { extractUpgradeBearer } from '../../server/src/auth/extract-upgrade-bearer.js';
 import { sessionHandoff } from '../../server/src/auth/session-handoff.js';
 import { corsMiddleware } from '../../server/src/middleware/cors.js';
 import {
@@ -26,7 +24,7 @@ import {
 import { mountSessionApp } from '../../server/src/routes/session.js';
 
 const { chromium } = createRequire(
-	new URL('../../app/package.json', import.meta.url),
+	new URL('../../ui/package.json', import.meta.url),
 )('playwright');
 const { Hono } = createRequire(
 	new URL('../../server/package.json', import.meta.url),
@@ -69,7 +67,7 @@ try {
 	apiServer = Bun.serve({
 		hostname: '127.0.0.1',
 		port: 0,
-		async fetch(request, server) {
+		fetch(request) {
 			const path = new URL(request.url).pathname;
 			requests.push({
 				path,
@@ -78,34 +76,7 @@ try {
 				cookie: request.headers.has('cookie'),
 				authorization: request.headers.has('authorization'),
 			});
-			if (path !== '/socket') return app.fetch(request);
-			const token = extractUpgradeBearer(request.headers);
-			const session = token
-				? await auth.api.getSession({
-						headers: new Headers({ authorization: `Bearer ${token}` }),
-					})
-				: null;
-			if (!session) return new Response('Unauthorized', { status: 401 });
-			assert(
-				request.headers
-					.get('sec-websocket-protocol')
-					.includes(bearerSubprotocol(token)),
-			);
-			// Bun 1.3.1 echoes the request protocol; response options would duplicate it.
-			request.headers.set('sec-websocket-protocol', MAIN_SUBPROTOCOL);
-			if (server.upgrade(request, { data: { principalId: session.user.id } }))
-				return;
-			return new Response('Upgrade failed', { status: 400 });
-		},
-		websocket: {
-			message(socket, message) {
-				socket.send(
-					JSON.stringify({
-						principalId: socket.data.principalId,
-						echo: String(message),
-					}),
-				);
-			},
+			return app.fetch(request);
 		},
 	});
 	appServer = Bun.serve({
@@ -241,12 +212,6 @@ try {
 		principalId: user.id,
 		email: user.email,
 	});
-	assert.equal(result.socket.protocol, MAIN_SUBPROTOCOL);
-	assert.deepEqual(JSON.parse(result.socket.message), {
-		principalId: user.id,
-		echo: 'browser-proof',
-	});
-	assert.equal(result.encodedPadding, true);
 	assert.equal(db.session.length, 2);
 	assert.equal(db.verification.length, 0);
 	assert(db.session.some((session) => session.id === hosted.id));
@@ -299,7 +264,7 @@ try {
 	);
 	assert.deepEqual(pageErrors, []);
 	console.log(
-		`PASS Chromium ${browser.version()}: persisted begin, hosted cookie authorization, redirect, CORS redemption, /api/session, encoded WebSocket bearer, reload replay refusal.`,
+		`PASS Chromium ${browser.version()}: persisted begin, hosted cookie authorization, redirect, CORS redemption, /api/session, reload replay refusal.`,
 	);
 } finally {
 	try {

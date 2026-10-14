@@ -88,6 +88,7 @@ Independent review runs: transcription 13 passed, recording 20 passed, pipeline 
 
 After repairs: recording-close 10 passed; pipeline 13 passed. The revised close test first produced 9 passed and 1 failed before the production fix. `git diff --check` passed for the repaired Whispering files.
 
+<!-- doc-path-check: ignore-next-line -->
 During verification, another active change replaced `Application.openLocal/openPersonal/openShared` with `open` and changed the App handle in `packages/app/src/index.ts` and `open.ts`. Whispering still calls the former API. The full typecheck reported 36 errors in 12 files, including missing openers and App members. Those shared files were clean at the review's initial inventory and changed during the review. They were not altered or reverted here. End-to-end acceptance must be rerun after that integration settles; this review does not claim a green current checkout.
 
 A fresh browser smoke attempt remained at “Opening your recordings…” with `Cannot convert undefined or null to object` and timed out after 90 seconds. It did not reach the caption or recording assertions. Its precise runtime failure has not been isolated from the concurrent refactor. Log: `/tmp/whispering-review-browser.log`.

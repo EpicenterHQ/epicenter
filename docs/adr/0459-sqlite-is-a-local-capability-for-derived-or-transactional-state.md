@@ -27,6 +27,7 @@ not yet confirmed. `apps/local-mail/src/intent-store.ts` reserves revisions and
 saves assertions in one transaction, then retires only the revision a delivery
 confirmed.
 
+<!-- doc-path-check: ignore-next-line -->
 The current `packages/app/src/open-store.ts` still opens Yjs-backed stores with
 borrowed `store.sqlite` access. The file-first application store remains unbuilt.
 

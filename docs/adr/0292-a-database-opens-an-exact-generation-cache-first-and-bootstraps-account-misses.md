@@ -55,6 +55,7 @@ working rather than drifting: ADR-0295 changed the record's shape to reach
 took the server and the principal out of the name to reach `v4`. What this
 record decided, that the generation is the last segment and an address rather
 than an instruction to allocate, is unchanged by all three. The current value
+<!-- doc-path-check: ignore-next-line -->
 lives in `packages/app/src/data/store/browser.ts`; this record owns the scheme, not
 the number and not the segments above it.
 

@@ -22,9 +22,6 @@ function account(fetch: Account['fetch']): Account {
 		async getProfile() {
 			throw new Error('Unused');
 		},
-		async openWebSocket() {
-			throw new Error('Unused');
-		},
 	};
 }
 
