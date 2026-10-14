@@ -217,29 +217,24 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			running = false;
 		}
 	}
-	const stopFiles = folder.onFilesChanged(() => {
-		void refresh().catch((e) => {
-			output += `\n${String(e)}\n`;
-		});
-	});
 	const stopGit = folder.git.subscribe((next) => {
 		snapshot = next;
 	});
 	try {
 		await refresh();
-		// A copy that has no remote yet connects to the one it was opened
-		// with: an empty copy takes the remote's history, and one with files
-		// sends them. The desktop owner keeps the remote it was registered with.
+		// A copy with no origin yet connects, once, to the remote it was
+		// opened with: an empty copy takes the remote's history, and one with
+		// files sends them. The origin lives in the copy's Git configuration,
+		// so a reopened copy keeps it.
 		if (
 			remote &&
 			folder.sync.supported &&
-			folder.git.snapshot.remote?.url !== remote
+			folder.git.snapshot.remote === undefined
 		) {
 			output = '$ Connect\n';
 			report(await syncStep(() => folder.sync.connect(remote)));
 		}
 	} catch (error) {
-		stopFiles();
 		stopGit();
 		await folder.close();
 		throw error;
@@ -385,6 +380,11 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			});
 			await this.select(path);
 		},
+		/**
+		 * Finish or clear an incoming update whose publication stopped
+		 * partway. Only a browser copy records one; a desktop copy has no
+		 * pending update to recover, and its next Sync reconciles.
+		 */
 		async recover() {
 			await execute('Recover incoming update', async () => {
 				const result = await folder.git.recoverIncoming();
@@ -396,7 +396,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			await flush();
 			closed = true;
 			clearTimeout(timer);
-			stopFiles();
 			stopGit();
 			await folder.close();
 		},

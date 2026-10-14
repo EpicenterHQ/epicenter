@@ -1,14 +1,16 @@
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Manager, State, WebviewWindow};
-use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, Remote, ScopeConfig};
+use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig};
 
 struct Copies {
     root: PathBuf,
-    registered: Mutex<BTreeSet<String>>,
+    /// Each registered copy's scope and the one window that holds it. A
+    /// page-engine scope belongs to one window for as long as the app runs.
+    registered: Mutex<BTreeMap<String, String>>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,38 +46,45 @@ fn open_copy(
     }
     let key = format!("{:x}", Sha256::digest(remote.as_bytes()));
     let scope = format!("so.epicenter.git.{key}.{copy}");
+    let label = window.label().to_string();
     let mut registered = copies.registered.lock().map_err(|e| e.to_string())?;
-    if !registered.contains(&scope) {
-        let root = copies.root.join(key).join(&copy);
-        std::fs::create_dir_all(&root).map_err(|e| format!("Create working copy: {e}"))?;
-        window.app_handle().folders().register(ScopeConfig {
-            scope: scope.clone(),
-            windows: vec!["copy-a".into(), "copy-b".into()],
-            folder: FolderConfig {
-                remote: if remote.is_empty() {
-                    None
-                } else {
-                    Some(Remote {
-                        url: remote.into(),
-                        branch: "main".into(),
-                    })
+    match registered.get(&scope) {
+        Some(holder) if *holder == label => {}
+        Some(holder) => {
+            let holder = if holder == "copy-b" { "B" } else { "A" };
+            return Err(format!(
+                "Working copy {} is open in window {holder}. A working copy stays with the window that first opened it until Git lab quits; edit it there.",
+                copy.to_uppercase()
+            ));
+        }
+        None => {
+            let root = copies.root.join(key).join(&copy);
+            std::fs::create_dir_all(&root).map_err(|e| format!("Create working copy: {e}"))?;
+            let mut folder = FolderConfig::new(
+                root,
+                Author {
+                    name: format!("Working copy {}", copy.to_uppercase()),
+                    email: format!("{copy}@git-lab.localhost"),
                 },
-                ..FolderConfig::new(
-                    root,
-                    Author {
-                        name: format!("Working copy {}", copy.to_uppercase()),
-                        email: format!("{copy}@git-lab.localhost"),
-                    },
-                )
-            },
-        })?;
-        registered.insert(scope.clone());
+            );
+            // The page runs `@epicenter/folder`'s own engine over this
+            // directory and connects it to the remote itself. The author
+            // here applies only where Git configuration names none.
+            folder.page_engine = true;
+            window.app_handle().folders().register(ScopeConfig {
+                scope: scope.clone(),
+                windows: vec![label.clone()],
+                folder,
+            })?;
+            registered.insert(scope.clone(), label);
+        }
     }
     Ok(scope)
 }
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_epicenter_folder::init())
         .invoke_handler(tauri::generate_handler![open_copy, demo_info])
         .setup(|app| {
@@ -85,7 +94,7 @@ pub fn run() {
             };
             app.manage(Copies {
                 root,
-                registered: Mutex::new(BTreeSet::new()),
+                registered: Mutex::new(BTreeMap::new()),
             });
             Ok(())
         })

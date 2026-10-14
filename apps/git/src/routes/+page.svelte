@@ -75,7 +75,8 @@
 </script>
 
 <svelte:head><title>Git lab · {copy.toUpperCase()}</title></svelte:head>
-<svelte:window onbeforeunload={(event) => { if (workspace?.dirty) { event.preventDefault(); event.returnValue = ''; } }} />
+<!-- Nothing watches the copy's files: the page reads them again when its window gains focus and after each of its own actions. -->
+<svelte:window onfocus={() => { void workspace?.refresh().catch((error) => { message = error instanceof Error ? error.message : String(error); }); }} onbeforeunload={(event) => { if (workspace?.dirty) { event.preventDefault(); event.returnValue = ''; } }} />
 
 <div class="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
  <header class="flex shrink-0 flex-wrap items-center gap-3 border-b px-4 py-3">
@@ -105,7 +106,7 @@
  {/if}
  {#if showGuide}
   <section aria-label="Demo guide" class="shrink-0 space-y-2 border-b bg-muted/30 px-4 py-3 text-sm">
-   <p>Open A and B on the same remote. Each keeps its own files. In a browser, use a second tab with <code>?copy=b</code>; the desktop app opens two windows.</p>
+   <p>Open A and B on the same remote. Each keeps its own files. In a browser, use a second tab with <code>?copy=b</code>; the desktop app opens two windows, and a copy stays with the window that opened it until the app quits.</p>
    <p>Both start with <code>notes/color.txt</code> containing <code>color=blue</code>. In A, change it to red and press <strong>Sync</strong>: A commits what it saved, brings in the remote, and pushes.</p>
    <p>In B, press <strong>Sync</strong>: red arrives. Edits to different lines of a file combine on their own.</p>
    <p>For a conflict, change the same line in both copies, say green in B and yellow in A. Sync A first, then Sync B. B shows its version and the remote's side by side and writes nothing until you choose one, or type your own, and press <strong>Apply and sync</strong>. <strong>Cancel</strong> forgets the review; nothing changed. A can then Sync the result.</p>

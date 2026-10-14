@@ -758,7 +758,6 @@ checksum = "4ef6b89e5b37196644d8796de5268852ff179b44e96276cf4290264843743bb7"
 name = "epicenter-folder-core"
 version = "0.0.1"
 dependencies = [
- "glob",
  "libc",
  "log",
  "notify",
@@ -775,10 +774,12 @@ name = "epicenter-git"
 version = "0.0.1"
 dependencies = [
  "serde",
+ "serde_json",
  "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-epicenter-folder",
+ "tauri-plugin-fs",
 ]
 
 [[package]]
@@ -2195,6 +2196,7 @@ checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
  "bitflags 2.13.2",
  "block2",
+ "libc",
  "objc2",
  "objc2-core-foundation",
 ]
@@ -3448,6 +3450,30 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "tauri-specta",
+]
+
+[[package]]
+name = "tauri-plugin-fs"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "213fae2d85d4b76b06de5915d1862db9fa74541171f9d2c15da6ac9bd6e788c6"
+dependencies = [
+ "anyhow",
+ "dunce",
+ "glob",
+ "log",
+ "objc2-foundation",
+ "percent-encoding",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "tauri",
+ "tauri-plugin",
+ "tauri-utils",
+ "thiserror 2.0.21",
+ "toml 1.1.6+spec-1.1.0",
+ "url",
 ]
 
 [[package]]
