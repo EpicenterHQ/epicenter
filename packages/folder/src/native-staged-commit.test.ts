@@ -16,33 +16,18 @@
  * See also:
  * - `merge.test.ts` for a staged commit refused while another program's merge is in progress
  */
-import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
-import * as realFs from 'node:fs/promises';
+import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
+import * as real from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createHistory } from './git/history.js';
+import { createNativeGitBackend } from './git/native-backend.js';
+import { nodeGitHost } from './git/native-host.js';
 import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import { createNativeFileBoundary } from './native-store.js';
 
-const real = { ...realFs };
 /** Runs when the backend copies the index, after the parent is pinned. */
 let copying: (() => Promise<void>) | undefined;
-
-// The native backend reads this binding at call time, so another program
-// can act between the pinned parent and the compare-and-swap without a
-// production seam.
-mock.module('node:fs/promises', () => ({
-	...real,
-	default: real,
-	async copyFile(...args: Parameters<typeof real.copyFile>) {
-		const acting = copying;
-		copying = undefined;
-		await acting?.();
-		return real.copyFile(...args);
-	},
-}));
-
-const { createNativeFileBoundary } = await import('./native-store.js');
-const { createNativeGitBackend } = await import('./git/native-backend.js');
 
 const roots: string[] = [];
 const opened: { close(): Promise<void> }[] = [];
@@ -80,6 +65,25 @@ async function folder() {
 		branch: 'main',
 		remote: undefined,
 		boundary,
+		// Another program acts between the pinned parent and the
+		// compare-and-swap: when the backend writes its private index copy.
+		host: (() => {
+			const host = nodeGitHost(root);
+			return {
+				...host,
+				files: {
+					...host.files,
+					async writeFile(path, bytes, options) {
+						if (path.includes('/.git/index.tmp-')) {
+							const acting = copying;
+							copying = undefined;
+							await acting?.();
+						}
+						return host.files.writeFile(path, bytes, options);
+					},
+				},
+			};
+		})(),
 	});
 	const history = createHistory({
 		backend,

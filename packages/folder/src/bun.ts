@@ -29,6 +29,7 @@ import {
 } from './folder.js';
 import { createHistory } from './git/history.js';
 import { createNativeGitBackend } from './git/native-backend.js';
+import { nodeGitHost } from './git/native-host.js';
 import {
 	createNativeFileBoundary,
 	resolveNativeRoot,
@@ -38,11 +39,8 @@ import { publishDefinition } from './publish-definition.js';
 import { withPublication } from './storage.js';
 
 export * from './contract.js';
-export {
-	createGitRunner,
-	GitCommandError,
-	type GitRun,
-} from './git/native-backend.js';
+export { GitCommandError, type GitRun } from './git/native-backend.js';
+export { createGitRunner } from './git/native-host.js';
 export { verifyNativeLayout } from './native-store.js';
 export {
 	type FolderReading,
@@ -87,6 +85,7 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 			branch: 'main',
 			remote: git.remote,
 			boundary,
+			host: nodeGitHost(resolved),
 		});
 		const hints = createFileHints();
 		const history = createHistory({

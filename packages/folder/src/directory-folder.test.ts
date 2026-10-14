@@ -1,0 +1,533 @@
+/**
+ * The folder over an ordinary directory, as the desktop app opens it: files
+ * through the browser folder's storage over directory primitives, history
+ * through real Git. Here the primitives are `node:fs` and Git is the system
+ * `git`; the desktop app supplies the same two through its shell. Every check
+ * reads the result with native Git, since another Git program shares the
+ * repository.
+ */
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { expectOk } from 'wellcrafted/testing';
+import { defineFolder, defineTable, field } from './contract.js';
+import { openDirectoryFolder } from './directory-adapter.js';
+import {
+	type DirectoryPrimitives,
+	directoryHandle,
+	SCRATCH_DIRECTORY,
+} from './directory-handle.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createGitRunner } from './git/native-host.js';
+import {
+	createBareRemote,
+	GIT_ENV,
+	git,
+	scratch,
+} from './git-http.test-support.js';
+import { createWebLocks } from './web-locks.test-support.js';
+
+const definition = defineFolder({
+	kv: {},
+	tables: {
+		todos: defineTable({
+			fields: { title: field.string(), done: field.boolean() },
+		}),
+	},
+});
+
+const author = { name: 'Todos', email: 'todos@localhost' };
+
+/**
+ * Every Git call these folders make, recorded for the desktop shell's
+ * contract: `page_git.rs` runs only these shapes for a page, and its tests
+ * check every call in the fixture. `FOLDER_WRITE_GIT_CALLS=1` rewrites it.
+ */
+const GIT_CALLS = join(
+	import.meta.dir,
+	'../../tauri-plugin-epicenter-folder/fixtures/page-git-calls.json',
+);
+type GitCall = {
+	root: string;
+	args: string[];
+	indexFile: string | null;
+	origin: string | null;
+};
+const recorded: GitCall[] = [];
+
+/**
+ * Every file change these folders make, as a path below the root with Git's
+ * object names and staging names reduced to their kind. The desktop shell
+ * makes each change itself, and `page_files.rs` tests every recorded path.
+ */
+const FILE_CHANGES = join(
+	import.meta.dir,
+	'../../tauri-plugin-epicenter-folder/fixtures/page-file-changes.json',
+);
+const changed = new Set<string>();
+
+function changeOf(root: string, path: string): string {
+	return path
+		.slice(root.length + 1)
+		.replace(/^\.git\/objects\/[0-9a-f]{2}(?=\/|$)/, '.git/objects/ab')
+		.replace(/^\.git\/objects\/ab\/[0-9a-f]{38}/, '.git/objects/ab/<object>')
+		.replace(/\.tmp-[^/]+$/, '.tmp-<n>')
+		.replace(
+			/^\.git\/epicenter\/scratch\/[^/]+$/,
+			'.git/epicenter/scratch/<staged>',
+		)
+		.replace(/^todos\/[^/]+\.md$/, 'todos/<stem>.md');
+}
+
+function recording(
+	root: string,
+	files: DirectoryPrimitives,
+): DirectoryPrimitives {
+	const note = (path: string) => {
+		if (path.startsWith(`${root}/`)) changed.add(changeOf(root, path));
+	};
+	return {
+		...files,
+		async writeFile(path, bytes, options) {
+			note(path);
+			return files.writeFile(path, bytes, options);
+		},
+		async rename(from, to) {
+			note(from);
+			note(to);
+			return files.rename(from, to);
+		},
+		async remove(path, options) {
+			note(path);
+			return files.remove(path, options);
+		},
+		async mkdir(path) {
+			note(path);
+			return files.mkdir(path);
+		},
+	};
+}
+
+/** A call with what varies between runs left out: what the fixture keeps. */
+function shapeOf({ root, args, origin }: GitCall): string {
+	return args
+		.map((arg) =>
+			(origin === null ? arg : arg.replaceAll(origin, '<origin>'))
+				.replaceAll(root, '<root>')
+				.replace(/[0-9a-f]{40}/g, '<oid>')
+				.replace(/^-n\d+$/, '-n<depth>'),
+		)
+		.map((arg, index, all) =>
+			all.indexOf('--') !== -1 && index > all.indexOf('--') ? '<path>' : arg,
+		)
+		.join(' ');
+}
+const originalEnv = { ...process.env };
+
+beforeAll(() => {
+	// The folder's own `git` and the checks here must not pick up the
+	// developer's hooks, signing, or identity.
+	Object.assign(process.env, {
+		GIT_CONFIG_GLOBAL: GIT_ENV.GIT_CONFIG_GLOBAL,
+		GIT_CONFIG_NOSYSTEM: '1',
+	});
+});
+afterAll(() => {
+	const shapes = new Map(recorded.map((call) => [shapeOf(call), call]));
+	if (process.env.FOLDER_WRITE_GIT_CALLS === '1') {
+		writeFileSync(
+			GIT_CALLS,
+			`${JSON.stringify(
+				[...shapes.values()].sort((a, b) => (shapeOf(a) < shapeOf(b) ? -1 : 1)),
+				null,
+				'\t',
+			)}\n`,
+		);
+		writeFileSync(
+			FILE_CHANGES,
+			`${JSON.stringify([...changed].sort(), null, '\t')}\n`,
+		);
+	} else {
+		const knownChanges = new Set<string>(
+			existsSync(FILE_CHANGES)
+				? (JSON.parse(readFileSync(FILE_CHANGES, 'utf8')) as string[])
+				: [],
+		);
+		const unlisted = [...changed].filter((path) => !knownChanges.has(path));
+		if (unlisted.length > 0)
+			throw new Error(
+				`The folder engine changes paths the desktop contract does not list; run FOLDER_WRITE_GIT_CALLS=1 bun test src/directory-folder.test.ts and update page_files.rs if its tests fail:\n${unlisted.join('\n')}`,
+			);
+		const known = new Set(
+			existsSync(GIT_CALLS)
+				? (JSON.parse(readFileSync(GIT_CALLS, 'utf8')) as GitCall[]).map(
+						shapeOf,
+					)
+				: [],
+		);
+		const unknown = [...shapes.keys()].filter((shape) => !known.has(shape));
+		if (unknown.length > 0)
+			throw new Error(
+				`The folder engine makes Git calls the desktop contract does not list; run FOLDER_WRITE_GIT_CALLS=1 bun test src/directory-folder.test.ts and update page_git.rs if its tests fail:\n${unknown.join('\n')}`,
+			);
+	}
+	for (const key of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'])
+		if (originalEnv[key] === undefined) delete process.env[key];
+		else process.env[key] = originalEnv[key];
+});
+
+function open(
+	root: string,
+	options: {
+		locks?: ReturnType<typeof createWebLocks>;
+		primitives?: DirectoryPrimitives;
+	} = {},
+) {
+	const files = recording(root, options.primitives ?? nodeDirectoryPrimitives);
+	const system = createGitRunner(root);
+	const run: typeof system = async (args, runOptions) => {
+		// `push --porcelain <url> …` and `fetch --no-tags --quiet <url> …`.
+		const url =
+			args[0] === 'push' ? args[2] : args[0] === 'fetch' ? args[3] : undefined;
+		recorded.push({
+			root,
+			args: [...args],
+			indexFile: runOptions?.env?.GIT_INDEX_FILE ?? null,
+			origin: url ?? null,
+		});
+		return system(args, runOptions);
+	};
+	return openDirectoryFolder({
+		definition,
+		id: 'so.epicenter.todos',
+		root: directoryHandle(files, root),
+		rootPath: root,
+		git: { run, files },
+		locks: options.locks ?? createWebLocks(),
+		author,
+	});
+}
+
+type OpenedFolder = NonNullable<Awaited<ReturnType<typeof open>>['data']>;
+
+async function addTodo(folder: OpenedFolder, title: string) {
+	return expectOk(
+		await folder.tables.todos.create({
+			fields: { title, done: false },
+			body: '',
+		}),
+	);
+}
+
+/** A repository native Git made, with one committed file. */
+async function nativeRepository(prefix: string) {
+	const root = await scratch(prefix);
+	await git(root, 'init', '--quiet', '--initial-branch=main');
+	await writeFile(join(root, 'notes.txt'), 'kept\n');
+	await git(root, 'add', 'notes.txt');
+	await git(root, 'commit', '--quiet', '-m', 'Native start');
+	return { root, start: await git(root, 'rev-parse', 'HEAD') };
+}
+
+describe('a folder over an ordinary directory', () => {
+	test('writes real files and a repository native Git reads cleanly', async () => {
+		const root = await scratch('directory-folder-');
+		const folder = expectOk(await open(root));
+		expect(folder.location).toEqual({ kind: 'directory', root });
+		expect(existsSync(join(root, 'todos'))).toBe(false);
+		expect(expectOk(await folder.tables.todos.list())).toEqual([]);
+		expect(existsSync(join(root, 'todos'))).toBe(false);
+		// A new repository is a whole one before anything is committed.
+		expect(await git(root, 'status', '--porcelain')).toContain(
+			'epicenter.json',
+		);
+		const created = await addTodo(folder, 'Buy milk');
+		expect(existsSync(join(root, 'todos'))).toBe(true);
+		expect(await readFile(join(root, created.path), 'utf8')).toContain(
+			'title: Buy milk',
+		);
+
+		expect((await folder.git.commit()).status).toBe('committed');
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		await git(root, 'fsck', '--strict');
+		expect(await git(root, 'log', '--format=%an <%ae>', '-1')).toBe(
+			'Todos <todos@localhost>',
+		);
+		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
+		await folder.close();
+	});
+
+	test('opens a repository native Git made, with its author, and continues its branch', async () => {
+		const { root, start } = await nativeRepository(
+			'directory-folder-existing-',
+		);
+		await git(root, 'config', 'user.name', 'Braden');
+		await git(root, 'config', 'user.email', 'braden@example.test');
+
+		const folder = expectOk(await open(root));
+		await addTodo(folder, 'From Todos');
+		expect(await folder.git.commit()).toMatchObject({
+			status: 'committed',
+			parent: start,
+		});
+		expect(await git(root, 'log', '--format=%an <%ae>', '-1')).toBe(
+			'Braden <braden@example.test>',
+		);
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		await git(root, 'fsck', '--strict');
+		expect(await readFile(join(root, 'notes.txt'), 'utf8')).toBe('kept\n');
+		await folder.close();
+	});
+
+	test('a branch native Git packed (git gc) is continued, not forked', async () => {
+		const { root, start } = await nativeRepository('directory-folder-packed-');
+		await git(root, 'pack-refs', '--all');
+		await git(root, 'gc', '--quiet');
+		const folder = expectOk(await open(root));
+		await addTodo(folder, 'After gc');
+		expect(await folder.git.commit()).toMatchObject({
+			status: 'committed',
+			parent: start,
+		});
+		expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('2');
+		await git(root, 'merge-base', '--is-ancestor', start, 'HEAD');
+		await git(root, 'fsck', '--strict');
+		await folder.close();
+	});
+
+	test('a commit native Git makes while the folder is open is the next parent', async () => {
+		const { root } = await nativeRepository('directory-folder-concurrent-');
+		const folder = expectOk(await open(root));
+		await writeFile(join(root, 'native.txt'), 'native\n');
+		await git(root, 'add', 'native.txt');
+		await git(root, 'commit', '--quiet', '-m', 'Native while open');
+		const native = await git(root, 'rev-parse', 'HEAD');
+		await addTodo(folder, 'After the native commit');
+		expect(await folder.git.commit()).toMatchObject({
+			status: 'committed',
+			parent: native,
+		});
+		await git(root, 'fsck', '--strict');
+		await folder.close();
+	});
+
+	test("while another Git program holds the index, a commit lands by Git's ref lock and the next one refreshes the index", async () => {
+		const { root, start } = await nativeRepository('directory-folder-lock-');
+		const folder = expectOk(await open(root));
+		await addTodo(folder, 'Beside a busy index');
+		await writeFile(join(root, '.git', 'index.lock'), '');
+		// The commit's objects and its compare-and-swap of the branch need no
+		// index; refreshing the index is refused, and the outcome says why.
+		const committed = await folder.git.commit();
+		expect(committed).toMatchObject({ status: 'committed', parent: start });
+		expect(JSON.stringify(committed)).toContain('index.lock');
+		await Bun.file(join(root, '.git', 'index.lock')).delete();
+		expect((await folder.git.commit()).status).toBe('unchanged');
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		await git(root, 'fsck', '--strict');
+		await folder.close();
+	});
+
+	test('opening and committing leave the Git configuration as the person set it', async () => {
+		const { root } = await nativeRepository('directory-folder-config-');
+		await git(root, 'remote', 'add', 'origin', 'https://example.test/r.git');
+		await git(
+			root,
+			'config',
+			'--add',
+			'remote.origin.fetch',
+			'+refs/pull/*/head:refs/remotes/origin/pr/*',
+		);
+		const before = await readFile(join(root, '.git', 'config'), 'utf8');
+		const folder = expectOk(await open(root));
+		await addTodo(folder, 'Config untouched');
+		expect((await folder.git.commit()).status).toBe('committed');
+		expect(await readFile(join(root, '.git', 'config'), 'utf8')).toBe(before);
+		await folder.close();
+	});
+
+	test('a repository that tracks an executable refuses the commit and names it', async () => {
+		const root = await scratch('directory-folder-modes-');
+		await git(root, 'init', '--quiet', '--initial-branch=main');
+		await writeFile(join(root, 'run.sh'), '#!/bin/sh\n');
+		await chmod(join(root, 'run.sh'), 0o755);
+		await git(root, 'add', 'run.sh');
+		await git(root, 'commit', '--quiet', '-m', 'Executable');
+		const head = await git(root, 'rev-parse', 'HEAD');
+
+		const folder = expectOk(await open(root));
+		await addTodo(folder, 'Beside a script');
+		const refused = await folder.git.commit();
+		expect(refused.status).toBe('blocked');
+		expect(JSON.stringify(refused)).toContain('run.sh');
+		expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
+		expect(await git(root, 'ls-files', '--stage', 'run.sh')).toStartWith(
+			'100755',
+		);
+		await folder.close();
+	});
+
+	test('a guarded write refuses a file another program changed', async () => {
+		const root = await scratch('directory-folder-guard-');
+		const folder = expectOk(await open(root));
+		const created = await addTodo(folder, 'Mine');
+		const path = join(root, created.path);
+		await writeFile(path, '---\ntitle: Theirs\ndone: false\n---\n');
+		created.row.fields.title = 'Mine, edited';
+		const replaced = await folder.tables.todos.replace(created, created.row);
+		expect(replaced.error?.name).toBe('Conflict');
+		expect(await readFile(path, 'utf8')).toContain('Theirs');
+		await folder.close();
+	});
+
+	test('a write that stops before it lands leaves nothing at its path, and the next open clears what it staged', async () => {
+		const root = await scratch('directory-folder-interrupted-');
+		// The rename that publishes a todo is lost, as a quit would lose it.
+		const failing: DirectoryPrimitives = {
+			...nodeDirectoryPrimitives,
+			async rename(from, to) {
+				if (to.includes('/todos/')) throw new Error('quit before the rename');
+				return nodeDirectoryPrimitives.rename(from, to);
+			},
+		};
+		const interrupted = expectOk(await open(root, { primitives: failing }));
+		const refused = await interrupted.tables.todos.create({
+			fields: { title: 'Never landed', done: false },
+			body: '',
+		});
+		expect(refused.error).not.toBeNull();
+		// Neither an empty file nor a partial one is at the path.
+		const todos = await readdir(join(root, 'todos')).catch(() => []);
+		expect(todos.filter((name) => name.endsWith('.md'))).toEqual([]);
+		await interrupted.close();
+
+		// A staged file a crash left is removed when the folder opens again.
+		await mkdir(join(root, SCRATCH_DIRECTORY), { recursive: true });
+		await writeFile(join(root, SCRATCH_DIRECTORY, 'left-behind'), 'x');
+		const reopened = expectOk(await open(root));
+		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
+		await reopened.close();
+	});
+
+	test('two windows opening a new folder at once share one repository', async () => {
+		const root = await scratch('directory-folder-race-');
+		const locks = createWebLocks();
+		const [first, second] = await Promise.all([
+			open(root, { locks }),
+			open(root, { locks }),
+		]);
+		const a = expectOk(first);
+		const b = expectOk(second);
+		await addTodo(a, 'From one window');
+		expect((await b.git.commit()).status).toBe('committed');
+		expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('1');
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		await git(root, 'fsck', '--strict');
+		await a.close();
+		await b.close();
+	});
+
+	test('an incoming update that stops partway is finished by the next Sync', async () => {
+		const project = await scratch('directory-folder-incoming-');
+		const bare = await createBareRemote(project);
+		const root = join(project, 'desktop');
+		await git(project, 'init', '--quiet', '--initial-branch=main', root);
+		await git(root, 'remote', 'add', 'origin', bare);
+		const first = expectOk(await open(root));
+		await addTodo(first, 'Shared');
+		expectOk(await first.sync.run());
+		await first.close();
+
+		// Another checkout adds two todos and pushes.
+		const native = join(project, 'native');
+		await git(project, 'clone', '--quiet', bare, native);
+		for (const name of ['a', 'b'])
+			await writeFile(
+				join(native, 'todos', `${name}.md`),
+				`---\ntitle: ${name}\ndone: false\n---\n`,
+			);
+		await git(native, 'add', '--all');
+		await git(native, 'commit', '--quiet', '-m', 'Two more');
+		await git(native, 'push', '--quiet', 'origin', 'main');
+		const theirs = await git(native, 'rev-parse', 'HEAD');
+
+		// The second incoming file never lands, as a quit would leave it.
+		const stopping: DirectoryPrimitives = {
+			...nodeDirectoryPrimitives,
+			async rename(from, to) {
+				if (to.endsWith('/todos/b.md')) throw new Error('quit partway');
+				return nodeDirectoryPrimitives.rename(from, to);
+			},
+		};
+		const interrupted = expectOk(await open(root, { primitives: stopping }));
+		const stopped = await interrupted.sync.run();
+		expect(stopped.error).not.toBeNull();
+		await interrupted.close();
+
+		const reopened = expectOk(await open(root));
+		expectOk(await reopened.sync.run());
+		for (const name of ['a', 'b'])
+			expect(
+				await readFile(join(root, 'todos', `${name}.md`), 'utf8'),
+			).toContain(`title: ${name}`);
+		await git(root, 'merge-base', '--is-ancestor', theirs, 'HEAD');
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		await git(root, 'fsck', '--strict');
+		await reopened.close();
+	});
+
+	test('stages, commits what was staged, and reads its log and diff with Git', async () => {
+		const { root } = await nativeRepository('directory-folder-staged-');
+		const folder = expectOk(await open(root));
+		const created = await addTodo(folder, 'Staged');
+		expect(
+			expectOk(await folder.git.paths()).map(({ path }) => path),
+		).toContain(created.path);
+		expectOk(await folder.git.stage([created.path]));
+		expect(
+			expectOk(await folder.git.diff({ staged: true, paths: [created.path] })),
+		).toContain('Staged');
+		expectOk(await folder.git.commitStaged('Add one todo'));
+		expect(await git(root, 'log', '--format=%s', '-1')).toBe('Add one todo');
+		const log = expectOk(await folder.git.log(5));
+		expect(log[0]?.message.trim()).toBe('Add one todo');
+		expectOk(await folder.git.stage('all'));
+		await git(root, 'fsck', '--strict');
+		await folder.close();
+	});
+
+	test('syncs both ways with a native checkout through a real remote', async () => {
+		const project = await scratch('directory-folder-sync-');
+		const bare = await createBareRemote(project);
+
+		const root = join(project, 'desktop');
+		await git(project, 'init', '--quiet', '--initial-branch=main', root);
+		await git(root, 'remote', 'add', 'origin', bare);
+		const folder = expectOk(await open(root));
+		expect(folder.sync.supported).toBe(true);
+		const created = await addTodo(folder, 'Synced');
+		expectOk(await folder.sync.run());
+		expect(await git(bare, 'log', '--format=%s', '-1', 'main')).not.toBe('');
+
+		// A native checkout edits the same todo and pushes.
+		const native = join(project, 'native');
+		await git(project, 'clone', '--quiet', bare, native);
+		const nativePath = join(native, created.path);
+		const nativeText = await readFile(nativePath, 'utf8');
+		await writeFile(
+			nativePath,
+			nativeText.replace('done: false', 'done: true'),
+		);
+		await git(native, 'commit', '--quiet', '-am', 'Done natively');
+		await git(native, 'push', '--quiet', 'origin', 'main');
+
+		expectOk(await folder.sync.run());
+		expect(await readFile(join(root, created.path), 'utf8')).toContain(
+			'done: true',
+		);
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		await git(root, 'fsck', '--strict');
+		await folder.close();
+	});
+});

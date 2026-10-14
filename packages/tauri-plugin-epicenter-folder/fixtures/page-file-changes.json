@@ -1,0 +1,8 @@
+[
+	".git/epicenter/scratch",
+	".git/epicenter/scratch/<staged>",
+	".git/index.tmp-<n>",
+	"epicenter.json",
+	"todos",
+	"todos/<stem>.md"
+]

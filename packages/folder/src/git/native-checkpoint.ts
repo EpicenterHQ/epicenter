@@ -10,8 +10,7 @@
  * raw file access, and explicit native Git (`git add`, `git commit`) are
  * unaffected.
  */
-import { lstat, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import type { DirectoryPrimitives } from '../directory-handle.js';
 import { pathProblem } from '../paths.js';
 import { NORMALIZING } from './attributes.js';
 import { orphanStagesProblem } from './index-file.js';
@@ -23,7 +22,7 @@ const MODES: Record<string, string> = {
 	'160000': 'a submodule',
 };
 
-const text = (bytes: Uint8Array) => Buffer.from(bytes).toString('utf8');
+const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 const records = (output: Uint8Array) =>
 	text(output).split('\0').filter(Boolean);
 const plainOnly = 'commits only write plain files';
@@ -31,11 +30,14 @@ const plainOnly = 'commits only write plain files';
 export async function nativeCheckpointProblem({
 	root,
 	run,
+	files,
 	head,
 	ignored,
 }: {
 	root: string;
 	run: GitRun;
+	/** The working tree, read without following links. */
+	files: DirectoryPrimitives;
 	head: string | undefined;
 	/** Untracked candidates that ignore rules exclude from source. */
 	ignored: (paths: readonly string[]) => Promise<ReadonlySet<string>>;
@@ -83,22 +85,23 @@ export async function nativeCheckpointProblem({
 	const special: { path: string; reason: string }[] = [];
 	const regular: string[] = [];
 	async function walk(directory: string, prefix: string) {
-		for (const entry of await readdir(directory, { withFileTypes: true })) {
+		for (const entry of await files.readDir(directory)) {
 			if (prefix === '' && entry.name === '.git') continue;
 			const path = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
-			const full = join(directory, entry.name);
+			const full = `${directory}/${entry.name}`;
 			if (entry.name.toLowerCase() === '.git') {
 				special.push({ path, reason: 'nested Git data' });
 				continue;
 			}
-			const stats = await lstat(full);
-			if (stats.isSymbolicLink())
+			const stats = await files.lstat(full);
+			if (stats === undefined) continue;
+			if (stats.kind === 'directory') await walk(full, path);
+			else if (stats.kind === 'link')
 				special.push({ path, reason: 'a symbolic link' });
-			else if (stats.isDirectory()) await walk(full, path);
-			else if (!stats.isFile())
+			else if (stats.kind !== 'file')
 				special.push({ path, reason: 'not a regular file' });
 			else {
-				if ((stats.mode & 0o111) !== 0)
+				if (((stats.mode ?? 0) & 0o111) !== 0)
 					special.push({ path, reason: 'an executable file' });
 				regular.push(path);
 			}

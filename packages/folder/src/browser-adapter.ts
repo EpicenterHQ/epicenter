@@ -41,19 +41,14 @@ import {
 	prepareFolderDefinition,
 } from './definition.js';
 import { DownloadFolderError, OpenFolderError } from './errors.js';
-import {
-	assembleFolder,
-	createFileHints,
-	type Folder,
-	type FolderLocation,
-} from './folder.js';
+import type { Folder, FolderLocation } from './folder.js';
 import type { GitRemote } from './git/backend.js';
 import { createStoredGitBackend, GITDIR } from './git/browser-backend.js';
 import { createHistory } from './git/history.js';
 import type { HttpFetch } from './git/http.js';
 import type { Author } from './git/objects.js';
 import { createOpfsGitSession, createOpfsGitStore } from './git/opfs-git.js';
-import { callObserver } from './observer.js';
+import { type FolderAddress, openAtRoot } from './open-at-root.js';
 import {
 	createOpfsFileBoundary,
 	ensureDirectory,
@@ -67,8 +62,6 @@ import {
 	readHandle,
 	writePrivateFile,
 } from './opfs-store.js';
-import { publishDefinition } from './publish-definition.js';
-import { withPublication } from './storage.js';
 
 /** Who records history that never leaves this browser. */
 const LOCAL_AUTHOR: Author = { name: 'Local', email: 'local@localhost' };
@@ -123,17 +116,6 @@ function entryName(value: string): string {
 			`%${character.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`,
 	);
 }
-
-/** One folder's captured address and every name derived from it. */
-type FolderAddress = {
-	readonly address: string;
-	readonly directory: string;
-	/** Held while deciding whether the directory is the folder, and by a download throughout. */
-	readonly openLock: string;
-	readonly filesLock: string;
-	readonly gitLock: string;
-	readonly hintChannel: string;
-};
 
 function folderAddress(
 	channel: 'release' | 'development',
@@ -550,6 +532,11 @@ async function startHistory(
 		readonly definition?: FolderDefinition;
 		readonly relay?: (paths: readonly string[]) => void;
 		readonly landed?: (paths: readonly string[]) => void;
+		/**
+		 * Hold the open lock while creating the repository. An opener does; a
+		 * download already holds it throughout and must not ask again.
+		 */
+		readonly coordinateCreation?: boolean;
 	},
 ) {
 	const relay = settings.relay ?? (() => {});
@@ -569,6 +556,7 @@ async function startHistory(
 		}),
 		locks,
 		lockName: at.gitLock,
+		createLock: settings.coordinateCreation ? at.openLock : undefined,
 		branch: 'main',
 		remote: settings.remote,
 		httpFetch: settings.httpFetch,
@@ -663,75 +651,22 @@ async function openOpfsFolder<TDefinition extends FolderDefinition>(
 	}
 	const { data: root, error: readyError } = ready;
 	if (readyError !== null) return Err(readyError);
-
-	let channel: BroadcastChannel | undefined;
-	let channelOpen = false;
-	const release = () => {
-		channelOpen = false;
-		try {
-			channel?.close();
-		} catch {
-			// A channel that will not close has nothing left to give back.
-		}
-	};
-	try {
-		// Other tabs of this origin share the directory. Each landed step is
-		// told to them as it lands; this handle's own listeners hear a save
-		// when it finishes.
-		if (environment.BroadcastChannel !== undefined) {
-			channel = new environment.BroadcastChannel(at.hintChannel);
-			// A runtime that counts an open channel as pending work must not be
-			// kept alive by a folder nobody closed.
-			(channel as { unref?: () => void }).unref?.();
-			channelOpen = true;
-		}
-		// A relay that fails is another tab's missed hint, never this save's
-		// failure.
-		const relay = (paths: readonly string[]) => {
-			if (channelOpen && paths.length > 0)
-				callObserver(
-					'change relay',
-					(landed: readonly string[]) => channel?.postMessage([...landed]),
-					paths,
-				);
-		};
-		const hints = createFileHints();
+	return openAtRoot<TDefinition>(prepared, environment, {
+		at,
+		location: { kind: 'opfs', directory: at.directory },
 		// An incoming update a closed tab left half published stays pending:
 		// opening reads it into the snapshot and never resumes it.
-		const { boundary, history } = await startHistory(root, locks, at, {
-			author: captured.author,
-			remote: captured.remote,
-			httpFetch: captured.httpFetch,
-			definition: prepared,
-			relay,
-			landed: (paths) => hints.emit(paths),
-		});
-		if (channel !== undefined) {
-			channel.onmessage = ({ data }) => {
-				if (!channelOpen || history.snapshot.closed || !Array.isArray(data))
-					return;
-				history.noteEdit();
-				hints.receive(data as string[]);
-			};
-		}
-		const folder = assembleFolder<TDefinition>({
-			prepared,
-			storage: withPublication({
-				storage: boundary,
-				history,
-				landed: (paths) => hints.emit(paths),
+		start: ({ relay, landed }) =>
+			startHistory(root, locks, at, {
+				coordinateCreation: true,
+				author: captured.author,
+				remote: captured.remote,
+				httpFetch: captured.httpFetch,
+				definition: prepared,
+				relay,
+				landed,
 			}),
-			history,
-			location: { kind: 'opfs', directory: at.directory },
-			hints,
-			release: async () => release(),
-		});
-		await publishDefinition(prepared, folder.files);
-		return Ok(folder);
-	} catch (cause) {
-		release();
-		return OpenFolderError.Unavailable({ cause });
-	}
+	});
 }
 
 export type InspectFolderOptions = {

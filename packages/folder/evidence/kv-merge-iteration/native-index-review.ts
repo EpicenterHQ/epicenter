@@ -2,10 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHistory } from '../../src//git/history.ts';
-import {
-	createGitRunner,
-	createNativeGitBackend,
-} from '../../src//git/native-backend.ts';
+import { createNativeGitBackend } from '../../src//git/native-backend.ts';
+import { createGitRunner, nodeGitHost } from '../../src//git/native-host.ts';
 import { createNativeFileBoundary } from '../../src//native-store.ts';
 
 const root = await mkdtemp(join(tmpdir(), 'epicenter-native-index-review-'));
@@ -43,6 +41,7 @@ try {
 		branch: 'main',
 		remote: { url: 'http://unused.test/remote.git', branch: 'main' },
 		boundary,
+		host: nodeGitHost(root),
 	});
 	const nativeClean =
 		(

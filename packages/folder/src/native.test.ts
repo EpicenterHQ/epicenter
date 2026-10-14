@@ -25,6 +25,7 @@ import {
 import { hashBytes } from './capture.js';
 import { createHistory } from './git/history.js';
 import { createNativeGitBackend } from './git/native-backend.js';
+import { nodeGitHost } from './git/native-host.js';
 import {
 	createBareRemote,
 	GIT_ENV,
@@ -374,6 +375,7 @@ describe('native folder', () => {
 			branch: 'main',
 			remote: undefined,
 			boundary,
+			host: nodeGitHost(root),
 		});
 		const history = createHistory({
 			backend: {

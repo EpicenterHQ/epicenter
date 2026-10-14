@@ -40,6 +40,7 @@ import {
 	readBlob,
 } from './objects.js';
 import { gitignoreMatcher } from './scope.js';
+import { webLockExclusive } from './web-lock-exclusive.js';
 
 const decoder = new TextDecoder();
 const REMOTE_NAME = 'origin';
@@ -149,6 +150,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	store,
 	locks,
 	lockName,
+	createLock,
 	branch,
 	remote,
 	httpFetch,
@@ -157,6 +159,12 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	/** The Web Locks this folder's tabs share. */
 	locks: OpfsLocks;
 	lockName: string;
+	/**
+	 * The lock every opener of this folder holds while it creates the
+	 * repository, so two that open a new folder at once never both create it.
+	 * Omitted, creation is not coordinated.
+	 */
+	createLock?: string;
 	branch: string;
 	remote: GitRemote | undefined;
 	httpFetch?: HttpFetch;
@@ -185,11 +193,16 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 
 	// Create the private repository once. Only creation writes `HEAD`, so a
 	// missing or empty `HEAD` means creation did not finish: `init` stops at
-	// a `config` it already wrote, so `HEAD` is written here. Its configuration
-	// names the remote so isomorphic-git records fetched and pushed heads as
-	// tracking refs.
-	const head = await store.readPrivate(`${GITDIR}/HEAD`);
-	if (head === undefined || head.byteLength === 0) {
+	// a `config` it already wrote, so `HEAD` is written here. Two handles can
+	// open a new folder at once, so creation runs under `createLock` and asks
+	// again there. Only openers take it, and only when there is no `HEAD`:
+	// Git work never waits for it.
+	const created = async () => {
+		const head = await store.readPrivate(`${GITDIR}/HEAD`);
+		return head !== undefined && head.byteLength > 0;
+	};
+	const create = async () => {
+		if (await created()) return;
 		await withObjects(async ({ fs, gitdir }) => {
 			await git.init({ fs, dir: WORKDIR, gitdir, defaultBranch: branch });
 			const written = await fs.promises
@@ -208,7 +221,13 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 				value: 'false',
 			});
 		});
-	}
+	};
+	if (!(await created()))
+		await (createLock === undefined
+			? create()
+			: locks.request(createLock, {}, create));
+	// The configuration names the remote so isomorphic-git records fetched
+	// and pushed heads as tracking refs.
 	if (remote !== undefined)
 		await withObjects(async ({ fs, gitdir }) => {
 			await git.setConfig({
@@ -225,26 +244,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			});
 		});
 
-	async function exclusive<T>(
-		work: () => Promise<T>,
-		signal?: AbortSignal,
-	): Promise<T> {
-		// The Web Lock queues this tab's requests behind every holder and
-		// waiter, and the signal rejects a waiter that is aborted before it is
-		// granted; that waiter never runs its work.
-		let entered = false;
-		try {
-			return await locks.request(lockName, { signal }, () => {
-				signal?.throwIfAborted();
-				entered = true;
-				return work();
-			});
-		} catch (cause) {
-			// Normalize a refused wait even if the host uses its own AbortError.
-			if (!entered && signal?.aborted) throw signal.reason;
-			throw cause;
-		}
-	}
+	const exclusive = webLockExclusive(locks, lockName);
 
 	async function casBranch(
 		expected: string | undefined,
