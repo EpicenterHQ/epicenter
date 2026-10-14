@@ -502,7 +502,7 @@ test('a name some disk reads as another file is refused in words a person reads,
 		['draft ', 'cannot end with a dot or a space'],
 		['a:b.md', 'cannot contain < > : " | ? or *'],
 		['con.md', 'Windows keeps for a device'],
-		['NOTES~1', '"~" followed by a digit'],
+		['NOTES~1', 'Windows short name'],
 		['HEAD', 'Git keeps for itself'],
 	] as const) {
 		expect(await notes.createFile('notes', name)).toContain(reason);

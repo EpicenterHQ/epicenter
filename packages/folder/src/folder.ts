@@ -107,8 +107,10 @@ export type FolderGit = {
 	 * `RecoveryRefused`, names it, and writes nothing; the update stays
 	 * pending. A step whose outcome is unknown is `Unconfirmed` and leaves it
 	 * pending too. Status is observed again afterward, never assumed clean.
-	 * Nothing retries. Browser and desktop folders retain their own incoming
-	 * record and evaluate current paths again on each explicit recovery.
+	 * Nothing retries. A browser folder retains its incoming record and
+	 * evaluates current paths again on each explicit recovery. A directory
+	 * folder, in Bun or on the desktop, keeps no record: an update that
+	 * stopped partway leaves its files as changes, and this answers `none`.
 	 */
 	recoverIncoming(): Promise<Result<RecoverOutcome, PullError | GitError>>;
 	/** Per-path staged and unstaged state, as `git status` reports it. */
@@ -144,14 +146,13 @@ export type FolderGit = {
  * }
  * ```
  *
- * Browser and directory folders implement it. A desktop folder answers
- * `Unsupported` from both methods.
+ * Browser and directory folders implement it, the desktop folder included.
  */
 export type FolderSync = {
 	/**
-	 * Whether this folder's runtime syncs. False for a desktop folder, whose
-	 * `run` and `resolve` answer `Unsupported`; an app offers its separate
-	 * Git actions there instead.
+	 * Whether this folder's runtime syncs. Every folder this package opens
+	 * syncs; a runtime that did not would answer `Unsupported` from `run` and
+	 * `resolve`, and an app would offer its separate Git actions instead.
 	 */
 	readonly supported: boolean;
 	/**

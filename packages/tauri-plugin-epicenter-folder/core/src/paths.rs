@@ -4,11 +4,34 @@
 //! held to `fixtures/path-rules.json`. Paths are never normalized, case folded,
 //! or aliased: a path that would need rewriting to be usable is refused.
 
-/// A Windows short name such as `GIT~1`, which can name `.git` itself.
+/// A Windows 8.3 short name such as `GIT~1` or `NOTES~12.MD`, which can name
+/// another entry, `.git` itself among them: a stem of one to six characters
+/// without a space or dot, `~` and digits, then optionally a dot and an
+/// extension of one to three characters without a space or dot. `Notes ~2.md`
+/// and `version~2-final.md` are not this shape. The same shape as
+/// `SHORT_NAME` in `paths.ts`.
 pub(crate) fn is_short_name(name: &str) -> bool {
-    name.as_bytes()
-        .windows(2)
-        .any(|pair| pair[0] == b'~' && pair[1].is_ascii_digit())
+    let plain = |part: &str, most: usize| {
+        let count = part.chars().count();
+        (1..=most).contains(&count) && !part.contains([' ', '.'])
+    };
+    let (base, extension) = match name.split_once('.') {
+        Some((base, extension)) => (base, Some(extension)),
+        None => (name, None),
+    };
+    let Some((stem, digits)) = base.rsplit_once('~') else {
+        return false;
+    };
+    plain(stem, 6)
+        && !digits.is_empty()
+        && digits.bytes().all(|byte| byte.is_ascii_digit())
+        && extension.is_none_or(|extension| plain(extension, 3))
+}
+
+/// C0 controls, DEL, and C1 controls (U+0080 to U+009F), the same set as
+/// `CONTROL` in `paths.ts`.
+fn is_control(c: char) -> bool {
+    matches!(u32::from(c), 0x00..=0x1F | 0x7F..=0x9F)
 }
 
 /// A code point HFS+ ignores when it compares names, or that Unicode marks
@@ -22,9 +45,17 @@ fn is_ignorable(c: char) -> bool {
         | 0xE0000..=0xE0FFF)
 }
 
-/// A name Windows reserves for a device, with or without an extension.
+/// A name Windows reserves for a device, with or without an extension: the
+/// part before the first dot, without trailing spaces (` `, U+0020 only), is a
+/// device name in any case. Windows drops trailing dots too, but the part
+/// before the first dot holds none.
 fn is_device_name(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or("").trim_end().to_uppercase();
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches(' ')
+        .to_uppercase();
     matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
         || ["COM", "LPT"].iter().any(|prefix| {
             stem.strip_prefix(prefix).is_some_and(|rest| {
@@ -61,7 +92,7 @@ pub fn path_problem(path: &str) -> Option<&'static str> {
     if path.contains('\\') {
         return Some("the path contains a backslash");
     }
-    if path.chars().any(|c| (c as u32) < 0x20 || c as u32 == 0x7f) {
+    if path.chars().any(is_control) {
         return Some("the path contains a control character");
     }
     for segment in path.split('/') {
@@ -116,6 +147,7 @@ mod tests {
             ("a\\b", "the path contains a backslash"),
             ("a\nb", "the path contains a control character"),
             ("a\u{7f}", "the path contains a control character"),
+            ("a\u{85}.md", "the path contains a control character"),
             ("a//b", "the path contains an empty segment"),
             ("a/", "the path contains an empty segment"),
             ("a/../b", "the path contains a relative segment"),

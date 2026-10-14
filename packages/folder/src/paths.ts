@@ -11,8 +11,9 @@ const PRIVATE_SEGMENTS = new Set(['.git']);
 /** Operating-system scratch files that commits and status never include. */
 const SCRATCH_NAMES = new Set(['.DS_Store']);
 
+/** C0 controls, DEL, and C1 controls: what Rust's `char::is_control` covers. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this rejects.
-const CONTROL = /[\u0000-\u001f\u007f]/;
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 /** Characters Windows refuses in a name. */
 const RESERVED = /[<>:"|?*]/;
@@ -22,12 +23,23 @@ const RESERVED = /[<>:"|?*]/;
  */
 const IGNORABLE =
 	/[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFF8\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E0FFF}]/u;
-/** A Windows short name such as `GIT~1`, which can name `.git` itself. */
-const SHORT_NAME = /~[0-9]/;
+/**
+ * A Windows 8.3 short name such as `GIT~1` or `NOTES~12.MD`, which can name
+ * another entry, `.git` itself among them: a stem of one to six characters
+ * without a space or dot, `~` and digits, then optionally a dot and an
+ * extension of one to three characters without a space or dot. `Notes ~2.md`
+ * and `version~2-final.md` are not this shape.
+ */
+const SHORT_NAME = /^[^ .]{1,6}~[0-9]+(\.[^ .]{1,3})?$/u;
 
-/** A name Windows reserves for a device, with or without an extension. */
+/**
+ * A name Windows reserves for a device, with or without an extension: the
+ * part before the first dot, without trailing spaces (` `, U+0020 only), is a
+ * device name in any case. Windows drops trailing dots too, but the part
+ * before the first dot holds none.
+ */
 function isDeviceName(segment: string): boolean {
-	const stem = (segment.split('.')[0] ?? '').trimEnd().toUpperCase();
+	const stem = (segment.split('.')[0] ?? '').replace(/ +$/, '').toUpperCase();
 	return /^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(COM|LPT)[0-9¹²³])$/.test(stem);
 }
 

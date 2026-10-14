@@ -290,6 +290,27 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
+	test("a new folder's first open commits as the person's global Git identity", async () => {
+		const root = await scratch('directory-folder-identity-');
+		const global = join(await scratch('directory-folder-global-'), 'gitconfig');
+		await writeFile(
+			global,
+			'[user]\n\tname = Braden\n\temail = braden@example.test\n',
+		);
+		process.env.GIT_CONFIG_GLOBAL = global;
+		try {
+			const folder = expectOk(await open(root));
+			await addTodo(folder, 'First');
+			expect((await folder.git.commit()).status).toBe('committed');
+			expect(await git(root, 'log', '--format=%an <%ae>', '-1')).toBe(
+				'Braden <braden@example.test>',
+			);
+			await folder.close();
+		} finally {
+			process.env.GIT_CONFIG_GLOBAL = GIT_ENV.GIT_CONFIG_GLOBAL;
+		}
+	});
+
 	test('a branch native Git packed (git gc) is continued, not forked', async () => {
 		const { root, start } = await nativeRepository('directory-folder-packed-');
 		await git(root, 'pack-refs', '--all');

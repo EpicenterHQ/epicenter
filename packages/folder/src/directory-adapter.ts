@@ -89,23 +89,6 @@ export async function openDirectoryFolder<
 		const value = new TextDecoder().decode(stdout).trim();
 		return code === 0 && value !== '' ? value : undefined;
 	};
-	let committer: Author;
-	try {
-		// Read before Git work is set up; a folder with no repository yet has
-		// none of these, and `git init` follows.
-		const isRepository =
-			(await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined;
-		committer = {
-			name:
-				(isRepository ? await configured('user.name') : undefined) ??
-				author.name,
-			email:
-				(isRepository ? await configured('user.email') : undefined) ??
-				author.email,
-		};
-	} catch (cause) {
-		return OpenFolderError.Unavailable({ cause });
-	}
 	const address = JSON.stringify(['directory', rootPath, id]);
 	const at: FolderAddress = {
 		address,
@@ -157,10 +140,16 @@ export async function openDirectoryFolder<
 						credentials,
 					}),
 				);
+				// Read once the repository exists, so a folder's first open
+				// commits as the person's own Git identity too. The desktop
+				// shell answers `config --get` only inside a repository.
 				const history = createHistory({
 					backend,
 					boundary,
-					author: committer,
+					author: {
+						name: (await configured('user.name')) ?? author.name,
+						email: (await configured('user.email')) ?? author.email,
+					},
 					definition: prepared,
 					landed,
 				});

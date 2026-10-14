@@ -411,8 +411,8 @@ export const SyncError = defineErrors({
 	 * The attempt no longer describes the folder. Nothing was written; sync
 	 * again to review the latest changes.
 	 *
-	 * - `replaced`: another run, a resolve, or closing retired it, or it is
-	 *   not this owner's
+	 * - `replaced`: another run, a resolve, or closing retired it, or this
+	 *   folder handle did not prepare it
 	 * - `changed`: the branch moved or saved files changed since it was
 	 *   captured
 	 */

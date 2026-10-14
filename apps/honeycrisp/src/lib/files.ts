@@ -19,9 +19,9 @@ function refusedName(name: string): string | undefined {
 		return '".git" is where Git keeps its history.';
 	if (name.toUpperCase() === 'HEAD')
 		return '"HEAD" is a name Git keeps for itself.';
-	if (/~[0-9]/.test(name))
-		return 'A name cannot contain "~" followed by a digit. Windows uses that for short names, so the name could mean another file.';
-	const stem = (name.split('.')[0] ?? '').trimEnd().toUpperCase();
+	if (/^[^ .]{1,6}~[0-9]+(\.[^ .]{1,3})?$/u.test(name))
+		return 'A name cannot look like a Windows short name such as "NOTES~1". Windows uses those for other files.';
+	const stem = (name.split('.')[0] ?? '').replace(/ +$/, '').toUpperCase();
 	if (/^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(COM|LPT)[0-9¹²³])$/.test(stem))
 		return `"${name}" is a name Windows keeps for a device.`;
 	return undefined;
