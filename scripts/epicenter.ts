@@ -6,8 +6,8 @@
  * `check` and `query` read the folder through `@epicenter/folder`'s
  * `readFolder`, the same reading apps use. `check` reports files that do not
  * conform. `query` answers one read-only SQL statement over an in-memory
- * projection (ADR-0494), and only when `check` passes: a broken file is fixed
- * first. Neither writes a file, executes the folder's code, reads Git, or
+ * projection (ADR-0494) of the files that conform, and names the files it left
+ * out. Neither writes a file, executes the folder's code, reads Git, or
  * contacts a network.
  *
  * `generate` is the one command that runs the folder's code: it imports the
@@ -42,11 +42,13 @@ const usage = `Usage:
 
 check prints one line per file that does not conform. query without a
 statement describes the folder's tables; with one, it runs that single
-read-only statement and prints tab-separated rows. query answers only when
-check passes; otherwise fix the files that check names.
+read-only statement over the files that conform and prints tab-separated rows.
+A file that does not conform is left out of every table, and query names it on
+stderr (in "excluded" with --json); check says why.
 
-check and query exit 0 on success, 1 when a file does not conform, and 2 when
-the folder, the declaration, or the statement cannot be used.
+check exits 0 when every file conforms and 1 when one does not. query exits 0
+when it answers. Both exit 2 when the folder, the declaration, or the
+statement cannot be used, and check also when a file cannot be read.
 
 generate runs <dir>/epicenter.ts, whose default export is defineFolder({...})
 from @epicenter/folder, and writes the epicenter.json it declares. It is the
@@ -372,14 +374,10 @@ async function query(dir: string, sql: string | undefined, json: boolean) {
 		return 0;
 	}
 	for (const table of tables) assertProjectable(table);
-	const broken = fileCount([...invalid, ...unreadable]);
-	if (broken) {
-		printError(
-			`${count(broken, 'file')} ${broken === 1 ? 'does' : 'do'} not conform, so query will not answer; fix what \`epicenter check ${dir}\` names`,
-			json,
-		);
-		return unreadable.length ? 2 : 1;
-	}
+	// A file that does not conform is left out whole and named, never read in part.
+	const excluded = [
+		...new Set([...unreadable, ...invalid].map(({ path }) => path)),
+	];
 	const db = project(tables);
 	try {
 		const statement = prepareRead(db, sql);
@@ -387,9 +385,13 @@ async function query(dir: string, sql: string | undefined, json: boolean) {
 		const columns = statement.columnNames;
 		process.stdout.write(
 			json
-				? `${JSON.stringify({ columns, rows }, null, 2)}\n`
+				? `${JSON.stringify({ columns, rows, excluded }, null, 2)}\n`
 				: `${formatRows(columns, rows)}\n`,
 		);
+		if (excluded.length && !json)
+			process.stderr.write(
+				`${count(excluded.length, 'file')} excluded because ${excluded.length === 1 ? 'it does' : 'they do'} not conform: ${excluded.join(', ')}. Run \`epicenter check ${dir}\`\n`,
+			);
 		return 0;
 	} finally {
 		db.close();
