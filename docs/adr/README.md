@@ -482,7 +482,7 @@ Two habits make the link hard to forget:
 | [0219](0219-a-deleted-row-is-removed-and-the-presence-flag-is-retired.md) | A deleted row is removed, and the presence flag is retired | Accepted (provisional number; retires the presence law 0206 introduced and 0212 amended) |
 | [0220](0220-the-authority-keeps-a-snapshot-and-a-tail-and-a-deletion-becomes-real.md) | The authority keeps a snapshot and a tail, and a deletion becomes real | Superseded by 0298 |
 | [0221](0221-a-table-names-the-rows-a-commit-touched-and-says-so-after-the-projection-commits.md) | A table names the rows a commit touched, and says so after the projection commits | Accepted (provisional number; the subscription seam Honeycrisp renders from) |
-| [0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md) | A host owns how to make a socket, and the library owns everything done with one | Accepted (provisional number; the library owns cursor, reconnect and watchdog; the host owns only `dial`) |
+| [0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md) | A host owns how to make a socket, and the library owns everything done with one | Superseded by 0534 |
 | [0223](0223-a-page-holds-the-store-and-only-three-small-relations-have-to-survive.md) | A page holds the store, and only three small relations have to survive | Accepted (provisional number; corrected before merge: an earlier draft concluded from one measurement that a page could NOT hold the store, which the sync lab had already refuted) |
 | [0224](0224-the-package-name-means-the-new-store-and-the-superseded-stack-is-named-legacy.md) | The package name means the new store, and the superseded stack is named legacy | Accepted (provisional number; first half stands, and the `legacy` subpath it named was deleted by 0227) |
 | [0225](0225-a-store-authority-is-one-durable-object-per-principal-and-application-and-being-signed-in-is-the-sharing-model.md) | A store authority is one Durable Object per principal and application, and being signed in is the sharing model | Accepted, amended by 0292 and 0298 (provisional number; lifecycle amended by proposed 0242) |
@@ -551,10 +551,10 @@ Two habits make the link hard to forget:
 | [0289](0289-the-folder-is-where-a-generation-is-minted-from-not-a-surface-kept-current-for-its-own-sake.md) | The folder is where a generation is minted from, not a surface kept current for its own sake | Accepted (provisional number; amends 0271 at why the render runs continuously, and 0272 at one supporting reason; the folder's freshness stops being a correctness property) |
 | [0290](0290-a-mint-is-a-foreground-job-the-client-owns-and-it-cannot-outlive-a-page.md) | A mint is a foreground job the client owns, and it cannot outlive a page | Superseded by 0293 |
 | [0291](0291-the-ark-is-the-public-home-of-an-epicenter.md) | The Ark is the public home of an Epicenter | Proposed |
-| [0292](0292-a-database-opens-an-exact-generation-cache-first-and-bootstraps-account-misses.md) | A database opens an exact generation cache-first and bootstraps account misses from one snapshot | Accepted (provisional number; supersedes 0278 and amends 0285; unbuilt) |
-| [0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) | A generation is created by importing a folder, and the ledger row is its existence | Accepted (provisional number; supersedes 0286 and 0290; amends 0283 and 0287; unbuilt) |
+| [0292](0292-a-database-opens-an-exact-generation-cache-first-and-bootstraps-account-misses.md) | A database opens an exact generation cache-first and bootstraps account misses from one snapshot | Superseded by 0534 |
+| [0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) | A generation is created by importing a folder, and the ledger row is its existence | Superseded by 0534 |
 | [0294](0294-a-database-is-sized-against-a-measured-device-budget-not-an-assumed-ceiling.md) | A database is sized against a measured device budget, not an assumed ceiling | Accepted (provisional number; withdraws the memory justification for 0284) |
-| [0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md) | A database is one Yjs document and a row holds its rich content | Accepted (Unbuilt) |
+| [0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md) | A database is one Yjs document and a row holds its rich content | Superseded by 0534 |
 | [0296](0296-rich-content-is-a-declared-field-and-a-table-owns-its-file-codec.md) | Rich content is a declared field and a table owns its file codec | Superseded by 0299 at the codec's signature; its file layout stands |
 | [0297](0297-the-store-manages-no-timestamps.md) | The store manages no timestamps | Accepted (Unbuilt) |
 | [0299](0299-a-row-is-its-scalars-and-one-content-node.md) | A row is its scalars and one content node | Superseded by 0309 at its vocabulary; the shape it decided stands |
@@ -675,20 +675,20 @@ When you add an ADR, add its row here.
 | [0418](0418-push-translates-file-differences-into-ordinary-edits.md) | Push translates file differences into ordinary edits | Proposed |
 | [0419](0419-stores-open-for-explicit-owners-and-compose-live-projections.md) | Stores open for explicit owners and compose live projections | Proposed (amends 0406 at mandatory schema reuse; Shared, native persistence, and live projections remain unbuilt) |
 
-| [0423](0423-app-resources-open-as-independent-handles.md) | Stores own data, Local blobs, and SQLite while services open independently | Proposed |
+| [0423](0423-app-resources-open-as-independent-handles.md) | Stores own data, Local blobs, and SQLite while services open independently | Superseded by 0534 |
 | [0424](0424-runtime-transcription-calls-the-host-directly.md) | Runtime transcription calls the host directly | Accepted (direct native API; amends 0398) |
 | [0425](0425-a-transcript-is-separate-from-its-latest-attempt.md) | A transcript is separate from its latest attempt | Proposed |
 | [0426](0426-copies-create-independent-blobs-at-their-destination.md) | Copies create independent blobs at their destination | Accepted |
 | [0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) | Opening a blob acquires presentation without retaining a copy | Accepted (scoped presentation transport; product worker registration remains deferred) |
 | [0428](0428-whispering-recordings-reference-audio-in-their-containing-store.md) | Whispering recordings reference audio in their containing store | Accepted (current store-relative implementation) |
 | [0429](0429-store-handles-keep-account-identity-private.md) | Store handles keep account identity private | Accepted (public Personal identity removal unbuilt) |
-| [0430](0430-define-store-declares-data-and-products-compose-resources.md) | Store definitions declare data and products compose resources | Proposed |
+| [0430](0430-define-store-declares-data-and-products-compose-resources.md) | Store definitions declare data and products compose resources | Superseded by 0534 |
 | [0431](0431-rows-return-values-and-own-a-separate-body.md) | Rows return values and own a separate body | Proposed (amends 0295 and 0309 at the row layout and API) |
 | [0432](0432-captures-hold-ordered-thoughts-beneath-a-dated-timeline.md) | Captures hold ordered thoughts beneath a dated timeline | Proposed |
 | [0433](0433-capture-opens-one-account-backed-inbox.md) | Capture opens one account-backed inbox | Proposed |
 | [0434](0434-capture-keeps-unavailable-thoughts-visible.md) | Capture keeps unavailable thoughts visible | Proposed |
 | [0435](0435-capture-hands-markdown-out-as-an-explicit-snapshot.md) | Capture hands Markdown out as an explicit snapshot | Proposed |
-| [0436](0436-stores-own-local-sqlite-namespaces.md) | Stores own local SQLite namespaces | Accepted (implemented; Local Mail starts fresh) |
+| [0436](0436-stores-own-local-sqlite-namespaces.md) | Stores own local SQLite namespaces | Superseded by 0534 |
 | [0437](0437-sign-out-offers-removal-of-downloaded-account-data.md) | Sign-out offers removal of downloaded account data | Proposed (unbuilt) |
 | [0438](0438-hosted-blobs-have-stable-authority-urls.md) | Hosted blobs have stable authority URLs | Proposed (Personal authority routes and Account client implemented; Shared and row citations unbuilt) |
 | [0439](0439-whispering-promotes-text-to-capture-instead-of-copying-recordings.md) | Whispering promotes text to Capture instead of copying recordings | Proposed (desktop handoff implemented; hosted browser handoff unbuilt) |

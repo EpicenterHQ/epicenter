@@ -1,6 +1,7 @@
 # 0292. A database opens an exact generation cache-first and bootstraps account misses
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store.
 - **Date:** 2026-08-29
 - **Amended by:** [ADR-0417](0417-a-data-address-holds-one-document.md) removes current-data generation identity while retaining cache-first opening, complete bootstrap, and historical-data refusal.
 - **Amended by:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) at the client opener: current App acquisition replaces exact numbered-cache opening. Existing historical bytes and the server refusal of fresh current Personal initialization over admitted history remain. The implementation account below records the earlier protocol, not a current client API.
