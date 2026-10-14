@@ -14,11 +14,12 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import type { CreateMutationResult } from '@tanstack/svelte-query';
 	import { Err, Ok } from 'wellcrafted/result';
-	import { connect } from '#platform/connect';
 	import type { TodosError } from '$lib/session.js';
 	import { remoteLabel, syncOutcomeLine } from '$lib/status.js';
+	import { gitAccess } from '$lib/remote.js';
 	import type { ConnectTo } from '$lib/sync.js';
 	import { getTodos } from '$lib/todos.svelte.js';
+	import SyncChoices from './SyncChoices.svelte';
 
 	let {
 		open = $bindable(false),
@@ -30,7 +31,6 @@
 	} = $props();
 
 	const todos = getTodos();
-	const Picker = connect.Picker;
 	const current = $derived(todos.git.snapshot.remote);
 	/** A remote whose history is separate from this folder's, waiting for the person's answer. */
 	let unrelated = $state<string>();
@@ -67,12 +67,12 @@
 			<Dialog.Description>
 				{current === undefined
 					? 'Choose where your todos sync. They stay Markdown files, here and there.'
-					: `Your todos sync with ${remoteLabel(current.url)}. Choose another remote to sync with it instead.`}
+					: `Your todos sync with ${remoteLabel(current.url, gitAccess.isEpicenter)}. Choose another remote to sync with it instead.`}
 			</Dialog.Description>
 		</Dialog.Header>
 		{#if unrelated !== undefined}
 			<Alert variant="warning" data-testid="connect-unrelated">
-				<AlertTitle>{remoteLabel(unrelated)} already has todos of its own</AlertTitle>
+				<AlertTitle>{remoteLabel(unrelated, gitAccess.isEpicenter)} already has todos of its own</AlertTitle>
 				<AlertDescription>
 					Its history and this folder's are separate. Combining keeps both; where the same todo differs, you choose.
 					Nothing has changed yet.
@@ -90,7 +90,7 @@
 				</Button>
 			</Dialog.Footer>
 		{:else}
-			<Picker busy={sync.isPending} onchoose={(url) => connectTo({ url })} />
+			<SyncChoices busy={sync.isPending} onchoose={(url) => connectTo({ url })} />
 			{#if sync.isPending}
 				<p class="flex items-center gap-2 text-sm text-muted-foreground">
 					<Spinner class="size-3.5" /> Connecting and syncing…

@@ -16,10 +16,6 @@
 		"#platform/departure": {
 			"epicenter-host": "./src/lib/platform/departure.epicenter-host.ts",
 			"default": "./src/lib/platform/departure.browser.ts"
-		},
-		"#platform/connect": {
-			"epicenter-host": "./src/lib/platform/connect.epicenter-host.ts",
-			"default": "./src/lib/platform/connect.browser.ts"
 		}
 	},
 	"scripts": {

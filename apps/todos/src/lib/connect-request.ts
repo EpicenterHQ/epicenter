@@ -1,7 +1,7 @@
 /**
- * Reopening Connect across a page load: GitHub's return to `/sync` asks for
- * it, and the list opens Connect once, so the person picks a repository
- * where they left off. Session storage, so it stays in this tab.
+ * Reopening Connect across a page load: signing in to Epicenter from Connect
+ * leaves the page, and the list opens Connect once when it comes back, so the
+ * person continues where they left off. Session storage, so it stays in this tab.
  */
 const KEY = 'so.epicenter.todos.connect';
 

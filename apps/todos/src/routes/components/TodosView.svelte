@@ -29,7 +29,7 @@
 		todos: Todos;
 		departure?: Departure;
 	} = $props();
-	/** Connect shows; it opens by itself when GitHub just returned to it. */
+	/** Connect shows; it opens by itself when sign-in just returned to it. */
 	let connecting = $state(takeConnectRequest());
 
 	// The views below find this folder's store with `getTodos()`, and its

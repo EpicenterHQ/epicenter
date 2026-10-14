@@ -7,7 +7,6 @@
  * hears change hints the same way in either build.
  */
 import type { Folder, OpenFolderError } from '@epicenter/folder';
-import type { Component } from 'svelte';
 import type { Result } from 'wellcrafted/result';
 import type { todosDefinition } from '../definition.js';
 
@@ -26,28 +25,3 @@ export const TODOS_FOLDER_ID = 'so.epicenter.todos';
 export type OpenTodosFolder = () => Promise<
 	Result<TodosFolder, OpenFolderError>
 >;
-
-/** What Connect shows to choose a remote: the account's GitHub repositories, or a URL. */
-export type ConnectPickerProps = {
-	/** A connect is running; nothing new is chosen until it ends. */
-	readonly busy: boolean;
-	/** Connect the folder to this remote URL. */
-	readonly onchoose: (url: string) => void;
-};
-
-export type GitHubReturnProps = {
-	/** The address GitHub returned to: `/sync?github_code&github_state`, or `github_error`. */
-	readonly url: URL;
-	/** Leave `/sync` for the list. */
-	readonly onfinished: () => void;
-};
-
-/**
- * `#platform/connect`: how a person chooses the folder's remote. In a browser,
- * a private GitHub repository through their Epicenter account, and the `/sync`
- * page GitHub returns to; on the desktop, any Git URL their own Git reaches.
- */
-export type TodosConnect = {
-	readonly Picker: Component<ConnectPickerProps>;
-	readonly GitHubReturn?: Component<GitHubReturnProps>;
-};

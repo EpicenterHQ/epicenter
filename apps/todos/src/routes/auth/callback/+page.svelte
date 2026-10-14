@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { Loading } from '@epicenter/ui/loading';
+	import { isCallbackAuthClient } from '@epicenter/auth';
 	import { auth } from '#platform/auth';
 
 	let errorMessage = $state<string | null>(null);
 
 	$effect(() => {
 		let alive = true;
-		if (auth === undefined) {
+		if (auth === undefined || !isCallbackAuthClient(auth)) {
 			errorMessage = 'Sign-in is unavailable in this build.';
 			return () => { alive = false; };
 		}

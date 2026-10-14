@@ -5,4 +5,4 @@
 export { auth } from '#platform/auth';
 export { departurePort } from '#platform/departure';
 export { openTodosFolder } from '#platform/folder';
-export { connect } from '#platform/connect';
+export { gitAccess } from './remote.js';

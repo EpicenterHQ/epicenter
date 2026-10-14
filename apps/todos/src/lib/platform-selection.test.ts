@@ -9,10 +9,10 @@
  * Key behaviors:
  * - The host build reaches the desktop adapter and its generated bindings,
  *   and no OPFS storage, directory opener, or Git implementation
- * - The host build reaches no sign-in or GitHub connector; its Connect takes a URL
+ * - The host build reaches the desktop broker account, and no redirect sign-in
  * - The browser build reaches OPFS storage and isomorphic-git, and no
  *   desktop adapter or generated bindings
- * - The browser build reaches Connect's GitHub picker, sign-in, and the connector
+ * - The browser build reaches redirect sign-in, and no desktop broker account
  * - Neither build reaches the automatic entry, which loads either adapter,
  *   or `@epicenter/app`
  */
@@ -121,16 +121,16 @@ describe('#platform/folder', () => {
 						),
 				),
 			).toEqual([]);
-			// The desktop folder has no account, sign-in, or GitHub connector.
-			for (const leaf of ['connect', 'auth'])
-				expect(
-					modules.some((path) =>
-						path.endsWith(`platform/${leaf}.epicenter-host.ts`),
-					),
-				).toBe(true);
+			// The desktop window borrows Home's account through the host.
+			for (const module of [
+				'platform/auth.epicenter-host.ts',
+				'auth/src/desktop-broker-auth.ts',
+				'src/lib/git-access.ts',
+			])
+				expect(modules.some((path) => path.endsWith(module))).toBe(true);
 			expect(
 				modules.filter((path) =>
-					/platform\/(connect|auth)\.browser\.ts$|src\/lib\/account\/|packages\/auth\/src\//.test(
+					/platform\/auth\.browser\.ts$|auth\/src\/browser-redirect-auth\.ts$/.test(
 						path,
 					),
 				),
@@ -180,18 +180,18 @@ describe('#platform/folder', () => {
 						),
 				),
 			).toEqual([]);
-			// Connect's GitHub picker, sign-in, and the connector are the browser's.
+			// Redirect sign-in is the browser's.
 			for (const module of [
-				'platform/connect.browser.ts',
 				'platform/auth.browser.ts',
-				'account/GitHubPicker.svelte',
-				'account/connector.ts',
 				'auth/src/browser-redirect-auth.ts',
+				'src/lib/git-access.ts',
 			])
 				expect(modules.some((path) => path.endsWith(module))).toBe(true);
 			expect(
 				modules.filter((path) =>
-					/platform\/(connect|auth)\.epicenter-host\.ts$/.test(path),
+					/platform\/auth\.epicenter-host\.ts$|auth\/src\/desktop-broker-auth\.ts$/.test(
+						path,
+					),
 				),
 			).toEqual([]);
 		},

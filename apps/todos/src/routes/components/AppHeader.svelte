@@ -31,6 +31,7 @@
 		versionOutcomeLine,
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
+	import { gitAccess } from '$lib/remote.js';
 	import { type TodosError, todosKeys } from '$lib/session.js';
 	import type { ConnectTo } from '$lib/sync.js';
 	import { getTodos } from '$lib/todos.svelte.js';
@@ -161,13 +162,13 @@
 			size="sm"
 			class="max-w-56 min-w-0 shrink font-normal"
 			tooltip={connected === undefined ? 'Choose where your todos sync' : `Syncs with ${connected.url}. Click to change.`}
-			aria-label={connected === undefined ? 'Not connected. Connect' : `Syncs with ${remoteLabel(connected.url)}. Change remote`}
+			aria-label={connected === undefined ? 'Not connected. Connect' : `Syncs with ${remoteLabel(connected.url, gitAccess.isEpicenter)}. Change remote`}
 			disabled={busy}
 			data-testid="remote"
 			onclick={onconnect}
 		>
 			{#if connected === undefined}<LinkIcon />{:else}<FolderGitIcon />{/if}
-			<span class="truncate max-sm:sr-only">{connected === undefined ? 'Not connected' : remoteLabel(connected.url)}</span>
+			<span class="truncate max-sm:sr-only">{connected === undefined ? 'Not connected' : remoteLabel(connected.url, gitAccess.isEpicenter)}</span>
 		</Button>
 	{/if}
 
