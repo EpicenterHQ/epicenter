@@ -20,6 +20,7 @@ epicenter-folder-core = { path = "core" }
 specta = "=2.0.0-rc.26"
 specta-typescript = "=0.0.13"
 glob = "0.3"
+percent-encoding = "2"
 serde_json = "1"
 tauri = "2.11"
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }

@@ -22,7 +22,7 @@
  */
 
 import { lstat, realpath } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import type { Result } from 'wellcrafted/result';
 import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
@@ -78,7 +78,6 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 	}
 	return openDirectoryFolder<TDefinition>({
 		definition,
-		id: basename(resolved),
 		root: directoryHandle(nodeDirectoryPrimitives, resolved),
 		rootPath: resolved,
 		git: { run: createGitRunner(resolved), files: nodeDirectoryPrimitives },

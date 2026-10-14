@@ -13,14 +13,15 @@
 // It writes the way the folder engine does (`directory-handle.ts` in
 // `packages/folder`): the bytes go to a new file under
 // `.git/epicenter/scratch` through the folder plugin's `write_folder_file`,
-// which is then renamed over the path. It reports through the folder itself
+// as a raw body with its arguments in headers, which is then renamed over
+// the path. It reports through the folder itself
 // under
 // `harness/`, because the window's capability lets it emit nothing else.
 // `__SCOPE__` is filled in by the harness.
 (async () => {
 	const internals = window.__TAURI_INTERNALS__;
-	const invoke = (command, args) => internals.invoke(command, args);
-	const bytes = (text) => Array.from(new TextEncoder().encode(text));
+	const invoke = (command, args, options) =>
+		internals.invoke(command, args, options);
 	const scope = '__SCOPE__';
 	let root;
 	const mkdir = (path) =>
@@ -31,12 +32,17 @@
 	let staged = 0;
 	const write = async (path, text) => {
 		const copy = `${root}/.git/epicenter/scratch/fixture-${staged++}`;
-		await invoke('plugin:epicenter-folder|write_folder_file', {
-			scope,
-			path: copy,
-			bytes: bytes(text),
-			createNew: true,
-		});
+		await invoke(
+			'plugin:epicenter-folder|write_folder_file',
+			new TextEncoder().encode(text),
+			{
+				headers: {
+					scope: encodeURIComponent(scope),
+					path: encodeURIComponent(copy),
+					'create-new': 'true',
+				},
+			},
+		);
 		await invoke('plugin:epicenter-folder|rename_folder_path', {
 			scope,
 			from: copy,
@@ -81,10 +87,9 @@
 		// blocking pool.
 		startBatch(count) {
 			for (let index = 0; index < count; index += 1)
-				write(
-					`batch/${String(index).padStart(6, '0')}.md`,
-					`${index}\n`,
-				).catch(() => {});
+				write(`batch/${String(index).padStart(6, '0')}.md`, `${index}\n`).catch(
+					() => {},
+				);
 		},
 	};
 	await report('ready', { generation, root });

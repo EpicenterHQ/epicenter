@@ -11,6 +11,9 @@
 //! - Changes land only after a grant, only under the root, and never in
 //!   Git's private state; `git` runs in the root and only as an allowed
 //!   operation.
+//! - A staged write takes its bytes as a raw body and its arguments as
+//!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
+//!   fallback, is accepted too.
 //! - A page's `git` runs end with it: a cancel stops a run whether it
 //!   arrives before or after the run starts, a page load or a destroyed
 //!   window cancels every run of the page before it, and two windows' runs
@@ -21,6 +24,7 @@
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
+use tauri::http::{HeaderMap, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody, RuntimeAuthority};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
 use tauri::utils::acl::manifest::Manifest;
@@ -61,7 +65,13 @@ fn the_committed_typescript_bindings_match_the_registered_commands() {
         committed == fresh,
         "packages/folder/src/native/bindings.gen.ts is stale; run `FOLDER_WRITE_BINDINGS=1 cargo test --offline bindings` in packages/tauri-plugin-epicenter-folder"
     );
-    for command in COMMANDS {
+    // `write_folder_file` takes a raw body, which specta cannot type; the
+    // page invokes it by name.
+    assert!(!fresh.contains("write_folder_file"));
+    for command in COMMANDS
+        .iter()
+        .filter(|command| **command != "write_folder_file")
+    {
         assert!(
             fresh.contains(&format!("'plugin:epicenter-folder|{command}'"))
                 || fresh.contains(&format!("\"plugin:epicenter-folder|{command}\"")),
@@ -169,6 +179,15 @@ fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
 
 /// One request through the IPC handler: the resolved value, or the rejection.
 fn invoke(window: &WebviewWindow<MockRuntime>, command: &str, args: Value) -> Result<Value, Value> {
+    request(window, command, InvokeBody::Json(args), Default::default())
+}
+
+fn request(
+    window: &WebviewWindow<MockRuntime>,
+    command: &str,
+    body: InvokeBody,
+    headers: HeaderMap,
+) -> Result<Value, Value> {
     tauri::test::get_ipc_response(
         window,
         InvokeRequest {
@@ -176,12 +195,43 @@ fn invoke(window: &WebviewWindow<MockRuntime>, command: &str, args: Value) -> Re
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: "tauri://localhost".parse().unwrap(),
-            body: InvokeBody::Json(args),
-            headers: Default::default(),
+            body,
+            headers,
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
     .map(|body| body.deserialize::<Value>().expect("a JSON response"))
+}
+
+/// `write_folder_file` as `directory-tauri.ts` sends it: the bytes as the
+/// raw body, the rest in percent-encoded headers.
+fn write_file(
+    window: &WebviewWindow<MockRuntime>,
+    path: &str,
+    bytes: &[u8],
+    create_new: bool,
+) -> Result<Value, Value> {
+    request(
+        window,
+        "write_folder_file",
+        InvokeBody::Raw(bytes.to_vec()),
+        write_headers(path, create_new),
+    )
+}
+
+fn write_headers(path: &str, create_new: bool) -> HeaderMap {
+    let encoded = |value: &str| {
+        HeaderValue::from_str(
+            &percent_encoding::utf8_percent_encode(value, percent_encoding::NON_ALPHANUMERIC)
+                .to_string(),
+        )
+        .unwrap()
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert("scope", encoded("notes"));
+    headers.insert("path", encoded(path));
+    headers.insert("create-new", encoded(&create_new.to_string()));
+    headers
 }
 
 fn text(value: &Value) -> String {
@@ -219,16 +269,7 @@ fn write(
         "make_folder_directory",
         json!({ "scope": "notes", "path": scratch }),
     )?;
-    invoke(
-        window,
-        "write_folder_file",
-        json!({
-            "scope": "notes",
-            "path": staged,
-            "bytes": content.as_bytes(),
-            "createNew": true,
-        }),
-    )?;
+    write_file(window, &staged, content.as_bytes(), true)?;
     invoke(
         window,
         "rename_folder_path",
@@ -332,18 +373,69 @@ fn changes_land_under_the_root_and_never_in_git_state() {
     // Git's private state and anything outside the root are refused.
     assert!(write(&fixture, &main, ".git/config", "[core]\n").is_err());
     let outside = fixture.root.parent().unwrap().join("outside.md");
-    assert!(invoke(
+    assert!(write_file(&main, outside.to_str().unwrap(), b"x", false).is_err());
+    assert!(!outside.exists());
+}
+
+#[test]
+fn a_staged_write_takes_its_bytes_raw_and_its_path_percent_encoded() {
+    let fixture = fixture("raw-write");
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    let scratch = inside(&fixture, ".git/epicenter/scratch");
+    invoke(
+        &main,
+        "make_folder_directory",
+        json!({ "scope": "notes", "path": scratch }),
+    )
+    .unwrap();
+
+    // Every byte value arrives as it is, and the path decodes whole: the
+    // headers encode every `/` and `.` in it.
+    let bytes: Vec<u8> = (0..=255).collect();
+    let staged = format!("{scratch}/raw");
+    write_file(&main, &staged, &bytes, true).unwrap();
+    invoke(
+        &main,
+        "rename_folder_path",
+        json!({ "scope": "notes", "from": staged, "to": inside(&fixture, "all.bin") }),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(fixture.root.join("all.bin")).unwrap(), bytes);
+
+    // The bytes as a JSON array, Tauri's postMessage fallback, also land.
+    let fallback = format!("{scratch}/fallback");
+    request(
         &main,
         "write_folder_file",
-        json!({
-            "scope": "notes",
-            "path": outside.to_str().unwrap(),
-            "bytes": b"x",
-            "createNew": false,
-        }),
+        InvokeBody::Json(json!([0, 120, 255])),
+        write_headers(&fallback, true),
     )
-    .is_err());
-    assert!(!outside.exists());
+    .unwrap();
+    assert_eq!(std::fs::read(&fallback).unwrap(), vec![0, 120, 255]);
+
+    // Any other JSON body, or a header missing, is refused.
+    let refused = format!("{scratch}/refused");
+    let json = request(
+        &main,
+        "write_folder_file",
+        InvokeBody::Json(json!({ "bytes": [1] })),
+        write_headers(&refused, true),
+    )
+    .unwrap_err();
+    assert!(text(&json).contains("raw body"), "{json}");
+    let mut headers = write_headers(&refused, true);
+    headers.remove("create-new");
+    let missing = request(
+        &main,
+        "write_folder_file",
+        InvokeBody::Raw(b"x".to_vec()),
+        headers,
+    )
+    .unwrap_err();
+    assert!(text(&missing).contains("create-new"), "{missing}");
+    assert!(!std::path::Path::new(&refused).exists());
 }
 
 #[test]

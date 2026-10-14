@@ -15,7 +15,7 @@ the scope and nothing else: it never supplies a root or an author.
 | --- | --- |
 | `core/` | `epicenter-folder-core`: the registry, the cross-process lock, the shared path rule, and the checked file changes and `git` runs. No Tauri; its tests need only `git` and `bun`. |
 | `src/` | The Tauri plugin: the commands, the run-time capability a grant adds, and the `git` runs each window's page started. |
-| `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. Do not edit. |
+| `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `write_folder_file` is not in them (see File changes). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 | `fixtures/page-file-changes.json` | Every file change the engine makes in `@epicenter/folder`'s real-Git tests; `page_files.rs` allows each. |
 | `fixtures/page-git-calls.json` | Every `git` call the engine makes in the same tests; `page_git.rs` allows each. |
@@ -130,12 +130,21 @@ on the way may be a link. Then it must be:
   copies `.git/index.tmp-*`.
 
 `write_folder_file` writes only a new staged file or index copy, and only
-with `createNew`, so nothing already at the path, such as a hard link another
+with `create-new`, so nothing already at the path, such as a hard link another
 program planted, is written through. A data file is never written in place:
 the engine writes a staged copy and renames it over the path
 (`rename_folder_path`), which replaces a hard link rather than writing
 through it. A directory is removed only when empty; nothing removes a tree
-whole. The page writes no Git object: the engine stores each with
+whole.
+
+`write_folder_file` takes the file's bytes as the request's raw body, as the
+fs plugin's `write_file` does, so content crosses IPC as it is rather than as
+a JSON array of numbers. Its arguments are headers, each percent-encoded:
+`scope`, `path`, and `create-new` (`true` or `false`). A JSON array of bytes,
+Tauri's `postMessage` fallback, is accepted too.
+The generated bindings cannot type a raw request, so the command is left out
+of them; the plugin dispatches it beside the typed commands, under the same
+permission, and `directory-tauri.ts` invokes it by name. The page writes no Git object: the engine stores each with
 `git hash-object -w`, which names and checks it.
 
 ## Git

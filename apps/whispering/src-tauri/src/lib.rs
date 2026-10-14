@@ -671,6 +671,7 @@ mod tests {
     use super::*;
 
     use serde_json::{json, Value};
+    use tauri::http::{HeaderMap, HeaderValue};
     use tauri::ipc::{CallbackFn, InvokeBody, RuntimeCapability};
     use tauri::test::{mock_builder, MockRuntime, INVOKE_KEY};
     use tauri::utils::acl::capability::{CapabilityFile, PermissionEntry};
@@ -890,6 +891,16 @@ mod tests {
         cmd: &str,
         body: Value,
     ) -> Result<Value, Value> {
+        request(window, url, cmd, InvokeBody::Json(body), Default::default())
+    }
+
+    fn request(
+        window: &WebviewWindow<MockRuntime>,
+        url: &str,
+        cmd: &str,
+        body: InvokeBody,
+        headers: HeaderMap,
+    ) -> Result<Value, Value> {
         tauri::test::get_ipc_response(
             window,
             InvokeRequest {
@@ -897,12 +908,38 @@ mod tests {
                 callback: CallbackFn(0),
                 error: CallbackFn(1),
                 url: url.parse().unwrap(),
-                body: InvokeBody::Json(body),
-                headers: Default::default(),
+                body,
+                headers,
                 invoke_key: INVOKE_KEY.to_string(),
             },
         )
         .map(|body| body.deserialize::<Value>().expect("a JSON response"))
+    }
+
+    /// `write_folder_file` as the page's engine sends it: the bytes as the
+    /// raw body, the rest in percent-encoded headers. These values are plain
+    /// ASCII with no `%`, so each encodes as itself.
+    fn write_file(
+        window: &WebviewWindow<MockRuntime>,
+        url: &str,
+        path: &Path,
+        bytes: &[u8],
+    ) -> Result<Value, Value> {
+        let mut headers = HeaderMap::new();
+        for (name, value) in [
+            ("scope", FOLDER_SCOPE),
+            ("path", path.to_str().unwrap()),
+            ("create-new", "true"),
+        ] {
+            headers.insert(name, HeaderValue::from_str(value).unwrap());
+        }
+        request(
+            window,
+            url,
+            "plugin:epicenter-folder|write_folder_file",
+            InvokeBody::Raw(bytes.to_vec()),
+            headers,
+        )
     }
 
     /// The page's first call: ask for the folder's directory.
@@ -1018,18 +1055,7 @@ mod tests {
             json!({ "scope": FOLDER_SCOPE, "path": scratch.to_str().unwrap() }),
         )
         .expect("the page makes its staging directory");
-        invoke(
-            &main,
-            host,
-            "plugin:epicenter-folder|write_folder_file",
-            json!({
-                "scope": FOLDER_SCOPE,
-                "path": staged.to_str().unwrap(),
-                "bytes": [104, 105],
-                "createNew": true,
-            }),
-        )
-        .expect("the page stages a data file");
+        write_file(&main, host, &staged, b"hi").expect("the page stages a data file");
         invoke(
             &main,
             host,
@@ -1045,18 +1071,7 @@ mod tests {
             fs::read(root.join("recordings").join("take.md")).unwrap(),
             b"hi"
         );
-        assert!(invoke(
-            &main,
-            host,
-            "plugin:epicenter-folder|write_folder_file",
-            json!({
-                "scope": FOLDER_SCOPE,
-                "path": directory.0.join("outside.md").to_str().unwrap(),
-                "bytes": [104, 105],
-                "createNew": true,
-            }),
-        )
-        .is_err());
+        assert!(write_file(&main, host, &directory.0.join("outside.md"), b"hi").is_err());
         assert!(!directory.0.join("outside.md").exists());
 
         // The page names only what the shell registered.

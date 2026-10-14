@@ -27,11 +27,6 @@ export const commands = {
 	 *  finished, or another window's, does nothing.
 	 */
 	cancelGit: (request: string) => typedError<null, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|cancel_git", { request })),
-	/**
-	 *  Write a new file the engine stages in a granted folder's `.git`: a
-	 *  staged copy or a private index copy (`page_files::write_file`).
-	 */
-	writeFolderFile: (scope: string, path: string, bytes: number[], createNew: boolean) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|write_folder_file", { scope, path, bytes, createNew })),
 	/**  Rename within a granted folder (`page_files::rename`). */
 	renameFolderPath: (scope: string, from: string, to: string) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|rename_folder_path", { scope, from, to })),
 	/**  Remove within a granted folder (`page_files::remove`). */

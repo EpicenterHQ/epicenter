@@ -73,6 +73,22 @@ export async function git(root: string, ...args: string[]): Promise<string> {
 }
 
 /**
+ * The arguments of one `invoke`, as the shell reads them. A command that takes
+ * a raw body (`write_folder_file`) carries the rest in percent-encoded
+ * headers, decoded here beside the body as `bytes`.
+ */
+export function shellArguments(
+	body: Record<string, unknown> | Uint8Array = {},
+	options?: { readonly headers?: Record<string, string> },
+): Record<string, unknown> {
+	if (!(body instanceof Uint8Array)) return body;
+	const args: Record<string, unknown> = { bytes: body };
+	for (const [name, value] of Object.entries(options?.headers ?? {}))
+		args[name] = decodeURIComponent(value);
+	return args;
+}
+
+/**
  * The shell's answer to one folder plugin command for the folder granted at
  * `root`, or `undefined` when `cmd` is not one of the granted folder's.
  */
@@ -99,11 +115,11 @@ export async function shellCommand(
 		case 'cancel_git':
 			return { reply: null };
 		case 'write_folder_file':
-			await nodeFs.writeFile(
-				args.path as string,
-				Uint8Array.from(args.bytes as number[]),
-				{ flag: args.createNew ? 'wx' : 'w' },
-			);
+			if (!(args.bytes instanceof Uint8Array))
+				throw 'write_folder_file takes its bytes as a raw body, not JSON';
+			await nodeFs.writeFile(args.path as string, args.bytes, {
+				flag: args['create-new'] === 'true' ? 'wx' : 'w',
+			});
 			return { reply: null };
 		case 'rename_folder_path':
 			await nodeFs.rename(args.from as string, args.to as string);

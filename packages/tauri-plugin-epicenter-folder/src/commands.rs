@@ -153,15 +153,44 @@ fn changing_root<R: Runtime>(
 
 /// Write a new file the engine stages in a granted folder's `.git`: a
 /// staged copy or a private index copy (`page_files::write_file`).
+///
+/// The bytes are the request's raw body, as the fs plugin's `write_file`
+/// takes them, so file content crosses IPC as it is rather than as a JSON
+/// array of numbers. The `scope`, `path`, and `create-new` headers carry the
+/// rest, each percent-encoded. A JSON array of bytes is accepted as well, as
+/// the fs plugin accepts it: Tauri sends one when its custom-protocol IPC
+/// failed and it fell back to `postMessage`. Any other body is refused.
+/// tauri-specta cannot type a raw request, so the generated bindings leave
+/// this command out and `directory-tauri.ts` invokes it by name; `init`
+/// dispatches it beside the typed commands.
 #[tauri::command]
-#[specta::specta]
 pub async fn write_folder_file<R: Runtime>(
     webview: Webview<R>,
-    scope: String,
-    path: String,
-    bytes: Vec<u8>,
-    create_new: bool,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<(), String> {
+    let header = |name: &str| -> Result<String, String> {
+        let value = request
+            .headers()
+            .get(name)
+            .ok_or_else(|| format!("write_folder_file needs the {name} header"))?;
+        percent_encoding::percent_decode(value.as_bytes())
+            .decode_utf8()
+            .map(|decoded| decoded.into_owned())
+            .map_err(|_| format!("the {name} header is not percent-encoded UTF-8"))
+    };
+    let scope = header("scope")?;
+    let path = header("path")?;
+    let create_new = match header("create-new")?.as_str() {
+        "true" => true,
+        "false" => false,
+        other => return Err(format!("create-new is {other:?}, not true or false")),
+    };
+    // The blocking pool needs the bytes to outlive the request.
+    let bytes: Vec<u8> = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
+        tauri::ipc::InvokeBody::Json(value) => serde_json::from_value(value.clone())
+            .map_err(|_| "write_folder_file takes its bytes as a raw body".to_string())?,
+    };
     let (root, work) = changing_root(&webview, &scope)?;
     blocking(
         move || {

@@ -39,6 +39,7 @@ import {
 	createGrantedShell,
 	type GrantedShell,
 	grantedDirectory,
+	shellArguments,
 } from './granted-folder.test-support.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
@@ -52,11 +53,15 @@ const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
-	async invoke(cmd: string, args: Record<string, unknown> = {}) {
+	async invoke(
+		cmd: string,
+		body?: Record<string, unknown> | Uint8Array,
+		options?: { headers?: Record<string, string> },
+	) {
 		const name = cmd.replace('plugin:epicenter-folder|', '');
-		calls.push({ cmd: name, args });
+		calls.push({ cmd: name, args: shellArguments(body, options) });
 		if (shell === undefined) throw new Error(`no shell for ${name}`);
-		return shell.invoke(cmd, args);
+		return shell.invoke(cmd, body, options);
 	},
 }));
 mock.module('@tauri-apps/api/event', () => ({
@@ -460,10 +465,10 @@ test('saves and history go through the shell and never to the host', async () =>
 	const { error: readError } = await workspace.folder.files.read('missing.md');
 	expect(readError?.name).toBe('NotFound');
 
-	// The recording's bytes reach the shell as numbers, staged and then renamed
-	// into place, and land exactly.
+	// The recording's bytes reach the shell as a raw body, staged and then
+	// renamed into place, and land exactly.
 	const staged = sent('write_folder_file').map((call) => call.args.bytes);
-	expect(staged).toContainEqual([1, 2, 3, 0, 255]);
+	expect(staged).toContainEqual(audio);
 	expect(sent('rename_folder_path').map((call) => call.args.to)).toContainEqual(
 		join(root, 'recordings', 'a.wav'),
 	);

@@ -207,7 +207,6 @@ function open(
 	};
 	return openDirectoryFolder({
 		definition,
-		id: 'so.epicenter.todos',
 		root: directoryHandle(files, root),
 		rootPath: root,
 		git: { run, files },
@@ -215,6 +214,12 @@ function open(
 		author,
 	});
 }
+
+const HOUR = 60 * 60 * 1000;
+
+/** A staged file's name as another process's handle makes it, `offset` from now. */
+const stagedName = (offset: number) =>
+	`${(Date.now() + offset).toString(36)}-${'0'.repeat(32)}-0`;
 
 type OpenedFolder = NonNullable<Awaited<ReturnType<typeof open>>['data']>;
 
@@ -433,12 +438,29 @@ describe('a folder over an ordinary directory', () => {
 		expect(todos.filter((name) => name.endsWith('.md'))).toEqual([]);
 		await interrupted.close();
 
-		// A staged file a crash left is removed when the folder opens again.
+		// A staged file a crash left is removed when the folder opens again,
+		// once it is old enough that no write can still be about to rename it.
 		await mkdir(join(root, SCRATCH_DIRECTORY), { recursive: true });
-		await writeFile(join(root, SCRATCH_DIRECTORY, 'left-behind'), 'x');
+		await writeFile(join(root, SCRATCH_DIRECTORY, stagedName(-2 * HOUR)), 'x');
 		const reopened = expectOk(await open(root));
 		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
 		await reopened.close();
+	});
+
+	test('an open leaves a file another process just staged, and names it did not make', async () => {
+		const root = await scratch('directory-folder-foreign-scratch-');
+		await mkdir(join(root, SCRATCH_DIRECTORY), { recursive: true });
+		// Another process wrote this between its write and its rename; it
+		// shares no lock with this one.
+		const fresh = stagedName(0);
+		const old = stagedName(-2 * HOUR);
+		for (const name of [fresh, old, 'left-behind'])
+			await writeFile(join(root, SCRATCH_DIRECTORY, name), 'x');
+		const folder = expectOk(await open(root));
+		expect((await readdir(join(root, SCRATCH_DIRECTORY))).sort()).toEqual(
+			[fresh, 'left-behind'].sort(),
+		);
+		await folder.close();
 	});
 
 	test('two windows opening a new folder at once share one repository', async () => {

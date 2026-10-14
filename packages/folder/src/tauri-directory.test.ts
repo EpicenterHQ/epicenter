@@ -33,8 +33,25 @@ let afterRemove: (path: string) => void = () => {};
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
-	async invoke(cmd: string, args: Record<string, unknown> = {}) {
+	async invoke(
+		cmd: string,
+		body: Record<string, unknown> | Uint8Array = {},
+		options?: { headers?: Record<string, string> },
+	) {
 		const name = cmd.replace('plugin:epicenter-folder|', '');
+		// A raw body carries its arguments in percent-encoded headers.
+		const args =
+			body instanceof Uint8Array
+				? {
+						...Object.fromEntries(
+							Object.entries(options?.headers ?? {}).map(([key, value]) => [
+								key,
+								decodeURIComponent(value),
+							]),
+						),
+						bytes: body,
+					}
+				: body;
 		calls.push({ cmd: name, args });
 		if (name === 'grant_directory') return grant(args);
 		// The shell runs the folder's Git; here the system `git` stands in.
@@ -62,11 +79,11 @@ mock.module('@tauri-apps/api/core', () => ({
 		if (name === 'cancel_git') return null;
 		// The shell's own changes; here `node:fs` stands in.
 		if (name === 'write_folder_file') {
-			await nodeFs.writeFile(
-				args.path as string,
-				new Uint8Array(args.bytes as number[]),
-				{ flag: args.createNew ? 'wx' : 'w' },
-			);
+			if (!(args.bytes instanceof Uint8Array))
+				throw 'write_folder_file takes its bytes as a raw body, not JSON';
+			await nodeFs.writeFile(args.path as string, args.bytes, {
+				flag: args['create-new'] === 'true' ? 'wx' : 'w',
+			});
 			return null;
 		}
 		if (name === 'rename_folder_path') {

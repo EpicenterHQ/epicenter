@@ -52,6 +52,7 @@ import {
 	git,
 	installWebLocks,
 	scratch,
+	shellArguments,
 	shellCommand,
 } from './granted-directory.test-support.js';
 import { CAPTURE_FOLDER_ID } from './types.js';
@@ -78,7 +79,12 @@ const IDLE = { version: 1, generation: 1, phase: 'idle' };
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
-	async invoke(name: string, args: Record<string, unknown> = {}) {
+	async invoke(
+		name: string,
+		body?: Record<string, unknown> | Uint8Array,
+		options?: { headers?: Record<string, string> },
+	) {
+		const args = shellArguments(body, options);
 		const call = { cmd: name.replace(PLUGIN, ''), args };
 		calls.push(call);
 		if (name === DEPARTURE_STATUS_COMMAND) return IDLE;

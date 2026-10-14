@@ -11,15 +11,15 @@ import {
 	type FolderDefinition,
 	prepareFolderDefinition,
 } from './definition.js';
-import { SCRATCH_DIRECTORY } from './directory-handle.js';
+import { isStaleScratch, SCRATCH_DIRECTORY } from './directory-handle.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import { createHistory } from './git/history.js';
+import type { GitCredentials } from './git/http.js';
 import {
 	createNativeGitBackend,
 	type NativeGitHost,
 } from './git/native-backend.js';
-import type { GitCredentials } from './git/http.js';
 import type { Author } from './git/objects.js';
 import { webLockExclusive } from './git/web-lock-exclusive.js';
 import { type FolderAddress, openAtRoot } from './open-at-root.js';
@@ -49,7 +49,6 @@ export async function openDirectoryFolder<
 	const TDefinition extends FolderDefinition,
 >({
 	definition,
-	id,
 	root,
 	rootPath,
 	git: host,
@@ -60,7 +59,6 @@ export async function openDirectoryFolder<
 	credentials,
 }: {
 	readonly definition: TDefinition;
-	readonly id: string;
 	/** The directory, as a handle over the host's file system. */
 	readonly root: OpfsDirectoryHandle;
 	/** The directory's absolute path, for showing to a person and naming locks. */
@@ -79,8 +77,6 @@ export async function openDirectoryFolder<
 		prepareFolderDefinition(definition);
 	if (definitionError !== null)
 		return OpenFolderError.InvalidDefinition(definitionError);
-	if (typeof id !== 'string' || id.trim() === '')
-		return OpenFolderError.InvalidId({ id: String(id) });
 	ensureBufferGlobal();
 	const configured = async (key: string) => {
 		const { code, stdout } = await host.run(['config', '--get', key], {
@@ -89,7 +85,9 @@ export async function openDirectoryFolder<
 		const value = new TextDecoder().decode(stdout).trim();
 		return code === 0 && value !== '' ? value : undefined;
 	};
-	const address = JSON.stringify(['directory', rootPath, id]);
+	// The names come from the directory alone, so every opener in this
+	// process or origin coordinates, whatever ID it opened the folder by.
+	const address = JSON.stringify(['directory', rootPath]);
 	const at: FolderAddress = {
 		address,
 		directory: rootPath,
@@ -99,16 +97,18 @@ export async function openDirectoryFolder<
 		hintChannel: `epicenter-folder-directory-hints:${address}`,
 	};
 	// A write that stopped before its rename (a crash, a quit) leaves its
-	// staged bytes behind. Every write stages under the files lock, so none is
-	// in flight while it is held. What cannot be removed stays; it is inert.
+	// staged bytes behind. The files lock orders only this process's or this
+	// origin's writes, and another process may be writing the directory, so
+	// only files staged long enough ago to be abandoned are removed. What
+	// cannot be removed stays; it is inert.
 	const scratch = `${rootPath}/${SCRATCH_DIRECTORY}`;
 	try {
-		await locks.request(at.filesLock, {}, async () => {
-			if ((await host.files.lstat(scratch))?.kind !== 'directory') return;
+		if ((await host.files.lstat(scratch))?.kind === 'directory') {
+			const now = Date.now();
 			for (const entry of await host.files.readDir(scratch))
-				if (entry.kind === 'file')
+				if (entry.kind === 'file' && isStaleScratch(entry.name, now))
 					await host.files.remove(`${scratch}/${entry.name}`).catch(() => {});
-		});
+		}
 	} catch {
 		// Leftovers are inert; an open that cannot clear them still opens.
 	}

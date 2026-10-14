@@ -93,6 +93,32 @@ export type DirectoryPrimitives = {
 /** Where a stream stages its bytes before they replace the path. */
 export const SCRATCH_DIRECTORY = '.git/epicenter/scratch';
 
+/**
+ * How old a staged file must be before an open removes it. A stream renames
+ * its staged file right after writing it, so one this old was left by a write
+ * that stopped (a crash, a quit). Younger ones may belong to another process
+ * writing the same directory: a script and a desktop window share no lock.
+ */
+export const STALE_SCRATCH_MS = 60 * 60 * 1000;
+
+/**
+ * A staged file's name: its creation time and a per-call counter in base 36,
+ * around the handle's random engine id, so two processes never pick the same
+ * name. Only ASCII letters, digits, and `-`, which the desktop shell admits.
+ */
+const SCRATCH_NAME = /^([0-9a-z]+)-[0-9a-f]{32}-[0-9a-z]+$/;
+
+/**
+ * Whether the staged file `name` was made more than `STALE_SCRATCH_MS`
+ * before `now`. A name a handle did not make is never stale.
+ */
+export function isStaleScratch(name: string, now = Date.now()): boolean {
+	const time = SCRATCH_NAME.exec(name)?.[1];
+	if (time === undefined) return false;
+	const created = Number.parseInt(time, 36);
+	return Number.isSafeInteger(created) && now - created > STALE_SCRATCH_MS;
+}
+
 const domError = (name: string, message: string) =>
 	new DOMException(message, name);
 
@@ -117,11 +143,12 @@ export function directoryHandle(
 	root: string,
 ): OpfsDirectoryHandle {
 	let scratchCounter = 0;
+	const engine = crypto.randomUUID().replaceAll('-', '');
 	const scratchRoot = join(root, SCRATCH_DIRECTORY);
 	const nextScratch = () =>
 		join(
 			scratchRoot,
-			`${Date.now().toString(36)}-${(scratchCounter++).toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+			`${Date.now().toString(36)}-${engine}-${(scratchCounter++).toString(36)}`,
 		);
 
 	function fileHandle(path: string, name: string): OpfsFileHandle {
@@ -215,7 +242,10 @@ export function directoryHandle(
 	 */
 	function linked(at: string) {
 		return Object.assign(
-			domError('NotFoundError', `'${at}' is a symbolic link and is not followed`),
+			domError(
+				'NotFoundError',
+				`'${at}' is a symbolic link and is not followed`,
+			),
 			{ link: true },
 		);
 	}

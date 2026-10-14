@@ -3362,6 +3362,7 @@ version = "0.0.1"
 dependencies = [
  "epicenter-folder-core",
  "glob",
+ "percent-encoding",
  "serde_json",
  "specta",
  "specta-typescript",

@@ -2,6 +2,7 @@
  * Directory primitives for a desktop page whose folder the shell granted
  * (`grant_directory`).
  */
+import { invoke } from '@tauri-apps/api/core';
 import { lstat, readDir, readFile } from '@tauri-apps/plugin-fs';
 import type { DirectoryPrimitives, EntryKind } from './directory-handle.js';
 import { UnconfirmedWrite } from './errors.js';
@@ -86,14 +87,24 @@ export function tauriDirectoryPrimitives(scope: string): DirectoryPrimitives {
 		},
 		lstat: stat,
 		readFile: (path) => readFile(path),
+		// The bytes go as the raw request body, as the fs plugin's
+		// `writeFile` sends them, rather than as a JSON array of numbers; the
+		// generated bindings cannot type that, so the command is invoked by
+		// name. A refusal rejects with the shell's text, a lost reply with
+		// an `Error`, as the generated commands treat them.
 		writeFile: (path, bytes, options) =>
-			changed(
-				commands.writeFolderFile(
-					scope,
-					path,
-					Array.from(bytes),
-					options?.createNew === true,
-				),
+			invoke('plugin:epicenter-folder|write_folder_file', bytes, {
+				headers: {
+					scope: encodeURIComponent(scope),
+					path: encodeURIComponent(path),
+					'create-new': String(options?.createNew === true),
+				},
+			}).then(
+				() => {},
+				(cause: unknown) => {
+					if (cause instanceof Error) throw cause;
+					throw new Error(String(cause));
+				},
 			),
 		rename: (from, to) => changed(commands.renameFolderPath(scope, from, to)),
 		async remove(path, options) {

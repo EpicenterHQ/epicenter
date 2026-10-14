@@ -41,7 +41,6 @@ export async function openGrantedFolder<
 	const files = tauriDirectoryPrimitives(id);
 	return openDirectoryFolder({
 		definition,
-		id,
 		root: directoryHandle(files, granted.root),
 		rootPath: granted.root,
 		git: { run: tauriGitRun(id), files },

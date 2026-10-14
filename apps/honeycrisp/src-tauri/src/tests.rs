@@ -27,6 +27,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use tauri::http::{HeaderMap, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{mock_builder, MockRuntime, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
@@ -69,6 +70,15 @@ fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
 
 /// One request through the IPC handler: the resolved value, or the rejection.
 fn invoke(window: &WebviewWindow<MockRuntime>, command: &str, args: Value) -> Result<Value, Value> {
+    request(window, command, InvokeBody::Json(args), Default::default())
+}
+
+fn request(
+    window: &WebviewWindow<MockRuntime>,
+    command: &str,
+    body: InvokeBody,
+    headers: HeaderMap,
+) -> Result<Value, Value> {
     tauri::test::get_ipc_response(
         window,
         InvokeRequest {
@@ -76,8 +86,8 @@ fn invoke(window: &WebviewWindow<MockRuntime>, command: &str, args: Value) -> Re
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: "tauri://localhost".parse().unwrap(),
-            body: InvokeBody::Json(args),
-            headers: Default::default(),
+            body,
+            headers,
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
@@ -253,6 +263,28 @@ fn inside(fixture: &Fixture, relative: &str) -> String {
     fixture.root.join(relative).to_str().unwrap().to_string()
 }
 
+/// `write_folder_file` as the page's engine sends it: the bytes as the raw
+/// body, the rest in percent-encoded headers. These values are plain ASCII
+/// with no `%`, so each encodes as itself.
+fn write_file(
+    window: &WebviewWindow<MockRuntime>,
+    path: &str,
+    bytes: &[u8],
+    create_new: bool,
+) -> Result<Value, Value> {
+    let create_new = create_new.to_string();
+    let mut headers = HeaderMap::new();
+    for (name, value) in [("scope", root::SCOPE), ("path", path), ("create-new", &create_new)] {
+        headers.insert(name, HeaderValue::from_str(value).unwrap());
+    }
+    request(
+        window,
+        "plugin:epicenter-folder|write_folder_file",
+        InvokeBody::Raw(bytes.to_vec()),
+        headers,
+    )
+}
+
 /// One file written the way the page's engine writes it: its bytes to a new
 /// staged file under `.git/epicenter/scratch`, which is then renamed over the
 /// path.
@@ -273,16 +305,7 @@ fn write(
         "plugin:epicenter-folder|make_folder_directory",
         json!({ "scope": root::SCOPE, "path": scratch }),
     )?;
-    invoke(
-        window,
-        "plugin:epicenter-folder|write_folder_file",
-        json!({
-            "scope": root::SCOPE,
-            "path": staged,
-            "bytes": text.as_bytes(),
-            "createNew": true,
-        }),
-    )?;
+    write_file(window, &staged, text.as_bytes(), true)?;
     invoke(
         window,
         "plugin:epicenter-folder|rename_folder_path",
@@ -492,17 +515,14 @@ fn a_new_folder_is_set_up_through_the_plugin_and_a_save_commits_nothing() {
 
     // A data file is never written in place, new or not: it changes nothing.
     for create_new in [true, false] {
-        invoke(
+        let refused = write_file(
             &main,
-            "plugin:epicenter-folder|write_folder_file",
-            json!({
-                "scope": root::SCOPE,
-                "path": inside(&fixture, "kv.json"),
-                "bytes": b"{\"overwritten\":true}\n",
-                "createNew": create_new,
-            }),
+            &inside(&fixture, "kv.json"),
+            b"{\"overwritten\":true}\n",
+            create_new,
         )
         .unwrap_err();
+        assert!(!text(&refused).contains("raw body"), "{refused}");
     }
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("kv.json")).unwrap(),

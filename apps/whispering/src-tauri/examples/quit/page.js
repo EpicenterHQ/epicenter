@@ -25,13 +25,12 @@
 // `__SCENARIO__` are filled in by the harness.
 (async () => {
 	const internals = window.__TAURI_INTERNALS__;
-	const invoke = (command, args) =>
-		internals.invoke(`plugin:epicenter-folder|${command}`, args);
+	const invoke = (command, args, options) =>
+		internals.invoke(`plugin:epicenter-folder|${command}`, args, options);
 	const origin = window.location.origin;
 	const authorization = `Bearer ${window.__WHISPERING_BRIDGE__.token}`;
 	const scope = '__SCOPE__';
 	const scenario = '__SCENARIO__';
-	const bytes = (text) => Array.from(new TextEncoder().encode(text));
 
 	const granted = await invoke('grant_directory', { scope });
 	const root = granted.root;
@@ -51,11 +50,13 @@
 	// One file, as the engine writes it: staged, then renamed into place.
 	const write = async (path, text) => {
 		const copy = `${scratch}/fixture-${staged++}`;
-		await invoke('write_folder_file', {
-			scope,
-			path: copy,
-			bytes: bytes(text),
-			createNew: true,
+		// The bytes are the raw body; the rest are percent-encoded headers.
+		await invoke('write_folder_file', new TextEncoder().encode(text), {
+			headers: {
+				scope: encodeURIComponent(scope),
+				path: encodeURIComponent(copy),
+				'create-new': 'true',
+			},
 		});
 		await invoke('rename_folder_path', {
 			scope,

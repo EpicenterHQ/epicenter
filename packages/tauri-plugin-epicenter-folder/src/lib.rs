@@ -84,6 +84,8 @@ impl<R: Runtime, T: Manager<R>> FolderExt<R> for T {
 
 /// The typed command contract. The TypeScript bindings in
 /// `../folder/src/native/bindings.gen.ts` are generated from this builder.
+/// `write_folder_file` takes a raw body, which specta cannot type, so it is
+/// dispatched beside these (`init`) and left out of the bindings.
 fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
@@ -91,7 +93,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::grant_directory::<tauri::Wry>,
             commands::run_git::<tauri::Wry>,
             commands::cancel_git::<tauri::Wry>,
-            commands::write_folder_file::<tauri::Wry>,
             commands::rename_folder_path::<tauri::Wry>,
             commands::remove_folder_path::<tauri::Wry>,
             commands::make_folder_directory::<tauri::Wry>,
@@ -99,10 +100,19 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
 
+/// The commands outside the typed contract: `write_folder_file`.
+fn raw_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![commands::write_folder_file]
+}
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    let builder = specta_builder::<R>();
+    let typed = specta_builder::<R>().invoke_handler();
+    let raw = raw_handler::<R>();
     tauri::plugin::Builder::new(PLUGIN_NAME)
-        .invoke_handler(builder.invoke_handler())
+        .invoke_handler(move |invoke| match invoke.message.command() {
+            "write_folder_file" => raw(invoke),
+            _ => typed(invoke),
+        })
         .setup(move |app, _api| {
             app.manage(Folders::default());
             Ok(())

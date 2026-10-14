@@ -28,6 +28,22 @@ import { createGitRunner } from '../../../../../packages/folder/src/git/native-h
 
 export type ShellCall = { cmd: string; args: Record<string, unknown> };
 
+/**
+ * The arguments of one `invoke`, as the shell reads them. A command that takes
+ * a raw body (`write_folder_file`) carries the rest in percent-encoded
+ * headers, decoded here beside the body as `bytes`.
+ */
+export function shellArguments(
+	body: Record<string, unknown> | Uint8Array = {},
+	options?: { readonly headers?: Record<string, string> },
+): Record<string, unknown> {
+	if (!(body instanceof Uint8Array)) return body;
+	const args: Record<string, unknown> = { bytes: body };
+	for (const [name, value] of Object.entries(options?.headers ?? {}))
+		args[name] = decodeURIComponent(value);
+	return args;
+}
+
 /** A data file the page wrote or removed, folder-relative. */
 export type DataChange =
 	| { kind: 'write'; path: string; text: string }
@@ -118,13 +134,15 @@ export function createGrantedShell(root: string, scope: string) {
 		cancel_git: () => null,
 		async write_folder_file(args) {
 			// Staged bytes, or the engine's private files under `.git`. A data
-			// file reaches its path only by the rename that follows.
+			// file reaches its path only by the rename that follows. The bytes
+			// are the raw body; a JSON body is refused, as the shell does.
+			const bytes = args.bytes;
+			if (!(bytes instanceof Uint8Array))
+				throw 'write_folder_file takes its bytes as a raw body, not JSON';
 			await asPluginError(() =>
-				nodeFs.writeFile(
-					args.path as string,
-					new Uint8Array(args.bytes as number[]),
-					{ flag: args.createNew ? 'wx' : 'w' },
-				),
+				nodeFs.writeFile(args.path as string, bytes, {
+					flag: args['create-new'] === 'true' ? 'wx' : 'w',
+				}),
 			);
 			return null;
 		},
@@ -181,7 +199,12 @@ export function createGrantedShell(root: string, scope: string) {
 			await nodeFs.writeFile(join(root, path), text);
 		},
 		/** In place of Tauri's `invoke`. */
-		async invoke(cmd: string, args: Record<string, unknown> = {}) {
+		async invoke(
+			cmd: string,
+			body?: Record<string, unknown> | Uint8Array,
+			options?: { headers?: Record<string, string> },
+		) {
+			const args = shellArguments(body, options);
 			const name = cmd.replace('plugin:epicenter-folder|', '');
 			calls.push({ cmd: name, args });
 			const command = commands[name];

@@ -40,8 +40,11 @@ import { WHISPERING_FOLDER_ID, type Workspace } from './types.js';
 let shell: GrantedShell;
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
-	invoke: (cmd: string, args?: Record<string, unknown>) =>
-		shell.invoke(cmd, args),
+	invoke: (
+		cmd: string,
+		body?: Record<string, unknown> | Uint8Array,
+		options?: { headers?: Record<string, string> },
+	) => shell.invoke(cmd, body, options),
 }));
 mock.module('@tauri-apps/api/event', () => ({
 	listen: async () => () => {},
