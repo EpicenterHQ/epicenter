@@ -35,6 +35,10 @@ import type {
 	StatusCode,
 } from './backend.js';
 import { capturedIndexMatchesHead } from './captured-index.js';
+import {
+	basicAuthorization,
+	type GitCredentials,
+} from './http.js';
 import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
 import {
@@ -71,8 +75,43 @@ export type GitRun = (
 		signal?: AbortSignal;
 		allowFailure?: boolean;
 		env?: Readonly<Record<string, string>>;
+		/**
+		 * An `Authorization` header for a push or fetch, sent only to `url`,
+		 * which is the remote the command names. The host passes it to Git
+		 * outside its arguments.
+		 */
+		credential?: GitAuthorization;
 	},
 ) => Promise<{ code: number | null; stdout: Uint8Array; stderr: string }>;
+
+/** One `Authorization` header value, for exactly one URL. */
+export type GitAuthorization = {
+	readonly url: string;
+	readonly authorization: string;
+};
+
+/**
+ * The Git configuration that sends `credential`'s header to its URL alone,
+ * follows no redirect, and asks no credential helper, as environment
+ * variables, so the header never appears in a process list. The desktop
+ * shell builds the same configuration (`page_git.rs`).
+ */
+export function credentialEnvironment({
+	url,
+	authorization,
+}: GitAuthorization): Record<string, string> {
+	if (!/^(Basic|Bearer) [\x21-\x7e]+$/.test(authorization))
+		throw new Error('A Git credential must be one Basic or Bearer header');
+	return {
+		GIT_CONFIG_COUNT: '3',
+		GIT_CONFIG_KEY_0: `http.${url}.extraHeader`,
+		GIT_CONFIG_VALUE_0: `Authorization: ${authorization}`,
+		GIT_CONFIG_KEY_1: 'http.followRedirects',
+		GIT_CONFIG_VALUE_1: 'false',
+		GIT_CONFIG_KEY_2: 'credential.helper',
+		GIT_CONFIG_VALUE_2: '',
+	};
+}
 
 /** How the backend reaches the machine. */
 export type NativeGitHost = {
@@ -90,11 +129,14 @@ export async function createNativeGitBackend({
 	boundary,
 	host,
 	exclusive,
+	credentials,
 }: {
 	root: string;
 	branch: string;
 	boundary: FileBoundary;
 	host: NativeGitHost;
+	/** Asked before each push and fetch; see `GitCredentials`. */
+	credentials?: GitCredentials;
 	/**
 	 * Serializes this folder's index and branch work across every handle that
 	 * shares it, such as the windows of one app. Omitted, each handle orders
@@ -120,6 +162,17 @@ export async function createNativeGitBackend({
 		gitdir,
 	};
 	const branchRef = `refs/heads/${branch}`;
+	/** The credential for `url`, asked for each transfer. */
+	async function authorize(
+		url: string,
+		signal: AbortSignal,
+	): Promise<GitAuthorization | undefined> {
+		const credential = await credentials?.(url, signal);
+		signal.throwIfAborted();
+		return credential === undefined
+			? undefined
+			: { url, authorization: basicAuthorization(credential) };
+	}
 	const trackingRef = `refs/remotes/${REMOTE_NAME}/${branch}`;
 
 	const isRepository = (await files.lstat(`${gitdir}/HEAD`)) !== undefined;
@@ -417,6 +470,7 @@ export async function createNativeGitBackend({
 		},
 		async push(oid, signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
+			const credential = await authorize(remote.url, signal);
 			await run(
 				[
 					'push',
@@ -424,12 +478,13 @@ export async function createNativeGitBackend({
 					remote.url,
 					`${oid}:refs/heads/${remote.branch}`,
 				],
-				{ signal },
+				{ signal, credential },
 			);
 			await run(['update-ref', trackingRef, oid]);
 		},
 		async fetch(signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
+			const credential = await authorize(remote.url, signal);
 			const result = await run(
 				[
 					'fetch',
@@ -438,7 +493,7 @@ export async function createNativeGitBackend({
 					remote.url,
 					`+refs/heads/${remote.branch}:${trackingRef}`,
 				],
-				{ signal, allowFailure: true },
+				{ signal, allowFailure: true, credential },
 			);
 			if (result.code !== 0) {
 				if (/couldn't find remote ref/i.test(result.stderr)) return undefined;

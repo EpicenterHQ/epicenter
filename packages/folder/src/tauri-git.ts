@@ -44,6 +44,8 @@ export function tauriGitRun(scope: string): GitRun {
 				[...args],
 				input,
 				env.GIT_INDEX_FILE ?? null,
+				// The shell sends it to the origin the command names.
+				options.credential?.authorization ?? null,
 				request,
 			);
 		} finally {

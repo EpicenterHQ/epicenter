@@ -17,9 +17,11 @@ export const commands = {
 	/**
 	 *  Run one Git operation for a page-engine folder this window was granted.
 	 *  `page_git` decides which operations and options are allowed, and fixes
-	 *  the environment. `request` names the run, so `cancel_git` can stop it.
+	 *  the environment. `authorization`, for a push or fetch to an `https`
+	 *  origin, is sent to that origin alone. `request` names the run, so
+	 *  `cancel_git` can stop it.
 	 */
-	runGit: (scope: string, args: string[], input: number[] | null, indexFile: string | null, request: number) => typedError<GitOutput, AttachError>(__TAURI_INVOKE("plugin:epicenter-folder|run_git", { scope, args, input, indexFile, request })),
+	runGit: (scope: string, args: string[], input: number[] | null, indexFile: string | null, authorization: string | null, request: number) => typedError<GitOutput, AttachError>(__TAURI_INVOKE("plugin:epicenter-folder|run_git", { scope, args, input, indexFile, authorization, request })),
 	/**
 	 *  Stop a `run_git` this window started. Stopping one that has finished, or
 	 *  another window's, does nothing.

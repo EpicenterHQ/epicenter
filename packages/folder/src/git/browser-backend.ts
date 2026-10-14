@@ -30,7 +30,12 @@ import type {
 	StatusCode,
 } from './backend.js';
 import { capturedIndexMatchesHead } from './captured-index.js';
-import { abortableHttp, type HttpFetch } from './http.js';
+import {
+	abortableHttp,
+	basicAuthorization,
+	type GitCredentials,
+	type HttpFetch,
+} from './http.js';
 import { orphanStagesProblem, parseIndex } from './index-file.js';
 import {
 	commitTree,
@@ -162,6 +167,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	createLock,
 	branch,
 	httpFetch,
+	credentials,
 }: {
 	store: BrowserGitStore<TSession>;
 	/** The Web Locks this folder's tabs share. */
@@ -175,11 +181,24 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	createLock?: string;
 	branch: string;
 	httpFetch?: HttpFetch;
+	credentials?: GitCredentials;
 }): Promise<StoredGitBackend> {
 	const branchKey = `${GITDIR}/refs/heads/${branch}`;
 	const indexKey = `${GITDIR}/index`;
 	const mergeHeadKey = `${GITDIR}/MERGE_HEAD`;
 	const trackingKey = `${GITDIR}/refs/remotes/${REMOTE_NAME}/${branch}`;
+
+	/** The credential for `url`, asked for each transfer, as a header. */
+	async function authorizationHeaders(
+		url: string,
+		signal: AbortSignal,
+	): Promise<Record<string, string> | undefined> {
+		const credential = await credentials?.(url, signal);
+		signal.throwIfAborted();
+		return credential === undefined
+			? undefined
+			: { authorization: basicAuthorization(credential) };
+	}
 
 	async function withObjects<T>(
 		work: (access: ObjectAccess) => Promise<T>,
@@ -686,12 +705,14 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		async push(oid, signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
 			const { url, branch: remoteBranch } = remote;
+			const headers = await authorizationHeaders(url, signal);
 			await withObjects(async (access) => {
 				let result: Awaited<ReturnType<typeof git.push>>;
 				try {
 					result = await git.push({
 						...access,
 						http: abortableHttp(signal, httpFetch),
+						headers,
 						dir: WORKDIR,
 						url: url,
 						remote: REMOTE_NAME,
@@ -723,11 +744,13 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			if (remote === undefined) throw new Error('No remote is configured');
 			const { url, branch: remoteBranch } = remote;
 			await ensureCreated();
+			const headers = await authorizationHeaders(url, signal);
 			return withObjects(async (access) => {
 				try {
 					const result = await git.fetch({
 						...access,
 						http: abortableHttp(signal, httpFetch),
+						headers,
 						dir: WORKDIR,
 						url: url,
 						remote: REMOTE_NAME,

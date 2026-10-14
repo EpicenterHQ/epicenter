@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { dirname } from 'node:path';
 import { nodeDirectoryPrimitives } from '../directory-node.js';
 import {
+	credentialEnvironment,
 	GitCommandError,
 	type GitRun,
 	type NativeGitHost,
@@ -20,9 +21,14 @@ import {
  * repository in a directory above it. `GIT_OPTIONAL_LOCKS=0` keeps read-only
  * commands such as `status` and `diff` from taking `index.lock` to refresh
  * the index, so observing the folder never looks like a change to it.
+ *
+ * Trace variables are removed too, and Trace2 is switched off, because a
+ * trace records Git's configuration and requests, credential headers
+ * included, to stderr or to any file it names. The desktop shell's runner
+ * removes the same (`page_git.rs`).
  */
 const REPOSITORY_ENV =
-	/^GIT_(DIR|WORK_TREE|IMPLICIT_WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|COMMON_DIR|NAMESPACE|PREFIX|GRAFT_FILE|SHALLOW_FILE|NO_REPLACE_OBJECTS|REPLACE_REF_BASE|CONFIG|CONFIG_PARAMETERS|CONFIG_COUNT|CONFIG_KEY_\d+|CONFIG_VALUE_\d+)$/;
+	/^GIT_(DIR|WORK_TREE|IMPLICIT_WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|COMMON_DIR|NAMESPACE|PREFIX|GRAFT_FILE|SHALLOW_FILE|NO_REPLACE_OBJECTS|REPLACE_REF_BASE|CONFIG|CONFIG_PARAMETERS|CONFIG_COUNT|CONFIG_KEY_\d+|CONFIG_VALUE_\d+|TRACE\w*|CURL_VERBOSE)$/;
 
 function gitEnvironment(root: string): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = {};
@@ -33,6 +39,9 @@ function gitEnvironment(root: string): NodeJS.ProcessEnv {
 		GIT_CEILING_DIRECTORIES: dirname(root),
 		GIT_OPTIONAL_LOCKS: '0',
 		GIT_TERMINAL_PROMPT: '0',
+		GIT_TRACE2: '0',
+		GIT_TRACE2_EVENT: '0',
+		GIT_TRACE2_PERF: '0',
 		LC_ALL: 'C',
 	};
 }
@@ -42,7 +51,11 @@ export function createGitRunner(root: string): GitRun {
 		new Promise((resolve, reject) => {
 			const child = spawn('git', [...args], {
 				cwd: root,
-				env: { ...gitEnvironment(root), ...options.env },
+				env: {
+					...gitEnvironment(root),
+					...options.env,
+					...(options.credential && credentialEnvironment(options.credential)),
+				},
 				stdio: ['pipe', 'pipe', 'pipe'],
 				signal: options.signal,
 			});

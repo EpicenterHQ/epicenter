@@ -165,6 +165,7 @@ function lazyDirectory(
 export const openFolder: OpenFolder = async ({
 	definition,
 	id,
+	credentials,
 	browser = {},
 }) => {
 	const { data: prepared, error: definitionError } =
@@ -220,6 +221,7 @@ export const openFolder: OpenFolder = async ({
 				createLock: at.openLock,
 				branch: 'main',
 				httpFetch,
+				credentials,
 			});
 			ensureRepository = backend.ensureRepository;
 			const history = createHistory({

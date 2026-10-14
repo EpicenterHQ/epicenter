@@ -16,6 +16,7 @@ import { directoryHandle } from './directory-handle.js';
 import { tauriDirectoryPrimitives } from './directory-tauri.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
+import type { GitCredentials } from './git/http.js';
 import type { Granted } from './native/bindings.gen.js';
 import type { OpfsLocks } from './opfs-store.js';
 import { tauriGitRun } from './tauri-git.js';
@@ -26,10 +27,12 @@ export async function openGrantedFolder<
 	definition,
 	id,
 	granted,
+	credentials,
 }: {
 	readonly definition: TDefinition;
 	readonly id: string;
 	readonly granted: Granted;
+	readonly credentials?: GitCredentials;
 }): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
 	const locks = (globalThis as { navigator?: { locks?: unknown } }).navigator
 		?.locks;
@@ -46,5 +49,6 @@ export async function openGrantedFolder<
 		BroadcastChannel: globalThis.BroadcastChannel,
 		author: { name: granted.authorName, email: granted.authorEmail },
 		branch: granted.branch,
+		credentials,
 	});
 }

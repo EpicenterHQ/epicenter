@@ -1094,7 +1094,7 @@ function attachRefusal(refusal: AttachError) {
 	}
 }
 
-export const openFolder: OpenFolder = async ({ definition, id }) => {
+export const openFolder: OpenFolder = async ({ definition, id, credentials }) => {
 	const { data: prepared, error: definitionError } =
 		prepareFolderDefinition(definition);
 	if (definitionError !== null)
@@ -1112,7 +1112,12 @@ export const openFolder: OpenFolder = async ({ definition, id }) => {
 		return OpenFolderError.Unavailable({ cause: granted.cause });
 	if (granted.settled === 'done') {
 		const { openGrantedFolder } = await import('./tauri-directory.js');
-		return openGrantedFolder({ definition, id, granted: granted.data });
+		return openGrantedFolder({
+			definition,
+			id,
+			granted: granted.data,
+			credentials,
+		});
 	}
 	if (granted.error.name !== 'UsesOwner') return attachRefusal(granted.error);
 

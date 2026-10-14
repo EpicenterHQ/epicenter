@@ -13,7 +13,7 @@ import type { Result } from 'wellcrafted/result';
 import type { FolderDefinition } from './definition.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
-import type { HttpFetch } from './git/http.js';
+import type { GitCredentials, HttpFetch } from './git/http.js';
 import type { Author } from './git/objects.js';
 import type { OpfsEnvironment } from './opfs-store.js';
 
@@ -98,7 +98,11 @@ export type {
 	StagedCommit,
 	SyncObservation,
 } from './git/history.js';
-export type { HttpFetch } from './git/http.js';
+export type {
+	GitCredential,
+	GitCredentials,
+	HttpFetch,
+} from './git/http.js';
 export { commitSubject, escapePath, type PathChange } from './git/messages.js';
 export type { Author, CommitSummary } from './git/objects.js';
 export type {
@@ -172,6 +176,14 @@ export type OpenFolderOptions<TDefinition extends FolderDefinition> = {
 	 * it to a directory it registered.
 	 */
 	readonly id: string;
+	/**
+	 * Asked right before each push and fetch with the exact URL Git is about
+	 * to reach, in the browser and for a folder the desktop page opens itself.
+	 * Return `undefined` to send no credential (a desktop `git` then uses the
+	 * person's own credential helper or SSH key). A folder the desktop shell's
+	 * own owner keeps transfers with the person's credentials and never asks.
+	 */
+	readonly credentials?: GitCredentials;
 	readonly browser?: BrowserFolderOptions;
 };
 

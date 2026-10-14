@@ -142,17 +142,29 @@ opens nothing. On a server, opening returns a refusal.
 openFolder({
   id,        // required: which folder, such as 'so.epicenter.todos'. Never a path.
   definition,
+  credentials, // optional: (url, signal) => Promise<{ username, password } | undefined>
   browser,   // optional: { author, httpFetch, opfs }
 }): Promise<Result<Folder, OpenFolderError>>
 ```
 
+`credentials` is asked right before each push and fetch with the exact URL
+Git is about to reach, and its answer goes to that URL alone as an HTTP Basic
+`Authorization` header (a token is the password). `undefined` sends none; a
+throw refuses the transfer with its message. The folder keeps nothing it is
+given: not in `origin`, its files, or its Git configuration. In the browser
+the header rides isomorphic-git's request with no cookies and no redirects. On
+the desktop the shell passes it to `git` through Git's environment
+(`http.<url>.extraHeader`, no redirects, no credential helper), never its
+arguments, and only for a push or fetch to the folder's own `https` origin.
+Without one, desktop `git` uses the person's own credential helper or SSH key.
+A folder the desktop shell's Rust owner keeps never asks.
+
 `browser` applies to a browser folder only. A browser folder uses a local
 author by default. Saves never commit (ADR-0529). `httpFetch` supplies a
-fetch-compatible HTTP function for Git fetch and push. It defaults to regular
-fetch; applications can supply an authenticated relay. It receives the
-remote URL Git configuration names and the operation's abort signal. It does
-not replace global fetch or change the remote. Credentials belong to the
-transport, outside the folder's files and Git configuration.
+fetch-compatible HTTP function for Git fetch and push, for tests and unusual
+transports. It defaults to regular fetch, receives the remote URL Git
+configuration names and the operation's abort signal, and does not replace
+global fetch or change the remote.
 In the desktop app the shell chooses the directory. A folder its Rust owner
 opens also takes the author, the remote, and the history policy from the
 shell; one the page opens itself reads the author and remote from the
@@ -247,7 +259,7 @@ then opens a directory folder (`directory-adapter.ts`):
 | History | isomorphic-git in a private OPFS `.git` | The system `git` in the real `.git`, which the shell runs (`run_git`) |
 | Identity | The directory its ID names | The shell's registration and lock |
 | Remote and author | `remote.origin.url`, set by `sync.connect`, and `browser.author` | Git's own configuration: `remote.origin.url`, `user.name`, `user.email`, with the shell's author as fallback |
-| Transfers | `httpFetch`, regular fetch by default | Git's own, with the person's credential helper or SSH |
+| Transfers | `httpFetch`, regular fetch by default, with `credentials` as a header | Git's own: `credentials` as a URL-scoped header, or the person's credential helper or SSH |
 | Pages of one folder | Web Locks and a `BroadcastChannel` | The same, across the shell's windows |
 
 Files go through the browser folder's file storage (`opfs-store.ts`) over a

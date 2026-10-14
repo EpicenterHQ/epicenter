@@ -21,6 +21,7 @@ import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
 import { createFiles, type FolderFiles } from './files.js';
 import type { PathStatus } from './git/backend.js';
+import type { GitCredentials } from './git/http.js';
 import type { SyncError } from './git/errors.js';
 import type {
 	CommitAndPushResult,
@@ -55,6 +56,8 @@ import { createTable, type FileTable } from './table.js';
 export type FolderGitOptions = {
 	/** Author and committer for the folder's commits. */
 	readonly author: Author;
+	/** Asked before each push and fetch; see `GitCredentials`. */
+	readonly credentials?: GitCredentials;
 };
 
 export type FolderGit = {

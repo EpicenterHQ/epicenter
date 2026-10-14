@@ -134,7 +134,12 @@ repository on the computer. Every command runs with `core.hooksPath` naming an
 empty directory only this crate writes, fsmonitor off, without the inherited
 variables that point Git elsewhere or trace it, and without a terminal
 prompt. `GIT_INDEX_FILE` may name only a private index copy in the root's
-`.git`. Transfers use the person's own credential helper or SSH.
+`.git`. A push or fetch may carry one credential, a `Basic` or `Bearer`
+header value for exactly the folder's `https` origin; Git then gets it from its
+environment as `http.<origin>.extraHeader`, with redirects off and the
+credential helper list empty, so the token is in no argument list and no
+helper is asked or told. Without one, transfers use the person's own
+credential helper or SSH.
 `fixtures/page-git-calls.json` records every call the engine makes in
 `@epicenter/folder`'s real-Git tests, and this crate's tests run the
 validator over each.

@@ -84,5 +84,6 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 		git: { run: createGitRunner(resolved), files: nodeDirectoryPrimitives },
 		locks,
 		author: git.author,
+		credentials: git.credentials,
 	});
 }

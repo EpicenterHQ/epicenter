@@ -19,6 +19,7 @@ import {
 	createNativeGitBackend,
 	type NativeGitHost,
 } from './git/native-backend.js';
+import type { GitCredentials } from './git/http.js';
 import type { Author } from './git/objects.js';
 import { webLockExclusive } from './git/web-lock-exclusive.js';
 import { type FolderAddress, openAtRoot } from './open-at-root.js';
@@ -56,6 +57,7 @@ export async function openDirectoryFolder<
 	BroadcastChannel: hintChannel,
 	author,
 	branch = 'main',
+	credentials,
 }: {
 	readonly definition: TDefinition;
 	readonly id: string;
@@ -70,6 +72,8 @@ export async function openDirectoryFolder<
 	/** Who commits, where Git's configuration does not say. */
 	readonly author: Author;
 	readonly branch?: string;
+	/** Asked before each push and fetch; see `GitCredentials`. */
+	readonly credentials?: GitCredentials;
 }): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
 	const { data: prepared, error: definitionError } =
 		prepareFolderDefinition(definition);
@@ -150,6 +154,7 @@ export async function openDirectoryFolder<
 						boundary,
 						host,
 						exclusive: webLockExclusive(locks, at.gitLock),
+						credentials,
 					}),
 				);
 				const history = createHistory({

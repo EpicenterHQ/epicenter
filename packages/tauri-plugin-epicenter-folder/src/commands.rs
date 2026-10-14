@@ -457,7 +457,9 @@ pub async fn make_folder_directory<R: Runtime>(
 
 /// Run one Git operation for a page-engine folder this window was granted.
 /// `page_git` decides which operations and options are allowed, and fixes
-/// the environment. `request` names the run, so `cancel_git` can stop it.
+/// the environment. `authorization`, for a push or fetch to an `https`
+/// origin, is sent to that origin alone. `request` names the run, so
+/// `cancel_git` can stop it.
 #[tauri::command]
 #[specta::specta]
 pub async fn run_git<R: Runtime>(
@@ -466,6 +468,7 @@ pub async fn run_git<R: Runtime>(
     args: Vec<String>,
     input: Option<Vec<u8>>,
     index_file: Option<String>,
+    authorization: Option<String>,
     request: u32,
 ) -> Result<GitOutput, AttachError> {
     let label = webview.label().to_string();
@@ -499,7 +502,16 @@ pub async fn run_git<R: Runtime>(
     }
     let running = app.clone();
     let result = blocking(
-        move || page_git::run(&root, &args, input.as_deref(), index_file.as_deref(), &cancel),
+        move || {
+            page_git::run(
+                &root,
+                &args,
+                input.as_deref(),
+                index_file.as_deref(),
+                authorization.as_deref(),
+                &cancel,
+            )
+        },
         |message| Err(message),
     )
     .await;
