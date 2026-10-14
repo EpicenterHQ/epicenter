@@ -201,16 +201,19 @@ they did. A late change is refused as `ShuttingDown` and writes nothing.
 - A link another program swaps in between a check and the change that
   follows is not defended against; a page cannot make one.
 - The cross-process lock is an exclusive SQLite transaction on
-  `.<directory>.epicenter-lock` beside the directory, the same file and
-  mechanism the Bun hosts use. The system releases it when the process ends,
-  however it ends. It is unreliable on some network filesystems.
+  `.<directory>.epicenter-lock` beside the directory. A Bun script opening
+  the same directory (`@epicenter/folder/bun`) does not take it. The system
+  releases it when the process ends, however it ends. It is unreliable on
+  some network filesystems.
 - Nothing watches the directory. Pages read again on focus and after their
   own commands; conditional saves turn a stale write into a conflict.
 - A compromised page keeps the powers the engine needs: it can move the
   branch, reset the index, and change or delete any data path. Each is
   visible and repairable from the reflog and the remote.
-- File bytes cross IPC as JSON number arrays. That is acceptable for
-  Markdown and slow for large audio saves.
+- A file save crosses IPC as a raw body, but `git`'s input and output
+  (`run_git`) cross as JSON number arrays, and the engine stores each object
+  through that input. That is acceptable for Markdown and slow for
+  committing large audio files.
 - Whether this crate builds or runs on Windows has not been checked. There,
   cancelling a run kills `git`'s process tree with `taskkill /T`.
 

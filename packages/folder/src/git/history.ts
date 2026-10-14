@@ -1754,7 +1754,6 @@ export function createHistory({
 		mergeIncoming: mergeNow,
 		recoverIncoming: recoverNow,
 		sync: Object.freeze({
-			supported: true,
 			run: runSync,
 			resolve: resolveSync,
 			async connect(

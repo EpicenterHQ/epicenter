@@ -9,7 +9,6 @@
  *   touches history: no Fetch, Pull, Merge, or Commit and push (ADR-0529)
  * - A folder with no remote offers Connect in Sync's place and says it is
  *   not connected; a connected one names its repository, which opens Connect
- * - A folder that does not sync yet offers Save version alone
  * - Save version records the saved files as a version and says so
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
@@ -24,7 +23,6 @@ import {
 	createTestStorage,
 } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
-import type { TodosFolder } from '../../lib/platform/types.js';
 import { quiet } from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
@@ -41,10 +39,13 @@ afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
 });
 
-async function setup(
-	adapt: (folder: TodosFolder) => TodosFolder = (f) => f,
-	{ remote, ...props }: { remote?: string; onconnect?: () => void } = {},
-) {
+async function setup({
+	remote,
+	...props
+}: {
+	remote?: string;
+	onconnect?: () => void;
+} = {}) {
 	const storage = createTestStorage();
 	const id = `app-header-${count++}`;
 	if (remote !== undefined) await configureRemote(storage, id, remote);
@@ -55,7 +56,7 @@ async function setup(
 			browser: { ...browserStorage(storage) },
 		}),
 	);
-	const todos: Todos = createTodos(adapt(folder));
+	const todos: Todos = createTodos(folder);
 	cleanup.push(() => todos.close());
 	const target = document.createElement('div');
 	document.body.append(target);
@@ -81,7 +82,7 @@ const testids = (target: HTMLElement) =>
 
 test('a folder with no remote offers Save version and Connect, and says it is not connected', async () => {
 	let opened = 0;
-	const { target } = await setup(undefined, { onconnect: () => opened++ });
+	const { target } = await setup({ onconnect: () => opened++ });
 	expect(testids(target)).toEqual(['connect-open', 'save-version']);
 	const remote = target.querySelector('[data-testid="remote"]');
 	expect(remote?.textContent).toContain('Not connected');
@@ -91,7 +92,7 @@ test('a folder with no remote offers Save version and Connect, and says it is no
 
 test('a connected folder offers Save version and Sync, names its repository, and no other history action', async () => {
 	let opened = 0;
-	const { target } = await setup(undefined, {
+	const { target } = await setup({
 		remote: 'https://github.com/alice/todos.git',
 		onconnect: () => opened++,
 	});
@@ -104,15 +105,6 @@ test('a connected folder offers Save version and Sync, names its repository, and
 	);
 	remote?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	expect(opened).toBe(1);
-});
-
-test('a folder that does not sync yet offers Save version alone', async () => {
-	const { target } = await setup((folder) => ({
-		...folder,
-		sync: { ...folder.sync, supported: false },
-	}));
-	expect(testids(target)).toEqual(['save-version']);
-	expect(target.querySelector('[data-testid="remote"]')).toBeNull();
 });
 
 test('Save version records the saved files as a version', async () => {

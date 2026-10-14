@@ -226,11 +226,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		// opened with: an empty copy takes the remote's history, and one with
 		// files sends them. The origin lives in the copy's Git configuration,
 		// so a reopened copy keeps it.
-		if (
-			remote &&
-			folder.sync.supported &&
-			folder.git.snapshot.remote === undefined
-		) {
+		if (remote && folder.git.snapshot.remote === undefined) {
 			output = '$ Connect\n';
 			report(await syncStep(() => folder.sync.connect(remote)));
 		}

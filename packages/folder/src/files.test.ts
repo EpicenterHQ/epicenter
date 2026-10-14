@@ -21,7 +21,7 @@
  *
  * See also:
  * - `ownership.test.ts` for byte copies at admission
- * - `native-safety.test.ts` for a move that keeps its source
+ * - `browser-opfs.test.ts` for a move that keeps its source
  */
 import {
 	afterAll,
@@ -430,7 +430,6 @@ describe('a save never reads its bytes back', () => {
 			mergeIncoming: unused,
 			recoverIncoming: unused,
 			sync: {
-				supported: false,
 				run: unused,
 				resolve: unused,
 				connect: unused,
@@ -504,7 +503,8 @@ describe('a save never reads its bytes back', () => {
 		);
 		const renamed = expectOk(await folder.tables.todos.rename(saved, 's'));
 		expectOk(await folder.tables.todos.delete(renamed));
-		expect(reads).toEqual([]);
+		// The one read is the declaration's, before the first save (ADR-0508).
+		expect(reads).toEqual(['epicenter.json']);
 	});
 
 	test('a writer that lands behind a save does not change the capture the save returns', async () => {

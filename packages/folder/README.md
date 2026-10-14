@@ -101,7 +101,8 @@ plain JSON, so formatting cannot fail; a failed write is logged through
 folder remains usable. A failed attempt can leave discovery missing, stale, or
 uncertain.
 
-Publication writes through `files.overwrite` once per handle, before that
+Publication reads `epicenter.json` and, when its bytes differ from the
+declaration, writes through `files.overwrite`, once per handle, before that
 handle's first save. It never commits or pushes, so the published
 `epicenter.json` is recorded with the next version. A folder opened only to
 read, or to take a remote's history, is never written by opening.
@@ -873,8 +874,6 @@ const { data: done, error } = await folder.sync.resolve(attempt, choices);
 - `synced` means the push confirmed the merged head and no save landed after
   the capture. `saved` carries the push's own outcome and `changedSince`.
 
-Every folder syncs, and `folder.sync.supported` is `true`.
-
 ### Incoming changes
 
 Browser fetch uses isomorphic-git 1.38.5, which fails when a non-default
@@ -1055,7 +1054,6 @@ dangle.
 | `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | Svelte boundary tests and the sync review's mounted tests. |
-| `src/reading.ts` | KV's reading diagnostics: `ParseError`, `FieldIssue`, `DeepReadonly`, and the ownership every checked value has: parsed values frozen and supplied values copied before a field sees them. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or Tauri's fs plugin. |
 | `src/process-locks.ts`, `git/native-*.ts` | Web Locks for a process that has none, and the `git` program a directory folder records history with. |

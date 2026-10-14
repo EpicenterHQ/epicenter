@@ -22,7 +22,7 @@
  *
  * See also:
  * - `history-ordering.test.ts` for capture ordering inside the Git lock
- * - `native-safety.test.ts` and `browser.test.ts` for partial and refused saves
+ * - `publication.test.ts` and `browser.test.ts` for partial and refused saves
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';

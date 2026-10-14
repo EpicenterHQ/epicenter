@@ -168,7 +168,6 @@ function heldSync(run: ReturnType<typeof gate>) {
 	return (folder: TodosFolder): TodosFolder => ({
 		...folder,
 		sync: {
-			supported: folder.sync.supported,
 			async run() {
 				await run.wait();
 				return folder.sync.run();

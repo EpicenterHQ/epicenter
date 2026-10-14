@@ -350,11 +350,6 @@ export const SyncError = defineErrors({
 			'This folder and the remote have separate histories. Combining them keeps both.',
 		head,
 	}),
-	/** This folder's runtime does not sync yet. Nothing ran. */
-	Unsupported: ({ runtime }: { runtime: string }) => ({
-		message: `Sync is not available for ${runtime} folders yet`,
-		runtime,
-	}),
 	/** Saved files could not be committed first. Nothing was fetched or sent. */
 	Checkpoint: ({
 		outcome,

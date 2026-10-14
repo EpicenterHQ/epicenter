@@ -273,9 +273,8 @@ todos".
 ## Controls
 
 Both builds share these, and run the same engine. Every folder offers Save
-version, and Sync once it has a remote; until then Connect takes Sync's place. Todos asks
-the folder (`folder.sync.supported`), not the build. The todo list and its editor fill
-the window. The header holds the rest:
+version, and Sync once it has a remote; until then Connect takes Sync's place. The todo
+list and its editor fill the window. The header holds the rest:
 
 | Control | What it does |
 | --- | --- |

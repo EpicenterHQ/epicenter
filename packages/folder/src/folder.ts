@@ -150,12 +150,6 @@ export type FolderGit = {
  */
 export type FolderSync = {
 	/**
-	 * Whether this folder's runtime syncs. Every folder this package opens
-	 * syncs; a runtime that did not would answer `Unsupported` from `run` and
-	 * `resolve`, and an app would offer its separate Git actions instead.
-	 */
-	readonly supported: boolean;
-	/**
 	 * Commit saved files, fetch the remote branch, merge it, and push.
 	 * One-sided and compatible changes need no choices. Root `kv.json` merges
 	 * by key, each row of a declared table by field and body, written in the

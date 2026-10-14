@@ -186,7 +186,6 @@ test('independent changes merge without choices, in the standard form', async ()
 		'kv.json': '{"theme":"light","size":2}\n',
 	});
 
-	expect(local.sync.supported).toBe(true);
 	const head = synced(expectOk(await local.sync.run()));
 	expect(await context.remoteHead()).toBe(head);
 	const merged = row(

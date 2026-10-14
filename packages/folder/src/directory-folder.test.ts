@@ -558,7 +558,6 @@ describe('a folder over an ordinary directory', () => {
 		await git(project, 'init', '--quiet', '--initial-branch=main', root);
 		await git(root, 'remote', 'add', 'origin', bare);
 		const folder = expectOk(await open(root));
-		expect(folder.sync.supported).toBe(true);
 		const created = await addTodo(folder, 'Synced');
 		expectOk(await folder.sync.run());
 		expect(await git(bare, 'log', '--format=%s', '-1', 'main')).not.toBe('');

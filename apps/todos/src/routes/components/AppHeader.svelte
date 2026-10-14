@@ -83,8 +83,6 @@
 	const directory = $derived(
 		todos.folder.location.kind === 'directory' ? todos.folder.location.root : undefined,
 	);
-	/** Whether this folder syncs; a desktop folder records versions but does not sync yet. */
-	const syncs = $derived(todos.folder.sync.supported);
 	const connected = $derived(todos.git.snapshot.remote);
 
 	const tones: Record<StatusLine['tone'], string> = {
@@ -155,22 +153,20 @@
 			<span class="truncate">{directory}</span>
 		</Button>
 	{/if}
-	{#if syncs}
-		<!-- Where the todos sync: a repository, a URL, or nowhere yet. -->
-		<Button
-			variant="ghost"
-			size="sm"
-			class="max-w-56 min-w-0 shrink font-normal"
-			tooltip={connected === undefined ? 'Choose where your todos sync' : `Syncs with ${connected.url}. Click to change.`}
-			aria-label={connected === undefined ? 'Not connected. Connect' : `Syncs with ${remoteLabel(connected.url, gitAccess.isEpicenter)}. Change remote`}
-			disabled={busy}
-			data-testid="remote"
-			onclick={onconnect}
-		>
-			{#if connected === undefined}<LinkIcon />{:else}<FolderGitIcon />{/if}
-			<span class="truncate max-sm:sr-only">{connected === undefined ? 'Not connected' : remoteLabel(connected.url, gitAccess.isEpicenter)}</span>
-		</Button>
-	{/if}
+	<!-- Where the todos sync: a repository, a URL, or nowhere yet. -->
+	<Button
+		variant="ghost"
+		size="sm"
+		class="max-w-56 min-w-0 shrink font-normal"
+		tooltip={connected === undefined ? 'Choose where your todos sync' : `Syncs with ${connected.url}. Click to change.`}
+		aria-label={connected === undefined ? 'Not connected. Connect' : `Syncs with ${remoteLabel(connected.url, gitAccess.isEpicenter)}. Change remote`}
+		disabled={busy}
+		data-testid="remote"
+		onclick={onconnect}
+	>
+		{#if connected === undefined}<LinkIcon />{:else}<FolderGitIcon />{/if}
+		<span class="truncate max-sm:sr-only">{connected === undefined ? 'Not connected' : remoteLabel(connected.url, gitAccess.isEpicenter)}</span>
+	</Button>
 
 	<Popover.Root>
 		<Popover.Trigger>
@@ -249,12 +245,12 @@
 			{#if saveVersion.isPending}<Spinner class="size-3.5" />{:else}<HistoryIcon />{/if}
 			<span class="max-sm:sr-only">Save version</span>
 		</Button>
-		{#if syncs && connected === undefined}
+		{#if connected === undefined}
 			<Button size="sm" disabled={busy} tooltip="Choose where your todos sync" data-testid="connect-open" onclick={onconnect}>
 				<LinkIcon />
 				<span class="max-sm:sr-only">Connect</span>
 			</Button>
-		{:else if syncs}
+		{:else}
 			<Button
 				size="sm"
 				disabled={busy || pending}

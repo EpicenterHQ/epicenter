@@ -2,7 +2,8 @@
  * Definition publication through production Bun and browser adapters: a
  * handle publishes `epicenter.json` just before its first write, never on
  * open. Covers a folder nobody wrote to, replacement, changed declarations,
- * unchanged history, and best-effort failures while saved rows remain usable.
+ * an unchanged declaration left unwritten, unchanged history, and best-effort
+ * failures while saved rows remain usable.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
@@ -148,6 +149,61 @@ for (const adapter of ['browser', 'bun'] as const) {
 			);
 			expect(expectOk(await folder.git.log(10))).toEqual([]);
 			expect(folder.git.snapshot.activity.commit.active).toBe(false);
+		} finally {
+			await folder.close();
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+
+	test(`${adapter}: a later handle's first write leaves an unchanged declaration unwritten and rewrites a changed one`, async () => {
+		const root = await scratch('definition-unchanged-');
+		const environment = createTestStorage();
+		const open = async <TSchema extends FolderDefinition>(schema: TSchema) =>
+			expectOk(
+				adapter === 'bun'
+					? await openBun({ root, definition: schema, git: { author } })
+					: await openBrowser({
+							id: 'unchanged',
+							definition: schema,
+							browser: { ...browserStorage(environment), author },
+						}),
+			);
+		/** The paths the saves in `write` landed, as this handle heard them. */
+		const landed = async (
+			folder: Folder<typeof definition>,
+			write: () => Promise<unknown>,
+		) => {
+			const paths: string[] = [];
+			const stop = folder.onFilesChanged((changed) => paths.push(...changed));
+			await write();
+			stop();
+			return paths;
+		};
+		let folder = await open(definition);
+		try {
+			expect(
+				await landed(folder, async () =>
+					expectOk(await folder.kv.set('theme', 'dark')),
+				),
+			).toEqual(['epicenter.json', 'kv.json']);
+			await folder.close();
+			folder = await open(definition);
+			expect(
+				await landed(folder, async () =>
+					expectOk(await folder.kv.set('theme', 'light')),
+				),
+			).toEqual(['kv.json']);
+			await folder.close();
+			const changed = defineFolder({ ...definition, title: 'Changed' });
+			folder = await open(changed);
+			expect(
+				await landed(folder, async () =>
+					expectOk(await folder.kv.set('theme', 'dark')),
+				),
+			).toEqual(['epicenter.json', 'kv.json']);
+			expect(
+				decode(expectOk(await folder.files.read('epicenter.json')).bytes),
+			).toBe(formatDeclaration(changed));
 		} finally {
 			await folder.close();
 			await rm(root, { recursive: true, force: true });

@@ -189,8 +189,8 @@ fn shutdown_waits_for_running_page_work_and_refuses_new_work() {
     shutting.join().unwrap();
 }
 
-/// A Bun process that takes the lock exactly as `root-lock.ts` does, reports
-/// the outcome on stdout, and holds it until it is killed.
+/// Another process, in Bun, that takes the same SQLite lock on the same file,
+/// reports the outcome on stdout, and holds it until it is killed.
 fn bun_locker(root: &Path) -> (Child, String) {
     let script = r#"
         import { Database } from 'bun:sqlite';
@@ -228,7 +228,7 @@ fn another_process_is_excluded_and_a_killed_holder_leaves_the_folder_free() {
     let temp = TempDir::new("processes");
     let root = temp.folder("notes");
 
-    // A Bun host holds the folder: this process is refused, at once.
+    // Another process holds the folder: this one is refused, at once.
     let (mut holder, outcome) = bun_locker(&root);
     assert_eq!(outcome, "locked");
     let registry = registry(&root, "main");
@@ -246,7 +246,7 @@ fn another_process_is_excluded_and_a_killed_holder_leaves_the_folder_free() {
         .grant("notes", "main")
         .expect("the folder is free after the kill");
 
-    // This process holds it: a Bun host is refused the same way.
+    // This process holds it: the other is refused the same way.
     let (mut contender, outcome) = bun_locker(&root);
     contender.kill().unwrap();
     contender.wait().unwrap();

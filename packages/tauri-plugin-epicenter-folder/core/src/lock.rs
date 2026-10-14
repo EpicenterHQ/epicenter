@@ -1,10 +1,9 @@
 //! One holder per folder directory, across processes.
 //!
-//! The lock is an exclusive SQLite transaction on a file beside the directory:
-//! the same file and the same mechanism the Bun hosts use
-//! through `bun:sqlite`, so a desktop shell and a Bun host exclude
-//! each other. SQLite holds it with an operating-system file lock, which the
-//! system releases when the process ends, however it ends. There is no stale
+//! The lock is an exclusive SQLite transaction on a file beside the directory,
+//! so two desktop shells pointed at one directory exclude each other. SQLite
+//! holds it with an operating-system file lock, which the system releases
+//! when the process ends, however it ends. There is no stale
 //! lock to detect and nothing to recover after a forced kill. The file itself
 //! is never deleted, so a live holder's lock is never removed by anyone.
 //!
@@ -18,7 +17,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, ErrorCode};
 
 /// Where the cross-process lock for a canonical root lives: a sibling, outside
-/// the folder's files. The same file the Bun hosts lock (`root-lock.ts`).
+/// the folder's files.
 pub fn lock_path(root: &Path) -> Result<PathBuf, String> {
     let (Some(parent), Some(name)) = (root.parent(), root.file_name()) else {
         return Err(format!(

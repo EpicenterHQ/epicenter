@@ -142,9 +142,9 @@ export type { FileTable, StoredRow, TableListing } from './table.js';
 
 /**
  * Settings for a folder kept in this browser's own storage. They apply to a
- * browser folder only. A folder in the desktop app takes its directory,
- * author, remote, and history policy from the shell that registered it, and
- * reports the policy in effect through `git.snapshot`.
+ * browser folder only. A folder in the desktop app takes its directory and
+ * fallback author from the shell that registered it, and its remote from its
+ * own Git configuration.
  */
 export type BrowserFolderOptions = {
 	/**
