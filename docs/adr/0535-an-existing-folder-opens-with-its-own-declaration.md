@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-14
-- **Amends:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md), which overwrites `epicenter.json` from whatever definition opened the folder: only an application's own folder publishes, and only when the bytes differ. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), whose one window per folder and cross-process lock give way to any number of editors once the two prerequisites below land. [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md), whose script example imports `epicenter.json` as a definition, which its shape does not allow.
+- **Amends:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md), which overwrites `epicenter.json` from whatever definition opened the folder: only an application's own folder publishes, and only when the bytes differ. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), whose one window per folder and cross-process lock give way to any number of windows once the shell compares and publishes every save, under one mutex per root. [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md), whose script example imports `epicenter.json` as a definition, which its shape does not allow.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (a data folder is a directory with `epicenter.json`), [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (`readFolder`), [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) (`epicenter.ts` is the authored source), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (no automatic commits), [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md).
 - **Unbuilt:** all of it.
 
@@ -31,15 +31,16 @@ Separately, ADR-0531 grants each desktop folder to exactly one window and
 holds a cross-process lock, so a browser window cannot open Todos's folder
 while Todos is open. Yet `bun.ts` already accepts a script and a window
 writing one directory, "kept apart only by Git's lock files and the engine's
-checks of the observed version." Git's index is protected by `index.lock`,
-private index copies are uniquely named, branches move by compare-and-swap,
-files are staged under fresh names and renamed into place, and ADR-0529
-removed the automatic commit worker. Review found one operation that is not
-safe between engines: opening clears every file in
-`.git/epicenter/scratch` under a lock that only covers its own process or
-origin, so a second engine can delete another's staged bytes before their
-rename. The lock and channel names also include the scope ID, so two
-openers of one root with different IDs never coordinate.
+checks of the observed version." History is safe between engines: Git's
+index is protected by `index.lock`, private index copies are uniquely named,
+branches move by compare-and-swap, and ADR-0529 removed the automatic commit
+worker. Saves are not. A save's check of the observed version runs in the
+page under a lock that covers only its own process or origin, so two engines
+can both pass it and the second rename silently replaces the first. Opening
+also clears every file in `.git/epicenter/scratch` under that same narrow
+lock, so a second engine can delete another's staged bytes before their
+rename. And the lock and channel names include the scope ID, so two openers
+of one root with different IDs never coordinate.
 
 ## Decision
 
@@ -87,23 +88,38 @@ openDataFolder({ grant });                        // desktop page: a shell-issue
   `formatDeclaration(definition)` to equal `epicenter.json` byte for byte,
   which `epicenter generate` makes exact, and otherwise refuses.
 
-**Any number of editors may hold a folder.** Two prerequisites make that
-safe, and both also fix the script-and-window case that exists today:
+**Any number of windows may edit a folder, once the shell decides every
+save.** Today a save's `Conflict` check compares the expected hash in the
+page and then renames (`opfs-store.ts`, under `mutate`, which holds the files
+lock). That is atomic only within one lock domain. Two editors in different
+domains, such as two origins or a Bun script beside a window, can both see
+one hash, both pass, and both rename: the second silently replaces the
+first. Saves are not committed (ADR-0529), so the replaced edit is in no
+history and cannot be repaired. Git's `index.lock`, the branch
+compare-and-swap, and private index copies protect history, not saves. So
+many editors need three changes, and the binding goes only after all three:
 
-1. **Coordination names derive from the canonical root alone.** Web Lock
-   names and the hint channel stop including the scope ID, so Todos and a
-   browser window on `~/Epicenter/so.epicenter.todos` share them.
-2. **Each engine names its scratch files with its own prefix,**
-   `.git/epicenter/scratch/<engine>-<uuid>`, and opening clears only its own
-   prefix and files old enough that no write can still be staging them, so
-   no engine deletes another's staged bytes. Names stay one level deep, which
-   the shell's write check (`page_files.rs`) already admits.
+1. **The shell compares and publishes.** The rename that publishes a staged
+   file takes `expected: { sha256 } | absent | any`; the shell reads and
+   hashes the target and renames under one mutex per canonical root, in the
+   shell's process. Every window of the shell is then serialized whatever
+   its origin, and an overtaken save is `Conflict` across windows. The cost
+   is one read and hash of the target per publish.
+2. **Coordination names derive from the canonical root alone,** so Web Lock
+   names and the hint channel stop including the scope ID, and Todos and a
+   browser window on one root share them.
+3. **Each engine names its scratch files with its own prefix,**
+   `.git/epicenter/scratch/<time>-<engine>-<n>`, and opening clears only
+   names older than any write could still be staging, so no engine deletes
+   another's staged bytes. Names stay one level deep, which the shell's
+   write check (`page_files.rs`) already admits.
 
 Then the shell grants a directory to every window that asks for it, holds no
-writer lock, and counts admitted work per window for the quit wait. A save
-that another editor overtook is `Conflict`, as for any other writer.
-Windows of another origin, and other programs, do not receive hints; they
-read again on focus and after their own actions (ADR-0529).
+writer lock, and counts admitted work per window for the quit wait. A Bun
+script remains the one writer the shell does not serialize, as today; a
+script that edits a folder a window has open can still overtake it. Windows
+of another origin, and other programs, do not receive hints; they read again
+on focus and after their own actions (ADR-0529).
 
 **The desktop shell grants directories by registry, not by window.** The
 folders under the Epicenter root are listed by finding `epicenter.json`.
@@ -119,10 +135,11 @@ The page never receives its path.
   through `epicenter generate`.
 - The Git lab's empty-declaration overwrite is gone by construction.
 - A desktop browser can open any data folder, including an application's
-  folder while the application has it open.
-- Two editors of one folder can overtake each other's saves. Each sees
+  folder while the application has it open, once the shell publishes saves.
+- Two windows of one folder can overtake each other's saves. Each sees
   `Conflict` on a stale save and reads again. Views in another origin may be
-  stale until focus.
+  stale until focus. A Bun script beside a window is not serialized and can
+  still replace a window's save without `Conflict`.
 - `openFolder`'s `definition` remains the only way to create a folder, so a
   folder is created only by the application that owns its schema, or by
   `epicenter generate` writing its declaration.
@@ -141,9 +158,13 @@ The page never receives its path.
 - **Three openers,** separating file-declared editing from app storage and
   reading. `readFolder` is a reading, not a third ownership.
 - **A read grant beside a single write grant,** keeping the lock. It would
-  let a browser view an application's open folder, but adds grant kinds and
-  refusals in the shell for a lock that review found is not what protects
-  the files, and leaves the script-and-window hazard unfixed.
+  let a browser view an application's open folder without serializing saves
+  in the shell, but adds grant kinds and refusals, and still makes a person
+  close an app to edit its folder in the browser.
+- **Many editors with the comparison left in the page.** Git's locks and
+  the branch compare-and-swap protect history, not saves: two lock domains
+  can both pass a page-side check and the second rename silently replaces
+  the first, outside any history.
 - **Reading `epicenter.json` and passing it to `openFolder` as a
   definition.** The folder's schema would become whatever the caller passed,
   and opening would publish it back.
