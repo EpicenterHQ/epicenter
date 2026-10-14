@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { createBrowserInferenceSelections } from '@epicenter/app-shell/inference-selections';
-	import { createInferenceCatalog } from '@epicenter/app-shell/inference-picker';
+	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
+	import { createInferenceCatalog } from '@epicenter/ai/picker';
 	import { toHostedCatalog } from '@epicenter/constants/ai-providers';
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';

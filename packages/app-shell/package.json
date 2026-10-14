@@ -12,9 +12,6 @@
 	"exports": {
 		"./account-popover": "./src/account-popover/index.ts",
 		"./boot-screens": "./src/boot-screens/index.ts",
-		"./inference-target": "./src/inference-target.ts",
-		"./inference-selections": "./src/inference-selections.ts",
-		"./inference-picker": "./src/inference-picker/index.ts",
 		"./persistence-notice": "./src/persistence-notice/index.ts"
 	},
 	"scripts": {
@@ -38,8 +35,7 @@
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
-		"typescript": "catalog:",
-		"openai": "^7.12.1"
+		"typescript": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

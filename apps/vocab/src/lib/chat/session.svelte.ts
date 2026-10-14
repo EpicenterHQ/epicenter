@@ -2,8 +2,8 @@ import { createConversation } from '@epicenter/agent';
 import type {
 	InferenceCatalog,
 	InferenceTarget,
-} from '@epicenter/app-shell/inference-picker';
-import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
+} from '@epicenter/ai/picker';
+import type { InferenceSelections } from '@epicenter/ai/selections';
 import {
 	createOpenAiAgentEngine,
 	type OpenAiTurnContext,

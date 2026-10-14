@@ -12,12 +12,11 @@
 	import { type Captures, describeError, type Mode } from '$lib/captures.svelte.js';
 	import { downloadText } from '$lib/download.js';
 
-	// Captures made before this version live in an account store, not in
-	// files. This screen brings them in, on request only:
-	//   1. get an export (a JSON file): from the account, or one saved earlier;
+	// Captures made before this version lived in an account store, not in
+	// files. This screen brings an export of them in, on request only:
+	//   1. choose an export (a JSON file) saved earlier;
 	//   2. import that export as Markdown files.
-	// Nothing here runs unless a button is pressed, and the old store is only
-	// ever read.
+	// Nothing here runs unless a button is pressed.
 	let {
 		captures,
 		onOpen,
@@ -52,49 +51,6 @@
 		}
 	}
 
-	// The account code is loaded here and nowhere else.
-	let account = $state.raw<{ authorityId: string; principalId: string } | undefined>();
-	let accountChecked = $state(false);
-	async function checkAccount() {
-		working = 'Checking…';
-		try {
-			const legacy = await import('$lib/recovery/legacy-account.js');
-			account = legacy.signedInAccount();
-			accountChecked = true;
-			problems = [];
-		} catch (cause) {
-			problems = [`The account could not be checked: ${cause instanceof Error ? cause.message : String(cause)}`];
-		} finally {
-			working = '';
-		}
-	}
-	async function signIn() {
-		working = 'Opening sign-in…';
-		try {
-			const legacy = await import('$lib/recovery/legacy-account.js');
-			const failure = await legacy.startSignIn();
-			if (failure) problems = [`Sign-in did not start: ${failure}`];
-		} catch (cause) {
-			problems = [`Sign-in did not start: ${cause instanceof Error ? cause.message : String(cause)}`];
-		} finally {
-			working = '';
-		}
-	}
-	async function exportFromAccount() {
-		working = 'Reading your old captures…';
-		report = undefined;
-		try {
-			const legacy = await import('$lib/recovery/legacy-account.js');
-			bundle = await legacy.exportFromAccount();
-			bundleOrigin = 'your account, as this device holds it now';
-			problems = [];
-		} catch (cause) {
-			problems = [`The export failed, and nothing was changed: ${cause instanceof Error ? cause.message : String(cause)}`];
-		} finally {
-			working = '';
-		}
-	}
-
 	async function runImport() {
 		if (!bundle) return;
 		working = 'Importing…';
@@ -110,7 +66,7 @@
 
 <h1 class="mb-2 text-lg font-semibold tracking-tight">Bring in earlier captures</h1>
 <p class="mb-6 text-sm text-muted-foreground">
-	Captures from before this version were kept in your Epicenter account. This copies them into Markdown files here. The originals are only read, never changed, and importing the same export twice adds nothing twice.
+	Captures from before this version were kept in your Epicenter account. This copies an export of them into Markdown files here, and importing the same export twice adds nothing twice.
 </p>
 
 {#if problems.length}
@@ -129,19 +85,6 @@
 			<label for="bundle-file" class="font-medium">From an export file</label>
 			<p class="mb-2 text-muted-foreground">A JSON file saved from this screen earlier, on this or another device.</p>
 			<input id="bundle-file" type="file" accept="application/json,.json" onchange={chooseFile} class="block text-sm" />
-		</div>
-		<div>
-			<p class="font-medium">From your account</p>
-			<p class="mb-2 text-muted-foreground">Reads the old captures this device holds for your account. A device that has not finished syncing holds fewer than the account does; you can export again later.</p>
-			{#if !accountChecked}
-				<Button variant="outline" size="sm" disabled={working !== ''} onclick={checkAccount}>Use my account</Button>
-			{:else if account}
-				<Button variant="outline" size="sm" disabled={working !== ''} onclick={exportFromAccount}>Export my old captures</Button>
-			{:else if captures.unsettled}
-				<p role="status">Signing in leaves this page. Wait for saving to finish, and add or clear text you typed, first.</p>
-			{:else}
-				<Button variant="outline" size="sm" disabled={working !== ''} onclick={signIn}>Sign in to export</Button>
-			{/if}
 		</div>
 	</div>
 </section>

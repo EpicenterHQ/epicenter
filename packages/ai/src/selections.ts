@@ -1,6 +1,6 @@
 import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 
-import type { InferenceTarget } from './inference-target.js';
+import type { InferenceTarget } from './target.js';
 
 function invalid(): never {
 	throw new Error('Invalid persisted inference selections.');

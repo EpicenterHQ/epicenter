@@ -1,7 +1,7 @@
 export type {
 	InferenceTarget,
 	ResolvedInferenceTarget,
-} from '../inference-target.js';
+} from '../target.js';
 export {
 	createInferenceCatalog,
 	type HostedModel,

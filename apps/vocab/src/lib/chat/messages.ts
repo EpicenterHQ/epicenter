@@ -4,7 +4,7 @@ import {
 	AgentMessageStoreError,
 	agentMessageText,
 } from '@epicenter/agent';
-import { InstantString } from '@epicenter/app/field';
+import { InstantString } from '@epicenter/definition/field';
 import {
 	type FileError,
 	type FolderFiles,

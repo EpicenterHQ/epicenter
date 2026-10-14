@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { agentMessageText } from '@epicenter/agent';
-	import { InferencePicker } from '@epicenter/app-shell/inference-picker';
+	import { InferencePicker } from '@epicenter/ai/picker';
 	import * as Chat from '@epicenter/ui/chat';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
@@ -15,8 +15,8 @@
 	import type { VocabFolder } from '$lib/data.js';
 	import type { MessageWrite } from '$lib/chat/messages.js';
 	import type { Entries } from '$lib/entries.svelte.js';
-	import type { InferenceCatalog } from '@epicenter/app-shell/inference-picker';
-	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
+	import type { InferenceCatalog } from '@epicenter/ai/picker';
+	import type { InferenceSelections } from '@epicenter/ai/selections';
 	import DictationButton from './DictationButton.svelte';
 	import PhraseCapture from './PhraseCapture.svelte';
 

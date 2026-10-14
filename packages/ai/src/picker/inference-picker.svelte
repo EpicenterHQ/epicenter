@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { openEndpointInference } from '@epicenter/app/ai';
+	import { openEndpointInference } from '../ai.js';
 	/** Models grouped by exact connection; the owner persists each complete choice. */
 	import {
 		CONNECTION_PRESETS,
@@ -22,7 +22,7 @@
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { createMutation, QueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import type { InferenceTarget } from '../inference-target.js';
+	import type { InferenceTarget } from '../target.js';
 	import type { InferenceCatalog } from './catalog.svelte.js';
 
 	type Props = {

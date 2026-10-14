@@ -2,13 +2,13 @@ import { ListModelsError } from '@epicenter/client';
 import OpenAI from 'openai';
 import { createSubscriber } from 'svelte/reactivity';
 import { Ok, type Result, tryAsync, unwrap } from 'wellcrafted/result';
-import type { InferenceSources } from '../inference-target.js';
+import type { InferenceSources } from '../target.js';
 import {
 	accountInferenceId,
 	type InferenceTarget,
 	resolveInferenceTarget,
 	runtimeInferenceId,
-} from '../inference-target.js';
+} from '../target.js';
 
 export type HostedModel = { id: string; label: string; credits: number };
 

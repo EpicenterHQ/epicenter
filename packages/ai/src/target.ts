@@ -1,8 +1,8 @@
 import type {
 	openEpicenterInference,
 	openRuntimeTranscriber,
-} from '@epicenter/app/ai';
-import type { ConnectionCatalog } from '@epicenter/app/ai-connections';
+} from './ai.js';
+import type { ConnectionCatalog } from './ai-connections.js';
 
 export type InferenceSources = {
 	errors?: string[];

@@ -4,16 +4,16 @@
  * Discovery suggests models but cannot revoke a user's explicit selection.
  */
 import { expect, test } from 'bun:test';
-import { createAiConnections } from '@epicenter/app/ai-connections';
+import { createAiConnections } from '../ai-connections.js';
 import { expectOk } from 'wellcrafted/testing';
-import { openConnectionCatalog } from '../../../app/src/connection-catalog.js';
+import { openConnectionCatalog } from '../connection-catalog.js';
 import {
 	type AiTransport,
 	createInference,
-} from '../../../app/src/inference.js';
-import { createRuntimeTranscriber } from '../../../app/src/runtime-transcriber.js';
-import { createInferenceSelections } from '../inference-selections.js';
-import type { InferenceSources } from '../inference-target.js';
+} from '../inference.js';
+import { createRuntimeTranscriber } from '../runtime-transcriber.js';
+import { createInferenceSelections } from '../selections.js';
+import type { InferenceSources } from '../target.js';
 import { createInferenceCatalog } from './catalog.svelte.js';
 
 Reflect.set(globalThis, '$state', { raw: <T>(value: T) => value });

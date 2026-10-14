@@ -6,9 +6,6 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./ai": "./src/ai.ts",
-		"./ai/codex": "./src/codex-connection.ts",
-		"./ai-connections": "./src/ai-connections.ts",
 		"./clipboard": "./src/clipboard.ts",
 		"./recorder": "./src/recorder.ts",
 		"./field": "./src/data/field/index.ts",
@@ -43,7 +40,6 @@
 		"@epicenter/recorder": "workspace:*",
 		"nanoid": "catalog:",
 		"lib0": "1.0.0-rc.32",
-		"openai": "^7.12.1",
 		"wellcrafted": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"@tauri-apps/plugin-clipboard-manager": "^2.3.0",

@@ -22,7 +22,7 @@
  * is exclusive, so two adds of one text reach the same file.
  */
 
-import { InstantString } from '@epicenter/app/field';
+import { InstantString } from '@epicenter/definition/field';
 import {
 	type FileCapture,
 	type FileError,

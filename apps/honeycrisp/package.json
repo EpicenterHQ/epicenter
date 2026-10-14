@@ -27,8 +27,6 @@
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json && tsc -p tsconfig.scripts.json"
 	},
 	"devDependencies": {
-		"@epicenter/app-shell": "workspace:*",
-		"@epicenter/auth": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@epicenter/vite-config": "workspace:*",
 		"@lucide/svelte": "catalog:",

@@ -5,7 +5,7 @@
 - **Amends:** [ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md) at the active-model clause only: a request names an installed model, so "there is no per-request `modelId`" and "an application requests transcription; it does not request a model" are withdrawn. Host-owned residency, model administration in Epicenter Home, the exact model on every transcript, and model files never syncing all stand.
 - **Amends:** [ADR-0012](0012-transcription-settings-are-read-at-use-not-mirrored-into-rust.md) at the model-identity boundary, restoring what ADR-0180 withdrew: the model name is again a per-call value, read at use like the language and the prompt.
 - **Relates:** [ADR-0363](0363-an-inference-selection-identifies-the-connection-and-model.md), [ADR-0362](0362-inference-connections-do-not-require-runtime-management.md), [ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md)
-- **Unbuilt:** The picker's "This device" group, and the deletion of `transcribe_recording`. The explicit path exists: `packages/app/src/runtime-transcriber.ts` refuses a request without an exact model id and invokes `transcribe_audio_bytes`, which calls `ModelCache::transcribe_explicit`.
+- **Unbuilt:** The picker's "This device" group, and the deletion of `transcribe_recording`. The explicit path exists: `packages/ai/src/runtime-transcriber.ts` refuses a request without an exact model id and invokes `transcribe_audio_bytes`, which calls `ModelCache::transcribe_explicit`.
 
 ## Context
 

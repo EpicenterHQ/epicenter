@@ -237,15 +237,15 @@ Edited files since checkpoint 2 (52):
 - packages/app-shell/src/agent-chat/agent-chat-thread.svelte
 - packages/app-shell/src/agent-chat/agent-chat.svelte.test.ts
 - packages/app-shell/src/agent-chat/agent-chat.svelte.ts
-- packages/app-shell/src/inference-picker/catalog.svelte.ts
-- packages/app-shell/src/inference-picker/catalog.test.ts
-- packages/app-shell/src/inference-picker/connections.svelte.ts (deleted)
-- packages/app-shell/src/inference-picker/connections.test.ts (deleted)
-- packages/app-shell/src/inference-picker/cross-device-model-gap.svelte
-- packages/app-shell/src/inference-picker/index.ts
-- packages/app-shell/src/inference-picker/inference-picker.svelte
-- packages/app-shell/src/inference-selections.ts
-- packages/app-shell/src/inference-target.ts
+- packages/ai/src/picker/catalog.svelte.ts
+- packages/ai/src/picker/catalog.test.ts
+- packages/ai/src/picker/connections.svelte.ts (deleted)
+- packages/ai/src/picker/connections.test.ts (deleted)
+- packages/ai/src/picker/cross-device-model-gap.svelte
+- packages/ai/src/picker/index.ts
+- packages/ai/src/picker/inference-picker.svelte
+- packages/ai/src/selections.ts
+- packages/ai/src/target.ts
 - packages/svelte/src/from-data.svelte.test.ts
 
 ## Final repairs after checkpoint 3
@@ -540,7 +540,7 @@ Current
 apps/whispering/src/lib/
 |-- state/polish.ts
 `-- whispering/app.test.ts
-packages/app-shell/src/inference-picker/
+packages/ai/src/picker/
 |-- catalog.svelte.ts
 `-- catalog.test.ts
 

@@ -4,7 +4,7 @@
  * independent observation, and refusal through retained methods after disposal.
  */
 import { expect, test } from 'bun:test';
-import { createInferenceSelections } from './inference-selections.js';
+import { createInferenceSelections } from './selections.js';
 
 function setup() {
 	const values = new Map<string, string>();

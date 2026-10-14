@@ -7,7 +7,7 @@
 
 ## Context
 
-Independent inference constructors exist in `packages/app/src/ai.ts`. Saved
+Independent inference constructors exist in `packages/ai/src/ai.ts`. Saved
 catalog reads in `connection-catalog.ts` still materialize cached SDK clients.
 A settings snapshot therefore carries live execution access, and page startup
 still couples catalog acquisition to unrelated resources.

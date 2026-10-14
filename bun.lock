@@ -88,8 +88,6 @@
       "name": "@epicenter/capture-app",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/app": "workspace:*",
-        "@epicenter/auth": "workspace:*",
         "@epicenter/capture": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/epicenter": "workspace:*",
@@ -212,8 +210,6 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
-        "@epicenter/app-shell": "workspace:*",
-        "@epicenter/auth": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@epicenter/vite-config": "workspace:*",
         "@lucide/svelte": "catalog:",
@@ -427,11 +423,11 @@
       "version": "0.0.2",
       "dependencies": {
         "@epicenter/agent": "workspace:*",
-        "@epicenter/app": "workspace:*",
-        "@epicenter/app-shell": "workspace:*",
+        "@epicenter/ai": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/client": "workspace:*",
         "@epicenter/constants": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/recorder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
@@ -541,6 +537,28 @@
         "typescript": "catalog:",
       },
     },
+    "packages/ai": {
+      "name": "@epicenter/ai",
+      "version": "0.0.0",
+      "dependencies": {
+        "@epicenter/auth": "workspace:*",
+        "@epicenter/client": "workspace:*",
+        "@epicenter/principal": "workspace:*",
+        "@epicenter/ui": "workspace:*",
+        "@lucide/svelte": "catalog:",
+        "@tanstack/svelte-query": "catalog:",
+        "@tauri-apps/api": "catalog:",
+        "nanoid": "catalog:",
+        "openai": "^7.12.1",
+        "wellcrafted": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "svelte": "catalog:",
+        "svelte-check": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/app": {
       "name": "@epicenter/app",
       "version": "0.0.1",
@@ -561,7 +579,6 @@
         "@y/y": "14.0.0-rc.26",
         "lib0": "1.0.0-rc.32",
         "nanoid": "catalog:",
-        "openai": "^7.12.1",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
         "yaml": "catalog:",
@@ -592,7 +609,6 @@
       },
       "devDependencies": {
         "@types/bun": "catalog:",
-        "openai": "^7.12.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "typescript": "catalog:",
@@ -642,7 +658,6 @@
       "name": "@epicenter/capture",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/app": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "markdown-it": "^14.0.0",
@@ -651,7 +666,6 @@
       "devDependencies": {
         "@types/bun": "catalog:",
         "@types/markdown-it": "^14.0.0",
-        "@y/y": "14.0.0-rc.26",
         "typescript": "catalog:",
       },
     },
@@ -1204,6 +1218,8 @@
 
     "@epicenter/agent-protocol": ["@epicenter/agent-protocol@workspace:packages/agent-protocol"],
 
+    "@epicenter/ai": ["@epicenter/ai@workspace:packages/ai"],
+
     "@epicenter/api": ["@epicenter/api@workspace:apps/api"],
 
     "@epicenter/api-ui": ["@epicenter/api-ui@workspace:apps/api/ui"],
@@ -1690,7 +1706,7 @@
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
-    "@sveltejs/acorn-typescript": ["@sveltejs/acorn-typescript@1.0.9", "", { "peerDependencies": { "acorn": "^8.9.0" } }, "sha512-lVJX6qEgs/4DOcRTpo56tmKzVPtoWAaVbL4hfO7t7NVwl9AAXzQR6cihesW1BmNMPl+bK6dreu2sOKBP2Q9CIA=="],
+    "@sveltejs/acorn-typescript": ["@sveltejs/acorn-typescript@1.0.10", "", { "peerDependencies": { "acorn": "^8.9.0" } }, "sha512-4WfKk68eTih+MiJD4fSbxN7E8kVBmTMPWHUPYjvl2N0rMs53YLTT8/YjKU5Dtnz5LqDjl7LEw4U7lXR2W3J5WA=="],
 
     "@sveltejs/adapter-static": ["@sveltejs/adapter-static@3.0.10", "", { "peerDependencies": { "@sveltejs/kit": "^2.0.0" } }, "sha512-7D9lYFWJmB7zxZyTE/qxjksvMqzMuYrrsyh1f4AlZqeZeACPRySjbC3aFiY55wb1tWUaKOQG9PVbm74JcN2Iew=="],
 
@@ -3464,6 +3480,8 @@
 
     "@rollup/pluginutils/picomatch": ["picomatch@4.0.4", "", {}, "sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A=="],
 
+    "@sveltejs/kit/@sveltejs/acorn-typescript": ["@sveltejs/acorn-typescript@1.0.9", "", { "peerDependencies": { "acorn": "^8.9.0" } }, "sha512-lVJX6qEgs/4DOcRTpo56tmKzVPtoWAaVbL4hfO7t7NVwl9AAXzQR6cihesW1BmNMPl+bK6dreu2sOKBP2Q9CIA=="],
+
     "@sveltejs/vite-plugin-svelte/magic-string": ["magic-string@1.2.3", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-Bpb0W2TbLKOZ7vJnOUnVRGq3WL2p+ISV29M6hYPL1AFCpyKZpdr5ytiXoTSSxRVhg8YW7f65+6gbG8WG6PCa/g=="],
 
     "@sveltejs/vite-plugin-svelte-inspector/@sveltejs/vite-plugin-svelte": ["@sveltejs/vite-plugin-svelte@6.2.4", "", { "dependencies": { "@sveltejs/vite-plugin-svelte-inspector": "^5.0.0", "deepmerge": "^4.3.1", "magic-string": "^0.30.21", "obug": "^2.1.0", "vitefu": "^1.1.1" }, "peerDependencies": { "svelte": "^5.0.0", "vite": "^6.3.0 || ^7.0.0" } }, "sha512-ou/d51QSdTyN26D7h6dSpusAKaZkAiGM55/AKYi+9AGZw7q85hElbjK3kEyzXHhLSnRISHOYzVge6x0jRZ7DXA=="],
@@ -3583,8 +3601,6 @@
     "stack-utils/escape-string-regexp": ["escape-string-regexp@2.0.0", "", {}, "sha512-UpzcLCXolUWcNu5HtVMHYdXJjArjsF9C0aNnquZYY4uW/Vu0miy5YoWvbV345HauVvcAUnpRuhMMcqTcGOY2+w=="],
 
     "string-width/strip-ansi": ["strip-ansi@7.2.0", "", { "dependencies": { "ansi-regex": "^6.2.2" } }, "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w=="],
-
-    "svelte/@sveltejs/acorn-typescript": ["@sveltejs/acorn-typescript@1.0.10", "", { "peerDependencies": { "acorn": "^8.9.0" } }, "sha512-4WfKk68eTih+MiJD4fSbxN7E8kVBmTMPWHUPYjvl2N0rMs53YLTT8/YjKU5Dtnz5LqDjl7LEw4U7lXR2W3J5WA=="],
 
     "svelte-sonner/runed": ["runed@0.28.0", "", { "dependencies": { "esm-env": "^1.0.0" }, "peerDependencies": { "svelte": "^5.7.0" } }, "sha512-k2xx7RuO9hWcdd9f+8JoBeqWtYrm5CALfgpkg2YDB80ds/QE4w0qqu34A7fqiAwiBBSBQOid7TLxwxVC27ymWQ=="],
 

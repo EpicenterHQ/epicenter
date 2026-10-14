@@ -27,6 +27,7 @@ anyone who forks and distributes a modified binary shares the changes back.
     packages/agent-protocol  @epicenter/agent-protocol
     packages/app-shell       @epicenter/app-shell
     packages/auth            @epicenter/auth
+    packages/ai              @epicenter/ai
     packages/blobs           @epicenter/blobs
     packages/client          @epicenter/client
     packages/constants       @epicenter/constants

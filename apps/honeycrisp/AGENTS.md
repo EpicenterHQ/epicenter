@@ -13,9 +13,7 @@ against the code. The constraints below apply to every edit here.
 - Do not add Yjs, a CRDT, an account, or sync to this app. Nothing in
   `src/` or `src-tauri/` may import `@y/*`, `yjs`, `@epicenter/auth`, or
   `@epicenter/sync`. `src/lib/platform-selection.test.ts` checks the
-  bundles. The `smoke/account-popover` fixture belongs to `packages/auth`'s
-  smoke test; it is why `@epicenter/auth` and `@epicenter/app-shell` remain
-  dev dependencies, and it is not part of this app.
+  bundles.
 - Do not add a migration, a legacy reader, or a compatibility path for the
   earlier Yjs-backed Honeycrisp. There are no users to carry forward.
 - Opening or listing a note must not write its file. Only an edit writes.

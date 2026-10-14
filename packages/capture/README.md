@@ -128,24 +128,16 @@ read as thoughts. The text's bytes are whole and in order in every row.
 ## Importing the old store
 
 `@epicenter/capture/legacy` is for migration only. Nothing in the running app
-imports it except the recovery screen, on request.
+imports it except the recovery screen, on request. It reads an export a person
+saved from the old Personal store earlier; the store itself is no longer
+opened.
 
 ```ts
-import {
-  exportLegacyBundle,
-  legacyCaptureDefinition,
-  readLegacyBundle,
-  runLegacyImport,
-} from '@epicenter/capture/legacy';
+import { readLegacyBundle, runLegacyImport } from '@epicenter/capture/legacy';
 
-const bundle = exportLegacyBundle(store, { exportedAt, account });
-const report = await runLegacyImport(folder.files, bundle);
+const read = readLegacyBundle(JSON.parse(text));
+if (read.ok) await runLegacyImport(folder.files, read.bundle);
 ```
-
-`legacyCaptureDefinition` is the old Personal store: `captures` and `thoughts`
-with Yjs text bodies, `entries` from the earlier recursive model, and
-`promotions` for a handoff that no longer exists. It is the one declaration
-here that stays on `@epicenter/app`, because it describes a Yjs store.
 
 `runLegacyImport` takes the folder's `read`, `create`, and `replace`. Every
 document is formatted as the captures table writes a row (`formatRow`), so

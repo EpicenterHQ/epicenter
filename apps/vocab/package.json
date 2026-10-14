@@ -16,8 +16,6 @@
 	},
 	"dependencies": {
 		"@epicenter/agent": "workspace:*",
-		"@epicenter/app": "workspace:*",
-		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
@@ -31,7 +29,9 @@
 		"mode-watcher": "^1.1.0",
 		"openai": "^7.12.1",
 		"typebox": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/ai": "workspace:*",
+		"@epicenter/definition": "workspace:*"
 	},
 	"devDependencies": {
 		"@epicenter/vite-config": "workspace:*",

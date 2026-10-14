@@ -1,5 +1,5 @@
 import type { AgentMessage } from '@epicenter/agent';
-import { jsonValue } from '@epicenter/app/field';
+import { jsonValue } from '@epicenter/definition/field';
 import {
 	defineFolder,
 	defineTable,

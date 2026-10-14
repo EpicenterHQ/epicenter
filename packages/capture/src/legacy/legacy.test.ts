@@ -1,12 +1,11 @@
 /**
- * Legacy Export and Import Tests
+ * Legacy Import Tests
  *
- * Exports the old Personal store from a real in-memory store, and imports
- * bundles into a real native folder in a temporary directory. File contents
+ * Imports exports of the old Personal store into a real directory folder in a
+ * temporary directory. File contents
  * are compared with literal Markdown.
  *
  * Key behaviors:
- * - Exporting reads rows, bodies, and nonconforming rows and writes nothing
  * - A capture becomes one document: its text, then its thoughts by position
  * - Entries keep their own timestamp and parent ID; orphan thoughts get a
  *   labelled export-time date and name the capture they lost
@@ -25,16 +24,12 @@ import { afterAll, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openMemory } from '@epicenter/app/memory';
 import { openFolder } from '@epicenter/folder/bun';
-import * as Y from '@y/y';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { captureBody, captureDefinition } from '../index.js';
 import {
-	exportLegacyBundle,
 	type ImportFiles,
 	type LegacyBundle,
-	legacyCaptureDefinition,
 	planLegacyImport,
 	readLegacyBundle,
 	runLegacyImport,
@@ -107,76 +102,11 @@ const DINNER = bundleOf({
 	],
 });
 
-function bodyFrom(text: string): Y.Node {
-	const body = new Y.Node();
-	if (text) body.applyDelta(body.change.insert(text) as never);
-	return body;
-}
-
-// ============================================================================
-// Export
-// ============================================================================
-
-test('export carries rows, bodies, and unreadable rows, and leaves the store as it was', async () => {
-	await using data = await openMemory(legacyCaptureDefinition);
-	const capturedAt = '2026-01-01T00:00:00.000Z' as never;
-	const capture = data.tables.captures.create({ capturedAt }, bodyFrom('Root'));
-	const thought = data.tables.thoughts.create(
-		{ captureId: capture.id, position: 0 },
-		bodyFrom('A thought'),
-	);
-	const broken = data.tables.thoughts.create(
-		{ captureId: capture.id, position: 1 },
-		bodyFrom('Still readable text'),
-	);
-	data.tables.thoughts.update(broken.id, { position: 'broken' } as never);
-	const entry = data.tables.entries.create(
-		{ parentId: null, capturedAt },
-		bodyFrom('Earlier'),
-	);
-	data.tables.promotions.create({ requestId: 'r', captureId: null });
-	const rowsBefore = JSON.stringify([
-		data.tables.captures.rows,
-		data.tables.thoughts.rows,
-		data.tables.entries.rows,
-	]);
-
-	const bundle = exportLegacyBundle(data, {
-		exportedAt: '2026-10-01T02:30:00.000Z',
-		account: ACCOUNT,
-	});
-
-	expect(bundle.captures).toEqual([
-		{ id: capture.id, capturedAt: '2026-01-01T00:00:00.000Z', text: 'Root' },
-	]);
-	expect(bundle.thoughts).toEqual([
-		{ id: thought.id, captureId: capture.id, position: 0, text: 'A thought' },
-	]);
-	expect(bundle.entries).toEqual([
-		{
-			id: entry.id,
-			parentId: null,
-			capturedAt: '2026-01-01T00:00:00.000Z',
-			text: 'Earlier',
-		},
-	]);
-	expect(bundle.unreadable).toHaveLength(1);
-	expect(bundle.unreadable[0]).toMatchObject({
-		table: 'thoughts',
-		id: broken.id,
-		text: 'Still readable text',
-	});
-	expect(bundle.promotionCount).toBe(1);
-	expect(
-		JSON.stringify([
-			data.tables.captures.rows,
-			data.tables.thoughts.rows,
-			data.tables.entries.rows,
-		]),
-	).toBe(rowsBefore);
-
-	const reread = readLegacyBundle(JSON.parse(serializeLegacyBundle(bundle)));
-	expect(reread.ok && reread.bundle).toEqual(bundle);
+test('a downloaded export reads back as the same bundle', () => {
+	const direct = readLegacyBundle(structuredClone(DINNER));
+	const reread = readLegacyBundle(JSON.parse(serializeLegacyBundle(DINNER)));
+	expect(reread).toEqual(direct);
+	expect(reread.ok).toBe(true);
 });
 
 test('a file that is not a bundle is refused whole, naming each problem', () => {

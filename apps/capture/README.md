@@ -17,8 +17,7 @@ The browser opens the OPFS directory alone. It does not read, copy, or delete
 a folder an earlier version kept in IndexedDB.
 
 Run the browser build with `bun dev:capture` (or `bun dev:capture:ui`) from
-the repository root. It starts the app and nothing else. Start `bun dev:api`
-yourself only to export old captures from a hosted account, described below.
+the repository root. It starts the app and nothing else.
 
 ## What you can do
 
@@ -126,13 +125,11 @@ Nothing persists text not added across a reload or a quit you confirm.
 
 Earlier versions kept captures in your Epicenter account, not in files. The
 timeline's "Bring in captures from before this version…" link opens a screen
-that copies them in. Nothing on it runs unless you press a button, and the
-old data is only read.
+that copies an export of them in. Nothing on it runs unless you press a
+button.
 
-1. **Get an export.** Either choose an export file (JSON) saved earlier, or
-   use your account: sign in, then export. The export holds what this device
-   has for your account. A device that has not finished syncing has less than
-   the account; export again later to pick up the rest.
+1. **Choose an export.** An export file (JSON) saved from that screen in an
+   earlier version.
 2. **Import.** Each old capture becomes one Markdown file with its thoughts
    in order and its original date. Earlier entries become their own files.
    Thoughts whose capture is missing are kept in a recovery file that says so.
@@ -299,7 +296,6 @@ window that stays silent, are the host's; see `apps/epicenter`.
 | `src/lib/captures.svelte.ts` | The store, over a TanStack Query cache: the capture listing and a capture's text as queries, `edit` and `editText` that change the cache and queue a write per file, each action (create, delete, Save version, import) as a mutation, which capture is open, departure, and close. |
 | `src/lib/capture-form.svelte.ts` | One capture's input not added yet (a new thought, a thought edit) and the commands that turn a change of text or thoughts into a new body for `edit`. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
-| `src/lib/recovery/` | Opens the old account store for an export. Loaded only from the recovery screen. |
 | `src/lib/components/` | `CaptureApp.svelte` shows the timeline, the recovery screen, or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each reading the cache. Each is keyed by the open capture. |
 
 The package exports nothing. No host imports a part of this app.
