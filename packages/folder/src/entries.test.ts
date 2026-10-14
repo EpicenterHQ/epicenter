@@ -181,7 +181,9 @@ test('the automatic entry decides when it is called: the desktop adapter in the 
 	// a browser folder in another place.
 	expect(refused.name).toBe('Unavailable');
 	expect(refused.message).toContain('plugin epicenter-folder not found');
-	expect(invoked).toEqual(['plugin:epicenter-folder|attach']);
+	// The shell decides which engine opens the folder, so the grant is asked
+	// first; a shell without the plugin answers nothing further.
+	expect(invoked).toEqual(['plugin:epicenter-folder|grant_directory']);
 	expect(other.opfs.directories()).toEqual([]);
 });
 

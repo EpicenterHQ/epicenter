@@ -9,11 +9,14 @@
  * - The automatic entry puts neither adapter in the code that loads first.
  *   Both adapters are separate chunks, loaded only when a folder is opened
  * - Aliasing the exact bare specifier to `/browser` emits no desktop adapter
- *   and no IndexedDB access anywhere; aliasing it to `/tauri` emits no
- *   browser storage and no Git implementation anywhere. The application
- *   source is the same file
+ *   and no IndexedDB access anywhere; aliasing it to `/tauri` loads only the
+ *   desktop adapter first. The directory folder a page runs over a granted
+ *   directory, with Tauri's fs plugin and the shell's Git, is a lazy chunk
+ *   the desktop adapter loads only when the shell grants a folder; it holds
+ *   none of the browser folder's storage address or private Git. The
+ *   application source is the same file
  * - Importing an explicit entry directly gives the same output as the alias
- * - The desktop adapter's own chunks never include isomorphic-git
+ * - The desktop adapter's first chunk never includes isomorphic-git
  * - The shell is a separate chunk in every build
  *
  * The alias here is the one the package documents, and the specifiers are
@@ -31,6 +34,10 @@ const DESKTOP = 'plugin:epicenter-folder|attach';
 const BROWSER = 'epicenter-folder-opfs-git:';
 /** Text only isomorphic-git contains: its Git protocol client. */
 const GIT = 'git-upload-pack';
+/** Text only the page engine over a granted directory contains. */
+const GRANTED = 'epicenter-folder-directory-files:';
+/** Text only Tauri's fs plugin client contains. */
+const TAURI_FS = 'plugin:fs|';
 /** Text only the shell contains: a command the terminal offers. */
 const SHELL = 'sha256sum';
 
@@ -121,10 +128,21 @@ describe('what a Vite build of the same application emits', () => {
 		expect(built.initial).not.toContain(SHELL);
 
 		// One artifact carries both adapters, each behind its own `import()`.
-		const desktop = built.lazy.filter((code) => code.includes(DESKTOP));
+		// The desktop adapter loads the page engine for a granted folder
+		// behind another `import()`; that chunk reuses the adapter's commands.
+		const desktopLazy = built.lazy.filter((code) => code.includes(DESKTOP));
+		const desktop = desktopLazy.filter((code) => !code.includes(GRANTED));
+		const granted = desktopLazy.filter((code) => code.includes(GRANTED));
 		const browser = built.lazy.filter((code) => code.includes(BROWSER));
 		expect(desktop).toHaveLength(1);
+		expect(granted).toHaveLength(1);
 		expect(browser).toHaveLength(1);
+		// The page engine over a granted directory is the directory folder:
+		// Tauri's fs plugin and the shell's Git, and none of the browser's own
+		// storage address, download, or private Git.
+		expect(granted[0]).toContain(TAURI_FS);
+		expect(granted[0]).toContain('plugin:epicenter-folder|run_git');
+		expect(granted[0]).not.toContain(BROWSER);
 		// Loading the desktop adapter loads no Git and no browser storage.
 		expect(desktop[0]).not.toContain(GIT);
 		expect(desktop[0]).not.toContain(BROWSER);
@@ -158,17 +176,21 @@ describe('what a Vite build of the same application emits', () => {
 		expect(built.initial).not.toContain(SHELL);
 	}, 120_000);
 
-	test('exact alias to the desktop entry: no browser storage and no Git implementation is emitted at all', async () => {
+	test('exact alias to the desktop entry: the desktop adapter first, and the page engine only for a granted folder', async () => {
 		const built = await bundle('main', '@epicenter/folder/tauri');
 		expect(built.everything).toContain('so.epicenter.bundlefixture');
 		expect(built.everything).toContain(DESKTOP);
-		expect(built.everything).not.toContain(BROWSER);
-		expect(built.everything).not.toContain(GIT);
-		expect(built.everything).not.toContain('isomorphic-git');
-		expect(built.everything).not.toContain('epicenter-folder-opfs-files:');
 		expect(built.everything).not.toContain('indexedDB');
 		expect(built.everything).not.toContain('IDBKeyRange');
 		expect(built.initial).toContain(DESKTOP);
+		for (const engine of [GRANTED, TAURI_FS]) {
+			expect(built.initial).not.toContain(engine);
+			expect(built.lazy.some((code) => code.includes(engine))).toBe(true);
+		}
+		// The directory folder records history with real Git; the browser's
+		// isomorphic-git transport and storage address never load.
+		expect(built.everything).not.toContain(BROWSER);
+		expect(built.initial).not.toContain(GIT);
 		expect(built.lazy.some((code) => code.includes(SHELL))).toBe(true);
 		expect(built.initial).not.toContain(SHELL);
 	}, 120_000);
@@ -180,9 +202,9 @@ describe('what a Vite build of the same application emits', () => {
 
 		const desktop = await bundle('tauri');
 		expect(desktop.everything).toContain(DESKTOP);
-		expect(desktop.everything).not.toContain(BROWSER);
-		expect(desktop.everything).not.toContain(GIT);
-		expect(desktop.everything).not.toContain('isomorphic-git');
+		expect(desktop.initial).not.toContain(BROWSER);
+		expect(desktop.initial).not.toContain(GIT);
+		expect(desktop.lazy.some((code) => code.includes(GRANTED))).toBe(true);
 	}, 120_000);
 
 	test('the alias matches the bare specifier only: a subpath import is not rewritten', async () => {
@@ -190,6 +212,6 @@ describe('what a Vite build of the same application emits', () => {
 		// `/browser`. Its import still resolves to the desktop entry.
 		const built = await bundle('tauri', '@epicenter/folder/browser');
 		expect(built.everything).toContain(DESKTOP);
-		expect(built.everything).not.toContain(BROWSER);
+		expect(built.initial).not.toContain(BROWSER);
 	}, 120_000);
 });

@@ -91,7 +91,7 @@
 			"@sindresorhus/slugify": "^3.0.0",
 			"@tauri-apps/api": "^2.9.0",
 			"@tauri-apps/plugin-deep-link": "^2.4.9",
-			"@tauri-apps/plugin-fs": "^2.4.1",
+			"@tauri-apps/plugin-fs": "~2.5.1",
 			"@tauri-apps/plugin-opener": "^2.4.0",
 			"@tauri-apps/cli": "^2.9.6",
 			"marked": "^17.0.3",

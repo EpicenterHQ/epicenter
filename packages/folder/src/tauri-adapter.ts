@@ -89,6 +89,7 @@ import type {
 	RecoverOutcome,
 } from './git/history.js';
 import {
+	type AttachError,
 	commands,
 	events,
 	FOLDER_PROTOCOL,
@@ -1079,6 +1080,26 @@ function createSnapshots(initial: GitSnapshot): Snapshots {
  * thrown: not running in the shell, a missing ID, a folder this window may
  * not use, a folder another process holds.
  */
+/** What a refused grant or attach tells the page. */
+function attachRefusal(refusal: AttachError) {
+	switch (refusal.name) {
+		case 'UnknownScope':
+			return OpenFolderError.UnknownScope(refusal);
+		case 'WindowNotPermitted':
+			return OpenFolderError.WindowNotPermitted(refusal);
+		case 'Busy':
+			return OpenFolderError.Busy(refusal);
+		case 'Unavailable':
+			return OpenFolderError.Unavailable({ cause: refusal.message });
+		case 'ShuttingDown':
+			return OpenFolderError.ShuttingDown();
+		case 'Incompatible':
+			return OpenFolderError.Incompatible(refusal);
+		default:
+			return OpenFolderError.Unavailable({ cause: refusal });
+	}
+}
+
 export const openFolder: OpenFolder = async ({ definition, id }) => {
 	const { data: prepared, error: definitionError } =
 		prepareFolderDefinition(definition);
@@ -1088,6 +1109,18 @@ export const openFolder: OpenFolder = async ({ definition, id }) => {
 	if (typeof id !== 'string' || id.trim() === '')
 		return OpenFolderError.InvalidId({ id: String(id) });
 	const scope = id;
+
+	// The shell decides which engine opens each folder. A scope it registered
+	// for the page's own engine is granted: its directory is this page's to
+	// read and write through the fs plugin, and nothing below runs.
+	const granted = await call(commands.grantDirectory(scope));
+	if (!granted.sent)
+		return OpenFolderError.Unavailable({ cause: granted.cause });
+	if (granted.settled === 'done') {
+		const { openGrantedFolder } = await import('./tauri-directory.js');
+		return openGrantedFolder({ definition, id, granted: granted.data });
+	}
+	if (granted.error.name !== 'UsesOwner') return attachRefusal(granted.error);
 
 	// Listen before attaching, so no event between the attach reply and the
 	// first listener is lost. Events at or below the attach sequence are old.
@@ -1133,23 +1166,7 @@ export const openFolder: OpenFolder = async ({ definition, id }) => {
 	}
 	if (attached.settled === 'refused') {
 		stop();
-		const refusal = attached.error;
-		switch (refusal.name) {
-			case 'UnknownScope':
-				return OpenFolderError.UnknownScope(refusal);
-			case 'WindowNotPermitted':
-				return OpenFolderError.WindowNotPermitted(refusal);
-			case 'Busy':
-				return OpenFolderError.Busy(refusal);
-			case 'Unavailable':
-				return OpenFolderError.Unavailable({ cause: refusal.message });
-			case 'ShuttingDown':
-				return OpenFolderError.ShuttingDown();
-			case 'Incompatible':
-				return OpenFolderError.Incompatible(refusal);
-			default:
-				return OpenFolderError.Unavailable({ cause: refusal });
-		}
+		return attachRefusal(attached.error);
 	}
 
 	const { session, root } = attached.data;

@@ -23,6 +23,7 @@
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@tauri-apps/api": "catalog:",
+		"@tauri-apps/plugin-fs": "catalog:",
 		"buffer": "^6.0.3",
 		"diff": "^8.0.4",
 		"ignore": "^7.0.5",
