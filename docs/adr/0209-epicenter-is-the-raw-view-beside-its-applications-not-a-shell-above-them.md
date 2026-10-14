@@ -111,8 +111,8 @@ them, and is deferred.
 ## Consequences
 
 - **The capability model is untouched.** Windows stay, so labels stay, so
-  `home`, `whispering`, `app-*`, and `recording-overlay` keep meaning what they
-  mean. ADR-0180 is not reopened, and the `unstable` Tauri feature is not taken.
+  `home`, `whispering`, and `recording-overlay` keep meaning what they mean
+  (installed apps' `app-*` windows are parked). ADR-0180 is not reopened, and the `unstable` Tauri feature is not taken.
 - **Epicenter is not the product.** It is the substrate plus a browser over it,
   and the products are the applications on top. That is a different pitch from
   "super app" and should be said out loud rather than discovered by a user who

@@ -724,7 +724,7 @@ When you add an ADR, add its row here.
 | [0472](0472-epicenter-so-is-canonical-and-product-domains-need-a-distinct-identity.md) | Epicenter.so is canonical, and product domains need a distinct identity | Proposed |
 | [0473](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md) | Personal app hosting keeps addresses separate from data identity | Proposed (publisher app subdomains and explicit portable-folder reuse or copying unbuilt) |
 | [0474](0474-incoming-git-adoption-retains-a-recoverable-plan.md) | Incoming Git adoption retains a recoverable plan | Accepted |
-| [0476](0476-whisperings-desktop-folder-uses-one-rust-library-in-both-tauri-shells.md) | Whispering's desktop folder uses one Rust library in both Tauri shells | Proposed (shared folder implemented; Epicenter integration and remaining sidecar removal unbuilt) |
+| [0476](0476-whisperings-desktop-folder-uses-one-rust-library-in-both-tauri-shells.md) | Whispering's desktop folder uses one Rust library in both Tauri shells | Superseded by 0531 |
 | [0477](0477-file-folder-operations-tolerate-repairable-layout-disorder.md) | File-folder operations tolerate repairable layout disorder | Accepted |
 | [0478](0478-folder-is-an-independent-package-with-automatic-and-explicit-openers.md) | Folder is an independent package with automatic and explicit openers | Proposed (package, identity-free Folder definitions, explicit dataset IDs, and matching openers implemented; production acceptance across all builds remains) |
 | [0479](0479-file-mutation-methods-express-publication-intent.md) | File mutation methods express publication intent | Accepted |
@@ -760,7 +760,7 @@ When you add an ADR, add its row here.
 | [0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) | A data folder may keep its declaration as TypeScript | Accepted |
 | [0528](0528-applications-edit-files-through-the-query-cache.md) | Applications edit files through the query cache | Accepted |
 | [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Accepted |
-| [0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) | The page runs the folder engine and the shell grants the directory | Proposed (other apps, Rust owner deletion, file watcher, desktop run unbuilt) |
+| [0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) | The page runs the folder engine and the shell grants the directory | Proposed (every desktop folder uses it and the Rust owner is deleted; desktop and Windows runs unbuilt) |
 | [0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) | A folder is the directory its ID names, with its remote in Git configuration | Proposed (desktop installed apps still use owner paths and pairings) |
 | [0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) | One folder handle opens in three hosts, chosen by where the code runs | Proposed |
 | [0534](0534-data-folders-are-the-only-data-model.md) | Data folders are the only data model | Proposed (superseding the store records, retired Durable Object data) |

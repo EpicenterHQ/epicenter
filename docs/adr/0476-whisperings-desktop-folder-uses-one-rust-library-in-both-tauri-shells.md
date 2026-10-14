@@ -1,7 +1,8 @@
 # 0476. Whispering's desktop folder uses one Rust library in both Tauri shells
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-01
+- **Superseded by:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md): Whispering's page runs the TypeScript folder engine over a directory its shell grants, and the Rust folder library is deleted.
 - **Unbuilt:** Whispering folder and service integration in Epicenter and completion of the shared close protocol. Complete sidecar removal also needs Rust terminal, transcription, credential, reveal, and debug services, bundled frontend loading, and removal of sidecar packaging.
 
 ## Context

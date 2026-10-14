@@ -66,11 +66,9 @@ the previous one, and ends with the checks it names passing.
 - Phase 3 needs a person at the desktop, or a computer-use session approved
   for "Epicenter Dev". Two windows on one folder cannot happen: the host keeps
   one window per app (`ensure_window`).
-- Next wave: move Capture and installed apps to page-engine folders, then
-  delete the Rust folder owner (both reviewers' largest deletion prize). It also
-  gives installed apps hosted sync, after connect is scoped per app
-  (ADR-0521 Consequences), and makes their transfers reread `origin`
-  (ADR-0532 Unbuilt).
+- Done 2026-10-15: every desktop folder (Todos, Capture, Honeycrisp,
+  Whispering, the Git lab) runs the page's folder engine, and the Rust folder
+  owner is deleted; installed apps are parked (ADR-0531, ADR-0358).
 - Before deploying `apps/api`: `wrangler secret put ARTIFACTS_ACCOUNT_ID`
   (required secret). The deploy runs migrations `v6` and `v7`, which delete the
   store sync's Durable Objects and every stored GitHub grant. The Artifacts

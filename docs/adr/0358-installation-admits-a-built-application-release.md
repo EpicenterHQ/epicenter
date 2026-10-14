@@ -4,8 +4,11 @@
 - **Date:** 2026-09-08
 - **Relates:** [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md) (installation reads an inert built folder), [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) (one installed app directory), [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) (the deployment supplies the authority), [ADR-0334](0334-a-deployed-app-is-a-trusted-app-because-deploying-it-was-the-consent.md) (deployment is consent), and [ADR-0335](0335-a-person-is-an-origin-and-an-app-is-a-path-under-it.md) (hosted deployment paths)
 - **Implementation status:** the local release format, desktop installation
-  plane, CLI entrypoint, and end-to-end host path described below are landed;
-  remote distribution and hosted deployment remain future work
+  plane, CLI entrypoint, and end-to-end host path described below landed and
+  were removed on 2026-10-15, when installed apps were parked until a real app
+  needs them. This record is the design to revisit then; hosted sync for an
+  installed app also needs `/api/git/connect` scoped per app
+  ([ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
 
 ## Context
 

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-01
+- **Amended by:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), which deletes the desktop folder owner, so the desktop keeps no `.git/epicenter/incoming.json`; an interrupted desktop update is reconciled by the next Sync
 - **Relates:** [ADR-0467](0467-file-workflows-report-each-operations-outcome.md) separates ordinary workflow outcomes; [ADR-0468](0468-file-saves-succeed-independently-of-automatic-commits.md) separates saves and history; [ADR-0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) defines folder ownership.
 - **Unbuilt:** the record and its recovery for the Bun directory opener (`@epicenter/folder/bun`), whose fast-forward reports the steps that landed and keeps no record; its `recoverIncoming()` returns `none`.
 

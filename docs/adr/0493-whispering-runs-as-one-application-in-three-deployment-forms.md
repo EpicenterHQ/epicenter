@@ -69,9 +69,9 @@ apps/whispering: shared UI and workflows
 
 Each desktop installation runs its own process and native service instances.
 Sharing code does not share a live runtime, operating-system permission grant,
-or data directory. Several windows within one shell can attach to its native
-folder owner. Two desktop processes cannot own the same canonical folder at
-once. Browser storage remains separate; deployment selection performs no data
+or data directory. One window opens a folder at a time
+([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)), and two desktop processes cannot hold the same canonical
+folder at once. Browser storage remains separate; deployment selection performs no data
 migration or synchronization.
 
 **An Epicenter-hosted Whispering bundle uses only native commands compiled into that Epicenter release.**

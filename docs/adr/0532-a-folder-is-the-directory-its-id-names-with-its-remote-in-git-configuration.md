@@ -4,7 +4,6 @@
 - **Date:** 2026-10-14
 - **Supersedes:** [ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)
 - **Relates:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) publishes the declaration with a handle's first write. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) lets a desktop page set `origin` only to a network URL. [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) is the test each dropped guarantee was held to. [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server a remote names and how a folder reaches it.
-- **Unbuilt:** folders the desktop shell's Rust owner keeps (Capture and installed apps) read `origin` once, when they open, so a remote changed outside them is used only after a reopen; they reread it once they move to page-engine folders ([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
 
 ## Context
 
@@ -102,10 +101,8 @@ which repository it uses.
   synced stays in the browser's storage at its old path.
 - Private runtime state (SQLite, keyring entries, blobs) keeps its app and
   account ownership outside the folder, in the host's private storage.
-- Installed apps open `<folderDir>/<app-id>/` whoever is signed in, beside
-  the compiled apps' folders, and sync with whatever `origin` their
-  repository names. Folders left under `local/` and `accounts/` are not moved
-  or opened; they stay where they are.
+- Folders left under `local/` and `accounts/` are not moved or opened; they
+  stay where they are. Installed apps, which used them, are parked.
 - Deleted: the ready marker, `downloadFolder`, `inspectFolder`, browser scopes,
   `browser.remote`, `createIfMissing`, `confirmLegacyRemoteBranch`, the
   `Absent`, `RemoteMismatch`, `AuthorRequired`, and `InvalidBrowserScope`

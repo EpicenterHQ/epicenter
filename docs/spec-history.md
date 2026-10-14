@@ -23,6 +23,7 @@
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
+| 2026-10-15 | retire-the-rust-folder-owner | removed | specs/20261015T090000-retire-the-rust-folder-owner.md |
 | 2026-10-05 | complete-row-editing | removed | specs/20261005T015758-complete-row-editing.md |
 | 2026-09-23 | store-owned-sqlite-and-signout-cleanup.handoff | removed | specs/20260923T120725-store-owned-sqlite-and-signout-cleanup.handoff.md |
 | 2026-09-23 | store-owned-sqlite-and-signout-cleanup | removed | specs/20260923T120725-store-owned-sqlite-and-signout-cleanup.md |
