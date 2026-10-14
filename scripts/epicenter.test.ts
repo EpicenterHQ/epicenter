@@ -274,6 +274,7 @@ test('query projects rows with quoted keyword columns and SQLite values', async 
 				body: 'Cut done.\n',
 			},
 		],
+		excluded: [],
 	});
 });
 
@@ -283,26 +284,35 @@ test('query prints one line per row, escaping tabs, newlines, and backslashes', 
 	expect(result.stdout).toBe('body\tx\nCut done.\\n\ta\\tb\\\\c\n');
 });
 
-test('query answers only when every row conforms; broken rows are fixed in Markdown first', async () => {
+test('query answers from the files that conform and names the ones it left out', async () => {
 	const { folder, write, run } = await setup();
 	await write('posts/broken.md', 'no fences\n');
-	const refused = run('query', folder, 'SELECT count(*) AS n FROM posts');
-	expect(refused.exitCode).toBe(1);
-	expect(refused.stdout).toBe('');
-	expect(refused.stderr).toBe(
-		`1 file does not conform, so query will not answer; fix what \`epicenter check ${folder}\` names\n`,
+	const partial = run('query', folder, 'SELECT count(*) AS n FROM posts');
+	expect(partial.exitCode).toBe(0);
+	expect(partial.stdout).toBe('n\n1\n');
+	expect(partial.stderr).toBe(
+		`1 file excluded because it does not conform: posts/broken.md. Run \`epicenter check ${folder}\`\n`,
 	);
-	expect(
-		JSON.parse(run('query', folder, 'SELECT 1', '--json').stdout).error,
-	).toContain('1 file does not conform');
+	const json = run(
+		'query',
+		folder,
+		'SELECT count(*) AS n FROM posts',
+		'--json',
+	);
+	expect(json.stderr).toBe('');
+	expect(JSON.parse(json.stdout)).toEqual({
+		columns: ['n'],
+		rows: [{ n: 1 }],
+		excluded: ['posts/broken.md'],
+	});
 
 	await write(
 		'posts/broken.md',
 		'---\ntitle: Fixed\nstatus: done\ndue: null\norder: 3\npinned: false\ntags: []\naccount: instagram\n---\n',
 	);
-	expect(run('query', folder, 'SELECT count(*) AS n FROM posts').stdout).toBe(
-		'n\n2\n',
-	);
+	const whole = run('query', folder, 'SELECT count(*) AS n FROM posts');
+	expect(whole.stdout).toBe('n\n2\n');
+	expect(whole.stderr).toBe('');
 });
 
 test('nothing outside the data folder is read', async () => {
@@ -329,7 +339,13 @@ test('nothing outside the data folder is read', async () => {
 		},
 	]);
 	expect(result.stdout).not.toContain('Secret');
-	expect(run('query', folder, 'SELECT title FROM posts').exitCode).toBe(1);
+	const query = run('query', folder, 'SELECT title FROM posts', '--json');
+	expect(query.exitCode).toBe(0);
+	expect(query.stdout).not.toContain('Secret');
+	expect(JSON.parse(query.stdout).excluded).toEqual([
+		'posts/linked.md',
+		'accounts',
+	]);
 });
 
 test('a directory named <stem>.md in a table is a file to fix, not skipped', async () => {
