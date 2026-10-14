@@ -12,10 +12,9 @@
 	/**
 	 * Everything a person can launch, in one list (ADR-0189).
 	 *
-	 * The host composes the list, so there is nothing here that knows whether a
-	 * row is compiled into the release or is a member of the selected catalog
-	 * generation: one row shape, one action, one order. A row carries only the
-	 * ID and title the host honestly derived, which is why there are no
+	 * The host composes the list from the applications compiled into this
+	 * release: one row shape, one action, one order. A row carries only the ID
+	 * and title the host honestly derived, which is why there are no
 	 * descriptions, icons, categories, or running indicators to invent.
 	 */
 

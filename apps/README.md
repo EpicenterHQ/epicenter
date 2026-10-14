@@ -89,8 +89,7 @@ is a compiled application over `so.epicenter.todos` under the host's folder
 root: the shell locks that directory and grants it to the window, and the page
 opens it with `@epicenter/folder`'s file storage through Tauri's fs plugin and
 keeps its history with the system `git`, which the shell runs for it. Capture
-and installed apps still reach their folders through the shared Rust Folder
-plugin's owner until they move. `bun dev:todos` starts the browser build
+opens its folder the same way. `bun dev:todos` starts the browser build
 instead, with the folder in the browser's origin private file system.
 
 Whispering is a standalone desktop app over a folder; see its

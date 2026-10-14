@@ -23,8 +23,7 @@
 				"trusted-whispering-overlay-production",
 				"departure-production",
 				"todos-folder-production",
-				"capture-folder-production",
-				"installed-app-folder-production"
+				"capture-folder-production"
 			],
 			"csp": "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 		}

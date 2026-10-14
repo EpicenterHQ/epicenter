@@ -23,7 +23,7 @@ const SHUTDOWN_GRACE_MS = 10_000;
 const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_NATIVE_PENDING = 64;
 
-export const SIDECAR_PROTOCOL_VERSION = 11;
+export const SIDECAR_PROTOCOL_VERSION = 12;
 export const PRODUCTION_PORT = 39_130;
 
 export type SidecarRuntimeMode = 'production' | 'development';
@@ -40,19 +40,11 @@ export type BootFrame = {
 	folderDir: string;
 };
 
-/**
- * Readiness, and the installed applications this generation serves.
- *
- * `installedAppIds` is the membership Rust admits `app-` windows and folder
- * scopes for. Bun discovers it once at boot; Rust never reads the catalog from
- * disk, and refuses the frame when an ID breaks the managed folder-name rules
- * or repeats.
- */
+/** Readiness: the sidecar is listening on the port Rust chose. */
 export type ReadyFrame = {
 	type: 'ready';
 	protocolVersion: typeof SIDECAR_PROTOCOL_VERSION;
 	port: number;
-	installedAppIds: string[];
 };
 
 type SidecarServer = {
@@ -250,15 +242,11 @@ export function parseBootFrame(
 	return frame as BootFrame;
 }
 
-export function createReadyFrame(
-	port: number,
-	installedAppIds: readonly string[],
-): ReadyFrame {
+export function createReadyFrame(port: number): ReadyFrame {
 	return {
 		type: 'ready',
 		protocolVersion: SIDECAR_PROTOCOL_VERSION,
 		port,
-		installedAppIds: [...installedAppIds],
 	};
 }
 

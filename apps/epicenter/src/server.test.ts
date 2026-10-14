@@ -1786,7 +1786,6 @@ async function readReadyFrame(
 						type: 'ready',
 						protocolVersion: SIDECAR_PROTOCOL_VERSION,
 						port: ready.port,
-						installedAppIds: ready.installedAppIds,
 					});
 					return ready;
 				}
@@ -1817,52 +1816,14 @@ async function exitWithin(
 }
 
 describe('sidecar end-to-end smoke', () => {
-	test('the spawned entrypoint installs and serves an app, then drives a turn', async () => {
+	test('the spawned entrypoint serves a compiled app and blobs, then drives a turn', async () => {
 		const page = await buildSpaOnce();
 		const appsDist = writeAppsDistFixture(page);
 		const dataDir = testDataDir();
-		const releaseRoot = testDataDir();
-		const installedAppId = 'so.epicenter.installed-e2e';
-		const installedPage = applicationPage('Installed release');
-		mkdirSync(releaseRoot, { recursive: true });
-		writeFileSync(
-			join(releaseRoot, 'manifest.json'),
-			JSON.stringify({
-				id: installedAppId,
-				title: 'Installed release',
-				version: '1.0.0',
-			}),
-		);
-		writeFileSync(join(releaseRoot, 'index.html'), installedPage);
-		const install = Bun.spawn(
-			[
-				'bun',
-				'run',
-				'scripts/install.ts',
-				'--',
-				releaseRoot,
-				'--data-dir',
-				dataDir,
-			],
-			{
-				cwd: queryDir,
-				stdout: 'pipe',
-				stderr: 'pipe',
-			},
-		);
-		expect(await install.exited).toBe(0);
-		expect(await new Response(install.stdout).text()).toContain(
-			`Installed Installed release (${installedAppId})`,
-		);
-		expect(
-			await Bun.file(
-				join(dataDir, 'apps', installedAppId, 'bundle', 'index.html'),
-			).text(),
-		).toBe(installedPage);
 
 		// The fake OpenAI-compatible backend. One request and one text answer:
 		// the spawned host has no tool catalog to call into, so what this proves
-		// end to end is the installer, sidecar, installed SPA, session, and socket.
+		// end to end is the sidecar, a compiled SPA, blobs, session, and socket.
 		let inferenceRequests = 0;
 		const inference = Bun.serve({
 			hostname: '127.0.0.1',
@@ -1913,9 +1874,6 @@ describe('sidecar end-to-end smoke', () => {
 			await sidecar.stdin.flush();
 			const ready = await readReadyFrame(sidecar, 30_000);
 			expect(ready.port).toBe(port);
-			// The membership Rust admits windows and folders for is the list
-			// this generation discovered and serves below.
-			expect(ready.installedAppIds).toEqual([installedAppId]);
 			const origin = `http://127.0.0.1:${ready.port}`;
 
 			const shell = await fetch(HOME_ROUTE.url(origin));
@@ -1938,15 +1896,16 @@ describe('sidecar end-to-end smoke', () => {
 				headers,
 			});
 			expect(applications.status).toBe(200);
-			expect((await applications.json()).apps).toContainEqual({
-				id: installedAppId,
-				title: 'Installed release',
-			});
-			const installed = await fetch(`${origin}/apps/${installedAppId}/`, {
+			expect((await applications.json()).apps).toEqual(
+				COMPILED_APPLICATIONS.map(({ id, title }) => ({ id, title })),
+			);
+			const whispering = await fetch(WHISPERING_ROUTE.url(origin), {
 				headers,
 			});
-			expect(installed.status).toBe(200);
-			expect(withoutAuthBootstrap(await installed.text())).toBe(installedPage);
+			expect(whispering.status).toBe(200);
+			expect(withoutAuthBootstrap(await whispering.text())).toBe(
+				WHISPERING_PAGE,
+			);
 
 			const blobId = generateBlobId('txt');
 			const put = await fetch(`${origin}${testBlobUrl(blobId)}`, {
@@ -2091,7 +2050,6 @@ describe('sidecar end-to-end smoke', () => {
 			await sidecar.stdin.flush();
 			const ready = await readReadyFrame(sidecar, 30_000);
 			expect(ready.port).toBe(port);
-			expect(ready.installedAppIds).toEqual([]);
 			sidecar.stdin.end();
 			expect(await exitWithin(sidecar, 30_000)).toBe(0);
 

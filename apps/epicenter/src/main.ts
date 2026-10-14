@@ -14,12 +14,8 @@ import { type BunBlobStore, createBunBlobStore } from '@epicenter/blobs/bun';
 import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
 import OpenAI from 'openai';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { discoverInstalledApplications } from './app-installation.ts';
 import { createNativeAppSecrets } from './app-secrets.ts';
-import {
-	COMPILED_APPLICATIONS,
-	RESERVED_APPLICATION_IDS,
-} from './applications.ts';
+import { COMPILED_APPLICATIONS } from './applications.ts';
 import {
 	createDesktopAuthAuthority,
 	type DesktopAuthAuthority,
@@ -110,16 +106,9 @@ async function main(): Promise<void> {
 				'EPICENTER_APPS_DIST must name the release-built Epicenter applications directory.',
 			);
 		}
-		// Discovered once: the same list is served here and named to Rust in the
-		// ready frame, which admits windows and folders for exactly these IDs.
-		const installedApplications = await discoverInstalledApplications({
-			dataRoot,
-			reservedIds: RESERVED_APPLICATION_IDS,
-		});
 		const staticAssets = await loadStaticAssets(
 			appsDist,
 			COMPILED_APPLICATIONS,
-			installedApplications,
 		);
 		const origin = `http://127.0.0.1:${boot.port}`;
 		const { app, websocket } = createHomeServer({
@@ -142,14 +131,7 @@ async function main(): Promise<void> {
 			fetch: app.fetch,
 			websocket,
 		});
-		process.stdout.write(
-			`${JSON.stringify(
-				createReadyFrame(
-					boot.port,
-					installedApplications.map((application) => application.id),
-				),
-			)}\n`,
-		);
+		process.stdout.write(`${JSON.stringify(createReadyFrame(boot.port))}\n`);
 		lifecycleOwnsResources = true;
 		const ownedHost = host;
 		const ownedDesktopAuth = auth;

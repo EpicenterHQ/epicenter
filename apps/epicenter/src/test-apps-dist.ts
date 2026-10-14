@@ -5,7 +5,7 @@
  * Fixtures derive their application directories from
  * {@link COMPILED_APPLICATIONS} instead of listing them, because
  * `loadStaticAssets` refuses to start when a declared application did not
- * build. Without this, admitting a compiled application would fail every host
+ * build. Without this, declaring a new compiled application would fail every host
  * test at once for a reason none of them is about.
  */
 

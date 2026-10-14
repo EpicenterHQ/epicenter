@@ -48,11 +48,6 @@ mod terminate;
 
 #[cfg(target_os = "macos")]
 pub use terminate::install as install_terminate_guard;
-#[cfg(all(target_os = "macos", feature = "runtime-evidence"))]
-pub(crate) use terminate::{
-    inspect as inspect_terminate_guard, replies as terminate_replies_for_evidence,
-    schedule_terminate as schedule_terminate_for_evidence,
-};
 
 use std::sync::{mpsc, Mutex, OnceLock};
 use std::thread::{self, ThreadId};
@@ -523,20 +518,6 @@ fn set_excluded_from_windows_menu(window: &WebviewWindow) {
     }
 }
 
-/// Whether AppKit leaves this window out of the Window menu. Main thread.
-#[cfg(all(target_os = "macos", feature = "runtime-evidence"))]
-pub(crate) fn is_excluded_from_windows_menu(window: &WebviewWindow) -> Option<bool> {
-    use objc2::msg_send;
-    use objc2::runtime::AnyObject;
-
-    let pointer = window.ns_window().ok()?;
-    // SAFETY: as in `set_excluded_from_windows_menu`.
-    Some(unsafe {
-        let ns_window: &AnyObject = &*pointer.cast::<AnyObject>();
-        msg_send![ns_window, isExcludedFromWindowsMenu]
-    })
-}
-
 /// The Window-menu item for a participant, if `id` is one.
 #[cfg(target_os = "macos")]
 pub fn window_menu_participant(id: &str) -> Option<Participant> {
@@ -589,47 +570,6 @@ pub fn menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wr
         )?)?;
     }
     Ok(menu)
-}
-
-/// Grant a restart to `sidecar` without replying to it, for the isolated
-/// runtime evidence harness, whose relaunch is not asked for by Bun.
-#[cfg(feature = "runtime-evidence")]
-pub(crate) fn grant_without_reply(app: &DesktopAppHandle, sidecar: u64, request_id: String) {
-    let expected = request_id.clone();
-    let effects = dispatch_wait(app, move |app| {
-        let state = app.state::<Departure>();
-        let mut machine = state
-            .machine
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        machine.prepare_restart(sidecar, request_id, &mut NativeWindows(app))
-    })
-    .expect("the main thread answers");
-    assert_eq!(
-        effects,
-        vec![Effect::Reply {
-            sidecar,
-            request_id: expected,
-            result: Ok(())
-        }],
-        "the evidence relaunch expects no participant windows"
-    );
-}
-
-#[cfg(feature = "runtime-evidence")]
-pub(crate) fn status_of(app: &DesktopAppHandle, participant: Participant) -> StatusWire {
-    read(app, |machine| machine.status(participant)).into()
-}
-
-/// The native dialog's answer, delivered as the dialog delivers it.
-#[cfg(feature = "runtime-evidence")]
-pub(crate) fn answer_dialog_for_evidence(
-    app: &DesktopAppHandle,
-    round: u64,
-    listed: Vec<(Participant, u64)>,
-    discard: bool,
-) {
-    decide(app, round, listed, discard);
 }
 
 #[cfg(test)]

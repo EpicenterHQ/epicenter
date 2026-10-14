@@ -3,7 +3,6 @@
  *
  * Key behaviors:
  * - Home lists and serves Capture at its declared route with native IPC access
- * - Capture's route and folder ids remain reserved against installed releases
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, realpathSync } from 'node:fs';
@@ -14,7 +13,6 @@ import { createBunBlobStore } from '@epicenter/blobs/bun';
 import {
 	CAPTURE_APPLICATION,
 	COMPILED_APPLICATIONS,
-	RESERVED_APPLICATION_IDS,
 } from './applications.ts';
 import { createHomeHost } from './host.ts';
 import {
@@ -103,10 +101,5 @@ describe('Capture as a compiled application', () => {
 		expect(page.headers.get('content-security-policy')).toContain(
 			"connect-src 'self' ipc: http://ipc.localhost;",
 		);
-	});
-
-	test('its route id and its folder id cannot be installed over', () => {
-		expect(RESERVED_APPLICATION_IDS).toContain('capture');
-		expect(RESERVED_APPLICATION_IDS).toContain('so.epicenter.capture');
 	});
 });

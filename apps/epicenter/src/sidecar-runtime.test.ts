@@ -268,20 +268,11 @@ describe('boot protocol', () => {
 	});
 
 	test('ready frames contain exactly the versioned readiness contract', () => {
-		expect(createReadyFrame(PRODUCTION_PORT, [])).toEqual({
+		expect(createReadyFrame(PRODUCTION_PORT)).toEqual({
 			type: 'ready',
-			protocolVersion: 11,
+			protocolVersion: 12,
 			port: PRODUCTION_PORT,
-			installedAppIds: [],
 		});
-	});
-
-	test('ready frames name the installed applications in discovery order', () => {
-		const ids = ['com.example.notes', 'so.epicenter.zhongwen'];
-		const frame = createReadyFrame(PRODUCTION_PORT, ids);
-		expect(frame.installedAppIds).toEqual(ids);
-		// A copy: the frame does not alias the caller's list.
-		expect(frame.installedAppIds).not.toBe(ids);
 	});
 
 	test('auth cell accepts only an opaque string or null', () => {

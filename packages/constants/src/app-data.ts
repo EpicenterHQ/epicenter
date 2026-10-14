@@ -1,10 +1,9 @@
 /**
  * Where Epicenter stores things on a machine.
  *
- * Epicenter owns exactly one application-data root. Every trusted app it runs or
- * admits receives one directory below it. Epicenter owns the installed bundle
- * below that directory, while the app owns its data and device stores, which
- * may be opened through host capabilities. See ADR-0358.
+ * Epicenter owns exactly one application-data root. Every app it runs receives
+ * one directory below it, where the app owns its data and device stores, which
+ * may be opened through host capabilities.
  *
  * Three parties choose names along that path, and each function below is one
  * hand-off between two of them: Epicenter names the root and its own
@@ -107,14 +106,13 @@ function localDataDir({ env, platform, homeDir }: DataRootSystem): string {
 }
 
 /**
- * An app's one directory: `<root>/apps/<appId>`. The host owns the installed
- * `bundle/` below it; the app owns its data and device stores. This function
- * names the shared app boundary, not a permission capability (ADR-0358).
+ * An app's one directory: `<root>/apps/<appId>`, where the app owns its data
+ * and device stores. This function names the shared app boundary, not a
+ * permission capability.
  *
  * `apps/` is where naming authority changes hands. Above it Epicenter chooses
- * the names. Below an app id, the bundle and the app's stores have separate
- * owners. One segment keeps a host directory added later from landing on an
- * app id, and the host's promise is stated against that explicit split.
+ * the names; below an app id, the app does. One segment keeps a host
+ * directory added later from landing on an app id.
  *
  * Allocation is nominal: this names a place and creates nothing. A directory
  * exists exactly when its owner writes into it, the same rule

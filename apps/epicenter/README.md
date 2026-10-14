@@ -1,6 +1,6 @@
 # Epicenter desktop host
 
-Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the trusted app catalog. Product SPAs keep their source in their own `apps/*` folders; Epicenter builds and serves their desktop variants without copying that source into this folder.
+Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the list of compiled applications it serves. Product SPAs keep their source in their own `apps/*` folders; Epicenter builds and serves their desktop variants without copying that source into this folder.
 
 Honeycrisp ships its own desktop shell and is built from `apps/honeycrisp`.
 
@@ -25,12 +25,11 @@ serve placeholder pages (`src/placeholder-pages.ts`). The `epicenter-host` build
 condition selects each product's host integrations. Honeycrisp has a separate
 desktop shell.
 
-Capture, Todos, and installed applications reach native file folders through
-the shared Folder plugin. Todos' page runs `@epicenter/folder`'s own engine over
-a directory the shell grants (ADR-0531); Capture and installed applications
-attach to the plugin's Rust folder owner. The shared-host Whispering bundle
-currently has no supported folder bridge and refuses before acquiring a folder;
-its inclusion in the catalog does not establish usable hosted editing.
+Capture and Todos reach native file folders through the shared Folder plugin.
+Each page runs `@epicenter/folder`'s own engine over a directory the shell
+grants (ADR-0531). The shared-host Whispering bundle currently has no supported
+folder bridge and refuses before acquiring a folder; being served by the host
+does not establish usable hosted editing.
 Standalone Whispering owns its own folder and lifecycle.
 
 The host brokers credentials and owns native resources. Product pages own
@@ -111,13 +110,10 @@ macOS development executable has no registered URL scheme. Packaged builds keep
 command so the API approves the same exact callback port the host binds.
 
 Epicenter opens Home, which is an application beside the others rather than a
-shell above them (ADR-0209). Its Apps pane lists what this build can launch, the
-compiled applications plus the selected catalog generation's members, and
-launching one opens its own window; the OS is the switcher from there, and
-closing Home leaves everything it launched running. Its Data pane is Epicenter's
-own job: every workspace id as real read-only tables, where picking one makes
-`SELECT * FROM notes` mean something and "Everything raw" shows the storage as it
-is. Whispering hands transcription setup back to Home's Settings pane
+shell above them (ADR-0209). Its Apps pane lists the compiled applications this
+build can launch, and launching one opens its own window; the OS is the switcher
+from there, and closing Home leaves everything it launched running. Home has
+three panes: Apps, Chat, and Settings. Whispering hands transcription setup back to Home's Settings pane
 when the host has no usable local model, and Settings offers the ordinary launch
 action once there is one. The tray and deep links remain shortcuts into the same
 windows:
@@ -163,10 +159,12 @@ the body holds the original text and an ordered list under `## Thoughts`.
 The page edits that source, and its full-source editor exposes the same bytes.
 It opens without an Epicenter account.
 
-The Rust shell registers `so.epicenter.capture` for the `capture` window through
-the shared Folder plugin. The page opens that scope through Tauri commands;
-there is no Capture HTTP file bridge. First attach opens the directory, and
-native shutdown drains admitted work. Browser Capture keeps a separate folder
+The Rust shell registers `so.epicenter.capture` for the `capture` window as a
+page-engine folder (ADR-0531), as it does for Todos. The first grant creates the
+directory and takes the cross-process lock until shutdown; the page opens the
+folder with `@epicenter/folder`'s own engine, reading through Tauri's fs plugin
+and writing and running Git through the shell. There is no Capture HTTP file
+bridge. Native shutdown drains accepted saves. Browser Capture keeps a separate folder
 in its origin's private file system (OPFS).
 
 Closing the native window hides it with its drafts intact. Quitting or
@@ -182,8 +180,8 @@ its 400 ms batch. So before the process quits, or restarts for an account
 change, the native host runs one departure round
 (`src-tauri/src/departure.rs`) and asks both windows. The pages own their
 drafts; the host owns the round and a generation for each page. Nothing else
-takes part: Whispering's shared-host build has no folder root, and Home and
-admitted apps hold no file-backed drafts.
+takes part: Whispering's shared-host build has no folder root, and Home holds
+no file-backed drafts.
 
 - **Who is asked.** The `capture` and `todos` windows that exist when the round
   starts, hidden ones included. No window joins later: while a round runs, a
@@ -287,45 +285,6 @@ authoritative `idle` newer than its own answer, and stays fenced on `granted`,
 `listen` registers for every target and can hear the other window's nudge;
 that is harmless, because a nudge only means "read again".
 
-## Install a local application release
-
-The local installer accepts one already-built release. It does not install
-dependencies, run build scripts, or read application source (ADR-0179). How the
-folder was produced, and by whom, is outside the contract:
-
-```text
-release/
-|-- manifest.json
-|-- index.html
-`-- assets/
-```
-
-Install it from the repository root:
-
-```bash
-# Stop Epicenter first, then restart it after installation.
-bun run --cwd apps/epicenter app:install -- /path/to/release --data-dir /tmp/epicenter-data
-```
-
-Epicenter validates the manifest and static files, copies them into
-`<data-root>/apps/<app-id>/bundle`, and preserves every existing app-owned file
-outside `bundle/`. Restart Epicenter after installation so startup discovers the
-new application and composes it with the compiled applications.
-
-An installed app opens `@epicenter/folder` with its manifest ID. Native launch
-registers that scope for the app's exact window label, at `<folderDir>/<app-id>`
-beside the compiled applications' folders, whoever is signed in (ADR-0532). The
-shell supplies the path; the page never chooses a native directory. The folder
-uses the repository's author and `origin` when configured, with local history
-otherwise, and syncs with the person's own Git credentials.
-
-Bun discovers installed IDs once and names them in its versioned ready frame.
-Rust admits launches against that list and its matching launch token before
-registering a folder. Unknown IDs open nothing. Registrations survive Bun
-restarts for the native process's lifetime. Closing an installed app hides its
-window and keeps its drafts; host restart destroys its page. Installed apps do
-not yet enroll drafts in the full-quit departure flow.
-
 ## Build and verify
 
 ```bash
@@ -350,30 +309,7 @@ cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 # The departure round alone, with no dependencies
 rustc --edition 2021 --test apps/epicenter/src-tauri/src/departure/machine.rs -o apps/epicenter/src-tauri/target/departure-machine
 apps/epicenter/src-tauri/target/departure-machine
-
-# Twenty real restarts through a granted relaunch, and two departure rounds
-# through Capture- and Todos-labelled windows, in an isolated profile
-bun apps/epicenter/scripts/native-runtime-evidence.ts
 ```
-
-The runtime harness proves what the mock-runtime tests cannot: the restart
-reaches Exit and the Folder plugin's shutdown; a page's first read carries the
-generation of every page load before it; a window-scoped listener hears only
-its own label's nudge; AppKit leaves both windows out of its Window list; a
-grant hides both windows as `is_visible` reports and refuses the Window-menu
-items, and its abort leaves a window the person had closed hidden; the
-dialog's discard path hides a silent page, which the Window menu then cannot
-show; and Bun's withdrawal restores both. On macOS every process installs the
-quit guard on Tao's delegate, and the last one leaves through `[NSApp
-terminate:]`: refused into a quit round that one page cancels with its draft
-intact, then agreed and left through one Exit. A separate process with no
-participant window terminates through AppKit with no exit request. It drives
-the rounds natively, not through Bun's `prepare-relaunch`, which the port and
-authority tests cover. It schedules `terminate:` on the main run loop, as
-AppKit's own quits arrive, rather than pressing anything; it does not prove that an
-in-flight Folder write drains, and does not press Cmd-Q, use the Dock or
-tray, log out, click the dialog, or check whether a hidden window can still
-take input.
 
 The root `bun typecheck` runs each workspace's checks, including the apps checked
 by `typecheck:desktop`. Use `typecheck:desktop` for standalone verification of
@@ -382,7 +318,7 @@ the host with Whispering, Capture, and Todos.
 ## Ownership rules
 
 - `src-tauri` owns native commands, permissions, windows, deep links, and packaging.
-- `src` owns the Bun host, trusted route catalog, static-asset containment, and Home session.
+- `src` owns the Bun host, built-in routes, static-asset containment, and Home session.
 - `dist` is generated. Never edit it or commit product source beneath it.
 - A product SPA owns its UI and browser deployment from its own app folder.
 - A multi-host SPA selects implementations through build-time `#platform/*` conditions. Runtime checks guard optional capabilities; they do not choose which implementation was bundled.
@@ -403,13 +339,3 @@ require the exact host Origin. Open apps receive committed snapshots over SSE;
 inference requests identify an immutable connection ID and captured access
 version. Apps receive `hasApiKey`, never the stored key. Their workflow choices
 remain separate. See the [App API](../../packages/app/README.md).
-
-Run `bun packages/ai/scripts/shared-ai-catalog.native.mjs` from the repository
-root for native acceptance with two installed test applications. The runner
-uses a disposable profile and keychain service, restarts both native and Bun
-processes, and checks SSE recovery and request cancellation. See the
-[procedure and recorded evidence](../../packages/ai/scripts/shared-ai-catalog-native/README.md)
-for build prerequisites and the scope of the fixture.
-Add `--whispering` with an existing speech fixture and cached model to verify
-the product's desktop picker, imported-audio transcription, and saved result
-after document reload.

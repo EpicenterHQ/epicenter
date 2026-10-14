@@ -62,7 +62,7 @@
 //! `/apps/*` on the one loopback origin is permitted, so a window may change
 //! which app it is showing. Under ADR-0179's full-trust model that is enough,
 //! because ownership here exists for resource correctness, not isolation.
-//! Labels are assigned by Rust (`BuiltInApp::id`, `app_window_label`) and cannot
+//! Labels are assigned by Rust (`BuiltInApp::id`) and cannot
 //! be supplied by the frontend, which is what makes them usable at all.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};

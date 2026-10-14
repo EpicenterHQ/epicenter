@@ -1,9 +1,9 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "trusted-app-windows-development",
-	"description": "The native API a development trusted app window reaches: unrestricted HTTP(S) egress through the Tauri HTTP plugin (ADR-0179), the recording and transcription operations the public @epicenter/app client exposes (ADR-0186), and the text clipboard @epicenter/app/clipboard reads and writes. Not a sandbox, because an app window already runs as Epicenter on the shared origin; this file is API wiring, so it names product operations and never model administration, device enumeration, or unrelated Whispering authority. Whispering remains explicit until it joins the derived catalog.",
+	"description": "The native API the Whispering development window reaches as a trusted app: unrestricted HTTP(S) egress through the Tauri HTTP plugin (ADR-0179), the recording and transcription operations the public @epicenter/app client exposes (ADR-0186), and the text clipboard @epicenter/app/clipboard reads and writes. Not a sandbox, because the window already runs as Epicenter on the shared origin; this file is API wiring, so it names product operations and never model administration, device enumeration, or unrelated Whispering authority. Installed app windows are parked; when one returns it gets a capability scoped to that app.",
 	"local": false,
-	"windows": ["app-*", "whispering"],
+	"windows": ["whispering"],
 	"remote": {
 		"urls": ["http://127.0.0.1:*"]
 	},

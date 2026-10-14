@@ -1,15 +1,13 @@
 /**
- * Built and installed SPA assets exposed by the Bun-owned Epicenter origin.
+ * Built SPA assets exposed by the Bun-owned Epicenter origin.
  *
  * The release layout is explicit: `home/index.html` plus one directory per
- * compiled application. Installed applications add validated bundles below
- * the platform data root; both sources use the same served representation.
+ * compiled application.
  */
 
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import mime from 'mime';
-import type { InstalledApplication } from './app-installation.ts';
 
 export type StaticAsset = {
 	file: ReturnType<typeof Bun.file>;
@@ -37,20 +35,19 @@ export type ServedApplicationAssets = {
 
 export type EpicenterStaticAssets = {
 	homePage: string;
-	/** Compiled applications followed by installed applications. */
+	/** Compiled applications, in the order the release declares them. */
 	applications: ServedApplicationAssets[];
 };
 
 /**
  * Load Home's document and the build of every compiled application this
- * release declares. Unlike catalog derivation, a declared application that did
- * not build is an error rather than an omission: the release promised it, Home
- * will list it, and a 404 behind a listed row is worse than refusing to start.
+ * release declares. A declared application that did not build is an error
+ * rather than an omission: the release promised it, Home will list it, and a
+ * 404 behind a listed row is worse than refusing to start.
  */
 export async function loadStaticAssets(
 	appsDist: string,
 	applications: readonly { id: string; title: string }[],
-	installedApplications: readonly InstalledApplication[] = [],
 ): Promise<EpicenterStaticAssets> {
 	if (appsDist.trim() === '') {
 		throw new Error(
@@ -78,23 +75,14 @@ export async function loadStaticAssets(
 			}),
 		),
 	);
-	const installed = await Promise.all(
-		installedApplications.map((application) =>
-			loadApplicationAssets({
-				id: application.id,
-				title: application.title,
-				root: application.bundleRoot,
-			}),
-		),
-	);
 
 	return {
 		homePage: await Bun.file(homeIndex).text(),
-		applications: [...compiled, ...installed],
+		applications: compiled,
 	};
 }
 
-export async function loadApplicationAssets({
+async function loadApplicationAssets({
 	id,
 	title,
 	root,

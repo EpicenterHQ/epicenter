@@ -549,7 +549,7 @@ export function createHomeServer({
 		} satisfies HomeSessionResponse),
 	);
 
-	// What Home lists as launchable: every validated compiled or installed app.
+	// What Home lists as launchable: every compiled application this release serves.
 	app.get(APPLICATIONS_ROUTE.pattern, (c) =>
 		c.json({
 			apps: staticAssets.applications.map(

@@ -21,7 +21,6 @@
 		"build:whispering": "bun run --cwd ../whispering build:epicenter",
 		"clean:dist": "bun run scripts/clean-dist.ts",
 		"desktop:build": "tauri build",
-		"app:install": "bun run scripts/install.ts",
 		"dev": "bun run dev:desktop",
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"tauri": "tauri",

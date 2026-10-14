@@ -105,16 +105,9 @@ incremental = true
 panic = "abort"
 strip = true
 
-[features]
-runtime-evidence = ["tauri/test"]
-
 [patch.crates-io]
 specta = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-macros = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-serde = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-util = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-
-[[example]]
-name = "runtime_lifetime_evidence"
-required-features = ["runtime-evidence"]

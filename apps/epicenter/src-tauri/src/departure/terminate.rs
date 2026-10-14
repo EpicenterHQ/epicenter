@@ -101,15 +101,6 @@ extern "C" fn should_terminate(
         TerminateReply::Now if modal_session() => TerminateReply::CancelAndQuit,
         reply => reply,
     };
-    #[cfg(feature = "runtime-evidence")]
-    REPLIES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .push(match reply {
-            TerminateReply::Now => "now",
-            TerminateReply::Cancel => "cancel",
-            TerminateReply::CancelAndQuit => "cancel-and-quit",
-        });
     match reply {
         TerminateReply::Now => TERMINATE_NOW,
         TerminateReply::Cancel => TERMINATE_CANCEL,
@@ -147,18 +138,6 @@ fn modal_session() -> bool {
         let window: *mut AnyObject = msg_send![application, modalWindow];
         !window.is_null()
     }
-}
-
-/// Every reply the hook gave, for the isolated runtime evidence harness.
-#[cfg(feature = "runtime-evidence")]
-static REPLIES: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
-
-#[cfg(feature = "runtime-evidence")]
-pub(crate) fn replies() -> Vec<&'static str> {
-    REPLIES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
 }
 
 /// `NSApp`, or null before AppKit has one.
@@ -241,50 +220,4 @@ pub fn install(app: &DesktopAppHandle) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-/// The delegate and the guard as AppKit sees them. Main thread.
-#[cfg(feature = "runtime-evidence")]
-pub(crate) fn inspect() -> serde_json::Value {
-    // SAFETY: main thread; pointers are checked before use.
-    unsafe {
-        let delegate = application_delegate();
-        if delegate.is_null() {
-            return serde_json::json!({ "delegate": null });
-        }
-        let class = object_getClass(delegate.cast());
-        let selector = sel_registerName(SELECTOR.as_ptr());
-        serde_json::json!({
-            "delegate": delegate as usize,
-            "class": class_name(class),
-            "taoClass": class == objc_getClass(DELEGATE_CLASS.as_ptr()),
-            "hasMethod": !class_getInstanceMethod(class, selector).is_null(),
-            "responds": responds(delegate),
-        })
-    }
-}
-
-/// Schedule `[NSApp terminate:nil]`, the call every AppKit quit route makes,
-/// on a later turn of the main run loop. Main thread. Returns at once.
-///
-/// It is delivered the way AppKit's own quits are, from the run loop rather
-/// than from inside a Tauri callback, where Tao's exit path cannot run (see
-/// the module notes).
-#[cfg(feature = "runtime-evidence")]
-pub(crate) fn schedule_terminate() {
-    // SAFETY: main thread; `NSApp` is checked before use.
-    unsafe {
-        let application = shared_application();
-        if application.is_null() {
-            return;
-        }
-        let application: &AnyObject = &*application;
-        let nobody: *mut AnyObject = std::ptr::null_mut();
-        let _: () = msg_send![
-            application,
-            performSelector: objc2::sel!(terminate:),
-            withObject: nobody,
-            afterDelay: 0.0_f64
-        ];
-    }
 }
