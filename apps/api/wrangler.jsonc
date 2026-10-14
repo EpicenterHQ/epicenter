@@ -68,20 +68,6 @@
 	// with ADR-0534. v6 deletes both classes and every object they stored.
 	// GitHubConnection held the GitHub connector's encrypted grants and folder
 	// pairings, removed with ADR-0521. v7 deletes the class and every grant.
-	//
-	// The deployed Worker already uses the current authority and ledger names.
-	// These class migrations preserve their existing state and retire the former
-	// anonymous demo attempt counter. Only that counter namespace is deleted.
-	// No address rename or Worker reset is part of this deployment.
-	//
-	// The class is stable; the NAMES are not, and no migration tag can express
-	// that. Authorities are addressed
-	// `principals/<p>/data/<dataId>/generations/<n>` as of ADR-0292, renamed
-	// from `stores`, and that record extends the name again
-	// with `/generations/<n>`. A name is derived on both halves from values they
-	// already hold and is never stored, so a rename leaves old objects
-	// unreachable rather than broken: there is nothing to migrate, and nothing
-	// reads them again.
 	"migrations": [
 		{
 			"tag": "v1",
