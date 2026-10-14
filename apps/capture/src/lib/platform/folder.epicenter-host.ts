@@ -1,14 +1,16 @@
 /**
  * The Epicenter host leaf: the page was served by the desktop host, so the
- * captures are a real directory owned by the shell's Rust folder plugin. It
+ * captures are a real directory the shell grants this window, and the page
+ * runs the folder engine over it (ADR-0531): it reads through Tauri's fs
+ * plugin, and the shell makes each change and runs the folder's `git`. It
  * opens through the desktop entry only, which refuses outside the shell.
  *
  * The page names the folder by its ID and nothing else; the shell chose the
- * directory, the author, the history policy, and which windows may use it.
- * The collection finishes its intended saves before closing detaches this
- * page. The folder stays open for the shell and its other windows.
+ * directory, the fallback author, and the one window that may use it. The
+ * collection finishes its intended saves before closing closes the folder:
+ * nothing else finishes them once the page is gone.
  *
- * A refused or missing plugin fails the open with its reason. There is no
+ * A refused grant or a missing plugin fails the open with its reason. There is no
  * browser folder to fall back to in this build.
  *
  * Quitting or restarting Epicenter asks this window first, through the
