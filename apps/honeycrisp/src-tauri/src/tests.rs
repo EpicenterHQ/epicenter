@@ -232,10 +232,9 @@ fn the_window_shows_the_bundled_page_and_nothing_else() {
 // ============================================================================
 
 #[test]
-fn the_page_runs_the_folder_with_honeycrisp_as_the_fallback_author() {
+fn the_folder_has_honeycrisp_as_the_fallback_author() {
     let directory = temp("config");
     let config = folder_config(directory.path());
-    assert!(config.page_engine);
     assert_eq!(config.branch, "main");
     assert_eq!(config.author.name, "Honeycrisp");
     assert_eq!(config.author.email, "honeycrisp@localhost");

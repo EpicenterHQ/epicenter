@@ -3,11 +3,11 @@
  * this window the folder's directory (`grant_directory`) and holds its lock.
  * The page reads files through Tauri's fs plugin, changes them through the
  * shell, which checks every path, and records history with the system `git`,
- * which the shell runs for it (`run_git`).
- * Real Git does the transfers too, with the person's own credentials.
+ * which the shell runs for it (`run_git`). Real Git does the transfers too,
+ * with the person's own credentials.
  *
- * Loaded only for such a folder, so a page whose folders the shell's owner
- * opens carries none of this.
+ * Loaded only once a folder is granted, so importing the desktop opener
+ * carries none of this.
  */
 import type { Result } from 'wellcrafted/result';
 import type { FolderDefinition } from './definition.js';

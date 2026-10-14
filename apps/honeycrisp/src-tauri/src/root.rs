@@ -8,7 +8,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use epicenter_folder_core::files::resolve_root;
+use epicenter_folder_core::root::resolve_root;
 
 /// The one folder scope, and the name of the default directory.
 pub const SCOPE: &str = "so.epicenter.honeycrisp";

@@ -1,4 +1,5 @@
-//! One native owner per Epicenter folder, shared by every window of a shell.
+//! The desktop shell's grant of an Epicenter folder to the one window that
+//! edits it.
 //!
 //! A shell installs the plugin once and registers its folders from trusted
 //! Rust code once it knows its paths:
@@ -10,39 +11,39 @@
 //!         app.folders().register(ScopeConfig {
 //!             scope: "so.epicenter.todos".into(),
 //!             folder: FolderConfig::new(todos_directory, author),
-//!             windows: vec!["todos".into()],
+//!             window: "todos".into(),
 //!         })?;
 //!         Ok(())
 //!     })
 //! ```
 //!
-//! A page names a scope and nothing else. The root, the author, and the
-//! remote all come from `register`.
+//! A page names a scope and nothing else. The root and the fallback author
+//! come from `register`. The page runs `@epicenter/folder`'s engine over the
+//! directory `grant_directory` hands it: it reads through Tauri's fs plugin,
+//! changes files through this plugin's checked commands, and records history
+//! with the system `git`, which `run_git` runs for it.
 //!
-//! The owner of a scope is opened on its first attach and kept until the app
-//! exits or the shell calls `Folders::shutdown`, which fences new work, lets
-//! admitted saves and admitted commits finish, and releases each folder's
-//! cross-process lock. It commits nothing on its own.
+//! The folder is locked on its first grant and stays locked until the app
+//! exits or the shell calls `Folders::shutdown`, which refuses new work,
+//! waits a bounded time for the changes and `git` runs already admitted, and
+//! releases each folder's cross-process lock.
 
 use tauri::plugin::TauriPlugin;
 use tauri::webview::PageLoadEvent;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 
-pub use epicenter_folder_core::git::{Author, Remote};
-pub use epicenter_folder_core::owner::FolderConfig;
 use epicenter_folder_core::registry::Registry;
 pub use epicenter_folder_core::page_git::GitOutput;
-pub use epicenter_folder_core::registry::{Granted, ScopeConfig};
+pub use epicenter_folder_core::registry::{
+    Author, FolderConfig, GrantError, Granted, ScopeConfig,
+};
 
 mod command_names;
 mod commands;
 mod lifecycle;
 
 pub use command_names::COMMANDS;
-pub use commands::{
-    Attached, FolderFilesChanged, FolderSnapshotChanged, DIRECTORY_COMMANDS, PROTOCOL,
-};
-pub use epicenter_folder_core::history::StagedCommit;
+pub use commands::DIRECTORY_COMMANDS;
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
@@ -50,14 +51,12 @@ const PLUGIN_NAME: &str = "epicenter-folder";
 #[derive(Default)]
 pub struct Folders {
     registry: Registry,
-    /// Which page each session belongs to, so sessions end with their page
-    /// and their window. See `lifecycle`.
+    /// Which page of which webview each `git` run belongs to. See
+    /// `lifecycle`.
     lifecycles: lifecycle::Lifecycles,
-    /// Cancel flags of the page-engine Git commands still running, by window
-    /// label and the page's request number.
-    /// Keyed by window label, the page loaded in it, and the page's own
-    /// request number, so a reloaded page never reaches the runs of the
-    /// page before it.
+    /// Cancel flags of the `git` runs still running, keyed by window label,
+    /// the page loaded in it, and the page's own request number, so a
+    /// reloaded page never reaches the runs of the page before it.
     git_requests: std::sync::Mutex<
         std::collections::HashMap<(String, u64, u32), std::sync::Arc<std::sync::atomic::AtomicBool>>,
     >,
@@ -66,14 +65,15 @@ pub struct Folders {
 }
 
 impl Folders {
-    /// Register a folder under a scope and name the windows that may use it.
+    /// Register a folder under a scope and name the window that may use it.
     /// A scope's configuration never changes once registered.
     pub fn register(&self, config: ScopeConfig) -> Result<(), String> {
         self.registry.register(config)
     }
 
-    /// Fence new work, drain every folder, and release every lock. Returns
-    /// once that has happened. The plugin also does this when the app exits.
+    /// Refuse new work, wait a bounded time for work already admitted, and
+    /// release every lock. Returns once that has happened. The plugin also
+    /// does this when the app exits.
     pub fn shutdown(&self) {
         self.registry.shutdown();
     }
@@ -89,7 +89,7 @@ impl<R: Runtime, T: Manager<R>> FolderExt<R> for T {
     }
 }
 
-/// The typed command and event contract. The TypeScript bindings in
+/// The typed command contract. The TypeScript bindings in
 /// `../folder/src/native/bindings.gen.ts` are generated from this builder.
 fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
@@ -102,38 +102,8 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::rename_folder_path::<tauri::Wry>,
             commands::remove_folder_path::<tauri::Wry>,
             commands::make_folder_directory::<tauri::Wry>,
-            commands::attach::<tauri::Wry>,
-            commands::detach::<tauri::Wry>,
-            commands::list::<tauri::Wry>,
-            commands::children::<tauri::Wry>,
-            commands::read::<tauri::Wry>,
-            commands::read_many::<tauri::Wry>,
-            commands::apply::<tauri::Wry>,
-            commands::mkdir::<tauri::Wry>,
-            commands::rmdir::<tauri::Wry>,
-            commands::status::<tauri::Wry>,
-            commands::commit::<tauri::Wry>,
-            commands::open_request::<tauri::Wry>,
-            commands::withdraw_request::<tauri::Wry>,
-            commands::push::<tauri::Wry>,
-            commands::fetch::<tauri::Wry>,
-            commands::pull_fast_forward::<tauri::Wry>,
-            commands::merge_incoming::<tauri::Wry>,
-            commands::recover_incoming::<tauri::Wry>,
-            commands::paths::<tauri::Wry>,
-            commands::stage::<tauri::Wry>,
-            commands::commit_staged::<tauri::Wry>,
-            commands::diff::<tauri::Wry>,
-            commands::log::<tauri::Wry>,
         ])
-        .events(tauri_specta::collect_events![
-            FolderSnapshotChanged,
-            FolderFilesChanged,
-        ])
-        .constant("FOLDER_PROTOCOL", commands::PROTOCOL)
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
-        // Sizes, timestamps, and sequence numbers stay far below 2^53.
-        .dangerously_cast_bigints_to_number()
 }
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
@@ -141,7 +111,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     tauri::plugin::Builder::new(PLUGIN_NAME)
         .invoke_handler(builder.invoke_handler())
         .setup(move |app, _api| {
-            builder.mount_events(app);
             app.manage(Folders::default());
             // Webviews that exist before the plugin is installed were never
             // announced to it.
@@ -153,10 +122,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         // Each actual webview gets its own identity as Tauri announces it.
         .on_webview_ready(|webview| commands::adopt(&webview))
         // A webview's resources outlive its pages. When a page starts loading,
-        // the sessions the previous page attached are ended.
+        // the request numbers of the page before it stop naming its runs.
         .on_page_load(|webview, payload| {
             if payload.event() == PageLoadEvent::Started {
-                commands::end_page(webview);
+                commands::page_started(webview);
             }
         })
         .on_event(|app, event| match event {

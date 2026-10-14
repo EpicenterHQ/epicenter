@@ -1,9 +1,9 @@
 /**
  * Git operation failures for file folders.
  *
- * These live apart from `history.ts` so a folder whose history runs somewhere
- * else, such as the native folder owner behind Tauri's `invoke`, can build the
- * same errors without loading the Git implementation.
+ * These live apart from `history.ts` so code that only reports them, such as
+ * an app's error handling, can build the same errors without loading the Git
+ * implementation.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { describe, type FileError, type FileStep } from '../errors.js';

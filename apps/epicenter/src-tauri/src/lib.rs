@@ -711,7 +711,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         // Reaches only directories the folder plugin grants at run time: the
-        // page-engine folders' roots. No capability names a path of its own.
+        // folders' roots. No capability names a path of its own.
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_http::init())
@@ -753,30 +753,25 @@ pub fn run() {
             specta_builder.mount_events(app);
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
-            let mut todos_folder = FolderConfig::new(
-                desktop_paths.folder_dir.join("so.epicenter.todos"),
-                FolderAuthor { name: "Todos".into(), email: "todos@localhost".into() },
-            );
-            // The page runs `@epicenter/folder`'s own engine over this
-            // directory; the shell locks it and grants it, and owns nothing
-            // else. The repository's own author and origin are read there.
-            todos_folder.page_engine = true;
+            // Each page runs `@epicenter/folder`'s own engine over its
+            // directory; the shell locks it and grants it to that page's
+            // window, and owns nothing else. The repository's own author and
+            // origin are read there; these authors are the fallback.
             app.folders().register(ScopeConfig {
                 scope: "so.epicenter.todos".into(),
-                folder: todos_folder,
-                windows: vec!["todos".into()],
+                folder: FolderConfig::new(
+                    desktop_paths.folder_dir.join("so.epicenter.todos"),
+                    FolderAuthor { name: "Todos".into(), email: "todos@localhost".into() },
+                ),
+                window: "todos".into(),
             }).map_err(anyhow::Error::msg)?;
-            let mut capture_folder = FolderConfig::new(
-                desktop_paths.folder_dir.join("so.epicenter.capture"),
-                FolderAuthor { name: "Capture".into(), email: "capture@localhost".into() },
-            );
-            // Capture opens its folder the same way: the page's engine over a
-            // granted directory.
-            capture_folder.page_engine = true;
             app.folders().register(ScopeConfig {
                 scope: "so.epicenter.capture".into(),
-                folder: capture_folder,
-                windows: vec!["capture".into()],
+                folder: FolderConfig::new(
+                    desktop_paths.folder_dir.join("so.epicenter.capture"),
+                    FolderAuthor { name: "Capture".into(), email: "capture@localhost".into() },
+                ),
+                window: "capture".into(),
             }).map_err(anyhow::Error::msg)?;
             app.manage(desktop_paths);
 
@@ -2819,11 +2814,12 @@ mod tests {
         }
     }
 
-    /// Todos' window lists exactly the fs commands a folder grant scopes, and
-    /// no path: the build checks every name, and only `grant_directory` gives
-    /// them a directory. It holds no HTTP grant; Git transfers run in Rust.
+    /// Todos' and Capture's windows list exactly the fs commands a folder
+    /// grant scopes, and no path: the build checks every name, and only
+    /// `grant_directory` gives them a directory. They hold no HTTP grant; Git
+    /// transfers run in the `git` the shell starts.
     #[test]
-    fn page_engine_windows_list_the_granted_fs_commands_and_no_path() {
+    fn folder_windows_list_the_granted_fs_commands_and_no_path() {
         for encoded in [
             include_str!("../capabilities/todos-folder-development.json"),
             include_str!("../capabilities/todos-folder-production.json"),

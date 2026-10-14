@@ -74,12 +74,6 @@
 			onError: (error) => toast.error('Version not saved', { description: describeError(error) }),
 		});
 	}
-
-	const status = $derived.by((): { text: string; tone: 'quiet' | 'problem' } => {
-		if (captures.folderStopped) return { text: 'Saving unavailable', tone: 'problem' };
-		if (captures.saving) return { text: 'Saving…', tone: 'quiet' };
-		return { text: 'Saved', tone: 'quiet' };
-	});
 </script>
 
 <!-- Returning to the window reads the folder again: the query client listens for focus. -->
@@ -112,19 +106,13 @@
 			}}>Capture</Button
 		>
 		<div class="flex items-center gap-3">
-			<span
-				role="status"
-				class={{
-					'text-xs': true,
-					'text-muted-foreground': status.tone === 'quiet',
-					'font-medium': status.tone === 'problem',
-					'text-destructive': status.tone === 'problem',
-				}}
-			>{status.text}</span>
+			<span role="status" class="text-xs text-muted-foreground"
+				>{captures.saving ? 'Saving…' : 'Saved'}</span
+			>
 			<Button
 				variant="outline"
 				size="sm"
-				disabled={saveVersion.isPending || captures.fenced || captures.folderStopped}
+				disabled={saveVersion.isPending || captures.fenced}
 				onclick={runSaveVersion}>{saveVersion.isPending ? 'Saving version…' : 'Save version'}</Button
 			>
 		</div>
@@ -150,12 +138,7 @@
 			{/if}
 		</Alert.Root>
 	{/if}
-	{#if captures.folderStopped}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Epicenter closed this folder</Alert.Title>
-			<Alert.Description>Saving cannot be confirmed from this window. Your text is still here; copy or download it, then restart Epicenter. Reloading or quitting now discards it.</Alert.Description>
-		</Alert.Root>
-	{:else if captures.serviceStopped}
+	{#if captures.serviceStopped}
 		<Alert.Root>
 			<Alert.Title>Epicenter's background service stopped</Alert.Title>
 			<Alert.Description>Captures still save to the folder from this window. Reloading it, or exporting captures from an account, may not work until Epicenter restarts.</Alert.Description>
@@ -198,11 +181,7 @@
 			<Dialog.Header>
 				<Dialog.Title>{held} {held === 1 ? 'thing is' : 'things are'} not saved</Dialog.Title>
 				<Dialog.Description>
-					{#if captures.folderStopped}
-						Epicenter can no longer save from this window. {leaving === 'restart' ? 'Restarting' : 'Quitting'} now discards the text still open here. Keep working to copy or download it first.
-					{:else}
-						Some text was typed and not added yet. {leaving === 'restart' ? 'Restarting' : 'Quitting'} now discards it. Keep working to add or copy it.
-					{/if}
+					Some text was typed and not added yet. {leaving === 'restart' ? 'Restarting' : 'Quitting'} now discards it. Keep working to add or copy it.
 				</Dialog.Description>
 			</Dialog.Header>
 			<Dialog.Footer>

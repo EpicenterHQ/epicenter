@@ -4,8 +4,8 @@
  * A fast-forward writes each incoming blob's bytes as they are stored. A
  * commit that declares a Git filter or a byte conversion means something else
  * by those bytes, so the pull is refused before a file, the index, or the
- * branch changes. The desktop owner makes the same refusal in Rust; these run
- * the same cases against a browser folder and a directory folder.
+ * branch changes. These run the same cases against a browser folder and a
+ * directory folder, which is what the desktop app opens.
  *
  * Key behaviors:
  * - An LFS filter at the root or in a nested attribute file is refused, with

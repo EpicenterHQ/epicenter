@@ -15,7 +15,6 @@
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
 		"test": "bun test --isolate --path-ignore-patterns='src/svelte/**' && bun run test:svelte",
 		"test:svelte": "bun test --isolate --conditions=browser src/svelte",
-		"test:native": "EPICENTER_FOLDER_BRIDGE=1 bun test --isolate src/tauri-native.test.ts",
 		"gen:vectors": "bun src/git/commit-subject-vectors.ts"
 	},
 	"dependencies": {

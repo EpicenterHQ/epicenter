@@ -294,7 +294,7 @@ The audit's documentation list has mixed outcomes. ADR-0324 already links its
 address amendment; ADR-0399 now explicitly makes copying optional; ADR-0397
 names active-model resolution removal. Other discrepancies remain worth
 reconciling on the relevant tracks: ADRs 0314/0334 still claim no installation
-plane despite `apps/epicenter/src/app-installation.ts`; ADR-0316's Built header
+plane despite Home's `app-installation.ts` (since parked); ADR-0316's Built header
 describes an older factory; ADR-0362 uses present tense for the active-model
 target; ADR-0376 still names shared App dictation that ADR-0366 withdrew.
 These observations are not permission to rewrite accepted decisions or delete

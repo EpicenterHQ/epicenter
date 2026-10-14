@@ -181,7 +181,7 @@ The shell settles four things, in this order, before the window exists
    only its port. A path on its ready line would not be read.
 3. **The registration.** The scope `so.epicenter.whispering` is registered
    with that path for the window labelled `main` alone, as a folder the page
-   opens with its own engine (`page_engine`). Its author,
+   opens with its own engine. Its author,
    `Whispering <whispering@localhost>`, is only the fallback: the page reads
    `user.name` and `user.email` from Git's configuration, the repository's
    and the person's global settings, and records versions as them when they

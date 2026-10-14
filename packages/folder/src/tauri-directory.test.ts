@@ -1,15 +1,23 @@
 /**
- * The desktop opener for a folder the shell registered for the page's own
- * engine: `grant_directory` hands over the directory, and the folder is read
- * and written through Tauri's fs plugin. The plugin is replaced by one that
- * reaches the disk through `node:fs` and fails as the plugin does, with the
- * operating system's message as text.
+ * The desktop opener: `grant_directory` hands over the directory, and the
+ * folder is read through Tauri's fs plugin and changed through the shell's
+ * commands. Both are replaced by stand-ins that reach the disk through
+ * `node:fs` and fail as the plugins do, with the operating system's message
+ * as text.
+ *
+ * Key behaviors:
+ * - A granted folder opens over its real directory and commits with `git`
+ * - Every refused or failed grant is an `OpenFolderError` and opens nothing
+ * - A removal whose reply is lost is done if the path is gone, and
+ *   `Unconfirmed` if it is still there
  */
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from 'bun:test';
+import { writeFileSync } from 'node:fs';
 import * as nodeFs from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import type { OpenFolderError } from './errors.js';
 import { createGitRunner } from './git/native-host.js';
 import { GIT_ENV, git, scratch } from './git-http.test-support.js';
 import { installWebLocks } from './web-locks.test-support.js';
@@ -20,6 +28,8 @@ let calls: Call[] = [];
 let grant: (args: Record<string, unknown>) => unknown = () => {
 	throw new Error('no grant scripted');
 };
+/** Runs after the shell's removal and may lose its reply by throwing. */
+let afterRemove: (path: string) => void = () => {};
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
@@ -67,6 +77,7 @@ mock.module('@tauri-apps/api/core', () => ({
 			await nodeFs.rm(args.path as string, {
 				recursive: args.recursive === true,
 			});
+			afterRemove(args.path as string);
 			return null;
 		}
 		if (name === 'make_folder_directory') {
@@ -167,9 +178,26 @@ afterAll(() => {
 });
 beforeEach(() => {
 	calls = [];
+	afterRemove = () => {};
 });
 
-test('a granted folder opens over its real directory and never attaches', async () => {
+/** A granted folder over a new directory. */
+async function granted() {
+	const root = await scratch('tauri-directory-');
+	grantedRoot = root;
+	grant = () => ({
+		root,
+		branch: 'main',
+		authorName: 'Todos',
+		authorEmail: 'todos@localhost',
+	});
+	const folder = expectOk(
+		await openFolder({ definition, id: 'so.epicenter.todos' }),
+	);
+	return { root, folder };
+}
+
+test('a granted folder opens over its real directory', async () => {
 	const root = await scratch('tauri-directory-');
 	grantedRoot = root;
 	grant = () => ({
@@ -182,7 +210,7 @@ test('a granted folder opens over its real directory and never attaches', async 
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
 	// The grant comes first; every later call is the folder's Git, for the
-	// granted scope. Opening writes nothing, and nothing attaches to an owner.
+	// granted scope. Opening writes nothing.
 	const commands = () => new Set(calls.map(({ cmd }) => cmd));
 	expect(calls[0]).toEqual({
 		cmd: 'grant_directory',
@@ -205,11 +233,10 @@ test('a granted folder opens over its real directory and never attaches', async 
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await git(root, 'fsck', '--strict');
-	expect(commands().has('attach')).toBe(false);
 	await folder.close();
 });
 
-test('a refused grant is the refusal, and nothing attaches', async () => {
+test('a refused grant is the refusal', async () => {
 	grant = () => {
 		throw {
 			name: 'WindowNotPermitted',
@@ -222,4 +249,51 @@ test('a refused grant is the refusal, and nothing attaches', async () => {
 	);
 	expect(refused.name).toBe('WindowNotPermitted');
 	expect(calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
+});
+
+test.each<[unknown, OpenFolderError['name']]>([
+	[{ name: 'UnknownScope', scope: 'so.epicenter.todos' }, 'UnknownScope'],
+	[{ name: 'Busy', root: '/elsewhere' }, 'Busy'],
+	[{ name: 'Unavailable', message: 'locked out' }, 'Unavailable'],
+	[{ name: 'ShuttingDown' }, 'ShuttingDown'],
+	// Tauri rejects with a string for a missing command or permission.
+	['plugin:epicenter-folder|grant_directory not allowed', 'Unavailable'],
+	// The reply never arrived.
+	[new Error('the IPC channel closed'), 'Unavailable'],
+])('a grant refused with %p opens nothing and is %s', async (refusal, name) => {
+	grant = () => {
+		throw refusal;
+	};
+	const refused = expectErr(
+		await openFolder({ definition, id: 'so.epicenter.todos' }),
+	);
+	expect(refused.name).toBe(name);
+	expect(calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
+});
+
+test('a removal whose reply is lost is done once the path is gone', async () => {
+	const { root, folder } = await granted();
+	const file = expectOk(await folder.files.create('notes/a.md', 'a\n'));
+	afterRemove = () => {
+		throw new Error('the reply was lost');
+	};
+	expectOk(await folder.files.remove(file));
+	expect(
+		await nodeFs.lstat(join(root, 'notes/a.md')).catch(() => undefined),
+	).toBe(undefined);
+	await folder.close();
+});
+
+test('a removal whose reply is lost with the path still there is unconfirmed', async () => {
+	const { root, folder } = await granted();
+	const file = expectOk(await folder.files.create('notes/a.md', 'a\n'));
+	afterRemove = (path) => {
+		// Another program, or the shell's own late removal, has not run yet.
+		writeFileSync(path, 'a\n');
+		throw new Error('the reply was lost');
+	};
+	const refused = expectErr(await folder.files.remove(file));
+	expect(refused.name).toBe('Unconfirmed');
+	expect(await readFile(join(root, 'notes/a.md'), 'utf8')).toBe('a\n');
+	await folder.close();
 });

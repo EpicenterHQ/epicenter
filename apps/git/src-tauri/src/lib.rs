@@ -9,7 +9,7 @@ use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig
 struct Copies {
     root: PathBuf,
     /// Each registered copy's scope and the one window that holds it. A
-    /// page-engine scope belongs to one window for as long as the app runs.
+    /// folder scope belongs to one window for as long as the app runs.
     registered: Mutex<BTreeMap<String, String>>,
 }
 #[derive(Serialize)]
@@ -60,20 +60,19 @@ fn open_copy(
         None => {
             let root = copies.root.join(key).join(&copy);
             std::fs::create_dir_all(&root).map_err(|e| format!("Create working copy: {e}"))?;
-            let mut folder = FolderConfig::new(
+            // The page runs `@epicenter/folder`'s own engine over this
+            // directory and connects it to the remote itself. The author
+            // here applies only where Git configuration names none.
+            let folder = FolderConfig::new(
                 root,
                 Author {
                     name: format!("Working copy {}", copy.to_uppercase()),
                     email: format!("{copy}@git-lab.localhost"),
                 },
             );
-            // The page runs `@epicenter/folder`'s own engine over this
-            // directory and connects it to the remote itself. The author
-            // here applies only where Git configuration names none.
-            folder.page_engine = true;
             window.app_handle().folders().register(ScopeConfig {
                 scope: scope.clone(),
-                windows: vec![label.clone()],
+                window: label.clone(),
                 folder,
             })?;
             registered.insert(scope.clone(), label);

@@ -295,30 +295,6 @@
       "type": "string",
       "oneOf": [
         {
-          "description": "Enables the apply command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-apply",
-          "markdownDescription": "Enables the apply command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the apply command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-apply",
-          "markdownDescription": "Denies the apply command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the attach command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-attach",
-          "markdownDescription": "Enables the attach command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the attach command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-attach",
-          "markdownDescription": "Denies the attach command without any pre-configured scope."
-        },
-        {
           "description": "Enables the cancel_git command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cancel-git",
@@ -329,78 +305,6 @@
           "type": "string",
           "const": "deny-cancel-git",
           "markdownDescription": "Denies the cancel_git command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the children command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-children",
-          "markdownDescription": "Enables the children command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the children command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-children",
-          "markdownDescription": "Denies the children command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the commit command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-commit",
-          "markdownDescription": "Enables the commit command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the commit command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-commit",
-          "markdownDescription": "Denies the commit command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the commit_staged command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-commit-staged",
-          "markdownDescription": "Enables the commit_staged command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the commit_staged command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-commit-staged",
-          "markdownDescription": "Denies the commit_staged command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the detach command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-detach",
-          "markdownDescription": "Enables the detach command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the detach command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-detach",
-          "markdownDescription": "Denies the detach command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the diff command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-diff",
-          "markdownDescription": "Enables the diff command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the diff command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-diff",
-          "markdownDescription": "Denies the diff command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the fetch command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-fetch",
-          "markdownDescription": "Enables the fetch command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the fetch command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-fetch",
-          "markdownDescription": "Denies the fetch command without any pre-configured scope."
         },
         {
           "description": "Enables the grant_directory command without any pre-configured scope.",
@@ -415,30 +319,6 @@
           "markdownDescription": "Denies the grant_directory command without any pre-configured scope."
         },
         {
-          "description": "Enables the list command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-list",
-          "markdownDescription": "Enables the list command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the list command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-list",
-          "markdownDescription": "Denies the list command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the log command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-log",
-          "markdownDescription": "Enables the log command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the log command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-log",
-          "markdownDescription": "Denies the log command without any pre-configured scope."
-        },
-        {
           "description": "Enables the make_folder_directory command without any pre-configured scope.",
           "type": "string",
           "const": "allow-make-folder-directory",
@@ -449,114 +329,6 @@
           "type": "string",
           "const": "deny-make-folder-directory",
           "markdownDescription": "Denies the make_folder_directory command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the merge_incoming command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-merge-incoming",
-          "markdownDescription": "Enables the merge_incoming command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the merge_incoming command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-merge-incoming",
-          "markdownDescription": "Denies the merge_incoming command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the mkdir command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-mkdir",
-          "markdownDescription": "Enables the mkdir command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the mkdir command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-mkdir",
-          "markdownDescription": "Denies the mkdir command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the open_request command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-open-request",
-          "markdownDescription": "Enables the open_request command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the open_request command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-open-request",
-          "markdownDescription": "Denies the open_request command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the paths command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-paths",
-          "markdownDescription": "Enables the paths command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the paths command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-paths",
-          "markdownDescription": "Denies the paths command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the pull_fast_forward command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-pull-fast-forward",
-          "markdownDescription": "Enables the pull_fast_forward command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the pull_fast_forward command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-pull-fast-forward",
-          "markdownDescription": "Denies the pull_fast_forward command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the push command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-push",
-          "markdownDescription": "Enables the push command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the push command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-push",
-          "markdownDescription": "Denies the push command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the read command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-read",
-          "markdownDescription": "Enables the read command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the read command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-read",
-          "markdownDescription": "Denies the read command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the read_many command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-read-many",
-          "markdownDescription": "Enables the read_many command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the read_many command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-read-many",
-          "markdownDescription": "Denies the read_many command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the recover_incoming command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-recover-incoming",
-          "markdownDescription": "Enables the recover_incoming command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the recover_incoming command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-recover-incoming",
-          "markdownDescription": "Denies the recover_incoming command without any pre-configured scope."
         },
         {
           "description": "Enables the remove_folder_path command without any pre-configured scope.",
@@ -583,18 +355,6 @@
           "markdownDescription": "Denies the rename_folder_path command without any pre-configured scope."
         },
         {
-          "description": "Enables the rmdir command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-rmdir",
-          "markdownDescription": "Enables the rmdir command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the rmdir command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-rmdir",
-          "markdownDescription": "Denies the rmdir command without any pre-configured scope."
-        },
-        {
           "description": "Enables the run_git command without any pre-configured scope.",
           "type": "string",
           "const": "allow-run-git",
@@ -605,42 +365,6 @@
           "type": "string",
           "const": "deny-run-git",
           "markdownDescription": "Denies the run_git command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the stage command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-stage",
-          "markdownDescription": "Enables the stage command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the stage command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-stage",
-          "markdownDescription": "Denies the stage command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the status command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-status",
-          "markdownDescription": "Enables the status command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the status command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-status",
-          "markdownDescription": "Denies the status command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the withdraw_request command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-withdraw-request",
-          "markdownDescription": "Enables the withdraw_request command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the withdraw_request command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-withdraw-request",
-          "markdownDescription": "Denies the withdraw_request command without any pre-configured scope."
         },
         {
           "description": "Enables the write_folder_file command without any pre-configured scope.",
@@ -655,10 +379,10 @@
           "markdownDescription": "Denies the write_folder_file command without any pre-configured scope."
         },
         {
-          "description": "Attach to the folders the shell registered for this window, then read, publish, and record history through them.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`\n- `allow-attach`\n- `allow-detach`\n- `allow-list`\n- `allow-children`\n- `allow-read`\n- `allow-read-many`\n- `allow-apply`\n- `allow-mkdir`\n- `allow-rmdir`\n- `allow-status`\n- `allow-commit`\n- `allow-open-request`\n- `allow-withdraw-request`\n- `allow-push`\n- `allow-fetch`\n- `allow-pull-fast-forward`\n- `allow-merge-incoming`\n- `allow-recover-incoming`\n- `allow-paths`\n- `allow-stage`\n- `allow-commit-staged`\n- `allow-diff`\n- `allow-log`",
+          "description": "Ask for the folder the shell registered for this window, then change its files and run its Git through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Attach to the folders the shell registered for this window, then read, publish, and record history through them.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`\n- `allow-attach`\n- `allow-detach`\n- `allow-list`\n- `allow-children`\n- `allow-read`\n- `allow-read-many`\n- `allow-apply`\n- `allow-mkdir`\n- `allow-rmdir`\n- `allow-status`\n- `allow-commit`\n- `allow-open-request`\n- `allow-withdraw-request`\n- `allow-push`\n- `allow-fetch`\n- `allow-pull-fast-forward`\n- `allow-merge-incoming`\n- `allow-recover-incoming`\n- `allow-paths`\n- `allow-stage`\n- `allow-commit-staged`\n- `allow-diff`\n- `allow-log`"
+          "markdownDescription": "Ask for the folder the shell registered for this window, then change its files and run its Git through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`"
         }
       ]
     }

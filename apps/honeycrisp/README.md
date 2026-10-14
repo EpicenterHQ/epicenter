@@ -284,8 +284,8 @@ decides the rest in Rust, before any page exists:
 
 - The root: `HONEYCRISP_ROOT`, else the default directory above. The shell
   makes the directory itself if it is missing and writes nothing inside it.
-- That the page's own engine opens it (`page_engine`), for the one window
-  `main`. On the page's first `grant_directory` the folder plugin takes the
+- That the one window `main` opens it, with the page's own engine. On the
+  page's first `grant_directory` the folder plugin takes the
   directory's cross-process lock, refuses a linked `.git`, and adds a
   capability that lets that window read the directory and everything in it
   through the fs plugin. The fs plugin is configured with

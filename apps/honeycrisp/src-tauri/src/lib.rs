@@ -4,7 +4,7 @@
 //! two things:
 //!
 //! - Its folder, through the shared folder plugin. The shell registers one
-//!   page-engine scope for the window `main`: the root from `HONEYCRISP_ROOT`
+//!   folder scope for the window `main`: the root from `HONEYCRISP_ROOT`
 //!   or the default, and the fallback author. The page names the scope and
 //!   runs `@epicenter/folder`'s own engine over the directory the plugin
 //!   grants it: it reads through the fs plugin, and the folder plugin makes
@@ -92,16 +92,13 @@ fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
 /// author and `origin` from Git's configuration; this author is the fallback
 /// for whichever of `user.name` and `user.email` is not configured.
 fn folder_config(root: &Path) -> FolderConfig {
-    FolderConfig {
-        page_engine: true,
-        ..FolderConfig::new(
-            root,
-            Author {
-                name: "Honeycrisp".to_string(),
-                email: "honeycrisp@localhost".to_string(),
-            },
-        )
-    }
+    FolderConfig::new(
+        root,
+        Author {
+            name: "Honeycrisp".to_string(),
+            email: "honeycrisp@localhost".to_string(),
+        },
+    )
 }
 
 /// Register the notes directory for the notes window and hold the shell's own
@@ -113,7 +110,7 @@ fn install<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), String> 
     app.folders().register(ScopeConfig {
         scope: root::SCOPE.to_string(),
         folder: folder_config(&root),
-        windows: vec![WINDOW.to_string()],
+        window: WINDOW.to_string(),
     })?;
     app.manage(Shell {
         gate: CloseGate::new(),

@@ -1,9 +1,9 @@
 //! `git`, run for a page that opens a folder with its own engine.
 //!
-//! A page-engine folder (`FolderConfig::page_engine`) keeps its history with
-//! the system `git`, so it shares Git's lock files, packed refs, and
-//! configuration with every other Git program in the repository. The page
-//! decides which Git operation to run; this module decides how it runs:
+//! A granted folder keeps its history with the system `git`, so it shares
+//! Git's lock files, packed refs, and configuration with every other Git
+//! program in the repository. The page decides which Git operation to run;
+//! this module decides how it runs:
 //!
 //! - only in the folder's granted root, with discovery stopped there;
 //! - only as one of the exact operations the folder engine runs

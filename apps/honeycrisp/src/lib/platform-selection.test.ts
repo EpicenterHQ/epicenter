@@ -2,12 +2,13 @@
  * Platform Selection Tests
  *
  * Vite resolves the page seam with the aliases and conditions from the app
- * config. A desktop build must attach to the shell, never browser storage.
+ * config. A desktop build must open the directory the shell grants, never
+ * browser storage.
  *
  * Key behaviors:
  * - Neither page bundle contains a Yjs, Node, or Bun module
- * - The desktop page reaches its folder through the shell's folder owner
- *   only: no browser folder store and no Git implementation in the page
+ * - The desktop page reaches its folder through the shell's grant only: no
+ *   browser folder store and no isomorphic-git in the page
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';

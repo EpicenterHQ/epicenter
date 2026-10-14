@@ -1,9 +1,9 @@
 "$schema" = "schemas/schema.json"
 
 # Granting this to a window lets it call the plugin. It does not choose a
-# folder: a window reaches only the scopes the shell registered for its label.
+# folder: a window reaches only the scope the shell registered for its label.
 [default]
-description = "Attach to the folders the shell registered for this window, then read, publish, and record history through them."
+description = "Ask for the folder the shell registered for this window, then change its files and run its Git through the shell."
 permissions = [
   "allow-grant-directory",
   "allow-run-git",
@@ -12,27 +12,4 @@ permissions = [
   "allow-rename-folder-path",
   "allow-remove-folder-path",
   "allow-make-folder-directory",
-  "allow-attach",
-  "allow-detach",
-  "allow-list",
-  "allow-children",
-  "allow-read",
-  "allow-read-many",
-  "allow-apply",
-  "allow-mkdir",
-  "allow-rmdir",
-  "allow-status",
-  "allow-commit",
-  "allow-open-request",
-  "allow-withdraw-request",
-  "allow-push",
-  "allow-fetch",
-  "allow-pull-fast-forward",
-  "allow-merge-incoming",
-  "allow-recover-incoming",
-  "allow-paths",
-  "allow-stage",
-  "allow-commit-staged",
-  "allow-diff",
-  "allow-log",
 ]

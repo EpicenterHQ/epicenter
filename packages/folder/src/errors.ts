@@ -375,28 +375,24 @@ export const OpenFolderError = defineErrors({
 		cause,
 	}),
 	ShuttingDown: () => ({ message: 'The desktop app is shutting down' }),
-	/** This page and the desktop app were built for different folder contracts. */
-	Incompatible: ({ host, page }: { host: number; page: number }) => ({
-		message: `This page speaks folder protocol ${page}, but the desktop app speaks ${host}. Update the app, then open this again.`,
-		host,
-		page,
-	}),
 });
 export type OpenFolderError = InferErrors<typeof OpenFolderError>;
 
 /**
- * Internal: a private write whose outcome is unknown, such as a stream that
- * failed to close, or a file it created whose absence could not be shown
- * after it failed. Git work that meets one reports `unconfirmed`, never
- * `failed`, and does not treat the private file's current bytes as proof of
- * what landed.
+ * Internal: a change whose outcome is unknown, such as a stream that failed
+ * to close, a file it created whose absence could not be shown after it
+ * failed, or a removal whose reply was lost and whose path is still there.
+ * Git work that meets one reports `unconfirmed`, never `failed`, and does not
+ * treat the private file's current bytes as proof of what landed; file
+ * storage reports `Unconfirmed`.
  */
 export class UnconfirmedWrite extends Error {
 	constructor(
 		readonly path: string,
 		cause: unknown,
+		done: 'written' | 'removed' = 'written',
 	) {
-		super(`Whether '${path}' was written is unknown: ${describe(cause)}`, {
+		super(`Whether '${path}' was ${done} is unknown: ${describe(cause)}`, {
 			cause,
 		});
 		this.name = 'UnconfirmedWrite';

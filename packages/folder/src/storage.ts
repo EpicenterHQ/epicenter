@@ -30,7 +30,7 @@ function mayHaveChanged(
 	return [];
 }
 
-/** Browser and Bun record local saves here; the desktop owner records its own. */
+/** Every folder records its local saves here. */
 export function withPublication({
 	storage,
 	history,

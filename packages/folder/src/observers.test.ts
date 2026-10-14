@@ -16,7 +16,6 @@
  *   channel it constructed is closed, and no lock stays held
  *
  * See also:
- * - `tauri.test.ts` for the same rules on events from the desktop owner
  * - `files.test.ts` for which paths a hint names
  */
 import {

@@ -4,7 +4,7 @@
  * `folder.files` names the condition a save publishes under through its verb,
  * and identifies the file a conditional verb acts on with a capture: a plain
  * `{ path, sha256 }` value. The same cases run against a browser folder and
- * a directory folder; the desktop adapter's are in `tauri.test.ts`.
+ * a directory folder, which is what the desktop app opens.
  *
  * Key behaviors:
  * - `create` is exclusive, even over identical bytes; `overwrite` is not

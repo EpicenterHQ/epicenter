@@ -162,8 +162,8 @@ alone: it stays while the window is open, and quitting or reloading drops it.
 ### How it is wired
 
 The Rust shell registers the Todos folder under the ID the page opens,
-`so.epicenter.todos`, with its directory and allowed window label, and marks
-it as opened by the page's own engine (`page_engine`). Opening Todos calls
+`so.epicenter.todos`, with its directory and the one window label allowed
+to open it, with the page's own engine. Opening Todos calls
 `openFolder` from `@epicenter/folder/tauri`, which asks the shell to grant
 the folder (`grant_directory`). The first grant creates the directory if it
 is missing, refuses a linked `.git`, takes the cross-process lock, and gives

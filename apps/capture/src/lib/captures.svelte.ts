@@ -650,11 +650,6 @@ export function createCaptures(
 			trackGit();
 			return folder.git.snapshot;
 		},
-		/** The folder's owner closed it: nothing saves from this window again. */
-		get folderStopped() {
-			trackGit();
-			return folder.git.snapshot.closed;
-		},
 		get serviceStopped() {
 			return serviceStopped;
 		},

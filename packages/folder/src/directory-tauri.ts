@@ -4,6 +4,7 @@
  */
 import { lstat, readDir, readFile } from '@tauri-apps/plugin-fs';
 import type { DirectoryPrimitives, EntryKind } from './directory-handle.js';
+import { UnconfirmedWrite } from './errors.js';
 import { commands } from './native/bindings.gen.js';
 
 const kindOf = (entry: {
@@ -45,6 +46,13 @@ function isForbidden(cause: unknown): boolean {
  * through the folder plugin's own commands, which check the whole path on
  * disk before changing anything, so no link in the folder can carry a write
  * outside it.
+ *
+ * A change the shell refused rejects with its reason. A change whose reply
+ * was lost (the generated command throws instead of returning a refusal)
+ * may have happened or may still: a removal is checked once, and resolves
+ * if the path is gone, however it went, or rejects with `UnconfirmedWrite`
+ * if it is still there. A lost write or rename reply rejects as it is; file
+ * storage reports the write it was publishing as `Unconfirmed`.
  */
 export function tauriDirectoryPrimitives(scope: string): DirectoryPrimitives {
 	const changed = async (
@@ -53,6 +61,21 @@ export function tauriDirectoryPrimitives(scope: string): DirectoryPrimitives {
 		const { error } = await reply;
 		if (error !== null) throw new Error(error);
 	};
+	async function stat(path: string) {
+		try {
+			const info = await lstat(path);
+			return {
+				kind: kindOf(info),
+				size: info.size,
+				...(info.mode === null ? {} : { mode: info.mode }),
+			};
+		} catch (cause) {
+			if (isMissing(cause)) return undefined;
+			// Listed and never followed, as a link is.
+			if (isForbidden(cause)) return { kind: 'other' as const, size: 0 };
+			throw cause;
+		}
+	}
 	return {
 		async readDir(path) {
 			const entries = await readDir(path);
@@ -61,21 +84,7 @@ export function tauriDirectoryPrimitives(scope: string): DirectoryPrimitives {
 				kind: kindOf(entry),
 			}));
 		},
-		async lstat(path) {
-			try {
-				const info = await lstat(path);
-				return {
-					kind: kindOf(info),
-					size: info.size,
-					...(info.mode === null ? {} : { mode: info.mode }),
-				};
-			} catch (cause) {
-				if (isMissing(cause)) return undefined;
-				// Listed and never followed, as a link is.
-				if (isForbidden(cause)) return { kind: 'other', size: 0 };
-				throw cause;
-			}
-		},
+		lstat: stat,
 		readFile: (path) => readFile(path),
 		writeFile: (path, bytes, options) =>
 			changed(
@@ -87,10 +96,24 @@ export function tauriDirectoryPrimitives(scope: string): DirectoryPrimitives {
 				),
 			),
 		rename: (from, to) => changed(commands.renameFolderPath(scope, from, to)),
-		remove: (path, options) =>
-			changed(
-				commands.removeFolderPath(scope, path, options?.recursive === true),
-			),
+		async remove(path, options) {
+			let reply: Awaited<ReturnType<typeof commands.removeFolderPath>>;
+			try {
+				reply = await commands.removeFolderPath(
+					scope,
+					path,
+					options?.recursive === true,
+				);
+			} catch (lost) {
+				const gone = await stat(path).then(
+					(found) => found === undefined,
+					() => false,
+				);
+				if (gone) return;
+				throw new UnconfirmedWrite(path, lost, 'removed');
+			}
+			if (reply.error !== null) throw new Error(reply.error);
+		},
 		mkdir: (path) => changed(commands.makeFolderDirectory(scope, path)),
 	};
 }

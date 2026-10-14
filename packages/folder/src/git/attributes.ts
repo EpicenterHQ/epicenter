@@ -440,7 +440,7 @@ const BUILTIN_BINARY: readonly Assignment[] = [
 	{ name: 'text', state: UNSET },
 ];
 
-/** Byte order of the UTF-8 spellings, which is how Git and the desktop owner order paths. */
+/** Byte order of the UTF-8 spellings, which is how Git orders paths. */
 export const byCodePoint = (left: string, right: string) => {
 	const a = [...left];
 	const b = [...right];

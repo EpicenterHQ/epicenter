@@ -1,24 +1,62 @@
-//! One owner per folder directory, across processes.
+//! One holder per folder directory, across processes.
 //!
 //! The lock is an exclusive SQLite transaction on a file beside the directory:
 //! the same file and the same mechanism the Bun hosts use
-//! through `bun:sqlite`, so a Rust owner and a Bun owner exclude
+//! through `bun:sqlite`, so a desktop shell and a Bun host exclude
 //! each other. SQLite holds it with an operating-system file lock, which the
 //! system releases when the process ends, however it ends. There is no stale
 //! lock to detect and nothing to recover after a forced kill. The file itself
-//! is never deleted, so a live owner's lock is never removed by anyone.
-//!
-//! This is separate from the in-process gates in `owner.rs`: those order one
-//! process's own work, this keeps a second process out.
+//! is never deleted, so a live holder's lock is never removed by anyone.
 //!
 //! Operating-system file locks are unreliable on some network filesystems; a
 //! folder there is not protected by this.
 
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, ErrorCode};
 
-use crate::files::verify_lock_path;
+/// Where the cross-process lock for a canonical root lives: a sibling, outside
+/// the folder's files. The same file the Bun hosts lock (`root-lock.ts`).
+pub fn lock_path(root: &Path) -> Result<PathBuf, String> {
+    let (Some(parent), Some(name)) = (root.parent(), root.file_name()) else {
+        return Err(format!(
+            "The folder at {} has no parent directory to hold its lock.",
+            root.display()
+        ));
+    };
+    let mut file = std::ffi::OsString::from(".");
+    file.push(name);
+    file.push(".epicenter-lock");
+    Ok(parent.join(file))
+}
+
+/// Refuse a lock path that is a symbolic link or anything other than a regular
+/// file, before it is opened, so the lock is never taken on a database
+/// somewhere else. Checked once; it does not defend against a later swap.
+pub fn verify_lock_path(root: &Path) -> Result<PathBuf, String> {
+    let path = lock_path(root)?;
+    match fs::symlink_metadata(&path) {
+        Err(cause) if cause.kind() == ErrorKind::NotFound => Ok(path),
+        Err(cause) => Err(format!(
+            "The folder at {} could not be locked: {} could not be inspected: {cause}",
+            root.display(),
+            path.display()
+        )),
+        Ok(stats) if stats.file_type().is_file() => Ok(path),
+        Ok(stats) => Err(format!(
+            "The folder at {} could not be locked: {} is {}. Remove it, then open the folder again.",
+            root.display(),
+            path.display(),
+            if stats.file_type().is_symlink() {
+                "a symbolic link"
+            } else {
+                "not a regular file"
+            }
+        )),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LockError {

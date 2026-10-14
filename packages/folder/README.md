@@ -131,7 +131,7 @@ folder ID.
 | --- | --- | --- |
 | `@epicenter/folder` | The desktop app's folder when the page runs in Tauri, this browser's storage otherwise. Decided when `openFolder` is called, and only the chosen adapter is loaded. | Ordinary application code. |
 | `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. | A web-only build, or a test that injects an OPFS stand-in with `browser.opfs`. |
-| `@epicenter/folder/tauri` | The desktop shell's folder only: opened by the shell's Rust owner, or by this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
+| `@epicenter/folder/tauri` | The desktop shell's folder only: this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 
 The first three export the same `openFolder` signature and the same contract,
@@ -157,7 +157,6 @@ the desktop the shell passes it to `git` through Git's environment
 (`http.<url>.extraHeader`, no redirects, no credential helper), never its
 arguments, and only for a push or fetch to the folder's own `https` origin.
 Without one, desktop `git` uses the person's own credential helper or SSH key.
-A folder the desktop shell's Rust owner keeps never asks.
 
 `browser` applies to a browser folder only. A browser folder uses a local
 author by default. Saves never commit (ADR-0529). `httpFetch` supplies a
@@ -165,10 +164,9 @@ fetch-compatible HTTP function for Git fetch and push, for tests and unusual
 transports. It defaults to regular fetch, receives the remote URL Git
 configuration names and the operation's abort signal, and does not replace
 global fetch or change the remote.
-In the desktop app the shell chooses the directory. A folder its Rust owner
-opens also takes the author, the remote, and the history policy from the
-shell; one the page opens itself reads the author and remote from the
-repository. The policy in effect is on `folder.git.snapshot` either way.
+In the desktop app the shell chooses the directory; the page reads the author
+and remote from the repository, with the shell's author as the fallback. The
+policy in effect is on `folder.git.snapshot`.
 
 ### The folder, opened lazily, and its remote
 
@@ -207,8 +205,8 @@ them with identical remote files cleanly. On the desktop the shell lets a page
 set the remote only to a network URL.
 
 A desktop page whose folder cannot be opened (no plugin, no permission, an
-unregistered ID, another protocol version, a folder another process holds)
-gets that refusal. It is never given browser storage instead.
+unregistered ID, a window the folder does not belong to, a folder another
+process holds) gets that refusal. It is never given browser storage instead.
 
 ### Browser storage
 
@@ -245,13 +243,13 @@ a capture and is refused as `Conflict` instead.
 
 ### A directory the desktop shell grants
 
-A desktop shell can register a folder for the page's own engine instead of
-its Rust owner (`page_engine` in the shell's `FolderConfig`). Opening it with
-`@epicenter/folder/tauri` then asks the shell to grant it
-(`grant_directory`): the shell creates the directory if it is missing,
-refuses a linked `.git`, takes the folder's cross-process lock, and gives
-this window Tauri's fs plugin commands for that directory alone. The page
-then opens a directory folder (`directory-adapter.ts`):
+A desktop shell registers each folder's directory for one window, with the
+`tauri-plugin-epicenter-folder` crate. Opening it with
+`@epicenter/folder/tauri` asks the shell to grant it (`grant_directory`): the
+shell creates the directory if it is missing, refuses a linked `.git`, takes
+the folder's cross-process lock, and gives this window Tauri's fs plugin
+reading commands for that directory alone. The page then opens a directory
+folder (`directory-adapter.ts`):
 
 | | Browser folder | Granted desktop folder |
 | --- | --- | --- |
@@ -260,7 +258,7 @@ then opens a directory folder (`directory-adapter.ts`):
 | Identity | The directory its ID names | The shell's registration and lock |
 | Remote and author | `remote.origin.url`, set by `sync.connect`, and `browser.author` | Git's own configuration: `remote.origin.url`, `user.name`, `user.email`, with the shell's author as fallback |
 | Transfers | `httpFetch`, regular fetch by default, with `credentials` as a header | Git's own: `credentials` as a URL-scoped header, or the person's credential helper or SSH |
-| Pages of one folder | Web Locks and a `BroadcastChannel` | The same, across the shell's windows |
+| Pages of one folder | Web Locks and a `BroadcastChannel` | One window; a second open of the same root is refused |
 
 Files go through the browser folder's file storage (`opfs-store.ts`) over a
 directory handle (`directory-handle.ts`) built on seven calls: `readDir`,
@@ -271,9 +269,12 @@ directory handle (`directory-handle.ts`) built on seven calls: `readDir`,
 the old file or the new one, never an empty or partial one; opening clears
 what a stopped write left there. Symbolic links and special entries are
 listed and never followed. On the desktop the shell makes every change and
-checks its whole path: only the files the shell declared for the folder
-(Todos: `todos/*.md`, `epicenter.json`, `kv.json`), no link on the way, and
-inside `.git` only the engine's staging and private index copies. Objects
+checks its whole path: any data path the shared path rule accepts
+(`paths.ts`, held to the plugin's `fixtures/path-rules.json` with its Rust
+twin), no link on the way, and inside `.git` only the engine's staging and
+private index copies. A change whose reply is lost may have happened: a
+removal is done if the path is then gone and `Unconfirmed` if it is still
+there, and a write is `Unconfirmed`. Objects
 are stored with `git hash-object -w` through the host (`ObjectStore` in
 `git/primitive-fs.ts`), in Bun as on the desktop, so no object file is
 written by hand.
@@ -290,9 +291,8 @@ moves the branch and reports that the index could not be refreshed; the next
 Save version refreshes it. A repository that tracks an executable, a link,
 or a submodule, or converts line endings, refuses a commit and names why.
 
-Several windows order the folder's index and branch work through one Web
-Lock. Two that open a new folder at once create one repository: `git init`
-runs under the folder's open lock.
+The page orders the folder's index and branch work through one Web Lock.
+`git init` runs under the folder's open lock.
 
 Nothing watches the directory for other programs' changes; a page reads
 again when it chooses to. A page that reloads ends the work it was running.
@@ -310,7 +310,7 @@ resolve: {
 }
 ```
 
-With `/tauri`, no browser storage and no Git implementation is emitted. With
+With `/tauri`, no browser storage and no isomorphic-git is emitted. With
 `/browser`, no desktop adapter is emitted. Without an alias, both adapters are
 emitted as separate chunks and neither loads until a folder is opened.
 `evidence/bundles` builds these and reads the output.
@@ -432,15 +432,13 @@ optional `expectedSha256`; `files` and tables always send one, and only
 `create` and `overwrite` publish unconditionally. Without the guard, each still requires a
 file at its path or source: a `replace` never creates a file and is never sent
 as an `overwrite`, and a move's destination must be empty. Browser OPFS, the
-Bun directory, and the desktop owner enforce this where they publish. There
+Bun directory, and a desktop page's directory enforce this where they publish. There
 is no sentinel union mixing hashes with `'absent'` or `'any'`.
 
 A directory folder, in Bun or a desktop page, checks that a `replace`'s file
 is there and then renames a staged copy over it. A file another program
 removes between that check and the rename comes back with the new bytes; it
-shows as an ordinary file and can be removed again (ADR-0533). The desktop
-owner instead exchanges the staged file with the file in one system call on
-macOS and Linux, and refuses `replace` elsewhere, until it is deleted.
+shows as an ordinary file and can be removed again (ADR-0533).
 A directory folder reads names literally: on a case-insensitive file system,
 `plan.md` does not reach `Plan.md`, and creating or moving to `plan.md`
 there is `Exists`. Browser folders are unaffected. OPFS opens the file without creating it
@@ -679,9 +677,8 @@ one key with an object value, which is set and merged as a whole.
 ### Merging kv.json
 
 `mergeKv({ base, ours, theirs })` reconciles three captured `kv.json` texts
-without opening a folder. Each input is a JSON object string or `null` for a missing
-file. Rust exposes the equivalent `kv_merge::merge_kv(base, ours, theirs)` in
-`epicenter-folder-core`. Both implementations run the same fixtures.
+without opening a folder. Each input is a JSON object string or `null` for a
+missing file. `fixtures/kv-merge.json` holds its test vectors.
 
 For each root key, equal choices agree; a side unchanged from the base yields
 to the other side. Competing changes return `kind: 'conflict'` with each key's
@@ -707,7 +704,7 @@ it out, and applies only where the key competes.
 
 The function does not apply field schemas, write files, or choose a winner for
 competing edits. Its module owns `kv.json` text: `kv.set` writes through the same
-formatter, so a local save and a merge produce the same file. A browser folder's `git.mergeIncoming()` uses it for root
+formatter, so a local save and a merge produce the same file. Every folder's `git.mergeIncoming()` uses it for root
 `kv.json`; see [Merging incoming changes](#merging-incoming-changes).
 
 ### One file per save
@@ -732,14 +729,13 @@ requests its commit, and the other listeners still hear. The same holds for a
 
 | Folder | Announces |
 | --- | --- |
-| Desktop | Every change the owner sees: this window, other windows, and other programs. |
 | Browser | This handle's saves and incoming updates, and those of other tabs on the same origin. |
-| Directory (Bun) | This handle's saves and incoming updates. Other programs are not watched. |
+| Directory (Bun or desktop) | This handle's saves and incoming updates. Other programs are not watched. |
 
 ## History
 
-Browser handles, Bun directory handles, and the desktop app's Rust owner follow
-the same history rules. Where the desktop owner differs, this section says so.
+Browser handles and directory handles, in Bun or a desktop page, follow the
+same history rules.
 
 A save returns once its files are published and never waits for Git. A commit
 pins the branch head, captures every source file, writes a commit with a
@@ -797,12 +793,10 @@ entered its protection
 settles before storage is released. No final commit is required, and saved
 files can remain uncommitted after close.
 
-In the desktop app, closing detaches this page. The owner keeps the folder,
-finishes operations it already accepted, the commit, and any push or fetch it
-had already started for the page, and serves every other window. A push or fetch of the page that
-the owner had not started is withdrawn and never starts. The owner makes no
-commit because a page closed or the app quit: a save whose request was still
-waiting when the app quit stays uncommitted there too.
+In the desktop app the shell keeps the folder's lock after a page closes, for
+that window's next open, until the app quits. Quitting waits a bounded time
+for file changes and `git` runs the shell already admitted, and makes no
+commit.
 
 ### Sync
 
@@ -870,9 +864,7 @@ const { data: done, error } = await folder.sync.resolve(attempt, choices);
 - `synced` means the push confirmed the merged head and no save landed after
   the capture. `saved` carries the push's own outcome and `changedSince`.
 
-Browser and Bun folders sync, and `folder.sync.supported` is `true`. A
-desktop folder answers `Unsupported` from both methods and says so with
-`supported: false`, so an app can offer its separate Git actions there.
+Every folder syncs, and `folder.sync.supported` is `true`.
 
 ### Incoming changes
 
@@ -892,8 +884,8 @@ tree is refused as `Unrepresentable` before a file, the index, or the branch
 changes. That includes a commit that only adds the attribute over files it
 does not touch, attributes in nested files, and attributes the folder's
 current files would mask. This is refusal, not Git LFS support: pointer-shaped
-text with no declared filter is ordinary bytes. The desktop owner and the
-directory entry ask `git check-attr --source`; the browser evaluates the
+text with no declared filter is ordinary bytes. A directory folder, in Bun or
+on the desktop, asks `git check-attr --source`; the browser evaluates the
 commit's attribute files the same way, matching patterns as a case-insensitive
 checkout does.
 
@@ -920,17 +912,15 @@ branch, but not for fetching or preparing the incoming Git objects.
    are removed.
 
 A step that fails reports the steps that landed (`Partial`), or `Unconfirmed`
-when its outcome is unknown; either way the record stays. The desktop Rust
-owner retains its equivalent record at `.git/epicenter/incoming.json` and
-recovers explicitly from pinned commits under the same rules.
+when its outcome is unknown; either way the record stays.
 
-The Bun directory opener applies ordered file steps, updates the index, and
-moves the branch last. A failure reports the
-steps that completed, marks the saved-files observation stale, and requests
-no commit. It does not retain an incoming recovery
-record: its `pendingIncoming` is absent and `recoverIncoming()` returns
-`none`. Durable incoming recovery is implemented for the browser and desktop
-Rust owner.
+A directory folder, in Bun or on the desktop, applies ordered file steps,
+updates the index, and moves the branch last. A failure reports the steps
+that completed, marks the saved-files observation stale, and requests no
+commit. It does not retain an incoming recovery record: its
+`pendingIncoming` is absent and `recoverIncoming()` returns `none`. Durable
+incoming recovery is implemented for the browser only; on a directory, the
+next Sync records and merges what a stopped update wrote.
 
 ### Interrupted incoming updates
 
@@ -992,13 +982,10 @@ file, index entry, or ref; unreachable objects may remain. A conflict is
 never left in the files: [Sync](#sync) is how a person settles one. With
 `versions: true`, `Conflicted.versions` carries the exact committed bytes of
 both sides at each conflicted file path, with `null` for an absent file. Shape
-conflicts have no file versions. The native snapshot records conflict reasons
-without broadcasting these bytes to other windows.
+conflicts have no file versions.
 
-Browser folders, Bun directory folders, and the desktop app's Rust owner all
-merge under these rules. The desktop owner merges a file both sides changed
-with `git merge-file` and root `kv.json` with `kv_merge`, the Rust
-counterpart of `mergeKv`.
+Browser folders and directory folders, in Bun or on the desktop, merge under
+these rules.
 
 A merge another Git program began in the repository (`.git/MERGE_HEAD`), or
 unmerged index stages it left, blocks whole-folder commits, staged commits,
@@ -1055,7 +1042,7 @@ dangle.
 | --- | --- |
 | `src/contract.ts` | Everything an application names besides the opener. Every entry exports it unchanged. Loads no storage, Git implementation, or runtime module. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
-| `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory. |
+| `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-git.ts`, and the directory folder only then. |
 | `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | Svelte boundary tests and the sync review's mounted tests. |
@@ -1063,7 +1050,8 @@ dangle.
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or Tauri's fs plugin. |
 | `src/process-locks.ts`, `git/native-*.ts` | Web Locks for a process that has none, and the `git` program a directory folder records history with. |
-| `src/native/bindings.gen.ts` | Commands and events generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
+| `src/native/bindings.gen.ts` | Commands generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
+| `fixtures/` | Vectors the tests read: `kv-merge.json` for `mergeKv`, and `commit-subjects.txt`, the subjects `commitSubject` writes (`bun run gen:vectors` rewrites it). |
 | `evidence/` | Tests that build real bundles and read real import closures; `evidence/opfs`, a page that runs the browser checks in a real browser. |
 
 ## Commands
@@ -1073,7 +1061,6 @@ bun run test              # core and directory tests, then mounted Svelte tests
 bun run test:svelte       # only the mounted Svelte tests; they need --conditions=browser
 bun run typecheck         # svelte-check: TypeScript and the .svelte test fixtures
 
-EPICENTER_FOLDER_BRIDGE=1 bun test --isolate src/tauri-native.test.ts   # against the Rust owner
 bun evidence/bundles/inspect.ts main tauri   # print the chunks a build emits
 bun evidence/opfs/serve.ts   # the OPFS page on 127.0.0.1:5181; --build only compiles it
 ```
@@ -1115,10 +1102,9 @@ createKv({ storage }, definition.kv)
 createTerminal({ storage, git }, options)
 ```
 
-Browser and Bun openers wrap raw storage with publication accounting. The
-Tauri owner already performs that accounting. Assembly fences the resulting
-storage with the handle's close signal. These wrappers retain no file-operation
-collection.
+Every opener wraps raw storage with publication accounting. Assembly fences
+the resulting storage with the handle's close signal. These wrappers retain
+no file-operation collection.
 
 Git keeps raw storage because incoming fast-forwards update files and history
 under their own policy, and are not recorded as local saves. Saves are not ordered by when their methods were called: the last

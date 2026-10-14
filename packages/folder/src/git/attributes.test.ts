@@ -2,10 +2,11 @@
  * Attribute Evaluation Parity Tests
  *
  * A browser folder has no Git program, so `normalizingAttribute` evaluates a
- * commit's `.gitattributes` files itself. The directory folder and the desktop
- * owner ask `git check-attr --source`. These tests commit each fixture with
- * real Git and require the two to give the same answer for every path, so a
- * browser refuses exactly the incoming commits the others refuse.
+ * commit's `.gitattributes` files itself. The directory folder, which the
+ * desktop app opens too, asks `git check-attr --source`. These tests commit
+ * each fixture with real Git and require the two to give the same answer for
+ * every path, so a browser refuses exactly the incoming commits the others
+ * refuse.
  *
  * Key behaviors:
  * - Root and nested attribute files, with the nearest file and the last

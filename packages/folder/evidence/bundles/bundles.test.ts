@@ -29,7 +29,7 @@ import { build, type Rollup } from 'vite';
 const APP = join(import.meta.dir, 'app');
 
 /** Text only the desktop adapter contains: the plugin's command names. */
-const DESKTOP = 'plugin:epicenter-folder|attach';
+const DESKTOP = 'plugin:epicenter-folder|grant_directory';
 /** Text only the browser adapter contains: its lock names. */
 const BROWSER = 'epicenter-folder:${id}:git';
 /** Text only isomorphic-git contains: its Git protocol client. */

@@ -133,12 +133,13 @@ Todos keeps each todo as a Markdown file in an ordinary Git repository:
 the same repository.
 
 The Rust shell installs the shared `tauri-plugin-epicenter-folder` and registers
-`so.epicenter.todos` for the `todos` window as a page-engine folder (ADR-0531).
-The first grant creates the directory, takes the cross-process lock until
-shutdown, and lets the window read beneath it. The page opens the folder with
+`so.epicenter.todos` for the `todos` window alone (ADR-0531). The first grant
+creates the directory, takes the cross-process lock until shutdown, and lets
+the window read beneath it. The page opens the folder with
 `@epicenter/folder`'s own engine: files through Tauri's fs plugin, writes and
-Git through the shell (`write_folder_file`, `run_git`), which change only the
-files Todos declares and run only the Git operations the engine uses. History
+Git through the shell (`write_folder_file`, `run_git`), which change only data
+paths the shared path rule accepts, never Git's own state, and run only the
+Git operations the engine uses. History
 is real Git, so Save version is a commit and Sync pushes to and fetches from the
 repository's own `origin` with the person's own Git credentials. Todos has its
 own capability grant for the trusted production or development origin; its file
@@ -146,8 +147,9 @@ operations have no HTTP route.
 
 A window close hides the loaded page and preserves its drafts. Quitting or
 restarting Epicenter asks the page first (see [Leaving Epicenter](#leaving-epicenter));
-reloading the page loses unsaved typing. Native shutdown drains accepted saves
-and commits; forced termination can leave saved files uncommitted. Two native
+reloading the page loses unsaved typing. Native shutdown waits for the file
+changes and Git runs the shell already admitted; forced termination can leave
+saved files uncommitted. Two native
 processes cannot open the same directory. See Todos' [README](../todos/README.md)
 for version checks, terminal interleaving, and external-edit limits.
 
@@ -159,12 +161,12 @@ the body holds the original text and an ordered list under `## Thoughts`.
 The page edits that source, and its full-source editor exposes the same bytes.
 It opens without an Epicenter account.
 
-The Rust shell registers `so.epicenter.capture` for the `capture` window as a
-page-engine folder (ADR-0531), as it does for Todos. The first grant creates the
+The Rust shell registers `so.epicenter.capture` for the `capture` window alone
+(ADR-0531), as it does for Todos. The first grant creates the
 directory and takes the cross-process lock until shutdown; the page opens the
 folder with `@epicenter/folder`'s own engine, reading through Tauri's fs plugin
 and writing and running Git through the shell. There is no Capture HTTP file
-bridge. Native shutdown drains accepted saves. Browser Capture keeps a separate folder
+bridge. Native shutdown waits for changes already admitted. Browser Capture keeps a separate folder
 in its origin's private file system (OPFS).
 
 Closing the native window hides it with its drafts intact. Quitting or

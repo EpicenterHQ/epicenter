@@ -4,11 +4,6 @@
 //! held to `fixtures/path-rules.json`. Paths are never normalized, case folded,
 //! or aliased: a path that would need rewriting to be usable is refused.
 
-/// The root generated query index; derived data, never history source.
-pub const GENERATED_INDEX: &str = "index.sqlite3";
-/// Operating-system scratch files that commits and status never include.
-const SCRATCH_NAMES: [&str; 1] = [".DS_Store"];
-
 /// A Windows short name such as `GIT~1`, which can name `.git` itself.
 pub(crate) fn is_short_name(name: &str) -> bool {
     name.as_bytes()
@@ -90,26 +85,6 @@ pub fn path_problem(path: &str) -> Option<&'static str> {
     None
 }
 
-/// Candidate history source: every valid path except operating-system scratch
-/// files and the root generated index. Ignore rules narrow it further.
-pub fn is_portable_path(path: &str) -> bool {
-    if path_problem(path).is_some() || path == GENERATED_INDEX {
-        return false;
-    }
-    !SCRATCH_NAMES.contains(&basename(path))
-}
-
-pub fn basename(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
-}
-
-/// Every proper ancestor directory of a path, nearest last.
-pub fn ancestors(path: &str) -> Vec<&str> {
-    path.match_indices('/')
-        .map(|(index, _)| &path[..index])
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,21 +135,5 @@ mod tests {
         ] {
             assert_eq!(path_problem(path), None, "{path:?}");
         }
-    }
-
-    #[test]
-    fn portable_excludes_scratch_and_only_the_root_index() {
-        assert!(!is_portable_path("index.sqlite3"));
-        assert!(is_portable_path("sub/index.sqlite3"));
-        assert!(!is_portable_path(".DS_Store"));
-        assert!(!is_portable_path("notes/.DS_Store"));
-        assert!(is_portable_path("notes/a.md"));
-        assert!(!is_portable_path(".git/HEAD"));
-    }
-
-    #[test]
-    fn ancestors_lists_nearest_last() {
-        assert_eq!(ancestors("a/b/c.md"), vec!["a", "a/b"]);
-        assert!(ancestors("a.md").is_empty());
     }
 }

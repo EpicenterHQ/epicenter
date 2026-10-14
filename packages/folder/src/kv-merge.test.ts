@@ -1,5 +1,5 @@
 /**
- * Shared TypeScript/Rust KV merge vectors.
+ * KV merge vectors (`fixtures/kv-merge.json`).
  * Tests distinguish independent edits from competing root values, preserve
  * unknown numeric tokens, and pin parser eligibility and Unicode behavior.
  * Successful output must be identical when the two editing sides swap.
@@ -10,7 +10,7 @@ import { type KvMergeInput, mergeKv, reconcileKv } from './kv-merge.js';
 const cases: (KvMergeInput & { name: string; expected: unknown })[] =
 	await Bun.file(
 		new URL(
-			'../../tauri-plugin-epicenter-folder/fixtures/kv-merge.json',
+			'../fixtures/kv-merge.json',
 			import.meta.url,
 		),
 	).json();

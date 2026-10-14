@@ -178,10 +178,9 @@ export type OpenFolderOptions<TDefinition extends FolderDefinition> = {
 	readonly id: string;
 	/**
 	 * Asked right before each push and fetch with the exact URL Git is about
-	 * to reach, in the browser and for a folder the desktop page opens itself.
-	 * Return `undefined` to send no credential (a desktop `git` then uses the
-	 * person's own credential helper or SSH key). A folder the desktop shell's
-	 * own owner keeps transfers with the person's credentials and never asks.
+	 * to reach, in the browser and on the desktop. Return `undefined` to send
+	 * no credential (a desktop `git` then uses the person's own credential
+	 * helper or SSH key).
 	 */
 	readonly credentials?: GitCredentials;
 	readonly browser?: BrowserFolderOptions;

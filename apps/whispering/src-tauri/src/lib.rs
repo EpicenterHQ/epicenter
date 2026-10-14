@@ -256,18 +256,16 @@ fn resolve_root(selected: &Path) -> Result<PathBuf, String> {
 /// as Whispering only where none is set. The page reads that, and the remote,
 /// from the repository; nothing is pushed unless the person syncs.
 fn register_folder<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), String> {
-    let mut folder = FolderConfig::new(
-        root,
-        Author {
-            name: "Whispering".to_string(),
-            email: "whispering@localhost".to_string(),
-        },
-    );
-    folder.page_engine = true;
     app.folders().register(ScopeConfig {
         scope: FOLDER_SCOPE.to_string(),
-        folder,
-        windows: vec![MAIN_WINDOW.to_string()],
+        folder: FolderConfig::new(
+            root,
+            Author {
+                name: "Whispering".to_string(),
+                email: "whispering@localhost".to_string(),
+            },
+        ),
+        window: MAIN_WINDOW.to_string(),
     })
 }
 

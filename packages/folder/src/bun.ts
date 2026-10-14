@@ -3,8 +3,8 @@
  *
  * For command-line tools, recovery scripts, and tests that are given a
  * directory. A page in the desktop app opens its folder through
- * `@epicenter/folder/tauri` instead, where the shell's own process holds the
- * directory.
+ * `@epicenter/folder/tauri` instead, where the shell grants the page its
+ * directory, changes its files, and runs `git` for it.
  *
  * Both open the same directory folder (`openDirectoryFolder`): files through
  * the browser folder's file storage over the directory, replaced by renaming a

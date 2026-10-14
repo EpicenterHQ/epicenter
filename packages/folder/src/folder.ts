@@ -7,13 +7,11 @@
  * `git` observes and records history. A save never commits: commits happen
  * only through `git.commit()` or sync's checkpoint (ADR-0529).
  *
- * Closing fences new file work and this handle's history requests at once.
- * Browser and Bun handles cancel pending history and network work, then drain
- * admitted Git work. A desktop handle detaches its page; the shared native
- * owner continues until owner shutdown cancels pending work and drains
- * admitted checkpoints. Each file operation owns its completion promise.
- * Closing does not wait for file helpers; storage applications already started
- * return their actual outcome. Closing makes no last commit.
+ * Closing fences new file work and this handle's history requests at once,
+ * cancels pending history and network work, then drains admitted Git work.
+ * Each file operation owns its completion promise. Closing does not wait for
+ * file helpers; storage applications already started return their actual
+ * outcome. Closing makes no last commit.
  */
 import type { CreateRowOf, KvOf } from '@epicenter/definition';
 import type { Result } from 'wellcrafted/result';
@@ -74,10 +72,9 @@ export type FolderGit = {
 	/**
 	 * Commit, then push. `signal` only stops this caller waiting
 	 * (`stoppedWaiting`): a commit or transport that already started keeps
-	 * running. Closing a browser or directory folder aborts owned network
-	 * work. Closing a desktop handle stops this page waiting; a transport the
-	 * native owner already started finishes there. A push or fetch withdrawn
-	 * before it starts never starts. The same holds for `push` and `fetch`.
+	 * running. Closing the folder aborts its network work. A push or fetch
+	 * withdrawn before it starts never starts. The same holds for `push` and
+	 * `fetch`.
 	 */
 	commitAndPush(options?: {
 		signal?: AbortSignal;

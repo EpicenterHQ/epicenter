@@ -163,7 +163,7 @@ against the code. The constraints below apply to every edit here.
 - The terminal is the desktop shell's own `/bin/sh`, an outside writer; the
   browser build has none. Do not route it through the folder's publication,
   and do not make it request a commit.
-- A path from the page is checked with the folder owner's `path_problem`
+- A path from the page is checked with the folder plugin's `path_problem`
   before `git` sees it, and a commit must be a hexadecimal id. Keep both
   checks in `history.rs`.
 - Do not describe the native conditional save as atomic. It compares, then

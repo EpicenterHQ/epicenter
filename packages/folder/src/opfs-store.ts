@@ -696,6 +696,8 @@ export async function removeFileAt(
 	} catch (cause) {
 		if (errorName(cause) === 'NotFoundError')
 			return FileError.NotFound({ path });
+		if (cause instanceof UnconfirmedWrite)
+			return FileError.Unconfirmed({ path, operation: 'remove', cause });
 		return FileError.Io({ path, operation: 'remove', cause });
 	}
 }
@@ -928,6 +930,12 @@ export function createOpfsFileBoundary({
 					if (name === 'InvalidModificationError')
 						return FileError.DirectoryNotEmpty({ path });
 					if (name === 'NotFoundError') return FileError.NotFound({ path });
+					if (cause instanceof UnconfirmedWrite)
+						return FileError.Unconfirmed({
+							path,
+							operation: 'remove directory',
+							cause,
+						});
 					return FileError.Io({ path, operation: 'remove directory', cause });
 				}
 			});
