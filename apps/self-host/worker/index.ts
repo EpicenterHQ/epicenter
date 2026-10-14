@@ -2,7 +2,6 @@
 import { asPrincipalId } from '@epicenter/principal';
 import {
 	createServerApp,
-	GenerationsLedger,
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
@@ -12,7 +11,6 @@ import {
 	rateLimit,
 	requireBearerPrincipal,
 	resolveDeploymentBlobStore,
-	StoreAuthority,
 } from '@epicenter/server';
 import { SelfHostAuthOwner } from '@epicenter/server/self-host-auth/worker';
 import { signInPage, signInScript } from '../sign-in.js';
@@ -63,11 +61,4 @@ mountPersonalAuthorityBlobs(app, {
 	resolveStore: resolveDeploymentBlobStore,
 });
 export default app;
-// The retired store sync's Durable Objects, empty, so a deploy keeps their
-// stored data (`packages/server/src/retired-sync.ts`).
-export {
-	GenerationsLedger,
-	SelfHostAuthOwner,
-	SelfHostOperator,
-	StoreAuthority,
-};
+export { SelfHostAuthOwner, SelfHostOperator };

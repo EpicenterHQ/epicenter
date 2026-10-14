@@ -11,6 +11,9 @@ deletion is deferred for the zero-user V1; see
 
 ## Storage inventory, inspected 2026-09-08
 
+The `StoreAuthority` and `GenerationsLedger` rows describe the Yjs store sync,
+removed by ADR-0534; migration `v6` deletes both namespaces and their objects.
+
 | Owner | Allocation path | Discovery and deletion gap |
 | --- | --- | --- |
 | `StoreAuthority`, opaque snapshots and log | `mountStoreSyncApp`: import POST allocates then seeds; socket upgrade addresses any valid data ID and positive generation | No account data-ID registry. Socket-only generations can have bytes without any ledger row. `deleteStore()` only calls `deleteAll()`; it has no tombstone, socket retirement, or delayed-body fence. |

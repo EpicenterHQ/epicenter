@@ -59,7 +59,6 @@ export {
 export { mountInferenceApp } from './routes/inference.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
-export { GenerationsLedger, StoreAuthority } from './retired-sync.js';
 export { resolveDeploymentBlobStore } from './s3-blob-store.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS,
 // CSRF) and returns the `Hono` every surface mounts onto. It takes one

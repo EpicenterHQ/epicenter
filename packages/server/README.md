@@ -8,42 +8,7 @@ admitted users). A deployment builds the parent app with
 with the matching `mount*` primitive. `apps/api/worker/index.ts` is the
 composition to read first.
 
-## The store authority
-
-Each Personal data store has one Durable Object authority. Its address includes
-application, authenticated actor, and data ID. Other data scopes are refused.
-The generation is stored inside that authority, not in its object name.
-
-`mountStoreSyncApp` owns authentication and destination validation:
-
-- `POST /api/apps/:appId/:scope/data/:dataId/current` atomically
-  initializes absent data and returns its complete current capture.
-- `GET /api/store/v1/sync` upgrades with `appId`, `scope`, `dataId`,
-  `generation`, and an optional `cursor` in the query. The authority admits
-  that generation before accepting edits.
-
-The download is framed by `@epicenter/sync/current-download`. Decode it with
-`readCurrentDownload`: its snapshot and ordered update tail cover the returned
-head. Treating the response body as one document update loses this contract.
-The browser validates and installs the complete capture before making its cache
-usable. A usable cache can reopen offline.
-
-`StoreAuthority` adapts Worker storage and sockets to
-`openCurrentAuthority` in `@epicenter/app/sync`. That authority owns atomic
-initialization, generation admission, replacement, and activation retry receipts.
-It holds opaque bytes; the browser owns document validation. A socket upgrade
-is not admission: an unavailable generation receives a retirement frame and
-closes without joining the live hub.
-
-Personal startup checks the historical `GenerationsLedger` only to refuse
-implicit migration. Historical listing, import, initial-selection, and
-snapshot endpoints are not mounted. Existing history remains untouched.
-
-Browser socket credentials use the bearer subprotocol; the response echoes
-only the main protocol. The authenticated principal selects the Personal
-owner. Caller-supplied owner overrides are refused.
-
-## The other surfaces
+## The surfaces
 
 Each `mount*` bundles its own auth wiring; the deployment passes only the auth
 choice and any deployment policy.
@@ -93,8 +58,7 @@ conditional, and media response policy; the store provides metadata and bytes.
 
 ## Shared protocol packages
 
-These packages are private and AGPL-3.0-or-later. Merge rules and
-wire framing are in `@epicenter/app/sync`, embedded-SQLite normalization is in
-`@epicenter/sqlite`, and the routes, HTTP capture framing, and subprotocol vocabulary both halves
-use are in `@epicenter/sync`. Worker bindings and deployment composition remain
-in this package and its deployables.
+These packages are private and AGPL-3.0-or-later. Worker bindings and
+deployment composition remain in this package and its deployables. The Yjs
+store sync this package used to mount is removed (ADR-0534); data folders sync
+over Git (ADR-0521).

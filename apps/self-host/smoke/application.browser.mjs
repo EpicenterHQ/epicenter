@@ -72,11 +72,7 @@ if (workerMode) {
 			migrations: [
 				{
 					tag: 'smoke',
-					new_sqlite_classes: [
-						'SelfHostAuthOwner',
-						'StoreAuthority',
-						'GenerationsLedger',
-					],
+					new_sqlite_classes: ['SelfHostAuthOwner'],
 				},
 			],
 		}),

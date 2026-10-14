@@ -18,11 +18,6 @@ export default defineConfig({
 				},
 				durableObjects: {
 					SELF_HOST_AUTH: { className: 'SelfHostAuthOwner', useSQLite: true },
-					STORE_AUTHORITY: { className: 'StoreAuthority', useSQLite: true },
-					GENERATIONS_LEDGER: {
-						className: 'GenerationsLedger',
-						useSQLite: true,
-					},
 				},
 			},
 		}),

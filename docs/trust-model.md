@@ -15,8 +15,8 @@ remote in its own `remote.origin.url` (ADR-0521). The files that carry it:
 - `packages/server/src/s3-blob-store.ts`: hosted blobs
 
 The Yjs store sync that came before this, an authority that held each document's
-updates as opaque bytes, is removed. Its Durable Objects remain, empty, only so a
-deploy does not delete what they stored (`packages/server/src/retired-sync.ts`).
+updates as opaque bytes, is removed, and the next deploy deletes what it stored
+(ADR-0534).
 
 ## We used to encrypt at rest. We stopped.
 

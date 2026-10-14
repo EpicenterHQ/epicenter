@@ -28,6 +28,11 @@
 		{
 			"tag": "v2-auth",
 			"new_sqlite_classes": ["SelfHostAuthOwner"]
+		},
+		// The Yjs store sync is removed (ADR-0534); this deletes its objects.
+		{
+			"tag": "v3-retire-store-sync",
+			"deleted_classes": ["StoreAuthority", "GenerationsLedger"]
 		}
 	]
 }

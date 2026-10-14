@@ -19,7 +19,6 @@ import {
 	connectHyperdriveDb,
 	createCloudContextMiddleware,
 	createServerApp,
-	GenerationsLedger,
 	mountAuthRoutes,
 	mountInferenceApp,
 	mountPersonalAuthorityBlobs,
@@ -29,7 +28,6 @@ import {
 	resolveDeploymentBlobStore,
 	resolveRequestSessionPrincipal,
 	type ServerBindings,
-	StoreAuthority,
 } from '@epicenter/server';
 import type { Context } from 'hono';
 import { every } from 'hono/combine';
@@ -185,6 +183,4 @@ app.get('/billing', (c) => c.redirect('/dashboard'));
 export default {
 	fetch: app.fetch,
 };
-// The retired store sync's Durable Objects, empty, so a deploy keeps their
-// stored data (`packages/server/src/retired-sync.ts`).
-export { GenerationsLedger, GitHubConnection, StoreAuthority };
+export { GitHubConnection };

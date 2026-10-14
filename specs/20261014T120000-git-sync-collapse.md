@@ -41,12 +41,11 @@ the previous one, and ends with the checks it names passing.
 ## Open items
 
 - Phase 3 needs a person at the desktop, or a computer-use session.
-- The retired `StoreAuthority` and `GenerationsLedger` data stays on Cloudflare
-  until someone decides to delete it with a `deleted_classes` migration.
+- The next `apps/api` deploy runs migration `v6`, which deletes the store sync's
+  Durable Objects and their data; the self-host Worker's `v3-retire-store-sync`
+  does the same.
 - ADR-0534 names the store records to mark superseded; changing an Accepted
   record's status is the owner's call.
 - `@epicenter/device` and `@epicenter/sqlite` lost their main consumers;
   `packages/vite-config` still carries `@epicenter/device`'s worker settings.
 - `apps/landing` still advertises `@epicenter/app/store`.
-- The committed `worker-configuration.d.ts` files predate the installed
-  wrangler; regenerating them rewrites about 25,000 lines.

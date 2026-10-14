@@ -11,10 +11,9 @@ Git with a token to a server the person chooses (ADR-0521); the hosted Git
 module is unbuilt. The GitHub connector (`worker/git-connector/`) still relays
 the browser's Git to GitHub until it is replaced.
 
-The Yjs store sync this Worker used to serve is removed. Its Durable Object
-classes, `StoreAuthority` and `GenerationsLedger`, stay exported and empty
-(`packages/server/src/retired-sync.ts`) so a deploy keeps the data they stored;
-deleting that data is a `deleted_classes` migration nobody has run.
+The Yjs store sync this Worker used to serve is removed (ADR-0534). Migration
+`v6` in `wrangler.jsonc` deletes its Durable Object classes, `StoreAuthority`
+and `GenerationsLedger`, and everything they stored, on the next deploy.
 
 ## Why a hub exists
 
@@ -95,8 +94,7 @@ Cloudflare Workers
 │   ├── /api/blobs/personal/:principalId/:visibility owner-pinned hosted blobs (S3-compatible backend)
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
-├── GitHubConnection (Durable Object): one per principal
-└── StoreAuthority, GenerationsLedger (Durable Objects, empty): the retired store sync, kept so a deploy keeps their data
+└── GitHubConnection (Durable Object): one per principal
 ```
 
 API keys for AI providers are environment secrets (`wrangler secret put`). They never leave the hub. The client sends a session token, the hub validates it and swaps in the real key before forwarding to the provider.

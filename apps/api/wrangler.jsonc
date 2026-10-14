@@ -53,9 +53,8 @@
 			}
 		]
 	},
-	// StoreAuthority and GenerationsLedger belonged to the retired store sync.
-	// Their classes stay exported, empty, so their stored data is not deleted;
-	// a `deleted_classes` migration would delete it permanently.
+	// StoreAuthority and GenerationsLedger belonged to the Yjs store sync, removed
+	// with ADR-0534. v6 deletes both classes and every object they stored.
 	//
 	// The deployed Worker already uses the current authority and ledger names.
 	// These class migrations preserve their existing state and retire the former
@@ -90,6 +89,10 @@
 		{
 			"tag": "v5",
 			"new_sqlite_classes": ["GitHubConnection"]
+		},
+		{
+			"tag": "v6",
+			"deleted_classes": ["StoreAuthority", "GenerationsLedger"]
 		}
 	],
 	// --- Secrets (set via `wrangler secret put`, typed via `wrangler types`) ---
