@@ -289,6 +289,13 @@ function run(inline: Inline, count: number) {
 	return { refused, unopenable };
 }
 
+/**
+ * Each property checks 5,000 documents: under a second alone, but past Bun's
+ * five-second default on a loaded CI runner. The budget is for that work, not
+ * a retry; a hang still fails.
+ */
+const PROPERTY_BUDGET_MS = 30_000;
+
 function expectNone(list: string[], what: string) {
 	if (list.length > 0)
 		throw new Error(
@@ -297,43 +304,59 @@ function expectNone(list: string[], what: string) {
 	expect(list).toEqual([]);
 }
 
-test('typing any characters in any block is never refused', () => {
-	const { refused, unopenable } = run(typed, 5000);
-	expectNone(refused, 'typed documents were refused');
-	expectNone(
-		unopenable,
-		'typed documents wrote Markdown the editor would not reopen',
-	);
-});
+test(
+	'typing any characters in any block is never refused',
+	() => {
+		const { refused, unopenable } = run(typed, 5000);
+		expectNone(refused, 'typed documents were refused');
+		expectNone(
+			unopenable,
+			'typed documents wrote Markdown the editor would not reopen',
+		);
+	},
+	PROPERTY_BUDGET_MS,
+);
 
-test('typing table syntax across line breaks is never refused, and never reopens as a table', () => {
-	const { refused, unopenable } = run(tableShaped, 5000);
-	expectNone(refused, 'table-shaped documents were refused');
-	expectNone(
-		unopenable,
-		'table-shaped documents wrote Markdown the editor would not reopen',
-	);
-});
+test(
+	'typing table syntax across line breaks is never refused, and never reopens as a table',
+	() => {
+		const { refused, unopenable } = run(tableShaped, 5000);
+		expectNone(refused, 'table-shaped documents were refused');
+		expectNone(
+			unopenable,
+			'table-shaped documents wrote Markdown the editor would not reopen',
+		);
+	},
+	PROPERTY_BUDGET_MS,
+);
 
-test('formatting whole words is never refused', () => {
-	const { refused, unopenable } = run(formatted, 5000);
-	expectNone(refused, 'formatted documents were refused');
-	expectNone(
-		unopenable,
-		'formatted documents wrote Markdown the editor would not reopen',
-	);
-});
+test(
+	'formatting whole words is never refused',
+	() => {
+		const { refused, unopenable } = run(formatted, 5000);
+		expectNone(refused, 'formatted documents were refused');
+		expectNone(
+			unopenable,
+			'formatted documents wrote Markdown the editor would not reopen',
+		);
+	},
+	PROPERTY_BUDGET_MS,
+);
 
-test('formatting Markdown cannot express is refused, never written wrongly', () => {
-	const { refused, unopenable } = run(adversarial, 5000);
-	// Accepted documents round-tripped (checked in `run`) and reopen.
-	expectNone(
-		unopenable,
-		'accepted documents wrote Markdown the editor would not reopen',
-	);
-	// Most random formatting is still expressible; the rest is caught.
-	expect(refused.length).toBeLessThan(2500);
-});
+test(
+	'formatting Markdown cannot express is refused, never written wrongly',
+	() => {
+		const { refused, unopenable } = run(adversarial, 5000);
+		// Accepted documents round-tripped (checked in `run`) and reopen.
+		expectNone(
+			unopenable,
+			'accepted documents wrote Markdown the editor would not reopen',
+		);
+		// Most random formatting is still expressible; the rest is caught.
+		expect(refused.length).toBeLessThan(2500);
+	},
+	PROPERTY_BUDGET_MS,
+);
 
 test('the two known inexpressible cases are refused', () => {
 	const p = (...content: Node[]) =>
