@@ -6,10 +6,10 @@
  * text requests over this device's two connections, the microphone chosen on
  * this device, fixture audio, and the close handshake with the shell.
  *
- * It does not own the data folder. The desktop shell's Rust owner opens the
- * directory, publishes files, and records history, and the page reaches it
- * through Tauri. This process is given the same directory by the shell and is
- * an ordinary program beside that owner: the terminal writes the directory
+ * It does not open the data folder. The desktop shell grants the directory
+ * to the page, whose folder engine reads it, publishes files, and records
+ * history through Tauri. This process is given the same directory by the
+ * shell and is an ordinary program beside the page: the terminal writes the directory
  * the way any shell does, transcription reads one audio file out of it, and
  * the connections and chosen microphone are one file under its `.git`. It
  * takes no folder lock, opens no folder, initializes no Git, and watches
@@ -59,8 +59,8 @@ export type HostOptions = {
 	/**
 	 * The data folder, as the shell resolved it. The shell chooses, creates,
 	 * and canonicalizes it once and registers the same directory with the
-	 * folder's owner; this host uses exactly that spelling and never picks or
-	 * creates one.
+	 * folder plugin, which grants it to the page; this host uses exactly that
+	 * spelling and never picks or creates one.
 	 */
 	readonly root: string;
 	/** The per-launch credential every bridge request must carry. */
@@ -212,7 +212,7 @@ export async function createHost(options: HostOptions) {
 	const encoder = new TextEncoder();
 
 	// Arming at launch touches nothing: the counters are numbers, and the branch
-	// lock waits until the page says the owner has opened the folder.
+	// lock waits until the page says it has opened the folder.
 	const injection: FailureInjection | undefined = options.debug
 		? createFailureInjection({
 				root,
@@ -283,7 +283,7 @@ export async function createHost(options: HostOptions) {
 	};
 	const ping = setInterval(() => broadcast({ type: 'ping' }), PING_MS);
 
-	/** The close question and pings. Folder changes reach the page from its owner. */
+	/** The close question and pings. Nothing about folder changes. */
 	function events(): Response {
 		let listener: Listener | undefined;
 		const stream = new ReadableStream<Uint8Array>({
@@ -318,8 +318,8 @@ export async function createHost(options: HostOptions) {
 	// can say whether closing loses anything. The shell asks through here before
 	// it closes the window or quits, and closes only when this approves.
 
-	// Approval is never inferred, from anything. A page can be saving through
-	// the folder's owner and holding unsaved work while its event stream is
+	// Approval is never inferred, from anything. A page can be saving to the
+	// folder and holding unsaved work while its event stream is
 	// slow, dropped, or has not connected yet, so whether a stream is or ever
 	// was open says nothing about what the page holds. The host approves a close only on the page's
 	// own authenticated `proceed`. A request with no stream to carry it waits

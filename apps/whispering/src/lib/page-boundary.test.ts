@@ -5,7 +5,8 @@
  * reach Node or Bun, or the directory opener that runs there. It names the
  * folder contract through `@epicenter/folder`. A folder is opened in exactly
  * two places, each naming its entry: the browser workspace opens browser
- * storage, and the desktop workspace attaches to the desktop shell's owner.
+ * storage, and the desktop workspace opens the directory the desktop shell
+ * grants.
  * The only other Tauri import is the one question the workspace opener asks,
  * whether the page is inside a desktop app. The recording workflow is
  * file-backed, so it may not reach the Yjs store either. This reads the

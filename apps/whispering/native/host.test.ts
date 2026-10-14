@@ -9,9 +9,9 @@
  * key stays in the host, and none of it is reachable without the launch token.
  *
  * Where a test needs something to publish and commit, it opens the directory
- * with the Bun directory opener. That is a stand-in for the desktop shell's
- * Rust owner, which this process cannot start: it shows the host's obstacles
- * make a real folder fail its own step, not how the Rust owner reports it.
+ * with the Bun directory opener, the same folder engine the desktop page runs
+ * over the directory the shell grants. It shows the host's obstacles make a
+ * real folder fail its own step, not how the Rust shell reports it.
  */
 import { Database } from 'bun:sqlite';
 import { afterEach, expect, test } from 'bun:test';
@@ -79,8 +79,8 @@ async function start(overrides: Partial<HostOptions> = {}) {
 	return { directory, root, host, bridge };
 }
 
-/** The folder's owner, for a test that needs files published and committed. */
-async function owner(root: string) {
+/** The folder, opened as the page opens it, for a test that needs files published and committed. */
+async function opened(root: string) {
 	const folder = await openTestFolder(root);
 	cleanups.push(() => folder.close());
 	return folder;
@@ -248,7 +248,7 @@ test('the host works beside a held folder lock and leaves the directory exactly 
 		env: ENVIRONMENT,
 		fetch: stub.fetch,
 	});
-	// The lock the shell's owner holds for as long as it has the folder: an
+	// The lock the shell holds for as long as it has granted the folder: an
 	// exclusive transaction on this file beside the directory.
 	const lock = new Database(join(directory, '.data.epicenter-lock'));
 	cleanups.push(async () => lock.close());
@@ -332,7 +332,7 @@ test('a host is given the shell’s resolved directory, and refuses anything els
 
 test('an injected row failure leaves the audio saved, and retry completes one recording', async () => {
 	const { root, bridge } = await start();
-	const folder = await owner(root);
+	const folder = await opened(root);
 	const around = obstacles(bridge);
 	const pending = capture();
 	await bridge.app('inject', { rowWrites: 2 });
@@ -402,7 +402,7 @@ test('an injected row failure leaves the audio saved, and retry completes one re
 
 test('an injected audio failure writes nothing, and retry saves', async () => {
 	const { root, bridge } = await start();
-	const folder = await owner(root);
+	const folder = await opened(root);
 	const around = obstacles(bridge);
 	const pending = capture();
 	await bridge.app('inject', { audioWrites: 1 });
@@ -429,7 +429,7 @@ test('an injected audio failure writes nothing, and retry saves', async () => {
 
 test('an armed failure leaves a path that is already occupied alone, and is not spent on it', async () => {
 	const { root, bridge } = await start();
-	const folder = await owner(root);
+	const folder = await opened(root);
 	const pending = capture();
 	const foreign = '---\ntitle: Someone else\n---\nKeep me\n';
 	await mkdir(join(root, 'recordings'), { recursive: true });
@@ -479,8 +479,8 @@ test('a locked branch fails the commit and never the save; unlocking lets it com
 	).toBe(false);
 	expect(await readdir(root)).toEqual([]);
 
-	const folder = await owner(root);
-	// The page says the owner has opened the folder; the lock is taken now.
+	const folder = await opened(root);
+	// The page says it has opened the folder; the lock is taken now.
 	expect(
 		(await bridge.app<{ commitsBlocked: boolean }>('injection-launch'))
 			.commitsBlocked,
@@ -541,9 +541,9 @@ test('the terminal runs in the data folder, edits its files, and keeps its direc
 	expect(escaped.stderr).toContain('stays inside the data folder');
 });
 
-test('a terminal edit is an outside write: the owner’s next read sees it, and a save over the older version conflicts', async () => {
+test('a terminal edit is an outside write: the folder’s next read sees it, and a save over the older version conflicts', async () => {
 	const { root, bridge } = await start();
-	const folder = await owner(root);
+	const folder = await opened(root);
 	const pending = capture();
 	await publishRecording(folder, pending, { retry: false });
 	const entry = expectOk(await folder.tables.recordings.get(pending.id));
@@ -580,7 +580,7 @@ test('transcription reads the saved audio and sends it to the configured endpoin
 		fetch: stub.fetch,
 	});
 	const pending = capture();
-	await publishRecording(await owner(root), pending, { retry: false });
+	await publishRecording(await opened(root), pending, { retry: false });
 
 	const result = await bridge.app<Transcribed>(
 		'transcribe',
@@ -881,7 +881,7 @@ test('fixture audio and failure injection exist only in a debug shell', async ()
 
 test('a connection’s key is kept out of the versioned folder and out of every reply', async () => {
 	const { root, bridge } = await start();
-	const folder = await owner(root);
+	const folder = await opened(root);
 	const reply = await connect(bridge, 'transcription', {
 		key: { action: 'replace', key: 'secret-key' },
 	});

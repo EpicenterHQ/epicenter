@@ -1,39 +1,45 @@
 # Whispering architecture
 
-Whispering is three parts. Each has one job, and exactly one of them owns the
+Whispering is three parts. Each has one job, and exactly one of them opens the
 data folder.
 
 ```text
-src-tauri/        the shell     a window, the folder's owner, and one child process
+src-tauri/        the shell     a window, the folder's grant and lock, and one child process
 native/           the host      serves the page and does what a page cannot
-src/              the page      the UI; attaches to the folder, fetches the host
+src/              the page      the UI; opens the granted folder, fetches the host
 ```
 
 ```text
 ┌───────────────── Tauri shell (Rust) ─────────────────┐
 │ chooses the folder, registers it for the main window │
 │ starts the host with that path, reads its port,      │
-│ grants the page the owner's commands for that origin │
+│ lets the page on that origin ask for the folder      │
 │ loads http://127.0.0.1:<port>/, injects the token    │
 │                                                      │
-│   tauri-plugin-epicenter-folder: the one owner       │
-│   files, tables' bytes, history, lock                │
+│   tauri-plugin-epicenter-folder: grant and lock;     │
+│   checked file changes and `git` runs for the page   │
+│   tauri-plugin-fs: reads, scoped to the grant        │
 └────┬──────────────────▲────────────────┬─────────────┘
-     │ spawns           │ invoke, events │ owns
+     │ spawns           │ invoke         │ changes, git
      ▼                  │                ▼
 ┌── host (Bun) ─────┐  ┌┴─ page (WebView) ──┐   the data folder
-│ page, terminal,   │◄─│ fetch /bridge/app  │   and its .git
-│ requests, key,    │  │ Bearer <token>     │        ▲
+│ page, terminal,   │◄─│ the folder engine  │   and its .git
+│ requests, key,    │  │ fetch /bridge/app  │        ▲
 │ close relay       │─►│ event stream       │        │
 └─────────┬─────────┘  └────────────────────┘        │
           └── an ordinary program in that directory ─┘
 ```
 
-The folder has one owner, the shared Rust plugin
-(`tauri-plugin-epicenter-folder`), running in the shell's process. The page
-attaches to it with `@epicenter/folder/tauri`, the shared desktop adapter, and
-names only the folder's ID. This app has no folder code of its own on the
-desktop: no copy of the plugin's bindings and no second transport.
+The page opens the folder with `@epicenter/folder/tauri` and names only the
+folder's ID. The shared Rust plugin (`tauri-plugin-epicenter-folder`), in the
+shell's process, grants the main window the directory the shell registered
+and holds the folder's lock. The page's own folder engine then reads the
+directory through Tauri's fs plugin, whose scope the grant limits to that
+directory, and makes every change (`write_folder_file` and the rest) and runs
+every `git` command (`run_git`) through the folder plugin, which checks each
+path against the shared path rule and keeps it out of Git's private state.
+This app has no folder code of its own on the desktop: no copy of the
+plugins' bindings and no second transport.
 
 The host does not open the folder. It is told the directory by the shell and
 uses it as any other program would. The terminal runs the person's shell
@@ -118,7 +124,7 @@ implementation when the app layout mounts:
 
 | | Desktop (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
-| Folder | The real directory, through the shell's owner (`openFolder` from `@epicenter/folder/tauri`) | One OPFS directory, files and `.git` together (`openFolder` from `@epicenter/folder/browser`); a folder an earlier build kept in IndexedDB is not read |
+| Folder | The real directory the shell grants, opened by the page's engine (`openFolder` from `@epicenter/folder/tauri`) | One OPFS directory, files and `.git` together (`openFolder` from `@epicenter/folder/browser`); a folder an earlier build kept in IndexedDB is not read |
 | Terminal | Your shell in the directory, run by the host | None |
 | Transcription | The host reads the connection, then the audio, and makes the request | The page does the same |
 | Transformation | The host reads the text connection and makes the request | The page makes the request, so the endpoint must allow its origin (CORS) |
@@ -135,13 +141,14 @@ each is opened or refused on its own terms:
    before the page runs. A desktop app that injected none did not start
    Whispering's host, and the page refuses with `HostMissing` before it asks
    anyone for a folder. A host that does not answer is `HostUnreachable`.
-2. The folder. `openFolder({ id: WHISPERING_FOLDER_ID, definition })`
-   attaches to the scope `so.epicenter.whispering`. The owner's refusal (an unknown scope, a window
-   the scope does not list, a folder another process holds, a missing
-   permission, another protocol version) is `DesktopFolder`, with the owner's
-   own reason.
+2. The folder. `openFolder({ id: WHISPERING_FOLDER_ID, definition })` asks
+   the shell for the scope `so.epicenter.whispering` (`grant_directory`) and
+   opens the directory it is granted. The shell's refusal (an unknown scope,
+   a window the scope does not list, a folder another process holds, a
+   missing permission) is `DesktopFolder`, with the shell's own reason, as is
+   a granted folder the engine cannot open.
 
-The page then checks that the owner and the host name the same directory and
+The page then checks that the grant and the host name the same directory and
 refuses with `FolderMismatch` if they do not, since the terminal and
 transcription would otherwise use a directory the saves do not go to.
 
@@ -173,16 +180,24 @@ The shell settles four things, in this order, before the window exists
 2. **The host.** It is started with that path in its environment and reports
    only its port. A path on its ready line would not be read.
 3. **The registration.** The scope `so.epicenter.whispering` is registered
-   with that path for the window labelled `main`, with the author
-   `Whispering <whispering@localhost>` and no remote. The repository's own
-   `user.name` and `origin` are not read, so a save never pushes.
+   with that path for the window labelled `main` alone, as a folder the page
+   opens with its own engine (`page_engine`). Its author,
+   `Whispering <whispering@localhost>`, is only the fallback: the page reads
+   `user.name` and `user.email` from Git's configuration, the repository's
+   and the person's global settings, and records versions as them when they
+   are set. Nothing is pushed: Whispering offers no sync.
 4. **The capability.** The page is served from `http://127.0.0.1:<port>`,
    which Tauri treats as a remote origin with no commands at all. One
    capability, added at runtime because the port is not known until then,
    grants the `main` window, on exactly `http://127.0.0.1:<port>/*`, the
-   owner's commands (`epicenter-folder:default`) and listening for its events
-   (`core:event:allow-listen`, `core:event:allow-unlisten`). `tauri.conf.json`
-   lists no capability.
+   folder plugin's commands (`epicenter-folder:default`), the fs plugin's
+   reading commands with no path (`DIRECTORY_COMMANDS`: `fs:allow-read-dir`,
+   `fs:allow-lstat`, `fs:allow-read-file`), and listening for events
+   (`core:event:allow-listen`, `core:event:allow-unlisten`). The fs commands
+   reach nothing until `grant_directory` adds them, scoped to the folder's
+   directory alone. `tauri.conf.json` lists no capability, and sets the fs
+   plugin's `requireLiteralLeadingDot` to `false` so that scope reaches
+   `.git` and other dot files.
 
 So the page cannot choose a directory: it names a scope, and the shell decided
 what that scope is. Another window, a page from another origin or port, and a
@@ -241,7 +256,7 @@ The bridge is the page's link to the host. It carries Whispering's own
 operations and the close question, and nothing of the folder: there is no
 folder route, no generic method call, no file change sent as data, and no Git
 snapshot pushed over it. Tables, KV, conditional publication, and history are
-the shared adapter's calls to the shell's owner.
+the page's own folder engine, over the directory the shell granted.
 
 ```text
 POST /bridge/app      { op, payload }   -> { ok: <value> } | { fault: "<message>" }
@@ -545,7 +560,7 @@ text too; its fields open again once the text reads.
 
 - **Reads** happen when the page opens, on return (window focus, or the page
   becoming visible), on **Check again**, and after the app's own actions and
-  terminal commands. A change hint from the folder does not reread. No read
+  terminal commands. Nothing watches the folder. No read
   starts while a write runs: an edit cancels reads in flight, nothing goes
   stale on its own, focus does not refetch while writing, and the last write
   to settle reads everything again.
@@ -593,7 +608,8 @@ page    waits for what is being written, then answers POST /bridge/app { op: "cl
           asking    it is showing its confirmation
           cancel    the person chose Keep working
 host    prints {"closeApproved":true} when the answer is proceed
-shell   exits; the owner settles the folder, and the host is stopped
+shell   exits; the folder plugin waits for the page's commands still running
+          and releases the folder's lock, and the host is stopped
 ```
 
 On macOS a quit can also come from the system: the Dock's Quit, a logout,
@@ -691,8 +707,8 @@ attempt and nothing repeats it, so the person closes again.
 ### When opening failed
 
 The shell marks the page as opened when the window is built, before the page
-has attached to anything. If the workspace then cannot be opened (the host
-does not answer, the owner refuses the window, or the two name different
+has opened anything. If the workspace then cannot be opened (the host
+does not answer, the shell refuses the window its folder, or the two name different
 directories), or the session cannot start, there is no session and no guard,
 and the shell would wait forever for an answer to a close.
 
@@ -728,20 +744,32 @@ It is narrow on purpose:
   asks no close question, and a browser tab has the browser's own; neither is
   answered.
 
-When the shell exits, the owner refuses new work, lets the saves and commits
-it had already admitted finish, and releases the folder. Shutdown makes no
-final commit, so those saves can remain uncommitted. Closing the page's folder handle only detaches the window.
+The page settles its own saves before it answers `proceed`: the guard waits
+until nothing is mutating, and **Discard and quit** waits for the same
+before it sends its answer or uses the quit address
+(`src/lib/leave.svelte.ts`). Nothing drains a save for the page after that.
+When the shell exits, the folder plugin refuses new page work, waits up to ten
+seconds for a file change or `git` run already under way, and releases the
+folder's lock. A save is two commands, its bytes staged under
+`.git/epicenter/scratch` and then renamed over the path, so one cut off
+between them leaves the path as it was and a staged copy, which the next
+opening removes. Shutdown makes no commit, so saves can remain uncommitted.
+`src-tauri/examples/quit` checks both the settled quit and one approved
+early.
 
 ## History
 
-The shell registers the folder with no remote. A save never commits
+Whispering offers no sync, so nothing is pushed. A save never commits
 (ADR-0529): a version is recorded only when the person presses **Save
 version**, a mutation that waits for the writes in flight and then calls
 `folder.git.commit()`, or runs `git commit` in the terminal. A failed commit
 stays visible and is not retried on its own. `src/lib/status.ts` turns the
 folder's Git snapshot into separate lines for saved files, changes since the
 last version (neutral detail, not a warning), and the last commit attempt,
-and never lets a commit outcome change what it says about a save.
+and never lets a commit outcome change what it says about a save. A commit's
+author is `user.name` and `user.email` from Git's configuration, the
+repository's or the person's global settings, and
+`Whispering <whispering@localhost>` only where neither is set.
 
 ## The terminal
 
@@ -753,7 +781,7 @@ keeps the session (output, history, typed command) for the life of the window,
 so hiding the terminal loses nothing.
 
 It is the person's real shell, not the folder's in-page one, and it writes the
-directory as any other program does, outside the owner. Nothing it writes is
+directory as any other program does, outside the page's engine. Nothing it writes is
 committed until a version is saved. A file it changed is read again after the
 command; an edit made before that read meets the change as a `Conflict`, like
 any other outside edit.
@@ -762,8 +790,10 @@ any other outside edit.
 
 The page reads the folder when it opens, after its own actions and terminal
 commands, and when the person returns to the window, unless a write is
-running; the last write to settle reads it then. It does not follow the
-folder's change hints. The host watches nothing and says nothing about files.
+running; the last write to settle reads it then. Nothing watches the folder:
+the shell has no watcher for a folder the page opens, the folder's change
+hints carry only the page's own writes, and the host watches nothing and says
+nothing about files.
 
 ## Debug builds
 
@@ -778,8 +808,8 @@ saves are still the only thing that publishes. `publishRecording` takes an
 optional `around` hook that runs each of its two writes; in a debug shell the
 workspace supplies `aroundRecordingWrite`, which asks the host to `obstruct`
 before the write and to `unobstruct` afterward. The host puts an empty
-directory at the path of the write that should fail, the owner runs the
-write, and the host removes the directory. The owner then reports the row's
+directory at the path of the write that should fail, the page's engine runs
+the write, and the host removes the directory. The folder then reports the row's
 own failure (`rowNotSaved`, audio saved) or the audio's own failure
 (`audioNotSaved`, nothing saved). Only a recording's row path and the audio path
 it creates can be obstructed; both are checked before they are joined onto
@@ -791,9 +821,9 @@ The injected commit failure is a real lock file on the ref of the branch `HEAD`
 names, created exclusively and tagged with a marker unique to that host. The
 host removes only a lock carrying its own marker, so it never takes or clears a
 lock another Git process holds. Because the host does not initialize Git, the
-lock can only be taken once the owner has opened the folder: a lock asked for
+lock can only be taken once the page has opened the folder: a lock asked for
 at launch (`WHISPERING_DEBUG_BLOCK_COMMITS=1`) waits until the page has
-attached and says so (`injection-launch`).
+opened it and says so (`injection-launch`).
 
 ## Where things are
 

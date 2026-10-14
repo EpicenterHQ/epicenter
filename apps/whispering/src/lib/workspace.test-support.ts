@@ -3,10 +3,10 @@
  * capture device, and stubbed endpoints. Nothing here reaches a network, a
  * microphone, or a provider.
  *
- * The folder is opened with the Bun directory opener. It keeps the same
- * contract as the desktop shell's owner over the same kind of directory, and
- * is what a test can open without a shell. It is not that owner: nothing here
- * establishes how the Rust owner behaves.
+ * The folder is opened with the Bun directory opener: the same folder engine
+ * the desktop page runs over a granted directory, over the same kind of
+ * directory, and what a test can open without a shell. Nothing here
+ * establishes how the Rust shell behaves.
  *
  * The endpoint stubs are plain functions, so a test decides each answer and
  * counts each request.

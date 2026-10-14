@@ -3,8 +3,8 @@
  *
  *   bun lock-probe.ts <lock file>
  *
- * The folder's owner holds an exclusive SQLite transaction on the file beside
- * the folder (`packages/tauri-plugin-epicenter-folder/core/src/lock.rs`). This
+ * The folder plugin holds an exclusive SQLite transaction on the file beside
+ * a folder it granted (`packages/tauri-plugin-epicenter-folder/core/src/lock.rs`). This
  * asks for the same transaction from another process, without waiting, and
  * prints `busy` or `free`. Taken, it is released at once. Any other failure,
  * including a missing file, throws and exits non-zero.

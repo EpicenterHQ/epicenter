@@ -82,8 +82,10 @@ with `POST /bridge/app { op: "close" }`; on `proceed` the host prints
 quit address. A start that never opened a page exits. The page and these
 rules are the only things that consent; the guard mirrors none of their state.
 An approved exit ends with `stop:`, never `terminate:`, so the method is not
-asked again. The folder plugin drains and unlocks the folder on
-`RunEvent::Exit`, and `on_run_event` stops the host, as for every other exit.
+asked again. On `RunEvent::Exit` the folder plugin refuses new page work, waits
+for the page's file and Git commands still running, and unlocks the folder,
+and `on_run_event` stops the host, as for every other exit. The page settled
+its own saves before it approved; nothing drains them after.
 
 There is no `NSTerminateNow` or `NSTerminateLater` branch, no modal check, and
 no resumed logout. These are deliberate:
@@ -103,10 +105,11 @@ Other platforms compile without the module (`#[cfg(target_os = "macos")]`).
 ```sh
 cd apps/whispering
 WHISPERING_BUN="$(command -v bun)" bun run test:quit --scenario approve
+WHISPERING_BUN="$(command -v bun)" bun run test:quit --scenario early
 WHISPERING_BUN="$(command -v bun)" bun run test:quit --scenario host-gone
 WHISPERING_BUN="$(command -v bun)" bun run test:quit --scenario no-page
 # or, once built:
-src-tauri/target/debug/examples/quit [--scenario approve|host-gone|no-page] \
+src-tauri/target/debug/examples/quit [--scenario approve|early|host-gone|no-page] \
   [--dir <missing or empty directory>] [--files <n>]
 ```
 
@@ -127,8 +130,8 @@ and the locked crates, and `whispering_lib::on_run_event` for every run event.
 The harness drives nothing until its run callback has seen `RunEvent::Ready`,
 so the app's setup has finished, and it reads the guard and the window on the
 main thread. Each wait is bounded by the same 60 seconds as every other step.
-That includes the guard, the Quit menu, the folder plugin and its
-registration, the capability, the navigation rule, the per-launch credential,
+That includes the guard, the Quit menu, the folder and fs plugins and the
+folder's registration, the capability, the navigation rule, the per-launch credential,
 the host's stdout reader, `request_close`, and `stop_host`. The host is the
 real Bun host from `native/main.ts`, started by `host_command` as a debug
 shell starts it. The one difference is the page: `build(Some(page))` sets the
@@ -140,28 +143,45 @@ sets `close_approved` or calls `request_close`.
 the window's real IPC and the credential the shell injects. It hears the close
 question on the host's real `/bridge/events` stream and answers through the
 host's real `/bridge/app` `close` operation, as the desktop workspace does. It
-attaches the folder with `plugin:epicenter-folder|attach` and writes with
-`apply`. It answers `proceed` only in answer to a `close-requested` line on
-its stream, so a let-through exit request after the second quit means the
-real relay carried that second question and its approval.
+opens the folder as the page's engine does: `grant_directory`, then
+`git init` through `run_git`. It writes each file as the engine does, its
+bytes staged under `.git/epicenter/scratch` with `write_folder_file` and then
+renamed over the path with `rename_folder_path`: two commands, so a quit
+between them leaves the path as it was. It answers `proceed` only in answer
+to a `close-requested` line on its stream, so a let-through exit request after
+the second quit means the real relay carried that second question and its
+approval.
 
 Each quit is `[NSApp performSelector:@selector(terminate:) withObject:nil
 afterDelay:0]`, posted from a main-thread task. AppKit sends `terminate:` on
 a later turn of the main run loop, outside every Tao callback.
 
 The folder's lock is probed from a separate Bun process (`lock-probe.ts`)
-asking for the same exclusive SQLite transaction the owner holds. Child
+asking for the same exclusive SQLite transaction the folder plugin holds. Child
 processes are read with `pgrep -P` on the harness's own process.
 
 ### `approve` (default)
 
 | Step | What the harness checks |
 | --- | --- |
-| Ready | The page attached the run's folder and wrote `harness/ready.json` through its session. `TaoAppDelegateParent` answers `applicationShouldTerminate:` with encoding `Q@:@`. The lock is held. The host is the one child process and serves its port. |
-| First quit | Exactly one `ExitRequested`, code `Some(0)`, held by `on_run_event`. The page answered `cancel` and then wrote `harness/declined.json` (`{"asked":1}`) through its session. The lock is still held, and the same host is still running and serving. |
-| Batch | The page sends one `apply` of `--files` new files (default 4000) and does not wait for it. The harness waits until the first file exists and the last does not: the owner admitted the batch and is writing it. |
-| Second quit | A held `ExitRequested`, then, after the page answered `proceed` and the host printed its approval, an `ExitRequested` that is not held. At that moment fewer than all the files exist. |
-| `RunEvent::Exit` | In the app's own callback, after the folder plugin's handler for the same event and after `on_run_event` stopped the host: every batch file exists with its exact bytes, the last one was written after the approved exit request, `declined.json` is still there, `.git/epicenter/scratch` is empty, the lock is free, the harness has no child process, and nothing accepts connections on the host's port. |
+| Ready | The page was granted the run's folder and wrote `harness/ready.json` through the folder plugin. `TaoAppDelegateParent` answers `applicationShouldTerminate:` with encoding `Q@:@`. The lock is held. The host is the one child process and serves its port. |
+| First quit | Exactly one `ExitRequested`, code `Some(0)`, held by `on_run_event`. The page answered `cancel` and then wrote `harness/declined.json` (`{"asked":1}`). The lock is still held, and the same host is still running and serving. |
+| Batch | The page starts writing `--files` new files (default 4000), one after another, and does not wait for them. The harness waits until the first file exists and the last does not. |
+| Second quit | A held `ExitRequested`. The page waits until its batch has settled, as Whispering's page does, then answers `proceed`; after the host printed its approval, an `ExitRequested` that is not held. At that moment every batch file exists. |
+| `RunEvent::Exit` | In the app's own callback, after the folder plugin's handler for the same event and after `on_run_event` stopped the host: every batch file exists with its exact bytes, `declined.json` is still there, `.git/epicenter/scratch` is empty, the lock is free, the harness has no child process, and nothing accepts connections on the host's port. |
+
+### `early`
+
+As `approve`, but at the second quit the page answers `proceed` at once, with
+its batch still being written, which Whispering's page never does. Nothing
+drains the batch after the approval: the folder plugin only waits for the one
+command already running. At `RunEvent::Exit` the approved exit request came
+before the batch finished, the batch files that exist are exactly the first
+ones in order, each with its exact bytes, at least one is missing, scratch
+holds at most one staged copy and that copy is the next file's whole bytes,
+the lock is free, and the harness has no child process. The next opening
+removes the staged copy (`directory-adapter.ts` in `packages/folder`, tested
+in `directory-folder.test.ts`); the harness does not reopen the folder.
 
 ### `host-gone`
 
@@ -169,7 +189,7 @@ After Ready, the harness kills the host (`kill -KILL`) and waits until its port
 refuses connections. First quit: one held `ExitRequested`; the shell finds the
 host gone and the page open, keeps the window, and raises
 `whispering:close-blocked`; the page writes `harness/blocked.json`
-(`{"blocked":1}`) through its session, so the folder is still open without the
+(`{"blocked":1}`) through the folder plugin, so the folder is still open without the
 host, and the lock is still held. Second quit: held again, and the page
 answers by navigating to `/__whispering__/quit`; the shell refuses that
 navigation and, because the host is gone, sets `close_approved` and exits. At
@@ -214,14 +234,32 @@ At startup the guard checks only the class, the delegate's class, and the
 method's absence. Whether AppKit asks a method added after the delegate was
 set, and whether Tao still reaches `RunEvent::Exit` from `terminate:` without
 asking, are not things startup can check. After any upgrade of macOS, Tauri,
-tauri-runtime-wry, Wry, or Tao, rerun the probe and all three harness
+tauri-runtime-wry, Wry, or Tao, rerun the probe and all four harness
 scenarios. If Tao starts answering `applicationShouldTerminate:` itself, the
 app refuses to start, and the guard must be reconsidered rather than removed
 blindly.
 
 ## Results
 
-### Coordinator: reproduced on macOS
+### Page engine: run on macOS, 2026-10-14
+
+The harness after Whispering's folder moved to the page's own engine, run on
+a Mac with a login session, from a debug example build of this source.
+
+| Scenario | Actual result |
+| --- | --- |
+| approve (4,000 files) | Pass in 3,429 ms. The approved exit request came with all 4,000 files written; every file exact, scratch empty, lock free, no child, no listening host. |
+| early (4,000 files) | Pass in 559 ms. Approved with 3 files written; at exit 3 files, each exact, and one staged copy in scratch holding the fourth file's whole bytes; lock free, no child. |
+| host-gone | Pass in 562 ms. |
+| no-page | Pass in 222 ms. |
+
+The late-method probe was not rerun; nothing it checks changed.
+
+### Coordinator: reproduced on macOS, with the folder's Rust owner
+
+These results are from the build before the page engine, when the folder's
+Rust owner drained an early approval itself. The `approve` row below shows
+that drain, which no longer exists.
 
 The coordinator ran the final source on the same Mac outside the worker's
 restricted sandbox. These are debug harness results from isolated disposable
@@ -256,8 +294,9 @@ that restriction.
 - That the Dock's Quit, a logout, a restart, a shutdown, or `osascript`
   reaches `terminate:`. The harness sends `terminate:` itself.
 - Whispering's page, or any production GUI. The fixture page is not
-  Whispering's page. It approves without settling, which Whispering's page
-  never does, and shows no dialog. Whether a person sees the prompt after a
+  Whispering's page. In `approve` it settles its saves before it approves, as
+  Whispering's page does; in `early` it does not, which Whispering's page
+  never does. It shows no dialog. Whether a person sees the prompt after a
   Dock quit is a GUI check this does not make.
 - A bundled, signed app or the compiled host. The harness is a debug example
   binary, and its host is `native/main.ts` run by Bun.

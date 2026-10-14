@@ -9,34 +9,62 @@
 // it hears the shell's `whispering:close-blocked` event and quits through the
 // quit address, as `quitWithoutHost` does.
 //
-// It answers the first question with `cancel` ("Keep working") and the next
-// with `proceed`. Unlike Whispering's page, it approves without settling its
-// saves first, so a save it started is still running when the shell exits:
-// that is what the harness checks the folder's owner drains.
+// It opens the folder as the page's engine does: `grant_directory`, then
+// `git init` through `run_git`. Every file it writes is written the way the
+// engine writes one (`directory-handle.ts` in `packages/folder`): the bytes go
+// to a new file under `.git/epicenter/scratch`, which is then renamed over the
+// path. Those are two commands, so a quit between them leaves the staged copy
+// behind and the path as it was.
 //
-// It reports through the folder itself, under `harness/`. `__SCOPE__`,
-// `__PROTOCOL__`, and `__SCENARIO__` are filled in by the harness.
+// It answers the first question with `cancel` ("Keep working") and the next
+// with `proceed`. In `approve` it first waits until its batch has settled, as
+// Whispering's page does (`prepareToLeave`); in `early` it approves at once,
+// with the batch still being written.
+//
+// It reports through the folder itself, under `harness/`. `__SCOPE__` and
+// `__SCENARIO__` are filled in by the harness.
 (async () => {
 	const internals = window.__TAURI_INTERNALS__;
-	const invoke = (command, args) => internals.invoke(command, args);
+	const invoke = (command, args) =>
+		internals.invoke(`plugin:epicenter-folder|${command}`, args);
 	const origin = window.location.origin;
 	const authorization = `Bearer ${window.__WHISPERING_BRIDGE__.token}`;
+	const scope = '__SCOPE__';
 	const scenario = '__SCENARIO__';
 	const bytes = (text) => Array.from(new TextEncoder().encode(text));
-	let session;
-	const apply = (changes) =>
-		invoke('plugin:epicenter-folder|apply', {
-			session,
-			changes,
+
+	const granted = await invoke('grant_directory', { scope });
+	const root = granted.root;
+	const scratch = `${root}/.git/epicenter/scratch`;
+	let staged = 0;
+	await invoke('run_git', {
+		scope,
+		args: ['init', '--quiet', `--initial-branch=${granted.branch}`],
+		input: null,
+		indexFile: null,
+		authorization: null,
+		request: 1,
+	});
+	for (const directory of [scratch, `${root}/harness`, `${root}/batch`])
+		await invoke('make_folder_directory', { scope, path: directory });
+
+	// One file, as the engine writes it: staged, then renamed into place.
+	const write = async (path, text) => {
+		const copy = `${scratch}/fixture-${staged++}`;
+		await invoke('write_folder_file', {
+			scope,
+			path: copy,
+			bytes: bytes(text),
+			createNew: true,
 		});
+		await invoke('rename_folder_path', {
+			scope,
+			from: copy,
+			to: `${root}/${path}`,
+		});
+	};
 	const report = (name, value) =>
-		apply([
-			{
-				kind: 'overwrite',
-				path: `harness/${name}.json`,
-				bytes: bytes(JSON.stringify(value)),
-			},
-		]);
+		write(`harness/${name}.json`, JSON.stringify(value));
 
 	const answer = async (decision) => {
 		const response = await fetch(`${origin}/bridge/app`, {
@@ -47,15 +75,18 @@
 		if (!response.ok) throw new Error(`close ${decision}: ${response.status}`);
 	};
 
+	/** The batch being written, once one was started. */
+	let batch;
 	let asked = 0;
 	const closeRequested = async () => {
 		asked += 1;
 		if (asked === 1) {
 			await answer('cancel');
 			await report('declined', { asked });
-		} else {
-			await answer('proceed');
+			return;
 		}
+		if (scenario === 'approve') await batch?.catch(() => {});
+		await answer('proceed');
 	};
 
 	let blocked = 0;
@@ -95,29 +126,23 @@
 		}
 	})();
 
-	const attached = await invoke('plugin:epicenter-folder|attach', {
-		scope: '__SCOPE__',
-		protocol: __PROTOCOL__,
-	});
-	session = attached.session;
-
 	window.__quitFixture = {
-		// One batch of `count` new files, sent and not awaited: the owner admits
-		// it as one operation and writes the files in order.
+		// `count` new files, one after another, as a page's saves are: started
+		// here and not awaited.
 		startBatch(count) {
-			const changes = [];
-			for (let index = 0; index < count; index += 1)
-				changes.push({
-					kind: 'create',
-					path: `batch/${String(index).padStart(6, '0')}.md`,
-					bytes: bytes(`${index}\n`),
-				});
-			apply(changes).catch(() => {});
+			batch = (async () => {
+				for (let index = 0; index < count; index += 1)
+					await write(
+						`batch/${String(index).padStart(6, '0')}.md`,
+						`${index}\n`,
+					);
+			})();
+			batch.catch(() => {});
 		},
 	};
 	await report('ready', {
 		scenario,
-		root: attached.root,
+		root,
 		port: Number(window.location.port),
 	});
 })();

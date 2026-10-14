@@ -857,6 +857,26 @@ test('the host going away while saves settle shows the prompt, and approves noth
 	expect(page.counts.quitSignals).toBe(1);
 });
 
+test('quitting while saves settle waits for them: nothing finishes a save after the shell exits', async () => {
+	const page = scripted();
+	page.ask();
+	await until(() => page.answers.length === 1, 'the acknowledgement');
+	// The host goes away while the saves the page admitted are still running,
+	// and the person quits at once.
+	page.askWithoutHost();
+	expect(page.guard.asking).toBe(true);
+
+	const quitting = page.guard.discardAndQuit();
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	expect(page.guard.phase).toBe('quitting');
+	expect(page.counts.quitSignals).toBe(0);
+
+	page.prepared.resolve(true);
+	await quitting;
+	expect(page.counts.quitSignals).toBe(1);
+	expect(page.answers).toEqual(['asking']);
+});
+
 test('keep working while saves settle admits work again, and the finished preparation approves nothing', async () => {
 	const page = scripted();
 	page.ask();

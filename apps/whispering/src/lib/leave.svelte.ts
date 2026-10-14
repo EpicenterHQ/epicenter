@@ -16,6 +16,10 @@
  *   confirmation. "Keep working" answers `cancel`, admits work again, and
  *   everything stays as it was. "Discard and quit" answers `proceed`.
  *
+ * Every save already under way lands before the page answers `proceed` or
+ * uses the quit address, including when the person quits while saves are
+ * still settling. A save that has not landed when the shell exits is lost.
+ *
  * Sending `proceed` commits the quit. From then on nothing is admitted again
  * and "Keep working" is not offered, whether or not the answer arrived: a
  * reply that was lost may still have been taken. An answer that could not be
@@ -27,10 +31,10 @@
  * person chooses to quit: with no host to relay an answer, quitting is always
  * their explicit choice, even when nothing is held.
  *
- * A stopped host does not stop saving. The folder belongs to the shell and
- * stays open, so an edit is still written and a pending recording can still be
- * tried again once the person keeps working; what is held is read live, and
- * the prompt follows it. What the host did is what is gone: the terminal and
+ * A stopped host does not stop saving. The shell granted the folder to this
+ * window, not to the host, and it stays open, so an edit is still written and
+ * a pending recording can still be tried again once the person keeps working;
+ * what is held is read live, and the prompt follows it. What the host did is what is gone: the terminal and
  * new transcription and transformation requests. A save can still fail for
  * its own reasons, as it can at any time.
  *
@@ -131,6 +135,11 @@ export function createLeaveGuard(
 		sending = true;
 		problem = undefined;
 		try {
+			// The person can quit before saves settled, when the host went away
+			// while they did. They land first: a save still running when the
+			// shell exits is lost. What is held only in this window is dropped,
+			// as chosen.
+			if (chosen) await library.prepareToLeave().catch(() => {});
 			if (hostGone) {
 				closing.quitWithoutHost();
 				return;

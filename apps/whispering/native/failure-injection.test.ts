@@ -9,7 +9,7 @@
  * directories.
  *
  * The repository is opened here with the Bun directory opener, standing in
- * for the shell's owner: something has to initialize Git and commit. The
+ * for the page: something has to initialize Git and commit. The
  * injection is never given that folder.
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -41,7 +41,7 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-/** An empty directory: what the host is given before the owner has opened it. */
+/** An empty directory: what the host is given before the page has opened it. */
 async function directory() {
 	const root = await realpath(
 		await mkdtemp(join(tmpdir(), 'whispering-lock-')),
@@ -50,7 +50,7 @@ async function directory() {
 	return root;
 }
 
-/** A directory the owner has opened, so Git exists in it. */
+/** A directory the page has opened, so Git exists in it. */
 async function open() {
 	const root = await directory();
 	const folder = await openTestFolder(root);
@@ -87,7 +87,7 @@ test('the lock is taken on the branch HEAD names, and is refused before Git exis
 	const root = await directory();
 	const injection = createFailureInjection({ root });
 
-	// The owner has not opened the folder: there is no branch, and the host
+	// The page has not opened the folder: there is no branch, and the host
 	// does not make a repository to have one.
 	await expect(injection.arm({ commitsBlocked: true })).rejects.toThrow(
 		'no Git history yet',
@@ -155,7 +155,7 @@ test('a lock asked for at launch waits for the folder to be opened, and is taken
 		commitsBlocked: false,
 	});
 	expect(await readdir(root)).toEqual([]);
-	// Asked before the owner opened the folder: refused, and still owed.
+	// Asked before the page opened the folder: refused, and still owed.
 	await expect(injection.armLaunch()).rejects.toThrow('no Git history yet');
 
 	const folder = await openTestFolder(root);

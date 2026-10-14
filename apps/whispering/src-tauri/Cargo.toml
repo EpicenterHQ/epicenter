@@ -26,6 +26,9 @@ getrandom = "0.3"
 serde_json = "1"
 tauri = { version = "2.11", features = [] }
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+# The page reads its granted folder through the fs plugin. The same
+# requirement as apps/epicenter/src-tauri/Cargo.toml.
+tauri-plugin-fs = "2"
 
 # The same pins as packages/tauri-plugin-epicenter-folder/Cargo.toml. A patch
 # applies only from the crate being built, so a shell that depends on the

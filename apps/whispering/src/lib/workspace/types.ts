@@ -1,8 +1,8 @@
 /**
  * The one boundary between Whispering and where its files live.
  *
- * The desktop app reaches a real directory through the desktop shell's folder
- * owner, and its other native abilities through the Whispering host; a
+ * The desktop app reaches a real directory the desktop shell grants it, and
+ * its other native abilities through the Whispering host; a
  * browser tab keeps a logical folder in OPFS. Everything above this type
  * is the same code for both. Capabilities a storage cannot offer are
  * `undefined` here, not emulated: a browser folder has no directory to reveal.
@@ -66,13 +66,13 @@ export const WorkspaceError = defineErrors({
 		message: `Whispering’s host could not be reached, so the folder was not opened: ${reason}`,
 		reason,
 	}),
-	/** The desktop shell's folder owner refused this window. */
+	/** The desktop shell refused this window its folder, or the folder could not be opened. */
 	DesktopFolder: ({ refusal }: { refusal: OpenFolderError }) => ({
 		message: refusal.message,
 		refusal,
 	}),
 	/**
-	 * The shell's owner and the host name different directories, so audio
+	 * The shell's grant and the host name different directories, so audio
 	 * would be read and commands run somewhere other than where files are
 	 * saved.
 	 */

@@ -87,11 +87,14 @@ bun dev:whispering:ui
 once and served by Whispering's host process. Use `bun dev:whispering:ui` for a
 fast UI loop.
 
-The desktop app has three parts. The window's shell owns the data folder and
-is the only thing that saves to it or records its history. A host process
-serves the page, runs the terminal, and sends transcription and transformation
-requests. The page is the UI. The host cannot be run on its own: only the
-shell starts it, with the folder it chose.
+The desktop app has three parts. The window's shell chooses the data folder,
+locks it, and grants it to the app's window alone. The page is the UI, and it
+opens the folder itself: it reads the files, saves them, and records history,
+and every save and every `git` command goes through the shell, which keeps
+them inside the folder and out of Git's private files. A host process serves
+the page, runs the terminal, and sends transcription and transformation
+requests. The host cannot be run on its own: only the shell starts it, with
+the folder it chose.
 
 Checks, from `apps/whispering`:
 
@@ -374,15 +377,23 @@ are separate outcomes and the status reports them separately.
 - **Save version**, in the status details, records one: it waits for what is
   being written, then commits the saved files. It is the only thing in the
   app that does. `git commit` in the terminal works too.
+- A version is recorded as the person Git's configuration names: `user.name`
+  and `user.email` from the folder's repository or your global Git settings.
+  Only when neither is set is it recorded as `Whispering <whispering@localhost>`.
 - The status says "Saved" once your changes are in files. How many files
   changed since the last version is shown as a detail, not as a warning.
 - A commit that fails or is blocked never undoes a save and never reports the
   save as failed. The status says what happened to it, and **Save version**
   tries again.
-- Quitting records no version. Saves that are underway finish, and whatever
-  changed since the last version stays that way until the next one.
+- Quitting records no version. Saves that are underway finish before the app
+  closes, and whatever changed since the last version stays that way until the
+  next one.
 - Terminal commands and other programs edit the files directly. Their changes
   enter the next version you save.
+- The app does not watch the folder. It reads it again after each terminal
+  command, when you return to the window, and when you press **Check again**,
+  so a change another program makes appears then. A save over a file that
+  changed since it was read is refused, never written over.
 
 ### When a save does not finish
 
@@ -425,8 +436,8 @@ shutdown) all ask the window first:
   the folder, a transcript or transformation result whose file was not written,
   a result on pasted text not saved yet, or a running transcription or
   transformation), the app stays open and shows what would be lost. **Keep working** closes the
-  prompt and changes nothing. **Discard and quit** closes the app and drops
-  what was held.
+  prompt and changes nothing. **Discard and quit** lets changes still being
+  written finish, then closes the app and drops what was held.
 
 Only leaving the app asks. Moving between Home, Recordings, and
 Transformations never does, because nothing is lost by it.
@@ -442,8 +453,8 @@ closed.
 
 If Whispering's host process stops while the window is open, the terminal,
 Reveal folder, and new transcription and transformation requests stop working
-until you restart the app. Saving does not stop: the folder belongs to the
-window's shell, so changes to recordings, transcripts, and other files can
+until you restart the app. Saving does not stop: the shell granted the folder
+to the window, not to the host, so changes to recordings, transcripts, and other files can
 still be saved, a pending recording can still be tried again, and **Save
 version** still works. A save can still fail for its own reasons, such as a full
 disk, exactly as it can at any other time.
@@ -614,6 +625,9 @@ it. These promises of the earlier build changed:
   as U+FFFD, as before.
 - The lists do not follow change hints. They are read when you return to the
   window, act, or press Check again.
+- A version is recorded as you. The earlier build recorded every version as
+  `Whispering <whispering@localhost>` and ignored Git's configuration; now
+  `user.name` and `user.email` decide, with Whispering only as the fallback.
 
 ## What is not supported
 
@@ -650,7 +664,7 @@ These are absent, not hidden behind a setting:
   never used inside a desktop app. The host's Whispering commands in
   `apps/epicenter/src-tauri` are not called by this app.
 - Running the host process by hand, or opening the desktop folder from a
-  browser tab. The folder belongs to the window's shell.
+  browser tab. The shell grants the folder to its own window alone.
 - Moving a recording's audio and having the recording follow. Nothing repairs
   `audioPath`, and nothing collects audio files that no recording names.
 - Recordings saved by an earlier build of this app, whose files have no

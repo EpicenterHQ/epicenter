@@ -2,11 +2,13 @@
 //!
 //! The shell owns a window, the data folder, and one child process.
 //!
-//! The folder has one owner, `tauri-plugin-epicenter-folder`, in this process.
-//! The shell chooses the folder's directory once, registers it with that owner
-//! for the main window, and lets that window's page call the owner's commands.
-//! The page names the folder and never a path. This crate registers no command
-//! of its own.
+//! The shell chooses the folder's directory once and registers it with
+//! `tauri-plugin-epicenter-folder` for the main window alone, as a folder the
+//! page opens with its own engine. When the page names the folder, the plugin
+//! locks it and grants that window its directory: the page reads it through
+//! the fs plugin, and makes every change and runs every `git` command through
+//! the folder plugin, which checks each path. The page names the folder and
+//! never a path. This crate registers no command of its own.
 //!
 //! The child is the Bun host (`native/main.ts`): it serves the page on loopback
 //! and does what a page cannot, such as running the terminal and sending
@@ -28,8 +30,10 @@
 //! refuses to load and reads as the person's choice to quit. The one exit
 //! without any answer is when no app page was ever opened.
 //!
-//! On exit the folder's owner refuses new work, lets the saves and commits it
-//! had admitted finish, and releases the folder. It commits nothing of its own.
+//! The page settles its own saves before it approves a close. On exit the
+//! folder plugin refuses new page work, waits a bounded time for the file and
+//! Git commands already running, and releases the folder's lock. It saves and
+//! commits nothing of its own.
 //!
 //! A debug shell tells the host it may use fixture audio and failure
 //! injection. A release shell never does, whatever the environment says.
@@ -107,7 +111,7 @@ pub fn run() {
 }
 
 /// The app, built and not yet running. Its setup (the quit guard first, then
-/// the menu, the folder and its owner, the host, and the window) runs once
+/// the menu, the folder's registration, the host, and the window) runs once
 /// `App::run` starts the event loop, before Tauri sends `RunEvent::Ready`.
 ///
 /// `page` is what the host serves as the page. `run` passes `None`, so the
@@ -117,6 +121,9 @@ pub fn build(page: Option<PathBuf>) -> tauri::Result<App> {
     tauri::Builder::default()
         // Shuts the folder down when the app exits; see the module comment.
         .plugin(tauri_plugin_epicenter_folder::init())
+        // The page reads its granted folder through this plugin. Its
+        // commands reach a path only through the folder plugin's grant.
+        .plugin(tauri_plugin_fs::init())
         .manage(HostState::default())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -169,7 +176,7 @@ pub fn on_run_event(app: &AppHandle, event: &RunEvent) -> bool {
 
 /// Everything the page depends on, settled before the page exists: where the
 /// folder is, the host that serves the page, the folder registered for the
-/// main window, and that window's page allowed to call the owner.
+/// main window, and that window's page allowed to ask for it.
 ///
 /// When any of it fails the host is stopped and no window is granted anything.
 /// The window that opens then is the failure page, which can reach no folder.
@@ -189,8 +196,8 @@ fn start(app: &App, page: Option<&Path>) -> Result<StartedHost, String> {
 
 /// The data folder, chosen here and nowhere else: `WHISPERING_DATA_ROOT` when
 /// it is set, otherwise `~/Epicenter/local/so.epicenter.whispering`. It is
-/// created when absent and resolved once; the owner and the host are both
-/// given the resolved path.
+/// created when absent and resolved once; the folder plugin and the host are
+/// both given the resolved path.
 fn data_root(app: &App) -> Result<PathBuf, String> {
     let configured = std::env::var("WHISPERING_DATA_ROOT").ok();
     let selected = match configured_root(configured.as_deref()) {
@@ -229,8 +236,9 @@ fn resolve_root(selected: &Path) -> Result<PathBuf, String> {
             root.display()
         ));
     }
-    // The owner reports the path to the page as text, and the host is handed
-    // it as text. A path that is not text could not be compared between them.
+    // The folder plugin reports the path to the page as text, and the host is
+    // handed it as text. A path that is not text could not be compared between
+    // them.
     if root.to_str().is_none() {
         return Err(format!(
             "the data folder at {} has a name that is not valid Unicode",
@@ -240,37 +248,47 @@ fn resolve_root(selected: &Path) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-/// Register the folder for the main window, and for that window only.
+/// Register the folder for the main window, and for that window only, as a
+/// folder the page opens with its own engine.
 ///
-/// History is local and recorded as the app: the repository's own `user.name`
-/// and `origin` are not read, so a save never pushes anywhere.
+/// A version is recorded as the person Git's configuration names (the
+/// repository's `user.name` and `user.email`, global settings included), and
+/// as Whispering only where none is set. The page reads that, and the remote,
+/// from the repository; nothing is pushed unless the person syncs.
 fn register_folder<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), String> {
+    let mut folder = FolderConfig::new(
+        root,
+        Author {
+            name: "Whispering".to_string(),
+            email: "whispering@localhost".to_string(),
+        },
+    );
+    folder.page_engine = true;
     app.folders().register(ScopeConfig {
         scope: FOLDER_SCOPE.to_string(),
-        folder: FolderConfig::new(
-            root,
-            Author {
-                name: "Whispering".to_string(),
-                email: "whispering@localhost".to_string(),
-            },
-        ),
+        folder,
         windows: vec![MAIN_WINDOW.to_string()],
     })
 }
 
-/// What lets the page call the folder's owner: the main window, while it shows
-/// a page of the host on this launch's port, and nothing else. The page is
+/// What lets the page ask for its folder: the main window, while it shows a
+/// page of the host on this launch's port, and nothing else. The page is
 /// served from loopback, which Tauri treats as a remote origin, so it has no
 /// command at all without this. A page from any other origin or port, a local
 /// page such as the failure page, and any other window are not covered.
 ///
-/// The permissions are the owner's commands and listening for its events.
+/// The permissions are the folder plugin's commands, the fs plugin's reading
+/// commands without a path, and listening for events. The fs commands reach
+/// nothing until `grant_directory` adds them for the folder's directory alone.
 fn folder_capability(port: u16) -> CapabilityBuilder {
-    CapabilityBuilder::new(FOLDER_CAPABILITY)
+    let capability = CapabilityBuilder::new(FOLDER_CAPABILITY)
         .local(false)
         .remote(format!("http://127.0.0.1:{port}/*"))
         .window(MAIN_WINDOW)
-        .permission("epicenter-folder:default")
+        .permission("epicenter-folder:default");
+    tauri_plugin_epicenter_folder::DIRECTORY_COMMANDS
+        .into_iter()
+        .fold(capability, CapabilityBuilder::permission)
         .permission("core:event:allow-listen")
         .permission("core:event:allow-unlisten")
 }
@@ -568,9 +586,8 @@ fn is_host_url(url: &tauri::Url, port: u16) -> bool {
         && url.password().is_none()
 }
 
-/// Open the app page. `start` has already registered the folder and granted
-/// this window's page the owner's commands, so the page can attach as soon as
-/// it runs.
+/// Open the app page. `start` has already registered the folder and let this
+/// window's page ask for it, so the page can open it as soon as it runs.
 fn open_app_window(app: &App, port: u16, token: &str) -> Result<(), Box<dyn std::error::Error>> {
     let origin = format!("http://127.0.0.1:{port}");
     let url: tauri::Url = format!("{origin}/").parse()?;
@@ -626,8 +643,8 @@ fn open_failure_window(app: &App, error: &str) -> Result<(), Box<dyn std::error:
 }
 
 /// Close the host's standard input, which asks it to exit, then make sure it
-/// is gone. The folder is not the host's: its owner settles its own saves and
-/// commits when the app exits.
+/// is gone. The folder is not the host's: the page settled its saves before it
+/// approved, and the folder plugin releases the folder when the app exits.
 fn stop_host(app: &AppHandle) {
     let state = app.state::<HostState>();
     let Some(mut process) = state
@@ -658,7 +675,7 @@ mod tests {
     use serde_json::{json, Value};
     use tauri::ipc::{CallbackFn, InvokeBody, RuntimeCapability};
     use tauri::test::{mock_builder, MockRuntime, INVOKE_KEY};
-    use tauri::utils::acl::capability::CapabilityFile;
+    use tauri::utils::acl::capability::{CapabilityFile, PermissionEntry};
     use tauri::webview::InvokeRequest;
     use tauri::WebviewWindow;
 
@@ -838,26 +855,51 @@ mod tests {
             permissions,
             vec![
                 "epicenter-folder:default",
+                "fs:allow-read-dir",
+                "fs:allow-lstat",
+                "fs:allow-read-file",
                 "core:event:allow-listen",
                 "core:event:allow-unlisten",
             ]
         );
+        assert_eq!(
+            permissions[1..4],
+            tauri_plugin_epicenter_folder::DIRECTORY_COMMANDS
+        );
+        // No fs permission names a path of its own: only a grant gives one.
+        assert!(capability
+            .permissions
+            .iter()
+            .all(|permission| matches!(permission, PermissionEntry::PermissionRef(_))));
     }
 
-    /// One `attach` through the real invoke handler, as a page at `url` would
+    /// A granted folder's `.git` and dot files are reachable by the fs
+    /// plugin's scope.
+    #[test]
+    fn the_fs_plugin_matches_dot_files() {
+        let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            config["plugins"]["fs"]["requireLiteralLeadingDot"],
+            json!(false)
+        );
+    }
+
+    /// One command through the real invoke handler, as a page at `url` would
     /// send it.
-    fn attach(window: &WebviewWindow<MockRuntime>, url: &str, scope: &str) -> Result<Value, Value> {
+    fn invoke(
+        window: &WebviewWindow<MockRuntime>,
+        url: &str,
+        cmd: &str,
+        body: Value,
+    ) -> Result<Value, Value> {
         tauri::test::get_ipc_response(
             window,
             InvokeRequest {
-                cmd: "plugin:epicenter-folder|attach".to_string(),
+                cmd: cmd.to_string(),
                 callback: CallbackFn(0),
                 error: CallbackFn(1),
                 url: url.parse().unwrap(),
-                body: InvokeBody::Json(json!({
-                    "scope": scope,
-                    "protocol": tauri_plugin_epicenter_folder::PROTOCOL,
-                })),
+                body: InvokeBody::Json(body),
                 headers: Default::default(),
                 invoke_key: INVOKE_KEY.to_string(),
             },
@@ -865,57 +907,140 @@ mod tests {
         .map(|body| body.deserialize::<Value>().expect("a JSON response"))
     }
 
+    /// The page's first call: ask for the folder's directory.
+    fn grant(window: &WebviewWindow<MockRuntime>, url: &str, scope: &str) -> Result<Value, Value> {
+        invoke(
+            window,
+            url,
+            "plugin:epicenter-folder|grant_directory",
+            json!({ "scope": scope }),
+        )
+    }
+
     /// The shell's own registration and capability, against the app's real
-    /// permissions, on the mock runtime. The folder is a real directory and a
-    /// real repository.
+    /// permissions, on the mock runtime. The folder is a real directory.
     #[test]
-    fn only_the_main_window_on_the_host_origin_reaches_the_folder() {
+    fn only_the_main_window_on_the_host_origin_is_granted_the_folder() {
         std::env::set_var("GIT_CONFIG_GLOBAL", "/dev/null");
         std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
         let directory = temp("capability");
         let root = resolve_root(&directory.0.join("data")).unwrap();
         let app = mock_builder()
             .plugin(tauri_plugin_epicenter_folder::init())
+            .plugin(tauri_plugin_fs::init())
             .build(context::<MockRuntime>())
             .expect("mock app");
-        let main = WebviewWindowBuilder::new(&app, MAIN_WINDOW, Default::default())
+        let host = "http://127.0.0.1:4000/";
+        // Both windows show the host's page, as the app's window does.
+        let page = || WebviewUrl::External(host.parse().unwrap());
+        let main = WebviewWindowBuilder::new(&app, MAIN_WINDOW, page())
             .build()
             .expect("main window");
-        let other = WebviewWindowBuilder::new(&app, "other", Default::default())
+        let other = WebviewWindowBuilder::new(&app, "other", page())
             .build()
             .expect("other window");
-        let host = "http://127.0.0.1:4000/";
 
         // Before the shell registers or grants anything, nothing is reachable.
-        assert!(attach(&main, host, FOLDER_SCOPE).is_err());
+        assert!(grant(&main, host, FOLDER_SCOPE).is_err());
 
         register_folder(app.handle(), root.clone()).unwrap();
         // Registered, and still not callable: the window has no capability.
-        assert!(attach(&main, host, FOLDER_SCOPE).is_err());
+        assert!(grant(&main, host, FOLDER_SCOPE).is_err());
 
         app.add_capability(folder_capability(4000)).unwrap();
 
         // Another port, another host, and a local page are not the host's page.
-        assert!(attach(&main, "http://127.0.0.1:4001/", FOLDER_SCOPE).is_err());
-        assert!(attach(&main, "http://localhost:4000/", FOLDER_SCOPE).is_err());
-        assert!(attach(&main, "https://example.com/", FOLDER_SCOPE).is_err());
-        assert!(attach(&main, "tauri://localhost", FOLDER_SCOPE).is_err());
+        assert!(grant(&main, "http://127.0.0.1:4001/", FOLDER_SCOPE).is_err());
+        assert!(grant(&main, "http://localhost:4000/", FOLDER_SCOPE).is_err());
+        assert!(grant(&main, "https://example.com/", FOLDER_SCOPE).is_err());
+        assert!(grant(&main, "tauri://localhost", FOLDER_SCOPE).is_err());
         // Another window is not covered, even on the host's origin.
-        assert!(attach(&other, host, FOLDER_SCOPE).is_err());
-        // None of those opened the folder.
-        assert!(!root.join(".git").exists());
+        assert!(grant(&other, host, FOLDER_SCOPE).is_err());
+
+        // Before a grant the fs commands reach nothing, not even the folder.
+        let read_dir = |window: &WebviewWindow<MockRuntime>| {
+            invoke(
+                window,
+                host,
+                "plugin:fs|read_dir",
+                json!({ "path": root.to_str().unwrap() }),
+            )
+        };
+        assert!(read_dir(&main).is_err());
 
         // The main window, on the host's origin, names the folder and gets the
-        // directory the shell chose. It supplied no path.
-        let attached = attach(&main, host, FOLDER_SCOPE).expect("the main window attaches");
-        assert_eq!(attached["root"], root.to_str().unwrap());
-        assert_eq!(attached["snapshot"]["branch"], "main");
-        // Local history only: no remote, so nothing is ever pushed.
-        assert_eq!(attached["snapshot"]["remote"], Value::Null);
-        assert!(root.join(".git").exists());
+        // directory the shell chose. It supplied no path. The author is the
+        // fallback for a repository and a machine with no Git identity.
+        let granted = grant(&main, host, FOLDER_SCOPE).expect("the main window is granted");
+        assert_eq!(granted["root"], root.to_str().unwrap());
+        assert_eq!(granted["branch"], "main");
+        assert_eq!(granted["authorName"], "Whispering");
+        assert_eq!(granted["authorEmail"], "whispering@localhost");
+        // The shell owns nothing more: the page's engine creates the
+        // repository when it opens the folder.
+        assert!(!root.join(".git").exists());
+
+        // The grant reaches the folder's directory through the fs plugin, and
+        // only that directory.
+        read_dir(&main).expect("granted read");
+        assert!(invoke(
+            &main,
+            host,
+            "plugin:fs|read_dir",
+            json!({ "path": directory.0.to_str().unwrap() }),
+        )
+        .is_err());
+        // Changes go through the folder plugin, which keeps them inside it.
+        // The engine makes the repository first, and stages under it.
+        let initialized = std::process::Command::new("git")
+            .arg("init")
+            .arg("--quiet")
+            .arg(&root)
+            .status()
+            .unwrap();
+        assert!(initialized.success());
+        invoke(
+            &main,
+            host,
+            "plugin:epicenter-folder|make_folder_directory",
+            json!({
+                "scope": FOLDER_SCOPE,
+                "path": root.join("recordings").to_str().unwrap(),
+            }),
+        )
+        .expect("the page makes a data directory");
+        invoke(
+            &main,
+            host,
+            "plugin:epicenter-folder|write_folder_file",
+            json!({
+                "scope": FOLDER_SCOPE,
+                "path": root.join("recordings").join("take.md").to_str().unwrap(),
+                "bytes": [104, 105],
+                "createNew": true,
+            }),
+        )
+        .expect("the page writes a data file");
+        assert_eq!(
+            fs::read(root.join("recordings").join("take.md")).unwrap(),
+            b"hi"
+        );
+        assert!(invoke(
+            &main,
+            host,
+            "plugin:epicenter-folder|write_folder_file",
+            json!({
+                "scope": FOLDER_SCOPE,
+                "path": directory.0.join("outside.md").to_str().unwrap(),
+                "bytes": [104, 105],
+                "createNew": true,
+            }),
+        )
+        .is_err());
+        assert!(!directory.0.join("outside.md").exists());
 
         // The page names only what the shell registered.
-        let unknown = attach(&main, host, "so.epicenter.todos").unwrap_err();
+        let unknown = grant(&main, host, "so.epicenter.todos").unwrap_err();
         assert_eq!(unknown["name"], "UnknownScope");
 
         // Were another window ever granted the commands, the folder would
@@ -928,7 +1053,7 @@ mod tests {
                 .permission("epicenter-folder:default"),
         )
         .unwrap();
-        let refused = attach(&other, host, FOLDER_SCOPE).unwrap_err();
+        let refused = grant(&other, host, FOLDER_SCOPE).unwrap_err();
         assert_eq!(refused["name"], "WindowNotPermitted");
 
         // The folder cannot be registered a second time, for any window.

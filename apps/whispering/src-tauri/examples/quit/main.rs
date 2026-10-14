@@ -1,19 +1,21 @@
 //! A system quit of the real Whispering shell and host, on a fixture page.
 //! macOS only.
 //!
-//!   quit [--scenario approve|host-gone|no-page] [--dir <missing or empty directory>]
-//!        [--files <count>]
+//!   quit [--scenario approve|early|host-gone|no-page]
+//!        [--dir <missing or empty directory>] [--files <count>]
 //!
 //! The app is the one `run` starts (`whispering_lib::build` and
 //! `whispering_lib::on_run_event`): Tauri on Wry, the quit guard, the Quit
-//! menu, the folder's owner and its registration, the Bun host started from
-//! `native/main.ts` with the per-launch credential, the capability, the main
-//! window and its navigation rule, and the shell's handling of every exit
-//! request. Only the page differs: the host serves `page.html` and `page.js`
-//! in place of the built page. The fixture uses the window's real IPC and the
-//! host's real bridge: it hears the close question on `/bridge/events` and
-//! answers it with `POST /bridge/app { op: "close" }`, and the host prints
-//! the approval line the shell reads.
+//! menu, the folder plugin and the folder's registration, the Bun host
+//! started from `native/main.ts` with the per-launch credential, the
+//! capability, the main window and its navigation rule, and the shell's
+//! handling of every exit request. Only the page differs: the host serves
+//! `page.html` and `page.js` in place of the built page. The fixture uses the
+//! window's real IPC and the host's real bridge: it is granted the folder's
+//! directory and writes as the page's engine does, it hears the close
+//! question on `/bridge/events` and answers it with
+//! `POST /bridge/app { op: "close" }`, and the host prints the approval line
+//! the shell reads.
 //!
 //! Each quit is AppKit's own: `[NSApp performSelector:@selector(terminate:)
 //! withObject:nil afterDelay:0]`, posted from a main-thread task, so AppKit
@@ -22,26 +24,34 @@
 //!
 //! `approve` (the default):
 //!
-//! 1. The page attaches the folder and listens to the host. The folder's lock
-//!    is held and the host is running.
+//! 1. The page is granted the folder and listens to the host. The folder's
+//!    lock is held and the host is running.
 //! 2. First quit. The guard cancels it and asks for an exit; the exit request
 //!    is held; the shell asks the host, the host asks the page, and the page
-//!    answers `cancel` and then writes through its session. The process, the
-//!    host, and the folder's lock are all still there.
-//! 3. The page sends one batch of `--files` new files and does not wait for
-//!    it. Once the owner is writing it, second quit. The page answers
-//!    `proceed` without settling the batch, the host prints its approval, and
-//!    the shell exits while the batch is still being written.
+//!    answers `cancel` and then writes a file. The process, the host, and the
+//!    folder's lock are all still there.
+//! 3. The page starts a batch of `--files` new files, one after another. Once
+//!    it is being written, second quit. The page waits until the batch has
+//!    settled, as Whispering's page does, then answers `proceed`; the host
+//!    prints its approval and the shell exits.
 //! 4. On `RunEvent::Exit`, after the folder plugin's own shutdown and after
-//!    the shell stopped the host: every file of the batch is there with its
-//!    bytes, the last one written after the approval, nothing is left in
+//!    the shell stopped the host: the approved exit request came after the
+//!    whole batch was there, every file has its bytes, nothing is left in
 //!    scratch, the folder is unlocked, and the host is gone.
+//!
+//! `early`: as `approve`, but the page answers `proceed` at once, with the
+//! batch still being written, which Whispering's page never does. Nothing
+//! drains it after the approval. On `RunEvent::Exit` every batch file that is
+//! there is whole and in order, at least one is missing, and scratch holds
+//! at most the one staged copy whose rename never ran, itself whole. The next
+//! open of the folder removes it (`directory-adapter.ts` in `packages/folder`,
+//! tested there).
 //!
 //! `host-gone`: the harness kills the host after the page opened. The first
 //! quit is held and the page is told (`whispering:close-blocked`); it keeps
-//! the window and writes through its session. The second quit is held too,
-//! and the page answers it by navigating to the quit address, which the shell
-//! honors only because its host is gone.
+//! the window and writes a file. The second quit is held too, and the page
+//! answers it by navigating to the quit address, which the shell honors only
+//! because its host is gone.
 //!
 //! `no-page`: the data folder cannot be a directory, so the app starts on its
 //! failure page with no host and nothing granted. One quit is held, and the
@@ -99,6 +109,7 @@ mod mac {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Scenario {
         Approve,
+        Early,
         HostGone,
         NoPage,
     }
@@ -107,6 +118,7 @@ mod mac {
         fn name(self) -> &'static str {
             match self {
                 Scenario::Approve => "approve",
+                Scenario::Early => "early",
                 Scenario::HostGone => "host-gone",
                 Scenario::NoPage => "no-page",
             }
@@ -259,7 +271,7 @@ mod mac {
     }
 
     /// Whether another process holds the folder's lock, asked from a separate
-    /// Bun process with the same SQLite transaction the owner holds.
+    /// Bun process with the same SQLite transaction the folder plugin holds.
     fn locked(run: &Run) -> Result<bool, String> {
         let output = Command::new(&run.bun)
             .arg(LOCK_PROBE)
@@ -338,9 +350,12 @@ mod mac {
                 Some("--scenario") => {
                     options.scenario = match value.to_str() {
                         Some("approve") => Scenario::Approve,
+                        Some("early") => Scenario::Early,
                         Some("host-gone") => Scenario::HostGone,
                         Some("no-page") => Scenario::NoPage,
-                        _ => return Err("--scenario is approve, host-gone, or no-page".into()),
+                        _ => {
+                            return Err("--scenario is approve, early, host-gone, or no-page".into())
+                        }
                     }
                 }
                 Some("--dir") => options.dir = Some(PathBuf::from(value)),
@@ -404,10 +419,6 @@ mod mac {
         written(&page.join("index.html"), PAGE_HTML.as_bytes())?;
         let script = PAGE_JS
             .replace("__SCOPE__", SCOPE)
-            .replace(
-                "__PROTOCOL__",
-                &tauri_plugin_epicenter_folder::PROTOCOL.to_string(),
-            )
             .replace("__SCENARIO__", scenario.name());
         written(&page.join("fixture.js"), script.as_bytes())?;
         Ok((root, page))
@@ -490,7 +501,7 @@ mod mac {
                     )
                 })
                 .and_then(|()| match run().scenario {
-                    Scenario::Approve => drive_approve(&handle),
+                    Scenario::Approve | Scenario::Early => drive_batch(&handle),
                     Scenario::HostGone => drive_host_gone(&handle),
                     Scenario::NoPage => drive_no_page(&handle),
                 });
@@ -545,8 +556,8 @@ mod mac {
         })
     }
 
-    /// The page opened the folder and listens to the host. Returns the host's
-    /// process.
+    /// The page was granted the folder and listens to the host. Returns the
+    /// host's process.
     fn opened(app: &AppHandle) -> Result<u32, String> {
         let run = run();
         let root = &run.root;
@@ -574,7 +585,7 @@ mod mac {
             return Err("the main window is missing".into());
         }
         if ready["root"].as_str() != root.to_str() {
-            return Err("the page attached a folder other than the run's".into());
+            return Err("the page was granted a folder other than the run's".into());
         }
         let Some(port) = port.filter(|port| *port != 0) else {
             return Err("the page did not report the host's port".into());
@@ -608,8 +619,8 @@ mod mac {
         Ok(())
     }
 
-    /// `approve`, steps 1 to 3, off the main thread.
-    fn drive_approve(app: &AppHandle) -> Result<(), String> {
+    /// `approve` and `early`, steps 1 to 3, off the main thread.
+    fn drive_batch(app: &AppHandle) -> Result<(), String> {
         let run = run();
         let root = &run.root;
         let host = opened(app)?;
@@ -645,13 +656,13 @@ mod mac {
         }
         run.stage.store(KEPT, Ordering::SeqCst);
 
-        // Step 3: a batch the owner is writing, then the second quit.
+        // Step 3: a batch the page is writing, then the second quit.
         app.get_webview_window(WINDOW)
             .ok_or("the main window is missing")?
             .eval(format!("window.__quitFixture.startBatch({})", run.files).as_str())
             .map_err(|cause| format!("the batch could not be started: {cause}"))?;
         let last = batch_file(root, run.files - 1);
-        wait_for("the owner writing the batch", || {
+        wait_for("the page writing the batch", || {
             batch_file(root, 0).exists().then_some(())
         })?;
         if last.exists() {
@@ -759,9 +770,10 @@ mod mac {
         exit_requests().push(request);
     }
 
-    /// On `RunEvent::Exit`. Tauri gives it to the folder plugin, which shuts
-    /// the owner down, before the app's callback; the app's own handling,
-    /// which stops the host, ran just before this.
+    /// On `RunEvent::Exit`. Tauri gives it to the folder plugin, which refuses
+    /// new page work, waits for what is running, and releases the folder's
+    /// lock, before the app's callback; the app's own handling, which stops
+    /// the host, ran just before this.
     fn exited() {
         let run = run();
         let root = &run.root;
@@ -831,13 +843,22 @@ mod mac {
                 if report(root, "blocked") != Some(json!({ "blocked": 1 })) {
                     problems.push("the page's write after the blocked close is not there".into());
                 }
+                scratch_empty(run, &mut problems, &mut fields);
                 folder_released(run, &mut problems, &mut fields);
             }
             Scenario::Approve => {
                 if report(root, "declined") != Some(json!({ "asked": 1 })) {
                     problems.push("the page's write after declining is not there".into());
                 }
-                batch_drained(run, &requests, &mut problems, &mut fields);
+                batch_settled_first(run, &requests, &mut problems, &mut fields);
+                scratch_empty(run, &mut problems, &mut fields);
+                folder_released(run, &mut problems, &mut fields);
+            }
+            Scenario::Early => {
+                if report(root, "declined") != Some(json!({ "asked": 1 })) {
+                    problems.push("the page's write after declining is not there".into());
+                }
+                batch_whole(run, &requests, &mut problems, &mut fields);
                 folder_released(run, &mut problems, &mut fields);
             }
         }
@@ -850,9 +871,14 @@ mod mac {
         }
     }
 
-    /// Every file of the batch, with its bytes, the last written after the
-    /// approved exit request, which came before the batch finished.
-    fn batch_drained(
+    /// The bytes of batch file `index`.
+    fn batch_bytes(index: usize) -> Vec<u8> {
+        format!("{index}\n").into_bytes()
+    }
+
+    /// The approved exit request came after the whole batch was there, and
+    /// every file of it has its bytes.
+    fn batch_settled_first(
         run: &Run,
         requests: &[ExitRequest],
         problems: &mut Vec<String>,
@@ -861,14 +887,17 @@ mod mac {
         let root = &run.root;
         let approved = requests.iter().find(|request| !request.held);
         if let Some(approved) = approved {
-            if approved.landed >= run.files {
-                problems.push("the batch had finished when the approved exit was requested".into());
+            if approved.landed < run.files {
+                problems.push(format!(
+                    "the exit was approved with {} of {} batch files written",
+                    approved.landed, run.files
+                ));
             }
         }
         let mut wrong = Vec::new();
         for index in 0..run.files {
             match fs::read(batch_file(root, index)) {
-                Ok(bytes) if bytes == format!("{index}\n").as_bytes() => {}
+                Ok(bytes) if bytes == batch_bytes(index) => {}
                 Ok(_) => wrong.push(format!("{index}: other bytes")),
                 Err(cause) => wrong.push(format!("{index}: {cause}")),
             }
@@ -881,30 +910,84 @@ mod mac {
                 wrong[0]
             ));
         }
-        let last_written = fs::metadata(batch_file(root, run.files - 1))
-            .and_then(|stats| stats.modified())
-            .ok();
-        if let (Some(approved), Some(written)) = (approved, last_written) {
-            if written <= approved.at {
-                problems.push(
-                    "the last batch file was written before the approved exit request".into(),
-                );
-            }
-        }
         fields["landed"] = json!(landed(root));
         fields["of"] = json!(run.files);
-        fields["approvedExitRequestedAt"] = json!(approved.map(|request| millis(request.at)));
         fields["approvedWithLanded"] = json!(approved.map(|request| request.landed));
-        fields["lastBatchFileWrittenAt"] = json!(last_written.map(millis));
+        fields["approvedExitRequestedAt"] = json!(approved.map(|request| millis(request.at)));
     }
 
-    /// Nothing left in scratch, and the folder's lock free.
-    fn folder_released(run: &Run, problems: &mut Vec<String>, fields: &mut Value) {
-        let scratch = fs::read_dir(run.root.join(".git").join("epicenter").join("scratch"))
-            .map_or(0, |entries| entries.count());
+    /// After an approval that did not wait: the batch files that are there
+    /// are whole and in order, the rest are absent, and scratch holds at
+    /// most one staged copy, itself whole.
+    fn batch_whole(
+        run: &Run,
+        requests: &[ExitRequest],
+        problems: &mut Vec<String>,
+        fields: &mut Value,
+    ) {
+        let root = &run.root;
+        let approved = requests.iter().find(|request| !request.held);
+        if let Some(approved) = approved {
+            if approved.landed >= run.files {
+                problems.push("the batch had finished when the approved exit was requested".into());
+            }
+        }
+        let present = (0..run.files)
+            .take_while(|index| batch_file(root, *index).exists())
+            .count();
+        if landed(root) != present {
+            problems.push("the batch files at exit are not one unbroken run from the first".into());
+        }
+        if present == run.files {
+            problems.push(
+                "the whole batch was written after an early approval; run with more --files".into(),
+            );
+        }
+        for index in 0..present {
+            if fs::read(batch_file(root, index)).ok() != Some(batch_bytes(index)) {
+                problems.push(format!("batch file {index} is not whole at exit"));
+                break;
+            }
+        }
+        let staged: Vec<Vec<u8>> = fs::read_dir(scratch_dir(root))
+            .map(|entries| {
+                entries
+                    .filter_map(|entry| entry.ok())
+                    .filter_map(|entry| fs::read(entry.path()).ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if staged.len() > 1 {
+            problems.push(format!(
+                "{} files are left in scratch, not at most one",
+                staged.len()
+            ));
+        }
+        if staged.iter().any(|bytes| *bytes != batch_bytes(present)) {
+            problems.push("a copy left in scratch is not the next batch file's whole bytes".into());
+        }
+        fields["landed"] = json!(present);
+        fields["of"] = json!(run.files);
+        fields["approvedWithLanded"] = json!(approved.map(|request| request.landed));
+        fields["approvedExitRequestedAt"] = json!(approved.map(|request| millis(request.at)));
+        fields["scratchFiles"] = json!(staged.len());
+    }
+
+    fn scratch_dir(root: &Path) -> PathBuf {
+        root.join(".git").join("epicenter").join("scratch")
+    }
+
+    /// Nothing left in scratch.
+    fn scratch_empty(run: &Run, problems: &mut Vec<String>, fields: &mut Value) {
+        let scratch = fs::read_dir(scratch_dir(&run.root)).map_or(0, |entries| entries.count());
         if scratch != 0 {
             problems.push(format!("{scratch} files are left in scratch"));
         }
+        fields["scratchFiles"] = json!(scratch);
+    }
+
+    /// The folder's lock free.
+    fn folder_released(run: &Run, problems: &mut Vec<String>, fields: &mut Value) {
         let unlocked = match locked(run) {
             Ok(held) => !held,
             Err(cause) => {
@@ -915,7 +998,6 @@ mod mac {
         if !unlocked {
             problems.push("the folder is still locked at exit".to_string());
         }
-        fields["scratchFiles"] = json!(scratch);
         fields["folderUnlocked"] = json!(unlocked);
     }
 }

@@ -43,11 +43,14 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathProblem } from '@epicenter/folder';
 import { FileError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
+import { formatFromMimeType } from './audio-format.js';
 import { loadAudio } from './audio-source.js';
 import { createFixtureDevice, toneWav } from './capture.js';
+import { recordingAudioPath } from './definition.js';
 import { describeDeletion } from './deletion.js';
 import { openText, settle } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
@@ -66,7 +69,7 @@ import {
 	testInjection,
 } from './workspace.test-support.js';
 
-const { createLibrary } = await import('./library.svelte.ts');
+const { createLibrary, recordingId } = await import('./library.svelte.ts');
 
 const opened: Library[] = [];
 const roots: string[] = [];
@@ -225,6 +228,26 @@ function status(library: Library) {
 // ============================================================================
 // Launch and settings
 // ============================================================================
+
+test('a new recording’s audio and row are paths every folder accepts, the desktop shell included', () => {
+	for (const at of [
+		new Date('2026-01-02T03:04:05.678Z'),
+		new Date('1999-12-31T23:59:59.999Z'),
+	])
+		for (const mimeType of [
+			'audio/wav',
+			'audio/webm',
+			'audio/mp4',
+			'audio/ogg',
+			'audio/mpeg',
+			'audio/flac',
+		]) {
+			const id = recordingId(at);
+			const extension = formatFromMimeType(mimeType)!.extension;
+			expect(pathProblem(recordingAudioPath(id, extension))).toBeUndefined();
+			expect(pathProblem(`recordings/${id}.md`)).toBeUndefined();
+		}
+});
 
 test('the first launch creates no files or history, and saving a connection writes nothing to the folder', async () => {
 	const { library, root, device } = await open({

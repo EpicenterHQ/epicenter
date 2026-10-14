@@ -106,7 +106,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 test('a close asked before any event stream connected waits, and is delivered on connect', async () => {
 	const started = await start();
 
-	// A page can be recording and saving through the folder's owner while its
+	// A page can be recording and saving to the folder while its
 	// event stream has not connected, so no stream is not "nothing held".
 	started.host.closeRequested();
 	started.host.closeRequested();

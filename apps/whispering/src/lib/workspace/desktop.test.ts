@@ -5,48 +5,58 @@
  * The shell's replies and the host's answers are scripted here, so these pin
  * what the page itself decides: which storage it asks for, that it names a
  * folder and never a path, that a refusal from either side is returned and
- * nothing else is opened in its place, that the folder's calls go to the
+ * nothing else is opened in their place, that the folder's changes go to the
  * shell and not to the host, and how the close question reaches the page.
- * Nothing here runs the Rust owner or a WebView; `packages/folder` tests the
- * adapter against the real owner.
+ * The shell grants a real directory, and the page's own folder engine opens
+ * it (`granted-folder.test-support.ts`); nothing here runs the Rust shell or
+ * a WebView.
  *
  * Where a test is about what the host really does (answering a close, calling
  * an endpoint before its reply is lost), the host is the real one over its
  * real request handler and a real directory, with a stubbed endpoint.
  */
 import '../svelte-modules.test-support.js';
-import { afterEach, expect, mock, test } from 'bun:test';
-import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
+import { existsSync } from 'node:fs';
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { GitSnapshot } from '../../../../../packages/folder/src/native/bindings.gen.js';
+import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
+import { installWebLocks } from '../../../../../packages/folder/src/web-locks.test-support.js';
 import { createHost, type HostOptions } from '../../../native/host.js';
 import { encode } from '../bridge/codec.js';
 import { toneWav } from '../capture.js';
 import { createQueryClient } from '../query.test-support.js';
+import {
+	createGrantedShell,
+	type GrantedShell,
+	grantedDirectory,
+} from './granted-folder.test-support.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
 let inShell = true;
+/** Every command the page sent the shell. */
 let calls: Call[] = [];
-/** The shell's replies by command. A reply that throws is a refusal. */
-let replies: Record<string, (call: Call) => unknown> = {};
+/** The shell, once a test has one grant a directory. */
+let shell: GrantedShell | undefined;
 const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
 	async invoke(cmd: string, args: Record<string, unknown> = {}) {
 		const name = cmd.replace('plugin:epicenter-folder|', '');
-		// The shell's owner opens Whispering's folder: the grant that comes
-		// first is refused, and is not part of what these tests record.
-		if (name === 'grant_directory' && replies[name] === undefined)
-			throw { name: 'UsesOwner', scope: args.scope };
 		calls.push({ cmd: name, args });
-		const reply = replies[name];
-		if (reply === undefined) throw new Error(`no scripted reply for ${name}`);
-		return reply({ cmd: name, args });
+		if (shell === undefined) throw new Error(`no shell for ${name}`);
+		return shell.invoke(cmd, args);
 	},
 }));
 mock.module('@tauri-apps/api/event', () => ({
@@ -55,6 +65,16 @@ mock.module('@tauri-apps/api/event', () => ({
 		listeners.set(name, set);
 		set.add(callback);
 		return () => set.delete(callback);
+	},
+}));
+/** Paths the page read through the fs plugin. */
+let reads: string[] = [];
+mock.module('@tauri-apps/plugin-fs', () => ({
+	readDir: (path: string) => shell!.fs.readDir(path),
+	lstat: (path: string) => shell!.fs.lstat(path),
+	readFile: (path: string) => {
+		reads.push(path);
+		return shell!.fs.readFile(path);
 	},
 }));
 
@@ -67,41 +87,50 @@ const ROOT = '/Users/someone/Epicenter/local/so.epicenter.whispering';
 const SCOPE = 'so.epicenter.whispering';
 const CONNECTION = { origin: 'http://127.0.0.1:4999', token: 'test-token' };
 
-const snapshot = () =>
-	({
-		branch: 'main',
-		remote: null,
-		pendingIncoming: null,
-		files: { state: 'unknown', error: null },
-		sync: { state: 'unknown', error: null },
-		activity: {
-			scan: { active: false },
-			commit: { active: false },
-			push: { active: false },
-			fetch: { active: false },
-			pull: { active: false },
-			merge: { active: false },
-		},
-		lastCommit: null,
-		lastPush: null,
-		lastFetch: null,
-		lastPull: null,
-		lastMerge: null,
-		closed: false,
-	}) satisfies GitSnapshot;
+const gitConfig = {
+	GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+	GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
+};
+let restoreLocks: () => void;
+beforeAll(() => {
+	restoreLocks = installWebLocks();
+	// No Git identity of this machine's user: the shell's author is the fallback.
+	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+	process.env.GIT_CONFIG_NOSYSTEM = '1';
+});
+afterAll(() => {
+	restoreLocks();
+	for (const [key, value] of Object.entries(gitConfig))
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+});
 
-/** A shell whose owner has the folder registered for this window. */
-function attachable(root = ROOT) {
-	replies = {
-		attach: () => ({ session: 7, root, sequence: 3, snapshot: snapshot() }),
-		detach: () => null,
-	};
+/**
+ * A shell that grants this window `root`, a new empty directory unless one
+ * is named. The host reports the same directory unless a test says otherwise.
+ */
+async function granted(root?: string) {
+	const directory = root ?? (await grantedDirectory());
+	if (root === undefined)
+		cleanups.push(() => rm(directory, { recursive: true, force: true }));
+	shell = createGrantedShell(directory, SCOPE);
+	return shell;
 }
 
 const sent = (cmd: string) => calls.filter((call) => call.cmd === cmd);
+/** Whether the page changed anything in the folder. */
+const changedFiles = () =>
+	calls.some((call) =>
+		[
+			'write_folder_file',
+			'rename_folder_path',
+			'remove_folder_path',
+			'make_folder_directory',
+		].includes(call.cmd),
+	);
 const answer = (ok: unknown) => Response.json({ ok: encode(ok) });
 const info = (overrides: Record<string, unknown> = {}) => ({
-	root: ROOT,
+	root: shell?.root ?? ROOT,
 	shell: '/bin/sh',
 	debug: false,
 	fixture: null,
@@ -166,7 +195,8 @@ afterEach(async () => {
 	globalThis.fetch = pageFetch;
 	inShell = true;
 	calls = [];
-	replies = {};
+	reads = [];
+	shell = undefined;
 	listeners.clear();
 	const scope = globalThis as { window?: unknown; location?: unknown };
 	delete scope.window;
@@ -267,13 +297,13 @@ async function until(condition: () => boolean, what: string) {
 
 test('inside a desktop app with no Whispering host, nothing is opened: no folder, no host call, no browser storage', async () => {
 	setup({ bridge: undefined });
-	attachable();
+	await granted();
 
 	const refused = expectErr(await openWorkspace());
 
 	expect(refused.name).toBe('HostMissing');
 	expect(refused.message).toContain('browser storage is not used');
-	// A folder the shell would have attached is not a reason to open half an app.
+	// A folder the shell would have granted is not a reason to open half an app.
 	expect(calls).toEqual([]);
 	expect(listeners.size).toBe(0);
 });
@@ -318,7 +348,7 @@ test('a browser folder that is refused is returned as that refusal', async () =>
 
 test('a host that does not answer is the refusal, and the shell is not asked for a folder', async () => {
 	setup();
-	attachable();
+	await granted();
 	const requested: string[] = [];
 
 	const refused = expectErr(
@@ -333,14 +363,14 @@ test('a host that does not answer is the refusal, and the shell is not asked for
 
 	expect(refused.name).toBe('HostUnreachable');
 	expect(refused.message).toContain('Load failed');
-	// One request to the host, nothing after it, and no attach.
+	// One request to the host, nothing after it, and no grant.
 	expect(requested).toEqual(['/bridge/app']);
 	expect(calls).toEqual([]);
 });
 
-test('the page names the folder by its ID and nothing else, and shows the directory the owner reports', async () => {
+test('the page names the folder by its ID and nothing else, and opens the directory the shell grants', async () => {
 	setup();
-	attachable();
+	const { root } = await granted();
 	const served = host();
 
 	const workspace = expectOk(
@@ -348,33 +378,31 @@ test('the page names the folder by its ID and nothing else, and shows the direct
 	);
 
 	// No root, author, remote, or policy: the shell decided all of them.
-	expect(sent('attach')).toHaveLength(1);
-	expect(sent('attach')[0]?.args).toEqual({
-		scope: SCOPE,
-		protocol: expect.any(Number),
-	});
+	expect(calls[0]).toEqual({ cmd: 'grant_directory', args: { scope: SCOPE } });
+	expect(sent('grant_directory')).toHaveLength(1);
+	// Everything after the grant names the folder, never another.
+	for (const call of calls.slice(1)) expect(call.args.scope).toBe(SCOPE);
 	expect(workspace.kind).toBe('native');
-	expect(workspace.location).toBe(ROOT);
+	expect(workspace.location).toBe(root);
 	expect(workspace.folder.git.snapshot.branch).toBe('main');
+	// The page's engine made the repository, and nothing attached to an owner.
+	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(true);
+	expect(sent('attach')).toEqual([]);
 	await workspace.close();
-	expect(sent('detach')).toEqual([{ cmd: 'detach', args: { session: 7 } }]);
 });
 
-test('a refusal from the shell’s owner is returned, and nothing is opened in its place', async () => {
+test('a refusal from the shell is returned, and nothing is opened in its place', async () => {
 	setup();
 	for (const refusal of [
 		{ name: 'UnknownScope', scope: SCOPE },
 		{ name: 'WindowNotPermitted', scope: SCOPE, window: 'other' },
 		{ name: 'Busy', root: ROOT },
-		{ name: 'Incompatible', host: 9, page: 2 },
 		// What Tauri answers a window with no capability for the plugin.
-		'epicenter-folder.attach not allowed',
+		'epicenter-folder.grant_directory not allowed',
 	]) {
 		calls = [];
-		replies = {
-			attach: () => {
-				throw refusal;
-			},
+		(await granted()).control.grant = () => {
+			throw refusal;
 		};
 		const served = host();
 
@@ -388,28 +416,28 @@ test('a refusal from the shell’s owner is returned, and nothing is opened in i
 				typeof refusal === 'string' ? 'Unavailable' : refusal.name,
 			);
 		// One attempt, no event stream, no later host call.
-		expect(calls.map((call) => call.cmd)).toEqual(['attach']);
+		expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
 		expect(served.requested).toEqual(['/bridge/app']);
 		expect([...listeners.values()].every((set) => set.size === 0)).toBe(true);
 	}
 });
 
-test('a host that uses another directory than the owner’s is refused, and the window detaches', async () => {
+test('a host that uses another directory than the shell granted is refused, and the folder is closed', async () => {
 	setup();
-	attachable('/Users/someone/elsewhere');
+	const elsewhere = await grantedDirectory();
+	cleanups.push(() => rm(elsewhere, { recursive: true, force: true }));
 	const served = host();
+	await granted(elsewhere);
 
 	const refused = expectErr(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
 	);
 
 	expect(refused.name).toBe('FolderMismatch');
-	expect(refused.message).toContain('/Users/someone/elsewhere');
+	expect(refused.message).toContain(elsewhere);
 	expect(refused.message).toContain(ROOT);
-	// Attaching publishes the folder's definition; nothing else reaches the owner.
-	expect(
-		calls.map((call) => call.cmd).filter((cmd) => cmd !== 'apply'),
-	).toEqual(['attach', 'detach']);
+	// Opening wrote nothing in the folder, and the host was asked nothing more.
+	expect(changedFiles()).toBe(false);
 	expect(served.requested).toEqual(['/bridge/app']);
 });
 
@@ -417,36 +445,32 @@ test('a host that uses another directory than the owner’s is refused, and the 
 // The folder is the shell's
 // ============================================================================
 
-test('saves and history go to the shell’s owner and never to the host', async () => {
+test('saves and history go through the shell and never to the host', async () => {
 	setup();
-	attachable();
-	Object.assign(replies, {
-		apply: () => null,
-		commit: () => ({ status: 'unchanged', head: null, indexWarning: null }),
-		read: () => {
-			throw { name: 'NotFound', path: 'notes.md' };
-		},
-	});
+	const { root } = await granted();
 	const served = host();
 	const workspace = expectOk(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
 	);
-	const audio = new Uint8Array([1, 2, 3]);
+	const audio = new Uint8Array([1, 2, 3, 0, 255]);
 
-	// Each write is the shared adapter's own call: one `apply` apiece, in order.
 	expectOk(await workspace.folder.files.create('recordings/a.wav', audio));
 	expectOk(await workspace.folder.files.create('notes.md', 'hello'));
-	expect((await workspace.folder.git.commit()).status).toBe('unchanged');
-	const { error: readError } = await workspace.folder.files.read('notes.md');
+	expect((await workspace.folder.git.commit()).status).toBe('committed');
+	const { error: readError } = await workspace.folder.files.read('missing.md');
 	expect(readError?.name).toBe('NotFound');
 
+	// The recording's bytes reach the shell as numbers, staged and then renamed
+	// into place, and land exactly.
+	const staged = sent('write_folder_file').map((call) => call.args.bytes);
+	expect(staged).toContainEqual([1, 2, 3, 0, 255]);
+	expect(sent('rename_folder_path').map((call) => call.args.to)).toContainEqual(
+		join(root, 'recordings', 'a.wav'),
+	);
 	expect(
-		sent('apply').map((call) =>
-			(call.args.changes as { path: string }[]).map((change) => change.path),
-		),
-		// The first write publishes the folder's definition just before it.
-	).toEqual([['epicenter.json'], ['recordings/a.wav'], ['notes.md']]);
-	expect(sent('commit')).toHaveLength(1);
+		new Uint8Array(await readFile(join(root, 'recordings', 'a.wav'))),
+	).toEqual(audio);
+	expect(await git(root, 'status', '--porcelain')).toBe('');
 	// The host was asked who it is, and for its event stream. Nothing else.
 	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
 	expect(new Set(served.requested)).toEqual(
@@ -455,76 +479,86 @@ test('saves and history go to the shell’s owner and never to the host', async 
 	await workspace.close();
 });
 
-test('a row write whose reply the shell never sent is unknown, not refused, and a later write over what landed confirms', async () => {
+test('a version is recorded as the person Git’s configuration names, and as Whispering only when none is set', async () => {
 	setup();
-	attachable();
-	const disk = new Map<string, Uint8Array>([
-		[
-			'transformations/clean.md',
-			new TextEncoder().encode(
-				'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n',
-			),
-		],
-	]);
-	const written: string[] = [];
-	let loseReplies = false;
-	Object.assign(replies, {
-		// While replies are lost, the owner cannot be asked what landed either.
-		read: ({ args }: Call) => {
-			if (loseReplies) throw 'the reply was lost';
-			const bytes = disk.get(String(args.path));
-			if (bytes === undefined) throw { name: 'NotFound', path: args.path };
-			return {
-				bytes: [...bytes],
-				sha256: createHash('sha256').update(bytes).digest('hex'),
-			};
-		},
-		// The owner writes, and the reply never reaches the page.
-		apply: ({ args }: Call) => {
-			const changes = args.changes as { path: string; bytes: number[] }[];
-			// A handle's first write publishes its declaration first; this test
-			// is about the writes after it.
-			if (changes.every((change) => change.path === 'epicenter.json'))
-				return null;
-			for (const change of changes) {
-				disk.set(change.path, Uint8Array.from(change.bytes));
-				written.push(new TextDecoder().decode(Uint8Array.from(change.bytes)));
-			}
-			if (loseReplies) throw 'the reply was lost';
-			return null;
-		},
-	});
+	const { root } = await granted();
+	const served = host();
+	const first = expectOk(
+		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
+	);
+	expectOk(await first.folder.files.create('notes.md', 'first'));
+	expect((await first.folder.git.commit()).status).toBe('committed');
+	await first.close();
+	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(
+		'Whispering <whispering@localhost>',
+	);
+
+	// The person sets who they are; the next opening records versions as them.
+	await git(root, 'config', 'user.name', 'Someone');
+	await git(root, 'config', 'user.email', 'someone@example.test');
+	const second = expectOk(
+		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
+	);
+	expectOk(await second.folder.files.create('notes-2.md', 'second'));
+	expect((await second.folder.git.commit()).status).toBe('committed');
+	await second.close();
+	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(
+		'Someone <someone@example.test>',
+	);
+});
+
+test('a row write whose reply the shell never sent is confirmed by what landed, and is unknown, not refused, when that cannot be read', async () => {
+	setup();
+	const granting = await granted();
+	const PATH = 'transformations/clean.md';
+	await granting.write(
+		PATH,
+		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n',
+	);
 	const served = host();
 	const workspace = expectOk(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
 	);
 	const table = workspace.folder.tables.transformations;
 	const stored = expectOk(await table.get('clean'))!;
-	// From here the owner writes, and its replies never reach the page.
-	written.length = 0;
-	loseReplies = true;
 
-	const lost = await table.replace(stored, {
-		...stored.row,
-		body: 'Tidy it.\n',
+	// The shell writes, and its reply never reaches the page. The page reads
+	// the file back, finds exactly what it wrote, and the write is confirmed.
+	granting.control.loseReplies = 1;
+	const confirmed = expectOk(
+		await table.replace(stored, { ...stored.row, body: 'Tidy it.\n' }),
+	);
+	expect(confirmed.row.body).toBe('Tidy it.\n');
+	expect(granting.kinds).toEqual(['write']);
+
+	// Again, and now the file cannot be read back either: nothing says
+	// whether the write landed, so it is unknown, never refused.
+	granting.control.loseReplies = 1;
+	granting.control.beforeChange = async () => {
+		granting.control.beforeChange = undefined;
+		granting.control.failReads.add(PATH);
+	};
+	const lost = await table.replace(confirmed, {
+		...confirmed.row,
+		body: 'Tidy it again.\n',
 	});
 	expect(lost.error).toMatchObject({
 		name: 'Unconfirmed',
-		message: expect.stringContaining('the reply was lost'),
+		message: expect.stringContaining('the reply never reached the window'),
 	});
-	expect(written).toHaveLength(1);
+	expect(granting.kinds).toEqual(['write', 'write']);
 
 	// The page reads what landed, and writes on top of it; its own reply
 	// confirms it. Nothing was written again on its own.
-	loseReplies = false;
+	granting.control.failReads.delete(PATH);
 	const landed = expectOk(await table.get('clean'));
 	if (landed === undefined) throw new Error('Expected the row to be there');
-	expect(landed.row.body).toBe('Tidy it.\n');
+	expect(landed.row.body).toBe('Tidy it again.\n');
 	expectOk(
 		await table.replace(landed, { ...landed.row, body: 'Tidy it more.\n' }),
 	);
-	expect(written).toHaveLength(2);
-	expect(written[1]).toContain('Tidy it more.');
+	expect(granting.kinds).toEqual(['write', 'write', 'write']);
+	expect(await granting.text(PATH)).toContain('Tidy it more.');
 
 	await workspace.close();
 });
@@ -535,7 +569,7 @@ test('a row write whose reply the shell never sent is unknown, not refused, and 
 
 test('a close question reaches the page from the host’s stream, across a reconnect, and one that came early is not lost', async () => {
 	setup();
-	attachable();
+	await granted();
 	const served = host({ close: () => ({ closing: false }) });
 	const workspace = expectOk(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
@@ -575,15 +609,14 @@ test('a close question reaches the page from the host’s stream, across a recon
 
 	stop();
 	await workspace.close();
-	// Closed: no further stream is opened, and the window detached once.
+	// Closed: no further stream is opened.
 	await settle(650);
 	expect(served.streams).toHaveLength(2);
-	expect(sent('detach')).toHaveLength(1);
 });
 
 test('a close attempted with the host gone before anything listens is kept for the first listener, and closing stops hearing it', async () => {
 	const shell = setup({ bridge: { token: CONNECTION.token } });
-	attachable();
+	await granted();
 	const served = host();
 	const workspace = expectOk(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
@@ -618,8 +651,7 @@ test('a close attempted with the host gone before anything listens is kept for t
 
 test('a host that stops answering does not close the folder: the page keeps saving and keeps trying the stream', async () => {
 	setup();
-	attachable();
-	Object.assign(replies, { apply: () => null });
+	const { root } = await granted();
 	let hostUp = true;
 	const served = host();
 	const workspace = expectOk(
@@ -637,8 +669,10 @@ test('a host that stops answering does not close the folder: the page keeps savi
 	served.streams[0]?.error(new Error('the host stopped'));
 	await settle(650);
 
-	// The owner is the shell's, so a save still lands with the host gone.
+	// The folder is granted to the window, not the host, so a save still
+	// lands with the host gone.
 	expectOk(await workspace.folder.files.create('note.md', 'still saved'));
+	expect(await readFile(join(root, 'note.md'), 'utf8')).toBe('still saved');
 	// What needs the host answers as unavailable, as a Result.
 	const { error: transcribeError } = await workspace.transcribe({
 		audioPath: 'recordings/a.wav',
@@ -652,7 +686,6 @@ test('a host that stops answering does not close the folder: the page keeps savi
 		'Load failed',
 	);
 	await workspace.close();
-	expect(sent('detach')).toHaveLength(1);
 });
 
 // ============================================================================
@@ -661,7 +694,7 @@ test('a host that stops answering does not close the folder: the page keeps savi
 
 test('a failed transcription call is a Result, and the next call still works', async () => {
 	setup();
-	attachable();
+	await granted();
 	let transcribeCalls = 0;
 	const asked: unknown[] = [];
 	const served = host();
@@ -706,13 +739,13 @@ test('a failed transcription call is a Result, and the next call still works', a
 			model: 'm',
 		}),
 	);
-	expect(sent('read')).toEqual([]);
+	expect(reads.filter((path) => path.endsWith('recordings/a.wav'))).toEqual([]);
 	await workspace.close();
 });
 
 test('a failed transformation call is a Result, and the next call still works', async () => {
 	setup();
-	attachable();
+	await granted();
 	let transformCalls = 0;
 	const asked: unknown[] = [];
 	const served = host();
@@ -761,7 +794,7 @@ test('a failed transformation call is a Result, and the next call still works', 
 test('the chosen microphone is kept by the host beside the connections, survives a new window, and never brings a key back', async () => {
 	setup();
 	const served = await realHost();
-	attachable(served.root);
+	await granted(served.root);
 	const usb = { deviceId: 'usb-id', label: 'USB Microphone' };
 	const replies: string[] = [];
 	const fetch = async (input: string, init?: RequestInit) => {
@@ -802,7 +835,7 @@ test('the chosen microphone is kept by the host beside the connections, survives
 
 test('a choice the host cannot save is returned as the reason, and one it cannot read rejects', async () => {
 	setup();
-	attachable();
+	await granted();
 	const served = host();
 	const workspace = expectOk(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
@@ -819,7 +852,7 @@ test('a choice the host cannot save is returned as the reason, and one it cannot
 
 test('with fixture audio the workspace has no microphone input to list, ask for, or test', async () => {
 	setup();
-	attachable();
+	await granted();
 	const served = host(
 		{},
 		info({ debug: true, fixture: { name: 'tone.wav', size: 44 } }),
@@ -840,7 +873,7 @@ test('with fixture audio the workspace has no microphone input to list, ask for,
 
 test('a release shell offers no failure injection, and asks the host for none', async () => {
 	setup();
-	attachable();
+	await granted();
 	const served = host();
 
 	const workspace = expectOk(
@@ -853,18 +886,14 @@ test('a release shell offers no failure injection, and asks the host for none', 
 	await workspace.close();
 });
 
-test('a debug shell tells the host the folder is open only after the owner attached it, and wraps each recording write in its own obstacle', async () => {
+test('a debug shell tells the host the folder is open only once Git exists in it, and wraps each recording write in its own obstacle', async () => {
 	setup();
-	attachable();
+	const { root } = await granted();
 	const order: string[] = [];
-	const attach = replies.attach!;
-	replies.attach = (call) => {
-		order.push('attach');
-		return attach(call);
-	};
 	const served = host(
 		{
 			'injection-launch': () => {
+				if (existsSync(join(root, '.git', 'HEAD'))) order.push('git');
 				order.push('injection-launch');
 				return { rowWrites: 0, audioWrites: 0, commitsBlocked: true };
 			},
@@ -883,8 +912,8 @@ test('a debug shell tells the host the folder is open only after the owner attac
 	const workspace = expectOk(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
 	);
-	// Git exists once the owner has opened the folder, and not before.
-	expect(order).toEqual(['attach', 'injection-launch']);
+	// Git exists once the folder is open, and the host is told only then.
+	expect(order).toEqual(['git', 'injection-launch']);
 
 	const around = workspace.injection!.aroundRecordingWrite;
 	const audio = await around(
@@ -926,7 +955,7 @@ test('a debug shell tells the host the folder is open only after the owner attac
 
 test('an obstacle that was not placed, or a host that cannot be asked, never keeps a recording write from being made', async () => {
 	setup();
-	attachable();
+	await granted();
 	let obstructs: 'none' | 'fault' = 'none';
 	const removed: unknown[] = [];
 	const served = host(
@@ -985,24 +1014,27 @@ test('an obstacle that was not placed, or a host that cannot be asked, never kee
 // Closing a window whose folder could not be opened
 // ============================================================================
 
-test('after a refused attach there is no session, and the person’s close is answered with proceed by the real host', async () => {
+test('after a refused grant there is no session, and the person’s close is answered with proceed by the real host', async () => {
 	const served = await realHost();
 	globalThis.fetch = served.fetch as typeof fetch;
 	setup({ bridge: { token: CONNECTION.token } });
-	const refusedAttach = Promise.withResolvers<never>();
-	replies = { attach: () => refusedAttach.promise };
+	const refusedGrant = Promise.withResolvers<never>();
+	(await granted()).control.grant = () => refusedGrant.promise;
 
 	const mounted = mountSession(createQueryClient());
 	cleanups.push(() => mounted.release());
 	// The person asks to close while the folder is still being opened. Nothing
 	// answers for an opening that has not settled: it might yet hold work.
-	await until(() => sent('attach').length === 1, 'the attach to be sent');
+	await until(
+		() => sent('grant_directory').length === 1,
+		'the grant to be asked for',
+	);
 	served.host.closeRequested();
 	await settle(100);
 	expect(served.approvals).toBe(0);
 
-	// The owner refuses this window. No session exists and nothing is held.
-	refusedAttach.reject({
+	// The shell refuses this window. No session exists and nothing is held.
+	refusedGrant.reject({
 		name: 'WindowNotPermitted',
 		scope: SCOPE,
 		window: 'main',
@@ -1015,8 +1047,8 @@ test('after a refused attach there is no session, and the person’s close is an
 	// And so is one asked afterward. Each approval answers a request.
 	served.host.closeRequested();
 	await until(() => served.approvals === 2, 'a later close to be approved');
-	// Nothing was opened to get there: one attach, refused, and no browser storage.
-	expect(calls.map((call) => call.cmd)).toEqual(['attach']);
+	// Nothing was opened to get there: one grant, refused, and no browser storage.
+	expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
 
 	// Released, it answers nothing more: a later opening would be its own judge.
 	mounted.release();
@@ -1029,8 +1061,9 @@ test('after a refused attach there is no session, and the person’s close is an
 test('nothing is approved unasked: a failed opening by itself closes nothing', async () => {
 	const served = await realHost();
 	globalThis.fetch = served.fetch as typeof fetch;
-	const shell = setup({ bridge: { token: CONNECTION.token } });
-	attachable('/Users/someone/elsewhere');
+	const page = setup({ bridge: { token: CONNECTION.token } });
+	// The shell grants another directory than the host's.
+	await granted();
 
 	const mounted = mountSession(createQueryClient());
 	cleanups.push(() => mounted.release());
@@ -1039,16 +1072,14 @@ test('nothing is approved unasked: a failed opening by itself closes nothing', a
 
 	// The window stays until the person asks: no approval and no navigation.
 	expect(served.approvals).toBe(0);
-	expect(shell.navigations).toEqual([]);
-	// The mismatch detached the window it had attached.
-	expect(
-		calls.map((call) => call.cmd).filter((cmd) => cmd !== 'apply'),
-	).toEqual(['attach', 'detach']);
+	expect(page.navigations).toEqual([]);
+	// The mismatch changed nothing in the folder it opened.
+	expect(changedFiles()).toBe(false);
 });
 
 test('after a failed opening with the host gone, the shell’s close attempt is answered with the quit address', async () => {
 	const shell = setup({ bridge: { token: CONNECTION.token } });
-	attachable();
+	await granted();
 	const hostDown = Promise.withResolvers<never>();
 	globalThis.fetch = (() => hostDown.promise) as unknown as typeof fetch;
 
@@ -1064,7 +1095,7 @@ test('after a failed opening with the host gone, the shell’s close attempt is 
 	}) as unknown as typeof fetch;
 	hostDown.reject(new TypeError('Load failed'));
 	expect(expectErr(await mounted.opening).name).toBe('HostUnreachable');
-	// The host was never reached, so the owner was never asked for a folder.
+	// The host was never reached, so the shell was never asked for a folder.
 	expect(calls).toEqual([]);
 	await settle(50);
 	expect(shell.navigations).toEqual([]);
@@ -1182,7 +1213,7 @@ test('a lost host reply after the endpoint was called is reported as unknown, ne
 	});
 	await mkdir(join(served.root, 'recordings'));
 	await writeFile(join(served.root, 'recordings', 'take.wav'), toneWav());
-	attachable(served.root);
+	await granted(served.root);
 	let losing = true;
 	const workspace = expectOk(
 		await openDesktopWorkspace({

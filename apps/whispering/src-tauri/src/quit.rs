@@ -15,8 +15,9 @@
 //! the page; a host that is gone keeps the window and tells the page. Saving,
 //! discarding, and keeping the window stay the page's. An exit the page
 //! approves stops the event loop with `stop:`, never `terminate:`, so the
-//! method is not asked again; the folder's owner drains on `RunEvent::Exit`
-//! and the host is stopped, as for every other exit. A logout or shutdown this
+//! method is not asked again; the folder plugin waits for the page's running
+//! file and Git commands and releases the folder on `RunEvent::Exit`, and the
+//! host is stopped, as for every other exit. A logout or shutdown this
 //! cancels is not resumed; the person starts it again once the app has exited.
 //!
 //! Nothing else about the delegate changes: not the object AppKit holds, not

@@ -6,16 +6,16 @@
  * can exercise failure and retry in a fixed order.
  *
  * A recording is published by the page as two writes, each the folder's own
- * operation: the audio file, then the row. The folder's owner is the shell,
- * not this host, and nothing here publishes or answers for it. Just before
+ * operation: the audio file, then the row. The page's folder engine makes
+ * them, not this host, and nothing here publishes or answers for it. Just before
  * the page makes one of those writes it asks for an obstacle, naming the
  * write's step, the recording's stem, and, for the audio, its path. An armed
  * failure for that step puts an empty directory at the path and hands back a
  * name for it; the page makes its write and then has the obstacle removed.
- * The owner refuses that write itself. An obstructed audio write leaves
+ * The folder refuses that write itself. An obstructed audio write leaves
  * nothing written; an obstructed row write leaves the audio the first write
  * saved. A path that is already occupied is left alone and the failure is
- * not counted, since the owner refuses it without help.
+ * not counted, since the folder refuses it without help.
  *
  * Only those two paths can be obstructed: the recording's row, and audio at
  * `recordings/<stem>.<extension>`, where a capture of that stem is saved.
@@ -28,7 +28,7 @@
  * interrupted Git process leaves one, so Git refuses to move the branch and
  * the commit fails while file saves keep working. The branch is the one
  * `HEAD` names when the lock is taken, so the lock can only be taken once the
- * owner has initialized Git in the folder. A lock asked for at launch waits
+ * page has opened the folder, which initializes Git. A lock asked for at launch waits
  * for the page to say the folder is open.
  *
  * That lock path belongs to Git. The injected lock is created exclusively, so
@@ -162,7 +162,7 @@ export function createFailureInjection({
 	/**
 	 * Make every missing directory above `path`, one at a time, and return
 	 * the ones made. Undefined when something on the way is not a directory,
-	 * which the owner refuses without help.
+	 * which the folder refuses without help.
 	 */
 	async function makeParents(path: string): Promise<string[] | undefined> {
 		const parts = path.split('/').slice(0, -1);
@@ -284,7 +284,7 @@ export function createFailureInjection({
 		arm,
 		/**
 		 * Take the branch lock the launch environment asked for. The page calls
-		 * this once the owner has opened the folder, which is when Git exists.
+		 * this once it has opened the folder, which is when Git exists.
 		 * A folder with no Git yet keeps the request for the next call; a lock
 		 * someone else holds is theirs, and the request is dropped.
 		 */

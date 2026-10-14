@@ -1,10 +1,10 @@
 /**
  * Reads one saved audio file for transcription, straight from the data folder.
  *
- * The desktop shell's Rust owner is the only thing that opens the folder. This
- * reads a file out of the same directory the way any other program would: it
- * takes no lock, writes nothing, and knows nothing of Git, history, or the
- * owner. The host uses it for one thing, which is sending the audio a
+ * The page's folder engine, in the directory the desktop shell grants it, is
+ * the only thing that opens the folder. This reads a file out of the same
+ * directory the way any other program would: it takes no lock, writes
+ * nothing, and knows nothing of Git, history, or the folder's engine. The host uses it for one thing, which is sending the audio a
  * recording names to the transcription endpoint without carrying the bytes
  * through the page.
  *

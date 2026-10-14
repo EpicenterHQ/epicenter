@@ -16,14 +16,20 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   imported only by the desktop workspace. The only direct Tauri import is
   `isTauri` in the workspace opener. `src/lib/page-boundary.test.ts` enforces
   these boundaries; keep it passing without granting native reach to components.
-- **One folder, one owner.** On the desktop the data folder is owned by the
-  shell's `tauri-plugin-epicenter-folder` and by nothing else. The page
-  attaches to it and names only the folder's ID. Do not open the folder from
-  the Bun host, do not add a second path by which the page reads or writes
-  folder files, and do not copy the plugin's bindings into this app.
+- **One folder, one opener.** On the desktop the shell's
+  `tauri-plugin-epicenter-folder` grants the data folder to the main window
+  and holds its lock, and the page's folder engine (`@epicenter/folder/tauri`)
+  is the only thing that opens it. The page names only the folder's ID. Do
+  not open the folder from the Bun host, do not add a second path by which
+  the page reads or writes folder files, and do not copy the plugins'
+  bindings into this app.
+- **The page settles its saves before it approves a close.** Nothing drains
+  them after the approval: a save still running when the shell exits is
+  lost. Every path that answers `proceed` or uses the quit address waits
+  until nothing is mutating.
 - **A folder that cannot be opened is reported, not replaced.** Opening
   returns a `Result`. Inside a desktop app, a missing or unreachable native
-  service and an owner that refuses are each shown as that refusal; browser
+  service and a shell that refuses the folder are each shown as that refusal; browser
   storage is never opened there. Whether the page is inside a desktop app is
   asked of the runtime, never inferred from the host's token.
 - **One session per mounted layout.** `src/routes/+layout.svelte` holds the
@@ -114,10 +120,11 @@ mounted views under the browser runtime after the rest), `bun run build`. For
 shell changes also
 `cargo test --manifest-path src-tauri/Cargo.toml`. After a change to the shell's
 exit handling, or an upgrade of macOS, Tauri, or Tao, also run the probe and
-the three `bun run test:quit` scenarios in `evidence/native-quit/README.md`.
+the four `bun run test:quit` scenarios in `evidence/native-quit/README.md`.
 Tests establish logic and
-what reaches disk. The TypeScript tests script the shell's replies or open the
-directory with the Bun opener; they never run the Rust owner. Only running
+what reaches disk. The TypeScript tests grant a real directory through a
+scripted shell (`src/lib/workspace/granted-folder.test-support.ts`) or open
+it with the Bun opener; they never run the Rust shell. Only running
 `bun dev:whispering` establishes that the desktop app works.
 
 `src/lib/tauri/bindings.gen.ts` is written by the Epicenter host's build and

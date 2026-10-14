@@ -1,25 +1,28 @@
 /**
- * The desktop workspace: a real directory owned by the desktop shell, and the
- * Whispering host for everything else native.
+ * The desktop workspace: a real directory the desktop shell grants this
+ * window, and the Whispering host for everything else native.
  *
- * The folder is the shell's. The shell registered one directory for this
- * window, and this attaches to it through `@epicenter/folder/tauri`, naming
- * only the folder's ID. Saves, history, and the hints that files
- * changed all come from that owner. The page supplies no path.
+ * The shell registered one directory for this window and decides where it
+ * is. This opens it through `@epicenter/folder/tauri`, naming only the
+ * folder's ID: the shell grants the window that directory and holds its lock,
+ * and the page's own folder engine reads it, saves to it through the shell,
+ * and records history with the `git` the shell runs. The page supplies no
+ * path.
  *
  * The host that serves this page does the rest: the terminal is the person's
  * shell in that directory, transcription and text requests leave from the
  * host over the device's two connections, the microphone chosen on this
  * device is kept beside them, and the shell's close question arrives on the host's
- * event stream. The host holds no folder; what its terminal
- * writes reaches this page as the owner's hints, like any other program's.
+ * event stream. The host holds no folder. Nothing reports what its terminal
+ * or any other program writes: the library reads again after each terminal
+ * command and when the person returns to the window.
  *
- * Both are required to open. A host that does not answer, an owner that
- * refuses, and the two naming different directories are each returned as that
- * refusal, and nothing else is opened in their place.
+ * Both are required to open. A host that does not answer, a shell that
+ * refuses the folder, and the two naming different directories are each
+ * returned as that refusal, and nothing else is opened in their place.
  *
- * Once open, the two fail apart. If the host stops, the folder is still the
- * shell's and still open: saves and commits keep working, and only
+ * Once open, the two fail apart. If the host stops, the folder is still
+ * granted and still open: saves and commits keep working, and only
  * what the host did is unavailable. A reply the host never delivered says
  * nothing about whether it acted, so a lost transcription or transformation
  * reply is reported as unknown, never as "not sent", and nothing is sent again
@@ -81,7 +84,7 @@ export async function openDesktopWorkspace(
 ): Promise<Result<Workspace, WorkspaceError>> {
 	const bridge = createHttpBridge(connection);
 	// The host first: without it there is no app to open a folder for, so the
-	// owner is not asked for anything.
+	// shell is not asked for anything.
 	let info: HostInfo;
 	try {
 		info = await bridge.app<HostInfo>('info');
@@ -101,8 +104,8 @@ export async function openDesktopWorkspace(
 		await folder.close();
 		return WorkspaceError.FolderMismatch({ folder: root, host: info.root });
 	}
-	// The owner has opened the folder, so Git exists: a debug host may now take
-	// the branch lock its launch asked for. The host reports a refusal itself.
+	// The folder is open, so Git exists: a debug host may now take the branch
+	// lock its launch asked for. The host reports a refusal itself.
 	if (info.debug) await bridge.app('injection-launch').catch(() => {});
 
 	// The folder-relative directory the next command starts in.
@@ -287,8 +290,8 @@ export async function openDesktopWorkspace(
 					},
 				}
 			: undefined,
-		// Stop hearing the host, then detach from the owner. Detaching commits
-		// nothing: saves the owner admitted still land, and it keeps the folder.
+		// Stop hearing the host, then close the folder. Closing waits for the
+		// saves already under way and commits nothing.
 		async close() {
 			window.removeEventListener(CLOSE_BLOCKED_EVENT, closeBlocked);
 			await stopWatching();
