@@ -5,8 +5,7 @@
 	"license": "AGPL-3.0-or-later",
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./account-key": "./src/account-key.ts"
+		".": "./src/index.ts"
 	},
 	"files": [
 		"src",
