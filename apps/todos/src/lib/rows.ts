@@ -51,7 +51,6 @@ export function createRows({
 	afterWrite,
 	onWriteFailed,
 }: Session) {
-	const table = folder.tables.todos;
 	/**
 	 * Todos whose cached row holds an edit no write has sent. A write sends
 	 * only these, so the write waiting behind one that failed does not write
@@ -128,7 +127,10 @@ export function createRows({
 	}
 
 	/** The listing query: one cache entry, each view narrowing it with `select`. */
-	const listing = { queryKey: todosKeys.rows, queryFn: () => table.list() };
+	const listing = {
+		queryKey: todosKeys.rows,
+		queryFn: () => folder.tables.todos.list(),
+	};
 
 	return {
 		/** The todos that read as todos, as the list shows them: open first, then done. */
@@ -199,7 +201,7 @@ export function createRows({
 					// The stem leaves `unsent` whether or not there is a row to send.
 					const edited = unsent.delete(stem);
 					if (stored === undefined || !edited) return Ok(undefined);
-					return table.replace(stored, stored.row);
+					return folder.tables.todos.replace(stored, stored.row);
 				},
 				onSuccess: (saved) => {
 					if (saved === undefined) return;
@@ -243,7 +245,7 @@ export function createRows({
 			): Promise<
 				Result<StoredRow<TodoFields>, TableCreateError | TodosError>
 			> =>
-				table.create(
+				folder.tables.todos.create(
 					{ fields: { title, done: false }, body: '' },
 					{ stem: crypto.randomUUID() },
 				),
@@ -268,7 +270,7 @@ export function createRows({
 				> => {
 					const { data: capture, error } = confirmed(stem, shown);
 					if (error !== null) return Err(error);
-					return table.delete(capture);
+					return folder.tables.todos.delete(capture);
 				},
 				onSuccess: () => {
 					unsent.delete(stem);

@@ -1157,6 +1157,9 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
+        // Reaches only directories the folder plugin grants at run time: the
+        // page-engine folders' roots. No capability names a path of its own.
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
@@ -1204,8 +1207,17 @@ pub fn run() {
                 desktop_paths.folder_dir.join("so.epicenter.todos"),
                 FolderAuthor { name: "Todos".into(), email: "todos@localhost".into() },
             );
-            todos_folder.use_repository_author = true;
-            todos_folder.use_repository_origin = true;
+            // The page runs `@epicenter/folder`'s own engine over this
+            // directory; the shell locks it and grants it, and owns nothing
+            // else. The repository's own author and origin are read there.
+            todos_folder.page_engine = true;
+            // All the page writes: its table's rows and the folder's two
+            // declared files. Every other file is the person's.
+            todos_folder.page_files = vec![
+                "epicenter.json".into(),
+                "kv.json".into(),
+                "todos/*.md".into(),
+            ];
             app.folders().register(ScopeConfig {
                 scope: "so.epicenter.todos".into(),
                 folder: todos_folder,
@@ -3644,6 +3656,44 @@ mod tests {
             assert!(!encoded.contains("core:window"), "{encoded}");
             assert!(!encoded.contains("core:webview"), "{encoded}");
         }
+    }
+
+    /// Todos' window lists exactly the fs commands a folder grant scopes, and
+    /// no path: the build checks every name, and only `grant_directory` gives
+    /// them a directory. It holds no HTTP grant; Git transfers run in Rust.
+    #[test]
+    fn todos_lists_the_granted_fs_commands_and_no_path() {
+        for encoded in [
+            include_str!("../capabilities/todos-folder-development.json"),
+            include_str!("../capabilities/todos-folder-production.json"),
+        ] {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            let permissions = capability["permissions"].as_array().unwrap();
+            let fs: Vec<&str> = permissions
+                .iter()
+                .filter_map(|permission| permission.as_str())
+                .filter(|permission| permission.starts_with("fs:"))
+                .collect();
+            assert_eq!(fs, tauri_plugin_epicenter_folder::DIRECTORY_COMMANDS);
+            assert!(
+                permissions.iter().all(|permission| permission.is_string()),
+                "no fs or HTTP permission carries a scope of its own"
+            );
+            assert!(
+                !permissions
+                    .iter()
+                    .filter_map(|permission| permission.as_str())
+                    .any(|permission| permission.starts_with("http:")),
+                "{encoded}"
+            );
+        }
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            config["plugins"]["fs"]["requireLiteralLeadingDot"],
+            serde_json::json!(false),
+            "a granted folder's .git and dot files are reachable"
+        );
     }
 
     /// Google refuses a custom URI scheme for a Desktop OAuth client, so Local

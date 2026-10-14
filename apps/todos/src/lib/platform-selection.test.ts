@@ -61,7 +61,7 @@ const SHARED_FORBIDDEN = /packages\/folder\/src\/index\.ts$|packages\/app\//;
 
 describe('#platform/folder', () => {
 	test(
-		'the host build resolves the desktop adapter without OPFS storage, a directory opener, or a Git implementation',
+		'the host build resolves the desktop adapter and the directory folder over the granted directory, never the browser folder or a Bun or Node module',
 		async () => {
 			const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
 
@@ -73,6 +73,21 @@ describe('#platform/folder', () => {
 			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 			expect(modules.some(folderModule('tauri-adapter.ts'))).toBe(true);
 			expect(modules.some(folderModule('native/bindings.gen.ts'))).toBe(true);
+			// Todos is a page-engine folder: the shell grants its directory and
+			// the page reads, writes, and records history there itself.
+			for (const engine of [
+				'tauri-directory.ts',
+				'directory-adapter.ts',
+				'directory-handle.ts',
+				'directory-tauri.ts',
+				'tauri-git.ts',
+				'git/native-backend.ts',
+				'git/history.ts',
+			])
+				expect(modules.some(folderModule(engine))).toBe(true);
+			expect(modules.some((path) => /@tauri-apps\/plugin-fs/.test(path))).toBe(
+				true,
+			);
 			// The departure leaf reaches the host's published wire, its window
 			// port, and this window's Tauri API, never the host's Bun entry.
 			expect(
@@ -101,7 +116,7 @@ describe('#platform/folder', () => {
 				modules.filter(
 					(path) =>
 						SHARED_FORBIDDEN.test(path) ||
-						/platform\/folder\.browser\.ts$|packages\/folder\/src\/(browser|browser-adapter|opfs-store|buffer-global|bun|native-store)\.ts$|packages\/folder\/src\/git\/(browser-backend|browser-fs|http|history|native-backend|native-checkpoint|runner)\.ts$|isomorphic-git|^node:|^bun:/.test(
+						/platform\/folder\.browser\.ts$|packages\/folder\/src\/(browser|browser-adapter|bun|native-store|directory-node)\.ts$|packages\/folder\/src\/git\/(opfs-git|native-host)\.ts$|^node:|^bun:/.test(
 							path,
 						),
 				),

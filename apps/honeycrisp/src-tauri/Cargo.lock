@@ -758,6 +758,7 @@ checksum = "4ef6b89e5b37196644d8796de5268852ff179b44e96276cf4290264843743bb7"
 name = "epicenter-folder-core"
 version = "0.0.1"
 dependencies = [
+ "glob",
  "libc",
  "log",
  "notify",
@@ -3440,7 +3441,9 @@ name = "tauri-plugin-epicenter-folder"
 version = "0.0.1"
 dependencies = [
  "epicenter-folder-core",
+ "glob",
  "serde",
+ "serde_json",
  "specta",
  "specta-typescript",
  "tauri",

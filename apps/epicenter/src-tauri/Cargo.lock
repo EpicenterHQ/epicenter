@@ -1498,6 +1498,7 @@ dependencies = [
  "tauri-plugin-deep-link",
  "tauri-plugin-dialog",
  "tauri-plugin-epicenter-folder",
+ "tauri-plugin-fs",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-http",
  "tauri-plugin-log",
@@ -1521,6 +1522,7 @@ dependencies = [
 name = "epicenter-folder-core"
 version = "0.0.1"
 dependencies = [
+ "glob",
  "libc",
  "log",
  "notify",
@@ -5879,7 +5881,9 @@ name = "tauri-plugin-epicenter-folder"
 version = "0.0.1"
 dependencies = [
  "epicenter-folder-core",
+ "glob",
  "serde",
+ "serde_json",
  "specta",
  "specta-typescript",
  "tauri",
