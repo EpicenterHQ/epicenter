@@ -15,7 +15,7 @@ which listens to `visibilitychange` and so never fires between two desktop
 windows that stay on screen; and per-app rereads on focus or visibility. A
 refresh in the Folders grid also replaced the version an edit had started from,
 so its save skipped the merge. The merge itself lived only in the Folders
-window (`apps/epicenter/src/folders/save-row.ts`); every other app received a
+window's `save-row.ts`; every other app received a
 bare `Conflict` from `table.replace`.
 
 ## Decision
@@ -105,8 +105,8 @@ version differs from the draft's, derived, with no state of its own.
 
 ## Consequences
 
-- Deleted: each app's focus and visibility rereads; the merge in
-  `apps/epicenter/src/folders/save-row.ts`, now the engine's `save`, and its
+- Deleted: each app's focus and visibility rereads; the Folders window's merge in
+  `save-row.ts`, now the engine's `save`, and its
   row-edit bookkeeping, replaced by the shared draft helper. The
   `BroadcastChannel` relay stays as the browser's detector; the desktop page
   no longer opens one.
