@@ -26,10 +26,8 @@ export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
 /**
  * Bridge an auth client's state into Svelte's graph.
  *
- * `from*` because that is what every Svelte adapter in this repository is
- * called: `fromData` wraps a store. It was
- * `reactive` while it was the only one, which read as a property of the thing
- * rather than as the verb that builds one.
+ * `from*` names the verb that builds the adapter. It was `reactive`, which read
+ * as a property of the thing rather than as the verb that builds one.
  *
  * The whole of what this module does, and the whole of what it should: a
  * client is composed somewhere that has no framework, and this adapts one.

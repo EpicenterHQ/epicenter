@@ -78,32 +78,6 @@ words a result for a toast or a status line. It is a plain module, so status
 helpers import it without loading runes. The rest of what a person is told
 stays with the page.
 
-### `fromData`
-
-Adapts one opened `@epicenter/app/store` handle into Svelte reactivity, mirroring
-the declaration: `tables.<name>`, `kv`, and `persistence`, with the same verbs
-and the same types. Other handle members keep their descriptors and identities.
-Reads are reactive; writes pass through unchanged. Repeated calls with the same
-raw store return the same wrapper, so route components can remount over one
-open store.
-
-Each read registers a Svelte dependency and calls the native method. The adapter
-holds no row values or diagnostics, so a read sees the same transaction writes,
-validation, and closed-store rejection as the native read (ADR-0500). One
-subscription per table wakes its readers on each table commit; it attaches on
-the first reactive reader and detaches after the last. Body text edits are not
-table commits: listen to them with the table's `watch`.
-
-Inputs must be plain-object handles with closure-bound methods. A class
-instance is rejected, because its prototype methods would not survive wrapping.
-
-```ts
-const app = fromData(data);
-const active = $derived(app.tables.notes.rows.filter((n) => !n.deletedAt));
-const note = app.tables.notes.get(id);   // wakes on any notes commit
-app.persistence.get() === 'blocked';     // this device stopped saving
-```
-
 ## Contributing
 
 When adding new utilities to this package:

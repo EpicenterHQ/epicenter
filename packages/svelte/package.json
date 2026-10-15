@@ -31,8 +31,7 @@
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.mounted.test.ts' && bun run test:mounted",
-		"test:mounted": "bun test --conditions=browser mounted.test"
+		"test": "bun test --conditions=browser"
 	},
 	"license": "AGPL-3.0-or-later"
 }
