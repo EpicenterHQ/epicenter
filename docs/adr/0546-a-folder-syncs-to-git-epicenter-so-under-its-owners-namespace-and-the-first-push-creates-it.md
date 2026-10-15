@@ -82,11 +82,23 @@ type GitHost = {
 };
 ```
 
-The Artifacts store keeps one namespace per environment (`epicenter-production`,
-`epicenter-dev`) and names a repository `<namespace>.<name>`, which never
-appears in a URL; it mints write tokens of 24 hours per repository and caches
-them. A disk store for self-host keeps bare repositories at
-`<root>/<namespace>/<name>.git` behind the same routes.
+**A repository has an immutable id, and storage is named by that id.**
+
+```txt
+repository        id (immutable), namespace_id, name           unique (namespace_id, name)
+repository_alias  namespace_id, name → repository_id           left by a move or a rename
+```
+
+A request's `<namespace>/<name>` resolves through `repository`, then
+`repository_alias`, in the same query that checks the credential and the
+membership. Moving a repository to another namespace, or renaming it, updates
+its row and leaves an alias, so the URL in every existing clone keeps working;
+the app rewrites a folder's `origin` to the new URL on its next Sync. The
+Artifacts store keeps one namespace per environment (`epicenter-production`,
+`epicenter-dev`) and names each repository by its id, which never appears in a
+URL; it mints write tokens of 24 hours per repository and caches them. A disk
+store for self-host keeps bare repositories at `<root>/<repository id>.git`
+behind the same routes.
 
 ## Consequences
 
@@ -104,8 +116,9 @@ them. A disk store for self-host keeps bare repositories at
   push; it appears in their repository list and is deleted like any other.
   Connect in the app shows the name it will use, so only a hand-typed URL can
   do this.
-- Moving a repository to another namespace is a copy (Artifacts cannot move),
-  and every clone's `origin` changes.
+- Moving a folder into a group, or renaming it, is one row update and an
+  alias; no repository is copied and no clone breaks. An alias stays until its
+  name is taken by a new repository in that namespace.
 - A data folder inside another repository ([ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md))
   syncs with that repository's remote; only a folder that is its own repository
   connects.
@@ -122,6 +135,9 @@ them. A disk store for self-host keeps bare repositories at
 - **The account id with a hash in the repository name.** A storage collision
   solved in public; the namespace in the path solves it and leaves room for
   shared owners.
+- **Storage named `<namespace>.<name>`.** Artifacts cannot rename or move a
+  repository, so every move or rename would be a copy and a new URL for every
+  clone.
 - **One Artifacts namespace per owner.** Needs Cloudflare's REST API and an API
   token in the Worker instead of the binding, with undocumented namespace
   limits; worth it only for per-owner data residency, and reachable later by
