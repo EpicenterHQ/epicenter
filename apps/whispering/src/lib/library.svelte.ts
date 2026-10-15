@@ -56,12 +56,7 @@ import type {
 	TableListing,
 	TableSaveError,
 } from '@epicenter/folder';
-import {
-	formatRow,
-	parseRow,
-	rowPath,
-	rowStemOf,
-} from '@epicenter/folder';
+import { formatRow, parseRow, rowPath, rowStemOf } from '@epicenter/folder';
 import {
 	ancestorsOf,
 	dirname,
