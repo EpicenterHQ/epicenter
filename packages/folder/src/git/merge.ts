@@ -18,7 +18,9 @@
  * its text, any other as its bytes. Its merged content, or our file while it
  * holds the path, goes into both children the way merged `kv.json` does; a
  * held path makes the merge `conflicted`. A path it does not claim merges as
- * below. `mergeIncoming` passes no `mergePath`.
+ * below. `mergeIncoming` passes no `mergePath`. A claimed path with a version
+ * that is not text is never merged by content, only taken or removed, so a
+ * Git `merge` attribute on it is not checked.
  *
  * isomorphic-git 1.38.5 decodes both sides of a two-sided text merge as UTF-8
  * with replacement, and its line split drops a lone carriage return, U+2028,

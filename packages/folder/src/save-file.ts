@@ -20,8 +20,8 @@
  * `{ merge: false }` stops at the first swap and answers `Conflict`.
  *
  * A save names what it replaced with the content, so "Restore theirs" works
- * when the other side's version exists nowhere else: `restoreTheirs` is one
- * more save over the version the save wrote.
+ * when the other side's version exists nowhere else: `restoreTheirs` builds
+ * the one more save, over the version the save wrote, that puts theirs back.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
@@ -108,7 +108,7 @@ export type SavedFile = {
 };
 
 /** What `saveFile` wrote. */
-export type Written = {
+type Written = {
 	readonly path: string;
 	readonly sha256: string;
 	readonly bytes: Uint8Array;
