@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** the `lens` option of `openDataFolder` and its containment check; matching apps to folders in the Folders window.
+- **Built:** the `lens` option of `openDataFolder` in every entry, refused with `ShapeMismatch` and its problems when the folder's declaration does not contain it; the containment check (`shapeProblems` and `schemaContainment` in `@epicenter/definition`); a lens table's `canCreate` and `CannotCreate`.
+- **Unbuilt:** matching apps to folders in the Folders window.
 
 ## Context
 

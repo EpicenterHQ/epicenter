@@ -97,6 +97,7 @@ src/field/        the field.* helpers, the editor hint, and fieldEditorOf (./fie
 src/declaration   FieldMap, TableDeclaration, DataSchema, DataDefinition, row lenses
 src/define        defineTable and the declared-table brand
 src/prepare       prepareData, prepareSchema, check, isOptional
+src/shape         shapeProblems, schemaContainment, requiredOutsideShape
 src/addresses     data ID, table name, and row ID grammars
 src/json          JsonValue and its guards
 ```
@@ -345,6 +346,52 @@ can be walked in the value; TypeBox joins object keys into its path unescaped,
 so a path through a key containing `/` or `~` is reported against the whole
 field. Messages and the number of issues are for people, not for code to match
 on.
+
+## Whether a declaration contains a shape
+
+An app that opens a folder it did not declare reads it through a shape: the
+tables and fields it knows (ADR-0538). `shapeProblems(declared, shape)` lists
+every way a declaration does not contain one, empty when it does:
+
+```ts
+shapeProblems(folder.definition, board);
+// [{ kind: 'missingField', table: 'todos', field: 'due', message }, ...]
+```
+
+| Problem | When |
+| --- | --- |
+| `missingTable` | the shape reads a table the declaration lacks |
+| `missingField` | the shape reads a field, or a setting (`table: 'kv'`), the declaration lacks |
+| `incompatibleField` | the declaration admits a value there the shape refuses, or lets a row leave out a field the shape requires |
+| `incompatibleTable` | the shape closes a table (`additionalProperties: false`) the declaration leaves open or declares more fields in |
+
+`schemaContainment(shape, declared)` answers for one field: `undefined` when
+every value `declared` admits is one `shape` accepts, or why not. Containment
+of JSON Schemas is not decidable in general, so it asks a fixed set of
+questions and refuses what they cannot decide, naming the keyword:
+
+- A shape that constrains nothing accepts everything. Two schemas whose
+  keywords match, annotations and `x-field` aside, contain each other.
+- A declared `enum` or `const` is contained when the shape's validator
+  accepts each listed value, so a shape select contains a select of some of
+  its options, and a shape `string` contains any select.
+- A declared `anyOf` or `oneOf` is contained when each member is, so a shape
+  `field.nullable(x)` contains both `x` and `x | null`. A shape `anyOf`
+  contains what one member contains.
+- Otherwise both name one `type`, the same, or `integer` under a shape
+  `number`. The shape's string length, `pattern`, and `format`, numeric
+  bounds and `multipleOf`, array `items`, bounds, and `uniqueItems`, and
+  object `properties`, `required`, and `additionalProperties` must each be
+  implied by the declaration's own. `field.datetime()` contains
+  `field.instant()`, not the reverse.
+
+A keyword the declaration adds beyond these only narrows it, so it is
+ignored. A shape keyword outside them, or a shape `oneOf`, `not`,
+conditional, or `$ref`, is refused.
+
+`requiredOutsideShape(declaredTable, shapeTable)` lists the fields the
+declaration requires that the shape does not declare: a row added through the
+shape could not supply them.
 
 ## The body conversion
 
