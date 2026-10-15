@@ -775,3 +775,5 @@ When you add an ADR, add its row here.
 | [0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) | A recording streams into its folder from the moment it starts | Proposed |
 | [0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) | A blob is a file in its folder, and Git decides how it travels | Proposed |
 | [0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) | An interrupted incoming update is ordinary changed files, and the next Sync finishes it | Proposed (supersedes 0474, amends 0471) |
+| [0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it | Proposed |
+| [0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) | Every repository has one owner namespace, and a person is a namespace of one | Proposed |

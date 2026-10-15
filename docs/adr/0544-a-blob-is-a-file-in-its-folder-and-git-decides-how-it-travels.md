@@ -35,8 +35,8 @@ it by editing those files.
 Cloudflare Artifacts has no LFS (its documentation and changelog through
 2026-10-01 name none), and caps a file at 32 MB and a repository at 1 GB, so
 audio needs LFS there. The Worker serves `POST /git/<name>.git/info/lfs/objects/batch`
-and `.../info/lfs/verify` beside the Git routes in `mountGitApp`, accepts the
-same credential Git sends by checking it against Artifacts, and answers with
+and `.../info/lfs/verify` beside the Git routes in `mountGitApp`, checks the same
+credential and namespace Git requests carry ([ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md)), and answers with
 presigned URLs on its S3-compatible blob storage under `lfs/<repo>/<oid>`, so
 the bytes never pass through the Worker. `.../info/lfs/locks/verify` answers
 501.

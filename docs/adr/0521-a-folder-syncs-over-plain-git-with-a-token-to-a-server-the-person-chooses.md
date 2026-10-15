@@ -97,8 +97,7 @@ response, 401 included.
 ```text
 app            browser | desktop page | Bun            remote URL + token
 ═══════════════ Git smart HTTP + token (+ CORS) ═══════  everything an app depends on
-control plane  POST /api/git/connect { folder } → { remote, token, expiresAt, expiresIn }
-git front      /git/<name>.git/*              CORS, header hygiene, forwarding
+git front      git.epicenter.so/<namespace>/<name>.git/*   credential + membership check, CORS, forwarding (ADR-0546)
 ═══════════════ repository store ═══════════════════════
 storage        Artifacts | bare repositories on disk
 ```
@@ -109,43 +108,41 @@ deployment mounts.** `mountGitApp(app, { auth, resolveStore })` in
 
 | Route | Does |
 | --- | --- |
-| `POST /api/git/connect` | for the session's principal, finds or creates the folder's repository and returns its URL and a write token for it alone |
-| `GET /git/<name>.git/info/refs?service=…`, `POST /git/<name>.git/git-upload-pack`, `POST /git/<name>.git/git-receive-pack` | hands the request to the store with only `Authorization`, `Content-Type`, `Content-Encoding`, `Accept`, and `Git-Protocol`; answers 401 itself when there is no `Authorization` |
+| `GET …/<namespace>/<name>.git/info/refs?service=…`, `POST …/git-upload-pack`, `POST …/git-receive-pack` | checks the credential and namespace membership, then hands the request to the store with only `Authorization`, `Content-Type`, `Content-Encoding`, `Accept`, and `Git-Protocol`; a first push creates the repository; answers 401 itself when there is no `Authorization` |
 
-- Connect is under `/api/` because a desktop page reaches its server only
-  through the host's account relay, which forwards `/api/` and `/v1/`. The
-  Git routes are outside it because the cookie-CSRF guard on `/api/*` would
-  refuse a terminal `git` push, which carries Basic credentials and no
-  `Origin`.
-- The Git routes check no session: the token is the credential, and the store
-  checks it. The global trusted-origin CORS answers preflights and decorates
+The routes, their names, the credential, and push-to-create are decided by [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md): `POST /api/git/connect` and its hourly per-repository token are replaced, and the rest of this record holds.
+
+- The Git routes are outside `/api/` because the cookie-CSRF guard on
+  `/api/*` would refuse a terminal `git` push, which carries Basic
+  credentials and no `Origin`.
+- The Git routes check the credential and the namespace themselves
+  (ADR-0546). The global trusted-origin CORS answers preflights and decorates
   every response, 401 included. `WWW-Authenticate` is removed when the request
   has an `Origin`, so a browser reads a 401 instead of prompting, and kept for
   a terminal client, which needs the challenge.
-- The remote is `<server>/git/<name>.git`, built from the deployment's
-  configured origin. The Artifacts store names a repository
-  `<folder>.<tag>`, `tag` being 16 hex characters of SHA-256 over the
-  principal ID, so the principal ID is in no URL and two principals never
-  share a repository.
+- The remote is `https://git.epicenter.so/<namespace>/<name>.git`
+  (ADR-0546). The Artifacts store names a repository `<namespace>.<name>`,
+  which appears in no URL.
 - A store returns `null` where a deployment keeps none: self-host and the API
   on Bun answer connect with 503 `GitUnavailable`.
 
 The repository store is the replaceable part:
 
 ```ts
-type GitRepositoryStore = {
-  connect(principal, folder): Promise<{ name; token; expiresAt }>;
-  serve(name, { service, advertisement, headers, body, signal }): Promise<Response>;
+type GitHost = {
+  serve(namespace, name, request): Promise<Response>;   // after authorization
+  create(namespace, name): Promise<void>;
+  list(namespaces): Promise<Repository[]>;
 };
 ```
 
-The Artifacts store finds a repository with `get`, creates it on `main` when
-`get` reports it missing, and mints a one-hour write token with
-`createToken`. It serves without touching the binding: the upstream URL is
-`https://<account>.artifacts.cloudflare.net/git/<namespace>/<name>.git`, from
-the `ARTIFACTS_ACCOUNT_ID` secret and the `ARTIFACTS_NAMESPACE` variable, and
-Artifacts checks the token. A disk store would check tokens itself, so the
-token check sits inside the store, not in the front.
+The Artifacts store creates a repository on `main` on its first push and
+mints its own write tokens, 24 hours per repository, cached; they never reach a
+client. The upstream URL is
+`https://<account>.artifacts.cloudflare.net/git/<artifacts namespace>/<namespace>.<name>.git`,
+from the `ARTIFACTS_ACCOUNT_ID` secret and the `ARTIFACTS_NAMESPACE` variable.
+The front checks the person's credential and namespace for every store
+(ADR-0546).
 
 | Deployment | Runtime | Repository store | Sign-in |
 | --- | --- | --- | --- |
@@ -162,26 +159,17 @@ the same apps with `SELF_HOST_ORIGIN` set, the switch Todos already reads in
 `src/lib/platform/auth.browser.ts`. There is no server picker and no stored
 choice of server. Apps are static files on their own origins, and anyone may
 host them or ship apps of their own; a sync server never serves app pages.
-The remote is never part of a build: `/api/git/connect` returns it, and the
+The remote is never part of a build: Connect proposes it (ADR-0546), and the
 folder keeps it in `remote.origin.url`.
 
-**A token reaches one repository and comes from the sign-in.** Connect returns
-a write token for one repository. The folder engine asks the app for a
-credential right before each push and fetch with the exact URL it is about to
-reach (`credentials` in `@epicenter/folder`), and keeps nothing it is given.
-The app gives Epicenter's token only to the remote the server named, renews it
-five minutes before `expiresIn` (the server's clock, not the device's) runs
-out, and forgets it when the account signs out or changes. Forgetting it is
-local: a token already given out stays valid at Artifacts until it expires,
-and a transfer already running finishes. In the browser the credential is a Basic header on isomorphic-git's
-requests, with no cookies and no redirects. On the desktop the shell passes it
-to `git` through Git's environment, never its arguments, as
-`http.<origin>.extraHeader` with redirects off and no credential helper, and
-only for a push or fetch to the folder's own `https` origin
-([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-For any other server, the person enters the URL and a token, kept on the device
-for that URL. A desktop page also accepts any network URL with the person's
-own Git credentials. No app registers as an OAuth client in this version.
+**The credential is a device Git token from the sign-in, given to `git` by a
+credential helper** (ADR-0546): the browser sends its session's token on the
+Git routes, and on the desktop `epicenter git-credential` is `git`'s
+`credential.helper` for the server, so no token is passed in `git`'s
+environment and nothing renews a token per repository. For any other server,
+the person enters the URL and a token, kept on the device for that URL. A
+desktop page also accepts any network URL with the person's own Git
+credentials. No app registers as an OAuth client in this version.
 
 | Server | Desktop page | Browser |
 | --- | --- | --- |
