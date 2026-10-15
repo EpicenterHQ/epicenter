@@ -20,8 +20,8 @@ apps/epicenter/src/folders ------> dist/folders
                               apps/epicenter/src-tauri
 ```
 
-The host serves Home and four compiled applications: Whispering, Capture,
-Todos, and its own Folders window. Application routes live below `/apps/<id>/`; the Mail and Books routes
+The host serves Settings (the `home` document) and four compiled applications:
+Whispering, Capture, Todos, and its own Folders window. Application routes live below `/apps/<id>/`; the Mail and Books routes
 serve placeholder pages (`src/placeholder-pages.ts`). The `epicenter-host` build
 condition selects each product's host integrations. Honeycrisp has a separate
 desktop shell.
@@ -44,7 +44,7 @@ A desktop build connects to one server. The default is Epicenter Cloud. Set
 self-hosted HTTP(S) origin. Changing it requires rebuilding the host.
 Rust passes this descriptor to Bun and uses the same origin to validate native
 sign-in URLs. App windows receive the descriptor with their identity snapshot.
-Home Settings lets people sign in and out; it cannot change the server.
+Settings lets people sign in and out; it cannot change the server.
 
 Debug Cloud builds retain `EPICENTER_API_URL` for the local development API.
 This override accepts a loopback origin and does not affect release builds.
@@ -89,7 +89,7 @@ The same override can keep an existing installation at its old location.
 
 Use Bun 1.3.14 or newer (`bun --version`; update with `bun upgrade`).
 Bun 1.3.1 and 1.3.3 can close the native input stream during sign-in, leaving
-Home disconnected and applications unable to open. The host rejects older
+Settings disconnected and applications unable to open. The host rejects older
 runtimes before startup. Packaged builds embed Bun and must be rebuilt with
 the supported version.
 
@@ -104,23 +104,30 @@ It requires the API's [local Postgres and Infisical setup](../api/README.md#deve
 The API rebuilds its sign-in page at startup so both sides use the current
 session handoff. Development never needs the deployed production sign-in page.
 
-Finish sign-in in your browser, then return to Epicenter. Home shows the pending
+Finish sign-in in your browser, then return to Epicenter. Settings shows the pending
 attempt and lets you cancel without signing out of your existing account.
 Development returns through the running host's loopback callback because a raw
 macOS development executable has no registered URL scheme. Packaged builds keep
 `epicenter://auth/callback`. If you set `EPICENTER_DEV_PORT`, set it on this root
 command so the API approves the same exact callback port the host binds.
 
-Epicenter opens Home, which is an application beside the others rather than a
-shell above them (ADR-0209). Its Apps pane lists the compiled applications this
-build can launch, and launching one opens its own window; the OS is the switcher
-from there, and closing Home leaves everything it launched running. Home has
-three panes: Apps, Chat, and Settings. Whispering hands transcription setup back to Home's Settings pane
-when the host has no usable local model, and Settings offers the ordinary launch
-action once there is one. The tray and deep links remain shortcuts into the same
-windows:
+Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
+Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
+it. It lists your data folders, offers "Open in Todos" or "Open in Capture" on
+the folder that app opens, lists every other app under Apps, and opens Settings
+from its Settings button. Launching an app opens its own window; the OS is the
+switcher from there, and closing the Folders window leaves everything it
+launched running.
+
+Settings is the window labelled `home`, with two panes: Chat and Settings. It
+alone administers the local transcription model (ADR-0180). Whispering hands
+transcription setup back to its Settings pane when the host has no usable local
+model, and Settings offers the ordinary launch action once there is one. The
+tray (Show Folders, Show Settings, Show Whispering) and deep links remain
+shortcuts into the same windows:
 
 ```bash
+open 'epicenter://'
 open 'epicenter://app/whispering'
 open 'epicenter://app/todos'
 open 'epicenter://app/folders'
@@ -183,16 +190,16 @@ termination does not wait.
 The Folders window (`folders`, served at `/apps/folders/`) opens any data
 folder under the authored folder root, including Todos's and Capture's while
 those apps are open. Its page source is `src/folders`, built by
-`build:folders` into `dist/folders` and served like any compiled application;
-Home lists it, and `epicenter://app/folders` opens it.
+`build:folders` into `dist/folders` and served like any compiled application.
+It is the window Epicenter opens to, and `epicenter://app/folders` opens it.
 
 The page asks the shell for `list_data_folders`, granted to this window alone
 (`folders-*` capabilities, beside `epicenter-folder:default`). The shell lists
 the direct children of the root that are real directories, not links or dot
 entries, holding a regular file `epicenter.json`, and answers each with
-`{ id, title, app }`: `title` is `epicenter.json`'s `title` when it is a
-string, else the directory name, and `app` names the application that owns
-the folder. The page passes `id` to `openDataFolder({ id })` from
+`{ id, title, app, declaration }`: `title` is `epicenter.json`'s `title` when
+it is a string, else the directory name, `app` names the application that owns
+the folder, and `declaration` is the text of `epicenter.json`. The page passes `id` to `openDataFolder({ id })` from
 `@epicenter/folder/tauri`. The reply carries no paths; the page learns a
 folder's root from the plugin's grant, as Todos and Capture do.
 
@@ -209,9 +216,21 @@ folder's root from the plugin's grant, as Todos and Capture do.
 
 ### What the view does
 
-The page lists the folders, with a badge naming the application that owns
-one, and opens the chosen folder; choosing another closes the open handle
-first. An opened folder shows the tables its `epicenter.json` declares
+The page lists the folders and opens the chosen one in place; choosing another
+closes the open handle first.
+
+Beside a folder, the page offers the apps that open it (`src/folders/openers.ts`,
+ADR-0538). An app is offered when the folder's declaration contains the app's
+shape, `shapeProblems(declared, shape)` from `@epicenter/definition`, where the
+shape is the app's own folder definition (`todosDefinition`,
+`captureDefinition`). One match shows "Open in Todos"; several show "Open
+with…". A built-in app opens only its own folder today, so it is offered only
+on that folder; another folder of the same shape is not offered it until an
+app can open the folder it is handed. Every compiled application not offered
+on a listed folder is listed under Apps with an Open button, so Todos stays
+reachable before its folder exists. Every button launches through
+`launch_application`, which this window shares with Settings
+(`launch-application-*` capabilities); model administration stays in Settings. An opened folder shows the tables its `epicenter.json` declares
 (`folder.definition.tables`). The selected table is a grid of its rows read
 with `table.list()`: one column per declared field, in declared order. A row's
 stem opens a side panel with every field, keys the table does not declare
@@ -264,7 +283,7 @@ the page. So before the process quits, or restarts for an account
 change, the native host runs one departure round
 (`src-tauri/src/departure.rs`) and asks both windows. The pages own their
 drafts; the host owns the round and a generation for each page. Nothing else
-takes part: Whispering's shared-host build has no folder root, Home holds
+takes part: Whispering's shared-host build has no folder root, Settings holds
 no file-backed drafts, and the Folders window saves every edit as it is made
 (see [The Folders window](#the-folders-window)).
 
@@ -326,7 +345,7 @@ no file-backed drafts, and the Folders window saves every edit as it is made
 - **The Window menu.** AppKit lists open windows in the Window menu and raises
   the one chosen. Capture and Todos are left out of that list and get their
   own Window-menu items instead, which open or show them through the same
-  checked path as Home's launcher, so the menu cannot show a discarded or
+  checked path as the Folders window's launcher, so the menu cannot show a discarded or
   granted window.
 - **Bun stopping** leaves both windows and their open folders running, and
   sends them `host-stopped`. Their HTTP session does not come back; they are
@@ -373,16 +392,16 @@ that is harmless, because a nudge only means "read again".
 ## Build and verify
 
 ```bash
-# Build Home, every compiled application, and the Bun sidecar
+# Build Settings, every compiled application, and the Bun sidecar
 bun run --cwd apps/epicenter build:desktop
 
 # Package the complete native application
 bun run --cwd apps/epicenter desktop:build
 
-# Typecheck the host and Home
+# Typecheck the host, Settings, and the Folders window
 bun run --cwd apps/epicenter typecheck
 
-# Typecheck the host, Home, Whispering, Capture, and Todos
+# Typecheck the host, Settings, Whispering, Capture, and Todos
 bun run --cwd apps/epicenter typecheck:desktop
 
 # Host, routing, sidecar, and window tests
@@ -403,7 +422,7 @@ the host with Whispering, Capture, and Todos.
 ## Ownership rules
 
 - `src-tauri` owns native commands, permissions, windows, deep links, and packaging.
-- `src` owns the Bun host, built-in routes, static-asset containment, and Home session.
+- `src` owns the Bun host, built-in routes, static-asset containment, and the Settings chat session.
 - `dist` is generated. Never edit it or commit product source beneath it.
 - A product SPA owns its UI and browser deployment from its own app folder.
 - A multi-host SPA selects implementations through build-time `#platform/*` conditions. Runtime checks guard optional capabilities; they do not choose which implementation was bundled.

@@ -29,8 +29,9 @@ or with Git.
 
 ## Desktop, inside Epicenter
 
-Todos is one of Epicenter's compiled applications. Open it from Epicenter Home,
-or through the `epicenter://app/todos` link. There is no separate Todos app to
+Todos is one of Epicenter's compiled applications. Open it from the Folders
+window Epicenter opens to ("Open in Todos" beside its folder, or under Apps
+before that folder exists), or through the `epicenter://app/todos` link. There is no separate Todos app to
 install or run.
 
 ### Where the files are
