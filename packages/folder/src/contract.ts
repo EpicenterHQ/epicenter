@@ -141,6 +141,7 @@ export {
 	projectionProblem,
 	projectTables,
 	readingStatementProblem,
+	type SqlTarget,
 } from './projection.js';
 export {
 	type AnyRow,

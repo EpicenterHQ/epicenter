@@ -8,11 +8,23 @@
  * JSON text, and strings and numbers are stored as they are. Only rows that
  * conform are projected; the caller names the files it left out.
  *
- * The projection is written against `@epicenter/sqlite`'s handle, so Bun and a
- * browser's SQLite build it identically. Preparing a caller's statement stays
- * with the engine, which is the only one that can tell where it ends.
+ * The projection needs only {@link SqlTarget}, two calls every embedded SQLite
+ * binding has, so Bun and a browser's SQLite build it identically without this
+ * package depending on either. Preparing a caller's statement stays with the
+ * engine, which is the only one that can tell where it ends.
  */
-import type { SqliteDatabase, SqliteValue } from '@epicenter/sqlite';
+
+/** A value SQLite stores for a projected column. */
+type SqlValue = string | number | null;
+
+/**
+ * What the projection asks of a database: run one statement, and run several
+ * as one transaction. An `@epicenter/sqlite` handle is one.
+ */
+export type SqlTarget = {
+	run(sql: string, parameters?: readonly SqlValue[]): void;
+	transaction<TResult>(run: () => TResult): TResult;
+};
 
 /** One declared table and the rows that conform, ready to project. */
 export type ProjectedTable = {
@@ -37,7 +49,7 @@ function quote(name: string) {
 }
 
 /** A field value as SQLite stores it: JSON text for lists and objects. */
-function toSql(value: unknown): SqliteValue {
+function toSql(value: unknown): SqlValue {
 	if (value === undefined || value === null) return null;
 	if (typeof value === 'boolean') return value ? 1 : 0;
 	if (typeof value === 'object') return JSON.stringify(value);
@@ -68,7 +80,7 @@ export function projectionProblem(table: ProjectedTable): string | undefined {
  * appearing to succeed. Throws when a table has a {@link projectionProblem}.
  */
 export function projectTables(
-	db: SqliteDatabase,
+	db: SqlTarget,
 	tables: readonly ProjectedTable[],
 ): void {
 	for (const table of tables) {

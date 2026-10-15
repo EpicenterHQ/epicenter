@@ -644,7 +644,8 @@ and header CRLF in source are normalized away by the first save.
 ### Rows as SQL
 
 `projectTables(db, tables)` builds the projection `epicenter query` reads
-(ADR-0520) in any `@epicenter/sqlite` handle, so Bun and a browser's SQLite
+(ADR-0520) in any `SqlTarget` (`run` and `transaction`, such as an
+`@epicenter/sqlite` handle), so Bun and a browser's SQLite
 build the same tables. Each table has `stem`, one quoted column per declared
 field, and `body`; a list or object is JSON text and a boolean is `0` or `1`.
 Pass only rows that conform and name the files you left out. The database is

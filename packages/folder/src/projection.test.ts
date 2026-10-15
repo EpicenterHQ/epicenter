@@ -1,17 +1,23 @@
 /**
- * The SQL projection of a data folder, built through `@epicenter/sqlite`'s
- * handle so any engine that answers the handle builds the same tables.
+ * The SQL projection of a data folder, built through the two calls every
+ * embedded SQLite binding has, so any engine builds the same tables.
  */
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
-import { createBunSqliteAdapter } from '@epicenter/sqlite/bun';
 import {
 	describeTables,
 	type ProjectedTable,
 	projectionProblem,
 	projectTables,
 	readingStatementProblem,
+	type SqlTarget,
 } from './projection.js';
+
+/** `bun:sqlite` as the projection's target. */
+const target = (db: Database): SqlTarget => ({
+	run: (sql, parameters = []) => db.run(sql, [...parameters]),
+	transaction: (run) => db.transaction(run)(),
+});
 
 const posts: ProjectedTable = {
 	name: 'posts',
@@ -36,7 +42,7 @@ const posts: ProjectedTable = {
 
 test('each table projects stem, its quoted fields, and body, as SQLite values', () => {
 	const db = new Database(':memory:');
-	projectTables(createBunSqliteAdapter(db), [posts]);
+	projectTables(target(db), [posts]);
 	expect(
 		db
 			.query('SELECT stem, title, "order", pinned, tags, due, body FROM posts')
@@ -72,9 +78,7 @@ test('a table that cannot be one SQLite table is named, not projected', () => {
 	);
 	expect(projectionProblem(posts)).toBeUndefined();
 	expect(() =>
-		projectTables(createBunSqliteAdapter(new Database(':memory:')), [
-			clash('stem'),
-		]),
+		projectTables(target(new Database(':memory:')), [clash('stem')]),
 	).toThrow("uses 'stem' for the row itself");
 });
 
