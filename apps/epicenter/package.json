@@ -37,7 +37,6 @@
 		"@epicenter/capture": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/matter-core": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/server": "workspace:*",
 		"@epicenter/sqlite": "workspace:*",

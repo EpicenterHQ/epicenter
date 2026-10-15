@@ -1,7 +1,0 @@
-{
-	"fields": {
-		"title": { "type": "string", "minLength": 1 },
-		"status": { "type": "string", "enum": ["captured", "refined"] }
-	},
-	"optional": ["status"]
-}
