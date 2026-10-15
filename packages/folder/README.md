@@ -786,6 +786,21 @@ competing edits. Its module owns `kv.json` text: `kv.set` writes through the sam
 formatter, so a local save and a merge produce the same file. Every folder's `git.mergeIncoming()` uses it for root
 `kv.json`; see [Merging incoming changes](#merging-incoming-changes).
 
+### Merging a row
+
+`mergeRow(table, { base, ours, theirs })` merges three texts of one row file
+of a prepared table, each `null` for no file, by field and body. Sync uses it
+for declared tables, and an editor can use it to settle a save that returned
+`Conflict`. Every version is read through `parseRow`, so spelling never
+conflicts. For each field, equal values agree and a side unchanged from the
+base yields; values compare as JSON. The body merges by line.
+
+The result is `merged` with the row; `conflict` with a row of every field that
+merged, beside the competing fields and body (that row leaves competing fields
+out, and its body is ours while the body competes); or `whole` when a side has no file or a version does
+not read as a row. It writes nothing and picks no winner; the caller formats
+the row it saves.
+
 ### One file per save
 
 Every save changes one file, or for a move one source and one destination.

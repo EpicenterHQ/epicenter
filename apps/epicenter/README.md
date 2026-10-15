@@ -206,12 +206,54 @@ folder's root from the plugin's grant, as Todos and Capture do.
   in the same run returns the same scope. Registrations last until the
   process exits; a folder removed from the root keeps an unused scope.
 
-The page is a placeholder until its view is built. That view must save each
-edit as soon as it is made and keep no drafts, because the Folders window is
-not a departure participant: the Folder plugin's exit drain waits for changes
-already sent, so a quit or restart does not ask it. An edit
-the page has not yet sent when the quit proceeds is lost. Unlike Capture and
-Todos, the window is also destroyed and reloaded when the Bun host restarts.
+### What the view does
+
+The page lists the folders, with a badge naming the application that owns
+one, and opens the chosen folder; choosing another closes the open handle
+first. An opened folder shows the tables its `epicenter.json` declares
+(`folder.definition.tables`). The selected table is a grid of its rows read
+with `table.list()`: one column per declared field, in declared order. A row's
+stem opens a side panel with every field, keys the table does not declare
+(shown, kept, and not editable), and the Markdown body. A row that does not
+read (`InvalidRow`) shows its issues and text and cannot be edited. A folder
+that declares no tables says so and lists its files, read only.
+
+Each field gets the editor its schema and `x-field` hint resolve to
+(`fieldEditorOf`, mapped in `src/folders/field-input.ts`): a checkbox for
+`boolean`, a menu for `select`, toggles for `multiSelect`, comma-separated
+text for `tags`, a date input for `date`, JSON text for `json` and for any
+field whose hint does not fit its schema, and a text input for the rest.
+Instants and datetimes are edited as their ISO text. Clearing an optional
+field removes it from the row.
+
+### Saves and merges
+
+The view keeps no drafts, because the Folders window is not a departure
+participant: the Folder plugin's exit drain waits for changes already sent,
+so a quit or restart does not ask it. A text field saves on Enter or when it
+loses focus, the body when its box loses focus, and every other editor on
+change. An edit the page has not yet sent when the quit proceeds is lost,
+such as body text still being typed. Unlike Capture and Todos, the window is
+also destroyed and reloaded when the Bun host restarts.
+
+Every save is `table.replace` over the bytes the row was read from
+(`src/folders/save-row.ts`), one save at a time. When another window saved the
+row first, the save is `Conflict`, and the view reads the current file and
+merges with `mergeRow`: base is the row as read, ours the edited row, theirs
+the current file. A field or body lines only one side changed keep that
+side's change. Where both changed a field, or the same body lines, this edit
+wins, and the message names each value of theirs it replaced: "Changed in
+another window; merged." The merged row is saved over the current bytes, up
+to three times. A row another window deleted, or saved in a form that does
+not read as a row, is not overwritten. When a save fails, the view says why
+and reads the table again.
+
+The open table is read again when the window gains focus and on
+`folder.onFilesChanged`, which carries other same-origin windows' hints, such
+as Todos's. "Save version" calls `folder.git.commit()` (ADR-0529) and reports
+a version saved, nothing new to save, or why none was saved; the header shows
+how many files changed since the last version. The window never writes
+`epicenter.json`.
 
 ## Leaving Epicenter
 
