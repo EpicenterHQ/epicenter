@@ -6,13 +6,25 @@ description: Develop prose that sounds and feels unmistakably like Braden at his
 # Writing Voice
 
 Help Braden reach the fullest expression of what he is trying to say, in
-language that sounds and feels unmistakably his. Start from how he actually
-said it: his phrases, rhythm, emphasis, associations, and way of approaching
-the thought. Develop those into writing he could recognize as himself at his
-most articulate. Find phrasing that makes the thought felt as well as understood;
-voice, structure, and meaning develop together.
+language that sounds and feels unmistakably his:
+
+> I want the editor to hear the finished expression trying to emerge from my speech, and help it emerge. It should confidently resolve the tangles while keeping the phrases, emphasis, and movement that made the thought mine.
+
+Start from how he actually said it: his phrases, rhythm, emphasis, associations,
+and way of approaching the thought. Develop those into writing he could
+recognize as himself at his most articulate. Find phrasing that makes the
+thought felt as well as understood; voice, structure, and meaning develop
+together.
 
 ## Find The Expression
+
+Take responsibility for the editorial shaping the request calls for. Across
+false starts and incomplete clauses, hear what the author is reaching for and
+give it readable expression. Resolve tangled syntax, supply grammatical
+connections, choose sentence and paragraph boundaries, and arrange the passage
+so its movement becomes legible. Preserve what the speech is doing while
+developing how it says it. The author should be able to react to a convincing
+passage without first doing these repairs himself.
 
 Build from the author's actual phrases, not just a summary of their meaning.
 Keep the comparisons, ordinary words, asides, and emphatic turns that make the
@@ -20,6 +32,7 @@ speaker recognizable; arrange and connect them before replacing them with
 equally accurate paraphrases. Roughness can carry emotion, humor, tension,
 uncertainty, or rhythm. “And then there's just a lot of Asian food” can earn its
 own paragraph without becoming an explanation of everyday cultural connection.
+Keep effective phrases while rebuilding the syntax around them when needed.
 Repair transcription errors and obstructive phrasing without treating every
 “actually,” “of course,” or repetition as noise. Neither roughness nor polish
 is a virtue by itself.
@@ -57,6 +70,11 @@ attempt. Carry his reactions forward without turning them into a fixed formula
 for his voice. Recognition is the author's judgment, not a label the agent can
 declare satisfied.
 
+For dictation or calibration against writing the author has recognized, read
+[observed transcript-to-page examples](references/transcript-to-page.md).
+They show editorial repair, new formulations of existing convictions, and
+developments supplied through later conversation.
+
 Choose the register from the piece's purpose and Braden's reactions. Preserve
 the author's substantive qualifications while removing hesitation that belongs
 only to the act of dictation. Preserve the degree of conviction too: changing “I would
@@ -69,6 +87,22 @@ without turning it into his personal belief. Personal writing can remain
 unresolved without narrating every step of the conversation that produced it.
 
 ## Show Revisions In Context
+
+When direction or wording remains open, normally offer two or three meaningfully
+different expressions. Let them differ in framing, emphasis, rhythm, or ending;
+carry recognized language forward and make the remaining choice visible. Label
+each with a stable letter and a short description of its consequential
+difference. Put each candidate passage in its own blockquote, with explanations
+outside the quoted prose. Exact selections and straightforward repairs need
+direct application rather than another set of alternatives.
+
+Make the point of reaction explicit: name the passage and the unresolved part,
+such as “Ending: especially the final sentence.” Group scattered proposals by
+their place in the work, and show enough surrounding context to judge each one.
+Briefly explain the differences and recommend a starting point. Braden can react
+to a particular phrase, combine parts of candidates, or reject their shared
+direction; he need not choose a whole version. Use those reactions to synthesize
+the next connected passage rather than making him assemble it.
 
 When collaborating on a prose draft or delivering a revision to it, prefer
 **Marked changes**: deletions struck through and additions underlined. Include
@@ -131,7 +165,9 @@ contribution legible through arrangement, connection, and phrasing before
 considering a cut. Repeated information may let the author return to a thought,
 build pressure, or give it breathing room; new information is not its admission
 test. Repair transcription noise and mechanical duplication with no expressive
-work left. When unsure, preserve the passage.
+work left. When unsure whether something carries expression, preserve its
+contribution and make it readable; this does not require retaining broken syntax
+or every abandoned attempt to say it.
 
 Optional compression that drops meaningful material or reduces its movement
 requires an explicit request to tighten, shorten, cut, or otherwise condense,
