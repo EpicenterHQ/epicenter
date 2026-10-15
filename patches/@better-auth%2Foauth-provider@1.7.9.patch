@@ -1,0 +1,106 @@
+Upstream candidate for better-auth/better-auth (packages/oauth-provider).
+Keys refresh-token reuse detection and revocation on grant lineage
+(oauthRefreshToken.authorizationCodeId) instead of (clientId, userId), stamps
+device grants with lineage device:<deviceCode.id>, and refuses a refresh row
+without a lineage. ADR-0549. Re-verify on every Better Auth upgrade.
+
+diff --git a/dist/authorize-D8r6mvZx.mjs b/dist/authorize-D8r6mvZx.mjs
+index ea14e5ce532b3c46b3cd364f8a910ae6ffa523a2..bf72e82babd43181426d03fdbd156ef4e4874bef 100644
+--- a/dist/authorize-D8r6mvZx.mjs
++++ b/dist/authorize-D8r6mvZx.mjs
+@@ -3548,7 +3548,7 @@ async function revokeRefreshToken(ctx, opts, token, clientId) {
+ 		error: "invalid_request"
+ 	});
+ 	if (refreshToken.revoked) {
+-		await invalidateRefreshFamily(ctx, clientId, refreshToken.userId);
++		await invalidateRefreshFamily(ctx, clientId, refreshToken.userId, refreshToken.authorizationCodeId);
+ 		throw new APIError$1("BAD_REQUEST", {
+ 			error_description: "refresh token revoked",
+ 			error: "invalid_request"
+@@ -3569,7 +3569,7 @@ async function revokeRefreshToken(ctx, opts, token, clientId) {
+ 		increment: {},
+ 		set: { revoked: /* @__PURE__ */ new Date(iat * 1e3) }
+ 	})) {
+-		await invalidateRefreshFamily(ctx, clientId, refreshToken.userId);
++		await invalidateRefreshFamily(ctx, clientId, refreshToken.userId, refreshToken.authorizationCodeId);
+ 		throw new APIError$1("BAD_REQUEST", {
+ 			error_description: "refresh token revoked",
+ 			error: "invalid_request"
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 5eb2438ed8cc037f88d08c74b4939d29e149a028..525faec963dfb9fa147454583f19a52c639f65d1 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -52,7 +52,7 @@ async function exchangeOAuthDeviceCode(input) {
+ 	const body = ctx.body;
+ 	const deviceCode = body?.device_code;
+ 	if (!deviceCode) tokenError("BAD_REQUEST", "invalid_request", "device_code is required");
+-	const { authorizationContext: { client, confirmation, scopes }, redemptionContext: resources, user } = await redeemDeviceCode({
++	const { claimedDeviceCode, authorizationContext: { client, confirmation, scopes }, redemptionContext: resources, user } = await redeemDeviceCode({
+ 		ctx,
+ 		deviceCode,
+ 		authorizeRedemption: async (record) => {
+@@ -94,7 +94,8 @@ async function exchangeOAuthDeviceCode(input) {
+ 		scopes,
+ 		user,
+ 		resources,
+-		confirmation
++		confirmation,
++		authorizationCodeId: `device:${claimedDeviceCode.id}`
+ 	});
+ }
+ function buildOAuthDeviceGrant() {
+diff --git a/dist/introspect-7WCMPe5Z.mjs b/dist/introspect-7WCMPe5Z.mjs
+index 0a09873c05477915c82cd0f4ee10127987e41838..59440cdf81e47d3431c0dc126a0f8dee6dda4c9b 100644
+--- a/dist/introspect-7WCMPe5Z.mjs
++++ b/dist/introspect-7WCMPe5Z.mjs
+@@ -1495,16 +1495,18 @@ async function createOpaqueAccessToken(ctx, opts, user, client, scopes, payload,
+ *
+ * @internal
+ */
+-async function invalidateRefreshFamily(ctx, clientId, userId) {
++async function invalidateRefreshFamily(ctx, clientId, userId, lineage) {
++	if (!lineage) throw new APIError("INTERNAL_SERVER_ERROR", {
++		error_description: "refresh token has no grant lineage",
++		error: "server_error"
++	});
++	const familyWhere = [{
++		field: "authorizationCodeId",
++		value: lineage
++	}];
+ 	const refreshTokens = await ctx.context.adapter.findMany({
+ 		model: "oauthRefreshToken",
+-		where: [{
+-			field: "clientId",
+-			value: clientId
+-		}, {
+-			field: "userId",
+-			value: userId
+-		}]
++		where: familyWhere
+ 	});
+ 	if (refreshTokens.length) await ctx.context.adapter.deleteMany({
+ 		model: "oauthAccessToken",
+@@ -1516,13 +1518,7 @@ async function invalidateRefreshFamily(ctx, clientId, userId) {
+ 	});
+ 	await ctx.context.adapter.deleteMany({
+ 		model: "oauthRefreshToken",
+-		where: [{
+-			field: "clientId",
+-			value: clientId
+-		}, {
+-			field: "userId",
+-			value: userId
+-		}]
++		where: familyWhere
+ 	});
+ }
+ async function revokeTokensIssuedForAuthorizationCode(ctx, authorizationCodeId) {
+@@ -2157,7 +2153,7 @@ async function handleRefreshTokenGrant(ctx, opts) {
+ 				error: "invalid_grant"
+ 			});
+ 		}
+-		await invalidateRefreshFamily(ctx, client_id, refreshToken.userId);
++		await invalidateRefreshFamily(ctx, client_id, refreshToken.userId, refreshToken.authorizationCodeId);
+ 		throw new APIError("BAD_REQUEST", {
+ 			error_description: "invalid refresh token",
+ 			error: "invalid_grant"

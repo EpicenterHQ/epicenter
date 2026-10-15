@@ -1,5 +1,6 @@
 /** Hosted sign-in uses cookies; dashboard management captures one Account. */
 
+import { oauthProviderClient } from '@better-auth/oauth-provider/client';
 import { passkeyClient } from '@better-auth/passkey/client';
 import type { Account } from '@epicenter/auth';
 import { createAuthClient } from 'better-auth/client';
@@ -7,7 +8,9 @@ import { createAuthClient } from 'better-auth/client';
 export const authClient = createAuthClient({
 	baseURL: typeof window === 'undefined' ? undefined : window.location.origin,
 	basePath: '/auth',
-	plugins: [passkeyClient()],
+	// The provider's client hands a signed authorization request on the page's
+	// query back with each sign-in, so the server resumes it (ADR-0549).
+	plugins: [passkeyClient(), oauthProviderClient()],
 });
 
 /** Every management request stays bound to the Account that opened this client. */

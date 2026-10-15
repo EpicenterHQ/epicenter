@@ -27,6 +27,7 @@ import {
 	resolveDeploymentBlobStore,
 	resolveRequestSessionPrincipal,
 	type ServerBindings,
+	workerClientMetadataFetch,
 } from '@epicenter/server';
 import type { Context } from 'hono';
 import { every } from 'hono/combine';
@@ -38,6 +39,7 @@ import {
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
 import { createArtifactsRepositoryStore } from './git-repositories.js';
+import { resolveOAuthAudiences } from './oauth-registrations.js';
 import { buildSessionCallbacks } from './session-callbacks.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
@@ -90,24 +92,38 @@ app.get('/', (c) =>
 
 // Route-owned Postgres lifetime. Hyperdrive acquisition and waitUntil belong
 // to this runtime; the middleware drains queued work before closing the client.
-const cloudContext = createCloudContextMiddleware({
-	connect: (env) => connectHyperdriveDb((env as Cloudflare.Env).HYPERDRIVE),
-	afterResponse: (c, work) => c.executionCtx.waitUntil(work),
+// The authorization server's Hyperdrive configuration must have caching
+// disabled, so a revoked token is never read from a stale cache (ADR-0549).
+const cloudContextOptions = {
+	connect: (env: ServerBindings) =>
+		connectHyperdriveDb((env as Cloudflare.Env).HYPERDRIVE),
+	afterResponse: (c: Context<CloudEnv>, work: Promise<unknown>) =>
+		c.executionCtx.waitUntil(work),
 
-	resolveSessionCallbacks: (c) =>
+	resolveSessionCallbacks: (c: Context<CloudEnv>) =>
 		buildSessionCallbacks(
 			c.var.authBaseURL,
 			(c.env as Cloudflare.Env).EPICENTER_DEV_PORT,
 		),
-	resolveAuthSecrets: (c) => c.env as Cloudflare.Env,
+	resolveAuthSecrets: (c: Context<CloudEnv>) => c.env as Cloudflare.Env,
+};
+const cloudContext = createCloudContextMiddleware(cloudContextOptions);
+// The `/auth/*` routes add the OAuth 2.1 authorization server (ADR-0549).
+const authServerContext = createCloudContextMiddleware({
+	...cloudContextOptions,
+	resolveOAuthServer: (c) => ({
+		audiences: resolveOAuthAudiences(c.var.authBaseURL),
+		clientMetadataFetch: workerClientMetadataFetch,
+	}),
 });
 
 // Public auth shells bypass setup. Better Auth endpoints install it directly;
 // protected resource mounts below compose it before their own auth guards.
 // Cloud secrets stay at this deployment edge, outside ServerBindings.
 mountAuthRoutes(app, {
-	setup: cloudContext,
+	setup: authServerContext,
 	serveAuthUiShell: serveUiShell,
+	resolveAudiences: (c) => resolveOAuthAudiences(c.var.authBaseURL),
 });
 
 const bearer = every(

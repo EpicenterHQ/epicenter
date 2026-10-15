@@ -14,7 +14,11 @@ import {
 } from './apple-client-secret.js';
 import { BASE_AUTH_CONFIG } from './base-config.js';
 import { createCookieAdvancedConfig } from './cookie-config.js';
-import { authPlugins } from './plugins.js';
+import {
+	authPlugins,
+	type OAuthServerConfig,
+	oauthServerPlugins,
+} from './plugins.js';
 import { requireAccountSession, SESSION_POLICY } from './session-policy.js';
 
 type Db = NodePgDatabase<typeof schema>;
@@ -112,7 +116,8 @@ export function configuredProviders(env: CloudAuthBindings) {
  * - Drizzle adapter (portable Postgres wire; Hyperdrive on Workers, a pool on Node)
  * - Google OAuth, plus GitHub, Microsoft, and Apple when their credentials are
  *   configured (email/password is disabled; see {@link BASE_AUTH_CONFIG})
- * - Plugins: signed session bearer, PKCE session handoff, passkey (WebAuthn)
+ * - Plugins: signed session bearer, PKCE session handoff, passkey (WebAuthn),
+ *   and the OAuth 2.1 authorization server (ADR-0549)
  *
  * `/api/session` is the single Epicenter session surface; this builder no longer
  * enriches `/auth/get-session` with encryption keys.
@@ -123,6 +128,7 @@ export function createAuth({
 	baseURL,
 	trustedOrigins,
 	sessionCallbacks = [],
+	oauth,
 }: {
 	db: Db;
 	env: CloudAuthBindings;
@@ -131,6 +137,13 @@ export function createAuth({
 	trustedOrigins: string[];
 	/** Exact callbacks approved by this deployment, independent of CORS trust. */
 	sessionCallbacks?: readonly string[];
+	/**
+	 * The authorization server's audiences and metadata-document transport.
+	 * Only the `/auth/*` routes compose it: the provider seeds its resources
+	 * when an instance initializes, and a Worker builds one per request, so a
+	 * route that only resolves a session must not pay those reads.
+	 */
+	oauth?: Omit<OAuthServerConfig, 'db'>;
 }) {
 	// Better Auth signs session credentials and OAuth state with this secret. Handed
 	// an empty or missing one, the library silently falls back to its PUBLIC default
@@ -240,7 +253,10 @@ export function createAuth({
 		// `rateLimit` table to the schema and set `storage: 'database'` if
 		// durable, shared limiting is ever needed.
 		rateLimit: { storage: 'memory' },
-		plugins: authPlugins(baseURL, sessionCallbacks),
+		plugins: [
+			...authPlugins(baseURL, sessionCallbacks),
+			...(oauth ? oauthServerPlugins({ ...oauth, db }) : []),
+		],
 		hooks: {
 			before: requireAccountSession(
 				(headers): Promise<{ session: Session; user: User } | null> =>

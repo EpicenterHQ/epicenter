@@ -12,6 +12,10 @@
  * load in a Bun process. A Bun host supplies its own db concerns.
  */
 
+// The OAuth 2.1 authorization server (ADR-0549): its shared policy, the
+// first-party registrations a deployment writes, and the one resource check.
+// Resolve-once, address-pinned CIMD transport for a Node or Bun host.
+export { fetchClientMetadataResource as nodeClientMetadataFetch } from '@better-auth/cimd/node';
 // Hosted auth routes are separate from the cloud request-context middleware.
 // CloudAuthBindings is merged into the Bun host's boot validation.
 export { CloudAuthBindings } from './auth/create-auth.js';
@@ -20,12 +24,36 @@ export { CloudAuthBindings } from './auth/create-auth.js';
 // gets it without importing the main barrel, which would drag in the Cloudflare
 // Durable Objects and their `cloudflare:workers` import.
 export { OAuthError } from './auth/oauth-errors.js';
+export {
+	OAUTH_SCOPES,
+	type OAuthAudiences,
+	type OAuthScope,
+	oauthResourceInputs,
+} from './auth/oauth-policy.js';
+export {
+	type FirstPartyClient,
+	firstPartyClientRow,
+	registerFirstPartyClients,
+} from './auth/oauth-registrations.js';
+export {
+	authorizeResourceRequest,
+	protectedResourceMetadataUrl,
+	type ResourceAccess,
+	type ResourceRefusal,
+	readAccessToken,
+} from './auth/resource-access.js';
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 export { createDb } from './db/create-db.js';
 export {
 	requireBearerPrincipal,
 	resolveRequestSessionPrincipal,
 } from './middleware/require-auth.js';
+export {
+	NAMESPACE_ROLES,
+	type NamespaceOperation,
+	type NamespaceRole,
+	roleAllows,
+} from './namespace-roles.js';
 export { mountAuthRoutes } from './routes/auth.js';
 export {
 	type HostedBlobStore,

@@ -28,10 +28,14 @@ import { makeSignature } from 'better-auth/crypto';
 let databaseUnavailable = false;
 let databaseCalls = 0;
 class ProbeClient {
+	// A pool's connect hands back a client to release, as the Bun entry's
+	// boot-time registration transaction needs.
 	async connect() {
 		databaseCalls++;
 		if (databaseUnavailable) throw new Error('Postgres unavailable');
+		return this;
 	}
+	release() {}
 	async end() {}
 	async query() {
 		databaseCalls++;
@@ -229,7 +233,7 @@ const bunFetcher = once(async () => {
 			captured = options.fetch;
 			return { port: 0, stop: () => {} };
 		};
-		entry.startBunApiServer();
+		await entry.startBunApiServer();
 	} finally {
 		Bun.serve = realServe;
 	}
@@ -277,23 +281,19 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 	databaseUnavailable = true;
 	databaseCalls = 0;
 	try {
-		for (const path of [
-			'/sign-in',
-			'/session/callback',
-			'/dashboard',
-			'/dashboard/usage',
-		]) {
+		const authPages = ['/sign-in', '/session/callback', '/consent', '/device'];
+		for (const path of [...authPages, '/dashboard', '/dashboard/usage']) {
 			const response = await worker(new Request(`${ORIGIN}${path}`));
 			expect(response.status).toBe(200);
 			expect(await response.text()).toBe('<html>Cloud UI</html>');
-			if (path === '/sign-in' || path === '/session/callback') {
+			if (authPages.includes(path)) {
 				expect(response.headers.get('cache-control')).toBe('no-store');
 				expect(response.headers.get('referrer-policy')).toBe('no-referrer');
 			}
 		}
 		// Bun intentionally delegates browser UI to Vite; its existing diagnostic
 		// must remain available without consulting the shared pool.
-		for (const path of ['/sign-in', '/session/callback']) {
+		for (const path of authPages) {
 			const response = await bun(new Request(`${ORIGIN}${path}`));
 			expect(response.status).toBe(503);
 			expect(await response.text()).toContain(
@@ -368,7 +368,12 @@ test('both runtime compositions fail closed on protected operations during a dat
 					}),
 				);
 				expect(response.status).toBeGreaterThanOrEqual(500);
-				expect(databaseCalls).toBe(callsBefore + 1);
+				// On Bun the pool is already open, so the authorization server's
+				// instance makes one more attempt: the provider seeding its
+				// resources as it initializes. The Worker fails at connect.
+				const attempts =
+					runtime === 'bun' && row.surface === 'mountAuthRoutes' ? 2 : 1;
+				expect(databaseCalls).toBe(callsBefore + attempts);
 			}
 		}
 		for (const path of [

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
-- **Unbuilt:** the `namespace` and `namespace_member` tables, the personal namespace made with each account, membership checks on Git requests, and groups with invitations.
+- **Unbuilt:** membership checks on Git requests (the resource query joins membership, but no Git route runs it yet), and groups with invitations.
 
 ## Context
 

@@ -16,7 +16,7 @@ import { requireAccountSession } from './session-policy.js';
 const baseURL = 'http://localhost:47878';
 const secret = 'test-secret-test-secret-test-secret';
 const routes = [
-	['/unlink-account', { providerId: 'github' }],
+	['/unlink-account', { accountId: 'alice-github' }],
 	['/passkey/generate-register-options', undefined],
 	['/passkey/delete-passkey', { id: 'alice-passkey' }],
 	['/link-social', { provider: 'google', callbackURL: baseURL }],
@@ -53,19 +53,30 @@ async function setup() {
 	});
 	const ctx = await auth.$context;
 	async function seed(name: string) {
-		const user = await ctx.internalAdapter.createUser({
-			name,
-			email: `${name.toLowerCase()}@example.test`,
-			emailVerified: true,
-		});
+		const user = await ctx.internalAdapter.createUser(
+			{
+				name,
+				email: `${name.toLowerCase()}@example.test`,
+				emailVerified: true,
+			},
+			{ method: 'admin' },
+		);
 		const session = await ctx.internalAdapter.createSession(user.id, false);
 		assert(session);
 		const token = `${session.token}.${await makeSignature(session.token, secret)}`;
+		// Better Auth 1.7 unlinks by account row id, so the rows get known ids.
 		for (const providerId of ['github', 'google'])
-			await ctx.internalAdapter.createAccount({
-				userId: user.id,
-				providerId,
-				accountId: `${name}-${providerId}`,
+			await ctx.adapter.create({
+				model: 'account',
+				data: {
+					id: `${name.toLowerCase()}-${providerId}`,
+					userId: user.id,
+					providerId,
+					accountId: `${name}-${providerId}`,
+					createdAt: new Date(),
+					updatedAt: new Date(),
+				},
+				forceAllowId: true,
 			});
 		await ctx.adapter.create({
 			model: 'passkey',
@@ -119,13 +130,11 @@ async function setup() {
 		provider.validateAuthorizationCode = async () => ({
 			accessToken: 'synthetic-upstream-token',
 		});
+		// Better Auth 1.7 keys the provider account on `accountSubject`, never on
+		// the mapped user.
+		provider.accountSubject = () => 'new-provider-identity';
 		provider.getUserInfo = async () => ({
-			user: {
-				id: 'new-provider-identity',
-				name: 'Provider fixture',
-				email,
-				emailVerified,
-			},
+			user: { name: 'Provider fixture', email, emailVerified },
 			data: {},
 		});
 	}

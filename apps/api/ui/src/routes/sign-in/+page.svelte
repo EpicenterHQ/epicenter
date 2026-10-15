@@ -1,4 +1,8 @@
-<!-- Hosted cookie login authorizes one exact, PKCE-bound client handoff. -->
+<!--
+	Hosted cookie login. It authorizes one exact, PKCE-bound client handoff, or
+	resumes the OAuth authorization (ADR-0549) or device approval that sent the
+	browser here.
+-->
 <script lang="ts">
  import * as Alert from '@epicenter/ui/alert';
  import { Button } from '@epicenter/ui/button';
@@ -11,12 +15,18 @@
  import UserIdentity from '$lib/auth/UserIdentity.svelte';
  import { authClient, isPasskeyCancellation, supportsPasskeys } from '$lib/auth/client';
  import { SOCIAL_PROVIDERS, type SocialProvider } from '$lib/auth/providers';
- import { readSessionRequest } from '$lib/auth/session-request';
+ import { readOAuthRequest } from '$lib/auth/oauth-request';
+ import { readReturnPath, readSessionRequest } from '$lib/auth/session-request';
 
  // Cookie identity belongs to this ceremony, never the dashboard's account cache.
  const queries = new QueryClient();
  $effect(() => () => queries.clear());
  const request = readSessionRequest(window.location.search);
+ // The authorization server's own flows: an authorization request it signed,
+ // or the device approval page.
+ const oauth = readOAuthRequest(window.location.search);
+ const returnPath = readReturnPath(window.location.search);
+ const resumeUrl = oauth?.resumeUrl ?? returnPath;
  const session = createQuery(() => ({
   queryKey: ['hosted-login'],
   queryFn: async () => {
@@ -29,6 +39,7 @@
 
  const continueSignIn = createMutation(() => ({
   mutationFn: async () => {
+   if(resumeUrl) return window.location.replace(resumeUrl);
    if(!request) throw new Error('Start sign-in from the app you want to use.');
    const response = await fetch('/auth/session/authorize',{
     method:'POST', credentials:'include', redirect:'error',
@@ -95,7 +106,7 @@
    <h1 class="text-xl font-semibold tracking-tight">{request?.reauthenticate ? 'Sign in again' : 'Sign in to Epicenter'}</h1>
   </Card.Title>
   <Card.Description>
-   {#if request}Continue to {new URL(request.callback).host}.{:else}Start sign-in from the app you want to use.{/if}
+   {#if request}Continue to {new URL(request.callback).host}.{:else if resumeUrl}Sign in to continue.{:else}Start sign-in from the app you want to use.{/if}
   </Card.Description>
  </Card.Header>
  <Card.Content class="flex flex-col gap-3">
@@ -104,7 +115,7 @@
   {:else}
    {#if session.data?.user}
     <UserIdentity user={session.data.user} orientation="stack" />
-    {#if request && !request.reauthenticate}
+    {#if resumeUrl || (request && !request.reauthenticate)}
      <Button disabled={busy} onclick={() => continueSignIn.mutate()}>
       {#if continueSignIn.isPending}<Spinner class="size-4" />{/if}
       Continue as {session.data.user.email}

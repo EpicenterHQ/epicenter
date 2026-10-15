@@ -66,11 +66,14 @@ test('passkey register options require a session', async () => {
 test('fresh cookie session mints passkey registration options for the expected user', async () => {
 	const { auth, options } = setup();
 	const ctx = await auth.$context;
-	const user = await ctx.internalAdapter.createUser({
-		name: 'Alice',
-		email: 'alice@example.test',
-		emailVerified: true,
-	});
+	const user = await ctx.internalAdapter.createUser(
+		{
+			name: 'Alice',
+			email: 'alice@example.test',
+			emailVerified: true,
+		},
+		{ method: 'admin' },
+	);
 	const session = await ctx.internalAdapter.createSession(user.id, false);
 	assert(session);
 	const signed = `${session.token}.${await makeSignature(session.token, secret)}`;

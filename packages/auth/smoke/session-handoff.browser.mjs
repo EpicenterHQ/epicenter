@@ -106,11 +106,14 @@ try {
 		],
 	});
 	const context = await auth.$context;
-	const user = await context.internalAdapter.createUser({
-		name: 'Browser proof',
-		email: 'browser@example.test',
-		emailVerified: true,
-	});
+	const user = await context.internalAdapter.createUser(
+		{
+			name: 'Browser proof',
+			email: 'browser@example.test',
+			emailVerified: true,
+		},
+		{ method: 'admin' },
+	);
 	const hosted = await context.internalAdapter.createSession(user.id, false);
 	const signed = `${hosted.token}.${await makeSignature(hosted.token, secret)}`;
 	app.use('*', async (c, next) => {

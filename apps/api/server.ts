@@ -57,15 +57,22 @@ import {
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
 	mountTranscriptionApp,
+	nodeClientMetadataFetch,
 	type ResolveBearerPrincipal,
+	registerFirstPartyClients,
 	requireBearerPrincipal,
 	resolveDeploymentBlobStore,
 	resolveRequestSessionPrincipal,
 	ServerBindings,
 } from '@epicenter/server/bun';
 import { type } from 'arktype';
+import type { Context } from 'hono';
 import { every } from 'hono/combine';
 import pg from 'pg';
+import {
+	buildFirstPartyClients,
+	resolveOAuthAudiences,
+} from './worker/oauth-registrations.js';
 import { buildSessionCallbacks } from './worker/session-callbacks.js';
 import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
 
@@ -105,9 +112,9 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
  * login. Everything else (env validation, pool, mounts, `Bun.serve`) is
  * identical across the two, so they cannot drift.
  */
-export function startBunApiServer(
+export async function startBunApiServer(
 	opts: { resolveBearerPrincipal?: ResolveBearerPrincipal<CloudEnv> } = {},
-): void {
+): Promise<void> {
 	// Validate this Bun host's environment once, at boot. The validated result IS
 	// the typed env handed to the Hono app: no `as`-cast over `process.env`, no
 	// lie (ADR-0066). A misconfiguration gets ONE descriptive error naming every
@@ -128,6 +135,15 @@ export function startBunApiServer(
 	// request middleware borrows the pool and has no per-request client to close.
 	const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
 	const db = createDb(pool);
+
+	// The migrations seed the hosted cloud's clients. This process serves its
+	// own origin, so it writes the first-party clients and resources for that
+	// origin once, at boot (ADR-0549, ADR-0326).
+	const audiences = resolveOAuthAudiences(origin);
+	await registerFirstPartyClients(db, {
+		audiences,
+		clients: buildFirstPartyClients(origin),
+	});
 
 	const app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
@@ -152,18 +168,28 @@ export function startBunApiServer(
 		c.json({ product: 'hub', version: '0.1.0', runtime: 'bun' }),
 	);
 	// The live Bun process keeps the drain alive without waitUntil.
-	const cloudContext = createCloudContextMiddleware({
+	const cloudContextOptions = {
 		connect: async () => ({ db, close: async () => {} }),
 		afterResponse: () => {},
 
-		resolveSessionCallbacks: (c) => buildSessionCallbacks(c.var.authBaseURL),
+		resolveSessionCallbacks: (c: Context<CloudEnv>) =>
+			buildSessionCallbacks(c.var.authBaseURL),
 		resolveAuthSecrets: () => env,
+	};
+	const cloudContext = createCloudContextMiddleware(cloudContextOptions);
+	const authServerContext = createCloudContextMiddleware({
+		...cloudContextOptions,
+		resolveOAuthServer: () => ({
+			audiences,
+			clientMetadataFetch: nodeClientMetadataFetch,
+		}),
 	});
 	// Public auth shells bypass setup. Database-backed endpoints and resource
 	// guards explicitly install the context middleware, just like the Worker.
 	mountAuthRoutes(app, {
-		setup: cloudContext,
+		setup: authServerContext,
 		serveAuthUiShell,
+		resolveAudiences: () => audiences,
 	});
 	const bearer = every(
 		cloudContext,
@@ -209,4 +235,4 @@ export function startBunApiServer(
 // Run production only when this file is the entrypoint. `server.dev.ts` imports
 // `startBunApiServer` to boot the dev variant, and must not trigger a second
 // listener here.
-if (import.meta.main) startBunApiServer();
+if (import.meta.main) await startBunApiServer();
