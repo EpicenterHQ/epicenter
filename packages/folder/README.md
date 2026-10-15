@@ -496,7 +496,7 @@ across every handle it opens, and with other processes: each check and
 rename holds the folder's save lock, an exclusive SQLite transaction on
 `.<directory>.epicenter-save-lock` beside the directory, which the desktop
 shell takes around its own checked renames
-([ADR-0556](../../docs/adr/0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md)).
+([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
 So two concurrent saves of one file, from one script, two scripts, or a
 script and an open desktop window, cannot both pass the check; the second is
 `Conflict` and merges as any overtaken save does. A save waits up to ten

@@ -1,11 +1,14 @@
 # 0559. All desktop Git runs in the epicenter CLI, over system git
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-16
-- **Built:** the Bun Git runner's hook rule: an empty checked `core.hooksPath` and `core.fsmonitor=false`.
-- **Unbuilt:** the rest. It can start now: the field edits of [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) have landed (`1ab1bdb028`). MinGit ships with the first Windows release.
-- **Amends:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at "history through the system `git`, which the shell runs for it" (`run_git`): the `epicenter` CLI runs whole Git operations for the page, one child each, under the same rules. Files through the shell's read and checked change commands are unchanged.
-- **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the CLI owns Git, the network, and credentials), [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) (`status`, `sync`, `clone`, `auth git-credential`), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge), [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) (Git's lock files and `casBranch` referee commits), [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) (LFS in TypeScript, `filter.lfs` off).
+- **Amends:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at "history through the system `git`, which the shell runs for it" (`run_git`): the `epicenter` CLI runs whole Git operations for the page, one child each, under the same rules, while files through the shell's read and checked change commands are unchanged.
+- **Amends:** [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) at the desktop page's history, "system git via run_git": desktop Git runs in an `epicenter` child, a Bun process.
+- **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at "`run_git` allowlist with hooks disabled": the same rules live in the `epicenter` CLI's Git runner.
+- **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "The desktop shell registers the same helper for its runs": the shell runs no `git`, and the `epicenter` CLI's Git uses the helper.
+- **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at "The desktop shell registers the same helper for its `git` runs": the shell runs no `git`, and the `epicenter` CLI's Git uses the helper.
+- **Unbuilt:** the CLI's Git operations and the Rust commands that run them; the runner's allowlist, layout check, origin rule, and process-group abort; finding `git`; `GitMissing`; ending a window's children when it reloads or closes; MinGit; and the deletions. Checks: the probe shows no dialog on a Mac without the Command Line Tools; and, before the first Windows release, the licenses of every component in the MinGit zip and the GPL-2.0 source offer reviewed, and a `!`-prefixed credential helper confirmed to run under MinGit.
+- **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the CLI owns Git, the network, and credentials), [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) (`status`, `history`, `save-version`, `sync`, `clone`, `auth git-credential`), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (sync checkpoints first), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge), [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) (Git's lock files and `casBranch` referee commits), [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) (LFS in TypeScript, `filter.lfs` off).
 
 ## Context
 
@@ -52,8 +55,18 @@ Windows without Git the spawn fails with "program not found".
 **All desktop Git runs in the `epicenter` CLI, over system `git`, one child
 per operation.** Status, history, Save version, and Sync each run as one
 `epicenter` child that holds the engine and spawns `git` as it needs. A page
-calls a fixed Rust command (`status`, `history`, `save_version`, `sync`), each
-mapped to one fixed CLI invocation (ADR-0556). The shell runs no `git`.
+calls a fixed Rust command, each mapped to one fixed CLI invocation (ADR-0556,
+ADR-0558). The shell runs no `git`.
+
+```txt
+status         epicenter status <dir>
+history        epicenter history <dir>
+save_version   epicenter save-version <dir>
+sync           epicenter sync <dir>
+```
+
+The shell ends a window's `epicenter` children, with their process groups,
+when that window reloads or closes.
 
 **Only the plumbing differs between hosts; the merge is always ours.** On
 every host Sync merges with the TypeScript above. On the desktop, system `git`
@@ -63,22 +76,26 @@ the same repository. In the browser, isomorphic-git does all of it over a
 private OPFS `.git` that no other program touches, which is why it may skip
 lock files there.
 
-**Sync saves first.** `epicenter sync`, and the Sync button, commit any edits
-not yet in a version as one automatic version, then fetch, merge, and push.
+`epicenter sync`, like the Sync button, checkpoints edits not yet in a version
+before it fetches
+([ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md)).
 
-**The safety rules live in one runner.** `createGitRunner` already sets an
-empty checked `core.hooksPath`, `core.fsmonitor=false`, no terminal prompt,
-and a scrubbed environment (built). It takes the rest of what `run_git`
+**The safety rules live in one runner.** `createGitRunner` sets an empty
+checked `core.hooksPath`, `core.fsmonitor=false`, no terminal prompt, and a
+scrubbed environment. It takes the rest of what `run_git`
 applies: the engine's operation allowlist, a `.git` that is the folder's own
 directory checked before every run, push and fetch only to an `origin` that is
 a network URL, and an abort that ends the whole process group, helpers
 included. Credentials come from Git's helpers, with
 `epicenter auth git-credential` for `git.epicenter.so` (ADR-0558).
 
-**The CLI finds `git`.** It tries `PATH`, then `/opt/homebrew/bin` and
-`/usr/local/bin` on macOS, and confirms the binary runs (`git --version`)
-before using it, so the xcrun shim's dialog appears only when a person asks
-for it.
+**The CLI finds `git` without starting the xcrun shim.** On macOS it tries
+`/opt/homebrew/bin/git` and `/usr/local/bin/git` first, then any other `git`
+on `PATH`. Before it runs `/usr/bin/git`, it checks that `xcode-select -p`
+names an installed developer directory; if none is installed, `git` is
+missing. It confirms a candidate runs (`git --version`) before using it. So
+the Command Line Tools install dialog appears only when a person asks for
+it.
 
 **A missing `git` is a typed error the Folders window explains.** The CLI exits
 2 with `{ "error": "GitMissing" }` under `--json`. On macOS the window offers a
@@ -91,8 +108,8 @@ Windows the release carries MinGit, which Git for Windows publishes as "an
 intentionally minimal, non-interactive distribution of Git for Windows, with
 third-party applications as its intended audience" (gitforwindows.org/mingit):
 no localized messages, interactive commands, help, Perl, or Tcl/Tk.
-`MinGit-2.56.0.2-64-bit.zip` is 39,806,486 bytes. Git is GPL-2.0; Epicenter
-runs it as a separate program and ships its license and source offer with it.
+`MinGit-2.56.0.2-64-bit.zip` is 39,806,486 bytes. It bundles more than Git
+(curl, OpenSSL, and others), each under its own license.
 
 **Deleted:**
 
@@ -109,10 +126,10 @@ runs it as a separate program and ships its license and source offer with it.
   plus about 7 ms per `git` it spawns. Typing never pays it: reads and saves
   stay the shell's commands.
 - A page cannot cancel a single `git` process; it cancels the operation, which
-  ends its child.
+  ends its child. A reload or a closed window cancels every operation that
+  window started, as ADR-0531 required of `run_git`.
 - SSH remotes, credential helpers, `info/attributes`, and the person's Git
   configuration keep working, because system `git` does the transfers.
-- Pressing Sync with unsaved edits makes a version the person did not name.
 - The Windows installer grows by about 40 MB compressed.
 - A Mac without the Command Line Tools can read and edit folders and cannot
   keep versions or sync until they are installed.
@@ -131,7 +148,5 @@ runs it as a separate program and ships its license and source offer with it.
   and agents.
 - **Bundle `git` on every platform.** macOS and Linux already have it, or get
   it in one step.
-- **Refuse Sync while edits are unsaved.** One more step for a person who
-  pressed Sync to keep their work.
 - **Keep `run_git` in Rust beside the CLI's runner.** Two runners in two
   languages, kept in step by hand.

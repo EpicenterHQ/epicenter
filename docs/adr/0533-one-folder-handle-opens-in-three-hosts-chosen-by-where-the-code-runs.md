@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-14
+- **Amended by:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) at the desktop page's history, "system git via run_git": desktop Git runs in an `epicenter` child, a Bun process.
 - **Relates:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) runs the engine in a desktop page; [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) names the directory a page opens.
 
 ## Context

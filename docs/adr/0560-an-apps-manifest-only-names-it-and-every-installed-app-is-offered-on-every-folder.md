@@ -1,8 +1,11 @@
 # 0560. An app's manifest only names it, and every installed app is offered on every folder
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-16
-- **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at its manifest block, the `opens` paragraph with its committed shape and its reason "so Epicenter can match it to folders without building or running the app", and the defaults of `build` and `output`; and [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) at the consequence that the Folders window derives "Open in" from the shapes of installed apps. Installing, approval, trust, serving, and the lens check stand.
+- **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at its manifest block, the `opens` paragraph with its committed shape and its reason "so Epicenter can match it to folders without building or running the app", and the defaults of `build` and `output`, while installing, approval, trust, and serving stand.
+- **Amends:** [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) at the consequence that the Folders window derives "Open in" from the shapes of installed apps, and at "the Folders window shows it as able to edit only": the Folders window reads no shape, the app's own window shows that it can only edit, and the lens check stands.
+- **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "`opens`, `build`, and `output` in `epicenter.app.json` are relative to that folder": the manifest is `id` and `title`, and the build is `bun run build:installed` in the folder, writing `dist/`.
+- **Amends:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at the `apps` row's "the shape it opens": no shape leaves the app.
 - **Unbuilt:** marking an app and folder pair that refused once, so "Open in" stops offering a pair that will refuse again.
 
 ## Context
@@ -71,7 +74,9 @@ folder, and the app's lens decides.** `installedOpeners` returns every app in
 the `ready` or `unbuilt` state, by title, and each folder offers all of them as
 "Open in <app>" or "Open with…". The app opens the handed folder through
 `openDataFolder({ id, lens })`, which refuses a folder that does not contain
-its shape. `InstalledApp` has no `opens`, and the shell reads no shape.
+its shape. `InstalledApp` has no `opens`, and the shell reads no shape. An
+app whose lens cannot add rows shows that in its own window, not in the
+Folders window.
 Whispering's desktop workspace (`apps/whispering/src/lib/workspace/desktop.ts`)
 opens a handed folder the same way, refuses a mismatch with "Whispering cannot
 open the folder '<name>': …", and records into the scope it opened

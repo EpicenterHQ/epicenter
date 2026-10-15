@@ -2,7 +2,9 @@
 
 The `epicenter` command. Each command is a thin wrapper over a function in a
 shared package; the CLI parses, prints, and picks the exit code, and holds no
-logic of its own (ADR-0556). The command surface is ADR-0558's.
+logic a page or the browser also needs (ADR-0556). Desktop-only work, such as
+`install-command`, lives in the CLI's own modules. The command surface is
+ADR-0558's.
 
 ```sh
 bun run epicenter check path/to/folder          # from the repository root
@@ -43,8 +45,9 @@ A command not built yet parses its arguments, shows in `--help` marked
 "not built yet", and exits 2 naming its ADR. `send`, `install-command`, and
 `auth login --loopback` are left out of `--help`: the desktop app runs them.
 
-`install-command` is not in ADR-0558. It links the compiled binary onto `PATH`
-as `/usr/local/bin/epicenter` (ADR-0556's "Install the epicenter command"):
+`install-command` is ADR-0558's hidden command. It links the compiled binary
+onto `PATH` as `/usr/local/bin/epicenter` (ADR-0556's "Install the epicenter
+command"):
 it makes or replaces a symbolic link and refuses a regular file. When the
 directory is missing or not writable, it asks a person at a terminal before
 running `sudo`; with `--json` or without a terminal it exits 1 and names the

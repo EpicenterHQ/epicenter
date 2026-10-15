@@ -188,7 +188,7 @@ Bun process opening the same directory (`@epicenter/folder/bun`, and so the
 `epicenter` CLI) takes the same save lock around each of its own checks and
 renames, so no other change through the plugin or the Bun host lands between
 the check and the change
-([ADR-0556](../../docs/adr/0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md)).
+([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
 The save lock is held for nothing else. A change waits up to ten seconds for
 another process's; past that it changes nothing and is `Failed`, naming the
 lock file. The cost is a read and hash of the destination when `expected`
