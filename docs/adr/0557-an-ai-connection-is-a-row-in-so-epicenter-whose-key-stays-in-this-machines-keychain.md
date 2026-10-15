@@ -10,6 +10,7 @@
 ## Context
 
 Epicenter's AI connections live in its Bun host. `createAiCatalog`
+<!-- doc-path-check: ignore-next-line -->
 (`apps/epicenter/src/ai-catalog.ts:135`) keeps each entry (`id`, `name`,
 `baseUrl`, `models`, `hasApiKey`, `accessVersion`) in
 `ai/<owner>/connections.json` under app data (`:147`), and each key in the
@@ -19,11 +20,13 @@ Pages read and edit the catalog at `/_epicenter/ai/<owner>/connections`, follow
 it over server-sent events, and send requests to
 `/_epicenter/ai/<owner>/inference/<id>/<accessVersion>/…`, where `forward`
 adds `Authorization: Bearer <key>` and refuses redirects (`ai-catalog.ts:382-523`;
+<!-- doc-path-check: ignore-next-line -->
 routes in `apps/epicenter/src/ai-catalog-routes.ts:10-73`, mounted at
 `apps/epicenter/src/server.ts:168-181`).
 
 Installed Whispering keeps its two connections there as "Whispering
 transcription" and "Whispering text", and remembers their ids in its origin's
+<!-- doc-path-check: ignore-next-line -->
 `localStorage` (`apps/whispering/src/lib/workspace/epicenter-connections.ts:43-47`,
 `:97`). Its rules (`apps/whispering/src/lib/connections.ts:1-16`) say a key is
 kept only for the base URL it was saved for, and that the folder's files never
@@ -129,8 +132,11 @@ was saved for.
 
 **Deleted:**
 
+<!-- doc-path-check: ignore-next-line -->
 - `apps/epicenter/src/ai-catalog.ts` (565 lines), `apps/epicenter/src/ai-catalog-routes.ts` (75), and their tests (754); the `/_epicenter/ai` gate and mounts (`apps/epicenter/src/server.ts:168-181`); `ai/<owner>/connections.json`; the secret app id `so.epicenter.ai-catalog`.
+<!-- doc-path-check: ignore-next-line -->
 - `apps/whispering/src/lib/workspace/epicenter-connections.ts` (285) and its `localStorage` key `whispering.epicenterConnections`.
+<!-- doc-path-check: ignore-next-line -->
 - `packages/ai/src/ai-connections.epicenter-host.ts` (224) and its test, and the smoke `packages/ai/scripts/shared-ai-catalog.browser.mjs` (412), which boots the Bun host.
 
 ## Consequences
