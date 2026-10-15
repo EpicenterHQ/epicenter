@@ -500,20 +500,9 @@ The durable host and trust decision is recorded in [ADR-0118](../../docs/adr/011
 
 ## Shared AI connections
 
-Apps built for `epicenter-host` use one custom inference catalog per desktop
-profile. The host stores endpoint metadata in `ai/connections.json` under its
-resolved data directory and optional keys in the OS keychain. This configuration
-is shared across apps on that profile; it does not sync between devices or enter
-an application's store data.
-
-The `/_epicenter/ai` broker uses the existing browser session. Mutations also
-require the exact host Origin. Open apps receive committed snapshots over SSE;
-inference requests identify an immutable connection ID and captured access
-version. Apps receive `hasApiKey`, never the stored key. Their workflow choices
-remain separate. See the [App API](../../packages/app/README.md).
-
-Installed Whispering keeps its two connections there, as the entries
-"Whispering transcription" and "Whispering text" in the no-account catalog
-(`/_epicenter/ai/no-account/`), and remembers their ids in its origin's
-storage. ADR-0539 puts AI settings in `so.epicenter`'s `kv.json`; the catalog
-still lives in application data, so that move is not built.
+The Bun host keeps no AI connections and serves no `/_epicenter/ai` routes.
+[ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)
+makes each connection a row of a `connections` table in `so.epicenter`, keeps
+its key in this machine's keychain bound to the endpoint it was saved for, and
+sends every AI request through `epicenter send`. Check that record's Unbuilt
+line for what has landed.

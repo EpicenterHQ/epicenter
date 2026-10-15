@@ -1,5 +1,4 @@
 import type { AuthServer } from '@epicenter/auth';
-import type { AccountIdentity } from '@epicenter/principal';
 /**
  * The private Rust-to-Bun startup protocol and the Bun sidecar lifecycle.
  * Rust resolves the runtime mode and port, then keeps stdin open as its parent
@@ -22,7 +21,7 @@ const SHUTDOWN_GRACE_MS = 10_000;
 const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_NATIVE_PENDING = 64;
 
-export const SIDECAR_PROTOCOL_VERSION = 13;
+export const SIDECAR_PROTOCOL_VERSION = 14;
 export const PRODUCTION_PORT = 39_130;
 
 export type SidecarRuntimeMode = 'production' | 'development';
@@ -74,8 +73,8 @@ export type NativePort = ReturnType<typeof createNativePort>;
  * The slice of the native port the desktop auth authority uses.
  *
  * Declared as a subset rather than the whole port so that adding an operation
- * for somebody else, such as an application's labeled secret, does not oblige
- * every auth test double to grow a method it never calls.
+ * for somebody else does not oblige every auth test double to grow a method it
+ * never calls.
  */
 export type NativeAuthPort = Pick<
 	NativePort,
@@ -318,11 +317,9 @@ export function watchParentPipe(
  * Bind the fixed native operations to the versioned Rust pipe.
  *
  * The port names no keyring entry and invokes no arbitrary native command. It
- * carries the desktop auth cell, an authorization URL to open, a relaunch, and
- * one labeled application secret. The secret operations send an application id
- * and an account id, both validated before they reach here; Rust composes the
- * service and account strings it stores under, so what crosses this pipe stays
- * a pair of labels rather than an address in the credential store (ADR-0310).
+ * carries the desktop auth cell, an authorization URL to open, and a relaunch.
+ * Rust composes the service and account strings the auth cell is stored under,
+ * so no address in the credential store crosses this pipe (ADR-0310).
  */
 export function createNativePort(
 	{ parentPipe }: { parentPipe: ParentPipe },
@@ -337,7 +334,7 @@ export function createNativePort(
 	const pending = new Map<
 		string,
 		{
-			resolve(value: unknown): void;
+			resolve(): void;
 			reject(error: Error): void;
 		}
 	>();
@@ -371,27 +368,8 @@ export function createNativePort(
 	function request(
 		frame:
 			| { type: 'store-auth'; serialized: string | null }
-			| { type: 'open-auth-url'; url: string }
-			| {
-					type: 'put-app-secret';
-					account?: AccountIdentity;
-					appId: string;
-					label: string;
-					value: string;
-			  }
-			| {
-					type: 'get-app-secret';
-					account?: AccountIdentity;
-					appId: string;
-					label: string;
-			  }
-			| {
-					type: 'delete-app-secret';
-					account?: AccountIdentity;
-					appId: string;
-					label: string;
-			  },
-	): Promise<unknown> {
+			| { type: 'open-auth-url'; url: string },
+	): Promise<void> {
 		if (failure) return Promise.reject(failure);
 		if (pending.size >= MAX_NATIVE_PENDING)
 			return Promise.reject(new Error('Native request queue is full.'));
@@ -400,7 +378,7 @@ export function createNativePort(
 			return Promise.reject(
 				new Error('Invalid or duplicate native request id.'),
 			);
-		return new Promise<unknown>((resolve, reject) => {
+		return new Promise<void>((resolve, reject) => {
 			pending.set(requestId, { resolve, reject });
 			try {
 				send({ ...frame, requestId });
@@ -428,7 +406,7 @@ export function createNativePort(
 			);
 		}
 		pending.delete(frame.requestId);
-		if (frame.status === 'ok') request.resolve(frame.value ?? null);
+		if (frame.status === 'ok') request.resolve();
 		else request.reject(new Error(frame.message));
 	}
 
@@ -456,36 +434,6 @@ export function createNativePort(
 		async openAuthUrl(url: string) {
 			await request({ type: 'open-auth-url', url });
 		},
-		async putAppSecret(
-			appId: string,
-			label: string,
-			value: string,
-			account?: AccountIdentity,
-		) {
-			await request({ type: 'put-app-secret', appId, label, value, account });
-		},
-		async getAppSecret(
-			appId: string,
-			label: string,
-			account?: AccountIdentity,
-		) {
-			const value = await request({
-				type: 'get-app-secret',
-				account,
-				appId,
-				label,
-			});
-			if (value !== null && typeof value !== 'string')
-				throw new Error('Invalid native secret value.');
-			return value;
-		},
-		async deleteAppSecret(
-			appId: string,
-			label: string,
-			account?: AccountIdentity,
-		) {
-			await request({ type: 'delete-app-secret', appId, label, account });
-		},
 		/** Restart Epicenter now. Nothing is asked first (ADR-0542). */
 		relaunch() {
 			send({ type: 'relaunch' });
@@ -503,18 +451,12 @@ export function createNativePort(
 }
 
 type NativeFrame =
-	| {
-			type: 'native-result';
-			requestId: string;
-			status: 'ok';
-			value?: string | null;
-	  }
+	| { type: 'native-result'; requestId: string; status: 'ok' }
 	| {
 			type: 'native-result';
 			requestId: string;
 			status: 'error';
 			message: string;
-			value?: undefined;
 	  }
 	| { type: 'auth-callback'; url: string };
 
@@ -537,23 +479,12 @@ function parseNativeFrame(line: string): NativeFrame {
 		return frame as NativeFrame;
 	}
 	if (frame.type === 'native-result') {
-		// `value` is present only on a read, and only when Rust found an entry.
-		// Absent and `null` both mean "nothing stored", so the read arm accepts
-		// either rather than making Rust choose a spelling.
-		const keys =
+		assertExactKeys(
+			frame,
 			frame.status === 'error'
 				? ['message', 'requestId', 'status', 'type']
-				: 'value' in frame
-					? ['requestId', 'status', 'type', 'value']
-					: ['requestId', 'status', 'type'];
-		assertExactKeys(frame, keys);
-		if (
-			'value' in frame &&
-			frame.value !== null &&
-			typeof frame.value !== 'string'
-		) {
-			throw new Error('The native result value must be a string or null.');
-		}
+				: ['requestId', 'status', 'type'],
+		);
 		if (typeof frame.requestId !== 'string' || frame.requestId === '') {
 			throw new Error('The native result requestId must be non-empty.');
 		}

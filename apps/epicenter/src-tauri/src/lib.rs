@@ -32,7 +32,6 @@ mod command_names;
 pub mod app_data;
 mod cli;
 mod data_folders;
-mod device_owner;
 mod installed_apps;
 
 pub mod audio;
@@ -57,9 +56,7 @@ mod delivery;
 use delivery::{simulate_enter_keystroke, write_text};
 
 mod keyring_storage;
-use keyring_storage::{
-    delete_app_secret, read_app_secret, read_auth_cell, write_app_secret, write_auth_cell,
-};
+use keyring_storage::{read_auth_cell, write_auth_cell};
 
 pub mod media;
 use media::{pause_playback, resume_playback};
@@ -85,7 +82,7 @@ pub mod clipboard;
 const PRODUCTION_PORT: u16 = 39_130;
 #[cfg(any(debug_assertions, test))]
 const DEVELOPMENT_PORT: u16 = 39_131;
-const PROTOCOL_VERSION: u8 = 13;
+const PROTOCOL_VERSION: u8 = 14;
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long Bun gets to shut down after its stdin closes before it is killed.
@@ -173,31 +170,6 @@ enum BunToRustNativeFrame {
         request_id: String,
         url: String,
     },
-    PutAppSecret {
-        account: Option<device_owner::AccountIdentity>,
-        #[serde(rename = "requestId")]
-        request_id: String,
-        #[serde(rename = "appId")]
-        app_id: String,
-        label: String,
-        value: String,
-    },
-    GetAppSecret {
-        account: Option<device_owner::AccountIdentity>,
-        #[serde(rename = "requestId")]
-        request_id: String,
-        #[serde(rename = "appId")]
-        app_id: String,
-        label: String,
-    },
-    DeleteAppSecret {
-        account: Option<device_owner::AccountIdentity>,
-        #[serde(rename = "requestId")]
-        request_id: String,
-        #[serde(rename = "appId")]
-        app_id: String,
-        label: String,
-    },
     /// Restart for an account change, at once: no window is asked
     /// (ADR-0415, ADR-0542).
     Relaunch {},
@@ -212,16 +184,6 @@ enum RustToBunNativeFrame<'a> {
         status: &'static str,
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<&'a str>,
-    },
-    /// A read that found something, or found nothing. Bun reads both as the
-    /// answer to one correlated request, on the same `native-result` frame the
-    /// void operations use; only a failure carries a message.
-    #[serde(rename = "native-result")]
-    NativeValue {
-        #[serde(rename = "requestId")]
-        request_id: &'a str,
-        status: &'static str,
-        value: Option<&'a str>,
     },
     AuthCallback {
         url: &'a str,
@@ -371,6 +333,10 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             take_pending_home_section,
             data_folders::list_data_folders,
             cli::folder_check::<tauri::Wry>,
+            cli::ai_send,
+            cli::ai_key_set,
+            cli::ai_key_remove,
+            cli::ai_key_state,
             installed_apps::list_installed_apps,
             installed_apps::list_repository_apps,
             installed_apps::install_app,
@@ -1126,66 +1092,6 @@ fn handle_native_frame(
             });
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustNativeFrame::PutAppSecret {
-            account,
-            request_id,
-            app_id,
-            label,
-            value,
-        } => {
-            let result = write_app_secret(
-                &app.config().identifier,
-                &app_id,
-                &label,
-                &value,
-                account.as_ref(),
-            );
-            send_native_result(app, generation, &request_id, result)
-        }
-        BunToRustNativeFrame::GetAppSecret {
-            account,
-            request_id,
-            app_id,
-            label,
-        } => {
-            if request_id.is_empty() {
-                bail!("native requestId must be non-empty");
-            }
-            let state = app.state::<HostState>();
-            match read_app_secret(&app.config().identifier, &app_id, &label, account.as_ref()) {
-                Ok(value) => send_native_frame(
-                    &state,
-                    generation,
-                    &RustToBunNativeFrame::NativeValue {
-                        request_id: &request_id,
-                        status: "ok",
-                        value: value.as_deref(),
-                    },
-                ),
-                Err(error) => {
-                    let message = error.to_string();
-                    send_native_frame(
-                        &state,
-                        generation,
-                        &RustToBunNativeFrame::NativeResult {
-                            request_id: &request_id,
-                            status: "error",
-                            message: Some(&message),
-                        },
-                    )
-                }
-            }
-        }
-        BunToRustNativeFrame::DeleteAppSecret {
-            account,
-            request_id,
-            app_id,
-            label,
-        } => {
-            let result =
-                delete_app_secret(&app.config().identifier, &app_id, &label, account.as_ref());
-            send_native_result(app, generation, &request_id, result)
-        }
         // `request_restart` delivers ExitRequested and Exit from any thread, so
         // `shutdown_host` stops Bun before the new process starts. `restart`
         // skips both when called on the main thread.
@@ -1525,6 +1431,12 @@ fn installed_window_label(id: &str, folder: Option<&str>) -> String {
 
 const INSTALLED_WINDOW_PREFIX: &str = "app:";
 
+/// Installed apps that send over AI connections. Opening one permits its
+/// window into `so.epicenter`, whose `connections` table names them
+/// (ADR-0557); its capability, `installed-<app>-*`, grants it the AI
+/// commands by the same id.
+const AI_CONNECTION_APPS: &[&str] = &["so.epicenter.whispering"];
+
 /// Open installed app `id`, served at `/apps/<id>/` like a compiled app, in
 /// its own window, or reveal the one already open on the same folder. With
 /// `folder`, a registered scope, the window is permitted into it and the app
@@ -1548,6 +1460,11 @@ pub(crate) fn open_installed_window(
         app.folders()
             .permit(folder, &label)
             .map_err(|error| anyhow!("the app cannot open this folder: {error:?}"))?;
+    }
+    if AI_CONNECTION_APPS.contains(&id) {
+        app.folders()
+            .permit(data_folders::EPICENTER_FOLDER, &label)
+            .map_err(|error| anyhow!("the app cannot open Epicenter's folder: {error:?}"))?;
     }
     let mut url: tauri::Url = format!("{}/apps/{id}/", origin(port)).parse()?;
     if let Some(folder) = folder {
@@ -1972,24 +1889,25 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_the_expected_v13_ready_frame() {
-        read_ready_frame(&mut Cursor::new(ready_line(13, PRODUCTION_PORT)), PRODUCTION_PORT)
+    fn parses_only_the_expected_v14_ready_frame() {
+        read_ready_frame(&mut Cursor::new(ready_line(14, PRODUCTION_PORT)), PRODUCTION_PORT)
             .unwrap();
 
         for invalid in [
             "preamble\n".to_string(),
             "".to_string(),
-            // The earlier protocols: 11 named installed applications, and 12
+            // The earlier protocols: 11 named installed applications, 12
             // booted without the cache directory and relaunched only after a
-            // departure round.
+            // departure round, and 13 carried labeled application secrets.
             ready_line(11, PRODUCTION_PORT),
             "{\"type\":\"ready\",\"protocolVersion\":11,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
             ready_line(12, PRODUCTION_PORT),
-            ready_line(13, 39_131),
+            ready_line(13, PRODUCTION_PORT),
+            ready_line(14, 39_131),
             // A field this protocol does not define refuses the frame.
-            "{\"type\":\"ready\",\"protocolVersion\":13,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
-            "{\"type\":\"boot\",\"protocolVersion\":13,\"port\":39130}\n".to_string(),
-            ready_line(13, PRODUCTION_PORT).trim_end().to_string(),
+            "{\"type\":\"ready\",\"protocolVersion\":14,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
+            "{\"type\":\"boot\",\"protocolVersion\":14,\"port\":39130}\n".to_string(),
+            ready_line(14, PRODUCTION_PORT).trim_end().to_string(),
         ] {
             assert!(
                 read_ready_frame(&mut Cursor::new(invalid.as_bytes()), PRODUCTION_PORT).is_err(),
@@ -2266,10 +2184,48 @@ mod tests {
         }
     }
 
+    /// The AI commands reach Settings, the Folders window, and installed
+    /// Whispering by its app id, and no other window (ADR-0557). Each is one
+    /// fixed CLI invocation that never hands a page a saved key.
+    #[test]
+    fn ai_commands_are_granted_to_settings_folders_and_whispering_alone() {
+        const AI: [&str; 4] = [
+            "allow-ai-send",
+            "allow-ai-key-set",
+            "allow-ai-key-remove",
+            "allow-ai-key-state",
+        ];
+        for encoded in ALL_CAPABILITIES {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            let permissions = capability["permissions"].as_array().unwrap();
+            let granted = AI
+                .iter()
+                .filter(|permission| permissions.contains(&serde_json::json!(permission)))
+                .count();
+            let windows = &capability["windows"];
+            let expected = windows == &serde_json::json!(["folders"])
+                || windows == &serde_json::json!(["home"])
+                    && capability["identifier"]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("home-ai-connections")
+                || windows
+                    == &serde_json::json!(["app:so_epicenter_whispering", "app:so_epicenter_whispering:*"]);
+            assert_eq!(
+                granted,
+                if expected { AI.len() } else { 0 },
+                "{}",
+                capability["identifier"]
+            );
+        }
+    }
+
     /// Every capability file, for checks that hold for all of them.
     const ALL_CAPABILITIES: &[&str] = &[
         include_str!("../capabilities/home-model-administration-development.json"),
         include_str!("../capabilities/home-model-administration-production.json"),
+        include_str!("../capabilities/home-ai-connections-development.json"),
+        include_str!("../capabilities/home-ai-connections-production.json"),
         include_str!("../capabilities/folders-development.json"),
         include_str!("../capabilities/folders-production.json"),
         include_str!("../capabilities/installed-app-windows-development.json"),
@@ -2329,7 +2285,11 @@ mod tests {
                     "allow-list-inference-models",
                     "allow-transcribe-audio-bytes",
                     "allow-get-local-transcription-readiness",
-                    "allow-open-home"
+                    "allow-open-home",
+                    "allow-ai-send",
+                    "allow-ai-key-set",
+                    "allow-ai-key-remove",
+                    "allow-ai-key-state"
                 ]),
                 "{encoded}"
             );
@@ -2358,6 +2318,14 @@ mod tests {
             (
                 include_str!("../tauri.conf.json"),
                 "home-model-administration-production",
+            ),
+            (
+                include_str!("../tauri.dev.conf.json"),
+                "home-ai-connections-development",
+            ),
+            (
+                include_str!("../tauri.conf.json"),
+                "home-ai-connections-production",
             ),
             (include_str!("../tauri.dev.conf.json"), "folders-development"),
             (include_str!("../tauri.conf.json"), "folders-production"),
@@ -2414,7 +2382,8 @@ mod tests {
     ];
 
     /// The Folders window holds the folder plugin, its own listing, `epicenter
-    /// check` on a granted folder (ADR-0556), installing and opening apps, and
+    /// check` on a granted folder (ADR-0556), the AI commands (ADR-0557),
+    /// installing and opening apps, and
     /// opening Settings (ADR-0537, ADR-0552), and nothing else: it reaches
     /// folders only through scopes the listing registered or permitted it
     /// into, and it administers no model.
@@ -2434,6 +2403,10 @@ mod tests {
                     "core:event:allow-unlisten",
                     "allow-list-data-folders",
                     "allow-folder-check",
+                    "allow-ai-send",
+                    "allow-ai-key-set",
+                    "allow-ai-key-remove",
+                    "allow-ai-key-state",
                     "allow-list-installed-apps",
                     "allow-list-repository-apps",
                     "allow-install-app",
@@ -2698,7 +2671,7 @@ mod tests {
         assert_eq!(
             frame,
             serde_json::json!({
-                "type": "boot", "protocolVersion": 13, "token": "safe_token",
+                "type": "boot", "protocolVersion": 14, "token": "safe_token",
                 "port": PRODUCTION_PORT, "authCell": "opaque",
                 "authServer": configured_auth_server().unwrap().server,
                 "accountManagement": configured_auth_server().unwrap().account_management,

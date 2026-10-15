@@ -1,6 +1,4 @@
 import type { Account } from '@epicenter/auth';
-import { isTauri } from '@tauri-apps/api/core';
-import { createDesktopAiConnections } from './ai-connections.epicenter-host.js';
 import type {
 	AiConnectionSnapshot,
 	AiConnections,
@@ -16,7 +14,7 @@ export async function openConnectionCatalog(connections: AiConnections) {
 	const failures: unknown[] = [];
 	const clients = new Map<
 		string,
-		Inference & { baseUrl: string; apiKey?: string; accessVersion?: string }
+		Inference & { baseUrl: string; apiKey?: string }
 	>();
 	let closing: Promise<void> | undefined;
 	function assertUsable() {
@@ -41,8 +39,7 @@ export async function openConnectionCatalog(connections: AiConnections) {
 			if (
 				!record ||
 				record.baseUrl !== cached.baseUrl ||
-				record.apiKey !== cached.apiKey ||
-				record.accessVersion !== cached.accessVersion
+				record.apiKey !== cached.apiKey
 			) {
 				retire(cached);
 				clients.delete(id);
@@ -72,7 +69,6 @@ export async function openConnectionCatalog(connections: AiConnections) {
 			cached = {
 				baseUrl: record.baseUrl,
 				apiKey: record.apiKey,
-				accessVersion: record.accessVersion,
 				...createInference(
 					connections.transport(record),
 					record.apiKey
@@ -161,10 +157,13 @@ export type ConnectionCatalog = Awaited<
 	ReturnType<typeof openConnectionCatalog>
 >;
 
+/**
+ * This browser's connections, kept in its storage for this site. Inside
+ * Epicenter an app's connections are rows of `so.epicenter` instead, with
+ * their keys in the keychain (`connection-table.ts`, `send.ts`).
+ */
 export async function openLocalConnectionCatalog() {
-	return openConnectionCatalog(
-		isTauri() ? createDesktopAiConnections({}) : createBrowserConnections(),
-	);
+	return openConnectionCatalog(createBrowserConnections());
 }
 export async function openAccountConnectionCatalog({
 	account,
@@ -175,9 +174,5 @@ export async function openAccountConnectionCatalog({
 		authorityId: account.authorityId,
 		principalId: account.principalId,
 	});
-	return openConnectionCatalog(
-		isTauri()
-			? createDesktopAiConnections({ account: identity })
-			: createBrowserConnections(identity),
-	);
+	return openConnectionCatalog(createBrowserConnections(identity));
 }

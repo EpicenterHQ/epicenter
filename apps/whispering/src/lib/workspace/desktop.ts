@@ -22,9 +22,9 @@
  *
  * - the recorder plugin, which writes a recording into the granted folder as
  *   it captures (ADR-0543);
- * - the two connections, entries in Epicenter's AI connections, whose keys
- *   stay in the system keychain; requests go through Epicenter's host, which
- *   adds the key (`epicenter-connections.ts`);
+ * - the two connections, rows of Epicenter's own folder `so.epicenter`, whose
+ *   endpoints and keys stay in this computer's keychain; requests go through
+ *   the `epicenter` CLI, which adds the key (`desktop-connections.ts`);
  * - transcription with Epicenter's active local model
  *   (`local-transcription.ts`).
  *
@@ -36,6 +36,10 @@
  * unknown, never as "not sent", and nothing is sent again on its own.
  */
 
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsLens,
+} from '@epicenter/ai/connection-table';
 import type { OpenFolderError } from '@epicenter/folder';
 import { openDataFolder, openFolder } from '@epicenter/folder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -56,10 +60,11 @@ import {
 	transformOverConnection,
 } from '../transformation.js';
 import {
-	createEpicenterConnections,
-	type EpicenterConnections,
-	type Send,
-} from './epicenter-connections.js';
+	type ConnectionCommands,
+	type ConnectionsFolder,
+	createDesktopConnections,
+	type DesktopConnections,
+} from './desktop-connections.js';
 import {
 	createLocalTranscription,
 	type LocalTranscriptionCommands,
@@ -72,7 +77,7 @@ import {
 	WorkspaceError,
 } from './types.js';
 
-type Route = Awaited<ReturnType<EpicenterConnections['route']>>;
+type Route = Awaited<ReturnType<DesktopConnections['route']>>;
 
 /** The scope the shell handed this window as `?folder=`, if any. */
 function handedFolder(): string | undefined {
@@ -112,22 +117,29 @@ async function openHandedFolder(
 }
 
 export async function openDesktopWorkspace({
-	origin,
-	fetch: send = (input, init) => globalThis.fetch(input, init),
 	commands: native = commands,
+	connectionCommands = commands,
+	openConnectionsFolder = () =>
+		openDataFolder({ id: CONNECTIONS_FOLDER_ID, lens: connectionsLens }),
 }: {
-	/** The Epicenter host's origin, which served this page. */
-	origin: string;
-	fetch?: Send;
 	commands?: LocalTranscriptionCommands;
-}): Promise<Result<Workspace, WorkspaceError>> {
+	/** The AI connection commands; injected for tests. */
+	connectionCommands?: ConnectionCommands;
+	/** Open `so.epicenter` through its `connections` table; injected for tests. */
+	openConnectionsFolder?: () => Promise<
+		Result<ConnectionsFolder, { readonly message: string }>
+	>;
+} = {}): Promise<Result<Workspace, WorkspaceError>> {
 	const folderId = handedFolder() ?? WHISPERING_FOLDER_ID;
 	const opened = await openHandedFolder(folderId);
 	if (opened.error !== null)
 		return WorkspaceError.DesktopFolder({ refusal: opened.error });
 	const folder = opened.data;
 	const root = folder.location.kind === 'directory' ? folder.location.root : '';
-	const connections = createEpicenterConnections({ origin, send });
+	const connections = createDesktopConnections({
+		commands: connectionCommands,
+		openConnections: openConnectionsFolder,
+	});
 
 	async function readBytes(path: string): Promise<Result<Uint8Array, string>> {
 		const { data: audio, error } = await folder.files.read(path);
@@ -167,8 +179,8 @@ export async function openDesktopWorkspace({
 				() => readAudio(request.audioPath),
 				(url, init) => (route as NonNullable<Route>).send(url, init),
 			);
-			// The request went to Epicenter's host, which may have sent it on:
-			// a reply that never came back says nothing about the endpoint.
+			// The request went to the epicenter command, which may have sent it
+			// on: a reply that never came back says nothing about the endpoint.
 			const { error } = answered;
 			if (error?.name === 'Unreachable')
 				return TranscriptionError.HostUnavailable({ reason: error.reason });
@@ -190,14 +202,14 @@ export async function openDesktopWorkspace({
 			return answered;
 		},
 		transformNote:
-			'Requests are sent by Epicenter, not by this window, over the text connection in Settings. Its key stays in the system keychain and is never given to the window or written to the folder.',
+			'Requests are sent by Epicenter, not by this window, over the text connection in Settings. Its endpoint and key stay in this computer’s keychain and are never given to the window or written to a folder.',
 		localTranscription: createLocalTranscription({
 			commands: native,
 			readAudio: readBytes,
 		}),
 		connections: {
 			storedIn:
-				'Epicenter’s AI connections on this computer, which other apps in Epicenter can use too; the key is kept in the system keychain',
+				'Epicenter’s AI connections, which follow you wherever Epicenter’s folder syncs; the endpoint and key are kept in this computer’s keychain',
 			defaults: {
 				transcription: DEFAULT_TRANSCRIPTION_CONNECTION,
 				text: { baseUrl: DEFAULT_TRANSCRIPTION_CONNECTION.baseUrl, model: '' },
@@ -211,8 +223,10 @@ export async function openDesktopWorkspace({
 		preferences: localPreferences,
 		debugControls: false,
 		injection: undefined,
-		// Closing the folder waits for the saves already under way and commits
+		// Closing the folders waits for the saves already under way and commits
 		// nothing.
-		close: () => folder.close(),
+		close: async () => {
+			await Promise.all([folder.close(), connections.close()]);
+		},
 	});
 }

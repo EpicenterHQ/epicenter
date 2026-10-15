@@ -80,9 +80,10 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   with a stem fixed before the request is sent. Saving a received result again
   must not call the endpoint or create a second file. A result on pasted text
   names no recording and must never participate in recording deletion.
-- **Inside Epicenter, a key stays in Epicenter.** The connections are entries
-  in Epicenter's AI connections, with keys in the system keychain; requests
-  go through Epicenter's host, which adds the key. A key is never returned to
+- **Inside Epicenter, a key stays in the keychain.** The connections are rows
+  of Epicenter's folder `so.epicenter`, with endpoints and keys in this
+  computer's keychain; requests go through the `epicenter` CLI (`ai_send`),
+  which adds the key. A key is never returned to
   the page, logged, or written to the folder, including inside an error
   message.
 - **Nothing is sent or seeded on its own.** No request leaves at launch or

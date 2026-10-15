@@ -65,12 +65,16 @@ test('the page imports no Node or Bun module, and Tauri only to ask where it is 
 				specifier === '@epicenter/folder/bun',
 		),
 	).toEqual([]);
-	// The one Tauri API the page names: the opener asks whether it is inside a
-	// desktop app. Folder commands are the folder adapter's, and Epicenter's
-	// own commands go through its generated bindings (below).
+	// The Tauri APIs the page names: the opener asks whether it is inside a
+	// desktop app, and the desktop connections open the `Channel` an AI
+	// response streams back on. Folder commands are the folder adapter's, and
+	// Epicenter's own commands go through its generated bindings (below).
 	expect(
 		importers((specifier) => specifier.startsWith('@tauri-apps/')),
-	).toEqual(['lib/workspace/index.ts imports @tauri-apps/api/core']);
+	).toEqual([
+		'lib/workspace/index.ts imports @tauri-apps/api/core',
+		'lib/workspace/desktop-connections.ts imports @tauri-apps/api/core',
+	]);
 });
 
 test('a folder is opened only by the two workspaces, each through its own entry', () => {
@@ -178,5 +182,6 @@ test('only the desktop workspace reaches Epicenter’s commands, through the gen
 	expect(importers((specifier) => specifier.includes('bindings.gen'))).toEqual([
 		'lib/workspace/desktop.ts imports ../tauri/bindings.gen.js',
 		'lib/workspace/local-transcription.ts imports ../tauri/bindings.gen.js',
+		'lib/workspace/desktop-connections.ts imports ../tauri/bindings.gen.js',
 	]);
 });

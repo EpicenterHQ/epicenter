@@ -6,15 +6,18 @@
 	"license": "AGPL-3.0-or-later",
 	"exports": {
 		".": "./src/ai.ts",
-		"./connections": "./src/ai-connections.ts",
 		"./codex": "./src/codex-connection.ts",
+		"./connection-table": "./src/connection-table.ts",
+		"./connections": "./src/ai-connections.ts",
 		"./picker": "./src/picker/index.ts",
 		"./selections": "./src/selections.ts",
+		"./send": "./src/send.ts",
 		"./target": "./src/target.ts"
 	},
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/client": "workspace:*",
+		"@epicenter/folder": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",

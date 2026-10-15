@@ -174,6 +174,26 @@ export const commands = {
 	 *  window alone.
 	 */
 	folderCheck: (scope: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("folder_check", { scope, onLine })),
+	/**
+	 *  Send one request over an AI connection with the key saved on this
+	 *  computer, through `epicenter send` (ADR-0557). Each line of its NDJSON
+	 *  (the response's head, its body in base64 chunks, and `end`, or an
+	 *  `error`) goes to `on_event`; the page reads them back into a `Response`.
+	 *  One more line, `{"type":"exit","code","stderr"}`, follows the CLI's own
+	 *  on the same channel, so a page that sees it knows no other line is
+	 *  coming, whenever the command's own result arrives.
+	 */
+	aiSend: (connection: AiTarget, request: AiRequest, onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("ai_send", { connection, request, onEvent })),
+	/**
+	 *  Save `endpoint` and `key` for `connection` in this computer's keychain,
+	 *  through `epicenter auth key set`, which reads both on stdin. An empty key
+	 *  confirms a keyless endpoint.
+	 */
+	aiKeySet: (connection: string, endpoint: string, key: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_set", { connection, endpoint, key })),
+	/**  Remove what this computer saved for `connection`; whether there was anything. */
+	aiKeyRemove: (connection: string) => typedError<boolean, CliError>(__TAURI_INVOKE("ai_key_remove", { connection })),
+	/**  Whether a key is saved for `connection`, and for which endpoint. Never the key. */
+	aiKeyState: (connection: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_state", { connection })),
 	/**  Every app installed under `Apps/`, with whether it can run. */
 	listInstalledApps: () => typedError<InstalledApp[], string>(__TAURI_INVOKE("list_installed_apps")),
 	/**
@@ -327,6 +347,27 @@ export type ActiveModel = {
 	supportsLanguage: boolean,
 };
 
+/**  What this computer's keychain holds for a connection. Never the key. */
+export type AiKeyState = { state: "missing" } | { state: "saved"; endpoint: string; hasKey: boolean };
+
+/**  An OpenAI-compatible request, relative to its connection's endpoint. */
+export type AiRequest = {
+	method: string,
+	/**  Below the endpoint, such as `audio/transcriptions`. */
+	path: string,
+	headers: ([string, string])[],
+	/**  The body in base64, decoded here and written to the CLI as raw bytes. */
+	body: string | null,
+};
+
+/**
+ *  Where a request goes: a connection by its id, which is the stem of its row
+ *  in `so.epicenter/connections`. An `openai-compatible` target names the
+ *  endpoint the page prepared the request for; the CLI sends only while the
+ *  keychain entry still holds it.
+ */
+export type AiTarget = { kind: "openai-compatible"; connection: string; endpoint: string } | { kind: "epicenter"; connection: string } | { kind: "local"; connection: string };
+
 /**  Whether an installed app can run. */
 export type AppState =
 /**  Built at its commit; it opens at once. */
@@ -371,6 +412,11 @@ export type CatalogError = { name: "UnknownModel"; message: string } | { name: "
 export type CliError =
 /**  This window holds no grant for the folder. */
 { name: "NotGranted"; grant: GrantError } |
+/**
+ *  The CLI refused the input with exit code 2 and said why on stdout:
+ *  an id, an endpoint, or a keychain it cannot use.
+ */
+{ name: "Refused"; message: string } |
 /**
  *  The binary could not be started or read, stopped without an exit
  *  code, or the page stopped listening.

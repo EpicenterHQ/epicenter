@@ -103,6 +103,11 @@
 			<span class="text-xs text-muted-foreground">
 				Kept in {library.workspace.connections.storedIn}. It is sent only to this endpoint; a new endpoint needs its key entered again.
 			</span>
+			{#if library.workspace.kind === 'browser'}
+				<span class="text-xs text-warning" data-testid="{id}-key-warning">
+					This key is saved in this browser. Code running on this site can read it.
+				</span>
+			{/if}
 		</div>
 	{/if}
 	{#if draft.problem && !readOnly}

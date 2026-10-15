@@ -15,6 +15,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@epicenter/ai": "workspace:*",
 		"@epicenter/folder": "workspace:*"
 	},
 	"devDependencies": {
