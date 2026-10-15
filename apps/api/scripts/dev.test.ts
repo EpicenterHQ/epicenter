@@ -36,8 +36,9 @@ test('dev launcher validates the loopback override and removes production routes
 	expect(rejection).toBeGreaterThan(-1);
 	expect(rejection).toBeLessThan(source.indexOf('await mkdir('));
 	expect(source).toContain('API_PUBLIC_ORIGIN:${publicOrigin}');
-	expect(source).toContain(
-		'JSON.stringify({ ...config, routes: [], artifacts: [] })',
-	);
+	expect(source).toContain('routes: [],');
+	expect(source).toContain('artifacts: [],');
+	expect(source).toContain('delete config.vars?.ARTIFACTS_NAMESPACE;');
+	expect(source).toContain("(name) => name !== 'ARTIFACTS_ACCOUNT_ID'");
 	expect(source).toContain('--config ${localConfig}');
 });
