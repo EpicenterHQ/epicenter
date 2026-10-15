@@ -34,7 +34,6 @@ anyone who forks and distributes a modified binary shares the changes back.
     packages/principal       @epicenter/principal
     packages/recorder        @epicenter/recorder
     packages/server          @epicenter/server
-    packages/sqlite          @epicenter/sqlite
     packages/svelte          @epicenter/svelte
     packages/ui              @epicenter/ui
     packages/vite-config     @epicenter/vite-config
@@ -47,7 +46,6 @@ anyone who forks and distributes a modified binary shares the changes back.
     apps/local-books            @epicenter/local-books
     apps/matter                 @epicenter/matter
     apps/posthog-reverse-proxy  @epicenter/posthog-reverse-proxy
-    apps/reddit                 @epicenter/reddit
     apps/self-host              @epicenter/self-host
     apps/vocab                  @epicenter/vocab
     apps/whispering             @epicenter/whispering

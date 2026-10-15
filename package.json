@@ -35,7 +35,6 @@
 			"examples/*"
 		],
 		"catalog": {
-			"@sqlite.org/sqlite-wasm": "^3.53.0-build1",
 			"@types/node": "^24.0.0",
 			"@types/bun": "^1.3.14",
 			"@types/ms": "^2.1.0",
@@ -158,8 +157,6 @@
 		"lint": "biome lint --write",
 		"lint:check": "biome lint",
 		"lint:ci": "biome lint --diagnostic-level=error --reporter=github",
-		"release": "changeset version && bun run scripts/publish-packages.ts",
-		"release:dry-run": "bun run scripts/publish-packages.ts --dry-run",
 		"typecheck": "bun run --filter '*' typecheck && bun x tsc --noEmit -p scripts/tsconfig.json",
 		"test": "bun test ./scripts/*.test.ts ./.agents/skills/*/scripts/*.test.ts && bun run --filter '*' test",
 		"bench": "bun run --filter '*' bench",
@@ -185,7 +182,6 @@
 	"devDependencies": {
 		"@y/y": "14.0.0-rc.26",
 		"@biomejs/biome": "catalog:",
-		"@changesets/cli": "^2.31.0",
 		"@types/bun": "catalog:",
 		"jsrepo": "^3.6.2",
 		"wrangler": "catalog:"

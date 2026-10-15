@@ -570,7 +570,7 @@ Two habits make the link hard to forget:
 | [0309](0309-a-field-holds-a-value-or-a-node-and-the-retired-words-fail-the-build.md) | A field holds a value or a node, and the retired words fail the build | Accepted (supersedes 0299 at its vocabulary) |
 | [0310](0310-an-applications-provider-credential-is-a-labeled-secret-and-the-browser-keeps-none.md) | An application's provider credential is a labeled secret, and the browser keeps none | Accepted (amends 0227 at its hosted-web refusal; amended by 0319, which withdraws the synchronizing registry; unbuilt: starting an application's window hidden at boot) |
 | [0311](0311-a-table-is-a-held-projection-and-everything-cheaper-than-rebuilding-is-read-through.md) | A table is a held projection, and everything cheaper than rebuilding is read through | Superseded by 0500 |
-| [0312](0312-a-sqlite-handle-is-all-run-and-batch-and-a-transaction-never-crosses-a-process-boundary.md) | A SQLite handle is all, run, and batch, and a transaction never crosses a process boundary | Accepted (supersedes 0308; amends 0303 and 0304; amended by 0321 at the handle lifecycle) |
+| [0312](0312-a-sqlite-handle-is-all-run-and-batch-and-a-transaction-never-crosses-a-process-boundary.md) | A SQLite handle is all, run, and batch, and a transaction never crosses a process boundary | Superseded by 0534 |
 | [0313](0313-a-data-definition-ships-as-typescript-and-a-host-that-needs-one-imports-it.md) | A data definition ships as TypeScript, and a host that needs one imports it | Accepted (amends 0296 at its optional codec and 0210 at the declaration's file) |
 | [0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) | An app is one directory, and installation is a rename | Accepted (unbuilt; supersedes 0179 at the catalog's shape; amends 0304 at the bundle and blobs) |
 | [0315](0315-the-folder-is-keyed-by-data-id-and-the-segment-under-it-is-the-applications.md) | The folder is keyed by data id, and the segment under it is the application's | Accepted (amended by 0337 at the layout, which deletes the segment under the data id; amends 0271 at the closed set, and 0314 at the human folder) |
@@ -579,7 +579,7 @@ Two habits make the link hard to forget:
 | [0318](0318-epicenter-data-is-what-epicenter-is-the-authority-for-and-a-foreign-write-is-a-command.md) | Epicenter Data is what Epicenter is the authority for, and a foreign write is a command | Accepted (amends 0306's classification test) |
 | [0319](0319-local-mail-is-device-local-and-its-storage-splits-by-lifetime.md) | Local Mail is device-local, and its storage splits by lifetime | Accepted (amends 0310 at the synchronizing registry) |
 | [0320](0320-removing-an-account-settles-what-it-owes-before-anything-is-deleted.md) | Removing an account settles what it owes before anything is deleted | Accepted |
-| [0321](0321-app-owned-storage-is-named-sqlite-files-an-application-opens-and-deletes-and-nothing-else.md) | App-owned storage is named SQLite files an application opens and deletes, and nothing else | Accepted (amends 0312 at the handle lifecycle) |
+| [0321](0321-app-owned-storage-is-named-sqlite-files-an-application-opens-and-deletes-and-nothing-else.md) | App-owned storage is named SQLite files an application opens and deletes, and nothing else | Superseded by 0534 |
 | [0322](0322-a-person-keeps-applications-current-and-a-hidden-window-is-the-same-window.md) | A person keeps applications current, and a hidden window is the same window | Superseded by 0323 (never built; its measurement came back no) |
 | [0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md) | Background work runs in the host, and a window is for looking at | Accepted (unbuilt; supersedes 0322; amends 0273 and 0226; amended by 0327) |
 | [0324](0324-a-database-address-is-its-data-id-and-generation-and-the-definition-declares-its-authority.md) | A database address is its data id and generation, and the definition declares its authority | Accepted (built in the browser, unbuilt on desktop; supersedes 0261; amends 0304 and 0314 at the desktop spelling; amended by 0336 and in place at the app id's source) |
@@ -605,7 +605,7 @@ Two habits make the link hard to forget:
 | [0349](0349-local-blobs-belong-to-the-app-on-this-device.md) | Local blobs belong to the app on this device | Proposed |
 | [0350](0350-a-data-session-is-a-value-the-tree-owns-and-sync-runs-for-the-life-of-the-store.md) | A data session is a value the tree owns, and sync runs for the life of the store | Accepted (supersedes 0344 at its mechanism and 0232; amends 0230 at its mechanism: a refusal is data on the driver's status, so there is no stop, no reload, and no auth generation) |
 | [0351](0351-local-data-removal-is-an-explicit-sign-out-choice.md) | Local data removal is an explicit sign-out choice | Accepted at its decision, amended at its mechanism: no intent record, no boot gate, no recovery screen, no exclusion boundary; ordering carries it |
-| [0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) | An account's data and a device's files are two packages, because only one of them is removed | Accepted (amends 0339 at its mechanism: the binding, the factory, and the `Epicenter<never>` overload are withdrawn) |
+| [0352](0352-an-account-s-data-and-a-device-s-files-are-two-packages-because-only-one-of-them-is-removed.md) | An account's data and a device's files are two packages, because only one of them is removed | Superseded by 0534 |
 | [0353](0353-a-data-session-keeps-one-account-for-its-entire-lifetime.md) | A data session keeps one account for its entire lifetime | Proposed (amends 0230, 0339, and 0350 at account transport, selection, and session identity) |
 | [0355](0355-local-and-account-sessions-share-the-application-data-api.md) | Local and account sessions share the application data API | Accepted (blob references and byte cleanup amended by 0393) |
 | [0356](0356-sensitive-account-changes-use-better-auth-session-freshness.md) | Sensitive account changes use Better Auth session freshness | Proposed |
@@ -626,7 +626,6 @@ When you add an ADR, add its row here.
 
 | [0380](0380-resource-handles-own-terminal-shutdown.md) | Resource handles own terminal shutdown | Proposed |
 
-| [0381](0381-user-authored-sql-runs-through-a-bounded-read-only-operation.md) | User-authored SQL runs through a bounded read-only operation | Proposed |
 
 | [0377](0377-a-table-may-omit-its-content-codec-while-every-row-owns-a-node.md) | A table may omit its content codec while every row owns a node | Proposed |
 

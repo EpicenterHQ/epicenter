@@ -1,16 +1,11 @@
 /** Real loopback traffic through the window adapter, host guards and session Account. */
-import { expect, spyOn, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { expect, test } from 'bun:test';
 import {
 	ApiSessionResponse,
 	type AuthFetch,
 	createSessionAuth,
 } from '@epicenter/auth';
 import { createDesktopBrokerAuth } from '@epicenter/auth/desktop';
-import { generateBlobId } from '@epicenter/blobs';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { createHomeHost } from './host.ts';
@@ -140,20 +135,6 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		accountManagement: true,
 		credentialUnreadable: false,
 	};
-	const directory = await mkdtemp(join(tmpdir(), 'account-relay-'));
-	const blobStores = new Map<string, ReturnType<typeof createBunBlobStore>>();
-	function blobs(appId: string, owner = 'no-account') {
-		const key = JSON.stringify([appId, owner]);
-		let store = blobStores.get(key);
-		if (!store) {
-			store = createBunBlobStore({
-				directory: join(directory, String(blobStores.size)),
-			});
-			blobStores.set(key, store);
-		}
-		return store;
-	}
-	const localBlobs = blobs('so.epicenter.notes');
 	const host = await createHomeHost({
 		model: 'test',
 		engine: async function* () {},
@@ -172,7 +153,6 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		launchToken: 'launch',
 		host,
 		staticAssets: { homePage: '<html><head></head></html>', applications: [] },
-		blobs,
 		desktopAuth: {
 			restartRequired: false,
 			baseURL,
@@ -243,8 +223,6 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	return {
 		origin,
 		cookie,
-		localBlobs,
-		blobs,
 		account: windowState.account,
 		windowAuth,
 		auth,
@@ -274,7 +252,6 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 			void server.stop(true);
 			await upstream.stop(true);
 			await host[Symbol.asyncDispose]();
-			await rm(directory, { recursive: true, force: true });
 		},
 	};
 }
@@ -503,44 +480,4 @@ test('unsaved endpoint broker preserves explicit authentication and multipart tr
 	} finally {
 		await upstream.stop(true);
 	}
-});
-
-test('native Local copies stream snapshots across namespaces, survive source deletion and refuse occupied destinations', async () => {
-	await using context = await setup();
-	const id = generateBlobId('bin');
-	const destinationId = generateBlobId('bin');
-	const source = context.blobs('so.epicenter.source');
-	expectOk(await source.put(id, new Blob(['snapshot bytes'])));
-	const original = source.openFile;
-	const spy = spyOn(source, 'openFile').mockImplementation(async (key) => {
-		const opened = await original(key);
-		expectOk(await source.delete(key));
-		return opened;
-	});
-	const copy = () =>
-		fetch(
-			`${context.origin}/api/apps/so.epicenter.notes/blobs/${destinationId}?owner=no-account`,
-			{
-				method: 'PUT',
-				headers: {
-					cookie: context.cookie,
-					origin: context.origin,
-					'x-epicenter-copy-source-app': 'so.epicenter.source',
-					'x-epicenter-copy-source-id': id,
-				},
-			},
-		);
-	expect((await copy()).status).toBe(204);
-	spy.mockRestore();
-	expect(
-		await expectOk(await context.localBlobs.get(destinationId)).text(),
-	).toBe('snapshot bytes');
-	expectOk(await source.put(id, new Blob(['snapshot bytes'])));
-	expect((await copy()).status).toBe(409);
-	expectOk(await source.delete(id));
-	expectOk(await source.put(id, new Blob(['conflicting bytes'])));
-	expect((await copy()).status).toBe(409);
-	expect(
-		await expectOk(await context.localBlobs.get(destinationId)).text(),
-	).toBe('snapshot bytes');
 });

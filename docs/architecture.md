@@ -75,7 +75,6 @@ refused was a hosted surface that reached a host-owned replica instead.
 |                                                                           |
 | @epicenter/app       declarations, lifetime, store, persistence, and sync |
 | @epicenter/app/field release-local field declarations                     |
-| @epicenter/sqlite    one engine seam over bun:sqlite and sqlite-wasm      |
 | @epicenter/sync      route contracts a browser can import                 |
 | @epicenter/server    the shared Hono package both deployables consume     |
 +---------------------------------------------------------------------------+

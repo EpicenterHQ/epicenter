@@ -9,32 +9,10 @@ import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AgentToolDefinition } from '@epicenter/agent';
-import { type BlobId, parseBlobId } from '@epicenter/blobs';
-import type { BunBlobStore } from '@epicenter/blobs/bun';
-import { isAppId } from '@epicenter/constants/app-id';
-import type { DeviceSqliteOwner } from '@epicenter/device/owner';
-import { createDeviceDispatcher } from '@epicenter/device/owner';
-import {
-	DEVICE_PATH,
-	type DeviceRequest,
-	type DeviceResponse,
-	isDatabaseName,
-	isSecretLabel,
-	parseSqliteFrame,
-	type SqliteStatement,
-	stringifySqliteFrame,
-} from '@epicenter/device/protocol';
-import {
-	type AccountIdentity,
-	asPrincipalId,
-	deviceOwnerPath,
-	isDeviceOwnerPath,
-} from '@epicenter/principal';
+import { deviceOwnerPath } from '@epicenter/principal';
 import { type Context, Hono, type Next } from 'hono';
 import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
-import { createLogger } from 'wellcrafted/logger';
-import type { AppSecretOwner } from './app-secrets.ts';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
 import {
 	type HomeHost,
@@ -78,14 +56,8 @@ export type HomeServerOptions = {
 	staticAssets: EpicenterStaticAssets;
 	/** Installed apps' current builds (ADR-0540). */
 	installedApplications?: InstalledApplications;
-	/** Canonical device-local bytes shared by every trusted app window. */
-	blobs: (appId: string, owner?: string) => BunBlobStore;
 	/** One credential owner for every compiled desktop window. */
 	desktopAuth: DesktopAuthAuthority;
-	/** Bun owner for app-scoped SQLite files. */
-	device?: DeviceSqliteOwner;
-	/** Credential-store owner for one labeled secret per application account. */
-	appSecrets?: AppSecretOwner;
 	aiCatalog?: AiCatalog;
 	noAccountAiCatalog?: AiCatalog;
 };
@@ -101,10 +73,7 @@ export function createHomeServer({
 	launchToken,
 	staticAssets,
 	installedApplications,
-	blobs,
 	desktopAuth,
-	device,
-	appSecrets,
 	aiCatalog,
 	noAccountAiCatalog,
 }: HomeServerOptions) {
@@ -448,125 +417,10 @@ export function createHomeServer({
 	});
 	app.get('/apps/*', (c) => c.text('Not Found', 404));
 
-	// Application-scoped blob routes are host APIs over private local files.
-	// This wildcard keeps newly added app routes behind the same browser
+	// This wildcard keeps application-scoped host APIs behind the browser
 	// session by default.
 	app.use('/api/apps/*', requireBrowserSession);
 	app.use('/api/home/*', requireBrowserSession);
-	app.use(`${DEVICE_PATH}/*`, requirePrivateBroker);
-	app.get(`${DEVICE_PATH}/sqlite`, async (c, next) => {
-		if (device === undefined) return c.text('Unavailable', 503);
-		const response = await upgradeWebSocket(() => {
-			const dispatcher = createDeviceDispatcher(device);
-			let closed = false;
-			const close = () => {
-				if (closed) return;
-				closed = true;
-				void dispatcher.close().catch((cause: unknown) => {
-					createLogger('epicenter/sqlite').error(
-						new Error('SQLite socket cleanup failed.', { cause }),
-					);
-				});
-			};
-			return {
-				onMessage(event, ws) {
-					if (closed) return;
-					const frame =
-						typeof event.data === 'string'
-							? parseSqliteFrame(event.data)
-							: undefined;
-					if (
-						typeof frame !== 'object' ||
-						frame === null ||
-						!('id' in frame) ||
-						!Number.isSafeInteger(frame.id)
-					) {
-						close();
-						ws.close(1008, 'Invalid SQLite request.');
-						return;
-					}
-					const input = 'request' in frame ? frame.request : null;
-					const request = parseDeviceRequest(
-						typeof input === 'object' && input !== null && !Array.isArray(input)
-							? (input as Record<string, unknown>)
-							: null,
-					);
-					if (
-						request === undefined ||
-						request.kind === 'secret-put' ||
-						request.kind === 'secret-get' ||
-						request.kind === 'secret-delete'
-					) {
-						ws.send(
-							stringifySqliteFrame({
-								id: frame.id,
-								failure: 'Invalid SQLite request.',
-							}),
-						);
-						return;
-					}
-					void dispatcher.request(request).then(
-						(response) => {
-							if (!closed)
-								ws.send(stringifySqliteFrame({ id: frame.id, response }));
-						},
-						(cause: unknown) => {
-							createLogger('epicenter/sqlite').error(
-								new Error('SQLite request failed.', { cause }),
-							);
-							if (!closed)
-								ws.send(
-									stringifySqliteFrame({
-										id: frame.id,
-										failure: 'Application storage failed',
-									}),
-								);
-						},
-					);
-				},
-				onClose: close,
-				onError: close,
-			};
-		})(c, next);
-		return response ?? c.text('Expected WebSocket upgrade', 400);
-	});
-
-	app.post(DEVICE_PATH, async (c) => {
-		const request = parseDeviceRequest(await readJsonObject(c.req.raw));
-		if (request === undefined) return c.text('Bad Request', 400);
-		try {
-			if (request.kind === 'secret-put') {
-				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				await appSecrets.put(
-					request.appId,
-					request.label,
-					request.value,
-					request.account,
-				);
-				return c.json({ kind: request.kind } satisfies DeviceResponse);
-			}
-			if (request.kind === 'secret-get') {
-				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				const value = await appSecrets.get(
-					request.appId,
-					request.label,
-					request.account,
-				);
-				return c.json({
-					kind: request.kind,
-					value,
-				} satisfies DeviceResponse);
-			}
-			if (request.kind === 'secret-delete') {
-				if (appSecrets === undefined) return c.text('Unavailable', 503);
-				await appSecrets.delete(request.appId, request.label, request.account);
-				return c.json({ kind: request.kind } satisfies DeviceResponse);
-			}
-			return c.text('Bad Request', 400);
-		} catch {
-			return c.text('Application storage failed', 500);
-		}
-	});
 	app.use(SESSION_STREAM_ROUTE.pattern, async (c, next) => {
 		if (c.req.header('origin') !== origin) return c.text('Forbidden', 403);
 		await next();
@@ -579,170 +433,6 @@ export function createHomeServer({
 		} satisfies HomeSessionResponse),
 	);
 
-	type BlobEnv = { Variables: { appId: string; id: BlobId; owner: string } };
-	const blobApi = new Hono<BlobEnv>();
-	blobApi.use('*', async (c, next) => {
-		const appId = c.req.param('appId');
-		if (!appId || !isAppId(appId)) return c.text('Invalid application ID', 400);
-		c.set('appId', appId);
-		const owner = c.req.query('owner') ?? 'no-account';
-		if (!isDeviceOwnerPath(owner)) return c.text('Invalid storage owner', 400);
-		c.set('owner', owner);
-		await next();
-	});
-	blobApi.use('/:blobId/*', async (c, next) => {
-		const id = parseBlobId(c.req.param('blobId'));
-		if (
-			!id ||
-			[...new URL(c.req.url).searchParams.keys()].some((key) => key !== 'owner')
-		)
-			return c.text('Invalid blob address', 400);
-		c.set('id', id);
-		await next();
-	});
-	blobApi.get('/', async (c) => {
-		const query = new URL(c.req.url).searchParams;
-		if (
-			[...query.keys()].some(
-				(key) => key !== 'cursor' && key !== 'limit' && key !== 'owner',
-			)
-		)
-			return c.text('Invalid blob list options', 400);
-		const limit = query.get('limit');
-		const cursor = query.get('cursor');
-		const { data: listed, error } = await blobs(c.var.appId, c.var.owner).list({
-			...(limit === null ? {} : { limit: Number(limit) }),
-			...(cursor === null ? {} : { cursor }),
-		});
-		return error ? c.text('Blob list failed', 400) : c.json(listed);
-	});
-	blobApi.put('/:blobId', async (c) => {
-		const sourceAppId = c.req.header('x-epicenter-copy-source-app');
-		const sourceId = c.req.header('x-epicenter-copy-source-id');
-		if (sourceId !== undefined && sourceAppId === undefined)
-			return c.text('Invalid native source', 400);
-		if (sourceAppId !== undefined) {
-			if (
-				!isAppId(sourceAppId) ||
-				!sourceId ||
-				!parseBlobId(sourceId) ||
-				c.var.owner !== deviceOwnerPath() ||
-				c.req.raw.body
-			)
-				return c.text('Invalid native copy', 400);
-			const { data: source, error: sourceError } = await blobs(
-				sourceAppId,
-				deviceOwnerPath(),
-			).openFile(parseBlobId(sourceId!)!);
-			if (sourceError)
-				return c.text(
-					'Source unavailable',
-					sourceError.name === 'BlobNotFound' ? 404 : 500,
-				);
-			const body = ownedFileBody(source.file, source.close, source.stat.size);
-			try {
-				const response = new Response(
-					body.stream.pipeThrough(new TransformStream(), {
-						signal: c.req.raw.signal,
-					}),
-					{ headers: { 'content-type': source.stat.contentType } },
-				);
-				const { error } = await blobs(c.var.appId, c.var.owner).putResponse(
-					c.var.id,
-					response,
-				);
-				return error
-					? c.text(
-							'Copy publication failed',
-							error.name === 'BlobAlreadyExists' ? 409 : 500,
-						)
-					: c.body(null, 204);
-			} finally {
-				await body.close();
-			}
-		}
-
-		const { error } = await blobs(c.var.appId, c.var.owner).putRequest(
-			c.var.id,
-			c.req.raw,
-		);
-		if (!error) return c.body(null, 201);
-		return c.text(
-			'Blob publication failed',
-			error.name === 'BlobAlreadyExists' ? 409 : 500,
-		);
-	});
-	// Hono derives HEAD from GET; intercept it before file-body acquisition.
-	blobApi.use('/:blobId', async (c, next) => {
-		if (c.req.method !== 'HEAD') return next();
-		const { data: stat, error } = await blobs(c.var.appId, c.var.owner).stat(
-			c.var.id,
-		);
-		if (error)
-			return c.text(
-				'Blob unavailable',
-				error.name === 'BlobNotFound' ? 404 : 500,
-			);
-		return new Response(null, {
-			headers: {
-				...blobResponseHeaders(stat.contentType),
-				'content-length': String(stat.size),
-			},
-		});
-	});
-	blobApi.get('/:blobId', async (c) => {
-		const { data: opened, error } = await blobs(
-			c.var.appId,
-			c.var.owner,
-		).openFile(c.var.id);
-		if (error)
-			return c.text(
-				'Blob unavailable',
-				error.name === 'BlobNotFound' ? 404 : 500,
-			);
-		const { file, stat, close } = opened;
-		const headers = {
-			...blobResponseHeaders(stat.contentType),
-			'content-length': String(stat.size),
-		};
-		const requestedRange = c.req.header('range');
-		if (requestedRange === undefined)
-			return new Response(ownedFileBody(file, close, stat.size).stream, {
-				headers,
-			});
-		const range = parseByteRange(requestedRange, stat.size);
-		if (!range) {
-			await close();
-			return new Response(null, {
-				status: 416,
-				headers: {
-					...headers,
-					'content-length': '0',
-					'content-range': `bytes */${stat.size}`,
-				},
-			});
-		}
-		return new Response(
-			ownedFileBody(
-				file.slice(range.start, range.endExclusive, stat.contentType),
-				close,
-				range.endExclusive - range.start,
-			).stream,
-			{
-				status: 206,
-				headers: {
-					...headers,
-					'content-length': String(range.endExclusive - range.start),
-					'content-range': `bytes ${range.start}-${range.endExclusive - 1}/${stat.size}`,
-				},
-			},
-		);
-	});
-	blobApi.delete('/:blobId', async (c) => {
-		const { error } = await blobs(c.var.appId, c.var.owner).delete(c.var.id);
-		return error ? c.text('Blob deletion failed', 500) : c.body(null, 204);
-	});
-	app.route('/api/apps/:appId/blobs', blobApi);
 	app.get(
 		SESSION_STREAM_ROUTE.pattern,
 		upgradeWebSocket(() => {
@@ -803,115 +493,6 @@ function injectAuthBootstrap(
 		: `${page.slice(0, body)}${element}${page.slice(body)}`;
 }
 
-/** Own the borrowed file until HTTP consumption finishes or is cancelled. */
-function ownedFileBody(
-	file: Blob,
-	closeFile: () => Promise<void>,
-	size: number,
-) {
-	const reader = file.stream().getReader();
-	let closed: Promise<void> | undefined;
-	let cancelled = false;
-	let remaining = size;
-	function close() {
-		closed ??= (async () => {
-			try {
-				await reader.cancel();
-			} finally {
-				await closeFile();
-			}
-		})();
-		return closed;
-	}
-	return {
-		close,
-		stream: new ReadableStream<Uint8Array>({
-			async pull(controller) {
-				try {
-					if (remaining === 0 || closed) {
-						await close();
-						if (!cancelled) controller.close();
-						return;
-					}
-					const { done, value } = await reader.read();
-					if (cancelled) return;
-					if (closed) {
-						controller.close();
-						return;
-					}
-					if (done)
-						throw new Error('Blob stream ended before its declared length.');
-					remaining -= value.byteLength;
-					if (remaining < 0)
-						throw new Error('Blob stream exceeded its declared length.');
-					controller.enqueue(value);
-					// Bun 1.3.14 can stall at the end of a descriptor-backed slice.
-					// The validated stat/range length owns completion and cancellation.
-					if (remaining === 0) {
-						await close();
-						if (!cancelled) controller.close();
-					}
-				} catch (cause) {
-					if (!cancelled) controller.error(cause);
-					await close().catch(() => {});
-				}
-			},
-			cancel() {
-				cancelled = true;
-				return close();
-			},
-		}),
-	};
-}
-
-function blobResponseHeaders(contentType: string): Record<string, string> {
-	return {
-		'accept-ranges': 'bytes',
-		'cache-control': 'no-store',
-		'content-disposition': 'attachment',
-		'content-security-policy': "sandbox; default-src 'none'",
-		'content-type': contentType,
-		'cross-origin-resource-policy': 'same-origin',
-		'x-content-type-options': 'nosniff',
-	};
-}
-
-function parseByteRange(
-	header: string,
-	size: number,
-): { start: number; endExclusive: number } | undefined {
-	const match = /^bytes=(\d*)-(\d*)$/.exec(header);
-	if (match === null || size === 0) return undefined;
-	const [, startText = '', endText = ''] = match;
-	if (startText === '' && endText === '') return undefined;
-
-	if (startText === '') {
-		const suffixLength = Number(endText);
-		if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
-			return undefined;
-		}
-		return {
-			start: Math.max(size - suffixLength, 0),
-			endExclusive: size,
-		};
-	}
-
-	const start = Number(startText);
-	if (!Number.isSafeInteger(start) || start < 0 || start >= size) {
-		return undefined;
-	}
-	if (endText === '') return { start, endExclusive: size };
-
-	const inclusiveEnd = Number(endText);
-	if (!Number.isSafeInteger(inclusiveEnd) || inclusiveEnd < start) {
-		return undefined;
-	}
-	return {
-		start,
-		endExclusive: Math.min(inclusiveEnd + 1, size),
-	};
-}
-
 function validateOrigin(origin: string): URL {
 	let url: URL;
 	try {
@@ -936,161 +517,6 @@ function validateOrigin(origin: string): URL {
 
 function tokenHash(token: string): string {
 	return createHash('sha256').update(token).digest('base64url');
-}
-
-function parseDeviceRequest(
-	input: Record<string, unknown> | null,
-): DeviceRequest | undefined {
-	if (
-		input === null ||
-		typeof input.kind !== 'string' ||
-		typeof input.appId !== 'string' ||
-		!isAppId(input.appId)
-	) {
-		return undefined;
-	}
-	const kind = input.kind;
-	let account: AccountIdentity | undefined;
-	if (input.account !== undefined) {
-		const value = input.account;
-		if (
-			!value ||
-			typeof value !== 'object' ||
-			!('authorityId' in value) ||
-			!('principalId' in value) ||
-			typeof value.authorityId !== 'string' ||
-			typeof value.principalId !== 'string'
-		)
-			return undefined;
-		account = {
-			authorityId: value.authorityId,
-			principalId: asPrincipalId(value.principalId),
-		};
-		try {
-			deviceOwnerPath(account);
-		} catch {
-			return undefined;
-		}
-	}
-	if (kind.startsWith('sqlite-')) {
-		const address = { appId: input.appId, account };
-		if (kind === 'sqlite-acquire') return { kind, ...address };
-		if (typeof input.lifetimeId !== 'string' || input.lifetimeId === '')
-			return undefined;
-		const session = { ...address, lifetimeId: input.lifetimeId };
-		if (kind === 'sqlite-close') return { kind, ...session };
-		if (kind === 'sqlite-open' || kind === 'sqlite-delete') {
-			return typeof input.name === 'string' && isDatabaseName(input.name)
-				? { kind, ...session, name: input.name }
-				: undefined;
-		}
-		if (typeof input.connectionId !== 'string' || input.connectionId === '')
-			return undefined;
-		const connection = { ...session, connectionId: input.connectionId };
-		if (kind === 'sqlite-run' || kind === 'sqlite-all') {
-			const statement = parseSqliteStatement(input.statement);
-			return statement === undefined
-				? undefined
-				: { kind, ...connection, statement };
-		}
-		if (kind === 'sqlite-query' || kind === 'sqlite-cancel') {
-			if (
-				typeof input.queryId !== 'string' ||
-				input.queryId.length === 0 ||
-				input.queryId.length > 128
-			)
-				return undefined;
-			if (kind === 'sqlite-cancel')
-				return { kind, ...connection, queryId: input.queryId };
-			const statement = parseSqliteStatement(input.statement);
-			if (
-				!statement ||
-				new TextEncoder().encode(statement.sql).length > 65536 ||
-				!Array.isArray(input.tables) ||
-				input.tables.length > 128 ||
-				!input.tables.every(
-					(table): table is string =>
-						typeof table === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(table),
-				)
-			)
-				return undefined;
-			return {
-				kind,
-				...connection,
-				queryId: input.queryId,
-				statement,
-				tables: input.tables,
-			};
-		}
-		if (kind === 'sqlite-batch') {
-			if (!Array.isArray(input.statements)) return undefined;
-			const statements: SqliteStatement[] = [];
-			for (const value of input.statements) {
-				const statement = parseSqliteStatement(value);
-				if (statement === undefined) return undefined;
-				statements.push(statement);
-			}
-			return { kind, ...connection, statements };
-		}
-		return undefined;
-	}
-	if (
-		(kind === 'secret-put' ||
-			kind === 'secret-get' ||
-			kind === 'secret-delete') &&
-		typeof input.label === 'string'
-	) {
-		if (!isSecretLabel(input.label)) return undefined;
-		if (kind === 'secret-put' && typeof input.value !== 'string')
-			return undefined;
-		return kind === 'secret-put'
-			? {
-					kind,
-					account,
-					appId: input.appId,
-					label: input.label,
-					value: input.value as string,
-				}
-			: {
-					kind,
-					account,
-					appId: input.appId,
-					label: input.label,
-				};
-	}
-	return undefined;
-}
-
-function parseSqliteStatement(value: unknown):
-	| {
-			sql: string;
-			parameters?: readonly import('@epicenter/sqlite').SqliteValue[];
-	  }
-	| undefined {
-	if (typeof value !== 'object' || value === null || !('sql' in value))
-		return undefined;
-	if (typeof value.sql !== 'string' || value.sql.trim() === '')
-		return undefined;
-	if (!('parameters' in value) || value.parameters === undefined)
-		return { sql: value.sql };
-	if (
-		!Array.isArray(value.parameters) ||
-		value.parameters.some((item) => !isSqliteValue(item))
-	)
-		return undefined;
-	return {
-		sql: value.sql,
-		parameters: value.parameters as import('@epicenter/sqlite').SqliteValue[],
-	};
-}
-
-function isSqliteValue(value: unknown): boolean {
-	return (
-		value === null ||
-		typeof value === 'string' ||
-		(typeof value === 'number' && Number.isFinite(value)) ||
-		value instanceof Uint8Array
-	);
 }
 
 function tokensMatch(candidate: string, expected: string): boolean {
@@ -1133,19 +559,6 @@ function contentSecurityPolicy(page: string): string {
 		"base-uri 'self'",
 		"frame-ancestors 'none'",
 	].join('; ');
-}
-
-async function readJsonObject(
-	request: Request,
-): Promise<Record<string, unknown> | null> {
-	try {
-		const value: unknown = await request.json();
-		return typeof value === 'object' && value !== null && !Array.isArray(value)
-			? (value as Record<string, unknown>)
-			: null;
-	} catch {
-		return null;
-	}
 }
 
 function parseFrame(data: unknown): unknown {

@@ -1,5 +1,7 @@
 # Whispering fixed-owner review, 2026-09-21
 
+<!-- doc-path-check: ignore-file -->
+
 ## Files read
 
 The edited-file inventory below precedes the review. Additional source and

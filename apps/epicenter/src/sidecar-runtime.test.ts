@@ -572,7 +572,7 @@ describe('shutdown', () => {
 	});
 });
 
-test('one native reader settles SQL and auth and rejects calls after pipe closure', async () => {
+test('one native reader settles requests and rejects calls after pipe closure', async () => {
 	let controller!: ReadableStreamDefaultController<string>;
 	const parentPipe: ParentPipe = {
 		bootLine: Promise.resolve(bootFrame()),
@@ -593,82 +593,27 @@ test('one native reader settles SQL and auth and rejects calls after pipe closur
 			createRequestId: () => String(++next),
 		},
 	);
-	const query = native.sqlite({
-		kind: 'all',
-		connection: 'generation:1',
-		statement: { sql: 'SELECT 1', parameters: [] },
-	});
+	const secret = native.getAppSecret('so.epicenter.notes', 'api-key');
 	const auth = native.storeAuth(null);
 	controller.enqueue(
 		JSON.stringify({ type: 'native-result', requestId: '2', status: 'ok' }),
 	);
 	controller.enqueue(
 		JSON.stringify({
-			type: 'sqlite-result',
+			type: 'native-result',
 			requestId: '1',
 			status: 'ok',
-			data: [{ value: 1 }],
+			value: 'stored',
 		}),
 	);
-	expect(await query).toEqual([{ value: 1 }]);
+	expect(await secret).toBe('stored');
 	await auth;
-	const pending = native.sqlite({ kind: 'close', connection: 'generation:1' });
+	const pending = native.storeAuth(null);
 	controller.close();
 	await expect(pending).rejects.toThrow('closed');
 	await native.completed;
-	await expect(
-		native.sqlite({ kind: 'close', connection: 'generation:1' }),
-	).rejects.toThrow('closed');
 	await expect(native.storeAuth(null)).rejects.toThrow('closed');
 	expect(writes.length).toBe(3);
-});
-
-test('native cancellation sends a separate frame before the blocked query settles', async () => {
-	let controller!: ReadableStreamDefaultController<string>;
-	const parentPipe: ParentPipe = {
-		bootLine: Promise.resolve(bootFrame()),
-		frames: new ReadableStream({
-			start(value) {
-				controller = value;
-			},
-		}),
-		closed: new Promise(() => undefined),
-		async cancel() {},
-	};
-	const writes: string[] = [];
-	const native = createNativePort(
-		{ parentPipe },
-		{
-			writeLine: (line) => writes.push(line),
-			createRequestId: () => 'query-1',
-		},
-	);
-	const abort = new AbortController();
-	const query = native.sqlite(
-		{
-			kind: 'query',
-			connection: 'generation:1',
-			statement: { sql: 'SELECT 1', parameters: [] },
-			tables: ['messages'],
-		},
-		abort.signal,
-	);
-	abort.abort();
-	expect(JSON.parse(writes[1]!)).toEqual({
-		type: 'sqlite-cancel',
-		requestId: 'query-1',
-	});
-	controller.enqueue(
-		JSON.stringify({
-			type: 'sqlite-result',
-			requestId: 'query-1',
-			status: 'error',
-			message: 'interrupted',
-		}),
-	);
-	await expect(query).rejects.toThrow('interrupted');
-	controller.close();
-	await native.completed;
 });
 
 test('local frame limits reject only that request while pipe write failure completes the port', async () => {

@@ -21,8 +21,6 @@
 		"allow-write-text",
 		"allow-simulate-enter-keystroke",
 		"epicenter-recorder:default",
-		"allow-encode-recording-for-upload",
-		"allow-transcribe-recording",
 		"allow-prewarm-model",
 		"allow-get-local-transcription-readiness",
 		"allow-open-home",

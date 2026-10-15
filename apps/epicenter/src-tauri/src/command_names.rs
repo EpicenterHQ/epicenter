@@ -12,8 +12,6 @@ pub const COMMANDS: &[&str] = &[
     "launch_application",
     "write_text",
     "simulate_enter_keystroke",
-    "encode_recording_for_upload",
-    "transcribe_recording",
     "transcribe_audio_bytes",
     "list_inference_models",
     "prewarm_model",

@@ -138,6 +138,7 @@ because it is a precondition of the medium rather than an incidental detail.
   context gets is a specific, catchable error, so the application can say
   "Honeycrisp is already open in another window" instead of failing generically.
 - SQLite moves off the main thread, which the previous design did not do.
+<!-- doc-path-check: ignore-next-line -->
 - `packages/sqlite/src/browser.ts` documents an assumption that dies here:
   *"The one database this adapter ever wraps is a `:memory:` projection cache
   with a single connection for its whole life."* Its `transaction` reasoning

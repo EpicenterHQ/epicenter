@@ -1437,9 +1437,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-av-foundation",
  "objc2-foundation",
- "ogg",
  "rubato",
- "rusqlite",
  "serde",
  "serde_json",
  "specta",
@@ -3639,15 +3637,6 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
-]
-
-[[package]]
-name = "ogg"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdab8dcd8d4052eaacaf8fb07a3ccd9a6e26efadb42878a413c68fc4af1dee2b"
-dependencies = [
- "byteorder",
 ]
 
 [[package]]

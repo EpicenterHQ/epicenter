@@ -1,5 +1,7 @@
 # Data opening consultation
 
+<!-- doc-path-check: ignore-file -->
+
 Current API decisions are recorded in [ADR-0407](../adr/0407-app-owns-the-declaration-and-data-engine.md). This report preserves its earlier checkpoint; historical helpers and public runtime overrides are now retired without migrating old bytes.
 
 Claude Fable 5.1 reviewed sealed snapshot `fd1132aa18bf88f4b580c269c30fd336ca9ce033` before implementation. Its recommendation was accepted: `/data` owns caller-supplied SQLite; `/memory` remains Bun convenience; application opening owns resources. The observations below describe the reviewed snapshot. Current behavior is recorded in [ADR-0407](../adr/0407-app-owns-the-declaration-and-data-engine.md). The consultant ran static research only; Codex validated the implementation in the live checkout.

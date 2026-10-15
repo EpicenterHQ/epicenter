@@ -10,7 +10,6 @@ import { type AiCatalog, createAiCatalog } from './ai-catalog.ts';
  */
 
 import { join } from 'node:path';
-import { type BunBlobStore, createBunBlobStore } from '@epicenter/blobs/bun';
 import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
 import OpenAI from 'openai';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -20,7 +19,6 @@ import {
 	createDesktopAuthAuthority,
 	type DesktopAuthAuthority,
 } from './desktop-auth-authority.ts';
-import { createNativeDevice } from './device.ts';
 import { createHomeHost, type HomeHost } from './host.ts';
 import { SIGN_IN_CALLBACK_ROUTE } from './routes.ts';
 import { createHomeServer } from './server.ts';
@@ -76,21 +74,6 @@ async function main(): Promise<void> {
 		const dataRoot = boot.dataDir;
 
 		host = await createHomeHost({ engine, model });
-		// Publication receipts and in-flight writes belong to the app for this
-		// host lifetime, including retries arriving in later HTTP requests.
-		const blobStores = new Map<string, BunBlobStore>();
-		const blobs = (appId: string, owner = 'no-account') => {
-			const key = JSON.stringify([appId, owner]);
-			let store = blobStores.get(key);
-			if (!store) {
-				store = createBunBlobStore({
-					directory: join(dataRoot, 'apps', appId, 'device', owner, 'blobs'),
-				});
-				blobStores.set(key, store);
-			}
-			return store;
-		};
-		const device = createNativeDevice(nativePort);
 		// The credential store is Rust's, reached over the private sidecar pipe.
 		// Bun sends two labels and never a keyring address (ADR-0310).
 		const appSecrets = createNativeAppSecrets(nativePort);
@@ -122,10 +105,7 @@ async function main(): Promise<void> {
 			installedApplications: createInstalledApplications(
 				join(boot.cacheDir, 'builds'),
 			),
-			blobs,
 			desktopAuth: auth,
-			device,
-			appSecrets,
 			aiCatalog,
 			noAccountAiCatalog,
 		});

@@ -1,6 +1,5 @@
 import type { AuthServer } from '@epicenter/auth';
 import type { AccountIdentity } from '@epicenter/principal';
-import type { NativeSqliteRequest } from './device.js';
 /**
  * The private Rust-to-Bun startup protocol and the Bun sidecar lifecycle.
  * Rust resolves the runtime mode and port, then keeps stdin open as its parent
@@ -338,7 +337,6 @@ export function createNativePort(
 	const pending = new Map<
 		string,
 		{
-			type: 'sqlite-result' | 'native-result';
 			resolve(value: unknown): void;
 			reject(error: Error): void;
 		}
@@ -372,7 +370,6 @@ export function createNativePort(
 
 	function request(
 		frame:
-			| { type: 'sqlite'; request: NativeSqliteRequest }
 			| { type: 'store-auth'; serialized: string | null }
 			| { type: 'open-auth-url'; url: string }
 			| {
@@ -394,10 +391,7 @@ export function createNativePort(
 					appId: string;
 					label: string;
 			  },
-		signal?: AbortSignal,
 	): Promise<unknown> {
-		if (signal?.aborted)
-			return Promise.reject(new Error('SQLite query canceled.'));
 		if (failure) return Promise.reject(failure);
 		if (pending.size >= MAX_NATIVE_PENDING)
 			return Promise.reject(new Error('Native request queue is full.'));
@@ -407,25 +401,7 @@ export function createNativePort(
 				new Error('Invalid or duplicate native request id.'),
 			);
 		return new Promise<unknown>((resolve, reject) => {
-			const abort = () => {
-				try {
-					send({ type: 'sqlite-cancel', requestId });
-				} catch (cause) {
-					fail(cause instanceof Error ? cause : new Error(String(cause)));
-				}
-			};
-			pending.set(requestId, {
-				type: frame.type === 'sqlite' ? 'sqlite-result' : 'native-result',
-				resolve(value) {
-					signal?.removeEventListener('abort', abort);
-					resolve(value);
-				},
-				reject(error) {
-					signal?.removeEventListener('abort', abort);
-					reject(error);
-				},
-			});
-			signal?.addEventListener('abort', abort, { once: true });
+			pending.set(requestId, { resolve, reject });
 			try {
 				send({ ...frame, requestId });
 			} catch (cause) {
@@ -451,13 +427,8 @@ export function createNativePort(
 				`Rust returned unknown native request ${frame.requestId}.`,
 			);
 		}
-		if (request.type !== frame.type)
-			throw new Error('Native response does not match request.');
 		pending.delete(frame.requestId);
-		if (frame.status === 'ok')
-			request.resolve(
-				frame.type === 'sqlite-result' ? frame.data : (frame.value ?? null),
-			);
+		if (frame.status === 'ok') request.resolve(frame.value ?? null);
 		else request.reject(new Error(frame.message));
 	}
 
@@ -479,9 +450,6 @@ export function createNativePort(
 
 	return {
 		completed,
-		sqlite(message: NativeSqliteRequest, signal?: AbortSignal) {
-			return request({ type: 'sqlite', request: message }, signal);
-		},
 		async storeAuth(serialized: string | null) {
 			await request({ type: 'store-auth', serialized });
 		},
@@ -535,13 +503,6 @@ export function createNativePort(
 }
 
 type NativeFrame =
-	| { type: 'sqlite-result'; requestId: string; status: 'ok'; data: unknown }
-	| {
-			type: 'sqlite-result';
-			requestId: string;
-			status: 'error';
-			message: string;
-	  }
 	| {
 			type: 'native-result';
 			requestId: string;
@@ -573,22 +534,6 @@ function parseNativeFrame(line: string): NativeFrame {
 		if (typeof frame.url !== 'string' || !isAuthCallback(frame.url)) {
 			throw new Error('Rust sent an invalid auth callback URL.');
 		}
-		return frame as NativeFrame;
-	}
-	if (frame.type === 'sqlite-result') {
-		assertExactKeys(
-			frame,
-			frame.status === 'ok'
-				? ['data', 'requestId', 'status', 'type']
-				: ['message', 'requestId', 'status', 'type'],
-		);
-		if (
-			typeof frame.requestId !== 'string' ||
-			frame.requestId === '' ||
-			(frame.status !== 'ok' && frame.status !== 'error') ||
-			(frame.status === 'error' && typeof frame.message !== 'string')
-		)
-			throw new Error('Invalid native SQLite frame.');
 		return frame as NativeFrame;
 	}
 	if (frame.type === 'native-result') {

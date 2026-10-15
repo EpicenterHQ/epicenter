@@ -22,6 +22,7 @@
   (which this narrows: a build no longer declares that at all),
   [ADR-0177](0177-a-browser-replica-is-owned-by-a-storage-partition-and-origin-pair.md).
 
+<!-- doc-path-check: ignore-next-line -->
 > **2026-09-05 note:** the quotation from `packages/blobs/src/blob-store.ts` below,
 > calling a blob content-addressed, is stale: ids are minted rather than hashed
 > ([ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md)).
@@ -68,6 +69,7 @@ they are not the same thing for blobs. Stating the difference, because the title
 alone would decide it the other way.
 
 **A blob is not CRDT-backed and cannot diverge.** It is content-addressed and
+<!-- doc-path-check: ignore-next-line -->
 write-once (`packages/blobs/src/blob-store.ts`: "The id already names immutable
 local bytes and cannot be overwritten"). There is no merge, no last-writer-wins,
 and no pair of copies that can disagree, so a blob on the host creates none of
