@@ -80,25 +80,17 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   deleted: a table owns one Markdown file per row.
 - **A save is never reported by its commit.** Keep saved-file state and history
   state separate in code and in copy.
-- **Recovery writes only what is missing.** A recording is published as two
-  saves: `files.create` the audio, then the row's `create`. There is no batch
-  and no transaction between them. To finish one whose audio landed without
-  its row, read the audio, confirm it is exactly the pending bytes, and create
-  the row. Do not rewrite matching audio to manufacture a condition. Never use
-  `overwrite`, never replace audio or a row that is not this capture's, never
-  serialize a row by hand, and never describe the two saves as one.
-- **A receipt proves publication; it is not an observation.** A confirmed row
-  creation, with the audio confirmed by its own creation or read as exactly
-  the pending bytes, means the recording was saved. Never report that as
-  unsaved, and never build an entry or draft from it: opening the recording
-  afterward is its own read. Do not publish again, recreate, or repair after a
-  confirmed receipt. A failed or `Unconfirmed` save and a refusal before
-  publication are not confirmed: they stay unsaved and keep the close guard.
+- **A recording is in the folder from its start, and its row holds facts
+  only** (ADR-0543). The row is created when the recording starts, naming its
+  audio; its length is written when it stops. Never add a status, pending, or
+  interrupted field, and never hold a recording's audio in the page to save
+  later on the desktop: the shell writes it as it captures. Only `cancel`
+  deletes a recording. Never use `overwrite` for a recording's row or audio,
+  and never serialize a row by hand.
 - **Fixture audio and failure injection are debug-only.** They are enabled by
   the shell's build, never by an environment variable alone, and the UI says so
-  while they are active. An injected publication failure obstructs the real
-  save so the folder fails it; it never answers for the folder, and the
-  folder's own saves stay the only thing that publishes.
+  while they are active. An injected recording-write failure obstructs the
+  real save so the folder fails it; it never answers for the folder.
 - **A transformation never writes its transcript.** A result has its own file
   with a stem fixed before the request is sent. Saving a received result again
   must not call the endpoint or create a second file. A result on pasted text

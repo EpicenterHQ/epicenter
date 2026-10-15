@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** deleting the departure round, the page quit voters, the folder plugin's quit wait, the standalone close gates, and the native quit harnesses; streaming recordings ([ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)); writing Whispering's run results as they arrive.
+- **Unbuilt:** deleting the departure round, the page quit voters, the folder plugin's quit wait, the standalone close gates, and the native quit harnesses; writing Whispering's run results as they arrive.
 
 ## Context
 

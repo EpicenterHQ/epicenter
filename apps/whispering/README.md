@@ -10,9 +10,9 @@ needs no account, no Epicenter desktop, and no hosted API.
 This is a development milestone, not a release. Its voice-note workflow is launch, record,
 stop, save, play, transcribe, transform, inspect files and history, quit, reopen.
 Native verification results and remaining checks are recorded below. The
-current build's desktop window has not been checked by hand: recording
-publication as two separate saves is covered by tests, not yet by a desktop
-run. Dictating into other apps is not part
+current build's desktop window has not been checked by hand: recording into
+the folder through the shell's recorder is covered by tests, not yet by a
+desktop run. Dictating into other apps is not part
 of it. [What is not supported](#what-is-not-supported) lists the rest.
 
 ## The data folder
@@ -46,7 +46,7 @@ edit the same paths; there is no export step and no second copy. Set
 `WHISPERING_DATA_ROOT` to use another directory, such as a disposable one for a
 test.
 
-A recording's ID is its file stem, set when the recording ends
+A recording's ID is its file stem, set when the recording starts
 (`20260102-030405-k3f9`). Its title is a field, so renaming a recording changes
 frontmatter and never moves a file. Audio is committed as real bytes. There is no
 LFS pointer and no LFS service.
@@ -140,7 +140,7 @@ page, is anything that is not saved yet.
 
 | Control | What it does |
 | --- | --- |
-| Start recording / Stop recording (Space) | On Home. Records, then saves the audio and its row to `recordings/`. Space also starts and stops it on Home when focus is on the page or microphone. Fields, other controls, and open popovers keep their own keyboard behavior. On other pages the header has a microphone button to start, and while a recording runs it shows the elapsed time and Stop. |
+| Start recording / Stop recording (Space) | On Home. Writes the recording's row to `recordings/` when it starts and its audio beside it, then its length when it stops. Space also starts and stops it on Home when focus is on the page or microphone. Fields, other controls, and open popovers keep their own keyboard behavior. On other pages the header has a microphone button to start, and while a recording runs it shows the elapsed time and Stop. |
 | Microphone input | On Home, under the recorder. Chooses the microphone the next recording uses: System default, or one by name. See [Under the recorder](#under-the-recorder). |
 | Transcription model | On Home, under the recorder. Shows the transcription connection in use and opens its part of Settings. |
 | Post-processing | On Home, under the recorder. Chooses one of your transformations, or None. Choosing sends nothing; **Run** on the latest transcript does. |
@@ -205,11 +205,14 @@ on a narrow window. Each opens its own popover.
   name: two microphones can share a name. If the saved ID is not among the
   listed inputs, the choice is shown as "not listed" and nothing is chosen
   for you. Not being listed does not prove the microphone is gone, since the
-  list can be limited by permission, so a recording still asks for exactly
-  that ID. If it cannot be opened, the recording does not start and no other
-  microphone is used. Choose the input again, or System default, to change
-  it. The desktop app may be given new IDs on a later launch, so this
-  can happen after a restart; that has not been checked on hardware.
+  list can be limited by permission, so a recording in a browser still asks
+  for exactly that ID. The desktop app records through its shell, which knows
+  microphones by name, so there a recording asks for the chosen input by the
+  name it was listed under. If it cannot be opened, the recording does not
+  start and no other microphone is used. Choose the input again, or System
+  default, to change it. The desktop app may be given new IDs on a later
+  launch, so this can happen after a restart; that has not been checked on
+  hardware.
 - With fixture audio there is no real input: the popover says so, and no
   microphone is listed, asked for, or opened.
 
@@ -395,33 +398,41 @@ are separate outcomes and the status reports them separately.
   so a change another program makes appears then. A save over a file that
   changed since it was read is refused, never written over.
 
+### Where a recording is while it runs
+
+A recording is in the folder from the moment it starts. Its row is written
+then, naming its audio in `audioPath`, with the time it started; its length
+is written when it stops. Nothing in the row says whether it is still
+recording: the window knows that, and only while it runs.
+
+- In the desktop app the shell writes the audio as it is captured, to
+  `recordings/<id>.wav`, and brings its header up to date about once a
+  second. Stop finishes the file. Reloading or closing the window finishes it
+  too. A quit, a crash, or power loss keeps the audio up to that moment; when
+  the folder next opens, the app rewrites the header of any recording that
+  was cut off so it plays to its end. Its row then has no length.
+- In a browser tab the audio is held in the page and written on stop, as
+  `recordings/<id>.webm` (or `.mp4` or `.ogg`, as the browser records).
+  Reloading or closing the tab loses it, and the row stays without its audio.
+- Cancel deletes both the row and the audio.
+
+A recording that is still recording cannot be transcribed; stop it first.
+
 ### When a save does not finish
 
-Captured audio stays in the window until the folder is known to have both files. If writing
-stops partway (the audio is saved and its row is not), the recording appears in
-the notice under the header, on every page, with what happened, a player for
-the audio held in the window, and **Try again**. Trying again keeps the
-recording's ID and cannot create a second recording. It first reads what the
-folder has. If the audio there is exactly the audio held in the window, it
-saves the recording's file beside it and does not write the audio again.
-Another program could still change the audio between that read and the save;
-the audio and the recording's file are two saves, never one. If a different
-file is at the recording's audio path or its own path, even audio of the same
-length, nothing is overwritten and the recording stays pending. A file that only shares the recording's name with
-another extension is not in the way.
+A transcript or a transformation result whose file could not be written is
+kept in the window: the status says it is not saved, and the notice shows the
+text with **Save it again** and **Copy**. A transformation result keeps the
+file name it was given when the run began, so saving again cannot produce a
+second result, and if another file has taken that name it is left alone.
 
-Once both files are confirmed, the recording opens. If its file cannot be read
-then, or another program removed it in between, the details say so; it is
-never written a second time.
+An unsaved transcript or result lives only in the open window. It is not
+written anywhere else.
 
-A transcript or a transformation result whose file could not be written is kept
-the same way: the status says it is not saved, and the notice shows the text
-with **Save it again** and **Copy**. A transformation result keeps the file name
-it was given when the run began, so saving again cannot produce a second result,
-and if another file has taken that name it is left alone.
-
-Pending audio and an unsaved transcript or result live only in the open
-window. They are not written anywhere else.
+If a recording's row cannot be written when it starts, the recording still
+runs and says so; its audio is saved without a row naming it, as an ordinary
+file. If its length cannot be written when it stops, the recording keeps its
+row and audio and says so.
 
 ### Closing and quitting
 
@@ -432,10 +443,11 @@ shutdown) all ask the window first:
 - When nothing is held, changes still being written finish and the app closes
   with no prompt. It never asks about typing: every change is already in its
   file, or was refused and reported when it happened.
-- When something is held (a recording in progress, a recording that is not in
-  the folder, a transcript or transformation result whose file was not written,
-  a result on pasted text not saved yet, or a running transcription or
-  transformation), the app stays open and shows what would be lost. **Keep working** closes the
+- When something is held (a transcript or transformation result whose file
+  was not written, a result on pasted text not saved yet, or a running
+  transcription or transformation), the app stays open and shows what would
+  be lost. A recording in progress is not held: it is in the folder, and
+  closing finishes it. **Keep working** closes the
   prompt and changes nothing. **Discard and quit** lets changes still being
   written finish, then closes the app and drops what was held.
 
@@ -455,14 +467,14 @@ If Whispering's host process stops while the window is open, the terminal,
 Reveal folder, and new transcription and transformation requests stop working
 until you restart the app. Saving does not stop: the shell granted the folder
 to the window, not to the host, so changes to recordings, transcripts, and other files can
-still be saved, a pending recording can still be tried again, and **Save
+still be saved, a held result can still be saved again, and **Save
 version** still works. A save can still fail for its own reasons, such as a full
 disk, exactly as it can at any other time.
 
 What the window can no longer do is be asked through the host whether it may
 close. Closing or quitting then shows a prompt that says so and lists what is
 still only in the window. The list follows what you save, and **Keep working**
-lets you save, play a pending recording, or copy text out first. The app stays
+lets you save or copy text out first. The app stays
 open until you choose **Discard and quit** (or **Quit** when nothing is held);
 in this state it never closes without that choice.
 
@@ -575,11 +587,11 @@ A debug build has a bug-icon menu in the header:
 
 | Control | Effect |
 | --- | --- |
-| Fail the next recording file write | The next save lands the audio and fails the row, leaving audio with no recording file. Each press arms one more. |
-| Fail the next audio write | The next save of a new recording fails before anything is written. |
+| Fail the next recording file write, at start | The next recording's row is not written when it starts; the recording runs, and its audio is saved with no recording file naming it. Each press arms one more. |
+| Fail the next fixture audio write, at stop | The next fixture recording's audio is not written when it stops, leaving its row without audio. Microphone audio on the desktop is written as it is captured, so this failure waits for a fixture recording. |
 | Lock the branch | Creates a lock on the branch ref, where an interrupted Git process leaves one, so commits fail while saves succeed. Press again to unlock. It never replaces a lock that already exists and only ever removes the lock it created. |
 
-Both publication failures are real: for the length of that one save, the host
+Both recording-write failures are real: for the length of that one save, the host
 puts an empty directory where the file would be written, so the folder itself
 fails that step and reports it. The directory is removed afterward.
 
