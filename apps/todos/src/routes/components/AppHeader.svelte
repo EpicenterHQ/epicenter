@@ -179,7 +179,7 @@
 						{#if directory !== undefined}
 							<span class="block font-mono text-xs break-all select-all" data-testid="status-folder">{directory}</span>
 							<span class="mt-0.5 block text-xs text-muted-foreground">
-								Each todo is a file in <code>todos/</code> here. Edits made by other programs show up when you return to this window.
+								Each todo is a file in <code>todos/</code> here. Edits made by other programs show up here as they happen.
 							</span>
 							<Button class="mt-1.5" variant="outline" size="sm" onclick={() => void copyPath(directory)}>Copy path</Button>
 						{:else}
