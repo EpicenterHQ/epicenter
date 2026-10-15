@@ -2,7 +2,7 @@
 
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing } from './boundary.js';
-import type { TextCapture } from './capture.js';
+import type { CapturedFile, TextCapture } from './capture.js';
 import type { FileError } from './errors.js';
 import type { FolderFiles } from './files.js';
 
@@ -104,30 +104,37 @@ export type OpenedFile =
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
+/** How large a file opens as text by default: 1 MiB. */
+export const EDITABLE_TEXT_BYTES = 1024 * 1024;
+
 /**
- * Read a file for the editor. Only valid UTF-8 without NUL bytes opens as
- * text, and the decoded text keeps a byte order mark so a save writes the
- * same bytes back. The caller supplies its editing limit in bytes.
+ * A captured file as an editor opens it. Only valid UTF-8 without NUL
+ * bytes, and no larger than `maxBytes`, opens as text, and the decoded text
+ * keeps a byte order mark so a save writes the same bytes back.
  */
+export function openedFile(
+	{ path, bytes, sha256 }: CapturedFile,
+	maxBytes = EDITABLE_TEXT_BYTES,
+): OpenedFile {
+	if (bytes.byteLength > maxBytes)
+		return { kind: 'tooLarge', size: bytes.byteLength };
+	if (bytes.includes(0)) return { kind: 'binary', size: bytes.byteLength };
+	try {
+		return { kind: 'text', file: { path, text: utf8.decode(bytes), sha256 } };
+	} catch {
+		return { kind: 'binary', size: bytes.byteLength };
+	}
+}
+
+/** Read a file for the editor, as `openedFile` opens it. */
 export async function readTextFile(
 	files: Pick<FolderFiles, 'read'>,
 	path: string,
-	maxBytes: number,
+	maxBytes = EDITABLE_TEXT_BYTES,
 ): Promise<Result<OpenedFile, FileError>> {
-	const { data: file, error: readError } = await files.read(path);
-	if (readError !== null) return Err(readError);
-	const { bytes, sha256 } = file;
-	if (bytes.byteLength > maxBytes)
-		return Ok({ kind: 'tooLarge', size: bytes.byteLength });
-	if (bytes.includes(0)) return Ok({ kind: 'binary', size: bytes.byteLength });
-	try {
-		return Ok({
-			kind: 'text',
-			file: { path, text: utf8.decode(bytes), sha256 },
-		});
-	} catch {
-		return Ok({ kind: 'binary', size: bytes.byteLength });
-	}
+	const { data: file, error } = await files.read(path);
+	if (error !== null) return Err(error);
+	return Ok(openedFile({ ...file, path }, maxBytes));
 }
 
 /** Textareas report LF; keep the file's CRLF line endings when it uses them. */
