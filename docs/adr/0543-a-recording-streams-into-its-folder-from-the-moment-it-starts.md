@@ -56,8 +56,9 @@ running is the live handle; whether it has audio is whether `audioPath` exists.
   asks first.
 - Whispering's in-memory capture on the desktop, its unsaved-work checks, and
   the delete-on-cancel staging go.
-- Save version skips an audio file that is still being written, so history
-  holds finished recordings.
+- Save version during a recording commits the audio written so far, which is
+  valid audio; the next commit holds the whole recording. Nothing tracks which
+  file is live.
 - The browser keeps no such guarantee, and says so by showing a row without
   audio.
 
