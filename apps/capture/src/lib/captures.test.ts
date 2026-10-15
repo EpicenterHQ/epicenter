@@ -18,8 +18,8 @@
  * - A change reported on the folder's channel reads the view again, and
  *   never replaces an edit not saved yet
  * - A save that meets a change made elsewhere merges with it, and the edit
- *   wins where both changed; a raw text write still refuses a file changed
- *   elsewhere and drops the typed text for the file
+ *   wins where both changed; a raw text write merges by line the same way,
+ *   and one to a file deleted elsewhere drops the typed text and reports it
  * - A save that fails keeps the edit and reports it, and the next change
  *   sends it again; a save to a file deleted elsewhere drops the edit and
  *   reports its text; a change the body cannot hold is refused
