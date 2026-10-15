@@ -135,9 +135,9 @@ describe('#platform/folder', () => {
 				true,
 			);
 			// The browser reaches nothing of the host's.
-			expect(
-				modules.filter((path) => /apps\/epicenter\//.test(path)),
-			).toEqual([]);
+			expect(modules.filter((path) => /apps\/epicenter\//.test(path))).toEqual(
+				[],
+			);
 			expect(
 				modules.filter((path) =>
 					/folder\/src\/browser-(store|migration)\.ts$|fake-indexeddb/.test(

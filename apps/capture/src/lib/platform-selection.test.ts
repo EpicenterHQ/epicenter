@@ -79,9 +79,9 @@ describe('#platform/folder', () => {
 				modules.filter((path) => /legacy\/|open-store\.ts$|@y[+/]/.test(path)),
 			).toEqual([]);
 			// Nothing of the host package: never the Bun host.
-			expect(
-				modules.filter((path) => /epicenter\/src\//.test(path)),
-			).toEqual([]);
+			expect(modules.filter((path) => /epicenter\/src\//.test(path))).toEqual(
+				[],
+			);
 		},
 		BUNDLE_TIMEOUT,
 	);
