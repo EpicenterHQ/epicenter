@@ -41,6 +41,12 @@ export const TODOS_APPLICATION: Application = {
 	title: BUILT_IN_ROUTES.todos.title,
 };
 
+/** The host's own window over every data folder under the folder root. */
+export const FOLDERS_APPLICATION: Application = {
+	id: BUILT_IN_ROUTES.folders.id,
+	title: BUILT_IN_ROUTES.folders.title,
+};
+
 /**
  * Compiled applications, in the order Home lists them.
  *
@@ -52,4 +58,5 @@ export const COMPILED_APPLICATIONS: readonly Application[] = [
 	WHISPERING_APPLICATION,
 	CAPTURE_APPLICATION,
 	TODOS_APPLICATION,
+	FOLDERS_APPLICATION,
 ];

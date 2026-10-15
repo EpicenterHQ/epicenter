@@ -772,6 +772,7 @@ describe('createHomeServer', () => {
 				{ id: 'mail', pattern: '/apps/mail/' },
 				{ id: 'todos', pattern: '/apps/todos/' },
 				{ id: 'books', pattern: '/apps/books/' },
+				{ id: 'folders', pattern: '/apps/folders/' },
 			]);
 
 			const query = await fetch(HOME_ROUTE.url(server.url.origin), {

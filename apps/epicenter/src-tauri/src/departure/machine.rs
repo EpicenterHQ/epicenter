@@ -1038,7 +1038,7 @@ mod tests {
     fn only_the_fixed_windows_take_part() {
         assert_eq!(Participant::from_label("capture"), Some(Capture));
         assert_eq!(Participant::from_label("todos"), Some(Todos));
-        for label in ["home", "whispering", "mail", "app-capture", "Capture", ""] {
+        for label in ["home", "whispering", "mail", "folders", "app-capture", "Capture", ""] {
             assert_eq!(Participant::from_label(label), None, "{label}");
         }
     }

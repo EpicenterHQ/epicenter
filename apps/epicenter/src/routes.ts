@@ -35,6 +35,7 @@ export const BUILT_IN_ROUTES = {
 	mail: builtInRoute('mail', 'Mail'),
 	todos: builtInRoute('todos', 'Todos'),
 	books: builtInRoute('books', 'Books'),
+	folders: builtInRoute('folders', 'Folders'),
 } as const;
 
 export type BuiltInRouteId = keyof typeof BUILT_IN_ROUTES;
@@ -53,6 +54,7 @@ export const CAPTURE_ROUTE = BUILT_IN_ROUTES.capture;
 export const MAIL_ROUTE = BUILT_IN_ROUTES.mail;
 export const TODOS_ROUTE = BUILT_IN_ROUTES.todos;
 export const BOOKS_ROUTE = BUILT_IN_ROUTES.books;
+export const FOLDERS_ROUTE = BUILT_IN_ROUTES.folders;
 /** What Home lists as launchable (ADR-0189). */
 export const APPLICATIONS_ROUTE = route('/api/apps');
 export const SESSION_ROUTE = route('/api/home/session');

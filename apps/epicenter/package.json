@@ -12,8 +12,9 @@
 	},
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",
-		"build:apps": "bun run clean:dist && bun run build:home && bun run build:whispering && bun run build:capture && bun run build:todos",
+		"build:apps": "bun run clean:dist && bun run build:home && bun run build:whispering && bun run build:capture && bun run build:todos && bun run build:folders",
 		"build:desktop": "bun run build && bun run build:sidecar",
+		"build:folders": "vite build --config vite.folders.config.ts",
 		"build:home": "vite build",
 		"build:capture": "bun run --cwd ../capture build:epicenter",
 		"build:sidecar": "bun run scripts/build-sidecar.ts",

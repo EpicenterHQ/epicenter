@@ -4,7 +4,7 @@ import type { BuiltInRouteId } from './routes.ts';
 
 type PlaceholderRouteId = Exclude<
 	BuiltInRouteId,
-	'home' | 'whispering' | 'honeycrisp' | 'capture' | 'todos'
+	'home' | 'whispering' | 'honeycrisp' | 'capture' | 'todos' | 'folders'
 >;
 
 function placeholderPage(title: string, status: string): string {

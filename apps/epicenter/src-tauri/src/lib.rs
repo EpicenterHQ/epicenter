@@ -21,7 +21,7 @@ use tauri_plugin_dialog::{
     DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
 };
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_epicenter_folder::{Author as FolderAuthor, FolderConfig, FolderExt, ScopeConfig};
+use tauri_plugin_epicenter_folder::FolderExt;
 use tauri_specta::Event as _;
 
 /// The command list, shared with `build.rs` through `include!`. Only the tests
@@ -30,6 +30,7 @@ use tauri_specta::Event as _;
 mod command_names;
 
 pub mod app_data;
+mod data_folders;
 mod departure;
 mod device_owner;
 mod sqlite;
@@ -115,10 +116,11 @@ enum BuiltInApp {
     Mail,
     Todos,
     Books,
+    Folders,
 }
 
 impl BuiltInApp {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::Home,
         Self::Whispering,
         Self::Honeycrisp,
@@ -126,19 +128,22 @@ impl BuiltInApp {
         Self::Mail,
         Self::Todos,
         Self::Books,
+        Self::Folders,
     ];
 
     /// Whether Home lists this app as one a person can open (ADR-0189).
     ///
     /// Every variant here is an app in the product model; this says only which
-    /// ones Home offers. Home is absent because you are already looking at it,
-    /// not because it is above the others (ADR-0209). Mail and Books are
+    /// ones Home offers. Folders is the host's own window over every data
+    /// folder under the folder root (`data_folders`). Home is absent because
+    /// you are already looking at it, not because it is above the others
+    /// (ADR-0209). Mail and Books are
     /// release-bundled placeholder documents with nothing behind them to open.
     /// Honeycrisp now ships its own desktop shell, outside this host.
     const fn is_launchable(self) -> bool {
         matches!(
             self,
-            Self::Whispering | Self::Capture | Self::Todos
+            Self::Whispering | Self::Capture | Self::Todos | Self::Folders
         )
     }
 
@@ -151,6 +156,7 @@ impl BuiltInApp {
             Self::Mail => "mail",
             Self::Todos => "todos",
             Self::Books => "books",
+            Self::Folders => "folders",
         }
     }
 
@@ -163,6 +169,7 @@ impl BuiltInApp {
             Self::Mail => "/apps/mail/",
             Self::Todos => "/apps/todos/",
             Self::Books => "/apps/books/",
+            Self::Folders => "/apps/folders/",
         }
     }
 
@@ -175,6 +182,7 @@ impl BuiltInApp {
             Self::Mail => "Epicenter: Mail",
             Self::Todos => "Epicenter: Todos",
             Self::Books => "Epicenter: Books",
+            Self::Folders => "Epicenter: Folders",
         }
     }
 
@@ -454,6 +462,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             get_local_transcription_readiness,
             open_home,
             take_pending_home_section,
+            data_folders::list_data_folders,
             get_unload_policy,
             set_unload_policy,
             list_models,
@@ -718,6 +727,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(HostState::new(port))
         .manage(departure::Departure::default())
+        .manage(data_folders::DataFolderScopes::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(Mutex::new(Recorder::new()))
         .manage(DownloadManager::default());
@@ -750,26 +760,8 @@ pub fn run() {
             specta_builder.mount_events(app);
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
-            // Each page runs `@epicenter/folder`'s own engine over its
-            // directory; the shell locks it and grants it to the windows
-            // registered for it, here each app's own, and owns nothing else. The repository's own author and
-            // origin are read there; these authors are the fallback.
-            app.folders().register(ScopeConfig {
-                scope: "so.epicenter.todos".into(),
-                folder: FolderConfig::new(
-                    desktop_paths.folder_dir.join("so.epicenter.todos"),
-                    FolderAuthor { name: "Todos".into(), email: "todos@localhost".into() },
-                ),
-                windows: vec!["todos".into()],
-            }).map_err(anyhow::Error::msg)?;
-            app.folders().register(ScopeConfig {
-                scope: "so.epicenter.capture".into(),
-                folder: FolderConfig::new(
-                    desktop_paths.folder_dir.join("so.epicenter.capture"),
-                    FolderAuthor { name: "Capture".into(), email: "capture@localhost".into() },
-                ),
-                windows: vec!["capture".into()],
-            }).map_err(anyhow::Error::msg)?;
+            data_folders::register_application_folders(app.folders(), &desktop_paths.folder_dir)
+                .map_err(anyhow::Error::msg)?;
             app.manage(desktop_paths);
 
             // The active local model and the unload policy are device-local host
@@ -2216,6 +2208,7 @@ mod tests {
                 ("mail", "/apps/mail/", "Epicenter: Mail"),
                 ("todos", "/apps/todos/", "Epicenter: Todos"),
                 ("books", "/apps/books/", "Epicenter: Books"),
+                ("folders", "/apps/folders/", "Epicenter: Folders"),
             ]
         );
     }
@@ -2231,10 +2224,7 @@ mod tests {
             .filter(|window| window.is_launchable())
             .map(BuiltInApp::id)
             .collect();
-        assert_eq!(
-            launchable,
-            ["whispering", "capture", "todos"]
-        );
+        assert_eq!(launchable, ["whispering", "capture", "todos", "folders"]);
     }
 
     #[test]
@@ -2242,6 +2232,7 @@ mod tests {
         assert_eq!(parse_application_id("whispering"), Some(BuiltInApp::Whispering));
         assert_eq!(parse_application_id("capture"), Some(BuiltInApp::Capture));
         assert_eq!(parse_application_id("todos"), Some(BuiltInApp::Todos));
+        assert_eq!(parse_application_id("folders"), Some(BuiltInApp::Folders));
 
         for denied in [
             "",
@@ -2418,6 +2409,8 @@ mod tests {
             include_str!("../capabilities/departure-production.json"),
             include_str!("../capabilities/home-launch-application-development.json"),
             include_str!("../capabilities/home-launch-application-production.json"),
+            include_str!("../capabilities/folders-development.json"),
+            include_str!("../capabilities/folders-production.json"),
         ] {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for permission in capability["permissions"].as_array().unwrap() {
@@ -2691,6 +2684,8 @@ mod tests {
             ),
             (include_str!("../tauri.dev.conf.json"), "departure-development"),
             (include_str!("../tauri.conf.json"), "departure-production"),
+            (include_str!("../tauri.dev.conf.json"), "folders-development"),
+            (include_str!("../tauri.conf.json"), "folders-production"),
         ] {
             let config: serde_json::Value = serde_json::from_str(encoded).unwrap();
             let selected = config["app"]["security"]["capabilities"]
@@ -2777,6 +2772,8 @@ mod tests {
             include_str!("../capabilities/capture-folder-production.json"),
             include_str!("../capabilities/todos-folder-development.json"),
             include_str!("../capabilities/todos-folder-production.json"),
+            include_str!("../capabilities/folders-development.json"),
+            include_str!("../capabilities/folders-production.json"),
         ] {
             assert!(
                 !encoded.contains("departure"),
@@ -2835,6 +2832,46 @@ mod tests {
         assert!(config["plugins"].get("fs").is_none(), "no fs plugin is installed");
     }
 
+    /// The Folders window holds the folder plugin and its own listing, and
+    /// nothing else: it reaches folders only through scopes the listing
+    /// registered or permitted it into.
+    #[test]
+    fn the_folders_window_holds_the_folder_plugin_and_its_listing() {
+        for encoded in [
+            include_str!("../capabilities/folders-development.json"),
+            include_str!("../capabilities/folders-production.json"),
+        ] {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            assert_eq!(capability["windows"], serde_json::json!(["folders"]));
+            assert_eq!(
+                capability["permissions"],
+                serde_json::json!(["epicenter-folder:default", "allow-list-data-folders"]),
+                "{encoded}"
+            );
+        }
+        for encoded in [
+            include_str!("../capabilities/trusted-app-windows-development.json"),
+            include_str!("../capabilities/trusted-app-windows-production.json"),
+            include_str!("../capabilities/trusted-whispering-native-development.json"),
+            include_str!("../capabilities/trusted-whispering-native-production.json"),
+            include_str!("../capabilities/home-model-administration-development.json"),
+            include_str!("../capabilities/home-model-administration-production.json"),
+            include_str!("../capabilities/home-launch-application-development.json"),
+            include_str!("../capabilities/home-launch-application-production.json"),
+            include_str!("../capabilities/capture-folder-development.json"),
+            include_str!("../capabilities/capture-folder-production.json"),
+            include_str!("../capabilities/todos-folder-development.json"),
+            include_str!("../capabilities/todos-folder-production.json"),
+            include_str!("../capabilities/departure-development.json"),
+            include_str!("../capabilities/departure-production.json"),
+        ] {
+            assert!(
+                !encoded.contains("list-data-folders"),
+                "the listing belongs to the Folders window alone"
+            );
+        }
+    }
+
     /// Home's launch verb reveals any compiled window, which is exactly why no
     /// app window may hold it: one application must not be able to reveal
     /// another.
@@ -2858,6 +2895,7 @@ mod tests {
             ("epicenter://app/mail", BuiltInApp::Mail),
             ("epicenter://app/todos", BuiltInApp::Todos),
             ("epicenter://app/books", BuiltInApp::Books),
+            ("epicenter://app/folders", BuiltInApp::Folders),
         ] {
             assert_eq!(parse_app_deep_link(&url.parse().unwrap()), Some(expected));
         }

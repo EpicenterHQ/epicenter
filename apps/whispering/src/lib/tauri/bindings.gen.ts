@@ -280,6 +280,16 @@ export const commands = {
 			/**  Local transcription model administration. */
 			'transcription' | null
 		>('take_pending_home_section'),
+	/**
+	 *  List the data folders under the Epicenter folder root, and let the Folders
+	 *  window open each one.
+	 *
+	 *  Granted to the `folders` window alone. Every scope it returns is one that
+	 *  window is registered or permitted for, so `openDataFolder({ id })` there
+	 *  can be granted it. Off the main thread, since it reads the disk.
+	 */
+	listDataFolders: () =>
+		typedError<DataFolder[], string>(__TAURI_INVOKE('list_data_folders')),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>('get_unload_policy'),
 	/**
@@ -477,6 +487,16 @@ export type CatalogError =
 	| { name: 'UnknownModel'; message: string }
 	| { name: 'DownloadFailed'; message: string }
 	| { name: 'DeleteFailed'; message: string };
+
+/**  One data folder the Folders window can open. */
+export type DataFolder = {
+	/**  The scope to pass to `openDataFolder({ id })`. */
+	id: string;
+	/**  `epicenter.json`'s `title` when it is a string, else the directory name. */
+	title: string;
+	/**  The application whose window edits this folder too, if any. */
+	app: string | null;
+};
 
 /**
  *  Which microphone a recording actually opened, and whether that was the one

@@ -36,6 +36,7 @@ pub const COMMANDS: &[&str] = &[
     "get_local_transcription_readiness",
     "open_home",
     "take_pending_home_section",
+    "list_data_folders",
     "set_active_model",
     "get_unload_policy",
     "set_unload_policy",

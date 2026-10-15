@@ -1,0 +1,11 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "folders-development",
+	"description": "The Folders window lists the data folders under the Epicenter folder root and opens each with the page's own engine. Listing permits the window into each folder's scope; the folder plugin then grants it the directory, reads and changes it, and runs the folder's Git itself.",
+	"local": false,
+	"windows": ["folders"],
+	"remote": {
+		"urls": ["http://127.0.0.1:*"]
+	},
+	"permissions": ["epicenter-folder:default", "allow-list-data-folders"]
+}
