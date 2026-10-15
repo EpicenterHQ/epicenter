@@ -106,7 +106,6 @@ const RULES: readonly Rule[] = [
 			'.agents/skills/collapse-pass/',
 			'docs/CONTEXT.md',
 			'docs/architecture.md',
-			'docs/the-store-and-what-it-replaced.md',
 			'README.md',
 		],
 	},

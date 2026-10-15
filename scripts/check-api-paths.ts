@@ -4,10 +4,9 @@
  *
  * Every wire URL path lives in one place:
  * packages/constants/src/api-routes.ts. Consumers import patterns and
- * URL builders from there. See
- * specs/20260524T153612-centralize-route-paths.md.
+ * URL builders from there.
  *
- * Excluded (per spec § Decisions Log):
+ * Excluded:
  *   - The constants files themselves (they ARE the source of truth).
  *   - A domain package that owns its protocol and so owns its routes, as
  *     api-routes.ts itself prescribes: packages/blobs/src/hosted-url.ts

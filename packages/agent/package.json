@@ -7,10 +7,6 @@
 	"exports": {
 		".": "./src/index.ts"
 	},
-	"files": [
-		"src",
-		"!src/**/*.test.ts"
-	],
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
 		"typecheck": "tsc --noEmit",
