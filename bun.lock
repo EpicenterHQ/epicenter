@@ -326,24 +326,6 @@
         "typescript": "catalog:",
       },
     },
-    "apps/self-host": {
-      "name": "@epicenter/self-host",
-      "version": "0.0.2",
-      "dependencies": {
-        "@epicenter/auth": "workspace:*",
-        "@epicenter/constants": "workspace:*",
-        "@epicenter/principal": "workspace:*",
-        "@epicenter/server": "workspace:*",
-        "arktype": "catalog:",
-        "hono": "catalog:",
-      },
-      "devDependencies": {
-        "@cloudflare/workers-types": "^4.20260405.1",
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-        "wrangler": "catalog:",
-      },
-    },
     "apps/todos": {
       "name": "@epicenter/todos",
       "version": "0.0.1",
@@ -704,7 +686,6 @@
         "@epicenter/constants": "workspace:*",
         "@epicenter/principal": "workspace:*",
         "@hono/standard-validator": "catalog:",
-        "@simplewebauthn/server": "13.3.2",
         "arktype": "catalog:",
         "aws4fetch": "catalog:",
         "better-auth": "catalog:",
@@ -1119,8 +1100,6 @@
     "@epicenter/recorder": ["@epicenter/recorder@workspace:packages/recorder"],
 
     "@epicenter/reddit": ["@epicenter/reddit@workspace:apps/reddit"],
-
-    "@epicenter/self-host": ["@epicenter/self-host@workspace:apps/self-host"],
 
     "@epicenter/server": ["@epicenter/server@workspace:packages/server"],
 

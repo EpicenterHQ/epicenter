@@ -19,8 +19,7 @@ import type { Env } from '../types.js';
 /**
  * Mount the session surface on a deployment's server app.
  *
- * The deployment supplies `requireBearerPrincipal` with its session or
- * instance-token resolver. Bundles that auth and the route mount into one call.
+ * The deployment supplies `requireBearerPrincipal` with its session resolver. Bundles that auth and the route mount into one call.
  */
 export function mountSessionApp<E extends Env = Env>(
 	app: Hono<E>,

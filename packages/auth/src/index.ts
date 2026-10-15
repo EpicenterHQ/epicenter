@@ -32,11 +32,6 @@ export {
 } from './hosted-browser-redirect-auth.js';
 export { normalizeInstanceServer } from './instance-server.js';
 export {
-	assertStrongToken,
-	generateInstanceToken,
-	MIN_INSTANCE_TOKEN_CHARS,
-} from './instance-token.js';
-export {
 	createSerializedPersistedAuthStorage,
 	createWebStoragePersistedAuthStorage,
 	type PersistedAuthStorage,

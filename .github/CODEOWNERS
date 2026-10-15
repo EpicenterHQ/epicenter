@@ -2,5 +2,4 @@
 # These paths contain the hosted and self-hosted servers (AGPL-3.0).
 
 /apps/api/              @braden-w
-/apps/self-host/        @braden-w
 /packages/server/       @braden-w

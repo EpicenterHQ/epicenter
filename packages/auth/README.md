@@ -34,9 +34,8 @@ sign-in completes, without delaying local retirement or blocking storage writes.
 
 ## One session lifetime
 
-Better Auth owns Cloud sessions and social-provider sign-in. The self-hosted
-credential owner stores admitted people, passkeys, and opaque sessions.
-Epicenter does not issue OAuth access/refresh grants. `createSessionAuth`
+Better Auth owns sessions and social-provider sign-in on every deployment; a
+self-hosted server is `apps/api` on Bun with Postgres. Epicenter does not issue OAuth access/refresh grants. `createSessionAuth`
 owns one persisted `{ token, principalId }` cell, verification, ordered writes,
 sign-in cancellation, and Account retirement. Its constructor requires the
 `authorityId` selected by trusted installation composition. Matching principal
@@ -48,8 +47,7 @@ These capabilities do not imply Cloud identity or dashboard support. Cloud brows
 and desktop composition pass the existing `epicenter-api` authority and attach
 `createAccountManagementUrl` themselves. The session owner does not assign
 Cloud policy to another issuer. Self-hosted composition derives its authority
-from the configured server origin and exposes passkey sign-in without Cloud
-management links.
+from the configured server origin and attaches no Cloud management links.
 
 The cached principal permits local boot without a network call. Before the
 first resource request, the runtime verifies that the credential belongs to

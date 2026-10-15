@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-14
 - **Relates:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) keeps the remote in `remote.origin.url`; [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) names the three hosts an app runs in; [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) gives each synced folder its own repository; [ADR-0489](0489-folder-transfers-happen-only-when-a-person-syncs.md) keeps transfers explicit; [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) syncs only a repository-root data folder.
-- **Unbuilt:** the disk store in `apps/self-host`; listing a principal's repositories; LFS routes on the blob stores; the folder engine's LFS client; pushes over the Worker's request limit; hosted sync for installed apps, which comes with moving them to page-engine folders ([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)); a desktop run of Todos syncing with Epicenter.
+- **Unbuilt:** a repository store for `apps/api`'s Bun entry; listing a principal's repositories; LFS routes on the blob stores; the folder engine's LFS client; pushes over the Worker's request limit; hosted sync for installed apps, which comes with moving them to page-engine folders ([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)); a desktop run of Todos syncing with Epicenter.
 
 ## Context
 
@@ -147,7 +147,7 @@ The front checks the person's credential and namespace for every store
 | Deployment | Runtime | Repository store | Sign-in |
 | --- | --- | --- | --- |
 | hosted | `apps/api` Worker | Artifacts binding, one namespace per environment | Better Auth |
-| self-host | `apps/self-host` | none yet | Better Auth (ADR-0549) |
+| self-host | `apps/api` on Bun (`server.ts`) | none yet | Better Auth (ADR-0549) |
 
 Hosted Git is unmetered, like hosted blobs. Billing would stay in `apps/api`
 as one more `auth` middleware before connect; a token can also reach

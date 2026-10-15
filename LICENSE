@@ -16,7 +16,7 @@ Everything Epicenter ships. The full text is in licenses/LICENSE-AGPL-3.0.
 You're free to run, modify, and self-host any of it. If you distribute a
 modified version, you share the changes back with the community.
 
-For hosted infrastructure (apps/api, apps/self-host), AGPL section 13 extends
+For hosted infrastructure (apps/api), AGPL section 13 extends
 this to network use: running a modified version as a service counts as
 distribution. For consumer apps that run locally on a user's machine, section
 13 does not trigger, but the underlying distribution clause still applies:
@@ -46,7 +46,6 @@ anyone who forks and distributes a modified binary shares the changes back.
     apps/local-books            @epicenter/local-books
     apps/posthog-reverse-proxy  @epicenter/posthog-reverse-proxy
     apps/reddit                 @epicenter/reddit
-    apps/self-host              @epicenter/self-host
     apps/vocab                  @epicenter/vocab
     apps/whispering             @epicenter/whispering
 

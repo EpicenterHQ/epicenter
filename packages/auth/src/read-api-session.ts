@@ -42,7 +42,6 @@ export type ApiSessionReadError = InferErrors<typeof ApiSessionReadError>;
  * Read `/api/session` once with a bearer token and return the validated session
  * or a neutral failure.
  *
- * Session verification and the instance-token boot check share this read.
  * Each owner decides how the result affects its own lifetime and state.
  *
  * `baseURL` is the deployment's authority origin (ADR-0326), already canonical.

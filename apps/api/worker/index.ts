@@ -2,10 +2,8 @@
  * Epicenter Cloud Worker entry.
  *
  * Composes `@epicenter/server` with the cloud principal resolver and layers
- * cloud-only billing and dashboard surfaces on top.
- * The self-hosted single-partition instance lives in a sibling apps/* folder
- * and composes the same library with `instance` and no Autumn policies
- * (ADR-0075).
+ * cloud-only billing and dashboard surfaces on top. The Bun entry
+ * (`server.ts`) composes the same library on Postgres with no Autumn policies.
  *
  * Read top to bottom for the full URL surface of cloud. Each `mount*`
  * call bundles auth + policies + route mount for one

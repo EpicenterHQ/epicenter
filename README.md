@@ -90,7 +90,7 @@ Pick the trust model you want.
 | No remote | Nothing. The folder is complete on the device that holds it. |
 | A Git remote you choose | The folder's files and history, to that server, when you sync. |
 | Hosted Epicenter | Account and session data and any hosted feature you enable; your folder too, if Epicenter's server is its remote. |
-| Self-hosted instance | You control the server, secrets, deployment, and infrastructure boundary. |
+| Self-hosted API | You control the server, secrets, deployment, and infrastructure boundary. |
 | A provider an app calls | Whatever that app sends it: transcript text to an LLM, audio to a transcription provider. Epicenter servers are not in that path. |
 
 Sync sends your files to the server in `remote.origin.url`, which can read them in plaintext. Choosing that server is choosing who can read your data. See the [trust model](docs/trust-model.md) for the details.
@@ -103,8 +103,7 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 | --- | --- | --- |
 | [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Standalone Markdown notes. Metadata stays in frontmatter, logical folders preserve note identity, and Git records saved files. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
-| [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted blobs, the AI gateways, hosted-only billing, and the dashboard. |
-| [Self-host](apps/self-host) | Reference deployable | Community-supported single-partition instance without hosted billing. |
+| [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted blobs, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are files in one Git-versioned folder. |
 | [Todos](apps/todos) | Runs, development milestone | Opens at once over a folder; Connect sets its Git remote. |
 | [Vocab](apps/vocab) | Runs, development | Words and chats in a folder, with AI over `@epicenter/ai`. |
@@ -121,7 +120,7 @@ These packages carry the main architecture.
 | [`@epicenter/ai`](packages/ai) | Inference connections, the AI gateway client, and the inference picker. | AGPL-3.0-or-later |
 | [`@epicenter/sqlite`](packages/sqlite) | Neutral embedded-SQLite driver with Browser, Bun, and Durable Object adapters. It owns no product schema. | AGPL-3.0-or-later |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |
-| [`@epicenter/server`](packages/server) | Shared Hono server library composed by the hosted API and the self-host reference deployable. | AGPL-3.0-or-later |
+| [`@epicenter/server`](packages/server) | Shared Hono server library composed by the API on Cloudflare Workers and on Bun. | AGPL-3.0-or-later |
 
 ## Architecture
 
@@ -137,12 +136,7 @@ apps/api
   hosted personal Cloudflare Worker
   composes packages/server with a Better Auth principal resolver
   owns hosted-only dashboard and billing code
-
-apps/self-host
-  self-hosted single-partition instance reference deployable
-  composes packages/server with the instance principal resolver
-  community-supported
-  no hosted billing surface
+  server.ts runs the same composition on Bun with Postgres: the self-host path
 ```
 
 [Full architecture walkthrough](docs/architecture.md) | [Trust model](docs/trust-model.md)
@@ -167,7 +161,6 @@ Every app starts from the repo root. `bun dev:<app>` runs every process the app 
 | `bun dev:api-dashboard` | API + dashboard UI | 5178 |
 | `bun dev:landing` | Landing site, standalone | 4321 |
 | `bun dev:posthog-reverse-proxy` | PostHog reverse proxy Worker | wrangler default |
-| `bun dev:self-host` | Self-host server (needs `INSTANCE_TOKEN`) | 8787 |
 
 `bun dev:whispering` runs the standalone Whispering desktop app (`bun dev:whispering:ui` runs its page in a browser tab). `bun dev:todos`, `bun dev:vocab`, and `bun dev:epicenter` run those apps.
 

@@ -88,15 +88,15 @@ The private path is the same shape as everywhere else: point the connection some
 
 ## Two deployments, decided by who holds the data
 
-Epicenter Cloud, the default, is operated by Epicenter, so hosted data sits inside our trust boundary. It is the same promise as before, without the key-derivation machinery around it. `BETTER_AUTH_SECRET` signs auth cookies, tokens, and OAuth state in `packages/server/src/auth/create-auth.ts`; it is not a data encryption root, and it is Cloud-only. Better Auth is a Cloud-only layer (ADR-0076), so a self-hosted instance composes no Better Auth and has no `BETTER_AUTH_SECRET` at all.
+Epicenter Cloud, the default, is operated by Epicenter, so hosted data sits inside our trust boundary. It is the same promise as before, without the key-derivation machinery around it. `BETTER_AUTH_SECRET` signs auth cookies, tokens, and OAuth state in `packages/server/src/auth/create-auth.ts`; it is not a data encryption root. A self-hosted server runs the same Better Auth on Bun with Postgres (`apps/api/server.ts`) under its own `BETTER_AUTH_SECRET`.
 
 Self-hosting is functionally zero-knowledge against Epicenter, because Epicenter never holds or sees the data: you operate the deployment. The strength comes from topology, not from a held secret. So the marketing has to stay honest about which deployment it describes. "We cannot read your data" is true when you self-host, not on the default.
 
-## Logging in: Google for hosted, one bearer for an instance
+## Logging in: social OAuth on every deployment
 
-Hosted Epicenter signs in with social OAuth: `packages/server/src/auth/base-config.ts` disables email/password on purpose, because better-auth 1.5.6 has no local-email-verification gate and no mail sender is wired up, so a local account would open an account-takeover path. OAuth is hosted-only (ADR-0071).
+Epicenter signs in with social OAuth: `packages/server/src/auth/base-config.ts` disables email/password on purpose, because better-auth 1.5.6 has no local-email-verification gate and no mail sender is wired up, so a local account would open an account-takeover path.
 
-A self-hosted instance does not use OAuth at all, so there is no Google app to register for your own box. It authenticates with one operator-supplied static bearer (`INSTANCE_TOKEN`): you generate it once (`bun run gen-token`), supply it through the environment, and paste it into the client; every request is constant-time compared against it and resolves the one `principals/instance` partition. No sign-in flow, no first-boot minting, no mode to pick. That is `docs/adr/0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md`, amended by ADR-0092, which supersedes ADR-0070 and an earlier first-boot-minting direction that never became a published ADR. The cost, named honestly: removing one person from a multi-person instance means rotating the token and redistributing it, because per-person revocation is a deliberately unbuilt seam rather than a shipped feature.
+A self-hosted server signs in the same way, so its operator registers their own OAuth apps (Google, GitHub, Microsoft) for their own origin. ADR-0549 records the planned move to one OAuth 2.1 authorization server per deployment.
 
 Because the instance has no OAuth and no sessions, it composes no Better Auth and no Postgres at all (ADR-0076): the bearer is constant-time compared in-process, and there is nothing for the operator to provision but the token. Neither entry point constructs a database (ADR-0226, ADR-0227), which is what lets the same instance run as a single Bun binary or a Cloudflare Worker.
 

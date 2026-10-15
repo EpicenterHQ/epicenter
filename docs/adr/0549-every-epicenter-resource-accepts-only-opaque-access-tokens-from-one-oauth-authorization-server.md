@@ -2,9 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Supersedes:** [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), whose hosted-only OAuth and static self-host token give way to one authorization server in every deployment; [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md), whose self-host composes neither Better Auth nor Postgres.
-- **Amends:** [ADR-0331](0331-whispering-authenticates-with-an-oauth-bearer-on-every-surface.md) at its web-grant hardening (a refresh token in `localStorage`, refresh rotation in the browser) and its self-host `createInstanceTokenAuth` sentence; [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md) at the operator-supplied `INSTANCE_TOKEN` and at self-host running on Cloudflare; [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) at its clause that a custom instance still requires a token.
-- **Unbuilt:** all of it: `@better-auth/oauth-provider` with `oauthDeviceAuthorization()` and `@better-auth/cimd` in `packages/server/src/auth/plugins.ts`; the lineage patch; the resource query; the consent and device approval pages with the target picker; the devices and grants list; `epicenter login` and `epicenter git-credential`; the browser redirect renewal; the Bun self-host on Postgres; deleting what the Decision names.
+- **Supersedes:** [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), whose hosted-only OAuth and static self-host token give way to one authorization server in every deployment; [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md), whose self-host composes neither Better Auth nor Postgres; [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), whose self-host is a separate single-partition app behind an operator-supplied bearer.
+- **Amends:** [ADR-0331](0331-whispering-authenticates-with-an-oauth-bearer-on-every-surface.md) at its web-grant hardening (a refresh token in `localStorage`, refresh rotation in the browser) and its self-host `createInstanceTokenAuth` sentence; [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) at its clause that a custom instance still requires a token.
+- **Unbuilt:** all of it: `@better-auth/oauth-provider` with `oauthDeviceAuthorization()` and `@better-auth/cimd` in `packages/server/src/auth/plugins.ts`; the lineage patch; the resource query; the consent and device approval pages with the target picker; the devices and grants list; `epicenter login` and `epicenter git-credential`; the browser redirect renewal; deleting what the Decision names.
 
 ## Context
 
@@ -15,10 +15,8 @@ an independent session per client through a 120-second single-use code bound to
 S256 PKCE, state, and an exact callback. Sessions last 30 days and renew after a
 day of use (`session-policy.ts`). Every session can do everything the person
 can, including account changes within `freshAge` ([ADR-0356](0356-sensitive-account-changes-use-better-auth-session-freshness.md)).
-Self-host runs a second owner of the same wire, `packages/server/src/self-host-auth/`,
-on `bun:sqlite` or the `SelfHostAuthOwner` Durable Object.
-`packages/server/src/auth/instance-token.ts`, `packages/auth/src/instance-token.ts`,
-and `apps/self-host/scripts/gen-token.ts` have no runtime caller.
+Self-hosting is `apps/api`'s Bun entry (`apps/api/server.ts`) on Postgres,
+which composes the same `createServerApp` and `createAuth` as the Worker.
 [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md)
 planned the device's session as its Git credential, with Better Auth's core
 `deviceAuthorization()` behind `epicenter login` and its API key package for
@@ -195,8 +193,9 @@ the CLI's refresh token, with `password_expiry_utc`, and reuses it until five
 minutes before expiry. The desktop shell registers the same helper for its
 `git` runs.
 
-**Self-host runs the same authorization server.** `apps/self-host/server.ts`
-composes the same `createAuth` on Bun against plain Postgres. Its issuer and
+**Self-host runs the same authorization server.** Self-hosting is
+`apps/api`'s Bun entry, `apps/api/server.ts`, which composes the same
+`createServerApp` and `createAuth` as the Worker against plain Postgres. Its issuer and
 resources are its own origin, fixed by the build
 ([ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md)).
 
@@ -206,10 +205,6 @@ resources are its own origin, fixed by the build
 packages/server/src/auth/session-handoff.ts            and its tests
 packages/auth/src/session-handoff-client.ts            and its test
 bearer({ requireSignature: true })                     a session is no resource credential
-packages/server/src/self-host-auth/                    the second owner of the handoff wire
-apps/self-host/worker/                                 the SelfHostAuthOwner Durable Object entry
-packages/server/src/auth/instance-token.ts             and packages/auth/src/instance-token.ts
-apps/self-host/scripts/gen-token.ts
 POST /api/git/connect                                  and its hourly tokens (ADR-0546)
 planned: Better Auth's core deviceAuthorization(), its API key package, a session as a Git credential
 ```
@@ -243,7 +238,7 @@ Auth's default rate limit.
 - A device code is a phishing lure. The approval page shows the client, the
   requested scopes, the target, the requesting address, and "Only approve a
   code you just started."
-- Self-hosters lose the Cloudflare deployment and need Postgres.
+- Self-hosters run `apps/api` on Bun and need Postgres.
 - Not verified by the spike: real Hyperdrive pooling, a production CIMD fetch
   on Workers (`fetch(url, { redirect: "manual" })` under
   `global_fetch_strictly_public`), Claude and ChatGPT end to end, and load.

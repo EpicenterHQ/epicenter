@@ -27,7 +27,6 @@ const allowedPathPatterns = [
 	/^packages\/auth\//,
 	/^packages\/server\//,
 	/^apps\/api\//,
-	/^apps\/self-host\//,
 	/\.test\.[cm]?[tj]sx?$/,
 	/\.spec\.[cm]?[tj]sx?$/,
 	/^apps\/whispering\/src-tauri\//,

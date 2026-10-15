@@ -121,7 +121,7 @@
 	// --- R2: NO bindings ---
 	// This Worker names no `r2_buckets` binding. Hosted blob requests
 	// talk plain S3-over-HTTPS via aws4fetch (BLOBS_S3_* secrets above), so the
-	// same code runs on this Worker against R2 and in a self-hosted Node binary
+	// same code runs on this Worker against R2 and in apps/api's Bun entry
 	// against Garage/S3 with no Workers-only R2 binding. Create its bucket
 	// with: bunx wrangler r2 bucket create epicenter-blobs
 	// See packages/server/src/s3-blob-store.ts. (The legacy asset route and its

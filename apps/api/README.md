@@ -2,9 +2,9 @@
 
 Epicenter Cloud Worker. Handles authentication, hosted blobs, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
-This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The self-hosted single-partition instance lives in the sibling `apps/self-host`; it resolves one operator bearer to the literal `instance` principal, has no billing surface, and (because it composes no Better Auth) no Postgres either (ADR-0075, ADR-0076).
+This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The same app also runs on Bun with Postgres (`server.ts`), which is how you self-host it.
 
-Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See `apps/self-host` for the self-hosted reference and the trust model below.
+Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See [Stack and priorities](#stack-and-priorities) for self-hosting and the trust model below.
 
 Runs on Cloudflare Workers. Folder data syncs over plain Git with a token to a
 server the person chooses (ADR-0521). This Worker is Epicenter's hosted choice:
@@ -30,13 +30,14 @@ Hono handles HTTP routing. We originally wanted Elysia: it's faster, the API is 
 
 Cloudflare Workers are the hosted deployment target. Routes, auth, AI, Git, and validation are plain runtime-portable Hono; the Worker holds no Durable Objects, and hosted Git repositories live in Cloudflare Artifacts.
 
-`apps/self-host` is the sibling deployable: the single-partition instance, a Bun
-binary or a Cloudflare Worker that composes no Better Auth and no Postgres
-(ADR-0075, ADR-0076), so the whole box is one bearer token. It is
-community-supported, not Epicenter-operated. `apps/api/server.ts` here is this hosted cloud on Bun (local dev and the
-runtime-parity smoke), booting the same composition against plain Postgres and
-any S3 endpoint with no Cloudflare account. The surfaces that need Worker-only
-bindings are absent there: the dashboard shell comes from `ASSETS`, account
+Self-hosting is this app's Bun entry, `apps/api/server.ts`, running against
+Postgres and, for blobs, any S3-compatible endpoint, with no Cloudflare
+account. It builds the same `createServerApp` and the same Better Auth
+`createAuth` as the Worker, so a self-hosted server has the same sign-in,
+sessions, and routes; set `API_PUBLIC_ORIGIN` to its public origin and see
+`.env.example` for the rest. The runtime-parity CI boots this entry against
+Postgres and S3 on every pull request. ADR-0549 records how auth will work
+there. The surfaces that need Worker-only bindings are absent on Bun: the dashboard shell comes from `ASSETS`, account
 deletion is a hosted resource sweep, and billing needs the Autumn secret and the
 after-response drain. Hosted Git is mounted there with no repository store, so
 it answers 503 `GitUnavailable`. `runtime-profile.test.ts` is where that
@@ -67,8 +68,8 @@ future blind server keeps seeing this envelope. Blobs land wherever
 `BLOBS_S3_ENDPOINT` points, so renting Epicenter's blob service puts your media
 in Epicenter's R2 even on a self-hosted instance; point the store at your own S3
 to keep media local. And hosted sign-in leans on social OAuth (email/password is
-disabled in `base-config.ts`); a self-hosted instance uses one operator-supplied
-bearer instead and registers no OAuth app at all (ADR-0071, ADR-0075). The full
+disabled in `base-config.ts`); a self-hosted server registers its own OAuth apps
+for the providers it offers. The full
 ledger, with the reasoning, is in [docs/trust-model.md](/docs/trust-model.md).
 
 ### Why not zero-knowledge?
