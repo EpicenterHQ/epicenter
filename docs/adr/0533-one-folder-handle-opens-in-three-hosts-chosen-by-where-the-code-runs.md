@@ -51,8 +51,8 @@ write. A script that edits an existing folder opens it with
 
 **A script and a desktop page open the same directory folder.** `openFolder`
 in `bun.ts` calls `openDirectoryFolder`, as `tauri-directory.ts` does, over
-`nodeDirectoryPrimitives` and the system `git`, with `createProcessLocks` in
-place of Web Locks. Both replace a file by renaming a staged copy over it, and
+`nodeDirectoryPrimitives` and the system `git`, and neither takes a Web Lock
+(ADR-0541). Both replace a file by renaming a staged copy over it, and
 both read names literally: on a case-insensitive file system `plan.md` does
 not reach `Plan.md`, and creating `plan.md` there is `Exists`.
 

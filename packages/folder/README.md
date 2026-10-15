@@ -303,7 +303,7 @@ through the shell's commands:
 | Identity | The directory its ID names | The shell's registration and lock |
 | Remote and author | `remote.origin.url`, set by `sync.connect`, and `browser.author` | Git's own configuration: `remote.origin.url`, `user.name`, `user.email`, with the shell's author as fallback |
 | Transfers | `httpFetch`, regular fetch by default, with `credentials` as a header | Git's own: `credentials` as a URL-scoped header, or the person's credential helper or SSH |
-| Pages of one folder | Web Locks and a `BroadcastChannel` | One window; a second open of the same root is refused |
+| Pages of one folder | Web Locks and a `BroadcastChannel` | Several windows may open one root; the shell checks each save where it lands, Git orders commits, and `BroadcastChannel` hints are best effort (ADR-0541) |
 
 Files go through the browser folder's file storage (`opfs-store.ts`) over a
 directory handle (`directory-handle.ts`) built on seven calls: `readDir`,
@@ -346,8 +346,21 @@ moves the branch and reports that the index could not be refreshed; the next
 Save version refreshes it. A repository that tracks an executable, a link,
 or a submodule, or converts line endings, refuses a commit and names why.
 
-The page orders the folder's index and branch work through one Web Lock.
-`git init` runs under the folder's open lock.
+A directory folder takes no Web Lock (ADR-0541). Each host supplies the
+check it has instead:
+
+| Host | Save | Commit | First open |
+| --- | --- | --- | --- |
+| Desktop page | The shell's checked rename | Git's lock files and the branch's compare-and-swap | `git init`, run again if another opener raced it |
+| Bun | Checked just before the rename, not atomically; saves within one process take turns, saves from separate processes do not | Git's lock files and the branch's compare-and-swap | The same |
+| Browser (OPFS) | The files Web Lock | The Git Web Lock, under which the branch is read, compared, and written | The open Web Lock |
+
+Each handle orders its own index and branch work. Two windows or scripts on
+one directory do not wait for each other: a save that another one overtook
+is refused where its host checks it, and a commit whose branch the other
+moved retries
+([History](#history)). `BroadcastChannel` hints between pages are best
+effort; a page reads again when it chooses to.
 
 Nothing watches the directory for other programs' changes; a page reads
 again when it chooses to. A page that reloads ends the work it was running.
@@ -404,9 +417,11 @@ These openers take the directory and the history settings explicitly, and this
 process reaches the disk itself, with `node:fs` and its own `git`. It opens
 the same directory folder a desktop page does (`openDirectoryFolder`), so files
 are replaced the same way: a staged copy under `.git/epicenter/scratch` is
-renamed over the file. Locks are this process's own, so a script and an open
-desktop window on one directory coordinate only through Git's lock files. It
-does not watch the directory.
+renamed over the file. Saves to one directory take turns within the process,
+across every handle it opens, so two concurrent saves of one file from one
+script cannot both pass the check. Across processes nothing waits: a script
+and an open desktop window on one directory meet only at the checks above
+and Git's lock files. It does not watch the directory.
 
 ### Reading a data folder without opening it
 
@@ -854,13 +869,17 @@ same history rules.
 A save returns once its files are published and never waits for Git. A commit
 pins the branch head, captures every source file, writes a commit with a
 subject derived from the tree difference, and moves the branch only with a
-compare-and-swap. A moved branch is reported and not retried. Commit and push
+compare-and-swap. A commit whose branch moved after it pinned the head retries
+once: it captures the folder again, so it records everything the lost
+attempt held, over the new head. A second move is reported as `branchMoved`.
+A staged `commitStaged()` is not retried: its index was staged against the
+head that moved, and it is reported as `BranchMoved`. Commit and push
 failures never undo a save.
 
 A save never asks for a commit (ADR-0529). A commit happens only when a caller
 asks for one: `commit()`, `commitAndPush()`, a staged `commitStaged()`, or
-sync's checkpoint before it fetches. A commit that fails is reported in
-`git.snapshot.lastCommit` and is not retried. `git.snapshot.files` turns
+sync's checkpoint before it fetches. A commit that fails otherwise is reported
+in `git.snapshot.lastCommit` and is not retried. `git.snapshot.files` turns
 `stale` when a save lands after the last capture, and `git.status()` lists what
 is uncommitted.
 
@@ -1164,7 +1183,7 @@ dangle.
 | `src/svelte/` | Svelte boundary tests and the sync review's mounted tests. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
-| `src/process-locks.ts`, `git/native-*.ts` | Web Locks for a process that has none, and the `git` program a directory folder records history with. |
+| `git/native-*.ts` | The `git` program a directory folder records history with. |
 | `src/native/bindings.gen.ts` | Commands generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
 | `fixtures/` | Vectors the tests read: `kv-merge.json` for `mergeKv`, and `commit-subjects.txt`, the subjects `commitSubject` writes (`bun run gen:vectors` rewrites it). |
 | `evidence/` | Tests that build real bundles and read real import closures; `evidence/opfs`, a page that runs the browser checks in a real browser. |

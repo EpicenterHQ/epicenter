@@ -184,8 +184,10 @@ The page reads and writes files through an OPFS-shaped directory handle
 under `.git/epicenter/scratch` and renamed into place. History is the native
 Git backend a Bun directory folder uses, with its `git` run by the shell:
 only the operations the folder engine needs, with no hook, fsmonitor, or
-terminal prompt. Several Todos windows share the folder through Web Locks
-and a `BroadcastChannel`, as browser tabs do. Nothing watches the directory
+terminal prompt. Several Todos windows share the folder without waiting on
+each other (ADR-0541): the shell checks each save where it lands, a commit
+whose branch another window moved retries once, and a `BroadcastChannel`
+carries best-effort hints. Nothing watches the directory
 for other programs' edits; Todos reads again at the moments listed
 [above](#where-the-files-are).
 

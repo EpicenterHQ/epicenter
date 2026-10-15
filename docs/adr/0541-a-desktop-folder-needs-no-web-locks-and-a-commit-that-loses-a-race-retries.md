@@ -2,7 +2,6 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** passing a non-waiting `locks` to directory folders on the desktop and in Bun; retrying a commit whose branch moved.
 
 ## Context
 
@@ -25,12 +24,13 @@ because the files on disk are the truth.**
 
 | Host | Save (check, then write) | Commit | First open |
 | --- | --- | --- | --- |
-| Desktop page | The shell's checked rename | Git's lock files and `casBranch` | Idempotent: the repository is made by the first commit |
-| Bun | Check then rename, not atomic (the one writer nothing serializes) | Git's lock files and `casBranch` | Idempotent |
+| Desktop page | The shell's checked rename | Git's lock files and `casBranch` | A `'declared'` folder's repository is made by its first commit; a defined folder runs `git init` on open, and runs it once more if the first attempt throws, since two concurrent `git init` runs can race on Git's template copy |
+| Bun | Check then rename, not atomic; saves within one process take turns under an in-process lock, saves from separate processes do not | Git's lock files and `casBranch` | As on the desktop: `git init` runs once more if the first attempt throws |
 | Browser (OPFS) | `filesLock`: OPFS has no compare-and-swap | `gitLock`: the browser's `casRef` reads, compares, and writes under it | `openLock` |
 
-**On the desktop and in Bun, `locks` never waits.** `openLock`, `filesLock`, and
-`gitLock` stay in the engine for the browser.
+**On the desktop, `locks` never waits; in Bun, only saves within one process
+wait for each other.** `openLock` and `gitLock` stay in the engine for the
+browser, and `filesLock` for the browser and Bun's in-process lock.
 
 **A commit whose branch moved retries once.** A commit is a snapshot of files
 still on disk, so a retry captures everything the lost attempt held. A second
