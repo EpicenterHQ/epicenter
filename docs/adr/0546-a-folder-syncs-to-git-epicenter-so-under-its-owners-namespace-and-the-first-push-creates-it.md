@@ -45,9 +45,10 @@ an ordinary push: unrelated history is refused as not a fast-forward, so a
 second folder cannot land in a repository by taking its name.
 
 **The proposed name is the folder's directory name, made into a valid name;
-the person may change it before the first push.** Lowercase, spaces and other
-characters outside `a-z`, `0-9`, `.`, `_`, `-` become `-`, and it starts with a
-letter or digit: `so.epicenter.todos` stays itself, `Demo Books` becomes
+the person may change it before the first push.** A name is lowercase and unique
+within its namespace, so two names never collide on a case-insensitive disk:
+letters are lowercased, characters outside `a-z`, `0-9`, `.`, `_`, `-` become
+`-`, and it starts with a letter or digit: `so.epicenter.todos` stays itself, `Demo Books` becomes
 `demo-books`. After the first push the directory may be renamed freely; the URL
 does not change.
 
@@ -97,10 +98,12 @@ them. A disk store for self-host keeps bare repositories at
   `~/Epicenter/<name>`, where its app looks for it.
 - Plain `git clone https://git.epicenter.so/<namespace>/<name>.git` works
   anywhere the credential helper is installed.
-- Every Git request costs one credential check and one membership check,
-  cached briefly in the Worker.
-- A typo in a remote creates a repository on push; the app's Connect shows the
-  name and asks before the first push.
+- Every Git request costs one database query: the device token, joined with
+  the namespace membership (ADR-0547); nothing is cached.
+- A typo in a remote creates a private repository in the person's namespace on
+  push; it appears in their repository list and is deleted like any other.
+  Connect in the app shows the name it will use, so only a hand-typed URL can
+  do this.
 - Moving a repository to another namespace is a copy (Artifacts cannot move),
   and every clone's `origin` changes.
 - A data folder inside another repository ([ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md))
@@ -113,6 +116,9 @@ them. A disk store for self-host keeps bare repositories at
   first built). Plain `git` and agents cannot renew them.
 - **An id in `epicenter.json`.** A declaration is copied with its template; the
   remote URL, and the history behind it, already identify a folder.
+- **An explicit create step (`epicenter create`) instead of push-to-create.**
+  Avoids stray repositories from typos, but a plain `git push` to a new name
+  fails, which breaks "Connect is setting the remote" for agents.
 - **The account id with a hash in the repository name.** A storage collision
   solved in public; the namespace in the path solves it and leaves room for
   shared owners.
