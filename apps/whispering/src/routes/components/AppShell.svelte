@@ -12,13 +12,12 @@
 	import FileBrowser from './FileBrowser.svelte';
 	import FolderTerminal from './FolderTerminal.svelte';
 	import LeavePrompt from './LeavePrompt.svelte';
-	import RecoveryNotices from './RecoveryNotices.svelte';
 	import VerticalNav from './VerticalNav.svelte';
-	import { openItem, reportWriteFailure } from './file-actions.js';
+	import { reportWriteFailure } from './file-actions.js';
 
 	/**
 	 * The frame every page sits in: navigation, the header with status and
-	 * tools, what is not saved yet, the file browser, and the terminal. It
+	 * tools, the file browser, and the terminal. It
 	 * mounts once with the session and stays while pages change inside it.
 	 */
 	let { session, children }: { session: Session; children: Snippet } = $props();
@@ -32,9 +31,8 @@
 	// A write that failed was rolled back; the person is told what was lost.
 	$effect(() => library.onWriteFailed(reportWriteFailure));
 
-	// Captured audio and received text that have not reached the folder live
-	// only in this window. Moving between this app's pages keeps all of it,
-	// so that is never held back. Leaving the document is: in a browser tab the
+	// Changes still being saved live only in this window until they land.
+	// Moving between this app's pages keeps them, so that is never held back. Leaving the document is: in a browser tab the
 	// cancel becomes the browser's leave warning. The desktop shell does not
 	// raise that warning, so it asks before closing or quitting and the leave
 	// guard answers, showing a confirmation when something is held.
@@ -72,11 +70,6 @@
 			void goto(resolve('/recordings'));
 		}
 	}
-
-	/** Open a recording beside the recordings, or a transformation on its page. */
-	async function openRecording(path: string) {
-		if (await openItem(library, path)) showOpened(path);
-	}
 </script>
 
 <!-- Returning to the app reads the files and Git status again, unless a write is running. -->
@@ -105,11 +98,6 @@
 		terminalOpen={view.terminalOpen}
 		onToggleFiles={toggleFiles}
 		onToggleTerminal={() => void toggleTerminal()}
-	/>
-	<RecoveryNotices
-		{library}
-		onOpenRecording={(path) => void openRecording(path)}
-		onOpenTransformation={(path) => void openRecording(path)}
 	/>
 {/snippet}
 

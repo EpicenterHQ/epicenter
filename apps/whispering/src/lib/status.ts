@@ -44,40 +44,20 @@ function withTime(
 	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
 }
 
-/** What is saved to files: edits being written, and results waiting to be written. */
+/** What is saved to files: edits being written, and answers whose write failed. */
 export function filesLine(state: {
 	saving: boolean;
-	/** Transcripts received whose result file could not be written. */
-	unsavedResults: number;
-	/** Transformation results received whose file could not be written. */
-	unsavedTransformations: number;
-	/** Results on pasted text received and not saved yet, by choice or by failure. */
-	unsavedTextResults?: number;
+	/** Answers that arrived and whose result file could not be written yet. */
+	unwrittenAnswers: number;
 }): StatusLine {
-	if (state.unsavedResults > 0)
+	const unwritten = state.unwrittenAnswers;
+	if (unwritten > 0)
 		return {
-			label: `${state.unsavedResults} ${state.unsavedResults === 1 ? 'transcription' : 'transcriptions'} not saved`,
-			short: 'Transcription not saved',
+			label: `${unwritten} ${unwritten === 1 ? 'answer' : 'answers'} not written yet`,
+			short: 'Answer not written',
 			detail:
-				'The transcript is kept in this window. Use Save it again in the notice under the header.',
+				'Whispering keeps writing it while this window is open. If the window closes first, its file stays without the answer, and you can run it again.',
 			tone: 'error',
-		};
-	if (state.unsavedTransformations > 0)
-		return {
-			label: `${state.unsavedTransformations} transformation ${state.unsavedTransformations === 1 ? 'result' : 'results'} not saved`,
-			short: 'Result not saved',
-			detail:
-				'The text is kept in this window. Use Save it again in the notice under the header; the endpoint is not called again.',
-			tone: 'error',
-		};
-	const textResults = state.unsavedTextResults ?? 0;
-	if (textResults > 0)
-		return {
-			label: `${textResults} ${textResults === 1 ? 'result' : 'results'} on pasted text not saved`,
-			short: 'Result not saved',
-			detail:
-				'The text is kept in this window. Save or discard it on its transformation’s page; the endpoint is not called again.',
-			tone: 'warning',
 		};
 	if (state.saving) return { label: 'Saving…', tone: 'busy' };
 	return { label: 'All changes saved to files', short: 'Saved', tone: 'good' };
@@ -86,15 +66,11 @@ export function filesLine(state: {
 /** The files line for the product state, as the header shows it. */
 export function filesLineOf(library: {
 	readonly saving: boolean;
-	readonly unsavedResults: number;
-	readonly unsavedTransformations: number;
-	readonly unsavedTextResults: number;
+	readonly unwrittenAnswers: number;
 }): StatusLine {
 	return filesLine({
 		saving: library.saving,
-		unsavedResults: library.unsavedResults,
-		unsavedTransformations: library.unsavedTransformations,
-		unsavedTextResults: library.unsavedTextResults,
+		unwrittenAnswers: library.unwrittenAnswers,
 	});
 }
 

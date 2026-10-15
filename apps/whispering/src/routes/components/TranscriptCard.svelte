@@ -11,16 +11,18 @@
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
 	import type { Library, TranscriptionEntry } from '$lib/library.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
-	import { copyText, formatTime, lf, openItem } from './file-actions.js';
+	import { confirmDelete, copyText, formatTime, lf, openItem } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import ResultStatus from './ResultStatus.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
 	/**
-	 * One saved transcript of the recording that is open, edited where it is
-	 * read, beside the player. Its text is the body of the transcript's own
-	 * file, edited in the transcriptions listing in the cache and written at
-	 * once. Nothing here selects the transcript's file, so the recording
-	 * stays open.
+	 * One transcript of the recording that is open, edited where it is read,
+	 * beside the player. Its text is the body of the transcript's own file,
+	 * edited in the transcriptions listing in the cache and written at once.
+	 * A transcript whose answer has not reached its file says why instead, and
+	 * is not edited while its answer is on its way. Nothing here selects the
+	 * transcript's file, so the recording stays open.
 	 */
 	let { library, result }: { library: Library; result: TranscriptionEntry } = $props();
 
@@ -30,13 +32,10 @@
 	/** The text now, as the cache holds it. */
 	const text = $derived(row?.body ?? result.row.body);
 	const locked = $derived(library.locked(result.path));
+	const progress = $derived(library.resultState(result.path, text));
 
 	const outputs = $derived(library.outputsFor(result.stem));
-	const transforming = $derived(
-		library.transformationRuns.some(
-			(item) => item.fields.transcriptionId === result.stem && item.state.kind === 'running',
-		),
-	);
+	const transforming = $derived(library.recipeRuns.some((item) => item.transcriptionId === result.stem));
 	/**
 	 * Every transformation, with whether it can run now by the one decision
 	 * the run itself makes. One that cannot is shown with why, and fixed on its
@@ -52,7 +51,12 @@
 </script>
 
 <article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
-	{#if row}
+	{#if progress.kind !== 'answered'}
+		<ResultStatus {library} path={result.path} result={progress} onDelete={() => void confirmDelete(library, result.path)} />
+	{/if}
+	{#if progress.kind === 'running' || progress.kind === 'writing'}
+		<!-- The answer is on its way into this file. A file with text is not filled, so typing now would keep it out. -->
+	{:else if row}
 		<Textarea
 			class="min-h-32 resize-y font-sans"
 			bind:value={

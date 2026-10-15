@@ -5,11 +5,13 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import type { Library, TextRunEntry, TransformationRunEntry } from '$lib/library.svelte.js';
 	import { copyText, formatTime, recordingTitle } from './file-actions.js';
+	import ResultStatus from './ResultStatus.svelte';
 
 	/**
-	 * One saved transformation result. It is its own file: what it shows comes
-	 * from that file, so it reads the same after the transformation, or the
-	 * transcript or pasted text it was made from, has changed or gone.
+	 * One transformation result. It is its own file, written when the run
+	 * started: what it shows comes from that file, so it reads the same after
+	 * the transformation, or the transcript or pasted text it was made from,
+	 * has changed or gone. A file with no answer yet says why.
 	 */
 	let { library, output, naming, onOpenFile }: {
 		library: Library;
@@ -33,6 +35,8 @@
 		if (recording) return recordingTitle(recording);
 		return `Recording ${output.entry.row.fields.recordingId} (no longer in the folder)`;
 	});
+
+	const progress = $derived(library.resultState(output.entry.path, output.entry.row.body));
 
 	function remove() {
 		confirmationDialog.open({
@@ -60,14 +64,20 @@
 			<span class="min-w-0 flex-1 truncate text-muted-foreground" title={output.entry.row.fields.input}>{output.entry.row.fields.input.trim()}</span>
 		{/if}
 	</header>
-	<p class="whitespace-pre-wrap">{output.entry.row.body.trim() || '(empty result)'}</p>
+	{#if progress.kind === 'answered'}
+		<p class="whitespace-pre-wrap">{output.entry.row.body.trim() || '(empty result)'}</p>
+	{:else}
+		<ResultStatus {library} path={output.entry.path} result={progress} onDelete={remove} />
+	{/if}
 	<footer class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 		<span>{formatTime(output.entry.row.fields.createdAt) || 'Unknown time'} · {output.entry.row.fields.model}</span>
 		<Button size="xs" variant="ghost" onclick={() => onOpenFile(output.entry.path)}>
 			<code class="font-mono">{output.entry.path}</code>
 		</Button>
 		<span class="ml-auto flex items-center gap-1">
-			<Button size="xs" variant="ghost" onclick={() => void copyText(output.entry.row.body, 'the result')}>Copy</Button>
+			{#if progress.kind === 'answered'}
+				<Button size="xs" variant="ghost" onclick={() => void copyText(output.entry.row.body, 'the result')}>Copy</Button>
+			{/if}
 			<Button size="xs" variant="ghost-destructive" onclick={remove}>Delete</Button>
 		</span>
 	</footer>

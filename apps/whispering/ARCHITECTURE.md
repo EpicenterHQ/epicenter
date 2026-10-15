@@ -113,8 +113,9 @@ What Whispering adds on top:
 
 Every file command, including settings saves, file creation, rename, and
 deletion, is a TanStack mutation. Quit preparation waits until the mutation
-cache is idle before deciding what remains unsaved. Recording publication and
-provider work keep their own pending states and discard choices.
+cache is idle before deciding what remains unsaved. A request to an endpoint
+is not waited for: its result row is in the folder before it goes out
+(ADR-0542), and an answer that has not arrived when the app quits is lost.
 
 ## The storage boundary
 
@@ -207,7 +208,7 @@ reach no folder.
 ```text
 routes/+layout.svelte      opens one session on mount, closes it on destroy
 └── AppShell               sets the session in context; header, navigation,
-    │                      unsaved notices, Files, Terminal, close prompt
+    │                      Files, Terminal, close prompt
     ├── /                  +page.svelte            recorder and latest recording
     ├── /recordings        recordings/+page.svelte list, details, raw files
     └── /transformations   transformations/+page.svelte
@@ -229,7 +230,7 @@ window showing the refusal can be closed; see "Closing".
 
 Because the pages are routes under that one layout, a page change is a
 re-render inside the same session. The live recording,
-selections, running requests, held results, the query cache, and the terminal
+selections, running requests, the query cache, and the terminal
 session are fields of the library, and the pasted text a transformation is tried on is
 a field of the session's view, not of any page, so none of them is touched by
 navigation. What a
@@ -237,7 +238,7 @@ page keeps in its own component (which tab is showing) is the only thing a page
 change resets.
 
 Leaving is guarded in one place, the shell. `beforeNavigate` holds a navigation
-only when it unloads the document and something is held; a navigation between
+only when it unloads the document while a change is still being written; a navigation between
 routes is never held. The desktop close handshake below is answered by the
 session's guard, above the routes, for the same reason.
 
@@ -454,32 +455,39 @@ taken when it is called, and needs no recording.
 
 Both fix a run before anything is sent: the result's stem, and every field the
 result row will hold, including the instructions, input, model, and the text
-connection's base URL. One lifecycle serves both, with the destination as the
-only difference: a transcript's run writes `transformation_runs/` as soon as
-its answer arrives; a pasted-text run holds its answer until `saveTextRun`,
-which writes `text_runs/`. From there a run ends one of three ways:
+connection's base URL. A transcription fixes its row the same way: the
+recording, the time, the model, and the transcription connection's base URL.
+Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
 
-| The run | What is held | Trying again |
-| --- | --- | --- |
-| Saved | Nothing. The row is in its table. | |
-| Failed: the endpoint refused, was unreachable, answered wrongly, the transport threw, the connection moved, or the host's reply was lost | Nothing was received. The run is listed as failed. After a lost reply the endpoint may still have been called. | Only when the person asks. Sends the same request, under the same stem, only while the text connection is still the base URL in the snapshot and, for a transcript, while the folder still has that transcript text and its recording. Otherwise it stays failed and says why. |
-| Unsaved: the answer arrived and its row is not written (a pasted-text answer waiting for Save, or a write that failed) | The text, in the window. It blocks closing. | Writes the row. The endpoint is not called. |
+1. Its result row is created with those fields and an empty body, in its
+   recording's write queue (or its own, for pasted text), before the request
+   goes out. A row that cannot be created refuses, and nothing is sent.
+2. The request goes out. While it is out the row shows as running.
+3. The answer is written into the row: the row is read again and its body
+   replaced, guarded by the bytes read. A row that is gone was discarded and a
+   row that has a body was filled already; neither is written. A write that
+   fails is tried again after a wait that doubles from half a second to thirty
+   seconds, for as long as the window is open.
 
-One recipe holds at most one pasted-text run that is running or unsaved; a
-new run on pasted text is refused until it is saved or discarded, so a
-received answer is never replaced. Concurrent saves or retries of one run are
-one.
+Nothing that says what is happening is written. What a row shows is derived
+from its body and this window's live state:
 
-Saving a run, or a received transcript, is one `createOnce`
-(`src/lib/runs.svelte.ts`): the row is created exclusively at its stem, and
-when the stem is taken, what is there is read. This run's own row already
-there (an earlier write landed and its answer was lost) is recognized and
-nothing is written. Its own row means a valid row with the same body and the
-same fields, including any field another writer added. Any other
-file there, including one that differs only in its prompt, model, endpoint,
-input, or source, is not overwritten and the run stays unsaved. So one run
-can produce at most one result file. A run discarded while its row is being
-written may still land; the discard is not undone.
+| The row | What it shows |
+| --- | --- |
+| Has a body | The answer. An empty answer is written as one newline, so only a row nothing was written to has an empty body. |
+| No body, request out | Running. |
+| No body, request failed (refused, unreachable, answered wrongly, the transport threw, or the connection moved) | Why, with Run again and Delete. |
+| No body, answer received and its write failing | The text, with Copy, and why the write failed. The header counts these. |
+| No body, nothing in this window | Unfinished: the window that sent it closed first. Run again and Delete. |
+
+Run again (`library.runAgain`) reads the row now and sends the request its
+fields record, into the same row, only while the connection is still the base
+URL the row names; for a transcript, the audio is the one its recording names
+now. It never reads the transcript a result came from: the row records the
+text that was sent. Delete is the ordinary deletion of the row's file, and is
+the only discard. Two asks for one transcript and recipe at once, two runs on
+pasted text with one recipe at once, or two Run agains of one row at once,
+send one request.
 
 A transformation only ever creates rows in `transformation_runs/` and
 `text_runs/`. No code path writes a transcription row from a transformation.
@@ -494,8 +502,8 @@ the folder then, never taken from a listing; a result file that does not read
 refuses the deletion, since it might be this recording's. It must not race
 the work that writes those rows. `deletionFor` and `remove`
 both refuse while a transcription or transformation of that recording is
-running, or its answer is received and unsaved, and `remove` also refuses when
-a result was saved after the person was asked. While `remove` runs, no request
+running or one of its rows is being written, and `remove` also refuses when
+a result was written after the person was asked. While `remove` runs, no request
 starts for that recording. A failed run holds nothing; it is dropped with the
 recording. Results on pasted text name no recording, so they are neither
 deleted with one nor in the way of deleting one, readable or not.
@@ -511,7 +519,7 @@ alone, conditional on the exact bytes read, and the person is told its
 results are kept: nothing in the file says which results are its own, so
 none is deleted with it. For a recording, the same guards hold by its name:
 the capture and the confirmation both refuse while work for that recording
-is running or unsaved, and nothing new starts for it while it is removed.
+is running, and nothing new starts for it while it is removed.
 
 ## Editing through the query cache
 
@@ -600,9 +608,10 @@ something.
 When a request arrives, before anything is awaited, the library stops
 admitting new work (`pauseAdmission`): no capture starts or stops, no request,
 retry, file change, terminal command, commit, or typing. Work it had already
-accepted continues: saves settle, and a request already sent is shown as
-running and holds the close. A transformation whose reads were under way is
-counted as running, and is not sent once admission has stopped. The prompt
+accepted continues: saves settle, and a request already sent runs on without
+holding the close; its row stays unfinished if the quit goes ahead. A
+transformation whose reads were under way is waited for, and is not sent once
+admission has stopped. The prompt
 covers the page from that moment, so nothing on screen takes input either.
 "Keep working" admits work again. Sending `proceed` commits the quit: admission
 never resumes, "Keep working" is no longer offered, and an answer that could
@@ -634,8 +643,8 @@ fallback uses a page event and a refused navigation.
 
 With the host gone the folder is still open: the page's engine holds it, and
 the shell still grants and locks it. Changes
-to recordings, transcripts, and other files can still be saved, a held
-result can still be saved again, and a commit can still be made. What is
+to recordings, transcripts, and other files can still be saved, and a commit
+can still be made. What is
 gone is what the host did: the terminal, new transcription and transformation
 requests, reveal, the key, and the relay of this question. The prompt says
 exactly that and reads what is held live, so it shrinks as things are saved.
@@ -804,14 +813,14 @@ opened it and says so (`injection-launch`).
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | What the post-processing choice is now, read against the listed transformations and the recipe resolver. It runs nothing. |
 | `src/lib/library.svelte.ts` | Product state over the query cache: the listings, edits and their writes, selections, the live recording, settings, and every action as a mutation. |
-| `src/lib/runs.svelte.ts` | Transcription and recipe runs, and `createOnce` for their result rows. |
+| `src/lib/runs.svelte.ts` | Transcription and recipe runs: the result row written when each starts, its answer written into it, and what each row shows. |
 | `src/lib/deletion.ts` | What a deletion removes, captured from fresh reads, and the removal. |
 | `src/lib/capture.ts`, `microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder`, container detection, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one session. |
 | `src/lib/audio-source.ts` | What a player holds, reloaded by content version on each folder refresh. |
 | `src/lib/status.ts`, `files.ts`, `terminal.svelte.ts` | Status lines, the file tree, the terminal session. |
 | `src/routes/` | The layout that owns the session, and the three pages. |
-| `src/routes/components/` | The shell, navigation, header, unsaved notices, recorder, recording and transformation lists and details, file browser and view, terminal. |
+| `src/routes/components/` | The shell, navigation, header, recorder, recording and transformation lists and details, file browser and view, terminal. |
 | `src/lib/assets/` | The microphone mark from the earlier Whispering. |
 | `native/` | The host: `main.ts`, `host.ts`, `audio.ts`, `device-file.ts`, `terminal.ts`, `failure-injection.ts`. |
 | `src-tauri/` | The shell: the window, the folder's registration and capability, and the host's lifetime. `shell/index.html` is shown only when the app cannot start. |

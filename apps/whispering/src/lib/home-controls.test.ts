@@ -144,7 +144,7 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 	});
 	expect(await names(root, 'transformation_runs')).toHaveLength(1);
 	expect(library.outputsFor(transcript.stem)).toHaveLength(1);
-	expect(library.transformationRuns).toEqual([]);
+	expect(library.recipeRuns).toEqual([]);
 	expect((await readFile(join(root, transcript.path))).equals(before)).toBe(
 		true,
 	);

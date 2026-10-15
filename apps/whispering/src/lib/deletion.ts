@@ -11,8 +11,8 @@
  * Deleting a recording removes its row, its transcripts, and the results made
  * from them. The audio its row names is an ordinary file the table does not
  * own: it stays, and Files can delete it. It is refused while a request for
- * it runs or an answer for it is not saved, and while a result file cannot
- * say which recording it belongs to. A result on pasted text names no
+ * it runs or a result row of it is being written, and while a result file
+ * cannot say which recording it belongs to. A result on pasted text names no
  * recording and is never part of one.
  */
 import {

@@ -17,7 +17,6 @@
 	let applyTo = $state<string | undefined>();
 	let applySource = $state<'transcript' | 'pasted'>('transcript');
 	let pastedText = $state('');
-	let tryItFor = $state<string | undefined>();
 </script>
 
 <QueryClientProvider client={library.queryClient}>
@@ -44,7 +43,6 @@
 					bind:applyTo
 					bind:applySource
 					bind:pastedText
-					bind:tryItFor
 					onOpenFile={() => {}}
 				/>
 			{/key}

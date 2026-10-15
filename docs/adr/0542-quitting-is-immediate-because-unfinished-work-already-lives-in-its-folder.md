@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** deleting the departure round, the page quit voters, the folder plugin's quit wait, the standalone close gates, and the native quit harnesses; writing Whispering's run results when they start, which the deletion waits for.
+- **Unbuilt:** deleting the departure round, the page quit voters, the folder plugin's quit wait, the standalone close gates, and the native quit harnesses.
 
 ## Context
 

@@ -5,8 +5,6 @@
  * Key behaviors:
  * - Nothing held: the page answers `proceed` with no prompt
  * - A row save still running is waited for, then `proceed`
- * - An unsaved transcript or transformation result: the page answers
- *   `asking` and shows its prompt
  * - A live recording holds nothing: its row and audio are in the folder
  * - A write that failed was rolled back and reported; it holds nothing
  * - "Keep working" answers `cancel` and every held byte is still there
@@ -19,7 +17,6 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rowPath } from '@epicenter/folder';
-import { FileError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { createFixtureDevice, toneWav } from './capture.js';
 import {
@@ -45,15 +42,10 @@ afterEach(async () => {
 });
 
 async function open({
-	failResultWrites = 0,
-	failOutputWrites = 0,
 	failPrepare = false,
 	deliverProceed,
 	beforeTransformationRead,
 }: {
-	failResultWrites?: number;
-	/** Fail this many transformation result writes. */
-	failOutputWrites?: number;
 	/** Make finding out what is held throw. */
 	failPrepare?: boolean;
 	/** How a `proceed` reaches the shell: held, or lost. It is recorded first. */
@@ -66,12 +58,7 @@ async function open({
 	);
 	roots.push(root);
 	const folder = await openTestFolder(root);
-	let resultFailures = failResultWrites;
-	let outputFailures = failOutputWrites;
-	const { transcriptions, transformation_runs, transformations } =
-		folder.tables;
-	const refused = (path: string) =>
-		FileError.Io({ path, operation: 'create', cause: new Error('disk full') });
+	const { transformations } = folder.tables;
 	const tables = {
 		...folder.tables,
 		transformations: {
@@ -79,26 +66,6 @@ async function open({
 			get: async (stem: string) => {
 				await beforeTransformationRead?.();
 				return transformations.get(stem);
-			},
-		},
-		transformation_runs: {
-			...transformation_runs,
-			create: async (
-				...args: Parameters<typeof transformation_runs.create>
-			): ReturnType<typeof transformation_runs.create> => {
-				if (outputFailures === 0) return transformation_runs.create(...args);
-				outputFailures -= 1;
-				return refused(`transformation_runs/${args[1]?.stem}.md`);
-			},
-		},
-		transcriptions: {
-			...transcriptions,
-			create: async (
-				...args: Parameters<typeof transcriptions.create>
-			): ReturnType<typeof transcriptions.create> => {
-				if (resultFailures === 0) return transcriptions.create(...args);
-				resultFailures -= 1;
-				return refused('transcriptions/result.md');
 			},
 		},
 	};
@@ -223,15 +190,6 @@ async function record(library: Library) {
 	await library.stopRecording();
 }
 
-/** Record and transcribe, with the transcript's file refused: the transcript is held in the window. */
-async function holdTranscript(library: Library) {
-	await record(library);
-	const entry = library.entries[0]!;
-	await library.transcribe(entry);
-	expect(library.transcriptionRun(entry.stem)?.kind).toBe('unsaved');
-	return entry.stem;
-}
-
 /** A draft as plain data, to compare before and after. */
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 
@@ -272,22 +230,6 @@ test('a row save still running is waited for, then the close proceeds', async ()
 	expect(saved).toContain('title: Typed just now');
 });
 
-test('discard and quit is the only answer that drops a held transcript', async () => {
-	const { library, guard, answers, ask } = await open({ failResultWrites: 1 });
-	const stem = await holdTranscript(library);
-
-	await ask();
-	// A second request while the prompt is up is acknowledged and changes nothing.
-	await ask();
-	expect(answers).toEqual(['asking', 'asking']);
-	expect(guard.asking).toBe(true);
-	expect(library.transcriptionRun(stem)?.kind).toBe('unsaved');
-
-	await guard.discardAndQuit();
-
-	expect(answers).toEqual(['asking', 'asking', 'proceed']);
-});
-
 test('a live recording holds nothing: its row and audio are in the folder, and closing keeps it', async () => {
 	const { library, guard, answers, ask, root } = await open();
 	await library.startRecording();
@@ -304,56 +246,6 @@ test('a live recording holds nothing: its row and audio are in the folder, and c
 	expect(await Bun.file(join(root, entry!.row.fields.audioPath)).exists()).toBe(
 		true,
 	);
-});
-
-test('a transcript whose file was not saved blocks the close', async () => {
-	const { library, guard, answers, ask } = await open({ failResultWrites: 1 });
-	await record(library);
-	await library.transcribe(library.entries[0]!);
-
-	await ask();
-
-	expect(answers).toEqual(['asking']);
-	expect(guard.held.join(' ')).toContain('1 transcript arrived');
-	await guard.stay();
-	const run = library.transcriptionRun(library.entries[0]!.stem);
-	expect(run?.kind).toBe('unsaved');
-	if (run?.kind === 'unsaved') expect(run.text).toBe('a steady tone');
-});
-
-test('a transformation result whose file was not saved blocks the close and is kept', async () => {
-	const { library, guard, answers, ask } = await open({ failOutputWrites: 1 });
-	await record(library);
-	await library.transcribe(library.entries[0]!);
-	expect(
-		await library.createTransformation({
-			title: 'Clean up',
-			prompt: 'Tidy.\n',
-		}),
-	).toBeUndefined();
-	const profile = library.selectedTransformation!;
-	await nameModel(library);
-	const transcript = library.resultsFor(library.entries[0]!.stem)[0]!;
-	expect(
-		await library.transform(transcript.path, profile.path),
-	).toBeUndefined();
-
-	await ask();
-
-	expect(answers).toEqual(['asking']);
-	expect(guard.held.join(' ')).toContain(
-		'1 transformation result arrived but its file is not saved.',
-	);
-	await guard.stay();
-	const run = library.transformationRuns[0]!;
-	expect(run.state.kind).toBe('unsaved');
-	if (run.state.kind === 'unsaved')
-		expect(run.state.text).toBe('Cleaned: a steady tone');
-
-	// Once it is saved, nothing is held and the close proceeds without a prompt.
-	await library.retryTransformation(run.id);
-	await ask();
-	expect(answers).toEqual(['asking', 'cancel', 'asking', 'proceed']);
 });
 
 test('a recording deleted elsewhere under typing stays deleted: the write fails, the lost text is reported, and the close proceeds', async () => {
@@ -420,16 +312,14 @@ test('when what is held cannot be determined, the page asks instead of proceedin
 	expect(answers).toEqual(['asking', 'cancel']);
 });
 
-test('with the host gone, a close attempt keeps the window and the held transcript', async () => {
-	const started = await open({ failResultWrites: 1 });
-	const { library, guard, answers } = started;
-	const stem = await holdTranscript(library);
+test('with the host gone, a close attempt keeps the window, and quitting stays an explicit choice', async () => {
+	const started = await open();
+	const { guard, answers } = started;
 
 	started.askWithoutHost();
 
 	expect(guard.asking).toBe(true);
 	expect(guard.hostGone).toBe(true);
-	expect(guard.held.join(' ')).toContain('1 transcript arrived');
 	// Nothing is sent to a host that is not there, and nothing has quit.
 	expect(answers).toEqual([]);
 	expect(started.quitSignals).toBe(0);
@@ -438,36 +328,9 @@ test('with the host gone, a close attempt keeps the window and the held transcri
 
 	expect(guard.asking).toBe(false);
 	expect(started.quitSignals).toBe(0);
-	expect(library.transcriptionRun(stem)?.kind).toBe('unsaved');
 
 	// Only the explicit choice quits, through the shell's direct signal.
 	started.askWithoutHost();
-	await guard.discardAndQuit();
-	expect(started.quitSignals).toBe(1);
-	expect(answers).toEqual([]);
-});
-
-test('with the host gone the folder still saves: what is held shrinks as it is saved, and quitting stays an explicit choice', async () => {
-	const started = await open({ failResultWrites: 1 });
-	const { library, guard, answers } = started;
-	const stem = await holdTranscript(library);
-
-	started.askWithoutHost();
-
-	expect(guard.hostGone).toBe(true);
-	expect(guard.held.join(' ')).toContain('1 transcript arrived');
-	await guard.stay();
-
-	// The folder is not the host's. The transcript is saved through it now.
-	await library.retrySaveResult(stem);
-	expect(library.resultsFor(stem)).toHaveLength(1);
-	expect(guard.held).toEqual([]);
-
-	// Nothing is held any more, and the window still does not close by itself:
-	// with no host to relay an answer, quitting is the person's own choice.
-	started.askWithoutHost();
-	expect(guard.asking).toBe(true);
-	expect(started.quitSignals).toBe(0);
 	await guard.discardAndQuit();
 	expect(started.quitSignals).toBe(1);
 	expect(answers).toEqual([]);
@@ -555,11 +418,10 @@ test('a capture or typing asked for while the approval is on its way is refused'
 	expect(answers).toEqual(['asking', 'proceed']);
 });
 
-test('while the person decides nothing new starts, and keep working admits work again with everything held intact', async () => {
+test('while the person decides nothing new starts, and keep working admits work again with everything intact', async () => {
 	const { library, guard, answers, ask, root } = await open({
-		failResultWrites: 1,
+		failPrepare: true,
 	});
-	const stem = await holdTranscript(library);
 	await library.createTransformation({ title: 'Clean up', prompt: 'Tidy.\n' });
 	const session = transformationEditor(library);
 	session.edit((row) => {
@@ -574,8 +436,6 @@ test('while the person decides nothing new starts, and keep working admits work 
 	// Every way to start something is refused, whoever calls it.
 	await library.startRecording();
 	expect(library.recorder.phase).toBe('idle');
-	await library.retrySaveResult(stem);
-	expect(library.transcriptionRun(stem)?.kind).toBe('unsaved');
 	session.edit((row) => {
 		row.body = 'typed while asked';
 	});
@@ -596,7 +456,6 @@ test('while the person decides nothing new starts, and keep working admits work 
 
 	expect(answers).toEqual(['asking', 'cancel']);
 	expect(library.admitting).toBe(true);
-	expect(library.transcriptionRun(stem)?.kind).toBe('unsaved');
 	expect(session.draft.body).toBe('Typed before the close.\n');
 	session.edit((row) => {
 		row.body = 'Typed before the close.\nMore.\n';
@@ -676,7 +535,8 @@ test('a transformation whose reads were under way when the shell asked to close 
 	// Nothing new starts once the shell asked, so it was never sent.
 	expect(await running).toContain('closing');
 	expect(started.transformCalls).toBe(0);
-	expect(library.transformationRuns).toEqual([]);
+	expect(library.recipeRuns).toEqual([]);
+	expect(library.transformationResults).toEqual([]);
 	expect(answers).toEqual(['asking', 'proceed']);
 });
 
@@ -704,13 +564,12 @@ test('a recipe run on pasted text whose read was under way when the shell asked 
 
 	expect(await running).toContain('closing');
 	expect(started.transformCalls).toBe(0);
-	expect(library.textRuns).toEqual([]);
+	expect(library.recipeRuns).toEqual([]);
 	expect(answers).toEqual(['asking', 'proceed']);
 });
 
 test('a guard that was disposed answers nothing, whatever its prompt still offers', async () => {
-	const { library, guard, answers, ask } = await open({ failResultWrites: 1 });
-	await holdTranscript(library);
+	const { guard, answers, ask } = await open({ failPrepare: true });
 	await ask();
 	expect(guard.phase).toBe('asking');
 	guard.dispose();

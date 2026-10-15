@@ -20,7 +20,7 @@
  * deleted: its write fails, and nothing creates it again.
  *
  * Every other action is a mutation too: a recording's row and its length,
- * saving a transcript or a result (scoped by the recording's file, so they
+ * writing a transcript or a result (scoped by the recording's file, so they
  * write in order), create, rename, delete, Save version, settings, and
  * terminal commands. Leaving and closing stop new work, then wait until nothing is
  * mutating. Saves never commit (ADR-0529); a version is recorded only by
@@ -29,9 +29,9 @@
  * A recording is in the folder from the moment it starts (ADR-0543): its row
  * is written then, naming its audio, and on the desktop the audio is written
  * as it is captured. Whether it is still running is this window's live
- * capture, never a field. What lives only in this window until it reaches
- * the folder is text an endpoint returned whose file is not written yet
- * (`runs.svelte.ts`), which blocks leaving the app.
+ * capture, never a field. A transcription or recipe run is in the folder
+ * from its start too (ADR-0542): its result row is written before the request
+ * goes out, and its body when the answer arrives (`runs.svelte.ts`).
  */
 
 import { InstantString } from '@epicenter/definition';
@@ -166,9 +166,9 @@ export type Repair = {
 
 export type { Deletion } from './deletion.js';
 export type {
-	TextRun,
+	RecipeRun,
+	ResultState,
 	TranscriptionRun,
-	TransformationRun,
 } from './runs.svelte.js';
 
 /** What the recordings page shows: a recording, or any other file opened beside the recordings. */
@@ -931,10 +931,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	/** Everything held only in this window, in the words the leave prompt shows. */
 	function unsavedWork(): string[] {
-		const held: string[] = [];
-		held.push(...runs.held());
-		if (writing()) held.push('Changes are still being saved.');
-		return held;
+		return writing() ? ['Changes are still being saved.'] : [];
 	}
 
 	// --- recording ----------------------------------------------------------
@@ -1582,33 +1579,19 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		// ------------------------------------------------------------------
 
 		transcriptionRun: runs.transcriptionRun,
-		get unsavedTranscripts() {
-			return runs.unsavedTranscripts;
-		},
-		get transformationRuns() {
-			return runs.transformationRuns;
-		},
-		get unsavedTransformations() {
-			return runs.unsavedTransformations;
-		},
-		get textRuns() {
-			return runs.textRuns;
-		},
-		get unsavedTextResults() {
-			return runs.unsavedTextResults;
-		},
-		get unsavedResults() {
-			return runs.unsavedResults;
-		},
-		isRetrying: runs.isRetrying,
-		transcribe: runs.transcribe,
-		retrySaveResult: runs.retrySaveResult,
 		dismissRun: runs.dismissRun,
+		resultState: runs.resultState,
+		get recipeRuns() {
+			return runs.recipeRuns;
+		},
+		/** Answers that arrived and whose file could not be written yet; they are written again. */
+		get unwrittenAnswers() {
+			return runs.unwritten;
+		},
+		transcribe: runs.transcribe,
 		transform: runs.transform,
 		transformText: runs.transformText,
-		saveTextRun: runs.saveTextRun,
-		retryTransformation: runs.retryTransformation,
-		discardTransformationRun: runs.discardTransformationRun,
+		runAgain: runs.runAgain,
 
 		// ------------------------------------------------------------------
 		// Actions
@@ -1831,13 +1814,13 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 		/**
 		 * Stop new work, finish a recording that is running, wait until nothing
-		 * is mutating, then release the folder. An answer whose file was not
-		 * written ends with the page; the view asks before the page is left
-		 * while one exists.
+		 * is mutating, then release the folder. An answer whose file could not
+		 * be written ends with the page, and its row stays unfinished.
 		 */
 		async close() {
 			closing = true;
 			admitting = false;
+			runs.stop();
 			// The microphone first: nothing still being written may keep it open.
 			input.close();
 			starting?.abort();
