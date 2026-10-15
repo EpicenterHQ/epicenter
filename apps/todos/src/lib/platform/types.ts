@@ -6,22 +6,43 @@
  * OPFS. Both answer the same folder handle, so the UI lists, edits, and
  * hears change hints the same way in either build.
  */
-import type { Folder, OpenFolderError } from '@epicenter/folder';
+import type {
+	Folder,
+	FolderDefinition,
+	OpenFolderError,
+} from '@epicenter/folder';
 import type { Result } from 'wellcrafted/result';
 import type { todosDefinition } from '../definition.js';
 
-export type TodosFolder = Folder<typeof todosDefinition>;
+/**
+ * A folder read through Todos's definition. Its own `definition` is
+ * `todosDefinition` for Todos's own folder, and the folder's declaration for
+ * any other folder the desktop opens with Todos's shape as the lens.
+ */
+export type TodosFolder = Folder<typeof todosDefinition, FolderDefinition>;
 
 /**
- * The folder both leaves open. The browser names its OPFS directory after it;
- * the desktop shell registers its directory under it.
+ * Todos's own folder. The browser names its OPFS directory after it and
+ * opens no other; the desktop shell registers its directory under it and
+ * hands it to a window opened without a folder.
  */
 export const TODOS_FOLDER_ID = 'so.epicenter.todos';
+
+/**
+ * The folder a leaf opened, and whether it is Todos's own folder,
+ * `TODOS_FOLDER_ID`. Only Todos's own folder offers Connect: Epicenter's
+ * server keeps a repository per app id today, so any other folder would be
+ * connected to Todos's repository.
+ */
+export type OpenedTodosFolder = {
+	readonly folder: TodosFolder;
+	readonly own: boolean;
+};
 
 /**
  * Opens the build's folder, writing nothing. A refusal is returned for the
  * page to show; a leaf never opens another kind of storage instead.
  */
 export type OpenTodosFolder = () => Promise<
-	Result<TodosFolder, OpenFolderError>
+	Result<OpenedTodosFolder, OpenFolderError>
 >;

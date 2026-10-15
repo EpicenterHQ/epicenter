@@ -45,8 +45,11 @@
 		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, ConnectTo | void, unknown>;
 		/** Whether the sync review shows, which holds every other Git action. */
 		reviewing?: boolean;
-		/** Open Connect, to choose or change the remote. */
-		onconnect: () => void;
+		/**
+		 * Open Connect, to choose or change the remote. Absent for a folder
+		 * that offers no Connect: the remote is shown and cannot be changed here.
+		 */
+		onconnect?: () => void;
 	} = $props();
 
 	// Git status is a read like any other: on open, when the folder reports a
@@ -143,9 +146,13 @@
 		variant="ghost"
 		size="sm"
 		class="max-w-56 min-w-0 shrink font-normal"
-		tooltip={connected === undefined ? 'Choose where your todos sync' : `Syncs with ${connected.url}. Click to change.`}
-		aria-label={connected === undefined ? 'Not connected. Connect' : `Syncs with ${remoteLabel(connected.url, gitAccess.isEpicenter)}. Change remote`}
-		disabled={busy}
+		tooltip={onconnect === undefined
+			? 'Todos connects only its own folder to a remote.'
+			: connected === undefined ? 'Choose where your todos sync' : `Syncs with ${connected.url}. Click to change.`}
+		aria-label={connected === undefined
+			? `Not connected${onconnect === undefined ? '' : '. Connect'}`
+			: `Syncs with ${remoteLabel(connected.url, gitAccess.isEpicenter)}${onconnect === undefined ? '' : '. Change remote'}`}
+		disabled={busy || onconnect === undefined}
 		data-testid="remote"
 		onclick={onconnect}
 	>
@@ -231,10 +238,12 @@
 			<span class="max-sm:sr-only">Save version</span>
 		</Button>
 		{#if connected === undefined}
-			<Button size="sm" disabled={busy} tooltip="Choose where your todos sync" data-testid="connect-open" onclick={onconnect}>
-				<LinkIcon />
-				<span class="max-sm:sr-only">Connect</span>
-			</Button>
+			{#if onconnect !== undefined}
+				<Button size="sm" disabled={busy} tooltip="Choose where your todos sync" data-testid="connect-open" onclick={onconnect}>
+					<LinkIcon />
+					<span class="max-sm:sr-only">Connect</span>
+				</Button>
+			{/if}
 		{:else}
 			<Button
 				size="sm"

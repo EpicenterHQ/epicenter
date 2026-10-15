@@ -9,6 +9,8 @@
  *   touches history: no Fetch, Pull, Merge, or Commit and push (ADR-0529)
  * - A folder with no remote offers Connect in Sync's place and says it is
  *   not connected; a connected one names its repository, which opens Connect
+ * - A header given no way to open Connect offers none, and its remote cannot
+ *   be clicked
  * - Save version records the saved files as a version and says so
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
@@ -105,6 +107,14 @@ test('a connected folder offers Save version and Sync, names its repository, and
 	);
 	remote?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 	expect(opened).toBe(1);
+});
+
+test('a header with no Connect offers Save version alone and a remote that cannot be clicked', async () => {
+	const { target } = await setup();
+	expect(testids(target)).toEqual(['save-version']);
+	const remote = target.querySelector('[data-testid="remote"]');
+	expect(remote?.hasAttribute('disabled')).toBe(true);
+	expect(remote?.getAttribute('aria-label')).toBe('Not connected');
 });
 
 test('Save version records the saved files as a version', async () => {

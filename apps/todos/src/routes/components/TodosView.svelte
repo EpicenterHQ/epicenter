@@ -19,9 +19,20 @@
 	import ConnectDialog from './ConnectDialog.svelte';
 	import { takeConnectRequest } from '$lib/connect-request.js';
 
-	let { todos }: { todos: Todos } = $props();
+	let {
+		todos,
+		canConnect = true,
+	}: {
+		todos: Todos;
+		/**
+		 * Whether this folder offers Connect: Todos's own folder only, since
+		 * Epicenter's server keeps one repository per app id for now.
+		 */
+		canConnect?: boolean;
+	} = $props();
 	/** Connect shows; it opens by itself when sign-in just returned to it. */
-	let connecting = $state(takeConnectRequest());
+	// svelte-ignore state_referenced_locally
+	let connecting = $state(canConnect && takeConnectRequest());
 
 	// The views below find this folder's store with `getTodos()`, and its
 	// query client through svelte-query. Svelte sets context only while a
@@ -120,8 +131,8 @@
 {/snippet}
 
 <div class="flex h-dvh flex-col overflow-hidden">
-	<AppHeader {sync} reviewing={attempt !== undefined} onconnect={() => (connecting = true)} />
-	<ConnectDialog bind:open={connecting} {sync} />
+	<AppHeader {sync} reviewing={attempt !== undefined} onconnect={canConnect ? () => (connecting = true) : undefined} />
+	{#if canConnect}<ConnectDialog bind:open={connecting} {sync} />{/if}
 
 	{#if attempt !== undefined}
 		<!--

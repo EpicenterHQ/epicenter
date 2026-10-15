@@ -33,9 +33,9 @@
 	// this page nothing (ADR-0542).
 	const opening = (async () => {
 		const opened = await openTodosFolder();
-		return opened.error
-			? opened
-			: Ok(createTodos(opened.data, { onWriteFailed: writeFailed }));
+		if (opened.error) return opened;
+		const { folder, own } = opened.data;
+		return Ok({ todos: createTodos(folder, { onWriteFailed: writeFailed }), own });
 	})();
 
 	// Teardown, not a choice about input. It runs when SvelteKit destroys this
@@ -44,7 +44,7 @@
 	// and a host restart never run it. `close` waits for every write and
 	// action, then releases the folder.
 	onDestroy(() => {
-		void opening.then((opened) => opened.data?.close()).catch(() => {});
+		void opening.then((opened) => opened.data?.todos.close()).catch(() => {});
 	});
 </script>
 
@@ -62,7 +62,7 @@
 	{#if opened.error}
 		{@render refused(opened.error.message)}
 	{:else}
-		<TodosView todos={opened.data} />
+		<TodosView todos={opened.data.todos} canConnect={opened.data.own} />
 	{/if}
 {:catch error}
 	{@render refused(error instanceof Error ? error.message : String(error))}

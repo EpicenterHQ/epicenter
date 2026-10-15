@@ -14,6 +14,8 @@
  *   workspace back
  * - A refused choice shows beside its row and keeps the review; Apply with
  *   valid choices ends it, and the list shows the result
+ * - A folder that is not Todos's own offers no Connect, and a Connect asked
+ *   for before sign-in does not open over it; Todos's own folder opens it
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
@@ -33,6 +35,7 @@ import {
 	type GitSession,
 	prepareGitSession,
 } from '../../../server/git-server.js';
+import { requestConnect } from '../../lib/connect-request.js';
 import { todosDefinition } from '../../lib/definition.js';
 import {
 	editorsReady,
@@ -254,3 +257,46 @@ test('a refused choice shows beside its row and keeps the review; Apply with a v
 		'title: Buy soy milk',
 	);
 }, 60_000);
+
+test.each([
+	[
+		"Todos's own folder offers Connect and opens one asked for",
+		true,
+		['connect-open'],
+		1,
+	],
+	['another folder offers no Connect and opens none asked for', false, [], 0],
+] as const)('%s', async (_name, canConnect, offered, dialogs) => {
+	const id = `todos-view-${count++}`;
+	const folder = expectOk(
+		await openFolder({
+			id,
+			definition: todosDefinition,
+			browser: browserStorage(createTestStorage()),
+		}),
+	);
+	const todos = createTodos(folder);
+	cleanup.push(() => todos.close());
+	// Sign-in returned to Connect, as it does after Connect sent it away.
+	requestConnect();
+
+	const target = document.createElement('div');
+	document.body.append(target);
+	const view = mount(TodosViewHost, { target, props: { todos, canConnect } });
+	cleanup.push(() => {
+		void unmount(view);
+		target.remove();
+	});
+	await settle(todos);
+
+	expect(
+		[...target.querySelectorAll('[data-testid="connect-open"]')].map((button) =>
+			button.getAttribute('data-testid'),
+		),
+	).toEqual([...offered]);
+	expect(
+		target.querySelector('[data-testid="remote"]')?.hasAttribute('disabled'),
+	).toBe(!canConnect);
+	expect(document.querySelectorAll('[role="dialog"]').length).toBe(dialogs);
+	sessionStorage.clear();
+});

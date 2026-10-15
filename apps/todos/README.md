@@ -38,7 +38,14 @@ it clones the repository into `~/Epicenter/Apps/so.epicenter.todos/`, and
 approving it runs `bun install` at the repository's root and the build here.
 Then open Todos from the Folders window's Apps list, or with "Open in Todos"
 beside a folder whose declaration contains its shape. Opened from the Apps
-list, it opens its own folder, `so.epicenter.todos`.
+list, it opens its own folder, `so.epicenter.todos`. Opened with "Open in
+Todos", it opens that folder and reads its todos through its shape
+(ADR-0538): it never rewrites that folder's `epicenter.json`, and a folder
+whose declaration lacks the shape is refused with a message naming the
+folder. Such a folder offers no [Connect](#connect): Epicenter's server keeps
+one repository per app id today, so Connect would give it Todos's own
+repository. Sync still works with a remote the folder already has, other
+than one on Epicenter's server.
 
 `shape.json` is `formatDeclaration` of `src/lib/definition.ts`. After changing
 the definition, run `bun run --cwd apps/todos shape`; `apps/todos/scripts/shape.test.ts`
@@ -58,8 +65,8 @@ directory:
 The header shows the directory's real path, and the status details have a
 "Copy path" button. Epicenter creates the directory and its `todos/` folder the
 first time Todos opens, and initializes Git there. It never overwrites a file
-that is already present. Native startup chooses the directory; nothing in the
-window can point Todos at another one.
+that is already present. The shell chooses the directory and the folder each
+window is handed; nothing in the window can point Todos at another one.
 
 Edit the files with any program. The desktop shell watches the directory,
 and Todos reads again exactly what a reported change names, so an edit made
@@ -162,9 +169,14 @@ or reloading drops it.
 The Rust shell registers the Todos folder under the ID the page opens,
 `so.epicenter.todos`, the first time installed Todos is opened without a
 folder or the Folders window lists it, and permits the Todos window into it
-(an installed app's own folder, ADR-0552). Opening Todos calls
-`openFolder` from `@epicenter/folder/tauri`, which asks the shell to grant
-the folder (`grant_directory`). The first grant creates the directory if it
+(an installed app's own folder, ADR-0552). The shell hands each Todos window
+its folder's scope as `?folder=` in the window's URL (`open_installed_app`):
+`so.epicenter.todos`, or the scope the Folders window listed for another
+folder. For its own folder, or when handed none, Todos calls `openFolder`
+from `@epicenter/folder/tauri` with its definition; for any other folder it
+calls `openDataFolder` with its definition as the lens, which never writes
+that folder's declaration and refuses one without Todos's shape. Either asks
+the shell to grant the folder (`grant_directory`). The first grant creates the directory if it
 is missing, refuses a linked `.git`, and takes the cross-process lock. The
 Todos window then reads and changes that directory alone, through the folder
 plugin's commands.
@@ -213,7 +225,9 @@ again at once.
 
 **Connect** (the header's remote button, or Sync's place while there is no
 remote) chooses where the todos sync. The choice is a URL the folder keeps in
-its own Git configuration; connecting then syncs once.
+its own Git configuration; connecting then syncs once. Only Todos's own
+folder, `so.epicenter.todos`, offers Connect; the platform leaf says whether
+the folder it opened is that one (`OpenedTodosFolder.own`).
 
 - **Sync with Epicenter**, signed in: Todos asks the server this build signs in
   to (`POST /api/git/connect { folder: "so.epicenter.todos" }`, ADR-0521) for
@@ -418,7 +432,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/routes/+layout.svelte` | The tooltip provider and toasts; no app state. |
 | `src/routes/+page.svelte` | Opens the folder and creates its store (`createTodos`), then mounts `TodosView` with it. It turns a failed write into a toast with **Copy your text**. |
 | `src/routes/auth/callback/+page.svelte` | Where Epicenter's sign-in returns. |
-| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens this browser's folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing any of them opens nothing. |
+| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens this browser's folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the folder the host handed the window (`?folder=`, its own when none) through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing any of them opens nothing. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
 | `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528, ADR-0548): its own TanStack `QueryClient` with every rule (never stale, no retry, no focus refetch), the one line that wires `folder.onFilesChanged` to the cache, the browser leave check, and closing. It composes the namespaces below over one `Session`. |
 | `src/lib/session.ts` | What the namespaces share: the delete's mutation key (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type, which carries the folder's options (`folder$`). |

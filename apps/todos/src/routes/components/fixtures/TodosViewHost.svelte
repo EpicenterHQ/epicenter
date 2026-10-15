@@ -4,7 +4,7 @@
 	import type { Todos } from '$lib/todos.svelte.js';
 	import TodosView from '../TodosView.svelte';
 
-	let { todos }: { todos: Todos } = $props();
+	let { todos, canConnect }: { todos: Todos; canConnect?: boolean } = $props();
 </script>
 
-<Tooltip.Provider><TodosView {todos} /></Tooltip.Provider>
+<Tooltip.Provider><TodosView {todos} {canConnect} /></Tooltip.Provider>

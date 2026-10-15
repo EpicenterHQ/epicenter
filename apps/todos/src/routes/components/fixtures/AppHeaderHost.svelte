@@ -5,7 +5,7 @@
 	import { setTodos, type Todos } from '$lib/todos.svelte.js';
 	import AppHeader from '../AppHeader.svelte';
 
-	let { todos, onconnect = () => {} }: { todos: Todos; onconnect?: () => void } = $props();
+	let { todos, onconnect }: { todos: Todos; onconnect?: () => void } = $props();
 	// svelte-ignore state_referenced_locally
 	setTodos(todos);
 	// svelte-ignore state_referenced_locally
