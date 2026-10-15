@@ -1,9 +1,9 @@
 <!--
 	One capture as its text and thoughts. The view reads the capture listing
-	narrowed to this capture, so it never disagrees with the timeline. Every
-	change goes into that cache and is written at once; "Edit as text" opens
-	the file's exact Markdown instead. The parent keys this view by the
-	capture.
+	narrowed to this capture, so it never disagrees with the timeline, and
+	shows the capture's edit over it until the edit's saves land. Every change
+	goes into that edit and is saved at once; "Edit as text" opens the file's
+	exact Markdown instead. The parent keys this view by the capture.
 
 	When the body stops reading as text and thoughts (a version read again
 	with two Thoughts headings, say), the controls go away rather than show
@@ -23,7 +23,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { tick, untrack } from 'svelte';
-	import { type Captures, capturesKeys, instantOf } from '$lib/captures.svelte.js';
+	import { type Captures, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 	import ThoughtEditForm from './ThoughtEditForm.svelte';
@@ -47,16 +47,15 @@
 		captures.rowsQuery((listing) => listing.find((found) => found.stem === stem)),
 	);
 	const stored = $derived(entry.data?.result.error === null ? entry.data.result.data : undefined);
+	/** The row shown: the edit not saved yet, or the file's. */
+	const row = $derived(stored === undefined ? undefined : (form.draft ?? stored.row));
 	/** The body as text and thoughts, or why it cannot be edited here. */
-	const reading = $derived(stored === undefined ? undefined : captureBody.decode(stored.row.body));
+	const reading = $derived(row === undefined ? undefined : captureBody.decode(row.body));
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
-	const capturedAt = $derived(instantOf(stored?.row.fields.capturedAt));
-	/** Edits wait while Epicenter asks to leave and while this capture is deleted. */
+	const capturedAt = $derived(instantOf(row?.fields.capturedAt));
+	/** Edits wait while closing and while this capture is deleted. */
 	const locked = $derived(captures.fenced || captures.isRemoving(path));
-	const saving = $derived(
-		captures.mutating({ mutationKey: capturesKeys.write(path), exact: true }) > 0,
-	);
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 	let newThoughtField = $state<HTMLTextAreaElement | null>(null);
@@ -99,8 +98,8 @@
 	}
 
 	function download() {
-		if (stored === undefined) return;
-		const { data: file, error } = formatRow(captureDefinition.tables.captures, stored.row);
+		if (row === undefined) return;
+		const { data: file, error } = formatRow(captureDefinition.tables.captures, row);
 		if (error !== null) toast.error('Could not download this capture', { description: error.message });
 		else downloadText(`${stem}.md`, file);
 	}
@@ -191,7 +190,7 @@
 	</div>
 
 	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-		{saving ? 'Saving…' : `Saved to ${path}`}
+		{form.saving ? 'Saving…' : form.draft ? 'Not saved' : `Saved to ${path}`}
 	</p>
 
 	{#if form.refusal}

@@ -1,7 +1,7 @@
 <!--
-	One capture file as its exact Markdown, frontmatter included. Typing goes
-	into the file's cached text and is written at once, valid or not, so a
-	file that is not a valid capture is repaired here. What keeps it from
+	One capture file as its exact Markdown, frontmatter included. Typing is
+	held over the file's text and written at once, valid or not, so a file
+	that is not a valid capture is repaired here. What keeps it from
 	reading as a capture is read live from the text; once nothing does, Open
 	as capture shows its text and thoughts. The parent keys this view by the
 	capture.
@@ -17,7 +17,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
-	import { type Captures, capturesKeys } from '$lib/captures.svelte.js';
+	import type { Captures } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
@@ -33,11 +33,12 @@
 	// The view is keyed by the capture, so its path never changes for this view.
 	const path = untrack(() => rowPath(captures.folder.tables.captures.name, stem));
 	const file = createQuery(() => captures.textQuery(path));
-	const text = $derived(file.data?.kind === 'text' ? file.data.file.text : undefined);
-	const locked = $derived(captures.fenced || captures.isRemoving(path));
-	const saving = $derived(
-		captures.mutating({ mutationKey: capturesKeys.writeText(path), exact: true }) > 0,
+	/** The text typed and not written yet. */
+	const typed = $derived(captures.typedText(path));
+	const text = $derived(
+		file.data?.kind === 'text' ? (typed ?? file.data.file.text) : undefined,
 	);
+	const locked = $derived(captures.fenced || captures.isRemoving(path));
 
 	/** Why the text is not a capture yet: each with its line when it has one. */
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
@@ -72,7 +73,7 @@
 
 	{#if text !== undefined}
 		<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-			{saving ? 'Saving…' : `Saved to ${path}`}
+			{typed === undefined ? `Saved to ${path}` : 'Saving…'}
 		</p>
 
 		{#if issues.length > 0}

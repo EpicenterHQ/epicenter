@@ -6,13 +6,8 @@
  * logical folder in OPFS. Neither leaf imports the other's storage.
  */
 
-import type { CaptureFields } from '@epicenter/capture';
-import type {
-	FileTable,
-	FolderFiles,
-	FolderGit,
-	FolderLocation,
-} from '@epicenter/folder';
+import type { captureDefinition } from '@epicenter/capture';
+import type { Folder, FolderLocation } from '@epicenter/folder';
 
 /**
  * The folder both leaves open. The browser names its scoped OPFS directory after
@@ -20,14 +15,12 @@ import type {
  */
 export const CAPTURE_FOLDER_ID = 'so.epicenter.capture';
 
-/** The folder surface Capture uses. */
-export type CaptureFolder = {
-	readonly tables: { readonly captures: FileTable<CaptureFields> };
-	/** A capture's exact text for repair, and the legacy import's files. */
-	readonly files: FolderFiles;
-	/** The snapshot, Save version, and whether a file has changes in no saved version. */
-	readonly git: Pick<FolderGit, 'snapshot' | 'subscribe' | 'commit' | 'status'>;
-};
+/**
+ * The folder both leaves open: its captures table, its files (a capture's
+ * exact text, and the legacy import), its Git history, and its channel of
+ * outside changes.
+ */
+export type CaptureFolder = Folder<typeof captureDefinition>;
 
 export type CaptureHost = {
 	readonly folder: CaptureFolder;

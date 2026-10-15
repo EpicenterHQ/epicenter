@@ -8,11 +8,11 @@
  * would deliver them.
  *
  * Key behaviors:
- * - The capture text and Add a thought change the cache at once and are
- *   written to the file
- * - A write that meets a change made elsewhere merges with it; the typing
+ * - The capture text and Add a thought are shown at once and saved to the
+ *   file
+ * - A save that meets a change made elsewhere merges with it; the typing
  *   wins where both changed
- * - Returning to the window shows a change made elsewhere
+ * - A change the folder's channel reports is shown
  * - A thought typed and not added stays visible to copy when the capture
  *   stops reading as text and thoughts
  * - A file that is not a valid capture shows its issues as text is typed,
@@ -33,7 +33,7 @@ import {
 } from '../svelte-dom.test-support.js';
 
 const { openCaptures } = await import('../browser-folder.test-support.js');
-const { focusManager, quiet } = await import('../query.test-support.js');
+const { quiet } = await import('../query.test-support.js');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 
 type Harness = Awaited<ReturnType<typeof openCaptures>>;
@@ -92,7 +92,7 @@ test('the capture text and Add a thought are written to the file', async () => {
 	expect(harness.failures).toEqual([]);
 });
 
-test('a write that meets a change made elsewhere merges with it, and the typing wins where both changed', async () => {
+test('a save that meets a change made elsewhere merges with it, and the typing wins where both changed', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
 	await harness.writeElsewhere(PATH, theirs);
@@ -103,12 +103,12 @@ test('a write that meets a change made elsewhere merges with it, and the typing 
 	expect(await harness.text(PATH)).toContain('\nMine\n');
 });
 
-test('returning to the window shows a change made elsewhere', async () => {
+test('a change the folder reports is shown', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	await harness.writeElsewhere(PATH, `${FILE}- theirs\n`);
-	focusManager.setFocused(false);
-	focusManager.setFocused(true);
-	await Bun.sleep(0);
+	await settle(harness);
+	expect(harness.target.textContent).not.toContain('theirs');
+	await harness.reportChange(PATH);
 	await settle(harness);
 	expect(harness.target.textContent).toContain('theirs');
 });
@@ -120,9 +120,7 @@ test('a thought typed and not added stays visible to copy when the capture stops
 		PATH,
 		`---\ncapturedAt: ${AT}\n---\n\n## Thoughts\n\n## Thoughts\n`,
 	);
-	focusManager.setFocused(false);
-	focusManager.setFocused(true);
-	await Bun.sleep(0);
+	await harness.reportChange(PATH);
 	await settle(harness);
 	expect(harness.target.textContent).toContain(
 		'cannot be edited as text and thoughts',
@@ -151,7 +149,7 @@ test('a file that is not a valid capture shows its issues as typed, and opens as
 	await settle(harness);
 	expect(await harness.text(PATH)).toBe(fixed);
 	click(button('Open as capture'));
-	// Opening from text first reads the row again, which no query tracks.
+	// Opening from text first reads the listing again, which no view observes now.
 	await until(() => harness.captures.opened?.mode === 'capture');
 	await settle(harness);
 	expect(harness.captures.opened).toEqual({ stem: 'one', mode: 'capture' });

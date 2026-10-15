@@ -18,7 +18,7 @@
 	/** The capture just added from the timeline, so its view starts at Add a thought. */
 	let created = $state<string>();
 
-	// Leaving would lose something: a write or action still running, or text not added.
+	// Leaving would lose something: a write or action still running, or text not saved or added.
 	const mustStay = $derived(captures.unsettled);
 
 	// Text not added lives only in this page. A reload, a tab close, or a navigation out
@@ -57,7 +57,6 @@
 	}
 </script>
 
-<!-- Returning to the window reads the folder again: the query client listens for focus. -->
 <svelte:window
 	onbeforeunload={(event) => {
 		if (mustStay) event.preventDefault();

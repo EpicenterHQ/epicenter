@@ -7,7 +7,11 @@
 	let { children } = $props();
 
 	// One cache for the app: the files it shows, and every write and action.
-	const queryClient = new QueryClient();
+	// The folder's change channel says when files changed (the page wires it),
+	// so returning to the window reads nothing again.
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { refetchOnWindowFocus: false } },
+	});
 </script>
 
 <svelte:head><title>Capture</title></svelte:head>
