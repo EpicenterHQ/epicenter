@@ -36,8 +36,7 @@ browser, and `filesLock` for the browser and Bun's in-process lock.
 still on disk, so a retry captures everything the lost attempt held. A second
 failure is reported.
 
-**Hints stay best effort.** `BroadcastChannel` hints may not cross windows; a
-window reads again on focus.
+**Freshness is [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md)'s:** one channel, `folder.onFilesChanged`, fed by one detector of outside changes per host; the desktop's is the shell's file watcher, not `BroadcastChannel` hints, which do not cross windows.
 
 ## Consequences
 
