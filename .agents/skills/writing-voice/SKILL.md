@@ -32,8 +32,10 @@ his thought further than his own phrasing did; a line that misreads his
 experience cannot, however close it sounds. His voice lives in how he moves a
 thought (direct claims, concrete particulars, the turn that lands it) more than
 in any one phrase, so keep a verbal turn when it carries that and replace it
-when something carries it better. Lean toward the sharper articulation and
-write it directly; when the sharp version is unclear, or several are about
+when something carries it better. Lean toward the sharper articulation within a sentence or paragraph and
+write it directly, keeping the order of his thought and the sequence of what
+happened as he gave them; a different arrangement is a proposal, not an edit.
+When the sharp version is unclear, or several are about
 equally good, show two or three. Drop an aside that belonged only to the moment
 of speaking.
 
