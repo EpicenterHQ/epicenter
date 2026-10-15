@@ -8,7 +8,8 @@ export const commands = {
 	 *  Give this window the directory of a scope the shell registered for it.
 	 *  The folder is locked on its first grant and stays locked until shutdown.
 	 *  The window reads and changes it through this plugin's commands alone;
-	 *  nothing else on disk becomes reachable.
+	 *  nothing else on disk becomes reachable. From the first grant the folder
+	 *  is watched, and the scope's windows hear `epicenter-folder://changed`.
 	 */
 	grantDirectory: (scope: string) => typedError<Granted, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|grant_directory", { scope })),
 	/**
@@ -62,6 +63,9 @@ export const commands = {
 	makeFolderDirectory: (scope: string, path: string) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { scope, path })),
 };
 
+/* Constants */
+export const FOLDER_CHANGED_EVENT = "epicenter-folder://changed" as const;
+
 /* Types */
 /**
  *  Why a rename or a removal changed nothing. The first three are the path
@@ -105,6 +109,18 @@ export type Expectation =
 { sha256: string } |
 /**  Whatever is there, or nothing: the page has already decided. */
 "any";
+
+/**  What may have changed in a granted folder. */
+export type FolderChanged = {
+	/**  The scope whose folder changed. */
+	scope: string,
+	/**
+	 *  The changed paths, relative to the root with `/` and sorted, `.git`
+	 *  standing for history having moved; or `null` when anything may have
+	 *  changed.
+	 */
+	paths: string[] | null,
+};
 
 /**  What one `git` process ended with. */
 export type GitOutput = {

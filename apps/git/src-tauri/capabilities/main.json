@@ -1,9 +1,11 @@
 {
 	"identifier": "main",
-	"description": "Each window opens its working copy with the page's own engine. The folder plugin grants the window that copy's directory, then reads and changes it and runs the copy's Git itself.",
+	"description": "Each window opens its working copy with the page's own engine. The folder plugin grants the window that copy's directory, then reads and changes it and runs the copy's Git itself. Each window listens for the folder plugin's change event, epicenter-folder://changed.",
 	"windows": ["copy-a", "copy-b"],
 	"permissions": [
 		"epicenter-folder:default",
+		"core:event:allow-listen",
+		"core:event:allow-unlisten",
 		"allow-open-copy",
 		"allow-demo-info"
 	]

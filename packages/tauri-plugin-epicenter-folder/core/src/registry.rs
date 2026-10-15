@@ -259,6 +259,15 @@ impl Registry {
         Ok(())
     }
 
+    /// The labels of the windows permitted into `scope`, registered or
+    /// permitted later; none for a scope that is not registered.
+    pub fn windows(&self, scope: &str) -> Vec<String> {
+        self.scopes()
+            .get(scope)
+            .map(|entry| entry.config.windows.clone())
+            .unwrap_or_default()
+    }
+
     /// The registered scope `scope`, if `window` is one of its windows.
     fn permitted<'a>(
         scopes: &'a mut BTreeMap<String, Scope>,

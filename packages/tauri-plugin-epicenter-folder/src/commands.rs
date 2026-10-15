@@ -32,7 +32,8 @@ async fn blocking<T: Send + 'static>(
 /// Give this window the directory of a scope the shell registered for it.
 /// The folder is locked on its first grant and stays locked until shutdown.
 /// The window reads and changes it through this plugin's commands alone;
-/// nothing else on disk becomes reachable.
+/// nothing else on disk becomes reachable. From the first grant the folder
+/// is watched, and the scope's windows hear `epicenter-folder://changed`.
 #[tauri::command]
 #[specta::specta]
 pub async fn grant_directory<R: Runtime>(
@@ -42,7 +43,12 @@ pub async fn grant_directory<R: Runtime>(
     let label = webview.label().to_string();
     let app = webview.app_handle().clone();
     blocking(
-        move || app.state::<Folders>().registry.grant(&scope, &label),
+        move || {
+            let folders = app.state::<Folders>();
+            let granted = folders.registry.grant(&scope, &label)?;
+            folders.watch(&app, &scope, std::path::Path::new(&granted.root));
+            Ok(granted)
+        },
         |message| Err(GrantError::Unavailable { message }),
     )
     .await

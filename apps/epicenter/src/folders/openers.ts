@@ -17,8 +17,8 @@
  * declaration its `epicenter.app.json` names as `opens`. Only an installed
  * app that can run is offered; one waiting for approval is not.
  *
- * Every compiled application not offered on a listed folder is listed under
- * Apps, so an app whose folder does not exist yet stays one click away.
+ * Every launchable application not offered on a listed folder is listed
+ * under Apps, so an app whose folder does not exist yet stays one click away.
  */
 
 import { captureDefinition } from '@epicenter/capture/definition';
@@ -32,8 +32,8 @@ import { todosDefinition } from '@epicenter/todos/definition';
 import {
 	type Application,
 	CAPTURE_APPLICATION,
-	COMPILED_APPLICATIONS,
 	FOLDERS_APPLICATION,
+	LAUNCHABLE_APPLICATIONS,
 	TODOS_APPLICATION,
 } from '../applications.ts';
 import type { DataFolder, InstalledApp } from '../ui/bindings.gen';
@@ -126,14 +126,14 @@ export function openersOf(
 }
 
 /**
- * The compiled applications listed under Apps: every one except the Folders
+ * The launchable applications listed under Apps: every one except the Folders
  * window itself and those `offered` on a folder.
  */
 export function appsWithoutFolder(
 	offered: Iterable<Application>,
 ): Application[] {
 	const onAFolder = new Set([...offered].map(({ id }) => id));
-	return COMPILED_APPLICATIONS.filter(
+	return LAUNCHABLE_APPLICATIONS.filter(
 		({ id }) => id !== FOLDERS_APPLICATION.id && !onAFolder.has(id),
 	);
 }

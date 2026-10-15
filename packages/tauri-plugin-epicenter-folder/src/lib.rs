@@ -31,12 +31,16 @@
 //! whichever window, and stays locked until the app exits or the shell calls
 //! `Folders::shutdown`, which refuses new work and releases each folder's
 //! cross-process lock without waiting for work already running (ADR-0542).
+//!
+//! From a folder's first grant the plugin also watches its root and tells
+//! the scope's windows what changed outside them, as the Tauri event
+//! `epicenter-folder://changed` (`watcher`, ADR-0548).
 
 use std::path::PathBuf;
 
 use tauri::plugin::TauriPlugin;
 use tauri::webview::PageLoadEvent;
-use tauri::{Manager, RunEvent, Runtime, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, WindowEvent};
 
 use epicenter_folder_core::registry::Registry;
 pub use epicenter_folder_core::page_files::{ChangeError, Expectation};
@@ -48,8 +52,10 @@ pub use epicenter_folder_core::registry::{
 mod command_names;
 mod commands;
 mod git_runs;
+mod watcher;
 
 pub use command_names::COMMANDS;
+pub use watcher::{FolderChanged, FOLDER_CHANGED_EVENT};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
@@ -59,6 +65,8 @@ pub struct Folders {
     registry: Registry,
     /// The `git` runs each window's page started. See `git_runs`.
     git_runs: git_runs::GitRuns,
+    /// One watcher per granted root. See `watcher`.
+    watchers: watcher::Watchers,
 }
 
 impl Folders {
@@ -81,11 +89,37 @@ impl Folders {
         self.registry.granted_root(scope, window)
     }
 
-    /// Refuse new work and release every lock, without waiting for work
-    /// already admitted. The plugin also does this when the app exits.
+    /// Refuse new work, stop watching, and release every lock, without
+    /// waiting for work already admitted. The plugin also does this when the
+    /// app exits.
     pub fn shutdown(&self) {
+        self.watchers.shutdown();
         self.registry.shutdown();
     }
+
+    /// Watch `root`, just granted for `scope`, unless it is watched already,
+    /// and report what changes to the scope's windows. A folder that cannot
+    /// be watched still opens; its windows hear of no outside change.
+    fn watch<R: Runtime>(&self, app: &AppHandle<R>, scope: &str, root: &std::path::Path) {
+        let report = changed_reporter(app.clone(), scope.to_string());
+        if let Err(message) = self.watchers.watch(scope, root, report) {
+            log::warn!("the folder scope '{scope}' is not watched: {message}");
+        }
+    }
+}
+
+/// Send a scope's changes to each window permitted into it, as the windows
+/// are when the change is reported, and to no other window.
+fn changed_reporter<R: Runtime>(app: AppHandle<R>, scope: String) -> watcher::Report {
+    std::sync::Arc::new(move |paths| {
+        let change = FolderChanged {
+            scope: scope.clone(),
+            paths,
+        };
+        for window in app.folders().registry.windows(&scope) {
+            let _ = app.emit_to(window.as_str(), FOLDER_CHANGED_EVENT, &change);
+        }
+    })
 }
 
 pub trait FolderExt<R: Runtime> {
@@ -103,6 +137,11 @@ impl<R: Runtime, T: Manager<R>> FolderExt<R> for T {
 /// `write_folder_file` takes a raw body and `read_folder_file` returns one,
 /// which specta cannot type, so they are dispatched beside these (`init`)
 /// and left out of the bindings.
+///
+/// The change event is exported as its payload type, `FolderChanged`, and
+/// its name, `FOLDER_CHANGED_EVENT`, rather than through tauri-specta's
+/// events: those are named `plugin:epicenter-folder:<name>`, and the event
+/// is `epicenter-folder://changed`.
 fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
@@ -116,6 +155,8 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::remove_folder_path::<tauri::Wry>,
             commands::make_folder_directory::<tauri::Wry>,
         ])
+        .typ::<FolderChanged>()
+        .constant("FOLDER_CHANGED_EVENT", FOLDER_CHANGED_EVENT)
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
 

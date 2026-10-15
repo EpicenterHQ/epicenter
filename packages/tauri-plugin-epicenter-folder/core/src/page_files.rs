@@ -13,7 +13,10 @@
 //!   paths a folder has is the page's business: the shell keeps no list;
 //! - inside `.git`, the folder engine's staging directory
 //!   `.git/epicenter/scratch` and its files, and the private index copies
-//!   `.git/index.tmp-*` that `git write-tree` reads.
+//!   `.git/index.tmp-*` that `git write-tree` reads. `mkdir` makes `.git`
+//!   itself only on the way to scratch, when it is absent: a folder has no
+//!   repository until its first commit (ADR-0535), and its first save
+//!   stages before that.
 //!
 //! Every name is compared component by component, `.git` and its parts
 //! case-insensitively, so on a disk that ignores case `.GIT/Hooks/x` is
@@ -396,22 +399,34 @@ pub fn data_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
 
 /// Make the directory at `path` and any missing ancestors, each one a data
 /// directory or the engine's staging directory on its way.
+///
+/// Before a folder's first commit there is no repository (ADR-0535): Sync
+/// or Save version runs `git init` later. A save stages its bytes first, so
+/// on the way to `.git/epicenter/scratch` this makes `.git` itself when it
+/// is absent, which is exactly when no repository exists. Nothing else in
+/// `.git` is made here: a `.git` that exists, with or without `HEAD`, is
+/// walked past, and `git init` fills it in.
 pub fn mkdir(root: &Path, path: &Path) -> Result<(), String> {
     let (kind, target) = classify(root, path)?;
     expect(kind, &[Kind::Data, Kind::Scratch], path)?;
     let relative = target.strip_prefix(root).expect("checked under the root");
+    let repository = root.join(".git");
     let mut current = root.to_path_buf();
     for component in relative.components() {
         current.push(component);
         if fs::symlink_metadata(&current).is_ok() {
             continue;
         }
-        let (kind, _) = classify(root, &current)?;
-        expect(
-            kind,
-            &[Kind::Data, Kind::Scratch, Kind::Epicenter],
-            &current,
-        )?;
+        // Only the staging directory's path passes through `.git`, so this
+        // is the scratch path's first step in a folder with no repository.
+        if current != repository {
+            let (kind, _) = classify(root, &current)?;
+            expect(
+                kind,
+                &[Kind::Data, Kind::Scratch, Kind::Epicenter],
+                &current,
+            )?;
+        }
         fs::create_dir(&current)
             .or_else(|cause| if current.is_dir() { Ok(()) } else { Err(cause) })
             .map_err(|cause| format!("'{}' could not be made: {cause}", current.display()))?;
@@ -647,6 +662,51 @@ mod tests {
         remove(&root, &root.join("todos/a.md"), false, &Expectation::Any).unwrap();
         remove(&root, &root.join("todos"), false, &Expectation::Any).unwrap();
         assert!(!root.join("todos").exists());
+    }
+
+    /// Before the first commit makes a repository (ADR-0535), a save stages
+    /// its bytes in `.git/epicenter/scratch`, so `.git` is made on the way;
+    /// `git init` later fills in the same `.git`. Nothing else in `.git`
+    /// becomes reachable.
+    #[test]
+    fn a_folder_with_no_repository_yet_stages_its_first_save() {
+        let temp = crate::testing::TempDir::new("page-files-no-repository");
+        let root = temp.folder("notes");
+        // `.git` is made only on the way to scratch, never as a target.
+        assert!(mkdir(&root, &root.join(".git")).is_err());
+        assert!(mkdir(&root, &root.join(".git/hooks")).is_err());
+        assert!(mkdir(&root, &root.join(".git/epicenter/no-hooks")).is_err());
+        assert!(!root.join(".git").exists());
+
+        let staged = staged(&root, "first", b"milk");
+        rename(&root, &staged, &root.join("todos.md"), &Expectation::Absent).unwrap();
+        assert_eq!(fs::read(root.join("todos.md")).unwrap(), b"milk");
+        let mut made: Vec<String> = fs::read_dir(root.join(".git"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        made.sort();
+        assert_eq!(made, ["epicenter"]);
+
+        // A `.git` with no `HEAD` is still Git's own state everywhere else.
+        for refused in [".git/HEAD", ".git/config", ".git/hooks/post-commit"] {
+            assert!(
+                write_file(&root, &root.join(refused), b"x", true).is_err(),
+                "{refused}"
+            );
+        }
+        assert!(mkdir(&root, &root.join(".git/hooks")).is_err());
+        assert!(remove(&root, &root.join(".git"), false, &Expectation::Any).is_err());
+
+        // The first commit's `git init` takes over the `.git` the save made.
+        let init = std::process::Command::new("git")
+            .args(["init", "--quiet", "--initial-branch=main"])
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        assert!(init.success());
+        assert!(root.join(".git/HEAD").is_file());
+        assert!(root.join(".git/epicenter/scratch").is_dir());
     }
 
     fn folder_with(label: &str, files: &[(&str, &[u8])]) -> (crate::testing::TempDir, PathBuf) {

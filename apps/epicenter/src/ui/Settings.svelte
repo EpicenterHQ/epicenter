@@ -11,7 +11,10 @@
 	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
-	import { WHISPERING_APPLICATION } from '../applications.ts';
+	import {
+		LAUNCHABLE_APPLICATIONS,
+		WHISPERING_APPLICATION,
+	} from '../applications.ts';
 	import { createLaunch } from './launch.svelte.ts';
 	import LocalModelAdministration from './LocalModelAdministration.svelte';
 	import { localModels } from './local-models.svelte';
@@ -89,6 +92,11 @@
 	const isLocalTranscriptionReady = $derived(
 		localModels.active !== null && localModels.active.installed,
 	);
+
+	/** Whether Epicenter hosts Whispering yet (`LAUNCHABLE_APPLICATIONS`). */
+	const isWhisperingLaunchable = LAUNCHABLE_APPLICATIONS.some(
+		({ id }) => id === WHISPERING_APPLICATION.id,
+	);
 </script>
 
 {#if isDesktopHost()}
@@ -118,7 +126,7 @@
 	<div class="grid gap-3 p-3">
 		<LocalModelAdministration />
 
-		{#if isLocalTranscriptionReady}
+		{#if isWhisperingLaunchable && isLocalTranscriptionReady}
 			<!-- The ordinary launch action, not a return path: it states what is
 			     true of the host, and the user chooses. The same verb as the
 			     Folders window's Apps list, because it is the same act. -->

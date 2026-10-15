@@ -21,7 +21,12 @@ apps/epicenter/src/folders ------> dist/folders
 ```
 
 The host serves Settings (the `home` document) and four compiled applications:
-Whispering, Capture, Todos, and its own Folders window. Application routes live below `/apps/<id>/`; the Mail and Books routes
+Whispering, Capture, Todos, and its own Folders window. Whispering is built and
+served but not offered for now, because inside Epicenter no folder or host of
+its own is registered for it: no window lists it, `launch_application` refuses
+it, neither the tray nor a deep link opens it, and the shell opens neither its
+hidden window nor its recording overlay at startup (`BuiltInApp::is_hosted`
+and `LAUNCHABLE_APPLICATIONS` in `src/applications.ts`). Application routes live below `/apps/<id>/`; the Mail and Books routes
 serve placeholder pages (`src/placeholder-pages.ts`). Apps a person installs
 from a Git repository are served below `/apps/<app-id>/` too (see
 [Installed apps](#installed-apps)). The `epicenter-host` build
@@ -142,15 +147,14 @@ switcher from there, and closing the Folders window leaves everything it
 launched running.
 
 Settings is the window labelled `home`, with two panes: Chat and Settings. It
-alone administers the local transcription model (ADR-0180). Whispering hands
-transcription setup back to its Settings pane when the host has no usable local
-model, and Settings offers the ordinary launch action once there is one. The
-tray (Show Folders, Show Settings, Show Whispering) and deep links remain
+alone administers the local transcription model (ADR-0180). While Whispering is
+launchable, it hands transcription setup back to its Settings pane when the
+host has no usable local model, and Settings offers the ordinary launch action
+once there is one. The tray (Show Folders, Show Settings) and deep links remain
 shortcuts into the same windows:
 
 ```bash
 open 'epicenter://'
-open 'epicenter://app/whispering'
 open 'epicenter://app/todos'
 open 'epicenter://app/folders'
 open 'epicenter://app/home'
@@ -386,7 +390,11 @@ not submit is lost, as people expect.
   once the next host is ready, and each page reopens its folder. Installed
   apps' windows stay closed; the person opens them again from the Apps list.
   Destroying the last window does not quit Epicenter: an exit request with no
-  code is refused, and Epicenter stays in the tray meanwhile.
+  code is refused, and Epicenter stays in the tray meanwhile. The failure
+  dialog offers Retry, which starts the next host and opens those windows.
+  Whispering's recording overlay is an `NSPanel` that cannot be destroyed
+  (destroying it throws an AppKit exception that aborts the process), so a
+  host restart hides it instead (`on_host_stop` in `src-tauri/src/lib.rs`).
 - **Closing a window hides it.** The built-in windows are hidden, not
   destroyed, so their pages and folders stay open until Epicenter quits. An
   installed app's window is destroyed when it closes.

@@ -1,5 +1,6 @@
 /**
- * What a person can launch from the Folders window (ADR-0189, ADR-0537).
+ * What the host serves, and what a person can launch from the Folders window
+ * (ADR-0189, ADR-0537).
  *
  * A compiled application ships in the release and is served from its own
  * built-in route behind the host's session gate. The Folders window needs only
@@ -27,13 +28,6 @@ export type Application = {
 	installed?: true;
 };
 
-/**
- * The compiled applications this release can launch.
- *
- * Rust holds the matching decision for its own built-in app table
- * (`BuiltInApp::is_launchable`). Both sides are small closed lists rather than a
- * shared manifest, and each is checked against this one by its own tests.
- */
 export const WHISPERING_APPLICATION: Application = {
 	id: BUILT_IN_ROUTES.whispering.id,
 	title: BUILT_IN_ROUTES.whispering.title,
@@ -65,7 +59,8 @@ export const SETTINGS_APPLICATION: Application = {
 };
 
 /**
- * Compiled applications, in the order the Folders window lists them.
+ * Compiled applications, in the order the Folders window lists the
+ * launchable ones (`LAUNCHABLE_APPLICATIONS`).
  *
  * This is also the list the host loads asset trees for at boot: a compiled
  * application is exactly a `dist/<id>` build the release ships, so declaring
@@ -77,3 +72,20 @@ export const COMPILED_APPLICATIONS: readonly Application[] = [
 	TODOS_APPLICATION,
 	FOLDERS_APPLICATION,
 ];
+
+/**
+ * The compiled applications a person can launch, in the order the Folders
+ * window lists them.
+ *
+ * Whispering is built and served but not launchable for now: inside Epicenter
+ * no folder or host of its own is registered for it, so its page can only
+ * report that the desktop app did not start Whispering's host. Dropping this
+ * filter, and returning `true` for it from `BuiltInApp::is_hosted` in Rust,
+ * offers it again.
+ *
+ * Rust holds the matching decision for its own built-in app table
+ * (`BuiltInApp::is_launchable`). Both sides are small closed lists rather than
+ * a shared manifest, and each is checked against this one by its own tests.
+ */
+export const LAUNCHABLE_APPLICATIONS: readonly Application[] =
+	COMPILED_APPLICATIONS.filter(({ id }) => id !== WHISPERING_APPLICATION.id);
