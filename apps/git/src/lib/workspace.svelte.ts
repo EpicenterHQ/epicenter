@@ -1,16 +1,20 @@
 import {
-	type FileCapture,
 	type FileListing,
 	type GitSnapshot,
 	openDataFolder,
 	type PathStatus,
+	type Replaced,
+	restoreTheirs,
+	type SavedFile,
 	type SyncAttempt,
 	type SyncChoiceProblem,
 	type SyncChoices,
 	type SyncError,
 	type SyncOutcome,
+	type TextCapture,
 } from '@epicenter/folder';
 import { readTextFile, withFileNewlines } from '@epicenter/folder/file-browser';
+import { createTextDraft, type TextDraft } from '@epicenter/folder/query';
 import { describeSync } from '@epicenter/svelte/sync-line';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Result } from 'wellcrafted/result';
@@ -57,7 +61,12 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	let selected = $state('');
 	let buffer = $state('');
 	let saved = '';
-	let capture = $state.raw<FileCapture>();
+	/** The version the editor shows: its text is `saved`. */
+	let capture = $state.raw<TextCapture>();
+	/** The typed text and the version it started from, apart from `capture`. */
+	let draft: TextDraft = createTextDraft();
+	/** The last save that replaced another writer's change, until dismissed. */
+	let replacedBy = $state.raw<SavedFile>();
 	let saveMessage = $state('');
 	let dirty = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -131,6 +140,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			return;
 		}
 		capture = result.data.file;
+		draft = createTextDraft();
 		saved = result.data.file.text;
 		buffer = saved;
 		saveMessage = 'Saved';
@@ -175,20 +185,34 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			reading = undefined;
 		}
 	}
-	async function saveOnce(mode: 'replace' | 'overwrite' = 'replace') {
-		if (!capture || !dirty) return;
-		const text = buffer;
+	/** The editor shows what a save wrote: the file's text now. */
+	function showWritten(written: SavedFile) {
+		const text = new TextDecoder().decode(written.stored.bytes);
+		capture = {
+			path: written.stored.path,
+			sha256: written.stored.sha256,
+			text,
+		};
+		saved = text;
+		if (written.replaced.length > 0) replacedBy = written;
+	}
+	/**
+	 * Save the typed text over the version it started from. A file changed
+	 * elsewhere since is merged with it by line (ADR-0551): the editor shows
+	 * the merge, and text typed during the save is carried onto it.
+	 */
+	async function saveOnce() {
+		const sent = draft.toSave();
+		if (!sent || !dirty) return;
 		saveMessage = 'Saving…';
-		const result =
-			mode === 'replace'
-				? await folder.files.replace(capture, text)
-				: await folder.files.overwrite(capture.path, text);
+		const result = await folder.files.save(sent.base, sent.text);
 		if (result.error !== null) {
 			saveMessage = result.error.message;
 			throw new Error(result.error.message);
 		}
-		capture = result.data;
-		saved = text;
+		await draft.saved(sent, result.data);
+		showWritten(result.data);
+		buffer = draft.text ?? saved;
 		dirty = buffer !== saved;
 		saveMessage = dirty ? 'Unsaved changes' : 'Saved';
 	}
@@ -232,8 +256,8 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	});
 	// Changes made outside this handle, and the files its own Sync wrote. The
 	// open file is read again only when the change names it, and never over
-	// typed input: an edited buffer keeps the capture it started from, and
-	// its save stays conditional on that capture.
+	// typed input: an edited buffer keeps the version it started from, and
+	// its save merges with what changed since.
 	const stopChanges = folder.onFilesChanged((change) => {
 		if (closed) return;
 		const readFile =
@@ -354,6 +378,8 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			if (generation !== selectGeneration || closed) return;
 			selected = path;
 			capture = undefined;
+			draft = createTextDraft();
+			replacedBy = undefined;
 			buffer = '';
 			saved = '';
 			saveMessage = 'Opening…';
@@ -362,6 +388,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		input(text: string) {
 			if (closed || !capture || syncLocked()) return;
 			buffer = withFileNewlines(text, saved);
+			draft.change(capture, buffer);
 			dirty = buffer !== saved;
 			saveMessage = dirty ? 'Unsaved changes' : 'Saved';
 			clearTimeout(timer);
@@ -369,21 +396,35 @@ export async function openWorkingCopy(copy: string, remote: string) {
 				void flush().catch(() => {});
 			}, 350);
 		},
-		async keepMyText() {
-			clearTimeout(timer);
-			while (saving) await saving.catch(() => {});
-			if (!selected || !dirty) return;
-			saving = saveOnce('overwrite').finally(() => {
-				saving = undefined;
-			});
-			await saving;
-			await refresh();
-		},
 		async useSavedText() {
 			clearTimeout(timer);
 			if (saving) await saving.catch(() => {});
 			dirty = false;
+			draft = createTextDraft();
 			await readSelected();
+		},
+		/** What the last save replaced of another writer's change, until dismissed. */
+		get replaced(): readonly Replaced[] {
+			return replacedBy?.replaced ?? [];
+		},
+		dismissReplaced() {
+			replacedBy = undefined;
+		},
+		/** Put back what the last save replaced: one more save over the version it wrote. */
+		async restoreTheirs() {
+			const last = replacedBy;
+			if (last === undefined || dirty || saving) return;
+			replacedBy = undefined;
+			const { base, content } = restoreTheirs(last, folder.definition);
+			const result = await folder.files.save(base, content);
+			if (result.error !== null) {
+				saveMessage = result.error.message;
+				return;
+			}
+			showWritten(result.data);
+			buffer = saved;
+			saveMessage = 'Saved';
+			await refresh(false);
 		},
 		flush,
 		status: action('Status', () => folder.git.status()),
