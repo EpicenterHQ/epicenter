@@ -742,11 +742,9 @@
         "@epicenter/agent": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/ui": "workspace:*",
-        "arktype": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
-        "@standard-schema/spec": "catalog:",
         "@types/bun": "catalog:",
         "svelte": "catalog:",
         "svelte-check": "catalog:",

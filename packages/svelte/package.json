@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for Epicenter: reactive workspace state, persisted state, and the auth/session adapter.",
+	"description": "Svelte 5 bindings for Epicenter: reactive data, agent conversations, and the sync review.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -21,11 +21,9 @@
 		"@epicenter/agent": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/ui": "workspace:*",
-		"arktype": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
-		"@standard-schema/spec": "catalog:",
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
