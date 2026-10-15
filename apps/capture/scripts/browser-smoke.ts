@@ -239,8 +239,8 @@ try {
 	assert.equal(await source(first), edited);
 
 	// 6. Another page edits the file. The first page has not read it since, so
-	// its next write meets the change: it is not written, the text box shows
-	// the other page's text, and a toast offers the text that was lost.
+	// its next write meets the change and merges with it: both changed the
+	// text, so the first page's text wins there (ADR-0548).
 	const second = await context.newPage();
 	second.on('pageerror', (error) => errors.push(`second: ${error.message}`));
 	await second.goto(app);
@@ -248,13 +248,7 @@ try {
 	await second.getByLabel('Capture text').fill('Changed in the other window');
 	await saved(second);
 	await first.getByLabel('Capture text').fill('Mine');
-	await first.getByText(/^Could not save captures\//).waitFor();
-	await first.getByRole('button', { name: 'Copy your text' }).waitFor();
-	await first.waitForFunction(
-		() =>
-			(document.querySelector('#capture-text') as HTMLTextAreaElement)
-				?.value === 'Changed in the other window',
-	);
+	await saved(first);
 
 	// 7. The next edit writes on top of the file as it is now.
 	await first.getByLabel('Capture text').fill('Saved over it');
@@ -351,7 +345,7 @@ try {
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a conflicting write rolled back across two pages, Save version, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an idempotent import from a bundle file.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a write merged with a change from another page, Save version, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an idempotent import from a bundle file.',
 	);
 } catch (cause) {
 	console.error(cause);
