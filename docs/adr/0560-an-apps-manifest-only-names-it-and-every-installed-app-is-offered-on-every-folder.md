@@ -26,7 +26,9 @@ it from the clone and returned it as `InstalledApp.opens`; `installedOpeners`
 and `openersOf` in `apps/epicenter/src/folders/openers.ts` offered an app
 under "Open in" only on a folder whose `epicenter.json` contained that shape,
 by `shapeProblems` from `@epicenter/definition`. Each of Todos, Capture,
+<!-- doc-path-check: ignore-next-line -->
 Whispering, and Honeycrisp carried `shape.json`, a `scripts/shape.ts` that
+<!-- doc-path-check: ignore-next-line -->
 wrote it, a `scripts/shape.test.ts` that failed when it drifted from the
 definition, and a `shape` script; Whispering also carried
 `tsconfig.scripts.json` for the one script. All four manifests set `build`
@@ -91,6 +93,7 @@ open the folder '<name>': …", and records into the scope it opened
   the only check.
 - `shapeProblems` and `schemaContainment` stay in `@epicenter/definition`;
   `openDataFolder`'s lens is their caller.
+<!-- doc-path-check: ignore-next-line -->
 - Deleted: `shape.json`, `scripts/shape.ts`, and `scripts/shape.test.ts` in
   each of the four apps (12 files), the four `shape` scripts, Whispering's
   `tsconfig.scripts.json`, the manifest's `opens`, `build`, and `output` with
