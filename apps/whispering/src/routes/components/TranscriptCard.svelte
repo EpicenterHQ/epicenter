@@ -14,17 +14,24 @@
 	import { confirmDelete, copyText, formatTime, lf, openItem } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ResultStatus from './ResultStatus.svelte';
+	import { onDestroy } from 'svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
 	/**
 	 * One transcript of the recording that is open, edited where it is read,
 	 * beside the player. Its text is the body of the transcript's own file,
-	 * edited from the version it started at and saved at once.
+	 * edited from the version it started at and saved a second after the last
+	 * keystroke, when the person leaves it, and when the card goes away.
 	 * A transcript whose answer has not reached its file says why instead, and
 	 * is not edited while its answer is on its way. Nothing here selects the
 	 * transcript's file, so the recording stays open.
 	 */
 	let { library, result }: { library: Library; result: TranscriptionEntry } = $props();
+	// The list keys each card by its file; what is typed is sent to that one.
+	// svelte-ignore state_referenced_locally
+	const own = result.path;
+	// The library's timer outlives the card; send what is typed now instead.
+	onDestroy(() => void library.saveBody(own));
 
 	/** Edited here unless the person opened its file as text in Files. */
 	const asText = $derived(library.showsText(result.path));
@@ -62,10 +69,9 @@
 			bind:value={
 				() => lf(row?.body ?? ''),
 				(value) =>
-					library.editRow(TRANSCRIPTIONS, result.stem, (r) => {
-						r.body = withFileNewlines(wellFormed(value), r.body);
-					})
+					library.editBody(TRANSCRIPTIONS, result.stem, withFileNewlines(wellFormed(value), row?.body ?? ''))
 			}
+			onblur={() => void library.saveBody(result.path)}
 			disabled={locked}
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"

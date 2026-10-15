@@ -19,6 +19,7 @@
 	import { wellFormed } from '@epicenter/folder';
 	import { toast } from '@epicenter/ui/sonner';
 	import { createQuery } from '@tanstack/svelte-query';
+	import { onDestroy } from 'svelte';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
 	import { TRANSCRIPTIONS, whisperingDefinition } from '$lib/definition.js';
 	import { type Library, rowTableOf } from '$lib/library.svelte.js';
@@ -39,6 +40,14 @@
 		onBack?: () => void;
 	} = $props();
 
+	// The parent keys this view by the file; what is typed is sent to that one.
+	// svelte-ignore state_referenced_locally
+	const own = path;
+	// The library's timers outlive the view; send what is typed now instead.
+	onDestroy(() => {
+		void library.saveBody(own);
+		void library.saveText(own);
+	});
 	const table = $derived(rowTableOf(path));
 	const audio = $derived(table === undefined && audioMimeTypeOf(path) !== undefined);
 	const asText = $derived(!audio && library.showsText(path));
@@ -138,10 +147,9 @@
 				bind:value={
 					() => lf(transcript?.body ?? ''),
 					(value) =>
-						library.editRow(TRANSCRIPTIONS, stem, (row) => {
-							row.body = withFileNewlines(wellFormed(value), row.body);
-						})
+						library.editBody(TRANSCRIPTIONS, stem, withFileNewlines(wellFormed(value), transcript?.body ?? ''))
 				}
+				onblur={() => void library.saveBody(path)}
 				disabled={locked}
 				aria-label="Contents of {name}"
 			/>
@@ -177,6 +185,7 @@
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
 				bind:value={() => lf(text ?? ''), (value) => library.editText(path, withFileNewlines(value, text ?? ''))}
+				onblur={() => void library.saveText(path)}
 				disabled={locked}
 				aria-label="Contents of {name}"
 				spellcheck={false}

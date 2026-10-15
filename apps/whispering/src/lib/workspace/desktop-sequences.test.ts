@@ -150,6 +150,8 @@ test('a save whose reply was lost is reported and keeps the edit, which saves ag
 	expect(library.unsaved).toBe(true);
 
 	shell.control.failReads.delete(PATH);
+	// The file reads again, so the fields show and take typing.
+	await settle(library);
 	type(session, 'Tidy it all.\n');
 	await settle(library);
 	// Whether the lost save landed was unknown, so the edit saves again from

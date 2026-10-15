@@ -1,8 +1,10 @@
 /**
  * What a view does to edit a file, for tests that drive the library without
- * mounting components: change the row or the text, which writes it. `draft`
- * reads what the view shows now: the edit while it is unsaved, else the
- * cache. Type-only imports from the library, so this loads before the
+ * mounting components: change the row or the text, and send it, as a view
+ * does once the person pauses or leaves. A changed field is an update of the
+ * file as it is now; a changed body or text is a draft saved over the
+ * version it started from. `draft` reads what the view shows now: the body
+ * typed while it is unsaved, else the cache. Type-only imports from the library, so this loads before the
  * Svelte compiler plugin is registered.
  */
 import { type Row, rowStemOf } from '@epicenter/folder';
@@ -37,9 +39,25 @@ function rowEditor<T extends RowTable>(
 			if (row === undefined) throw new Error(`No row for ${path} to show`);
 			return row as Row<FieldsOf<T>>;
 		},
-		/** Change the row as a person typing does; it is written at once. */
+		/** Change the row as a person typing does, and send it. */
 		edit(change: (row: Row<FieldsOf<T>>) => void) {
-			library.editRow(table, stem, change as never);
+			const shown = library.rowAt(table, path) as Row<FieldsOf<T>> | undefined;
+			if (shown === undefined) return;
+			const next = structuredClone(shown);
+			change(next);
+			const set: Record<string, unknown> = {};
+			for (const [name, value] of Object.entries(next.fields))
+				if (
+					JSON.stringify(value) !==
+					JSON.stringify((shown.fields as Record<string, unknown>)[name])
+				)
+					set[name] = value;
+			if (Object.keys(set).length > 0)
+				library.setFields(table, stem, set as never);
+			if (next.body !== shown.body) {
+				library.editBody(table, stem, next.body);
+				void library.saveBody(path);
+			}
 		},
 	};
 }
@@ -69,6 +87,7 @@ export function textEditor(library: Library, path: string) {
 		},
 		input(text: string) {
 			library.editText(path, text);
+			void library.saveText(path);
 		},
 	};
 }

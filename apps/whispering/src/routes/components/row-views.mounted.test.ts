@@ -7,7 +7,8 @@
  * transformations pages do, under the library's query client.
  *
  * Key behaviors:
- * - typing in a view edits the path it shows, and writes it
+ * - typing in a view edits the path it shows, and writes it once the person
+ *   leaves the field
  * - a change made elsewhere shows once the folder reports it
  * - typing over a change made elsewhere merges with it, and the typing wins
  *   where both changed and says so; a recording deleted elsewhere stays
@@ -26,7 +27,7 @@ import { join } from 'node:path';
 import { folderOptions } from '@epicenter/folder/query';
 import type { Library, WriteNotice } from '../../lib/library.svelte.js';
 import { createQueryClient, quiet } from '../../lib/query.test-support.js';
-import { type } from '../svelte-dom.test-support.js';
+import { leave, type } from '../svelte-dom.test-support.js';
 
 // Load the workspace after the mounted loader registered its plugin.
 const { openTestWorkspace } = await import(
@@ -118,6 +119,7 @@ test('typing in a transcript’s view edits the path it shows, and writes it', a
 	type(body, 'Alpha, typed.\n');
 	flushSync();
 	expect(writeStatus(target)).toBe('Saving…');
+	leave(body);
 	await settle(library);
 
 	expect(notices).toEqual([]);
@@ -159,6 +161,7 @@ test('typing over a change made elsewhere merges with it, and the typing wins wh
 
 	await writeFile(join(root, A), transcript('Theirs.\n'));
 	type(body(), 'Mine.\n');
+	leave(body());
 	await settle(library);
 	expect(notices).toMatchObject([
 		{ kind: 'replaced', path: A, replaced: [{ theirs: 'Theirs.\n' }] },
@@ -173,13 +176,13 @@ test('a recording deleted elsewhere stays deleted: typing in it is refused, repo
 	});
 	await show(library, RECORDING);
 	await rm(join(root, RECORDING));
-	type(field(target, 'input[aria-label="Recording title"]'), 'Mine');
+	const notes = field(target, 'textarea[aria-label="Notes"]');
+	type(notes, 'Mine.\n');
+	leave(notes);
 	await settle(library);
 
 	expect(notices).toHaveLength(1);
-	expect(notices[0]?.kind === 'failed' && notices[0].lost).toContain(
-		'title: Mine',
-	);
+	expect(notices[0]?.kind === 'failed' && notices[0].lost).toContain('Mine.');
 	expect(library.selection).toBeUndefined();
 	expect(target.querySelector('[data-testid="recording-detail"]')).toBeNull();
 	expect(await Bun.file(join(root, RECORDING)).exists()).toBe(false);
@@ -206,6 +209,7 @@ test('a transformation that does not read opens as its text with its issues, and
 		source(),
 		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n',
 	);
+	leave(source());
 	await settle(library);
 	flushSync();
 	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
@@ -241,6 +245,7 @@ test('a transformation’s title, model, and instructions save from their own co
 	flushSync();
 	expect(model()?.value).toBe('');
 	type(model(), 'chat-model');
+	leave(model());
 	await settle(library);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(
 		'---\ntitle: Clean up\nmodel: chat-model\nendpoint: null\n---\nTidy.\r\n',
@@ -248,8 +253,11 @@ test('a transformation’s title, model, and instructions save from their own co
 
 	// An emptied model is no model: the text connection's is used.
 	type(model(), ' ');
+	leave(model());
 	type(title(), 'Tidied');
+	leave(title());
 	type(prompt(), 'Tidy.\nThen check.\n');
+	leave(prompt());
 	await settle(library);
 	expect(await readFile(join(root, RECIPE), 'utf8')).toBe(
 		'---\ntitle: Tidied\nmodel: null\nendpoint: null\n---\nTidy.\r\nThen check.\r\n',

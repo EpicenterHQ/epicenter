@@ -8,7 +8,7 @@ import { compileModule } from 'svelte/compiler';
 Bun.plugin({
 	name: 'svelte-runes-module',
 	setup(build) {
-		build.onLoad({ filter: /\.svelte\.ts$/ }, async ({ path }) => {
+		build.onLoad({ filter: /\.svelte\.[jt]s$/ }, async ({ path }) => {
 			const typescript = await Bun.file(path).text();
 			const javascript = new Bun.Transpiler({ loader: 'ts' }).transformSync(
 				typescript,
