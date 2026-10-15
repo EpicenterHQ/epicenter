@@ -9,23 +9,13 @@
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { createLogger } from 'wellcrafted/logger';
 import type { FilesChanged } from './folder.js';
+import {
+	FOLDER_CHANGED_EVENT,
+	type FolderChanged,
+} from './native/bindings.gen.js';
 import type { ChangeDetector } from './open-at-root.js';
 
 const log = createLogger('folder/changes-tauri');
-
-/** The event the folder plugin emits when the shell's watcher sees changes. */
-export const FOLDER_CHANGED_EVENT = 'epicenter-folder://changed';
-
-/**
- * What the shell reports: the folder's scope, and the paths that changed,
- * relative to its root with `/`, or `null` when it cannot say which (it
- * started watching, the computer woke, or the operating system dropped
- * events). The single path `.git` is history moving (`HEAD` or a ref).
- */
-export type FolderChangedPayload = {
-	readonly scope: string;
-	readonly paths: string[] | null;
-};
 
 export function tauriChangeDetector(scope: string): ChangeDetector {
 	return (report: (change: FilesChanged) => void) => {
@@ -34,7 +24,7 @@ export function tauriChangeDetector(scope: string): ChangeDetector {
 		// Loaded when a folder is granted, like the rest of the desktop engine.
 		import('@tauri-apps/api/webviewWindow')
 			.then(({ getCurrentWebviewWindow }) =>
-				getCurrentWebviewWindow().listen<FolderChangedPayload>(
+				getCurrentWebviewWindow().listen<FolderChanged>(
 					FOLDER_CHANGED_EVENT,
 					({ payload }) => {
 						if (!open || payload?.scope !== scope) return;
