@@ -4,7 +4,7 @@
 - **Date:** 2026-10-14
 - **Supersedes:** [ADR-0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md), [ADR-0292](0292-a-database-opens-an-exact-generation-cache-first-and-bootstraps-account-misses.md), [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md), [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md), [ADR-0298](0298-the-authority-is-byte-blind-and-a-cursor-is-a-log-position.md), [ADR-0423](0423-app-resources-open-as-independent-handles.md), [ADR-0430](0430-define-store-declares-data-and-products-compose-resources.md), [ADR-0436](0436-stores-own-local-sqlite-namespaces.md), the Yjs store's records.
 - **Relates:** [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) is how folders sync; [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) is where a folder lives.
-- **Unbuilt:** marking the store's remaining records superseded; deleting and recreating the `api` Worker, which removes the store sync's Durable Objects without migrations; removing `@epicenter/device` and `@epicenter/sqlite` if nothing else adopts them.
+- **Unbuilt:** marking the store's remaining records superseded; deleting and recreating the `api` Worker, which removes the store sync's Durable Objects without migrations; removing `@epicenter/device` (and its worker settings in `packages/vite-config`) and `@epicenter/sqlite` if nothing else adopts them; `apps/landing`'s mention of `@epicenter/app/store`.
 
 ## Context
 
