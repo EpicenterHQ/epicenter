@@ -12,6 +12,7 @@ import type {
 	OpenFolderError,
 } from '@epicenter/folder';
 import type { Result } from 'wellcrafted/result';
+import manifest from '../../../epicenter.app.json';
 import type { todosDefinition } from '../definition.js';
 
 /**
@@ -22,11 +23,12 @@ import type { todosDefinition } from '../definition.js';
 export type TodosFolder = Folder<typeof todosDefinition, FolderDefinition>;
 
 /**
- * Todos's own folder. The browser names its OPFS directory after it and
- * opens no other; the desktop shell registers its directory under it and
- * hands it to a window opened without a folder.
+ * Todos's own folder, named by its app id in `epicenter.app.json`. The
+ * browser names its OPFS directory after it and opens no other; the desktop
+ * shell registers its directory under it and hands it to a window opened
+ * without a folder.
  */
-export const TODOS_FOLDER_ID = 'so.epicenter.todos';
+export const TODOS_FOLDER_ID = manifest.id;
 
 /**
  * The folder a leaf opened, and whether it is Todos's own folder,

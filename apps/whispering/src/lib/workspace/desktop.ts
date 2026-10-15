@@ -2,12 +2,20 @@
  * The desktop workspace: Whispering installed in Epicenter (ADR-0493,
  * ADR-0552), over a real directory Epicenter's shell grants this window.
  *
- * Epicenter hands an installed app opened from its Apps list its own folder,
- * `<folder root>/so.epicenter.whispering`, under the scope of the same name.
- * This opens it through `@epicenter/folder/tauri`, naming only that scope:
- * the shell grants the window the directory and holds its lock, and the
- * page's own folder engine reads it, saves to it through the shell, and
- * records history with the `git` the shell runs. The page supplies no path.
+ * The shell opens the window with the folder it hands it as `?folder=<scope>`
+ * (`open_installed_app`): Whispering's own folder, `WHISPERING_FOLDER_ID`,
+ * `<folder root>/so.epicenter.whispering`, or another folder chosen with "Open
+ * in Whispering" (ADR-0560). A window handed no folder opens Whispering's own.
+ * Whispering owns its own folder's schema, so it opens that folder with
+ * `openFolder`, which publishes `whisperingDefinition`. Any other folder opens
+ * with `openDataFolder` and `whisperingDefinition` as the lens (ADR-0538): its
+ * declaration is never written, and one that does not contain the lens is
+ * refused, named.
+ *
+ * Either way the page names only the scope: the shell grants the window the
+ * directory and holds its lock, and the page's own folder engine reads it,
+ * saves to it through the shell, and records history with the `git` the shell
+ * runs. The page supplies no path.
  *
  * Everything else native is Epicenter's, granted to Whispering's windows by
  * its app id (`installed-whispering-*` in Epicenter's capabilities):
@@ -28,7 +36,8 @@
  * unknown, never as "not sent", and nothing is sent again on its own.
  */
 
-import { openFolder } from '@epicenter/folder/tauri';
+import type { OpenFolderError } from '@epicenter/folder';
+import { openDataFolder, openFolder } from '@epicenter/folder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
 import {
@@ -58,11 +67,49 @@ import {
 import { localPreferences } from './microphone-preference.js';
 import {
 	WHISPERING_FOLDER_ID,
+	type WhisperingFolder,
 	type Workspace,
 	WorkspaceError,
 } from './types.js';
 
 type Route = Awaited<ReturnType<EpicenterConnections['route']>>;
+
+/** The scope the shell handed this window as `?folder=`, if any. */
+function handedFolder(): string | undefined {
+	const handed = new URLSearchParams(globalThis.location?.search).get('folder');
+	return handed || undefined;
+}
+
+/**
+ * The folder's name as a person knows it, its directory's: the shell scopes
+ * a listed folder `data:<directory>`, and an app's own folder by its
+ * directory, the app's id (`apps/epicenter/src-tauri/src/data_folders.rs`).
+ */
+function folderName(id: string): string {
+	return id.startsWith('data:') ? id.slice('data:'.length) : id;
+}
+
+/**
+ * Open the folder this window was handed: Whispering's own with its
+ * definition, any other through it as a lens. A folder that lacks the lens is
+ * refused with its name and what it lacks.
+ */
+async function openHandedFolder(
+	id: string,
+): Promise<Result<WhisperingFolder, OpenFolderError>> {
+	if (id === WHISPERING_FOLDER_ID)
+		return openFolder({ id, definition: whisperingDefinition });
+	const { data: folder, error } = await openDataFolder({
+		id,
+		lens: whisperingDefinition,
+	});
+	if (error === null) return Ok(folder);
+	if (error.name !== 'ShapeMismatch') return Err(error);
+	return Err({
+		...error,
+		message: `Whispering cannot open the folder '${folderName(id)}': ${error.problems.map((problem) => problem.message).join('; ')}.`,
+	});
+}
 
 export async function openDesktopWorkspace({
 	origin,
@@ -74,10 +121,8 @@ export async function openDesktopWorkspace({
 	fetch?: Send;
 	commands?: LocalTranscriptionCommands;
 }): Promise<Result<Workspace, WorkspaceError>> {
-	const opened = await openFolder({
-		id: WHISPERING_FOLDER_ID,
-		definition: whisperingDefinition,
-	});
+	const folderId = handedFolder() ?? WHISPERING_FOLDER_ID;
+	const opened = await openHandedFolder(folderId);
 	if (opened.error !== null)
 		return WorkspaceError.DesktopFolder({ refusal: opened.error });
 	const folder = opened.data;
@@ -105,6 +150,7 @@ export async function openDesktopWorkspace({
 	return Ok({
 		kind: 'native',
 		folder,
+		folderId,
 		location: root,
 		terminal: undefined,
 		capture: createMicrophoneDevice(),

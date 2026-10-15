@@ -495,11 +495,6 @@ export type InstalledApp = {
 	folder: string,
 	/**  The commit checked out, `HEAD`. Empty when the app is `Broken`. */
 	commit: string,
-	/**
-	 *  The text of the declaration `opens` names, or `None` when it could not
-	 *  be read. The page parses it; the shell does not judge it.
-	 */
-	opens: string | null,
 	state: AppState,
 };
 

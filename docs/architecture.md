@@ -95,9 +95,9 @@ exits ([ADR-0542](adr/0542-quitting-is-immediate-because-unfinished-work-already
 The Epicenter desktop app (`apps/epicenter`) opens to its Folders window
 ([ADR-0537](adr/0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md)).
 It lists every folder under `~/Epicenter` that holds an `epicenter.json`,
-opens one with its own declaration, edits its rows, and offers the apps whose
-shape the folder contains as "Open in". Settings (the `home` window) keeps
-Chat and model administration.
+opens one with its own declaration, edits its rows, and offers every installed
+app as "Open in"; an app refuses a folder its lens does not fit. Settings (the
+`home` window) keeps Chat and model administration.
 
 Epicenter's own folder is `~/Epicenter/so.epicenter`. What a person or agent
 edits lives in folders; what only Epicenter writes, such as `approvals.json`,

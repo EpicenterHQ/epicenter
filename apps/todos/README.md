@@ -31,8 +31,8 @@ or with Git.
 
 Todos installs into Epicenter as an app, from this folder of the Epicenter
 repository (ADR-0552); Epicenter compiles no app in. `epicenter.app.json`
-names the id `so.epicenter.todos`, the shape it opens (`shape.json`), the
-build (`bun run build:installed`), and its output (`dist`). The Folders
+names the id `so.epicenter.todos` and the title; Epicenter runs
+`bun run build:installed`, which writes `dist`. The Folders
 window Epicenter opens to offers "Install Todos" while no app is installed:
 it clones the repository into `~/Epicenter/Apps/so.epicenter.todos/`, and
 approving it runs `bun install` at the repository's root and the build here.
@@ -46,10 +46,6 @@ folder. Such a folder offers no [Connect](#connect): Epicenter's server keeps
 one repository per app id today, so Connect would give it Todos's own
 repository. Sync still works with a remote the folder already has, other
 than one on Epicenter's server.
-
-`shape.json` is `formatDeclaration` of `src/lib/definition.ts`. After changing
-the definition, run `bun run --cwd apps/todos shape`; `apps/todos/scripts/shape.test.ts`
-fails until the two agree.
 
 ### Where the files are
 
@@ -446,7 +442,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |
 | `apps/todos/scripts/remote-edit.ts` | Demo fixture: a hand edit with undeclared frontmatter, committed and pushed from the native checkout with ordinary Git. |
-| `epicenter.app.json`, `shape.json` | The manifest Epicenter installs Todos from, and the shape it opens. `apps/todos/scripts/shape.ts` writes `shape.json`. |
+| `epicenter.app.json` | The manifest Epicenter installs Todos from: its id, which `src/lib/platform/types.ts` imports, and its title. |
 | `apps/todos/scripts/module-graph.ts` | Lists the modules a build of one entry pulls in, resolved with the conditions and aliases `vite.config.ts` declares and with Svelte compiled, for the seam test. |
 
 Reads and saves come from the folder's options (`folderOptions` in

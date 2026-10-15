@@ -1,9 +1,9 @@
 /**
  * Whispering Definition Tests
  *
- * `definition.ts` names only the inert vocabulary, because the page and
- * `scripts/shape.ts` both load it. These check it the way an opener does,
- * so a schema a folder cannot keep fails here and not at the first launch.
+ * `definition.ts` names only the inert vocabulary. These check it the way an
+ * opener does, so a schema a folder cannot keep fails here and not at the
+ * first launch.
  * Validation reads the prepared definition without opening storage.
  *
  * Key behaviors:

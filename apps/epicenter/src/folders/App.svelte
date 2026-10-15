@@ -19,8 +19,9 @@
 	 * (`DATA_FOLDERS_CHANGED`).
 	 *
 	 * "Open in" opens an installed app on that folder through the same verb
-	 * as the Apps list, which opens it on its own folder (ADR-0552);
-	 * `openers.ts` decides which apps a folder offers. The Settings button
+	 * as the Apps list, which opens it on its own folder (ADR-0552). Every
+	 * installed app that can run is offered on every folder (`openers.ts`,
+	 * ADR-0560); the app refuses a folder its lens does not fit. The Settings button
 	 * opens Settings with `open_home`.
 	 *
 	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
@@ -49,7 +50,7 @@
 	import { recordInstalledApps } from './epicenter-folder.ts';
 	import FolderView from './FolderView.svelte';
 	import InstallApps from './InstallApps.svelte';
-	import { installedOpeners, openersOf } from './openers.ts';
+	import { installedOpeners } from './openers.ts';
 
 	let folders = $state<DataFolder[] | undefined>(undefined);
 	let listProblem = $state<string | undefined>(undefined);
@@ -96,13 +97,11 @@
 	/** What the shell is doing for an app, said while it does it. */
 	let busy = $state<string | undefined>(undefined);
 
+	/** The apps every folder offers; each app's lens refuses a folder that does not fit. */
 	const openers = $derived(installedOpeners(installed));
 	/** Each listed folder with the apps it offers. */
 	const listed = $derived(
-		(folders ?? []).map((folder) => ({
-			folder,
-			openers: openersOf(folder, openers),
-		})),
+		(folders ?? []).map((folder) => ({ folder, openers })),
 	);
 	/** Listings that resolve out of order keep only the newest. */
 	let listSeq = 0;

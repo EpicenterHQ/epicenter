@@ -27,16 +27,12 @@ paths into `dist/`, and serves it at `/apps/so.epicenter.honeycrisp/`. The
 browser build needs Bun only; the installed one needs Epicenter and Git. Neither
 needs an account or the hosted API.
 
-`shape.json` is the shape Honeycrisp opens (ADR-0538), which Epicenter matches
-folders against. Run `bun run shape` after changing `src/lib/data.ts`;
-`apps/honeycrisp/scripts/shape.test.ts` fails until then.
-
 Checks, from `apps/honeycrisp`:
 
 | Command | What it checks |
 | --- | --- |
 | `bun run typecheck` | Both page builds and the scripts. |
-| `bun run test` | The page: the editor, the notes state over the browser folder, first open over a real directory, which folder the installed build opens, bundle contents, `shape.json`, then `test:dom`. Needs no Rust or C compiler. |
+| `bun run test` | The page: the editor, the notes state over the browser folder, first open over a real directory, which folder the installed build opens, bundle contents, then `test:dom`. Needs no Rust or C compiler. |
 | `bun run test:dom` | The note view, mounted with its UI library over jsdom, in its own process. |
 
 Epicenter's ignored test `installs_honeycrisp_from_its_folder_in_the_monorepo`
@@ -389,8 +385,7 @@ view and delivers events to it.
 | `src/lib/platform/` | The `#platform/notes-host` seam and its two leaves: `notes-host.epicenter-host.ts`, the folder Epicenter hands the window, and `notes-host.browser.ts`, the OPFS folder. |
 | `src/lib/platform/first-open.ts` | Setting up Honeycrisp's own folder when it has no layout yet, through the granted folder. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
-| `epicenter.app.json` | What Epicenter installs: the app id, `shape.json`, the build, and its output, `dist`. |
-| `shape.json`, `apps/honeycrisp/scripts/shape.ts` | The declaration Epicenter matches folders against, and the script that writes it. |
+| `epicenter.app.json` | What Epicenter installs: the app id, which `src/lib/platform/types.ts` imports, and the title. |
 
 ## Tech stack
 

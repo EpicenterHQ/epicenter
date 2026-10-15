@@ -7,9 +7,14 @@
  * is the same code for both. Capabilities a storage cannot offer are
  * `undefined` here, not emulated: a browser folder has no directory to reveal.
  */
-import type { Folder, OpenFolderError } from '@epicenter/folder';
+import type {
+	Folder,
+	FolderDefinition,
+	OpenFolderError,
+} from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
+import manifest from '../../../epicenter.app.json';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
 import type {
 	ConnectionChange,
@@ -29,14 +34,23 @@ import type {
 } from '../transformation.js';
 import type { LocalTranscription } from './local-transcription.js';
 
-export type WhisperingFolder = Folder<typeof whisperingDefinition>;
+/**
+ * A folder read through Whispering's definition: Whispering's own, whose
+ * declaration is that definition, or another folder opened with it as the
+ * lens, whose declaration is its own `epicenter.json`.
+ */
+export type WhisperingFolder = Folder<
+	typeof whisperingDefinition,
+	FolderDefinition
+>;
 
 /**
- * The folder both workspaces open, named by Whispering's app id. The browser
+ * The folder both workspaces open, named by Whispering's app id in
+ * `epicenter.app.json`. The browser
  * names its scoped OPFS directory after it; Epicenter hands an installed app
  * its own folder, `<folder root>/<app-id>`, under this scope (ADR-0552).
  */
-export const WHISPERING_FOLDER_ID = 'so.epicenter.whispering';
+export const WHISPERING_FOLDER_ID = manifest.id;
 
 /**
  * Why no workspace could be opened. The message is what the person is shown.
@@ -109,6 +123,11 @@ export type WorkspaceTerminal = {
 export type Workspace = {
 	readonly kind: 'native' | 'browser';
 	readonly folder: WhisperingFolder;
+	/**
+	 * The scope `folder` was opened under: `WHISPERING_FOLDER_ID`, or the
+	 * folder Epicenter handed the window. A recording is written under it.
+	 */
+	readonly folderId: string;
 	/** Where the files are: an absolute directory, or a description of browser storage. */
 	readonly location: string;
 	/**

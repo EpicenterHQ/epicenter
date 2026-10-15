@@ -4,11 +4,11 @@ import {
 	epicenterCloud,
 	selfHostedServer,
 } from '@epicenter/auth';
-import { APPS } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
+import manifest from '../../../epicenter.app.json';
 
 export const auth: CallbackAuthClient | undefined = createBrowserRedirectAuth({
-	appId: APPS.TODOS.id,
+	appId: manifest.id,
 	server: SELF_HOST_ORIGIN
 		? selfHostedServer(SELF_HOST_ORIGIN)
 		: epicenterCloud(APP_URLS.API),

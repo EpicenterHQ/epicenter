@@ -54,7 +54,6 @@ function app(overrides: Partial<InstalledApp> = {}): InstalledApp {
 		source: 'https://example.com/board.git',
 		folder: 'apps/board',
 		commit: 'a'.repeat(40),
-		opens: null,
 		state: { kind: 'ready' },
 		...overrides,
 	};

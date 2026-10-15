@@ -24,7 +24,6 @@
 		"native": "bun scripts/native.ts",
 		"build": "NODE_ENV=production vite build",
 		"build:installed": "EPICENTER_HOST=1 bun run build",
-		"shape": "bun scripts/shape.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test --isolate --path-ignore-patterns='src/**/*.mounted.test.ts' && bun run test:mounted",

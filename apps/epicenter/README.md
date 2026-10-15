@@ -126,8 +126,8 @@ command so the API approves the same exact callback port the host binds.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
-it. It lists your data folders, offers "Open in <app>" on each folder an
-installed app's shape fits, lists the installed apps under Apps, and opens
+it. It lists your data folders, offers "Open in <app>" for each installed app
+on every folder, lists the installed apps under Apps, and opens
 Settings from its Settings button with `open_home`. Opening an app opens its own
 window; the OS is the switcher from there, and closing the Folders window
 leaves everything it opened running.
@@ -226,12 +226,12 @@ appears within the watcher's debounce. A changed `epicenter.json` opens the
 folder again once the writes running settle, so the grid follows the new
 declaration.
 
-Beside a folder, the page offers the installed apps that open it
-(`src/folders/openers.ts`, ADR-0538). An app is offered when the folder's
-declaration contains the app's shape, `shapeProblems(declared, shape)` from
-`@epicenter/definition`, where the shape is the declaration its
-`epicenter.app.json` names as `opens`. Only an app that can run is offered. One
-match shows "Open in <app>"; several show "Open with…". Opening it there hands
+Beside every folder, the page offers every installed app that can run
+(`src/folders/openers.ts`, ADR-0560): one shows "Open in <app>"; several show
+"Open with…". Epicenter does not check whether the app fits the folder. The
+app opens the folder through its own lens (ADR-0538), which refuses a folder
+whose `epicenter.json` lacks a table or field the app reads, with a message
+naming the folder and what is missing. Opening it there hands
 the app that folder; the Apps list's Open hands it its own folder. Every button
 opens through `open_installed_app`, and the Settings button through
 `open_home`, both granted by the `folders-*` capabilities; model
@@ -295,13 +295,7 @@ repository's root unless installing names another folder (ADR-0540,
 ADR-0552):
 
 ```json
-{
-  "id": "com.example.board",
-  "title": "Board",
-  "opens": "shape.json",
-  "build": "bun run build",
-  "output": "dist"
-}
+{ "id": "com.example.board", "title": "Board" }
 ```
 
 - `id` is a lowercase reverse-domain name. Only `so.epicenter`, Epicenter's
@@ -309,13 +303,11 @@ ADR-0552):
   (`so.epicenter.capture`), Whispering (`so.epicenter.whispering`), and
   Honeycrisp (`so.epicenter.honeycrisp`) install from `apps/todos`,
   `apps/capture`, `apps/whispering`, and `apps/honeycrisp` of Epicenter's
-  repository.
-- `opens` is the path, within the app's folder, of the shape the app reads
-  (ADR-0538): a JSON declaration, the output of
-  `formatDeclaration(definition)` from `@epicenter/folder`, committed beside
-  the manifest.
-- `build` and `output` default to the values shown, and are relative to the
-  app's folder. The output is a single-page app built with a relative `base`,
+  repository. Each imports its id from this file.
+- `id` and `title` are the only fields, and both are read before approval,
+  from a clone where nothing runs. Any other field is refused.
+- The build is always `bun run build:installed` in the app's folder, and its
+  output is always `dist/`: a single-page app built with relative asset paths,
   holding `index.html`.
 
 The Folders window's Apps list has "Install from a repository…"
@@ -336,8 +328,8 @@ never from a row. The page shows the title, the source, the commit, its log,
 and that building runs the app's code on this computer. "Approve and build"
 calls `approve_app`, which records the commit in `approvals.json`, runs
 `bun install --frozen-lockfile --ignore-scripts` at the repository's root
-(when it has a `package.json`), runs the build command in the app's folder,
-and copies the output to `builds/<app-id>/<commit>/`. Approval covers the
+(when it has a `package.json`), runs `bun run build:installed` in the app's
+folder, and copies its `dist/` to `builds/<app-id>/<commit>/`. Approval covers the
 whole repository's commit. The page then writes the app's row,
 `so.epicenter/apps/<app-id>.md`, with its title, source, folder, and commit,
 through the folder engine (`src/folders/epicenter-folder.ts`).

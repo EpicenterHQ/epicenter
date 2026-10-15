@@ -130,8 +130,8 @@ Nothing persists text not added across a reload or a quit you confirm.
 
 Capture installs into Epicenter as an app, from this folder of the Epicenter
 repository (ADR-0552); Epicenter compiles no app in. `epicenter.app.json`
-names the id `so.epicenter.capture`, the shape it opens (`shape.json`), the
-build (`bun run build:installed`), and its output (`dist`). In the Folders
+names the id `so.epicenter.capture` and the title; Epicenter runs
+`bun run build:installed`, which writes `dist`. In the Folders
 window, "Install from a repository…" with Epicenter's repository lists Capture
 with its folder, `apps/capture`; installing clones the repository into
 `~/Epicenter/Apps/so.epicenter.capture/`, and approving it runs `bun install`
@@ -141,11 +141,6 @@ Apps list, Capture opens its own folder, `so.epicenter.capture`. Opened with
 it opens that folder and reads its captures through its shape (ADR-0538): it
 never rewrites that folder's `epicenter.json`, and a folder whose declaration
 lacks the shape is refused with a message naming the folder.
-
-`shape.json` is `formatDeclaration` of `captureDefinition` in
-`packages/capture/src/definition.ts`. After changing the definition, run
-`bun run --cwd apps/capture shape`; `apps/capture/scripts/shape.test.ts`
-fails until the two agree.
 
 The captures are files in `so.epicenter.capture/captures` under Epicenter's
 working-copy directory (`~/Epicenter/so.epicenter.capture` in production).
