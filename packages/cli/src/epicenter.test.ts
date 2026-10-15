@@ -466,7 +466,6 @@ test('every command ADR-0558 names parses, and one not built exits 2 naming its 
 		['auth', 'status'],
 		['auth', 'token', '--resource', 'https://git.epicenter.so'],
 		['auth', 'git-credential', 'get'],
-		['send'],
 	]) {
 		const text = run(...args);
 		expect(text.exitCode).toBe(2);
@@ -506,7 +505,8 @@ test('--help lists every command but send and install-command, and --json descri
 		described
 			.filter((c: { built: boolean }) => c.built)
 			.map((c: { command: string }) => c.command),
-	).toEqual(['check', 'query', 'generate']);
+	).toEqual(['check', 'query', 'generate', 'auth key']);
+	expect(help.stdout).toContain('epicenter auth key set | remove | state <id>');
 	expect(
 		described.find((c: { command: string }) => c.command === 'sync').output,
 	).toBe('ndjson');

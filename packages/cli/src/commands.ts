@@ -12,6 +12,8 @@ const ADR_PATHS: Record<string, string> = {
 		'docs/adr/0527-a-data-folder-may-keep-its-declaration-as-typescript.md',
 	'ADR-0556':
 		'docs/adr/0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md',
+	'ADR-0557':
+		'docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md',
 	'ADR-0558':
 		'docs/adr/0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md',
 };
@@ -174,12 +176,22 @@ export const COMMANDS: readonly CommandSpec[] = [
 		adr: 'ADR-0558',
 	},
 	{
+		path: ['auth', 'key'],
+		args: 'set | remove | state <id>',
+		minArgs: 2,
+		maxArgs: 2,
+		summary:
+			"an AI connection's endpoint and key in this computer's keychain; set reads them on stdin",
+		adr: 'ADR-0557',
+	},
+	{
 		path: ['send'],
 		args: '',
 		minArgs: 0,
 		maxArgs: 0,
-		summary: 'send one request for the desktop app, body on stdin',
-		adr: 'ADR-0556',
+		summary:
+			'send one request over an AI connection for the desktop app, request on stdin',
+		adr: 'ADR-0557',
 		long: true,
 		hidden: true,
 	},

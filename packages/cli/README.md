@@ -36,11 +36,28 @@ apps/epicenter build:sidecar`). That binary also has the Bun host as a hidden
 | `epicenter auth status` | not built | |
 | `epicenter auth token [--resource <url>]` | not built | |
 | `epicenter auth git-credential get \| store \| erase` | not built | |
-| `epicenter send` | not built, hidden | |
+| `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
+| `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
 | `epicenter install-command [--dry-run]` | built, hidden | `src/install-command.ts` |
 
 A command not built yet parses its arguments, shows in `--help` marked
-"not built yet", and exits 2 naming its ADR. `send`, `install-command`, and
+"not built yet", and exits 2 naming its ADR.
+
+`auth key` and `send` are ADR-0557's. An AI connection is a row of
+`so.epicenter/connections`; its endpoint and key live in this computer's
+keychain under the row's id, through `Bun.secrets` (service
+`so.epicenter.connections`). `auth key set <id>` reads `{"endpoint", "key"}`
+as JSON on stdin, never from the command line, and `state` prints the
+endpoint and whether a key is saved, never the key. `send` reads one JSON
+line, `{"target", "request"}`, then the request body's raw bytes on stdin;
+it refuses an Epicenter connection (signing in is not built), a local one,
+a missing key, and a request prepared for another endpoint than the
+keychain holds, and otherwise prints the response as NDJSON: a `head`, the
+body in base64 `chunk` lines of at most 64 KiB, and `end`, or an `error`.
+It exits 0 when a response arrived, whatever its status, and 2 otherwise.
+Without `Bun.secrets` in the binary, every keychain command fails and says
+so. `EPICENTER_TEST_SECRETS` replaces the keychain with an in-memory store
+seeded from its JSON, so tests never touch the real one. `send`, `install-command`, and
 `auth login --loopback` are left out of `--help`: the desktop app runs them.
 
 `install-command` is not in ADR-0558. It links the compiled binary onto `PATH`
@@ -79,6 +96,8 @@ refused. After `--`, every token is a positional. The CLI never calls
 | `src/parse.ts` | The hand-written parser. |
 | `src/folder-commands.ts` | `check`, `query`, and `generate`, printing what `@epicenter/folder/bun` returns. |
 | `src/install-command.ts` | `install-command`. |
+| `src/ai-commands.ts` | `auth key` and `send`, printing what `@epicenter/ai/send` returns. |
+| `src/secrets.ts` | The keychain through `Bun.secrets`, or the test store. |
 | `src/output.ts` | Stdout, stderr, `{"error"}`, and the exit codes. |
 
 ## Tests
@@ -90,4 +109,6 @@ bun run typecheck
 ```
 
 `src/epicenter.test.ts` runs every command in a fresh process against real
-directories, so it can run against the compiled binary too.
+directories, and `src/ai-commands.test.ts` runs `send` and `auth key`
+against a local fake OpenAI-compatible server, so both can run against the
+compiled binary too.

@@ -33,6 +33,20 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./folder-commands.ts')).query(dir as string, sql, json),
 	generate: async ({ positionals: [dir], json }) =>
 		(await import('./folder-commands.ts')).generate(dir as string, json),
+	'auth key': async ({ positionals: [action, connection], json }) => {
+		const [{ authKey }, { keychain }] = await Promise.all([
+			import('./ai-commands.ts'),
+			import('./secrets.ts'),
+		]);
+		return authKey(action as string, connection as string, json, keychain());
+	},
+	send: async () => {
+		const [{ send }, { keychain }] = await Promise.all([
+			import('./ai-commands.ts'),
+			import('./secrets.ts'),
+		]);
+		return send(keychain());
+	},
 	'install-command': async ({ options, json }) =>
 		(await import('./install-command.ts')).installCommand({
 			json,
@@ -52,6 +66,13 @@ EXPLAIN) over the files that conform and prints tab-separated rows. A file
 that does not conform is left out of every table and named on stderr (in
 "excluded" with --json); check says why. Exits 0 when it answers and 2 when
 the folder, the declaration, or the statement cannot be used.`,
+	'auth key': `Keeps an AI connection's endpoint and key in this computer's keychain,
+under the connection's id, the stem of its row in so.epicenter/connections
+(ADR-0557). set reads {"endpoint": "<url>", "key": "<key>"} as JSON on
+stdin, never from the command line; an empty or missing key saves a keyless
+endpoint. state prints the endpoint and whether a key is saved, never the
+key. remove deletes the entry. Exits 0, or 2 when the id, the input, or the
+keychain cannot be used.`,
 	generate: `Runs <dir>/epicenter.ts, whose default export is defineFolder({...}) from
 @epicenter/folder, and writes the epicenter.json it declares. It is the only
 command that runs a folder's code; check and query read only epicenter.json.
