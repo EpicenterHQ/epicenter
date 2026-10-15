@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-11
+- **Amended by:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md): every write to a file, and Sync's settling, goes through one merge by the file's kind; taking a side of a text unit keeps the other side's lines that did not compete.
 - **Relates:** [ADR-0516](0516-the-sync-review-is-modal-and-its-choices-live-only-while-it-shows.md) (the review that answers an attempt), [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (rows read through `parseRow`), [ADR-0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) (the one row writer), [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) (the remote a folder syncs with), [ADR-0522](0522-settings-are-independent-keys-set-one-at-a-time.md) (settings as keys), [ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) (open edit sessions)
 - **Unbuilt:** a Sync control in Vocab, Capture, Honeycrisp, and Whispering (their desktop folders can sync since [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
 
