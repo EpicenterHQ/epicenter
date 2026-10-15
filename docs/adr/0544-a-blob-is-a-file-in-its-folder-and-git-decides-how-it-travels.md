@@ -51,10 +51,21 @@ pre-push hook runs. Incoming pointers are fetched with `git lfs fetch` and
 materialized by the shell into data paths under the same checked publish as
 every save.
 
-**The browser has its own LFS client**, since isomorphic-git has none: pointer
-parsing, the batch API over `fetch`, and objects in its private storage.
-Download comes first; until upload exists, the browser refuses to change an
-LFS path.
+**The browser has its own LFS client**, since isomorphic-git has none: it reads
+the three-line pointer, asks the batch endpoint with the person's session, and
+fetches the returned link, about 150 lines. Download comes first; until upload
+exists, the browser refuses to change an LFS path.
+
+**Embedding a blob writes a file and links it by relative path.** An image
+pasted into a row's body becomes `attachments/<name>` in the folder, marked for
+LFS by `.gitattributes`, and the body says `![](attachments/<name>)`. A viewer
+shows it whether its bytes are downloaded yet or not.
+
+**Blob bytes are private.** The batch endpoint answers only a person whose
+token the repository accepts, with a presigned link that expires within
+minutes; there is no public link to a blob. Objects are keyed by SHA-256 and
+never change, so each device caches them by hash indefinitely and may delete
+the cache at any time.
 
 ## Consequences
 
@@ -73,6 +84,11 @@ a feasibility spike on 2026-10-15 with git 2.50.1 and git-lfs 3.8.0.
 
 ## Considered alternatives
 
-- **A blob as a URL, local or remote.** The folder stops describing itself, and
-  agents cannot reach the bytes.
-- **Commit every blob.** Every clone carries every recording.
+- **Commit every blob.** Every clone carries every recording, and Artifacts
+  refuses a file over 32 MB.
+- **A blob as a hosted URL in the markdown**, uploaded to Epicenter's storage
+  and cached by id. It works in a browser without an LFS client, but the
+  folder stops describing itself, agents need Epicenter's API to reach the
+  bytes, and a folder synced to GitHub still keeps its blobs on Epicenter. The
+  LFS client the browser needs makes the same request this design would.
+- **Unguessable public links.** Anyone who sees the link sees the blob.
