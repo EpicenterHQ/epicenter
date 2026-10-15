@@ -29,18 +29,16 @@ or with Git.
 
 ## Desktop, inside Epicenter
 
-Todos is one of Epicenter's compiled applications. Open it from the Folders
-window Epicenter opens to ("Open in Todos" beside its folder, or under Apps
-before that folder exists), or through the `epicenter://app/todos` link.
-
-Todos also installs into Epicenter as an app, from this folder of the
-Epicenter repository (ADR-0552). `epicenter.app.json` names the id
-`so.epicenter.todos`, the shape it opens (`shape.json`), the build
-(`bun run build:installed`), and its output (`dist`). The Folders window's
-"Install Todos" clones the repository into `~/Epicenter/Apps/so.epicenter.todos/`;
+Todos installs into Epicenter as an app, from this folder of the Epicenter
+repository (ADR-0552); Epicenter compiles no app in. `epicenter.app.json`
+names the id `so.epicenter.todos`, the shape it opens (`shape.json`), the
+build (`bun run build:installed`), and its output (`dist`). The Folders
+window Epicenter opens to offers "Install Todos" while no app is installed:
+it clones the repository into `~/Epicenter/Apps/so.epicenter.todos/`, and
 approving it runs `bun install` at the repository's root and the build here.
-Installed Todos opens the same `so.epicenter.todos` folder. Until the built-in
-Todos is removed, both are offered on that folder.
+Then open Todos from the Folders window's Apps list, or with "Open in Todos"
+beside a folder whose declaration contains its shape. Opened from the Apps
+list, it opens its own folder, `so.epicenter.todos`.
 
 `shape.json` is `formatDeclaration` of `src/lib/definition.ts`. After changing
 the definition, run `bun run --cwd apps/todos shape`; `apps/todos/scripts/shape.test.ts`
@@ -138,8 +136,8 @@ Edits are written as you make them. The title of a new todo you have not
 added lives in the box alone: it stays while the window is open, and quitting
 or reloading drops it.
 
-- Closing the Todos window hides it. The page stays loaded, so a typed title
-  is still there when you open Todos again.
+- Closing the Todos window destroys it, as Epicenter does any installed app's
+  window, so a typed title not added is dropped.
 - Quitting Epicenter, or restarting it for an account change, is immediate
   and asks this page nothing
   ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
@@ -162,8 +160,9 @@ or reloading drops it.
 ### How it is wired
 
 The Rust shell registers the Todos folder under the ID the page opens,
-`so.epicenter.todos`, with its directory and the window labels allowed to
-open it, with the page's own engine. Opening Todos calls
+`so.epicenter.todos`, the first time installed Todos is opened without a
+folder or the Folders window lists it, and permits the Todos window into it
+(an installed app's own folder, ADR-0552). Opening Todos calls
 `openFolder` from `@epicenter/folder/tauri`, which asks the shell to grant
 the folder (`grant_directory`). The first grant creates the directory if it
 is missing, refuses a linked `.git`, and takes the cross-process lock. The
@@ -479,12 +478,11 @@ side), `bun run --cwd apps/todos test` (it builds the Folder's file exchange
 addon that the native harness needs, runs the tests on Svelte's server
 runtime, then `test:mounted`: the real views mounted in jsdom under
 `--conditions=browser`), `bun run --cwd apps/todos build` for the browser
-demo, `bun run --cwd apps/todos build:epicenter` for the build Epicenter
-compiles in, and `bun run --cwd apps/todos build:installed` for the installed
-build. The installed build writes `dist/` here and prerenders each page with
-relative asset paths, so it runs below whatever path the host serves it at;
-the other two serve a fallback page from a fixed base. The builds share
-SvelteKit's output directory, so run them one after the other.
+demo, and `bun run --cwd apps/todos build:installed` for the build Epicenter
+installs. The installed build writes `dist/` here and prerenders each page
+with relative asset paths, so it runs below whatever path the host serves it
+at; the browser build writes `build/` and serves a fallback page. The builds
+share SvelteKit's output directory, so run them one after the other.
 
 ## Changed promises
 
