@@ -1,25 +1,18 @@
-import { type AiCatalog, createAiCatalog } from './ai-catalog.ts';
 /**
  * The Bun sidecar entrypoint: accept one versioned boot frame from Rust, bind
  * its validated loopback port, announce readiness once, and remain tied to the
  * parent stdin pipe for the lifetime of the desktop application.
- *
- * Inference is BYOK for this slice: an OpenAI-compatible endpoint configured
- * by environment. The engine reads the context per turn, so a restart is only
- * needed to change it because this entrypoint reads the env once.
  */
 
 import { join } from 'node:path';
-import { type AgentEngine, createOpenAiAgentEngine } from '@epicenter/client';
-import OpenAI from 'openai';
 import { extractErrorMessage } from 'wellcrafted/error';
+import { type AiCatalog, createAiCatalog } from './ai-catalog.ts';
 import { createNativeAppSecrets } from './app-secrets.ts';
 import { COMPILED_APPLICATIONS } from './applications.ts';
 import {
 	createDesktopAuthAuthority,
 	type DesktopAuthAuthority,
 } from './desktop-auth-authority.ts';
-import { createHomeHost, type HomeHost } from './host.ts';
 import { SIGN_IN_CALLBACK_ROUTE } from './routes.ts';
 import { createHomeServer } from './server.ts';
 import {
@@ -46,7 +39,6 @@ async function main(): Promise<void> {
 		);
 	}
 	const parentPipe = watchParentPipe(Bun.stdin.stream());
-	let host: HomeHost | undefined;
 	let desktopAuth: DesktopAuthAuthority | undefined;
 	let server: ReturnType<typeof Bun.serve> | undefined;
 	let lifecycleOwnsResources = false;
@@ -69,11 +61,7 @@ async function main(): Promise<void> {
 		});
 		desktopAuth = auth;
 
-		const { engine, model } = homeEngineFromEnvironment(process.env);
-
 		const dataRoot = boot.dataDir;
-
-		host = await createHomeHost({ engine, model });
 		// The credential store is Rust's, reached over the private sidecar pipe.
 		// Bun sends two labels and never a keyring address (ADR-0310).
 		const appSecrets = createNativeAppSecrets(nativePort);
@@ -97,8 +85,7 @@ async function main(): Promise<void> {
 			COMPILED_APPLICATIONS,
 		);
 		const origin = `http://127.0.0.1:${boot.port}`;
-		const { app, websocket } = createHomeServer({
-			host,
+		const { app } = createHomeServer({
 			origin,
 			launchToken: boot.token,
 			staticAssets,
@@ -115,11 +102,9 @@ async function main(): Promise<void> {
 			hostname: '127.0.0.1',
 			port: boot.port,
 			fetch: app.fetch,
-			websocket,
 		});
 		process.stdout.write(`${JSON.stringify(createReadyFrame(boot.port))}\n`);
 		lifecycleOwnsResources = true;
-		const ownedHost = host;
 		const ownedDesktopAuth = auth;
 		await superviseSidecar({
 			server,
@@ -129,7 +114,6 @@ async function main(): Promise<void> {
 					await Promise.all([
 						aiCatalog!.close(),
 						noAccountAiCatalog!.close(),
-						ownedHost[Symbol.asyncDispose](),
 					]);
 				},
 			},
@@ -143,52 +127,10 @@ async function main(): Promise<void> {
 			await Promise.all([
 				aiCatalog?.close(),
 				noAccountAiCatalog?.close(),
-				host?.[Symbol.asyncDispose](),
 			]);
 			await parentPipe.cancel();
 		}
 	}
-}
-
-export function homeEngineFromEnvironment(
-	environment: Record<string, string | undefined>,
-): { engine: AgentEngine; model: string } {
-	const baseURL = environment.EPICENTER_INFERENCE_URL;
-	const model = environment.EPICENTER_INFERENCE_MODEL;
-	const apiKey = environment.EPICENTER_INFERENCE_API_KEY;
-	if (!baseURL || !model) {
-		return {
-			model: 'unconfigured',
-			engine: async function* () {
-				yield {
-					type: 'run-error',
-					code: 'stream-error',
-					message:
-						'Home needs an OpenAI-compatible endpoint. Set EPICENTER_INFERENCE_URL and EPICENTER_INFERENCE_MODEL, then restart Epicenter.',
-				};
-			},
-		};
-	}
-
-	const client = new OpenAI({
-		baseURL,
-		apiKey: apiKey || 'unauthenticated',
-		defaultHeaders: apiKey ? undefined : { Authorization: null },
-		maxRetries: 0,
-	});
-
-	return {
-		model,
-		engine: createOpenAiAgentEngine({
-			data: () => ({
-				client,
-				model,
-				systemPrompts: [
-					'You are Epicenter Home, a local assistant that acts across the apps on this machine through their tools.',
-				],
-			}),
-		}),
-	};
 }
 
 try {

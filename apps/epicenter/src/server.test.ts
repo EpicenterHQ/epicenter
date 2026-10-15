@@ -1,26 +1,19 @@
 /**
  * Home Server Tests
  *
- * Verifies the loopback shell around one host session (ADR-0084): the
- * exact Host and Origin checks protect the loopback boundary, Tauri bootstraps
- * HttpOnly browser sessions without a URL token, Home is served at its final
- * route, and the WebSocket drives the single shared chat session.
+ * Verifies the loopback shell (ADR-0084): the exact Host and Origin checks
+ * protect the loopback boundary, Tauri bootstraps HttpOnly browser sessions
+ * without a URL token, and Settings is served at its final route.
  *
  * Key behaviors:
  * - The launch token is accepted only by the bootstrap route
- * - Home APIs and WebSockets require an HttpOnly browser session
- * - Home and each compiled application serve their builds; Mail and Books stay placeholders
+ * - Served documents and broker routes require an HttpOnly browser session
+ * - Settings and each compiled application serve their builds
  * - Unknown, non-canonical, and traversal-shaped app paths stay closed
  * - Host, Origin, CSP, frame, and referrer policies are enforced
- * - Malformed WebSocket frames drop silently without killing the socket
  * - The real vite build emits one document with no external asset references
- * - The spawned `main.ts` sidecar announces versioned readiness, serves the
- *   built SPA, and drives a streamed turn against an OpenAI-compatible endpoint
- *
- * See also:
- * - `host.test.ts` for tool catalog composition and turn execution
- * - `packages/client/src/openai-provider.test.ts` for the SSE frame shapes
- *   the fake inference endpoint below reuses
+ * - The spawned `main.ts` sidecar announces versioned readiness and serves
+ *   the built SPA
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -35,26 +28,18 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AgentEngine, EngineChunk } from '@epicenter/agent';
 import { epicenterCloud } from '@epicenter/auth';
 import { expectOk } from 'wellcrafted/testing';
 import { COMPILED_APPLICATIONS } from './applications.ts';
 import { createDesktopAuthAuthority } from './desktop-auth-authority.js';
-import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
 import {
 	ACCOUNT_SIGN_OUT_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
 	FOLDERS_ROUTE,
 	HOME_ROUTE,
-	SESSION_ROUTE,
-	SESSION_STREAM_ROUTE,
 } from './routes.ts';
-import {
-	createHomeServer,
-	type HomeServerEvent,
-	type HomeSessionResponse,
-} from './server.ts';
+import { createHomeServer } from './server.ts';
 import {
 	type ReadyFrame,
 	SIDECAR_PROTOCOL_VERSION,
@@ -68,10 +53,6 @@ import { writeAppsDist } from './test-apps-dist.ts';
 import { createTestDesktopAuth } from './test-home-host.ts';
 
 test('development browser callback completes the pending sign-in without a Home cookie', async () => {
-	await using host = await createHomeHost({
-		model: 'test',
-		engine: async function* () {},
-	});
 	const origin = 'http://127.0.0.1:49152';
 	const callbackUrl = `${origin}/_epicenter/sign-in/callback`;
 	const opened = Promise.withResolvers<string>();
@@ -101,7 +82,6 @@ test('development browser callback completes the pending sign-in without a Home 
 		},
 	});
 	const options = {
-		host,
 		origin,
 		launchToken: 'launch',
 		staticAssets: await createAppsDistFixture(PAGE),
@@ -146,10 +126,6 @@ test.each([
 	'storage',
 	'boot-verification',
 ] as const)('failed %s serves restart-required documents without stale boot identity', async (failure) => {
-	await using host = await createHomeHost({
-		model: 'test',
-		engine: async function* () {},
-	});
 	using desktopAuth = createDesktopAuthAuthority({
 		server: epicenterCloud('https://api.epicenter.so'),
 		accountManagement: true,
@@ -178,7 +154,6 @@ test.each([
 	});
 	const origin = 'http://127.0.0.1:49152';
 	const { app } = createHomeServer({
-		host,
 		origin,
 		launchToken: 'launch',
 		staticAssets: await createAppsDistFixture(PAGE),
@@ -226,15 +201,6 @@ test.each([
 
 const TOKEN = 'per-launch-secret';
 
-/**
- * The stdio MCP fixture, which is the whole tool surface a test host has: the
- * in-process app catalogs went with the data plane they read (ADR-0226).
- */
-const MCP_FIXTURE = new URL(
-	'../test-fixtures/mini-mcp-server.ts',
-	import.meta.url,
-).pathname;
-
 /** A stand-in for the built SPA document; `/` must return it byte-for-byte. */
 const PAGE = '<!doctype html><html><body>Home test page</body></html>';
 const applicationPage = (title: string) =>
@@ -261,22 +227,10 @@ function withoutAuthBootstrap(page: string): string {
 
 const queryDir = fileURLToPath(new URL('..', import.meta.url));
 type TestServer = ReturnType<typeof Bun.serve>;
-const BunWebSocket = WebSocket as unknown as {
-	new (url: string, options: { headers: Record<string, string> }): WebSocket;
-};
 const serverAuthentication = new WeakMap<
 	TestServer,
 	{ cookie: string; origin: string }
 >();
-
-function scriptedEngine(scripts: EngineChunk[][]): AgentEngine {
-	let step = 0;
-	return async function* () {
-		const script = scripts[Math.min(step, scripts.length - 1)] ?? [];
-		step += 1;
-		for (const chunk of script) yield chunk;
-	};
-}
 
 function testDataDir(): string {
 	return mkdtempSync(join(tmpdir(), 'query-server-test-'));
@@ -287,20 +241,7 @@ function boundPort(server: { port?: number }): number {
 	return server.port;
 }
 
-function createTestHost(
-	options: Pick<
-		HomeHostInputs,
-		'approval' | 'engine' | 'localBooks' | 'localSource'
-	>,
-) {
-	return createHomeHost({
-		model: 'test-model',
-		localBooks: { command: 'bun', args: [MCP_FIXTURE] },
-		...options,
-	});
-}
-
-async function serveHost(host: HomeHost, page: string = PAGE) {
+async function serveHost(page: string = PAGE) {
 	const portProbe = Bun.serve({
 		hostname: '127.0.0.1',
 		port: 0,
@@ -309,8 +250,7 @@ async function serveHost(host: HomeHost, page: string = PAGE) {
 	const port = boundPort(portProbe);
 	await portProbe.stop(true);
 	const origin = `http://127.0.0.1:${port}`;
-	const { app, websocket } = createHomeServer({
-		host,
+	const { app } = createHomeServer({
 		origin,
 		launchToken: TOKEN,
 		staticAssets: await createAppsDistFixture(page),
@@ -320,7 +260,6 @@ async function serveHost(host: HomeHost, page: string = PAGE) {
 		hostname: '127.0.0.1',
 		port,
 		fetch: app.fetch,
-		websocket,
 	});
 	const bootstrap = await fetch(BOOTSTRAP_ROUTE.url(origin), {
 		method: 'POST',
@@ -379,10 +318,6 @@ function writeAppsDistFixture(homePage: string = PAGE): string {
 	return root;
 }
 
-function conversationOf(event: HomeServerEvent) {
-	return event.snapshot.conversation;
-}
-
 function authenticationFor(server: TestServer) {
 	const authentication = serverAuthentication.get(server);
 	if (authentication === undefined) throw new Error('unknown test server');
@@ -393,60 +328,6 @@ function authenticatedHeaders(server: TestServer) {
 	return { cookie: authenticationFor(server).cookie };
 }
 
-function streamUrl(server: TestServer): string {
-	return SESSION_STREAM_ROUTE.url(server.url.origin).replace('http:', 'ws:');
-}
-
-function openSocket(server: TestServer): WebSocket {
-	const { cookie, origin } = authenticationFor(server);
-	return new BunWebSocket(streamUrl(server), {
-		headers: { cookie, origin },
-	});
-}
-
-/**
- * Resolve on the first pushed frame matching `predicate`; reject on socket
- * error or timeout. The listener attaches synchronously at call time, so call
- * this before (or in the same task as) the send that should trigger it.
- */
-function nextSnapshot(
-	ws: WebSocket,
-	predicate: (event: HomeServerEvent) => boolean,
-	description: string,
-	timeoutMs = 5000,
-): Promise<HomeServerEvent> {
-	return new Promise((resolve, reject) => {
-		const timer = setTimeout(
-			() => reject(new Error(`timed out waiting for ${description}`)),
-			timeoutMs,
-		);
-		ws.addEventListener('message', (event) => {
-			const parsed = JSON.parse(String(event.data)) as HomeServerEvent;
-			if (!predicate(parsed)) return;
-			clearTimeout(timer);
-			resolve(parsed);
-		});
-		ws.addEventListener('error', () => {
-			clearTimeout(timer);
-			reject(new Error('socket error'));
-		});
-	});
-}
-
-/** The turn settled and the last assistant message contains `text`. */
-const settledWith =
-	(text: string) =>
-	(event: HomeServerEvent): boolean => {
-		const snapshot = conversationOf(event);
-		const last = snapshot.messages.at(-1);
-		return (
-			!snapshot.isGenerating &&
-			last?.role === 'assistant' &&
-			last.parts.some(
-				(part) => part.type === 'text' && part.text.includes(text),
-			)
-		);
-	};
 
 describe('loadStaticAssets', () => {
 	test('every declared compiled application must have built, and so must Home', async () => {
@@ -528,14 +409,10 @@ describe('loadStaticAssets', () => {
 
 describe('createHomeServer', () => {
 	test('refuses an empty launch token and non-loopback origins', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
 		const staticAssets = await createAppsDistFixture();
 		const desktopAuth = createTestDesktopAuth();
 		expect(() =>
 			createHomeServer({
-				host,
 				origin: 'http://127.0.0.1:39130',
 				launchToken: '',
 				staticAssets,
@@ -550,7 +427,6 @@ describe('createHomeServer', () => {
 		]) {
 			expect(() =>
 				createHomeServer({
-					host,
 					origin,
 					launchToken: TOKEN,
 					staticAssets,
@@ -561,10 +437,7 @@ describe('createHomeServer', () => {
 	});
 
 	test('the launch token mints a browser session only at bootstrap', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
+		const server = await serveHost();
 		const { origin } = authenticationFor(server);
 		try {
 			const minted = await fetch(BOOTSTRAP_ROUTE.url(origin), {
@@ -592,7 +465,7 @@ describe('createHomeServer', () => {
 			});
 			expect(wrongOrigin.status).toBe(403);
 			const queryToken = await fetch(
-				`${SESSION_ROUTE.url(origin)}?token=${TOKEN}`,
+				`${origin}/_epicenter/account/http?path=/api/session&token=${TOKEN}`,
 			);
 			expect(queryToken.status).toBe(401);
 		} finally {
@@ -600,11 +473,8 @@ describe('createHomeServer', () => {
 		}
 	});
 
-	test('serves only the session shell before bootstrap and gates domain APIs', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
+	test('serves only the session shell before bootstrap', async () => {
+		const server = await serveHost();
 		try {
 			const shell = await fetch(HOME_ROUTE.url(server.url.origin));
 			expect(shell.status).toBe(200);
@@ -615,75 +485,23 @@ describe('createHomeServer', () => {
 			});
 			expect(withoutAuthBootstrap(await page.text())).toBe(PAGE);
 
-			const bareSession = await fetch(SESSION_ROUTE.url(server.url.origin));
-			expect(bareSession.status).toBe(401);
-			const session = await fetch(SESSION_ROUTE.url(server.url.origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(session.status).toBe(200);
-			const body = (await session.json()) as HomeSessionResponse;
-			const createTodos = body.tools.find(
-				(t) => t.name === 'localbooks__write_off',
-			);
-			expect(createTodos).toBeDefined();
-			expect(createTodos?.inputSchema).toBeDefined();
-			expect(body.snapshot.conversation.messages).toEqual([]);
-
-			const oldTools = await fetch(`${server.url.origin}/api/tools`);
-			expect(oldTools.status).toBe(404);
-			const oldWs = await fetch(`${server.url.origin}/ws`);
-			expect(oldWs.status).toBe(404);
+			// Home Chat's session routes, and the routes before them, are gone.
+			for (const retired of [
+				'/api/home/session',
+				'/api/home/session/stream',
+				'/api/tools',
+				'/ws',
+			]) {
+				const response = await fetch(`${server.url.origin}${retired}`, {
+					headers: authenticatedHeaders(server),
+				});
+				expect(response.status).toBe(404);
+			}
 		} finally {
 			await server.stop(true);
 		}
 	});
-
-	test('nested application APIs reject unauthorized requests before invoking a handler', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const origin = 'http://127.0.0.1:43127';
-		const { app } = createHomeServer({
-			host,
-			origin,
-			launchToken: TOKEN,
-			staticAssets: await createAppsDistFixture(),
-			desktopAuth: createTestDesktopAuth(),
-		});
-		let calls = 0;
-		const path = '/api/apps/so.epicenter.test/auth-regression';
-		app.post(path, (c) => {
-			calls += 1;
-			return c.body(null, 204);
-		});
-		const headers = { host: '127.0.0.1:43127', origin };
-		const unauthorized = await app.request(`${origin}${path}`, {
-			method: 'POST',
-			headers,
-		});
-		expect(unauthorized.status).toBe(401);
-		expect(calls).toBe(0);
-		const bootstrap = await app.request(BOOTSTRAP_ROUTE.url(origin), {
-			method: 'POST',
-			headers: { ...headers, authorization: `Bearer ${TOKEN}` },
-		});
-		expect(bootstrap.status).toBe(204);
-		const cookie = bootstrap.headers.get('set-cookie')?.split(';', 1)[0];
-		if (cookie === undefined) throw new Error('test bootstrap set no cookie');
-		const forbidden = await app.request(`${origin}${path}`, {
-			method: 'POST',
-			headers: { ...headers, cookie, origin: 'https://untrusted.example' },
-		});
-		expect(forbidden.status).toBe(403);
-		expect(calls).toBe(0);
-		const authorized = await app.request(`${origin}${path}`, {
-			method: 'POST',
-			headers: { ...headers, cookie },
-		});
-		expect(authorized.status).toBe(204);
-		expect(calls).toBe(1);
-	});
-
 	test('serves an installed app from its current build behind the session gate', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
 		const origin = 'http://127.0.0.1:43128';
 		const buildsDir = mkdtempSync(join(tmpdir(), 'epicenter-builds-'));
 		const id = 'com.example.board';
@@ -703,7 +521,6 @@ describe('createHomeServer', () => {
 		};
 		build(first, 'one');
 		const { app } = createHomeServer({
-			host,
 			origin,
 			launchToken: TOKEN,
 			staticAssets: await createAppsDistFixture(),
@@ -762,10 +579,7 @@ describe('createHomeServer', () => {
 	});
 
 	test('serves Home and every compiled application', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
+		const server = await serveHost();
 		try {
 			expect(
 				Object.values(BUILT_IN_ROUTES).map(({ id, pattern }) => ({
@@ -843,10 +657,7 @@ describe('createHomeServer', () => {
 	});
 
 	test('rejects alternate app request targets without exposing filesystem paths', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
+		const server = await serveHost();
 		try {
 			for (const path of [
 				'/apps/unknown/',
@@ -885,10 +696,7 @@ describe('createHomeServer', () => {
 	});
 
 	test('rejects wrong Host and Origin and serves the browser security policy', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
+		const server = await serveHost();
 		try {
 			const wrongHost = await fetch(
 				HOME_ROUTE.url(server.url.origin).replace('127.0.0.1', 'localhost'),
@@ -917,10 +725,7 @@ describe('createHomeServer', () => {
 	});
 
 	test('admits first-party WebAssembly without restoring eval', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
+		const server = await serveHost();
 		try {
 			const page = await fetch(HOME_ROUTE.url(server.url.origin), {
 				headers: authenticatedHeaders(server),
@@ -966,10 +771,7 @@ describe('createHomeServer', () => {
 	});
 
 	test('every application document reaches only this host', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
+		const server = await serveHost();
 		const origin = server.url.origin;
 		const connectSrc = async (url: string) => {
 			const response = await fetch(url, {
@@ -991,8 +793,7 @@ describe('createHomeServer', () => {
 	});
 
 	test('the account broker requires the browser session and grants no bearer', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
+		const server = await serveHost();
 		const { cookie, origin } = authenticationFor(server);
 		try {
 			const unauthorized = await fetch(ACCOUNT_SIGN_OUT_ROUTE.url(origin), {
@@ -1029,255 +830,6 @@ describe('createHomeServer', () => {
 				headers: { cookie, origin },
 			});
 			expect(signedOut.status).toBe(202);
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('a WebSocket session drives a chat turn and streams snapshots', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([
-				[{ type: 'text-delta', delta: 'Hello from the host.' }],
-			]),
-		});
-		const server = await serveHost(host);
-		try {
-			const ws = openSocket(server);
-			const answered = nextSnapshot(
-				ws,
-				settledWith('Hello from the host.'),
-				'the settled turn',
-			);
-			ws.addEventListener('open', () => {
-				ws.send(JSON.stringify({ type: 'send', content: 'hi' }));
-			});
-
-			const final = await answered;
-			expect(conversationOf(final).error).toBeNull();
-			expect(conversationOf(final).messages.map((m) => m.role)).toEqual([
-				'user',
-				'assistant',
-			]);
-			ws.close();
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('a pending approval reappears after reconnect and approval resumes the turn', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([
-				[
-					{
-						type: 'tool-call',
-						toolCallId: 'call-approve',
-						toolName: 'localbooks__write_off',
-						input: { name: 'Approve over WebSocket' },
-					},
-				],
-				[{ type: 'text-delta', delta: 'Created over WebSocket.' }],
-			]),
-		});
-		const server = await serveHost(host);
-		try {
-			const firstSocket = openSocket(server);
-			const pending = nextSnapshot(
-				firstSocket,
-				(event) => event.snapshot.pendingApprovals.length === 1,
-				'a pending approval',
-			);
-			firstSocket.addEventListener('open', () => {
-				firstSocket.send(
-					JSON.stringify({ type: 'send', content: 'create a folder' }),
-				);
-			});
-
-			const pendingEvent = await pending;
-			const [approval] = pendingEvent.snapshot.pendingApprovals;
-			if (!approval) throw new Error('pending snapshot had no approval');
-			expect(approval).toEqual(
-				expect.objectContaining({
-					toolCallId: 'call-approve',
-					toolName: 'localbooks__write_off',
-					input: { name: 'Approve over WebSocket' },
-				}),
-			);
-			firstSocket.close();
-
-			// A fresh socket re-renders the same pending approval from host state
-			// (ADR-0113): the prompt outlives the transport that first saw it.
-			const secondSocket = openSocket(server);
-			await nextSnapshot(
-				secondSocket,
-				(event) =>
-					event.snapshot.pendingApprovals.some(
-						(candidate) => candidate.id === approval.id,
-					),
-				'the rehydrated approval',
-			);
-			secondSocket.send(
-				JSON.stringify({
-					type: 'approve',
-					requestId: approval.id,
-					approved: true,
-				}),
-			);
-
-			const final = await nextSnapshot(
-				secondSocket,
-				settledWith('Created over WebSocket.'),
-				'the final answer',
-			);
-			expect(final.snapshot.pendingApprovals).toEqual([]);
-			expect(conversationOf(final).error).toBeNull();
-			secondSocket.close();
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('two sockets share the one host session (the remote-session proof)', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[{ type: 'text-delta', delta: 'Shared.' }]]),
-		});
-		const server = await serveHost(host);
-		try {
-			const watcher = openSocket(server);
-			const driver = openSocket(server);
-			const watcherSettled = nextSnapshot(
-				watcher,
-				settledWith('Shared.'),
-				'the watcher settling',
-			);
-			const driverSettled = nextSnapshot(
-				driver,
-				settledWith('Shared.'),
-				'the driver settling',
-			);
-			await Promise.all(
-				[watcher, driver].map(
-					(ws) =>
-						new Promise<void>((resolve) =>
-							ws.addEventListener('open', () => resolve()),
-						),
-				),
-			);
-			driver.send(
-				JSON.stringify({ type: 'send', content: 'hi from device 2' }),
-			);
-
-			// The watcher never sent anything, yet sees the same finished turn: one
-			// conversation per host process, devices attach to the session
-			// (ADR-0080), not to their own thread.
-			const [watched, drove] = await Promise.all([
-				watcherSettled,
-				driverSettled,
-			]);
-			expect(conversationOf(watched).messages).toEqual(
-				conversationOf(drove).messages,
-			);
-			expect(conversationOf(watched).messages.map((m) => m.role)).toEqual([
-				'user',
-				'assistant',
-			]);
-			watcher.close();
-			driver.close();
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('an invoke frame settles as an invocation record on the same session channel', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		try {
-			const ws = openSocket(server);
-			const settled = nextSnapshot(
-				ws,
-				(event) =>
-					event.snapshot.invocations.some(
-						(invocation) => invocation.status === 'succeeded',
-					),
-				'the settled invocation',
-			);
-			ws.addEventListener('open', () => {
-				ws.send(
-					JSON.stringify({
-						type: 'invoke',
-						toolName: 'localbooks__customers',
-						input: {},
-					}),
-				);
-			});
-
-			const final = await settled;
-			expect(final.snapshot.invocations[0]).toEqual(
-				expect.objectContaining({
-					toolName: 'localbooks__customers',
-					status: 'succeeded',
-				}),
-			);
-			// A direct run rides the session channel but never the transcript.
-			expect(conversationOf(final).messages).toEqual([]);
-			ws.close();
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('malformed frames drop silently without killing the session socket', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[{ type: 'text-delta', delta: 'Still alive.' }]]),
-		});
-		const server = await serveHost(host);
-		try {
-			const ws = openSocket(server);
-			const settled = nextSnapshot(
-				ws,
-				settledWith('Still alive.'),
-				'the turn after garbage frames',
-			);
-			ws.addEventListener('open', () => {
-				// Deliberate until commands carry client-minted ids: an error outcome
-				// would have nothing to name, so bad frames drop instead of erroring.
-				ws.send('not json');
-				ws.send(JSON.stringify({ type: 'launch-missiles' }));
-				ws.send(JSON.stringify({ type: 'send', content: 'hi' }));
-			});
-			const final = await settled;
-			expect(conversationOf(final).error).toBeNull();
-			expect(conversationOf(final).messages.map((m) => m.role)).toEqual([
-				'user',
-				'assistant',
-			]);
-			ws.close();
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('WebSocket upgrades require both a browser session and exact Origin', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		try {
-			const { cookie, origin } = authenticationFor(server);
-			const rejectedHeaders: Record<string, string>[] = [
-				{ origin },
-				{ cookie, origin: 'http://localhost:39130' },
-			];
-			for (const headers of rejectedHeaders) {
-				const ws = new BunWebSocket(streamUrl(server), { headers });
-				const outcome = await new Promise<'open' | 'refused'>((resolve) => {
-					ws.addEventListener('open', () => resolve('open'));
-					ws.addEventListener('error', () => resolve('refused'));
-					ws.addEventListener('close', () => resolve('refused'));
-				});
-				expect(outcome).toBe('refused');
-			}
 		} finally {
 			await server.stop(true);
 		}
@@ -1335,10 +887,7 @@ describe('the built SPA', () => {
 		expect(page).not.toMatch(/<link\b[^>]*\brel\s*=\s*["']?stylesheet/i);
 		expect(page).not.toMatch(/<link\b[^>]*\bhref\s*=/i);
 
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host, page);
+		const server = await serveHost(page);
 		try {
 			const response = await fetch(HOME_ROUTE.url(server.url.origin), {
 				headers: authenticatedHeaders(server),
@@ -1362,37 +911,6 @@ describe('the built SPA', () => {
 // ============================================================================
 // Sidecar End-to-End Smoke (the real main.ts entrypoint)
 // ============================================================================
-
-/** Build an OpenAI SSE response: one `data:` frame per chunk, then `[DONE]`. */
-function openAiSse(chunks: object[]): Response {
-	const encoder = new TextEncoder();
-	const body = new ReadableStream<Uint8Array>({
-		start(controller) {
-			for (const chunk of chunks) {
-				controller.enqueue(
-					encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
-				);
-			}
-			controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-			controller.close();
-		},
-	});
-	return new Response(body, {
-		status: 200,
-		headers: { 'content-type': 'text/event-stream' },
-	});
-}
-
-const FINAL_TEXT = 'Your folder list is empty.';
-
-/** Second model call: the final assistant sentence as text deltas. */
-const FINAL_TEXT_TURN = [
-	{
-		choices: [{ delta: { content: 'Your folder list' }, finish_reason: null }],
-	},
-	{ choices: [{ delta: { content: ' is empty.' }, finish_reason: null }] },
-	{ choices: [{ delta: {}, finish_reason: 'stop' }] },
-];
 
 /**
  * Read the sidecar's stdout until the one-line versioned ready announcement.
@@ -1462,27 +980,10 @@ async function exitWithin(
 }
 
 describe('sidecar end-to-end smoke', () => {
-	test('the spawned entrypoint serves a compiled app, then drives a turn', async () => {
+	test('the spawned entrypoint serves Settings and a compiled app', async () => {
 		const page = await buildSpaOnce();
 		const appsDist = writeAppsDistFixture(page);
 		const dataDir = testDataDir();
-
-		// The fake OpenAI-compatible backend. One request and one text answer:
-		// the spawned host has no tool catalog to call into, so what this proves
-		// end to end is the sidecar, a compiled SPA, session, and socket.
-		let inferenceRequests = 0;
-		const inference = Bun.serve({
-			hostname: '127.0.0.1',
-			port: 0,
-			fetch(request) {
-				const { pathname } = new URL(request.url);
-				if (request.method !== 'POST' || pathname !== '/v1/chat/completions') {
-					return new Response('Not found', { status: 404 });
-				}
-				inferenceRequests += 1;
-				return openAiSse(FINAL_TEXT_TURN);
-			},
-		});
 
 		const portProbe = Bun.serve({
 			hostname: '127.0.0.1',
@@ -1502,10 +1003,6 @@ describe('sidecar end-to-end smoke', () => {
 					EPICENTER_APPS_DIST: appsDist,
 					EPICENTER_DATA_DIR: ignoredDirectory,
 					EPICENTER_FOLDER_DIR: ignoredDirectory,
-					// The engine POSTs `${baseURL}/chat/completions`, so the base
-					// carries the `/v1` prefix.
-					EPICENTER_INFERENCE_URL: `${inference.url.origin}/v1`,
-					EPICENTER_INFERENCE_MODEL: 'fake-model',
 				},
 				stdin: 'pipe',
 				stdout: 'pipe',
@@ -1548,48 +1045,9 @@ describe('sidecar end-to-end smoke', () => {
 				headers: { cookie: cookie ?? '' },
 			});
 			expect(withoutAuthBootstrap(await served.text())).toBe(page);
-
-			const session = await fetch(SESSION_ROUTE.url(origin), {
-				headers: { cookie: cookie ?? '' },
-			});
-			expect(session.status).toBe(200);
-			const catalog = (await session.json()) as HomeSessionResponse;
-			// No tools: the host owns no application data and composes no
-			// in-process catalog over it (ADR-0226).
-			expect(catalog.tools).toEqual([]);
-			expect(catalog.snapshot.conversation.messages).toEqual([]);
-
-			// One WebSocket turn: send, then await the settled snapshot.
-			const ws = new BunWebSocket(
-				SESSION_STREAM_ROUTE.url(origin).replace('http:', 'ws:'),
-				{ headers: { cookie: cookie ?? '', origin } },
-			);
-			const settled = nextSnapshot(
-				ws,
-				settledWith(FINAL_TEXT),
-				'the settled turn',
-				20_000,
-			);
-			ws.addEventListener('open', () => {
-				ws.send(JSON.stringify({ type: 'send', content: 'say something' }));
-			});
-			let final: HomeServerEvent;
-			try {
-				final = await settled;
-			} finally {
-				ws.close();
-			}
-
-			expect(conversationOf(final).error).toBeNull();
-			const parts = conversationOf(final).messages.flatMap((m) => m.parts);
-			expect(parts).toContainEqual(
-				expect.objectContaining({ type: 'text', text: FINAL_TEXT }),
-			);
-			expect(inferenceRequests).toBe(1);
 		} finally {
 			sidecar.kill('SIGTERM');
 			expect(await sidecar.exited).toBe(0);
-			await inference.stop(true);
 		}
 	}, 120_000);
 
@@ -1608,8 +1066,6 @@ describe('sidecar end-to-end smoke', () => {
 				env: {
 					...process.env,
 					EPICENTER_APPS_DIST: appsDist,
-					EPICENTER_INFERENCE_URL: 'http://127.0.0.1:1/v1',
-					EPICENTER_INFERENCE_MODEL: 'unused-model',
 				},
 				stdin: 'pipe',
 				stdout: 'pipe',
@@ -1648,8 +1104,6 @@ describe('sidecar end-to-end smoke', () => {
 				env: {
 					...process.env,
 					EPICENTER_APPS_DIST: appsDist,
-					EPICENTER_INFERENCE_URL: 'http://127.0.0.1:1/v1',
-					EPICENTER_INFERENCE_MODEL: 'unused-model',
 				},
 				stdin: 'pipe',
 				stdout: 'pipe',
@@ -1681,8 +1135,7 @@ describe('sidecar end-to-end smoke', () => {
 
 describe('retired store checkout routes', () => {
 	test('GET and PUT no longer expose a store working copy', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host, PAGE);
+		const server = await serveHost(PAGE);
 		try {
 			const url = `${server.url.origin}/api/checkout/so.epicenter.honeycrisp`;
 			for (const method of ['GET', 'PUT']) {

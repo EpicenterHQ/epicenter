@@ -1,32 +1,23 @@
 import type { AiCatalog } from './ai-catalog.ts';
 import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 /**
- * The Bun-owned Device origin: trusted SPA documents, Home APIs, and the
- * Home session WebSocket. The launch credential can only mint short-lived
- * browser sessions at the bootstrap route; it never appears in a URL or
- * durable browser storage.
+ * The Bun-owned Device origin: trusted SPA documents, the account broker, and
+ * the AI catalog. The launch credential can only mint short-lived browser
+ * sessions at the bootstrap route; it never appears in a URL or durable
+ * browser storage.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import type { AgentToolDefinition } from '@epicenter/agent';
 import { deviceOwnerPath } from '@epicenter/principal';
 import { type Context, Hono, type Next } from 'hono';
-import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
-import {
-	type HomeHost,
-	type HomeSessionSnapshot,
-	parseHomeCommand,
-} from './host.ts';
 import {
 	ACCOUNT_CANCEL_CONNECTION_ROUTE,
 	ACCOUNT_SIGN_IN_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
-	SESSION_ROUTE,
-	SESSION_STREAM_ROUTE,
 	SIGN_IN_CALLBACK_ROUTE,
 } from './routes.ts';
 import type {
@@ -35,18 +26,7 @@ import type {
 	ServedApplicationAssets,
 } from './static-assets.ts';
 
-export type HomeServerEvent = {
-	type: 'snapshot';
-	snapshot: HomeSessionSnapshot;
-};
-
-export type HomeSessionResponse = {
-	tools: AgentToolDefinition[];
-	snapshot: HomeSessionSnapshot;
-};
-
 export type HomeServerOptions = {
-	host: HomeHost;
 	/** Exact active origin, including the Rust-selected explicit port. */
 	origin: string;
 	/** Per-launch credential received from Rust over stdin. */
@@ -67,7 +47,6 @@ const SESSION_SHELL = `<!doctype html><html><head><meta charset="utf-8"><title>D
 const RESTART_REQUIRED_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Restart Epicenter</title></head><body><h1>Restart Epicenter to continue</h1><p>This session has ended. Quit and reopen Epicenter. If the account change failed, your saved sign-in may not have changed.</p></body></html>`;
 
 export function createHomeServer({
-	host,
 	origin,
 	launchToken,
 	staticAssets,
@@ -101,7 +80,6 @@ export function createHomeServer({
 		SESSION_SHELL,
 	].join('\n');
 	const csp = contentSecurityPolicy(everyPage);
-	const { upgradeWebSocket, websocket } = createBunWebSocket();
 	const app = new Hono();
 
 	app.use('*', async (c, next) => {
@@ -203,53 +181,6 @@ export function createHomeServer({
 			'/_epicenter/ai/no-account',
 			createAiCatalogRoutes(noAccountAiCatalog),
 		);
-
-	app.use('/_epicenter/inference', async (c, next) => {
-		if (c.req.method === 'GET' || c.req.method === 'HEAD')
-			return requireBrowserSession(c, next);
-		return requirePrivateBroker(c, next);
-	});
-	app.all('/_epicenter/inference', async (c) => {
-		const destination = c.req.header('x-epicenter-inference-url');
-		if (!destination) return c.text('Missing inference destination', 400);
-		const target = new URL(destination);
-		if (
-			!['http:', 'https:'].includes(target.protocol) ||
-			target.username ||
-			target.password ||
-			target.hash
-		)
-			return c.text('Invalid inference destination', 400);
-		const headers = relayHeaders(c.req.raw.headers);
-		const authorization = c.req.header('authorization');
-		if (authorization !== undefined)
-			headers.set('authorization', authorization);
-		headers.delete('cookie');
-		headers.delete('x-epicenter-inference-url');
-		const response = await fetch(target, {
-			method: c.req.method,
-			headers,
-			body: ['GET', 'HEAD'].includes(c.req.method) ? undefined : c.req.raw.body,
-			signal: c.req.raw.signal,
-			redirect: 'error',
-			credentials: 'omit',
-		});
-		const outgoing = new Headers(response.headers);
-		for (const name of [
-			'set-cookie',
-			'set-cookie2',
-			'content-encoding',
-			'content-length',
-			'connection',
-		])
-			outgoing.delete(name);
-		outgoing.set('cache-control', 'no-store');
-		return new Response(response.body, {
-			status: response.status,
-			statusText: response.statusText,
-			headers: outgoing,
-		});
-	});
 
 	app.all('/_epicenter/account/http', async (c) => {
 		const account = desktopAuth.account;
@@ -409,52 +340,7 @@ export function createHomeServer({
 	});
 	app.get('/apps/*', (c) => c.text('Not Found', 404));
 
-	// This wildcard keeps application-scoped host APIs behind the browser
-	// session by default.
-	app.use('/api/apps/*', requireBrowserSession);
-	app.use('/api/home/*', requireBrowserSession);
-	app.use(SESSION_STREAM_ROUTE.pattern, async (c, next) => {
-		if (c.req.header('origin') !== origin) return c.text('Forbidden', 403);
-		await next();
-	});
-
-	app.get(SESSION_ROUTE.pattern, (c) =>
-		c.json({
-			tools: host.toolDefinitions(),
-			snapshot: host.snapshot(),
-		} satisfies HomeSessionResponse),
-	);
-
-	app.get(
-		SESSION_STREAM_ROUTE.pattern,
-		upgradeWebSocket(() => {
-			let unsubscribe: (() => void) | undefined;
-			const push = (ws: { send(data: string): void }) => {
-				const event: HomeServerEvent = {
-					type: 'snapshot',
-					snapshot: host.snapshot(),
-				};
-				ws.send(JSON.stringify(event));
-			};
-			return {
-				onOpen(_event, ws) {
-					unsubscribe = host.subscribe(() => push(ws));
-					push(ws);
-				},
-				onMessage(event, ws) {
-					const command = parseHomeCommand(parseFrame(event.data));
-					if (!command) return;
-					void host.handleCommand(command);
-					push(ws);
-				},
-				onClose() {
-					unsubscribe?.();
-				},
-			};
-		}),
-	);
-
-	return { app, websocket };
+	return { app };
 }
 
 /**
@@ -551,15 +437,6 @@ function contentSecurityPolicy(page: string): string {
 		"base-uri 'self'",
 		"frame-ancestors 'none'",
 	].join('; ');
-}
-
-function parseFrame(data: unknown): unknown {
-	if (typeof data !== 'string') return undefined;
-	try {
-		return JSON.parse(data);
-	} catch {
-		return undefined;
-	}
 }
 
 /** Only end-to-end application headers cross the credential boundary. */

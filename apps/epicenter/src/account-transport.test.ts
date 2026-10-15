@@ -8,7 +8,6 @@ import {
 import { createDesktopBrokerAuth } from '@epicenter/auth/desktop';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { createHomeHost } from './host.ts';
 import { createHomeServer } from './server.ts';
 
 async function setup({ verification }: { verification?: Promise<void> } = {}) {
@@ -135,10 +134,6 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 		accountManagement: true,
 		credentialUnreadable: false,
 	};
-	const host = await createHomeHost({
-		model: 'test',
-		engine: async function* () {},
-	});
 	// Reserve a port before composing the exact Host guard.
 	const probe = Bun.serve({
 		hostname: '127.0.0.1',
@@ -148,10 +143,9 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 	const port = probe.port;
 	await probe.stop(true);
 	const origin = `http://127.0.0.1:${port}`;
-	const { app, websocket } = createHomeServer({
+	const { app } = createHomeServer({
 		origin,
 		launchToken: 'launch',
-		host,
 		staticAssets: { homePage: '<html><head></head></html>', applications: [] },
 		desktopAuth: {
 			restartRequired: false,
@@ -178,23 +172,10 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 			[Symbol.dispose]: auth[Symbol.dispose],
 		},
 	});
-	let localOpened = 0;
-	let localClosed = 0;
 	const server = Bun.serve({
 		hostname: '127.0.0.1',
 		port,
 		fetch: app.fetch,
-		websocket: {
-			...websocket,
-			open(ws) {
-				localOpened++;
-				websocket.open?.(ws);
-			},
-			close(ws, code, reason) {
-				localClosed++;
-				websocket.close?.(ws, code, reason);
-			},
-		},
 	});
 	const boot = await fetch(`${origin}/_epicenter/bootstrap`, {
 		method: 'POST',
@@ -246,12 +227,10 @@ async function setup({ verification }: { verification?: Promise<void> } = {}) {
 			await Promise.resolve();
 			await Promise.allSettled(revocations);
 			cancelStream?.();
-			await until(() => localOpened === localClosed);
-			// Bun 1.3.1 through 1.3.14 count server-closed sockets after both close events.
-			// stop(true) releases the port, but its promise waits on that stale count.
+			// stop(true) releases the port at once, but after a cancelled relayed
+			// stream its promise does not settle under Bun 1.3.14, so it is not awaited.
 			void server.stop(true);
 			await upstream.stop(true);
-			await host[Symbol.asyncDispose]();
 		},
 	};
 }
@@ -440,44 +419,3 @@ async function until(condition: () => boolean) {
 		await Bun.sleep(5);
 	}
 }
-
-test('unsaved endpoint broker preserves explicit authentication and multipart transcription beyond discovery', async () => {
-	await using context = await setup();
-	let observed: Headers | undefined;
-	let received: FormData | undefined;
-	const upstream = Bun.serve({
-		hostname: '127.0.0.1',
-		port: 0,
-		async fetch(request) {
-			observed = request.headers;
-			received = await request.formData();
-			return Response.json({ text: 'transcribed' });
-		},
-	});
-	try {
-		const form = new FormData();
-		form.set('model', 'selected');
-		form.set('file', new File(['exact audio'], 'audio.wav'));
-		const response = await fetch(context.origin + '/_epicenter/inference', {
-			method: 'POST',
-			headers: {
-				cookie: context.cookie,
-				origin: context.origin,
-				authorization: 'Bearer explicit',
-				'cf-aig-authorization': 'Bearer gateway',
-				'x-epicenter-inference-url':
-					upstream.url.origin + '/v1/audio/transcriptions',
-			},
-			body: form,
-		});
-		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({ text: 'transcribed' });
-		expect(observed!.get('authorization')).toBe('Bearer explicit');
-		expect(observed!.get('cf-aig-authorization')).toBe('Bearer gateway');
-		expect(observed!.get('cookie')).toBeNull();
-		expect(observed!.get('x-epicenter-inference-url')).toBeNull();
-		expect(await (received!.get('file') as File).text()).toBe('exact audio');
-	} finally {
-		await upstream.stop(true);
-	}
-});

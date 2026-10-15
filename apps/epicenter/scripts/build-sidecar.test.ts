@@ -145,8 +145,6 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 	const sidecar = Bun.spawn([binary, '--runtime-mode=development'], {
 		env: {
 			EPICENTER_APPS_DIST: join(appDir, 'dist'),
-			EPICENTER_INFERENCE_URL: 'http://127.0.0.1:1/v1',
-			EPICENTER_INFERENCE_MODEL: 'unused-model',
 			PATH: gitOnly,
 			GIT_CONFIG_GLOBAL: '/dev/null',
 			GIT_CONFIG_NOSYSTEM: '1',

@@ -132,8 +132,8 @@ Settings from its Settings button with `open_home`. Opening an app opens its own
 window; the OS is the switcher from there, and closing the Folders window
 leaves everything it opened running.
 
-Settings is the window labelled `home`, with two panes: Chat and Settings. It
-alone administers the local transcription model (ADR-0180). An app that needs
+Settings is the window labelled `home`. It holds the account and alone
+administers the local transcription model (ADR-0180). An app that needs
 a local model opens it with `open_home` and a section. The tray (Show Folders,
 Show Settings) and deep links remain shortcuts into the same windows; installed
 apps have no deep link:
@@ -402,7 +402,10 @@ open Settings where that model is chosen. Whispering's page has no recording
 overlay and registers no global shortcuts, so neither is created or granted.
 The shell's overlay panel (`src-tauri/src/overlay.rs`) and the dictation
 commands (global shortcuts, keyboard delivery, playback pause, accessibility,
-and autostart) are compiled but granted to no window.
+and autostart) are compiled but granted to no window. The shell registers the
+clipboard-manager, global-shortcut, opener, and autostart plugins and grants
+none of them to a page; the notification plugin is a dependency but stays
+unregistered until a capability grants it (ADR-0555).
 
 ## Quitting Epicenter
 
@@ -464,7 +467,7 @@ Whispering and Honeycrisp, are checked in their own folders.
 ## Ownership rules
 
 - `src-tauri` owns native commands, permissions, windows, deep links, and packaging.
-- `src` owns the Bun host, built-in routes, static-asset containment, and the Settings chat session.
+- `src` owns the Bun host, built-in routes, static-asset containment, and the Settings page.
 - `dist` is generated. Never edit it or commit product source beneath it.
 - A product SPA owns its UI and browser deployment from its own app folder.
 - A multi-host SPA selects implementations through build-time `#platform/*` conditions. Runtime checks guard optional capabilities; they do not choose which implementation was bundled.

@@ -1,12 +1,9 @@
 {
 	"name": "@epicenter/epicenter",
-	"description": "One desktop application host serving trusted Epicenter SPAs and the Home session from Bun.",
+	"description": "One desktop application host serving trusted Epicenter SPAs from Bun.",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
-	"exports": {
-		".": "./src/host.ts"
-	},
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",
 		"build:apps": "bun run clean:dist && bun run build:home && bun run build:folders",
@@ -23,18 +20,12 @@
 		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"openai": "^7.12.1",
-		"@epicenter/agent": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/auth": "workspace:*",
-		"@epicenter/client": "workspace:*",
-		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",
-		"@epicenter/server": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
-		"@modelcontextprotocol/sdk": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"hono": "catalog:",

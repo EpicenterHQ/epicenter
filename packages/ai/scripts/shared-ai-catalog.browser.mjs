@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createAiCatalog } from '../../../apps/epicenter/src/ai-catalog.ts';
 import { createProcessMemoryAppSecrets } from '../../../apps/epicenter/src/app-secrets.ts';
-import { createHomeHost } from '../../../apps/epicenter/src/host.ts';
 import { BOOTSTRAP_ROUTE } from '../../../apps/epicenter/src/routes.ts';
 import { createHomeServer } from '../../../apps/epicenter/src/server.ts';
 import { createTestDesktopAuth } from '../../../apps/epicenter/src/test-home-host.ts';
@@ -83,10 +82,6 @@ const catalog = await createAiCatalog({
 		);
 	},
 });
-const host = await createHomeHost({
-	model: 'unused',
-	engine: async function* () {},
-});
 const auth = createTestDesktopAuth();
 let route;
 const server = Bun.serve({
@@ -97,7 +92,6 @@ const server = Bun.serve({
 const origin = server.url.origin;
 route = createHomeServer({
 	folderRoot: evidence,
-	host,
 	origin,
 	launchToken: 'test-launch-token',
 	desktopAuth: auth,
@@ -408,5 +402,4 @@ try {
 	await server.stop(true);
 	await previewServer.stop(true);
 	auth[Symbol.dispose]();
-	await host[Symbol.asyncDispose]();
 }
