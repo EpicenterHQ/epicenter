@@ -4,8 +4,11 @@
  * Each side's changes against the base are diffed by line; changes that
  * overlap or touch on the base are one region. A region only one side
  * changed takes that side's lines, a region both sides changed identically
- * takes those lines, and any other region competes, so the whole merge is
- * `undefined` and the caller holds the unit for a person.
+ * takes those lines, and any other region competes. `mergeLines` makes the
+ * whole merge `undefined` when one competes, so the caller holds the unit
+ * for a person. `mergeLinesPreferring` settles each competing region with
+ * one side's lines and keeps every other region, for a save that decided
+ * ahead of time which side wins where both changed the same lines.
  */
 
 /**
@@ -25,20 +28,62 @@ type Hunk = {
 	readonly sideEnd: number;
 };
 
+/** A base and two sides' texts, merged by line. */
+export type LineVersions = {
+	readonly base: string;
+	readonly ours: string;
+	readonly theirs: string;
+};
+
 /**
  * The line merge of three texts, or `undefined` when both sides changed the
  * same lines differently. Every input byte of a kept line lands in the
  * output, so a body with no line break at its end keeps that.
  */
-export async function mergeLines({
-	base,
-	ours,
-	theirs,
-}: {
-	base: string;
-	ours: string;
-	theirs: string;
-}): Promise<string | undefined> {
+export async function mergeLines(
+	versions: LineVersions,
+): Promise<string | undefined> {
+	return mergeBy(versions, () => undefined);
+}
+
+/** A line merge whose competing regions took one side's lines. */
+export type PreferredMerge = {
+	readonly text: string;
+	/**
+	 * The other side's lines in each competing region, in order: what the
+	 * preferred side replaced. Empty when no region competed.
+	 */
+	readonly replaced: readonly string[];
+};
+
+/**
+ * The line merge of three texts where `prefer`'s lines win each region both
+ * sides changed differently. Every region only one side changed keeps that
+ * side's lines, so nothing outside a competing region is lost from either.
+ */
+export async function mergeLinesPreferring(
+	versions: LineVersions,
+	prefer: 'ours' | 'theirs',
+): Promise<PreferredMerge> {
+	const replaced: string[] = [];
+	const text = await mergeBy(versions, (mine, yours) => {
+		const [kept, lost] = prefer === 'ours' ? [mine, yours] : [yours, mine];
+		replaced.push(lost);
+		return kept;
+	});
+	// A competing region always resolves, so the merge always has text.
+	return { text: text as string, replaced };
+}
+
+/**
+ * The line merge, where `compete` answers the lines of each region both
+ * sides changed differently, given ours and theirs there; `undefined` from
+ * it makes the whole merge `undefined`.
+ */
+async function mergeBy(
+	{ base, ours, theirs }: LineVersions,
+	compete: (mine: string, yours: string) => string | undefined,
+): Promise<string | undefined> {
 	// Loaded when a merge needs it: the shell's diff uses the same library,
 	// and a static import would put it in this module's chunk.
 	const { diffArrays } = await import('diff');
@@ -104,7 +149,11 @@ export async function mergeLines({
 		if (mine === yours || group.every((hunk) => hunk.side === 'ours'))
 			merged += mine;
 		else if (group.every((hunk) => hunk.side === 'theirs')) merged += yours;
-		else return undefined;
+		else {
+			const settled = compete(mine, yours);
+			if (settled === undefined) return undefined;
+			merged += settled;
+		}
 	}
 	return merged + b.slice(cursor).join('');
 }

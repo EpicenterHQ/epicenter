@@ -14,6 +14,8 @@
  * - `openDataFolder` reads with the folder's own `epicenter.json` and never
  *   writes it, runs no `git` before the first commit creates the repository,
  *   and merges rows on Sync by that declaration
+ * - A data folder the shell grants inside another repository's working tree
+ *   blocks its first commit with the shell's reason, and runs no `git init`
  */
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -336,6 +338,7 @@ test('a refused grant is the refusal', async () => {
 test.each<[unknown, OpenFolderError['name']]>([
 	[{ name: 'UnknownScope', scope: 'so.epicenter.todos' }, 'UnknownScope'],
 	[{ name: 'Busy', root: '/elsewhere' }, 'Busy'],
+	[{ name: 'Missing', root: '/elsewhere' }, 'Missing'],
 	[{ name: 'Unavailable', message: 'locked out' }, 'Unavailable'],
 	[{ name: 'ShuttingDown' }, 'ShuttingDown'],
 	// Tauri rejects with a string for a missing command or permission.
@@ -546,6 +549,34 @@ test('a data folder whose epicenter.json cannot be used is InvalidDeclaration an
 	expect(changedPaths()).toEqual([]);
 });
 
+test("a data folder inside another repository blocks its first commit with the shell's reason", async () => {
+	const root = await scratch('tauri-data-folder-nested-');
+	await nodeFs.writeFile(join(root, 'epicenter.json'), DECLARED);
+	const initProblem = `${root} is inside the repository at /outer; commit it with that repository's Git`;
+	grantedRoot = root;
+	grant = () => ({
+		root,
+		branch: 'main',
+		authorName: 'Vault',
+		authorEmail: 'vault@localhost',
+		initProblem,
+	});
+	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
+	expectOk(
+		await folder.tables.todos!.create({
+			fields: { title: 'One', done: false },
+			body: '',
+		}),
+	);
+	expect(await folder.git.commit()).toEqual({
+		status: 'blocked',
+		reason: initProblem,
+	});
+	expect(calls.some(({ cmd }) => cmd === 'run_git')).toBe(false);
+	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
+	await folder.close();
+});
+
 test('a data folder grant refused is the refusal', async () => {
 	grant = () => {
 		throw { name: 'UnknownScope', scope: 'so.epicenter.vault' };
@@ -595,5 +626,61 @@ test("a data folder's Sync merges rows by its own declaration", async () => {
 		'---\ntitle: One, renamed\ndone: true\n---\n',
 	);
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	await folder.close();
+});
+
+test('a save another window lands while Sync writes the same row survives, and the next Sync asks for a choice', async () => {
+	const project = await scratch('tauri-incoming-race-');
+	const bare = await createBareRemote(project);
+	const native = join(project, 'native');
+	await git(project, 'clone', '--quiet', bare, native);
+	await nodeFs.mkdir(join(native, 'todos'));
+	await nodeFs.writeFile(
+		join(native, 'todos/one.md'),
+		'---\ntitle: Shared\ndone: false\n---\n',
+	);
+	await git(native, 'add', '--all');
+	await git(native, 'commit', '--quiet', '-m', 'Start');
+	await git(native, 'push', '--quiet', 'origin', 'HEAD:main');
+	const root = join(project, 'desktop');
+	await git(project, 'clone', '--quiet', bare, root);
+	grantRoot(root);
+	const folder = expectOk(
+		await openFolder({ definition, id: 'so.epicenter.todos' }),
+	);
+	expectOk(await folder.sync.run());
+	await git(native, 'pull', '--quiet', 'origin', 'main');
+	await nodeFs.writeFile(
+		join(native, 'todos/one.md'),
+		'---\ntitle: Remote\ndone: false\n---\n',
+	);
+	await git(native, 'commit', '--quiet', '-am', 'Rename remotely');
+	await git(native, 'push', '--quiet', 'origin', 'main');
+
+	// Another window saves the row after this page checked it and before the
+	// shell publishes Sync's write there.
+	const path = join(root, 'todos/one.md');
+	const theirs = '---\ntitle: Other window\ndone: false\n---\n';
+	beforeChange = (target) => {
+		if (target !== path) return;
+		beforeChange = () => {};
+		writeFileSync(path, theirs);
+	};
+	const stopped = await folder.sync.run();
+	expect(stopped.error).toMatchObject({
+		name: 'Merge',
+		error: {
+			name: 'Refused',
+			error: { name: 'Conflict', path: 'todos/one.md' },
+		},
+	});
+	expect(await readFile(path, 'utf8')).toBe(theirs);
+
+	const next = await folder.sync.run();
+	expect(next.error?.name).toBe('NeedsChoices');
+	expect(
+		next.error?.name === 'NeedsChoices' ? next.error.attempt.conflicts : [],
+	).toMatchObject([{ kind: 'field', field: 'title', path: 'todos/one.md' }]);
+	expect(await readFile(path, 'utf8')).toBe(theirs);
 	await folder.close();
 });

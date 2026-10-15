@@ -57,7 +57,11 @@ export type FolderFiles = {
 		file: FileCapture,
 		destination: string,
 	): Promise<Result<FileCapture, FileError | MoveError>>;
-	/** Save at the path whatever is there, as a shell redirection does. */
+	/**
+	 * Save at the path whatever is there, as a shell redirection does: the last
+	 * save to land wins, another window's included. A save of bytes that were
+	 * read uses `replace`, which carries what was read.
+	 */
 	overwrite(
 		path: string,
 		content: string | Uint8Array,

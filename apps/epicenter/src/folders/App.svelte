@@ -4,7 +4,9 @@
 	 * the one opened. The shell lists them (`list_data_folders`) and permits
 	 * this window into each, so `openDataFolder({ id })` opens one with its
 	 * own `epicenter.json`, which it never writes. One folder is open at a
-	 * time; choosing another closes it first.
+	 * time; choosing another closes it first. A folder whose `epicenter.json`
+	 * changes while it is open is opened again, so its grid follows the new
+	 * declaration.
 	 */
 	import type { Folder, FolderDefinition } from '@epicenter/folder';
 	import { openDataFolder } from '@epicenter/folder/tauri';
@@ -40,8 +42,9 @@
 		}
 	}
 
-	async function open(id: string) {
-		if (id === openId && (opened !== undefined || opening)) return;
+	/** Open folder `id`; `again` reopens the one already open. */
+	async function open(id: string, again = false) {
+		if (!again && id === openId && (opened !== undefined || opening)) return;
 		const seq = ++openSeq;
 		openId = id;
 		openProblem = undefined;
@@ -119,7 +122,14 @@
 			<p class="p-4 text-sm text-muted-foreground">Opening…</p>
 		{:else if opened !== undefined}
 			{#key opened}
-				<FolderView folder={opened} />
+				{@const shown = opened}
+				<FolderView
+					folder={shown}
+					declarationChanged={() => {
+						// Only while this folder is still the one shown.
+						if (opened === shown && openId !== undefined) void open(openId, true);
+					}}
+				/>
 			{/key}
 		{:else}
 			<div class="flex flex-1 items-center justify-center p-8 text-center text-muted-foreground">

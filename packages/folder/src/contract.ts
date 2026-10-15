@@ -103,6 +103,11 @@ export type {
 	GitCredentials,
 	HttpFetch,
 } from './git/http.js';
+export {
+	type LineVersions,
+	mergeLinesPreferring,
+	type PreferredMerge,
+} from './git/merge-lines.js';
 export { commitSubject, escapePath, type PathChange } from './git/messages.js';
 export type { Author, CommitSummary } from './git/objects.js';
 export type {

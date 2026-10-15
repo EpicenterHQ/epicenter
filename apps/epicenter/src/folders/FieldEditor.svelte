@@ -1,10 +1,3 @@
-<script lang="ts" module>
-	/** What an edit does to one field: set its value, or leave it out of the row. */
-	export type FieldChange =
-		| { readonly kind: 'set'; readonly value: unknown }
-		| { readonly kind: 'remove' };
-</script>
-
 <script lang="ts">
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import * as Select from '@epicenter/ui/select';
@@ -15,22 +8,29 @@
 		type TextKind,
 		textOf,
 	} from './field-input';
+	import type { FieldChange } from './row-edits';
 
 	/**
 	 * One field's editor, chosen by its kind. Every commit saves at once
 	 * through `save`: a text editor commits on Enter or when it loses focus,
 	 * and Escape puts back the stored value. Nothing is held as a draft.
+	 * A text editor calls `begin` when it gains focus, so the save is merged
+	 * against the row as it stood then; the other editors save at the click
+	 * that begins and ends their edit.
 	 */
 	let {
 		column,
 		value,
 		save,
+		begin,
 		multiline = false,
 	}: {
 		column: FieldColumn;
 		/** The stored value; `undefined` when the row leaves the field out. */
 		value: unknown;
 		save: (change: FieldChange) => void;
+		/** Editing began: a text editor gained focus. */
+		begin: () => void;
 		/** Edit JSON in a tall box, as the row panel does. */
 		multiline?: boolean;
 	} = $props();
@@ -38,6 +38,8 @@
 	const editor = $derived(column.editor);
 	let problem = $state<string | undefined>(undefined);
 	let element = $state<HTMLInputElement | HTMLTextAreaElement | undefined>();
+	/** The text the box held when it gained focus: what an edit is measured from. */
+	let startText: string | undefined;
 
 	const BOX =
 		'w-full min-w-24 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive dark:bg-input/30';
@@ -50,11 +52,19 @@
 			element.value = text;
 	});
 
+	function onfocus() {
+		startText = textOf(editor.kind as TextKind, value);
+		begin();
+	}
+
 	function commit(text: string, input: HTMLInputElement | HTMLTextAreaElement) {
 		const kind = editor.kind as TextKind;
 		const stored = textOf(kind, value);
-		if (text === stored) {
+		// Measured from the text the edit began with: a read that landed
+		// meanwhile changed `value`, not what the person typed over.
+		if (text === (startText ?? stored)) {
 			problem = undefined;
+			input.value = stored;
 			return;
 		}
 		const outcome = commitText(column, text);
@@ -68,7 +78,7 @@
 				return;
 			case 'remove':
 				problem = undefined;
-				if (value !== undefined) save({ kind: 'remove' });
+				save({ kind: 'remove' });
 				return;
 			case 'set':
 				problem = undefined;
@@ -164,6 +174,7 @@
 		class={[BOX, 'min-h-20 py-1.5 font-mono text-xs']}
 		aria-label={column.name}
 		aria-invalid={problem !== undefined}
+		{onfocus}
 		{onchange}
 		{onkeydown}
 	></textarea>
@@ -192,6 +203,7 @@
 		autocomplete="off"
 		aria-label={column.name}
 		aria-invalid={problem !== undefined}
+		{onfocus}
 		{onchange}
 		{onkeydown}
 	/>

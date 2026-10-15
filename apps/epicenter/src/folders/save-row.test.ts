@@ -9,7 +9,9 @@
  * - Over a row another writer changed in a different field, both changes land
  * - Where both changed one field, this edit wins, the other writer's other
  *   fields survive, and the outcome names the value it replaced
- * - Body edits merge by line
+ * - Body edits merge by line; where both changed the same lines this edit
+ *   wins there, their other lines survive, and the outcome names only their
+ *   replaced lines
  * - A row another writer deleted is not recreated
  * - A row that keeps changing gives up after the bounded number of merges
  * - A value the field does not admit is refused with a reason
@@ -173,11 +175,61 @@ test('body edits to the same line: this edit wins and says what it replaced', as
 
 	expect(outcome).toMatchObject({
 		kind: 'merged',
-		replaced: [{ kind: 'body', theirs: 'first\ntheirs\nthird\n' }],
+		replaced: [{ kind: 'body', theirs: ['theirs\n'] }],
 	});
 	const stored = await read();
 	expect(stored.row.body).toBe('first\nmine\nthird\n');
 	expect(stored.row.fields.done).toBe(true);
+	await folder.close();
+});
+
+/** A row whose body is five lines, read back. */
+async function fiveLines({ table, read }: Awaited<ReturnType<typeof setup>>) {
+	const start = await read();
+	const row = structuredClone(start.row);
+	row.body = 'one\ntwo\nthree\nfour\nfive\n';
+	expectOk(await table.replace(start, row));
+	return read();
+}
+
+test('their change on line 1 and this edit on line 5 both survive', async () => {
+	const opened = await setup();
+	const { folder, table, prepared, read, otherWriter } = opened;
+	const captured = await fiveLines(opened);
+	await otherWriter(captured, (row) => {
+		row.body = 'ONE (theirs)\ntwo\nthree\nfour\nfive\n';
+	});
+	const edited = structuredClone(captured.row);
+	edited.body = 'one\ntwo\nthree\nfour\nFIVE (mine)\n';
+
+	const outcome = await saveRow({ table, prepared, captured, edited });
+
+	expect(outcome).toMatchObject({ kind: 'merged', replaced: [] });
+	expect((await read()).row.body).toBe(
+		'ONE (theirs)\ntwo\nthree\nfour\nFIVE (mine)\n',
+	);
+	await folder.close();
+});
+
+test('both changed line 3: this edit wins there and their other lines survive', async () => {
+	const opened = await setup();
+	const { folder, table, prepared, read, otherWriter } = opened;
+	const captured = await fiveLines(opened);
+	await otherWriter(captured, (row) => {
+		row.body = 'ONE (theirs)\ntwo\nTHREE (theirs)\nfour\nfive\n';
+	});
+	const edited = structuredClone(captured.row);
+	edited.body = 'one\ntwo\nTHREE (mine)\nfour\nfive\n';
+
+	const outcome = await saveRow({ table, prepared, captured, edited });
+
+	expect(outcome).toMatchObject({
+		kind: 'merged',
+		replaced: [{ kind: 'body', theirs: ['THREE (theirs)\n'] }],
+	});
+	expect((await read()).row.body).toBe(
+		'ONE (theirs)\ntwo\nTHREE (mine)\nfour\nfive\n',
+	);
 	await folder.close();
 });
 

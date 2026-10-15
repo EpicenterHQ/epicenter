@@ -4,14 +4,16 @@
  *
  * The Folders window keeps no drafts: it is not a departure participant, so
  * every edit is saved as it is made (`table.replace`, guarded by the bytes
- * the row was read from). When another window saved the row first, the save
- * is `Conflict`. Then the current file is read and merged with `mergeRow`:
- * base is the row as this window read it, ours the edited row, theirs the
- * current file. Fields only one side changed keep that side's value. Where
- * both sides changed a field, or the same body lines, ours wins, and the
- * outcome names each value it replaced so the view can say so. The merged row
- * is saved against the current file's bytes, and that repeats a bounded
- * number of times before the save gives up and the view reads the row again.
+ * the row held when the edit began; `row-edits.ts` keeps that row). When
+ * another window saved the row first, the save is `Conflict`. Then the
+ * current file is read and merged with `mergeRow`: base is that row, ours
+ * the edited row, theirs the current file. Fields only one side changed keep that side's value, and
+ * body lines only one side changed keep that side's lines. Where both sides
+ * changed a field, or the same body lines, ours wins there, and the outcome
+ * names each value and each run of their lines it replaced so the view can
+ * say so. The merged row is saved against the current file's bytes, and that
+ * repeats a bounded number of times before the save gives up and the view
+ * reads the row again.
  *
  * This module has no DOM and no Svelte, so it runs under `bun test` against a
  * folder opened by `@epicenter/folder/bun`.
@@ -21,6 +23,7 @@ import {
 	type AnyRow,
 	type FileTable,
 	formatRow,
+	mergeLinesPreferring,
 	mergeRow,
 	type PreparedFolderTable,
 	type RowMerge,
@@ -34,10 +37,13 @@ export type AnyTable = FileTable<Record<string, unknown>>;
 /** A row as one read captured it. */
 export type StoredAnyRow = StoredRow<Record<string, unknown>>;
 
-/** A value of the other writer's that this save replaced, because both changed it. */
+/**
+ * What of the other writer's this save replaced, because both changed it: a
+ * field's value, or the body lines of each region both changed, in order.
+ */
 export type Replaced =
 	| { readonly kind: 'field'; readonly field: string; readonly theirs: unknown }
-	| { readonly kind: 'body'; readonly theirs: string };
+	| { readonly kind: 'body'; readonly theirs: readonly string[] };
 
 export type SaveOutcome =
 	/** Saved over the bytes the row was read from. */
@@ -126,7 +132,7 @@ export async function saveRow({
 		if (theirsIssue !== null) return failed(theirsIssue.message);
 
 		const merge = await mergeRow(prepared, { base, ours, theirs });
-		const settled = oursWins(merge);
+		const settled = await oursWins(merge);
 		if (settled === undefined)
 			return failed(
 				'Your edit and another window’s changes to this row could not be merged, so your edit was not saved.',
@@ -142,12 +148,13 @@ export async function saveRow({
 }
 
 /**
- * The merged row with every competing field and body taken from ours, and
- * what of theirs that replaced. `undefined` for a merge by whole file.
+ * The merged row with every competing field and every competing body region
+ * taken from ours, and what of theirs that replaced. Body lines only theirs
+ * changed stay theirs. `undefined` for a merge by whole file.
  */
-function oursWins(
+async function oursWins(
 	merge: RowMerge,
-): { row: AnyRow; replaced: Replaced[] } | undefined {
+): Promise<{ row: AnyRow; replaced: Replaced[] } | undefined> {
 	if (merge.kind === 'whole') return undefined;
 	if (merge.kind === 'merged') return { row: copy(merge.row), replaced: [] };
 	const row = copy(merge.row);
@@ -167,9 +174,19 @@ function oursWins(
 			theirs: conflict.theirs,
 		});
 	}
-	// While the body competes, the merged row's body is already ours.
-	if (merge.body !== undefined)
-		replaced.push({ kind: 'body', theirs: merge.body.theirs });
+	if (merge.body !== undefined) {
+		// Merged by line again, with ours taking only the competing regions.
+		const body = await mergeLinesPreferring(
+			{
+				base: merge.body.base ?? '',
+				ours: merge.body.ours,
+				theirs: merge.body.theirs,
+			},
+			'ours',
+		);
+		row.body = body.text;
+		replaced.push({ kind: 'body', theirs: body.replaced });
+	}
 	return { row, replaced };
 }
 

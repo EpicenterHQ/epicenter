@@ -603,6 +603,65 @@ describe('a folder over an ordinary directory', () => {
 		await reopened.close();
 	});
 
+	test("a save another window lands while Sync writes the same row survives, and the next Sync asks for a choice", async () => {
+		const project = await scratch('directory-folder-incoming-race-');
+		const bare = await createBareRemote(project);
+		const root = join(project, 'desktop');
+		await git(project, 'init', '--quiet', '--initial-branch=main', root);
+		await git(root, 'remote', 'add', 'origin', bare);
+		// Another window, sharing no lock with this folder, saves the row
+		// after Sync checked it and before Sync's write publishes.
+		let racing: string | undefined;
+		const raced: DirectoryPrimitives = {
+			...nodeDirectoryPrimitives,
+			async rename(from, to, expected) {
+				if (racing !== undefined && to.endsWith('.md')) {
+					await writeFile(to, racing);
+					racing = undefined;
+				}
+				return nodeDirectoryPrimitives.rename(from, to, expected);
+			},
+		};
+		const folder = expectOk(await open(root, { primitives: raced }));
+		const created = await addTodo(folder, 'Shared');
+		expectOk(await folder.sync.run());
+
+		// Another checkout renames the todo and pushes.
+		const native = join(project, 'native');
+		await git(project, 'clone', '--quiet', bare, native);
+		const nativePath = join(native, created.path);
+		await writeFile(
+			nativePath,
+			(await readFile(nativePath, 'utf8')).replace('Shared', 'Remote'),
+		);
+		await git(native, 'commit', '--quiet', '-am', 'Rename remotely');
+		await git(native, 'push', '--quiet', 'origin', 'main');
+
+		const theirs = '---\ntitle: Other window\ndone: false\n---\n';
+		racing = theirs;
+		const stopped = await folder.sync.run();
+		expect(stopped.error).toMatchObject({
+			name: 'Merge',
+			error: {
+				name: 'Refused',
+				error: { name: 'Conflict', path: created.path },
+			},
+		});
+		// The other window's save is still there, and the branch did not move.
+		expect(await readFile(join(root, created.path), 'utf8')).toBe(theirs);
+
+		// The next Sync records that save and meets the remote's rename.
+		const next = await folder.sync.run();
+		expect(next.error?.name).toBe('NeedsChoices');
+		const conflicts =
+			next.error?.name === 'NeedsChoices' ? next.error.attempt.conflicts : [];
+		expect(conflicts).toMatchObject([
+			{ kind: 'field', field: 'title', path: created.path },
+		]);
+		expect(await readFile(join(root, created.path), 'utf8')).toBe(theirs);
+		await folder.close();
+	});
+
 	test('stages, commits what was staged, and reads its log and diff with Git', async () => {
 		const { root } = await nativeRepository('directory-folder-staged-');
 		const folder = expectOk(await open(root));

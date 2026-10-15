@@ -1,28 +1,45 @@
 <script lang="ts">
-	import type {
-		FileListing,
-		Folder,
-		FolderDefinition,
-		GitSnapshot,
-		PreparedFolderTable,
-		TableListing,
+	import {
+		DECLARATION_PATH,
+		type FileListing,
+		type Folder,
+		type FolderDefinition,
+		type GitSnapshot,
+		type PreparedFolderTable,
+		type TableListing,
 	} from '@epicenter/folder';
 	import { visibleRows } from '@epicenter/folder/file-browser';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { onMount } from 'svelte';
-	import FieldEditor, { type FieldChange } from './FieldEditor.svelte';
+	import FieldEditor from './FieldEditor.svelte';
 	import { columnsOf, displayOf } from './field-input';
-	import { type AnyTable, type Replaced, saveRow } from './save-row';
+	import {
+		createRowEdits,
+		type EditUnit,
+		editedRow,
+		type FieldChange,
+		type RowEdit,
+	} from './row-edits';
+	import { type AnyTable, type Replaced, type StoredAnyRow, saveRow } from './save-row';
 	import { changesMessage, type VersionLine, versionMessage } from './version';
 
 	/**
 	 * One opened data folder: its tables and their rows, or its files when it
 	 * declares no tables, and Save version. Every edit saves at once.
+	 * `declarationChanged` is called once the folder's `epicenter.json` reads
+	 * as other bytes than when this view opened it, after every queued save
+	 * settled: the folder must be opened again to use the new declaration.
 	 */
-	let { folder }: { folder: Folder<FolderDefinition> } = $props();
+	let {
+		folder,
+		declarationChanged,
+	}: {
+		folder: Folder<FolderDefinition>;
+		declarationChanged: () => void;
+	} = $props();
 
-	type Notice = { readonly text: string; readonly problem: boolean };
+	type Notice = { readonly text: string };
 	type Listing = TableListing<Record<string, unknown>>;
 
 	// The folder's own declaration, as `openDataFolder` prepared it when it
@@ -37,7 +54,10 @@
 	let files = $state<FileListing | undefined>(undefined);
 	let readProblem = $state<string | undefined>(undefined);
 	let selectedStem = $state<string | undefined>(undefined);
-	let notice = $state<Notice | undefined>(undefined);
+	/** The latest merge with another window's save; stays until dismissed or replaced by a newer one. */
+	let mergeNotice = $state<Notice | undefined>(undefined);
+	/** The latest save that failed; stays until dismissed or replaced. */
+	let saveProblem = $state<Notice | undefined>(undefined);
 	/** Bumped when a save fails, so every editor shows the stored values again. */
 	let revision = $state(0);
 	/** Delivered by `folder.git.subscribe` as soon as the view mounts. */
@@ -56,6 +76,7 @@
 	let readSeq = 0;
 
 	async function read() {
+		void checkDeclaration();
 		const seq = ++readSeq;
 		const name = tableName;
 		if (name === undefined) {
@@ -74,6 +95,29 @@
 			);
 	}
 
+	/**
+	 * The declaration's SHA-256 when this view first read it, `null` for no
+	 * file, `undefined` until read.
+	 */
+	let declaration: string | null | undefined;
+	let reopening = false;
+
+	/** Ask for the folder to be opened again once `epicenter.json` changed. */
+	async function checkDeclaration() {
+		const { data, error } = await folder.files.read(DECLARATION_PATH);
+		if (error !== null && error.name !== 'NotFound') return;
+		const now = data?.sha256 ?? null;
+		if (declaration === undefined) {
+			declaration = now;
+			return;
+		}
+		if (now === declaration || reopening) return;
+		reopening = true;
+		// Queued saves finish against the declaration they were made with.
+		await saving;
+		declarationChanged();
+	}
+
 	function chooseTable(name: string) {
 		if (name === tableName) return;
 		tableName = name;
@@ -82,75 +126,91 @@
 		void read();
 	}
 
-	/** Saves run one at a time, each from the row as last read or saved. */
+	/** The row as the grid shows it now, `undefined` when it does not read. */
+	function storedOf(stem: string): StoredAnyRow | undefined {
+		const item = rows?.find((row) => row.stem === stem);
+		return item?.result.error === null ? item.result.data : undefined;
+	}
+
+	/** Each edit's starting row, so a read while the person edits is not its base. */
+	const edits = createRowEdits();
+
+	function begin(stem: string, unit: EditUnit) {
+		const stored = storedOf(stem);
+		if (tableName !== undefined && stored !== undefined)
+			edits.begin(tableName, stem, unit, stored);
+	}
+
+	/** Saves run one at a time, each over the row its edit began from. */
 	let saving: Promise<void> = Promise.resolve();
 
-	function edit(
-		stem: string,
-		change: (fields: Record<string, unknown>) => void,
-		body?: string,
-	) {
+	/**
+	 * Save `edit` of row `stem` in the table shown now. Everything it needs is
+	 * taken here, when the edit is made: the table, its declaration, and the
+	 * row the edit began from (recorded by `begin`, or the row shown now for
+	 * an edit made by one click). A save queued behind others still saves to
+	 * its own table after the view shows another.
+	 */
+	function edit(stem: string, unit: EditUnit, change: RowEdit) {
 		const name = tableName;
 		const table = prepared;
 		if (name === undefined || table === undefined) return;
-		saving = saving.then(async () => {
-			const item = rows?.find((row) => row.stem === stem);
-			if (item === undefined || item.result.error !== null) return;
-			const captured = item.result.data;
-			const fields = { ...captured.row.fields };
-			change(fields);
-			const outcome = await saveRow({
-				table: folder.tables[name] as AnyTable,
-				prepared: table,
-				captured,
-				edited: { fields, body: body ?? captured.row.body },
-			});
-			if (outcome.kind === 'failed') {
-				notice = { text: outcome.message, problem: true };
+		const handle = folder.tables[name] as AnyTable;
+		const start = edits.take(name, stem, unit) ?? storedOf(stem);
+		if (start === undefined) return;
+		saving = saving
+			.then(async () => {
+				const base = edits.latest(start);
+				const outcome = await saveRow({
+					table: handle,
+					prepared: table,
+					captured: base,
+					edited: await editedRow(start, base, change),
+				});
+				if (outcome.kind === 'failed') {
+					saveProblem = { text: outcome.message };
+					revision++;
+					await read();
+					return;
+				}
+				edits.saved(base, outcome.stored);
+				if (name === tableName && rows !== undefined)
+					rows = rows.map((row) =>
+						row.stem === stem
+							? { stem, result: { data: outcome.stored, error: null } }
+							: row,
+					);
+				if (outcome.kind === 'merged')
+					mergeNotice = { text: mergedText(outcome.replaced) };
+				// Edits mark the change count stale; read it again.
+				void folder.git.status();
+			})
+			.catch((error: unknown) => {
+				// One save that throws must not stop every later one.
+				saveProblem = {
+					text: `Not saved: ${error instanceof Error ? error.message : String(error)}`,
+				};
 				revision++;
-				await read();
-				return;
-			}
-			if (name === tableName && rows !== undefined)
-				rows = rows.map((row) =>
-					row.stem === stem
-						? { stem, result: { data: outcome.stored, error: null } }
-						: row,
-				);
-			notice =
-				outcome.kind === 'merged'
-					? { text: mergedText(outcome.replaced), problem: false }
-					: undefined;
-			// Edits mark the change count stale; read it again.
-			void folder.git.status();
-		});
+				void read();
+			});
 	}
 
 	function mergedText(replaced: readonly Replaced[]): string {
 		if (replaced.length === 0) return 'Changed in another window; merged.';
 		const parts = replaced.map((item) =>
 			item.kind === 'body'
-				? 'the notes'
+				? `the notes (their lines were ${item.theirs.map((lines) => JSON.stringify(lines.replace(/\n$/, ''))).join(', ')})`
 				: `${item.field} (theirs was ${item.theirs === undefined ? 'empty' : JSON.stringify(item.theirs)})`,
 		);
 		return `Changed in another window; merged. Your edit replaced their change to ${parts.join(', ')}.`;
 	}
 
-	function changeField(stem: string, name: string, change: FieldChange) {
-		edit(stem, (fields) => {
-			if (change.kind === 'remove') delete fields[name];
-			else
-				Object.defineProperty(fields, name, {
-					value: change.value,
-					enumerable: true,
-					writable: true,
-					configurable: true,
-				});
-		});
+	function changeField(stem: string, field: string, change: FieldChange) {
+		edit(stem, { kind: 'field', field }, { kind: 'field', field, change });
 	}
 
-	function changeBody(stem: string, body: string) {
-		edit(stem, () => {}, body);
+	function changeBody(stem: string, text: string) {
+		edit(stem, { kind: 'body' }, { kind: 'body', text });
 	}
 
 	async function saveVersion() {
@@ -180,6 +240,8 @@
 	});
 
 	let bodyBox = $state<HTMLTextAreaElement | undefined>();
+	/** The body the box held when it gained focus. */
+	let bodyStart: string | undefined;
 	const storedBody = $derived(
 		selected?.result.error === null ? selected.result.data.row.body : '',
 	);
@@ -230,12 +292,19 @@
 			{versionLine.text}
 		</p>
 	{/if}
-	{#if notice !== undefined}
-		<div class="border-b px-4 py-2">
-			<Alert.Root variant={notice.problem ? 'destructive' : 'default'}>
+	{#snippet noticeLine(notice: Notice, problem: boolean, dismiss: () => void)}
+		<div class="flex items-start gap-2 border-b px-4 py-2">
+			<Alert.Root variant={problem ? 'destructive' : 'default'}>
 				<Alert.Description>{notice.text}</Alert.Description>
 			</Alert.Root>
+			<Button size="xs" variant="ghost" onclick={dismiss}>Dismiss</Button>
 		</div>
+	{/snippet}
+	{#if saveProblem !== undefined}
+		{@render noticeLine(saveProblem, true, () => (saveProblem = undefined))}
+	{/if}
+	{#if mergeNotice !== undefined}
+		{@render noticeLine(mergeNotice, false, () => (mergeNotice = undefined))}
 	{/if}
 	{#if readProblem !== undefined}
 		<div class="border-b px-4 py-2">
@@ -308,6 +377,7 @@
 														value={Object.hasOwn(stored.row.fields, column.name)
 															? stored.row.fields[column.name]
 															: undefined}
+														begin={() => begin(item.stem, { kind: 'field', field: column.name })}
 														save={(change) => changeField(item.stem, column.name, change)}
 													/>
 												</td>
@@ -355,6 +425,7 @@
 											value={Object.hasOwn(stored.row.fields, column.name)
 												? stored.row.fields[column.name]
 												: undefined}
+											begin={() => begin(stem, { kind: 'field', field: column.name })}
 											save={(change) => changeField(stem, column.name, change)}
 										/>
 									</div>
@@ -371,7 +442,16 @@
 								<textarea
 									bind:this={bodyBox}
 									class="min-h-48 w-full rounded-md border border-input bg-transparent p-2 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+									onfocus={() => {
+										bodyStart = storedBody;
+										begin(stem, { kind: 'body' });
+									}}
 									onchange={(event) => changeBody(stem, event.currentTarget.value)}
+									onblur={(event) => {
+										// Unchanged since focus: show what a read meanwhile brought.
+										if (event.currentTarget.value === bodyStart)
+											event.currentTarget.value = storedBody;
+									}}
 								></textarea>
 								<span class="text-xs text-muted-foreground">Saved when you leave the box.</span>
 							</label>

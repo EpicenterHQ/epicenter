@@ -585,6 +585,11 @@ export function createOpfsGitStore({
 	}
 
 	/**
+	 * Recovery's writes carry no expectation (a removal without a hash, an
+	 * `overwrite`): it assesses and applies under the files lock, which every
+	 * save of this origin holds, so no save lands between them. OPFS has no
+	 * writer outside that lock, and ignores expectations anyway.
+	 *
 	 * Compare the files and the index with the two commits' trees. A changed
 	 * path is at its before state when it holds its before blob; when it was
 	 * absent before, also when the only thing in the way is a file the update
