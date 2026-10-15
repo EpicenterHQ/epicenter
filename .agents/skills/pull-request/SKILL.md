@@ -9,7 +9,7 @@ If the task is only staging, splitting, or committing local changes, use [git](.
 
 ## Default Standard
 
-A PR body is a durable explanation of the change, not a reviewer-only checklist. Write the lightest body that still makes sense after merge. Open with why the change matters, then weave in what changed with the examples a reader needs to trust it.
+A PR body is a durable explanation of the change, not a reviewer-only checklist. Write the lightest body that still makes sense after merge. Open with why the change matters, then weave in what changed with the examples a reader needs to trust it. Name what the change removes or costs, and why that is acceptable. Write in the first person, as the author explaining the change.
 
 ## Pick A Body Shape
 
@@ -33,6 +33,7 @@ When unsure, default to the focused fix and add structure only when a reader wou
 - PR titles use the same conventional commit format as commits.
 - Include code examples for public API, CLI, HTTP, config, or type-signature changes.
 - Name breaking changes with old and new examples.
+- When a PR changes prose, instructions, or rules, quote the old and new wording.
 - Add a `## Changelog` section only for `feat:` and `fix:` PRs with user-visible changes.
 
 ## References
