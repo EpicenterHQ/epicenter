@@ -82,12 +82,11 @@ Every desktop folder opens this way: Todos and Capture in Epicenter, and
 the standalone Honeycrisp, Whispering, and Git lab shells. The Rust owner,
 its page protocol, and the desktop adapter that spoke it are deleted.
 
-**A page settles its own work before it lets the shell quit.** Pages answer
-the shell's quit or close question only after their admitted saves land.
-The shell then refuses new page work and waits up to ten seconds for any
-change or `git` run still in flight before it releases the folder. A page
-reload or a closed window cancels that window's `git` runs, killing the
-process and its helpers. The Git lab, a testbed, has no quit question.
+**Quitting is immediate** ([ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)):
+no page is asked and nothing is waited for, because every save is an atomic
+rename and unfinished work already lives in its folder. A page reload or a
+closed window cancels that window's `git` runs, killing the process and its
+helpers.
 
 ## Consequences
 
@@ -103,9 +102,8 @@ process and its helpers. The Git lab, a testbed, has no quit question.
   focus and after their own actions; an incoming update that stops partway
   keeps no record, and the next Sync records and merges what it wrote; two
   windows of one folder do not share one view of it, and each sees the
-  other's saves when it reads again or as a `Conflict`; and a page that
-  approves a quit before its saves land loses what the shell's ten-second
-  wait does not cover.
+  other's saves when it reads again or as a `Conflict`; and quitting
+  abandons only what was never saved (ADR-0542).
 - The desktop bundle carries the directory folder and the folder plugin's
   commands in a chunk loaded only for a granted folder, and none of the browser
   folder's storage address, download, or private Git. It needs no HTTP

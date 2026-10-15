@@ -84,10 +84,9 @@ openDataFolder({ grant });                        // desktop page: a shell-issue
 - **`readFolder` keeps its own lifecycle** and shares the parsing and
   table-reading pipeline. It takes no lock, initializes nothing, clears
   nothing, and needs no grant, which an opened handle cannot promise.
-- **A typed lens over an existing folder is deferred.** If one is added, the
-  folder's declaration stays the authority: opening requires
-  `formatDeclaration(definition)` to equal `epicenter.json` byte for byte,
-  which `epicenter generate` makes exact, and otherwise refuses.
+- **A typed lens over an existing folder opens it when the folder's
+  declaration contains the lens's shape**, never publishing
+  ([ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md)).
 
 **Any number of windows may edit a folder, once the shell decides every
 save.** Today a save's `Conflict` check compares the expected hash in the
