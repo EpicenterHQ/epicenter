@@ -42,8 +42,8 @@ that only exposes an action. If you need to pass an action through a component
 or compose it with other DOM behavior, check `fromAction` in `svelte/attachments`
 before writing adapter code yourself.
 
-This repo already uses `{@attach (node) => node.select()}` for focused edit
-fields in Matter. Follow that shape for small one-off element behavior; extract
+This repo already uses `{@attach (node) => node.focus()}` for focused fields
+in Todos and Honeycrisp. Follow that shape for small one-off element behavior; extract
 an attachment factory only when several call sites share the behavior or the
 setup owns cleanup.
 

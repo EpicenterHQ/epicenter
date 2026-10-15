@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
-- **Unbuilt:** Product composition of independent capabilities, owner-routed working copies, executable config validation, checkout-aware Matter integration, and headless project provisioning. Host admission, initial record creation, and complete attachment transfer remain unresolved.
+- **Unbuilt:** Product composition of independent capabilities, owner-routed working copies, executable config validation, and headless project provisioning. Host admission, initial record creation, and complete attachment transfer remain unresolved.
 
 ## Context
 

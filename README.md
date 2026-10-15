@@ -76,10 +76,10 @@ Honeycrisp keep their data in folders too. The Yjs store and its sync were
 removed, with the Local Mail, Skills, and sync-lab apps built on them; Git
 history keeps them for a return.
 
-[Matter](apps/matter) edits user-owned Markdown folders directly and keeps a
-disposable `matter.sqlite` query mirror beside them. [Local
-Books](apps/local-books) is a headless mirror that pulls a QuickBooks account
-into local SQLite. Those two keep their own formats.
+Matter, a typed grid over Markdown folders with its own schema and SQLite
+mirror, was removed too; the Epicenter desktop app's Folders window edits data
+folders instead. [Local Books](apps/local-books) is a headless mirror that
+pulls a QuickBooks account into local SQLite and keeps its own format.
 
 ## Trust Boundaries
 
@@ -102,7 +102,6 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 | App | Status | Notes |
 | --- | --- | --- |
 | [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Standalone Markdown notes. Metadata stays in frontmatter, logical folders preserve note identity, and Git records saved files. |
-| [Matter](apps/matter) | Runs, separately | Typed grid over user-owned Markdown folders. It edits ordinary `.md` files directly; `matter.sqlite` is a disposable query mirror. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted blobs, the AI gateways, hosted-only billing, and the dashboard. |
 | [Self-host](apps/self-host) | Reference deployable | Community-supported single-partition instance without hosted billing. |
@@ -167,13 +166,12 @@ Every app starts from the repo root. `bun dev:<app>` runs every process the app 
 | `bun dev:api` | Hosted API worker alone | 8787 |
 | `bun dev:api-dashboard` | API + dashboard UI | 5178 |
 | `bun dev:landing` | Landing site, standalone | 4321 |
-| `bun dev:matter` | Matter desktop, standalone | 5180 |
 | `bun dev:posthog-reverse-proxy` | PostHog reverse proxy Worker | wrangler default |
 | `bun dev:self-host` | Self-host server (needs `INSTANCE_TOKEN`) | 8787 |
 
 `bun dev:whispering` runs the standalone Whispering desktop app (`bun dev:whispering:ui` runs its page in a browser tab). `bun dev:todos`, `bun dev:vocab`, and `bun dev:epicenter` run those apps.
 
-The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Honeycrisp and Matter. Local Books and Local Mail run their own multi-process dev flows; their READMEs document them.
+The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Honeycrisp and Whispering. Local Books and Local Mail run their own multi-process dev flows; their READMEs document them.
 
 `bun run check` is the gate. It runs lint, typecheck, every workspace test, and the structural checks, and it is the same gate CI runs, so a green local run predicts a green pull request. Formatting is handled separately by the autofix workflow.
 

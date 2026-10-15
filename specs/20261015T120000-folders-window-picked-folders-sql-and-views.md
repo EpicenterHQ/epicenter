@@ -1,15 +1,15 @@
-# The Folders window replaces Matter
+# The Folders window: picked folders, SQL, editors, and views
 
 **Status**: Draft
 **Date**: 2026-10-15
 
 ## Goal
 
-Matter (`apps/matter`, `@epicenter/matter-core`) is a grid, board, and SQL
-console over Markdown rows, with its own schema format (`matter.json`), its
-own Rust watcher, and its own SQLite mirror. Its job moves into the Epicenter
-desktop app's Folders window, over Epicenter data folders, and Matter is
-deleted.
+The Epicenter desktop app's Folders window edits Epicenter data folders in a
+grid. Matter, a separate grid, board, and SQL console over Markdown rows with
+its own `matter.json`, Rust watcher, and SQLite mirror, was deleted before the
+Folders window reached parity; Git history keeps it. This spec records what the
+Folders window still needs to cover that work.
 
 ## Already decided
 
@@ -39,14 +39,12 @@ deleted.
 3. **Field editors from the schema's shape.** `fieldEditorOf` falls back to
    the JSON editor when a field has no `x-field` hint, so plain TypeBox fields
    edit as JSON. Infer the kind from the shape when there is no hint, as
-   Matter's `recognize` does.
-4. **Views and the board.** Matter keeps `views` in `matter.json`, which
+   Matter's `recognize` did.
+4. **Views and the board.** Matter kept `views` in `matter.json`, which
    `epicenter.json` has no place for. Decide whether a saved view (a query, a
    layout, a grouping field) is a file in the folder, such as
    `views/<name>.view.yaml`, shared and versioned, or the window's own state.
-5. **Delete Matter.** Move `packages/app`'s `parseMarkdown` and `editField`
-   imports, if `@epicenter/app` survives ADR-0534, then delete `apps/matter`
-   and `@epicenter/matter-core`, and amend ADR-0420.
+   Build them when a folder needs them.
 
 ## Order
 
@@ -54,8 +52,7 @@ This work continues on the same long-lived branch as the folder engine,
 which reaches `main` only once its deploy gate holds (merging to `main`
 deploys the API and its Durable Object migrations). In order: the Vault opens
 through `openDataFolder({ root })` and closes its tables (its own repository);
-picked folders (1); SQL (2) and editors (3); views and the board (4); delete
-Matter (5).
+picked folders (1); SQL (2) and editors (3); views and the board (4).
 
 ## Open question
 

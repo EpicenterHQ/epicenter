@@ -114,19 +114,6 @@ test('dated records keep their words', () => {
 	});
 });
 
-test('Matter is its own universe and keeps its own words', () => {
-	withRepo((dir) => {
-		write(
-			dir,
-			'packages/matter-core/src/field.ts',
-			'// the closed scalar metas\n',
-		);
-		write(dir, 'apps/matter/src/grid.svelte', '<!-- a scalar cell -->\n');
-		commitAll(dir);
-		expect(run(dir).code).toBe(0);
-	});
-});
-
 test('an app with its own SQLite mirror may lift scalar columns', () => {
 	withRepo((dir) => {
 		write(

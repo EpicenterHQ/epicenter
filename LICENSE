@@ -30,7 +30,6 @@ anyone who forks and distributes a modified binary shares the changes back.
     packages/blobs           @epicenter/blobs
     packages/client          @epicenter/client
     packages/constants       @epicenter/constants
-    packages/matter-core     @epicenter/matter-core
     packages/principal       @epicenter/principal
     packages/recorder        @epicenter/recorder
     packages/server          @epicenter/server
@@ -45,7 +44,6 @@ anyone who forks and distributes a modified binary shares the changes back.
     apps/honeycrisp             @epicenter/honeycrisp
     apps/landing                @epicenter/landing
     apps/local-books            @epicenter/local-books
-    apps/matter                 @epicenter/matter
     apps/posthog-reverse-proxy  @epicenter/posthog-reverse-proxy
     apps/reddit                 @epicenter/reddit
     apps/self-host              @epicenter/self-host

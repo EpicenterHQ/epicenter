@@ -16,10 +16,9 @@
  * Two rules, scoped differently, because the two words are not alike.
  *
  * `scalar` has no ordinary meaning here, so it is checked almost everywhere. It
- * survives in three kinds of place, all excluded by subsystem: Matter keeps its
- * own copy of the field palette and its own words, `local-books` genuinely
- * lifts scalar columns into SQLite mirrors of its own,
- * and YAML calls a plain node a scalar.
+ * survives in two kinds of place, both excluded by subsystem: `local-books`
+ * genuinely lifts scalar columns into SQLite mirrors of its own, and YAML calls
+ * a plain node a scalar.
  *
  * `prose` is an ordinary English word, so checking it everywhere would flag the
  * writing skills on every line. It is checked only where the store's vocabulary
@@ -85,9 +84,6 @@ const RULES: readonly Rule[] = [
 		word: 'scalar',
 		instead: 'value',
 		excludes: [
-			// Matter's universe: its own palette copy, its own words (ADR-0309).
-			'apps/matter/',
-			'packages/matter-core/',
 			// Its own SQLite mirrors, with real extracted scalar columns.
 			'apps/local-books/',
 			// YAML's word for a plain node, not ours.

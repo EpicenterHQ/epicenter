@@ -566,10 +566,10 @@ starting: a prior session may already have completed it.
   projection. It never had a UI and never ran as an application, and was deleted
   in
   [commit b32125ed](https://github.com/EpicenterHQ/epicenter/commit/b32125ed0a).
-  The lens classification idea is the durable part and already informs Matter's
-  handling of absent versus null frontmatter. The settled rejection is worth
+  The lens classification idea is the durable part; the deleted Matter app
+  used it for absent versus null frontmatter. The settled rejection is worth
   keeping too: a tag is not a page.
-- Revisit when: Matter or another surface needs user-defined types over
+- Revisit when: the Folders window or another surface needs user-defined types over
   markdown, rather than one fixed frontmatter schema.
 
 ## Re-earn a file-and-folder view over Epicenter data
