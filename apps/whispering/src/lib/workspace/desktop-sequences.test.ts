@@ -46,14 +46,6 @@ mock.module('@tauri-apps/api/core', () => ({
 		options?: { headers?: Record<string, string> },
 	) => shell.invoke(cmd, body, options),
 }));
-mock.module('@tauri-apps/api/event', () => ({
-	listen: async () => () => {},
-}));
-mock.module('@tauri-apps/plugin-fs', () => ({
-	readDir: (path: string) => shell.fs.readDir(path),
-	lstat: (path: string) => shell.fs.lstat(path),
-	readFile: (path: string) => shell.fs.readFile(path),
-}));
 
 const { openFolder } = await import('@epicenter/folder/tauri');
 const { createLibrary } = await import('../library.svelte.ts');

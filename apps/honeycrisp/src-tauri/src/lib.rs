@@ -7,8 +7,8 @@
 //!   folder scope for the window `main`: the root from `HONEYCRISP_ROOT`
 //!   or the default, and the fallback author. The page names the scope and
 //!   runs `@epicenter/folder`'s own engine over the directory the plugin
-//!   grants it: it reads through the fs plugin, and the folder plugin makes
-//!   every change and runs the folder's `git` for it. The engine reads the
+//!   grants it: the folder plugin makes every read and change and runs the
+//!   folder's `git` for it. The engine reads the
 //!   author and any `origin` from Git's configuration.
 //! - Honeycrisp's own commands (`commands.rs`): close consent, the terminal,
 //!   per-file history, and reveal.
@@ -62,7 +62,6 @@ const QUIT_MENU_ITEM: &str = "quit-notes";
 fn shell<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
         .plugin(tauri_plugin_epicenter_folder::init())
-        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             commands::close_register,
             commands::close_opened,

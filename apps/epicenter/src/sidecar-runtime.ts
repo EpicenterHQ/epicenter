@@ -16,8 +16,8 @@ import { extractErrorMessage } from 'wellcrafted/error';
  * Under Rust's fifteen-second readiness timeout, so a host that gives up here
  * is restarted rather than declared unreachable. Rust waits longer than this
  * before it kills the process (`SHUTDOWN_TIMEOUT` in `src-tauri/src/lib.rs`),
- * so owners that drain admitted work, such as the Todos folder finishing a
- * save and its commit, get this whole window rather than Rust's.
+ * so the host's owners finishing their disposal get this whole window rather
+ * than Rust's.
  */
 const SHUTDOWN_GRACE_MS = 10_000;
 const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;

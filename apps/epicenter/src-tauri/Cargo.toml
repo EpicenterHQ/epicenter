@@ -19,7 +19,7 @@ tauri-build = { version = "2.6", features = [] }
 [dev-dependencies]
 # The mock runtime verifies native path selection for both bundled identities.
 # Test builds only: these features do not enter the shipped binary.
-tauri = { version = "2.11", features = ["test"] }
+tauri = { version = "2.12", features = ["test"] }
 
 [dependencies]
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
@@ -31,12 +31,9 @@ getrandom = "0.3"
 hf-hub = { version = "0.5", features = ["tokio"] }
 hound = "3.5"
 keyring = "4"
-lazy_static = "1.4"
 libc = "0.2"
 log = "0.4"
 ogg = "0.9"
-rayon = "1.10"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 rubato = "0.15"
 rusqlite = { version = "=0.40.2", features = ["bundled", "hooks", "limits"] }
 serde = { version = "1", features = ["derive"] }
@@ -44,13 +41,12 @@ serde_json = "1"
 specta = "=2.0.0-rc.26"
 specta-typescript = "=0.0.13"
 symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4"] }
-tauri = { version = "2.11", features = ["macos-private-api", "image-png", "tray-icon"] }
+tauri = { version = "2.12", features = ["macos-private-api", "image-png", "tray-icon"] }
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2.7"
-tauri-plugin-fs = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-http = "2"
 tauri-plugin-log = "2"
@@ -60,7 +56,6 @@ tauri-plugin-os = "2"
 tempfile = "3.8"
 thiserror = "2.0.12"
 tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["io", "rt"] }
 tracing = "0.1.41"
 transcribe-cpp = { version = "0.1.0", default-features = false }
 audiopus = "0.3.0-rc.0"

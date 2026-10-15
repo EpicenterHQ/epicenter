@@ -1,9 +1,8 @@
 /**
  * The desktop opener: `grant_directory` hands over the directory, and the
- * folder is read through Tauri's fs plugin and changed through the shell's
- * commands. Both are replaced by stand-ins that reach the disk through
- * `node:fs` and fail as the plugins do, with the operating system's message
- * as text.
+ * folder is read and changed through the shell's commands. They are replaced
+ * by stand-ins that reach the disk through `node:fs` and fail as the shell
+ * does, with the operating system's message as text.
  *
  * Key behaviors:
  * - A granted folder opens over its real directory and commits with `git`
@@ -77,6 +76,33 @@ mock.module('@tauri-apps/api/core', () => ({
 			};
 		}
 		if (name === 'cancel_git') return null;
+		// The shell's reads; here `node:fs` stands in.
+		if (name === 'read_folder_directory')
+			return asShellError(async () =>
+				(
+					await nodeFs.readdir(args.path as string, { withFileTypes: true })
+				).map((entry) => ({ name: entry.name, kind: kindOf(entry) })),
+			);
+		if (name === 'stat_folder_path')
+			return asShellError(async () => {
+				const stats = await nodeFs
+					.lstat(args.path as string)
+					.catch((cause: { code?: string }) => {
+						if (cause.code === 'ENOENT') return undefined;
+						throw cause;
+					});
+				if (stats === undefined) return null;
+				return { kind: kindOf(stats), size: stats.size, mode: null };
+			});
+		if (name === 'read_folder_file')
+			return asShellError(async () => {
+				// The raw response arrives as an `ArrayBuffer`.
+				const bytes = await nodeFs.readFile(args.path as string);
+				return bytes.buffer.slice(
+					bytes.byteOffset,
+					bytes.byteOffset + bytes.byteLength,
+				);
+			});
 		// The shell's own changes; here `node:fs` stands in.
 		if (name === 'write_folder_file') {
 			if (!(args.bytes instanceof Uint8Array))
@@ -103,68 +129,30 @@ mock.module('@tauri-apps/api/core', () => ({
 		}
 		throw new Error(`unexpected command ${name}`);
 	},
-	Channel: class {},
-	transformCallback: () => 0,
 }));
 
-mock.module('@tauri-apps/api/event', () => ({
-	listen: async () => () => {},
-}));
-
-/** The plugin's errors are strings carrying the operating system's message. */
-const asPluginError = async <T>(work: () => Promise<T>): Promise<T> => {
+/** The shell's errors are strings carrying the operating system's message. */
+const asShellError = async <T>(work: () => Promise<T>): Promise<T> => {
 	try {
 		return await work();
 	} catch (cause) {
-		const code = (cause as { code?: string }).code;
-		const os = code === 'ENOENT' ? 2 : code === 'EEXIST' ? 17 : 5;
-		throw `failed with error: ${String(cause)} (os error ${os})`;
+		throw String(cause);
 	}
 };
 
-mock.module('@tauri-apps/plugin-fs', () => ({
-	readDir: (path: string) =>
-		asPluginError(async () =>
-			(await nodeFs.readdir(path, { withFileTypes: true })).map((entry) => ({
-				name: entry.name,
-				isFile: entry.isFile(),
-				isDirectory: entry.isDirectory(),
-				isSymlink: entry.isSymbolicLink(),
-			})),
-		),
-	lstat: (path: string) =>
-		asPluginError(async () => {
-			const stats = await nodeFs.lstat(path);
-			return {
-				isFile: stats.isFile(),
-				isDirectory: stats.isDirectory(),
-				isSymlink: stats.isSymbolicLink(),
-				size: stats.size,
-			};
-		}),
-	readFile: (path: string) =>
-		asPluginError(async () => new Uint8Array(await nodeFs.readFile(path))),
-	writeFile: (
-		path: string,
-		data: Uint8Array,
-		options?: { createNew?: boolean },
-	) =>
-		asPluginError(() =>
-			nodeFs.writeFile(path, data, { flag: options?.createNew ? 'wx' : 'w' }),
-		),
-	rename: (from: string, to: string) =>
-		asPluginError(() => nodeFs.rename(from, to)),
-	remove: (path: string, options?: { recursive?: boolean }) =>
-		asPluginError(async () => {
-			if (options?.recursive) return nodeFs.rm(path, { recursive: true });
-			if ((await nodeFs.lstat(path)).isDirectory()) return nodeFs.rmdir(path);
-			return nodeFs.rm(path);
-		}),
-	mkdir: (path: string) =>
-		asPluginError(async () => {
-			await nodeFs.mkdir(path, { recursive: true });
-		}),
-}));
+/** What an entry is, without following a link, as the shell names it. */
+const kindOf = (entry: {
+	isFile(): boolean;
+	isDirectory(): boolean;
+	isSymbolicLink(): boolean;
+}) =>
+	entry.isSymbolicLink()
+		? 'link'
+		: entry.isFile()
+			? 'file'
+			: entry.isDirectory()
+				? 'directory'
+				: 'other';
 
 const { openFolder } = await import('./tauri-adapter.js');
 const { defineFolder, defineTable, field } = await import('./contract.js');
@@ -226,14 +214,25 @@ test('a granted folder opens over its real directory', async () => {
 	const folder = expectOk(
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
-	// The grant comes first; every later call is the folder's Git, for the
-	// granted scope. Opening writes nothing.
+	// The grant comes first; every later call is a read or the folder's Git,
+	// for the granted scope. Opening writes nothing.
 	const commands = () => new Set(calls.map(({ cmd }) => cmd));
 	expect(calls[0]).toEqual({
 		cmd: 'grant_directory',
 		args: { scope: 'so.epicenter.todos' },
 	});
-	expect([...commands()].sort()).toEqual(['grant_directory', 'run_git']);
+	expect(
+		[...commands()]
+			.filter(
+				(cmd) =>
+					![
+						'read_folder_directory',
+						'stat_folder_path',
+						'read_folder_file',
+					].includes(cmd),
+			)
+			.sort(),
+	).toEqual(['grant_directory', 'run_git']);
 	for (const call of calls.slice(1))
 		expect(call.args.scope).toBe('so.epicenter.todos');
 	expect(folder.location).toEqual({ kind: 'directory', root });

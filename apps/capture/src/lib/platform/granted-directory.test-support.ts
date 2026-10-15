@@ -3,10 +3,10 @@
  * over a real directory.
  *
  * `shellCommand` answers what the shell answers after `grant_directory`: the
- * folder plugin's change commands with `node:fs`, and `run_git` with the
- * system `git` in the granted root. `fsPlugin` is Tauri's fs plugin over
- * `node:fs`, failing as the plugin does, with the operating system's message
- * as text. `installWebLocks` stands in for Web Locks, which Bun lacks.
+ * folder plugin's read and change commands with `node:fs`, failing with the
+ * operating system's message as text, and `run_git` with the system `git` in
+ * the granted root. `installWebLocks` stands in for Web Locks, which Bun
+ * lacks.
  *
  * Neither checks paths the way the shell does; the folder package's own
  * tests and the shell's cover that. Git reads no global or system
@@ -114,6 +114,41 @@ export async function shellCommand(
 		}
 		case 'cancel_git':
 			return { reply: null };
+		case 'read_folder_directory': {
+			const entries = await asShellError(() =>
+				nodeFs.readdir(args.path as string, { withFileTypes: true }),
+			);
+			return {
+				reply: entries.map((entry) => ({
+					name: entry.name,
+					kind: kindOf(entry),
+				})),
+			};
+		}
+		case 'stat_folder_path': {
+			const stats = await nodeFs.lstat(args.path as string).catch((cause) => {
+				if ((cause as { code?: string }).code === 'ENOENT') return undefined;
+				return asShellError(() => Promise.reject(cause));
+			});
+			return {
+				reply:
+					stats === undefined
+						? null
+						: { kind: kindOf(stats), size: stats.size, mode: stats.mode },
+			};
+		}
+		case 'read_folder_file': {
+			const bytes = await asShellError(() =>
+				nodeFs.readFile(args.path as string),
+			);
+			// The shell answers with the raw bytes, an `ArrayBuffer`.
+			return {
+				reply: bytes.buffer.slice(
+					bytes.byteOffset,
+					bytes.byteOffset + bytes.byteLength,
+				),
+			};
+		}
 		case 'write_folder_file':
 			if (!(args.bytes instanceof Uint8Array))
 				throw 'write_folder_file takes its bytes as a raw body, not JSON';
@@ -137,42 +172,29 @@ export async function shellCommand(
 	}
 }
 
-/** The plugin's errors are strings carrying the operating system's message. */
-async function asPluginError<T>(work: () => Promise<T>): Promise<T> {
+/** The shell's errors are strings carrying the operating system's message. */
+async function asShellError<T>(work: () => Promise<T>): Promise<T> {
 	try {
 		return await work();
 	} catch (cause) {
-		const code = (cause as { code?: string }).code;
-		const os = code === 'ENOENT' ? 2 : code === 'EEXIST' ? 17 : 5;
-		throw `failed with error: ${String(cause)} (os error ${os})`;
+		throw String(cause);
 	}
 }
 
-/** The read commands of Tauri's fs plugin that a granted folder uses. */
-export const fsPlugin = {
-	readDir: (path: string) =>
-		asPluginError(async () =>
-			(await nodeFs.readdir(path, { withFileTypes: true })).map((entry) => ({
-				name: entry.name,
-				isFile: entry.isFile(),
-				isDirectory: entry.isDirectory(),
-				isSymlink: entry.isSymbolicLink(),
-			})),
-		),
-	lstat: (path: string) =>
-		asPluginError(async () => {
-			const stats = await nodeFs.lstat(path);
-			return {
-				isFile: stats.isFile(),
-				isDirectory: stats.isDirectory(),
-				isSymlink: stats.isSymbolicLink(),
-				size: stats.size,
-				mode: stats.mode,
-			};
-		}),
-	readFile: (path: string) =>
-		asPluginError(async () => new Uint8Array(await nodeFs.readFile(path))),
-};
+/** What an entry is, without following a link, as the shell names it. */
+function kindOf(entry: {
+	isFile(): boolean;
+	isDirectory(): boolean;
+	isSymbolicLink(): boolean;
+}) {
+	return entry.isSymbolicLink()
+		? 'link'
+		: entry.isFile()
+			? 'file'
+			: entry.isDirectory()
+				? 'directory'
+				: 'other';
+}
 
 /**
  * Give this process `navigator.locks`: each request waits behind the last for

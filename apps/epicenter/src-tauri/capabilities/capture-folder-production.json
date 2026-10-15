@@ -1,18 +1,11 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "capture-folder-production",
-	"description": "Capture opens its folder with the page's own engine. The folder plugin grants the window the folder's directory: it adds the fs reading commands below for that directory alone, at run time, and makes every change and runs the folder's Git itself. Listed here without a path, the fs commands reach nothing until a grant.",
+	"description": "Capture opens its folder with the page's own engine. The folder plugin grants the window the folder's directory, then reads and changes it and runs the folder's Git itself.",
 	"local": false,
 	"windows": ["capture"],
 	"remote": {
 		"urls": ["http://127.0.0.1:39130"]
 	},
-	"permissions": [
-		"epicenter-folder:default",
-		"fs:allow-read-dir",
-		"fs:allow-lstat",
-		"fs:allow-read-file",
-		"core:event:allow-listen",
-		"core:event:allow-unlisten"
-	]
+	"permissions": ["epicenter-folder:default"]
 }

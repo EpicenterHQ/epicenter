@@ -65,7 +65,7 @@ use machine::{Answer, Effect, IntentName, Machine, PhaseName, Status, Vote, Wind
 use crate::DesktopAppHandle;
 
 pub const CHANGED_EVENT: &str = "departure-changed";
-/// The Bun host that served this page stopped. The page and its native folder
+/// The Bun host that served this page stopped. The page and its open folder
 /// keep working; its HTTP session does not come back.
 pub const HOST_STOPPED_EVENT: &str = "host-stopped";
 /// How long a page has to say it is deciding before the person is asked.
@@ -372,7 +372,7 @@ pub fn retire_sidecar(app: &DesktopAppHandle, sidecar: u64) {
     });
 }
 
-/// Bun stopped, on the main thread. The page keeps its drafts and its native
+/// Bun stopped, on the main thread. The page keeps its drafts and its open
 /// folder; it is told, and shown when no round is in progress, so a person
 /// can recover its text. A round keeps the visibility it is tracking.
 pub fn host_stopped(app: &DesktopAppHandle, participant: Participant, window: &WebviewWindow) {

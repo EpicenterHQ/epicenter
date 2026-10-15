@@ -18,11 +18,6 @@
 			"csp": "default-src 'none'; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 		}
 	},
-	"plugins": {
-		"fs": {
-			"requireLiteralLeadingDot": false
-		}
-	},
 	"bundle": {
 		"active": true,
 		"targets": ["app"],

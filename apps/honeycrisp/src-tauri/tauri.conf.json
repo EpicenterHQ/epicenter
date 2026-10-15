@@ -26,10 +26,5 @@
 		"copyright": "Copyright © 2026 Epicenter",
 		"shortDescription": "Markdown notes in a folder you own",
 		"icon": ["icons/icon.png", "icons/icon.icns"]
-	},
-	"plugins": {
-		"fs": {
-			"requireLiteralLeadingDot": false
-		}
 	}
 }

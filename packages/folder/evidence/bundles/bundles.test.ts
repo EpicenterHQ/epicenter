@@ -11,9 +11,10 @@
  * - Aliasing the exact bare specifier to `/browser` emits no desktop adapter
  *   and no IndexedDB access anywhere; aliasing it to `/tauri` loads only the
  *   desktop adapter first. The directory folder a page runs over a granted
- *   directory, with Tauri's fs plugin and the shell's Git, is a lazy chunk
- *   the desktop adapter loads only when the shell grants a folder; it holds
- *   none of the browser folder's storage address or private Git. The
+ *   directory, reading through the folder plugin and recording history with
+ *   the shell's Git, is a lazy chunk the desktop adapter loads only when the
+ *   shell grants a folder; it holds none of the browser folder's storage
+ *   address or private Git, and no build carries the fs plugin. The
  *   application source is the same file
  * - Importing an explicit entry directly gives the same output as the alias
  * - The desktop adapter's first chunk never includes isomorphic-git
@@ -36,7 +37,9 @@ const BROWSER = 'epicenter-folder:${id}:git';
 const GIT = 'git-upload-pack';
 /** Text only the page engine over a granted directory contains. */
 const GRANTED = 'epicenter-folder-directory-files:';
-/** Text only Tauri's fs plugin client contains. */
+/** Text only the granted directory's reads contain: the file read by name. */
+const READS = 'plugin:epicenter-folder|read_folder_file';
+/** Text only Tauri's fs plugin client contains. No build carries it. */
 const TAURI_FS = 'plugin:fs|';
 /** Text only just-bash contains: a command its shell offers. No build carries it. */
 const SHELL = 'sha256sum';
@@ -138,9 +141,9 @@ describe('what a Vite build of the same application emits', () => {
 		expect(granted).toHaveLength(1);
 		expect(browser).toHaveLength(1);
 		// The page engine over a granted directory is the directory folder:
-		// Tauri's fs plugin and the shell's Git, and none of the browser's own
-		// storage address, download, or private Git.
-		expect(granted[0]).toContain(TAURI_FS);
+		// the folder plugin's reads and the shell's Git, and none of the
+		// browser's own storage address, download, or private Git.
+		expect(granted[0]).toContain(READS);
 		expect(granted[0]).toContain('plugin:epicenter-folder|run_git');
 		expect(granted[0]).not.toContain(BROWSER);
 		// Loading the desktop adapter loads no Git and no browser storage.
@@ -173,13 +176,15 @@ describe('what a Vite build of the same application emits', () => {
 		expect(built.everything).not.toContain('indexedDB');
 		expect(built.everything).not.toContain('IDBKeyRange');
 		expect(built.initial).toContain(DESKTOP);
-		for (const engine of [GRANTED, TAURI_FS]) {
+		for (const engine of [GRANTED, READS]) {
 			expect(built.initial).not.toContain(engine);
 			expect(built.lazy.some((code) => code.includes(engine))).toBe(true);
 		}
 		// The directory folder records history with real Git; the browser's
-		// isomorphic-git transport and storage address never load.
+		// isomorphic-git transport and storage address never load, and
+		// neither does the fs plugin.
 		expect(built.everything).not.toContain(BROWSER);
+		expect(built.everything).not.toContain(TAURI_FS);
 		expect(built.initial).not.toContain(GIT);
 		expect(built.everything).not.toContain(SHELL);
 	}, 120_000);

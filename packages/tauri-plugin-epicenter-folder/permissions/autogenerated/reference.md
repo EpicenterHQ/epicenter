@@ -1,12 +1,15 @@
 ## Default Permission
 
-Ask for the folder the shell registered for this window, then change its files and run its Git through the shell.
+Ask for the folder the shell registered for this window, then read and change its files and run its Git through the shell.
 
 #### This default permission set includes the following:
 
 - `allow-grant-directory`
 - `allow-run-git`
 - `allow-cancel-git`
+- `allow-read-folder-directory`
+- `allow-stat-folder-path`
+- `allow-read-folder-file`
 - `allow-write-folder-file`
 - `allow-rename-folder-path`
 - `allow-remove-folder-path`
@@ -102,6 +105,58 @@ Denies the make_folder_directory command without any pre-configured scope.
 <tr>
 <td>
 
+`epicenter-folder:allow-read-folder-directory`
+
+</td>
+<td>
+
+Enables the read_folder_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-read-folder-directory`
+
+</td>
+<td>
+
+Denies the read_folder_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:allow-read-folder-file`
+
+</td>
+<td>
+
+Enables the read_folder_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-read-folder-file`
+
+</td>
+<td>
+
+Denies the read_folder_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `epicenter-folder:allow-remove-folder-path`
 
 </td>
@@ -173,6 +228,32 @@ Enables the run_git command without any pre-configured scope.
 <td>
 
 Denies the run_git command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:allow-stat-folder-path`
+
+</td>
+<td>
+
+Enables the stat_folder_path command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-stat-folder-path`
+
+</td>
+<td>
+
+Denies the stat_folder_path command without any pre-configured scope.
 
 </td>
 </tr>

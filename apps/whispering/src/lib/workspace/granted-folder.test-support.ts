@@ -4,12 +4,11 @@
  * (`@epicenter/folder/tauri`) and everything above it.
  *
  * The shell grants the window one directory (`grant_directory`). The page
- * reads it through Tauri's fs plugin, changes it through the folder plugin's
- * commands, and runs `git` through `run_git`. Here `node:fs` and the system
- * `git` stand in for both plugins, failing as they fail: an fs error is text
- * carrying the operating system's message, and a refused change is text. A
- * test installs `invoke` and the fs plugin with `mock.module`, then opens the
- * folder the way the desktop workspace does.
+ * reads and changes it through the folder plugin's commands and runs `git`
+ * through `run_git`. Here `node:fs` and the system `git` stand in for the
+ * plugin, failing as it fails: a refused read or change is text carrying the
+ * reason. A test installs `invoke` with `mock.module`, then opens the folder
+ * the way the desktop workspace does.
  *
  * A data file is published as the engine publishes one: its bytes are staged
  * under `.git/epicenter/scratch` and renamed over the path, or the path is
@@ -52,7 +51,7 @@ export type DataChange =
 const DECLARATION = 'epicenter.json';
 const SCRATCH = '/.git/epicenter/scratch/';
 
-/** The plugins' errors are text carrying the operating system's message. */
+/** The plugin's errors are text carrying the operating system's message. */
 async function asPluginError<T>(work: () => Promise<T>): Promise<T> {
 	try {
 		return await work();
@@ -61,6 +60,21 @@ async function asPluginError<T>(work: () => Promise<T>): Promise<T> {
 		const os = code === 'ENOENT' ? 2 : code === 'EEXIST' ? 17 : 5;
 		throw `failed with error: ${String(cause)} (os error ${os})`;
 	}
+}
+
+/** What an entry is, without following a link, as the shell names it. */
+function kindOf(entry: {
+	isFile(): boolean;
+	isDirectory(): boolean;
+	isSymbolicLink(): boolean;
+}) {
+	return entry.isSymbolicLink()
+		? 'link'
+		: entry.isFile()
+			? 'file'
+			: entry.isDirectory()
+				? 'directory'
+				: 'other';
 }
 
 /** A new, empty directory to grant, resolved to the spelling the shell reports. */
@@ -132,6 +146,37 @@ export function createGrantedShell(root: string, scope: string) {
 			};
 		},
 		cancel_git: () => null,
+		read_folder_directory: (args) =>
+			asPluginError(async () =>
+				(
+					await nodeFs.readdir(args.path as string, { withFileTypes: true })
+				).map((entry) => ({ name: entry.name, kind: kindOf(entry) })),
+			),
+		stat_folder_path: (args) =>
+			asPluginError(async () => {
+				const stats = await nodeFs
+					.lstat(args.path as string)
+					.catch((cause: { code?: string }) => {
+						if (cause.code === 'ENOENT') return undefined;
+						throw cause;
+					});
+				if (stats === undefined) return null;
+				return { kind: kindOf(stats), size: stats.size, mode: null };
+			}),
+		read_folder_file: (args) =>
+			asPluginError(async () => {
+				const path = args.path as string;
+				if (control.failReads.has(relative(path)))
+					throw Object.assign(new Error('the disk could not be read'), {
+						code: 'EIO',
+					});
+				// The raw response arrives as an `ArrayBuffer`.
+				const bytes = await nodeFs.readFile(path);
+				return bytes.buffer.slice(
+					bytes.byteOffset,
+					bytes.byteOffset + bytes.byteLength,
+				);
+			}),
 		async write_folder_file(args) {
 			// Staged bytes, or the engine's private files under `.git`. A data
 			// file reaches its path only by the rename that follows. The bytes
@@ -210,39 +255,6 @@ export function createGrantedShell(root: string, scope: string) {
 			const command = commands[name];
 			if (command === undefined) throw `no such command ${name}`;
 			return command(args);
-		},
-		/** In place of `@tauri-apps/plugin-fs`. */
-		fs: {
-			readDir: (path: string) =>
-				asPluginError(async () =>
-					(await nodeFs.readdir(path, { withFileTypes: true })).map(
-						(entry) => ({
-							name: entry.name,
-							isFile: entry.isFile(),
-							isDirectory: entry.isDirectory(),
-							isSymlink: entry.isSymbolicLink(),
-						}),
-					),
-				),
-			lstat: (path: string) =>
-				asPluginError(async () => {
-					const stats = await nodeFs.lstat(path);
-					return {
-						isFile: stats.isFile(),
-						isDirectory: stats.isDirectory(),
-						isSymlink: stats.isSymbolicLink(),
-						size: stats.size,
-						mode: null,
-					};
-				}),
-			readFile: (path: string) =>
-				asPluginError(async () => {
-					if (control.failReads.has(relative(path)))
-						throw Object.assign(new Error('the disk could not be read'), {
-							code: 'EIO',
-						});
-					return new Uint8Array(await nodeFs.readFile(path));
-				}),
 		},
 	};
 }

@@ -1,9 +1,9 @@
 /**
  * A desktop folder the page opens with its own engine: the shell granted
  * this window the folder's directory (`grant_directory`) and holds its lock.
- * The page reads files through Tauri's fs plugin, changes them through the
- * shell, which checks every path, and records history with the system `git`,
- * which the shell runs for it (`run_git`). Real Git does the transfers too,
+ * The page reads and changes files through the shell, which checks every
+ * path, and records history with the system `git`, which the shell runs for
+ * it (`run_git`). Real Git does the transfers too,
  * with the person's own credentials.
  *
  * Loaded only once a folder is granted, so importing the desktop opener

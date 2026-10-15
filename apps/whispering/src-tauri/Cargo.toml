@@ -19,16 +19,13 @@ tauri-build = { version = "2.6", features = [] }
 [dev-dependencies]
 # The mock runtime drives the real invoke handler to check which window and
 # origin reach the folder. Test builds only.
-tauri = { version = "2.11", features = ["test"] }
+tauri = { version = "2.12", features = ["test"] }
 
 [dependencies]
 getrandom = "0.3"
 serde_json = "1"
-tauri = { version = "2.11", features = [] }
+tauri = { version = "2.12", features = [] }
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
-# The page reads its granted folder through the fs plugin. The same
-# requirement as apps/epicenter/src-tauri/Cargo.toml.
-tauri-plugin-fs = "2"
 
 # The same pins as packages/tauri-plugin-epicenter-folder/Cargo.toml. A patch
 # applies only from the crate being built, so a shell that depends on the

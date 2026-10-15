@@ -710,9 +710,6 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
-        // Reaches only directories the folder plugin grants at run time: the
-        // folders' roots. No capability names a path of its own.
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
@@ -1835,7 +1832,7 @@ fn invalidate_windows(app: &DesktopAppHandle) {
     let _ = app.clone().run_on_main_thread(move || {
         for built_in in BuiltInApp::ALL {
             if let Some(window) = app.get_webview_window(built_in.id()) {
-                // Capture and Todos keep their pages and native folders, with
+                // Capture and Todos keep their pages and open folders, with
                 // any unsaved text, after the host that served them stops.
                 if let Some(participant) = departure::Participant::from_label(built_in.id()) {
                     departure::host_stopped(&app, participant, &window);
@@ -2814,12 +2811,12 @@ mod tests {
         }
     }
 
-    /// Todos' and Capture's windows list exactly the fs commands a folder
-    /// grant scopes, and no path: the build checks every name, and only
-    /// `grant_directory` gives them a directory. They hold no HTTP grant; Git
-    /// transfers run in the `git` the shell starts.
+    /// Todos' and Capture's windows hold the folder plugin alone: it reads
+    /// and changes only the directory a grant names. They hold no fs or HTTP
+    /// grant; Git transfers run in the `git` the shell starts. Their events
+    /// come from the departure capability.
     #[test]
-    fn folder_windows_list_the_granted_fs_commands_and_no_path() {
+    fn folder_windows_hold_only_the_folder_plugin() {
         for encoded in [
             include_str!("../capabilities/todos-folder-development.json"),
             include_str!("../capabilities/todos-folder-production.json"),
@@ -2827,32 +2824,15 @@ mod tests {
             include_str!("../capabilities/capture-folder-production.json"),
         ] {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let permissions = capability["permissions"].as_array().unwrap();
-            let fs: Vec<&str> = permissions
-                .iter()
-                .filter_map(|permission| permission.as_str())
-                .filter(|permission| permission.starts_with("fs:"))
-                .collect();
-            assert_eq!(fs, tauri_plugin_epicenter_folder::DIRECTORY_COMMANDS);
-            assert!(
-                permissions.iter().all(|permission| permission.is_string()),
-                "no fs or HTTP permission carries a scope of its own"
-            );
-            assert!(
-                !permissions
-                    .iter()
-                    .filter_map(|permission| permission.as_str())
-                    .any(|permission| permission.starts_with("http:")),
+            assert_eq!(
+                capability["permissions"],
+                serde_json::json!(["epicenter-folder:default"]),
                 "{encoded}"
             );
         }
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert_eq!(
-            config["plugins"]["fs"]["requireLiteralLeadingDot"],
-            serde_json::json!(false),
-            "a granted folder's .git and dot files are reachable"
-        );
+        assert!(config["plugins"].get("fs").is_none(), "no fs plugin is installed");
     }
 
     /// Home's launch verb reveals any compiled window, which is exactly why no

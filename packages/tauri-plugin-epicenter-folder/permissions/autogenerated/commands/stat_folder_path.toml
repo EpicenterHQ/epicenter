@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-stat-folder-path"
+description = "Enables the stat_folder_path command without any pre-configured scope."
+commands.allow = ["stat_folder_path"]
+
+[[permission]]
+identifier = "deny-stat-folder-path"
+description = "Denies the stat_folder_path command without any pre-configured scope."
+commands.deny = ["stat_folder_path"]

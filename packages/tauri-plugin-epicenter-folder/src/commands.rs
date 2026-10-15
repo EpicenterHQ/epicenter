@@ -1,16 +1,18 @@
-//! The IPC surface: the grant, the checked file changes, and `git`.
+//! The IPC surface: the grant, the checked reads and file changes, and
+//! `git`.
 //!
 //! A page names a scope and nothing else; the registry decides whether the
-//! invoking window may use it, and every change and `git` run happens in the
-//! root the scope was granted, which the page never supplies. Each command
-//! that touches the disk or runs `git` holds a `PageWork` admission while it
-//! runs, so a quit waits for it, and runs on the blocking pool, never on the
-//! thread that drives the windows.
+//! invoking window may use it, and every read, change, and `git` run happens
+//! in the root the scope was granted, which the page never supplies. Each
+//! change and `git` run holds a `PageWork` admission while it runs, so a quit
+//! waits for it. Every command that touches the disk or runs `git` runs on
+//! the blocking pool, never on the thread that drives the windows.
 
 use std::sync::Arc;
 
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::page_git::{self, GitOutput};
+use epicenter_folder_core::page_reads::{self, DirectoryEntry, PathInfo};
 use epicenter_folder_core::registry::{Granted, GrantError, PageWork};
 use tauri::{Manager, Runtime, Webview};
 
@@ -29,10 +31,8 @@ async fn blocking<T: Send + 'static>(
 
 /// Give this window the directory of a scope the shell registered for it.
 /// The folder is locked on its first grant and stays locked until shutdown.
-/// The window is given the file system plugin's reading commands for that
-/// directory and everything beneath it, dot files included, through a
-/// capability added at run time for this window (`directory_capability`).
-/// Nothing else on disk becomes reachable.
+/// The window reads and changes it through this plugin's commands alone;
+/// nothing else on disk becomes reachable.
 #[tauri::command]
 #[specta::specta]
 pub async fn grant_directory<R: Runtime>(
@@ -41,100 +41,79 @@ pub async fn grant_directory<R: Runtime>(
 ) -> Result<Granted, GrantError> {
     let label = webview.label().to_string();
     let app = webview.app_handle().clone();
-    let granting = (scope.clone(), label.clone());
-    let granted = blocking(
-        move || {
-            app.state::<Folders>()
-                .registry
-                .grant(&granting.0, &granting.1)
-        },
+    blocking(
+        move || app.state::<Folders>().registry.grant(&scope, &label),
         |message| Err(GrantError::Unavailable { message }),
     )
-    .await?;
-    let app = webview.app_handle();
-    let folders = app.state::<Folders>();
-    let key = (label.clone(), scope.clone());
-    let mut capabilities = folders
-        .granted_capabilities
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !capabilities.contains(&key) {
-        let url = webview.url().map_err(|cause| GrantError::Unavailable {
-            message: format!("the page's address could not be read: {cause}"),
-        })?;
-        app.add_capability(directory_capability(
-            &label,
-            &scope,
-            std::path::Path::new(&granted.root),
-            &url,
-        ))
-        .map_err(|cause| GrantError::Unavailable {
-            message: format!(
-                "the folder directory '{}' could not be granted: {cause}",
-                granted.root
-            ),
-        })?;
-        capabilities.insert(key);
-    }
-    Ok(granted)
+    .await
 }
 
-/// The fs plugin commands a granted folder's storage reads with. A shell
-/// lists the same permissions, unscoped, in the window's capability, so its
-/// build checks every name; only a grant gives them a path. Changes go
-/// through this crate's own commands (`write_folder_file` and the rest),
-/// which check the whole path on disk (`page_files`).
-pub const DIRECTORY_COMMANDS: [&str; 3] = [
-    "fs:allow-read-dir",
-    "fs:allow-lstat",
-    "fs:allow-read-file",
-];
-
-/// The glob patterns a window may read, as Tauri's fs scope compiles them
-/// (`glob::Pattern::new`). The root is escaped, so a `[`, `*`, or `?` in its
-/// name stays literal. The scope resolves every existing path, links
-/// included, before matching, so a link inside the folder that points
-/// outside it is refused.
-pub(crate) fn directory_patterns(root: &std::path::Path) -> Vec<String> {
-    let base = glob::Pattern::escape(&root.to_string_lossy());
-    vec![base.clone(), format!("{base}/**")]
-}
-
-/// One window's reading access to one folder: the fs plugin's reading
-/// commands on the root and everything beneath it. A capability's scope
-/// matches dot files when the fs plugin is configured with
-/// `requireLiteralLeadingDot: false`, which a shell must set: `.git` and
-/// files other programs leave behind live there.
-///
-/// The capability applies to this window's pages at the origin of the page
-/// that asked, when it is an `http(s)` one such as a shell's loopback host,
-/// and to its local pages, the app's own bundle. Tauri matches a page's URL
-/// against the capability on every call, not once at the grant, so other
-/// content reaches this window only by navigating it, which the shell's
-/// navigation guards keep out.
-fn directory_capability(
-    label: &str,
+/// The root this window was granted for `scope`, for a read. A read holds
+/// no admission: a quit need not wait for one, and one that runs past it
+/// changes nothing.
+fn reading_root<R: Runtime>(
+    webview: &Webview<R>,
     scope: &str,
-    root: &std::path::Path,
-    url: &tauri::Url,
-) -> tauri::ipc::CapabilityBuilder {
-    let readable: Vec<serde_json::Value> = directory_patterns(root)
-        .into_iter()
-        .map(|path| serde_json::json!({ "path": path }))
-        .collect();
-    let mut capability = tauri::ipc::CapabilityBuilder::new(format!(
-        "epicenter-folder-directory:{label}:{scope}"
-    ))
-    .window(label)
-    .local(true);
-    if matches!(url.scheme(), "http" | "https") {
-        capability = capability.remote(url.origin().ascii_serialization());
-    }
-    for command in DIRECTORY_COMMANDS {
-        capability =
-            capability.permission_scoped(command, readable.clone(), Vec::<serde_json::Value>::new());
-    }
-    capability
+) -> Result<std::path::PathBuf, String> {
+    webview
+        .app_handle()
+        .state::<Folders>()
+        .registry
+        .granted_root(scope, webview.label())
+        .map_err(|refusal| format!("{refusal:?}"))
+}
+
+/// List a directory in a granted folder (`page_reads::read_dir`).
+#[tauri::command]
+#[specta::specta]
+pub async fn read_folder_directory<R: Runtime>(
+    webview: Webview<R>,
+    scope: String,
+    path: String,
+) -> Result<Vec<DirectoryEntry>, String> {
+    let root = reading_root(&webview, &scope)?;
+    blocking(
+        move || page_reads::read_dir(&root, std::path::Path::new(&path)),
+        Err,
+    )
+    .await
+}
+
+/// Describe a path in a granted folder without following a final link, or
+/// `null` when nothing is there (`page_reads::lstat`).
+#[tauri::command]
+#[specta::specta]
+pub async fn stat_folder_path<R: Runtime>(
+    webview: Webview<R>,
+    scope: String,
+    path: String,
+) -> Result<Option<PathInfo>, String> {
+    let root = reading_root(&webview, &scope)?;
+    blocking(
+        move || page_reads::lstat(&root, std::path::Path::new(&path)),
+        Err,
+    )
+    .await
+}
+
+/// Read a file in a granted folder (`page_reads::read_file`). The bytes
+/// return as a raw response, an `ArrayBuffer` to the page, rather than as a
+/// JSON array of numbers. tauri-specta cannot type a raw response, so the
+/// generated bindings leave this command out and `directory-tauri.ts`
+/// invokes it by name; `init` dispatches it beside the typed commands.
+#[tauri::command]
+pub async fn read_folder_file<R: Runtime>(
+    webview: Webview<R>,
+    scope: String,
+    path: String,
+) -> Result<tauri::ipc::Response, String> {
+    let root = reading_root(&webview, &scope)?;
+    blocking(
+        move || page_reads::read_file(&root, std::path::Path::new(&path)),
+        Err,
+    )
+    .await
+    .map(tauri::ipc::Response::new)
 }
 
 /// The root this window was granted for `scope`, and the admission the change
@@ -154,12 +133,11 @@ fn changing_root<R: Runtime>(
 /// Write a new file the engine stages in a granted folder's `.git`: a
 /// staged copy or a private index copy (`page_files::write_file`).
 ///
-/// The bytes are the request's raw body, as the fs plugin's `write_file`
-/// takes them, so file content crosses IPC as it is rather than as a JSON
+/// The bytes are the request's raw body, so file content crosses IPC as it is rather than as a JSON
 /// array of numbers. The `scope`, `path`, and `create-new` headers carry the
-/// rest, each percent-encoded. A JSON array of bytes is accepted as well, as
-/// the fs plugin accepts it: Tauri sends one when its custom-protocol IPC
-/// failed and it fell back to `postMessage`. Any other body is refused.
+/// rest, each percent-encoded. A JSON array of bytes is accepted as well:
+/// Tauri sends one when its custom-protocol IPC failed and it fell back to
+/// `postMessage`. Any other body is refused.
 /// tauri-specta cannot type a raw request, so the generated bindings leave
 /// this command out and `directory-tauri.ts` invokes it by name; `init`
 /// dispatches it beside the typed commands.

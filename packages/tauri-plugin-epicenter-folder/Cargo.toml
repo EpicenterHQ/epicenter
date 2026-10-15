@@ -19,15 +19,14 @@ tauri-plugin = { version = "2", features = ["build"] }
 epicenter-folder-core = { path = "core" }
 specta = "=2.0.0-rc.26"
 specta-typescript = "=0.0.13"
-glob = "0.3"
 percent-encoding = "2"
 serde_json = "1"
-tauri = "2.11"
+tauri = "2.12"
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
 
 [dev-dependencies]
 # The mock runtime drives the real invoke handler in tests. Test builds only.
-tauri = { version = "2.11", features = ["test"] }
+tauri = { version = "2.12", features = ["test"] }
 
 # The same pins as apps/epicenter/src-tauri/Cargo.toml. They apply when this
 # crate is built on its own; a shell that depends on it carries its own copy.

@@ -34,19 +34,12 @@ import { useWebLocks } from './web-locks.test-support.js';
 
 let inShell = false;
 const invoked: string[] = [];
-const listened: string[] = [];
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
 	async invoke(cmd: string) {
 		invoked.push(cmd);
 		// What Tauri answers when the shell never installed the plugin.
 		throw 'plugin epicenter-folder not found';
-	},
-}));
-mock.module('@tauri-apps/api/event', () => ({
-	async listen(name: string) {
-		listened.push(name);
-		return () => {};
 	},
 }));
 
@@ -70,12 +63,10 @@ const author = { name: 'Entries', email: 'entries@example.test' };
 afterEach(() => {
 	inShell = false;
 	invoked.length = 0;
-	listened.length = 0;
 });
 
 test('importing every entry opens nothing and adds no global', () => {
 	expect(invoked).toEqual([]);
-	expect(listened).toEqual([]);
 	expect(
 		Object.getOwnPropertyNames(globalThis).filter(
 			(name) => !globalsBefore.has(name),
@@ -123,7 +114,6 @@ test('on a server the automatic entry refuses, and so does each explicit entry',
 		'NotTauri',
 	);
 	expect(invoked).toEqual([]);
-	expect(listened).toEqual([]);
 });
 
 test('every opener refuses a missing folder ID before it acquires anything, even from an untyped caller', async () => {
@@ -140,7 +130,6 @@ test('every opener refuses a missing folder ID before it acquires anything, even
 	expect(expectErr(await tauri.openFolder(untyped)).name).toBe('InvalidId');
 	expect(expectErr(await root.openFolder(untyped)).name).toBe('InvalidId');
 	expect(invoked).toEqual([]);
-	expect(listened).toEqual([]);
 });
 
 test('the automatic entry decides when it is called: the desktop adapter in the shell, and no browser storage when that fails', async () => {

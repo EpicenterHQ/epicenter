@@ -1,14 +1,9 @@
 {
 	"identifier": "main",
-	"description": "Each window opens its working copy with the page's own engine. The folder plugin grants the window that copy's directory: it adds the fs reading commands below for that directory alone, at run time, and makes every change and runs the copy's Git itself. Listed here without a path, the fs commands reach nothing until a grant.",
+	"description": "Each window opens its working copy with the page's own engine. The folder plugin grants the window that copy's directory, then reads and changes it and runs the copy's Git itself.",
 	"windows": ["copy-a", "copy-b"],
 	"permissions": [
-		"core:event:allow-listen",
-		"core:event:allow-unlisten",
 		"epicenter-folder:default",
-		"fs:allow-read-dir",
-		"fs:allow-lstat",
-		"fs:allow-read-file",
 		"allow-open-copy",
 		"allow-demo-info"
 	]

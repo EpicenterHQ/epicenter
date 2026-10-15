@@ -7,10 +7,8 @@ export const commands = {
 	/**
 	 *  Give this window the directory of a scope the shell registered for it.
 	 *  The folder is locked on its first grant and stays locked until shutdown.
-	 *  The window is given the file system plugin's reading commands for that
-	 *  directory and everything beneath it, dot files included, through a
-	 *  capability added at run time for this window (`directory_capability`).
-	 *  Nothing else on disk becomes reachable.
+	 *  The window reads and changes it through this plugin's commands alone;
+	 *  nothing else on disk becomes reachable.
 	 */
 	grantDirectory: (scope: string) => typedError<Granted, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|grant_directory", { scope })),
 	/**
@@ -27,6 +25,22 @@ export const commands = {
 	 *  finished, or another window's, does nothing.
 	 */
 	cancelGit: (request: string) => typedError<null, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|cancel_git", { request })),
+	/**  List a directory in a granted folder (`page_reads::read_dir`). */
+	readFolderDirectory: (scope: string, path: string) => typedError<DirectoryEntry[], string>(__TAURI_INVOKE("plugin:epicenter-folder|read_folder_directory", { scope, path })),
+	/**
+	 *  Describe a path in a granted folder without following a final link, or
+	 *  `null` when nothing is there (`page_reads::lstat`).
+	 */
+	statFolderPath: (scope: string, path: string) => typedError<{
+	kind: EntryKind,
+	/**
+	 *  The size in bytes. Typed for the page as a plain `number`, which
+	 *  holds every size below 2^53 exactly; specta refuses a `u64` as such.
+	 */
+	size: number,
+	/**  The Unix mode, file type bits included, or `None` off Unix. */
+	mode: number | null,
+} | null, string>(__TAURI_INVOKE("plugin:epicenter-folder|stat_folder_path", { scope, path })),
 	/**  Rename within a granted folder (`page_files::rename`). */
 	renameFolderPath: (scope: string, from: string, to: string) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|rename_folder_path", { scope, from, to })),
 	/**  Remove within a granted folder (`page_files::remove`). */
@@ -36,6 +50,17 @@ export const commands = {
 };
 
 /* Types */
+/**  One name in a directory and what it is. */
+export type DirectoryEntry = {
+	name: string,
+	kind: EntryKind,
+};
+
+/**  What one entry is, without following a link. */
+export type EntryKind = "file" | "directory" | "link" |
+/**  Anything else, such as a socket or a device. */
+"other";
+
 /**  What one `git` process ended with. */
 export type GitOutput = {
 	/**  The exit code, or `None` when it was killed. */
@@ -70,6 +95,18 @@ export type Granted = {
 	branch: string,
 	authorName: string,
 	authorEmail: string,
+};
+
+/**  What a path is, without following a final link. */
+export type PathInfo = {
+	kind: EntryKind,
+	/**
+	 *  The size in bytes. Typed for the page as a plain `number`, which
+	 *  holds every size below 2^53 exactly; specta refuses a `u64` as such.
+	 */
+	size: number,
+	/**  The Unix mode, file type bits included, or `None` off Unix. */
+	mode: number | null,
 };
 
 /* Tauri Specta runtime */

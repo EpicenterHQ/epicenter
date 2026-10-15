@@ -49,7 +49,6 @@ let inShell = true;
 let calls: Call[] = [];
 /** The shell, once a test has one grant a directory. */
 let shell: GrantedShell | undefined;
-const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
@@ -62,24 +61,6 @@ mock.module('@tauri-apps/api/core', () => ({
 		calls.push({ cmd: name, args: shellArguments(body, options) });
 		if (shell === undefined) throw new Error(`no shell for ${name}`);
 		return shell.invoke(cmd, body, options);
-	},
-}));
-mock.module('@tauri-apps/api/event', () => ({
-	async listen(name: string, callback: (event: { payload: unknown }) => void) {
-		const set = listeners.get(name) ?? new Set();
-		listeners.set(name, set);
-		set.add(callback);
-		return () => set.delete(callback);
-	},
-}));
-/** Paths the page read through the fs plugin. */
-let reads: string[] = [];
-mock.module('@tauri-apps/plugin-fs', () => ({
-	readDir: (path: string) => shell!.fs.readDir(path),
-	lstat: (path: string) => shell!.fs.lstat(path),
-	readFile: (path: string) => {
-		reads.push(path);
-		return shell!.fs.readFile(path);
 	},
 }));
 
@@ -200,9 +181,7 @@ afterEach(async () => {
 	globalThis.fetch = pageFetch;
 	inShell = true;
 	calls = [];
-	reads = [];
 	shell = undefined;
-	listeners.clear();
 	const scope = globalThis as { window?: unknown; location?: unknown };
 	delete scope.window;
 	delete scope.location;
@@ -310,7 +289,6 @@ test('inside a desktop app with no Whispering host, nothing is opened: no folder
 	expect(refused.message).toContain('browser storage is not used');
 	// A folder the shell would have granted is not a reason to open half an app.
 	expect(calls).toEqual([]);
-	expect(listeners.size).toBe(0);
 });
 
 test('a host token does not make a browser tab the desktop app', async () => {
@@ -382,7 +360,7 @@ test('the page names the folder by its ID and nothing else, and opens the direct
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
 	);
 
-	// No root, author, remote, or policy: the shell decided all of them.
+	// No root, author, or branch: the shell decided all of them.
 	expect(calls[0]).toEqual({ cmd: 'grant_directory', args: { scope: SCOPE } });
 	expect(sent('grant_directory')).toHaveLength(1);
 	// Everything after the grant names the folder, never another.
@@ -390,9 +368,8 @@ test('the page names the folder by its ID and nothing else, and opens the direct
 	expect(workspace.kind).toBe('native');
 	expect(workspace.location).toBe(root);
 	expect(workspace.folder.git.snapshot.branch).toBe('main');
-	// The page's engine made the repository, and nothing attached to an owner.
+	// The page's engine made the repository.
 	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(true);
-	expect(sent('attach')).toEqual([]);
 	await workspace.close();
 });
 
@@ -420,10 +397,9 @@ test('a refusal from the shell is returned, and nothing is opened in its place',
 			expect<string>(refused.refusal.name).toBe(
 				typeof refusal === 'string' ? 'Unavailable' : refusal.name,
 			);
-		// One attempt, no event stream, no later host call.
+		// One attempt, no later host call.
 		expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
 		expect(served.requested).toEqual(['/bridge/app']);
-		expect([...listeners.values()].every((set) => set.size === 0)).toBe(true);
 	}
 });
 
@@ -744,7 +720,11 @@ test('a failed transcription call is a Result, and the next call still works', a
 			model: 'm',
 		}),
 	);
-	expect(reads.filter((path) => path.endsWith('recordings/a.wav'))).toEqual([]);
+	expect(
+		sent('read_folder_file').filter((call) =>
+			String(call.args.path).endsWith('recordings/a.wav'),
+		),
+	).toEqual([]);
 	await workspace.close();
 });
 

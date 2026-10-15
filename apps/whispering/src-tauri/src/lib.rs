@@ -5,9 +5,9 @@
 //! The shell chooses the folder's directory once and registers it with
 //! `tauri-plugin-epicenter-folder` for the main window alone, as a folder the
 //! page opens with its own engine. When the page names the folder, the plugin
-//! locks it and grants that window its directory: the page reads it through
-//! the fs plugin, and makes every change and runs every `git` command through
-//! the folder plugin, which checks each path. The page names the folder and
+//! locks it and grants that window its directory: the page makes every read
+//! and change and runs every `git` command through the folder plugin, which
+//! checks each path. The page names the folder and
 //! never a path. This crate registers no command of its own.
 //!
 //! The child is the Bun host (`native/main.ts`): it serves the page on loopback
@@ -121,9 +121,6 @@ pub fn build(page: Option<PathBuf>) -> tauri::Result<App> {
     tauri::Builder::default()
         // Shuts the folder down when the app exits; see the module comment.
         .plugin(tauri_plugin_epicenter_folder::init())
-        // The page reads its granted folder through this plugin. Its
-        // commands reach a path only through the folder plugin's grant.
-        .plugin(tauri_plugin_fs::init())
         .manage(HostState::default())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -275,20 +272,15 @@ fn register_folder<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), 
 /// command at all without this. A page from any other origin or port, a local
 /// page such as the failure page, and any other window are not covered.
 ///
-/// The permissions are the folder plugin's commands, the fs plugin's reading
-/// commands without a path, and listening for events. The fs commands reach
-/// nothing until `grant_directory` adds them for the folder's directory alone.
+/// The one permission is the folder plugin's commands: the page reads and
+/// changes its folder and runs its Git through them, and they reach only the
+/// directory `grant_directory` names.
 fn folder_capability(port: u16) -> CapabilityBuilder {
-    let capability = CapabilityBuilder::new(FOLDER_CAPABILITY)
+    CapabilityBuilder::new(FOLDER_CAPABILITY)
         .local(false)
         .remote(format!("http://127.0.0.1:{port}/*"))
         .window(MAIN_WINDOW)
-        .permission("epicenter-folder:default");
-    tauri_plugin_epicenter_folder::DIRECTORY_COMMANDS
-        .into_iter()
-        .fold(capability, CapabilityBuilder::permission)
-        .permission("core:event:allow-listen")
-        .permission("core:event:allow-unlisten")
+        .permission("epicenter-folder:default")
 }
 
 /// The default macOS menu's Quit item can end the process without asking. This
@@ -803,7 +795,7 @@ mod tests {
         assert!(root.is_dir());
         assert_eq!(root, fs::canonicalize(&selected).unwrap());
         // Resolving the resolved path changes nothing: it is given as it is to
-        // the owner and to the host.
+        // the folder plugin and to the host.
         assert_eq!(resolve_root(&root).unwrap(), root);
         // Another spelling of the same directory resolves to the same path.
         assert_eq!(
@@ -850,37 +842,19 @@ mod tests {
             .iter()
             .map(|permission| permission.identifier().get())
             .collect();
-        assert_eq!(
-            permissions,
-            vec![
-                "epicenter-folder:default",
-                "fs:allow-read-dir",
-                "fs:allow-lstat",
-                "fs:allow-read-file",
-                "core:event:allow-listen",
-                "core:event:allow-unlisten",
-            ]
-        );
-        assert_eq!(
-            permissions[1..4],
-            tauri_plugin_epicenter_folder::DIRECTORY_COMMANDS
-        );
-        // No fs permission names a path of its own: only a grant gives one.
+        assert_eq!(permissions, vec!["epicenter-folder:default"]);
+        // No permission names a scope of its own.
         assert!(capability
             .permissions
             .iter()
             .all(|permission| matches!(permission, PermissionEntry::PermissionRef(_))));
     }
 
-    /// A granted folder's `.git` and dot files are reachable by the fs
-    /// plugin's scope.
+    /// No fs plugin is installed or configured: the folder plugin reads.
     #[test]
-    fn the_fs_plugin_matches_dot_files() {
+    fn no_fs_plugin_is_configured() {
         let config: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert_eq!(
-            config["plugins"]["fs"]["requireLiteralLeadingDot"],
-            json!(false)
-        );
+        assert!(config.get("plugins").is_none());
     }
 
     /// One command through the real invoke handler, as a page at `url` would
@@ -962,7 +936,6 @@ mod tests {
         let root = resolve_root(&directory.0.join("data")).unwrap();
         let app = mock_builder()
             .plugin(tauri_plugin_epicenter_folder::init())
-            .plugin(tauri_plugin_fs::init())
             .build(context::<MockRuntime>())
             .expect("mock app");
         let host = "http://127.0.0.1:4000/";
@@ -992,16 +965,16 @@ mod tests {
         // Another window is not covered, even on the host's origin.
         assert!(grant(&other, host, FOLDER_SCOPE).is_err());
 
-        // Before a grant the fs commands reach nothing, not even the folder.
-        let read_dir = |window: &WebviewWindow<MockRuntime>| {
+        // Before a grant the read commands reach nothing, not even the folder.
+        let read_dir = |window: &WebviewWindow<MockRuntime>, path: &Path| {
             invoke(
                 window,
                 host,
-                "plugin:fs|read_dir",
-                json!({ "path": root.to_str().unwrap() }),
+                "plugin:epicenter-folder|read_folder_directory",
+                json!({ "scope": FOLDER_SCOPE, "path": path.to_str().unwrap() }),
             )
         };
-        assert!(read_dir(&main).is_err());
+        assert!(read_dir(&main, &root).is_err());
 
         // The main window, on the host's origin, names the folder and gets the
         // directory the shell chose. It supplied no path. The author is the
@@ -1015,16 +988,10 @@ mod tests {
         // repository when it opens the folder.
         assert!(!root.join(".git").exists());
 
-        // The grant reaches the folder's directory through the fs plugin, and
-        // only that directory.
-        read_dir(&main).expect("granted read");
-        assert!(invoke(
-            &main,
-            host,
-            "plugin:fs|read_dir",
-            json!({ "path": directory.0.to_str().unwrap() }),
-        )
-        .is_err());
+        // The grant reaches the folder's directory through the folder
+        // plugin, and only that directory.
+        read_dir(&main, &root).expect("granted read");
+        assert!(read_dir(&main, &directory.0).is_err());
         // Changes go through the folder plugin, which keeps them inside it.
         // The engine makes the repository first, and stages under it.
         let initialized = std::process::Command::new("git")

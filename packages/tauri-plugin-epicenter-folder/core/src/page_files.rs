@@ -1,12 +1,6 @@
 //! Changes a page makes to the files of a folder it opens with its own
 //! engine.
 //!
-//! A page reads a granted folder through Tauri's fs plugin, whose scope
-//! resolves every existing path, links included, before matching it. Its
-//! changes come here instead, because a scope matches a path that does not
-//! exist yet as text: under a link that already points elsewhere, a new
-//! file's path looks like the folder's and lands outside it.
-//!
 //! `classify` decides every change. The path must be under the root with no
 //! `.` or `..` component, and every component from the root down that exists
 //! must be what it says, never a link. Then it must be one of:
@@ -101,7 +95,7 @@ fn classify_parts(parts: &[String]) -> Option<Kind> {
 /// written with a trailing separator (`/`, `C:\`, a share root) ends where
 /// the separator begins; one separator must follow it, so a sibling such as
 /// `root2` is never inside `root`.
-fn relative_parts(base: &str, raw: &str) -> Option<Vec<String>> {
+pub(crate) fn relative_parts(base: &str, raw: &str) -> Option<Vec<String>> {
     let base = base.trim_end_matches(['/', '\\']);
     let rest = raw.strip_prefix(base)?.strip_prefix(['/', '\\'])?;
     let parts: Vec<String> = rest.split(['/', '\\']).map(str::to_string).collect();
@@ -129,13 +123,20 @@ fn classify(root: &Path, path: &Path) -> Result<(Kind, PathBuf), String> {
         refused(path, "it is Git's own state or a name some disk reads as another")
     })?;
     // Every existing component, the last included, is itself, not a link.
+    if linked(root, &parts)? {
+        return Err(refused(path, "a link is on its way"));
+    }
+    Ok((kind, root.join(relative)))
+}
+
+/// Whether one of `parts`, walked from `root`, is a link. The walk stops at
+/// the first that does not exist, since nothing below it does either.
+pub(crate) fn linked(root: &Path, parts: &[String]) -> Result<bool, String> {
     let mut current = root.to_path_buf();
-    for part in &parts {
+    for part in parts {
         current.push(part);
         match fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(refused(path, "a link is on its way"));
-            }
+            Ok(metadata) if metadata.file_type().is_symlink() => return Ok(true),
             Ok(_) => {}
             Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => break,
             Err(cause) => {
@@ -146,7 +147,7 @@ fn classify(root: &Path, path: &Path) -> Result<(Kind, PathBuf), String> {
             }
         }
     }
-    Ok((kind, root.join(relative)))
+    Ok(false)
 }
 
 fn expect(kind: Kind, allowed: &[Kind], path: &Path) -> Result<(), String> {

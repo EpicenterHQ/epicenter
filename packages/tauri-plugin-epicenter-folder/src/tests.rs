@@ -8,12 +8,17 @@
 //! - The generated TypeScript bindings match the registered commands.
 //! - A scope is granted only to the window registered for it, and a page
 //!   never supplies a root.
+//! - Reads reach the granted root and everything beneath it, `.git`
+//!   included, and nothing else: never another window's root, never through
+//!   a link on the way. A final link is described, not followed.
+//! - A grant adds nothing to the app's access control, so an app that
+//!   already scopes another permission grants and reads as any other does.
 //! - Changes land only after a grant, only under the root, and never in
 //!   Git's private state; `git` runs in the root and only as an allowed
 //!   operation.
 //! - A staged write takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
-//!   fallback, is accepted too.
+//!   fallback, is accepted too. A file read returns its bytes raw.
 //! - A page's `git` runs end with it: a cancel stops a run whether it
 //!   arrives before or after the run starts, a page load or a destroyed
 //!   window cancels every run of the page before it, and two windows' runs
@@ -25,15 +30,17 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 use tauri::http::{HeaderMap, HeaderValue};
-use tauri::ipc::{CallbackFn, InvokeBody, RuntimeAuthority};
+use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody, RuntimeAuthority};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
 use tauri::utils::acl::manifest::Manifest;
 use tauri::utils::acl::resolved::Resolved;
+use tauri::utils::acl::capability::Capability;
 use tauri::utils::acl::ExecutionContext;
+use tauri::utils::platform::Target;
 use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
-use crate::{init, Author, FolderConfig, FolderExt, ScopeConfig, COMMANDS, DIRECTORY_COMMANDS};
+use crate::{init, Author, FolderConfig, FolderExt, ScopeConfig, COMMANDS};
 
 const BINDINGS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -65,13 +72,13 @@ fn the_committed_typescript_bindings_match_the_registered_commands() {
         committed == fresh,
         "packages/folder/src/native/bindings.gen.ts is stale; run `FOLDER_WRITE_BINDINGS=1 cargo test --offline bindings` in packages/tauri-plugin-epicenter-folder"
     );
-    // `write_folder_file` takes a raw body, which specta cannot type; the
-    // page invokes it by name.
-    assert!(!fresh.contains("write_folder_file"));
-    for command in COMMANDS
-        .iter()
-        .filter(|command| **command != "write_folder_file")
-    {
+    // `write_folder_file` takes a raw body and `read_folder_file` returns
+    // one, which specta cannot type; the page invokes them by name.
+    const RAW: [&str; 2] = ["write_folder_file", "read_folder_file"];
+    for command in RAW {
+        assert!(!fresh.contains(command), "{command}");
+    }
+    for command in COMMANDS.iter().filter(|command| !RAW.contains(command)) {
         assert!(
             fresh.contains(&format!("'plugin:epicenter-folder|{command}'"))
                 || fresh.contains(&format!("\"plugin:epicenter-folder|{command}\"")),
@@ -108,48 +115,34 @@ fn temp(label: &str) -> TempDirectory {
     TempDirectory(std::fs::canonicalize(path).unwrap())
 }
 
-/// The mock context, knowing the fs plugin's reading permissions, which a
-/// grant's capability names, and allowing every command of this plugin.
+/// The mock context, allowing every command of this plugin.
 fn context() -> tauri::Context<MockRuntime> {
     let mut context = mock_context(noop_assets());
-    let permissions = DIRECTORY_COMMANDS
-        .iter()
-        .map(|identifier| {
-            let identifier = identifier.strip_prefix("fs:").unwrap();
-            let command = identifier.strip_prefix("allow-").unwrap().replace('-', "_");
-            let permission = serde_json::from_value(json!({
-                "identifier": identifier,
-                "commands": { "allow": [command] },
-            }))
-            .unwrap();
-            (identifier.to_string(), permission)
-        })
-        .collect();
-    let fs = Manifest {
-        default_permission: None,
-        permissions,
-        permission_sets: Default::default(),
-        global_scope_schema: None,
-    };
-    *context.runtime_authority_mut() =
-        RuntimeAuthority::new([("fs".to_string(), fs)].into(), Resolved::default());
+    allow_plugin(&mut context);
+    context
+}
+
+fn allow_plugin(context: &mut tauri::Context<MockRuntime>) {
     for command in COMMANDS {
         context.runtime_authority_mut().__allow_command(
             format!("plugin:epicenter-folder|{command}"),
             ExecutionContext::Local,
         );
     }
-    context
 }
 
 /// An app whose windows may call every plugin command, with the scope
 /// `notes` registered for the window `main`.
 fn fixture(label: &str) -> Fixture {
+    fixture_in(label, context())
+}
+
+fn fixture_in(label: &str, context: tauri::Context<MockRuntime>) -> Fixture {
     let directory = temp(label);
     let root = directory.0.join("notes");
     let app = mock_builder()
         .plugin(init())
-        .build(context())
+        .build(context)
         .expect("mock app");
     app.folders()
         .register(ScopeConfig {
@@ -188,6 +181,16 @@ fn request(
     body: InvokeBody,
     headers: HeaderMap,
 ) -> Result<Value, Value> {
+    response(window, command, body, headers)
+        .map(|body| body.deserialize::<Value>().expect("a JSON response"))
+}
+
+fn response(
+    window: &WebviewWindow<MockRuntime>,
+    command: &str,
+    body: InvokeBody,
+    headers: HeaderMap,
+) -> Result<InvokeResponseBody, Value> {
     tauri::test::get_ipc_response(
         window,
         InvokeRequest {
@@ -200,7 +203,44 @@ fn request(
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
-    .map(|body| body.deserialize::<Value>().expect("a JSON response"))
+}
+
+/// `read_folder_file` as `directory-tauri.ts` asks for it: the bytes, which
+/// arrive raw, or the refusal.
+fn read_file(
+    window: &WebviewWindow<MockRuntime>,
+    scope: &str,
+    path: &str,
+) -> Result<Vec<u8>, Value> {
+    match response(
+        window,
+        "read_folder_file",
+        InvokeBody::Json(json!({ "scope": scope, "path": path })),
+        Default::default(),
+    )? {
+        InvokeResponseBody::Raw(bytes) => Ok(bytes),
+        InvokeResponseBody::Json(json) => panic!("the bytes came back as JSON: {json}"),
+    }
+}
+
+fn read_dir(
+    window: &WebviewWindow<MockRuntime>,
+    scope: &str,
+    path: &str,
+) -> Result<Value, Value> {
+    invoke(
+        window,
+        "read_folder_directory",
+        json!({ "scope": scope, "path": path }),
+    )
+}
+
+fn lstat(window: &WebviewWindow<MockRuntime>, scope: &str, path: &str) -> Result<Value, Value> {
+    invoke(
+        window,
+        "stat_folder_path",
+        json!({ "scope": scope, "path": path }),
+    )
 }
 
 /// `write_folder_file` as `directory-tauri.ts` sends it: the bytes as the
@@ -436,6 +476,176 @@ fn a_staged_write_takes_its_bytes_raw_and_its_path_percent_encoded() {
     .unwrap_err();
     assert!(text(&missing).contains("create-new"), "{missing}");
     assert!(!std::path::Path::new(&refused).exists());
+}
+
+#[test]
+fn reads_reach_the_granted_root_and_nothing_else() {
+    let fixture = fixture("reads");
+    let main = window(&fixture.app, "main");
+    let root = fixture.root.to_str().unwrap().to_string();
+    // Nothing is read before a grant.
+    assert!(text(&read_dir(&main, "notes", &root).unwrap_err()).contains("not been granted"));
+    grant(&main).unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    invoke(
+        &main,
+        "make_folder_directory",
+        json!({ "scope": "notes", "path": inside(&fixture, "todos") }),
+    )
+    .unwrap();
+    write(&fixture, &main, "todos/a.md", "first\n").unwrap();
+
+    let mut names: Vec<(String, String)> = read_dir(&main, "notes", &root)
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| (text(&entry["name"]), text(&entry["kind"])))
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            (".git".to_string(), "directory".to_string()),
+            ("todos".to_string(), "directory".to_string()),
+        ]
+    );
+    // Every byte value arrives as it is, raw.
+    let bytes: Vec<u8> = (0..=255).collect();
+    std::fs::write(fixture.root.join("todos/all.bin"), &bytes).unwrap();
+    assert_eq!(read_file(&main, "notes", &inside(&fixture, "todos/all.bin")).unwrap(), bytes);
+    // Git's own files are read too.
+    assert_eq!(
+        read_file(&main, "notes", &inside(&fixture, ".git/HEAD")).unwrap(),
+        b"ref: refs/heads/main\n"
+    );
+    let info = lstat(&main, "notes", &inside(&fixture, "todos/a.md")).unwrap();
+    assert_eq!(info["kind"], "file");
+    assert_eq!(info["size"], 6.0);
+    assert_eq!(lstat(&main, "notes", &inside(&fixture, "todos/b.md")).unwrap(), Value::Null);
+    assert!(read_file(&main, "notes", &inside(&fixture, "todos/b.md")).is_err());
+
+    // Outside the root is refused, a sibling whose name extends it included.
+    let outside = fixture.root.parent().unwrap().join("outside.md");
+    std::fs::write(&outside, b"theirs").unwrap();
+    let sibling = format!("{root}2/a.md");
+    for path in [outside.to_str().unwrap(), &sibling, &format!("{root}/todos/../../outside.md")] {
+        assert!(read_file(&main, "notes", path).is_err(), "{path}");
+        assert!(lstat(&main, "notes", path).is_err(), "{path}");
+        assert!(read_dir(&main, "notes", path).is_err(), "{path}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_through_a_link_is_refused_and_a_final_link_is_described() {
+    let fixture = fixture("read-links");
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    let elsewhere = fixture.root.parent().unwrap().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(elsewhere.join("secret.md"), b"theirs").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, fixture.root.join("todos")).unwrap();
+    std::os::unix::fs::symlink(elsewhere.join("secret.md"), fixture.root.join("a.md")).unwrap();
+
+    let through = inside(&fixture, "todos/secret.md");
+    assert!(text(&read_file(&main, "notes", &through).unwrap_err()).contains("link"));
+    assert!(text(&lstat(&main, "notes", &through).unwrap_err()).contains("link"));
+    assert!(read_dir(&main, "notes", &inside(&fixture, "todos")).is_err());
+    assert!(read_file(&main, "notes", &inside(&fixture, "a.md")).is_err());
+    for link in ["todos", "a.md"] {
+        assert_eq!(lstat(&main, "notes", &inside(&fixture, link)).unwrap()["kind"], "link");
+    }
+    let listed = read_dir(&main, "notes", fixture.root.to_str().unwrap()).unwrap();
+    assert!(listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|entry| entry["kind"] == "link"), "{listed}");
+}
+
+#[test]
+fn two_windows_each_read_only_their_own_folder() {
+    let fixture = fixture("two-readers");
+    let other_root = fixture.root.parent().unwrap().join("other-notes");
+    fixture
+        .app
+        .folders()
+        .register(ScopeConfig {
+            scope: "other-notes".to_string(),
+            folder: FolderConfig::new(
+                &other_root,
+                Author {
+                    name: "Test Author".to_string(),
+                    email: "test@example.com".to_string(),
+                },
+            ),
+            window: "other".to_string(),
+        })
+        .unwrap();
+    let main = window(&fixture.app, "main");
+    let other = window(&fixture.app, "other");
+    grant(&main).unwrap();
+    invoke(&other, "grant_directory", json!({ "scope": "other-notes" })).unwrap();
+    std::fs::write(fixture.root.join("mine.md"), b"main's").unwrap();
+    std::fs::write(other_root.join("mine.md"), b"other's").unwrap();
+
+    assert_eq!(read_file(&main, "notes", &inside(&fixture, "mine.md")).unwrap(), b"main's");
+    let others = other_root.join("mine.md");
+    let others = others.to_str().unwrap();
+    assert_eq!(read_file(&other, "other-notes", others).unwrap(), b"other's");
+    // Neither reaches the other's root, by its own scope or by the other's.
+    assert!(read_file(&main, "notes", others).is_err());
+    assert!(text(&read_file(&main, "other-notes", others).unwrap_err())
+        .contains("WindowNotPermitted"));
+    assert!(read_file(&other, "other-notes", &inside(&fixture, "mine.md")).is_err());
+    assert!(text(&lstat(&other, "notes", &inside(&fixture, "mine.md")).unwrap_err())
+        .contains("WindowNotPermitted"));
+}
+
+/// Before Tauri 2.12 a capability added at run time numbered its scopes from
+/// zero, so a grant that added one collided with a scope the app already
+/// had, and every read failed to deserialize its scope. A grant now adds
+/// nothing to the app's access control: here the app scopes a permission of
+/// another plugin, and the grant and its reads work as they do in any app.
+#[test]
+fn a_grant_in_an_app_that_already_scopes_a_permission_still_reads() {
+    let mut context = mock_context(noop_assets());
+    let permission = serde_json::from_value(json!({
+        "identifier": "allow-fetch",
+        "commands": { "allow": ["fetch"] },
+    }))
+    .unwrap();
+    let http = Manifest {
+        default_permission: None,
+        permissions: [("allow-fetch".to_string(), permission)].into(),
+        permission_sets: Default::default(),
+        global_scope_schema: None,
+    };
+    let acl = [("http".to_string(), http)].into();
+    let capability: Capability = serde_json::from_value(json!({
+        "identifier": "main",
+        "windows": ["main"],
+        "permissions": [
+            { "identifier": "http:allow-fetch", "allow": [{ "url": "https://example.com/*" }] },
+        ],
+    }))
+    .unwrap();
+    let resolved = Resolved::resolve(
+        &acl,
+        [("main".to_string(), capability)].into(),
+        Target::current(),
+    )
+    .unwrap();
+    assert!(!resolved.command_scope.is_empty(), "the app scopes a permission");
+    *context.runtime_authority_mut() = RuntimeAuthority::new(acl, resolved);
+    allow_plugin(&mut context);
+    let fixture = fixture_in("scoped-app", context);
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    std::fs::write(fixture.root.join("a.md"), b"read").unwrap();
+    assert_eq!(read_file(&main, "notes", &inside(&fixture, "a.md")).unwrap(), b"read");
+    assert_eq!(lstat(&main, "notes", &inside(&fixture, "a.md")).unwrap()["kind"], "file");
 }
 
 #[test]

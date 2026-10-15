@@ -14,7 +14,7 @@
  *   invoke  departure_status    () -> DepartureStatus
  *   invoke  departure_answer    { generation, round, answer } -> DepartureStatus
  *   event   host-stopped        targeted, no payload: the Bun host that served
- *                               this page stopped; the page and its native
+ *                               this page stopped; the page and its open
  *                               folder keep working, its HTTP session does not
  *                               come back
  *

@@ -3,11 +3,14 @@
 # Granting this to a window lets it call the plugin. It does not choose a
 # folder: a window reaches only the scope the shell registered for its label.
 [default]
-description = "Ask for the folder the shell registered for this window, then change its files and run its Git through the shell."
+description = "Ask for the folder the shell registered for this window, then read and change its files and run its Git through the shell."
 permissions = [
   "allow-grant-directory",
   "allow-run-git",
   "allow-cancel-git",
+  "allow-read-folder-directory",
+  "allow-stat-folder-path",
+  "allow-read-folder-file",
   "allow-write-folder-file",
   "allow-rename-folder-path",
   "allow-remove-folder-path",

@@ -11,7 +11,7 @@
  * - Outside the shell, opening fails and invokes nothing
  * - A refused grant (an unregistered scope, a refused window, a folder
  *   another Epicenter holds, a missing plugin, a call that never reaches the
- *   shell) fails the open with its reason and leaves no listener behind
+ *   shell) fails the open with its reason
  * - The page names the Capture scope and is told the directory; departure is
  *   heard on this window only
  * - A write saves the row and keeps undeclared metadata
@@ -48,7 +48,6 @@ import {
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import fixture from '../../../fixtures/legacy-bundle.json';
 import {
-	fsPlugin,
 	git,
 	installWebLocks,
 	scratch,
@@ -68,7 +67,6 @@ let root = '';
 let grant: (() => unknown) | undefined;
 /** Runs before the shell answers a command; throw to fail it unanswered. */
 let before: Record<string, (call: Call) => Promise<void> | void> = {};
-const listeners = new Map<string, Set<(event: { payload: unknown }) => void>>();
 /** This window's focus listeners, kept beside its events. */
 const FOCUS = 'focus-changed';
 /** Events heard through this window only, by event name. */
@@ -103,16 +101,6 @@ mock.module('@tauri-apps/api/core', () => ({
 			throw new Error(`the scripted shell has no ${call.cmd}`);
 		return answered.reply;
 	},
-	Channel: class {},
-	transformCallback: () => 0,
-}));
-mock.module('@tauri-apps/api/event', () => ({
-	listen(name: string, callback: (event: { payload: unknown }) => void) {
-		const set = listeners.get(name) ?? new Set();
-		listeners.set(name, set);
-		set.add(callback);
-		return Promise.resolve(() => set.delete(callback));
-	},
 }));
 mock.module('@tauri-apps/api/webviewWindow', () => ({
 	getCurrentWebviewWindow: () => ({
@@ -132,14 +120,6 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 		},
 	}),
 }));
-// The fs plugin is the folder package's dependency, not this app's.
-mock.module(
-	Bun.resolveSync(
-		'@tauri-apps/plugin-fs',
-		dirname(Bun.resolveSync('@epicenter/folder/tauri', import.meta.dir)),
-	),
-	() => fsPlugin,
-);
 
 const { openCaptureHost, openDeparture } = await import(
 	'./folder.epicenter-host.js'
@@ -150,8 +130,6 @@ const { cached, createQueryClient, observe, quiet } = await import(
 );
 type WriteFailure = import('../captures.svelte.js').WriteFailure;
 
-const listening = () =>
-	[...listeners.values()].reduce((count, set) => count + set.size, 0);
 const text = (path: string) => readFile(join(root, path), 'utf8');
 /** Another program writes the file. */
 async function put(path: string, source: string) {
@@ -204,7 +182,6 @@ afterEach(async () => {
 	calls = [];
 	grant = undefined;
 	before = {};
-	listeners.clear();
 	windowListeners.clear();
 });
 
@@ -219,7 +196,6 @@ test('outside the desktop shell, opening fails with the reason and invokes nothi
 	await expect(openCaptureHost()).rejects.toThrow('desktop app');
 
 	expect(calls).toEqual([]);
-	expect(listening()).toBe(0);
 });
 
 test.each([
@@ -256,13 +232,12 @@ test.each([
 		},
 		LOST,
 	],
-] as const)('%s fails the open with its reason and leaves no listener', async (_name, refusal, reason) => {
+] as const)('%s fails the open with its reason', async (_name, refusal, reason) => {
 	grant = refusal;
 
 	await expect(openCaptureHost()).rejects.toThrow(reason);
 
 	expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
-	expect(listening()).toBe(0);
 });
 
 test('the page names the Capture scope and is told the directory', async () => {
@@ -278,18 +253,16 @@ test('the page names the Capture scope and is told the directory', async () => {
 		expect(call.args.scope).toBe(CAPTURE_FOLDER_ID);
 	expect(host.location).toEqual({ kind: 'directory', root });
 	await host.close();
-	expect(listening()).toBe(0);
 });
 
 test('departure is heard on this window only, registered before its first status read', async () => {
 	const departure = openDeparture();
 	if (!departure) throw new Error('the desktop leaf has a departure gate');
 	await departure.start();
-	// Targeted at this window, not any window's global listener.
+	// Targeted at this window: a global listener would invoke the shell.
 	expect([...windowListeners.keys()].sort()).toEqual(
 		[DEPARTURE_CHANGED_EVENT, FOCUS, HOST_STOPPED_EVENT].sort(),
 	);
-	expect(listeners.has(DEPARTURE_CHANGED_EVENT)).toBe(false);
 	expect(calls.map((call) => call.cmd)).toEqual([DEPARTURE_STATUS_COMMAND]);
 	expect(departure.known).toBe(true);
 	expect(departure.fenced).toBe(false);
@@ -381,8 +354,14 @@ test('Save version commits and rewrites no file', async () => {
 
 	calls = [];
 	expect(expectOk(await captures.saveVersion()).status).toBe('committed');
-	// Only Git ran: no file was written, moved, or removed.
-	expect(new Set(calls.map((call) => call.cmd))).toEqual(new Set(['run_git']));
+	// Only Git ran and files were read: none was written, moved, or removed.
+	expect(
+		new Set(
+			calls
+				.map((call) => call.cmd)
+				.filter((cmd) => !cmd.startsWith('read_') && !cmd.startsWith('stat_')),
+		),
+	).toEqual(new Set(['run_git']));
 	expect(await text(path)).toBe(saved);
 	expect(await git(root, 'show', '--format=', '--name-only', 'HEAD')).toContain(
 		path,

@@ -3,9 +3,9 @@
  *
  * The shell registers each folder's directory under an ID for one window.
  * This opener asks the shell for that directory (`grant_directory`) and opens
- * it with the folder engine (`tauri-directory.ts`): files are read through
- * Tauri's fs plugin and changed through the shell, which checks every path,
- * and history is the system `git`, which the shell runs. The page names the
+ * it with the folder engine (`tauri-directory.ts`): files are read and
+ * changed through the shell, which checks every path, and history is the
+ * system `git`, which the shell runs. The page names the
  * folder's ID and nothing else; the root and the fallback author are the
  * shell's, and `browser` options do not apply here.
  *

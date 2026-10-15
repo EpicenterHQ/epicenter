@@ -12,9 +12,9 @@
  *   between stays as it is.
  *
  * No commit is requested here. Writing the default `kv.json` is a save like
- * any other, and the folder records it by its own policy; a folder that
- * already has its `kv.json` is opened without touching its history. A commit
- * that fails does not fail the opening.
+ * any other, recorded in history only when the person saves a version; a
+ * folder that already has its `kv.json` is opened without touching its
+ * history.
  *
  * Anything else is a refusal: the folder is not set up, the caller shows why,
  * and nothing is tried again. That includes a write whose outcome is unknown.

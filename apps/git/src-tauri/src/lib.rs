@@ -83,7 +83,6 @@ fn open_copy(
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_epicenter_folder::init())
         .invoke_handler(tauri::generate_handler![open_copy, demo_info])
         .setup(|app| {

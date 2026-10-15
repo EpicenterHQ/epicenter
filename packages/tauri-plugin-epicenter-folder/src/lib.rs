@@ -19,9 +19,9 @@
 //!
 //! A page names a scope and nothing else. The root and the fallback author
 //! come from `register`. The page runs `@epicenter/folder`'s engine over the
-//! directory `grant_directory` hands it: it reads through Tauri's fs plugin,
-//! changes files through this plugin's checked commands, and records history
-//! with the system `git`, which `run_git` runs for it.
+//! directory `grant_directory` hands it: it reads and changes files through
+//! this plugin's checked commands, and records history with the system
+//! `git`, which `run_git` runs for it.
 //!
 //! The folder is locked on its first grant and stays locked until the app
 //! exits or the shell calls `Folders::shutdown`, which refuses new work,
@@ -43,7 +43,6 @@ mod commands;
 mod git_runs;
 
 pub use command_names::COMMANDS;
-pub use commands::DIRECTORY_COMMANDS;
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
@@ -53,8 +52,6 @@ pub struct Folders {
     registry: Registry,
     /// The `git` runs each window's page started. See `git_runs`.
     git_runs: git_runs::GitRuns,
-    /// The windows and scopes `grant_directory` has added a capability for.
-    granted_capabilities: std::sync::Mutex<std::collections::HashSet<(String, String)>>,
 }
 
 impl Folders {
@@ -84,8 +81,9 @@ impl<R: Runtime, T: Manager<R>> FolderExt<R> for T {
 
 /// The typed command contract. The TypeScript bindings in
 /// `../folder/src/native/bindings.gen.ts` are generated from this builder.
-/// `write_folder_file` takes a raw body, which specta cannot type, so it is
-/// dispatched beside these (`init`) and left out of the bindings.
+/// `write_folder_file` takes a raw body and `read_folder_file` returns one,
+/// which specta cannot type, so they are dispatched beside these (`init`)
+/// and left out of the bindings.
 fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
@@ -93,6 +91,8 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::grant_directory::<tauri::Wry>,
             commands::run_git::<tauri::Wry>,
             commands::cancel_git::<tauri::Wry>,
+            commands::read_folder_directory::<tauri::Wry>,
+            commands::stat_folder_path::<tauri::Wry>,
             commands::rename_folder_path::<tauri::Wry>,
             commands::remove_folder_path::<tauri::Wry>,
             commands::make_folder_directory::<tauri::Wry>,
@@ -100,9 +100,10 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
 
-/// The commands outside the typed contract: `write_folder_file`.
+/// The commands outside the typed contract: `write_folder_file` and
+/// `read_folder_file`.
 fn raw_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![commands::write_folder_file]
+    tauri::generate_handler![commands::write_folder_file, commands::read_folder_file]
 }
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
@@ -110,7 +111,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     let raw = raw_handler::<R>();
     tauri::plugin::Builder::new(PLUGIN_NAME)
         .invoke_handler(move |invoke| match invoke.message.command() {
-            "write_folder_file" => raw(invoke),
+            "write_folder_file" | "read_folder_file" => raw(invoke),
             _ => typed(invoke),
         })
         .setup(move |app, _api| {

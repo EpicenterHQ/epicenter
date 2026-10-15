@@ -85,8 +85,9 @@ describe('#platform/folder', () => {
 				'git/history.ts',
 			])
 				expect(modules.some(folderModule(engine))).toBe(true);
+			// It reads through the folder plugin's commands, not the fs plugin.
 			expect(modules.some((path) => /@tauri-apps\/plugin-fs/.test(path))).toBe(
-				true,
+				false,
 			);
 			// The departure leaf reaches the host's published wire, its window
 			// port, and this window's Tauri API, never the host's Bun entry.

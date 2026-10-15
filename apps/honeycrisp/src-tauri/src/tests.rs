@@ -12,8 +12,8 @@
 //!   engine. The shell writes nothing inside the root; granting an existing
 //!   folder and reading it change no file and nothing in its repository, born
 //!   or unborn; a root another process holds is busy and gains no file.
-//! - The grant lets the window read its directory, dot names included, and
-//!   nothing outside it. Writes go through the folder plugin under the shared
+//! - The grant lets the window read its directory through the folder plugin,
+//!   dot names included, and nothing outside it. Writes go through the folder plugin under the shared
 //!   path rule, and a save commits nothing.
 //! - A held close reaches the page as an event; refusals reach it as text.
 //! - The terminal keeps its working directory in the shell.
@@ -165,10 +165,6 @@ fn the_capability_grants_exactly_the_listed_commands_to_the_notes_window() {
         ]
         .map(str::to_string),
     );
-    // The fs commands a grant scopes, listed without a path.
-    expected.extend(
-        tauri_plugin_epicenter_folder::DIRECTORY_COMMANDS.map(str::to_string),
-    );
     expected.sort();
     let mut granted: Vec<String> = capability["permissions"]
         .as_array()
@@ -196,11 +192,7 @@ fn the_capability_grants_exactly_the_listed_commands_to_the_notes_window() {
         "{policy}"
     );
     assert!(policy.contains("script-src 'self';"), "{policy}");
-    assert_eq!(
-        config["plugins"]["fs"]["requireLiteralLeadingDot"],
-        json!(false),
-        "a granted folder's .git and dot files are readable"
-    );
+    assert!(config.get("plugins").is_none(), "no fs plugin is configured");
 }
 
 #[test]
@@ -323,18 +315,23 @@ fn existing(root: &Path) {
     std::fs::write(root.join("kv.json"), SETTINGS).unwrap();
 }
 
-/// What the page reads on every open, through the fs plugin's commands.
+/// What the page reads on every open, through the folder plugin's commands.
 fn look(fixture: &Fixture, window: &WebviewWindow<MockRuntime>) {
     for path in ["", "notes"] {
         invoke(
             window,
-            "plugin:fs|read_dir",
-            json!({ "path": inside(fixture, path).trim_end_matches('/') }),
+            "plugin:epicenter-folder|read_folder_directory",
+            json!({ "scope": root::SCOPE, "path": inside(fixture, path).trim_end_matches('/') }),
         )
         .unwrap();
     }
     for path in ["kv.json", "notes/old.md"] {
-        invoke(window, "plugin:fs|lstat", json!({ "path": inside(fixture, path) })).unwrap();
+        invoke(
+            window,
+            "plugin:epicenter-folder|stat_folder_path",
+            json!({ "scope": root::SCOPE, "path": inside(fixture, path) }),
+        )
+        .unwrap();
     }
 }
 
@@ -400,8 +397,8 @@ fn the_notes_window_is_granted_its_root_with_the_fallback_author() {
     assert_eq!(std::fs::read_dir(&fixture.root).unwrap().count(), 0);
 }
 
-/// The fs plugin reads the granted directory and nothing else, dot names
-/// included (`requireLiteralLeadingDot: false`), and only after the grant.
+/// The folder plugin reads the granted directory and nothing else, dot names
+/// included, and only after the grant.
 #[test]
 fn the_grant_lets_the_window_read_its_folder_dot_names_included_and_nothing_else() {
     let fixture = fixture("read", |root| {
@@ -412,13 +409,20 @@ fn the_grant_lets_the_window_read_its_folder_dot_names_included_and_nothing_else
     let outside = fixture.root.parent().unwrap().join("outside.txt");
     std::fs::write(&outside, "outside\n").unwrap();
     let main = window(&fixture.app, WINDOW);
-    let lstat = |path: &str| invoke(&main, "plugin:fs|lstat", json!({ "path": path }));
+    let lstat = |path: &str| {
+        invoke(
+            &main,
+            "plugin:epicenter-folder|stat_folder_path",
+            json!({ "scope": root::SCOPE, "path": path }),
+        )
+    };
     let head = inside(&fixture, ".git/HEAD");
     assert!(lstat(&head).is_err(), "nothing is readable before the grant");
 
     grant(&main).unwrap();
     for path in [".git/HEAD", "notes/.hidden.md", "kv.json", "notes/old.md"] {
-        lstat(&inside(&fixture, path)).unwrap_or_else(|error| panic!("{path}: {error}"));
+        let found = lstat(&inside(&fixture, path)).unwrap_or_else(|error| panic!("{path}: {error}"));
+        assert!(found.is_object(), "{path}: {found}");
     }
     assert!(lstat(outside.to_str().unwrap()).is_err());
     assert!(lstat(fixture.root.parent().unwrap().to_str().unwrap()).is_err());

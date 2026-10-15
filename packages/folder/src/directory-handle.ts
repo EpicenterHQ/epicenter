@@ -4,8 +4,8 @@
  * The browser folder's file storage (`opfs-store.ts`) reads and writes
  * through `OpfsDirectoryHandle` alone. This module implements that interface
  * over a handful of file system primitives, so the same storage runs over a
- * real directory: the desktop app supplies the primitives through Tauri's fs
- * plugin, and tests supply them through `node:fs`. History over a real
+ * real directory: the desktop app supplies the primitives through the folder
+ * plugin's commands, and tests supply them through `node:fs`. History over a real
  * directory is real Git (`git/native-backend.ts`), not the browser's.
  *
  * The handle keeps the OPFS behaviors the folder relies on:

@@ -331,6 +331,30 @@
           "markdownDescription": "Denies the make_folder_directory command without any pre-configured scope."
         },
         {
+          "description": "Enables the read_folder_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-read-folder-directory",
+          "markdownDescription": "Enables the read_folder_directory command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the read_folder_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-read-folder-directory",
+          "markdownDescription": "Denies the read_folder_directory command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the read_folder_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-read-folder-file",
+          "markdownDescription": "Enables the read_folder_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the read_folder_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-read-folder-file",
+          "markdownDescription": "Denies the read_folder_file command without any pre-configured scope."
+        },
+        {
           "description": "Enables the remove_folder_path command without any pre-configured scope.",
           "type": "string",
           "const": "allow-remove-folder-path",
@@ -367,6 +391,18 @@
           "markdownDescription": "Denies the run_git command without any pre-configured scope."
         },
         {
+          "description": "Enables the stat_folder_path command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stat-folder-path",
+          "markdownDescription": "Enables the stat_folder_path command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stat_folder_path command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stat-folder-path",
+          "markdownDescription": "Denies the stat_folder_path command without any pre-configured scope."
+        },
+        {
           "description": "Enables the write_folder_file command without any pre-configured scope.",
           "type": "string",
           "const": "allow-write-folder-file",
@@ -379,10 +415,10 @@
           "markdownDescription": "Denies the write_folder_file command without any pre-configured scope."
         },
         {
-          "description": "Ask for the folder the shell registered for this window, then change its files and run its Git through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`",
+          "description": "Ask for the folder the shell registered for this window, then read and change its files and run its Git through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-read-folder-directory`\n- `allow-stat-folder-path`\n- `allow-read-folder-file`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Ask for the folder the shell registered for this window, then change its files and run its Git through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`"
+          "markdownDescription": "Ask for the folder the shell registered for this window, then read and change its files and run its Git through the shell.\n#### This default permission set includes:\n\n- `allow-grant-directory`\n- `allow-run-git`\n- `allow-cancel-git`\n- `allow-read-folder-directory`\n- `allow-stat-folder-path`\n- `allow-read-folder-file`\n- `allow-write-folder-file`\n- `allow-rename-folder-path`\n- `allow-remove-folder-path`\n- `allow-make-folder-directory`"
         }
       ]
     }
