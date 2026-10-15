@@ -13,9 +13,8 @@ shapes, see `docs/adr/`.
   deployment. It carries credentials, cookies, or bearer behavior, but is not the
   data identity.
 - **Principal**: the authenticated identity Epicenter uses as the partition key
-  (ADR-0092). Cloud resolves many principals from Better Auth users; a
-  self-hosted instance resolves every valid operator bearer to the literal
-  `instance` principal. Durable keys use `principals/<principalId>/...`.
+  (ADR-0092). Every deployment resolves principals from Better Auth users.
+  Durable keys use `principals/<principalId>/...`.
   Billing is hosted-only and lives in `apps/api/worker/billing/`.
 - **Account**: one resolved principal inside one deployment. Credentials may
   rotate, but deployment identity plus `principalId` is the stable identity of
@@ -81,9 +80,9 @@ shapes, see `docs/adr/`.
   any third-party OpenAI-compatible endpoint. A BYOK key is handed to a custom
   inference server (self-hosted or local), never to the Epicenter gateway or a
   daemon (ADR-0054).
-- **Deployable vs shared package**: one package, `packages/server`, consumed by two
-  deployables: `apps/api` (hosted personal cloud) and `apps/self-host` (the
-  community single-partition instance reference, not Epicenter-operated; ADR-0075).
+- **Deployable vs shared package**: one package, `packages/server`, consumed by one
+  deployable, `apps/api`, on two runtimes: the hosted Cloudflare Worker and Bun
+  with Postgres (`apps/api/server.ts`), which is the self-host path.
 - **Cross-device planes**: cross-device work splits by responsibility. _Inference_ (the
   chat brain) streams tokens from an OpenAI-compatible endpoint (ADR-0050),
   over the inference seam. _Store sync_ carries one application's whole

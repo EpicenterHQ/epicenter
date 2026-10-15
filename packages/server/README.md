@@ -1,9 +1,9 @@
 # `@epicenter/server`
 
-The AGPL Hono library both deployables compose: `apps/api` (hosted Epicenter
-Cloud, many principals behind Better Auth) and `apps/self-host` (the
-community-supported instance reference, with named sessions resolved to their
-admitted users). A deployment builds the parent app with
+The AGPL Hono library `apps/api` composes on two runtimes: the Cloudflare
+Worker (hosted Epicenter Cloud) and Bun with Postgres (`apps/api/server.ts`,
+the self-host path). Both resolve Better Auth sessions to principals. A
+deployment builds the parent app with
 `createServerApp`, supplies a bearer resolver, and mounts the surfaces it wants
 with the matching `mount*` primitive. `apps/api/worker/index.ts` is the
 composition to read first.
@@ -18,17 +18,17 @@ choice and any deployment policy.
 | `mountSessionApp` | `src/routes/session.ts` | Reads the current principal back to a client. |
 | `mountPersonalAuthorityBlobs` | `src/routes/authority-blobs.ts` | Personal owner URLs with private and public reads; deployment supplies local SQLite or S3 byte storage. |
 | `mountGitApp` | `src/routes/git.ts` | Hosted Git: a connect route that mints a repository token, and the Git smart-HTTP data plane; deployment supplies the repository store. |
-| `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference, with `rateLimit` available as a policy. |
+| `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
-| `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells and database-backed auth endpoints. Cloud only. |
+| `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells and database-backed auth endpoints. |
 
 The hosted app builds `createCloudContextMiddleware` once, then combines it
 with its session-bearer guard using Hono's `every`. The context middleware
 acquires the database, constructs auth, and closes the handle after queued work
-settles. Public HTML shells bypass it. Self-host supplies its named-session
-resolver and composes neither the hosted Better Auth context nor Postgres.
+settles. Public HTML shells bypass it. The Bun entry does the same over a
+`pg.Pool`.
 
-Both deployments pass their auth middleware to the same feature mounts. Each
+Both entries pass their auth middleware to the same feature mounts. Each
 mount registers exact methods and paths with Hono, keeping auth, validation,
 and handlers together. Unknown paths and unsupported methods do not run those
 route dependencies. Billing keeps a sub-app for its local error handler.
@@ -82,8 +82,8 @@ middleware decorates every response and answers preflights without a token.
 
 Failures answer `{ name, message }`: 400 `InvalidFolder`, 401 `MissingToken`,
 502 `GitStoreFailed` when the store throws, and 503 `GitUnavailable` when the
-deployment resolves no store. `apps/api` resolves Cloudflare Artifacts;
-`apps/self-host` resolves none yet. Hosted Git takes no billing policy.
+deployment resolves no store. The Worker resolves Cloudflare Artifacts; the
+Bun entry resolves none yet. Hosted Git takes no billing policy.
 
 ## Shared protocol packages
 

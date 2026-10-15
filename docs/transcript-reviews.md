@@ -271,13 +271,9 @@ attribute each failure to a particular edit.
 
 ### Self-host credential documentation
 
-Both `apps/self-host/worker/index.ts` and `apps/self-host/server.ts` resolve
-named-user sessions. ADR-0375 reflects that implementation. ADR-0361 (deleted;
-see ADR-0549) and parts
-of the [one-account plan](../specs/20260908T214916-one-active-account.md)
-still describe static operator-token entry. Reconcile the intended client
-sign-in flow with the deployed server contract before implementing those
-steps. The recording decision does not settle or repair this mismatch.
+Resolved by deletion: the separate self-host app and its operator token are
+gone. Self-hosting is `apps/api`'s Bun entry on Postgres, with the same
+Better Auth sign-in as the hosted Worker (ADR-0549).
 
 Bun store sync is separately recorded in the library-ownership plan; no new
 backlog item is needed for it.

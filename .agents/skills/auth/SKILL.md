@@ -9,7 +9,7 @@ metadata:
 # Epicenter auth
 
 Better Auth owns hosted sessions and social-provider login. Epicenter clients
-hold signed session bearers behind stable Accounts. Self-hosted instances issue named-user sessions after passkey sign-in.
+hold signed session bearers behind stable Accounts. A self-hosted server is `apps/api` on Bun with Postgres and issues the same sessions.
 
 Read `packages/auth/README.md` and `packages/auth/src/auth-contract.ts`
 before changing client API shape. The README owns the explanation; the contract
@@ -172,9 +172,7 @@ the explicit bearer and live session lookup. No cookie fallback or JWT verifier
 remains. `/api/session` is the resource identity projection, not another session engine.
 
 Unknown, expired, or revoked credentials are 401. Database and infrastructure
-failures are retryable 503. The self-host deployment supplies its static-token
-resolver to the same resource guard and resolves valid tokens to
-`INSTANCE_PRINCIPAL_ID`.
+failures are retryable 503.
 
 Hosted sessions have a 30-day sliding expiry, updated after one day of use.
 Verify renewal through resource traffic, not only a direct helper call.

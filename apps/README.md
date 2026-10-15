@@ -12,8 +12,8 @@ owns native mechanisms. A desktop page opens its folder itself, over a
 directory the shell grants it. Browser builds open the same folder in the
 origin's private file system.
 
-This directory also contains server deployables (`api` and `self-host`), the
-public `landing` site, and the `local-books` accounting CLI.
+This directory also contains the server deployable (`api`, which runs on
+Cloudflare Workers or, self-hosted, on Bun with Postgres), the public `landing` site, and the `local-books` accounting CLI.
 
 ## Declare the folder, then open it
 

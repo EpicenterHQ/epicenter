@@ -58,7 +58,7 @@ refused was a hosted surface that reached a host-owned replica instead.
 | APPS                                                                      |
 |                                                                           |
 | honeycrisp   whispering   vocab   skills   epicenter   sync-lab           |
-| api          self-host    landing  matter  local-books  local-mail        |
+| api          landing      matter   local-books  local-mail                |
 +---------------------------------------------------------------------------+
                                      |
                                      v
@@ -244,14 +244,13 @@ keys or ordinary remote URLs. App-local bytes and account-remote objects have
 independent lifetimes; uploads are explicit, with no automatic byte sync or
 row-driven cleanup.
 
-## Two deployables, one shared package
+## One deployable on two runtimes
 
-`packages/server` is the shared Hono package. `apps/api` is the hosted personal
-cloud and `apps/self-host` is the self-hosted single-partition instance
-reference, which is community-supported rather than Epicenter-operated. They
-differ by principal resolver: an instance resolves every valid bearer to the
-literal `instance` principal (ADR-0075, amended by ADR-0092). Billing is
-hosted-only and lives in `apps/api/worker/billing/`.
+`packages/server` is the shared Hono package. `apps/api` composes it twice: the
+Cloudflare Worker (`worker/index.ts`) is the hosted personal cloud, and the Bun
+entry (`server.ts`) runs the same Better Auth and routes against Postgres, which
+is how someone self-hosts. Billing is hosted-only and lives in
+`apps/api/worker/billing/`.
 
 ## Implementation status
 
