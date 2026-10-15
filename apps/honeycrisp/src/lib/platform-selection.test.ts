@@ -2,12 +2,12 @@
  * Platform Selection Tests
  *
  * Vite resolves the page seam with the aliases and conditions from the app
- * config. A desktop build must open the directory the shell grants, never
- * browser storage.
+ * config. The installed build Epicenter serves must open the directory the
+ * shell grants, never browser storage.
  *
  * Key behaviors:
  * - Neither page bundle contains a Yjs, Node, or Bun module
- * - The desktop page reaches its folder through the shell's grant only: no
+ * - The installed page reaches its folder through the shell's grant only: no
  *   browser folder store and no isomorphic-git in the page
  */
 import { describe, expect, test } from 'bun:test';
@@ -24,7 +24,7 @@ const BUNDLE_TIMEOUT = 30_000;
 /** Every module a bundle of `entry` pulls in, as paths. Built in its own process. */
 async function inputs(
 	entry: string,
-	platform: 'browser' | 'tauri',
+	platform: 'browser' | 'epicenter-host',
 ): Promise<string[]> {
 	const child = Bun.spawn(
 		[
@@ -45,18 +45,18 @@ async function inputs(
 }
 
 const FORBIDDEN =
-	/(^|\/)(@y[+/]|yjs[\/@]|y-prosemirror[\/@]|y-protocols[\/@])|packages\/(auth|sync)\/src\//;
+	/(^|\/)(@y[+/]|yjs[/@]|y-prosemirror[/@]|y-protocols[/@])|packages\/(auth|sync)\/src\//;
 /** A Node or Bun built-in, or the directory folder and Git host that run on them. */
 const NODE =
 	/^(node|bun):|folder\/src\/(bun|directory-node)\.ts$|git\/native-host\.ts$/;
 
 describe('bundles', () => {
 	test(
-		'the desktop page reaches its folder through the shell only',
+		'the installed page reaches its folder through the shell only',
 		async () => {
 			const modules = await inputs(
 				'src/lib/platform-selection.test-support.ts',
-				'tauri',
+				'epicenter-host',
 			);
 			expect(modules.filter((path) => FORBIDDEN.test(path))).toEqual([]);
 			expect(modules.filter((path) => NODE.test(path))).toEqual([]);
@@ -64,7 +64,9 @@ describe('bundles', () => {
 				modules.some((path) => path.endsWith('folder/src/tauri-adapter.ts')),
 			).toBe(true);
 			expect(
-				modules.some((path) => path.endsWith('platform/shell.tauri.ts')),
+				modules.some((path) =>
+					path.endsWith('platform/notes-host.epicenter-host.ts'),
+				),
 			).toBe(true);
 			// One set of bindings: the ones the folder package generated.
 			expect(
@@ -112,10 +114,10 @@ describe('bundles', () => {
 					),
 				),
 			).toEqual([]);
-			// No desktop adapter, no bindings, and none of the shell's commands.
+			// No desktop adapter, no bindings, and not the installed leaf.
 			expect(
 				modules.filter((path) =>
-					/folder\/src\/(index|tauri|tauri-adapter)\.ts$|bindings\.gen\.ts$|platform\/shell\.tauri\.ts$/.test(
+					/folder\/src\/(index|tauri|tauri-adapter)\.ts$|bindings\.gen\.ts$|platform\/notes-host\.epicenter-host\.ts$/.test(
 						path,
 					),
 				),

@@ -171,7 +171,6 @@
 		"nuke": "bun run scripts/clean.ts --nuke",
 		"cf:audit:remote": "bun run --cwd ops cf:audit:remote",
 		"jsrepo:build": "jsrepo build",
-		"build:honeycrisp": "bun run --cwd apps/honeycrisp build:desktop",
 		"build:honeycrisp:ui": "bun run --cwd apps/honeycrisp build",
 		"dev:git": "bun run --cwd apps/git dev",
 		"dev:git:desktop": "bun run --cwd apps/git dev:desktop"

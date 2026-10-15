@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
-- **Built:** `epicenter.app.json`; installing from a Git URL or a local path, from a folder within the repository, building, approving, and updating (`apps/epicenter/src-tauri/src/installed_apps.rs`); Todos, Capture, and Whispering installed that way from the Epicenter monorepo ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)); `approvals.json`; serving installed apps at `/apps/<app-id>/` and opening each in its own window on the folder it is offered on, or on its own folder; the Folders window's install, approval, and Update (`apps/epicenter/src/folders/App.svelte`).
+- **Built:** `epicenter.app.json`; installing from a Git URL or a local path, from a folder within the repository, building, approving, and updating (`apps/epicenter/src-tauri/src/installed_apps.rs`); Todos, Capture, Whispering, and Honeycrisp installed that way from the Epicenter monorepo ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)); `approvals.json`; serving installed apps at `/apps/<app-id>/` and opening each in its own window on the folder it is offered on, or on its own folder; the Folders window's install, approval, and Update (`apps/epicenter/src/folders/App.svelte`).
 - **Unbuilt:** a full diff view in the approval (it shows `git log` and `git diff --stat`); removing an installed app from the window; sandboxed builds; an `opens` shape written as TypeScript.
 
 ## Context

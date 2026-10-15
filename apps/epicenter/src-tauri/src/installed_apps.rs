@@ -2014,4 +2014,15 @@ mod tests {
             "recordings",
         );
     }
+
+    #[test]
+    #[ignore = "builds Honeycrisp from the monorepo named by EPICENTER_MONOREPO"]
+    fn installs_honeycrisp_from_its_folder_in_the_monorepo() {
+        installs_from_the_monorepo(
+            "apps/honeycrisp",
+            "so.epicenter.honeycrisp",
+            "Honeycrisp",
+            "notes",
+        );
+    }
 }

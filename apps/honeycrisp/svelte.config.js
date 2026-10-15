@@ -1,19 +1,24 @@
-// Every build is a static SPA. The browser build writes `build/`. The desktop
-// build writes `build-desktop/`, which the desktop shell bundles.
+// Every build is a client-only static SPA. The browser build writes `build/`
+// and keeps its folder in OPFS. Epicenter's build (`EPICENTER_HOST=1`,
+// ADR-0552) is the installed one: it writes `dist/` in this folder, where
+// `epicenter.app.json` says its output is, and is prerendered with relative
+// paths, so it runs wherever the host serves it, and reaches a real directory
+// through the host.
 import staticAdapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-const isDesktop = process.env.HONEYCRISP_DESKTOP === '1';
-const output = isDesktop ? 'build-desktop' : 'build';
+const isEpicenterHost = process.env.EPICENTER_HOST === '1';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	kit: {
-		adapter: staticAdapter({
-			pages: output,
-			assets: output,
-			fallback: 'index.html',
-		}),
+		adapter: staticAdapter(
+			isEpicenterHost
+				? // Every route is prerendered (`src/routes/+layout.ts`); a
+					// fallback page would load its assets from absolute paths.
+					{ pages: 'dist', assets: 'dist' }
+				: { pages: 'build', assets: 'build', fallback: 'index.html' },
+		),
 	},
 	preprocess: vitePreprocess(),
 };

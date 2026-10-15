@@ -1,31 +1,34 @@
 /**
  * The seam between the notes UI and where its folder lives.
  *
- * `#platform/notes-host` resolves at build time. The desktop leaf opens the
- * folder the desktop shell owns and uses the shell's own commands, including
- * its real `/bin/sh`; the browser leaf opens a folder in OPFS with the
- * folder's emulated shell. The UI never asks which one it has except through
- * the optional capabilities below.
+ * `#platform/notes-host` resolves at build time. The Epicenter host leaf opens
+ * the folder Epicenter hands the installed app's window, a real directory;
+ * the browser leaf opens a folder in OPFS. The UI never asks which one it has
+ * except through the optional capabilities below, which neither leaf gives
+ * today.
  */
 import { APPS } from '@epicenter/constants/apps';
-import type { Folder } from '@epicenter/folder';
+import type { Folder, FolderDefinition } from '@epicenter/folder';
 import type { honeycrispDefinition } from '../data.js';
 
 type Definition = typeof honeycrispDefinition;
 
 /**
- * The folder both leaves open. The browser names its scoped OPFS directory after
- * it; the desktop shell registers its directory under it (`SCOPE` in
- * `src-tauri/src/root.rs`).
+ * Honeycrisp's own folder. The browser names its scoped OPFS directory after
+ * it and opens no other; Epicenter registers its own directory under it and
+ * hands it to a window opened without a folder.
  */
 export const HONEYCRISP_FOLDER_ID = APPS.HONEYCRISP.id;
 
 /**
  * The folder the notes UI uses, whole: `folderOptions` reads and writes it
  * through the query cache, and its change channel reports what changed
- * outside the page. The app never syncs; remotes are outside it.
+ * outside the page. The app never syncs; remotes are outside it. Its own
+ * `definition` is `honeycrispDefinition` for Honeycrisp's own folder, and the
+ * folder's declaration for any other folder Epicenter hands it, opened with
+ * Honeycrisp's shape as the lens.
  */
-export type NotesFolder = Folder<Definition>;
+export type NotesFolder = Folder<Definition, FolderDefinition>;
 
 export type TerminalRun = {
 	readonly stdout: string;
@@ -52,13 +55,13 @@ export type FileRevision = {
 
 export type NotesHost = {
 	readonly folder: NotesFolder;
-	/** The person's own shell in the notes directory; absent in a browser. */
+	/** A shell in the notes directory; no leaf gives one today. */
 	readonly terminal: NotesTerminal | undefined;
 	/** Where the notes are, in words a person can act on: a path, or the browser. */
 	readonly location: string;
-	/** Open the notes directory in the system file manager; absent in a browser. */
+	/** Open the notes directory in the system file manager; no leaf gives one today. */
 	readonly reveal: (() => Promise<string | undefined>) | undefined;
-	/** Per-file Git history; absent where the folder cannot list it by path. */
+	/** Per-file Git history; no leaf gives it today. */
 	readonly history:
 		| {
 				log(path: string, depth: number): Promise<FileRevision[]>;
