@@ -3,38 +3,37 @@
  *
  * Drives the real Todos store and its TanStack Query cache against a real
  * browser folder over an in-memory OPFS stand-in. Views are stood in for as
- * they behave: a screen observes the queries it shows, and an editor edits
- * the cache and queues its own scoped write mutation when `edit` says one
- * is needed.
+ * they behave: a screen observes the queries it shows, and an editor holds a
+ * draft (`createDraftState`) and saves it with its own save mutation.
  *
  * Key behaviors:
- * - An edit changes the cache at once and is written to the file
- * - Rapid edits run one write at a time per file, with one waiting; the
- *   waiting write saves the newest row, guarded by the hash the previous
- *   write confirmed, so typing never conflicts with itself
- * - A read may land while a write runs; the write's settling reads again
- * - A write over a file changed elsewhere merges with it: the edit wins
- *   only where both changed, and a write waiting behind keeps what the
- *   merge took from the other side
- * - A write that fails rolls the cache back to the file, reports the text
- *   that was lost, and a write still waiting saves the file as it was
- * - The folder refuses a value it cannot hold, and the cache rolls back
+ * - An edit is held by its draft and written to the file; the cache takes
+ *   the row the save wrote
+ * - Rapid edits run one save at a time; changes made meanwhile are sent
+ *   next, from the version the last save wrote, so typing never conflicts
+ *   with itself
+ * - A change another page made reaches the cache through the folder's
+ *   change channel; a read updates the cache, never an edit's draft
+ * - A save over a file changed elsewhere merges with it: the edit wins only
+ *   where both changed
+ * - A save that fails keeps the draft and reports the text it holds; the
+ *   folder refuses a value it cannot hold the same way
  * - A row that is not a valid todo is named for repair, and reads as a todo
  *   once another editor fixes it
- * - Delete runs after the file's queued writes and acts on what the last
- *   one saved; edits wait while it runs; a file changed elsewhere since the
- *   listing read it is refused
+ * - Delete runs after running saves and acts on what the last one saved; a
+ *   file changed elsewhere since the listing read it is refused
  * - Git status names a file with changes in no saved version; saves never
  *   commit, and Save version records one
  * - Close waits for every mutation, and every close call shares one
- *   completion; afterwards edits and actions change nothing
+ *   completion
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
-import { MutationObserver } from '@tanstack/query-core';
+import { folderOptions } from '@epicenter/folder/query';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
+	browserStorage,
 	createTestStorage,
 	opfsOf,
 	testLocks,
@@ -43,18 +42,19 @@ import { todosDefinition } from './definition.js';
 import { holdCloses } from './opfs-holds.test-support.js';
 import {
 	cached,
-	focusManager,
+	editorsReady,
 	listing,
 	observe,
 	quiet,
 	rowEditor,
 	shown,
 } from './query.test-support.js';
-import { todosKeys, type WriteFailure } from './session.js';
+import type { WriteFailure } from './session.js';
 import { repairsOf, todosOf } from './todo-listing.js';
 import type { Todos } from './todos.svelte.js';
 
 const { createTodos } = await import('./todos.svelte.ts');
+await editorsReady;
 
 const cleanup: (() => unknown)[] = [];
 let count = 0;
@@ -69,18 +69,20 @@ afterEach(async () => {
  * counts every published `.md` write.
  */
 async function open() {
-	const storage = createTestStorage();
+	const storage = createTestStorage({ BroadcastChannel });
+	const id = `todos-test-${count++}`;
 	let hold: PromiseWithResolvers<void> | undefined;
 	let held: PromiseWithResolvers<void> | undefined;
 	const counter = { mdWrites: 0 };
 	const folder = expectOk(
 		await openFolder({
-			id: `todos-test-${count++}`,
+			id,
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
 				opfs: {
 					locks: testLocks,
+					BroadcastChannel,
 					getDirectory: async () =>
 						holdCloses(await storage.opfs.getDirectory(), async (file) => {
 							if (!file.name.endsWith('.md')) return;
@@ -107,6 +109,21 @@ async function open() {
 		todos,
 		counter,
 		failures,
+		/** Another page of this origin, open on the same folder. */
+		async otherPage() {
+			const other = expectOk(
+				await openFolder({
+					id,
+					definition: todosDefinition,
+					browser: {
+						author: { name: 'Other', email: 'other@example.test' },
+						...browserStorage(storage),
+					},
+				}),
+			);
+			cleanup.push(() => other.close());
+			return other;
+		},
 		holdNextWrite() {
 			hold = Promise.withResolvers<void>();
 			held = Promise.withResolvers<void>();
@@ -153,23 +170,26 @@ const titled =
 	});
 
 // ============================================================================
-// Edits and writes
+// Edits and saves
 // ============================================================================
 
-test('an edit changes the cache at once and is written to the file', async () => {
+test('an edit is held by its draft and written to the file; the cache takes the row the save wrote', async () => {
 	const { todos } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 
-	rowEditor(todos, stem)(titled('Oat milk'));
-	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
+	const set = rowEditor(todos, stem);
+	set(titled('Oat milk'));
+	expect(set.draft.row?.fields.title).toBe('Oat milk');
 	await quiet(todos);
+	expect(set.draft.row).toBeUndefined();
 	expect(await text(todos, path)).toBe(
 		'---\ntitle: Oat milk\ndone: false\n---\n',
 	);
+	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
 	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
 });
 
-test('rapid edits run one write at a time with one waiting, which saves the newest row with no conflict', async () => {
+test('rapid edits run one save at a time, and the changes made meanwhile are sent next with no conflict', async () => {
 	const { todos, counter, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const set = rowEditor(todos, stem);
@@ -180,11 +200,9 @@ test('rapid edits run one write at a time with one waiting, which saves the newe
 	await held;
 	for (const title of ['Oa', 'Oat', 'Oat ', 'Oat m', 'Oat milk'])
 		set(titled(title));
-	// One write runs and one waits; no more were queued.
-	expect(
-		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
-	).toBe(2);
-	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
+	// One save runs; the draft holds the rest.
+	expect(todos.queryClient.isMutating()).toBe(1);
+	expect(set.draft.row?.fields.title).toBe('Oat milk');
 
 	release();
 	await quiet(todos);
@@ -193,7 +211,6 @@ test('rapid edits run one write at a time with one waiting, which saves the newe
 	expect(await text(todos, path)).toContain('title: Oat milk');
 	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
 
-	// The guard moved forward: the next edit writes on top.
 	set(titled('Oat milk, two'));
 	await quiet(todos);
 	expect(failures).toEqual([]);
@@ -213,7 +230,7 @@ function hideWindow() {
 	};
 }
 
-test('a write waiting behind another still runs while the window is hidden', async () => {
+test('a save of changes made meanwhile still runs while the window is hidden', async () => {
 	const { todos, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const set = rowEditor(todos, stem);
@@ -222,7 +239,6 @@ test('a write waiting behind another still runs while the window is hidden', asy
 	await held;
 	set(titled('Oat milk'));
 
-	// The person switches tabs while the second write waits its turn.
 	const show = hideWindow();
 	try {
 		release();
@@ -234,31 +250,59 @@ test('a write waiting behind another still runs while the window is hidden', asy
 	expect(failures).toEqual([]);
 });
 
-test('a read while a write runs lands, and the cache shows the written row once the write settles', async () => {
-	const { todos, failures, holdNextWrite } = await open();
+test("another page's change reaches the cache through the folder's channel, and a read never touches a draft", async () => {
+	const { todos, failures, otherPage, failNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
+	const other = await otherPage();
+
+	// Another page marks it done; the listing reads it without a focus.
+	const theirs = expectOk(await other.tables.todos.get(stem))!;
+	expectOk(
+		await other.tables.todos.save(theirs, {
+			...theirs.row,
+			fields: { ...theirs.row.fields, done: true },
+		}),
+	);
+	for (
+		let tries = 0;
+		tries < 200 && !cached(todos, stem).row.fields.done;
+		tries++
+	)
+		await Bun.sleep(2);
+	expect(cached(todos, stem).row.fields.done).toBe(true);
+
+	// An edit here starts a draft, kept by a save that failed; their next
+	// change updates the cache only.
+	failNextWrite(path);
 	const set = rowEditor(todos, stem);
-
-	const { held, release } = holdNextWrite();
 	set(titled('Oat milk'));
-	await held;
-	// Returning to the page while the write is held reads the file as it is.
-	focusManager.onFocus();
-	await Bun.sleep(0);
-	await todos.queryClient.fetchQuery({ queryKey: todosKeys.rows });
-	expect(cached(todos, stem).row.fields.title).toBe('Milk');
-	release();
 	await quiet(todos);
-	expect(cached(todos, stem).row.fields.title).toBe('Oat milk');
-	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
-
-	set(titled('Oat milk, two'));
+	expect(failures).toHaveLength(1);
+	const next = expectOk(await other.tables.todos.get(stem))!;
+	expectOk(
+		await other.tables.todos.save(next, {
+			...next.row,
+			body: 'From the shop.\n',
+		}),
+	);
+	for (
+		let tries = 0;
+		tries < 200 && cached(todos, stem).row.body === '';
+		tries++
+	)
+		await Bun.sleep(2);
+	expect(set.draft.row?.fields.title).toBe('Oat milk');
+	expect(set.draft.row?.body).toBe('');
+	await set.draft.save();
 	await quiet(todos);
-	expect(failures).toEqual([]);
-	expect(await text(todos, path)).toContain('title: Oat milk, two');
+	// The save merged: the edit's title, and their notes and completion.
+	expect(failures).toHaveLength(1);
+	expect(await text(todos, path)).toBe(
+		'---\ntitle: Oat milk\ndone: true\n---\nFrom the shop.\n',
+	);
 });
 
-test('a write that meets a change made elsewhere merges with it: the edit wins only where both changed', async () => {
+test('a save that meets a change made elsewhere merges with it: the edit wins only where both changed', async () => {
 	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const elsewhere = '---\ntitle: Milk from the shop\ndone: true\n---\n';
@@ -277,7 +321,7 @@ test('a write that meets a change made elsewhere merges with it: the edit wins o
 		done: true,
 	});
 
-	// The next edit writes on top of what is there now.
+	// The next edit starts from what is there now.
 	rowEditor(todos, stem)(titled('Oat milk, two'));
 	await quiet(todos);
 	expect(failures).toEqual([]);
@@ -286,94 +330,71 @@ test('a write that meets a change made elsewhere merges with it: the edit wins o
 	);
 });
 
-test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {
+test('a save that fails keeps the draft and reports its text; the next save sends it', async () => {
 	const { todos, failures, failNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const saved = await text(todos, path);
 	const set = rowEditor(todos, stem);
 
-	// The first write fails; the second waits behind it.
 	failNextWrite(path);
 	set(titled('First'));
-	set(titled('Second'));
-	expect(
-		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
-	).toBe(2);
 	await quiet(todos);
-	// The rollback lands before the waiting write runs, so it saves the
-	// file's own row and fails nothing.
-	expect(failures.map((failure) => failure.lost)).toEqual([
-		expect.stringContaining('title: Second'),
+	expect(failures.map((failure) => failure.unsaved)).toEqual([
+		expect.stringContaining('title: First'),
 	]);
 	expect(await text(todos, path)).toBe(saved);
 	expect(cached(todos, stem).row.fields.title).toBe('Milk');
+	expect(set.draft.row?.fields.title).toBe('First');
+
+	set(titled('Second'));
+	await quiet(todos);
+	expect(set.draft.row).toBeUndefined();
+	expect(await text(todos, path)).toContain('title: Second');
 });
 
-test('after a merge, the write waiting behind it keeps what the merge took from the other side', async () => {
-	const { todos, failures } = await open();
+test('after a merge, changes made meanwhile keep what the merge took from the other side', async () => {
+	const { todos, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	const elsewhere = '---\ntitle: Milk\ndone: true\n---\n';
-	await writeElsewhere(todos, path, elsewhere);
+	await writeElsewhere(todos, path, '---\ntitle: Milk\ndone: true\n---\n');
 	const set = rowEditor(todos, stem);
 
+	const { held, release } = holdNextWrite();
 	set(titled('First'));
+	await held;
 	set(titled('Second'));
-	expect(
-		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
-	).toBe(2);
+	release();
 	await quiet(todos);
 	expect(failures).toEqual([]);
-	// The first write merged in `done`; the second, made over the cache that
-	// had not seen it yet, does not undo it.
-	expect(await text(todos, path)).toBe(
-		'---\ntitle: Second\ndone: true\n---\n',
-	);
+	// The first save merged in `done`; the second continues from what it
+	// wrote, so it does not undo it.
+	expect(await text(todos, path)).toBe('---\ntitle: Second\ndone: true\n---\n');
 });
 
-test('the folder refuses a value it cannot hold, and the cache rolls back', async () => {
+test('the folder refuses a value it cannot hold; the cache keeps the file and the draft keeps the edit', async () => {
 	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const saved = await text(todos, path);
 	// Inputs commit only values the schema accepts; this bypasses them.
-	rowEditor(todos, stem)(titled('Lone \uD800 surrogate'));
+	const set = rowEditor(todos, stem);
+	set(titled('Lone \uD800 surrogate'));
 	await quiet(todos);
 	expect(failures).toMatchObject([{ path, error: { name: 'InvalidValues' } }]);
 	expect(await text(todos, path)).toBe(saved);
 	expect(cached(todos, stem).row.fields.title).toBe('Milk');
-});
-
-test('writes to one todo wait for each other, and writes to different todos do not', async () => {
-	const { todos, failures, holdNextWrite } = await open();
-	const a = await addTodo(todos, 'A');
-	const b = await addTodo(todos, 'B');
-	const { held, release } = holdNextWrite();
-	rowEditor(todos, a.stem)(titled('A typed'));
-	await held;
-	rowEditor(todos, a.stem)(titled('A typed again'));
-	rowEditor(todos, b.stem)(titled('B typed'));
-	const state = (path: string) =>
-		todos.queryClient
-			.getMutationCache()
-			.findAll({ mutationKey: todosKeys.write(path) })
-			.map((write) => write.state.isPaused);
-	// A's second write waits in A's scope; B's write is not held by A's.
-	expect(state(a.path)).toEqual([false, true]);
-	expect(state(b.path)).toEqual([false]);
-	release();
-	await quiet(todos);
-	expect(failures).toEqual([]);
-	expect(await text(todos, a.path)).toContain('title: A typed again');
-	expect(await text(todos, b.path)).toContain('title: B typed');
+	expect(set.draft.row?.fields.title).toBe('Lone \uD800 surrogate');
 });
 
 // ============================================================================
 // Rows that need repair
 // ============================================================================
 
-/** Another program writes `text` that does not read as a todo; the listing reads it. */
+/** Another program writes `text` that does not read as a todo; the folder reports it. */
 async function breakTodo(todos: Todos, stem: string, text: string) {
-	await writeElsewhere(todos, `todos/${stem}.md`, text);
-	await todos.queryClient.invalidateQueries({ queryKey: todosKeys.all });
+	const path = `todos/${stem}.md`;
+	await writeElsewhere(todos, path, text);
+	await todos.queryClient.invalidateQueries(
+		folderOptions(todos.folder).pathFilter([path]),
+	);
 	await quiet(todos);
 }
 
@@ -395,27 +416,6 @@ test('a row that is not a valid todo is named for repair, and reads as a todo on
 	});
 });
 
-test('a write finds no row and still sends no stale edit: the stem always leaves the unsent set', async () => {
-	const { todos, counter } = await open();
-	const { stem, path } = await addTodo(todos, 'Milk');
-	const write = todos.rows.write(stem).options;
-	// An edit no write has sent yet.
-	expect(todos.rows.edit(stem, titled('Oat milk'))).toBe(true);
-	// The file stops reading as a todo, and the listing reads it.
-	await breakTodo(todos, stem, 'not a todo');
-	// The write runs and finds no row to send.
-	await new MutationObserver(todos.queryClient, write).mutate();
-	// The file comes back, hand written, and the listing reads it.
-	const hand = "---\ntitle:   'Milk'\ndone: false\n---\n";
-	await breakTodo(todos, stem, hand);
-	const writes = counter.mdWrites;
-	// A write with no edit of its own, as one waiting behind another, writes nothing.
-	await new MutationObserver(todos.queryClient, write).mutate();
-	await quiet(todos);
-	expect(counter.mdWrites - writes).toBe(0);
-	expect(await text(todos, path)).toBe(hand);
-});
-
 // ============================================================================
 // Delete
 // ============================================================================
@@ -435,13 +435,13 @@ test('delete uses the hash the listing read: a file changed elsewhere since is r
 	expect(
 		expectErr(await todos.rows.remove('bad', shown(todos, 'bad'))).name,
 	).toBe('Conflict');
-	await todos.queryClient.invalidateQueries({ queryKey: todosKeys.all });
+	await todos.refresh();
 	await quiet(todos);
 	expectOk(await todos.rows.remove('bad', shown(todos, 'bad')));
 	expect(await text(todos, 'todos/bad.md')).toBeUndefined();
 });
 
-test('a delete runs after the queued writes and removes only the Markdown file', async () => {
+test('a delete runs after running saves and removes only the Markdown file', async () => {
 	const { todos, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	expectOk(await todos.folder.files.create('todos/milk.png', 'not a todo'));
@@ -476,7 +476,7 @@ test('a delete confirmed on a version changed elsewhere since, and read again, d
 	expect(await text(todos, path)).toContain('title: Theirs');
 });
 
-test("the version a delete confirms is the one the app's queued write saved, never the one before it", async () => {
+test("the version a delete confirms is the one the app's running save wrote, never the one before it", async () => {
 	const { todos, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const before = shown(todos, stem);
@@ -488,7 +488,7 @@ test("the version a delete confirms is the one the app's queued write saved, nev
 	const version = await confirming;
 	expect(version?.sha256).not.toBe(before.sha256);
 	expect(version?.sha256).toBe(cached(todos, stem).sha256);
-	// A version from before the app's own write is no longer what the file holds.
+	// A version from before the app's own save is no longer what the file holds.
 	expect(expectErr(await todos.rows.remove(stem, before)).name).toBe(
 		'NotStarted',
 	);
@@ -500,7 +500,7 @@ test('a delete of a todo the cache no longer holds is refused without reading th
 	const { todos } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const confirmedOn = shown(todos, stem);
-	todos.queryClient.setQueryData(todosKeys.rows, []);
+	todos.queryClient.setQueryData(todos.rows.todos.queryKey, []);
 	expect(expectErr(await todos.rows.remove(stem, confirmedOn))).toMatchObject({
 		name: 'NotStarted',
 	});
@@ -539,16 +539,18 @@ test('saves never commit; Save version records one, and Git status names a file 
 // Closing
 // ============================================================================
 
-test('close waits for running writes, and every close call shares one completion', async () => {
-	const { todos, holdNextWrite } = await open();
+/** What another page reads at `path`, as after this page closed. */
+async function textElsewhere(other: Todos['folder'], path: string) {
+	const read = expectOk(await other.files.read(path));
+	return new TextDecoder().decode(read.bytes);
+}
+
+test('close waits for running saves, and every close call shares one completion', async () => {
+	const { todos, holdNextWrite, otherPage } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const { held, release } = holdNextWrite();
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await held;
-	// Closing empties the cache, so keep the write itself to check after.
-	const writes = todos.queryClient
-		.getMutationCache()
-		.findAll({ mutationKey: todosKeys.write(path) });
 	let closed = false;
 	const first = todos.close();
 	const second = todos.close();
@@ -562,29 +564,27 @@ test('close waits for running writes, and every close call shares one completion
 	await first;
 	expect(closed).toBe(true);
 	expect(todos.folder.signal.aborted).toBe(true);
-	// The write finished before the folder closed.
-	expect(writes.map((write) => write.state.status)).toEqual(['success']);
-	expect(path).toBe(`todos/${stem}.md`);
+	// The save finished before the folder closed.
+	expect(await textElsewhere(await otherPage(), path)).toContain(
+		'title: Oat milk',
+	);
 });
 
 test('an edit made while close waits is written before the folder closes', async () => {
-	const { todos, holdNextWrite } = await open();
+	const { todos, holdNextWrite, otherPage } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const set = rowEditor(todos, stem);
 	const { held, release } = holdNextWrite();
 	set(titled('Oat'));
 	await held;
 	const closing = todos.close();
-	// Close is waiting for the held write; this edit queues behind it.
+	// Close is waiting for the held save; the draft sends this edit next.
 	set(titled('Oat milk'));
-	const writes = todos.queryClient
-		.getMutationCache()
-		.findAll({ mutationKey: todosKeys.write(path) });
 	release();
 	await closing;
-	expect(writes.map((write) => write.state.status)).toEqual([
-		'success',
-		'success',
-	]);
 	expect(todos.folder.signal.aborted).toBe(true);
+	expect(set.draft.row).toBeUndefined();
+	expect(await textElsewhere(await otherPage(), path)).toContain(
+		'title: Oat milk\n',
+	);
 });

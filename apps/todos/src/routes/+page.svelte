@@ -11,16 +11,16 @@
 	import { createTodos } from '$lib/todos.svelte.js';
 	import TodosView from './components/TodosView.svelte';
 
-	/** A write that failed was rolled back to the file; say so, and offer the text it held. */
-	function writeFailed({ path, error, lost }: WriteFailure) {
+	/** A save failed; the editor keeps the edit. Say so, and offer it as text. */
+	function writeFailed({ path, error, unsaved }: WriteFailure) {
 		toast.error(`Could not save ${path}`, {
 			description: describeError(error),
 			action:
-				lost === ''
+				unsaved === ''
 					? undefined
 					: {
 							label: 'Copy your text',
-							onClick: () => void navigator.clipboard.writeText(lost).catch(() => {}),
+							onClick: () => void navigator.clipboard.writeText(unsaved).catch(() => {}),
 						},
 		});
 	}

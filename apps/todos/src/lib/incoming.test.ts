@@ -35,10 +35,17 @@ import {
 	prepareGitSession,
 } from '../../server/git-server.js';
 import { todosDefinition } from './definition.js';
-import { cached, observe, quiet, rowEditor } from './query.test-support.js';
+import {
+	cached,
+	editorsReady,
+	observe,
+	quiet,
+	rowEditor,
+} from './query.test-support.js';
 import type { Todos } from './todos.svelte.js';
 
 const { createTodos } = await import('./todos.svelte.ts');
+await editorsReady;
 
 const originalFetch = globalThis.fetch;
 const env = {

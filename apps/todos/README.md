@@ -51,10 +51,10 @@ first time Todos opens, and initializes Git there. It never overwrites a file
 that is already present. Native startup chooses the directory; nothing in the
 window can point Todos at another one.
 
-Edit the files with any program. Todos reads the folder when a screen
-opens, when you return to the window, and after its own actions. It does not
-follow change reports while you work: the list and the editor show what they
-last read until one of those moments.
+Edit the files with any program. The desktop shell watches the directory,
+and Todos reads again exactly what a reported change names, so an edit made
+in another program, another window, or by an agent shows while you work
+(ADR-0548). Returning to the window reads nothing by itself.
 
 ### Saving and versions
 
@@ -175,9 +175,9 @@ only the operations the folder engine needs, with no hook, fsmonitor, or
 terminal prompt. Several Todos windows share the folder without waiting on
 each other (ADR-0541): the shell checks each save where it lands, a commit
 whose branch another window moved retries once, and a save another window
-overtook merges with it (`table.save`, ADR-0548). Todos does not yet follow
-`folder.onFilesChanged`; it reads again at the moments listed
-[above](#where-the-files-are).
+overtook merges with it (`table.save`, ADR-0548). Todos follows
+`folder.onFilesChanged`, which the shell's watcher feeds
+([above](#where-the-files-are)).
 
 The `epicenter-host` build condition selects the desktop leaf of
 `#platform/folder`, and `vite.config.ts` resolves the bare `@epicenter/folder`
@@ -195,7 +195,8 @@ file system, at once. Nothing is written until you write: the first todo
 creates the folder, its Git history, and `epicenter.json`. The folder has no
 remote until you connect one, and works without one. Versions are committed as
 `Todos <todos@epicenter.so>`. Another tab of the same origin edits the same
-folder; each tab reads again when you return to it.
+folder; each tab tells the others which files it wrote, and they read those
+again at once.
 
 ### Connect
 
@@ -292,24 +293,24 @@ time, and switching never waits or asks.
 ### Editing and writes
 
 - The list and the editor read the same cached listing, so they never
-  disagree: a title you type shows in the list as you type it.
-- Each edit is written at once. Writes to one file run one at a time, with
-  at most one more waiting, and the waiting one writes whatever you typed
-  by the time it runs, so fast typing writes your latest text, not every
-  keystroke. Writes to different files run side by side.
-- Each write names the version Todos last read or wrote. When the file
-  changed elsewhere since, the write merges with it (ADR-0548): what only the
-  other writer changed stays, and where you both changed the same field or
-  lines, your edit wins. When the file was deleted, or the write fails, the
-  editor and the list show the file as it is now, and a message says so with
-  **Copy your text**, which copies the text that was not written. You lose at
-  most what was in flight: one click, or the last moment of typing. Nothing
-  merges on a write; Sync is where histories merge.
-- A write that fails for another reason, or whose reply is lost, is reported
-  the same way, and the file is read again.
+  disagree about the file. What you type shows in the editor at once and in
+  the list once it is saved.
+- Each edit is written at once. An edit holds the version it started from,
+  taken at your first change, and a change read meanwhile never replaces
+  what you are typing. Saves of one edit run one at a time, and what you
+  typed while one ran is saved next, so fast typing writes your latest
+  text, not every keystroke.
+- When the file changed elsewhere since your edit started, the save merges
+  with it (ADR-0548): what only the other writer changed stays, and where
+  you both changed the same field or lines, your edit wins and a message
+  names what of theirs it replaced. While your edit waits to be saved, the
+  editor says when the file changed elsewhere.
+- A save that fails, or whose reply is lost, keeps your edit in the editor,
+  which says it is not saved and offers **Try again**; a message offers
+  **Copy your text**. The next edit saves it too.
 - Inputs hold only values a todo can hold. A title or notes with a lone
   surrogate is written with U+FFFD in its place, as shown. The folder still
-  refuses a value it cannot hold, and the editor then shows the file again.
+  refuses a value it cannot hold, which is reported the same way.
 - Delete runs after the file's writes. It carries the version shown when
   the confirmation opened, or one Todos wrote from it since, so a delete you
   confirmed while your last edit was still being written removes that
@@ -339,13 +340,13 @@ has an `origin`.
    changes since the last version, the last version, and the remote
    separately. They say "Changes need checking" or "Check failed" instead of
    claiming a clean folder when the last observation is out of date or
-   failed; focus and "Check again" read again. Press **Save version** to
+   failed; "Check again" reads again. Press **Save version** to
    record one.
 2. Edit the title or notes. Each edit is written in the todo's standard form
-   at once. Change the file in another tab or program, return, and the
-   editor shows that version. Change it elsewhere without returning, then
-   edit here: the write changes nothing, the editor shows their version, and
-   a message offers to copy your text.
+   at once. Change the file in another tab or program, and the editor shows
+   that version without your returning. Change it elsewhere while you are
+   typing here: your save merges with their change, and where you both
+   changed the same part, yours wins and a message names theirs.
 3. Delete a todo from the bar under its notes, which shows its file's path.
    Deleting changes that one Markdown file: a file with the same stem, such
    as an image or a recording, stays where it is. Delete always asks
@@ -388,7 +389,7 @@ Write a file whose text does not parse (for example `printf -- '---\ntitle: *mis
 or Markdown with no `---` lines at all) to see it under "Needs repair" below
 the list, with its path and why. It is not in the list itself. **Show**
 opens its complete text, read-only, with each problem and its line. Fix it
-in a text editor and return to the window. A todo that parses but has a bad
+in a text editor, and the list shows the result. A todo that parses but has a bad
 field, such as `done: soon`, is named the same way. Once the text reads as
 a todo, the editor shows its fields. A todo that stops reading as a todo
 while it is shown, because another program changed it, shows its text when
@@ -408,9 +409,9 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/routes/auth/callback/+page.svelte` | Where Epicenter's sign-in returns. |
 | `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens this browser's folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing any of them opens nothing. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
-| `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry), the browser leave check, and closing. It composes the namespaces below over one `Session`. |
-| `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type. |
-| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), `edit`, the scoped `write(stem)` each view creates its mutation from, `create`, and `remove`. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
+| `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528, ADR-0548): its own TanStack `QueryClient` with every rule (never stale, no retry, no focus refetch), the one line that wires `folder.onFilesChanged` to the cache, the browser leave check, and closing. It composes the namespaces below over one `Session`. |
+| `src/lib/session.ts` | What the namespaces share: the delete's mutation key (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type, which carries the folder's options (`folder$`). |
+| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `save` options each editing view's draft saves with, `create`, `shown`, and `remove`. Views ask TanStack's `useIsMutating` whether a save or delete runs. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
 | `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL, and the review's `apply`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
@@ -421,38 +422,42 @@ todo; `todos/a.MD` is an ordinary file.
 | `apps/todos/scripts/remote-edit.ts` | Demo fixture: a hand edit with undeclared frontmatter, committed and pushed from the native checkout with ordinary Git. |
 | `apps/todos/scripts/module-graph.ts` | Lists the modules a build of one entry pulls in, resolved with the conditions and aliases `vite.config.ts` declares and with Svelte compiled, for the seam test. |
 
-Every query and mutation is a wellcrafted definition. A view passes
-`.options` to `createQuery` or `createMutation`, adding `select` where it
-narrows a query; code and tests call a mutation, or `.fetch()` a query, and get
-a `Result`.
+Reads and saves come from the folder's options (`folderOptions` in
+`@epicenter/folder/query`). A view passes them to `createQuery` or
+`createMutation`, adding `select` where it narrows a query. Git status,
+Save version, Sync, create, and delete are wellcrafted definitions: code and
+tests call a mutation, or `.fetch()` a query, and get a `Result`.
 
-The query cache holds the files, and an edit goes straight into it. Every
-write carries the hash of the version the person acted on, taken when they
-acted. The todo listing is one query (`['todos', 'rows']`) built from
-`folder.tables.todos.list()`; a row that does not read as a todo is an
+The query cache holds what the files held when they were read; files are the
+truth. The store wires the folder's one channel of outside change to the
+cache in one line, `folder.onFilesChanged((change) =>
+queryClient.invalidateQueries(folder$.pathFilter(change)))`, so another
+window's save, an agent's edit, or Sync landing a change marks exactly the
+queries it names stale. TanStack's focus refetch is off, and no view has
+refresh logic of its own. The todo listing is one query
+(`folder$.todos.list`); a row that does not read as a todo is an
 `Err(InvalidRow)` entry in it. The store defines its views over that one
 cache entry, each with `select`: the list reads `todos.rows.todos` and
 `todos.rows.repairs`, and `TodoDetail` reads `todos.rows.entry(stem)`, so
-they cannot disagree. A view that edits a file calls `todos.rows.edit(stem, change)`, one
-immutable `map` over the listing, and queues its own write mutation
-(`mutationKey: ['todos', 'write', path]`, `scope: { id: path }`) only when
-`edit` says one is needed: fewer than two are running or waiting for that
-file. The write reads the cache when it runs and calls `table.save` over the
-row the cached version held (`createSaveBases`), so a file changed elsewhere
-merges with the edit. Its `onSuccess` moves the cached hash forward and keeps
-the newest row; TanStack awaits it before the next write in the scope runs.
-Its `onError` reads the listing again, which rolls the cache back, and
-reports what was lost. Reads are never held back: one may land while a write runs,
-and the last write to settle reads everything again. Nothing goes stale on
-its own. Writes never wait for the page to be visible. Todos does not
-write a file that does not read as a todo; another editor repairs it, and
-the next read shows the result. Todos does not rename files. Delete joins
-the same queue and carries the version the person confirmed:
-`todos.rows.shown(stem)` waits for that todo's queued writes to land, then
-reads it, so nothing the app does changes the file while the person decides
-(`remove(stem, shown)`). When it runs, the cached hash must still be that
-version; otherwise it refuses with `NotStarted`, and the folder's guard
-still refuses a change Todos has not read. The URL holds which todo is open; the new todo's title lives in the
+they cannot disagree.
+
+An edit is a draft the editing view holds (`createDraftState` from
+`@epicenter/folder/svelte`): `TodoDetail` for the title, done, and notes,
+and each `TodoRow` for its checkbox. The draft takes the row and its version
+at the first change, keeps the edited row outside the cache, and saves with
+`todos.rows.save` one save at a time; a read that lands meanwhile updates the
+cache, never the draft. `table.save` merges a file changed elsewhere since,
+and a save puts the row it wrote in the cache. A failed save keeps the
+draft. The folder does not report a page's own saves to it, so the last
+save to settle reads Git status again. Saves never wait for the page to be
+visible. Todos does not write a file that does not read as a todo; another
+editor repairs it, and the folder's report shows the result. Todos does not
+rename files. Delete carries the version the person confirmed:
+`TodoDetail` saves its draft, and `todos.rows.shown(stem)` waits for running
+saves to land, then reads it, so nothing the app does changes the file while
+the person decides (`remove(stem, shown)`). When it runs, the cached hash
+must still be that version; otherwise it refuses with `NotStarted`, and the
+folder's guard still refuses a change Todos has not read. The URL holds which todo is open; the new todo's title lives in the
 list. Components find the store with `getTodos()` and never touch its query
 client.
 
@@ -467,8 +472,15 @@ after the other.
 
 ## Changed promises
 
-This version opens its folder lazily, keeps its remote in the folder's Git
-configuration, and connects with **Connect** (ADR-0532). It dropped:
+This version follows the folder's change reports and edits through drafts
+(ADR-0548). Another window's or program's change shows while you work, and
+returning to the window reads nothing by itself. A save over a file changed
+elsewhere merges with it, and a failed save keeps your edit with **Try
+again**. What you type shows in the list once it is saved, not as you type.
+
+Before that, this version opens its folder lazily, keeps its remote in the
+folder's Git configuration, and connects with **Connect** (ADR-0532). It
+dropped:
 
 - The browser's start page, the Local demo as a separate place, and
   **Change**. There is one folder per browser.

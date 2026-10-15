@@ -23,9 +23,9 @@
 		onOpen?: (stem: string) => void;
 	} = $props();
 
-	const listing = createQuery(() => todos.rows.todos.options);
-	const repairQuery = createQuery(() => todos.rows.repairs.options);
-	const unreadableQuery = createQuery(() => todos.rows.unreadable.options);
+	const listing = createQuery(() => todos.rows.todos);
+	const repairQuery = createQuery(() => todos.rows.repairs);
+	const unreadableQuery = createQuery(() => todos.rows.unreadable);
 	const repairs = $derived(repairQuery.data ?? []);
 	const unreadable = $derived(unreadableQuery.data ?? []);
 	/** The title typed for a new todo. It goes with the list: leaving with it half-typed drops it. */
