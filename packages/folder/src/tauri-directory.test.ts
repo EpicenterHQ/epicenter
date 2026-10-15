@@ -31,15 +31,15 @@ import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { OpenFolderError } from './errors.js';
 import {
-	answerShellHistory,
-	type ShellHistoryCommand,
-} from './history-command.js';
-import {
 	createBareRemote,
 	GIT_ENV,
 	git,
 	scratch,
 } from './git-http.test-support.js';
+import {
+	answerShellHistory,
+	type ShellHistoryCommand,
+} from './history-command.js';
 import type { Expectation } from './native/bindings.gen.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };

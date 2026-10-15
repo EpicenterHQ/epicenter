@@ -15,10 +15,16 @@
  * - A remote is a network URL; Git state that writes elsewhere is named
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { GIT_ENV, git, scratch } from '../git-http.test-support.js';
-import { symlink } from 'node:fs/promises';
 import {
 	createGitRunner,
 	gitLayoutProblem,
