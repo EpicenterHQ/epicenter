@@ -9,6 +9,13 @@
 	 * it first. A folder whose `epicenter.json` changes while it is open is
 	 * opened again, so its grid follows the new declaration.
 	 *
+	 * The open folder is read through TanStack Query (`folderOptions`), and
+	 * this root wires the folder's one channel of change to the cache
+	 * (ADR-0548): each `onFilesChanged` report invalidates exactly the
+	 * queries it names. The subscription lives exactly as long as the folder
+	 * is open. Focus refetch is off: the channel is the one detector of
+	 * outside changes.
+	 *
 	 * "Open in" launches an app through the same verb as the Apps list and
 	 * the Settings button; `openers.ts` decides which apps a folder offers.
 	 *
@@ -19,11 +26,13 @@
 	 * Epicenter's own folder (`epicenter-folder.ts`).
 	 */
 	import type { Folder, FolderDefinition } from '@epicenter/folder';
+	import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
 	import { openDataFolder } from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { Input } from '@epicenter/ui/input';
+	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { onMount } from 'svelte';
 	import { type Application, SETTINGS_APPLICATION } from '../applications.ts';
 	import {
@@ -45,12 +54,29 @@
 	let folders = $state<DataFolder[] | undefined>(undefined);
 	let listProblem = $state<string | undefined>(undefined);
 	let openId = $state<string | undefined>(undefined);
-	let opened = $state<Folder<FolderDefinition> | undefined>(undefined);
+	let opened = $state.raw<
+		| {
+				readonly folder: Folder<FolderDefinition>;
+				readonly options: FolderOptions<FolderDefinition>;
+		  }
+		| undefined
+	>(undefined);
 	let openProblem = $state<string | undefined>(undefined);
 	let opening = $state(false);
 
 	/** Choices made while one is still opening keep only the newest. */
 	let openSeq = 0;
+
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { refetchOnWindowFocus: false } },
+	});
+	setQueryClientContext(queryClient);
+
+	/**
+	 * Stops the open folder's channel and drops its cache: what the next
+	 * folder, or this one opened again with a new declaration, reads is its own.
+	 */
+	let release: (() => void) | undefined;
 
 	const launcher = createLaunch();
 
@@ -177,8 +203,10 @@
 		opening = true;
 		const previous = opened;
 		opened = undefined;
+		release?.();
+		release = undefined;
 		// One handle at a time: closing releases what this window holds.
-		await previous?.close();
+		await previous?.folder.close();
 		const { data, error } = await openDataFolder({ id });
 		if (seq !== openSeq) {
 			await data?.close();
@@ -189,13 +217,27 @@
 			openProblem = error.message;
 			return;
 		}
-		opened = data;
+		const options = folderOptions(data);
+		// Subscribed before anything reads, so no change falls between them.
+		const stop = data.onFilesChanged((change) =>
+			queryClient.invalidateQueries(options.pathFilter(change)),
+		);
+		release = () => {
+			stop();
+			queryClient.removeQueries({ queryKey: options.key });
+		};
+		opened = { folder: data, options };
 	}
 
 	onMount(() => {
+		queryClient.mount();
 		void list();
 		void listInstalled();
-		return () => void opened?.close();
+		return () => {
+			release?.();
+			void opened?.folder.close();
+			queryClient.unmount();
+		};
 	});
 </script>
 
@@ -431,7 +473,8 @@
 			{#key opened}
 				{@const shown = opened}
 				<FolderView
-					folder={shown}
+					folder={shown.folder}
+					folder$={shown.options}
 					declarationChanged={() => {
 						// Only while this folder is still the one shown.
 						if (opened === shown && openId !== undefined) void open(openId, true);

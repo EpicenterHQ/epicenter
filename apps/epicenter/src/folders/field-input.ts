@@ -117,6 +117,27 @@ function plainKind(
 	}
 }
 
+/** What an edit does to one field: set its value, or leave it out of the row. */
+export type FieldChange =
+	| { readonly kind: 'set'; readonly value: unknown }
+	| { readonly kind: 'remove' };
+
+/** Apply `change` to `fields`, by definition so any field name is an own key. */
+export function applyFieldChange(
+	fields: Record<string, unknown>,
+	field: string,
+	change: FieldChange,
+) {
+	if (change.kind === 'remove') delete fields[field];
+	else
+		Object.defineProperty(fields, field, {
+			value: change.value,
+			enumerable: true,
+			writable: true,
+			configurable: true,
+		});
+}
+
 /** The editor kinds that edit through one line of text. */
 export type TextKind = Exclude<
 	FieldEditor['kind'],
