@@ -16,7 +16,8 @@
 		useQueryClient,
 	} from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
-	import { createRowEdits, replacedText } from './row-edits.svelte';
+	import ReplacedNotice from '@epicenter/svelte/replaced-notice';
+	import { createRowEdits } from './row-edits.svelte';
 	import TableGrid from './TableGrid.svelte';
 	import { changesMessage, type VersionLine, versionMessage } from './version';
 
@@ -158,25 +159,13 @@
 		</div>
 	{/if}
 	{#each edits.notices as notice (notice.id)}
-		<div class="flex items-start gap-2 border-b px-4 py-2">
-			<Alert.Root>
-				<Alert.Title>
-					Your edit of {notice.stem} replaced a change made elsewhere
-				</Alert.Title>
-				<Alert.Description>
-					<ul class="list-disc pl-5">
-						{#each notice.saved.replaced as item, index (index)}
-							<li>{replacedText(item)}</li>
-						{/each}
-					</ul>
-				</Alert.Description>
-			</Alert.Root>
-			<Button size="xs" variant="outline" onclick={() => edits.restore(notice)}>
-				Restore theirs
-			</Button>
-			<Button size="xs" variant="ghost" onclick={() => edits.dismiss(notice)}>
-				Dismiss
-			</Button>
+		<div class="border-b px-4 py-2">
+			<ReplacedNotice
+				replaced={notice.saved.replaced}
+				subject={notice.stem}
+				onRestore={() => edits.restore(notice)}
+				onDismiss={() => edits.dismiss(notice)}
+			/>
 		</div>
 	{/each}
 

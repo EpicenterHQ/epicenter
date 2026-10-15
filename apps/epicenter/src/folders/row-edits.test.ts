@@ -23,8 +23,7 @@ import type { FileTable } from '@epicenter/folder';
 import { openDataFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
 
-const { createRowEdits, failureText, replacedText, restoreTheirs } =
-	await import('./row-edits.svelte');
+const { createRowEdits, failureText } = await import('./row-edits.svelte');
 
 const author = { name: 'Folders', email: 'folders@localhost' };
 
@@ -128,9 +127,14 @@ test('Restore theirs saves their values back over the version just written', asy
 	await edits.settled();
 	const [notice] = edits.notices;
 	if (notice === undefined) throw new Error('no notice');
-	expect(notice.saved.replaced.map(replacedText)).toEqual([
-		'title: kept "Mine"; theirs was "Theirs"',
-		'Notes, line 2: kept "MINE"; theirs was "THEIRS"',
+	expect(notice.saved.replaced).toMatchObject([
+		{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Theirs' },
+		{
+			kind: 'text',
+			part: 'body',
+			theirs: 'one\nTHEIRS\nthree\nfour\nFIVE\n',
+			regions: [{ line: 1, kept: 'MINE\n', theirs: 'THEIRS\n' }],
+		},
 	]);
 
 	edits.restore(notice);
@@ -202,23 +206,6 @@ test('a failed save says why, drops the draft, and resets the editors', async ()
 	edits.dismissProblem();
 	expect(edits.problem).toBeUndefined();
 	await folder.close();
-});
-
-test('restoreTheirs puts back each region from the last up, and removes a field they did not have', () => {
-	const restored = restoreTheirs({
-		stored: {
-			path: 'notes/one.md',
-			sha256: 'a',
-			row: { fields: { title: 'Mine', due: 'x' }, body: 'a\nB\nc\nD\nE\n' },
-		},
-		merged: true,
-		replaced: [
-			{ kind: 'field', field: 'due', kept: 'x', theirs: undefined },
-			{ kind: 'body', line: 1, kept: 'B\n', theirs: 'b\n' },
-			{ kind: 'body', line: 3, kept: 'D\nE\n', theirs: 'd\n' },
-		],
-	});
-	expect(restored).toEqual({ fields: { title: 'Mine' }, body: 'a\nb\nc\nd\n' });
 });
 
 test('a failure that is not a table error is said as its message', () => {
