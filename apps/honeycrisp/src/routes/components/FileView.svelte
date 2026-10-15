@@ -1,8 +1,9 @@
 <!--
 	An open item other than a note: a file's exact text, or its type and size
 	when it is not editable text. Typing is held as the file's text draft and
-	saved at once over the version it started from, merged by line with a
-	change made elsewhere. A note or folder file
+	saved a second after the last keystroke, when the person leaves the text,
+	and when the view goes away, over the version it started from, merged by
+	line with a change made elsewhere. A note or folder file
 	whose text is not a valid row shows its issues, read live from what is
 	typed, and is repaired here; a note that reads opens as a note again.
 -->
@@ -18,6 +19,7 @@
 	import { parseRow, rowStemOf, wellFormed } from '@epicenter/folder';
 	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createQuery } from '@tanstack/svelte-query';
+	import { onDestroy } from 'svelte';
 	import { honeycrispDefinition, noteIdOf } from '$lib/data.js';
 	import { describeError, type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
@@ -31,6 +33,15 @@
 		/** The file shown. It follows a rename; the parent keys this view by its opening. */
 		path: string;
 	} = $props();
+
+	// The view follows a rename, but while the parent replaces it the prop
+	// already reads the next item: the last path this view showed is its own.
+	// svelte-ignore state_referenced_locally
+	let own = path;
+	$effect.pre(() => {
+		own = path;
+	});
+	onDestroy(() => void notes.saveText(own));
 
 	const file = createQuery(() => notes.textQuery(path));
 	const name = $derived(basename(path));
@@ -117,6 +128,7 @@
 						notes.editText(path, withFileNewlines(wellFormed(typed), shown));
 					}
 				}
+				onblur={() => void notes.saveText(path)}
 			/>
 		</div>
 		<p class="shrink-0 border-t px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">

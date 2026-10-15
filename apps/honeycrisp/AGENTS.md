@@ -31,21 +31,25 @@ against the code. The constraints below apply to every edit here.
   opened as text, and Git status are queries from the folder's options
   (`folderOptions`) in `src/lib/notes.svelte.ts`. Do not add a second
   store, a review, or a retained editor per path. `$state` holds only input
-  that is not saved yet: drafts, the search, a folder name being typed.
-- An edit is a draft (`createDraftState` from `@epicenter/folder/svelte`),
-  one per row, shared by every view of that note. It takes the row and its
-  version at the first change, keeps the edited row outside the cache, and
-  saves through the folder's save options one save at a time; `table.save`
-  merges a file changed elsewhere since. A read never replaces a draft. A
-  failed save keeps the draft and reports it through `onWriteFailed`.
-  Title, folder, pin, rich text, Source, list actions, and folder names are
-  all such edits. While a file is open as text, its text is a draft of its
-  own, written whole over the version it started from, and row edits of it
-  are refused.
+  that is not saved yet: a title typed, body and text drafts, the search, a
+  folder name being typed.
+- A field edit is an update of the file as it is now (ADR-0554): title,
+  folder, pin, list actions, and folder names set their fields through the
+  folder's update options and keep every field another writer changed. The
+  open note holds a title typed in its own `$state` until it is sent.
+- A note's body, from rich text or Source, is a body draft
+  (`createBodyDraftState` from `@epicenter/folder/svelte`), one per note in
+  the store. It takes the row and its version at the first change, keeps the
+  body outside the cache, and saves a second after the last change, or at
+  once when the view leaves it; `table.save` merges by line with a file
+  changed elsewhere since. A read never replaces a draft. A failed save keeps
+  the draft and reports it through `onWriteFailed`. While a file is open as
+  text, its text is a draft of its own, written whole over the version it
+  started from, and row edits of it are refused.
 - Nothing goes stale on its own (`staleTime: Infinity`) and focus never
   refetches. The tests in `notes.test.ts` that hold a save while a read
   lands, and that save while another tab changed the file, guard the
-  draft; keep them.
+  drafts; keep them.
 - Every action is a mutation (create, rename, delete, delete folder, Save
   version, terminal commands), so `notes.close()` can wait for the mutation
   cache to be idle before it releases the folder. Do not add a manual `refresh()` after an action; its mutation
@@ -58,14 +62,14 @@ against the code. The constraints below apply to every edit here.
 - The page reads the folder when it opens, after its own actions, and when
   `folder.onFilesChanged` reports a change, wired to the cache in one line
   in `createNotes`. Do not add a focus reread or a per-view refresh. A
-  reread that changes the open note's body while it has no draft replaces
+  reread that changes the open note's body while it has no body draft replaces
   the rich-text state, so its undo history restarts.
 - A destructive action that must find every related file refuses when any
   file's relation did not read (`deleteFolder`).
 
 ## Editor ownership
 
-- The note's draft, or the cache when there is none, owns the note's body.
+- The note's body draft, or the cache when there is none, owns the note's body.
   ProseMirror's `EditorState` owns only what neither has a place for: the
   cursor, pending formatting, undo history, and an empty paragraph Markdown
   cannot spell yet. Its document is never a third copy of the body.

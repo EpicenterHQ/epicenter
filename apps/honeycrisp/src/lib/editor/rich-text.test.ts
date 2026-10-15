@@ -5,8 +5,8 @@
  * notes state and its query cache on Honeycrisp's folder: each transaction
  * goes through `stateAfter` before it is shown, and the body is followed
  * with `stateShowing`. The state the harness keeps is what the view would
- * display; the note's draft holds an edit until its save lands, and the
- * cache holds the note after.
+ * display; the note's body draft holds an edit until its save lands, and
+ * the cache holds the note after.
  *
  * Key behaviors:
  * - Every displayed edit is in the note, including spaces, Enter, and
@@ -86,14 +86,17 @@ async function noteOver(text: string) {
 		notes,
 		note,
 		failures,
-		/** The note as shown now: its draft while an edit is held. */
+		/** The note as shown now: with its body draft while one is held. */
 		draft: () => {
 			const row = note.row;
 			if (row === undefined) throw new Error('The note is not in the cache');
 			return row;
 		},
-		/** Let every save and the reads after them land. */
-		settled: () => quiet(notes),
+		/** Send the body typed, as leaving the note does, and let every save and the reads after them land. */
+		settled: async () => {
+			await notes.saveBody(PATH);
+			await quiet(notes);
+		},
 		/** Write attempts at the note since it opened. */
 		writes: () => attempts() - opened,
 		/** Close the notes: from now on the note takes no edit. */
@@ -170,8 +173,7 @@ async function open(
 		if (now.supported) state = stateShowing(state, now.doc);
 	};
 	/** What the Source view does with typed text. */
-	const source = (text: string) =>
-		notes.editNote(PATH, (row) => withBody(row, text));
+	const source = (text: string) => notes.editBody(PATH, text);
 	/** What is on screen and the note's body are the same content. */
 	const expectNoteHoldsScreen = () =>
 		expect(equivalentNoteDocs(parseNoteBody(body()), state.doc)).toBe(true);
@@ -283,6 +285,9 @@ describe('every displayed edit is in the note', () => {
 		const { type, draft, settled, failures, folder } = await open('one\n');
 		const before = JSON.parse(JSON.stringify(draft()));
 		type('x');
+		expect(draft().body).toBe('xone\n');
+		await settled();
+		expect(failures).toEqual([]);
 		const row = draft();
 		expect(row.body).toBe('xone\n');
 		expect(row.fields.updatedAt).not.toBe(before.fields.updatedAt);
@@ -290,8 +295,6 @@ describe('every displayed edit is in the note', () => {
 			...before.fields,
 			updatedAt: undefined,
 		});
-		await settled();
-		expect(failures).toEqual([]);
 		const saved = folder.text('notes/a.md') ?? '';
 		expect(saved).toContain('xone');
 		// A key Honeycrisp does not declare is kept.

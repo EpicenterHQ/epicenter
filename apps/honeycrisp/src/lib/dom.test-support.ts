@@ -177,6 +177,11 @@ export function type(element: Element | null | undefined, value: string) {
 	element.dispatchEvent(new window.Event('input', { bubbles: true }));
 }
 
+/** Move focus out of a field, as the person leaving it does. */
+export function leave(element: Element) {
+	element.dispatchEvent(new window.FocusEvent('blur'));
+}
+
 /** Dispatch a click on the button whose text is `text`. */
 export function click(root: ParentNode, text: string) {
 	const button = buttonNamed(root, text);
