@@ -1327,7 +1327,7 @@ dangle.
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-git.ts`, and the directory folder only then. |
 | `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds `save` and its merge. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
-| `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions`, `createDraft`, and `createSaveBases`. |
+| `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions` and `createDraft`. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | `@epicenter/folder/svelte` (`draft.svelte.ts`), its tests, and the Svelte boundary tests. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
