@@ -23,7 +23,6 @@
  * `apps/api/ui/vite.config.ts`.
  */
 export const PRODUCTION_API_URL = 'https://api.epicenter.so';
-export const DASHBOARD_APP_ID = 'so.epicenter.dashboard';
 
 export const APPS = {
 	API: { port: 8787, url: PRODUCTION_API_URL },
@@ -64,8 +63,8 @@ export const APPS = {
  * not applications with an id at all: `API` is the hosted server and `SH` is the
  * marketing site, so neither carries `id`. An app id is the
  * reverse-domain string an application stores under (`so.epicenter.vocab`),
- * validated by `isAppId` in `#app-id` and spent by `defineStore` and
- * `createHostedBrowserRedirectAuth`. A reader who met `AppId` here and grepped
+ * validated by `isAppId` in `#app-id` and spent by `defineStore` and by
+ * `createBrowserOAuth` as the app's OAuth client id. A reader who met `AppId` here and grepped
  * for it found the wrong concept.
  *
  * A row carries an id only for an app that names itself from it. An installed

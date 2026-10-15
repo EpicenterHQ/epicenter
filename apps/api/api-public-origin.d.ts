@@ -12,7 +12,6 @@ declare global {
 	namespace Cloudflare {
 		interface Env {
 			API_PUBLIC_ORIGIN?: string;
-			EPICENTER_DEV_PORT?: string;
 		}
 	}
 }

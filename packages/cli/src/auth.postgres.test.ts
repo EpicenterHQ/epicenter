@@ -120,7 +120,6 @@ beforeAll(async () => {
 			connect: async () => ({ db, close: async () => {} }),
 			afterResponse: () => {},
 			resolveAuthSecrets: () => ({ BETTER_AUTH_SECRET: secret }),
-			resolveSessionCallbacks: () => [],
 			resolveOAuthServer: () => ({ audiences }),
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),

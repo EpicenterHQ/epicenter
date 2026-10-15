@@ -1,14 +1,16 @@
 /**
  * Dashboard attachments isolate late billing, profile, provider, and mutation
- * results even when a later attachment has the same principal. Management
- * requests use the captured Account and cannot fall back to ambient cookies.
+ * results even when a later attachment has the same principal. Management and
+ * billing requests go through the captured Account with this origin's cookie
+ * and name the captured principal, so the server can refuse a changed cookie.
  */
 import { expect, test } from 'bun:test';
-import { type Account, createSessionAuth } from '@epicenter/auth';
+import type { Account } from '@epicenter/auth';
 import { asPrincipalId } from '@epicenter/principal';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { accountKeys } from '../account/queries.js';
+import { createCookieSessionAuth } from '../auth/cookie-session.js';
 import { billingKeys } from '../billing/queries.js';
 import { createDashboardRuntime } from './runtime.js';
 
@@ -125,29 +127,28 @@ for (const successor of ['bob', 'alice']) {
 	});
 }
 
-test('management reads and mutations force the captured principal and omit cookies', async () => {
+test('management and billing requests name the captured principal and send the cookie', async () => {
 	const { dashboard, pending, started } = setup('alice');
 	try {
 		const work = Promise.all([
 			dashboard.management.getSession(),
 			dashboard.management.listAccounts(),
-			dashboard.management.passkey.listUserPasskeys(),
 			dashboard.management.unlinkAccount(
 				{ accountId: 'alice-github' },
 				{
-					headers: { cookie: 'bob-cookie', 'x-epicenter-principal': 'bob' },
-					credentials: 'include',
+					headers: { 'x-epicenter-principal': 'bob' },
+					credentials: 'omit',
 				},
 			),
 			dashboard.management.passkey.deletePasskey({ id: 'alice-passkey' }),
+			dashboard.billingApi.checkoutTopUp(),
 		]);
 		await started;
 		expect(pending).toHaveLength(5);
 		for (const { request, credentials, complete } of pending) {
 			expect(request.headers.get('x-epicenter-principal')).toBe('alice');
-			expect(request.headers.get('cookie')).toBeNull();
 			// Bun 1.3's Request.credentials getter always returns include.
-			expect(credentials).toBe('omit');
+			expect(credentials).toBe('include');
 			complete({ status: true });
 		}
 		for (const result of await work) expect(result.error).toBeNull();
@@ -166,39 +167,35 @@ for (const successor of ['bob', 'alice']) {
 			principal: string | null;
 			credentials: RequestCredentials | undefined;
 		}[] = [];
-		let signIns = 0;
-		const auth = createSessionAuth({
-			authorityId: 'epicenter-api',
-			baseURL: 'https://api.example.test',
-			persistedAuthStorage: { initial: null, set() {} },
-			launcher: {
-				async startSignIn() {
-					return {
-						status: 'completed',
-						token: ++signIns === 1 ? 'first' : 'second',
-					};
-				},
-			},
+		let cookie: string | null = 'alice';
+		let overviews = 0;
+		const auth = createCookieSessionAuth({
+			origin: 'https://api.example.test',
+			navigate() {},
+			returnPath: () => '/dashboard',
 			async fetch(input, init) {
 				const path = new URL(input instanceof Request ? input.url : input)
 					.pathname;
-				const authorization = new Headers(init?.headers).get('authorization');
+				const headers = new Headers(
+					init?.headers ?? (input instanceof Request ? input.headers : {}),
+				);
 				sent.push({
 					path,
-					authorization,
-					principal: new Headers(init?.headers).get('x-epicenter-principal'),
+					authorization: headers.get('authorization'),
+					principal: headers.get('x-epicenter-principal'),
 					credentials: init?.credentials,
 				});
-				if (path === '/api/session')
-					return Response.json({
-						authorityId: 'test-authority',
-						principalId: authorization === 'Bearer first' ? 'alice' : successor,
-					});
-				if (path === '/auth/sign-out') return Response.json({ success: true });
-				if (
-					path === '/api/billing/overview' &&
-					authorization === 'Bearer first'
-				) {
+				if (path === '/auth/get-session')
+					return Response.json(
+						cookie
+							? { session: {}, user: { id: cookie, email: `${cookie}@x.test` } }
+							: null,
+					);
+				if (path === '/auth/sign-out') {
+					cookie = null;
+					return Response.json({ success: true });
+				}
+				if (path === '/api/billing/overview' && ++overviews === 1) {
 					oldStarted.resolve();
 					return lateResponse.promise;
 				}
@@ -207,7 +204,7 @@ for (const successor of ['bob', 'alice']) {
 		});
 		const dashboards: ReturnType<typeof createDashboardRuntime>[] = [];
 		try {
-			expectOk(await auth.startSignIn());
+			await auth.refresh();
 			const oldState = auth.getState();
 			if (oldState.status === 'signed-out') throw new Error('Expected Alice');
 			const old = createDashboardRuntime(oldState.account);
@@ -215,8 +212,10 @@ for (const successor of ['bob', 'alice']) {
 			const pending = old.billing.overview.fetch();
 			await oldStarted.promise;
 			expectOk(await auth.signOut());
+			expect(auth.getState().status).toBe('signed-out');
 			old[Symbol.dispose]();
-			expectOk(await auth.startSignIn());
+			cookie = successor;
+			await auth.refresh();
 			const newState = auth.getState();
 			if (newState.status === 'signed-out')
 				throw new Error('Expected successor');
@@ -227,9 +226,9 @@ for (const successor of ['bob', 'alice']) {
 			expect((await current.management.getSession()).error).toBeNull();
 			expect(sent.at(-1)).toEqual({
 				path: '/auth/get-session',
-				authorization: 'Bearer second',
+				authorization: null,
 				principal: successor,
-				credentials: 'omit',
+				credentials: 'include',
 			});
 			lateResponse.resolve(Response.json({ marker: 'old attachment' }));
 			await pending;

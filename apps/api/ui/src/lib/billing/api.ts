@@ -6,7 +6,9 @@
  * its wire shapes. Each method returns `Result<T, BillingApiError>` so
  * consumers destructure `{ data, error }` instead of try/catch.
  *
- * Each factory captures one Account's fetch for its entire lifetime.
+ * Each factory captures one Account's fetch for its entire lifetime. The
+ * Account sends this origin's session cookie (ADR-0549); the principal header
+ * lets the server refuse a request once that cookie names someone else.
  */
 
 import type { Account } from '@epicenter/auth';
@@ -98,7 +100,11 @@ export function createBillingApi(account: Account) {
 		endpoint: string,
 	): Promise<BillingResult<TResponse>> {
 		const { data: res, error } = await tryAsync({
-			try: () => account.fetch(endpoint),
+			try: () =>
+				account.fetch(endpoint, {
+					credentials: 'include',
+					headers: { 'x-epicenter-principal': account.principalId },
+				}),
 			catch: (cause) => BillingApiError.RequestFailed({ endpoint, cause }),
 		});
 		if (error) return Err(error);
@@ -113,7 +119,11 @@ export function createBillingApi(account: Account) {
 			try: () =>
 				account.fetch(endpoint, {
 					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
+					credentials: 'include',
+					headers: {
+						'Content-Type': 'application/json',
+						'x-epicenter-principal': account.principalId,
+					},
 					body: JSON.stringify(body),
 				}),
 			catch: (cause) => BillingApiError.RequestFailed({ endpoint, cause }),

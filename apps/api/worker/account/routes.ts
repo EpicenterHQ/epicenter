@@ -1,4 +1,8 @@
-/** Hosted account deletion requires a live, fresh, principal-bound session bearer. */
+/**
+ * Hosted account deletion requires a live, fresh, principal-bound session
+ * cookie from the authorization server's own origin: deleting the account is
+ * account management, which no access token reaches (ADR-0549).
+ */
 
 import { asPrincipalId } from '@epicenter/principal';
 import type { CloudEnv } from '@epicenter/server';
@@ -37,17 +41,22 @@ const AccountDeletionError = defineErrors({
 });
 
 /**
- * A captured bearer, checked against the live session and expected principal.
- * Deletion uses the same freshness window as login-method changes.
+ * The session cookie, checked against the live session and expected principal.
+ * A request from another origin is refused even though every Epicenter app
+ * shares the site and so carries the cookie. Deletion uses the same freshness
+ * window as login-method changes.
  */
 const requireFreshAccountSession: MiddlewareHandler<CloudEnv> =
 	createMiddleware<CloudEnv>(async (c, next) => {
-		const authorization = c.req.header('authorization');
-		if (!authorization) return c.json(AccountDeletionError.Unauthorized(), 401);
+		const origin = c.req.header('origin');
+		if (origin !== undefined && origin !== new URL(c.var.authBaseURL).origin)
+			return c.json(AccountDeletionError.PrincipalMismatch(), 403);
+		const cookie = c.req.header('cookie');
+		if (!cookie) return c.json(AccountDeletionError.Unauthorized(), 401);
 		let session: { session: Session; user: User } | null;
 		try {
 			session = await c.var.auth.api.getSession({
-				headers: new Headers({ authorization }),
+				headers: new Headers({ cookie }),
 				query: { disableCookieCache: true, disableRefresh: true },
 			});
 		} catch (cause) {

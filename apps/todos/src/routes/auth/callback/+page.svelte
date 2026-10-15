@@ -12,13 +12,13 @@
 			errorMessage = 'Sign-in is unavailable in this build.';
 			return () => { alive = false; };
 		}
-		void auth.completeSignIn().then(({ error }) => {
+		void auth.completeSignIn().then(({ data, error }) => {
 			if (!alive) return;
 			if (error !== null) {
 				errorMessage = error.message;
 				return;
 			}
-			window.location.replace(resolve('/'));
+			window.location.replace(data.returnTo ?? resolve('/'));
 		}).catch(() => {
 			if (alive) errorMessage = 'Sign-in could not finish. Try again.';
 		});

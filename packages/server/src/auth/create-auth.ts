@@ -116,8 +116,8 @@ export function configuredProviders(env: CloudAuthBindings) {
  * - Drizzle adapter (portable Postgres wire; Hyperdrive on Workers, a pool on Node)
  * - Google OAuth, plus GitHub, Microsoft, and Apple when their credentials are
  *   configured (email/password is disabled; see {@link BASE_AUTH_CONFIG})
- * - Plugins: signed session bearer, PKCE session handoff, passkey (WebAuthn),
- *   and the OAuth 2.1 authorization server (ADR-0549)
+ * - Plugins: passkey (WebAuthn) and the OAuth 2.1 authorization server
+ *   (ADR-0549); a session is only the authorization server's own cookie
  *
  * `/api/session` is the single Epicenter session surface; this builder no longer
  * enriches `/auth/get-session` with encryption keys.
@@ -127,7 +127,6 @@ export function createAuth({
 	env,
 	baseURL,
 	trustedOrigins,
-	sessionCallbacks = [],
 	oauth,
 }: {
 	db: Db;
@@ -135,8 +134,6 @@ export function createAuth({
 	baseURL: string;
 	/** Deployment-supplied trusted origins (CORS, CSRF, redirect allow-list). */
 	trustedOrigins: string[];
-	/** Exact callbacks approved by this deployment, independent of CORS trust. */
-	sessionCallbacks?: readonly string[];
 	/**
 	 * The authorization server's audiences and metadata-document transport.
 	 * Only the `/auth/*` routes compose it: the provider seeds its resources
@@ -224,8 +221,9 @@ export function createAuth({
 		session: SESSION_POLICY,
 		// Cookie transport for browser clients: host-only, SameSite=Lax
 		// everywhere (non-secure on localhost so the Vite `/auth` proxy works).
-		// Hosted sign-in uses cookies; dashboard management and application data
-		// use captured session bearers. No cross-subdomain cookie is needed.
+		// The cookie is the authorization server's own: sign-in, consent, device
+		// approval, and account management on this origin. Every other client
+		// holds access tokens (ADR-0549). No cross-subdomain cookie is needed.
 		//
 		// NOTE: We intentionally omit `partitioned: true` (CHIPS).
 		// Partitioned cookies are keyed by the top-level site at creation
@@ -254,7 +252,7 @@ export function createAuth({
 		// durable, shared limiting is ever needed.
 		rateLimit: { storage: 'memory' },
 		plugins: [
-			...authPlugins(baseURL, sessionCallbacks),
+			...authPlugins(baseURL),
 			...(oauth ? oauthServerPlugins({ ...oauth, db }) : []),
 		],
 		hooks: {

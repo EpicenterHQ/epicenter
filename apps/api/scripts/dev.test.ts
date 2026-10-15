@@ -4,7 +4,6 @@
  * builds assets, removes stale secrets files, and invokes Infisical.
  */
 import { expect, test } from 'bun:test';
-import { buildSessionCallbacks } from '../worker/session-callbacks.js';
 
 test('dashboard startup supplies its public origin without changing ordinary API startup', async () => {
 	const { scripts } = await Bun.file(
@@ -16,9 +15,6 @@ test('dashboard startup supplies its public origin without changing ordinary API
 	expect(scripts['dev:api']).toBe('bun run --cwd apps/api dev');
 	expect(scripts['dev:epicenter']).toBe(
 		'EPICENTER_API_URL=http://localhost:8787 bun run --filter @epicenter/api --filter @epicenter/epicenter dev',
-	);
-	expect(buildSessionCallbacks('http://localhost:5178')).toContain(
-		'http://localhost:5178/session/callback',
 	);
 });
 

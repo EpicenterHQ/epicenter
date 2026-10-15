@@ -9,14 +9,6 @@ export const Principal = type({
 });
 export type Principal = typeof Principal.infer;
 
-/** One session credential and the local partition it was verified to own. */
-export const PersistedAuth = type({
-	'+': 'reject',
-	token: 'string > 0',
-	principalId: PrincipalId,
-});
-export type PersistedAuth = typeof PersistedAuth.infer;
-
 /** Resource projection served by /api/session; Better Auth owns session rows. */
 export const ApiSessionResponse = type({
 	'+': 'delete',

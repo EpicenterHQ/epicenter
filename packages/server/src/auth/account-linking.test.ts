@@ -1,5 +1,6 @@
 /**
- * Real management routes enforce the captured principal and ten-minute freshness.
+ * Real management routes enforce the session cookie, the expected principal,
+ * and ten-minute freshness. An `Authorization` header is never a credential here.
  * Explicit callbacks retain their protected target after sign-out/replacement;
  * implicit linking follows verified email. Only upstream token exchange and
  * user-info responses are stubbed; these tests make no live provider claims.
@@ -185,7 +186,7 @@ for (const [path, body] of routes) {
 					passkeys: db.passkey,
 				});
 				const response = await request(path, body, {
-					authorization: `Bearer ${alice.token}`,
+					cookie: alice.cookie,
 					'x-epicenter-principal': alice.user.id,
 				});
 				expect(response.status).toBe(age < 600_000 ? 200 : 403);
@@ -202,18 +203,16 @@ for (const [path, body] of routes) {
 			}
 		});
 	}
-	test(`${path} rejects malformed bearer despite a valid cookie`, async () => {
+	test(`${path} takes no session token or access token in Authorization`, async () => {
 		const { db, alice, request } = await setup();
 		for (const authorization of [
-			'',
-			'Bearer bogus',
-			'Bearer invalid.signature',
+			`Bearer ${alice.token}`,
+			'Bearer ep_at_access-token',
 			'Basic ignored',
 		]) {
 			const before = structuredClone(db);
 			const response = await request(path, body, {
 				authorization,
-				cookie: alice.cookie,
 				'x-epicenter-principal': alice.user.id,
 			});
 			expect(response.status).toBe(401);
@@ -221,13 +220,13 @@ for (const [path, body] of routes) {
 			expect(db).toEqual(before);
 		}
 	});
-	test(`${path} requires Alice's expected ID with Alice bearer and Bob cookie`, async () => {
+	test(`${path} acts for the cookie's account only with its expected ID, whatever Authorization carries`, async () => {
 		const { db, alice, bob, request } = await setup();
 		for (const expected of [undefined, bob.user.id]) {
 			const before = structuredClone(db);
 			const response = await request(path, body, {
-				authorization: `Bearer ${alice.token}`,
-				cookie: bob.cookie,
+				authorization: `Bearer ${bob.token}`,
+				cookie: alice.cookie,
 				...(expected ? { 'x-epicenter-principal': expected } : {}),
 			});
 			expect(response.status).toBe(403);
@@ -237,8 +236,8 @@ for (const [path, body] of routes) {
 			expect(db).toEqual(before);
 		}
 		const response = await request(path, body, {
-			authorization: `Bearer ${alice.token}`,
-			cookie: bob.cookie,
+			authorization: `Bearer ${bob.token}`,
+			cookie: alice.cookie,
 			'x-epicenter-principal': alice.user.id,
 		});
 		expect(response.status).toBe(200);
@@ -268,7 +267,7 @@ for (const [path, body] of routes) {
 		);
 		try {
 			const response = await request(path, body, {
-				authorization: `Bearer ${alice.token}`,
+				cookie: alice.cookie,
 				'x-epicenter-principal': alice.user.id,
 			});
 			expect(response.status).toBe(503);
@@ -290,19 +289,12 @@ for (const replacement of [false, true]) {
 			'/link-social',
 			{ provider: 'google', callbackURL: baseURL },
 			{
-				authorization: `Bearer ${alice.token}`,
-				cookie: bob.cookie,
+				cookie: alice.cookie,
 				'x-epicenter-principal': alice.user.id,
 			},
 		);
 		expect(
-			(
-				await request(
-					'/sign-out',
-					{},
-					{ authorization: `Bearer ${alice.token}` },
-				)
-			).status,
+			(await request('/sign-out', {}, { cookie: alice.cookie })).status,
 		).toBe(200);
 		expect(db.session!.some((row) => row.id === alice.session.id)).toBe(false);
 		const response = await callback(
@@ -321,7 +313,7 @@ for (const replacement of [false, true]) {
 for (const provider of ['google', 'github'] as const) {
 	for (const ambient of ['none', 'bob'] as const) {
 		test(`verified ${provider} same-email sign-in links Alice with ${ambient} ambient account`, async () => {
-			const { db, alice, bob, request, stubProvider, callback, auth } =
+			const { db, alice, bob, request, stubProvider, callback, auth, ctx } =
 				await setup();
 			stubProvider(provider, alice.user.email, true);
 			const headers: Record<string, string> =
@@ -344,14 +336,16 @@ for (const provider of ['google', 'github'] as const) {
 			expect(
 				db.account!.filter((row) => row.accountId === 'new-provider-identity'),
 			).toMatchObject([{ userId: alice.user.id }]);
-			const token = response.headers.get('set-auth-token');
-			assert(token);
+			const cookie = response.headers
+				.getSetCookie()
+				.map((value) => value.split(';')[0])
+				.find((value) =>
+					value?.startsWith(`${ctx.authCookies.sessionToken.name}=`),
+				);
+			assert(cookie);
 			expect(
-				(
-					await auth.api.getSession({
-						headers: new Headers({ authorization: `Bearer ${token}` }),
-					})
-				)?.user.id,
+				(await auth.api.getSession({ headers: new Headers({ cookie }) }))?.user
+					.id,
 			).toBe(alice.user.id);
 		});
 	}

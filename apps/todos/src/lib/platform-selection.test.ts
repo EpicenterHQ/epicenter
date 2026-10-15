@@ -109,16 +109,16 @@ describe('#platform/folder', () => {
 						),
 				),
 			).toEqual([]);
-			// The desktop window borrows Home's account through the host.
+			// The desktop window borrows Settings' account through the CLI.
 			for (const module of [
 				'platform/auth.epicenter-host.ts',
-				'auth/src/desktop-broker-auth.ts',
+				'auth/src/desktop-account-auth.ts',
 				'src/lib/git-access.ts',
 			])
 				expect(modules.some((path) => path.endsWith(module))).toBe(true);
 			expect(
 				modules.filter((path) =>
-					/platform\/auth\.browser\.ts$|auth\/src\/browser-redirect-auth\.ts$/.test(
+					/platform\/auth\.browser\.ts$|auth\/src\/browser-oauth\.ts$/.test(
 						path,
 					),
 				),
@@ -164,13 +164,13 @@ describe('#platform/folder', () => {
 			// Redirect sign-in is the browser's.
 			for (const module of [
 				'platform/auth.browser.ts',
-				'auth/src/browser-redirect-auth.ts',
+				'auth/src/browser-oauth.ts',
 				'src/lib/git-access.ts',
 			])
 				expect(modules.some((path) => path.endsWith(module))).toBe(true);
 			expect(
 				modules.filter((path) =>
-					/platform\/auth\.epicenter-host\.ts$|auth\/src\/desktop-broker-auth\.ts$/.test(
+					/platform\/auth\.epicenter-host\.ts$|auth\/src\/desktop-account-auth\.ts$/.test(
 						path,
 					),
 				),

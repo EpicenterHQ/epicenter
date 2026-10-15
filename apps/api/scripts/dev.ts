@@ -2,7 +2,6 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { APPS, localUrl } from '@epicenter/constants/apps';
 import type { Unstable_RawConfig as WranglerConfig } from 'wrangler';
-import { buildSessionCallbacks } from '../worker/session-callbacks.js';
 
 const apiRoot = resolve(import.meta.dir, '..');
 const uiBuild = resolve(apiRoot, 'ui/build');
@@ -10,7 +9,6 @@ const devVars = resolve(apiRoot, '.dev.vars');
 const localConfig = resolve(apiRoot, 'wrangler.dev.generated.json');
 const publicOrigin = process.env.API_PUBLIC_ORIGIN ?? localUrl(APPS.API);
 const publicUrl = new URL(publicOrigin);
-const desktopPort = process.env.EPICENTER_DEV_PORT ?? '39131';
 if (
 	publicUrl.protocol !== 'http:' ||
 	!['localhost', '127.0.0.1', '[::1]'].includes(publicUrl.hostname) ||
@@ -20,10 +18,9 @@ if (
 		'API_PUBLIC_ORIGIN must be an HTTP loopback origin for local dev.',
 	);
 }
-buildSessionCallbacks(publicOrigin, desktopPort);
 
-// Auth clients and the hosted handoff page must run from the same checkout.
-// Rebuild at startup so a leftover shell cannot speak an older auth protocol.
+// The authorization server's pages must run from the same checkout as the
+// server. Rebuild at startup so a leftover shell cannot speak an older protocol.
 await mkdir(uiBuild, { recursive: true });
 const uiBuildRun = await Bun.$`bun run --cwd ui build`.cwd(apiRoot).nothrow();
 if (uiBuildRun.exitCode !== 0) {
@@ -78,7 +75,7 @@ await writeFile(
 let exitCode: number;
 try {
 	const wrangler =
-		await Bun.$`infisical run --silent --env=dev --path=/api -- bun x wrangler dev --config ${localConfig} --var ${`API_PUBLIC_ORIGIN:${publicOrigin}`} --var ${`EPICENTER_DEV_PORT:${desktopPort}`}`
+		await Bun.$`infisical run --silent --env=dev --path=/api -- bun x wrangler dev --config ${localConfig} --var ${`API_PUBLIC_ORIGIN:${publicOrigin}`}`
 			.cwd(apiRoot)
 			// Dev narrows the public auth origin to localhost. Required auth
 			// bindings, including GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, come

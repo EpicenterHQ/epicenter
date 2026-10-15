@@ -61,19 +61,18 @@ import {
 	mountSessionApp,
 	mountTranscriptionApp,
 	nodeClientMetadataFetch,
+	type OAuthScope,
 	type ResolveBearerPrincipal,
 	registerFirstPartyClients,
+	requireAccessToken,
 	requireBearerPrincipal,
 	resolveDeploymentBlobStore,
-	resolveRequestSessionPrincipal,
 	ServerBindings,
 } from '@epicenter/server/bun';
 import { type } from 'arktype';
-import type { Context } from 'hono';
 import { every } from 'hono/combine';
 import pg from 'pg';
 import { buildFirstPartyClients } from './worker/oauth-registrations.js';
-import { buildSessionCallbacks } from './worker/session-callbacks.js';
 import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
 
 /**
@@ -106,10 +105,10 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
 /**
  * Boot the apps/api Bun server, optionally with an injected principal resolver.
  *
- * Production (`server.ts` as the entrypoint) passes nothing, so
- * this entry uses the real session resolver. `server.dev.ts` passes a
- * dev `Bearer dev:<principalId>` resolver so the parity smoke needs no interactive
- * login. Everything else (env validation, pool, mounts, `Bun.serve`) is
+ * Production (`server.ts` as the entrypoint) passes nothing, so every
+ * resource takes OAuth access tokens (ADR-0549). `server.dev.ts` passes a dev
+ * `Bearer dev:<principalId>` resolver, which then guards every resource in
+ * their place, so the parity smoke needs no interactive login. Everything else (env validation, pool, mounts, `Bun.serve`) is
  * identical across the two, so they cannot drift.
  */
 export async function startBunApiServer(
@@ -150,10 +149,6 @@ export async function startBunApiServer(
 		resolveTrustedOrigins: buildEpicenterTrustedOrigins,
 	});
 
-	// The dev entry passes a dev bearer resolver for the parity smoke; production
-	// keeps the real session bearer resolver. Each protected wrapper closes over it.
-	const resolveBearerPrincipal =
-		opts.resolveBearerPrincipal ?? resolveRequestSessionPrincipal;
 
 	const serveAuthUiShell = () =>
 		new Response(
@@ -171,9 +166,6 @@ export async function startBunApiServer(
 	const cloudContextOptions = {
 		connect: async () => ({ db, close: async () => {} }),
 		afterResponse: () => {},
-
-		resolveSessionCallbacks: (c: Context<CloudEnv>) =>
-			buildSessionCallbacks(c.var.authBaseURL),
 		resolveAuthSecrets: () => env,
 	};
 	const cloudContext = createCloudContextMiddleware(cloudContextOptions);
@@ -191,23 +183,36 @@ export async function startBunApiServer(
 		serveAuthUiShell,
 		resolveAudiences: () => audiences,
 	});
-	const bearer = every(
-		cloudContext,
-		requireBearerPrincipal(resolveBearerPrincipal),
-	);
-	mountSessionApp(app, { auth: bearer });
+	// Every resource takes only an access token for its audience and the scope
+	// its operation needs (ADR-0549). The dev entry's resolver replaces that
+	// guard for the parity smoke.
+	const devBearer = opts.resolveBearerPrincipal;
+	const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
+		every(
+			cloudContext,
+			devBearer
+				? requireBearerPrincipal(devBearer)
+				: requireAccessToken({ audience: () => audiences[audience], scope }),
+		);
+	mountSessionApp(app, { auth: resource('api', 'profile') });
 	// Hosted Git needs the Worker's Artifacts binding. Mounting it with no store
 	// keeps the routes in the shared profile and answers 503 `GitUnavailable`.
-	mountGitApp(app, { auth: bearer, resolveStore: () => null });
-	mountInferenceApp(app, { auth: bearer });
+	mountGitApp(app, {
+		auth: resource('git', 'folders:write'),
+		resolveStore: () => null,
+	});
+	mountInferenceApp(app, { auth: resource('api', 'ai') });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered
 	// here for the same reason inference is: this host composes no billing, so
 	// there is no Autumn policy to attach. Mounting it is what keeps a `star`
 	// transcription working against `dev:bun`; the Worker is the only hosted
 	// artifact, and it meters both gateways.
-	mountTranscriptionApp(app, { auth: bearer });
+	mountTranscriptionApp(app, { auth: resource('api', 'ai') });
 	mountPersonalAuthorityBlobs(app, {
-		auth: bearer,
+		auth: {
+			read: resource('git', 'folders:read'),
+			write: resource('git', 'folders:write'),
+		},
 		resolveStore: resolveDeploymentBlobStore,
 	});
 

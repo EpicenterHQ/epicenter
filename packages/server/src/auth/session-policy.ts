@@ -18,9 +18,11 @@ const managementPaths = new Set([
 ]);
 
 /**
- * Resolve the invoking credential through the public session endpoint before
- * any management endpoint caches an ambient identity. The nested /get-session
- * call bypasses this path guard and runs Better Auth's bearer normalization.
+ * Resolve the session cookie through the public session endpoint before any
+ * management endpoint caches an ambient identity. Only the cookie counts: a
+ * session is the authorization server's own credential, and no access token or
+ * `Authorization` header reaches account management (ADR-0549). The nested
+ * /get-session call bypasses this path guard.
  */
 export function requireAccountSession(
 	resolveSession: (
@@ -30,11 +32,8 @@ export function requireAccountSession(
 	return createAuthMiddleware(async (ctx) => {
 		if (!managementPaths.has(ctx.path)) return;
 		const headers = new Headers();
-		const authorization = ctx.headers?.get('authorization');
-		if (ctx.headers?.has('authorization'))
-			headers.set('authorization', authorization ?? '');
-		else if (ctx.headers?.has('cookie'))
-			headers.set('cookie', ctx.headers.get('cookie') ?? '');
+		const cookie = ctx.headers?.get('cookie');
+		if (cookie) headers.set('cookie', cookie);
 		let session: { session: Session; user: User } | null;
 		try {
 			session = await resolveSession(headers);

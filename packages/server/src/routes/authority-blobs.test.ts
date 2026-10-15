@@ -13,7 +13,7 @@ import {
 	parsePersonalBlobUrl,
 } from '@epicenter/blobs';
 import { asPrincipalId } from '@epicenter/principal';
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import { resolveDeploymentBlobStore } from '../s3-blob-store.js';
 import type { Env } from '../types.js';
 import { mountPersonalAuthorityBlobs } from './authority-blobs.js';
@@ -38,13 +38,14 @@ function setup(actor: string | null = 'alice') {
 		c.set('authBaseURL', origin);
 		await next();
 	});
+	const guard: MiddlewareHandler<Env> = async (c, next) => {
+		if (!actor) return c.text('Unauthorized', 401);
+		c.set('principal', { id: asPrincipalId(actor) });
+		await next();
+	};
 	mountPersonalAuthorityBlobs(app, {
 		resolveStore: resolveDeploymentBlobStore,
-		auth: async (c, next) => {
-			if (!actor) return c.text('Unauthorized', 401);
-			c.set('principal', { id: asPrincipalId(actor) });
-			await next();
-		},
+		auth: { read: guard, write: guard },
 	});
 	return app;
 }

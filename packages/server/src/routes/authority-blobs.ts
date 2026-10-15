@@ -49,14 +49,18 @@ const inlineMedia = new Set([
 	'image/avif',
 ]);
 
-/** Personal objects have no application or row namespace in their identity. */
+/**
+ * Personal objects have no application or row namespace in their identity.
+ * Reading a private object takes the `read` guard and publishing or deleting
+ * one the `write` guard; a public object reads without either.
+ */
 export function mountPersonalAuthorityBlobs<E extends Env>(
 	app: Hono<E>,
 	{
 		auth,
 		resolveStore,
 	}: {
-		auth: MiddlewareHandler<E>;
+		auth: { read: MiddlewareHandler<E>; write: MiddlewareHandler<E> };
 		resolveStore: (env: E['Bindings']) => HostedBlobStore | null;
 	},
 ): void {
@@ -163,7 +167,7 @@ export function mountPersonalAuthorityBlobs<E extends Env>(
 	const publicObject = PERSONAL_BLOB_OBJECT.replace(':visibility', 'public');
 	const privateObject = PERSONAL_BLOB_OBJECT.replace(':visibility', 'private');
 	app.on(['GET', 'HEAD'], publicObject, read);
-	app.on(['GET', 'HEAD'], privateObject, auth, read);
+	app.on(['GET', 'HEAD'], privateObject, auth.read, read);
 
 	const publish: Handler<Env> = async (c) => {
 		const principalId = c.req.param('principalId');
@@ -233,7 +237,7 @@ export function mountPersonalAuthorityBlobs<E extends Env>(
 			return c.text('Publication could not be confirmed', 503);
 		return c.json({ url }, 201);
 	};
-	app.post(PERSONAL_BLOB_COLLECTION, auth, publish);
+	app.post(PERSONAL_BLOB_COLLECTION, auth.write, publish);
 
 	const remove: Handler<Env> = async (c) => {
 		const request = new URL(c.req.url);
@@ -247,5 +251,5 @@ export function mountPersonalAuthorityBlobs<E extends Env>(
 		await store.delete(address.storageKey, c.req.raw.signal);
 		return c.body(null, 204);
 	};
-	app.delete(PERSONAL_BLOB_OBJECT, auth, remove);
+	app.delete(PERSONAL_BLOB_OBJECT, auth.write, remove);
 }

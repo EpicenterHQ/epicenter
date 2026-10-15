@@ -32,6 +32,11 @@ export const RequestGuardError = defineErrors({
 		message: 'Origin header is missing or not in the trusted-origin allowlist.',
 		status: 403 as const,
 	}),
+	PrincipalMismatch: () => ({
+		message:
+			'The signed-in account is not the one this page was opened for.',
+		status: 403 as const,
+	}),
 	MissingNodeId: () => ({
 		message:
 			'WebSocket upgrade is missing the required nodeId query parameter.',

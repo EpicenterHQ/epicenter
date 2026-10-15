@@ -45,15 +45,19 @@ divergence is declared and checked against both entries.
 
 Better Auth owns identity and sessions. Hosted Epicenter configures Google,
 GitHub, Microsoft, and Apple social sign-in, with optional passkeys and no
-email/password flow. Browser apps, the dashboard, and the Bun desktop host
-receive independent signed sessions through a PKCE/state handoff. Resources
-validate those session bearers against live session rows.
+email/password flow. The session cookie is the authorization server's own:
+sign-in, consent, device approval, and the dashboard's account management
+(billing, sign-in methods, account deletion) on this origin.
 
-This Worker is also the OAuth 2.1 authorization server of
-[ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md).
-It issues opaque access tokens, but no client uses them yet and no route
-accepts them: clients still sign in through the session handoff until they
-move to the authorization server. See [Authorization server](#authorization-server).
+This Worker is the OAuth 2.1 authorization server of
+[ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
+and every resource it serves accepts only its opaque access tokens: `/v1/*`
+takes the API audience and `ai`, `/api/session` the API audience and
+`profile`, `POST /api/git/connect` the Git audience and `folders:write`, and
+personal blobs the Git audience with `folders:read` or `folders:write`. Browser
+apps get a token by authorization code with PKCE as their own client; the
+desktop app's pages reach the API through `epicenter send`, which holds the
+desktop grant. See [Authorization server](#authorization-server).
 
 ## Trust model
 
@@ -96,10 +100,9 @@ For the full argument:
 ```
 Cloudflare Workers
 ├── Hono app (worker/index.ts)
-│   ├── /auth/*                Better Auth (social login, sessions, handoff, passkeys,
+│   ├── /auth/*                Better Auth (social login, sessions, passkeys,
 │   │                          OAuth 2.1 authorize, token, revoke, device grant)
 │   ├── /sign-in               hosted browser sign-in
-│   ├── /session/callback      dashboard handoff completion
 │   ├── /consent               OAuth consent, with the folder picker
 │   ├── /device                device approval, with the folder picker
 │   ├── /.well-known/*         authorization server and protected resource metadata
@@ -250,8 +253,8 @@ local connection string. `bun run test` runs each test file isolated
 ### Hosted Git
 
 `mountGitApp` serves two planes over one repository store.
-`POST /api/git/connect` with `{ "folder": "so.epicenter.todos" }` and a session
-bearer answers `{ remote, token, expiresAt }`. The remote is
+`POST /api/git/connect` with `{ "folder": "so.epicenter.todos" }` and an
+access token for the Git audience with `folders:write` answers `{ remote, token, expiresAt }`. The remote is
 `https://api.epicenter.so/git/<folder>.<tag>.git`, where `tag` is the first 16
 hex characters of SHA-256 over the principal ID, and the token is a one-hour
 Artifacts write token for that repository alone. The data plane,

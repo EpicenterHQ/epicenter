@@ -171,18 +171,44 @@ test('configured clients preserve names and IDs but retire on credential or dest
 });
 
 test('same-owner refresh preserves an account client and sign-out retires its stream', async () => {
-	const { createSessionAuth } = await import('@epicenter/auth');
+	const { createBrowserOAuth, epicenterCloud } = await import(
+		'@epicenter/auth'
+	);
 	const { asPrincipalId } = await import('@epicenter/principal');
-	let token = 'first';
+	const cells = new Map<string, string>();
+	const storage = {
+		getItem: (key: string) => cells.get(key) ?? null,
+		setItem: (key: string, value: string) => void cells.set(key, value),
+		removeItem: (key: string) => void cells.delete(key),
+	};
+	// The token cell another tab's sign-in or renewal writes.
+	const store = (accessToken: string) =>
+		storage.setItem(
+			'test.app.oauth:https://account.example',
+			JSON.stringify({
+				accessToken,
+				expiresAt: Date.now() + 8 * 60 * 60_000,
+				principalId: 'alice',
+			}),
+		);
+	store('first');
 	const authorizations: (string | null)[] = [];
-	const auth = createSessionAuth({
-		authorityId: 'epicenter-api',
-		baseURL: 'https://account.example',
-		persistedAuthStorage: { initial: null, set() {} },
-		launcher: { startSignIn: async () => ({ status: 'completed', token }) },
+	const auth = createBrowserOAuth({
+		server: epicenterCloud('https://account.example'),
+		clientId: 'test.app',
+		resource: 'https://account.example',
+		scope: 'openid ai',
+		accountManagement: false,
+		storage,
+		attemptStorage: storage,
+		location: {
+			href: 'https://app.example/',
+			origin: 'https://app.example',
+			assign() {},
+			replace() {},
+		},
+		watchStorage: () => () => {},
 		fetch: async (input, init) => {
-			if (String(input).endsWith('/api/session'))
-				return Response.json({ principalId: 'alice' });
 			if (String(input).endsWith('/models'))
 				authorizations.push(new Headers(init?.headers).get('authorization'));
 			if (String(input).endsWith('/models')) return Response.json({ data: [] });
@@ -208,17 +234,15 @@ test('same-owner refresh preserves an account client and sign-out retires its st
 		},
 	});
 	const { expectOk } = await import('wellcrafted/testing');
-	expectOk(await auth.startSignIn());
 	const state = auth.getState();
 	if (state.status === 'signed-out') throw new Error('Expected Account');
 	const account = state.account;
 	expect(account.principalId).toBe(asPrincipalId('alice'));
 	const { inference, close } = setup(account.fetch);
 	await inference.client.models.list();
-	token = 'refreshed';
-	expectOk(await auth.startSignIn());
-	expect(auth.getState().account).toBe(account);
+	store('refreshed');
 	await inference.client.models.list();
+	expect(auth.getState().account).toBe(account);
 	expect(authorizations).toEqual(['Bearer first', 'Bearer refreshed']);
 	const stream = await inference.client.chat.completions.create({
 		model: 'chosen',

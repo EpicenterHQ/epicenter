@@ -20,7 +20,6 @@ const authOptions = {
 	resolveAuthSecrets: () => ({
 		BETTER_AUTH_SECRET: 'cloud-context-test-secret-1234567890',
 	}),
-	resolveSessionCallbacks: () => [],
 };
 
 test('public shells and unrelated 404s bypass failing acquisition and auth setup', async () => {
@@ -43,7 +42,6 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 		resolveAuthSecrets: () => {
 			throw new Error('Public shell must not construct auth');
 		},
-		resolveSessionCallbacks: () => [],
 	});
 	mountAuthRoutes(app, {
 		setup,
@@ -59,7 +57,6 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 	app.get('/dashboard', (c) => c.html('<html>Dashboard</html>'));
 	for (const path of [
 		'/sign-in',
-		'/session/callback',
 		'/consent',
 		'/device',
 		'/dashboard',

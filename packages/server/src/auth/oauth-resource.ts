@@ -9,8 +9,10 @@ import type { OAuthError } from './oauth-errors.js';
  * 401 with a `WWW-Authenticate` challenge; `ServerError` is a 503 the client
  * should retry rather than treat as a rejected token.
  *
- * This helper is runtime-neutral and serves plain-HTTP rejections (inference,
- * session, billing).
+ * This helper is runtime-neutral. It answers the session-cookie guard's
+ * refusals, an access-token guard that could not reach the database, and the
+ * dev entry's bearer seam; an access token's own refusal carries its
+ * `resource_metadata` challenge from `resource-access.ts` instead.
  */
 export function createOAuthUnauthorizedResourceResponse(
 	c: Context,

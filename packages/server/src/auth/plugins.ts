@@ -6,7 +6,6 @@ import {
 } from '@better-auth/oauth-provider';
 import { passkey } from '@better-auth/passkey';
 import type { BetterAuthOptions } from 'better-auth';
-import { bearer } from 'better-auth/plugins/bearer';
 import type { Db } from '../db/create-db.js';
 import { grantTarget, resolveConsentReferenceId } from './grant-target.js';
 import {
@@ -19,7 +18,6 @@ import {
 	TOKEN_PREFIX,
 } from './oauth-policy.js';
 import { offlineDetach } from './offline-detach.js';
-import { sessionHandoff } from './session-handoff.js';
 
 /** The authorization server's deployment inputs. */
 export type OAuthServerConfig = {
@@ -104,23 +102,15 @@ export function oauthServerPlugins({
 }
 
 /**
- * The session plugins: signed session bearers, the session handoff, and
- * passkeys. `createAuth` composes them with {@link oauthServerPlugins}.
+ * Passkeys for signing in to the authorization server's own pages.
+ * `createAuth` composes them with {@link oauthServerPlugins}. A session is no
+ * resource credential (ADR-0549), so there is no `bearer()` and no session
+ * handoff: clients hold access tokens the authorization server issues.
  */
-export function authPlugins(
-	apiBaseURL: string,
-	callbacks: readonly string[] = [],
-) {
+export function authPlugins(apiBaseURL: string) {
 	const origin = apiBaseURL.replace(/\/$/, '');
 	const rpID = new URL(origin).hostname;
 	return [
-		// Session bearers and the session handoff stay until every client signs
-		// in through the authorization server (ADR-0549, wave 2).
-		bearer({ requireSignature: true }),
-		sessionHandoff({
-			origin,
-			callbacks,
-		}),
 		passkey({ rpID, rpName: 'Epicenter', origin }),
 	] satisfies NonNullable<BetterAuthOptions['plugins']>;
 }

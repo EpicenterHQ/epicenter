@@ -26,9 +26,10 @@ import {
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
 	mountTranscriptionApp,
-	requireBearerPrincipal,
+	type OAuthScope,
+	requireAccessToken,
+	requireSessionCookie,
 	resolveDeploymentBlobStore,
-	resolveRequestSessionPrincipal,
 	type ServerBindings,
 	workerClientMetadataFetch,
 } from '@epicenter/server';
@@ -42,7 +43,6 @@ import {
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
 import { createArtifactsRepositoryStore } from './git-repositories.js';
-import { buildSessionCallbacks } from './session-callbacks.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
 // Compile-time proof that this worker's generated Env provides every
@@ -101,12 +101,6 @@ const cloudContextOptions = {
 		connectHyperdriveDb((env as Cloudflare.Env).HYPERDRIVE),
 	afterResponse: (c: Context<CloudEnv>, work: Promise<unknown>) =>
 		c.executionCtx.waitUntil(work),
-
-	resolveSessionCallbacks: (c: Context<CloudEnv>) =>
-		buildSessionCallbacks(
-			c.var.authBaseURL,
-			(c.env as Cloudflare.Env).EPICENTER_DEV_PORT,
-		),
 	resolveAuthSecrets: (c: Context<CloudEnv>) => c.env as Cloudflare.Env,
 };
 const cloudContext = createCloudContextMiddleware(cloudContextOptions);
@@ -128,18 +122,28 @@ mountAuthRoutes(app, {
 	resolveAudiences: (c) => resolveOAuthAudiences(c.var.authBaseURL),
 });
 
-const bearer = every(
-	cloudContext,
-	requireBearerPrincipal(resolveRequestSessionPrincipal),
-);
+// Every resource takes only an access token for its audience and the scope
+// its operation needs (ADR-0549). Account management on the authorization
+// server's own pages takes only its session cookie.
+const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
+	every(
+		cloudContext,
+		requireAccessToken({
+			audience: (c) => resolveOAuthAudiences(c.var.authBaseURL)[audience],
+			scope,
+		}),
+	);
+const accountSession = every(cloudContext, requireSessionCookie());
 
-// Principal-partitioned reusable surfaces.
-mountSessionApp(app, { auth: bearer });
+// The profile read.
+mountSessionApp(app, { auth: resource('api', 'profile') });
 // Hosted Git over Cloudflare Artifacts (ADR-0521). Unmetered like hosted
-// blobs. The local dev launcher removes the Artifacts binding and required
+// blobs. `POST /api/git/connect` mints write access to a repository, so it
+// takes the Git audience and `folders:write`; ADR-0546's hosted Git replaces
+// it. The local dev launcher removes the Artifacts binding and required
 // account secret, so the store resolves to null and hosted Git answers 503.
 mountGitApp(app, {
-	auth: bearer,
+	auth: resource('git', 'folders:write'),
 	resolveStore: (env) => {
 		const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } =
 			env as Partial<Cloudflare.Env>;
@@ -154,28 +158,36 @@ mountGitApp(app, {
 });
 // Owner-addressed hosted blobs are currently unmetered. Autumn's check()
 // denies by default without a plan, so this route has no billing policy.
+// A blob is folder content that travels like LFS (ADR-0544), so it takes the
+// Git audience.
 mountPersonalAuthorityBlobs(app, {
-	auth: bearer,
+	auth: {
+		read: resource('git', 'folders:read'),
+		write: resource('git', 'folders:write'),
+	},
 	resolveStore: resolveDeploymentBlobStore,
 });
 mountInferenceApp(app, {
-	auth: bearer,
+	auth: resource('api', 'ai'),
 	policies: [chargeOpenAiCreditsWithAutumn],
 });
 // OpenAI-compatible STT gateway (OpenAI whisper-1, house key). Metered by audio
 // duration, settled after the call (per-minute); see chargeOpenAiTranscriptionCredits.
 mountTranscriptionApp(app, {
-	auth: bearer,
+	auth: resource('api', 'ai'),
 	policies: [chargeOpenAiTranscriptionCredits],
 });
 
-// Cloud-only billing data plane. Auth is bundled into the mount so the
-// dashboard endpoints can't be mounted without it.
-mountBillingApi(app, { auth: bearer });
+// Cloud-only billing data plane for the dashboard, the authorization server's
+// own page: billing is account management, which no access token reaches
+// (ADR-0549). Auth is bundled into the mount so the dashboard endpoints can't
+// be mounted without it.
+mountBillingApi(app, { auth: accountSession });
 
 // Hosted account deletion currently refuses before destructive work because
 // historical storage ownership and write retirement are not yet established.
-// The mount preserves fresh-session and principal-binding checks.
+// The mount preserves fresh-session and principal-binding checks on the
+// session cookie.
 mountAccountDeletionApi(app, { setup: cloudContext });
 
 // Dashboard SPA: serve the cloud UI shell for the dashboard URLs. The hosted

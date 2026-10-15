@@ -3,15 +3,18 @@
  *
  * Two planes share one {@link GitRepositoryStore}:
  *
- *   - `POST /api/git/connect` `{ folder }` (session auth): find or create the
- *     signed-in principal's repository for `folder` and answer
- *     `{ remote, token, expiresAt, expiresIn }`. `expiresIn` is the token's
- *     remaining life in seconds by this server's clock, so a client times its
- *     renewal without trusting its own. It lives under `/api/` because the
- *     desktop host's account relay forwards only `/api/` and `/v1/`.
+ *   - `POST /api/git/connect` `{ folder }`: find or create the caller's
+ *     repository for `folder` and answer `{ remote, token, expiresAt,
+ *     expiresIn }`. The deployment guards it with an access token for its
+ *     Git audience and `folders:write` (ADR-0549), since it mints write
+ *     access to a repository; ADR-0546's hosted Git replaces it. `expiresIn`
+ *     is the token's remaining life in seconds by this server's clock, so a
+ *     client times its renewal without trusting its own. It lives under
+ *     `/api/` because a desktop page reaches it through `epicenter send`'s
+ *     account target, which sends only below `/api/`.
  *   - `/git/<name>.git/{info/refs,git-upload-pack,git-receive-pack}`: the Git
  *     data plane. The repository token in `Authorization` is the credential and
- *     the store's backend checks it, so this plane does no session auth. It sits
+ *     the store's backend checks it, so this plane checks no access token. It sits
  *     outside `/api/` because the cookie-CSRF guard there would refuse a
  *     terminal `git push` that carries Basic auth and no `Origin`.
  *

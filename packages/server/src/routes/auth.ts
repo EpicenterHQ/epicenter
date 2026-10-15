@@ -1,7 +1,6 @@
 /**
  * Hosted sign-in, the authorization server's pages and discovery, and Better
- * Auth's endpoints. The sign-in UI performs the explicit POST handoff; a GET
- * never issues a code.
+ * Auth's endpoints.
  */
 import {
 	oauthProviderAuthServerMetadata,
@@ -14,7 +13,7 @@ import { protectedResourceMetadataUrl } from '../auth/resource-access.js';
 import type { CloudEnv } from '../types.js';
 
 /** The browser pages this server owns, served from the deployment's UI shell. */
-const AUTH_PAGES = ['/sign-in', '/session/callback', '/consent', '/device'];
+const AUTH_PAGES = ['/sign-in', '/consent', '/device'];
 
 /** The RFC 9728 document for one audience this origin serves. */
 function protectedResourceMetadata(audience: string, issuer: string) {

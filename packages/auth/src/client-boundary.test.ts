@@ -1,8 +1,7 @@
-/** Client boundaries keep credential verification on the server and runtime storage private. */
+/** Client boundaries keep credential verification on the server. */
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import * as authRoot from './index.js';
 
 const repoRoot = join(import.meta.dir, '../../..');
 
@@ -77,17 +76,5 @@ describe('client auth boundary', () => {
 		);
 
 		expect(violations).toEqual([]);
-	});
-
-	test('credential-shaped schemas are not on the public root', () => {
-		// PersistedAuth is the durable credential cell; runtimes persist it
-		// through the storage adapters, never by importing the schema. Keeping
-		// it off the barrel is the structural guard: the package `exports` map
-		// exposes no path to `auth-types.js`, so an app cannot reach it at all.
-		expect('PersistedAuth' in authRoot).toBe(false);
-
-		// The capability surface stays public.
-		expect('createWebStoragePersistedAuthStorage' in authRoot).toBe(true);
-		expect('createSessionAuth' in authRoot).toBe(true);
 	});
 });

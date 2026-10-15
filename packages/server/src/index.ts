@@ -35,6 +35,8 @@ export {
 	registerFirstPartyClients,
 } from './auth/oauth-registrations.js';
 export {
+	type AccountAccess,
+	authorizeAccountRequest,
 	authorizeResourceRequest,
 	protectedResourceMetadataUrl,
 	type ResourceAccess,
@@ -45,11 +47,13 @@ export { createCloudContextMiddleware } from './create-cloud-context-middleware.
 export { connectHyperdriveDb } from './db/backends/cloudflare.js';
 // Cloud database handles: Hyperdrive uses a per-request client; Bun uses a pool.
 export { createDb, type Db } from './db/create-db.js';
-// Protected mounts use requireBearerPrincipal with the deployment's resolver:
-// database-backed sessions on both runtimes.
+// Protected mounts: an access token for a resource, the session cookie for
+// account management on the authorization server's own pages (ADR-0549), and
+// the dev entry's bearer seam.
 export {
+	requireAccessToken,
 	requireBearerPrincipal,
-	resolveRequestSessionPrincipal,
+	requireSessionCookie,
 } from './middleware/require-auth.js';
 export {
 	NAMESPACE_ROLES,

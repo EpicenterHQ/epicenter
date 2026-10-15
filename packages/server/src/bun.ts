@@ -36,6 +36,8 @@ export {
 	registerFirstPartyClients,
 } from './auth/oauth-registrations.js';
 export {
+	type AccountAccess,
+	authorizeAccountRequest,
 	authorizeResourceRequest,
 	protectedResourceMetadataUrl,
 	type ResourceAccess,
@@ -45,8 +47,9 @@ export {
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 export { createDb } from './db/create-db.js';
 export {
+	requireAccessToken,
 	requireBearerPrincipal,
-	resolveRequestSessionPrincipal,
+	requireSessionCookie,
 } from './middleware/require-auth.js';
 export {
 	NAMESPACE_ROLES,

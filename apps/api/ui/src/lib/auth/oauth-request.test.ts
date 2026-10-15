@@ -1,7 +1,6 @@
 /** The authorization server's pages hand back exactly the request it signed. */
 import { expect, test } from 'bun:test';
 import { describeScopes, readOAuthRequest } from './oauth-request';
-import { readReturnPath } from './session-request';
 
 const signed =
 	'response_type=code&client_id=so.epicenter&scope=offline_access+folders%3Aread&prompt=login&state=s&exp=1&ba_iat=2&ba_param=client_id&sig=abc';
@@ -28,19 +27,4 @@ test('scope lines skip scopes that grant nothing on their own', () => {
 		'Change your folders',
 		'Use Epicenter AI on your plan',
 	]);
-});
-
-test('sign-in returns only to the device approval page on this origin', () => {
-	expect(readReturnPath('?return=%2Fdevice%3Fuser_code%3DABCD-EFGH')).toBe(
-		'/device?user_code=ABCD-EFGH',
-	);
-	for (const value of [
-		'https://attacker.example/device',
-		'//attacker.example/device',
-		'/dashboard',
-		'/devices',
-	])
-		expect(
-			readReturnPath(`?${new URLSearchParams({ return: value })}`),
-		).toBeNull();
 });

@@ -15,32 +15,13 @@ import type * as schema from './db/schema/index.js';
 import type { ServerBindings } from './server-bindings.js';
 
 /**
- * How an explicit bearer token resolves to the calling principal: the one auth
- * seam.
- *
- * The `requireBearerPrincipal` wrapper extracts the `Authorization` header and hands the resolver
- * a bare token. The resolver only verifies; it never reads request headers, so
- * no route has to fake another route's header to authenticate.
- * The deployment builds each wrapper by closing it over its resolver
- * (`requireBearerPrincipal(resolveBearerPrincipal)`), so the resolver is held in
- * the wrapper's closure, not stamped on the context: there is no
- * `c.var.resolveBearerPrincipal`.
- *
- * The cloud closes over `resolveRequestSessionPrincipal`, which verifies a signed
- * bearer against its Better Auth session row. A dev-only entrypoint closes over a trivial
- * `dev:<principalId>` resolver so the runtime-parity smoke needs no interactive
- * login; that bypass lives in a dev entry production never imports, never an
- * env-gated branch in this library.
- *
- * Returns the same `Result<Principal, OAuthError>` every resolver returns, so a
- * different resolver slots in without touching the wrappers' error handling
- * (HTTP 401, the Bearer `WWW-Authenticate` challenge, or the relay's 4401 close).
- *
- * Generic over the context it reads: a resolver like the dev one needs only
- * the portable {@link Env}; the cloud's `resolveRequestSessionPrincipal` reads
- * `c.var.auth`, so it is a `ResolveBearerPrincipal<CloudEnv>`. The
- * wrapper that closes over a resolver carries the same `E`, so a cloud resolver
- * only composes onto a cloud app.
+ * How a dev-only entry resolves its own bearer to a principal, for
+ * `requireBearerPrincipal`. The wrapper extracts the `Authorization` header
+ * and hands the resolver the bare token. `apps/api/server.dev.ts` closes it
+ * over a `dev:<principalId>` resolver so the runtime-parity smoke needs no
+ * interactive login; production routes take OAuth access tokens through
+ * `requireAccessToken` instead (ADR-0549), so this seam is never compiled
+ * into a production guard.
  */
 export type ResolveBearerPrincipal<E extends Env = Env> = (
 	c: Context<E>,

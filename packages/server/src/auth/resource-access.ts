@@ -63,6 +63,13 @@ export function readAccessToken(authorization: string | null | undefined) {
 	return separator < 0 ? null : decoded.slice(separator + 1) || null;
 }
 
+/** Who the token acts for on a resource that names no namespace. */
+export type AccountAccess = {
+	accountId: string;
+	email: string;
+	clientId: string;
+};
+
 type AccessRow = {
 	account_id: string;
 	client_id: string;
@@ -154,6 +161,83 @@ export async function authorizeResourceRequest(
 	return Ok({
 		accountId: row.account_id,
 		role: row.role,
+		clientId: row.client_id,
+	});
+}
+
+type AccountRow = {
+	account_id: string;
+	client_id: string;
+	email: string;
+	has_audience: boolean;
+	has_scope: boolean;
+};
+
+/**
+ * Decide one request to a resource that acts on the person's account rather
+ * than a namespace: inference, transcription, and the profile read. The same
+ * statement as {@link authorizeResourceRequest} without the grant target or
+ * membership, since none of these reach a folder:
+ *
+ * - 401 `invalid_token` for a missing, unknown, expired, or revoked token, a
+ *   token whose approving browser session ended, or another audience's token;
+ * - 403 `insufficient_scope` when the token lacks `scope`.
+ */
+export async function authorizeAccountRequest(
+	db: Db,
+	{
+		token,
+		audience,
+		scope,
+	}: {
+		token: string | null;
+		/** This resource's identifier, the token's required audience. */
+		audience: string;
+		scope: OAuthScope;
+	},
+): Promise<Result<AccountAccess, ResourceRefusal>> {
+	const metadata = `resource_metadata="${protectedResourceMetadataUrl(audience)}"`;
+	const invalid = (description: string) =>
+		Err<ResourceRefusal>({
+			status: 401,
+			challenge: `Bearer error="invalid_token", ${metadata}`,
+			body: { error: 'invalid_token', error_description: description },
+		});
+	const hash = token
+		? await hashPrefixedToken(token, TOKEN_PREFIX.access)
+		: null;
+	if (!hash) return invalid('An Epicenter access token is required.');
+	const now = new Date();
+	const { rows } = await db.execute<AccountRow>(sql`
+		select t.user_id as account_id,
+		       t.client_id,
+		       u.email,
+		       ${audience} = any(t.resources) as has_audience,
+		       ${scope} = any(t.scopes) as has_scope
+		from oauth_access_token t
+		join "user" u on u.id = t.user_id
+		left join session s on s.id = t.session_id
+		where t.token = ${hash}
+		  and t.revoked is null
+		  and t.expires_at > ${now}
+		  and (t.session_id is null or s.expires_at > ${now})
+	`);
+	const row = rows[0];
+	if (!row) return invalid('The access token is unknown, expired, or revoked.');
+	if (!row.has_audience)
+		return invalid('The access token was issued for another resource.');
+	if (!row.has_scope)
+		return Err({
+			status: 403,
+			challenge: `Bearer error="insufficient_scope", scope="${scope}", ${metadata}`,
+			body: {
+				error: 'insufficient_scope',
+				error_description: `This operation needs the ${scope} scope.`,
+			},
+		});
+	return Ok({
+		accountId: row.account_id,
+		email: row.email,
 		clientId: row.client_id,
 	});
 }

@@ -150,14 +150,14 @@ Unbuilt, decided:
 `apps/api` is the hosted Cloudflare Worker, built on the shared Hono package
 `packages/server`: auth, hosted Git, AI, blobs, and billing. Billing is
 hosted-only and lives in `apps/api/worker/billing/`. The same app runs on Bun
-against Postgres (`apps/api/server.ts`), which is how someone self-hosts. Today every hosted
-request carries a Better Auth session, issued per client through
-`sessionHandoff`.
+against Postgres (`apps/api/server.ts`), which is how someone self-hosts. Every
+resource accepts only opaque access tokens from one OAuth 2.1 authorization
+server, and the Better Auth session cookie serves only that server's own pages
+([ADR-0549](adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)).
 
-Unbuilt, decided: every Epicenter resource accepts only opaque access tokens
-from one OAuth 2.1 authorization server, with device login behind
-`epicenter login` and `epicenter git-credential`
-([ADR-0549](adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)),
+Unbuilt, decided: hosted Git at `git.epicenter.so` behind
+`epicenter auth git-credential`
+([ADR-0546](adr/0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md)),
 and an MCP server at `https://mcp.epicenter.so/mcp` reaches hosted folders
 through grants that target namespaces
 ([ADR-0550](adr/0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md)).

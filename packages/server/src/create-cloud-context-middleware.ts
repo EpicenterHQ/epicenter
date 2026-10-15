@@ -14,7 +14,6 @@ import type { CloudEnv } from './types.js';
 export function createCloudContextMiddleware(opts: {
 	/** Auth secrets stay in the deployment's bindings, outside ServerBindings. */
 	resolveAuthSecrets: (c: Context<CloudEnv>) => CloudAuthBindings;
-	resolveSessionCallbacks: (c: Context<CloudEnv>) => readonly string[];
 	/**
 	 * The authorization server's audiences and metadata-document transport,
 	 * for the context that serves `/auth/*`. Omit it for a context that only
@@ -51,7 +50,6 @@ export function createCloudContextMiddleware(opts: {
 					env: opts.resolveAuthSecrets(c),
 					baseURL: c.var.authBaseURL,
 					trustedOrigins: c.var.trustedOrigins,
-					sessionCallbacks: opts.resolveSessionCallbacks(c),
 					oauth: opts.resolveOAuthServer?.(c),
 				}),
 			);

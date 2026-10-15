@@ -1,5 +1,6 @@
 /**
- * `/api/session`: the authenticated session projection.
+ * `/api/session`: the profile read. Despite the historical path, it reads an
+ * access token's account, not a Better Auth session.
  *
  * Returns the authenticated principal. Clients cache the principal id so
  * store boot and local-storage keying work offline.
@@ -17,9 +18,10 @@ import { describeRoute } from 'hono-openapi';
 import type { Env } from '../types.js';
 
 /**
- * Mount the session surface on a deployment's server app.
+ * Mount the profile read on a deployment's server app.
  *
- * The deployment supplies `requireBearerPrincipal` with its session resolver. Bundles that auth and the route mount into one call.
+ * The deployment supplies the guard: an access token for its API audience
+ * with the `profile` scope (ADR-0549).
  */
 export function mountSessionApp<E extends Env = Env>(
 	app: Hono<E>,
@@ -29,7 +31,7 @@ export function mountSessionApp<E extends Env = Env>(
 		API_ROUTES.session.pattern,
 		opts.auth,
 		describeRoute({
-			description: 'Return the authenticated session projection',
+			description: 'Return the account the access token acts for',
 			tags: ['auth'],
 		}),
 		async (c: Context<Env>) => {

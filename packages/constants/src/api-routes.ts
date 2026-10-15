@@ -33,7 +33,7 @@
  *   .get(API_ROUTES.session.pattern, handler);
  *
  * // Deployment middleware (server-only prefixPattern)
- * app.use(API_ROUTES.ai.completions.prefixPattern, requireBearerPrincipal);
+ * app.use(API_ROUTES.ai.completions.prefixPattern, requireAccessToken({ audience, scope: 'ai' }));
  *
  * // Client fetch (the url() output is the public contract)
  * const res = await fetch(API_ROUTES.session.url(baseURL));

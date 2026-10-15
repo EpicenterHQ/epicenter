@@ -281,7 +281,7 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 	databaseUnavailable = true;
 	databaseCalls = 0;
 	try {
-		const authPages = ['/sign-in', '/session/callback', '/consent', '/device'];
+		const authPages = ['/sign-in', '/consent', '/device'];
 		for (const path of [...authPages, '/dashboard', '/dashboard/usage']) {
 			const response = await worker(new Request(`${ORIGIN}${path}`));
 			expect(response.status).toBe(200);
@@ -346,7 +346,10 @@ test('Worker public HTML shells and both runtimes unrelated 404s survive Postgre
 test('both runtime compositions fail closed on protected operations during a database outage', async () => {
 	const worker = await workerFetcher();
 	const bun = await bunFetcher();
-	const token = `probe.${await makeSignature('probe', 'runtime-profile-probe-secret-not-a-real-key')}`;
+	// An access token for the resources, and a session cookie for the
+	// account-management routes, which read no Authorization header.
+	const token = 'ep_at_runtime-profile-probe';
+	const cookie = `better-auth.session_token=probe.${await makeSignature('probe', 'runtime-profile-probe-secret-not-a-real-key')}`;
 	databaseUnavailable = true;
 	try {
 		for (const [fetcher, runtime] of [
@@ -364,7 +367,7 @@ test('both runtime compositions fail closed on protected operations during a dat
 				const response = await fetcher(
 					new Request(row.url, {
 						method: row.method,
-						headers: { authorization: `Bearer ${token}` },
+						headers: { authorization: `Bearer ${token}`, cookie },
 					}),
 				);
 				expect(response.status).toBeGreaterThanOrEqual(500);

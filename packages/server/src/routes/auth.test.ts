@@ -81,10 +81,8 @@ test('protected resource metadata answers only for audiences on this origin', as
 			.status,
 	).toBe(404);
 });
-test('the dashboard callback serves a private shell outside the Better Auth catch-all', async () => {
-	const response = await setup().request(
-		'/session/callback?code=one-time&state=bound',
-	);
+test('the sign-in page serves a private shell outside the Better Auth catch-all', async () => {
+	const response = await setup().request('/sign-in?redirect=%2Fdashboard');
 	expect(response.status).toBe(200);
 	expect(response.headers.get('cache-control')).toBe('no-store');
 	expect(response.headers.get('referrer-policy')).toBe('no-referrer');

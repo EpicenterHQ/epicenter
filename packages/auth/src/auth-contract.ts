@@ -43,15 +43,16 @@ export type AuthClient = {
 	[Symbol.dispose](): void;
 };
 
-/** Session owners can cancel sign-in and settle their credential writes. */
-export type SessionAuthClient = AuthClient & {
-	/** Stop the pending sign-in and settle persistence without signing out. */
-	cancelSignIn(): Promise<void>;
-};
-
-/** Only a redirect launcher can consume a sign-in callback. */
-export type CallbackAuthClient = SessionAuthClient & {
-	completeSignIn(): Promise<Result<undefined, AuthError>>;
+/** A client whose sign-in returns to a callback page it must complete. */
+export type CallbackAuthClient = AuthClient & {
+	/**
+	 * Finish the sign-in this page's URL answers. Success carries the path the
+	 * attempt started from, which the callback page replaces itself with; it is
+	 * undefined when that path cannot be used.
+	 */
+	completeSignIn(): Promise<
+		Result<{ returnTo: string | undefined }, AuthError>
+	>;
 };
 
 export function isCallbackAuthClient(

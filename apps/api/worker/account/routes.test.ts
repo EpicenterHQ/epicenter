@@ -25,6 +25,7 @@ function fixture({
 	const app = new Hono<CloudEnv>();
 	mountAccountDeletionApi(app, {
 		setup: async (c, next) => {
+			c.set('authBaseURL', 'https://api.epicenter.so');
 			c.set('auth', {
 				options: { session: { freshAge: 600 } },
 				api: {
@@ -33,7 +34,8 @@ function fixture({
 						query: { disableCookieCache: boolean; disableRefresh: boolean };
 					}) {
 						reads++;
-						expect(input.headers.get('authorization')).toBe('Bearer fixture');
+						expect(input.headers.get('cookie')).toBe('session=fixture');
+						expect(input.headers.get('authorization')).toBeNull();
 						expect(input.query).toEqual({
 							disableCookieCache: true,
 							disableRefresh: true,
@@ -61,7 +63,7 @@ function fixture({
 		},
 		request(
 			headers: Record<string, string> = {
-				authorization: 'Bearer fixture',
+				cookie: 'session=fixture',
 				'x-epicenter-principal': 'alice',
 			},
 		) {
@@ -93,9 +95,32 @@ test('fresh requests and retries refuse before storage or external deletion', as
 	expect((await fixture().request()).status).toBe(503);
 });
 
-test('missing bearer is refused without reading the session', async () => {
+test('a request without the session cookie is refused without reading the session', async () => {
 	const account = fixture();
 	expect((await account.request({})).status).toBe(401);
+	// An access token is no credential for account management (ADR-0549).
+	expect(
+		(
+			await account.request({
+				authorization: 'Bearer ep_at_token',
+				'x-epicenter-principal': 'alice',
+			})
+		).status,
+	).toBe(401);
+	expect(account.reads).toBe(0);
+});
+
+test('another origin is refused even with the cookie', async () => {
+	const account = fixture();
+	expect(
+		(
+			await account.request({
+				cookie: 'session=fixture',
+				origin: 'https://todos.epicenter.so',
+				'x-epicenter-principal': 'alice',
+			})
+		).status,
+	).toBe(403);
 	expect(account.reads).toBe(0);
 });
 
@@ -103,7 +128,7 @@ test('principal mismatch is refused', async () => {
 	expect(
 		(
 			await fixture().request({
-				authorization: 'Bearer fixture',
+				cookie: 'session=fixture',
 				'x-epicenter-principal': 'bob',
 			})
 		).status,

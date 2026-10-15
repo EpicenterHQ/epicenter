@@ -3,18 +3,24 @@
  * composition, in process, on a disposable Postgres cluster with every
  * migration applied: the spike's refresh lineage, grant target, and silent
  * re-authorization checks, the end-to-end flows, a client identified by its
- * metadata document, and the resource check's 401 and 403 answers through a
- * test-only protected route.
+ * metadata document, the resource check's 401 and 403 answers through a
+ * test-only protected route, and the real protected mounts behind
+ * `requireAccessToken` the way the deployments compose them.
  * Requires initdb and pg_ctl on PATH; never connects to a configured database.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { ClientMetadataResourceFetch } from '@better-auth/oauth-provider';
+import { every } from 'hono/combine';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import type { Client } from 'pg';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';
+import { requireAccessToken } from '../middleware/require-auth.js';
 import { mountAuthRoutes } from '../routes/auth.js';
+import { type GitRepositoryStore, mountGitApp } from '../routes/git.js';
+import { mountInferenceApp } from '../routes/inference.js';
+import { mountSessionApp } from '../routes/session.js';
 import { createServerApp } from '../server-app.js';
 import { startDisposablePostgres } from '../test-helpers/disposable-postgres.js';
 import {
@@ -98,6 +104,21 @@ const testMetadataFetch: ClientMetadataResourceFetch = (input, init) => {
 	});
 };
 
+/** A repository store that only connects, for the guarded connect route. */
+const connectOnlyStore: GitRepositoryStore = {
+	async connect(principal, folder) {
+		return {
+			name: `${folder}.${principal}`,
+			token: 'repository-token',
+			expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+		};
+	},
+	async serve() {
+		return new Response(null, { status: 501 });
+	},
+};
+
+let app: ReturnType<typeof createServerApp<CloudEnv>>;
 let stop: () => Promise<void>;
 let sqlClient: Client;
 let db: Db;
@@ -176,7 +197,7 @@ beforeAll(async () => {
 		],
 	});
 
-	const app = createServerApp<CloudEnv>({
+	app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: () => [origin],
 	});
@@ -184,7 +205,6 @@ beforeAll(async () => {
 		connect: async () => ({ db, close: async () => {} }),
 		afterResponse: () => {},
 		resolveAuthSecrets: () => ({ BETTER_AUTH_SECRET: secret }),
-		resolveSessionCallbacks: () => [],
 	};
 	mountAuthRoutes(app, {
 		setup: createCloudContextMiddleware({
@@ -196,6 +216,19 @@ beforeAll(async () => {
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 		resolveAudiences: () => audiences,
+	});
+	// The real protected mounts, guarded the way both deployments guard them.
+	const resourceContext = createCloudContextMiddleware(context);
+	const resource = (audience: keyof typeof audiences, scope: OAuthScope) =>
+		every(
+			resourceContext,
+			requireAccessToken({ audience: () => audiences[audience], scope }),
+		);
+	mountSessionApp(app, { auth: resource('api', 'profile') });
+	mountInferenceApp(app, { auth: resource('api', 'ai') });
+	mountGitApp(app, {
+		auth: resource('git', 'folders:write'),
+		resolveStore: () => connectOnlyStore,
 	});
 	// Test-only protected route: the resource check, as every resource runs it.
 	app.get('/test/resource/:namespace', async (c) => {
@@ -486,5 +519,141 @@ describe('the resource check', () => {
 			role: 'owner',
 			clientId: desktop.clientId,
 		});
+	}, 60_000);
+});
+
+describe('the protected routes', () => {
+	/** A browser app's one access token, as `createBrowserOAuth` gets it. */
+	async function browserToken(resource: string, scope: string) {
+		const person = await harness.client.person('routes');
+		const tokens = await harness.client.codeGrant({
+			...browser,
+			cookie: person.cookie,
+			resource: [resource],
+			scope,
+		});
+		return { person, token: tokens.access_token };
+	}
+	const call = (
+		path: string,
+		token: string | null,
+		init: { method?: string; body?: unknown } = {},
+	) =>
+		app.fetch(
+			new Request(`${origin}${path}`, {
+				method: init.method ?? 'GET',
+				headers: {
+					// A browser names its origin on every cross-origin POST; the
+					// cookie-mutation guard on /api/* refuses a POST without one.
+					origin,
+					...(token ? { authorization: `Bearer ${token}` } : {}),
+					...(init.body ? { 'content-type': 'application/json' } : {}),
+				},
+				body: init.body ? JSON.stringify(init.body) : undefined,
+			}),
+		);
+	const profile = (token: string | null) => call('/api/session', token);
+	const inference = (token: string | null) =>
+		call('/v1/chat/completions', token, { method: 'POST', body: {} });
+	const connect = (token: string | null) =>
+		call('/api/git/connect', token, {
+			method: 'POST',
+			body: { folder: 'so.epicenter.todos' },
+		});
+
+	test('answer 401 with resource_metadata without a token, or with a session token', async () => {
+		const person = await harness.client.person('no-token');
+		const sessionToken = decodeURIComponent(
+			/=([^;]+)/.exec(person.cookie)?.[1] ?? '',
+		);
+		for (const [response, metadata] of [
+			[await profile(null), ''],
+			[await inference(null), ''],
+			[await connect(null), '/git'],
+			[await profile(sessionToken), ''],
+		] as const) {
+			expect(response.status).toBe(401);
+			expect(response.headers.get('www-authenticate')).toBe(
+				`Bearer error="invalid_token", resource_metadata="${origin}/.well-known/oauth-protected-resource${metadata}"`,
+			);
+		}
+	}, 60_000);
+
+	test("answer 401 for another audience's token and 403 for a missing scope", async () => {
+		const git = await browserToken(
+			audiences.git,
+			'openid folders:read folders:write',
+		);
+		// A Git token at an API route is another audience's: 401, not 403
+		// (ADR-0549).
+		expect((await profile(git.token)).status).toBe(401);
+		expect((await inference(git.token)).status).toBe(401);
+		const api = await browserToken(audiences.api, 'openid profile');
+		expect((await connect(api.token)).status).toBe(401);
+		const refused = await inference(api.token);
+		expect(refused.status).toBe(403);
+		expect(refused.headers.get('www-authenticate')).toBe(
+			`Bearer error="insufficient_scope", scope="ai", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+		);
+		expect(await refused.json()).toMatchObject({ error: 'insufficient_scope' });
+		const readOnly = await browserToken(audiences.git, 'openid folders:read');
+		expect((await connect(readOnly.token)).status).toBe(403);
+	}, 60_000);
+
+	test('admit a token for the audience with the scope, as its account', async () => {
+		const api = await browserToken(audiences.api, 'openid profile ai');
+		const read = await profile(api.token);
+		expect(read.status).toBe(200);
+		expect(await read.json()).toMatchObject({ principalId: api.person.id });
+		// Past the guard, the gateway reads the body: 400, not 401 or 403.
+		expect((await inference(api.token)).status).toBe(400);
+		const git = await browserToken(
+			audiences.git,
+			'openid folders:read folders:write',
+		);
+		const connected = await connect(git.token);
+		expect(connected.status).toBe(200);
+		expect(await connected.json()).toMatchObject({
+			remote: `${origin}/git/so.epicenter.todos.${git.person.id}.git`,
+		});
+	}, 60_000);
+
+	test('stop admitting a token once it is revoked or its browser session ends', async () => {
+		const api = await browserToken(audiences.api, 'openid profile ai');
+		expect((await profile(api.token)).status).toBe(200);
+		expect(
+			await harness.client.revoke(browser.clientId, api.token, 'access_token'),
+		).toBe(200);
+		expect((await profile(api.token)).status).toBe(401);
+		const other = await browserToken(audiences.api, 'openid profile ai');
+		await sqlClient.query(
+			'update session set expires_at = $2 where user_id = $1',
+			[other.person.id, new Date(Date.now() - 1000)],
+		);
+		expect((await profile(other.token)).status).toBe(401);
+	}, 60_000);
+
+	test('a browser renews silently with prompt=none while its session lasts', async () => {
+		const person = await harness.client.person('renewal');
+		const { challenge } = await pkce();
+		const renewed = await harness.client.authorize({
+			...browser,
+			challenge,
+			cookie: person.cookie,
+			resource: [audiences.api],
+			scope: 'openid profile ai',
+			prompt: 'none',
+		});
+		expect(new URL(renewed.location).searchParams.get('code')).toBeString();
+		const signedOut = await harness.client.authorize({
+			...browser,
+			challenge,
+			resource: [audiences.api],
+			scope: 'openid profile ai',
+			prompt: 'none',
+		});
+		const answer = new URL(signedOut.location);
+		expect(`${answer.origin}${answer.pathname}`).toBe(browser.redirectUri);
+		expect(answer.searchParams.get('error')).toBe('login_required');
 	}, 60_000);
 });

@@ -1,7 +1,7 @@
 <!--
-	Hosted cookie login. It authorizes one exact, PKCE-bound client handoff, or
-	resumes the OAuth authorization (ADR-0549) or device approval that sent the
-	browser here.
+	The authorization server's login page (ADR-0549). It resumes the OAuth
+	authorization that sent the browser here, or returns to the device approval
+	or account page that asked for sign-in.
 -->
 <script lang="ts">
  import * as Alert from '@epicenter/ui/alert';
@@ -16,17 +16,17 @@
  import { authClient, isPasskeyCancellation, supportsPasskeys } from '$lib/auth/client';
  import { SOCIAL_PROVIDERS, type SocialProvider } from '$lib/auth/providers';
  import { readOAuthRequest } from '$lib/auth/oauth-request';
- import { readReturnPath, readSessionRequest } from '$lib/auth/session-request';
+ import { readReturnPath } from '$lib/auth/return-path';
 
  // Cookie identity belongs to this ceremony, never the dashboard's account cache.
  const queries = new QueryClient();
  $effect(() => () => queries.clear());
- const request = readSessionRequest(window.location.search);
- // The authorization server's own flows: an authorization request it signed,
- // or the device approval page.
+ // An authorization request the server signed, or this origin's own page.
  const oauth = readOAuthRequest(window.location.search);
- const returnPath = readReturnPath(window.location.search);
- const resumeUrl = oauth?.resumeUrl ?? returnPath;
+ const resumeUrl = oauth?.resumeUrl ?? readReturnPath(window.location.search, window.location.origin);
+ // An account page asked for a different or fresher sign-in, so continuing
+ // with the current one would only send the browser back.
+ const reauthenticate = !oauth && new URLSearchParams(window.location.search).get('reauth') === '1';
  const session = createQuery(() => ({
   queryKey: ['hosted-login'],
   queryFn: async () => {
@@ -38,25 +38,7 @@
  }), () => queries);
 
  const continueSignIn = createMutation(() => ({
-  mutationFn: async () => {
-   if(resumeUrl) return window.location.replace(resumeUrl);
-   if(!request) throw new Error('Start sign-in from the app you want to use.');
-   const response = await fetch('/auth/session/authorize',{
-    method:'POST', credentials:'include', redirect:'error',
-    headers:{'content-type':'application/json'},
-    body:JSON.stringify({callback:request.callback,challenge:request.challenge,state:request.state}),
-   });
-   const result = await response.json() as {url?:string;message?:string};
-   if(!response.ok || !result.url) throw new Error(result.message ?? 'Could not complete sign-in.');
-   // The server approves the callback; verify its binding again before navigation.
-   const destination = new URL(result.url);
-   const code = destination.searchParams.get('code');
-   const state = destination.searchParams.get('state');
-   destination.search = '';
-   if(destination.href !== request.callback || !code || state !== request.state)
-    throw new Error('Invalid sign-in destination.');
-   window.location.replace(result.url);
-  },
+  mutationFn: async () => window.location.replace(resumeUrl),
  }), () => queries);
 
  const socialSignIn = createMutation(() => ({
@@ -103,10 +85,10 @@
   </div>
  <Card.Header class="justify-items-center text-center">
   <Card.Title>
-   <h1 class="text-xl font-semibold tracking-tight">{request?.reauthenticate ? 'Sign in again' : 'Sign in to Epicenter'}</h1>
+   <h1 class="text-xl font-semibold tracking-tight">{reauthenticate ? 'Sign in again' : 'Sign in to Epicenter'}</h1>
   </Card.Title>
   <Card.Description>
-   {#if request}Continue to {new URL(request.callback).host}.{:else if resumeUrl}Sign in to continue.{:else}Start sign-in from the app you want to use.{/if}
+   {reauthenticate ? 'Choose the account to continue with.' : 'Sign in to continue.'}
   </Card.Description>
  </Card.Header>
  <Card.Content class="flex flex-col gap-3">
@@ -115,7 +97,7 @@
   {:else}
    {#if session.data?.user}
     <UserIdentity user={session.data.user} orientation="stack" />
-    {#if resumeUrl || (request && !request.reauthenticate)}
+    {#if !reauthenticate}
      <Button disabled={busy} onclick={() => continueSignIn.mutate()}>
       {#if continueSignIn.isPending}<Spinner class="size-4" />{/if}
       Continue as {session.data.user.email}

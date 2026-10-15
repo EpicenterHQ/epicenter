@@ -1,7 +1,8 @@
 /**
  * Drives the real hosted deletion route through its session gate in workerd.
- * A fresh session receives an explicit refusal without deleting account records.
- * Rejected requests cannot start deletion or select a different cookie user.
+ * A fresh session cookie receives an explicit refusal without deleting account
+ * records. Rejected requests, including access-token bearers and other
+ * origins, cannot start deletion or select a different user (ADR-0549).
  */
 import { betterAuth } from 'better-auth';
 import { type MemoryDB, memoryAdapter } from 'better-auth/adapters/memory';
@@ -54,6 +55,7 @@ async function setup() {
 	const app = new Hono<CloudEnv>();
 	mountAccountDeletionApi(app, {
 		setup: async (c, next) => {
+			c.set('authBaseURL', 'https://api.example.test');
 			c.set('auth', auth as unknown as CloudEnv['Variables']['auth']);
 			await next();
 			principal = c.var.principal?.id;
@@ -61,15 +63,24 @@ async function setup() {
 	});
 	const remove = (headers: HeadersInit) =>
 		app.request('/api/account', { method: 'DELETE', headers }, {});
-	return { db, alice, bob, ctx, remove, principal: () => principal };
+	const invalidCookie = `${ctx.authCookies.sessionToken.name}=invalid`;
+	return {
+		db,
+		alice,
+		bob,
+		ctx,
+		invalidCookie,
+		remove,
+		principal: () => principal,
+	};
 }
 
 test('deletion refuses the explicit fresh principal without changing either account', async () => {
-	const { db, alice, bob, remove, principal } = await setup();
+	const { db, alice, remove, principal } = await setup();
 	const before = structuredClone(db);
 	const response = await remove({
-		authorization: `Bearer ${alice.token}`,
-		cookie: bob.cookie,
+		cookie: alice.cookie,
+		origin: 'https://api.example.test',
 		'x-epicenter-principal': alice.user.id,
 	});
 	expect(response.status).toBe(503);
@@ -80,34 +91,33 @@ test('deletion refuses the explicit fresh principal without changing either acco
 	expect(db).toEqual(before);
 });
 
-test('missing invalid mixed or wrong-principal credentials cannot reach deletion', async () => {
-	const { alice, bob, remove, principal } = await setup();
-	const rejected: HeadersInit[] = [
-		{ cookie: alice.cookie },
+test('missing invalid foreign-origin or wrong-principal credentials cannot reach deletion', async () => {
+	const { alice, bob, invalidCookie, remove, principal } = await setup();
+	const unauthorized: HeadersInit[] = [
+		{ 'x-epicenter-principal': alice.user.id },
+		// A bearer is no credential for account management.
 		{
-			authorization: 'Bearer invalid',
-			cookie: bob.cookie,
-			'x-epicenter-principal': bob.user.id,
-		},
-		{
-			authorization: `Bearer ${alice.session.token}`,
-			cookie: alice.cookie,
+			authorization: `Bearer ${alice.token}`,
 			'x-epicenter-principal': alice.user.id,
 		},
+		{ cookie: invalidCookie, 'x-epicenter-principal': bob.user.id },
 	];
-	for (const headers of rejected) {
+	for (const headers of unauthorized) {
 		expect((await remove(headers)).status).toBe(401);
 		expect(principal()).toBeUndefined();
 	}
-	for (const expected of ['', bob.user.id]) {
-		expect(
-			(
-				await remove({
-					authorization: `Bearer ${alice.token}`,
-					'x-epicenter-principal': expected,
-				})
-			).status,
-		).toBe(403);
+	const forbidden: HeadersInit[] = [
+		{ cookie: alice.cookie },
+		{ cookie: alice.cookie, 'x-epicenter-principal': '' },
+		{ cookie: alice.cookie, 'x-epicenter-principal': bob.user.id },
+		{
+			cookie: alice.cookie,
+			origin: 'https://todos.example.test',
+			'x-epicenter-principal': alice.user.id,
+		},
+	];
+	for (const headers of forbidden) {
+		expect((await remove(headers)).status).toBe(403);
 		expect(principal()).toBeUndefined();
 	}
 });
@@ -115,7 +125,7 @@ test('missing invalid mixed or wrong-principal credentials cannot reach deletion
 test('stale or revoked sessions cannot delete and database outages remain retryable', async () => {
 	const { db, alice, remove, ctx } = await setup();
 	const headers = {
-		authorization: `Bearer ${alice.token}`,
+		cookie: alice.cookie,
 		'x-epicenter-principal': alice.user.id,
 	};
 	const row = db.session!.find((row) => row.id === alice.session.id)!;
