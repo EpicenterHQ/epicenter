@@ -162,8 +162,8 @@ host them or ship apps of their own; a sync server never serves app pages.
 The remote is never part of a build: Connect proposes it (ADR-0546), and the
 folder keeps it in `remote.origin.url`.
 
-**The credential is a device Git token from the sign-in, given to `git` by a
-credential helper** (ADR-0546): the browser sends its session's token on the
+**The credential is the device's own session, given to `git` by a
+credential helper (ADR-0546): the browser sends its session's token on the
 Git routes, and on the desktop `epicenter git-credential` is `git`'s
 `credential.helper` for the server, so no token is passed in `git`'s
 environment and nothing renews a token per repository. For any other server,

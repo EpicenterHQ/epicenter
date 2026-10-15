@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** all of it: the `git.epicenter.so` routes, push-to-create, `GET /api/repos`, device Git tokens, `epicenter login` and `epicenter git-credential`, Connect and "Clone from Epicenter" in the Folders window, and Todos moving off `POST /api/git/connect`.
+- **Unbuilt:** all of it: the `git.epicenter.so` routes, push-to-create, `GET /api/repos`, Better Auth's `device-authorization` plugin behind `epicenter login`, `epicenter git-credential`, Connect and "Clone from Epicenter" in the Folders window, and Todos moving off `POST /api/git/connect`.
 
 ## Context
 
@@ -52,14 +52,26 @@ letters are lowercased, characters outside `a-z`, `0-9`, `.`, `_`, `-` become
 `demo-books`. After the first push the directory may be renamed freely; the URL
 does not change.
 
-**The credential is a device Git token, given to `git` by a credential
-helper.** A person signs in once per device (`epicenter login`, or signing in to
-the app), which issues a token scoped to Git and LFS on that person's
-namespaces, listed and revocable per device in Settings.
-`epicenter git-credential` is Git's `credential.helper` for `git.epicenter.so`,
-so Epicenter's `git`, a terminal's, and an agent's all authenticate the same
-way. The desktop shell sets the helper for its runs instead of passing a header
-in `git`'s environment. A browser sends its session's token on the same routes.
+**The credential is the device's own session, given to `git` by a credential
+helper.** Every signed-in device is one Better Auth session, listed in Settings
+as a device and revocable there. The app signs in as it does today; a terminal
+or an agent's machine runs `epicenter login`, which uses Better Auth's
+`device-authorization` plugin (RFC 8628): it shows a code and a link, the person
+approves it in a browser where they are signed in, and the device receives its
+own session. `epicenter git-credential` is Git's `credential.helper` for
+`git.epicenter.so` and answers with that session's token from the system
+keychain, so Epicenter's `git`, a terminal's, and an agent's all authenticate the
+same way, and no token is in a URL, in `.git/config`, or in `git`'s environment.
+The desktop shell registers the same helper for its runs. A browser hands its
+session's token to isomorphic-git directly. A narrower key for an agent or CI,
+limited to Git or to one group, is Better Auth's API key package when a case
+needs it.
+
+**Deleting a repository removes it.** Its row, its aliases, and its stored copy
+go, and its name is free at once; nothing keeps a tombstone. Every clone holds
+the whole history, so a push from any of them creates it again under a new id.
+An old clone pointing at a name a different folder has since taken is refused
+as unrelated history.
 
 **The server checks the credential and the namespace on every Git and LFS
 request, then reaches storage with a token it mints.**
@@ -110,7 +122,7 @@ behind the same routes.
   `~/Epicenter/<name>`, where its app looks for it.
 - Plain `git clone https://git.epicenter.so/<namespace>/<name>.git` works
   anywhere the credential helper is installed.
-- Every Git request costs one database query: the device token, joined with
+- Every Git request costs one database query: the device's session, joined with
   the namespace membership (ADR-0547); nothing is cached.
 - A typo in a remote creates a private repository in the person's namespace on
   push; it appears in their repository list and is deleted like any other.
@@ -127,6 +139,14 @@ behind the same routes.
 
 - **`POST /api/git/connect` with hourly per-repository tokens** (ADR-0521 as
   first built). Plain `git` and agents cannot renew them.
+- **A separate Git token system per device.** A session per device already is
+  one, listed and revocable; scoped keys come from Better Auth's API key package
+  when needed.
+- **A token in the remote URL, in `git`'s environment, or in `~/.netrc`.** The
+  URL puts it in `.git/config` and logs; the environment reaches only runs
+  Epicenter starts; `.netrc` is a plaintext file.
+- **A recently-deleted period.** A tombstone on the server, when every clone is
+  already the backup.
 - **An id in `epicenter.json`.** A declaration is copied with its template; the
   remote URL, and the history behind it, already identify a folder.
 - **An explicit create step (`epicenter create`) instead of push-to-create.**
