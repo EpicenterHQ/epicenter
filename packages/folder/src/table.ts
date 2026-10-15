@@ -45,6 +45,7 @@ import {
 	TableError,
 	type TableRenameError,
 	type TableSaveError,
+	type TableUpdateError,
 } from './errors.js';
 import {
 	ROW_EXTENSION,
@@ -78,6 +79,25 @@ export type TableListing<TFields> = readonly {
 	readonly stem: string;
 	readonly result: Result<StoredRow<TFields>, RowReadError>;
 }[];
+
+/** How many times an update reads and tries again before it gives up. */
+export const UPDATE_ATTEMPTS = 3;
+
+/** The keys of `T` that may be absent; any key of a row whose fields are not declared. */
+type OptionalKeys<T> = string extends keyof T
+	? string
+	: {
+			[K in keyof T]-?: object extends Pick<T, K> ? K : never;
+		}[keyof T];
+
+/**
+ * What an update changes: `set` puts values in fields, and `unset` removes
+ * optional fields. Plain data, so it can be shown, logged, and sent again.
+ */
+export type RowUpdate<TFields> = {
+	readonly set?: Partial<TFields>;
+	readonly unset?: readonly OptionalKeys<TFields>[];
+};
 
 /** A save that landed. */
 export type SavedRow<TFields> = {
@@ -142,6 +162,25 @@ export type FileTable<TFields> = {
 		row: Row<TFields>,
 		options?: SaveOptions,
 	): Promise<Result<SavedRow<TFields>, TableSaveError>>;
+	/**
+	 * Set and unset fields of the row at `stem` as it is now (ADR-0554).
+	 * Each attempt reads the row, puts `set` over its fields, removes each
+	 * field in `unset`, and saves that over what it read with the body
+	 * unchanged and no merge. When another writer saved between the read and
+	 * the write, the attempt is `Conflict` and the next one starts from their
+	 * row, so their fields stay and the update wins only the fields it
+	 * names. After `UPDATE_ATTEMPTS` conflicts it is `KeptChanging`. An
+	 * update replaces nothing it did not name, so `replaced` is empty.
+	 *
+	 * `unset` names optional fields only; `null` may be a field's real value.
+	 * `NotFound` when no file is at the stem (an update never creates a row),
+	 * `InvalidRow` or `InvalidUtf8` when the file is not a row, and otherwise
+	 * what `save` refuses: a value that does not conform is `InvalidValues`.
+	 */
+	update(
+		stem: string,
+		change: RowUpdate<TFields>,
+	): Promise<Result<SavedRow<TFields>, TableUpdateError>>;
 	/**
 	 * Move the captured row file to a vacant stem, guarded by its bytes. The
 	 * returned capture is those bytes at the new path, not a read of it.
@@ -250,7 +289,7 @@ export function createTable<TFields>(
 		return Ok([...children.files, ...children.directories].sort());
 	}
 
-	return {
+	const fileTable: FileTable<TFields> = {
 		name,
 		canCreate: unsupplied.length === 0,
 		async list() {
@@ -343,6 +382,32 @@ export function createTable<TFields>(
 				}),
 			);
 		},
+		async update(stem, { set = {}, unset = [] }) {
+			for (let attempt = 0; attempt < UPDATE_ATTEMPTS; attempt++) {
+				const { data: current, error: readError } = await fileTable.get(stem);
+				if (readError !== null) return Err(readError);
+				if (current === undefined)
+					return FileError.NotFound({ path: rowPath(name, stem) });
+				const fields: Record<string, unknown> = {
+					...current.row.fields,
+					...set,
+				};
+				for (const field of unset) delete fields[field as string];
+				const saved = await fileTable.save(
+					current,
+					{
+						fields: fields as Row<TFields>['fields'],
+						body: current.row.body,
+					},
+					{ merge: false },
+				);
+				if (saved.error?.name !== 'Conflict') return saved;
+			}
+			return TableError.KeptChanging({
+				path: rowPath(name, stem),
+				attempts: UPDATE_ATTEMPTS,
+			});
+		},
 		async rename(file, nextStem) {
 			const { data: captured, error: captureError } = ownRowCapture(file);
 			if (captureError !== null) return Err(captureError);
@@ -374,4 +439,5 @@ export function createTable<TFields>(
 			});
 		},
 	};
+	return fileTable;
 }

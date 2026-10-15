@@ -21,6 +21,7 @@ import {
 	type FileSaveError,
 	type FileTable,
 	type Folder,
+	type RowUpdate,
 	type FolderDefinition,
 	type FolderLocation,
 	field,
@@ -561,8 +562,12 @@ async function typedValues(
 		// @ts-expect-error Text is decoded only by reads.
 		createError.name === 'InvalidUtf8';
 	}
-	// @ts-expect-error There is no structured update: replace a row that was read.
-	folder.tables.todos.update;
+	// An update sets declared fields, each to its declared type.
+	void folder.tables.todos.update('milk', { set: { title: 'Milk' } });
+	// @ts-expect-error A field holds its declared type.
+	void folder.tables.todos.update('milk', { set: { title: 1 } });
+	// @ts-expect-error A required field cannot be unset.
+	void folder.tables.todos.update('milk', { unset: ['title'] });
 	// @ts-expect-error Nor an unguarded write: every change after create names a capture.
 	folder.tables.todos.delete('milk');
 	// @ts-expect-error The options-object guard is gone.
@@ -663,3 +668,11 @@ defineFolder({
 		notes: { fields: { title: field.string() } },
 	},
 });
+
+// `unset` takes the optional fields and refuses a required one.
+type Errand = { title: string; note?: string; due?: string | null };
+expectTypeOf<{ unset: ['note', 'due'] }>().toExtend<RowUpdate<Errand>>();
+expectTypeOf<{ unset: ['title'] }>().not.toExtend<RowUpdate<Errand>>();
+expectTypeOf<{ set: { title: 'Milk'; due: null } }>().toExtend<
+	RowUpdate<Errand>
+>();
