@@ -80,7 +80,7 @@ in the refresh PR or an issue, not in this register as accepted behavior.
 | Dialog and Drawer | Viewport scrolling and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
 | Modal | Extras-based responsive composition with simplified context access | Forms use Dialog on desktop and a draggable Drawer below 768px. The root owns the live media query; children read that root directly. |
 | Menu callers | Honeycrisp folder-list scroll cap; LocalMail account items explicitly close after selection | Every folder remains reachable, and a completed account switch dismisses its menu. Shared menu selection defaults follow upstream. |
-| Table cells | `bg-clip-padding`, logical header alignment, and checkbox padding | Matter’s sticky and status cells keep their own backgrounds. Row hover follows upstream. |
+| Table cells | `bg-clip-padding`, logical header alignment, and checkbox padding | Sticky and status cells keep their own backgrounds. Row hover follows upstream. |
 | Item and Sidebar | Truncation, inset shrink behavior, and the same offcanvas Sidebar at narrow widths | Rows and sidebars fit narrow flex layouts. Item remains a containing block for Honeycrisp’s positioned note controls. Collapsed offcanvas sidebars are inert so hidden navigation cannot receive keyboard focus. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
 | Alert and Badge | Warning, ID, status, and success variants | Apps use these semantic states. |
 | Resizable | Spacing between panes | Adjacent panes need separation in current app layouts. |

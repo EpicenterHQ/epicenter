@@ -186,5 +186,5 @@ Git history before that date.
   third-party OAuth grants are outside its scope: those belong to the app whose
   directory they name (ADR-0202). Its primitives were removed with the
   encryption layer, and `@epicenter/encryption` itself is now deleted; a secrets
-  path rebuilds from scratch. Distinct from the Matter vault (a folder of
-  Markdown).
+  path rebuilds from scratch. Distinct from a Markdown notes vault (a folder
+  of Markdown).
