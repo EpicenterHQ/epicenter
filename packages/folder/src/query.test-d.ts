@@ -8,6 +8,7 @@ import type {
 	QueryObserverOptions,
 } from '@tanstack/query-core';
 import {
+	type ContentCapture,
 	defineFolder,
 	defineTable,
 	type FileCapture,
@@ -65,10 +66,10 @@ expectTypeOf<QueryData<Settings>>().toEqualTypeOf<NonNullable<
 	Awaited<ReturnType<typeof folder.kv.get>>['data']
 > | null>();
 
-// A save sends the base it started from and the edited row.
+// A save sends the base it started from, with its content, and the edited row.
 type Save = ReturnType<typeof folder$.todos.save.mutationOptions>;
 expectTypeOf<Variables<Save>>().toEqualTypeOf<{
-	readonly base: FileCapture & { readonly row?: Row<Todo> };
+	readonly base: ContentCapture;
 	readonly row: Row<Todo>;
 }>();
 expectTypeOf<MutationData<Save>>().toEqualTypeOf<SavedRow<Todo>>();

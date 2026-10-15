@@ -22,6 +22,7 @@ import {
 	locationOf,
 	rawBrowserFolder,
 } from './browser-storage.test-support.js';
+import { hashBytes } from './capture.js';
 import {
 	DECLARATION_PATH,
 	defineFolder,
@@ -274,9 +275,14 @@ test('a commit running when the folder closes finishes and stays local before st
 
 test('a save refused while closing changes nothing, and close still settles', async () => {
 	const { folder, order, reached, release } = await held();
-	const refused = folder.files.replace(
-		{ path: 'missing.md', sha256: '0'.repeat(64) },
+	const refused = folder.files.save(
+		{
+			path: 'missing.md',
+			sha256: await hashBytes(new Uint8Array()),
+			text: '',
+		},
 		'x',
+		{ merge: false },
 	);
 	await reached;
 	const closing = folder.close();

@@ -50,11 +50,14 @@ test('no core or platform entry loads Svelte or the adapter', async () => {
 	}
 });
 
-test('the Svelte entry loads only svelte/reactivity and the draft at runtime', async () => {
+test('the Svelte entry loads only svelte/reactivity, the draft, and the row merge at runtime', async () => {
 	const { files, outside } = await reached(manifest.exports['./svelte']);
 	expect(files).toEqual([
 		join(packageRoot, 'src/svelte/draft.svelte.ts'),
 		join(packageRoot, 'src/draft.ts'),
+		join(packageRoot, 'src/row-merge.ts'),
+		join(packageRoot, 'src/git/merge-lines.ts'),
 	]);
-	expect(outside).toEqual(['svelte/reactivity']);
+	// The line merge loads `diff` only when a merged save is carried over.
+	expect(outside).toEqual(['svelte/reactivity', 'diff']);
 });

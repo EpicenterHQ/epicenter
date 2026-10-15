@@ -2,10 +2,11 @@
  * The root `kv.json`: settings as independent keys (ADR-0520).
  *
  * A setting is an intent, not a document. `set('theme', 'dark')` means "the
- * theme is dark", whatever the file held a moment ago, so a set merges one
- * key into the current file and re-applies itself when another writer got
- * there first. Two windows setting different keys both stick, and no one is
- * asked to resolve anything. A value that must change together with another
+ * theme is dark", whatever the file held a moment ago: a set changes one key
+ * of the file as read at the set and saves it with `saveFile`, which merges
+ * by key with whatever another writer saved since (ADR-0551). Two windows
+ * setting different keys both stick, and no one is asked to resolve
+ * anything. A value that must change together with another
  * belongs in one key: one top-level key is one fact.
  *
  * Reading is per key. Every declared key whose stored value validates is in
@@ -14,7 +15,7 @@
  * default without hiding the others. Only text that is not a file a folder
  * can hold (not one strict JSON object, or a key that appears twice at any
  * depth) is
- * `InvalidKv`, repaired as text with `files.replace(error, text)`.
+ * `InvalidKv`, repaired as text with `files.save(error, text)`.
  *
  * `kv.json` text belongs to `kv-merge.ts`: a set writes exactly the format a
  * Git merge writes, and keeps every key it does not change as its raw text.
@@ -29,7 +30,7 @@ import {
 import { type Node, parseTree } from 'jsonc-parser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import { hashBytes } from './capture.js';
+import { fileCapture, hashBytes } from './capture.js';
 import {
 	FileError,
 	type KvReadError,
@@ -38,6 +39,7 @@ import {
 } from './errors.js';
 import { formatKvMembers, readKvMembers } from './kv-merge.js';
 import type { Issue, Issues } from './row-text.js';
+import { saveFile } from './save-file.js';
 import { applyOne } from './storage.js';
 
 export const KV_PATH = 'kv.json';
@@ -63,17 +65,15 @@ export type FileKv<TValues> = {
 	 * A value that is not declared, does not conform, or cannot be stored is
 	 * `InvalidValues` before anything is read. The file is created when it is
 	 * missing. Sets from one handle apply in the order they were called; a
-	 * write that loses a race re-reads and re-applies itself, and only a race
-	 * lost three times is `Conflict`. Returns the reading of what it wrote.
+	 * set that meets another writer's save merges with it by key, and one
+	 * that keeps meeting them is `KeptChanging`. Returns the reading of what
+	 * it wrote.
 	 */
 	set<TKey extends keyof TValues & string>(
 		key: TKey,
 		value: TValues[TKey] | undefined,
 	): Promise<Result<KvReading<TValues>, KvWriteError>>;
 };
-
-/** Attempts a set makes before its lost race is the caller's `Conflict`. */
-const ATTEMPTS = 3;
 
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
@@ -124,7 +124,7 @@ const SYNTAX: Record<number, string> = {
  * its line when there is one. The member reader alone decides validity;
  * this only explains its refusal.
  */
-function refusalOf(text: string): Issues {
+export function kvRefusal(text: string): Issues {
 	const offset = text.startsWith('\uFEFF') ? 1 : 0;
 	const errors: Parameters<typeof parseTree>[1] = [];
 	let root: Node | undefined;
@@ -338,54 +338,66 @@ export function createKv<TValues>(
 				path: KV_PATH,
 				sha256: read.sha256,
 				text,
-				issues: refusalOf(text),
+				issues: kvRefusal(text),
 			});
 		return Ok({ text, sha256: read.sha256, members });
 	}
 
 	/**
-	 * Merge changes into the current file and publish under the read it made;
-	 * re-read and re-apply when another writer got there first.
+	 * Apply changes to the file as read now: create it when it is missing,
+	 * reading once more when that create does not land, and otherwise
+	 * save over the read, merging by key with any save that landed since.
 	 */
 	async function apply(
 		changes: ReadonlyMap<string, string | null>,
 	): Promise<Result<KvReading<TValues>, KvWriteError>> {
-		let lost: KvWriteError | undefined;
-		for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+		for (let reads = 0; ; reads++) {
 			const { data: current, error: readError } = await readFile();
 			if (readError !== null) return Err(readError);
 			const members = new Map(current?.members);
 			for (const [key, raw] of changes)
 				if (raw === null) members.delete(key);
 				else members.set(key, raw);
-			const text = formatKvMembers(members);
-			const bytes = encoder.encode(text);
-			const sha256 = await hashBytes(bytes);
-			const { error } = await applyOne(
-				storage,
-				current === undefined
-					? { kind: 'create', path: KV_PATH, bytes, sha256 }
-					: {
-							kind: 'replace',
-							path: KV_PATH,
-							bytes,
-							sha256,
-							expectedSha256: current.sha256,
-						},
-			);
-			if (error === null) return Ok(readingOf(text, sha256, members));
-			// Another writer published between this read and this write, or the
-			// reply was lost. A set does not depend on what the file held, so
-			// reading again and re-applying is safe either way.
-			if (
-				error.name !== 'Conflict' &&
-				error.name !== 'Exists' &&
-				error.name !== 'Unconfirmed'
-			)
+			const bytes = encoder.encode(formatKvMembers(members));
+			if (current === undefined) {
+				const sha256 = await hashBytes(bytes);
+				const { error } = await applyOne(storage, {
+					kind: 'create',
+					path: KV_PATH,
+					bytes,
+					sha256,
+				});
+				if (error === null) return written(bytes, sha256);
+				// Another writer created it first, or the reply was lost: read
+				// again and save over what is there.
+				if (
+					(error.name === 'Exists' || error.name === 'Unconfirmed') &&
+					reads === 0
+				)
+					continue;
 				return Err(error);
-			lost = error;
+			}
+			const { data: saved, error } = await saveFile(
+				storage,
+				{ kind: 'kv', schemas },
+				{ ...fileCapture(KV_PATH, current.sha256), text: current.text },
+				bytes,
+			);
+			if (error !== null) return Err(error as KvWriteError);
+			return written(saved.bytes, saved.sha256);
 		}
-		return Err(lost as KvWriteError);
+	}
+
+	/** The reading of bytes a set wrote, which read as settings. */
+	function written(
+		bytes: Uint8Array,
+		sha256: string,
+	): Result<KvReading<TValues>, KvWriteError> {
+		const text = utf8.decode(bytes);
+		const members = readKvMembers(text);
+		if (members === undefined)
+			throw new Error('A saved kv.json does not read as settings');
+		return Ok(readingOf(text, sha256, members));
 	}
 
 	/** The batch waiting behind the running one: the latest change per key. */

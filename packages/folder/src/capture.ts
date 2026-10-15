@@ -15,6 +15,12 @@ export type CapturedFile = FileCapture & { bytes: Uint8Array };
 /** A capture with the exact text decoded from its whole bytes. */
 export type TextCapture = FileCapture & { text: string };
 
+/**
+ * A capture that carries the content it names: the base a save merges from
+ * (ADR-0551). Every capture the engine returns from a read or a save is one.
+ */
+export type ContentCapture = CapturedFile | TextCapture;
+
 /** Detach a capture from its caller. Later saves return new captures. */
 export function fileCapture(path: string, sha256: string): FileCapture {
 	return Object.freeze({ path, sha256 });

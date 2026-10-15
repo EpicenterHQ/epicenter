@@ -28,6 +28,7 @@ import {
 } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
 import { createHistory } from './git/history.js';
+import { put } from './put.test-support.js';
 import { parseRow } from './row-text.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
@@ -226,21 +227,20 @@ describe('browser folder tables', () => {
 			}),
 		).stored;
 		expect(expectOk(await folder.tables.todos.get('odd'))).toEqual(fixed);
-		// The capture named bytes that are gone and holds no row as read, so
-		// a second save merges with no base: it wins wherever the two differ,
-		// and says what it replaced.
+		// The capture names bytes that are gone, and its text is not a row, so
+		// a second save from it merges by line: the edit wins where both
+		// changed the same lines, and says what it replaced.
 		const again = expectOk(
 			await folder.tables.todos.save(odd, {
 				fields: { title: 'Again', done: false },
 				body: '',
 			}),
 		);
-		expect(again.replaced).toEqual(
-			expect.arrayContaining([
-				{ kind: 'field', field: 'title', kept: 'Again', theirs: 'Kept' },
-				{ kind: 'field', field: 'done', kept: false, theirs: true },
-			]),
-		);
+		expect(again.replaced).toMatchObject([{ kind: 'text', part: 'file' }]);
+		expect(again.stored.row).toEqual({
+			fields: { title: 'Again', done: false },
+			body: '',
+		});
 
 		const broken = expectErr(item('broken'));
 		if (broken.name !== 'InvalidRow') throw new Error(broken.message);
@@ -275,7 +275,12 @@ describe('browser folder tables', () => {
 		const created = expectOk(await folder.tables.todos.get('rec'))!;
 		expect(created).toEqual(receipt);
 		// A stored row is the capture and its row: no attachment, no sibling.
-		expect(Object.keys(created).sort()).toEqual(['path', 'row', 'sha256']);
+		expect(Object.keys(created).sort()).toEqual([
+			'path',
+			'row',
+			'sha256',
+			'text',
+		]);
 		// Two siblings are not an ambiguity; the listed row is as valid as it was.
 		const listed = expectOk(await folder.tables.todos.list());
 		expect(listed.map((item) => expectOk(item.result))).toEqual([created]);
@@ -296,8 +301,8 @@ describe('browser folder tables', () => {
 			await folder.files.move(opus, 'todos/rec2.opus'),
 		);
 		const changedAudio = expectOk(
-			await folder.files.replace(movedAudio, 'rewritten'),
-		);
+			await folder.files.save({ ...movedAudio, bytes: audio }, 'rewritten'),
+		).stored;
 		expectOk(await folder.tables.todos.delete(renamed));
 		expect(expectOk(await folder.files.children('todos')).files).toEqual([
 			'rec.flac',
@@ -422,7 +427,8 @@ describe('browser folder tables', () => {
 		});
 		expect(await kvText()).toBe('{\n  "theme": "light"\n}\n');
 		expectOk(
-			await folder.files.overwrite(
+			await put(
+				folder.files,
 				'kv.json',
 				'{\n  "other": 1,\n  "theme": "light"\n}\n',
 			),
@@ -489,13 +495,18 @@ describe('browser folder persistence and history', () => {
 		const folder = await open();
 		expectOk(await folder.files.mkdir('empty'));
 		expectOk(await folder.files.rmdir('empty'));
-		const conflict = expectErr(
-			await folder.files.replace(
-				{ path: 'missing.txt', sha256: '0'.repeat(64) },
+		// A save never recreates a file that is not there.
+		const missing = expectErr(
+			await folder.files.save(
+				{
+					path: 'missing.txt',
+					sha256: await hashBytes(new Uint8Array()),
+					text: '',
+				},
 				'x',
 			),
 		);
-		expect(conflict.name).toBe('Conflict');
+		expect(missing.name).toBe('NotFound');
 		expect(folder.git.snapshot.lastCommit).toBeUndefined();
 		expect(folder.git.snapshot.activity.commit).toEqual({ active: false });
 	});

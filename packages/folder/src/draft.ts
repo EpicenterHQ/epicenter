@@ -4,8 +4,8 @@
  * The draft captures the row and its version at the first change, not when
  * an editor gains focus, and keeps the edited row outside the cache. A
  * refetch updates the cache, never the draft, and the save sends the
- * starting version as its base, so `table.save` merges with whatever
- * changed since. "Changed elsewhere" is derived by comparing the cache's
+ * starting version, with its content, as its base, so `table.save` merges
+ * with whatever changed since (ADR-0551). "Changed elsewhere" is derived by comparing the cache's
  * version with the base's; the draft holds no state for it.
  *
  * Plain TypeScript with no framework: a Svelte wrapper keeps a draft in
@@ -13,6 +13,7 @@
  */
 import type { FileCapture } from './capture.js';
 import type { SaveRowVariables } from './query.js';
+import { type AnyRow, mergeRows, setField } from './row-merge.js';
 import type { Row } from './row-text.js';
 import type { SavedRow, StoredRow } from './table.js';
 
@@ -38,14 +39,16 @@ export type Draft<TFields> = {
 		| undefined;
 	/**
 	 * A save of `sent` landed as `saved`. With no change since, the draft is
-	 * done. Otherwise the later changes continue from the row `sent`: what
-	 * the saved version holds beyond it was merged in from another writer,
-	 * and is not this edit's to undo.
+	 * done. Otherwise the written version is the new base, and the later
+	 * changes continue from it: when the save merged, what the written
+	 * version holds beyond the row sent came from another writer, so the
+	 * later changes are merged onto it, keeping it, rather than undoing it.
+	 * Changes made while that merge runs are merged too.
 	 */
 	saved(
 		sent: SaveRowVariables<TFields> & { readonly revision: number },
 		saved: SavedRow<TFields>,
-	): void;
+	): Promise<void>;
 	/** Drop the edit. */
 	discard(): void;
 };
@@ -82,25 +85,39 @@ export function createDraft<TFields>(): Draft<TFields> {
 			if (base === undefined || row === undefined) return undefined;
 			return { base, row: structuredClone(row), revision };
 		},
-		saved(sent, result) {
+		async saved(sent, result) {
 			if (sent.revision === revision) {
 				base = undefined;
 				row = undefined;
 				return;
 			}
-			// Changes made while the save ran are still unsaved, and their base
-			// row is the one sent. Unmerged, the file holds exactly that row, so
-			// the next save writes over the version written. Merged, the file
-			// also holds another writer's changes, which a save over the version
-			// written would undo, since `table.save` writes a current capture's
-			// row as given. So the base keeps naming the version the sent save
-			// started from: the next save finds the file moved and merges the
-			// draft with it over the row sent.
-			base = {
-				path: result.stored.path,
-				sha256: result.merged ? sent.base.sha256 : result.stored.sha256,
-				row: sent.row,
-			};
+			if (!result.merged) {
+				// The file holds the row sent, so the later changes are exactly
+				// what the draft's row holds beyond the version written.
+				base = result.stored;
+				return;
+			}
+			const from = base;
+			for (;;) {
+				const at = revision;
+				const edited = row;
+				// Discarded, or discarded and begun again, while the merge ran.
+				if (edited === undefined || base !== from) return;
+				const merged = await mergeRows(
+					sent.row as AnyRow,
+					edited as AnyRow,
+					result.stored.row as AnyRow,
+				);
+				// A change made during the merge edited the row it read; merge again.
+				if (at !== revision || row !== edited) continue;
+				// Where both changed one value, the draft's later change wins.
+				const fields = { ...merged.fields };
+				for (const conflict of merged.conflicts)
+					setField(fields, conflict.field, conflict.ours);
+				row = { fields, body: merged.body.ours } as Row<TFields>;
+				base = result.stored;
+				return;
+			}
 		},
 		discard() {
 			base = undefined;

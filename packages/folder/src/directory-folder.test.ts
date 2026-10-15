@@ -424,7 +424,7 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
-	test('a save another writer overtakes after its check merges; other writes are refused where they publish', async () => {
+	test('a save another writer overtakes after its check merges; a create or a remove is refused where it publishes', async () => {
 		const root = await scratch('directory-folder-overtaken-');
 		const sha256 = (text: string) => hashBytes(new TextEncoder().encode(text));
 		// Another writer, sharing no lock with this folder, lands these bytes
@@ -478,9 +478,13 @@ describe('a folder over an ordinary directory', () => {
 		});
 		expect(await readFile(note, 'utf8')).toBe('theirs again\n');
 
-		// An overwrite takes whatever is there.
+		// A save merges with whatever is there, and names what it replaced.
+		const again = expectOk(await folder.files.read('todos/a.md'));
 		overtaken.set(note, 'theirs once more\n');
-		expectOk(await folder.files.overwrite('todos/a.md', 'mine\n'));
+		const mine = expectOk(await folder.files.save(again, 'mine\n'));
+		expect(mine.replaced).toMatchObject([
+			{ kind: 'text', kept: 'mine\n', theirs: 'theirs once more\n' },
+		]);
 		expect(await readFile(note, 'utf8')).toBe('mine\n');
 		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
 		await folder.close();

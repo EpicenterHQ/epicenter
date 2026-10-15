@@ -70,7 +70,7 @@ export function createDraftState<TFields>({
 				);
 				// The mutation holds the error; the draft keeps the edit.
 				if (saved === undefined) return;
-				draft.saved(sent, saved);
+				await draft.saved(sent, saved);
 				changed?.();
 				onSaved?.(saved);
 			}

@@ -435,7 +435,7 @@ test('a removal whose reply is lost with the path still there is unconfirmed', a
 	await folder.close();
 });
 
-test('a save another window overtakes where it publishes merges with what is there; other writes are refused', async () => {
+test('a save another window overtakes where it publishes merges with what is there; a create or a remove is refused', async () => {
 	const { root, folder } = await granted();
 	const sha256 = (text: string) =>
 		createHash('sha256').update(text).digest('hex');
@@ -484,23 +484,29 @@ test('a save another window overtakes where it publishes merges with what is the
 		actualSha256: sha256('theirs again\n'),
 	});
 
+	const again = expectOk(await folder.files.read('notes/a.md'));
 	overtaken.set(note, 'theirs once more\n');
-	expectOk(await folder.files.overwrite('notes/a.md', 'mine\n'));
+	const mine = expectOk(await folder.files.save(again, 'mine\n'));
+	expect(mine).toMatchObject({
+		merged: true,
+		replaced: [{ kind: 'text', kept: 'mine\n', theirs: 'theirs once more\n' }],
+	});
 	expect(await readFile(note, 'utf8')).toBe('mine\n');
 	expect(await nodeFs.readdir(scratchDirectory)).toEqual([]);
 	// The page told the shell what each publish expected: the declaration,
-	// published before the first save, takes whatever is there.
+	// published before the first save, is created where none is.
 	expect(
 		calls
 			.filter(({ cmd }) => cmd === 'rename_folder_path')
 			.map(({ args }) => args.expected),
 	).toEqual([
-		'any',
+		'absent',
 		'absent',
 		{ sha256: created.sha256 },
 		{ sha256: sha256(theirs) },
 		'absent',
-		'any',
+		{ sha256: sha256('theirs again\n') },
+		{ sha256: sha256('theirs once more\n') },
 	]);
 	await folder.close();
 });

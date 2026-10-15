@@ -334,9 +334,9 @@ for (const [stage, fault, reached] of faults)
 		});
 		// A local commit the remote does not have makes the update a merge.
 		const b = expectOk(await folder.files.read('b.md'));
-		expectOk(await folder.files.replace(b, '2'));
+		expectOk(await folder.files.save(b, '2'));
 		const shared = expectOk(await folder.files.read('shared.md'));
-		expectOk(await folder.files.replace(shared, 'one\ntwo\nTHREE\n'));
+		expectOk(await folder.files.save(shared, 'one\ntwo\nTHREE\n'));
 		expect((await folder.git.commit()).status).toBe('committed');
 		expectOk(await folder.git.fetch());
 

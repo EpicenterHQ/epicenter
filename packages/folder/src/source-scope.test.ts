@@ -29,6 +29,7 @@ import {
 	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
+import { put } from './put.test-support.js';
 
 const definition = defineFolder({
 	kv: {},
@@ -72,7 +73,7 @@ const SOURCE = [
 
 async function writeLayout(folder: Folder<typeof definition>) {
 	for (const [path, text] of Object.entries(LAYOUT))
-		expect((await folder.files.overwrite(path, text)).error).toBeNull();
+		expect((await put(folder.files, path, text)).error).toBeNull();
 }
 
 describe('gitignoreMatcher', () => {
@@ -111,7 +112,7 @@ describe('browser folder scope', () => {
 		expect(statusError).toBeNull();
 		expect(status?.changes.map((change) => change.path)).toEqual(SOURCE);
 
-		await folder.files.overwrite('tracked.log', 'v2\n');
+		await put(folder.files, 'tracked.log', 'v2\n');
 		expect(
 			(await folder.git.status()).data?.changes.map((change) => change.path),
 		).toEqual([...SOURCE, 'tracked.log'].sort());
@@ -136,7 +137,7 @@ describe('native folder scope', () => {
 		await folder.files.create('tracked.log', 'v1\n');
 		expect((await folder.git.commit()).status).toBe('committed');
 		await writeLayout(folder);
-		await folder.files.overwrite('tracked.log', 'v2\n');
+		await put(folder.files, 'tracked.log', 'v2\n');
 
 		expect(
 			(await folder.git.status()).data?.changes.map((change) => change.path),

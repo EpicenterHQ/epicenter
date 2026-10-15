@@ -1,62 +1,29 @@
 /**
- * The three-way merge of one row file by field and body (ADR-0514).
+ * Three rows merged by field and the body by line, with no table: the core
+ * of `mergeFile`'s row merge, and what a draft uses to carry its later
+ * changes onto a version a merged save wrote (ADR-0551).
  *
- * Every version is read through `parseRow` against its table, so the merge
- * compares the values a table reads, never their spelling: key order,
- * quoting, and comments in frontmatter never conflict. For each field, equal
- * values agree and a side unchanged from the base yields to the other.
  * Values compare as JSON, so object key order does not matter and arrays and
- * objects are one unit each. The body merges by line with `mergeLines`.
+ * objects are one unit each. For each field, equal values agree and a side
+ * unchanged from the base yields to the other.
  *
- * The caller writes a merged row with `formatRow`, so merged text is the
- * standard form. A version that is absent or does not read as a row cannot
- * be merged by field: the whole file is one unit for a person to settle.
- *
- * This module writes nothing and loads no Git implementation.
+ * This module loads only the line merge, so a draft can use it without the
+ * rest of the folder.
  */
-import type { PreparedFolderTable } from './definition.js';
-import { mergeLines } from './git/merge-lines.js';
-import { parseRow, type Row } from './row-text.js';
+import { type LineMerge, mergeLines } from './git/merge-lines.js';
+import type { Row } from './row-text.js';
 
 /** A row with no schema type: what a merge reads and writes. */
 export type AnyRow = Row<Record<string, unknown>>;
 
-/** A row file's text at the merge base and on each side, `null` for no file. */
-export type RowVersions = {
-	readonly base: string | null;
-	readonly ours: string | null;
-	readonly theirs: string | null;
-};
-
-/** One field both sides changed differently. `undefined` is no such field. */
-export type FieldConflict = {
+/** One field both sides changed differently; `undefined` is no such field. */
+export type FieldUnit = {
+	readonly kind: 'field';
 	readonly field: string;
 	readonly base: unknown;
 	readonly ours: unknown;
 	readonly theirs: unknown;
 };
-
-/** Body lines both sides changed differently. `base` is `undefined` with no base row. */
-export type BodyConflict = {
-	readonly base: string | undefined;
-	readonly ours: string;
-	readonly theirs: string;
-};
-
-export type RowMerge =
-	| { readonly kind: 'merged'; readonly row: AnyRow }
-	/**
-	 * `row` holds every field that merged and leaves out every conflicted one;
-	 * its body is the merged body, or ours while the body conflicts.
-	 */
-	| {
-			readonly kind: 'conflict';
-			readonly row: AnyRow;
-			readonly fields: readonly FieldConflict[];
-			readonly body: BodyConflict | undefined;
-	  }
-	/** A side has no file, or a version does not read as a row of the table. */
-	| { readonly kind: 'whole' };
 
 /** Whether two JSON values are the same value, whatever their key order. */
 export function sameValue(left: unknown, right: unknown): boolean {
@@ -87,16 +54,6 @@ export function sameValue(left: unknown, right: unknown): boolean {
 	);
 }
 
-/** One version as a row, `null` for no file, `undefined` for text that is not a row. */
-function read(
-	table: PreparedFolderTable,
-	text: string | null,
-): AnyRow | null | undefined {
-	if (text === null) return null;
-	const { data, error } = parseRow(table, text);
-	return error === null ? (data as AnyRow) : undefined;
-}
-
 /** Equal values agree; a side unchanged from the base yields. */
 function choose<T>(
 	base: T,
@@ -109,71 +66,73 @@ function choose<T>(
 	return undefined;
 }
 
-/**
- * Merge three versions of a row of `table`. Two added rows with no base
- * merge over an empty one, so only what both added alike agrees.
- */
-export async function mergeRow(
-	table: PreparedFolderTable,
-	versions: RowVersions,
-): Promise<RowMerge> {
-	const base = read(table, versions.base);
-	const ours = read(table, versions.ours);
-	const theirs = read(table, versions.theirs);
-	if (
-		base === undefined ||
-		ours === undefined ||
-		ours === null ||
-		theirs === undefined ||
-		theirs === null
-	)
-		return { kind: 'whole' };
+/** Set `name` on `fields` as an own data property, `__proto__` included; `undefined` removes it. */
+export function setField(
+	fields: Record<string, unknown>,
+	name: string,
+	value: unknown,
+) {
+	if (value === undefined) {
+		delete fields[name];
+		return;
+	}
+	Object.defineProperty(fields, name, {
+		value,
+		enumerable: true,
+		writable: true,
+		configurable: true,
+	});
+}
 
+const fieldOf = (row: AnyRow | null, name: string) =>
+	row !== null && Object.hasOwn(row.fields, name)
+		? row.fields[name]
+		: undefined;
+
+/**
+ * Merge three rows. Two added rows with no base merge over an empty one, so
+ * only what both added alike agrees.
+ */
+export async function mergeRows(
+	base: AnyRow | null,
+	ours: AnyRow,
+	theirs: AnyRow,
+): Promise<{
+	/** Every field that merged; a competing one is left out. */
+	readonly fields: Record<string, unknown>;
+	/** Each field both sides changed differently. */
+	readonly conflicts: readonly FieldUnit[];
+	/** The body's line merge; it competes when it has regions. */
+	readonly body: LineMerge;
+}> {
 	const fields: Record<string, unknown> = {};
-	const conflicts: FieldConflict[] = [];
+	const conflicts: FieldUnit[] = [];
 	const names = new Set([
 		...Object.keys(base?.fields ?? {}),
 		...Object.keys(ours.fields),
 		...Object.keys(theirs.fields),
 	]);
-	const at = (row: AnyRow | null, name: string) =>
-		row !== null && Object.hasOwn(row.fields, name)
-			? row.fields[name]
-			: undefined;
 	for (const name of names) {
-		const [b, o, t] = [at(base, name), at(ours, name), at(theirs, name)];
+		const [b, o, t] = [
+			fieldOf(base, name),
+			fieldOf(ours, name),
+			fieldOf(theirs, name),
+		];
 		const chosen = choose(b, o, t, sameValue);
-		if (chosen === undefined) {
-			conflicts.push({ field: name, base: b, ours: o, theirs: t });
-			continue;
-		}
-		if (chosen.value !== undefined)
-			Object.defineProperty(fields, name, {
-				value: chosen.value,
-				enumerable: true,
-				writable: true,
-				configurable: true,
+		if (chosen === undefined)
+			conflicts.push({
+				kind: 'field',
+				field: name,
+				base: b,
+				ours: o,
+				theirs: t,
 			});
+		else setField(fields, name, chosen.value);
 	}
-
-	const bodies = {
+	const body = await mergeLines({
 		base: base?.body ?? '',
 		ours: ours.body,
 		theirs: theirs.body,
-	};
-	const body =
-		choose(bodies.base, bodies.ours, bodies.theirs, Object.is)?.value ??
-		(await mergeLines(bodies));
-	const row = { fields, body: body ?? ours.body };
-	if (conflicts.length === 0 && body !== undefined)
-		return { kind: 'merged', row };
-	return {
-		kind: 'conflict',
-		row,
-		fields: conflicts,
-		body:
-			body === undefined
-				? { base: base?.body, ours: ours.body, theirs: theirs.body }
-				: undefined,
-	};
+	});
+	return { fields, conflicts, body };
 }

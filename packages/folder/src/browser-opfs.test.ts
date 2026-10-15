@@ -13,12 +13,14 @@
  * - Exact bytes survive reopening; a read's identity is the SHA-256 of the
  *   bytes read, so a same-size rewrite in the same millisecond is noticed
  * - `open` returns a Blob that keeps its bytes after the path is replaced
- * - Across handles: exactly one of two creates wins, and of two replacements
- *   from one capture exactly one wins and the other sees the winner's hash
+ * - Across handles: exactly one of two creates wins, and of two unmerged
+ *   saves from one capture exactly one wins and the other sees the winner's
+ *   hash
  * - A write that fails before its close is `Io`; a close that throws is
  *   `Unconfirmed` whatever the path holds after, hinted, and committed as is
- * - Saves are not ordered by when they were asked for: a save entered first
- *   that lands after a later one stays, across handles
+ * - Saves are not ordered by when they were asked for: an unmerged save
+ *   entered first is refused once a later one changed its bytes, and saves
+ *   to other paths hold nothing back
  * - Closing refuses new work; a save already begun returns its real outcome
  */
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
@@ -37,6 +39,7 @@ import {
 	memoryOpfs,
 	opfsEnvironment,
 } from './opfs.test-support.js';
+import { put } from './put.test-support.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 useWebLocks();
@@ -173,7 +176,9 @@ describe('one path is one stored file', () => {
 		opfs.put(`${ROOT}/a.txt`, encoder.encode('bbbb'));
 		const read = expectOk(await folder.files.read('a.txt'));
 		expect(read.sha256).toBe(await hashBytes(encoder.encode('bbbb')));
-		const refused = expectErr(await folder.files.replace(saved, 'cccc'));
+		const refused = expectErr(
+			await folder.files.save(saved, 'cccc', { merge: false }),
+		);
 		expect(refused).toMatchObject({
 			name: 'Conflict',
 			actualSha256: read.sha256,
@@ -220,7 +225,7 @@ describe('one path is one stored file', () => {
 			'take.webm',
 		);
 		const snapshot = await handle.getFile();
-		expectOk(await folder.files.replace(saved, 'replaced'));
+		expectOk(await folder.files.save(saved, 'replaced'));
 		expect(new Uint8Array(await blob.arrayBuffer())).toEqual(allBytes);
 		await expect(snapshot.arrayBuffer()).rejects.toMatchObject({
 			name: 'NotReadableError',
@@ -247,12 +252,12 @@ describe('two handles on one directory', () => {
 		});
 	});
 
-	test('of two replacements from one capture, exactly one wins and the loser sees its hash', async () => {
+	test('of two unmerged saves from one capture, exactly one wins and the loser sees its hash', async () => {
 		const [left, right] = [await open(), await open()];
 		const base = expectOk(await left.files.create('doc.md', 'base'));
 		const results = await Promise.all([
-			left.files.replace(base, 'left'),
-			right.files.replace(base, 'right'),
+			left.files.save(base, 'left', { merge: false }),
+			right.files.save(base, 'right', { merge: false }),
 		]);
 		const won = results.find((result) => result.error === null);
 		const lost = results.find((result) => result.error !== null);
@@ -260,17 +265,8 @@ describe('two handles on one directory', () => {
 		expect(lost?.error).toMatchObject({
 			name: 'Conflict',
 			expectedSha256: base.sha256,
-			actualSha256: won!.data!.sha256,
+			actualSha256: won!.data!.stored.sha256,
 		});
-	});
-
-	test('overwrite publishes whatever is there', async () => {
-		const [left, right] = [await open(), await open()];
-		expectOk(await left.files.create('log.txt', 'one'));
-		expectOk(await right.files.overwrite('log.txt', 'two'));
-		expect(
-			decoder.decode(expectOk(await left.files.read('log.txt')).bytes),
-		).toBe('two');
 	});
 
 	test('a move whose source is not removed reports it, and its landed destination is hinted to the other handle', async () => {
@@ -322,87 +318,25 @@ afterEach(() => {
 	for (const restore of spies.splice(0)) restore();
 });
 
-describe('the last save to land on a path stays, whenever it was asked for', () => {
-	test('a save entered first that lands after a later one stays', async () => {
-		const [left, right] = [await open(), await open()];
-		const held = holdNextDigest();
-		const first = left.files.overwrite('order.md', 'first');
-		await held.reached;
-		expectOk(await right.files.overwrite('order.md', 'second'));
-		held.release();
-		expectOk(await first);
-		expect(decoder.decode(opfs.files(ROOT).get('order.md'))).toBe('first');
-	});
-
-	test('a handle opened after the save began does not order it', async () => {
-		const left = await open();
-		const held = holdNextDigest();
-		const first = left.files.overwrite('order.md', 'first');
-		await held.reached;
-		const reopened = await open();
-		expectOk(await reopened.files.overwrite('order.md', 'second'));
-		held.release();
-		expectOk(await first);
-		expect(decoder.decode(opfs.files(ROOT).get('order.md'))).toBe('first');
-	});
-
-	for (const held of ['source', 'destination'] as const)
-		test(`an older overwrite of a later move's ${held} lands after it`, async () => {
-			const [left, right] = [await open(), await open()];
-			const moved = expectOk(await right.files.create('from.md', 'moved'));
-			const digest = holdNextDigest();
-			const older = left.files.overwrite(
-				held === 'source' ? 'from.md' : 'to.md',
-				'older',
-			);
-			await digest.reached;
-			expectOk(await right.files.move(moved, 'to.md'));
-			digest.release();
-			expectOk(await older);
-			const files = opfs.files(ROOT);
-			if (held === 'source') {
-				expect(decoder.decode(files.get('from.md'))).toBe('older');
-				expect(decoder.decode(files.get('to.md'))).toBe('moved');
-			} else {
-				expect(files.has('from.md')).toBe(false);
-				expect(decoder.decode(files.get('to.md'))).toBe('older');
-			}
-		});
-
-	test('a guarded save entered first is refused once a later save changed the bytes it names', async () => {
+describe('a save is not ordered by when it was asked for', () => {
+	test('an unmerged save entered first is refused once a later save changed the bytes it names', async () => {
 		const [left, right] = [await open(), await open()];
 		const read = expectOk(await left.files.create('order.md', 'base'));
 		const held = holdNextDigest();
-		const guarded = left.files.replace(read, 'from base');
+		const guarded = left.files.save(read, 'from base', { merge: false });
 		await held.reached;
-		expectOk(await right.files.overwrite('order.md', 'second'));
+		expectOk(await put(right.files, 'order.md', 'second'));
 		held.release();
 		expect(expectErr(await guarded).name).toBe('Conflict');
 		expect(decoder.decode(opfs.files(ROOT).get('order.md'))).toBe('second');
 	});
 
-	test('a later save whose outcome is unknown does not keep an older one out', async () => {
-		const [left, right] = [await open(), await open()];
-		const held = holdNextDigest();
-		const first = left.files.overwrite('order.md', 'first');
-		await held.reached;
-		opfs.faults.close = (path) =>
-			path.endsWith('/order.md') ? 'lost' : undefined;
-		expect(
-			expectErr(await right.files.overwrite('order.md', 'second')).name,
-		).toBe('Unconfirmed');
-		opfs.faults.close = undefined;
-		held.release();
-		expectOk(await first);
-		expect(decoder.decode(opfs.files(ROOT).get('order.md'))).toBe('first');
-	});
-
 	test('saves to other paths, and refusals that wrote nothing, do not hold anything back', async () => {
 		const [left, right] = [await open(), await open()];
 		const held = holdNextDigest();
-		const first = left.files.overwrite('one.md', 'one');
+		const first = left.files.create('one.md', 'one');
 		await held.reached;
-		expectOk(await right.files.overwrite('two.md', 'two'));
+		expectOk(await right.files.create('two.md', 'two'));
 		expect(expectErr(await right.files.create('two.md', 'again')).name).toBe(
 			'Exists',
 		);
@@ -472,7 +406,7 @@ describe('outcomes a caller can rely on', () => {
 		const base = expectOk(await folder.files.create('a.md', 'old'));
 		opfs.faults.close = (path) =>
 			path.endsWith('/a.md') ? { publish: encoder.encode('other') } : undefined;
-		expect(expectErr(await folder.files.replace(base, 'new')).name).toBe(
+		expect(expectErr(await folder.files.save(base, 'new')).name).toBe(
 			'Unconfirmed',
 		);
 	});

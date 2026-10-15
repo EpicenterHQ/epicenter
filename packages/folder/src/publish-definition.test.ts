@@ -1,7 +1,8 @@
 /**
- * Publication attempt contract: an awaited write when the file does not hold
- * the declaration's bytes, no write when it does, and failure diagnostics
- * retaining uncertain outcomes.
+ * Publication attempt contract: an awaited create when the file is missing,
+ * a save that never merges when it holds other bytes, no write when it holds
+ * the declaration's, one more read when another writer got there first, and
+ * failure diagnostics retaining uncertain outcomes.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
@@ -25,28 +26,51 @@ const holding = (text: string) => async (path: string) => {
 	return Ok({ ...fileCapture(path, await hashBytes(bytes)), bytes });
 };
 
-test('a missing declaration is written, and the attempt waits for the file outcome', async () => {
-	const written: string[] = [];
-	const done = Promise.withResolvers<void>();
+/** Files whose writes the test records; each read answers from `reads`. */
+function recording(
+	reads: readonly ((path: string) => Promise<unknown>)[],
+	answer: (verb: 'create' | 'save') => Promise<unknown> = async () =>
+		Ok(fileCapture('epicenter.json', '0'.repeat(64))),
+) {
+	const writes: { verb: 'create' | 'save'; text: string; options?: unknown }[] =
+		[];
+	let read = 0;
+	const text = (content: string | Uint8Array) =>
+		typeof content === 'string' ? content : new TextDecoder().decode(content);
 	const files = {
-		read: missing,
-		overwrite: async (path: string, content: string | Uint8Array) => {
+		read: (path: string) => reads[Math.min(read++, reads.length - 1)]!(path),
+		create: async (path: string, content: string | Uint8Array) => {
 			expect(path).toBe('epicenter.json');
-			written.push(
-				typeof content === 'string'
-					? content
-					: new TextDecoder().decode(content),
-			);
-			await done.promise;
-			return Ok(fileCapture(path, '0'.repeat(64)));
+			writes.push({ verb: 'create', text: text(content) });
+			return answer('create');
 		},
-	};
+		save: async (
+			base: { path: string },
+			content: string | Uint8Array,
+			options?: unknown,
+		) => {
+			expect(base.path).toBe('epicenter.json');
+			writes.push({ verb: 'save', text: text(content), options });
+			return answer('save');
+		},
+	} as unknown as Parameters<typeof publishDefinition>[1];
+	return { files, writes };
+}
+
+test('a missing declaration is created, and the attempt waits for the file outcome', async () => {
+	const done = Promise.withResolvers<void>();
+	const { files, writes } = recording([missing], async () => {
+		await done.promise;
+		return Ok(fileCapture('epicenter.json', '0'.repeat(64)));
+	});
 	let returned = false;
 	const opening = publishDefinition(definition, files).then(() => {
 		returned = true;
 	});
-	while (written.length === 0) await Promise.resolve();
-	expect(written).toEqual([formatDeclaration(definition)]);
+	while (writes.length === 0) await Bun.sleep(1);
+	expect(writes).toEqual([
+		{ verb: 'create', text: formatDeclaration(definition) },
+	]);
 	expect(returned).toBe(false);
 	done.resolve();
 	await opening;
@@ -54,15 +78,9 @@ test('a missing declaration is written, and the attempt waits for the file outco
 });
 
 test('a file already holding the declaration bytes is not rewritten', async () => {
-	let writes = 0;
-	await publishDefinition(definition, {
-		read: holding(formatDeclaration(definition)),
-		overwrite: async (path) => {
-			writes++;
-			return Ok(fileCapture(path, '0'.repeat(64)));
-		},
-	});
-	expect(writes).toBe(0);
+	const { files, writes } = recording([holding(formatDeclaration(definition))]);
+	await publishDefinition(definition, files);
+	expect(writes).toEqual([]);
 	expect(events).toEqual([]);
 });
 
@@ -72,6 +90,46 @@ for (const [name, read] of [
 		'the same JSON without its trailing newline',
 		holding(formatDeclaration(definition).trimEnd()),
 	],
+] as const)
+	test(`${name} are saved over once, never merged`, async () => {
+		const { files, writes } = recording([read]);
+		await publishDefinition(definition, files);
+		expect(writes).toEqual([
+			{
+				verb: 'save',
+				text: formatDeclaration(definition),
+				options: { merge: false },
+			},
+		]);
+		expect(events).toEqual([]);
+	});
+
+test('another writer getting there first is read once more', async () => {
+	const conflict = FileError.Conflict({
+		path: 'epicenter.json',
+		expectedSha256: '0'.repeat(64),
+		actualSha256: '1'.repeat(64),
+	});
+	let saves = 0;
+	const { files, writes } = recording(
+		[missing, holding('{"title":"Another app"}\n')],
+		async (verb) => {
+			if (verb === 'create')
+				return FileError.Exists({ path: 'epicenter.json' });
+			saves++;
+			return saves === 1
+				? conflict
+				: Ok(fileCapture('epicenter.json', '0'.repeat(64)));
+		},
+	);
+	await publishDefinition(definition, files);
+	expect(writes.map((write) => write.verb)).toEqual(['create', 'save']);
+	// Two reads at most: the save's Conflict is the last word.
+	expect(events).toHaveLength(1);
+	expect(events[0]?.data).toMatchObject({ cause: conflict.error });
+});
+
+for (const [name, read] of [
 	[
 		'a failed read',
 		async (path: string) =>
@@ -84,29 +142,22 @@ for (const [name, read] of [
 		},
 	],
 ] as const)
-	test(`${name} falls through to one write`, async () => {
-		let writes = 0;
-		await publishDefinition(definition, {
-			read,
-			overwrite: async (path) => {
-				writes++;
-				return Ok(fileCapture(path, '0'.repeat(64)));
-			},
-		});
-		expect(writes).toBe(1);
+	test(`${name} writes nothing and is logged`, async () => {
+		const { files, writes } = recording([read]);
+		await publishDefinition(definition, files);
+		expect(writes).toEqual([]);
+		expect(events).toHaveLength(1);
 	});
 
 test('a lost write reply preserves Unconfirmed and its actual cause in the diagnostic', async () => {
-	const lost = new Error('Lost native reply after sending overwrite');
+	const lost = new Error('Lost native reply after sending create');
 	const refusal = FileError.Unconfirmed({
-		operation: 'overwrite',
+		operation: 'create',
 		path: 'epicenter.json',
 		cause: lost,
 	});
-	await publishDefinition(definition, {
-		read: missing,
-		overwrite: async () => refusal,
-	});
+	const { files } = recording([missing], async () => refusal);
+	await publishDefinition(definition, files);
 	expect(events).toHaveLength(1);
 	expect(events[0]).toMatchObject({
 		source: 'folder/definition',
@@ -120,13 +171,11 @@ test('a lost write reply preserves Unconfirmed and its actual cause in the diagn
 });
 
 test('a thrown write retains its cause without claiming whether the save landed', async () => {
-	const cause = new Error('Connection closed after sending overwrite');
-	await publishDefinition(definition, {
-		read: missing,
-		overwrite: async () => {
-			throw cause;
-		},
+	const cause = new Error('Connection closed after sending create');
+	const { files } = recording([missing], async () => {
+		throw cause;
 	});
+	await publishDefinition(definition, files);
 	expect(events).toHaveLength(1);
 	expect(events[0]?.data).toMatchObject({
 		name: 'DefinitionPublicationUnconfirmed',

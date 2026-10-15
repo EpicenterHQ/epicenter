@@ -11,10 +11,12 @@ import { defineFolder, type Folder, openFolder } from '../../src/browser.js';
 export type PeerRequest =
 	| { readonly kind: 'open'; readonly id: string }
 	| { readonly kind: 'create'; readonly path: string; readonly content: string }
+	/** Save over the version `sha256` names, whose text is `base`, without merging. */
 	| {
-			readonly kind: 'replace';
+			readonly kind: 'save';
 			readonly path: string;
 			readonly sha256: string;
+			readonly base: string;
 			readonly content: string;
 	  }
 	/** Read `path` repeatedly for `ms` and report every SHA-256 seen. */
@@ -58,14 +60,15 @@ async function handle(request: PeerRequest): Promise<PeerReply> {
 				? { ok: false, error: saveError.name }
 				: { ok: true, sha256: saved.sha256 };
 		}
-		case 'replace': {
-			const { data: saved, error: saveError } = await folder.files.replace(
-				{ path: request.path, sha256: request.sha256 },
+		case 'save': {
+			const { data: saved, error: saveError } = await folder.files.save(
+				{ path: request.path, sha256: request.sha256, text: request.base },
 				request.content,
+				{ merge: false },
 			);
 			return saveError !== null
 				? { ok: false, error: saveError.name }
-				: { ok: true, sha256: saved.sha256 };
+				: { ok: true, sha256: saved.stored.sha256 };
 		}
 		case 'readFor': {
 			const seen = new Set<string>();

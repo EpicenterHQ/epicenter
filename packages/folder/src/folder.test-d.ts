@@ -18,6 +18,7 @@ import {
 	type FileCapture,
 	type FileError,
 	type FileKv,
+	type FileSaveError,
 	type FileTable,
 	type Folder,
 	type FolderDefinition,
@@ -41,6 +42,7 @@ import {
 	type Replaced,
 	type Row,
 	type RowReadError,
+	type SavedFile,
 	type StoredRow,
 	type TableCreateError,
 	type TableDeleteError,
@@ -450,19 +452,26 @@ async function typedValues(
 		if (setError.name === 'InvalidValues')
 			expectTypeOf(setError.issues).toEqualTypeOf<readonly Issue[]>();
 	}
-	folder.files.replace(reading, '{}');
+	// @ts-expect-error A settings reading carries no content, so it is no base.
+	folder.files.save(reading, '{}');
 
-	// Captures are plain values; a read also carries detached bytes.
+	// Captures are plain values; a read also carries detached bytes, the base
+	// a save merges from.
 	const { data: file, error: readError } = await folder.files.read('a.md');
 	if (readError !== null) return;
 	expectTypeOf(file).toEqualTypeOf<CapturedFile>();
-	const { data: replaced, error: replaceError } = await folder.files.replace(
+	const { data: saved, error: saveFileError } = await folder.files.save(
 		file,
 		'next',
 	);
-	if (replaceError !== null) return;
-	expectTypeOf(replaced).toEqualTypeOf<FileCapture>();
-	expectTypeOf(await folder.files.remove(replaced)).toEqualTypeOf<
+	if (saveFileError !== null) {
+		expectTypeOf(saveFileError).toEqualTypeOf<FileSaveError>();
+		return;
+	}
+	expectTypeOf(saved).toEqualTypeOf<SavedFile>();
+	expectTypeOf(saved.stored).toEqualTypeOf<CapturedFile>();
+	expectTypeOf(saved.replaced).toEqualTypeOf<readonly Replaced[]>();
+	expectTypeOf(await folder.files.remove(saved.stored)).toEqualTypeOf<
 		Awaited<ReturnType<Opened['files']['remove']>>
 	>();
 	// A stored row is a capture of its row file with the row it holds.
@@ -474,7 +483,7 @@ async function typedValues(
 	if (entry.data) {
 		expectTypeOf(entry.data).toExtend<FileCapture>();
 		expectTypeOf<keyof StoredRow<Fields>>().toEqualTypeOf<
-			'path' | 'sha256' | 'row'
+			'path' | 'sha256' | 'text' | 'row'
 		>();
 		// A valid row is complete: every declared field, and the body.
 		expectTypeOf(entry.data.row.fields).toEqualTypeOf<{
@@ -496,7 +505,7 @@ async function typedValues(
 		// @ts-expect-error Issues cannot be changed in place.
 		entry.error.issues.push({ message: '' });
 		// A repair is a guarded raw save, or a guarded delete.
-		folder.files.replace(entry.error, entry.error.text);
+		folder.files.save(entry.error, entry.error.text);
 		folder.tables.todos.delete(entry.error);
 	}
 	// One synchronous reader and one writer for saved text and for drafts, on
@@ -560,13 +569,13 @@ async function typedValues(
 	folder.tables.todos.delete('milk', { expectedSha256: 'a'.repeat(64) });
 	if (entry.data) {
 		// Every change after create names the bytes it replaces.
-		const { data: saved, error: saveError } = await folder.tables.todos.save(
+		const { data: savedRow, error: saveError } = await folder.tables.todos.save(
 			entry.data,
 			entry.data.row,
 		);
 		if (saveError === null) {
-			expectTypeOf(saved.stored).toEqualTypeOf<StoredRow<Fields>>();
-			expectTypeOf(saved.replaced).toEqualTypeOf<readonly Replaced[]>();
+			expectTypeOf(savedRow.stored).toEqualTypeOf<StoredRow<Fields>>();
+			expectTypeOf(savedRow.replaced).toEqualTypeOf<readonly Replaced[]>();
 		} else {
 			expectTypeOf(saveError).toEqualTypeOf<TableSaveError>();
 			// @ts-expect-error A table never saves text it cannot read back.
@@ -574,7 +583,7 @@ async function typedValues(
 		}
 		// @ts-expect-error A table saves a row; complete text is an ordinary file.
 		folder.tables.todos.save(entry.data, '---\n---\n');
-		folder.files.replace(entry.data, '---\n---\n');
+		folder.files.save(entry.data, '---\n---\n');
 		// @ts-expect-error A stem is not a capture.
 		folder.tables.todos.save('milk', entry.data.row);
 		expectTypeOf(
@@ -586,13 +595,17 @@ async function typedValues(
 	}
 	// @ts-expect-error A captured hash is required for removal.
 	folder.files.remove({ path: 'a.md' });
-	folder.files.replace(
+	folder.files.save(
 		// @ts-expect-error Captures carry a flat hash, not a version wrapper.
-		{ path: 'a.md', version: { sha256: 'a'.repeat(64) } },
+		{ path: 'a.md', version: { sha256: 'a'.repeat(64) }, text: '' },
 		'next',
 	);
-	// @ts-expect-error A path alone is not a capture: `overwrite` says that.
-	folder.files.replace('a.md', 'next');
+	// @ts-expect-error A path alone is not a base.
+	folder.files.save('a.md', 'next');
+	// @ts-expect-error Nor is a capture without the content it names.
+	folder.files.save({ path: 'a.md', sha256: 'a'.repeat(64) }, 'next');
+	// @ts-expect-error There is no unguarded write.
+	folder.files.overwrite('a.md', 'next');
 	// @ts-expect-error The old single write verb is gone.
 	folder.files.write('a.md', 'next', { expected: 'any' });
 
@@ -601,7 +614,7 @@ async function typedValues(
 	const { error: fileCreateError } = await folder.files.create('a.md', 'a');
 	if (fileCreateError !== null)
 		expectTypeOf(fileCreateError).toEqualTypeOf<FileError>();
-	const { error: moveError } = await folder.files.move(replaced, 'b.md');
+	const { error: moveError } = await folder.files.move(saved.stored, 'b.md');
 	// A file move is always guarded, so a kept source names the moved capture.
 	if (moveError !== null) {
 		expectTypeOf(moveError).toEqualTypeOf<FileError | MoveError>();

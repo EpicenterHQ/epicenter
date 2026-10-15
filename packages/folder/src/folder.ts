@@ -382,7 +382,7 @@ export function assembleFolder<
 				: Object.freeze(requiredOutsideShape(table, shape)),
 		);
 	}
-	const files = createFiles({ storage });
+	const files = createFiles({ storage, definition: prepared });
 	const git = createFolderGit(history);
 
 	return Object.freeze({
