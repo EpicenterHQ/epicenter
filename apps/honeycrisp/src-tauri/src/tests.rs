@@ -153,6 +153,9 @@ fn the_capability_grants_exactly_the_listed_commands_to_the_notes_window() {
         .map(|command| format!("allow-{}", command.replace('_', "-")))
         .collect();
     expected.push("epicenter-folder:default".to_string());
+    // The folder plugin's change event, `epicenter-folder://changed`.
+    expected.push("core:event:allow-listen".to_string());
+    expected.push("core:event:allow-unlisten".to_string());
     expected.sort();
     let mut granted: Vec<String> = capability["permissions"]
         .as_array()

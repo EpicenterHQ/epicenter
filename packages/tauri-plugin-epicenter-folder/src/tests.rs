@@ -25,6 +25,10 @@
 //!   arrives before or after the run starts, a page load or a destroyed
 //!   window cancels every run of the page before it, and two windows' runs
 //!   never meet, whatever IDs their pages chose.
+//! - From its first grant a folder is watched: every window permitted into
+//!   its scope hears what changed outside it, as folder-relative paths, a
+//!   ref moving as `.git`, and everything when watching begins; Git's own
+//!   noise and other windows hear nothing.
 //! - After shutdown, a late change is refused and the folder is unlocked.
 //! - A window without the plugin's permission cannot call it.
 
@@ -1074,4 +1078,149 @@ fn a_window_without_the_permission_cannot_call_the_plugin() {
         let refused = invoke(&main, command, json!({})).unwrap_err();
         assert!(text(&refused).contains("not allowed"), "{command}: {refused}");
     }
+}
+
+/// The change events `window` hears: each one's scope and paths, `None` for
+/// everything.
+fn hear(window: &WebviewWindow<MockRuntime>) -> std::sync::mpsc::Receiver<(String, Option<Vec<String>>)> {
+    use tauri::Listener;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    window.listen(crate::FOLDER_CHANGED_EVENT, move |event| {
+        let change: Value = serde_json::from_str(event.payload()).unwrap();
+        let paths = change["paths"].as_array().map(|paths| {
+            paths
+                .iter()
+                .map(|path| path.as_str().unwrap().to_string())
+                .collect()
+        });
+        let _ = sender.send((change["scope"].as_str().unwrap().to_string(), paths));
+    });
+    receiver
+}
+
+/// Every path `changes` reports until each of `expected` has been reported.
+/// A batch names each path once, sorted. A report of everything on the way
+/// is allowed: the operating system may ask for a rescan at any time.
+fn until_heard(
+    changes: &std::sync::mpsc::Receiver<(String, Option<Vec<String>>)>,
+    expected: &[&str],
+) -> std::collections::BTreeSet<String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut heard = std::collections::BTreeSet::new();
+    while !expected.iter().all(|path| heard.contains(*path)) {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        let Ok((scope, paths)) = changes.recv_timeout(left) else {
+            panic!("heard {heard:?}, never all of {expected:?}");
+        };
+        assert_eq!(scope, "notes");
+        if let Some(paths) = paths {
+            assert!(paths.windows(2).all(|pair| pair[0] < pair[1]), "{paths:?}");
+            heard.extend(paths);
+        }
+    }
+    heard
+}
+
+/// Give a new watch a moment to start before the disk changes under it.
+fn settle() {
+    std::thread::sleep(std::time::Duration::from_millis(300));
+}
+
+/// ADR-0548: from its first grant a folder is watched, and every window
+/// permitted into its scope, then or later, hears what changed outside it,
+/// relative to the root, and no other window hears anything. Watching
+/// begins with a report of everything.
+#[test]
+fn the_folder_watcher_reports_changes_to_the_scopes_windows_and_no_other() {
+    let fixture = fixture("watch");
+    let main = window(&fixture.app, "main");
+    let other = window(&fixture.app, "other");
+    let side = window(&fixture.app, "side");
+    let main_hears = hear(&main);
+    let other_hears = hear(&other);
+    let side_hears = hear(&side);
+
+    grant(&main).unwrap();
+    assert_eq!(
+        main_hears.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
+        ("notes".to_string(), None)
+    );
+    // A reloaded page's grant does not start a second watch.
+    grant(&main).unwrap();
+    settle();
+
+    let root = &fixture.root;
+    std::fs::create_dir_all(root.join("todos")).unwrap();
+    std::fs::write(root.join("todos/a.md"), "a\n").unwrap();
+    std::fs::write(root.join("todos/b.md"), "b\n").unwrap();
+    until_heard(&main_hears, &["todos/a.md", "todos/b.md"]);
+    std::fs::write(root.join("todos/a.md"), "a, changed\n").unwrap();
+    until_heard(&main_hears, &["todos/a.md"]);
+    std::fs::rename(root.join("todos/b.md"), root.join("todos/c.md")).unwrap();
+    until_heard(&main_hears, &["todos/b.md", "todos/c.md"]);
+    std::fs::remove_file(root.join("todos/c.md")).unwrap();
+    until_heard(&main_hears, &["todos/c.md"]);
+
+    // A save through the plugin, before the folder has a repository, stages
+    // in `.git/epicenter/scratch`. The saved path is reported, and `.git`
+    // once for the directory the save made; the staged file is not.
+    settle();
+    while main_hears.try_recv().is_ok() {}
+    write(&fixture, &main, "kv.json", "{}\n").unwrap();
+    let heard = until_heard(&main_hears, &["kv.json"]);
+    assert!(
+        heard.iter().all(|path| path == "kv.json" || path == ".git"),
+        "{heard:?}"
+    );
+
+    // A window permitted later hears what changes from then on.
+    fixture.app.folders().permit("notes", "side").unwrap();
+    std::fs::write(root.join("todos/d.md"), "d\n").unwrap();
+    until_heard(&side_hears, &["todos/d.md"]);
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(other_hears.try_recv().is_err(), "a window outside the scope heard a change");
+    fixture.app.folders().shutdown();
+}
+
+/// Inside `.git`, a ref moving is reported as the one path `.git`, and Git's
+/// objects, index, and logs are not reported at all.
+#[test]
+fn the_folder_watcher_reports_history_moving_and_not_gits_own_noise() {
+    let fixture = fixture("watch-git");
+    let main = window(&fixture.app, "main");
+    let main_hears = hear(&main);
+    grant(&main).unwrap();
+    settle();
+    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    std::fs::write(fixture.root.join("a.md"), "a\n").unwrap();
+    until_heard(&main_hears, &[".git", "a.md"]);
+    settle();
+    while main_hears.try_recv().is_ok() {}
+
+    // Staging writes objects and the index, which move no history.
+    let git_in_root = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+            .args(args)
+            .current_dir(&fixture.root)
+            .status()
+            .unwrap();
+        assert!(status.success(), "{args:?}");
+    };
+    git_in_root(&["add", "a.md"]);
+    assert!(
+        main_hears
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .is_err(),
+        "staging reported a change"
+    );
+
+    // A commit moves the branch: history, and nothing else.
+    git_in_root(&["commit", "--quiet", "-m", "first"]);
+    assert_eq!(
+        until_heard(&main_hears, &[".git"]).into_iter().collect::<Vec<_>>(),
+        [".git"]
+    );
+    fixture.app.folders().shutdown();
 }
