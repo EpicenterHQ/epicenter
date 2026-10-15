@@ -31,11 +31,14 @@ async function setup() {
 	});
 	const ctx = await auth.$context;
 	async function issue(email: string) {
-		const user = await ctx.internalAdapter.createUser({
-			email,
-			name: email,
-			emailVerified: true,
-		});
+		const user = await ctx.internalAdapter.createUser(
+			{
+				email,
+				name: email,
+				emailVerified: true,
+			},
+			{ method: 'admin' },
+		);
 		const session = await ctx.internalAdapter.createSession(user.id);
 		const token = `${session.token}.${await makeSignature(session.token, secret)}`;
 		return {

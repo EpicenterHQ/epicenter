@@ -89,16 +89,22 @@ try {
 		},
 	});
 	const context = await auth.$context;
-	const alice = await context.internalAdapter.createUser({
-		name: 'Alice proof',
-		email: 'alice@example.test',
-		emailVerified: true,
-	});
-	const bob = await context.internalAdapter.createUser({
-		name: 'Bob proof',
-		email: 'bob@example.test',
-		emailVerified: true,
-	});
+	const alice = await context.internalAdapter.createUser(
+		{
+			name: 'Alice proof',
+			email: 'alice@example.test',
+			emailVerified: true,
+		},
+		{ method: 'admin' },
+	);
+	const bob = await context.internalAdapter.createUser(
+		{
+			name: 'Bob proof',
+			email: 'bob@example.test',
+			emailVerified: true,
+		},
+		{ method: 'admin' },
+	);
 	const providerLabels = {
 		google: 'Google',
 		github: 'GitHub',

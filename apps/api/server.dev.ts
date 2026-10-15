@@ -22,4 +22,4 @@ console.warn(
 	'apps/api (Bun) DEV AUTH: Bearer dev:<principalId> resolves a synthetic principal on localhost. Never run this in production.',
 );
 
-startBunApiServer({ resolveBearerPrincipal: resolveDevPrincipal });
+await startBunApiServer({ resolveBearerPrincipal: resolveDevPrincipal });

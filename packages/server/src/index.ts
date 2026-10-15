@@ -13,6 +13,9 @@
  * applicable). See `apps/api/worker/index.ts` for the cloud composition.
  */
 
+// The OAuth 2.1 authorization server (ADR-0549): its shared policy, the
+// first-party registrations a deployment writes, and the one resource check.
+export { workerClientMetadataFetch } from './auth/client-metadata-fetch.js';
 // Hosted auth routes are mounted separately from request context creation.
 export { CloudAuthBindings } from './auth/create-auth.js';
 // The bearer resource-boundary error union the resolver emits (401
@@ -20,6 +23,24 @@ export { CloudAuthBindings } from './auth/create-auth.js';
 // resolver (e.g. `apps/api`'s dev auth) returns the same variants the request
 // path expects, without reaching into the auth module directly.
 export { OAuthError } from './auth/oauth-errors.js';
+export {
+	OAUTH_SCOPES,
+	type OAuthAudiences,
+	type OAuthScope,
+	oauthResourceInputs,
+} from './auth/oauth-policy.js';
+export {
+	type FirstPartyClient,
+	firstPartyClientRow,
+	registerFirstPartyClients,
+} from './auth/oauth-registrations.js';
+export {
+	authorizeResourceRequest,
+	protectedResourceMetadataUrl,
+	type ResourceAccess,
+	type ResourceRefusal,
+	readAccessToken,
+} from './auth/resource-access.js';
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 export { connectHyperdriveDb } from './db/backends/cloudflare.js';
 // Cloud database handles: Hyperdrive uses a per-request client; Bun uses a pool.
@@ -30,6 +51,12 @@ export {
 	requireBearerPrincipal,
 	resolveRequestSessionPrincipal,
 } from './middleware/require-auth.js';
+export {
+	NAMESPACE_ROLES,
+	type NamespaceOperation,
+	type NamespaceRole,
+	roleAllows,
+} from './namespace-roles.js';
 // Reusable surfaces. Each `mount*` bundles auth + the route mount, accepting
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // Better Auth endpoints are mounted by mountAuthRoutes.

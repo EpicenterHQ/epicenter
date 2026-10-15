@@ -15,7 +15,10 @@
 		"test:workers": "vitest run -c vitest.workers.config.ts"
 	},
 	"dependencies": {
+		"@better-auth/cimd": "catalog:",
+		"@better-auth/core": "catalog:",
 		"@better-auth/drizzle-adapter": "catalog:",
+		"@better-auth/oauth-provider": "catalog:",
 		"@better-auth/passkey": "catalog:",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",

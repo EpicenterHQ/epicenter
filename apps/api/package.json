@@ -9,7 +9,7 @@
 	},
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
-		"test": "bun test",
+		"test": "bun test --isolate",
 		"typecheck": "tsc --noEmit",
 		"dev": "bun scripts/dev.ts",
 		"dev:bun": "bun --watch server.ts",
@@ -18,7 +18,7 @@
 		"smoke:local": "bun scripts/smoke-local.ts",
 		"deploy": "wrangler deploy",
 		"typegen": "wrangler types",
-		"auth:generate:remote": "infisical run --env=prod --path=/ops --path=/api -- bun x @better-auth/cli generate --yes --config ./better-auth.config.ts --output ../../packages/server/src/db/schema/auth.ts",
+		"auth:generate:remote": "infisical run --env=prod --path=/ops --path=/api -- bun x auth@1.7.9 generate --yes --config ./better-auth.config.ts --output ../../packages/server/src/db/schema/auth.ts",
 		"db:generate": "drizzle-kit generate",
 		"db:drop": "drizzle-kit drop",
 		"db:push:local": "drizzle-kit push",

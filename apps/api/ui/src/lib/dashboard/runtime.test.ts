@@ -133,7 +133,7 @@ test('management reads and mutations force the captured principal and omit cooki
 			dashboard.management.listAccounts(),
 			dashboard.management.passkey.listUserPasskeys(),
 			dashboard.management.unlinkAccount(
-				{ providerId: 'github' },
+				{ accountId: 'alice-github' },
 				{
 					headers: { cookie: 'bob-cookie', 'x-epicenter-principal': 'bob' },
 					credentials: 'include',

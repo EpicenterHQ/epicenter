@@ -28,6 +28,7 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
+		"@better-auth/oauth-provider": "catalog:",
 		"@better-auth/passkey": "catalog:",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/constants": "workspace:*",

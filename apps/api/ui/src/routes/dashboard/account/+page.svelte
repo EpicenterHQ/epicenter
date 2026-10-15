@@ -180,9 +180,9 @@
 			confirm: { text: 'Disconnect', variant: 'destructive' },
 			onConfirm: async () => {
 				if (pageDisposed || signal.aborted) return;
+				// Better Auth 1.7 names the account row, not the provider identity.
 				const { error } = await authClient.unlinkAccount({
-					providerId: linkedAccount.providerId,
-					accountId: linkedAccount.accountId,
+					accountId: linkedAccount.id,
 				});
 				if (pageDisposed || signal.aborted) return;
 				if (error) {

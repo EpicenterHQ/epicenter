@@ -4,7 +4,7 @@
  * The subprocess race also isolates Better Auth's in-process verification locks.
  * Verifies single-use redemption, independent revocation, preserved authentication
  * age, and rejection after source revocation, source expiry, or code expiry.
- * The fresh deployment baseline contains no OAuth provider or JWKS tables.
+ * The fresh deployment baseline holds the opaque-token OAuth tables and no JWKS.
  * Requires initdb and pg_ctl on PATH; never connects to a configured deployment DB.
  */
 import { expect, test } from 'bun:test';
@@ -50,11 +50,14 @@ async function setup([first, second]: readonly [Client, Client]) {
 	const context = await hosted.$context;
 	await other.$context;
 	expect(hosted.options.emailAndPassword?.enabled).toBe(false);
-	const principal = await context.internalAdapter.createUser({
-		name: 'Alice',
-		email: 'alice@example.test',
-		emailVerified: true,
-	});
+	const principal = await context.internalAdapter.createUser(
+		{
+			name: 'Alice',
+			email: 'alice@example.test',
+			emailVerified: true,
+		},
+		{ method: 'admin' },
+	);
 	const source = await context.internalAdapter.createSession(
 		principal.id,
 		false,
@@ -121,16 +124,24 @@ async function setup([first, second]: readonly [Client, Client]) {
 // Deployment adapter behavior
 // ============================================================================
 
-test('the fresh deployment baseline has direct session tables and no OAuth or JWKS tables', async () => {
+test('the fresh deployment baseline has session, OAuth, and namespace tables and no JWKS', async () => {
 	await withDisposablePostgres(async (clients) => {
 		await setup(clients);
 		const { rows } = await clients[0].query<{ tablename: string }>(
 			"select tablename from pg_catalog.pg_tables where schemaname = 'public' order by tablename",
 		);
-		const tables = rows.map((row) => row.tablename);
-		expect(tables.filter((name) => /oauth|jwks/i.test(name))).toEqual([]);
-		expect(tables).toEqual([
+		expect(rows.map((row) => row.tablename)).toEqual([
 			'account',
+			'device_code',
+			'namespace',
+			'namespace_member',
+			'oauth_access_token',
+			'oauth_client',
+			'oauth_client_assertion',
+			'oauth_client_resource',
+			'oauth_consent',
+			'oauth_refresh_token',
+			'oauth_resource',
 			'passkey',
 			'session',
 			'user',

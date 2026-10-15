@@ -15,6 +15,27 @@
 			"when": 1792045330653,
 			"tag": "0001_drop_storage_observation",
 			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "7",
+			"when": 1792093903203,
+			"tag": "0002_oauth_authorization_server",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "7",
+			"when": 1792093903625,
+			"tag": "0003_personal_namespaces",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "7",
+			"when": 1792093904052,
+			"tag": "0004_hosted_oauth_registrations",
+			"breakpoints": true
 		}
 	]
 }
