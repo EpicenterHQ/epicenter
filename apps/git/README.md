@@ -61,11 +61,10 @@ data (or `GIT_LAB_ROOT` during development), creates them, and registers each
 copy for the one window that opens it first; that window keeps it until the
 app quits, and the other window is refused. Commits take `user.name` and
 `user.email` from Git configuration, global included; "Working copy A" or
-"B" applies only where none is set. The capability grants folder commands,
-unscoped fs reading commands that the folder plugin scopes to a copy's
-directory when it grants it, and the app's copy commands to windows A and B.
-The page reads through Tauri's fs plugin; the shell makes every write and
-runs Git. Quitting waits briefly for writes and Git commands already
+"B" applies only where none is set. The capability grants the folder
+plugin's commands and the app's copy commands to windows A and B. The page
+reads through the folder plugin, inside the copy's directory alone; the shell
+makes every write and runs Git. Quitting waits briefly for writes and Git commands already
 running; text typed in the last moment before an autosave can be lost. CSP
 allows IPC; remote Git transport runs in installed Git and needs no browser
 network grant.

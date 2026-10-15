@@ -87,8 +87,8 @@ in-memory OPFS stand-in.
 [Todos](todos/README.md) is the first app over this model. Inside Epicenter it
 is a compiled application over `so.epicenter.todos` under the host's folder
 root: the shell locks that directory and grants it to the window, and the page
-opens it with `@epicenter/folder`'s file storage through Tauri's fs plugin and
-keeps its history with the system `git`, which the shell runs for it. Capture
+opens it with `@epicenter/folder`'s file storage through the folder plugin's
+commands and keeps its history with the system `git`, which the shell runs for it. Capture
 opens its folder the same way. `bun dev:todos` starts the browser build
 instead, with the folder in the browser's origin private file system.
 

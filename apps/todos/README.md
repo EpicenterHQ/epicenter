@@ -166,13 +166,14 @@ The Rust shell registers the Todos folder under the ID the page opens,
 to open it, with the page's own engine. Opening Todos calls
 `openFolder` from `@epicenter/folder/tauri`, which asks the shell to grant
 the folder (`grant_directory`). The first grant creates the directory if it
-is missing, refuses a linked `.git`, takes the cross-process lock, and gives
-the Todos window Tauri's fs plugin commands for that directory alone.
+is missing, refuses a linked `.git`, and takes the cross-process lock. The
+Todos window then reads and changes that directory alone, through the folder
+plugin's commands.
 
 ```text
 Todos window (WebView)
         | @epicenter/folder directory folder: the browser's file storage
-        |   over Tauri's fs plugin, and the native Git backend
+        |   over the folder plugin's commands, and the native Git backend
         |   (`run_git`: the shell runs `git` in the granted directory only)
         v
 ~/Epicenter/so.epicenter.todos          (locked and granted by the Rust shell)
@@ -191,7 +192,7 @@ for other programs' edits; Todos reads again at the moments listed
 The `epicenter-host` build condition selects the desktop leaf of
 `#platform/folder`, and `vite.config.ts` resolves the bare `@epicenter/folder`
 specifier to `@epicenter/folder/tauri` for that build. That build carries the
-directory folder and Tauri's fs plugin client, and none of the browser
+directory folder and the folder plugin's commands, and none of the browser
 folder's storage address, download, or private Git, and no Node or Bun
 module. The browser build selects the browser leaf and resolves the same
 specifier to `@epicenter/folder/browser`, so it carries no desktop adapter.

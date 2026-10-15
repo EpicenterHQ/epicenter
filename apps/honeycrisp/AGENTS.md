@@ -21,7 +21,7 @@ against the code. The constraints below apply to every edit here.
   even when its repository has no commit yet. Only missing layout/defaults
   are initialized. Do not request a commit because a folder has no head.
 - The shell writes nothing inside the notes directory. A missing layout is
-  created by the page through the attached folder, after the shell's grant
+  created by the page through the granted folder, after the shell's grant
   takes the folder's lock, in `src/lib/platform/first-open.ts`: look first, write `kv.json`
   only when a read confirmed it absent and only if it is still absent, and
   never retry an outcome that is unknown. Table directories come from the
@@ -147,7 +147,7 @@ against the code. The constraints below apply to every edit here.
   aliases to its one adapter entry in `vite.config.ts`; keep
   `apps/honeycrisp/scripts/module-graph.ts` doing the same. Do not add another folder
   engine, a Git implementation, or a history scheduler to the desktop page,
-  and do not fall back to browser storage when attaching fails.
+  and do not fall back to browser storage when the grant fails.
 - The root, the commit author, and the window allowed to use them are decided
   in `src-tauri`. No command accepts a root or a working directory from the
   page.

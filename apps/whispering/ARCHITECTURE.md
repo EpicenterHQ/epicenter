@@ -17,10 +17,9 @@ src/              the page      the UI; opens the granted folder, fetches the ho
 │ loads http://127.0.0.1:<port>/, injects the token    │
 │                                                      │
 │   tauri-plugin-epicenter-folder: grant and lock;     │
-│   checked file changes and `git` runs for the page   │
-│   tauri-plugin-fs: reads, scoped to the grant        │
+│   checked reads, file changes, and `git` runs        │
 └────┬──────────────────▲────────────────┬─────────────┘
-     │ spawns           │ invoke         │ changes, git
+     │ spawns           │ invoke         │ reads, changes, git
      ▼                  │                ▼
 ┌── host (Bun) ─────┐  ┌┴─ page (WebView) ──┐   the data folder
 │ page, terminal,   │◄─│ the folder engine  │   and its .git
@@ -33,13 +32,13 @@ src/              the page      the UI; opens the granted folder, fetches the ho
 The page opens the folder with `@epicenter/folder/tauri` and names only the
 folder's ID. The shared Rust plugin (`tauri-plugin-epicenter-folder`), in the
 shell's process, grants the main window the directory the shell registered
-and holds the folder's lock. The page's own folder engine then reads the
-directory through Tauri's fs plugin, whose scope the grant limits to that
-directory, and makes every change (`write_folder_file` and the rest) and runs
-every `git` command (`run_git`) through the folder plugin, which checks each
-path against the shared path rule and keeps it out of Git's private state.
-This app has no folder code of its own on the desktop: no copy of the
-plugins' bindings and no second transport.
+and holds the folder's lock. The page's own folder engine then makes every
+read (`read_folder_file` and the rest), every change (`write_folder_file` and
+the rest), and every `git` command (`run_git`) through the folder plugin. It
+reads only inside the granted directory and never through a link; it checks
+each change against the shared path rule and keeps it out of Git's private
+state. This app has no folder code of its own on the desktop: no copy of the
+plugin's bindings and no second transport.
 
 The host does not open the folder. It is told the directory by the shell and
 uses it as any other program would. The terminal runs the person's shell
@@ -190,14 +189,9 @@ The shell settles four things, in this order, before the window exists
    which Tauri treats as a remote origin with no commands at all. One
    capability, added at runtime because the port is not known until then,
    grants the `main` window, on exactly `http://127.0.0.1:<port>/*`, the
-   folder plugin's commands (`epicenter-folder:default`), the fs plugin's
-   reading commands with no path (`DIRECTORY_COMMANDS`: `fs:allow-read-dir`,
-   `fs:allow-lstat`, `fs:allow-read-file`), and listening for events
-   (`core:event:allow-listen`, `core:event:allow-unlisten`). The fs commands
-   reach nothing until `grant_directory` adds them, scoped to the folder's
-   directory alone. `tauri.conf.json` lists no capability, and sets the fs
-   plugin's `requireLiteralLeadingDot` to `false` so that scope reaches
-   `.git` and other dot files.
+   folder plugin's commands (`epicenter-folder:default`) and nothing else.
+   They read and change only the directory `grant_directory` names, `.git`
+   included. `tauri.conf.json` lists no capability.
 
 So the page cannot choose a directory: it names a scope, and the shell decided
 what that scope is. Another window, a page from another origin or port, and a
@@ -667,7 +661,8 @@ None of this adds a Tauri command: the question and the answer travel over the
 host's standard streams and the authenticated bridge, and the host-gone
 fallback uses a page event and a refused navigation.
 
-With the host gone the folder is still open, since the shell owns it. Changes
+With the host gone the folder is still open: the page's engine holds it, and
+the shell still grants and locks it. Changes
 to recordings, transcripts, and other files can still be saved, a pending
 recording can still be tried again, and a commit can still be made. What is
 gone is what the host did: the terminal, new transcription and transformation

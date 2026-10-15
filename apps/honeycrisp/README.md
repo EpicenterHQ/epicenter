@@ -237,11 +237,10 @@ Tauri shell (src-tauri)          one program and one window. It registers the
         │                        notes directory with the shared folder plugin
         │                        and asks the page before a close or quit.
         ▼
-Folder plugin and fs plugin      grant the window the directory and hold its
-        │                        lock. The page reads through the fs plugin;
-        │                        the folder plugin makes every change and runs
-        │                        the folder's `git`, checking each path. The
-        │                        Rust crate is in
+Folder plugin                    grants the window the directory and holds its
+        │                        lock. The page reads, makes every change, and
+        │                        runs the folder's `git` through it, and it
+        │                        checks each path. The Rust crate is in
         │                        packages/tauri-plugin-epicenter-folder.
         ▼
 Page (build-desktop, bundled)    runs @epicenter/folder's own engine over the
@@ -287,10 +286,9 @@ decides the rest in Rust, before any page exists:
   makes the directory itself if it is missing and writes nothing inside it.
 - That the one window `main` opens it, with the page's own engine. On the
   page's first `grant_directory` the folder plugin takes the
-  directory's cross-process lock, refuses a linked `.git`, and adds a
-  capability that lets that window read the directory and everything in it
-  through the fs plugin. The fs plugin is configured with
-  `requireLiteralLeadingDot: false`, so `.git` and dot files are readable.
+  directory's cross-process lock and refuses a linked `.git`. The window
+  then reads the directory and everything in it, `.git` and dot files
+  included, through the folder plugin's read commands, never through a link.
 - What the page may change: any path in the directory that the folder's path
   rule allows (see the file names above), plus the engine's own staging files
   in `.git`. The folder plugin checks each path on disk and makes the change;
@@ -416,9 +414,9 @@ view and delivers events to it.
 | `src/lib/notes.svelte.ts` | The query cache: listing and text queries, edits and their per-file write mutations, rollback after a failed write, note, folder, and file actions, Save version, what the detail shows, and the input fence. |
 | `src/lib/platform/` | The `#platform/notes-host` seam, its two leaves, and `shell.tauri.ts`, the page side of the shell's commands. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files, terminal. |
-| `src-tauri/src/lib.rs` | The desktop shell: the folder and fs plugins, the notes scope, the window, close routing. |
+| `src-tauri/src/lib.rs` | The desktop shell: the folder plugin, the notes scope, the window, close routing. |
 | `src-tauri/src/root.rs` | Choosing and resolving the root directory. |
-| `src/lib/platform/first-open.ts` | Setting up a folder that has no layout yet, through the attached folder. |
+| `src/lib/platform/first-open.ts` | Setting up a folder that has no layout yet, through the granted folder. |
 | `src-tauri/src/commands.rs` | The shell's commands, each a thin call into a module below. |
 | `src-tauri/src/close.rs` | Whether a close or quit may go ahead. |
 | `src-tauri/src/quit.rs` | macOS: a quit from the system becomes an exit request the gate answers. |
@@ -438,7 +436,7 @@ replaced the host and which native checks are still to be run.
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
 - `@epicenter/folder` for the folder, its note and folder listings, and guarded writes; [TanStack Query](https://tanstack.com/query) for the cache the page reads and edits; and `@epicenter/definition` for the declaration
-- [Tauri](https://tauri.app) for the desktop shell, with the `tauri-plugin-epicenter-folder` crate granting the directory, making changes, and running `git`, and `tauri-plugin-fs` for reading
+- [Tauri](https://tauri.app) for the desktop shell, with the `tauri-plugin-epicenter-folder` crate granting the directory, reading it, making changes, and running `git`
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises

@@ -130,7 +130,7 @@ and the locked crates, and `whispering_lib::on_run_event` for every run event.
 The harness drives nothing until its run callback has seen `RunEvent::Ready`,
 so the app's setup has finished, and it reads the guard and the window on the
 main thread. Each wait is bounded by the same 60 seconds as every other step.
-That includes the guard, the Quit menu, the folder and fs plugins and the
+That includes the guard, the Quit menu, the folder plugin and the
 folder's registration, the capability, the navigation rule, the per-launch credential,
 the host's stdout reader, `request_close`, and `stop_host`. The host is the
 real Bun host from `native/main.ts`, started by `host_command` as a debug

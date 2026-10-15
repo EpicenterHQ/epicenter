@@ -4,7 +4,7 @@
 - **Date:** 2026-10-14
 - **Supersedes:** [ADR-0476](0476-whisperings-desktop-folder-uses-one-rust-library-in-both-tauri-shells.md), which chose one Rust folder implementation for desktop shells.
 - **Relates:** [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) names rows by their exact stem, now under the shared path rule below. [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) is the test each dropped guarantee was held to.
-- **Unbuilt:** a real desktop run of every shell; on Windows, the fs plugin under a runtime capability and Git for Windows honoring a `core.hooksPath` under `.git/epicenter/no-hooks`.
+- **Unbuilt:** a real desktop run of every shell; on Windows, Git for Windows honoring a `core.hooksPath` under `.git/epicenter/no-hooks`.
 
 ## Context
 
@@ -24,20 +24,21 @@ handle.
 ## Decision
 
 **A desktop folder is opened by the page, with the TypeScript engine, over a
-directory the shell grants: files through Tauri's fs plugin, history through
-the system `git`, which the shell runs for it.**
+directory the shell grants: files through the shell's own read and change
+commands, history through the system `git`, which the shell runs for it.**
 
 The shell registers each folder for exactly one window: one live editor per
 folder, so the engine never shares files with another window's engine. The
 first `grant_directory` creates the directory, refuses a directory that is a
-link and a linked `.git`, takes the cross-process lock until shutdown, and
-adds a capability for the calling window, wherever its page loads from: the
-fs plugin's reading commands on the root and beneath it. The fs plugin must not require a literal leading
-dot. Rust makes every change itself (`write_folder_file` and its siblings),
-after checking the whole path on disk: under the root, no link on the way,
-and either a data path the shared path rule accepts or, inside `.git`, only
-the engine's staging files and private index copies, each created as a new
-file. The shell keeps no list of a
+link and a linked `.git`, and takes the cross-process lock until shutdown.
+It adds nothing to the app's access control. Rust makes every read
+(`read_folder_file`, `read_folder_directory`, `stat_folder_path`) and every
+change (`write_folder_file` and its siblings) itself, after checking the
+path on disk: the root or beneath it, and no link on the way. A read may
+reach anything there, `.git` included; a final link is described and never
+followed. A change must also be a data path the shared path rule accepts or,
+inside `.git`, only the engine's staging files and private index copies, each
+created as a new file. The shell keeps no list of a
 folder's files: an app's definition, a Sync, or a file browser may write any
 data path.
 
@@ -93,8 +94,8 @@ process and its helpers. The Git lab, a testbed, has no quit question.
   windows no longer share one view of a folder, because a folder has one
   window; and a page that approves a quit before its saves land loses what
   the shell's ten-second wait does not cover.
-- The desktop bundle carries the directory folder and the fs plugin client
-  in a chunk loaded only for a granted folder, and none of the browser
+- The desktop bundle carries the directory folder and the folder plugin's
+  commands in a chunk loaded only for a granted folder, and none of the browser
   folder's storage address, download, or private Git. It needs no HTTP
   plugin.
 - The page names paths inside the granted directory. "A page never names a
@@ -133,6 +134,13 @@ process and its helpers. The Git lab, a testbed, has no quit question.
 - **Several windows on one folder**, coordinated by Web Locks and
   `BroadcastChannel`. No app needs it, and it was unverified across Tauri
   windows.
+- **Tauri's fs plugin for reads under a runtime capability** (built first).
+  Before Tauri 2.12, a capability added at run time numbered its scopes from
+  zero, so the grant's path scope collided with a scope the app already had,
+  and every read failed to deserialize it. The fs scope check follows links,
+  so a link to outside the folder read as refused rather than as a link, and
+  the plugin needed a version pin and a setting that lets its scope match a
+  leading dot.
 - **Tauri's shell plugin running `git`.** A page could pass a working
   directory or environment that makes Git run another program.
 - **The engine in the Bun host.** Several windows would share one engine,

@@ -136,8 +136,9 @@ The Rust shell installs the shared `tauri-plugin-epicenter-folder` and registers
 `so.epicenter.todos` for the `todos` window alone (ADR-0531). The first grant
 creates the directory, takes the cross-process lock until shutdown, and lets
 the window read beneath it. The page opens the folder with
-`@epicenter/folder`'s own engine: files through Tauri's fs plugin, writes and
-Git through the shell (`write_folder_file`, `run_git`), which change only data
+`@epicenter/folder`'s own engine: reads, writes, and Git through the shell
+(`read_folder_file`, `write_folder_file`, `run_git`), which read only beneath
+the root, never through a link, change only data
 paths the shared path rule accepts, never Git's own state, and run only the
 Git operations the engine uses. History
 is real Git, so Save version is a commit and Sync pushes to and fetches from the
@@ -164,8 +165,8 @@ It opens without an Epicenter account.
 The Rust shell registers `so.epicenter.capture` for the `capture` window alone
 (ADR-0531), as it does for Todos. The first grant creates the
 directory and takes the cross-process lock until shutdown; the page opens the
-folder with `@epicenter/folder`'s own engine, reading through Tauri's fs plugin
-and writing and running Git through the shell. There is no Capture HTTP file
+folder with `@epicenter/folder`'s own engine, reading, writing, and running Git
+through the shell. There is no Capture HTTP file
 bridge. Native shutdown waits for changes already admitted. Browser Capture keeps a separate folder
 in its origin's private file system (OPFS).
 
@@ -177,8 +178,8 @@ termination does not wait.
 ## Leaving Epicenter
 
 Capture and Todos keep unsaved text in their pages, and the Folder plugin's
-exit drain sees only writes a page already submitted, not a draft still inside
-its 400 ms batch. So before the process quits, or restarts for an account
+exit drain waits only for changes a page already sent, not a draft still in
+the page. So before the process quits, or restarts for an account
 change, the native host runs one departure round
 (`src-tauri/src/departure.rs`) and asks both windows. The pages own their
 drafts; the host owns the round and a generation for each page. Nothing else
@@ -245,7 +246,7 @@ no file-backed drafts.
   own Window-menu items instead, which open or show them through the same
   checked path as Home's launcher, so the menu cannot show a discarded or
   granted window.
-- **Bun stopping** leaves both windows and their native folders running, and
+- **Bun stopping** leaves both windows and their open folders running, and
   sends them `host-stopped`. Their HTTP session does not come back; they are
   shown when no round is in progress.
 

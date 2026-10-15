@@ -188,12 +188,13 @@ Capture window (WebView)
    openFolder({ id, definition })  from @epicenter/folder/tauri
    the folder engine, in the page
         |  plugin:epicenter-folder|grant_directory   -> { root, branch, author }
-        |  plugin:fs|read_dir, lstat, read_file      -> reads under <root>
+        |  plugin:epicenter-folder|read_folder_directory, stat_folder_path,
+        |    read_folder_file                        -> reads under <root>
         |  plugin:epicenter-folder|write_folder_file, rename_folder_path,
         |    remove_folder_path, make_folder_directory -> changes, path-checked
         |  plugin:epicenter-folder|run_git           -> the system `git` in <root>
         v
-Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder, tauri-plugin-fs  ->  <directory>
+Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder  ->  <directory>
 ```
 
 The page names the folder by its ID, `so.epicenter.capture`

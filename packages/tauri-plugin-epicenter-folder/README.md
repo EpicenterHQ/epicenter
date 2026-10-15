@@ -1,8 +1,8 @@
 # tauri-plugin-epicenter-folder
 
 The desktop shell's side of an Epicenter folder: it grants one window a
-directory, and makes that window's file changes and runs its `git` under
-checks the page cannot get around.
+directory, and makes that window's reads and file changes and runs its `git`
+under checks the page cannot get around.
 
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
@@ -13,9 +13,9 @@ the scope and nothing else: it never supplies a root or an author.
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the registry, the cross-process lock, the shared path rule, and the checked file changes and `git` runs. No Tauri; its tests need only `git` and `bun`. |
-| `src/` | The Tauri plugin: the commands, the run-time capability a grant adds, and the `git` runs each window's page started. |
-| `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `write_folder_file` is not in them (see File changes). Do not edit. |
+| `core/` | `epicenter-folder-core`: the registry, the cross-process lock, the shared path rule, and the checked reads, file changes, and `git` runs. No Tauri; its tests need only `git` and `bun`. |
+| `src/` | The Tauri plugin: the commands and the `git` runs each window's page started. |
+| `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `write_folder_file` are not in them (see Reads and File changes). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 | `fixtures/page-file-changes.json` | Every file change the engine makes in `@epicenter/folder`'s real-Git tests; `page_files.rs` allows each. |
 | `fixtures/page-git-calls.json` | Every `git` call the engine makes in the same tests; `page_git.rs` allows each. |
@@ -33,7 +33,6 @@ use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig
 
 tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_folder::init())
-    .plugin(tauri_plugin_fs::init())
     .setup(|app| {
         let todos = resolve_todos_directory(app)?;
         app.folders().register(ScopeConfig {
@@ -63,19 +62,11 @@ A scope belongs to exactly one window: one live editor per folder. A scope's
 configuration cannot change once registered. Two scopes cannot hold one root
 at once, since the second cannot take its lock.
 
-A shell must also:
-
-- give the window the plugin's commands in a capability:
-  `{ "windows": ["todos"], "permissions": ["epicenter-folder:default"] }`;
-- install `tauri-plugin-fs` and set `plugins.fs.requireLiteralLeadingDot` to
-  `false`, so `.git` and other dot files inside the granted root are
-  reachable;
-- list `DIRECTORY_COMMANDS` in the window's capability with no path, so its
-  build checks the names; only a grant gives them a directory. No fs command
-  that changes files is listed.
-
-The capability only lets a window call the plugin. Which folder it reaches is
-decided by `window` in `ScopeConfig`.
+A shell must also give the window the plugin's commands in a capability:
+`{ "windows": ["todos"], "permissions": ["epicenter-folder:default"] }`. That
+is all the window needs; no fs plugin is installed. The capability only lets
+a window call the plugin. Which folder it reaches is decided by `window` in
+`ScopeConfig`.
 
 ## The grant
 
@@ -94,27 +85,39 @@ first grant:
    `.git/refs`, or `.git/logs`, and a linked `.git/epicenter` or scratch
    directory.
 
-The window's first grant then adds a capability for that window
-(`directory_capability`): the fs plugin's reading commands
-(`DIRECTORY_COMMANDS`) on the root and everything beneath it. It applies to
-the window's local pages, the app's own bundle, and, when the page that asked
-was served over `http(s)` (a shell's loopback host), to pages at that origin.
-Tauri checks a page's URL against the capability on every call, so other
-content reaches the window only by navigating it, which the shell's
-navigation guards keep out. The fs scope resolves every existing path, links
-included, before matching, so a link in the folder that points outside it is
-refused. A grant returns `{ root, branch, authorName, authorEmail }`; a later
-grant, such as a reloaded page's, returns the same root.
+A grant returns `{ root, branch, authorName, authorEmail }`; a later grant,
+such as a reloaded page's, returns the same root. It adds nothing to the
+app's access control: the window reaches the folder only through this
+plugin's commands, each of which looks up the root the scope was granted.
+
+## Reads
+
+The page reads through this crate: `read_folder_directory` lists a
+directory as `{ name, kind }` entries, `stat_folder_path` describes a path
+as `{ kind, size, mode }` or `null` when nothing is there, and
+`read_folder_file` returns a file's bytes. A kind is `file`, `directory`,
+`link`, or `other`. `page_reads.rs` checks the path on disk first: it must be
+the granted root or beneath it, with no `.` or `..`, and no existing
+component on the way to it may be a link. The final component may be one:
+listing and describing report it as `link` and never follow it, and reading
+a file or listing a directory through it is refused. A read may reach
+anything under the root, `.git` and other dot files included. A name that is
+not text is left out of a listing. `mode` is the Unix mode, file type bits
+included, and `null` on Windows.
+
+`read_folder_file` returns the bytes as a raw response, an `ArrayBuffer` to
+the page, rather than as a JSON array of numbers. The generated bindings
+cannot type a raw response, so the command is left out of them; the plugin
+dispatches it beside the typed commands, under the same permission, and
+`directory-tauri.ts` invokes it by name.
 
 ## File changes
 
 The page changes files through this crate (`write_folder_file`,
-`rename_folder_path`, `remove_folder_path`, `make_folder_directory`), not the
-fs plugin, because an fs scope matches a path that does not exist yet as
-text: under a link that already points elsewhere, a new file's path would look
-like the folder's. `page_files.rs` checks the whole path on disk first. It
-must be under the granted root with no `.` or `..`, and no existing component
-on the way may be a link. Then it must be:
+`rename_folder_path`, `remove_folder_path`, `make_folder_directory`).
+`page_files.rs` checks the whole path on disk first. It must be under the
+granted root with no `.` or `..`, and no existing component on the way may
+be a link. Then it must be:
 
 - a data path: any file or directory the shared path rule accepts
   (`paths::path_problem`, the same rule as `pathProblem` in
@@ -137,9 +140,8 @@ the engine writes a staged copy and renames it over the path
 through it. A directory is removed only when empty; nothing removes a tree
 whole.
 
-`write_folder_file` takes the file's bytes as the request's raw body, as the
-fs plugin's `write_file` does, so content crosses IPC as it is rather than as
-a JSON array of numbers. Its arguments are headers, each percent-encoded:
+`write_folder_file` takes the file's bytes as the request's raw body, so
+content crosses IPC as it is rather than as a JSON array of numbers. Its arguments are headers, each percent-encoded:
 `scope`, `path`, and `create-new` (`true` or `false`). A JSON array of bytes,
 Tauri's `postMessage` fallback, is accepted too.
 The generated bindings cannot type a raw request, so the command is left out
@@ -189,17 +191,19 @@ and the helpers it started, such as `git-remote-https`.
 
 ## Shutdown
 
-Every file change and `git` run holds an admission while it runs. When the
-app exits, or the shell calls `app.folders().shutdown()`, the plugin refuses
-new grants and new work, waits up to ten seconds for work already admitted,
-then releases every folder's lock. Pages settle their own work before they
+Every file change and `git` run holds an admission while it runs. A read
+holds none: it changes nothing, so a quit need not wait for it, and one
+asked for after shutdown begins is refused. When the app exits, or the shell
+calls `app.folders().shutdown()`, the plugin refuses new grants and new
+work, waits up to ten seconds for work already admitted, then releases every
+folder's lock. Pages settle their own work before they
 approve a quit; the wait covers a change or a `git` run still in flight when
 they did. A late change is refused as `ShuttingDown` and writes nothing.
 
 ## What is best effort
 
-- A link another program swaps in between a check and the change that
-  follows is not defended against; a page cannot make one.
+- A link another program swaps in between a check and the read or change
+  that follows is not defended against; a page cannot make one.
 - The cross-process lock is an exclusive SQLite transaction on
   `.<directory>.epicenter-lock` beside the directory. A Bun script opening
   the same directory (`@epicenter/folder/bun`) does not take it. The system

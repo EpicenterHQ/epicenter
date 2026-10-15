@@ -249,14 +249,14 @@ a capture and is refused as `Conflict` instead.
 A desktop shell registers each folder's directory for one window, with the
 `tauri-plugin-epicenter-folder` crate. Opening it with
 `@epicenter/folder/tauri` asks the shell to grant it (`grant_directory`): the
-shell creates the directory if it is missing, refuses a linked `.git`, takes
-the folder's cross-process lock, and gives this window Tauri's fs plugin
-reading commands for that directory alone. The page then opens a directory
-folder (`directory-adapter.ts`):
+shell creates the directory if it is missing, refuses a linked `.git`, and
+takes the folder's cross-process lock. The page then opens a directory
+folder (`directory-adapter.ts`) and reads and changes that directory alone
+through the shell's commands:
 
 | | Browser folder | Granted desktop folder |
 | --- | --- | --- |
-| Files | OPFS | The real directory, through Tauri's fs plugin |
+| Files | OPFS | The real directory, through the shell's commands |
 | History | isomorphic-git in a private OPFS `.git` | The system `git` in the real `.git`, which the shell runs (`run_git`) |
 | Identity | The directory its ID names | The shell's registration and lock |
 | Remote and author | `remote.origin.url`, set by `sync.connect`, and `browser.author` | Git's own configuration: `remote.origin.url`, `user.name`, `user.email`, with the shell's author as fallback |
@@ -266,13 +266,14 @@ folder (`directory-adapter.ts`):
 Files go through the browser folder's file storage (`opfs-store.ts`) over a
 directory handle (`directory-handle.ts`) built on seven calls: `readDir`,
 `lstat`, `readFile`, `writeFile` with `createNew`, `rename`, `remove`, and
-`mkdir`. `directory-tauri.ts` supplies them from Tauri's fs plugin and
+`mkdir`. `directory-tauri.ts` supplies them from the shell's commands and
 `directory-node.ts` from `node:fs`. A write's bytes are staged under
 `.git/epicenter/scratch` and renamed over the path, so another program sees
 the old file or the new one, never an empty or partial one; opening clears
 what a stopped write left there. Symbolic links and special entries are
-listed and never followed. On the desktop the shell makes every change and
-checks its whole path: any data path the shared path rule accepts
+listed and never followed. On the desktop the shell reads only beneath the
+root and never through a link on the way, and makes every change and checks
+its whole path: any data path the shared path rule accepts
 (`paths.ts`, held to the plugin's `fixtures/path-rules.json` with its Rust
 twin), no link on the way, and inside `.git` only the engine's staging and
 private index copies. A change whose reply is lost may have happened: a
@@ -1055,7 +1056,7 @@ dangle.
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | Svelte boundary tests and the sync review's mounted tests. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
-| `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or Tauri's fs plugin. |
+| `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
 | `src/process-locks.ts`, `git/native-*.ts` | Web Locks for a process that has none, and the `git` program a directory folder records history with. |
 | `src/native/bindings.gen.ts` | Commands generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
 | `fixtures/` | Vectors the tests read: `kv-merge.json` for `mergeKv`, and `commit-subjects.txt`, the subjects `commitSubject` writes (`bun run gen:vectors` rewrites it). |
