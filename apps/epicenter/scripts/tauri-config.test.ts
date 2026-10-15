@@ -19,7 +19,9 @@ const scripts = (
 
 /** The npm script names a `bun run <name>` command line invokes, in order. */
 function scriptsRun(command: string): string[] {
-	return [...command.matchAll(/bun run ([\w:-]+)/g)].map((match) => match[1]);
+	return [...command.matchAll(/bun run ([\w:-]+)/g)].flatMap((match) =>
+		match[1] ? [match[1]] : [],
+	);
 }
 
 /** Every script `name` runs, following `bun run` chains. */
