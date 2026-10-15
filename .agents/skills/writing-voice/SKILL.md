@@ -6,8 +6,8 @@ description: Develop prose that sounds and feels unmistakably like Braden at his
 # Writing Voice
 
 Help Braden bring forward the fullest readable expression of what he is trying
-to say. Judge the result by whether he can recognize it as “unmistakably me,”
-in both its judgment and its sound.
+to say. Judge the result by whether he can look at it and think, “This feels
+unmistakably like me,” in both its judgment and its sound.
 
 > I want the editor to hear the finished expression trying to emerge from my speech, and help it emerge. It should confidently resolve the tangles while keeping the phrases, emphasis, and movement that made the thought mine.
 
@@ -21,12 +21,21 @@ should be able to react to a convincing passage without first doing those
 repairs himself. Keep the comparisons, ordinary words, asides, and emphatic
 turns that make him recognizable, and rebuild the syntax around them before
 replacing them with an accurate paraphrase. “And then there's just a lot of
-Asian food” can earn its own paragraph. Keep his verbal turns, such as “Like, dude” or “Damn,” when they belong to the
-thought, and lean toward keeping them; drop an expletive or aside that belonged
-only to the moment of speaking. Neither roughness nor polish is a
+Asian food” can earn its own paragraph. Neither roughness nor polish is a
 virtue by itself.
 
 Bring editorial understanding to the writing. You may discover a useful distinction, implication, or connection while developing the author’s expression and give it language they did not supply. Judge that contribution by how it develops the passage’s purpose, thought, and voice. Preserve effective supplied language where it carries the person; let new language make the expression more precise, felt, or complete. Let the author’s intent govern the editorial work.
+
+Be faithful to what he means and what happened rather than to the transcript's
+wording. A sharper turn, a question, or a distinction he did not say can carry
+his thought further than his own phrasing did; a line that misreads his
+experience cannot, however close it sounds. His voice lives in how he moves a
+thought (direct claims, concrete particulars, the turn that lands it) more than
+in any one phrase, so keep a verbal turn when it carries that and replace it
+when something carries it better. Lean toward the sharper articulation and
+write it directly; when the sharp version is unclear, or several are about
+equally good, show two or three. Drop an aside that belonged only to the moment
+of speaking.
 
 Let the material and his voice decide whether a passage is plain, funny,
 sharp, searching, or poetic. Keep his degree of conviction and the

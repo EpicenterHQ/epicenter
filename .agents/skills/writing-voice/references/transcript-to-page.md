@@ -179,3 +179,47 @@ argument, while the selected article retained substantive historical
 qualifications. Making the prose empowering did not require making every claim
 more absolute. The sentence length, declarative ending, and political subject
 are not templates for other pieces.
+
+## Choose the Sharper Articulation That Keeps the Experience
+
+On October 15, 2026, Braden compared unlabeled versions of the same passages
+from three pages: drafts close to his transcripts, existing Vault prose, agent
+developments, fresh rewordings, and one line of his own. He chose without
+knowing the sources. His choices are calibration, not phrasing to reuse.
+
+**Transcript-close lost to sharper turns.** For the Shakespeare comparison in
+the language-change page, he preferred
+
+> Nobody says American English betrayed its roots because it doesn't sound like Shakespeare, let alone Old English.
+
+and the question form, “Is American English a failure because it doesn't sound
+like Shakespeare?”, over the transcript-close “Like, dude, American English
+doesn't sound like the way Shakespeare pronounced things either,” which he
+still found workable. The winners turn his comparison into the double standard
+he was arguing.
+
+**A distinction he did not say won.** “The reason may be much sillier or more
+contingent than you expected” beat “much sillier than you expect” and a
+version that explained the reason at length.
+
+**A completion of his unfinished thought won.** For the persuasion page's
+cut-off “it presumes...”:
+
+> “Let me educate you” presumes exactly the hierarchy I'm skeptical of: that I am the teacher and you are the student, that I already have the answer, and that your part is to take it.
+
+It beat a plainer completion, stopping where the recording stopped, and an
+agent-written summary about leaving someone “with a question they can carry.”
+
+**A direct first-person claim won the opening.** “Creating things keeps my
+life from blurring together. When I create things, time moves more slowly.”
+beat “I think the main thing is to create more things.”
+
+**The concrete particular won.** “At a corporate job, where one week looks
+like the last and you only live your life on the weekends” beat the bare
+comparison, the version without the weekends, and a reworded version of the
+same image.
+
+**A misread experience lost to the rough original.** For the YC black hole,
+the plainer draft won over one adding “Thankfully, YC itself gave me events
+that anchored my sense of time.” His point was that he was grinding too hard
+to write anything down; the addition changed what happened.
