@@ -228,6 +228,20 @@ export const commands = {
 	/**  Whether a key is saved for `connection`, and for which endpoint. Never the key. */
 	aiKeyState: (connection: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_state", { connection })),
 	/**
+	 *  Sign the app in: the CLI's loopback sign-in as `so.epicenter`. The shell
+	 *  opens the authorization page in the person's browser; each line the CLI
+	 *  prints (`{"open"}`, then `{"signedIn"}` or `{"error"}`) goes to
+	 *  `on_event`.
+	 */
+	authLogin: (onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("auth_login", { onEvent })),
+	/**  Who each of the CLI's grants on this computer belongs to. */
+	authStatus: () => typedError<AuthStatus, CliError>(__TAURI_INVOKE("auth_status")),
+	/**
+	 *  Sign the app out: the CLI revokes its grant and deletes it from the
+	 *  keychain. A terminal's `epicenter auth login` is left signed in.
+	 */
+	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
+	/**
 	 *  `epicenter app list --json`: every app installed under `Apps/`, with
 	 *  whether it can run.
 	 */
@@ -484,6 +498,42 @@ export type AppliedHints = {
 	 *  the Parakeet family does not).
 	 */
 	initialPrompt: boolean;
+};
+
+/**  Who approved a grant, as the server's userinfo answered at sign-in. */
+export type AuthAccount = {
+	id: string;
+	name?: string | null;
+};
+
+/**
+ *  One of the CLI's grants: `device` (a terminal's `epicenter auth login`)
+ *  or `desktop` (this app's).
+ */
+export type AuthGrant = {
+	grant: string;
+	client: string;
+	signedIn: boolean;
+	account?: AuthAccount | null;
+	signedInAt?: string | null;
+};
+
+/**
+ *  What signing the app out did: whether it was signed in, and whether the
+ *  server heard the revocation.
+ */
+export type AuthSignOut = {
+	signedOut: boolean;
+	revoked: boolean;
+};
+
+/**
+ *  `epicenter auth status --json`: the deployment and each grant on this
+ *  computer, read from the keychain alone.
+ */
+export type AuthStatus = {
+	origin: string;
+	grants: AuthGrant[];
 };
 
 export type CatalogError =

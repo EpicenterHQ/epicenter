@@ -55,6 +55,20 @@ The one binary has three uses:
   folder that window was granted and answers `{ code, stderr }`, or
   `NotGranted` with the grant error. The installed-app commands are below.
   Development runs the CLI's source under `bun` instead of the binary.
+- Settings' Account section runs the CLI's desktop sign-in through three
+  fixed commands, granted to the `home` window by `home-account-*`
+  (ADR-0558). `auth_login(onEvent)` runs `epicenter auth login --loopback
+  --desktop --json`: the CLI listens once on
+  `http://127.0.0.1:<random port>/callback` and prints `{"open": "<url>"}`,
+  which the shell opens with the opener only when it is the deployment's
+  `/auth/oauth2/authorize`, then `{"signedIn"}` or `{"error"}`; every line
+  goes to `onEvent`. `auth_status()` runs `epicenter auth status --desktop
+  --json` and `auth_logout()` runs `epicenter auth logout --desktop --json`.
+  `ai_send` runs `epicenter send --json --desktop`, so an Epicenter
+  connection sends with the app's grant. Each of these passes the shell's
+  configured server as `EPICENTER_API_URL`, so the CLI and the shell name
+  one deployment. The grant's refresh token and cached access tokens are in
+  the CLI's keychain entry; no token reaches a page or Rust.
 
 `epicenter install-command`, run from the bundled binary, links it onto `PATH`
 as `/usr/local/bin/epicenter`, asking before `sudo` when that directory is not
@@ -67,6 +81,7 @@ A desktop build connects to one server. The default is Epicenter Cloud. Set
 self-hosted HTTP(S) origin. Changing it requires rebuilding the host.
 Rust passes this descriptor to Bun and uses the same origin to validate native
 sign-in URLs. App windows receive the descriptor with their identity snapshot.
+Rust passes the same origin to the CLI it runs for sign-in and `send`.
 Settings lets people sign in and out; it cannot change the server.
 
 Debug Cloud builds retain `EPICENTER_API_URL` for the local development API.
@@ -150,15 +165,22 @@ bun dev:epicenter
 
 This starts the local API on `http://localhost:8787` and the desktop host.
 It requires the API's [local Postgres and Infisical setup](../api/README.md#development).
-The API rebuilds its sign-in page at startup so both sides use the current
-session handoff. Development never needs the deployed production sign-in page.
+Settings' Sign in is the CLI's desktop sign-in (`epicenter auth login
+--loopback`, client `so.epicenter`): finish it in your browser and Settings
+shows who the app is signed in as. Nothing restarts. It is a separate grant
+from a terminal's `epicenter auth login`, and signing one out leaves the
+other signed in.
 
-Finish sign-in in your browser, then return to Epicenter. Settings shows the pending
-attempt and lets you cancel without signing out of your existing account.
-Development returns through the running host's loopback callback because a raw
-macOS development executable has no registered URL scheme. Packaged builds keep
-`epicenter://auth/callback`. If you set `EPICENTER_DEV_PORT`, set it on this root
-command so the API approves the same exact callback port the host binds.
+An installed app's own Sign in (Todos' sync choices) still goes through the
+host's session sign-in and its account relay, `/_epicenter/account/*`
+(`src/desktop-auth-authority.ts`, `@epicenter/auth/desktop`), because the
+API accepts no OAuth access token yet (ADR-0549). The API rebuilds its
+sign-in page at startup so both sides use the current session handoff.
+That sign-in returns through the running host's loopback callback in
+development, because a raw macOS development executable has no registered
+URL scheme, and through `epicenter://auth/callback` in packaged builds. If
+you set `EPICENTER_DEV_PORT`, set it on this root command so the API
+approves the same exact callback port the host binds.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
@@ -478,8 +500,9 @@ not submit is lost, as people expect.
   shutdown) end Tao's loop directly. Either way Tauri delivers `RunEvent::Exit`,
   where the Folder plugin fences new work and releases each folder's lock, and
   `shutdown_host` closes Bun's stdin and gives it `SHUTDOWN_TIMEOUT` to stop.
-- **An account change restarts at once.** Sign-in or sign-out writes the next
-  credential, then sends `relaunch` over the private Bun pipe, and Rust calls
+- **A host account change restarts at once.** The host's session sign-in or
+  sign-out, which an installed app starts, writes the next credential, then
+  sends `relaunch` over the private Bun pipe, and Rust calls
   `request_restart` ([ADR-0415](../../docs/adr/0415-runtime-replacement-ends-application-sessions.md)).
   No window can refuse it.
 - **A host restart reloads the windows.** When Bun stops, every window it

@@ -526,10 +526,16 @@
       },
       "dependencies": {
         "@epicenter/ai": "workspace:*",
+        "@epicenter/constants": "workspace:*",
         "@epicenter/folder": "workspace:*",
+        "wellcrafted": "catalog:",
       },
       "devDependencies": {
+        "@epicenter/server": "workspace:*",
         "@types/bun": "catalog:",
+        "@types/pg": "^8.18.0",
+        "drizzle-orm": "catalog:",
+        "pg": "^8.20.0",
         "typescript": "catalog:",
       },
     },

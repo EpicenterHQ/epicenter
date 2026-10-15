@@ -35,11 +35,11 @@ apps/epicenter build:sidecar`). That binary also has the Bun host as a hidden
 | `epicenter app install <url> [--folder <path>] [--approve]` | built | `src/installed-apps.ts` |
 | `epicenter app update <id> [--approve]` | built | `src/installed-apps.ts` |
 | `epicenter app remove <id>` | built | `src/installed-apps.ts` |
-| `epicenter auth login [--loopback]` | not built | |
-| `epicenter auth logout` | not built | |
-| `epicenter auth status` | not built | |
-| `epicenter auth token [--resource <url>]` | not built | |
-| `epicenter auth git-credential get \| store \| erase` | not built | |
+| `epicenter auth login [--loopback]` | built | `src/auth.ts` |
+| `epicenter auth logout` | built | `src/auth.ts` |
+| `epicenter auth status` | built | `src/auth.ts` |
+| `epicenter auth token [--resource <url>]` | built | `src/auth.ts` |
+| `epicenter auth git-credential get \| store \| erase` | built | `src/auth.ts` |
 | `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
 | `epicenter install-command [--dry-run]` | built, hidden | `src/install-command.ts` |
@@ -49,8 +49,8 @@ A command not built yet parses its arguments, shows in `--help` marked
 `save-version`, `install-command`, `auth login --loopback`, and
 `app update --commit` are left out of `--help`: the desktop app runs them.
 Every command also accepts the hidden `--desktop`, which Rust passes to select
-the desktop grant (ADR-0558); no command uses a grant yet, so it changes
-nothing.
+the desktop grant (ADR-0558); `auth token`, `auth logout`,
+`auth git-credential`, and `send` act on that grant only with it.
 
 `auth key` and `send` are ADR-0557's. An AI connection is a row of
 `so.epicenter/connections`; its endpoint and key live in this computer's
@@ -59,14 +59,16 @@ keychain under the row's id, through `Bun.secrets` (service
 as JSON on stdin, never from the command line, and `state` prints the
 endpoint and whether a key is saved, never the key. `send` reads one JSON
 line, `{"target", "request"}`, then the request body's raw bytes on stdin;
-it refuses an Epicenter connection (signing in is not built), a local one,
-a missing key, and a request prepared for another endpoint than the
-keychain holds, and otherwise prints the response as NDJSON: a `head`, the
+it sends an Epicenter connection to the deployment's `/v1` with an access
+token from `auth` (the desktop grant's under `--desktop`, otherwise the
+device grant's), and refuses a local connection, a missing key, and a
+request prepared for another endpoint than the keychain holds, and otherwise prints the response as NDJSON: a `head`, the
 body in base64 `chunk` lines of at most 64 KiB, and `end`, or an `error`.
 It exits 0 when a response arrived, whatever its status, and 2 otherwise.
 Without `Bun.secrets` in the binary, every keychain command fails and says
-so. `EPICENTER_TEST_SECRETS` replaces the keychain with an in-memory store
-seeded from its JSON, so tests never touch the real one.
+so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,
+the AI connections' seeded from its JSON and the sign-ins' empty, so tests
+never touch the real one.
 
 `install-command` is ADR-0558's hidden command. It links the compiled binary
 onto `PATH` as `/usr/local/bin/epicenter` (ADR-0556's "Install the epicenter
@@ -76,6 +78,50 @@ directory is missing or not writable, it asks a person at a terminal before
 running `sudo`; with `--json` or without a terminal it exits 1 and names the
 `sudo` command. Run from source under `bun`, it refuses, since it would link
 `bun` itself.
+
+## Signing in
+
+`auth` is ADR-0558's, against ADR-0549's authorization server at the
+deployment's API origin: `EPICENTER_API_URL`, or `https://api.epicenter.so`
+(`resolveOAuthAudiences` in `@epicenter/constants/apps` names its API and
+Git audiences; Rust passes the shell's configured origin). The CLI holds two
+grants, each one keychain entry under `so.epicenter.auth` named
+`<grant> <origin>`, holding the refresh token and the access tokens cached
+for each audience:
+
+| Grant | Client | Flow | Used by |
+| --- | --- | --- | --- |
+| `device` | `so.epicenter.cli` | `auth login`: device authorization (RFC 8628). It prints the link and code, or `{"device": {...}}` with `--json`, and polls until the person approves on the server's page. | Every command run without `--desktop`: a terminal, an agent, Git. |
+| `desktop` | `so.epicenter` | `auth login --loopback`: authorization code with S256 PKCE, received once on `http://127.0.0.1:<random port>/callback`. It opens the browser, or prints `{"open": "<url>"}` with `--json` for Rust to open. | Only commands Rust runs with `--desktop`. |
+
+Both ask for `openid offline_access profile ai folders:read folders:write`
+and both audiences. Each refresh names one audience, and the server narrows
+that access token to the audience's scopes while the grant keeps all of
+them. `auth login` then caches an API token and reads who approved the grant
+from the server's userinfo, which `auth status` reports without a network
+request. The device login also sets, in Git's global configuration, an empty
+`credential.<git audience>.helper` and then `!'<this binary>' auth
+git-credential`, so no broader helper is asked to store the token.
+
+`auth token [--resource <url>]` prints an access token for the API or the
+Git audience. A cached token is reused until five minutes before it
+expires; otherwise one refresh runs under `<data dir>/auth/<grant>.lock`, an
+exclusive SQLite transaction the system releases if the process dies
+(`src/file-lock.ts`), and rereads the entry inside it, so concurrent callers
+share one refresh. A refresh whose answer was lost is sent again, which the
+server's 60-second reuse interval answers with the same tokens; one answered
+`invalid_grant` is retried once with what the entry then holds, and a second
+`invalid_grant` means the sign-in has ended. `auth git-credential get`
+answers Git for the deployment's Git origin with `username=epicenter`, the
+Git token as `password`, and `password_expiry_utc`, and answers any other
+host with nothing; `store` and `erase` do nothing. `auth logout` revokes the
+grant's refresh token, which ends every token the grant issued, and deletes
+its entry even when the server cannot be reached. Without `--desktop` it
+signs out the device grant.
+
+The resources do not accept these tokens yet (ADR-0549's Unbuilt line), so
+an Epicenter connection's `send` reaches `/v1` with a token the API still
+refuses.
 
 ## Installing apps
 
@@ -107,9 +153,9 @@ app's row in `so.epicenter`; the CLI does not.
 
 ## Output and exit codes
 
-Every command takes `--json`, and only `--json` switches the output: one JSON
+Every command but `auth git-credential` takes `--json`, and only `--json` switches the output: one JSON
 value on one line of stdout, or, for `sync`, `clone`, `app install`, and
-`app update`, NDJSON progress lines ending in one result line (for `app`,
+`app update`, `auth login`, NDJSON progress lines ending in one result line (for `app`,
 `{"progress": "<sentence>"}` lines, then `{"app": {...}}`, exit 0 when built
 and 1 while it waits for approval). Without it,
 stdout is the answer and stderr is for people. A command that cannot do its
@@ -137,9 +183,12 @@ refused. After `--`, every token is a positional. The CLI never calls
 | `src/install-command.ts` | `install-command`. |
 | `src/app-commands.ts` | `app list`, `install`, `update`, and `remove`, printing what `src/installed-apps.ts` returns. |
 | `src/installed-apps.ts` | Installing apps: the manifest, approvals, clones, updates, and builds. |
-| `src/app-paths.ts` | Where installed apps, approvals, and builds live, by the shell's rule. |
+| `src/app-paths.ts` | Where installed apps, approvals, builds, and the sign-in locks live, by the shell's rule. |
 | `src/ai-commands.ts` | `auth key` and `send`, printing what `@epicenter/ai/send` returns. |
-| `src/secrets.ts` | The keychain through `Bun.secrets`, or the test store. |
+| `src/auth.ts` | The two grants: device and loopback sign-in, the one refresh, status, sign-out, and Git's credential helper. |
+| `src/auth-commands.ts` | `auth login`, `logout`, `status`, `token`, and `git-credential`, printing what `src/auth.ts` returns. |
+| `src/file-lock.ts` | The cross-process lock a grant refreshes under. |
+| `src/secrets.ts` | The keychain through `Bun.secrets`, by service, or the test stores. |
 | `src/output.ts` | Stdout, stderr, `{"error"}`, and the exit codes. |
 
 ## Tests
@@ -154,6 +203,9 @@ bun run typecheck
 directories, and `src/ai-commands.test.ts` runs `send` and `auth key`
 against a local fake OpenAI-compatible server, so both can run against the
 compiled binary too.
+`src/auth.postgres.test.ts` signs in against `@epicenter/server`'s
+authorization server in process, on a disposable Postgres cluster (it needs
+`initdb` and `pg_ctl` on `PATH`), approving as the server's own checks do.
 `src/installed-apps.test.ts` installs apps from repositories it makes, and
 its last tests run `app` through the command. With `EPICENTER_MONOREPO` set
 to a clone of this repository, it also installs and builds Todos, Capture,

@@ -166,13 +166,14 @@ export const COMMANDS: readonly CommandSpec[] = [
 		options: [{ name: 'loopback', hidden: true }],
 		summary: 'sign in with a device code',
 		adr: 'ADR-0558',
+		long: true,
 	},
 	{
 		path: ['auth', 'logout'],
 		args: '',
 		minArgs: 0,
 		maxArgs: 0,
-		summary: 'sign out',
+		summary: 'sign this computer out and revoke its tokens',
 		adr: 'ADR-0558',
 	},
 	{
@@ -189,7 +190,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 0,
 		maxArgs: 0,
 		options: [{ name: 'resource', value: '<url>' }],
-		summary: 'print an access token',
+		summary: 'print an access token, by default for the API',
 		adr: 'ADR-0558',
 	},
 	{
@@ -197,7 +198,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: 'get | store | erase',
 		minArgs: 1,
 		maxArgs: 1,
-		summary: "Git's credential helper for git.epicenter.so",
+		summary: "Git's credential helper for the deployment's Git origin",
 		adr: 'ADR-0558',
 	},
 	{

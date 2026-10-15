@@ -5,6 +5,7 @@
  * run them end to end against a server (`packages/cli/src/ai-commands.test.ts`).
  */
 import { expect, test } from 'bun:test';
+import { Err, Ok } from 'wellcrafted/result';
 import {
 	createMemorySecrets,
 	createResponseReader,
@@ -98,7 +99,32 @@ test('the keychain endpoint, not the page, decides where a request goes', async 
 		secrets,
 		fetch,
 	});
-	expect(account.error?.name).toBe('SignInUnavailable');
+	expect(account.error?.name).toBe('NoAccessToken');
+	const signedOut = await sendRequest({
+		target: { kind: 'epicenter', connection: 'account' },
+		request,
+		secrets,
+		epicenter: async () => Err('run epicenter auth login'),
+		fetch,
+	});
+	expect(signedOut.error).toMatchObject({
+		name: 'NoAccessToken',
+		reason: 'run epicenter auth login',
+	});
+	expect(sent).toEqual([]);
+	const viaAccount = await sendRequest({
+		target: { kind: 'epicenter', connection: 'account' },
+		request,
+		secrets,
+		epicenter: async () =>
+			Ok({ endpoint: 'https://api.example.test/v1', key: 'ep_at_1' }),
+		fetch,
+	});
+	expect(viaAccount.error).toBeNull();
+	const toAccount = sent.pop();
+	expect(toAccount?.url).toBe('https://api.example.test/v1/chat/completions');
+	expect(toAccount?.headers.get('authorization')).toBe('Bearer ep_at_1');
+	expect(toAccount?.headers.get('cookie')).toBeNull();
 
 	const { error } = await sendRequest({
 		target: {

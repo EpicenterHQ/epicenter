@@ -110,7 +110,7 @@
 			<Input bind:value={key} type="password" placeholder="Key, or empty for none" aria-label="Key" autocomplete="off" />
 		</div>
 	{:else if kind === 'epicenter'}
-		<p class="text-muted-foreground">Signing in to Epicenter is not available yet, so this connection cannot send requests until it is.</p>
+		<p class="text-muted-foreground">Sends to your Epicenter account with this app's sign-in, under Account above.</p>
 	{/if}
 	<div><Button type="submit" disabled={adding}>Add</Button></div>
 	{#if problem}<p role="alert" class="text-destructive">{problem}</p>{/if}

@@ -52,13 +52,31 @@ const HANDLERS: Record<string, Run> = {
 		]);
 		return authKey(action as string, connection as string, json, keychain());
 	},
-	send: async () => {
-		const [{ send }, { keychain }] = await Promise.all([
-			import('./ai-commands.ts'),
-			import('./secrets.ts'),
-		]);
-		return send(keychain());
+	send: async ({ desktop }) => {
+		const [{ send }, { keychain }, { authContext, epicenterAccess }] =
+			await Promise.all([
+				import('./ai-commands.ts'),
+				import('./secrets.ts'),
+				import('./auth.ts'),
+			]);
+		return send(
+			keychain(),
+			epicenterAccess(authContext(), desktop ? 'desktop' : 'device'),
+		);
 	},
+	'auth login': async ({ options, json, desktop }) =>
+		(await import('./auth-commands.ts')).authLogin(options, json, desktop),
+	'auth logout': async ({ json, desktop }) =>
+		(await import('./auth-commands.ts')).authLogout(json, desktop),
+	'auth status': async ({ json }) =>
+		(await import('./auth-commands.ts')).authStatusCommand(json),
+	'auth token': async ({ options, json, desktop }) =>
+		(await import('./auth-commands.ts')).authToken(options, json, desktop),
+	'auth git-credential': async ({ positionals: [action], desktop }) =>
+		(await import('./auth-commands.ts')).authGitCredential(
+			action as string,
+			desktop,
+		),
 	'install-command': async ({ options, json }) =>
 		(await import('./install-command.ts')).installCommand({
 			json,
@@ -94,6 +112,23 @@ stdin, never from the command line; an empty or missing key saves a keyless
 endpoint. state prints the endpoint and whether a key is saved, never the
 key. remove deletes the entry. Exits 0, or 2 when the id, the input, or the
 keychain cannot be used.`,
+	'auth login': `Signs this computer in with a device code: open the link it prints, check
+the code, and choose which folders it may reach. The sign-in is kept in this
+computer's keychain, and Git's global configuration gets this command as its
+credential helper for the deployment's Git origin. --json prints NDJSON: the
+code and link as {"device": {...}}, then {"signedIn": {...}} or {"error"}.`,
+	'auth token': `Prints an access token for --resource, by default the deployment's API,
+refreshing the sign-in when the cached token has under five minutes left. One
+refresh runs at a time on this computer. Exits 2 when this computer is not
+signed in or the sign-in has ended.`,
+	'auth status': `Names who each sign-in on this computer belongs to: this computer's, from
+epicenter auth login, and the Epicenter app's. Reads only the keychain.`,
+	'auth logout': `Revokes this computer's sign-in at the server and deletes it from the
+keychain. The Epicenter app's sign-in is separate; sign it out in its Settings.`,
+	'auth git-credential': `Git runs this as its credential helper (gitcredentials(7)). get answers
+the deployment's Git origin with a username, an access token as the password,
+and password_expiry_utc; any other host gets no answer. store and erase do
+nothing. Takes no --json.`,
 	generate: `Runs <dir>/epicenter.ts, whose default export is defineFolder({...}) from
 @epicenter/folder, and writes the epicenter.json it declares. It is the only
 command that runs a folder's code; check and query read only epicenter.json.

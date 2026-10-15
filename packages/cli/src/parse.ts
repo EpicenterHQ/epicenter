@@ -44,6 +44,11 @@ export type Invocation =
 			positionals: string[];
 			options: Record<string, string | true>;
 			json: boolean;
+			/**
+			 * The hidden `--desktop`: Rust runs every command with it, and only
+			 * then does a command use the desktop app's grant (ADR-0558).
+			 */
+			desktop: boolean;
 	  }
 	| { kind: 'usage'; message: string; group?: string; json: boolean };
 
@@ -59,6 +64,7 @@ export function parseArgs(
 	let help = false;
 	let version = false;
 	let literal = false;
+	let desktop = false;
 	for (const token of argv) {
 		if (literal) rest.push(token);
 		else if (token === '--') {
@@ -68,8 +74,8 @@ export function parseArgs(
 		else if (token === '--help' || token === '-h') help = true;
 		else if (token === '--version' || token === '-V') version = true;
 		// Hidden: Rust runs every command with it to select the desktop grant
-		// (ADR-0558). No command uses a grant yet, so it changes nothing.
-		else if (token === '--desktop') continue;
+		// (ADR-0558).
+		else if (token === '--desktop') desktop = true;
 		else rest.push(token);
 	}
 
@@ -167,7 +173,7 @@ export function parseArgs(
 			message: `Usage: ${usageLine(command)}`,
 			json,
 		};
-	return { kind: 'command', command, positionals, options, json };
+	return { kind: 'command', command, positionals, options, json, desktop };
 }
 
 /** `epicenter sync <dir> [--to <namespace>/<name>]`, without hidden options. */

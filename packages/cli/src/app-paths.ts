@@ -7,6 +7,7 @@
  * ```txt
  * <folderDir>/Apps/<app-id>/                 a full clone of the app's repository
  * <dataDir>/approvals.json                   { [appId]: { commit, approvedAt } }
+ * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
  * <cacheDir>/builds/<app-id>/<commit>/       the built bundle the app window loads
  * ```
  *
@@ -34,6 +35,8 @@ export type AppPaths = {
 	readonly buildsDir: string;
 	/** Which app commits may run on this machine. */
 	readonly approvalsFile: string;
+	/** Machine state worth keeping: approvals and the sign-in locks. */
+	readonly dataDir: string;
 	/** Disposable machine state: builds, the work lock, and the `bun` link. */
 	readonly cacheDir: string;
 };
@@ -70,7 +73,7 @@ function platformDirectories(env: Environment, home: string) {
 	};
 }
 
-/** The paths installing apps uses, from `env` (the process's by default). */
+/** The paths installing apps and signing in use, from `env` (the process's by default). */
 export function resolveAppPaths(
 	env: Environment = process.env,
 	home: string = homedir(),
@@ -89,6 +92,7 @@ export function resolveAppPaths(
 		appsDir: join(folderDir, APPS_DIRECTORY),
 		buildsDir: join(cacheDir, 'builds'),
 		approvalsFile: join(dataDir, 'approvals.json'),
+		dataDir,
 		cacheDir,
 	};
 }

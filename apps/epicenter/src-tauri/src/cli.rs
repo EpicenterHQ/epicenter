@@ -355,22 +355,32 @@ fn send_input(target: &AiTarget, request: &AiRequest) -> Result<Vec<u8>, CliErro
     Ok(input)
 }
 
-/// `epicenter send --json`, each NDJSON line handed to `on_line`.
+/// `epicenter send --json --desktop`, each NDJSON line handed to `on_line`.
+/// `--desktop` gives an Epicenter connection the app's own grant (ADR-0558).
 async fn send_with(
     program: &Program,
+    env: &[(OsString, OsString)],
     target: &AiTarget,
     request: &AiRequest,
     on_line: impl FnMut(String) -> Result<(), String>,
 ) -> Result<CliExit, CliError> {
     connection_id(target.connection())?;
     let input = send_input(target, request)?;
-    run(
+    run_with_env(
         program,
-        &["send".into(), "--json".into()],
+        &["send".into(), "--json".into(), "--desktop".into()],
+        env,
         Some(input),
         on_line,
     )
     .await
+}
+
+/// The deployment the CLI is to sign in to and send to: the one the shell
+/// is configured for, so a self-hosted build's CLI names its own server.
+fn deployment_env() -> Result<Vec<(OsString, OsString)>, CliError> {
+    let origin = crate::deployment_origin().map_err(failed)?;
+    Ok(vec![("EPICENTER_API_URL".into(), origin.into())])
 }
 
 /// Run one `epicenter auth key` invocation and read its one JSON line.
@@ -461,6 +471,7 @@ pub async fn ai_send(
 ) -> Result<CliExit, CliError> {
     let exit = send_with(
         &bundled_program().map_err(failed)?,
+        &deployment_env()?,
         &connection,
         &request,
         |line| on_event.send(line).map_err(|error| error.to_string()),
@@ -504,6 +515,189 @@ pub async fn ai_key_remove(connection: String) -> Result<bool, CliError> {
 #[specta::specta]
 pub async fn ai_key_state(connection: String) -> Result<AiKeyState, CliError> {
     key_state_with(&bundled_program().map_err(failed)?, &connection).await
+}
+
+// ---------------------------------------------------------------------------
+// The app's sign-in (ADR-0549, ADR-0558): the CLI's desktop grant, client
+// `so.epicenter`, which only these commands and `send` select with
+// `--desktop`. Rust holds no token; it opens the authorization page the CLI
+// names and reports what the CLI says.
+// ---------------------------------------------------------------------------
+
+/// Who approved a grant, as the server's userinfo answered at sign-in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct AuthAccount {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// One of the CLI's grants: `device` (a terminal's `epicenter auth login`)
+/// or `desktop` (this app's).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthGrant {
+    pub grant: String,
+    pub client: String,
+    pub signed_in: bool,
+    #[serde(default)]
+    pub account: Option<AuthAccount>,
+    #[serde(default)]
+    pub signed_in_at: Option<String>,
+}
+
+/// `epicenter auth status --json`: the deployment and each grant on this
+/// computer, read from the keychain alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct AuthStatus {
+    pub origin: String,
+    pub grants: Vec<AuthGrant>,
+}
+
+/// What signing the app out did: whether it was signed in, and whether the
+/// server heard the revocation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthSignOut {
+    pub signed_out: bool,
+    pub revoked: bool,
+}
+
+/// Run one `epicenter` invocation that answers one JSON line, and read it.
+async fn json_command<T: serde::de::DeserializeOwned>(
+    program: &Program,
+    args: &[&str],
+    env: &[(OsString, OsString)],
+) -> Result<T, CliError> {
+    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    let mut answer = None;
+    let exit = run_with_env(program, &args, env, None, |line| {
+        answer = Some(line);
+        Ok(())
+    })
+    .await?;
+    let value = answer
+        .as_deref()
+        .and_then(|line| serde_json::from_str::<Value>(line).ok());
+    match (exit.code, value) {
+        (0, Some(value)) => serde_json::from_value(value).map_err(|error| {
+            failed(format!(
+                "the CLI answered something that does not read: {error}"
+            ))
+        }),
+        (_, Some(Value::Object(object))) if object.contains_key("error") => {
+            Err(CliError::Refused {
+                message: object["error"].as_str().unwrap_or_default().to_string(),
+            })
+        }
+        (code, _) => Err(failed(format!(
+            "epicenter {} exited {code}: {}",
+            args.iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" "),
+            exit.stderr.trim()
+        ))),
+    }
+}
+
+/// The page the CLI asks to open must be this deployment's authorization
+/// endpoint, so a CLI that misbehaved could not send the person elsewhere.
+fn authorization_page(url: &str, origin: &str) -> Result<(), String> {
+    let parsed = tauri::Url::parse(url).map_err(|error| format!("{url}: {error}"))?;
+    if parsed.origin().ascii_serialization() != origin
+        || parsed.path() != "/auth/oauth2/authorize"
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(format!(
+            "the CLI asked to open {url}, which is not {origin}/auth/oauth2/authorize"
+        ));
+    }
+    Ok(())
+}
+
+/// `epicenter auth login --loopback --desktop --json`: hand `open` the
+/// authorization page the CLI prints, and every line to `on_line`.
+async fn login_with(
+    program: &Program,
+    origin: &str,
+    mut open: impl FnMut(&str) -> Result<(), String>,
+    mut on_line: impl FnMut(String) -> Result<(), String>,
+) -> Result<CliExit, CliError> {
+    run_with_env(
+        program,
+        &[
+            "auth".into(),
+            "login".into(),
+            "--loopback".into(),
+            "--desktop".into(),
+            "--json".into(),
+        ],
+        &[("EPICENTER_API_URL".into(), origin.into())],
+        None,
+        |line| {
+            if let Ok(Value::Object(object)) = serde_json::from_str::<Value>(&line) {
+                if let Some(url) = object.get("open").and_then(Value::as_str) {
+                    authorization_page(url, origin)?;
+                    open(url)?;
+                }
+            }
+            on_line(line)
+        },
+    )
+    .await
+}
+
+/// Sign the app in: the CLI's loopback sign-in as `so.epicenter`. The shell
+/// opens the authorization page in the person's browser; each line the CLI
+/// prints (`{"open"}`, then `{"signedIn"}` or `{"error"}`) goes to
+/// `on_event`.
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_login<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    on_event: Channel<String>,
+) -> Result<CliExit, CliError> {
+    use tauri_plugin_opener::OpenerExt;
+    let origin = crate::deployment_origin().map_err(failed)?;
+    login_with(
+        &bundled_program().map_err(failed)?,
+        &origin,
+        |url| {
+            app.opener()
+                .open_url(url, None::<String>)
+                .map_err(|error| format!("the browser could not be opened: {error}"))
+        },
+        |line| on_event.send(line).map_err(|error| error.to_string()),
+    )
+    .await
+}
+
+/// Who each of the CLI's grants on this computer belongs to.
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_status() -> Result<AuthStatus, CliError> {
+    json_command(
+        &bundled_program().map_err(failed)?,
+        &["auth", "status", "--desktop", "--json"],
+        &deployment_env()?,
+    )
+    .await
+}
+
+/// Sign the app out: the CLI revokes its grant and deletes it from the
+/// keychain. A terminal's `epicenter auth login` is left signed in.
+#[tauri::command]
+#[specta::specta]
+pub async fn auth_logout() -> Result<AuthSignOut, CliError> {
+    json_command(
+        &bundled_program().map_err(failed)?,
+        &["auth", "logout", "--desktop", "--json"],
+        &deployment_env()?,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -838,6 +1032,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
         let mut lines = Vec::new();
         let exit = send_with(
             &program,
+            &[],
             &openai("https://api.groq.com/openai/v1"),
             &request,
             |line| {
@@ -849,7 +1044,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
         .unwrap();
         assert_eq!(exit.code, 0, "{}", exit.stderr);
         let seen: Value = serde_json::from_str(&lines[0]).unwrap();
-        assert_eq!(seen["argv"], json!(["send", "--json"]));
+        assert_eq!(seen["argv"], json!(["send", "--json", "--desktop"]));
         assert_eq!(
             seen["head"],
             json!({
@@ -866,6 +1061,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
 
         let refused = send_with(
             &program,
+            &[],
             &AiTarget::Epicenter {
                 connection: "--json".into(),
             },
@@ -925,7 +1121,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
             body: Some(STANDARD.encode(b"{\"model\":\"m\"}")),
         };
         let mut events = Vec::new();
-        let exit = send_with(&program, &openai(&endpoint), &request, |line| {
+        let exit = send_with(&program, &[], &openai(&endpoint), &request, |line| {
             events.push(serde_json::from_str::<Value>(&line).unwrap());
             Ok(())
         })
@@ -954,6 +1150,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
         let mut events = Vec::new();
         let exit = send_with(
             &program,
+            &[],
             &openai("https://api.example.com/v1"),
             &request,
             |line| {
@@ -970,6 +1167,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
         let mut events = Vec::new();
         send_with(
             &program,
+            &[("EPICENTER_API_URL".into(), "http://127.0.0.1:9".into())],
             &AiTarget::Epicenter {
                 connection: "account".into(),
             },
@@ -981,7 +1179,145 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
         )
         .await
         .unwrap();
-        assert_eq!(events[0]["name"], "SignInUnavailable");
+        // `--desktop` asks for the app's grant, and this keychain holds none.
+        assert_eq!(events[0]["name"], "NoAccessToken");
+        assert!(
+            events[0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("Sign in from Epicenter's Settings"),
+            "{}",
+            events[0]
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Through the real CLI, with a keychain that holds nothing: status names
+    /// the deployment the shell passed and both grants signed out, and
+    /// signing out reports that there was nothing to sign out.
+    #[tokio::test]
+    async fn auth_status_and_logout_run_the_cli() {
+        let dir = scratch("auth-cli");
+        let program = cli_with_secrets(&dir, json!({}));
+        let env = [
+            ("EPICENTER_API_URL".into(), "http://127.0.0.1:9".into()),
+            (
+                "EPICENTER_DATA_DIR".into(),
+                dir.join("data").into_os_string(),
+            ),
+        ];
+        let status: AuthStatus =
+            json_command(&program, &["auth", "status", "--desktop", "--json"], &env)
+                .await
+                .unwrap();
+        assert_eq!(status.origin, "http://127.0.0.1:9");
+        assert_eq!(
+            status
+                .grants
+                .iter()
+                .map(|grant| (grant.grant.as_str(), grant.client.as_str(), grant.signed_in))
+                .collect::<Vec<_>>(),
+            vec![
+                ("device", "so.epicenter.cli", false),
+                ("desktop", "so.epicenter", false)
+            ]
+        );
+        let signed_out: AuthSignOut =
+            json_command(&program, &["auth", "logout", "--desktop", "--json"], &env)
+                .await
+                .unwrap();
+        assert_eq!(
+            signed_out,
+            AuthSignOut {
+                signed_out: false,
+                revoked: false
+            }
+        );
+        let refused =
+            json_command::<Value>(&program, &["auth", "token", "--desktop", "--json"], &env)
+                .await
+                .unwrap_err();
+        assert!(matches!(refused, CliError::Refused { .. }), "{refused:?}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// `auth_login` runs exactly the loopback sign-in with `--desktop`, opens
+    /// the page the CLI names only when it is the deployment's authorization
+    /// endpoint, and passes every line on. A child stands in for the CLI.
+    #[tokio::test]
+    async fn auth_login_opens_only_the_deployments_authorization_page() {
+        let dir = scratch("auth-login");
+        let script = dir.join("child.ts");
+        fs::write(
+            &script,
+            r#"
+const url = process.env.OPEN_URL ?? '';
+console.log(JSON.stringify({ argv: Bun.argv.slice(2), origin: process.env.EPICENTER_API_URL }));
+console.log(JSON.stringify({ open: url }));
+console.log(JSON.stringify({ signedIn: { grant: 'desktop' } }));
+"#,
+        )
+        .unwrap();
+        let child = |url: &str| {
+            let env = dir.join(format!("{}.env", url.len()));
+            fs::write(&env, format!("OPEN_URL={url}\n")).unwrap();
+            Program {
+                program: PathBuf::from("bun"),
+                prefix: vec![
+                    format!("--env-file={}", env.display()).into(),
+                    script.clone().into_os_string(),
+                ],
+            }
+        };
+        let origin = "https://api.example.test";
+        let good = format!("{origin}/auth/oauth2/authorize?client_id=so.epicenter");
+        let mut opened = Vec::new();
+        let mut lines = Vec::new();
+        let exit = login_with(
+            &child(&good),
+            origin,
+            |url| {
+                opened.push(url.to_string());
+                Ok(())
+            },
+            |line| {
+                lines.push(serde_json::from_str::<Value>(&line).unwrap());
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(exit.code, 0, "{}", exit.stderr);
+        assert_eq!(
+            lines[0],
+            json!({
+                "argv": ["auth", "login", "--loopback", "--desktop", "--json"],
+                "origin": origin,
+            })
+        );
+        assert_eq!(opened, vec![good.clone()]);
+        assert_eq!(lines[2]["signedIn"]["grant"], "desktop");
+
+        for elsewhere in [
+            "https://evil.example/auth/oauth2/authorize",
+            "https://api.example.test/sign-in",
+            "file:///etc/passwd",
+        ] {
+            let mut opened = Vec::new();
+            let refused = login_with(
+                &child(elsewhere),
+                origin,
+                |url| {
+                    opened.push(url.to_string());
+                    Ok(())
+                },
+                |_| Ok(()),
+            )
+            .await
+            .unwrap_err();
+            assert!(matches!(refused, CliError::Failed { .. }), "{refused:?}");
+            assert!(opened.is_empty(), "{elsewhere} was opened");
+        }
         let _ = fs::remove_dir_all(dir);
     }
 }

@@ -135,12 +135,20 @@ export const SendError = defineErrors({
 		saved,
 	}),
 	/**
-	 * An Epicenter connection needs the account's access token, and no
-	 * token source exists until the authorization server does (ADR-0549).
+	 * An Epicenter connection sends with the account's access token, and none
+	 * could be had: no sign-in, a sign-in that ended, or a server that could
+	 * not be reached. Nothing was sent.
 	 */
-	SignInUnavailable: ({ connection }: { connection: string }) => ({
-		message: `Signing in to Epicenter is not available yet, so the Epicenter connection '${connection}' cannot send requests.`,
+	NoAccessToken: ({
 		connection,
+		reason,
+	}: {
+		connection: string;
+		reason: string;
+	}) => ({
+		message: `The Epicenter connection '${connection}' cannot send requests: ${reason}`,
+		connection,
+		reason,
 	}),
 	/** A local connection runs this computer's model and sends no request. */
 	LocalNotSent: ({ connection }: { connection: string }) => ({
@@ -387,9 +395,16 @@ export async function sendToEndpoint(
 }
 
 /**
+ * Where an Epicenter connection sends: the deployment's API origin plus
+ * `/v1`, and the access token `epicenter send` reads for it, or why there is
+ * none.
+ */
+export type EpicenterAccess = () => Promise<Result<KeyEntry, string>>;
+
+/**
  * Send `request` over `target` with the key saved on this computer: the
- * CLI's `send`. An Epicenter connection is refused until sign-in exists, a
- * local one sends nothing, and an `openai-compatible` one is sent only
+ * CLI's `send`. An Epicenter connection sends with what `epicenter` gives,
+ * a local one sends nothing, and an `openai-compatible` one is sent only
  * while its keychain entry still holds the endpoint the request was
  * prepared for.
  */
@@ -397,19 +412,34 @@ export async function sendRequest({
 	target,
 	request,
 	secrets,
+	epicenter,
 	fetch,
 	signal,
 }: {
 	target: SendTarget;
 	request: SendRequest;
 	secrets: SecretStore;
+	/** Absent where nothing signs in, which refuses an Epicenter connection. */
+	epicenter?: EpicenterAccess;
 	fetch?: typeof globalThis.fetch;
 	signal?: AbortSignal;
 }): Promise<Result<Response, SendError>> {
 	if (!isConnectionId(target.connection)) return refuseId(target.connection);
 	switch (target.kind) {
-		case 'epicenter':
-			return SendError.SignInUnavailable({ connection: target.connection });
+		case 'epicenter': {
+			if (!epicenter)
+				return SendError.NoAccessToken({
+					connection: target.connection,
+					reason: 'nothing here signs in to Epicenter',
+				});
+			const { data: access, error } = await epicenter();
+			if (error !== null)
+				return SendError.NoAccessToken({
+					connection: target.connection,
+					reason: error,
+				});
+			return sendToEndpoint(access, request, { fetch, signal });
+		}
 		case 'local':
 			return SendError.LocalNotSent({ connection: target.connection });
 	}

@@ -1,0 +1,11 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "home-account-development",
+	"description": "Epicenter Settings (the `home` window) signs the app in and out and shows who it is signed in as (ADR-0558): each is one fixed `epicenter auth` invocation with `--desktop` through the narrow CLI runner. The shell opens only the deployment's authorization page the CLI names; no token reaches the page.",
+	"local": false,
+	"windows": ["home"],
+	"remote": {
+		"urls": ["http://127.0.0.1:*"]
+	},
+	"permissions": ["allow-auth-login", "allow-auth-status", "allow-auth-logout"]
+}

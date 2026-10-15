@@ -18,6 +18,7 @@
 			"capabilities": [
 				"home-model-administration-production",
 				"home-ai-connections-production",
+				"home-account-production",
 				"folders-production",
 				"installed-app-windows-production",
 				"installed-whispering-production"

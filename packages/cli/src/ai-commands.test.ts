@@ -258,8 +258,9 @@ test('a missing key, an Epicenter connection, a redirect, and bad input each fai
 	);
 	expect(account.code).toBe(2);
 	expect(account.events).toEqual([
-		expect.objectContaining({ type: 'error', name: 'SignInUnavailable' }),
+		expect.objectContaining({ type: 'error', name: 'NoAccessToken' }),
 	]);
+	expect(JSON.stringify(account.events[0])).toContain('epicenter auth login');
 
 	const escaping = await send(
 		encodeSendInput(target(), request('../elsewhere')),

@@ -459,17 +459,12 @@ test('every command ADR-0558 names parses, and one not built exits 2 naming its 
 		['open', folder, '--app', 'so.epicenter.todos'],
 		['history', folder],
 		['save-version', folder, '--desktop'],
-		['auth', 'login', '--loopback'],
-		['auth', 'logout'],
-		['auth', 'status'],
-		['auth', 'token', '--resource', 'https://git.epicenter.so'],
-		['auth', 'git-credential', 'get'],
 	]) {
 		const text = run(...args);
 		expect(text.exitCode).toBe(2);
 		expect(text.stdout).toBe('');
 		expect(text.stderr).toContain(`epicenter ${args[0]}`);
-		expect(text.stderr).toMatch(/is not built yet; see ADR-055[689]/);
+		expect(text.stderr).toMatch(/is not built yet; see ADR-055[89]/);
 		const json = run(...args, '--json');
 		expect(json.exitCode).toBe(2);
 		expect(JSON.parse(json.stdout).error).toContain('is not built yet');
@@ -511,6 +506,11 @@ test('--help lists every command but send and install-command, and --json descri
 		'app install',
 		'app update',
 		'app remove',
+		'auth login',
+		'auth logout',
+		'auth status',
+		'auth token',
+		'auth git-credential',
 		'auth key',
 	]);
 	expect(help.stdout).toContain('epicenter auth key set | remove | state <id>');
@@ -522,6 +522,83 @@ test('--help lists every command but send and install-command, and --json descri
 	expect(JSON.parse(run('--version', '--json').stdout).version).toMatch(
 		/^\d+\.\d+\.\d+/,
 	);
+});
+
+// ============================================================================
+// auth, signed out (the sign-ins themselves: auth.postgres.test.ts)
+// ============================================================================
+
+test('auth commands on a machine with no sign-in: status says so, and the rest refuse or stay silent', async () => {
+	const { folder } = await setup();
+	const run = (args: string[], stdin?: string) => {
+		const result = Bun.spawnSync([...command, ...args], {
+			cwd: folder,
+			stdin: stdin === undefined ? 'ignore' : new TextEncoder().encode(stdin),
+			stdout: 'pipe',
+			stderr: 'pipe',
+			// Never the real keychain, machine state, or a real server.
+			env: {
+				...process.env,
+				EPICENTER_TEST_SECRETS: '{}',
+				EPICENTER_DATA_DIR: join(folder, '.data'),
+				EPICENTER_API_URL: 'http://127.0.0.1:9',
+			},
+		});
+		return {
+			exitCode: result.exitCode,
+			stdout: result.stdout.toString(),
+			stderr: result.stderr.toString(),
+		};
+	};
+	const status = run(['auth', 'status', '--json']);
+	expect(status.exitCode).toBe(0);
+	expect(JSON.parse(status.stdout)).toEqual({
+		origin: 'http://127.0.0.1:9',
+		grants: [
+			{ grant: 'device', client: 'so.epicenter.cli', signedIn: false },
+			{ grant: 'desktop', client: 'so.epicenter', signedIn: false },
+		],
+	});
+	expect(run(['auth', 'status']).stdout).toContain(
+		'This computer (epicenter auth login): signed out',
+	);
+
+	const token = run(['auth', 'token', '--json']);
+	expect(token.exitCode).toBe(2);
+	expect(JSON.parse(token.stdout).error).toContain('Run: epicenter auth login');
+	const desktop = run(['auth', 'token', '--desktop']);
+	expect(desktop.exitCode).toBe(2);
+	expect(desktop.stderr).toContain("Sign in from Epicenter's Settings");
+	expect(
+		run(['auth', 'token', '--resource', 'https://example.com']).stderr,
+	).toContain('is not a resource of this deployment');
+
+	const logout = run(['auth', 'logout', '--json']);
+	expect(logout.exitCode).toBe(0);
+	expect(JSON.parse(logout.stdout)).toEqual({
+		grant: 'device',
+		signedOut: false,
+		revoked: false,
+	});
+	expect(run(['auth', 'login', '--desktop']).stderr).toContain('--loopback');
+
+	// Git's protocol: another host gets no answer; this deployment's Git, when
+	// signed out, an explanation on stderr; store and erase do nothing.
+	const other = run(
+		['auth', 'git-credential', 'get'],
+		'protocol=https\nhost=github.com\n\n',
+	);
+	expect(other).toEqual({ exitCode: 0, stdout: '', stderr: '' });
+	const ours = run(
+		['auth', 'git-credential', 'get'],
+		'protocol=http\nhost=127.0.0.1:9\npath=git/abc/notes.git\n\n',
+	);
+	expect(ours.stdout).toBe('');
+	expect(ours.stderr).toContain('epicenter auth login');
+	for (const action of ['store', 'erase'])
+		expect(
+			run(['auth', 'git-credential', action], 'protocol=http\n\n').exitCode,
+		).toBe(0);
 });
 
 test('install-command refuses to link a CLI that runs from source', async () => {

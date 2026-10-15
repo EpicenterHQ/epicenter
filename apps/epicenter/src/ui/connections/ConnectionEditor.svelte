@@ -131,7 +131,7 @@
 			<div><Button variant="outline" size="sm" onclick={() => void removeKey()}>Remove key</Button></div>
 		{/if}
 	{:else if fields.kind === 'epicenter'}
-		<p>Signing in to Epicenter is not available yet, so this connection cannot send requests.</p>
+		<p>Sends to your Epicenter account with this app's sign-in, under Account above.</p>
 	{:else}
 		<p class="text-muted-foreground">Runs on this computer with the local transcription model chosen below. Nothing is sent.</p>
 	{/if}

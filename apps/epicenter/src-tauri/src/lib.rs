@@ -337,6 +337,9 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             cli::ai_key_set,
             cli::ai_key_remove,
             cli::ai_key_state,
+            cli::auth_login::<tauri::Wry>,
+            cli::auth_status,
+            cli::auth_logout,
             installed_apps::list_installed_apps,
             installed_apps::list_repository_apps,
             installed_apps::install_app,
@@ -1171,6 +1174,15 @@ struct AuthServer {
 struct AuthConfiguration {
     server: AuthServer,
     account_management: bool,
+}
+
+/// The deployment's API origin, which the `epicenter` CLI signs in to when
+/// the shell runs it (`cli.rs` passes it as `EPICENTER_API_URL`), so the app
+/// and the CLI it runs name one deployment (ADR-0326).
+pub(crate) fn deployment_origin() -> std::result::Result<String, String> {
+    configured_auth_server()
+        .map(|config| config.server.base_url)
+        .map_err(|error| format!("{error:#}"))
 }
 
 fn configured_auth_server() -> Result<AuthConfiguration> {
@@ -2225,6 +2237,8 @@ mod tests {
         include_str!("../capabilities/home-model-administration-production.json"),
         include_str!("../capabilities/home-ai-connections-development.json"),
         include_str!("../capabilities/home-ai-connections-production.json"),
+        include_str!("../capabilities/home-account-development.json"),
+        include_str!("../capabilities/home-account-production.json"),
         include_str!("../capabilities/folders-development.json"),
         include_str!("../capabilities/folders-production.json"),
         include_str!("../capabilities/installed-app-windows-development.json"),
@@ -2325,6 +2339,14 @@ mod tests {
             (
                 include_str!("../tauri.conf.json"),
                 "home-ai-connections-production",
+            ),
+            (
+                include_str!("../tauri.dev.conf.json"),
+                "home-account-development",
+            ),
+            (
+                include_str!("../tauri.conf.json"),
+                "home-account-production",
             ),
             (include_str!("../tauri.dev.conf.json"), "folders-development"),
             (include_str!("../tauri.conf.json"), "folders-production"),

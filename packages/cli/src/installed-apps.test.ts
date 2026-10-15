@@ -256,6 +256,7 @@ test("paths follow the shell's rule: an absolute override wins, else the release
 		appsDir: '/f/Apps',
 		buildsDir: '/c/builds',
 		approvalsFile: '/d/approvals.json',
+		dataDir: '/d',
 		cacheDir: '/c',
 	});
 	expect(resolveAppPaths({ EPICENTER_FOLDER_DIR: '' }, home).appsDir).toBe(
