@@ -85,7 +85,7 @@ createMutation(() => folder$.todos.save.mutationOptions());
 | --- | --- |
 | each table | `list`, `get`, `create`, `save`, `rename`, `delete` |
 | `kv` | `get`, `set` |
-| `files` | `list`, `read`, `text`, `write`, `move`, `delete` |
+| `files` | `list`, `read`, `write`, `move`, `delete` |
 | `history` | `status`, `log`, `saveVersion`, `sync` |
 
 The factory never holds the query client. The app's root wires the channel to
@@ -95,11 +95,7 @@ the cache in one line, so invalidation stays visible:
 folder.onFilesChanged((paths) => queryClient.invalidateQueries(folder$.pathFilter(paths)));
 ```
 
-No page has its own refresh logic, and TanStack's own focus refetch is off:
-the options set it, so no app does. A write keeps the cache in step itself:
-it sets what its result says, and marks stale the rest of what a change to
-its paths would, such as the history's status, since the folder does not
-report a page's own writes to it.
+No page has its own refresh logic, and TanStack's own focus refetch is off.
 
 **An edit holds its own starting version.** An editor captures the row and its
 version at the first change, not on focus, and keeps its draft outside the
