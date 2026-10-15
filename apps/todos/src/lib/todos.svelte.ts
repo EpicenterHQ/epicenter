@@ -73,9 +73,7 @@ export function createTodos(
 	queryClient.mount();
 	const { defineQuery, defineMutation } = createQueryFactories(queryClient);
 	const folder$ = folderOptions(folder);
-	const stopChanges = folder.onFilesChanged((change) =>
-		queryClient.invalidateQueries(folder$.pathFilter(change)),
-	);
+	const stopChanges = folder$.invalidateOnChange(queryClient);
 
 	/** Every save and update of a todo's file. */
 	const rowWrites = [

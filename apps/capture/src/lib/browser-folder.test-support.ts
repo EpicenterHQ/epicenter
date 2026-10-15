@@ -121,9 +121,7 @@ export async function openCaptures(files: Record<string, string> = {}) {
 	);
 	// As the page wires it. One page per folder here, so it reports nothing;
 	// `reportChange` stands in for another page's report.
-	const stopChanges = folder.onFilesChanged((change) =>
-		queryClient.invalidateQueries(captures.folder$.pathFilter(change)),
-	);
+	const stopChanges = captures.folder$.invalidateOnChange(queryClient);
 	const stopObserving = observe(captures);
 	await quiet(captures);
 	const faults = opfsOf(storage).faults;

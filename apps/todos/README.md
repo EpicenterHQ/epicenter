@@ -457,8 +457,7 @@ tests call a mutation, or `.fetch()` a query, and get a `Result`.
 
 The query cache holds what the files held when they were read; files are the
 truth. The store wires the folder's one channel of outside change to the
-cache in one line, `folder.onFilesChanged((change) =>
-queryClient.invalidateQueries(folder$.pathFilter(change)))`, so another
+cache in one line, `folder$.invalidateOnChange(queryClient)`, so another
 window's save, an agent's edit, or Sync landing a change marks exactly the
 queries it names stale. TanStack's focus refetch is off, and no view has
 refresh logic of its own. The todo listing is one query

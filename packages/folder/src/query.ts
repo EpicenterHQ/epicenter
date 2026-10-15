@@ -33,9 +33,7 @@
  * the queries they name:
  *
  * ```ts
- * folder.onFilesChanged((change) =>
- *   queryClient.invalidateQueries(folder$.pathFilter(change)),
- * );
+ * const stopChanges = folder$.invalidateOnChange(queryClient);
  * ```
  *
  * The folder's channel is the one detector of outside changes, so every read
@@ -258,6 +256,7 @@ type Reserved =
 	| 'files'
 	| 'history'
 	| 'pathFilter'
+	| 'invalidateOnChange'
 	| 'key'
 	| 'query';
 
@@ -294,6 +293,13 @@ export type FolderOptionsOf<TTables, TValues> = Omit<
 	 */
 	pathFilter(change: FilesChanged): InvalidateQueryFilters;
 	/**
+	 * Invalidate `client`'s queries of this folder whenever the folder reports
+	 * changed files (`folder.onFilesChanged`), each change through `pathFilter`.
+	 * Call it before anything reads, so no change falls between; the returned
+	 * function stops it, on close or when the page opens another folder.
+	 */
+	invalidateOnChange(client: QueryClient): () => void;
+	/**
 	 * A query of the page's own over the files at `paths`, each a file or a
 	 * directory: cached as every read here is, under `key` within this
 	 * folder, and stale whenever a change reaches one of `paths`.
@@ -312,7 +318,7 @@ export type FolderOptions<TDefinition extends FolderDefinition> =
 /** What `folderOptions` reads of a folder: its tables and settings typed by inference. */
 type OptionsSource<TTables, TValues> = Pick<
 	Folder<FolderDefinition>,
-	'location' | 'files' | 'git' | 'sync'
+	'location' | 'files' | 'git' | 'sync' | 'onFilesChanged'
 > & {
 	readonly tables: TTables;
 	readonly kv: FileKv<TValues>;
@@ -821,6 +827,10 @@ export function folderOptions<TTables, TValues>(
 		history,
 		key: root,
 		pathFilter,
+		invalidateOnChange: (client: QueryClient) =>
+			folder.onFilesChanged((change) => {
+				void client.invalidateQueries(pathFilter(change));
+			}),
 		query: <TData, TError>({
 			paths,
 			key,

@@ -48,7 +48,7 @@
 			onReplaced: replacedChange,
 		});
 		// Files changed outside this page mark what the views show as stale.
-		const stopChanges = host.folder.onFilesChanged((change) => queryClient.invalidateQueries(captures.folder$.pathFilter(change)));
+		const stopChanges = captures.folder$.invalidateOnChange(queryClient);
 		return { host, captures, stopChanges };
 	})();
 

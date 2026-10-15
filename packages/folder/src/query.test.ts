@@ -382,9 +382,7 @@ test("another page's change, wired from onFilesChanged, invalidates exactly what
 	await queryClient.fetchQuery(reader$.kv.get.queryOptions());
 
 	// The app root's one line.
-	reader.onFilesChanged((change) =>
-		queryClient.invalidateQueries(reader$.pathFilter(change)),
-	);
+	reader$.invalidateOnChange(queryClient);
 	const a = expectOk(await writer.tables.todos.get('a'))!;
 	expectOk(
 		await writer.tables.todos.save(a, {

@@ -227,9 +227,7 @@
 		}
 		const options = folderOptions(data);
 		// Subscribed before anything reads, so no change falls between them.
-		const stop = data.onFilesChanged((change) =>
-			queryClient.invalidateQueries(options.pathFilter(change)),
-		);
+		const stop = options.invalidateOnChange(queryClient);
 		release = () => {
 			stop();
 			queryClient.removeQueries({ queryKey: options.key });
