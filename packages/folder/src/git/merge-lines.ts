@@ -156,3 +156,38 @@ export async function mergeLines({
 	const rest = b.slice(cursor).join('');
 	return { ours: mine + rest, theirs: yours + rest, regions };
 }
+
+/**
+ * `ours` and `theirs` as one text with Git's conflict markers around each
+ * run of lines where they differ, as `git merge-file` writes a conflict in
+ * its default style. Lines both share stand once, unmarked. A side whose
+ * differing lines end without a line feed gets one before the next marker.
+ */
+export async function markConflicts(
+	{ ours, theirs }: { readonly ours: string; readonly theirs: string },
+	labels: { readonly ours: string; readonly theirs: string },
+): Promise<string> {
+	const { diffArrays } = await import('diff');
+	const closed = (text: string) =>
+		text === '' || text.endsWith('\n') ? text : `${text}\n`;
+	let marked = '';
+	let mine = '';
+	let yours = '';
+	const flush = () => {
+		if (mine === '' && yours === '') return;
+		marked += `<<<<<<< ${labels.ours}\n${closed(mine)}=======\n${closed(yours)}>>>>>>> ${labels.theirs}\n`;
+		mine = '';
+		yours = '';
+	};
+	for (const change of diffArrays(lines(ours), lines(theirs))) {
+		const text = change.value.join('');
+		if (change.removed) mine += text;
+		else if (change.added) yours += text;
+		else {
+			flush();
+			marked += text;
+		}
+	}
+	flush();
+	return marked;
+}
