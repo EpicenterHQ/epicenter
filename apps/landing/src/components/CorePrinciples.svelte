@@ -37,7 +37,7 @@
 		{
 			title: "Built on tomorrow's stack",
 			description:
-				'CRDTs, local-first architecture, and the bleeding edge of web tech.',
+				'Markdown files, Git history, and local-first architecture.',
 		},
 	] satisfies Principle[];
 
