@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-06
+- **Amended by:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) at "The CLI resident process remains": no `epicenter` process outlives its command, and the refusal of a local action server stands.
 - **Supersedes:** [ADR-0009](0009-the-cli-dispatches-through-a-mandatory-daemon.md)
 - **Relates:** [ADR-0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md), [ADR-0079](0079-cross-device-is-two-planes-epicenter-syncs-the-crdt-the-box-is-reached-directly.md), [ADR-0111](0111-super-chat-v1-exposes-built-in-epicenter-apps-and-defers-extension-surfaces.md)
 

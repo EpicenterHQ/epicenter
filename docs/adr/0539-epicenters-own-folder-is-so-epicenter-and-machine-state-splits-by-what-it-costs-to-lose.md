@@ -2,8 +2,10 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
+- **Amended by:** [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) at "model choices" in `kv.json`: AI connections are rows of a `connections` table in `so.epicenter`, each naming its model, and which connection an app uses is the app's own setting in its own folder.
+- **Amended by:** [ADR-0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) at the `apps` row's "the shape it opens": no shape leaves the app.
 - **Built:** the `so.epicenter` folder, registered for the Folders window and Settings, with its `apps` table (title, source, folder, commit; written by the Folders window, `apps/epicenter/src/folders/epicenter-folder.ts`) and the `defaultApp` setting; `~/Epicenter/Apps/`; `approvals.json` in app data, written only by the shell; built bundles in Caches (`cache_dir` in `apps/epicenter/src-tauri/src/app_data.rs`, `EPICENTER_CACHE_DIR`).
-- **Unbuilt:** reading `defaultApp` anywhere; model choices and AI connections in `kv.json` (Epicenter's AI connections, which installed Whispering uses for its two connections, are in application data under `ai/`, with keys in the keychain); Settings opening `so.epicenter` (its scope is registered for the `home` window, which holds no folder plugin grant yet); installing an app from a row synced from another machine; downloaded models under `models/<provider>/<model-id>/` in app data (they are in the shared Hugging Face cache today).
+- **Unbuilt:** reading `defaultApp` anywhere; Settings opening `so.epicenter` (its scope is registered for the `home` window, which holds no folder plugin grant yet); installing an app from a row synced from another machine; downloaded models under `models/<provider>/<model-id>/` in app data (they are in the shared Hugging Face cache today).
 
 ## Context
 

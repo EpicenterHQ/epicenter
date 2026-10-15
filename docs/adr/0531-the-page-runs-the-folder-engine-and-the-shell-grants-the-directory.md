@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-14
 - **Supersedes:** [ADR-0476](0476-whisperings-desktop-folder-uses-one-rust-library-in-both-tauri-shells.md), which chose one Rust folder implementation for desktop shells.
+- **Amended by:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) at "history through the system `git`, which the shell runs for it" (`run_git`): the `epicenter` CLI runs whole Git operations for the page, one child each, under the same rules, while files through the shell's read and checked change commands are unchanged.
 - **Relates:** [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) names rows by their exact stem, now under the shared path rule below. [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) is the test each dropped guarantee was held to.
 - **Unbuilt:** a real desktop run of every shell; on Windows, Git for Windows honoring a `core.hooksPath` under `.git/epicenter/no-hooks`.
 

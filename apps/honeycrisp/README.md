@@ -413,10 +413,10 @@ app:
   directory to keep its notes and history. `HONEYCRISP_ROOT` is gone;
   `EPICENTER_FOLDER_DIR` sets the folder root.
 - There is no terminal. Run commands in your own terminal in the notes
-  directory; Epicenter's proposed **Open in Terminal** opens one there
+  directory; Epicenter's **Open in Terminal**, not built yet, opens one there
   ([ADR-0555](../../docs/adr/0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md)).
-- There is no **Reveal folder**. ADR-0555 proposes **Reveal in Finder** as an
-  action on every folder.
+- There is no **Reveal folder**. ADR-0555 makes **Reveal in Finder** an action
+  on every folder; it is not built yet.
 - A note has no **History** button. Use `git log` in a terminal.
 - The fallback commit author is `Epicenter <epicenter@localhost>`.
 - Honeycrisp also opens a folder it is handed whose declaration contains its

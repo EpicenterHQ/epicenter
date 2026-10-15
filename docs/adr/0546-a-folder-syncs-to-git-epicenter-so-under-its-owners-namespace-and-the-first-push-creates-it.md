@@ -2,6 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
+- **Amended by:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at the command names `epicenter login` and `epicenter git-credential`, which are `epicenter auth login` and `epicenter auth git-credential`.
+- **Amended by:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) at "The desktop shell registers the same helper for its runs": the shell runs no `git`, and the `epicenter` CLI's Git uses the helper.
 - **Unbuilt:** all of it: the `git.epicenter.so` routes, push-to-create, `GET /api/repos`, `epicenter login` and `epicenter git-credential` on the authorization server of [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md), Connect and "Clone from Epicenter" in the Folders window, and Todos moving off `POST /api/git/connect`.
 
 ## Context
