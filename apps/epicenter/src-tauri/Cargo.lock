@@ -1433,6 +1433,8 @@ dependencies = [
  "keyring",
  "libc",
  "log",
+ "notify",
+ "notify-debouncer-full",
  "objc2",
  "objc2-app-kit",
  "objc2-av-foundation",

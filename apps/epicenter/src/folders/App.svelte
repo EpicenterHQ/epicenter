@@ -14,7 +14,9 @@
 	 * (ADR-0548): each `onFilesChanged` report invalidates exactly the
 	 * queries it names. The subscription lives exactly as long as the folder
 	 * is open. Focus refetch is off: the channel is the one detector of
-	 * outside changes.
+	 * outside changes. The list of folders is read again when the shell
+	 * reports that one appeared, went, or changed its `epicenter.json`
+	 * (`DATA_FOLDERS_CHANGED`).
 	 *
 	 * "Open in" launches an app through the same verb as the Apps list and
 	 * the Settings button; `openers.ts` decides which apps a folder offers.
@@ -33,6 +35,7 @@
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { Input } from '@epicenter/ui/input';
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
+	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { onMount } from 'svelte';
 	import { type Application, SETTINGS_APPLICATION } from '../applications.ts';
 	import {
@@ -66,6 +69,13 @@
 
 	/** Choices made while one is still opening keep only the newest. */
 	let openSeq = 0;
+
+	/**
+	 * The shell's event when the list of data folders may have changed:
+	 * `DATA_FOLDERS_CHANGED` in `src-tauri/src/data_folders.rs`, sent to this
+	 * window alone.
+	 */
+	const DATA_FOLDERS_CHANGED = 'epicenter://data-folders-changed';
 
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -109,12 +119,18 @@
 			: appsWithoutFolder(listed.flatMap(({ openers }) => openers)),
 	);
 
+	/** Listings that resolve out of order keep only the newest. */
+	let listSeq = 0;
+
 	async function list() {
+		const seq = ++listSeq;
 		try {
 			const { data, error } = await commands.listDataFolders();
+			if (seq !== listSeq) return;
 			folders = data ?? undefined;
 			listProblem = error ?? undefined;
 		} catch (error) {
+			if (seq !== listSeq) return;
 			listProblem = error instanceof Error ? error.message : String(error);
 		}
 	}
@@ -231,9 +247,15 @@
 
 	onMount(() => {
 		queryClient.mount();
+		// The window's own listener: a global one would hear other windows' events too.
+		const stopListing = getCurrentWebviewWindow().listen(
+			DATA_FOLDERS_CHANGED,
+			() => void list(),
+		);
 		void list();
 		void listInstalled();
 		return () => {
+			void stopListing.then((stop) => stop());
 			release?.();
 			void opened?.folder.close();
 			queryClient.unmount();
