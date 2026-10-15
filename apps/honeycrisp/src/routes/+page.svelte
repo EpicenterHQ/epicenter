@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
@@ -32,28 +33,9 @@
 		});
 	}
 
-	/** What a value is called where a person changes it. */
-	const valueNames: Record<string, string> = {
-		title: 'the title',
-		folderId: 'the folder',
-		pinned: 'the pin',
-		deletedAt: 'Recently Deleted',
-		name: 'the name',
-		icon: 'the icon',
-	};
-
-	/** A save replaced a change made elsewhere to the same values; name them. */
-	function replacedChange({ path, replaced }: ReplacedChange) {
-		const names = [
-			...new Set(
-				replaced.map((entry) =>
-					entry.kind === 'body' ? 'the text' : (valueNames[entry.field] ?? entry.field),
-				),
-			),
-		];
-		toast.info(`Saved ${path}`, {
-			description: `Your edit replaced a change made elsewhere to ${names.join(', ')}.`,
-		});
+	/** A save replaced a change made elsewhere to the same values: name them, and offer theirs back. */
+	function replacedChange({ path, replaced, restore }: ReplacedChange) {
+		void toastReplaced({ replaced, subject: path, restore });
 	}
 
 	// The mounted page acquires the folder; importing modules opens nothing.

@@ -20,7 +20,9 @@
  * whatever changed in the file since the draft began. A save that fails
  * keeps the draft on screen and reports the failure; a note deleted
  * elsewhere drops it. A file open as its exact text has a text draft of its
- * own, written whole and guarded by its version.
+ * own (`createTextDraftState`), saved over the version it started from and
+ * merged by line with whatever changed since (ADR-0551). A save that
+ * replaced another writer's change names it, with a way to put theirs back.
  *
  * Every other action is a mutation: create, rename, delete, deleting a
  * folder, Save version, and terminal commands. Closing the notes fences new
@@ -33,6 +35,7 @@ import {
 	type FileCapture,
 	type FileError,
 	type FileListing,
+	type FileSaveError,
 	formatRow,
 	type GitError,
 	type MoveError,
@@ -40,8 +43,11 @@ import {
 	type Replaced,
 	type Row,
 	type RowReadError,
+	restoreTheirs,
 	rowPath,
 	rowStemOf,
+	type SavedFile,
+	type SavedRow,
 	type StoredRow,
 	type TableCreateError,
 	type TableError,
@@ -55,7 +61,12 @@ import {
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
 import { folderOptions, type TableOptions } from '@epicenter/folder/query';
-import { createDraftState, type DraftState } from '@epicenter/folder/svelte';
+import {
+	createDraftState,
+	createTextDraftState,
+	type DraftState,
+	type TextDraftState,
+} from '@epicenter/folder/svelte';
 import type {
 	MutationFilters,
 	MutationOptions,
@@ -132,21 +143,24 @@ export type Deletion =
 /** A save that failed. */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: TableError | FileError;
+	readonly error: TableError | FileError | FileSaveError;
 	/** The text of the edit the file does not hold. */
 	readonly unsaved: string;
 	/**
 	 * Whether the edit stays on screen, to be saved again. Otherwise the view
-	 * shows the file: the note is gone, or a text edit lost to another
-	 * program's change.
+	 * shows the file: the note is gone, or a text save failed.
 	 */
 	readonly kept: boolean;
 };
 
-/** A save that replaced another writer's change to the same values. */
+/**
+ * A save that replaced another writer's change to the same values, and the
+ * one more save that puts theirs back.
+ */
 export type ReplacedChange = {
 	readonly path: string;
 	readonly replaced: readonly Replaced[];
+	readonly restore: () => void;
 };
 
 /** Why an action did not start, or stopped before it changed anything. */
@@ -419,19 +433,29 @@ export function createNotes(
 			},
 		} satisfies ReturnType<TableOptions<TFields>['save']['mutationOptions']>;
 
+		/** Name what a row's save replaced, and offer theirs back as one more save. */
+		function report(saved: SavedRow<TFields>) {
+			// Both sides moving `updatedAt` is not a change worth a notice.
+			const told = saved.replaced.filter(
+				(entry) => !(entry.kind === 'field' && entry.field === 'updatedAt'),
+			);
+			if (told.length === 0) return;
+			onReplaced({
+				path: saved.stored.path,
+				replaced: told,
+				restore: () =>
+					void execute(save, restoreTheirs(saved))
+						.then(report)
+						.catch(() => {}),
+			});
+		}
+
 		function draftOf(stem: string) {
 			const existing = drafts.get(stem);
 			if (existing !== undefined) return existing;
 			const draft = createDraftState<TFields>({
 				save: (sent) => execute(save, sent),
-				onSaved: ({ stored, replaced }) => {
-					// Both sides moving `updatedAt` is not a change worth a notice.
-					const told = replaced.filter(
-						(entry) => !(entry.kind === 'field' && entry.field === 'updatedAt'),
-					);
-					if (told.length > 0)
-						onReplaced({ path: stored.path, replaced: told });
-				},
+				onSaved: report,
 			});
 			drafts.set(stem, draft);
 			return draft;
@@ -568,16 +592,13 @@ export function createNotes(
 		queryClient.getQueryData<OpenedFile>(textKey(path));
 
 	/** Text edits in progress, by path. */
-	const textDrafts = new SvelteMap<
-		string,
-		ReturnType<typeof createTextDraft>
-	>();
+	const textDrafts = new SvelteMap<string, TextDraftState>();
 
 	const writeText = {
 		...folder$.files.write.mutationOptions(),
-		// The text is written whole, with no merge: a file changed elsewhere
-		// refuses it. The view takes the file as it is now, and the person is
-		// offered what they typed.
+		// The save merges with a change made elsewhere, so this is a failure
+		// that saved nothing: the view takes the file as it is now, and the
+		// person is offered what they typed.
 		onError: (error, { path, content }) => {
 			textDrafts.get(path)?.discard();
 			textDrafts.delete(path);
@@ -591,71 +612,36 @@ export function createNotes(
 		},
 	} satisfies ReturnType<typeof folder$.files.write.mutationOptions>;
 
-	/**
-	 * An edit of one file's exact text. It holds the version it started from
-	 * and the text typed, writes one at a time, and sends text typed
-	 * meanwhile next, over the version the last write made.
-	 */
+	/** A text save landed: the view shows what it wrote, and what it replaced is named. */
+	function savedText(path: string, saved: SavedFile) {
+		queryClient.setQueryData<OpenedFile>(textKey(path), {
+			kind: 'text',
+			file: {
+				path,
+				sha256: saved.stored.sha256,
+				text: new TextDecoder().decode(saved.stored.bytes),
+			},
+		});
+		if (saved.replaced.length === 0) return;
+		onReplaced({
+			path,
+			replaced: saved.replaced,
+			restore: () => {
+				const { base, content } = restoreTheirs(saved, folder.definition);
+				void execute(writeText, { path, content, base })
+					.then((restored) => savedText(path, restored))
+					.catch(() => {});
+			},
+		});
+	}
+
+	/** An edit of one file's exact text, saved one write at a time. */
 	function createTextDraft(path: string) {
-		let base: FileCapture | undefined;
-		let text = $state.raw<string>();
-		let revision = 0;
-		let running = $state.raw<Promise<void>>();
-
-		async function loop() {
-			try {
-				while (base !== undefined && text !== undefined) {
-					const sent = { over: base, content: text, revision };
-					const written = await execute(writeText, {
-						path,
-						content: sent.content,
-						over: sent.over,
-					}).catch(() => undefined);
-					// The write's `onError` reported it and dropped this draft.
-					if (written === undefined) return;
-					queryClient.setQueryData<OpenedFile>(textKey(path), {
-						kind: 'text',
-						file: {
-							path: written.path,
-							sha256: written.sha256,
-							text: sent.content,
-						},
-					});
-					if (revision === sent.revision) {
-						base = undefined;
-						text = undefined;
-					} else base = written;
-				}
-			} finally {
-				running = undefined;
-			}
-		}
-
-		return {
-			/** The text typed; `undefined` once every change is written. */
-			get text() {
-				return text;
-			},
-			get saving() {
-				return running !== undefined;
-			},
-			/** Type `next` over `current`, the file as the cache holds it now. */
-			change(current: FileCapture, next: string) {
-				base ??= { path: current.path, sha256: current.sha256 };
-				text = next;
-				revision++;
-			},
-			discard() {
-				base = undefined;
-				text = undefined;
-			},
-			save(): Promise<void> {
-				if (running !== undefined) return running;
-				if (text === undefined) return Promise.resolve();
-				running = loop();
-				return running;
-			},
-		};
+		return createTextDraftState({
+			save: ({ base, text }) =>
+				execute(writeText, { path, content: text, base }),
+			onSaved: (saved) => savedText(path, saved),
+		});
 	}
 
 	/** Write the text draft of `path`; once it is written, what the text changed is read again. */
