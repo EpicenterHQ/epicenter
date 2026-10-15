@@ -44,12 +44,9 @@ function withTime(
 	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
 }
 
-/** What is saved to files: edits being written, and captured recordings waiting to be written. */
+/** What is saved to files: edits being written, and results waiting to be written. */
 export function filesLine(state: {
 	saving: boolean;
-	/** Captured recordings not known to be in the folder. */
-	pendingCaptures: number;
-	capturesSaving: boolean;
 	/** Transcripts received whose result file could not be written. */
 	unsavedResults: number;
 	/** Transformation results received whose file could not be written. */
@@ -57,14 +54,6 @@ export function filesLine(state: {
 	/** Results on pasted text received and not saved yet, by choice or by failure. */
 	unsavedTextResults?: number;
 }): StatusLine {
-	if (state.pendingCaptures > 0 && !state.capturesSaving)
-		return {
-			label: `${state.pendingCaptures} ${state.pendingCaptures === 1 ? 'recording' : 'recordings'} not saved`,
-			short: 'Recording not saved',
-			detail:
-				'The audio is kept in this window. Use Try again on the recording.',
-			tone: 'error',
-		};
 	if (state.unsavedResults > 0)
 		return {
 			label: `${state.unsavedResults} ${state.unsavedResults === 1 ? 'transcription' : 'transcriptions'} not saved`,
@@ -90,25 +79,19 @@ export function filesLine(state: {
 				'The text is kept in this window. Save or discard it on its transformation’s page; the endpoint is not called again.',
 			tone: 'warning',
 		};
-	if (state.saving || state.capturesSaving)
-		return { label: 'Saving…', tone: 'busy' };
+	if (state.saving) return { label: 'Saving…', tone: 'busy' };
 	return { label: 'All changes saved to files', short: 'Saved', tone: 'good' };
 }
 
 /** The files line for the product state, as the header shows it. */
 export function filesLineOf(library: {
 	readonly saving: boolean;
-	readonly pending: readonly { readonly state: { readonly kind: string } }[];
 	readonly unsavedResults: number;
 	readonly unsavedTransformations: number;
 	readonly unsavedTextResults: number;
 }): StatusLine {
 	return filesLine({
 		saving: library.saving,
-		pendingCaptures: library.pending.length,
-		capturesSaving: library.pending.some(
-			(item) => item.state.kind === 'saving',
-		),
 		unsavedResults: library.unsavedResults,
 		unsavedTransformations: library.unsavedTransformations,
 		unsavedTextResults: library.unsavedTextResults,

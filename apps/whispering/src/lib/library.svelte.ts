@@ -19,18 +19,22 @@
  * reported with the text that was lost. A row deleted elsewhere stays
  * deleted: its write fails, and nothing creates it again.
  *
- * Every other action is a mutation too: publishing a recording, saving a
- * transcript or a result (scoped by the recording's file, so they write in
- * order), create, rename, delete, Save version, settings, and terminal
- * commands. Leaving and closing stop new work, then wait until nothing is
+ * Every other action is a mutation too: a recording's row and its length,
+ * saving a transcript or a result (scoped by the recording's file, so they
+ * write in order), create, rename, delete, Save version, settings, and
+ * terminal commands. Leaving and closing stop new work, then wait until nothing is
  * mutating. Saves never commit (ADR-0529); a version is recorded only by
  * Save version.
  *
- * What lives only in this window until it reaches the folder: a captured
- * recording whose audio and row are not both in place, and text an endpoint
- * returned whose file is not written yet (`runs.svelte.ts`). Both block
- * leaving the app.
+ * A recording is in the folder from the moment it starts (ADR-0543): its row
+ * is written then, naming its audio, and on the desktop the audio is written
+ * as it is captured. Whether it is still running is this window's live
+ * capture, never a field. What lives only in this window until it reaches
+ * the folder is text an endpoint returned whose file is not written yet
+ * (`runs.svelte.ts`), which blocks leaving the app.
  */
+
+import { InstantString } from '@epicenter/definition';
 import type {
 	CommitOutcome,
 	FileCapture,
@@ -52,6 +56,7 @@ import {
 	joinPath,
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
+import { type RecordingFolder, recoverRecordings } from '@epicenter/recorder';
 import type {
 	MutationFilters,
 	MutationOptions,
@@ -67,7 +72,7 @@ import {
 	resultQueryOptions,
 } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { ActiveCapture, CapturedAudio } from './capture.js';
+import type { ActiveCapture } from './capture.js';
 import type {
 	ConnectionChange,
 	ConnectionsInfo,
@@ -79,7 +84,7 @@ import {
 	type LegacySettings,
 	RECORDINGS,
 	type RecordingFields,
-	recordingAudioPath,
+	recordingAudioStem,
 	TEXT_RUNS,
 	type TextRunFields,
 	TRANSCRIPTIONS,
@@ -104,12 +109,6 @@ import {
 	type ResolvedRecipe,
 	resolveRecipe,
 } from './recipe.js';
-import {
-	type InPlace,
-	type PendingCapture,
-	type PublishOutcome,
-	publishRecording,
-} from './recordings/publish.js';
 import { createRuns } from './runs.svelte.js';
 import { createTerminalSession } from './terminal.svelte.js';
 import type {
@@ -117,6 +116,10 @@ import type {
 	Workspace,
 	WorkspaceTerminal,
 } from './workspace/index.js';
+import {
+	type RecordingWriteHook,
+	WHISPERING_FOLDER_ID,
+} from './workspace/types.js';
 
 export type Library = ReturnType<typeof createLibrary>;
 
@@ -184,28 +187,11 @@ export type WriteFailure = {
 	readonly lost: string;
 };
 
-/**
- * A capture the window still holds: its fixed id and bytes, and where its
- * publication stands. The recording is not known to be in the folder, and
- * the bytes here are what would be lost. A published capture is dropped.
- */
-export type PendingRecording = {
-	readonly capture: PendingCapture;
-	readonly mimeType: string;
-	readonly attempts: number;
-	readonly state:
-		| { readonly kind: 'saving' }
-		/** The last attempt stopped before the row was in place. */
-		| Exclude<PublishOutcome, { kind: 'published' }>;
-};
-
 export type RecorderState =
 	| { readonly phase: 'idle' }
 	| { readonly phase: 'starting' }
 	| { readonly phase: 'recording'; readonly startedAt: number }
 	| { readonly phase: 'stopping' };
-
-export type { InPlace };
 
 const LEAVING = 'Whispering is closing, so nothing new was started.';
 const CLOSING = 'The library is closing.';
@@ -240,7 +226,7 @@ export const whisperingKeys = defineKeys({
 	writeText: (path: string) => ['whispering', 'write', 'text', path] as const,
 	move: (path: string) => ['whispering', 'move', path] as const,
 	remove: (path: string) => ['whispering', 'remove', path] as const,
-	/** A recording's lifecycle: publishing it, and saving its transcripts and results. */
+	/** A recording's lifecycle: its row and length, and saving its transcripts and results. */
 	recording: (path: string) => ['whispering', 'recording', path] as const,
 	action: (name: string) => ['whispering', 'action', name] as const,
 });
@@ -860,10 +846,14 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	let selectedPath = $state<string | undefined>();
 	let selectedTransformationPath = $state<string | undefined>();
 
-	let pending = $state.raw<PendingRecording[]>([]);
 	let recorder = $state.raw<RecorderState>({ phase: 'idle' });
 	let recorderError = $state<string | undefined>();
-	let active: ActiveCapture | undefined;
+	/** The recording being captured: its row's stem and the live capture. */
+	let active:
+		| { readonly id: string; readonly capture: ActiveCapture }
+		| undefined;
+	/** The recording being captured, by stem. No request starts for it until it stops. */
+	const capturing = new SvelteSet<string>();
 	/** The start that has not answered yet. Aborting it releases a microphone that opens late. */
 	let starting: AbortController | undefined;
 	/** Folders open in the file browser; kept while the browser is hidden. */
@@ -889,6 +879,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		resolve,
 		settle: writesSettled,
 		deleting,
+		capturing,
 		track,
 	});
 
@@ -941,13 +932,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** Everything held only in this window, in the words the leave prompt shows. */
 	function unsavedWork(): string[] {
 		const held: string[] = [];
-		if (recorder.phase !== 'idle') held.push('A recording is in progress.');
-		if (pending.length > 0)
-			held.push(
-				pending.length === 1
-					? '1 recording is not saved to the folder. Its audio is kept in this window. Any files already written stay in the folder.'
-					: `${pending.length} recordings are not saved to the folder. Their audio is kept in this window. Any files already written stay in the folder.`,
-			);
 		held.push(...runs.held());
 		if (writing()) held.push('Changes are still being saved.');
 		return held;
@@ -955,73 +939,60 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	// --- recording ----------------------------------------------------------
 
-	function setPending(id: string, next: PendingRecording | undefined) {
-		pending =
-			next === undefined
-				? pending.filter((item) => item.capture.id !== id)
-				: pending.some((item) => item.capture.id === id)
-					? pending.map((item) => (item.capture.id === id ? next : item))
-					: [next, ...pending];
-	}
+	/** The folder a capture writes its audio into. */
+	const recordingFolder = (): RecordingFolder => ({
+		id: WHISPERING_FOLDER_ID,
+		files: folder.files,
+	});
+
+	/** One write of a recording, through a debug shell's armed failure when there is one. */
+	const recordingWrite: RecordingWriteHook = (write, run) =>
+		workspace.injection?.aroundRecordingWrite(write, run) ?? run();
 
 	/**
-	 * One publication attempt for a pending capture, as a mutation in the
-	 * recording file's queue. Its id and bytes never change. The first attempt
-	 * writes; one the person asks for reads the folder first and finishes only
-	 * what is missing. A confirmed publication drops the capture, and the
-	 * recording opens unless the person selected something else meanwhile.
+	 * Finish the recording being captured: its audio file is finalized and its
+	 * length written to its row, which was written when it started. A row
+	 * that cannot take its length keeps everything else, and says why.
 	 */
-	async function publish(item: PendingRecording) {
-		const attempt: PendingRecording = {
-			...item,
-			attempts: item.attempts + 1,
-			state: { kind: 'saving' },
-		};
-		setPending(item.capture.id, attempt);
+	async function finishRecording() {
+		if (active === undefined) return;
+		const { id, capture } = active;
+		active = undefined;
+		recorder = { phase: 'stopping' };
+		const path = rowPath(RECORDINGS, id);
 		const selectionBefore = selectedPath;
-		const path = rowPath(RECORDINGS, item.capture.id);
-		const outcome = await track(
-			() =>
-				publishRecording(folder, item.capture, {
-					retry: item.attempts > 0,
-					around: workspace.injection?.aroundRecordingWrite,
-				}),
-			path,
+		// In a browser, and for fixture audio, the audio file is written now; on
+		// the desktop it was written as it was captured, and stop finishes it.
+		// Started here, not when the mutation runs, so the microphone is let go
+		// at once.
+		const stopping = recordingWrite(
+			{ step: 'audio', stem: id, path: capture.audioPath },
+			() => capture.stop(),
 		);
-		if (outcome.kind === 'published') {
-			// Read the new recording now: the listing's own reread waits for
-			// every other write, and until then the recording would show as gone.
-			await reloadRow(RECORDINGS, item.capture.id);
-			setPending(item.capture.id, undefined);
-			if (selectedPath === selectionBefore) open(path);
+		const { data: stopped, error: stopError } = await track(() => stopping);
+		capturing.delete(id);
+		recorder = { phase: 'idle' };
+		if (stopError !== null) {
+			recorderError = stopError.message;
 			return;
 		}
-		setPending(item.capture.id, { ...attempt, state: outcome });
-	}
-
-	function accept(audio: CapturedAudio, endedAt: Date): PendingRecording {
-		const id = recordingId(endedAt);
-		const item: PendingRecording = {
-			// Fixed here, once: every attempt publishes this id, these bytes, and
-			// these fields, and the row names the audio's path itself.
-			capture: {
-				id,
-				bytes: audio.bytes,
-				fields: {
-					title: defaultTitle(endedAt),
-					recordedAt: endedAt.toISOString(),
-					durationMs: audio.durationMs,
-					capture: audio.source,
-					audioPath: recordingAudioPath(id, audio.extension),
-				} as RecordingFields,
-				body: '',
-			},
-			mimeType: audio.mimeType,
-			attempts: 0,
-			state: { kind: 'saving' },
-		};
-		setPending(id, item);
-		return item;
+		const lengthError = await track(async () => {
+			const { data: stored, error } = await tableOf(RECORDINGS).get(id);
+			if (error !== null) return describeError(error);
+			if (stored === undefined) return undefined;
+			const { error: replaceError } = await tableOf(RECORDINGS).replace(
+				stored,
+				{
+					fields: { ...stored.row.fields, durationMs: stopped.durationMs },
+					body: stored.row.body,
+				},
+			);
+			return replaceError === null ? undefined : describeError(replaceError);
+		}, path);
+		if (lengthError !== undefined)
+			recorderError = `The recording is saved, but its length could not be written: ${lengthError}`;
+		await reloadRow(RECORDINGS, id);
+		if (selectedPath === selectionBefore) open(path);
 	}
 
 	const deletionContext = (): DeletionContext => ({
@@ -1385,10 +1356,17 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		/** The person's "Check again", and returning to the window. */
 		check: () => invalidate(),
 		/**
-		 * First read after opening: the folder, then what this device has set
-		 * up. Nothing is created and nothing is sent.
+		 * First read after opening: repair recordings a quit or a crash cut
+		 * off, then the folder, then what this device has set up. Nothing is
+		 * created and nothing is sent.
 		 */
 		async start() {
+			const { error: recoverError } = await recoverRecordings({
+				folder: recordingFolder(),
+				under: RECORDINGS,
+			});
+			if (recoverError !== null)
+				recorderError = `Recordings a quit cut off could not be checked: ${recoverError.message}`;
 			// A read that answers with an error is shown as that listing's
 			// problem; one that throws means the folder cannot be read at all,
 			// and the opening fails with it.
@@ -1506,15 +1484,16 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		// Recording
 		// ------------------------------------------------------------------
 
-		get pending() {
-			return pending;
-		},
 		get recorder() {
 			return recorder;
 		},
 		get recorderError() {
 			return recorderError;
 		},
+		/**
+		 * Start a recording: its audio file is named and its row written now,
+		 * so a quit, a crash, or a closed window leaves both in the folder.
+		 */
 		async startRecording() {
 			if (recorder.phase !== 'idle' || refused() !== undefined) return;
 			recorderError = undefined;
@@ -1523,14 +1502,18 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			input.release();
 			const attempt = new AbortController();
 			starting = attempt;
-			const { data: recording, error: startError } =
+			const at = new Date();
+			const id = recordingId(at);
+			const { data: capture, error: startError } =
 				await workspace.capture.start({
+					folder: recordingFolder(),
+					path: recordingAudioStem(id),
 					input: input.choice,
 					signal: attempt.signal,
 				});
 			// Cancelled or closed while the microphone was opening: it is not kept.
 			if (starting !== attempt) {
-				if (startError === null) recording.cancel();
+				if (startError === null) void capture.cancel();
 				return;
 			}
 			starting = undefined;
@@ -1540,46 +1523,58 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				input.noteRecordingError(startError);
 				return;
 			}
-			active = recording;
-			recorder = { phase: 'recording', startedAt: recording.startedAt };
+			active = { id, capture };
+			capturing.add(id);
+			recorder = { phase: 'recording', startedAt: capture.startedAt };
+			// Facts only: when it started and where its audio is. Its length
+			// follows when it stops.
+			const created = await track(
+				() =>
+					recordingWrite({ step: 'row', stem: id }, () =>
+						tableOf(RECORDINGS).create(
+							{
+								fields: {
+									title: defaultTitle(at),
+									recordedAt: InstantString.fromDate(at),
+									capture: workspace.capture.source,
+									audioPath: capture.audioPath,
+								},
+								body: '',
+							},
+							{ stem: id },
+						),
+					),
+				rowPath(RECORDINGS, id),
+			);
+			if (created.error !== null)
+				recorderError = `The recording is running, but its file could not be written, so it is not listed: ${describeError(created.error)}. Its audio is ${capture.audioPath}.`;
+			else await reloadRow(RECORDINGS, id);
 		},
-		/**
-		 * Stop, keep the audio in this window, and publish it to the folder.
-		 * While new work is not admitted the recording stays as it is.
-		 */
+		/** Stop: the audio file is finished and the row gets its length. */
 		async stopRecording() {
 			if (recorder.phase !== 'recording' || active === undefined) return;
-			if (refused() !== undefined) return;
-			const capture = active;
-			active = undefined;
-			recorder = { phase: 'stopping' };
-			const { data: captured, error: stopError } = await track(() =>
-				capture.stop(),
-			);
-			recorder = { phase: 'idle' };
-			if (stopError !== null) {
-				recorderError = stopError.message;
-				return;
-			}
-			await publish(accept(captured, new Date()));
+			await finishRecording();
 		},
-		cancelRecording() {
+		/** Stop and delete: the audio file and the row written at start both go. */
+		async cancelRecording() {
 			starting?.abort();
 			starting = undefined;
-			active?.cancel();
+			const cancelled = active;
 			active = undefined;
 			recorder = { phase: 'idle' };
-		},
-		/** Publish a held capture again, under the same id and with the same bytes. */
-		async retryPending(id: string) {
-			if (refused() !== undefined) return;
-			const item = pending.find((candidate) => candidate.capture.id === id);
-			if (item === undefined || item.state.kind === 'saving') return;
-			await publish(item);
-		},
-		/** Drop a held capture. Files already in the folder are left as they are. */
-		discardPending(id: string) {
-			setPending(id, undefined);
+			if (cancelled === undefined) return;
+			const { id, capture } = cancelled;
+			await capture.cancel();
+			capturing.delete(id);
+			await track(
+				async () => {
+					const { data: stored } = await tableOf(RECORDINGS).get(id);
+					if (stored !== undefined && stored !== null)
+						await tableOf(RECORDINGS).delete(stored);
+				},
+				rowPath(RECORDINGS, id),
+			);
+			deleted(rowPath(RECORDINGS, id));
 		},
 
 		// ------------------------------------------------------------------
@@ -1835,10 +1830,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				: { status: 'failed', error: describe(saved.error) };
 		},
 		/**
-		 * Stop new work, wait until nothing is mutating, then release the
-		 * folder. A capture that could not be published and an answer whose
-		 * file was not written end with the page; the view asks before the page
-		 * is left while either exists.
+		 * Stop new work, finish a recording that is running, wait until nothing
+		 * is mutating, then release the folder. An answer whose file was not
+		 * written ends with the page; the view asks before the page is left
+		 * while one exists.
 		 */
 		async close() {
 			closing = true;
@@ -1847,7 +1842,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			input.close();
 			starting?.abort();
 			starting = undefined;
-			active?.cancel();
+			// Kept, never deleted: a recording is in the folder from its start.
+			await finishRecording();
 			await whenIdle(queryClient);
 			await input.saved();
 			await queryClient.cancelQueries({ queryKey: keys.all });

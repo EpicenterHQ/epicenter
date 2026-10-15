@@ -2,12 +2,13 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** `@epicenter/recorder`; `tauri-plugin-epicenter-recorder`; writing into the folder in place; `recoverRecordings`.
+- **Unbuilt:** a real desktop run: the microphone permission prompt, a recording through the shell's recorder, and a quit mid-recording leaving a playable WAV once `recoverRecordings` runs.
 
 ## Context
 
-Epicenter's native recorder (`apps/epicenter/src-tauri/src/recorder/recorder.rs`)
-already appends PCM16 to a WAV through `hound`'s `WavWriter` as it captures,
+Epicenter's native recorder (since moved to
+`packages/tauri-plugin-epicenter-recorder/src/recorder.rs`) already appends
+PCM16 to a WAV through `hound`'s `WavWriter` as it captures,
 but into a staged blob in app data that is published into the folder only on
 stop, and `cancel_recording_owned_by` deletes it when its window reloads or
 closes. Standalone Whispering records with the browser's `MediaRecorder` and
@@ -42,7 +43,7 @@ const { path, durationMs } = await recording.stop();   // or recording.cancel()
 | | Desktop | Browser |
 | --- | --- | --- |
 | `startRecording` | Creates `<path>.wav` and appends | Records in memory |
-| `stop` | Finalizes the WAV header | Writes `<path>.webm` |
+| `stop` | Finalizes the WAV header | Writes `<path>.webm` (`.mp4` or `.ogg` where the browser records those) |
 | Quit, crash, window closed | Audio kept up to the cut | Lost |
 | `recoverRecordings` | Rewrites the header of any WAV whose length disagrees with it | Does nothing |
 

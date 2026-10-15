@@ -1,6 +1,12 @@
 /**
- * The real microphone: opening one, recording from it, listing the inputs the
- * WebView knows, and reading a level from one without recording.
+ * The real microphone: recording from one into the folder, listing the inputs
+ * the WebView knows, and reading a level from one without recording.
+ *
+ * Recording is `@epicenter/recorder`'s: inside the desktop app the shell
+ * records and writes the WAV into the folder as it captures, asking for the
+ * chosen microphone by the name the WebView lists it under; in a browser the
+ * page records with `MediaRecorder`, asking for it by ID, and writes the file
+ * on stop. Listing, allowing access, and the level test stay in the WebView.
  *
  * A chosen microphone is asked for by its exact ID. When the WebView cannot
  * open exactly that one, the answer is a refusal: no other microphone is
@@ -14,11 +20,14 @@
  * Listing never asks for access. A WebView lists inputs by name only after
  * access was allowed, so `allow` is a separate action the person takes.
  */
+import {
+	type RecorderError,
+	type StartRecording,
+	startRecording,
+} from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { resolveAudioFormat } from './audio-format.js';
 import {
 	type CaptureDevice,
-	type CapturedAudio,
 	CaptureError,
 	type MicrophoneInputs,
 	type MicrophonePreference,
@@ -47,16 +56,9 @@ export type MicrophoneEnvironment = {
 				removeEventListener?(type: 'devicechange', listener: () => void): void;
 		  })
 		| undefined;
-	readonly Recorder:
-		| {
-				new (
-					stream: MediaStream,
-					options?: MediaRecorderOptions,
-				): MediaRecorder;
-				isTypeSupported(type: string): boolean;
-		  }
-		| undefined;
 	readonly createLevelContext: (() => LevelContext) | undefined;
+	/** Records into the folder; `@epicenter/recorder` chooses the host. */
+	readonly record: StartRecording;
 };
 
 function webViewEnvironment(): MicrophoneEnvironment {
@@ -66,16 +68,37 @@ function webViewEnvironment(): MicrophoneEnvironment {
 			navigator.mediaDevices?.getUserMedia === undefined
 				? undefined
 				: navigator.mediaDevices,
-		Recorder: typeof MediaRecorder === 'undefined' ? undefined : MediaRecorder,
 		createLevelContext:
 			typeof AudioContext === 'undefined'
 				? undefined
 				: () => new AudioContext(),
+		record: startRecording,
 	};
 }
 
-/** Containers in preference order; the recorder's own default is the fallback. */
-const PREFERRED_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+/** A recorder's refusal, in the words a capture reports. */
+function captureErrorOf(error: RecorderError): CaptureError {
+	switch (error.name) {
+		case 'Unavailable':
+			return CaptureError.Unavailable({ reason: error.reason }).error;
+		case 'NoInputDevice':
+			return CaptureError.Unavailable({ reason: error.reason }).error;
+		case 'PermissionDenied':
+			return CaptureError.PermissionDenied().error;
+		case 'InputUnavailable':
+			return CaptureError.InputUnavailable({ label: error.label }).error;
+		case 'Cancelled':
+			return CaptureError.Cancelled().error;
+		case 'Empty':
+			return CaptureError.Empty().error;
+		case 'Refused':
+			return CaptureError.NotSaved({ reason: error.reason }).error;
+		case 'Busy':
+		case 'NotRecording':
+		case 'Failed':
+			return CaptureError.Failed({ cause: new Error(error.message) }).error;
+	}
+}
 
 /**
  * IDs a WebView lists for "whatever the system uses". They are not a
@@ -250,104 +273,25 @@ export function createMicrophoneDevice(
 		source: 'microphone',
 		label: 'Microphone',
 		inputs: createInputs(environment),
-		async start({ input, signal } = {}) {
-			const { Recorder } = environment;
-			if (environment.mediaDevices === undefined)
-				return CaptureError.Unavailable({
-					reason: 'this window has no microphone access',
-				});
-			if (Recorder === undefined)
-				return CaptureError.Unavailable({
-					reason: 'this window cannot encode audio',
-				});
-			const { data: stream, error: openError } = await open(
-				environment.mediaDevices,
+		async start({ folder, path, input, signal }) {
+			const { data: recording, error } = await environment.record({
+				folder,
+				path,
 				input,
 				signal,
-			);
-			if (openError !== null) return Err(openError);
-			let recorder: MediaRecorder;
-			try {
-				const mimeType = PREFERRED_TYPES.find((type) =>
-					Recorder.isTypeSupported(type),
-				);
-				recorder = new Recorder(
-					stream,
-					mimeType === undefined ? undefined : { mimeType },
-				);
-			} catch (cause) {
-				release(stream);
-				return CaptureError.Failed({ cause });
-			}
-			const chunks: Blob[] = [];
-			recorder.addEventListener('dataavailable', (event) => {
-				if (event.data.size > 0) chunks.push(event.data);
 			});
+			if (error !== null) return Err(captureErrorOf(error));
 			const startedAt = performance.now();
-			try {
-				recorder.start();
-			} catch (cause) {
-				release(stream);
-				return CaptureError.Failed({ cause });
-			}
-			let settled = false;
 			return Ok({
+				audioPath: recording.path,
 				startedAt,
-				stop() {
-					return new Promise<Result<CapturedAudio, CaptureError>>((resolve) => {
-						if (settled) {
-							resolve(CaptureError.Empty());
-							return;
-						}
-						settled = true;
-						const durationMs = Math.round(performance.now() - startedAt);
-						recorder.addEventListener(
-							'error',
-							(event) => {
-								release(stream);
-								resolve(CaptureError.Failed({ cause: event }));
-							},
-							{ once: true },
-						);
-						recorder.addEventListener(
-							'stop',
-							async () => {
-								release(stream);
-								const blob = new Blob(chunks);
-								if (blob.size === 0) {
-									resolve(CaptureError.Empty());
-									return;
-								}
-								const bytes = new Uint8Array(await blob.arrayBuffer());
-								const format = resolveAudioFormat(bytes, recorder.mimeType);
-								resolve(
-									Ok({
-										bytes,
-										...format,
-										durationMs,
-										source: 'microphone',
-									}),
-								);
-							},
-							{ once: true },
-						);
-						try {
-							recorder.stop();
-						} catch (cause) {
-							release(stream);
-							resolve(CaptureError.Failed({ cause }));
-						}
-					});
+				async stop() {
+					const { data: stopped, error: stopError } = await recording.stop();
+					if (stopError !== null) return Err(captureErrorOf(stopError));
+					return Ok({ durationMs: stopped.durationMs });
 				},
-				cancel() {
-					if (settled) return;
-					settled = true;
-					try {
-						recorder.stop();
-					} catch {
-						// Already inactive; the tracks are released either way.
-					}
-					release(stream);
+				async cancel() {
+					await recording.cancel();
 				},
 			});
 		},

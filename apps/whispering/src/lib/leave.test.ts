@@ -5,8 +5,9 @@
  * Key behaviors:
  * - Nothing held: the page answers `proceed` with no prompt
  * - A row save still running is waited for, then `proceed`
- * - A pending capture, an unsaved transcript or transformation result, or a
- *   live recording: the page answers `asking` and shows its prompt
+ * - An unsaved transcript or transformation result: the page answers
+ *   `asking` and shows its prompt
+ * - A live recording holds nothing: its row and audio are in the folder
  * - A write that failed was rolled back and reported; it holds nothing
  * - "Keep working" answers `cancel` and every held byte is still there
  * - "Discard and quit" answers `proceed`
@@ -14,9 +15,10 @@
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { chmodSync } from 'node:fs';
-import { mkdtemp, readdir, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { rowPath } from '@epicenter/folder';
 import { FileError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { createFixtureDevice, toneWav } from './capture.js';
@@ -28,11 +30,7 @@ import {
 import type { Library } from './library.svelte.js';
 import { createQueryClient } from './query.test-support.js';
 import type { CloseDecision, Workspace } from './workspace/types.js';
-import {
-	openTestFolder,
-	testConnections,
-	testInjection,
-} from './workspace.test-support.js';
+import { openTestFolder, testConnections } from './workspace.test-support.js';
 
 const { createLibrary } = await import('./library.svelte.ts');
 const { createLeaveGuard } = await import('./leave.svelte.ts');
@@ -47,14 +45,12 @@ afterEach(async () => {
 });
 
 async function open({
-	failAudioWrites = 0,
 	failResultWrites = 0,
 	failOutputWrites = 0,
 	failPrepare = false,
 	deliverProceed,
 	beforeTransformationRead,
 }: {
-	failAudioWrites?: number;
 	failResultWrites?: number;
 	/** Fail this many transformation result writes. */
 	failOutputWrites?: number;
@@ -155,8 +151,7 @@ async function open({
 			setMicrophone: async () => undefined,
 		},
 		debugControls: true,
-		// The acceptance case: the audio write fails, so no file reaches the folder.
-		injection: testInjection(root, { audio: failAudioWrites, row: 0 }),
+		injection: undefined,
 		close: () => folder.close(),
 	};
 	const library = createLibrary(workspace, createQueryClient());
@@ -228,6 +223,15 @@ async function record(library: Library) {
 	await library.stopRecording();
 }
 
+/** Record and transcribe, with the transcript's file refused: the transcript is held in the window. */
+async function holdTranscript(library: Library) {
+	await record(library);
+	const entry = library.entries[0]!;
+	await library.transcribe(entry);
+	expect(library.transcriptionRun(entry.stem)?.kind).toBe('unsaved');
+	return entry.stem;
+}
+
 /** A draft as plain data, to compare before and after. */
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 
@@ -268,76 +272,38 @@ test('a row save still running is waited for, then the close proceeds', async ()
 	expect(saved).toContain('title: Typed just now');
 });
 
-test('a capture that reached no file blocks the close, and cancelling keeps its audio', async () => {
-	const { library, guard, answers, ask, root } = await open({
-		failAudioWrites: 1,
-	});
-	await record(library);
-	expect(library.pending).toHaveLength(1);
-	const pending = library.pending[0]!;
-	expect(pending.state).toMatchObject({
-		kind: 'audioNotSaved',
-		certainty: 'failed',
-	});
-	expect(
-		await readdir(join(root, 'recordings')).catch(() => [] as string[]),
-	).toEqual([]);
-
-	await ask();
-
-	// Acknowledged, never approved.
-	expect(answers).toEqual(['asking']);
-	expect(guard.asking).toBe(true);
-	expect(guard.hostGone).toBe(false);
-	expect(guard.held.join(' ')).toContain('1 recording is not saved');
-
-	await guard.stay();
-
-	expect(answers).toEqual(['asking', 'cancel']);
-	expect(guard.asking).toBe(false);
-	// The same capture, id, and bytes are still in the window, and still retryable.
-	expect(library.pending[0]!.capture.id).toBe(pending.capture.id);
-	expect(library.pending[0]!.capture.bytes).toEqual(toneWav());
-	await library.retryPending(pending.capture.id);
-	expect(library.pending).toHaveLength(0);
-	expect((await readdir(join(root, 'recordings'))).sort()).toEqual([
-		`${pending.capture.id}.md`,
-		`${pending.capture.id}.wav`,
-	]);
-
-	// With it saved, the next close needs no prompt.
-	await ask();
-	expect(answers).toEqual(['asking', 'cancel', 'asking', 'proceed']);
-});
-
-test('discard and quit is the only answer that drops a pending capture', async () => {
-	const { library, guard, answers, ask } = await open({ failAudioWrites: 1 });
-	await record(library);
+test('discard and quit is the only answer that drops a held transcript', async () => {
+	const { library, guard, answers, ask } = await open({ failResultWrites: 1 });
+	const stem = await holdTranscript(library);
 
 	await ask();
 	// A second request while the prompt is up is acknowledged and changes nothing.
 	await ask();
 	expect(answers).toEqual(['asking', 'asking']);
 	expect(guard.asking).toBe(true);
-	expect(library.pending).toHaveLength(1);
+	expect(library.transcriptionRun(stem)?.kind).toBe('unsaved');
 
 	await guard.discardAndQuit();
 
 	expect(answers).toEqual(['asking', 'asking', 'proceed']);
 });
 
-test('a live recording blocks the close', async () => {
-	const { library, guard, answers, ask } = await open();
+test('a live recording holds nothing: its row and audio are in the folder, and closing keeps it', async () => {
+	const { library, guard, answers, ask, root } = await open();
 	await library.startRecording();
+	const [entry] = library.entries;
 
 	await ask();
 
-	expect(answers).toEqual(['asking']);
-	expect(guard.held).toContain('A recording is in progress.');
-	await guard.stay();
-	expect(library.recorder.phase).toBe('recording');
-	await library.stopRecording();
-	expect(library.entries).toHaveLength(1);
+	expect(answers).toEqual(['asking', 'proceed']);
+	expect(guard.held).toEqual([]);
+	await library.close();
+	expect(
+		await Bun.file(join(root, rowPath('recordings', entry!.stem))).exists(),
+	).toBe(true);
+	expect(await Bun.file(join(root, entry!.row.fields.audioPath)).exists()).toBe(
+		true,
+	);
 });
 
 test('a transcript whose file was not saved blocks the close', async () => {
@@ -454,17 +420,16 @@ test('when what is held cannot be determined, the page asks instead of proceedin
 	expect(answers).toEqual(['asking', 'cancel']);
 });
 
-test('with the host gone, a close attempt keeps the window and the pending audio', async () => {
-	const started = await open({ failAudioWrites: 1 });
+test('with the host gone, a close attempt keeps the window and the held transcript', async () => {
+	const started = await open({ failResultWrites: 1 });
 	const { library, guard, answers } = started;
-	await record(library);
-	const pending = library.pending[0]!;
+	const stem = await holdTranscript(library);
 
 	started.askWithoutHost();
 
 	expect(guard.asking).toBe(true);
 	expect(guard.hostGone).toBe(true);
-	expect(guard.held.join(' ')).toContain('1 recording is not saved');
+	expect(guard.held.join(' ')).toContain('1 transcript arrived');
 	// Nothing is sent to a host that is not there, and nothing has quit.
 	expect(answers).toEqual([]);
 	expect(started.quitSignals).toBe(0);
@@ -473,8 +438,7 @@ test('with the host gone, a close attempt keeps the window and the pending audio
 
 	expect(guard.asking).toBe(false);
 	expect(started.quitSignals).toBe(0);
-	expect(library.pending[0]!.capture.id).toBe(pending.capture.id);
-	expect(library.pending[0]!.capture.bytes).toEqual(toneWav());
+	expect(library.transcriptionRun(stem)?.kind).toBe('unsaved');
 
 	// Only the explicit choice quits, through the shell's direct signal.
 	started.askWithoutHost();
@@ -484,24 +448,19 @@ test('with the host gone, a close attempt keeps the window and the pending audio
 });
 
 test('with the host gone the folder still saves: what is held shrinks as it is saved, and quitting stays an explicit choice', async () => {
-	const started = await open({ failAudioWrites: 1 });
-	const { library, guard, answers, root } = started;
-	// A capture that reached no file.
-	await record(library);
-	const pending = library.pending[0]!;
+	const started = await open({ failResultWrites: 1 });
+	const { library, guard, answers } = started;
+	const stem = await holdTranscript(library);
 
 	started.askWithoutHost();
 
 	expect(guard.hostGone).toBe(true);
-	expect(guard.held.join(' ')).toContain('1 recording is not saved');
+	expect(guard.held.join(' ')).toContain('1 transcript arrived');
 	await guard.stay();
 
-	// The folder is not the host's. The capture is saved through it now.
-	await library.retryPending(pending.capture.id);
-	expect((await readdir(join(root, 'recordings'))).sort()).toEqual([
-		`${pending.capture.id}.md`,
-		`${pending.capture.id}.wav`,
-	]);
+	// The folder is not the host's. The transcript is saved through it now.
+	await library.retrySaveResult(stem);
+	expect(library.resultsFor(stem)).toHaveLength(1);
 	expect(guard.held).toEqual([]);
 
 	// Nothing is held any more, and the window still does not close by itself:
@@ -598,10 +557,9 @@ test('a capture or typing asked for while the approval is on its way is refused'
 
 test('while the person decides nothing new starts, and keep working admits work again with everything held intact', async () => {
 	const { library, guard, answers, ask, root } = await open({
-		failAudioWrites: 1,
+		failResultWrites: 1,
 	});
-	await record(library);
-	const pending = library.pending[0]!;
+	const stem = await holdTranscript(library);
 	await library.createTransformation({ title: 'Clean up', prompt: 'Tidy.\n' });
 	const session = transformationEditor(library);
 	session.edit((row) => {
@@ -616,9 +574,8 @@ test('while the person decides nothing new starts, and keep working admits work 
 	// Every way to start something is refused, whoever calls it.
 	await library.startRecording();
 	expect(library.recorder.phase).toBe('idle');
-	await library.retryPending(pending.capture.id);
-	expect(library.pending[0]!.attempts).toBe(pending.attempts);
-	expect(library.pending[0]!.state.kind).toBe('audioNotSaved');
+	await library.retrySaveResult(stem);
+	expect(library.transcriptionRun(stem)?.kind).toBe('unsaved');
 	session.edit((row) => {
 		row.body = 'typed while asked';
 	});
@@ -639,7 +596,7 @@ test('while the person decides nothing new starts, and keep working admits work 
 
 	expect(answers).toEqual(['asking', 'cancel']);
 	expect(library.admitting).toBe(true);
-	expect(library.pending[0]!.capture.bytes).toEqual(toneWav());
+	expect(library.transcriptionRun(stem)?.kind).toBe('unsaved');
 	expect(session.draft.body).toBe('Typed before the close.\n');
 	session.edit((row) => {
 		row.body = 'Typed before the close.\nMore.\n';
@@ -648,7 +605,7 @@ test('while the person decides nothing new starts, and keep working admits work 
 	expect(await Bun.file(join(root, session.path)).text()).toContain('More.');
 	await library.startRecording();
 	expect(library.recorder.phase).toBe('recording');
-	library.cancelRecording();
+	await library.cancelRecording();
 });
 
 test('a quit whose answer is lost stays committed: nothing is admitted again, and quitting again is the only action', async () => {
@@ -752,8 +709,8 @@ test('a recipe run on pasted text whose read was under way when the shell asked 
 });
 
 test('a guard that was disposed answers nothing, whatever its prompt still offers', async () => {
-	const { library, guard, answers, ask } = await open({ failAudioWrites: 1 });
-	await record(library);
+	const { library, guard, answers, ask } = await open({ failResultWrites: 1 });
+	await holdTranscript(library);
 	await ask();
 	expect(guard.phase).toBe('asking');
 	guard.dispose();

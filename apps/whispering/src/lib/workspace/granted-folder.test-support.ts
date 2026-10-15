@@ -302,6 +302,9 @@ export function createGrantedShell(root: string, scope: string) {
 			options?: { headers?: Record<string, string> },
 		) {
 			const args = shellArguments(body, options);
+			// The recorder plugin beside the folder: no recording was ever cut
+			// off here, so there is nothing to repair.
+			if (cmd === 'plugin:epicenter-recorder|recover') return [];
 			const name = cmd.replace('plugin:epicenter-folder|', '');
 			calls.push({ cmd: name, args });
 			const command = commands[name];

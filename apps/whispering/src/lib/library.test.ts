@@ -50,7 +50,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { formatFromMimeType } from './audio-format.js';
 import { loadAudio } from './audio-source.js';
 import { createFixtureDevice, toneWav } from './capture.js';
-import { recordingAudioPath } from './definition.js';
+import { recordingAudioStem } from './definition.js';
 import { describeDeletion } from './deletion.js';
 import { openText, settle } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
@@ -244,7 +244,9 @@ test('a new recording’s audio and row are paths every folder accepts, the desk
 		]) {
 			const id = recordingId(at);
 			const extension = formatFromMimeType(mimeType)!.extension;
-			expect(pathProblem(recordingAudioPath(id, extension))).toBeUndefined();
+			expect(
+				pathProblem(`${recordingAudioStem(id)}.${extension}`),
+			).toBeUndefined();
 			expect(pathProblem(`recordings/${id}.md`)).toBeUndefined();
 		}
 });
@@ -387,7 +389,6 @@ test('record, stop, and save leave a row, real audio, and a commit, and the reco
 
 	await record(library);
 
-	expect(library.pending).toHaveLength(0);
 	expect(library.entries).toHaveLength(1);
 	const entry = library.entries[0]!;
 	const { fields } = entry.row;
@@ -409,37 +410,73 @@ test('record, stop, and save leave a row, real audio, and a commit, and the reco
 	expect(tree).not.toContain('kv.json');
 });
 
-test('a row write that fails after the audio landed keeps the capture and its id, and an explicit retry makes one recording', async () => {
+test('a recording’s row is written when it starts, naming its audio, and gets its length when it stops', async () => {
+	const { library, root } = await open();
+
+	await library.startRecording();
+
+	expect(library.recorder.phase).toBe('recording');
+	const [entry] = library.entries;
+	expect(entry?.row.fields).toMatchObject({
+		capture: 'fixture',
+		audioPath: `recordings/${entry?.stem}.wav`,
+	});
+	expect(entry?.row.fields.durationMs).toBeUndefined();
+	// Nothing is held in this window: the recording is in the folder.
+	expect(library.holdsUnsavedWork).toBe(false);
+
+	await library.stopRecording();
+
+	expect(library.entries.map((stored) => stored.row.fields.durationMs)).toEqual(
+		[1000],
+	);
+	expect((await readdir(join(root, 'recordings'))).sort()).toEqual([
+		`${entry?.stem}.md`,
+		`${entry?.stem}.wav`,
+	]);
+});
+
+test('cancel deletes the recording’s row and its audio', async () => {
+	const { library, root } = await open();
+
+	await library.startRecording();
+	expect(library.entries).toHaveLength(1);
+	await library.cancelRecording();
+
+	expect(library.recorder).toEqual({ phase: 'idle' });
+	expect(library.entries).toEqual([]);
+	expect(await readdir(join(root, 'recordings'))).toEqual([]);
+});
+
+test('a recording still recording is not transcribed', async () => {
+	const { library, transcribed } = await open();
+
+	await library.startRecording();
+	const [entry] = library.entries;
+	await library.transcribe(entry!);
+
+	expect(transcribed).toEqual([]);
+	expect(library.transcriptionRun(entry!.stem)).toMatchObject({
+		kind: 'failed',
+		message: expect.stringContaining('still recording'),
+	});
+	await library.stopRecording();
+});
+
+test('a row write that fails at start leaves the recording running, says so, and its audio is still saved', async () => {
 	const { library, root } = await open({ failRowWrites: 1 });
 
-	await record(library);
+	await library.startRecording();
 
-	expect(library.entries).toHaveLength(0);
-	expect(library.pending).toHaveLength(1);
-	const pending = library.pending[0]!;
-	expect(pending.state).toMatchObject({
-		kind: 'rowNotSaved',
-		certainty: 'failed',
-		audio: { by: 'receipt', file: { path: pending.capture.fields.audioPath } },
-	});
-	expect(pending.capture.bytes).toEqual(toneWav());
-	expect(library.holdsUnsavedWork).toBe(true);
-	expect(status(library).files.label).toBe('1 recording not saved');
-	expect(await readdir(join(root, 'recordings'))).toEqual([
-		`${pending.capture.id}.wav`,
-	]);
+	expect(library.recorder.phase).toBe('recording');
+	expect(library.recorderError).toContain('its file could not be written');
+	expect(library.entries).toEqual([]);
 
-	await library.retryPending(pending.capture.id);
+	await library.stopRecording();
 
-	expect(library.pending).toHaveLength(0);
-	expect(library.holdsUnsavedWork).toBe(false);
-	expect(library.entries.map((entry) => entry.stem)).toEqual([
-		pending.capture.id,
-	]);
-	expect((await readdir(join(root, 'recordings'))).sort()).toEqual([
-		`${pending.capture.id}.md`,
-		`${pending.capture.id}.wav`,
-	]);
+	const files = await readdir(join(root, 'recordings'));
+	expect(files).toHaveLength(1);
+	expect(files[0]).toEndWith('.wav');
 });
 
 test('a row written before audioPath does not read: it is named for repair, and no same-stem file is used', async () => {

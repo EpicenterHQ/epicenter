@@ -8,7 +8,7 @@
  * debug failures are repeatable and leave the documented state on disk, the
  * key stays in the host, and none of it is reachable without the launch token.
  *
- * Where a test needs something to publish and commit, it opens the directory
+ * Where a test needs something to save and commit, it opens the directory
  * with the Bun directory opener, the same folder engine the desktop page runs
  * over the directory the shell grants. It shows the host's obstacles make a
  * real folder fail its own step, not how the Rust shell reports it.
@@ -32,10 +32,6 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createHttpBridge } from '../src/lib/bridge/http.js';
 import { toneWav } from '../src/lib/capture.js';
 import type { RecordingFields } from '../src/lib/definition.js';
-import {
-	type PendingCapture,
-	publishRecording,
-} from '../src/lib/recordings/publish.js';
 import type { RecordingWriteHook } from '../src/lib/workspace/types.js';
 import { openTestFolder } from '../src/lib/workspace.test-support.js';
 import { createHost, type Host, type HostOptions } from './host.js';
@@ -79,7 +75,7 @@ async function start(overrides: Partial<HostOptions> = {}) {
 	return { directory, root, host, bridge };
 }
 
-/** The folder, opened as the page opens it, for a test that needs files published and committed. */
+/** The folder, opened as the page opens it, for a test that needs files saved and committed. */
 async function opened(root: string) {
 	const folder = await openTestFolder(root);
 	cleanups.push(() => folder.close());
@@ -103,7 +99,13 @@ function obstacles(
 	};
 }
 
-function capture(id = '20260102-030405-abcd'): PendingCapture {
+type Recording = {
+	readonly id: string;
+	readonly bytes: Uint8Array;
+	readonly fields: RecordingFields;
+};
+
+function capture(id = '20260102-030405-abcd'): Recording {
 	return {
 		id,
 		bytes: toneWav(),
@@ -114,8 +116,29 @@ function capture(id = '20260102-030405-abcd'): PendingCapture {
 			capture: 'fixture',
 			audioPath: `recordings/${id}.wav`,
 		} as RecordingFields,
-		body: '',
 	};
+}
+
+/**
+ * A recording written as the page writes one: its row when it starts, then
+ * its audio when a fixture recording stops, each through `around`.
+ */
+async function saveRecording(
+	folder: Awaited<ReturnType<typeof opened>>,
+	recording: Recording,
+	around: RecordingWriteHook = (_write, run) => run(),
+) {
+	const row = await around({ step: 'row', stem: recording.id }, () =>
+		folder.tables.recordings.create(
+			{ fields: recording.fields, body: '' },
+			{ stem: recording.id },
+		),
+	);
+	const audio = await around(
+		{ step: 'audio', stem: recording.id, path: recording.fields.audioPath },
+		() => folder.files.create(recording.fields.audioPath, recording.bytes),
+	);
+	return { row, audio };
 }
 
 const post = (host: Host, path: string, body: unknown, headers = {}) =>
@@ -330,138 +353,80 @@ test('a host is given the shell’s resolved directory, and refuses anything els
 	await host.close();
 });
 
-test('an injected row failure leaves the audio saved, and retry completes one recording', async () => {
+test('an injected row failure leaves the audio without a row, and is spent once', async () => {
 	const { root, bridge } = await start();
 	const folder = await opened(root);
-	const around = obstacles(bridge);
-	const pending = capture();
-	await bridge.app('inject', { rowWrites: 2 });
+	const recording = capture();
+	await bridge.app('inject', { rowWrites: 1 });
 
-	const first = await publishRecording(folder, pending, {
-		retry: false,
-		around,
-	});
+	const { row, audio } = await saveRecording(
+		folder,
+		recording,
+		obstacles(bridge),
+	);
 	// The failure is the folder's own report of its own write, not an invented one.
-	expect(first).toMatchObject({
-		kind: 'rowNotSaved',
-		certainty: 'failed',
-		audio: { by: 'receipt', file: { path: `recordings/${pending.id}.wav` } },
-		message: `'recordings/${pending.id}.md' is a directory, not a file`,
-	});
+	expect(expectErr(row).message).toBe(
+		`'recordings/${recording.id}.md' is a directory, not a file`,
+	);
+	expectOk(audio);
 	// The audio is the captured bytes, and the obstruction is gone again.
 	expect(await readdir(join(root, 'recordings'))).toEqual([
-		`${pending.id}.wav`,
+		`${recording.id}.wav`,
 	]);
 	expect(
 		new Uint8Array(
-			await readFile(join(root, 'recordings', `${pending.id}.wav`)),
+			await readFile(join(root, 'recordings', `${recording.id}.wav`)),
 		),
-	).toEqual(new Uint8Array(pending.bytes));
+	).toEqual(new Uint8Array(recording.bytes));
 	expect((await bridge.app<{ rowWrites: number }>('injection')).rowWrites).toBe(
-		1,
+		0,
 	);
-
-	// The second armed failure hits the retry's row write. The retry found the
-	// audio and did not write it again; it stays put.
-	const second = await publishRecording(folder, pending, {
-		retry: true,
-		around,
-	});
-	expect(second).toMatchObject({
-		kind: 'rowNotSaved',
-		certainty: 'failed',
-		audio: { by: 'found' },
-	});
-	expect(await readdir(join(root, 'recordings'))).toEqual([
-		`${pending.id}.wav`,
-	]);
-
-	const third = await publishRecording(folder, pending, {
-		retry: true,
-		around,
-	});
-	expect(third).toMatchObject({
-		kind: 'published',
-		audio: { by: 'found' },
-		row: { by: 'receipt' },
-	});
-	expect(
-		new Uint8Array(
-			await readFile(join(root, 'recordings', `${pending.id}.wav`)),
-		),
-	).toEqual(new Uint8Array(pending.bytes));
-	expect((await readdir(join(root, 'recordings'))).sort()).toEqual([
-		`${pending.id}.md`,
-		`${pending.id}.wav`,
-	]);
-	const listed = expectOk(await folder.tables.recordings.list());
-	expect(listed).toHaveLength(1);
-	// The one row was read, and reads as a valid row.
-	expect(listed![0]!.result.error).toBeNull();
 });
 
-test('an injected audio failure writes nothing, and retry saves', async () => {
+test('an injected audio failure leaves the row without its audio', async () => {
 	const { root, bridge } = await start();
 	const folder = await opened(root);
-	const around = obstacles(bridge);
-	const pending = capture();
+	const recording = capture();
 	await bridge.app('inject', { audioWrites: 1 });
 
-	const first = await publishRecording(folder, pending, {
-		retry: false,
-		around,
-	});
-	expect(first).toMatchObject({ kind: 'audioNotSaved', certainty: 'failed' });
-	expect(
-		await readdir(join(root, 'recordings')).catch(() => [] as string[]),
-	).toEqual([]);
-
-	const second = await publishRecording(folder, pending, {
-		retry: true,
-		around,
-	});
-	expect(second).toMatchObject({
-		kind: 'published',
-		audio: { by: 'receipt' },
-		row: { by: 'receipt' },
-	});
+	const { row, audio } = await saveRecording(
+		folder,
+		recording,
+		obstacles(bridge),
+	);
+	expectOk(row);
+	expectErr(audio);
+	expect(await readdir(join(root, 'recordings'))).toEqual([
+		`${recording.id}.md`,
+	]);
 });
 
 test('an armed failure leaves a path that is already occupied alone, and is not spent on it', async () => {
 	const { root, bridge } = await start();
 	const folder = await opened(root);
-	const pending = capture();
+	const recording = capture();
 	const foreign = '---\ntitle: Someone else\n---\nKeep me\n';
 	await mkdir(join(root, 'recordings'), { recursive: true });
-	await writeFile(join(root, 'recordings', `${pending.id}.md`), foreign);
+	await writeFile(join(root, 'recordings', `${recording.id}.md`), foreign);
 	await bridge.app('inject', { rowWrites: 1 });
 
-	// A retry's own reads refuse before any write, so no obstacle is asked for.
-	let asked = 0;
-	const counting: RecordingWriteHook = (write, run) => {
-		asked += 1;
-		return obstacles(bridge)(write, run);
-	};
-	expect(
-		(await publishRecording(folder, pending, { retry: true, around: counting }))
-			.kind,
-	).toBe('refused');
-	expect(asked).toBe(0);
-	// Asked for directly, the occupied row is left alone, and the folder refuses the write itself.
+	// The occupied row is left alone, and the folder refuses the write itself.
 	const refused = expectErr(
-		await obstacles(bridge)({ step: 'row', stem: pending.id }, () =>
+		await obstacles(bridge)({ step: 'row', stem: recording.id }, () =>
 			folder.tables.recordings.create(
-				{ fields: { ...pending.fields }, body: '' },
-				{ stem: pending.id },
+				{ fields: { ...recording.fields }, body: '' },
+				{ stem: recording.id },
 			),
 		),
 	);
 
 	expect(refused.name).toBe('Exists');
 	expect(
-		await readFile(join(root, 'recordings', `${pending.id}.md`), 'utf8'),
+		await readFile(join(root, 'recordings', `${recording.id}.md`), 'utf8'),
 	).toBe(foreign);
-	expect(await readdir(join(root, 'recordings'))).toEqual([`${pending.id}.md`]);
+	expect(await readdir(join(root, 'recordings'))).toEqual([
+		`${recording.id}.md`,
+	]);
 	expect((await bridge.app<{ rowWrites: number }>('injection')).rowWrites).toBe(
 		1,
 	);
@@ -487,11 +452,13 @@ test('a locked branch fails the commit and never the save; unlocking lets it com
 	).toBe(true);
 	const pending = capture();
 
-	const outcome = await publishRecording(folder, pending, {
-		retry: false,
-		around: obstacles(bridge),
-	});
-	expect(outcome.kind).toBe('published');
+	const { row, audio } = await saveRecording(
+		folder,
+		pending,
+		obstacles(bridge),
+	);
+	expectOk(row);
+	expectOk(audio);
 	const blocked = await folder.git.commit();
 	expect(blocked.status).not.toBe('committed');
 	expect((await readdir(join(root, 'recordings'))).sort()).toEqual([
@@ -545,7 +512,7 @@ test('a terminal edit is an outside write: the folder’s next read sees it, and
 	const { root, bridge } = await start();
 	const folder = await opened(root);
 	const pending = capture();
-	await publishRecording(folder, pending, { retry: false });
+	await saveRecording(folder, pending);
 	const entry = expectOk(await folder.tables.recordings.get(pending.id));
 	expect((await folder.git.commit()).status).toBe('committed');
 
@@ -580,7 +547,7 @@ test('transcription reads the saved audio and sends it to the configured endpoin
 		fetch: stub.fetch,
 	});
 	const pending = capture();
-	await publishRecording(await opened(root), pending, { retry: false });
+	await saveRecording(await opened(root), pending);
 
 	const result = await bridge.app<Transcribed>(
 		'transcribe',

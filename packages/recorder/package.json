@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"sideEffects": false,
-	"description": "Portable recording sessions, browser stream acquisition, and voice activity detection.",
+	"description": "Recordings written into a folder on the desktop and in the browser, microphone streams, and voice activity detection.",
 	"keywords": [
 		"audio",
 		"recorder",
@@ -15,10 +15,13 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
+		"./tauri": "./src/tauri.ts",
+		"./browser": "./src/browser.ts",
 		"./vad-assets": "./src/vad-assets.ts"
 	},
 	"dependencies": {
 		"@ricky0123/vad-web": "catalog:",
+		"@tauri-apps/api": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {

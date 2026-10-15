@@ -57,8 +57,8 @@ A self-hosted build takes precedence over that development override.
 Production keeps internal files under `so.epicenter` in the platform's local
 application-data directory: `~/Library/Application Support` on macOS,
 `$XDG_DATA_HOME` (default `~/.local/share`) on Linux, and `%LOCALAPPDATA%` on
-Windows. Windows storage stays out of roaming profiles because databases and
-recordings belong to this device. `EPICENTER_DATA_DIR` overrides the complete
+Windows. Windows storage stays out of roaming profiles because databases and device
+caches belong to this device. `EPICENTER_DATA_DIR` overrides the complete
 path and must be absolute.
 
 Development uses `so.epicenter.dev` for data, settings, and keyring entries.
@@ -68,9 +68,10 @@ Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development starts signed out after
 credential isolation; production credentials are unchanged.
 
-Rust resolves both directories once before recorder cleanup, stores them for the
-desktop lifetime, and sends them through the versioned startup message. Bun and
-the recorder consume those paths. Bun never derives a desktop root from its
+Rust resolves both directories once at startup, stores them for the
+desktop lifetime, and sends them through the versioned startup message. Bun
+consumes those paths. The recorder writes into a folder a window was granted,
+not into application data (`tauri-plugin-epicenter-recorder`, ADR-0543). Bun never derives a desktop root from its
 process environment. Native model settings retain Tauri's app-config location.
 Standalone Local Books still defaults to production data; use
 `EPICENTER_DATA_DIR` when directing its CLI to development storage.

@@ -233,7 +233,11 @@
 						<dt class="text-muted-foreground">Recorded</dt>
 						<dd>{when(row.fields.recordedAt)}</dd>
 						<dt class="text-muted-foreground">Length</dt>
-						<dd>{(row.fields.durationMs / 1000).toFixed(1)} s</dd>
+						<dd>
+							{row.fields.durationMs === undefined
+								? 'Written when the recording stops'
+								: `${(row.fields.durationMs / 1000).toFixed(1)} s`}
+						</dd>
 						<dt class="text-muted-foreground">Captured from</dt>
 						<dd>
 							{#if row.fields.capture === 'fixture'}

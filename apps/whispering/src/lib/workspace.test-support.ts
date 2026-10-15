@@ -148,15 +148,15 @@ export async function openTestFolder(root: string) {
 
 /** How many upcoming recording writes fail, by step. */
 export type RecordingFailures = {
-	/** Audio writes: nothing of that attempt reaches the folder. */
+	/** Audio writes on stop: the row stays without its audio. */
 	audio: number;
-	/** Row writes: the audio the attempt wrote before stays. */
+	/** Row writes on start: the recording runs, and no row names its audio. */
 	row: number;
 };
 
 /**
- * What a debug desktop shell does around each write of a recording's
- * publication, in this process: while `failures` has any left for the
+ * What a debug desktop shell does around each write of a recording, in this
+ * process: while `failures` has any left for the
  * write's step, an empty directory is put where that write goes and removed
  * after it. Nothing is answered on the folder's behalf; the folder refuses the
  * obstructed write itself, as it would on a real disk.
@@ -209,9 +209,9 @@ export type TestWorkspaceOptions = {
 	transcribe?: Workspace['transcribe'];
 	/** Replace the stubbed transformation answer. */
 	transform?: Workspace['transform'];
-	/** Fail this many recording saves before any file is written, so the capture stays pending. */
+	/** Fail this many recording audio writes, made when a fixture recording stops. */
 	failAudioWrites?: number;
-	/** Fail this many recording saves at the row, after the audio is written. */
+	/** Fail this many recording row writes, made when a recording starts. */
 	failRowWrites?: number;
 	/** Fail this many transformation result writes before any byte is written. */
 	failRunWrites?: number;

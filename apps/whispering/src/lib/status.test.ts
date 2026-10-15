@@ -37,8 +37,8 @@ function snapshot(): GitSnapshot {
 }
 
 for (const state of [
-	{ saving: true, pendingCaptures: 0, expected: 'Saving…' },
-	{ saving: false, pendingCaptures: 1, expected: '1 recording not saved' },
+	{ saving: true, unsavedResults: 0, expected: 'Saving…' },
+	{ saving: false, unsavedResults: 1, expected: '1 transcription not saved' },
 ]) {
 	test(`${state.expected} takes priority over a failed commit`, () => {
 		const git = snapshot();
@@ -48,8 +48,6 @@ for (const state of [
 		};
 		const files = filesLine({
 			...state,
-			capturesSaving: false,
-			unsavedResults: 0,
 			unsavedTransformations: 0,
 		});
 		expect(
@@ -70,8 +68,6 @@ test('a failed commit still needs attention after all files are saved', () => {
 	};
 	const files = filesLine({
 		saving: false,
-		pendingCaptures: 0,
-		capturesSaving: false,
 		unsavedResults: 0,
 		unsavedTransformations: 0,
 	});
@@ -105,8 +101,6 @@ test('changes since the last version are neutral detail: the summary says Saved'
 	});
 	const files = filesLine({
 		saving: false,
-		pendingCaptures: 0,
-		capturesSaving: false,
 		unsavedResults: 0,
 		unsavedTransformations: 0,
 	});

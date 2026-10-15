@@ -463,6 +463,7 @@
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
+        "@epicenter/recorder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@tanstack/svelte-query": "catalog:",
         "nanoid": "catalog:",
@@ -733,6 +734,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@ricky0123/vad-web": "catalog:",
+        "@tauri-apps/api": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

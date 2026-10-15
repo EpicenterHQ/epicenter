@@ -149,7 +149,7 @@ async function deleteElsewhere(library: Library, path: string) {
 async function record(library: Library) {
 	await library.startRecording();
 	await library.stopRecording();
-	expect(library.pending).toEqual([]);
+	expect(library.recorderError).toBeUndefined();
 	await settle(library);
 	return recordingEditor(library);
 }
@@ -475,7 +475,7 @@ test('a new recording is in the listing when it opens, even while another write 
 
 	await library.startRecording();
 	await library.stopRecording();
-	expect(library.pending).toEqual([]);
+	expect(library.recorderError).toBeUndefined();
 	const opened = library.selectedPath;
 	expect(opened).toBeDefined();
 	expect(library.entries.map((entry) => entry.path)).toEqual([opened ?? '']);

@@ -1,18 +1,18 @@
-//! App-local immutable files, shared by native recording and decoding.
+//! App-local immutable files, read by native decoding and transcription.
 //! Saved keys are complete filenames. Descriptive information belongs to rows.
+//!
+//! Nothing native writes here any more: a recording is a file in its folder
+//! (`tauri-plugin-epicenter-recorder`, ADR-0543). The Bun host still saves
+//! blobs into this directory, and these commands read them.
 
-#[path = "flat_blobs.rs"]
-mod publication;
-
-use std::fs::{self, File};
+use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use log::warn;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-/// The application captured before a native writer creates its temporary file.
+/// Which application's blobs, and whose: the directory a read resolves to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct BlobDestination {
@@ -36,35 +36,24 @@ impl From<std::io::Error> for BlobError {
     }
 }
 
-const BLOB_ID_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
-const BLOB_ID_BODY_LEN: usize = 21;
-
-/// Native capture produces WAV, so its saved key can be pinned at admission.
-/// Rejection sampling preserves the shared generator's uniform random body.
-pub(crate) fn mint_wav_blob_id() -> Result<String, BlobError> {
-    const MASK: u8 = 63;
-    let mut id = String::with_capacity(30);
-    id.push_str("blob_");
-    let mut buffer = [0u8; 32];
-    while id.len() < "blob_".len() + BLOB_ID_BODY_LEN {
-        getrandom::fill(&mut buffer)
-            .map_err(|error| BlobError::failed(format!("draw blob id bytes: {error}")))?;
-        for byte in buffer {
-            let index = (byte & MASK) as usize;
-            if index < BLOB_ID_ALPHABET.len() {
-                id.push(BLOB_ID_ALPHABET[index] as char);
-                if id.len() == "blob_".len() + BLOB_ID_BODY_LEN {
-                    break;
-                }
-            }
-        }
-    }
-    id.push_str(".wav");
-    Ok(id)
-}
-
+/// A complete blob key: `blob_`, 21 lowercase letters or digits, a dot, and
+/// an extension of one to ten of them. The same shape the TypeScript parser
+/// accepts.
 pub(crate) fn validate_blob_id(id: &str) -> Result<(), BlobError> {
-    publication::validate_key(id).map_err(Into::into)
+    let invalid = || BlobError::failed("Invalid complete blob key");
+    let (body, extension) = id
+        .strip_prefix("blob_")
+        .and_then(|rest| rest.split_once('.'))
+        .ok_or_else(invalid)?;
+    let alphanumeric = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    if body.len() != 21
+        || !body.bytes().all(alphanumeric)
+        || !(1..=10).contains(&extension.len())
+        || !extension.bytes().all(alphanumeric)
+    {
+        return Err(invalid());
+    }
+    Ok(())
 }
 
 /// Resolve only validated identifiers beneath the shared startup-selected root.
@@ -98,55 +87,6 @@ fn is_app_id(value: &str) -> bool {
                     .iter()
                     .all(|byte| alphanumeric(*byte) || *byte == b'-')
         })
-}
-
-/// Native composition adds app scoping and typed errors to file publication.
-#[derive(Debug)]
-pub struct StagedBlob(publication::StagedBlob);
-
-impl StagedBlob {
-    pub(crate) fn for_app(
-        app: &AppHandle,
-        destination: &BlobDestination,
-        id: &str,
-    ) -> Result<Self, BlobError> {
-        Self::stage(
-            blobs_directory(
-                &app.state::<crate::app_data::DesktopPaths>().data_dir,
-                destination,
-            )?,
-            id,
-        )
-    }
-
-    pub(crate) fn stage(root: PathBuf, id: &str) -> Result<Self, BlobError> {
-        Ok(Self(publication::StagedBlob::stage(&root, id)?))
-    }
-
-    /// The encoder owns this handle and must finalize it before publication.
-    pub(crate) fn writer(&mut self) -> Result<File, BlobError> {
-        Ok(self.0.writer()?.try_clone()?)
-    }
-
-    /// Internal staging location, never returned across IPC.
-    pub(crate) fn data_path(&self) -> PathBuf {
-        self.0.data_path().to_path_buf()
-    }
-
-    pub(crate) fn commit(&mut self) -> Result<u64, BlobError> {
-        Ok(self.0.commit()?.size)
-    }
-
-    #[cfg(test)]
-    pub fn publish(mut self) -> Result<u64, BlobError> {
-        self.commit()
-    }
-
-    pub fn discard(self) {
-        if let Err(error) = self.0.discard() {
-            warn!("Failed to discard native blob staging: {error}");
-        }
-    }
 }
 
 /// Read one regular final file; a symlink is never a native audio source.
@@ -214,10 +154,9 @@ pub fn read_blob_bytes(
 mod tests {
     use super::*;
     use std::collections::HashSet;
-    use std::io::Write;
 
     #[test]
-    fn identical_blob_keys_publish_independently_for_each_account() {
+    fn identical_blob_keys_resolve_independently_for_each_account() {
         let root = tempfile::tempdir().unwrap();
         let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         let mut paths = HashSet::new();
@@ -231,39 +170,26 @@ mod tests {
             };
             let path = blobs_directory(root.path(), &destination).unwrap();
             assert!(paths.insert(path.clone()));
-            let mut staged = StagedBlob::stage(path.clone(), id).unwrap();
-            staged
-                .writer()
-                .unwrap()
-                .write_all(person.as_bytes())
-                .unwrap();
-            staged.commit().unwrap();
+            fs::create_dir_all(&path).unwrap();
+            fs::write(path.join(id), person.as_bytes()).unwrap();
             assert_eq!(read_file(&path, id).unwrap(), person.as_bytes());
         }
     }
 
     #[test]
-    fn native_mint_produces_unique_complete_wav_keys() {
-        let mut ids = HashSet::new();
-        for _ in 0..10000 {
-            let id = mint_wav_blob_id().unwrap();
-            validate_blob_id(&id).unwrap();
-            assert_eq!(id.len(), 30);
-            assert!(id.ends_with(".wav"));
-            assert!(ids.insert(id));
+    fn complete_keys_are_validated_by_shape() {
+        validate_blob_id("blob_aaaaaaaaaaaaaaaaaaaaa.wav").unwrap();
+        validate_blob_id("blob_0123456789abcdefghijk.webm").unwrap();
+        for id in [
+            "blob_aaaaaaaaaaaaaaaaaaaaa",
+            "blob_aaaaaaaaaaaaaaaaaaaa.wav",
+            "blob_AAAAAAAAAAAAAAAAAAAAA.wav",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.",
+            "blob_aaaaaaaaaaaaaaaaaaaaa.abcdefghijk",
+            "attachment.recordings.aaaaaaaaaaaaaaaaaaaaaaaa",
+        ] {
+            assert!(validate_blob_id(id).is_err(), "{id}");
         }
-    }
-
-    #[test]
-    fn native_reader_opens_flat_published_bytes_after_teardown() {
-        let root = tempfile::tempdir().unwrap();
-        let id = mint_wav_blob_id().unwrap();
-        let mut staged = StagedBlob::stage(root.path().into(), &id).unwrap();
-        staged.writer().unwrap().write_all(b"native bytes").unwrap();
-        assert_eq!(staged.commit().unwrap(), 12);
-        staged.discard();
-        assert_eq!(read_file(root.path(), &id).unwrap(), b"native bytes");
-        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -296,7 +222,7 @@ mod tests {
     #[test]
     fn native_reader_refuses_symlinks_directories_and_legacy_keys() {
         let root = tempfile::tempdir().unwrap();
-        let id = mint_wav_blob_id().unwrap();
+        let id = "blob_aaaaaaaaaaaaaaaaaaaaa.wav";
         let outside = root.path().join("outside");
         fs::write(&outside, b"private").unwrap();
         std::os::unix::fs::symlink(&outside, root.path().join(&id)).unwrap();

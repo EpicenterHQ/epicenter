@@ -184,6 +184,7 @@ export function createRuns({
 	resolve,
 	settle,
 	deleting,
+	capturing,
 	track,
 }: {
 	workspace: Workspace;
@@ -199,6 +200,8 @@ export function createRuns({
 	settle: () => Promise<void>;
 	/** Recordings whose deletion is under way. No request starts for one. */
 	deleting: ReadonlySet<string>;
+	/** The recording still being captured. Its audio is not finished, so it is not transcribed. */
+	capturing: ReadonlySet<string>;
 	/**
 	 * Run folder work as a mutation, so leaving and closing wait for it and
 	 * the folder is read again after it. `scope` names the file whose queue
@@ -583,6 +586,14 @@ export function createRuns({
 			// A received transcript is held until it is saved or discarded.
 			if (current === 'running' || current === 'unsaved') return;
 			if (deleting.has(id)) return;
+			if (capturing.has(id)) {
+				transcriptions.set(id, {
+					kind: 'failed',
+					message:
+						'This recording is still recording. Stop it, then transcribe it.',
+				});
+				return;
+			}
 			const audioPath = audioPathIn(entry.row.fields);
 			if (audioPath === undefined) {
 				transcriptions.set(id, {

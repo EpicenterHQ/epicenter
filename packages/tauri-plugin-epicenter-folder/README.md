@@ -155,10 +155,15 @@ be a link. Then it must be:
 
 `write_folder_file` writes only a new staged file or index copy, and only
 with `create-new`, so nothing already at the path, such as a hard link another
-program planted, is written through. A data file is never written in place:
-the engine writes a staged copy and renames it over the path
+program planted, is written through. The engine never writes a data file in
+place: it writes a staged copy and renames it over the path
 (`rename_folder_path`), which replaces a hard link rather than writing
-through it. A directory is removed only when empty; nothing removes a tree
+through it. The one data file written in place is a recording, by
+`tauri-plugin-epicenter-recorder`
+([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
+It asks `app.folders().granted_root(scope, window)` for the window's root,
+checks the path with `page_files::data_path` (the same rule and link check
+as a change), and creates the file with `create_new`. A directory is removed only when empty; nothing removes a tree
 whole.
 
 `rename_folder_path` and `remove_folder_path` also take `expected`, what the

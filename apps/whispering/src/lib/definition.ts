@@ -11,6 +11,9 @@ import { defineFolder } from '@epicenter/folder';
  * metadata in frontmatter and notes in the Markdown body. The row names its
  * audio in `audioPath`; the audio is an ordinary file the table does not own,
  * so nothing is inferred from a file that happens to share the row's stem.
+ * The row is written when the recording starts and holds facts only: when it
+ * started, where its audio is, and, once it stops, how long it is. Whether a
+ * recording is running is never written (ADR-0542).
  * Each transcription result is its own row in `transcriptions/`, naming the
  * recording it was made from, with the transcript as its body.
  *
@@ -54,8 +57,13 @@ export const whisperingDefinition = defineFolder({
 		recordings: defineTable({
 			fields: {
 				title: field.string(),
+				/** When the recording started. */
 				recordedAt: field.instant(),
-				durationMs: field.number(),
+				/**
+				 * Written when the recording stops. A recording a quit or a crash cut
+				 * off has none; its audio is still in the folder up to the cut.
+				 */
+				durationMs: field.optional(field.number()),
 				/** Where the audio came from, so fixture audio is never mistaken for a microphone take. */
 				capture: field.select(['microphone', 'fixture']),
 				/**
@@ -158,9 +166,13 @@ export const DEFAULT_TRANSCRIPTION_CONNECTION = {
 	model: 'whisper-1',
 } as const;
 
-/** Where a new capture's audio is saved. An existing row's audio is whatever its `audioPath` says. */
-export function recordingAudioPath(id: string, extension: string): string {
-	return `${RECORDINGS}/${id}.${extension}`;
+/**
+ * Where a new recording's audio is written, without its extension: the
+ * capture adds the one its bytes call for. An existing row's audio is
+ * whatever its `audioPath` says.
+ */
+export function recordingAudioStem(id: string): string {
+	return `${RECORDINGS}/${id}`;
 }
 
 /**

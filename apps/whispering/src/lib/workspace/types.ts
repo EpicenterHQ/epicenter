@@ -91,15 +91,20 @@ export type InjectionState = {
 	readonly commitsBlocked: boolean;
 };
 
-/** One write of a recording's publication: its audio file, or its row. */
+/**
+ * One write of a recording into the folder: its row, written when it starts,
+ * or its audio file, written when it stops in a browser or from a fixture.
+ */
 export type RecordingWrite =
 	| { readonly step: 'audio'; readonly stem: string; readonly path: string }
 	| { readonly step: 'row'; readonly stem: string };
 
 /**
- * Runs one write of a recording's publication. A debug desktop shell puts an
- * armed failure in that write's way and removes it afterward; the write is
- * always the folder's own and so is its answer.
+ * Runs one write of a recording. A debug desktop shell puts an armed failure
+ * in that write's way and removes it afterward; the write is always the
+ * folder's own and so is its answer. On the desktop the microphone's audio is
+ * written as it is captured, so its file is already there when stop runs and
+ * an armed audio failure is left unspent.
  */
 export type RecordingWriteHook = <T>(
 	write: RecordingWrite,

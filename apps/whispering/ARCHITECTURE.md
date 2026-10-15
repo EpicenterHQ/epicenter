@@ -228,7 +228,7 @@ session. The same holder then answers the shell's close question, so the
 window showing the refusal can be closed; see "Closing".
 
 Because the pages are routes under that one layout, a page change is a
-re-render inside the same session. The live recording, pending captures,
+re-render inside the same session. The live recording,
 selections, running requests, held results, the query cache, and the terminal
 session are fields of the library, and the pasted text a transformation is tried on is
 a field of the session's view, not of any page, so none of them is touched by
@@ -341,15 +341,36 @@ replaces a directory on the way with a link, between its check and the open,
 is followed. Opening without following a link protects the last component
 only.
 
-## Recording and publication
+## Recording
 
-There are two capture devices. The microphone device (`src/lib/microphone.ts`)
-uses the WebView's `MediaRecorder`. The fixture device (`src/lib/capture.ts`)
-returns fixed bytes and marks them `fixture`. A workspace has exactly one,
-chosen when it opens; neither falls back to the other. The saved extension
-comes from the container signature in the bytes (`src/lib/audio-format.ts`),
-and from the recorder's claimed MIME type only when the signature is not
-recognized.
+A recording is in the folder from the moment it starts (ADR-0543). The
+library names it and writes its row first: `startRecording` makes the ID from
+the start time, asks the capture device to record into
+`recordings/<id>` (`recordingAudioStem`), and writes the row with the start
+time and the `audioPath` the device answered. `stopRecording` stops the
+device and writes the length (`durationMs`) onto the row it reads again, so a
+title typed meanwhile is kept. `cancelRecording` stops the device, which
+deletes the audio, and deletes the row. Closing the library stops a running
+recording, never cancels it. Nothing in a row says whether a recording is
+running: the library's live capture says that, and a running recording is
+refused transcription.
+
+There are two capture devices, and a workspace has exactly one, chosen when it
+opens; neither falls back to the other.
+
+- The microphone device (`src/lib/microphone.ts`) records with
+  `@epicenter/recorder`. Inside the desktop app the shell's
+  `tauri-plugin-epicenter-recorder` writes `<path>.wav` into the granted
+  folder as it captures and finalizes it on stop, and on a page reload or a
+  closed window. In a browser tab `MediaRecorder` holds the audio and the
+  page writes `<path>.webm` (or the browser's container) on stop.
+- The fixture device (`src/lib/capture.ts`) writes fixed bytes on stop, under
+  the fixture's own extension, and marks the row `fixture`.
+
+When the library starts it calls `recoverRecordings` over `recordings/`: on
+the desktop the shell rewrites the header of any WAV a quit or a crash cut
+off, so it plays to its end; a browser has none. The row of such a recording
+has no length.
 
 ### The microphone
 
@@ -357,10 +378,13 @@ The microphone device also has `inputs`: listing, asking for access, and a
 level reading. The fixture device has none, so in fixture mode nothing lists,
 asks for, or opens a microphone.
 
-- A chosen microphone is asked for as `{ deviceId: { exact } }`. A WebView
-  that cannot open exactly that one answers with a refusal
-  (`InputUnavailable`), and a stream that reports another device is released
-  and refused. The system default is asked for only when nothing is chosen.
+- For a test and in a browser, a chosen microphone is asked for as
+  `{ deviceId: { exact } }`. A WebView that cannot open exactly that one
+  answers with a refusal (`InputUnavailable`), and a stream that reports
+  another device is released and refused. The desktop recorder asks the shell
+  for the chosen input by the name it was listed under, and the shell refuses
+  a name it cannot find the same way. The system default is asked for only
+  when nothing is chosen.
 - Listing is `enumerateDevices` and nothing else. It never asks for access, so
   before access is allowed it names no input. `allow` is the separate action:
   it opens the default microphone and releases it at once.
@@ -396,59 +420,6 @@ for exactly that ID, and refuses only if the WebView cannot open it. A WebView m
 the same microphone another ID in a new origin, and the desktop page's origin
 changes with the host's port, so a choice may need choosing again after a
 restart. That is a known limit, not yet checked on hardware.
-
-`src/lib/recordings/publish.ts` publishes a capture and finishes one that
-stopped partway. A capture is fixed when it ends: its ID, its bytes, and every
-field of its row, including the `audioPath` its audio is saved at. The two
-files are two saves, in order: `files.create` the audio, then
-`tables.recordings.create` the row (ADR-0482). Each save reports its own
-outcome: `audioNotSaved` stops before the row, and `rowNotSaved` keeps the
-audio's place. A lost reply leaves that save's outcome unknown. The capture
-stays in the page through both.
-
-The first attempt writes without reading. A create refused as `Exists` reads
-what is there before calling it anything, since an earlier write of this
-capture whose reply was lost can land late: exactly this capture's audio, or
-this recording's row, is found and the attempt goes on; anything else is left
-alone. A retry, which the person asks for, reads both paths first:
-
-| The folder has | The retry |
-| --- | --- |
-| Neither file | `files.create` the audio, then `tables.recordings.create` the row. |
-| Exactly this capture's audio, and no row | `tables.recordings.create` the row. The audio is not written again. |
-| This capture's row and exactly its audio | Reports it saved and writes nothing. |
-| Another row, other audio (same size or not), or the row without its audio | Refuses and writes nothing. |
-
-Nothing ties the second save to the audio the attempt read. Another writer can
-change the audio between that read and the row's creation; the attempt reports
-what it observed and never claims the two files were saved together. Both
-creates are exclusive, nothing is ever saved with `overwrite`, and the row's
-source always comes from the table's own `create`.
-
-Only the two paths the capture names are looked at. A file that merely shares
-the stem, such as `recordings/<id>.m4a`, is not the recording's and does not
-block it.
-
-A `published` outcome names how each file is known to be in place: `receipt`
-when this attempt's own create was confirmed, `found` when the attempt read it
-there. A found file says nothing about which write put it there. A
-`published` capture is saved: it leaves the window's list, the lists are read
-again, and the recording opens unless the person selected something else
-meanwhile. Opening it is an ordinary read; when the row cannot be read or is
-gone, the details say so, and nothing is written again.
-
-"This recording" is a valid row with the capture's `recordedAt`, `durationMs`,
-`capture`, and `audioPath`. The title and notes are the person's to change and
-are not compared, so an edited row is still this recording.
-
-`audioNotSaved`, `rowNotSaved`, `refused`, and `unchecked` (a retry that could
-not read the folder) are not confirmed publications. They stay unresolved, are
-reported as not saved, hold the app open, and **Try again** starts from the
-retry table above.
-
-So a retry keeps the recording's identity, cannot create a second recording,
-and never replaces a file it did not just read and recognize as its own. A
-save is reported on its own; the commit it requests is a separate outcome.
 
 ## Transformations
 
@@ -573,8 +544,8 @@ text too; its fields open again once the text reads.
 - **A value the schema refuses** is never written: the folder refuses it as
   `InvalidValues`, and the cache rolls back. Text typed into a field is kept
   well formed: a lone surrogate becomes U+FFFD, as a file holds it.
-- **A recording's lifecycle** writes in its file's queue: publishing it,
-  saving a transcript, and saving a transformation result are mutations
+- **A recording's lifecycle** writes in its file's queue: its row at start,
+  its length at stop, saving a transcript, and saving a transformation result are mutations
   scoped by the recording's path, so they run in order after its edits.
   Waiting on an endpoint is not a mutation, so a request that does not answer
   never keeps the app from asking to close.
@@ -663,8 +634,8 @@ fallback uses a page event and a refused navigation.
 
 With the host gone the folder is still open: the page's engine holds it, and
 the shell still grants and locks it. Changes
-to recordings, transcripts, and other files can still be saved, a pending
-recording can still be tried again, and a commit can still be made. What is
+to recordings, transcripts, and other files can still be saved, a held
+result can still be saved again, and a commit can still be made. What is
 gone is what the host did: the terminal, new transcription and transformation
 requests, reveal, the key, and the relay of this question. The prompt says
 exactly that and reads what is held live, so it shrinks as things are saved.
@@ -797,20 +768,20 @@ assertions and removes it otherwise, whatever the environment says. Only then
 does the host accept `WHISPERING_AUDIO_FIXTURE` and construct
 `native/failure-injection.ts`.
 
-Injected publication failures are counted, so a test can order failure and
-retry exactly. They are real failures of the real saves, and the folder's own
-saves are still the only thing that publishes. `publishRecording` takes an
-optional `around` hook that runs each of its two writes; in a debug shell the
-workspace supplies `aroundRecordingWrite`, which asks the host to `obstruct`
-before the write and to `unobstruct` afterward. The host puts an empty
-directory at the path of the write that should fail, the page's engine runs
-the write, and the host removes the directory. The folder then reports the row's
-own failure (`rowNotSaved`, audio saved) or the audio's own failure
-(`audioNotSaved`, nothing saved). Only a recording's row path and the audio path
-it creates can be obstructed; both are checked before they are joined onto
-the root, and a path that is occupied or passes through a link is left alone.
-A host that cannot be asked places nothing, and the recording is published
-all the same.
+Injected recording-write failures are counted, so a test can order them
+exactly. They are real failures of the real saves. The library runs a
+recording's row write at start, and its stop (which writes fixture audio),
+through `aroundRecordingWrite`; in a debug shell it asks the host to
+`obstruct` before the write and to `unobstruct` afterward. The host puts an
+empty directory at the path of the write that should fail, the page's engine
+runs the write, and the host removes the directory. The folder then reports
+the row's own failure (the recording runs, and its audio has no row) or the
+audio's own failure (the row has no audio). Only a recording's row path and
+its audio path can be obstructed; both are checked before they are joined
+onto the root, and a path that is occupied or passes through a link is left
+alone, so microphone audio the shell already wrote is never obstructed. A
+host that cannot be asked places nothing, and the write is made all the
+same.
 
 The injected commit failure is a real lock file on the ref of the branch `HEAD`
 names, created exclusively and tagged with a marker unique to that host. The
@@ -832,11 +803,10 @@ opened it and says so (`injection-launch`).
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | What the post-processing choice is now, read against the listed transformations and the recipe resolver. It runs nothing. |
-| `src/lib/library.svelte.ts` | Product state over the query cache: the listings, edits and their writes, selections, pending captures, settings, and every action as a mutation. |
+| `src/lib/library.svelte.ts` | Product state over the query cache: the listings, edits and their writes, selections, the live recording, settings, and every action as a mutation. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs, and `createOnce` for their result rows. |
 | `src/lib/deletion.ts` | What a deletion removes, captured from fresh reads, and the removal. |
-| `src/lib/recordings/publish.ts` | Publication and recovery. |
-| `src/lib/capture.ts`, `microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone, container detection, the transcription and transformation requests. |
+| `src/lib/capture.ts`, `microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder`, container detection, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one session. |
 | `src/lib/audio-source.ts` | What a player holds, reloaded by content version on each folder refresh. |
 | `src/lib/status.ts`, `files.ts`, `terminal.svelte.ts` | Status lines, the file tree, the terminal session. |

@@ -6,10 +6,12 @@
 //!
 //! A variant exists only where the frontend acts differently: a microphone
 //! permission denial (route the user to grant access), a missing input device
-//! (ask them to connect one), a recorder already in use by another window
-//! (say so instead of stealing it), a recording that is not the caller's to end
-//! (a benign no-op for an idempotent stop), and everything else, which the
-//! frontend labels by the command that failed and shows the message for. A
+//! (ask them to connect one), a chosen input that is not connected (say so
+//! instead of recording from another), a recorder already in use by another
+//! window (say so instead of stealing it), a recording that is not the
+//! caller's to end (a benign no-op for an idempotent stop), a folder or path
+//! the window may not record into, and everything else, which the frontend
+//! labels by the command that failed and shows the message for. A
 //! finer taxonomy (io vs config vs internal) was deliberately not modeled: the
 //! frontend would discard the distinction, so it would be a decorative name on
 //! a string. The detail still travels, in `message`.
@@ -21,17 +23,23 @@ use thiserror::Error;
 #[derive(Error, Debug, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "name")]
 pub enum RecorderError {
-    /// The OS refused microphone access. The frontend checks microphone
-    /// permission before recording, so this is the stream-open fallback for a
-    /// denial that slips past that gate (e.g. a declined first-run prompt).
+    /// The OS refused microphone access: a declined first-run prompt, or
+    /// access turned off in the system's privacy settings. The person grants
+    /// it there.
     #[error("{message}")]
     PermissionDenied { message: String },
 
-    /// No usable input device: none selected and no default, the named device
-    /// is gone, cpal reports the device unavailable mid-open, or the device
-    /// yields no input configurations at all (query errors or returns empty).
+    /// No usable input device: none selected and no default, cpal reports the
+    /// device unavailable mid-open, or the device yields no input
+    /// configurations at all (query errors or returns empty).
     #[error("{message}")]
     NoInputDevice { message: String },
+
+    /// The page asked for a microphone by name and none by that name is
+    /// connected. Nothing was opened in its place: recording from another
+    /// microphone than the one the person chose is a refusal, not a fallback.
+    #[error("{message}")]
+    InputUnavailable { message: String },
 
     /// A recording started by some window is already in flight. There is one
     /// host recorder, and a competing start is refused rather than silently
@@ -46,9 +54,11 @@ pub enum RecorderError {
     #[error("{message}")]
     NotRecording { message: String },
 
-    /// Stop consumed this capture, but no finished temporary file exists.
+    /// The window may not record here: the folder was not granted to it, the
+    /// path is not a data path the shared path rule accepts, or a file is
+    /// already at it. Nothing was opened or written.
     #[error("{message}")]
-    CaptureLost { message: String },
+    Refused { message: String },
 
     /// Any other recording failure (device config, stream build, filesystem,
     /// internal). The frontend does not branch on these.
@@ -75,6 +85,12 @@ impl RecorderError {
         }
     }
 
+    pub(crate) fn refused(message: impl Into<String>) -> Self {
+        Self::Refused {
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn failed(message: impl Into<String>) -> Self {
         Self::Failed {
             message: message.into(),
@@ -89,9 +105,7 @@ impl RecorderError {
     /// `E_ACCESSDENIED`, an ALSA permission error) and a vanished device to
     /// `ErrorKind::DeviceNotAvailable` at the source, so the classification is
     /// locale-proof: no description-string matching. Everything else collapses
-    /// to `Failed`, which the frontend labels by the command that failed. The
-    /// frontend's pre-record permission check is still the primary gate; this
-    /// only catches a denial surfacing at stream-open.
+    /// to `Failed`, which the frontend labels by the command that failed.
     pub(crate) fn classify_cpal(context: &str, err: CpalError) -> Self {
         let message = format!("{context}: {err}");
         match err.kind() {
@@ -110,9 +124,10 @@ mod tests {
         match err {
             RecorderError::PermissionDenied { .. } => "PermissionDenied",
             RecorderError::NoInputDevice { .. } => "NoInputDevice",
+            RecorderError::InputUnavailable { .. } => "InputUnavailable",
             RecorderError::Busy { .. } => "Busy",
             RecorderError::NotRecording { .. } => "NotRecording",
-            RecorderError::CaptureLost { .. } => "CaptureLost",
+            RecorderError::Refused { .. } => "Refused",
             RecorderError::Failed { .. } => "Failed",
         }
     }
@@ -216,11 +231,5 @@ mod tests {
         let json = serde_json::to_value(RecorderError::not_recording("not yours")).unwrap();
         assert_eq!(json["name"], "NotRecording");
         assert_eq!(json["message"], "not yours");
-    }
-}
-
-impl From<crate::blobs::BlobError> for RecorderError {
-    fn from(error: crate::blobs::BlobError) -> Self {
-        Self::failed(error.to_string())
     }
 }
