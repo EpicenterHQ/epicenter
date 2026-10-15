@@ -9,7 +9,6 @@
 		"dev:ui": "vite dev",
 		"test": "bun test --isolate --path-ignore-patterns='src/routes/**' && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/routes",
-		"test:quit": "cargo run --locked --manifest-path src-tauri/Cargo.toml --example quit --",
 		"build": "NODE_ENV=production vite build",
 		"build:epicenter": "EPICENTER_HOST=1 bun run build",
 		"build:sidecar": "bun scripts/build-sidecar.ts",

@@ -70,32 +70,8 @@ export type NotesHost = {
 	close(): Promise<void>;
 };
 
-/** What answering a close needs from the notes state. */
-export type ClosableNotes = {
-	/**
-	 * Stop taking input and actions. Returns the release, for an approval the
-	 * gate refused.
-	 */
-	fenceInput(): () => void;
-	/**
-	 * Resolves once every write and action has landed. A write that failed was
-	 * already rolled back and reported, so nothing is left to discard.
-	 */
-	settle(): Promise<void>;
-};
-
-/**
- * Open the notes: acquire the folder, then build the notes state over it.
- *
- * The desktop leaf arranges close consent around this. It registers with the
- * shell before acquiring the folder, and from the moment the folder is held
- * it answers every window close and quit: input is fenced, every write and
- * action lands, and the close is approved. A browser tab has no shell to
- * answer; its leave guards are the page's own.
- */
-export type OpenNotes = <TNotes extends ClosableNotes>(options: {
+/** Open the notes: acquire the folder, then build the notes state over it. */
+export type OpenNotes = <TNotes>(options: {
 	/** Build the notes state over the opened folder. */
 	create(host: NotesHost): Promise<TNotes>;
-	/** An answer to a close could not be sent; the close stays held. */
-	report(cause: unknown): void;
 }) => Promise<TNotes>;

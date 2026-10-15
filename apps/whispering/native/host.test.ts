@@ -279,12 +279,6 @@ test('the host works beside a held folder lock and leaves the directory exactly 
 
 	const info = await bridge.app<{ root: string }>('info');
 	expect(info.root).toBe(root);
-	const stream = await host.handle(
-		new Request(`${ORIGIN}/bridge/events`, {
-			headers: { authorization: `Bearer ${TOKEN}` },
-		}),
-	);
-	await stream.body?.cancel();
 	// While the lock is held, the host reads audio and runs its shell.
 	await writeFile(join(root, 'take.wav'), toneWav());
 	const transcribed = await bridge.app<Transcribed>(

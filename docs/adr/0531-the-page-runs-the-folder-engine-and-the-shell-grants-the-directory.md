@@ -123,9 +123,9 @@ helpers.
   integrity, not escalation: it can move the branch (`update-ref`), reset
   the index, and change or delete the folder's data. Each is visible and
   repairable from the reflog and the remote.
-- Verified on macOS on 2026-10-14 with Whispering's native quit harness: a
-  page settles a 4000-file batch before approving, and an early approval
-  leaves only whole files.
+- Verified on macOS on 2026-10-14 with Whispering's native quit harness, since
+  deleted ([ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)):
+  a quit during a 4000-file batch leaves only whole files.
 
 ## Considered alternatives
 

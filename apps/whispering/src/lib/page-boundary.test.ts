@@ -178,7 +178,6 @@ test('the app layout is the only place a session is opened', () => {
 	expect(callers('openSession')).toEqual(['lib/session.svelte.ts']);
 	expect(callers('createSession')).toEqual(['lib/session.svelte.ts']);
 	expect(callers('createLibrary')).toEqual(['lib/session.svelte.ts']);
-	expect(callers('createLeaveGuard')).toEqual(['lib/session.svelte.ts']);
 	// `openSession` takes the opener as a value; nothing else calls it.
 	expect(callers('openWorkspace')).toEqual([]);
 });

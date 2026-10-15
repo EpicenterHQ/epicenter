@@ -306,7 +306,7 @@ test('a write that meets a change made elsewhere rolls back to the file and repo
 	// Nothing was written over theirs, and the cache shows the file again.
 	expect(await text(library, editor.path)).toBe(theirs);
 	expect(editor.draft.fields.title).toBe('Theirs');
-	expect(library.holdsUnsavedWork).toBe(false);
+	expect(library.saving).toBe(false);
 
 	// The next edit writes on top of what is there now.
 	editor.edit((row) => {
@@ -372,7 +372,7 @@ test('a recording deleted elsewhere stays deleted: its write fails, nothing crea
 	// The cache let it go: the table and the detail show it gone.
 	expect(library.entries).toEqual([]);
 	expect(library.selection).toBeUndefined();
-	expect(library.holdsUnsavedWork).toBe(false);
+	expect(library.saving).toBe(false);
 	// Its audio is an ordinary file, left where it was.
 	expect((await library.folder.files.read(audioPath)).error).toBeNull();
 
@@ -505,7 +505,7 @@ test('a recording\u2019s transcript is saved in its file\u2019s queue, after the
 	expect(
 		(await library.folder.files.list()).data?.files.map((file) => file.path),
 	).not.toContainEqual(expect.stringMatching(/^transcriptions\//));
-	expect(library.holdsUnsavedWork).toBe(true);
+	expect(library.saving).toBe(true);
 
 	release();
 	await transcribing;
@@ -513,7 +513,7 @@ test('a recording\u2019s transcript is saved in its file\u2019s queue, after the
 	expect(failures).toEqual([]);
 	expect(await text(library, editor.path)).toContain('title: Titled first');
 	expect(library.resultsFor(entry.stem)).toHaveLength(1);
-	expect(library.holdsUnsavedWork).toBe(false);
+	expect(library.saving).toBe(false);
 });
 
 // ============================================================================
@@ -617,9 +617,6 @@ test('close waits for a write in flight, and the write lands before the folder c
 		row.fields.title = 'Typed before closing';
 	});
 	await held;
-	expect(await Promise.race([library.prepareToLeave(), Bun.sleep(20)])).toBe(
-		undefined,
-	);
 	let closed = false;
 	const closing = library.close().then(() => {
 		closed = true;

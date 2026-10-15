@@ -61,7 +61,7 @@
 	const issues = $derived(text && (parseRow(whisperingDefinition.tables.recordings, text.text).error ?? undefined));
 	const id = $derived(rowStemOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
-	/** Edits wait while the app decides whether to close, and while this file is renamed or deleted. */
+	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
 	const saving = $derived(library.isSaving(path));
 

@@ -12,8 +12,8 @@
 //!   is refused `Missing`, and nothing is created.
 //! - A data folder inside another repository's working tree may not get a
 //!   repository of its own; an application folder there may.
-//! - Shutdown waits for running page work in every window, refuses new work,
-//!   and releases the lock.
+//! - Shutdown refuses new work, waits for none already running, and releases
+//!   the lock.
 //! - The lock excludes another process, in both directions with the Bun
 //!   hosts' lock, and a killed process leaves nothing to recover.
 //! - Saves racing on one root with the same expected hash, from two windows,
@@ -300,33 +300,21 @@ fn a_folder_directory_that_is_a_link_is_refused_and_a_linked_parent_is_not() {
 }
 
 #[test]
-fn shutdown_waits_for_every_windows_running_page_work_and_refuses_new_work() {
+fn shutdown_refuses_new_work_without_waiting_for_running_work() {
     let temp = TempDir::new("grant-work");
-    let registry = Arc::new(registry(&temp.path().join("notes"), "main"));
+    let root = temp.path().join("notes");
+    let registry = registry(&root, "main");
     registry.permit("notes", "side").unwrap();
     registry.grant("notes", "main").unwrap();
-    let (_, work) = registry.admit_page_work("notes", "main").unwrap();
-    let (_, side_work) = registry.admit_page_work("notes", "side").unwrap();
-    let finished = Arc::new(AtomicBool::new(false));
-    let shutting = {
-        let registry = Arc::clone(&registry);
-        let finished = Arc::clone(&finished);
-        std::thread::spawn(move || {
-            registry.shutdown();
-            assert!(finished.load(Ordering::SeqCst), "shutdown waited for the work");
-        })
-    };
-    std::thread::sleep(Duration::from_millis(100));
+    let (canonical, _work) = registry.admit_page_work("notes", "main").unwrap();
+    let (_, _side_work) = registry.admit_page_work("notes", "side").unwrap();
+    // Returns while both windows' work is still admitted.
+    registry.shutdown();
     assert!(matches!(
         registry.admit_page_work("notes", "main"),
         Err(GrantError::ShuttingDown)
     ));
-    drop(work);
-    std::thread::sleep(Duration::from_millis(100));
-    assert!(!shutting.is_finished(), "shutdown waits for the other window's work");
-    finished.store(true, Ordering::SeqCst);
-    drop(side_work);
-    shutting.join().unwrap();
+    drop(RootLock::acquire(&canonical).expect("shutdown releases the lock"));
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {

@@ -9,11 +9,12 @@
 //! Each permitted window's page runs `@epicenter/folder`'s engine over the
 //! directory. The first `grant` takes the folder's cross-process lock and
 //! every grant, from any permitted window, hands back the same canonical
-//! root; the lock is held until `shutdown`, so no other process opens the
-//! folder meanwhile. Each file change or `git` run a page asks for holds a
-//! `PageWork` while it runs; `shutdown` refuses new ones and waits a bounded
-//! time for those running in every window, so a quit never cuts a rename or
-//! a `git` run short.
+//! root; the lock is held until `shutdown` or the process ends, so no other
+//! process opens the folder meanwhile. Each file change or `git` run a page
+//! asks for holds a `PageWork` while it runs; `shutdown` refuses new ones and
+//! waits for none. Quitting is immediate (ADR-0542): every save is an atomic
+//! rename, so a quit leaves each file whole, and a `git` run cut short leaves
+//! at most a lock file Git names.
 //!
 //! Several windows may edit one folder because the shell, not the page,
 //! decides every publish. Each publishing rename and removal checks its path
@@ -33,8 +34,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Serialize;
 use specta::Type;
@@ -161,19 +161,8 @@ pub struct Granted {
     pub init_problem: Option<String>,
 }
 
-/// How long `shutdown` waits for page work already running.
-const PAGE_WORK_GRACE: Duration = Duration::from_secs(10);
-
-/// The page changes and `git` runs in progress.
-#[derive(Default)]
-struct Running {
-    count: Mutex<usize>,
-    settled: Condvar,
-}
-
 /// One admitted page change or `git` run; dropping it ends it.
 pub struct PageWork {
-    running: Arc<Running>,
     /// The publishing mutex of the root the work was admitted for.
     publishing: Arc<Mutex<()>>,
     kind: FolderKind,
@@ -197,21 +186,10 @@ impl PageWork {
     }
 }
 
-impl Drop for PageWork {
-    fn drop(&mut self) {
-        let mut count = self.running.count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        *count -= 1;
-        if *count == 0 {
-            self.running.settled.notify_all();
-        }
-    }
-}
-
 #[derive(Default)]
 pub struct Registry {
     scopes: Mutex<BTreeMap<String, Scope>>,
     fenced: AtomicBool,
-    running: Arc<Running>,
     /// One publishing mutex per canonical root. Only one scope at a time
     /// holds a root's lock, so its windows are the ones that share it.
     publishing: Mutex<BTreeMap<PathBuf, Arc<Mutex<()>>>>,
@@ -354,11 +332,6 @@ impl Registry {
         window: &str,
     ) -> Result<(PathBuf, PageWork), GrantError> {
         let (root, kind) = self.granted(scope, window)?;
-        let mut count = self.running.count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if self.fenced.load(Ordering::SeqCst) {
-            return Err(GrantError::ShuttingDown);
-        }
-        *count += 1;
         let publishing = Arc::clone(
             self.publishing
                 .lock()
@@ -369,7 +342,6 @@ impl Registry {
         Ok((
             root,
             PageWork {
-                running: Arc::clone(&self.running),
                 publishing,
                 kind,
             },
@@ -397,21 +369,11 @@ impl Registry {
         }
     }
 
-    /// Fence new grants and page work, wait up to ten seconds for page work
-    /// already running, then release every folder's cross-process lock. Pages
-    /// settle their own work before they approve a quit; the wait covers a
-    /// change or a `git` run still in flight when they did.
+    /// Fence new grants and page work, then release every folder's
+    /// cross-process lock. Work already running is not waited for: the
+    /// process is ending, and each save is an atomic rename (ADR-0542).
     pub fn shutdown(&self) {
-        {
-            // Fenced under the count's lock, so no work is admitted after the
-            // wait below has seen zero.
-            let count = self.running.count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            self.fenced.store(true, Ordering::SeqCst);
-            let _ = self
-                .running
-                .settled
-                .wait_timeout_while(count, PAGE_WORK_GRACE, |count| *count > 0);
-        }
+        self.fenced.store(true, Ordering::SeqCst);
         let locks: Vec<RootLock> = self
             .scopes()
             .values_mut()

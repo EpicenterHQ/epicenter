@@ -384,9 +384,8 @@ are separate outcomes and the status reports them separately.
 - A commit that fails or is blocked never undoes a save and never reports the
   save as failed. The status says what happened to it, and **Save version**
   tries again.
-- Quitting records no version. Saves that are underway finish before the app
-  closes, and whatever changed since the last version stays that way until the
-  next one.
+- Quitting records no version. Whatever changed since the last version stays
+  that way until the next one.
 - Terminal commands and other programs edit the files directly. Their changes
   enter the next version you save.
 - The app does not watch the folder. It reads it again after each terminal
@@ -429,60 +428,25 @@ row and audio and says so.
 
 ### Closing and quitting
 
-Closing the window (the close button or Command-W) and quitting (Command-Q,
-the Whispering menu, or on macOS Quit in the Dock, a logout, restart, or
-shutdown) all ask the window first:
+Closing the window and quitting are immediate. Nothing is asked and nothing
+is waited for, because nothing that matters lives only in the window: a
+recording is in the folder from the moment it starts, and a transcription or
+transformation writes its file before its request goes out.
 
-- When nothing is held, changes still being written finish and the app closes
-  with no prompt. It never asks about typing: every change is already in its
-  file, or was refused and reported when it happened.
-- A recording in progress, and a transcription or transformation under way,
-  hold nothing: each is in the folder from its start. Closing finishes a
-  recording; an answer that has not arrived is lost, and its file stays
-  unfinished.
-- When the window cannot find out what would be lost, the app stays open and
-  asks. **Keep working** closes the prompt and changes nothing. **Discard and
-  quit** lets changes still being written finish, then closes the app.
+- In the desktop app a recording keeps its audio up to the moment the app
+  closed, and the next time the folder opens its header is repaired so it
+  plays to its end.
+- A transcription or transformation whose answer had not arrived stays
+  unfinished, to run again.
+- A change typed in the last instant before quitting can be lost, as it can
+  be in any app. Every earlier change is already in its file.
 
-Only leaving the app asks. Moving between Home, Recordings, and
-Transformations never does, because nothing is lost by it.
+Force Quit, a crash, and power loss leave the folder the same way.
 
-The app closes only on an explicit answer from the window. A window that is
-busy or slow keeps the app open until it answers; closing again only asks
-again.
-
-A logout, restart, or shutdown is always stopped while Whispering is open,
-even when nothing is held: Whispering asks the window as for any quit, and the
-logout does not continue on its own. Start it again once Whispering has
-closed.
-
-If Whispering's host process stops while the window is open, the terminal,
-Reveal folder, and new transcription and transformation requests stop working
-until you restart the app. Saving does not stop: the shell granted the folder
-to the window, not to the host, so changes to recordings, transcripts, and other files can
-still be saved, and **Save version** still works. A save can still fail for its own reasons, such as a full
-disk, exactly as it can at any other time.
-
-What the window can no longer do is be asked through the host whether it may
-close. Closing or quitting then shows a prompt that says so and lists what is
-still only in the window. The list follows what you save, and **Keep working**
-lets you save or copy text out first. The app stays
-open until you choose **Discard and quit** (or **Quit** when nothing is held);
-in this state it never closes without that choice.
-
-If the folder could not be opened at all and the window shows "Could not open
-the recordings folder", nothing is open and nothing can be unsaved, so closing
-or quitting just closes it.
-
-This covers an ordinary close or quit. It does not cover the process being
-ended from outside: Force Quit, `kill`, a crash, or power loss discard whatever
-was only in the window, and nothing can recover it afterwards. Force Quit is
-also the only way out if the window itself stops responding, or is closed
-while it is still opening the folder and never finishes, since a window that
-cannot answer is never closed on its behalf.
-
-In a browser tab (`bun dev:whispering:ui`) the browser's own leave warning
-applies instead.
+Moving between Home, Recordings, and Transformations never asks either. In a
+browser tab (`bun dev:whispering:ui`) the browser's own leave warning appears
+while a change is still being written, and reloading or closing the tab loses
+a recording in progress.
 
 ### Editing
 

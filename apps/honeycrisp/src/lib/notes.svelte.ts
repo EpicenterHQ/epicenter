@@ -25,8 +25,9 @@
  * everything is read again once the last write settles.
  *
  * Every other action is a mutation too: create, rename, delete, deleting a
- * folder, Save version, and terminal commands. Closing fences new input,
- * then waits until nothing is mutating; nothing is ever discarded. Saves
+ * folder, Save version, and terminal commands. Closing the notes fences new
+ * input, then waits until nothing is mutating before it releases the folder.
+ * Saves
  * never commit (ADR-0529); a version is recorded only by Save version.
  */
 import {
@@ -309,15 +310,15 @@ export function createNotes(
 	let openings = 0;
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
-	/** Set while a close is answered: no edit and no action starts. */
+	/** Set once `close` begins: no edit and no action starts after it. */
 	let fenced = $state(false);
-	/** Set once `close` begins. Nothing starts after it, and the fence stays. */
+	/** The one completion every `close` call answers. */
 	let closing: Promise<void> | undefined;
 	/** Set once the folder is being released: nothing reads it after. */
 	let released = false;
 
 	/** Why no edit or action starts now, if one does not. */
-	const refused = () => (fenced || closing !== undefined ? CLOSING : undefined);
+	const refused = () => (fenced ? CLOSING : undefined);
 
 	// Every read and write is local: nothing waits for a network, and nothing retries.
 	queryClient.setQueryDefaults(notesKeys.all, {
@@ -498,8 +499,8 @@ export function createNotes(
 		 * Change the row at `stem` in the cache, and queue its write when one
 		 * is needed: only when fewer than two are running or waiting for the
 		 * file, since the waiting one saves whatever the cache holds when it
-		 * runs. Answers why the change was refused, changing nothing: while a
-		 * close is answered, while a rename or delete of the file runs, and
+		 * runs. Answers why the change was refused, changing nothing: once the
+		 * notes are closing, while a rename or delete of the file runs, and
 		 * while the file is open as text.
 		 */
 		function edit(
@@ -673,8 +674,7 @@ export function createNotes(
 	}
 
 	/** Whether edits to `path` are refused now: closing, or a rename or delete runs. */
-	const lockedAt = (path: string) =>
-		fenced || closing !== undefined || moving(path);
+	const lockedAt = (path: string) => fenced || moving(path);
 
 	/** The same file as captured now, for a file no view holds. */
 	async function captureNow(
@@ -1132,7 +1132,7 @@ export function createNotes(
 			trackMutations();
 			return lockedAt(path);
 		},
-		/** Whether input and actions are held back while a close is answered. */
+		/** Whether input and actions are held back because the notes are closing. */
 		get fenced() {
 			return fenced;
 		},
@@ -1283,23 +1283,6 @@ export function createNotes(
 		// Closing
 		// ------------------------------------------------------------------
 
-		/**
-		 * Stop taking input and actions, before a close is answered. Returns
-		 * the release, for an approval the gate refused.
-		 */
-		fenceInput(): () => void {
-			fenced = true;
-			return () => {
-				// A close keeps its fence for good.
-				if (closing === undefined) fenced = false;
-			};
-		},
-		/**
-		 * Resolves once nothing is mutating: every write, action, and terminal
-		 * command has landed. A write that failed was already rolled back and
-		 * reported, so nothing is left to lose.
-		 */
-		settle: () => whenIdle(queryClient),
 		/**
 		 * Fence input for good, wait until nothing is mutating, then release
 		 * the folder. Every call answers the same completion.

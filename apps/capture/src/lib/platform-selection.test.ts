@@ -9,10 +9,9 @@
  * - The host leaf opens through the desktop folder adapter only: the browser
  *   leaf, the browser adapter and its OPFS store, any Git implementation,
  *   the directory opener, and every Node module are absent from its bundle
- * - The host leaf carries, of the host package, only its departure wire,
- *   the shared page client, and the window port
- * - The browser leaf carries the browser adapter and no desktop adapter, no
- *   generated native bindings, and no departure gate
+ * - The host leaf carries nothing of the host package
+ * - The browser leaf carries the browser adapter and no desktop adapter and
+ *   no generated native bindings
  * - Neither folder leaf loads the account recovery store
  */
 import { describe, expect, test } from 'bun:test';
@@ -58,9 +57,6 @@ describe('#platform/folder', () => {
 			const modules = await inputs(SEAM_ENTRY, 'epicenter-host');
 			for (const required of [
 				'platform/folder.epicenter-host.ts',
-				'epicenter/src/departure-page.svelte.ts',
-				'epicenter/src/departure-window.ts',
-				'epicenter/src/departure-wire.ts',
 				'folder/src/tauri.ts',
 				'folder/src/tauri-adapter.ts',
 				'folder/src/native/bindings.gen.ts',
@@ -82,23 +78,16 @@ describe('#platform/folder', () => {
 			expect(
 				modules.filter((path) => /legacy\/|open-store\.ts$|@y[+/]/.test(path)),
 			).toEqual([]);
-			// Of the host package, only its departure wire, page client, and window
-			// port: never the Bun host.
+			// Nothing of the host package: never the Bun host.
 			expect(
-				modules.filter(
-					(path) =>
-						/epicenter\/src\//.test(path) &&
-						!/epicenter\/src\/departure-(wire|window|page\.svelte)\.ts$/.test(
-							path,
-						),
-				),
+				modules.filter((path) => /epicenter\/src\//.test(path)),
 			).toEqual([]);
 		},
 		BUNDLE_TIMEOUT,
 	);
 
 	test(
-		'the browser build opens through the browser adapter, with no desktop adapter and no departure gate',
+		'the browser build opens through the browser adapter, with no desktop adapter',
 		async () => {
 			const modules = await inputs(SEAM_ENTRY, 'browser');
 			for (const required of [

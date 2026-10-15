@@ -4,8 +4,8 @@
 //! A page names a scope and nothing else; the registry decides whether the
 //! invoking window may use it, and every read, change, and `git` run happens
 //! in the root the scope was granted, which the page never supplies. Each
-//! change and `git` run holds a `PageWork` admission while it runs, so a quit
-//! waits for it. Every command that touches the disk or runs `git` runs on
+//! change and `git` run holds a `PageWork` admission while it runs, which
+//! shares its root's publishing mutex. Every command that touches the disk or runs `git` runs on
 //! the blocking pool, never on the thread that drives the windows.
 
 use std::sync::Arc;
@@ -49,8 +49,7 @@ pub async fn grant_directory<R: Runtime>(
 }
 
 /// The root this window was granted for `scope`, for a read. A read holds
-/// no admission: a quit need not wait for one, and one that runs past it
-/// changes nothing.
+/// no admission: it publishes nothing.
 fn reading_root<R: Runtime>(
     webview: &Webview<R>,
     scope: &str,
@@ -117,7 +116,7 @@ pub async fn read_folder_file<R: Runtime>(
 }
 
 /// The root this window was granted for `scope`, and the admission the change
-/// holds until it ends, so a quit waits for it.
+/// holds until it ends.
 fn changing_root<R: Runtime>(
     webview: &Webview<R>,
     scope: &str,

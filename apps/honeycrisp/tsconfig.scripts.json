@@ -1,11 +1,9 @@
 {
-	// Build scripts and the native tests, which run under Bun outside
-	// SvelteKit. The native tests import the page's shell client and the notes
-	// state from `src/lib`.
+	// Build scripts, which run under Bun outside SvelteKit.
 	"extends": "../../tsconfig.dom.json",
 	"compilerOptions": {
 		"types": ["bun"],
 		"noEmit": true
 	},
-	"include": ["scripts/**/*.ts", "native-tests/**/*.ts"]
+	"include": ["scripts/**/*.ts"]
 }

@@ -102,13 +102,8 @@ test('development browser callback completes the pending sign-in without a Home 
 			async openAuthUrl(url) {
 				opened.resolve(url);
 			},
-			async prepareRelaunch() {
-				return {
-					relaunch() {
-						relaunches++;
-					},
-					abort() {},
-				};
+			relaunch() {
+				relaunches++;
 			},
 			onAuthCallback() {
 				return () => false;
@@ -189,13 +184,8 @@ test.each([
 			onAuthCallback() {
 				return () => false;
 			},
-			async prepareRelaunch() {
-				return {
-					relaunch() {
-						throw new Error('native restart failed');
-					},
-					abort() {},
-				};
+			relaunch() {
+				throw new Error('native restart failed');
 			},
 		},
 		fetch: async () =>

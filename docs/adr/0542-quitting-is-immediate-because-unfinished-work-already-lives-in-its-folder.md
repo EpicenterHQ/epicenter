@@ -2,11 +2,10 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** deleting the departure round, the page quit voters, the folder plugin's quit wait, the standalone close gates, and the native quit harnesses.
 
 ## Context
 
-Quitting Epicenter runs a departure round: `apps/epicenter/src-tauri/src/departure.rs`
+Quitting Epicenter runs a departure round: `departure.rs`
 and `departure/machine.rs` ask each participant window (Capture, Todos) through
 `departure_status` and `departure_answer`, wait for each page to settle, fall
 back to a native three-button dialog after three seconds, and intercept macOS
@@ -68,7 +67,7 @@ Deleted, about 9,000 lines including tests and harnesses:
 
 | Where | What |
 | --- | --- |
-| `apps/epicenter/src-tauri` | `departure.rs`, `departure/machine.rs`, most of `departure/terminate.rs`, the `departure-*` capabilities, about 250 lines of `lib.rs` |
+| `apps/epicenter/src-tauri` | `departure.rs`, `departure/machine.rs`, `departure/terminate.rs`, the `departure-*` capabilities, about 250 lines of `lib.rs` |
 | `apps/epicenter/src` | `departure-wire.ts`, `departure-page.svelte.ts`, `departure-window.ts`, the relaunch grant protocol in `sidecar-runtime.ts` and `desktop-auth-authority.ts` |
 | `apps/todos`, `apps/capture` | Their departure participants and notices |
 | `packages/tauri-plugin-epicenter-folder` | `PAGE_WORK_GRACE` and the shutdown wait |

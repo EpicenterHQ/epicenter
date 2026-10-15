@@ -15,12 +15,7 @@
 //! - The grant lets the window read its directory through the folder plugin,
 //!   dot names included, and nothing outside it. Writes go through the folder plugin under the shared
 //!   path rule, and a save commits nothing.
-//! - A held close reaches the page as an event; refusals reach it as text.
 //! - The terminal keeps its working directory in the shell.
-//!
-//! An approved close ends in `AppHandle::exit`, which the mock runtime does
-//! not implement, so an accepted approval is covered by `close.rs` and by the
-//! page client's tests instead.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -31,11 +26,11 @@ use tauri::http::{HeaderMap, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{mock_builder, MockRuntime, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
-use tauri::{App, Listener, WebviewWindow, WebviewWindowBuilder};
+use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
 use tauri_plugin_epicenter_folder::FolderExt;
 
-use crate::commands::{hold, CLOSE_REQUESTED, WINDOW};
+use crate::commands::WINDOW;
 use crate::testing::{git, temp, TempDirectory};
 use crate::{context, folder_config, install, is_app_page, root, shell, COMMANDS};
 
@@ -157,14 +152,7 @@ fn the_capability_grants_exactly_the_listed_commands_to_the_notes_window() {
         .iter()
         .map(|command| format!("allow-{}", command.replace('_', "-")))
         .collect();
-    expected.extend(
-        [
-            "core:event:allow-listen",
-            "core:event:allow-unlisten",
-            "epicenter-folder:default",
-        ]
-        .map(str::to_string),
-    );
+    expected.push("epicenter-folder:default".to_string());
     expected.sort();
     let mut granted: Vec<String> = capability["permissions"]
         .as_array()
@@ -633,80 +621,6 @@ fn after_shutdown_a_late_write_is_refused_and_the_folder_is_unlocked() {
         epicenter_folder_core::lock::RootLock::acquire(&fixture.root)
             .unwrap_or_else(|_| panic!("the folder is unlocked after shutdown")),
     );
-}
-
-// ============================================================================
-// Close consent
-// ============================================================================
-
-#[test]
-fn a_held_close_reaches_the_page_and_stale_answers_are_refused_as_text() {
-    let fixture = fixture("close", |_| {});
-    let main = window(&fixture.app, WINDOW);
-    let (sender, asked) = mpsc::channel::<Value>();
-    main.listen(CLOSE_REQUESTED, move |event| {
-        let _ = sender.send(serde_json::from_str(event.payload()).unwrap());
-    });
-    let next = || {
-        asked
-            .recv_timeout(Duration::from_secs(10))
-            .expect("the close request event")
-    };
-
-    assert_eq!(invoke(&main, "close_register", json!({})), Ok(json!(1)));
-    assert_eq!(
-        invoke(&main, "close_opened", json!({ "generation": 1 })),
-        Ok(Value::Null)
-    );
-    assert!(hold(fixture.app.handle()));
-    assert_eq!(next(), json!({ "generation": 1, "request": 1 }));
-    // Asked again while unanswered: the same request.
-    assert!(hold(fixture.app.handle()));
-    assert_eq!(next(), json!({ "generation": 1, "request": 1 }));
-
-    assert_eq!(
-        invoke(
-            &main,
-            "close_decline",
-            json!({ "generation": 1, "request": 1 })
-        ),
-        Ok(Value::Null)
-    );
-    assert_eq!(
-        invoke(
-            &main,
-            "close_approve",
-            json!({ "generation": 1, "request": 1 })
-        ),
-        Err(json!(
-            "this close request is no longer waiting for an answer"
-        ))
-    );
-    assert!(hold(fixture.app.handle()));
-    assert_eq!(next(), json!({ "generation": 1, "request": 2 }));
-
-    // A reload registers a new page; the page before it can no longer answer.
-    assert_eq!(invoke(&main, "close_register", json!({})), Ok(json!(2)));
-    assert_eq!(
-        invoke(
-            &main,
-            "close_approve",
-            json!({ "generation": 1, "request": 2 })
-        ),
-        Err(json!("this page was replaced by a newer one"))
-    );
-    // The new page has not opened its folder: the close goes ahead, for good.
-    assert!(!hold(fixture.app.handle()));
-    assert_eq!(
-        invoke(&main, "close_opened", json!({ "generation": 2 })),
-        Err(json!("the app is already closing"))
-    );
-}
-
-#[test]
-fn a_close_before_any_page_registered_goes_ahead() {
-    let fixture = fixture("close-early", |_| {});
-    assert!(!hold(fixture.app.handle()));
 }
 
 // ============================================================================

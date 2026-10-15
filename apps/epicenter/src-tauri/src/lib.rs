@@ -31,7 +31,6 @@ mod command_names;
 
 pub mod app_data;
 mod data_folders;
-mod departure;
 mod device_owner;
 mod installed_apps;
 mod sqlite;
@@ -96,9 +95,8 @@ const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long Bun gets to shut down after its stdin closes before it is killed.
 ///
 /// Longer than Bun's own ten-second shutdown grace (`SHUTDOWN_GRACE_MS` in
-/// `src/sidecar-runtime.ts`), so Bun's owners finish what they admitted, such
-/// as a Capture save and its commit, and Bun exits by itself. The kill is the
-/// bound for a host that hangs anyway: work still running then is lost.
+/// `src/sidecar-runtime.ts`), so Bun's owners finish their disposal and Bun
+/// exits by itself. The kill is the bound for a host that hangs anyway.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(12);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,27 +254,9 @@ enum BunToRustNativeFrame {
         app_id: String,
         label: String,
     },
-    /// Ask to restart for an account change. Rust answers with exactly one
-    /// `native-result` once the departure round grants or refuses it.
-    PrepareRelaunch {
-        #[serde(rename = "requestId")]
-        request_id: String,
-    },
-    /// Withdraw a preparation still collecting. A grant ignores it.
-    PrepareCancel {
-        #[serde(rename = "requestId")]
-        request_id: String,
-    },
-    /// Release a grant without restarting.
-    RelaunchAbort {
-        #[serde(rename = "requestId")]
-        request_id: String,
-    },
-    /// Finish a grant by restarting the process.
-    Relaunch {
-        #[serde(rename = "requestId")]
-        request_id: String,
-    },
+    /// Restart for an account change, at once: no window is asked
+    /// (ADR-0415, ADR-0542).
+    Relaunch {},
 }
 
 #[derive(Debug, Serialize)]
@@ -642,41 +622,13 @@ fn parse_application_id(id: &str) -> Option<BuiltInApp> {
 /// create a window against a dead token.
 const HOST_RESTARTED: &str = "the Epicenter host restarted before the window opened";
 
-/// Release the host resources a window owns once it is destroyed.
-///
-/// Destruction ends its page's departure participation; the builder's
-/// page-load hook does the same before a replacement page loads. The recorder
-/// plugin finalizes a recording the window's page started on either.
-///
-/// Built-in app windows are hidden rather than destroyed when the user closes
-/// them, so this fires for them on a host restart teardown, and
-/// for any window the host destroys directly.
-fn release_host_resources_on_destroy(window: &WebviewWindow<Wry>) {
-    let app = window.app_handle().clone();
-    let label = window.label().to_string();
-    window.on_window_event(move |event| {
-        if matches!(event, WindowEvent::Destroyed) {
-            departure::page_replaced(&app, &label);
-        }
-    });
-}
-
-/// A new document is starting in this webview: whatever the previous one held
-/// is gone. Runs before the new document can make an IPC call, so its first
-/// departure read already carries its own generation.
-fn page_started(app: &DesktopAppHandle, label: &str) {
-    departure::page_replaced(app, label);
-}
-
 pub fn run() {
     let port = configured_port();
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
     let native_handler = tauri::generate_handler![
         encode_recording_for_upload,
-        launch_application,
-        departure::departure_status,
-        departure::departure_answer
+        launch_application
     ] as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
@@ -692,11 +644,6 @@ pub fn run() {
         .build();
 
     let builder = tauri::Builder::default()
-        .on_page_load(|webview, payload| {
-            if payload.event() == tauri::webview::PageLoadEvent::Started {
-                page_started(webview.app_handle(), webview.label());
-            }
-        })
         // This must remain the first plugin: later plugins and setup must only run
         // in the process that owns the application instance.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -719,26 +666,19 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(HostState::new(port))
-        .manage(departure::Departure::default())
         .manage(data_folders::DataFolderScopes::default())
         .manage(installed_apps::AppWork::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(DownloadManager::default());
 
     #[cfg(target_os = "macos")]
-    let builder = builder
-        .plugin(tauri_nspanel::init())
-        .menu(departure::menu)
-        .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()));
+    let builder = builder.plugin(tauri_nspanel::init());
 
     builder
         .invoke_handler(move |invoke| {
             if matches!(
                 invoke.message.command(),
-                "encode_recording_for_upload"
-                    | "launch_application"
-                    | "departure_status"
-                    | "departure_answer"
+                "encode_recording_for_upload" | "launch_application"
             ) {
                 native_handler(invoke)
             } else {
@@ -746,10 +686,6 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            departure::bind_main_thread(app.handle());
-            // Before any window exists: every AppKit quit asks the round.
-            #[cfg(target_os = "macos")]
-            departure::install_terminate_guard(app.handle()).map_err(anyhow::Error::msg)?;
             specta_builder.mount_events(app);
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
@@ -804,9 +740,12 @@ pub fn run() {
         .expect("failed to build Epicenter")
         .run(|app, event| match event {
             RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Folders),
-            RunEvent::ExitRequested { api, code, .. } if prevents_exit(app, code) => {
-                api.prevent_exit();
-            }
+            // Every window was destroyed, which only a host restart does:
+            // Epicenter stays in the tray while the windows come back. A quit
+            // or a restart carries a code and passes.
+            RunEvent::ExitRequested {
+                api, code: None, ..
+            } => api.prevent_exit(),
             RunEvent::Exit => shutdown_host(app),
             _ => {}
         });
@@ -927,29 +866,6 @@ fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
     });
     if let Err(error) = schedule {
         append_parent_log(app, &format!("schedule {} window: {error}", built_in.id()));
-    }
-}
-
-/// Whether to prevent this exit request, which the departure round decides.
-///
-/// A restart is requested only after the round granted it
-/// (`BunToRustNativeFrame::Relaunch`), and Tauri ignores `prevent_exit` for
-/// one anyway, so it passes straight to Exit. Every other request, whether
-/// `app.exit`, the tray, or an AppKit `terminate:` the quit guard turned into
-/// one, asks the round.
-fn prevents_exit(app: &DesktopAppHandle, code: Option<i32>) -> bool {
-    code != Some(tauri::RESTART_EXIT_CODE) && departure::request_quit(app, code.unwrap_or(0))
-}
-
-/// The Window menu's Capture and Todos items open or reveal their windows
-/// through `request_window`, so a departure round can refuse them. Quit is
-/// AppKit's own item, which the quit guard routes.
-#[cfg(target_os = "macos")]
-fn handle_menu_event(app: &DesktopAppHandle, id: &str) {
-    match departure::window_menu_participant(id) {
-        Some(departure::Participant::Capture) => request_window(app, BuiltInApp::Capture),
-        Some(departure::Participant::Todos) => request_window(app, BuiltInApp::Todos),
-        None => {}
     }
 }
 
@@ -1444,43 +1360,13 @@ fn handle_native_frame(
                 delete_app_secret(&app.config().identifier, &app_id, &label, account.as_ref());
             send_native_result(app, generation, &request_id, result)
         }
-        BunToRustNativeFrame::PrepareRelaunch { request_id } => {
-            if request_id.is_empty() {
-                bail!("native requestId must be non-empty");
-            }
-            departure::prepare_restart(app, generation, request_id);
-            Ok(())
-        }
-        // These frames arrive on the Bun reader thread. The departure round is
-        // the main thread's, so each is carried there in arrival order.
-        BunToRustNativeFrame::PrepareCancel { request_id } => {
-            departure::prepare_cancel(app, generation, request_id);
-            Ok(())
-        }
-        BunToRustNativeFrame::RelaunchAbort { request_id } => {
-            departure::relaunch_abort(app, generation, request_id);
-            Ok(())
-        }
         // `request_restart` delivers ExitRequested and Exit from any thread, so
-        // the Folder plugin drains admitted writes and `shutdown_host` stops
-        // Bun before the new process starts. `restart` skips both when called
-        // on the main thread. Only a grant this generation holds restarts.
-        BunToRustNativeFrame::Relaunch { request_id } => {
-            departure::relaunch(app, generation, request_id);
+        // `shutdown_host` stops Bun before the new process starts. `restart`
+        // skips both when called on the main thread.
+        BunToRustNativeFrame::Relaunch {} => {
+            app.request_restart();
             Ok(())
         }
-    }
-}
-
-/// The one terminal answer to a `prepare-relaunch` request.
-fn reply_relaunch_preparation(
-    app: &DesktopAppHandle,
-    generation: u64,
-    request_id: &str,
-    result: std::result::Result<(), String>,
-) {
-    if let Err(error) = send_native_result(app, generation, request_id, result) {
-        append_parent_log(app, &format!("answer relaunch preparation: {error:#}"));
     }
 }
 
@@ -1652,7 +1538,6 @@ fn fail_generation(app: &DesktopAppHandle, generation: u64, message: String) {
     };
     state.deactivate();
     stop_child(child);
-    departure::retire_sidecar(app, generation);
     invalidate_windows(app);
     request_start(app.clone(), Some(message));
 }
@@ -1723,18 +1608,9 @@ fn create_windows_on_main_thread(
 
             ensure_window(&app, BuiltInApp::Whispering, port, &token, false)?;
 
-            built_ins.into_iter().try_for_each(|built_in| {
-                // A queued Capture or Todos waits out a departure rather than
-                // failing the whole host start.
-                if !departure::admits(&app, built_in.id()) {
-                    append_parent_log(
-                        &app,
-                        &format!("deferred {} while Epicenter is leaving", built_in.id()),
-                    );
-                    return Ok(());
-                }
-                ensure_window(&app, built_in, port, &token, true)
-            })
+            built_ins
+                .into_iter()
+                .try_for_each(|built_in| ensure_window(&app, built_in, port, &token, true))
         })();
         let _ = sender.send(result);
     })?;
@@ -1758,10 +1634,6 @@ fn create_recording_overlay(app: &DesktopAppHandle, port: u16, token: &str) -> R
 /// `src-tauri/capabilities/` selects on. One built-in app has one window here;
 /// an app owning a second window (Whispering's recording overlay) creates it
 /// separately, under its own label.
-///
-/// Every launch, tray, deep-link, and reopen path reaches Capture and Todos
-/// through here, so this is where a departure round refuses to create one or
-/// to reveal one it has hidden.
 fn ensure_window(
     app: &DesktopAppHandle,
     built_in: BuiltInApp,
@@ -1769,14 +1641,7 @@ fn ensure_window(
     token: &str,
     reveal: bool,
 ) -> Result<()> {
-    let existing = app.get_webview_window(built_in.id());
-    if (existing.is_none() || reveal) && !departure::admits(app, built_in.id()) {
-        bail!(
-            "{} is waiting for Epicenter to finish quitting or restarting",
-            built_in.title()
-        );
-    }
-    if let Some(window) = existing {
+    if let Some(window) = app.get_webview_window(built_in.id()) {
         if reveal {
             focus(window);
         }
@@ -1794,7 +1659,6 @@ fn ensure_window(
         token,
         reveal,
     )?;
-    departure::adopt_window(&window);
 
     let close_window = window.clone();
     window.on_window_event(move |event| {
@@ -1822,7 +1686,7 @@ fn create_app_window(
 ) -> Result<WebviewWindow<Wry>> {
     let initialization_script = initialization_script(&origin(port), token)?;
     let account_opener = app.clone();
-    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
+    WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
         .title(title)
         .inner_size(1100.0, 760.0)
         .min_inner_size(680.0, 480.0)
@@ -1831,9 +1695,7 @@ fn create_app_window(
         .on_navigation(move |url| is_allowed_navigation(url, port))
         .on_new_window(move |url, _| open_account_website(&account_opener, &url))
         .build()
-        .with_context(|| format!("create the {title} WebView"))?;
-    release_host_resources_on_destroy(&window);
-    Ok(window)
+        .with_context(|| format!("create the {title} WebView"))
 }
 
 /// The window label of installed app `id` opened on `folder`: one window per
@@ -1908,17 +1770,22 @@ fn focus<R: Runtime>(window: WebviewWindow<R>) {
     let _ = window.set_focus();
 }
 
+/// Tear down every window of a Bun host that stopped, and queue the ones a
+/// person could see to open again once the next host is ready.
+///
+/// Each window's initialization script carries the stopped host's token, so a
+/// reload is not enough: the window is created again, and its page reopens its
+/// folder. Work already lives in the folder (ADR-0542); text a person had not
+/// submitted is lost, as it is on quit.
 fn invalidate_windows(app: &DesktopAppHandle) {
     let (sender, receiver) = mpsc::sync_channel(1);
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
+        let state = app.state::<HostState>();
         for built_in in BuiltInApp::ALL {
             if let Some(window) = app.get_webview_window(built_in.id()) {
-                // Capture and Todos keep their pages and open folders, with
-                // any unsaved text, after the host that served them stops.
-                if let Some(participant) = departure::Participant::from_label(built_in.id()) {
-                    departure::host_stopped(&app, participant, &window);
-                    continue;
+                if window.is_visible().unwrap_or(false) {
+                    state.queue_app(built_in);
                 }
                 if window.destroy().is_err() {
                     let _ = window.hide();
@@ -2250,7 +2117,8 @@ mod tests {
             "preamble\n".to_string(),
             "".to_string(),
             // The earlier protocols: 11 named installed applications, and 12
-            // booted without the cache directory.
+            // booted without the cache directory and relaunched only after a
+            // departure round.
             ready_line(11, PRODUCTION_PORT),
             "{\"type\":\"ready\",\"protocolVersion\":11,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
             ready_line(12, PRODUCTION_PORT),
@@ -2503,8 +2371,6 @@ mod tests {
             include_str!("../capabilities/trusted-whispering-native-production.json"),
             include_str!("../capabilities/trusted-app-windows-development.json"),
             include_str!("../capabilities/trusted-app-windows-production.json"),
-            include_str!("../capabilities/departure-development.json"),
-            include_str!("../capabilities/departure-production.json"),
             include_str!("../capabilities/launch-application-development.json"),
             include_str!("../capabilities/launch-application-production.json"),
             include_str!("../capabilities/folders-development.json"),
@@ -2545,8 +2411,6 @@ mod tests {
         const HANDWRITTEN: &[&str] = &[
             "encode_recording_for_upload",
             "launch_application",
-            "departure_status",
-            "departure_answer",
         ];
         for bindings in [
             include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
@@ -2734,8 +2598,6 @@ mod tests {
                 include_str!("../tauri.conf.json"),
                 "home-model-administration-production",
             ),
-            (include_str!("../tauri.dev.conf.json"), "departure-development"),
-            (include_str!("../tauri.conf.json"), "departure-production"),
             (include_str!("../tauri.dev.conf.json"), "folders-development"),
             (include_str!("../tauri.conf.json"), "folders-production"),
             (
@@ -2798,82 +2660,9 @@ mod tests {
         }
     }
 
-    /// The departure round asks Capture and Todos, and nobody else, so only
-    /// their windows may read it or answer it. The commands identify the
-    /// caller by its window, so this grant is the whole of who can take part.
-    #[test]
-    fn only_capture_and_todos_take_part_in_departure() {
-        for encoded in [
-            include_str!("../capabilities/departure-development.json"),
-            include_str!("../capabilities/departure-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert_eq!(capability["windows"], serde_json::json!(["capture", "todos"]));
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!([
-                    "core:event:allow-listen",
-                    "core:event:allow-unlisten",
-                    "allow-departure-status",
-                    "allow-departure-answer"
-                ])
-            );
-        }
-        for encoded in [
-            include_str!("../capabilities/trusted-app-windows-development.json"),
-            include_str!("../capabilities/trusted-app-windows-production.json"),
-            include_str!("../capabilities/trusted-whispering-native-development.json"),
-            include_str!("../capabilities/trusted-whispering-native-production.json"),
-            include_str!("../capabilities/home-model-administration-development.json"),
-            include_str!("../capabilities/home-model-administration-production.json"),
-            include_str!("../capabilities/launch-application-development.json"),
-            include_str!("../capabilities/launch-application-production.json"),
-            include_str!("../capabilities/capture-folder-development.json"),
-            include_str!("../capabilities/capture-folder-production.json"),
-            include_str!("../capabilities/todos-folder-development.json"),
-            include_str!("../capabilities/todos-folder-production.json"),
-            include_str!("../capabilities/folders-development.json"),
-            include_str!("../capabilities/folders-production.json"),
-            include_str!("../capabilities/installed-app-windows-development.json"),
-            include_str!("../capabilities/installed-app-windows-production.json"),
-        ] {
-            assert!(
-                !encoded.contains("departure"),
-                "the departure commands belong to the departure capability alone"
-            );
-        }
-        let windows: Vec<&str> = departure::Participant::ALL
-            .into_iter()
-            .map(departure::Participant::label)
-            .collect();
-        assert_eq!(windows, ["capture", "todos"]);
-        assert_eq!(
-            [BuiltInApp::Capture.id(), BuiltInApp::Todos.id()],
-            ["capture", "todos"]
-        );
-    }
-
-    /// Participant windows hold no `core:window` grant, so a page cannot show
-    /// itself; every reveal runs through native code that asks the round.
-    #[test]
-    fn participant_windows_cannot_show_themselves() {
-        for encoded in [
-            include_str!("../capabilities/departure-development.json"),
-            include_str!("../capabilities/departure-production.json"),
-            include_str!("../capabilities/capture-folder-development.json"),
-            include_str!("../capabilities/capture-folder-production.json"),
-            include_str!("../capabilities/todos-folder-development.json"),
-            include_str!("../capabilities/todos-folder-production.json"),
-        ] {
-            assert!(!encoded.contains("core:window"), "{encoded}");
-            assert!(!encoded.contains("core:webview"), "{encoded}");
-        }
-    }
-
     /// Todos' and Capture's windows hold the folder plugin alone: it reads
     /// and changes only the directory a grant names. They hold no fs or HTTP
-    /// grant; Git transfers run in the `git` the shell starts. Their events
-    /// come from the departure capability.
+    /// grant; Git transfers run in the `git` the shell starts.
     #[test]
     fn folder_windows_hold_only_the_folder_plugin() {
         for encoded in [
@@ -2933,8 +2722,6 @@ mod tests {
             include_str!("../capabilities/capture-folder-production.json"),
             include_str!("../capabilities/todos-folder-development.json"),
             include_str!("../capabilities/todos-folder-production.json"),
-            include_str!("../capabilities/departure-development.json"),
-            include_str!("../capabilities/departure-production.json"),
             include_str!("../capabilities/installed-app-windows-development.json"),
             include_str!("../capabilities/installed-app-windows-production.json"),
         ] {
@@ -3146,48 +2933,19 @@ mod tests {
         .is_err());
     }
 
-    /// The relaunch frames name the preparation they belong to and nothing
-    /// else. The old bare `relaunch` is gone rather than kept beside them.
+    /// A relaunch asks nothing first, so its frame carries nothing: no request
+    /// to answer and no grant to hold (ADR-0542).
     #[test]
-    fn relaunch_frames_carry_exactly_their_request() {
-        for (encoded, expected) in [
-            (
-                "{\"type\":\"prepare-relaunch\",\"requestId\":\"one\"}",
-                BunToRustNativeFrame::PrepareRelaunch {
-                    request_id: "one".into(),
-                },
-            ),
-            (
-                "{\"type\":\"prepare-cancel\",\"requestId\":\"one\"}",
-                BunToRustNativeFrame::PrepareCancel {
-                    request_id: "one".into(),
-                },
-            ),
-            (
-                "{\"type\":\"relaunch-abort\",\"requestId\":\"one\"}",
-                BunToRustNativeFrame::RelaunchAbort {
-                    request_id: "one".into(),
-                },
-            ),
-            (
-                "{\"type\":\"relaunch\",\"requestId\":\"one\"}",
-                BunToRustNativeFrame::Relaunch {
-                    request_id: "one".into(),
-                },
-            ),
-        ] {
-            assert_eq!(
-                serde_json::from_str::<BunToRustNativeFrame>(encoded).unwrap(),
-                expected
-            );
-        }
+    fn the_relaunch_frame_is_bare() {
+        assert_eq!(
+            serde_json::from_str::<BunToRustNativeFrame>("{\"type\":\"relaunch\"}").unwrap(),
+            BunToRustNativeFrame::Relaunch {}
+        );
         for invalid in [
-            "{\"type\":\"relaunch\"}",
-            "{\"type\":\"prepare-relaunch\"}",
-            "{\"type\":\"prepare-relaunch\",\"requestId\":\"one\",\"label\":\"capture\"}",
-            "{\"type\":\"prepare-cancel\",\"requestId\":1}",
-            "{\"type\":\"relaunch-abort\",\"request_id\":\"one\"}",
-            "{\"type\":\"departure-answer\",\"requestId\":\"one\"}",
+            "{\"type\":\"relaunch\",\"requestId\":\"one\"}",
+            "{\"type\":\"prepare-relaunch\",\"requestId\":\"one\"}",
+            "{\"type\":\"prepare-cancel\",\"requestId\":\"one\"}",
+            "{\"type\":\"relaunch-abort\",\"requestId\":\"one\"}",
         ] {
             assert!(
                 serde_json::from_str::<BunToRustNativeFrame>(invalid).is_err(),

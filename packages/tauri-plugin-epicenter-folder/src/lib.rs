@@ -29,9 +29,8 @@
 //! overtook is refused as `Conflict` rather than silently replaced. The
 //! folder is locked against other processes on its first grant, from
 //! whichever window, and stays locked until the app exits or the shell calls
-//! `Folders::shutdown`, which refuses new work, waits a bounded time for the
-//! changes and `git` runs already admitted in every window, and releases each
-//! folder's cross-process lock.
+//! `Folders::shutdown`, which refuses new work and releases each folder's
+//! cross-process lock without waiting for work already running (ADR-0542).
 
 use std::path::PathBuf;
 
@@ -82,9 +81,8 @@ impl Folders {
         self.registry.granted_root(scope, window)
     }
 
-    /// Refuse new work, wait a bounded time for work already admitted, and
-    /// release every lock. Returns once that has happened. The plugin also
-    /// does this when the app exits.
+    /// Refuse new work and release every lock, without waiting for work
+    /// already admitted. The plugin also does this when the app exits.
     pub fn shutdown(&self) {
         self.registry.shutdown();
     }

@@ -389,8 +389,6 @@ test('a recipe runs on pasted text with no recordings; its row is written to tex
 		body: '',
 	});
 	expect(await names(root, TEXT_RUNS)).toEqual([`${output.stem}.md`]);
-	// The run is in the folder, so nothing holds the app open.
-	expect(library.unsavedWork).toEqual([]);
 
 	answer.resolve(Ok({ text: 'Transformed: so um this is pasted text' }));
 	expect(await running).toBeUndefined();
@@ -513,7 +511,6 @@ test('a failed run runs again from its row only while the text connection is sti
 	await library.transformText(path, PASTED);
 	const { output, state } = newestText(library, stem);
 	expect(state.kind).toBe('failed');
-	expect(library.holdsUnsavedWork).toBe(false);
 	refuse = false;
 
 	expect(
@@ -591,7 +588,6 @@ test('the pasted text stays with the session, and a result on it never holds the
 	expect(view.pastedText).toBe(PASTED);
 	expect(library.textOutputsOf(stem)).toHaveLength(1);
 	expect(session.blocksNavigation({ willUnload: true })).toBe(false);
-	expect(await library.prepareToLeave()).toBe(true);
 });
 
 test('a text_runs/ file that does not read never holds up a recording’s deletion, and a failed listing is reported, not shown empty', async () => {

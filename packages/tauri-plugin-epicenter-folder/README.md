@@ -233,14 +233,14 @@ and the helpers it started, such as `git-remote-https`.
 
 ## Shutdown
 
-Every file change and `git` run holds an admission while it runs. A read
-holds none: it changes nothing, so a quit need not wait for it, and one
-asked for after shutdown begins is refused. When the app exits, or the shell
-calls `app.folders().shutdown()`, the plugin refuses new grants and new
-work, waits up to ten seconds for work already admitted in every window, then
-releases every folder's lock. Pages settle their own work before they
-approve a quit; the wait covers a change or a `git` run still in flight when
-they did. A late change is refused as `ShuttingDown` and writes nothing.
+Every file change and `git` run holds an admission while it runs; a read
+holds none. When the app exits, or the shell calls
+`app.folders().shutdown()`, the plugin refuses new grants, reads, and work,
+and releases every folder's lock. It waits for nothing: quitting is
+immediate ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
+Every save is an atomic rename, so a change cut off at exit leaves the old
+file or the new one, and a `git` run cut off leaves at most a lock file Git
+names. A late change is refused as `ShuttingDown` and writes nothing.
 
 ## What is best effort
 

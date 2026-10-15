@@ -77,6 +77,10 @@ file host kept the window and draft readable in Source; Keep editing retained
 it, and explicit Discard and quit exited. Tests cover close requests arriving
 before page mount and across event-stream reconnects.
 
+Superseded: [ADR-0542](../../../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)
+removed this close gate. Closing the window or quitting now quits at once,
+and each save renames into place, so nothing is asked or waited for.
+
 ## Files and Git
 
 [Native evidence](native-evidence.json) records the canonical roots, file

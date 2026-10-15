@@ -54,8 +54,8 @@ export const WorkspaceError = defineErrors({
 	}),
 	/**
 	 * The page is inside a desktop app that did not start the Whispering host,
-	 * so it has no terminal, transcription, or close handshake. Nothing is
-	 * opened: a folder alone is not the app.
+	 * so it has no terminal or transcription. Nothing is opened: a folder
+	 * alone is not the app.
 	 */
 	HostMissing: () => ({
 		message:
@@ -110,8 +110,6 @@ export type RecordingWriteHook = <T>(
 	write: RecordingWrite,
 	run: () => Promise<T>,
 ) => Promise<T>;
-
-export type CloseDecision = 'proceed' | 'asking' | 'cancel';
 
 export type TerminalResult = {
 	readonly stdout: string;
@@ -195,29 +193,6 @@ export type Workspace = {
 			microphone: MicrophonePreference | undefined,
 		): Promise<string | undefined>;
 	};
-	/**
-	 * The desktop shell asks before it closes the window or quits, because only
-	 * the page knows what is unsaved. The page answers `proceed` to let it
-	 * close, `asking` while it shows its own confirmation, or `cancel` to stay
-	 * open. Undefined in a browser tab, where the browser owns leaving.
-	 */
-	readonly closing:
-		| {
-				onRequest(listener: () => void): () => void;
-				/**
-				 * Rejects when the answer was not delivered. The host may still have
-				 * taken it: a rejected `proceed` is not a refusal to quit.
-				 */
-				answer(decision: CloseDecision): Promise<void>;
-				/**
-				 * The shell tried to close but the host is gone, so it could not ask
-				 * through it. The page must keep the window and say why.
-				 */
-				onRequestWithoutHost(listener: () => void): () => void;
-				/** With the host gone, the one way to tell the shell to quit. */
-				quitWithoutHost(): void;
-		  }
-		| undefined;
 	/** Whether debug controls are offered. */
 	readonly debugControls: boolean;
 	/** Failure injection, in a debug desktop shell only. */
