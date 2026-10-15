@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Built:** the `lens` option of `openDataFolder` in every entry, refused with `ShapeMismatch` and its problems when the folder's declaration does not contain it; the containment check (`shapeProblems` and `schemaContainment` in `@epicenter/definition`); a lens table's `canCreate` and `CannotCreate`; the Folders window matching the compiled built-in apps to folders by shape (`apps/epicenter/src/folders/openers.ts`), offering each only on its own folder, since a built-in app opens only that one today.
-- **Unbuilt:** offering an app on any other folder whose declaration contains its shape, which needs the app to open the folder it is handed at launch; matching installed apps, which come with [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) and [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md); showing an app that cannot add rows as able to edit only.
+- **Built:** the `lens` option of `openDataFolder` in every entry, refused with `ShapeMismatch` and its problems when the folder's declaration does not contain it; the containment check (`shapeProblems` and `schemaContainment` in `@epicenter/definition`); a lens table's `canCreate` and `CannotCreate`; the Folders window matching the compiled built-in apps to folders by shape (`apps/epicenter/src/folders/openers.ts`), offering each only on its own folder, since a built-in app opens only that one today; installed apps ([ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)) matched by the shape their `epicenter.app.json` names and offered on every folder whose declaration contains it, each handed that folder at launch as `?folder=<scope>`.
+- **Unbuilt:** offering a built-in app on any folder other than its own, which needs the built-in app to open the folder it is handed at launch; showing an app that cannot add rows as able to edit only.
 
 ## Context
 

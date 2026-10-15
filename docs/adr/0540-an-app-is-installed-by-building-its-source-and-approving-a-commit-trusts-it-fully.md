@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** `epicenter.app.json`; installing from a Git URL; building into `Caches/so.epicenter/builds/`; `approvals.json`; serving installed apps; moving Todos and Capture into their own repositories.
+- **Built:** `epicenter.app.json`; installing from a Git URL or a local path, building, approving, and updating (`apps/epicenter/src-tauri/src/installed_apps.rs`); `approvals.json`; serving installed apps at `/apps/<app-id>/` and opening each in its own window on the folder it is offered on; the Folders window's install, approval, and Update (`apps/epicenter/src/folders/App.svelte`).
+- **Unbuilt:** moving Todos and Capture into their own repositories; customizing a built-in app by cloning it (installing a built-in app's id is refused today); a full diff view in the approval (it shows `git log` and `git diff --stat`); removing an installed app from the window; sandboxed builds; an `opens` shape written as TypeScript.
 
 ## Context
 
@@ -19,13 +20,15 @@ nobody can change one without building Epicenter.
 {
   "id": "com.example.board",
   "title": "Board",
-  "opens": "./src/shape.ts",
+  "opens": "shape.json",
   "build": "bun run build",
   "output": "dist"
 }
 ```
 
-`opens` is the shape of [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md).
+`opens` is the repository path of the shape of [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md),
+committed as a declaration (`formatDeclaration` of the app's definition), so
+Epicenter can match it to folders without building or running the app.
 Every app is a Vite single-page app built with a relative `base`; `build` and
 `output` default to the values shown.
 
@@ -39,8 +42,10 @@ There is no prebuilt download.
 
 **Approval guards code that arrived from elsewhere.** A commit fetched from any
 remote runs only after a person approves it, shown its diff. A commit made on
-this machine, by the person or an agent, runs without asking. `approvals.json`
-records `{ id, commit, approvedAt }` per app and nothing else.
+this machine, by the person or an agent, runs without asking: every commit
+since the approved one is unreachable from every remote-tracking ref and from
+`FETCH_HEAD`, and building it records it as approved. `approvals.json`
+records `{ commit, approvedAt }` per app id and nothing else.
 
 **Approving an app trusts it fully.** Building runs its code natively, with the
 person's permissions, so no boundary after the build protects anything the
