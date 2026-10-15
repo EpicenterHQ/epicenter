@@ -11,12 +11,15 @@
  * the queries they name stale. Rows that read are listed to edit; the rest
  * are named, with why, for repair as text.
  *
- * An edit holds its own starting version, outside the cache: a draft per row
- * file (`createDraftState`), and per file edited as its exact text. A read
- * never touches a draft. A row's draft saves with `table.save`, one save at a
- * time, which merges with whatever changed since the edit started. A file's
- * text is a text draft (`createTextDraftState`), saved over the version it
- * started from and merged by line the same way (ADR-0551). A save that
+ * A field edit is an update of the file as it is now (ADR-0554): it sets the
+ * field and keeps every field another writer changed; a view holds a field
+ * typed until it is sent. A row's body (a recording's notes, a transcript, a
+ * transformation's instructions) and a file edited as its exact text are
+ * documents: each is a draft that holds its own starting version, outside
+ * the cache (`createBodyDraftState`, `createTextDraftState`), saved a second
+ * after the last change, or when the view leaves it, over the version it
+ * started from and merged by line with whatever changed since (ADR-0551). A
+ * read never touches a draft. Writes to one file run one at a time. A save that
  * replaced another writer's change says so, with a way to put theirs back.
  * A text save that fails is reported with the text that was not written. A
  * row deleted elsewhere stays deleted: its save fails, and nothing creates
@@ -56,7 +59,7 @@ import type {
 	TableListing,
 	TableSaveError,
 } from '@epicenter/folder';
-import { formatRow, parseRow, rowPath, rowStemOf } from '@epicenter/folder';
+import { parseRow, rowPath, rowStemOf } from '@epicenter/folder';
 import {
 	ancestorsOf,
 	dirname,
@@ -71,20 +74,21 @@ import {
 	whenIdle,
 } from '@epicenter/folder/query';
 import {
-	createDraftState,
+	createBodyDraftState,
 	createTextDraftState,
-	type DraftState,
 	type TextDraftState,
 } from '@epicenter/folder/svelte';
 import { type RecordingFolder, recoverRecordings } from '@epicenter/recorder';
 import {
 	hashKey,
+	type Mutation,
 	type MutationObserverOptions,
 	type QueryClient,
 	type QueryFunctionContext,
 	QueryObserver,
 } from '@tanstack/query-core';
 import { customAlphabet } from 'nanoid';
+import { useDebounce } from 'runed';
 import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -497,15 +501,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		return result?.error === null ? result.data : undefined;
 	}
 
-	/** The text a person loses with a row that could not be written. */
-	function rowText<T extends RowTable>(table: T, row: Row<Tables[T]>) {
-		const formatted = formatRow(
-			whisperingDefinition.tables[table] as never,
-			row as never,
-		) as Result<string, unknown>;
-		return formatted.data ?? row.body;
-	}
-
 	/** Read again what an action may have changed: every folder query a view shows, Git status with them. */
 	async function invalidate() {
 		if (closing) return;
@@ -564,34 +559,43 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	}
 
 	type Fields = Record<string, unknown>;
-	/**
-	 * Each row file's edit, by path: the version it started from and the row
-	 * as typed. Held here rather than by a view, so an edit outlives the view
-	 * it was made in, as the session does.
-	 */
-	const rowDrafts = new SvelteMap<string, DraftState<Fields>>();
 
-	function rowDraft(table: RowTable, path: string): DraftState<Fields> {
-		const held = rowDrafts.get(path);
-		if (held !== undefined) return held;
-		const save = optionsOf(
-			table,
-		).save.mutationOptions() as unknown as MutationObserverOptions<
-			SavedRow<Fields>,
-			TableSaveError,
-			SaveRowVariables<Fields>
-		>;
-		const draft = createDraftState<Fields>({
-			save: (sent) =>
-				runMutation(queryClient, save, sent).catch((error: TableSaveError) => {
-					rowSaveFailed(table, path, error);
-					throw error;
+	/**
+	 * Set fields of a row as its file is now (ADR-0554). A failure is
+	 * reported; a field typed stays in its view, to be sent again.
+	 */
+	const updateOf = <T extends RowTable>(table: T) =>
+		({
+			...optionsOf(table).update.mutationOptions(),
+			onError: (error: TableError | FileError, { stem }: { stem: string }) =>
+				notify({
+					kind: 'failed',
+					path: rowPath(table, stem),
+					error,
+					lost: undefined,
 				}),
-			onSaved: tell(path),
-		});
-		rowDrafts.set(path, draft);
-		return draft;
+		}) satisfies ReturnType<
+			TableOptions<Tables[T]>['update']['mutationOptions']
+		>;
+
+	/** The path a folder write is to: a row save's base, a row update's stem in its table, or a file write's path. */
+	function writePath(mutation: Pick<Mutation, 'state' | 'options'>) {
+		const sent = mutation.state.variables as
+			| { stem?: string; base?: FileCapture; path?: string }
+			| undefined;
+		if (sent?.base !== undefined) return sent.base.path;
+		if (sent?.path !== undefined) return sent.path;
+		const key = mutation.options.mutationKey;
+		if (sent?.stem === undefined || key?.at(-1) !== 'update') return undefined;
+		return rowPath(String(key.at(-2)), sent.stem);
 	}
+	/** Whether a folder write of `path`, or of any file, runs or waits. */
+	const writing = (path?: string) =>
+		queryClient.isMutating({
+			mutationKey: folder$.key,
+			predicate: (mutation) =>
+				path === undefined || writePath(mutation) === path,
+		}) > 0;
 
 	/** What a save of `path` replaced, named with the save that restores it. */
 	const tell =
@@ -601,30 +605,98 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				notify({ kind: 'replaced', path, replaced, restore });
 		};
 
+	/** A document being typed: its draft, and the save that runs after a pause. */
+	type Typed<TDraft> = {
+		readonly draft: TDraft;
+		readonly later: ReturnType<typeof useDebounce<[], Promise<void>>>;
+	};
+
 	/**
-	 * A row's save failed. Its edit is kept for the next save, unless the
-	 * file is gone: a save never recreates a row, so that edit is dropped.
+	 * Save what `held` holds at `path` now, as leaving it does, until no
+	 * change is left; then a draft with nothing left is let go.
 	 */
-	function rowSaveFailed(table: RowTable, path: string, error: TableSaveError) {
+	async function saveTyped<
+		TDraft extends {
+			readonly text: string | undefined;
+			readonly saving: boolean;
+			save(): Promise<void>;
+		},
+	>(held: SvelteMap<string, Typed<TDraft>>, path: string): Promise<void> {
+		const typed = held.get(path);
+		if (typed === undefined) return;
+		if (typed.later.pending) void typed.later.runScheduledNow();
+		await typed.draft.save();
+		if (
+			typed.draft.text === undefined &&
+			!typed.draft.saving &&
+			held.get(path) === typed
+		)
+			held.delete(path);
+	}
+
+	/**
+	 * Each row's body being typed, by path: a recording's notes, a transcript,
+	 * a transformation's instructions. A body is a document, so its draft keeps
+	 * the version it started from, and its save merges by line with whatever
+	 * changed since. Held here rather than by a view, so it outlives the view
+	 * it was typed in, and saved a second after the last change.
+	 */
+	const bodies = new SvelteMap<
+		string,
+		Typed<TextDraftState<StoredRow<Fields>>>
+	>();
+
+	function bodyOf(table: RowTable, path: string) {
+		const held = bodies.get(path);
+		if (held !== undefined) return held;
+		const save = optionsOf(
+			table,
+		).save.mutationOptions() as unknown as MutationObserverOptions<
+			SavedRow<Fields>,
+			TableSaveError,
+			SaveRowVariables<Fields>
+		>;
+		const draft = createBodyDraftState<Fields>({
+			save: ({ base, content }) =>
+				runMutation(queryClient, save, {
+					base,
+					row: { fields: base.row.fields, body: content },
+				}).catch((error: TableSaveError) => {
+					bodySaveFailed(path, error);
+					throw error;
+				}),
+			onSaved: tell(path),
+		});
+		const typed = {
+			draft,
+			later: useDebounce(() => saveTyped(bodies, path), 1000),
+		};
+		bodies.set(path, typed);
+		return typed;
+	}
+
+	/**
+	 * A body's save failed. It is kept for the next save, unless the file is
+	 * gone: a save never recreates a row, so that body is dropped.
+	 */
+	function bodySaveFailed(path: string, error: TableSaveError) {
 		if (error.name !== 'NotFound') {
 			notify({ kind: 'failed', path, error, lost: undefined });
 			return;
 		}
-		const draft = rowDrafts.get(path);
-		const lost =
-			draft?.row === undefined
-				? undefined
-				: rowText(table, draft.row as Row<never>);
-		draft?.discard();
+		const typed = bodies.get(path);
+		const lost = typed?.draft.text;
+		typed?.draft.discard();
+		bodies.delete(path);
 		notify({ kind: 'failed', path, error, lost });
 	}
 
 	/** Each file's text edit, by path: the version it started from and the text typed. */
-	const textEdits = new SvelteMap<string, TextDraftState>();
+	const textEdits = new SvelteMap<string, Typed<TextDraftState>>();
 	const writeFile = folder$.files.write.mutationOptions();
 
 	/** The text edit of `path`, made at its first change. */
-	function textEdit(path: string): TextDraftState {
+	function textEdit(path: string) {
 		const held = textEdits.get(path);
 		if (held !== undefined) return held;
 		const draft = createTextDraftState({
@@ -645,25 +717,30 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			onSaved: tell(path),
 			definition: folder.definition,
 		});
-		textEdits.set(path, draft);
-		return draft;
+		const typed = {
+			draft,
+			later: useDebounce(() => saveTyped(textEdits, path), 1000),
+		};
+		textEdits.set(path, typed);
+		return typed;
 	}
 
-	/** Save the text typed into `path` until nothing is left; then the edit is done. */
-	async function saveText(path: string): Promise<void> {
-		const draft = textEdits.get(path);
-		if (draft === undefined) return;
-		await draft.save();
-		if (draft.text === undefined && textEdits.get(path) === draft)
-			textEdits.delete(path);
-	}
+	/** Every document draft held now. */
+	const typedDrafts = () => [...bodies.values(), ...textEdits.values()];
+	/** Whether `typed` has text a save runs for or is about to. */
+	const pendingSave = ({
+		draft,
+		later,
+	}: Typed<{ readonly text: string | undefined; readonly saving: boolean }>) =>
+		draft.saving || (later.pending && draft.text !== undefined);
 
-	/** Resolves once every edit has been written, or its write failed. */
+	/** Resolves once every document typed is sent, and every folder write landed, or failed. */
 	async function writesSettled() {
 		await Promise.all([
-			...[...rowDrafts.values()].map((draft) => draft.save()),
-			...[...textEdits.keys()].map(saveText),
+			...[...bodies.keys()].map((path) => saveTyped(bodies, path)),
+			...[...textEdits.keys()].map((path) => saveTyped(textEdits, path)),
 		]);
+		await whenIdle(queryClient, { mutationKey: folder$.key });
 	}
 
 	/** After a rename: the caches and the selection follow the file. */
@@ -685,7 +762,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 					}),
 			);
 		queryClient.removeQueries({ queryKey: textKey(from), exact: true });
-		rowDrafts.delete(from);
+		bodies.get(from)?.draft.discard();
+		bodies.delete(from);
+		textEdits.get(from)?.draft.discard();
 		textEdits.delete(from);
 		if (asText.delete(from)) asText.add(to);
 		if (selectedPath === from) selectedPath = to;
@@ -708,8 +787,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				);
 		}
 		queryClient.removeQueries({ queryKey: textKey(path), exact: true });
-		rowDrafts.get(path)?.discard();
-		rowDrafts.delete(path);
+		bodies.get(path)?.draft.discard();
+		bodies.delete(path);
+		textEdits.get(path)?.draft.discard();
 		textEdits.delete(path);
 		asText.delete(path);
 		if (selectedPath === path) selectedPath = undefined;
@@ -1081,89 +1161,122 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 		textQuery,
 		/**
-		 * The row of `table` at `path` as shown, read reactively: the edit
-		 * while one is unsaved, else the row the cache holds, if it reads.
+		 * The row of `table` at `path` as shown, read reactively: as the cache
+		 * holds it, with the body typed while one is unsaved.
 		 */
 		rowAt<T extends RowTable>(
 			table: T,
 			path: string,
 		): Row<Tables[T]> | undefined {
-			const edited = rowDrafts.get(path)?.row;
-			if (edited !== undefined) return edited as Row<Tables[T]>;
 			const stem = rowStemOf(table, path);
 			if (stem === undefined) return undefined;
 			const result = listed(table)?.find(
 				(entry) => entry.stem === stem,
 			)?.result;
-			return result?.error === null ? result.data.row : undefined;
+			if (result?.error !== null || result === undefined) return undefined;
+			const body = bodies.get(path)?.draft.text;
+			return body === undefined
+				? result.data.row
+				: { fields: result.data.row.fields, body };
 		},
 		/** The text typed into `path` that is not written yet, read reactively. */
 		editedText(path: string): string | undefined {
-			return textEdits.get(path)?.text;
+			return textEdits.get(path)?.draft.text;
 		},
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText(path: string) {
 			return showsText(path);
 		},
 		/**
-		 * Change the row at `stem` and save it. The first change captures the
-		 * row the cache holds as the version the edit started from; the edit
-		 * is saved over it, merged with whatever changed since, one save at a
-		 * time. Refused, changing nothing, while closing, and while a rename
-		 * or delete of the file runs. Inputs commit only values the schema
+		 * The update a view sends a field typed into a row of `table` with,
+		 * `{ stem, set }`: set on the file as it is now. Ask `canEdit` first.
+		 */
+		fieldUpdate: updateOf,
+		/** Whether the row file at `path` takes an edit now: not closing, renamed, or deleted. */
+		canEdit: (path: string) => refused() === undefined && !moving(path),
+		/**
+		 * Set fields of the row at `stem` as its file is now, at once.
+		 * Refused, changing nothing, while closing, and while a rename or
+		 * delete of the file runs. Inputs commit only values the schema
 		 * accepts.
 		 */
-		editRow<T extends RowTable>(
+		setFields<T extends RowTable>(
 			table: T,
 			stem: string,
-			change: (row: Row<Tables[T]>) => void,
+			set: Partial<Tables[T]>,
 		): void {
 			const path = rowPath(table, stem);
 			if (refused() !== undefined || moving(path)) return;
-			const held = rowDrafts.get(path);
-			const current =
-				(rowOf(table, stem) as StoredRow<Fields> | undefined) ?? held?.base;
-			if (current === undefined) return;
-			const draft = held ?? rowDraft(table, path);
-			draft.change(current, change as (row: Row<Fields>) => void);
-			void draft.save();
+			if (rowOf(table, stem) === undefined) return;
+			void runMutation(queryClient, updateOf(table), { stem, set }).catch(
+				() => {},
+			);
 		},
-		/** Replace the text of `path` and write it, over the version the edit started from. */
+		/**
+		 * Type `body` as the body of the row at `stem`. The first change
+		 * captures the row the cache holds as the version the body started
+		 * from; it is saved over it a second after the last change, or at
+		 * once with `saveBody`, merged by line with whatever changed since.
+		 * Refused, changing nothing, while closing, and while a rename or
+		 * delete of the file runs.
+		 */
+		editBody<T extends RowTable>(table: T, stem: string, body: string): void {
+			const path = rowPath(table, stem);
+			if (refused() !== undefined || moving(path)) return;
+			const held = bodies.get(path);
+			const current =
+				(rowOf(table, stem) as StoredRow<Fields> | undefined) ??
+				held?.draft.base;
+			if (current === undefined) return;
+			const typed = held ?? bodyOf(table, path);
+			typed.draft.change(current, body);
+			void typed.later();
+		},
+		/** Send the body typed at `path` now, as leaving it does; resolves once no save of it runs. */
+		saveBody: (path: string) => saveTyped(bodies, path),
+		/**
+		 * Replace the text of `path`, over the version the edit started from;
+		 * it is written a second after the last change, or at once with
+		 * `saveText`.
+		 */
 		editText(path: string, text: string): void {
 			if (refused() !== undefined || moving(path)) return;
 			const opened = textData(path);
 			// The first change starts from the file shown; later ones keep their base.
 			const base =
-				textEdits.get(path)?.base ??
+				textEdits.get(path)?.draft.base ??
 				(opened?.kind === 'text' ? opened.file : undefined);
 			if (base === undefined) return;
-			textEdit(path).change(base, text);
-			void saveText(path);
+			const typed = textEdit(path);
+			typed.draft.change(base, text);
+			void typed.later();
 		},
+		/** Write the text typed into `path` now, as leaving it does; resolves once no write of it runs. */
+		saveText: (path: string) => saveTyped(textEdits, path),
 		/** Hear what an edit's write did that the person is told: it failed, or it replaced another writer's change. */
 		onWriteNotice(listener: (notice: WriteNotice) => void): () => void {
 			noticeListeners.add(listener);
 			return () => noticeListeners.delete(listener);
 		},
-		/** Whether a write of `path` is running, read reactively. */
+		/** Whether a write of `path` runs or waits, or typing there waits to be sent; read reactively. */
 		isSaving(path: string) {
+			trackMutations();
+			const typed = [bodies.get(path), textEdits.get(path)];
 			return (
-				(rowDrafts.get(path)?.saving ?? false) ||
-				(textEdits.get(path)?.saving ?? false)
+				writing(path) ||
+				typed.some((held) => held !== undefined && pendingSave(held))
 			);
 		},
-		/** Whether a write of any file is running, read reactively. */
+		/** Whether a write of any file runs, or typing waits to be sent; read reactively. */
 		get saving() {
-			return (
-				[...rowDrafts.values()].some((draft) => draft.saving) ||
-				[...textEdits.values()].some((draft) => draft.saving)
-			);
+			trackMutations();
+			return writing() || typedDrafts().some(pendingSave);
 		},
-		/** Whether an edit is not in its file yet: being written, or kept after its write failed. */
+		/** Whether an edit is not in its file yet: a write running, or text typed and waiting, being written, or kept after its write failed. */
 		get unsaved() {
+			trackMutations();
 			return (
-				[...rowDrafts.values()].some((draft) => draft.row !== undefined) ||
-				[...textEdits.values()].some((draft) => draft.text !== undefined)
+				writing() || typedDrafts().some(({ draft }) => draft.text !== undefined)
 			);
 		},
 		/** Whether input is refused now: while closing, or while `path` is renamed or deleted. */
@@ -1197,7 +1310,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			if (table === undefined) return undefined;
 			const opened = textData(path);
 			const typed =
-				textEdits.get(path)?.text ??
+				textEdits.get(path)?.draft.text ??
 				(opened?.kind === 'text' ? opened.file.text : undefined);
 			if (
 				typed !== undefined &&

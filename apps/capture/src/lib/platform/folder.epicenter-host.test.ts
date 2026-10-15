@@ -300,6 +300,7 @@ test('an edit made elsewhere merges with this one: both survive', async () => {
 	await put(PATH, theirs);
 
 	form.inputText('Mine');
+	void form.flush();
 	await quiet(captures);
 	expect(failures).toEqual([]);
 	// The edit changed the text; the other window added a thought.

@@ -1,9 +1,11 @@
 <!--
 	One capture as its text and thoughts. The view reads the capture listing
 	narrowed to this capture, so it never disagrees with the timeline, and
-	shows the capture's edit over it until the edit's saves land. Every change
-	goes into that edit and is saved at once; "Edit as text" opens the file's
-	exact Markdown instead. The parent keys this view by the capture.
+	shows the capture's edit over it until the edit's saves land. A thought
+	command saves at once; the capture text saves a second after the last
+	keystroke, when the person leaves it, and when this view goes away. "Edit
+	as text" opens the file's exact Markdown instead. The parent keys this
+	view by the capture.
 
 	When the body stops reading as text and thoughts (a version read again
 	with two Thoughts headings, say), the controls go away rather than show
@@ -22,7 +24,8 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { tick, untrack } from 'svelte';
+	import { useDebounce } from 'runed';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import { type Captures, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
@@ -47,8 +50,14 @@
 		captures.rowsQuery((listing) => listing.find((found) => found.stem === stem)),
 	);
 	const stored = $derived(entry.data?.result.error === null ? entry.data.result.data : undefined);
-	/** The row shown: the edit not saved yet, or the file's. */
-	const row = $derived(stored === undefined ? undefined : (form.draft ?? stored.row));
+	/** The row shown: its body the edit not saved yet, or the file's. */
+	const row = $derived(
+		stored === undefined ? undefined : { fields: stored.row.fields, body: form.body ?? stored.row.body },
+	);
+	/** The capture text typed is saved after a pause, and when the person leaves it. */
+	const saveLater = useDebounce(() => form.flush(), 1000);
+	// runed's timer outlives the view; save now instead.
+	onDestroy(() => void saveLater.runScheduledNow());
 	/** The body as text and thoughts, or why it cannot be edited here. */
 	const reading = $derived(row === undefined ? undefined : captureBody.decode(row.body));
 	const text = $derived(reading?.data?.text ?? '');
@@ -190,7 +199,11 @@
 	</div>
 
 	<p class="text-xs text-muted-foreground" role="status" aria-label="Save status">
-		{form.saving ? 'Saving…' : form.draft ? 'Not saved' : `Saved to ${path}`}
+		{form.saving || (saveLater.pending && form.body !== undefined)
+			? 'Saving…'
+			: form.body !== undefined
+				? 'Not saved'
+				: `Saved to ${path}`}
 	</p>
 
 	{#if form.refusal}
@@ -234,7 +247,14 @@
 				<Textarea
 					id="capture-text"
 					readonly={locked}
-					bind:value={() => text, form.inputText}
+					bind:value={
+						() => text,
+						(typed) => {
+							form.inputText(typed);
+							void saveLater();
+						}
+					}
+					onblur={() => void saveLater.runScheduledNow()}
 					rows={rowsFor(text)}
 					class="max-h-96 resize-y leading-relaxed"
 					placeholder="Write here…"

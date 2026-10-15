@@ -11,6 +11,9 @@
  *   a hint that is present still wins
  * - Clearing an optional field removes it; clearing a required number saves nothing
  * - Numbers, tags, and JSON parse their text, and say plainly when they cannot
+ * - A change sends an update that sets the field, any name as an own key, or
+ *   unsets it
+ * - A write that failed says why in words a person reads
  */
 import { expect, test } from 'bun:test';
 import {
@@ -20,7 +23,14 @@ import {
 	parseDeclaration,
 } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
-import { columnsOf, commitText, editorOf, textOf } from './field-input';
+import {
+	columnsOf,
+	commitText,
+	editorOf,
+	failureText,
+	fieldUpdate,
+	textOf,
+} from './field-input';
 
 const definition = defineFolder({
 	kv: {},
@@ -163,4 +173,32 @@ test('a hint that is present wins over the plain type, even a JSON one', () => {
 	);
 	// An enum of other than strings has no menu.
 	expect(editorOf({ enum: [1, 2] } as never)).toEqual({ kind: 'json' });
+});
+
+test('a change sends an update that sets the field, any name as an own key, or unsets it', () => {
+	expect(fieldUpdate('title', { kind: 'set', value: 'Milk' })).toEqual({
+		set: { title: 'Milk' },
+	});
+	const proto = fieldUpdate('__proto__', { kind: 'set', value: 1 });
+	expect(Object.hasOwn(proto.set ?? {}, '__proto__')).toBe(true);
+	expect(fieldUpdate('price', { kind: 'remove' })).toEqual({
+		unset: ['price'],
+	});
+});
+
+test('a write that failed says why in words a person reads', () => {
+	expect(
+		failureText({ name: 'NotFound', message: 'gone', path: 'notes/a.md' }),
+	).toBe('Another window deleted this row, so your edit was not saved.');
+	expect(
+		failureText({
+			name: 'InvalidValues',
+			message: 'bad',
+			issues: [{ message: 'title must be text' }],
+		}),
+	).toBe('Not saved: title must be text');
+	expect(failureText(new Error('host went away'))).toBe(
+		'Not saved: host went away',
+	);
+	expect(failureText('odd')).toBe('Not saved: odd');
 });

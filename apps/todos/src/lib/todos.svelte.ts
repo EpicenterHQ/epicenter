@@ -16,14 +16,14 @@
  * - `todos.sync` (`sync.ts`): Sync and its review's Apply
  *
  * A view passes query and mutation options to `createQuery` or
- * `createMutation`. An edit is a draft the editing view holds
- * (`createDraftState`): it keeps the version the edit started from, and
- * `table.save` merges with whatever changed since. Which todo is open is the
+ * `createMutation`. A field edit is an update of the file as it is now; the
+ * notes are a body draft the editing view holds, saved over the version it
+ * started from (ADR-0554). Which todo is open is the
  * page URL's (`?todo=<stem>`), not the store's. Saves never commit
  * (ADR-0529); a version is recorded by Sync or by Save version.
  */
 import { folderOptions, whenIdle } from '@epicenter/folder/query';
-import { QueryClient } from '@tanstack/query-core';
+import { partialMatchKey, QueryClient } from '@tanstack/query-core';
 import { createContext } from 'svelte';
 import { createQueryFactories } from 'wellcrafted/query';
 import { createGit } from './git.js';
@@ -77,11 +77,20 @@ export function createTodos(
 		queryClient.invalidateQueries(folder$.pathFilter(change)),
 	);
 
-	/** Resolves once no save of a todo's file is running. */
-	const writesSettled = () =>
-		whenIdle(queryClient, {
-			mutationKey: folder$.todos.save.mutationOptions().mutationKey,
-		});
+	/** Every save and update of a todo's file. */
+	const rowWrites = [
+		folder$.todos.save.mutationOptions().mutationKey ?? [],
+		folder$.todos.update.mutationOptions().mutationKey ?? [],
+	];
+	const writing = {
+		predicate: (mutation: { options: { mutationKey?: readonly unknown[] } }) =>
+			rowWrites.some((key) =>
+				partialMatchKey(mutation.options.mutationKey ?? [], key),
+			),
+	};
+
+	/** Resolves once no save or update of a todo's file is running. */
+	const writesSettled = () => whenIdle(queryClient, writing);
 
 	/** Read again what an action may have changed: every query of the folder by default. */
 	const invalidate = (queryKey: readonly unknown[] = folder$.key) =>
@@ -107,6 +116,8 @@ export function createTodos(
 		 */
 		queryClient,
 		rows: createRows(session),
+		/** The filter for every save and update of a todo's file. */
+		writing,
 		git: createGit(session),
 		sync: createSync(session),
 		/** Read the listing and Git status again. */

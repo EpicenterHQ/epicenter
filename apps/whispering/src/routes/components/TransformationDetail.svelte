@@ -1,8 +1,10 @@
 <!--
 	One transformation: its instructions, model, results, and a place to try
 	it. The fields come from the transformations listing in the cache, and
-	Source from the file's own text query. An edit holds the version it
-	started from and is saved at once.
+	Source from the file's own text query. The title and model are held here
+	while typed and sent after a pause, as updates of the file as it is now
+	(ADR-0554); the instructions are the file's body, a draft saved over the
+	version it started from. Run sends what is typed first.
 -->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
@@ -20,11 +22,12 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import { parseRow, type Row, rowStemOf } from '@epicenter/folder';
+	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { wellFormed } from '@epicenter/folder';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { tick } from 'svelte';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { useDebounce } from 'runed';
+	import { onDestroy, tick } from 'svelte';
 	import { TRANSFORMATIONS, type TransformationFields, whisperingDefinition } from '$lib/definition.js';
 	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
 	import { recipeEndpoint } from '$lib/recipe.js';
@@ -73,17 +76,84 @@
 		source === undefined ? undefined : parseRow(whisperingDefinition.tables.transformations, source),
 	);
 	const issues = $derived(parsed?.error ?? undefined);
-	/** The recipe as typed: its fields, or its text when it reads. */
-	const recipe = $derived(row ?? parsed?.data ?? undefined);
+	// The parent keys this view by the file. While it replaces the view, the
+	// prop already reads the next file, so what is sent as the view goes away
+	// uses this one.
+	// svelte-ignore state_referenced_locally
+	const own = path;
+	const ownId = rowStemOf(TRANSFORMATIONS, own) ?? own;
+
+	/**
+	 * A field typed here and not yet saved, sent a second after the last
+	 * keystroke, when the person leaves it, and when the view goes away, as an
+	 * update of the file as it is now (ADR-0554). `undefined` shows the file.
+	 */
+	const saveTitle = createMutation(() => library.fieldUpdate(TRANSFORMATIONS));
+	const saveModel = createMutation(() => library.fieldUpdate(TRANSFORMATIONS));
+	let typedTitle = $state<string>();
+	let typedModel = $state<string | null>();
+	function sendTitle() {
+		if (typedTitle === undefined || !library.canEdit(own)) return;
+		const sent = typedTitle;
+		saveTitle.mutate(
+			{ stem: ownId, set: { title: sent } },
+			{
+				onSuccess: () => {
+					if (typedTitle === sent) typedTitle = undefined;
+				},
+			},
+		);
+	}
+	function sendModel() {
+		if (typedModel === undefined || !library.canEdit(own)) return;
+		const sent = typedModel;
+		saveModel.mutate(
+			{ stem: ownId, set: { model: sent } },
+			{
+				onSuccess: () => {
+					if (typedModel === sent) typedModel = undefined;
+				},
+			},
+		);
+	}
+	const sendTitleLater = useDebounce(sendTitle, 1000);
+	const sendModelLater = useDebounce(sendModel, 1000);
+	/** Send everything typed here now: the fields, the instructions, and the text. */
+	function flush() {
+		void sendTitleLater.runScheduledNow();
+		void sendModelLater.runScheduledNow();
+		void library.saveBody(own);
+		void library.saveText(own);
+	}
+	// runed's timers, and the library's, outlive the view; send now instead.
+	onDestroy(flush);
+	/** Whether a field typed here did not save. */
+	const fieldFailed = $derived(
+		(typedTitle !== undefined && saveTitle.isError && !saveTitle.isPending) ||
+			(typedModel !== undefined && saveModel.isError && !saveModel.isPending),
+	);
+	const fieldsPending = $derived(
+		saveTitle.isPending ||
+			saveModel.isPending ||
+			(sendTitleLater.pending && typedTitle !== undefined) ||
+			(sendModelLater.pending && typedModel !== undefined),
+	);
+
+	/** The recipe as typed: its fields with what is typed here, or its text when it reads. */
+	const recipe = $derived.by(() => {
+		if (row === undefined) return parsed?.data ?? undefined;
+		const fields: TransformationFields = { ...row.fields };
+		if (typedTitle !== undefined) fields.title = typedTitle;
+		if (typedModel !== undefined) fields.model = typedModel;
+		return { fields, body: row.body };
+	});
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
 	const saving = $derived(library.isSaving(path));
 	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
 
-	/** Change the transformation; it is saved at once. */
-	function set(change: (row: Row<TransformationFields>) => void) {
-		library.editRow(TRANSFORMATIONS, id, change);
-	}
+	/** Set fields of the transformation as its file is now, at once. */
+	const set = (fields: Partial<TransformationFields>) => library.setFields(TRANSFORMATIONS, id, fields);
 	const text = (key: 'title' | 'model' | 'endpoint') => recipe?.fields[key] ?? '';
 	const id = $derived(rowStemOf(TRANSFORMATIONS, path) ?? path);
 	/** The one decision about this recipe, as it is typed; Run saves it and decides again. */
@@ -154,6 +224,8 @@
 	const fix = $derived(entry !== undefined && resolved.kind === 'blocked' ? resolved.fix : undefined);
 
 	async function run() {
+		// What is typed is the recipe that runs; it is sent, and the run settles it.
+		flush();
 		const problem =
 			applySource === 'pasted'
 				? await library.transformText(path, pastedText)
@@ -227,12 +299,13 @@
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={
-					() => row?.fields.title ?? '',
-					(value) =>
-						set((r) => {
-							r.fields.title = wellFormed(value);
-						})
+					() => typedTitle ?? row?.fields.title ?? '',
+					(value) => {
+						typedTitle = wellFormed(value);
+						void sendTitleLater();
+					}
 				}
+				onblur={() => void sendTitleLater.runScheduledNow()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Transformation title"
@@ -249,14 +322,25 @@
 	</div>
 
 	<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-		{saving ? 'Saving…' : `Saved to ${path}`}
+		{saving || fieldsPending ? 'Saving…' : fieldFailed ? 'Not saved' : `Saved to ${path}`}
+		{#if fieldFailed}
+			<Button
+				variant="link"
+				size="xs"
+				class="h-auto p-0"
+				onclick={() => {
+					sendTitle();
+					sendModel();
+				}}>Try again</Button
+			>
+		{/if}
 	</p>
 
 	{#if issues}
 		<div class="border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
-				This text does not read as a transformation yet. Fix it in Source; it saves as you type.
+				This text does not read as a transformation yet. Fix it in Source; it saves when you pause.
 			</p>
 			<ul class="space-y-0.5 text-muted-foreground">
 				{#each issues as issue, index (index)}
@@ -312,10 +396,7 @@
 									variant="outline"
 									class="self-start"
 									disabled={locked}
-									onclick={() =>
-										set((r) => {
-											r.fields.endpoint = null;
-										})}
+									onclick={() => set({ endpoint: null })}
 									data-testid="remove-endpoint-constraint"
 								>
 									Remove the endpoint and use the text connection
@@ -334,10 +415,9 @@
 							bind:value={
 								() => lf(row?.body ?? ''),
 								(value) =>
-									set((r) => {
-										r.body = withFileNewlines(wellFormed(value), r.body);
-									})
+									library.editBody(TRANSFORMATIONS, ownId, withFileNewlines(wellFormed(value), row?.body ?? ''))
 							}
+							onblur={() => void library.saveBody(own)}
 							disabled={locked}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
@@ -366,13 +446,14 @@
 								<Input
 									id="transformation-model"
 									bind:value={
-										() => row?.fields.model ?? '',
-										(value) =>
+										() => (typedModel === undefined ? (row?.fields.model ?? '') : (typedModel ?? '')),
+										(value) => {
 											// An empty model uses the text connection's model.
-											set((r) => {
-												r.fields.model = value.trim() === '' ? null : wellFormed(value);
-											})
+											typedModel = value.trim() === '' ? null : wellFormed(value);
+											void sendModelLater();
+										}
 									}
+									onblur={() => void sendModelLater.runScheduledNow()}
 									disabled={locked}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
 									autocomplete="off"
@@ -536,11 +617,12 @@
 		<Tabs.Content value="source" class="flex min-h-0 flex-1 flex-col gap-2">
 			{#if source !== undefined}
 				<p class="text-xs text-muted-foreground">
-					The file’s exact text. It saves as typed, readable or not.
+					The file’s exact text. It saves when you pause, readable or not.
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(source ?? ''), (value) => library.editText(path, withFileNewlines(value, source ?? ''))}
+					onblur={() => void library.saveText(path)}
 					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}

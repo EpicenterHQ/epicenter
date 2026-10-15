@@ -320,19 +320,20 @@ time, and switching never waits or asks.
 - The list and the editor read the same cached listing, so they never
   disagree about the file. What you type shows in the editor at once and in
   the list once it is saved.
-- Each edit is written at once. An edit holds the version it started from,
-  taken at your first change, and a change read meanwhile never replaces
-  what you are typing. Saves of one edit run one at a time, and what you
-  typed while one ran is saved next, so fast typing writes your latest
-  text, not every keystroke.
-- When the file changed elsewhere since your edit started, the save merges
-  with it (ADR-0548): what only the other writer changed stays, and where
-  you both changed the same field or lines, your edit wins and a message
-  names what of theirs it replaced, with **Restore theirs**. While your edit waits to be saved, the
-  editor says when the file changed elsewhere.
-- A save that fails, or whose reply is lost, keeps your edit in the editor,
-  which says it is not saved and offers **Try again**; a message offers
-  **Copy your text**. The next edit saves it too.
+- The checkbox writes at once. A title or notes are written a second after
+  you stop typing, and at once when you leave the field or open another
+  todo; what you typed stays on screen until it is written, whatever is
+  read meanwhile. Quitting loses at most the last second of typing.
+- A title or done is a change to the todo as its file is now (ADR-0554):
+  what another writer changed in another field stays, and where you both
+  changed the title, yours wins. The notes keep the version they started
+  from and merge by line with whatever changed since: lines only the other
+  writer changed stay, and where you both changed the same lines, yours win
+  and a message names what of theirs was replaced, with **Restore theirs**.
+- A save that fails, or whose reply is lost, keeps what you typed in the
+  editor, which says it is not saved and offers **Try again**; a message
+  about notes offers **Copy your text**. A checkbox that did not save shows
+  the file; click it again.
 - Inputs hold only values a todo can hold. A title or notes with a lone
   surrogate is written with U+FFFD in its place, as shown. The folder still
   refuses a value it cannot hold, which is reported the same way.
@@ -436,7 +437,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
 | `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528, ADR-0548): its own TanStack `QueryClient` with every rule (never stale, no retry, no focus refetch), the one line that wires `folder.onFilesChanged` to the cache, the browser leave check, and closing. It composes the namespaces below over one `Session`. |
 | `src/lib/session.ts` | What the namespaces share: the delete's mutation key (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type, which carries the folder's options (`folder$`). |
-| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `save` options each editing view's draft saves with, `create`, `shown`, and `remove`. Views ask TanStack's `useIsMutating` whether a save or delete runs. |
+| `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `update` options each field sends with, the `saveNotes` options the notes draft saves with, `create`, `shown`, and `remove`. Views ask TanStack's `useIsMutating` whether a save or delete runs. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
 | `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL, and the review's `apply`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
@@ -467,21 +468,26 @@ cache entry, each with `select`: the list reads `todos.rows.todos` and
 `todos.rows.repairs`, and `TodoDetail` reads `todos.rows.entry(stem)`, so
 they cannot disagree.
 
-An edit is a draft the editing view holds (`createDraftState` from
-`@epicenter/folder/svelte`): `TodoDetail` for the title, done, and notes,
-and each `TodoRow` for its checkbox. The draft takes the row and its version
-at the first change, keeps the edited row outside the cache, and saves with
-`todos.rows.save` one save at a time; a read that lands meanwhile updates the
-cache, never the draft. `table.save` merges a file changed elsewhere since,
-and a save puts the row it wrote in the cache. A failed save keeps the
-draft. The folder does not report a page's own saves to it, so the last
-save to settle reads Git status again. Saves never wait for the page to be
-visible. Todos does not write a file that does not read as a todo; another
-editor repairs it, and the folder's report shows the result. Todos does not
-rename files. Delete carries the version the person confirmed:
-`TodoDetail` saves its draft, and `todos.rows.shown(stem)` waits for running
-saves to land, then reads it, so nothing the app does changes the file while
-the person decides (`remove(stem, shown)`). When it runs, the cached hash
+A field edit is an update of the file as it is now (`todos.rows.update`,
+`table.update` underneath, ADR-0554). `TodoDetail` holds the typed title in
+its own state and sends it a second after the last keystroke, on blur, and
+when it goes away; each `TodoRow` checkbox, and the detail's, sends at once.
+The notes are a body draft (`createBodyDraftState` from
+`@epicenter/folder/svelte`) that keeps the version it started from and saves
+with `todos.rows.saveNotes` on the same pause, merged by line by
+`table.save`. The page keys `TodoDetail` by the todo, and the view keeps the
+stem it was created with, so a save sent as it goes away lands on the todo
+it was typed into. Writes to one file run one at a time in the order made,
+and each puts the row it wrote in the cache; a read that lands meanwhile
+never replaces typed text. A failed save keeps the typed text. The folder
+does not report a page's own saves to it, so the last save to settle reads
+Git status again. Saves never wait for the page to be visible. Todos does
+not write a file that does not read as a todo; another editor repairs it,
+and the folder's report shows the result. Todos does not rename files.
+Delete carries the version the person confirmed: `TodoDetail` sends what is
+typed, and `todos.rows.shown(stem)` waits for running saves to land, then
+reads it, so nothing the app does changes the file while the person decides
+(`remove(stem, shown)`). When it runs, the cached hash
 must still be that version; otherwise it refuses with `NotStarted`, and the
 folder's guard still refuses a change Todos has not read. The URL holds which todo is open; the new todo's title lives in the
 list. Components find the store with `getTodos()` and never touch its query
@@ -500,7 +506,13 @@ share SvelteKit's output directory, so run them one after the other.
 
 ## Changed promises
 
-This version follows the folder's change reports and edits through drafts
+This version sends a field as a change to the file as it is now
+(ADR-0554). A title is written a second after you stop typing or when you
+leave the field, not on every keystroke, and the editor no longer says
+"Changed elsewhere": a title or done never undoes another writer's other
+fields, and only the notes keep a starting version.
+
+Before that, this version follows the folder's change reports and edits through drafts
 (ADR-0548). Another window's or program's change shows while you work, and
 returning to the window reads nothing by itself. A save over a file changed
 elsewhere merges with it, and a failed save keeps your edit with **Try

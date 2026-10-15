@@ -162,7 +162,7 @@
      <div class="shrink-0 border-b px-4 py-2"><ReplacedNotice replaced={workspace.replaced} subject={workspace.selected} disabled={workspace.dirty} onRestore={() => act(() => workspace!.restoreTheirs())} onDismiss={() => workspace!.dismissReplaced()} /></div>
     {/if}
     {#if workspace.editable}
-     <textarea aria-label="File text" class="min-h-0 flex-1 resize-none bg-background p-4 font-mono text-sm leading-6 outline-none" spellcheck="false" value={workspace.buffer} disabled={workspace.locked} oninput={(event) => workspace!.input(event.currentTarget.value)}></textarea>
+     <textarea aria-label="File text" class="min-h-0 flex-1 resize-none bg-background p-4 font-mono text-sm leading-6 outline-none" spellcheck="false" value={workspace.buffer} disabled={workspace.locked} oninput={(event) => workspace!.input(event.currentTarget.value)} onblur={() => void workspace!.flush().catch(() => {})}></textarea>
     {:else}<div class="flex min-h-0 flex-1 items-center justify-center p-8 text-sm text-muted-foreground">{workspace.selected ? workspace.saveMessage : 'Select a file to edit its text.'}</div>{/if}
   {#if showGit}
    <section class="flex h-64 shrink-0 flex-col border-t" aria-label="Git">

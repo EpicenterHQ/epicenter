@@ -14,11 +14,17 @@
  * through a second page of the same origin, whose change the folder reports.
  *
  * Key behaviors:
- * - Typing a title or notes goes into the view's draft and is saved; the
- *   list shows what the save wrote. Each todo gets its own view, and each
- *   input saves at its own path
- * - A save that meets a change made elsewhere merges with it; the edit
- *   wins where both changed
+ * - A typed title or notes is held by the view and saved a second after the
+ *   last keystroke, or at once when the person leaves the field or the view
+ *   goes away; the list shows what the save wrote. Each todo gets its own
+ *   view, and each input saves at its own path
+ * - Typed text survives the cache being read again before it is sent
+ * - Opening another todo while a save is pending writes the pending text to
+ *   the todo it was typed into, and to no other
+ * - A failed save keeps the typed text, and Try again sends it
+ * - The checkbox sends at once and never undoes a title typed meanwhile
+ * - A title saved over a change made elsewhere keeps the other fields; the
+ *   typed title wins where both changed
  * - Another page's change shows without the person returning to the window
  * - A malformed todo shows under "Needs repair"; shown, its issues and text
  *   are read-only, and it reads as a todo once another editor fixes it
@@ -43,11 +49,17 @@ import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
 	createTestStorage,
+	opfsOf,
 } from '../../../../../packages/folder/src/browser-storage.test-support.js';
 import { todosDefinition } from '../../lib/definition.js';
 import { quiet } from '../../lib/query.test-support.js';
 import type { WriteFailure } from '../../lib/session.js';
-import { click, setWide, type } from '../../lib/svelte-dom.test-support.js';
+import {
+	blur,
+	click,
+	setWide,
+	type,
+} from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
@@ -107,9 +119,18 @@ async function setup() {
 		const { data } = await folder.files.read(path);
 		return data === null ? undefined : new TextDecoder().decode(data.bytes);
 	}
+	const faults = opfsOf(storage).faults;
 	return {
 		todos,
 		failures,
+		/** The next write of `path` fails before it publishes. */
+		failNextWrite(path: string) {
+			faults.write = (file) => {
+				if (!file.endsWith(`/${path}`)) return undefined;
+				faults.write = undefined;
+				return 'fail';
+			};
+		},
 		target,
 		detail: () => target.querySelector(DETAIL)!,
 		list: () => target.querySelector(LIST)!,
@@ -242,6 +263,11 @@ test('typing is saved, the list shows what was saved, and each todo saves at its
 	const title = get<HTMLInputElement>(TITLE);
 	expect(title.value).toBe('A');
 	type(title, 'A typed');
+	// Nothing is sent while the person may still be typing.
+	await settle(todos);
+	expect(listed(list())).not.toContain('A typed');
+	// A second after the last keystroke, it is.
+	await Bun.sleep(1100);
 	await settle(todos);
 	// The save put the row it wrote in the cache the list reads.
 	expect(listed(list())).toContain('A typed');
@@ -254,7 +280,9 @@ test('typing is saved, the list shows what was saved, and each todo saves at its
 	expect(get<HTMLInputElement>(TITLE)).not.toBe(title);
 	expect(get<HTMLInputElement>(TITLE).value).toBe('B');
 	type(get<HTMLInputElement>(TITLE), 'B typed');
+	blur(get(TITLE));
 	type(get(NOTES), 'B notes\n');
+	blur(get(NOTES));
 	await settle(todos);
 
 	await openTodo(todos, target, pathA);
@@ -270,17 +298,108 @@ test('typing is saved, the list shows what was saved, and each todo saves at its
 	});
 });
 
-test('a save that meets a change made elsewhere merges with it, and the edit wins where both changed', async () => {
+test('a title saved over a change made elsewhere keeps the other fields, and wins where both changed', async () => {
 	const { todos, target, get, list, failures, overwrite, text } = await setup();
 	const path = await addTodo(todos, target, 'Milk');
-	await overwrite(path, ROW('Milk from the shop'));
+	await overwrite(path, '---\ntitle: Milk from the shop\ndone: true\n---\n');
 
 	type(get<HTMLInputElement>(TITLE), 'Oat milk');
+	blur(get(TITLE));
 	await settle(todos);
 	expect(failures).toEqual([]);
 	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
 	expect(listed(list())).toEqual(['Oat milk']);
-	expect(await text(path)).toBe(ROW('Oat milk'));
+	expect(await text(path)).toBe('---\ntitle: Oat milk\ndone: true\n---\n');
+});
+
+test('typed text survives the cache being read again before it is sent', async () => {
+	const { todos, target, get, overwriteElsewhere, reading } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	type(get<HTMLInputElement>(TITLE), 'Oat milk');
+	type(get(NOTES), 'Two cartons.\n');
+	// Another page changes the file; the folder reports it and the cache
+	// reads it again while the typing is still held here.
+	await overwriteElsewhere(
+		path,
+		'---\ntitle: Milk\ndone: true\n---\nFrom the shop.\n',
+	);
+	await eventually(
+		() => get<HTMLButtonElement>(DONE).getAttribute('aria-checked') === 'true',
+	);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	expect(get(NOTES).value).toBe('Two cartons.\n');
+
+	blur(get(TITLE));
+	blur(get(NOTES));
+	await settle(todos);
+	// The title wins its field; the notes merged by line with theirs.
+	expect(await reading(path)).toEqual({
+		fields: { title: 'Oat milk', done: true },
+		body: expect.stringContaining('Two cartons.\n'),
+	});
+});
+
+test('opening another todo while a save is pending writes it to the todo it was typed into, and to no other', async () => {
+	const { todos, target, get, reading } = await setup();
+	const pathA = await addTodo(todos, target, 'A');
+	const pathB = await addTodo(todos, target, 'B');
+	await openTodo(todos, target, pathA);
+	type(get<HTMLInputElement>(TITLE), 'A typed');
+	type(get(NOTES), 'A notes\n');
+
+	// No blur: the view goes away with the save still waiting for its pause.
+	await openTodo(todos, target, pathB);
+	await settle(todos);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('B');
+	expect(await reading(pathA)).toEqual({
+		fields: { title: 'A typed', done: false },
+		body: 'A notes\n',
+	});
+	expect(await reading(pathB)).toEqual({
+		fields: { title: 'B', done: false },
+		body: '',
+	});
+});
+
+test('a failed save keeps the typed text, and Try again sends it', async () => {
+	const { todos, target, get, failNextWrite, reading, failures } =
+		await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	failNextWrite(path);
+	type(get<HTMLInputElement>(TITLE), 'Oat milk');
+	blur(get(TITLE));
+	await settle(todos);
+	expect(failures).toHaveLength(1);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	expect((await reading(path)).fields.title).toBe('Milk');
+	const status = get('[data-testid="write-status"]');
+	expect(status.textContent).toContain('Not saved');
+
+	click(status, 'Try again');
+	await settle(todos);
+	expect((await reading(path)).fields.title).toBe('Oat milk');
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	expect(get('[data-testid="write-status"]').textContent).toContain('Saved to');
+});
+
+test('the checkbox sends at once and does not undo a title typed meanwhile', async () => {
+	const { todos, target, get, reading } = await setup();
+	const path = await addTodo(todos, target, 'Milk');
+	type(get<HTMLInputElement>(TITLE), 'Oat milk');
+	press(get<HTMLButtonElement>(DONE));
+	await settle(todos);
+	expect(await reading(path)).toEqual({
+		fields: { title: 'Milk', done: true },
+		body: '',
+	});
+	// The title is still typed here, and its save keeps the checkbox's.
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	blur(get(TITLE));
+	await settle(todos);
+	expect(await reading(path)).toEqual({
+		fields: { title: 'Oat milk', done: true },
+		body: '',
+	});
 });
 
 test("another page's change shows without returning to the window", async () => {
@@ -327,6 +446,7 @@ test('a title input keeps its value well formed, so what is written is what is s
 	title.value = 'Oat \uD800';
 	expect(title.value.isWellFormed()).toBe(false);
 	title.dispatchEvent(new window.Event('input', { bubbles: true }));
+	blur(title);
 	await settle(todos);
 	expect(failures).toEqual([]);
 	expect(title.value).toBe('Oat �');
@@ -344,6 +464,7 @@ test("notes show LF, and typing in them keeps the file's CRLF and undeclared key
 	expect(notes.value).toBe('One\nTwo\n');
 
 	type(notes, 'One\nTwo\nThree\n');
+	blur(notes);
 	await settle(todos);
 	// The body keeps the file's CRLF; the frontmatter is written canonically.
 	expect(await reading('todos/crlf.md')).toEqual({
@@ -367,10 +488,9 @@ test('completion from the list and from the detail keeps notes and undeclared ke
 		list().querySelector<HTMLButtonElement>('[role="checkbox"]')!;
 
 	press(completion());
-	flushSync();
-	// The list's own draft shows it at once; the detail, once it is saved.
-	expect(completion().getAttribute('aria-checked')).toBe('true');
 	await settle(todos);
+	// Both show the file once the update lands.
+	expect(completion().getAttribute('aria-checked')).toBe('true');
 	expect(get<HTMLButtonElement>(DONE).getAttribute('aria-checked')).toBe(
 		'true',
 	);

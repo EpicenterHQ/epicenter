@@ -11,7 +11,6 @@ import {
 	type ContentCapture,
 	defineFolder,
 	defineTable,
-	type FileCapture,
 	type Folder,
 	field,
 	type Row,
@@ -20,8 +19,9 @@ import {
 	type StoredRow,
 	type TableListing,
 	type TableSaveError,
+	type TableUpdateError,
 } from './contract.js';
-import { createDraft, folderOptions } from './query.js';
+import { folderOptions } from './query.js';
 
 const definition = defineFolder({
 	kv: { theme: field.string() },
@@ -93,14 +93,16 @@ expectTypeOf(folder$.files.read.queryKey).toEqualTypeOf<
 	(path: string) => readonly unknown[]
 >();
 
-// A draft saves through the same variables.
-const draft = createDraft<Todo>();
-expectTypeOf<NonNullable<ReturnType<typeof draft.toSave>>>().toMatchTypeOf<
-	Variables<Save>
+// An update of one row sends a change to its fields as they are now.
+type Update = ReturnType<typeof folder$.todos.update.mutationOptions>;
+expectTypeOf<{ stem: 'milk'; set: { done: true } }>().toExtend<
+	Variables<Update>
 >();
-expectTypeOf(draft.changedElsewhere)
-	.parameter(0)
-	.toEqualTypeOf<FileCapture | undefined>();
+expectTypeOf<{ stem: 'milk'; set: { done: 'yes' } }>().not.toExtend<
+	Variables<Update>
+>();
+expectTypeOf<MutationData<Update>>().toEqualTypeOf<SavedRow<Todo>>();
+expectTypeOf<MutationError<Update>>().toEqualTypeOf<TableUpdateError>();
 
 // The definition is inferred from the folder, with no settings declared too.
 const plain = defineFolder({

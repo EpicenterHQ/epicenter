@@ -10,12 +10,13 @@
  * themselves: each puts its result in the cache and marks stale what else
  * it changed, such as the listing a capture file's text decides.
  *
- * An edit of a capture is a draft its form holds (`formOf`): the version it
- * started from and the edited row, outside the cache, saved one save at a
- * time and merged by the folder with whatever changed since. A failed save
- * keeps the draft and is reported. An edit of a file's text is a text draft
- * held the same way, saved over the version it started from and merged by
- * line with whatever changed since (ADR-0551). A save that replaced another
+ * A capture's body is a document, so an edit of it is a body draft its form
+ * holds (`formOf`): the version it started from and the body typed, outside
+ * the cache, saved one save at a time and merged by the folder, by line,
+ * with whatever changed since (ADR-0551, ADR-0554). A failed save keeps the
+ * draft and is reported. An edit of a file's text is a text draft held the
+ * same way. A view saves typed text after a pause and when the person
+ * leaves it (`flush`, `saveText`); a thought command saves at once. A save that replaced another
  * writer's change names it, with a way to put theirs back. A text save that
  * fails drops the typed text, reads the file again, and reports the text
  * that was not written.
@@ -34,7 +35,6 @@ import {
 	CAPTURES_TABLE,
 	type CaptureFields,
 	captureBody,
-	captureDefinition,
 	composeBody,
 	excerpt,
 } from '@epicenter/capture';
@@ -43,9 +43,7 @@ import {
 	type FileCapture,
 	type FileError,
 	type FileSaveError,
-	formatRow,
 	type Replaced,
-	type Row,
 	type RowReadError,
 	rowPath,
 	rowStemOf,
@@ -334,11 +332,6 @@ export function createCaptures(
 			exact: true,
 		}) > 0;
 
-	/** The text a person would lose with a capture that could not be written. */
-	function rowText(row: Row<CaptureFields>) {
-		return formatRow(captureDefinition.tables.captures, row).data ?? row.body;
-	}
-
 	/** The input not committed yet, and the edit, for the capture at `stem`. */
 	function formOf(stem: string): CaptureForm {
 		const existing = forms.get(stem);
@@ -346,13 +339,12 @@ export function createCaptures(
 		const path = pathOf(stem);
 		const form: CaptureForm = createCaptureForm({
 			stored: () => rowOf(stem),
-			save: (sent) =>
-				runMutation(
-					queryClient,
-					folder$.captures.save.mutationOptions(),
-					sent,
-				).catch((error: TableSaveError) => {
-					const text = rowText(form.draft ?? sent.row);
+			save: ({ base, content }) =>
+				runMutation(queryClient, folder$.captures.save.mutationOptions(), {
+					base,
+					row: { fields: base.row.fields, body: content },
+				}).catch((error: TableSaveError) => {
+					const text = form.body ?? content;
 					// The file is gone: the edit has nowhere to go but the notice.
 					if (error.name === 'NotFound') form.discard();
 					onWriteFailed({ path, error, text });
@@ -409,9 +401,10 @@ export function createCaptures(
 	}
 
 	/**
-	 * Replace the text of `path` and write it, over the version the view
-	 * showed when typing started. Refused while closing, while the file is
-	 * being deleted, and when the file is not open as text.
+	 * Replace the text of `path`, over the version the view showed when
+	 * typing started; the view writes it after a pause (`saveText`). Refused
+	 * while closing, while the file is being deleted, and when the file is
+	 * not open as text.
 	 */
 	function editText(path: string, text: string): boolean {
 		if (refused() !== undefined || removing(path)) return false;
@@ -421,7 +414,6 @@ export function createCaptures(
 			texts.get(path)?.base ?? (file?.kind === 'text' ? file.file : undefined);
 		if (base === undefined) return false;
 		textDraftOf(path).change(base, text);
-		void writeText(path);
 		return true;
 	}
 
@@ -434,9 +426,8 @@ export function createCaptures(
 
 	/** How many captures hold a thought typed and not added, a changed thought edit, or an edit not saved. */
 	const unsentForms = () =>
-		[...forms.values()].filter(
-			(form) => form.unsent || form.draft !== undefined,
-		).length;
+		[...forms.values()].filter((form) => form.unsent || form.body !== undefined)
+			.length;
 
 	/**
 	 * The capture a delete of `path` acts on, read when it runs: the newest
@@ -558,6 +549,8 @@ export function createCaptures(
 		// ------------------------------------------------------------------
 
 		editText,
+		/** Write the text typed for `path`; resolves once no write of it runs. */
+		saveText: writeText,
 		formOf,
 
 		// ------------------------------------------------------------------
@@ -630,7 +623,7 @@ export function createCaptures(
 				(observed) => observed.data ?? undefined,
 				() => undefined,
 			);
-			const body = (forms.get(stem)?.draft ?? rowOf(stem)?.row)?.body;
+			const body = forms.get(stem)?.body ?? rowOf(stem)?.row.body;
 			const text =
 				body === undefined ? undefined : captureBody.decode(body).data?.text;
 			return Ok({

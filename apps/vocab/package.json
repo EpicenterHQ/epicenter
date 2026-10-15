@@ -28,6 +28,7 @@
 		"buffer": "^6.0.3",
 		"mode-watcher": "^1.1.0",
 		"openai": "^7.12.1",
+		"runed": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:",
 		"@epicenter/ai": "workspace:*",

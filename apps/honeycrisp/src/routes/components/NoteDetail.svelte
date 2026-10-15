@@ -1,8 +1,10 @@
 <!--
 	One open note. The view reads the note listing narrowed to this note, so it
-	never disagrees with the list. Its title, folder, pin, rich text, and Source
-	are edits of the note's draft, which the lists share, and each saves at
-	once; while an edit is held, the view shows the draft. The rich-text view
+	never disagrees with the list. Its folder and pin are sent at once, and its
+	title a second after the last keystroke, when the person leaves it, and
+	when the view goes away: each an update of the file as it is now
+	(ADR-0554). Its rich text and Source type the note's body draft, which the
+	store saves after a pause and this view sends when it goes away. The rich-text view
 	stays mounted while the note is open, a rename included, so its undo
 	history survives saves; it starts over only when the note's text changes
 	under it.
@@ -19,11 +21,12 @@
 	import HistoryIcon from '@lucide/svelte/icons/history';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { type Row, wellFormed } from '@epicenter/folder';
+	import { wellFormed } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { useDebounce } from 'runed';
+	import { onDestroy } from 'svelte';
 	import { folderLabel, type NoteFields, noteIdOf } from '$lib/data.js';
-	import { withBody } from '$lib/note-source.js';
 	import { foldersOf, type NoteListing, type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete } from './file-actions.js';
 	import NoteHistory from './NoteHistory.svelte';
@@ -56,17 +59,62 @@
 	let tab = $state<'rich' | 'source'>('rich');
 	let historyOpen = $state(false);
 
-	/** Change the note, which saves it; say so when it was refused. */
-	function set(change: (row: Row<NoteFields>) => Row<NoteFields>) {
-		const problem = notes.editNote(path, change);
+	/** Say so when a change was refused. */
+	function refusal(problem: string | undefined) {
 		if (problem) toast.warning('That change was not made', { description: problem });
+	}
+
+	/** Set fields of the note as its file is now, at once. */
+	const set = (fields: Partial<NoteFields>) => refusal(notes.patchNote(path, fields));
+
+	// The view follows a rename, but while the parent replaces it the prop
+	// already reads the next note: the last path this view showed is its own.
+	// svelte-ignore state_referenced_locally
+	let own = path;
+	$effect.pre(() => {
+		own = path;
+	});
+
+	const saveTitle = createMutation(() => notes.noteUpdate);
+	/** The title typed and not yet saved; `undefined` shows the file. */
+	let title = $state<string>();
+	function sendTitle() {
+		if (title === undefined) return;
+		const why = notes.refusalAt(own);
+		const at = noteIdOf(own);
+		if (why !== undefined || at === undefined) return refusal(why);
+		const sent = title;
+		saveTitle.mutate(
+			{ stem: at, set: { title: sent } },
+			{
+				onSuccess: () => {
+					if (title === sent) title = undefined;
+				},
+			},
+		);
+	}
+	const sendTitleLater = useDebounce(sendTitle, 1000);
+	// runed's timer outlives the view, and so does the store's for the body;
+	// send both now instead.
+	onDestroy(() => {
+		void sendTitleLater.runScheduledNow();
+		void notes.saveBody(own);
+	});
+
+	/** Whether typing here did not save: the title, or the body. */
+	const unsaved = $derived(
+		notes.isUnsaved(path) || (title !== undefined && saveTitle.isError && !saveTitle.isPending),
+	);
+	function saveAgain() {
+		sendTitle();
+		notes.saveAgain(path);
 	}
 
 	/** Textareas report LF; the setter restores the file's own line endings. */
 	const lf = (text: string) => text.replace(/\r\n?/g, '\n');
 
-	function setBody(value: string) {
-		set((row) => withBody(row, wellFormed(withFileNewlines(value, row.body))));
+	function setBody(value: string, current: string) {
+		refusal(notes.editBody(path, wellFormed(withFileNewlines(value, current))));
 	}
 
 	async function report(action: string, problem: string | undefined) {
@@ -88,9 +136,13 @@
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={
-					() => row.fields.title,
-					(title) => set((r) => ({ ...r, fields: { ...r.fields, title: wellFormed(title) } }))
+					() => title ?? row.fields.title,
+					(typed) => {
+						title = wellFormed(typed);
+						void sendTitleLater();
+					}
 				}
+				onblur={() => void sendTitleLater.runScheduledNow()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Title"
@@ -101,8 +153,7 @@
 				value={optionOf(folderId)}
 				disabled={locked}
 				onchange={(event) => {
-					const next = idOf(event.currentTarget.value);
-					set((r) => ({ ...r, fields: { ...r.fields, folderId: next } }));
+					set({ folderId: idOf(event.currentTarget.value) });
 				}}
 			>
 				<option value="">No folder</option>
@@ -120,7 +171,7 @@
 				aria-pressed={pinned}
 				tooltip={pinned ? 'Unpin' : 'Pin'}
 				disabled={locked}
-				onclick={() => set((r) => ({ ...r, fields: { ...r.fields, pinned: !r.fields.pinned } }))}
+				onclick={() => set({ pinned: !pinned })}
 			>
 				<PinIcon class={pinned ? 'fill-current' : ''} />
 			</Button>
@@ -156,7 +207,8 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => lf(row.body), setBody}
+						bind:value={() => lf(row.body), (value) => setBody(value, row.body)}
+						onblur={() => void notes.saveBody(path)}
 						disabled={locked}
 						aria-label="Markdown source"
 						spellcheck={false}
@@ -167,11 +219,15 @@
 
 		<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 			<span role="status" data-testid="write-status">
-				{notes.isWriting(path) ? 'Saving…' : notes.isUnsaved(path) ? 'Not saved to' : 'Saved to'}
+				{notes.isWriting(path) || saveTitle.isPending || (sendTitleLater.pending && title !== undefined)
+					? 'Saving…'
+					: unsaved
+						? 'Not saved to'
+						: 'Saved to'}
 				<code class="font-mono">{path}</code>
 			</span>
-			{#if notes.isUnsaved(path)}
-				<Button size="sm" variant="outline" disabled={locked} onclick={() => notes.saveAgain(path)}>
+			{#if unsaved}
+				<Button size="sm" variant="outline" disabled={locked} onclick={saveAgain}>
 					Save again
 				</Button>
 			{/if}

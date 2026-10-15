@@ -68,6 +68,7 @@
 		"prosemirror-schema-list": "^1.4.0",
 		"prosemirror-state": "^1.4.0",
 		"prosemirror-view": "^1.41.0",
+		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"

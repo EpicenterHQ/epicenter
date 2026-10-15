@@ -37,17 +37,12 @@ import {
 } from '../../../server/git-server.js';
 import { requestConnect } from '../../lib/connect-request.js';
 import { todosDefinition } from '../../lib/definition.js';
-import {
-	editorsReady,
-	quiet,
-	rowEditor,
-} from '../../lib/query.test-support.js';
+import { quiet, rowEditor } from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTodos } = await import('../../lib/todos.svelte.ts');
-await editorsReady;
 const { default: TodosViewHost } = await import(
 	'./fixtures/TodosViewHost.svelte'
 );
@@ -161,13 +156,7 @@ async function competing() {
 		target.remove();
 	});
 	await settle(todos);
-	rowEditor(
-		todos,
-		'milk',
-	)((row) => ({
-		...row,
-		fields: { ...row.fields, title: 'Buy oat milk' },
-	}));
+	void rowEditor(todos, 'milk')({ title: 'Buy oat milk' });
 	await settle(todos);
 	return { todos, session, target };
 }

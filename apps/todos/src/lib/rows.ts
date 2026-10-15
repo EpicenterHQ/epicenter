@@ -3,11 +3,14 @@
  * options (ADR-0548). The listing is the one query, read through views of
  * the same cache entry; the rest are the save, adding, and delete.
  *
- * - An edit is a draft the editing view holds (`createDraftState`): it keeps
- *   the version the edit started from, and `save` sends that version with
- *   the edited row. A file changed elsewhere since is merged by
- *   `table.save`, the edit winning only where both changed. A save puts the
- *   row it wrote in the cache; a failed save keeps the draft.
+ * - A field edit is an `update` of one todo: a change `table.update`
+ *   applies to the file as it is now (ADR-0554), so it keeps every field
+ *   another writer changed and wins only the fields it set. The editing
+ *   view holds typed text until it is sent. The notes are a document: the
+ *   view's body draft keeps the version it started from and `saveNotes`
+ *   saves over it, merged by line with whatever changed since. Every write
+ *   puts the row it wrote in the cache; a failure is reported, and the view
+ *   keeps what was typed.
  * - A file that does not read as a todo is listed with why; Todos does not
  *   edit its text. Another editor fixes it, and the folder's change report
  *   shows the result.
@@ -18,14 +21,8 @@
  *   decides; a different version when the delete runs came from elsewhere,
  *   and is refused.
  */
-import {
-	type FileCapture,
-	type FileError,
-	formatRow,
-	type TableError,
-} from '@epicenter/folder';
+import type { FileCapture, FileError, TableError } from '@epicenter/folder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { todosDefinition } from './definition.js';
 import { type Session, TodosError, todosKeys } from './session.js';
 import {
 	repairsOf,
@@ -94,20 +91,23 @@ export function createRows({
 			};
 		},
 		/**
-		 * The save of one todo, for an editing view's draft. A save that lands
-		 * puts its row in the cache and marks Git status stale. A failed save
-		 * is reported with the edit as text.
+		 * Change one todo's fields as its file holds them now. The todo's
+		 * writes run one at a time, in the order made. A failure is
+		 * reported; the view keeps what was typed.
 		 */
-		save: {
+		update: {
+			...folder$.todos.update.mutationOptions(),
+			onError: (error, { stem }) =>
+				onWriteFailed({ path: todoPath(stem), error, unsaved: '' }),
+		} satisfies ReturnType<typeof folder$.todos.update.mutationOptions>,
+		/**
+		 * Save one todo's notes over the version the edit started from, for
+		 * the view's body draft. A failure is reported with the notes as text.
+		 */
+		saveNotes: {
 			...folder$.todos.save.mutationOptions(),
 			onError: (error, { base, row }) =>
-				onWriteFailed({
-					path: base.path,
-					error,
-					unsaved:
-						formatRow(todosDefinition.tables.todos, row).data ??
-						row.fields.title,
-				}),
+				onWriteFailed({ path: base.path, error, unsaved: row.body }),
 		} satisfies ReturnType<typeof folder$.todos.save.mutationOptions>,
 		/** Add a todo titled `title`. The caller decides whether to show it. */
 		create: defineMutation({
@@ -122,8 +122,8 @@ export function createRows({
 		/**
 		 * The version of `stem` a delete confirms: what the cache holds once
 		 * running saves have landed. Ask for it when the person opens the
-		 * confirmation, after the view's own draft is saved, and pass it to
-		 * `remove`.
+		 * confirmation, after what the view holds typed is sent, and pass it
+		 * to `remove`.
 		 */
 		async shown(stem: string): Promise<FileCapture | undefined> {
 			await writesSettled();

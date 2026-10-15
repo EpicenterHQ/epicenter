@@ -458,25 +458,34 @@ text too; its fields open again once the text reads.
   queries a report names (`pathFilter`); TanStack's focus refetch is off and
   nothing goes stale on its own. The page's own saves are not reported to it:
   a save puts its row in the cache, and Git status is read again after it.
-- **An edit** holds its own starting version, outside the cache: a draft per
-  row file (`createDraftState` from `@epicenter/folder/svelte`), held by the
-  library so it outlives the view it was typed in. A read never touches it;
-  the detail shows the draft, and the table shows the row once it is saved.
-- **A save** is the table's `save` mutation, over the version the edit
-  started from, one at a time per file. Changes typed while one runs are sent
-  next, from the version it wrote. A file changed since is merged in the
-  engine: what only one side changed is kept, and where both changed the
-  edit wins and the save names what it replaced, which the shell shows as a
-  toast.
+- **A field edit** (a title, a model, removing an endpoint) is the table's
+  `update` mutation: it sets the field on the file as it is now and keeps
+  every field another writer changed (ADR-0554). A view holds a field typed
+  in its own state and sends it a second after the last keystroke, when the
+  person leaves it, and when the view goes away; Run sends it first.
+- **A body edit** (a recording's notes, a transcript, a transformation's
+  instructions) holds its own starting version, outside the cache: a body
+  draft per row file (`createBodyDraftState` from
+  `@epicenter/folder/svelte`), held by the library so it outlives the view
+  it was typed in, and saved a second after the last change or when the view
+  leaves it. A read never touches it; the detail shows the draft. Its save is
+  the table's `save` mutation, over the version it started from, one at a
+  time per file; text typed while one runs is sent next, from the version it
+  wrote. A file changed since is merged by line in the engine: where both
+  changed the same lines the typing wins and the save names what it
+  replaced, which the shell shows as a toast.
+- **Writes to one file** run one at a time, in the order made, whichever
+  control made them.
 - **Text** edited as a whole file has no merge: its write is `files.replace`
   guarded by the version the edit started from, one at a time. A file changed
   elsewhere refuses it; the typed text is dropped and the shell shows a toast
   that can copy it, and the file is read again.
-- **A failed save** keeps the draft; it is saved again with the next change,
-  and before anything that reads files (a run, a rename, a deletion, Save
-  version, closing). A recording or transcript deleted elsewhere stays
-  deleted: its save fails with `NotFound`, the draft is dropped and offered
-  to copy, and the listing reads it gone.
+- **A failed save** keeps the draft, or the field typed in its view; it is
+  saved again with the next change, and a draft before anything that reads
+  files (a run, a rename, a deletion, Save version, closing). A recording or
+  transcript deleted elsewhere stays deleted: its save fails with
+  `NotFound`, the draft is dropped and offered to copy, and the listing reads
+  it gone.
 - **A value the schema refuses** is never written: the folder refuses it as
   `InvalidValues`. Text typed into a field is kept well formed: a lone
   surrogate becomes U+FFFD, as a file holds it.
@@ -578,7 +587,7 @@ obstacle in that write's way so the folder itself fails it
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove, moving an earlier build's key. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
 | `src/lib/post-processing.ts` | What the post-processing choice is now, read against the listed transformations and the recipe resolver. It runs nothing. |
-| `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, edits held as drafts and their saves, selections, the live recording, settings, and every action as a mutation. |
+| `src/lib/library.svelte.ts` | Product state over the query cache: the listings, the change channel, field updates, bodies and text held as drafts and their saves, selections, the live recording, settings, and every action as a mutation. |
 | `src/lib/runs.svelte.ts` | Transcription and recipe runs: the result row written when each starts, its answer written into it, and what each row shows. |
 | `src/lib/deletion.ts` | What a deletion removes, captured from fresh reads, and the removal. |
 | `src/lib/capture.ts`, `microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder`, container detection, the transcription and transformation requests. |

@@ -1,14 +1,12 @@
 /**
  * Three rows merged by field and the body by line, with no table: the core
- * of `mergeFile`'s row merge, and what a draft uses to carry its later
- * changes onto a version a merged save wrote (ADR-0551).
+ * of `mergeFile`'s row merge (ADR-0551).
  *
  * Values compare as JSON, so object key order does not matter and arrays and
  * objects are one unit each. For each field, equal values agree and a side
  * unchanged from the base yields to the other.
  *
- * This module loads only the line merge, so a draft can use it without the
- * rest of the folder.
+ * This module loads only the line merge.
  */
 import { type LineMerge, mergeLines } from './git/merge-lines.js';
 import type { Row } from './row-text.js';

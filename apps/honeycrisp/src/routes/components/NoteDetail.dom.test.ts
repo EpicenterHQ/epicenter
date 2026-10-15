@@ -8,20 +8,20 @@
  * what a delivered event does, not that a person can type there.
  *
  * Key behaviors:
- * - Typing a title saves it, and switching between rich text and Source or
- *   typing a title keeps the one rich-text view
- * - Rich-text typing reaches the note's draft through ProseMirror's own DOM
- *   reading, is saved, and stays undoable after the save lands
+ * - A title typed is saved when the person leaves it, and switching between
+ *   rich text and Source or typing a title keeps the one rich-text view
+ * - Rich-text typing reaches the note's body draft through ProseMirror's own
+ *   DOM reading, is saved, and stays undoable after the save lands
  * - Different Source text replaces the rich-text document
- * - A save that meets a change made elsewhere merges with it; the edit
- *   wins where both changed
+ * - A title saved over a change made elsewhere keeps their body, and wins
+ *   the title
  * - A change another tab saved shows in the open note
  * - Once the notes are closing, the controls take no input, and the
  *   rich-text view stays mounted
  */
 import '../../lib/dom.test-support.ts';
 import { afterEach, expect, test } from 'bun:test';
-import { click, type } from '../../lib/dom.test-support.ts';
+import { click, leave, type } from '../../lib/dom.test-support.ts';
 import {
 	noteText,
 	openNotesFolder,
@@ -123,6 +123,7 @@ test('typing a title saves it, and switching tabs or typing keeps the one rich-t
 	flushSync();
 	expect(richOf(target)).toBe(rich);
 	type(titleOf(target), 'Retitled');
+	leave(titleOf(target));
 	await tick();
 	await settle();
 	expect(text(PATH)).toContain('title: Retitled');
@@ -173,10 +174,11 @@ test('different Source text replaces the rich-text document, and typing goes on 
 	expect(notes.noteBody(PATH).row?.body).toBe('Different again\n');
 });
 
-test('a save that meets a change made elsewhere merges with it: the edit wins where both changed', async () => {
+test('a title saved over a change made elsewhere keeps their body and wins the title', async () => {
 	const { target, put, text, failures, settle } = await view();
 	put(PATH, noteText({ title: 'Theirs', body: 'Their body.\n' }));
 	type(titleOf(target), 'Mine');
+	leave(titleOf(target));
 	await tick();
 	await settle();
 	expect(failures).toEqual([]);

@@ -1,9 +1,13 @@
 <!--
 	One recording: its audio, transcripts, notes, and source. The fields come
 	from the recordings listing in the cache, so this view never disagrees
-	with the table. An edit holds the version it started from and is saved
-	at once, merged with whatever changed since. A recording deleted
-	elsewhere is never written again: its save fails, and the view closes.
+	with the table. The title is held here while typed and sent a second
+	after the last keystroke, when the person leaves it, and when the view
+	goes away, as an update of the file as it is now (ADR-0554). The notes
+	are the file's body: a draft that keeps the version it started from,
+	saved on the same pause and merged with whatever changed since. A
+	recording deleted elsewhere is never written again: its save fails, and
+	the view closes.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -17,11 +21,13 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { parseRow, type Row, rowStemOf } from '@epicenter/folder';
+	import { parseRow, rowStemOf } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { wellFormed } from '@epicenter/folder';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { audioPathIn, RECORDINGS, type RecordingFields, whisperingDefinition } from '$lib/definition.js';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { useDebounce } from 'runed';
+	import { onDestroy } from 'svelte';
+	import { audioPathIn, RECORDINGS, whisperingDefinition } from '$lib/definition.js';
 	import type { Library, RecordingEntry } from '$lib/library.svelte.js';
 	import { committedState } from '$lib/status.js';
 	import AudioPlayer from './AudioPlayer.svelte';
@@ -68,10 +74,36 @@
 	const locked = $derived(library.locked(path));
 	const saving = $derived(library.isSaving(path));
 
-	/** Change the recording; it is saved at once. */
-	function set(change: (row: Row<RecordingFields>) => void) {
-		library.editRow(RECORDINGS, id, change);
+	// The parent keys this view by the file. While it replaces the view, the
+	// prop already reads the next file, so what is sent as the view goes away
+	// uses this one.
+	// svelte-ignore state_referenced_locally
+	const own = path;
+	const ownId = rowStemOf(RECORDINGS, own) ?? own;
+
+	const saveTitle = createMutation(() => library.fieldUpdate(RECORDINGS));
+	/** The title typed and not yet saved; `undefined` shows the file. */
+	let typedTitle = $state<string>();
+	function sendTitle() {
+		if (typedTitle === undefined || !library.canEdit(own)) return;
+		const sent = typedTitle;
+		saveTitle.mutate(
+			{ stem: ownId, set: { title: sent } },
+			{
+				onSuccess: () => {
+					if (typedTitle === sent) typedTitle = undefined;
+				},
+			},
+		);
 	}
+	const sendTitleLater = useDebounce(sendTitle, 1000);
+	// runed's timer, and the library's for the notes and the text, outlive
+	// the view; send them now instead.
+	onDestroy(() => {
+		void sendTitleLater.runScheduledNow();
+		void library.saveBody(own);
+		void library.saveText(own);
+	});
 	const results = $derived(library.resultsFor(id));
 	const run = $derived(library.transcriptionRun(id));
 	/** The audio the row names. Nothing is guessed from another file's name. */
@@ -102,12 +134,13 @@
 			<Input
 				class="flex-1 text-base font-medium"
 				bind:value={
-					() => row?.fields.title ?? '',
-					(value) =>
-						set((r) => {
-							r.fields.title = wellFormed(value);
-						})
+					() => typedTitle ?? row?.fields.title ?? '',
+					(value) => {
+						typedTitle = wellFormed(value);
+						void sendTitleLater();
+					}
 				}
+				onblur={() => void sendTitleLater.runScheduledNow()}
 				disabled={locked}
 				placeholder="Title"
 				aria-label="Recording title"
@@ -123,7 +156,14 @@
 	</div>
 
 	<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-		{saving ? 'Saving…' : `Saved to ${path}`}
+		{saving || saveTitle.isPending || (sendTitleLater.pending && typedTitle !== undefined)
+			? 'Saving…'
+			: typedTitle !== undefined && saveTitle.isError
+				? 'Not saved'
+				: `Saved to ${path}`}
+		{#if typedTitle !== undefined && saveTitle.isError && !saveTitle.isPending}
+			<Button variant="link" size="xs" class="h-auto p-0" onclick={sendTitle}>Try again</Button>
+		{/if}
 	</p>
 
 	{#if issues}
@@ -203,11 +243,9 @@
 						class="min-h-28 resize-y font-sans"
 						bind:value={
 							() => lf(row?.body ?? ''),
-							(value) =>
-								set((r) => {
-									r.body = withFileNewlines(wellFormed(value), r.body);
-								})
+							(value) => library.editBody(RECORDINGS, ownId, withFileNewlines(wellFormed(value), row?.body ?? ''))
 						}
+						onblur={() => void library.saveBody(own)}
 						disabled={locked}
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
@@ -268,11 +306,12 @@
 		<Tabs.Content value="source" class="flex min-h-0 flex-1 flex-col gap-2">
 			{#if text !== undefined}
 				<p class="text-xs text-muted-foreground">
-					The file’s exact text. It saves as typed, readable or not.
+					The file’s exact text. It saves when you pause, readable or not.
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
 					bind:value={() => lf(text ?? ''), (value) => library.editText(path, withFileNewlines(value, text ?? ''))}
+					onblur={() => void library.saveText(path)}
 					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}

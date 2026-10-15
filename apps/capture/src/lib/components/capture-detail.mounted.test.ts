@@ -25,6 +25,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { flushSync, mount, unmount } from 'svelte';
 import {
+	blur,
 	button,
 	click,
 	field,
@@ -97,6 +98,7 @@ test('a save that meets a change made elsewhere merges with it, and the typing w
 	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
 	await harness.writeElsewhere(PATH, theirs);
 	type(field('capture-text'), 'Mine');
+	blur(field('capture-text'));
 	await settle(harness);
 	expect(harness.failures).toEqual([]);
 	expect(field('capture-text')?.value).toBe('Mine');
@@ -146,6 +148,7 @@ test('a file that is not a valid capture shows its issues as typed, and opens as
 	type(contents, fixed);
 	flushSync();
 	expect(harness.target.textContent).not.toContain('Needs repair');
+	blur(contents);
 	await settle(harness);
 	expect(await harness.text(PATH)).toBe(fixed);
 	click(button('Open as capture'));

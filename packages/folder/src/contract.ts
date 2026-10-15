@@ -55,6 +55,7 @@ export {
 	type TableReadError,
 	type TableRenameError,
 	type TableSaveError,
+	type TableUpdateError,
 	type TableWriteError,
 } from './errors.js';
 export type { FolderFiles } from './files.js';
@@ -154,11 +155,13 @@ export {
 	type SavedFile,
 	type SaveOptions,
 } from './save-file.js';
-export type {
-	FileTable,
-	SavedRow,
-	StoredRow,
-	TableListing,
+export {
+	type FileTable,
+	type RowUpdate,
+	type SavedRow,
+	type StoredRow,
+	type TableListing,
+	UPDATE_ATTEMPTS,
 } from './table.js';
 
 /**

@@ -33,16 +33,9 @@ import {
 	prepareGitSession,
 } from '../../server/git-server.js';
 import { todosDefinition } from './definition.js';
-import {
-	cached,
-	editorsReady,
-	observe,
-	quiet,
-	rowEditor,
-} from './query.test-support.js';
+import { cached, observe, quiet, rowEditor } from './query.test-support.js';
 
 const { createTodos } = await import('./todos.svelte.ts');
-await editorsReady;
 
 const originalFetch = globalThis.fetch;
 const env = {
@@ -136,12 +129,7 @@ async function pushMilk(session: GitSession, text: string) {
 	await run(native, ['git', 'push', '--quiet', session.bare, 'main']);
 }
 
-const titled =
-	(title: string) =>
-	<T extends { fields: { title: string; done: boolean } }>(row: T): T => ({
-		...row,
-		fields: { ...row.fields, title },
-	});
+const titled = (title: string) => ({ title });
 
 test('a sync waits for queued writes, so its checkpoint holds what was typed', async () => {
 	const { todos, session } = await openDemo();

@@ -3,21 +3,19 @@
  *
  * Drives the real Todos store and its TanStack Query cache against a real
  * browser folder over an in-memory OPFS stand-in. Views are stood in for as
- * they behave: a screen observes the queries it shows, and an editor holds a
- * draft (`createDraftState`) and saves it with its own save mutation.
+ * they behave: a screen observes the queries it shows, and a control sends
+ * each change through its own update mutation (ADR-0554).
  *
  * Key behaviors:
- * - An edit is held by its draft and written to the file; the cache takes
- *   the row the save wrote
- * - Rapid edits run one save at a time; changes made meanwhile are sent
- *   next, from the version the last save wrote, so typing never conflicts
- *   with itself
+ * - An update is written to the file; the cache takes the row it wrote
+ * - One todo's updates run one at a time, in the order made, each over the
+ *   file the last one wrote, so a checkbox never undoes a title, and they
+ *   run while the window is hidden
  * - A change another page made reaches the cache through the folder's
- *   change channel; a read updates the cache, never an edit's draft
- * - A save over a file changed elsewhere merges with it: the edit wins only
- *   where both changed
- * - A save that fails keeps the draft and reports the text it holds; the
- *   folder refuses a value it cannot hold the same way
+ *   change channel, and an update keeps it: the update sets only its fields
+ * - An update over a file changed elsewhere keeps every field it did not set
+ * - An update that fails is reported and writes nothing; the folder refuses
+ *   a value it cannot hold the same way
  * - A row that is not a valid todo is named for repair, and reads as a todo
  *   once another editor fixes it
  * - Delete runs after running saves and acts on what the last one saved; a
@@ -42,7 +40,6 @@ import { todosDefinition } from './definition.js';
 import { holdCloses } from './opfs-holds.test-support.js';
 import {
 	cached,
-	editorsReady,
 	listing,
 	observe,
 	quiet,
@@ -54,7 +51,6 @@ import { repairsOf, todosOf } from './todo-listing.js';
 import type { Todos } from './todos.svelte.js';
 
 const { createTodos } = await import('./todos.svelte.ts');
-await editorsReady;
 
 const cleanup: (() => unknown)[] = [];
 let count = 0;
@@ -166,26 +162,22 @@ async function addTodo(todos: Todos, title: string) {
 	return { stem, path: created.path };
 }
 
-const titled =
-	(title: string) =>
-	<T extends { fields: { title: string; done: boolean } }>(row: T): T => ({
-		...row,
-		fields: { ...row.fields, title },
-	});
+/** A title box's update. */
+const titled = (title: string) => ({ title });
+/** A checkbox's update. */
+const marked = (done: boolean) => ({ done });
 
 // ============================================================================
 // Edits and saves
 // ============================================================================
 
-test('an edit is held by its draft and written to the file; the cache takes the row the save wrote', async () => {
-	const { todos } = await open();
+test('an update is written to the file; the cache takes the row it wrote', async () => {
+	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 
-	const set = rowEditor(todos, stem);
-	set(titled('Oat milk'));
-	expect(set.draft.row?.fields.title).toBe('Oat milk');
+	rowEditor(todos, stem)(titled('Oat milk'));
 	await quiet(todos);
-	expect(set.draft.row).toBeUndefined();
+	expect(failures).toEqual([]);
 	expect(await text(todos, path)).toBe(
 		'---\ntitle: Oat milk\ndone: false\n---\n',
 	);
@@ -193,32 +185,29 @@ test('an edit is held by its draft and written to the file; the cache takes the 
 	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
 });
 
-test('rapid edits run one save at a time, and the changes made meanwhile are sent next with no conflict', async () => {
+test("one todo's updates run one at a time in the order made, so a checkbox does not undo a title", async () => {
 	const { todos, counter, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	const set = rowEditor(todos, stem);
+	const title = rowEditor(todos, stem);
+	const done = rowEditor(todos, stem);
 	const writes = counter.mdWrites;
 
 	const { held, release } = holdNextWrite();
-	set(titled('O'));
+	void title(titled('Oat milk'));
 	await held;
-	for (const title of ['Oa', 'Oat', 'Oat ', 'Oat m', 'Oat milk'])
-		set(titled(title));
-	// One save runs; the draft holds the rest.
-	expect(todos.queryClient.isMutating()).toBe(1);
-	expect(set.draft.row?.fields.title).toBe('Oat milk');
+	void done(marked(true));
+	// The checkbox's update waits for the title's to land.
+	expect(todos.queryClient.isMutating()).toBe(2);
+	expect(counter.mdWrites - writes).toBe(1);
 
 	release();
 	await quiet(todos);
 	expect(failures).toEqual([]);
 	expect(counter.mdWrites - writes).toBe(2);
-	expect(await text(todos, path)).toContain('title: Oat milk');
+	expect(await text(todos, path)).toBe(
+		'---\ntitle: Oat milk\ndone: true\n---\n',
+	);
 	expect(cached(todos, stem).sha256).toBe(await sha(todos, path));
-
-	set(titled('Oat milk, two'));
-	await quiet(todos);
-	expect(failures).toEqual([]);
-	expect(await text(todos, path)).toContain('title: Oat milk, two');
 });
 
 /** The browser hides the page, as when the person switches tabs. Returns the undo. */
@@ -234,14 +223,13 @@ function hideWindow() {
 	};
 }
 
-test('a save of changes made meanwhile still runs while the window is hidden', async () => {
+test('an update waiting for the one before still runs while the window is hidden', async () => {
 	const { todos, failures, holdNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	const set = rowEditor(todos, stem);
 	const { held, release } = holdNextWrite();
-	set(titled('Oat'));
+	void rowEditor(todos, stem)(titled('Oat'));
 	await held;
-	set(titled('Oat milk'));
+	void rowEditor(todos, stem)(titled('Oat milk'));
 
 	const show = hideWindow();
 	try {
@@ -254,17 +242,18 @@ test('a save of changes made meanwhile still runs while the window is hidden', a
 	expect(failures).toEqual([]);
 });
 
-test("another page's change reaches the cache through the folder's channel, and a read never touches a draft", async () => {
-	const { todos, failures, otherPage, failNextWrite } = await open();
+test("another page's change reaches the cache through the folder's channel, and an update keeps it", async () => {
+	const { todos, failures, otherPage } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const other = await otherPage();
 
-	// Another page marks it done; the listing reads it without a focus.
+	// Another page marks it done and adds notes; the listing reads it
+	// without a focus.
 	const theirs = expectOk(await other.tables.todos.get(stem))!;
 	expectOk(
 		await other.tables.todos.save(theirs, {
-			...theirs.row,
 			fields: { ...theirs.row.fields, done: true },
+			body: 'From the shop.\n',
 		}),
 	);
 	for (
@@ -275,47 +264,25 @@ test("another page's change reaches the cache through the folder's channel, and 
 		await Bun.sleep(2);
 	expect(cached(todos, stem).row.fields.done).toBe(true);
 
-	// An edit here starts a draft, kept by a save that failed; their next
-	// change updates the cache only.
-	failNextWrite(path);
-	const set = rowEditor(todos, stem);
-	set(titled('Oat milk'));
+	await rowEditor(todos, stem)(titled('Oat milk'));
 	await quiet(todos);
-	expect(failures).toHaveLength(1);
-	const next = expectOk(await other.tables.todos.get(stem))!;
-	expectOk(
-		await other.tables.todos.save(next, {
-			...next.row,
-			body: 'From the shop.\n',
-		}),
-	);
-	for (
-		let tries = 0;
-		tries < 200 && cached(todos, stem).row.body === '';
-		tries++
-	)
-		await Bun.sleep(2);
-	expect(set.draft.row?.fields.title).toBe('Oat milk');
-	expect(set.draft.row?.body).toBe('');
-	await set.draft.save();
-	await quiet(todos);
-	// The save merged: the edit's title, and their notes and completion.
-	expect(failures).toHaveLength(1);
+	expect(failures).toEqual([]);
 	expect(await text(todos, path)).toBe(
 		'---\ntitle: Oat milk\ndone: true\n---\nFrom the shop.\n',
 	);
 });
 
-test('a save that meets a change made elsewhere merges with it: the edit wins only where both changed', async () => {
+test('an update over a file changed elsewhere sets only its own field', async () => {
 	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
+	// The cache still holds the version from before this change.
 	const elsewhere = '---\ntitle: Milk from the shop\ndone: true\n---\n';
 	await writeElsewhere(todos, path, elsewhere);
 
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await quiet(todos);
 	expect(failures).toEqual([]);
-	// Both changed the title: the edit wins. Only the other side marked it
+	// Both changed the title: the update wins. Only the other side marked it
 	// done, so that stays.
 	expect(await text(todos, path)).toBe(
 		'---\ntitle: Oat milk\ndone: true\n---\n',
@@ -324,68 +291,36 @@ test('a save that meets a change made elsewhere merges with it: the edit wins on
 		title: 'Oat milk',
 		done: true,
 	});
-
-	// The next edit starts from what is there now.
-	rowEditor(todos, stem)(titled('Oat milk, two'));
-	await quiet(todos);
-	expect(failures).toEqual([]);
-	expect(await text(todos, path)).toBe(
-		'---\ntitle: Oat milk, two\ndone: true\n---\n',
-	);
 });
 
-test('a save that fails keeps the draft and reports its text; the next save sends it', async () => {
+test('an update that fails is reported and writes nothing; the next one sends', async () => {
 	const { todos, failures, failNextWrite } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const saved = await text(todos, path);
 	const set = rowEditor(todos, stem);
 
 	failNextWrite(path);
-	set(titled('First'));
+	await set(titled('First'));
 	await quiet(todos);
-	expect(failures.map((failure) => failure.unsaved)).toEqual([
-		expect.stringContaining('title: First'),
-	]);
+	expect(failures).toMatchObject([{ path, unsaved: '' }]);
 	expect(await text(todos, path)).toBe(saved);
 	expect(cached(todos, stem).row.fields.title).toBe('Milk');
-	expect(set.draft.row?.fields.title).toBe('First');
 
-	set(titled('Second'));
+	await set(titled('Second'));
 	await quiet(todos);
-	expect(set.draft.row).toBeUndefined();
 	expect(await text(todos, path)).toContain('title: Second');
 });
 
-test('after a merge, changes made meanwhile keep what the merge took from the other side', async () => {
-	const { todos, failures, holdNextWrite } = await open();
-	const { stem, path } = await addTodo(todos, 'Milk');
-	await writeElsewhere(todos, path, '---\ntitle: Milk\ndone: true\n---\n');
-	const set = rowEditor(todos, stem);
-
-	const { held, release } = holdNextWrite();
-	set(titled('First'));
-	await held;
-	set(titled('Second'));
-	release();
-	await quiet(todos);
-	expect(failures).toEqual([]);
-	// The first save merged in `done`; the second continues from what it
-	// wrote, so it does not undo it.
-	expect(await text(todos, path)).toBe('---\ntitle: Second\ndone: true\n---\n');
-});
-
-test('the folder refuses a value it cannot hold; the cache keeps the file and the draft keeps the edit', async () => {
+test('the folder refuses a value it cannot hold; the cache keeps the file', async () => {
 	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const saved = await text(todos, path);
 	// Inputs commit only values the schema accepts; this bypasses them.
-	const set = rowEditor(todos, stem);
-	set(titled('Lone \uD800 surrogate'));
+	rowEditor(todos, stem)(titled('Lone \uD800 surrogate'));
 	await quiet(todos);
 	expect(failures).toMatchObject([{ path, error: { name: 'InvalidValues' } }]);
 	expect(await text(todos, path)).toBe(saved);
 	expect(cached(todos, stem).row.fields.title).toBe('Milk');
-	expect(set.draft.row?.fields.title).toBe('Lone \uD800 surrogate');
 });
 
 // ============================================================================
@@ -579,15 +514,14 @@ test('an edit made while close waits is written before the folder closes', async
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const set = rowEditor(todos, stem);
 	const { held, release } = holdNextWrite();
-	set(titled('Oat'));
+	void set(titled('Oat'));
 	await held;
 	const closing = todos.close();
-	// Close is waiting for the held save; the draft sends this edit next.
-	set(titled('Oat milk'));
+	// Close is waiting for the held update; this one runs after it.
+	void set(titled('Oat milk'));
 	release();
 	await closing;
 	expect(todos.folder.signal.aborted).toBe(true);
-	expect(set.draft.row).toBeUndefined();
 	expect(await textElsewhere(await otherPage(), path)).toContain(
 		'title: Oat milk\n',
 	);

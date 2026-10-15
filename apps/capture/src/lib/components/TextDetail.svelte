@@ -1,7 +1,8 @@
 <!--
 	One capture file as its exact Markdown, frontmatter included. Typing is
-	held over the file's text and written at once, valid or not, so a file
-	that is not a valid capture is repaired here. What keeps it from
+	held over the file's text and written a second after the last keystroke,
+	when the person leaves the text, and when this view goes away, valid or
+	not, so a file that is not a valid capture is repaired here. What keeps it from
 	reading as a capture is read live from the text; once nothing does, Open
 	as capture shows its text and thoughts. The parent keys this view by the
 	capture.
@@ -16,7 +17,8 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { untrack } from 'svelte';
+	import { useDebounce } from 'runed';
+	import { onDestroy, untrack } from 'svelte';
 	import type { Captures } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
@@ -39,6 +41,9 @@
 		file.data?.kind === 'text' ? (typed ?? file.data.file.text) : undefined,
 	);
 	const locked = $derived(captures.fenced || captures.isRemoving(path));
+	const saveLater = useDebounce(() => captures.saveText(path), 1000);
+	// runed's timer outlives the view; save now instead.
+	onDestroy(() => void saveLater.runScheduledNow());
 
 	/** Why the text is not a capture yet: each with its line when it has one. */
 	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
@@ -80,7 +85,7 @@
 			<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					This text does not read as a capture yet. Fix it here; it saves as you type.
+					This text does not read as a capture yet. Fix it here; it saves when you pause.
 				</p>
 				<ul class="space-y-0.5 text-muted-foreground">
 					{#each issues as issue, index (index)}
@@ -99,12 +104,14 @@
 				() => toTextarea(text ?? ''),
 				(typed) => {
 					if (text === undefined) return;
-					captures.editText(
+					const taken = captures.editText(
 						path,
 						fromTextarea(text, wellFormed(typed), text.includes('\r\n') ? '\r\n' : '\n'),
 					);
+					if (taken) void saveLater();
 				}
 			}
+			onblur={() => void saveLater.runScheduledNow()}
 		/>
 	{:else if file.data !== undefined}
 		<Empty.Root role="alert">

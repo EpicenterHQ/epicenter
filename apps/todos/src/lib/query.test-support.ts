@@ -9,11 +9,10 @@
  * together.
  *
  * The helpers stand in for what the views do: a screen that shows a query
- * observes it, and a view that edits a todo holds a draft and saves it with
- * its own save mutation. Load this after `svelte-modules.test-support.js`,
- * which compiles the draft's runes module.
+ * observes it, and a control that edits a todo sends each change through its
+ * own update mutation.
  */
-import type { FileCapture, Row, StoredRow } from '@epicenter/folder';
+import type { FileCapture, StoredRow } from '@epicenter/folder';
 import { MutationObserver, QueryObserver } from '@tanstack/query-core';
 import type { TodoFields } from './definition.js';
 import type { TodoListing } from './todo-listing.js';
@@ -21,37 +20,34 @@ import type { Todos } from './todos.svelte.js';
 
 export { QueryObserver };
 
-let createDraftState: typeof import('@epicenter/folder/svelte').createDraftState;
 /**
- * Resolves once the draft's runes module is loaded. A test file awaits it at
- * its top level before using `rowEditor`; Bun does not hold this module's
- * importers for a top-level await of a plugin-compiled module.
- */
-export const editorsReady = import('@epicenter/folder/svelte').then(
-	(module) => {
-		createDraftState = module.createDraftState;
-	},
-);
-
-/**
- * What a view that edits the todo at `stem` does with each change: start or
- * continue its draft from the row the cache holds, then save. Answers the
- * editor, with its draft.
+ * What a view's control of the todo at `stem` does with each change: send
+ * it through the control's own update mutation, a change to the todo's
+ * fields as its file holds them then. Each call resolves once its update
+ * landed or failed; a failure is the store's to report.
  */
 export function rowEditor(todos: Todos, stem: string) {
-	const save = new MutationObserver(todos.queryClient, todos.rows.save);
-	const draft = createDraftState<TodoFields>({
-		save: (sent) => save.mutate(sent),
-	});
-	const edit = (change: (row: Row<TodoFields>) => Row<TodoFields>) => {
-		draft.change(cached(todos, stem), (row) => {
-			const next = change(row);
-			row.fields = next.fields;
-			row.body = next.body;
-		});
-		void draft.save();
+	const update = new MutationObserver(todos.queryClient, todos.rows.update);
+	return (set: Partial<TodoFields>) =>
+		update.mutate({ stem, set }).then(
+			() => undefined,
+			() => undefined,
+		);
+}
+
+/**
+ * What the detail's notes do once a pause in typing sends them: save `body`
+ * over the row the cache holds, through the notes' save mutation.
+ */
+export function notesEditor(todos: Todos, stem: string) {
+	const save = new MutationObserver(todos.queryClient, todos.rows.saveNotes);
+	return (body: string) => {
+		const base = cached(todos, stem);
+		return save.mutate({ base, row: { fields: base.row.fields, body } }).then(
+			() => undefined,
+			() => undefined,
+		);
 	};
-	return Object.assign(edit, { draft });
 }
 
 /**

@@ -1,14 +1,12 @@
 <!--
-	One todo in the list. Its checkbox is an edit like any other: a draft
-	that starts from the row the list shows and is saved at once. Any other
-	view editing the same todo holds its own draft; the saves merge.
+	One todo in the list. Its checkbox shows the file and sends its change at
+	once, an update of the file as it is now (ADR-0554), so it never undoes a
+	title typed in the detail; the todo's writes run one at a time.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
-	import { createDraftState } from '@epicenter/folder/svelte';
 	import { createMutation, useIsMutating } from '@tanstack/svelte-query';
-	import type { TodoFields } from '$lib/definition.js';
 	import { todosKeys } from '$lib/session.js';
 	import type { TodoEntry } from '$lib/todo-listing.js';
 	import { getTodos } from '$lib/todos.svelte.js';
@@ -26,12 +24,11 @@
 		onOpen?: (stem: string) => void;
 	} = $props();
 
-	const save = createMutation(() => todos.rows.save);
-	const draft = createDraftState<TodoFields>({ save: (sent) => save.mutateAsync(sent) });
+	const saveDone = createMutation(() => todos.rows.update);
 	// The list keys each row by its stem, so a row's path never changes.
 	// svelte-ignore state_referenced_locally
 	const deleting = useIsMutating({ mutationKey: todosKeys.remove(entry.path) });
-	const done = $derived((draft.row ?? entry.row).fields.done);
+	const done = $derived(entry.row.fields.done);
 	const title = $derived.by(() => {
 		const typed = entry.row.fields.title;
 		if (typed.trim() !== '') return typed;
@@ -48,12 +45,8 @@
 	<Checkbox
 		bind:checked={
 			() => done,
-			(next) => {
-				draft.change(entry, (row) => {
-					row.fields.done = next;
-				});
-				void draft.save();
-			}
+			(next) =>
+				saveDone.mutate({ stem: entry.stem, set: { done: next } })
 		}
 		disabled={deleting.current > 0}
 		aria-label="{done ? 'Reopen' : 'Complete'} {title}"

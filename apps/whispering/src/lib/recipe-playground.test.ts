@@ -306,7 +306,6 @@ test('removing an earlier endpoint from a recipe lets it run with the text conne
 	editor.edit((row) => {
 		row.fields.endpoint = null;
 	});
-	expect(editor.draft.fields.endpoint).toBeNull();
 	expect(await library.transform(transcript.path, path)).toBeUndefined();
 
 	expect(transformed).toEqual([

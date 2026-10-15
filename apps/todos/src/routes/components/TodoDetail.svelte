@@ -1,13 +1,22 @@
 <!--
 	One todo: one entry of the listing, read through `todos.rows.entry`, so it
-	never disagrees with the list. An edit is this view's draft: it starts
-	from the row shown at the first change, and a read that lands meanwhile
-	updates the list, never the draft. Saves run one at a time, and a file
-	changed elsewhere is merged with the edit. A file that does not read as a
-	todo shows its text and what to fix, read-only: another editor fixes it,
-	and the folder's change report shows the result. Delete carries the
-	version this view shows when the person asks. Todos does not rename
-	files; the file system, Git, or another program does.
+	never disagrees with the list. The parent keys this view by the todo, so a
+	pending save always lands on the todo it was typed into (ADR-0554).
+
+	The done checkbox sends its change at once and shows the file. The title
+	is held in this view's state while typed, sent a second after the last
+	keystroke, and sent at once when the person leaves the field or the view
+	goes away; the typed value clears once its save lands with nothing typed
+	since. Each is an update of the file as it is now, so neither undoes the
+	other or another writer's change to another field. The notes are a
+	document: a body draft that keeps the version it started from, saved on
+	the same pause and merged by line with whatever changed since.
+
+	A file that does not read as a todo shows its text and what to fix,
+	read-only: another editor fixes it, and the folder's change report shows
+	the result. Delete carries the version this view shows when the person
+	asks. Todos does not rename files; the file system, Git, or another
+	program does.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -21,11 +30,13 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { type Row, wellFormed } from '@epicenter/folder';
+	import { wellFormed } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { createDraftState } from '@epicenter/folder/svelte';
+	import { createBodyDraftState } from '@epicenter/folder/svelte';
 	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 	import { createMutation, createQuery, useIsMutating } from '@tanstack/svelte-query';
+	import { useDebounce } from 'runed';
+	import { onDestroy } from 'svelte';
 	import type { TodoFields } from '$lib/definition.js';
 	import { describeError } from '$lib/describe-error.js';
 	import { todosKeys } from '$lib/session.js';
@@ -35,7 +46,7 @@
 	const todos = getTodos();
 
 	let {
-		stem,
+		stem: shownStem,
 		onBack,
 		onDeleted,
 	}: {
@@ -47,15 +58,16 @@
 		onDeleted?: () => void;
 	} = $props();
 
-	const path = $derived(todoPath(stem));
+	// The parent keys this view by the todo. While the parent replaces it,
+	// the prop already reads the next todo, so this view keeps its own: a
+	// save sent as it goes away lands on the todo it was typed into.
+	// svelte-ignore state_referenced_locally
+	const stem = shownStem;
+	const path = todoPath(stem);
 	const todo = createQuery(() => todos.rows.entry(stem));
-	const save = createMutation(() => todos.rows.save);
-	const draft = createDraftState<TodoFields>({
-		save: (sent) => save.mutateAsync(sent),
-		// Name what a save replaced of another writer's change, and offer it back.
-		onSaved: ({ replaced, stored }, restore) =>
-			void toastReplaced({ replaced, subject: stored.row.fields.title, restore }),
-	});
+	const saveDone = createMutation(() => todos.rows.update);
+	const saveTitle = createMutation(() => todos.rows.update);
+	const saveNotes = createMutation(() => todos.rows.saveNotes);
 	/** The row as the cache holds it, when the file reads as a todo. */
 	const stored = $derived(todo.data?.result.error === null ? todo.data.result.data : undefined);
 	/**
@@ -64,18 +76,66 @@
 	 * cover that.
 	 */
 	// svelte-ignore state_referenced_locally
-	const deleting = useIsMutating({ mutationKey: todosKeys.remove(todoPath(stem)) });
+	const deleting = useIsMutating({ mutationKey: todosKeys.remove(path) });
 	const locked = $derived(deleting.current > 0);
 
-	/** Change the draft, starting it from the row shown, and save. */
-	function set(edit: (row: Row<TodoFields>) => void) {
-		if (stored === undefined || locked) return;
-		draft.change(stored, edit);
-		void draft.save();
+	/** The title typed and not yet saved; `undefined` shows the file. */
+	let title = $state<string>();
+	function sendTitle() {
+		if (title === undefined) return;
+		const sent = title;
+		saveTitle.mutate(
+			{ stem, set: { title: sent } },
+			{
+				onSuccess: () => {
+					if (title === sent) title = undefined;
+				},
+			},
+		);
 	}
+	const sendTitleLater = useDebounce(sendTitle, 1000);
 
-	/** Textareas report LF, so views show LF; the setters restore the file's convention. */
+	/** The notes typed and not yet saved, with the version they started from. */
+	const notes = createBodyDraftState<TodoFields>({
+		save: ({ base, content }) =>
+			saveNotes.mutateAsync({ base, row: { fields: base.row.fields, body: content } }),
+		// Name what a save replaced of another writer's lines, and offer them back.
+		onSaved: ({ replaced, stored }, restore) =>
+			void toastReplaced({ replaced, subject: stored.row.fields.title, restore }),
+	});
+	const sendNotesLater = useDebounce(() => notes.save(), 1000);
+
+	/** Send what is typed now, as leaving the field does. */
+	function flush() {
+		void sendTitleLater.runScheduledNow();
+		void sendNotesLater.runScheduledNow();
+	}
+	// runed's timers outlive the view; send now instead.
+	onDestroy(flush);
+
+	/** Textareas report LF, so views show LF; the setter restores the file's convention. */
 	const lf = (text: string) => text.replace(/\r\n?/g, '\n');
+
+	const pending = $derived(
+		saveDone.isPending ||
+			saveTitle.isPending ||
+			notes.saving ||
+			(sendTitleLater.pending && title !== undefined) ||
+			(sendNotesLater.pending && notes.text !== undefined),
+	);
+	/** Why typed text is not in the file, while it is still typed. */
+	const failure = $derived(
+		title !== undefined && saveTitle.error
+			? saveTitle.error
+			: notes.text !== undefined && saveNotes.error
+				? saveNotes.error
+				: undefined,
+	);
+
+	function tryAgain() {
+		sendTitle();
+		void notes.save();
+	}
 
 	/** What deleting this file loses, as Git status reports it now. */
 	async function history() {
@@ -89,16 +149,18 @@
 
 	/**
 	 * Ask before deleting this file, named by its title when it has one. The
-	 * dialog opens once this view's draft and every running save have landed,
-	 * on the version they left, and the delete runs only on that version.
+	 * dialog opens once what is typed here and every running save have
+	 * landed, on the version they left, and the delete runs only on that
+	 * version.
 	 */
-	async function confirmDelete(title: string | undefined) {
-		await draft.save();
+	async function confirmDelete(shownTitle: string | undefined) {
+		await Promise.all([sendTitleLater.runScheduledNow(), sendNotesLater.runScheduledNow()]);
+		await notes.save();
 		const version = await todos.rows.shown(stem);
 		const lost = await history();
 		if (version === undefined) return;
 		confirmationDialog.open({
-			title: `Delete “${title?.trim() ? title : `${stem}.md`}”?`,
+			title: `Delete “${shownTitle?.trim() ? shownTitle : `${stem}.md`}”?`,
 			description: `This deletes ${path} from the folder. ${lost}`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
@@ -127,13 +189,17 @@
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
 	{#if stored}
-		{@const row = draft.row ?? stored.row}
+		{@const shownTitle = title ?? stored.row.fields.title}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<Checkbox
 				aria-label="Done"
 				disabled={locked}
-				bind:checked={() => row.fields.done, (done) => set((r) => { r.fields.done = done; })}
+				bind:checked={
+					() => stored.row.fields.done,
+					(done) =>
+						saveDone.mutate({ stem, set: { done } })
+				}
 			/>
 			<Input
 				class="flex-1 text-base font-medium"
@@ -141,23 +207,24 @@
 				aria-label="Title"
 				disabled={locked}
 				bind:value={
-					() => row.fields.title,
-					(title) => set((r) => { r.fields.title = wellFormed(title); })
+					() => shownTitle,
+					(typed) => {
+						title = wellFormed(typed);
+						void sendTitleLater();
+					}
 				}
+				onblur={() => void sendTitleLater.runScheduledNow()}
 			/>
 		</div>
 
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{#if draft.saving}
+			{#if pending}
 				Saving…
-			{:else if draft.row && save.error}
-				Not saved: {describeError(save.error)}
-				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void draft.save()}>Try again</Button>
+			{:else if failure}
+				Not saved: {describeError(failure)}
+				<Button variant="link" size="xs" class="h-auto p-0" onclick={tryAgain}>Try again</Button>
 			{:else}
 				Saved to {path}
-			{/if}
-			{#if draft.changedElsewhere(stored)}
-				Changed elsewhere; your edit will be merged.
 			{/if}
 		</p>
 
@@ -168,13 +235,18 @@
 				aria-label="Notes"
 				disabled={locked}
 				bind:value={
-					() => lf(row.body),
-					(notes) => set((r) => { r.body = withFileNewlines(wellFormed(notes), r.body); })
+					() => lf(notes.text ?? stored.row.body),
+					(typed) => {
+						const base = notes.base ?? stored;
+						notes.change(stored, withFileNewlines(wellFormed(typed), base.row.body));
+						void sendNotesLater();
+					}
 				}
+				onblur={() => void sendNotesLater.runScheduledNow()}
 			/>
 		</div>
 
-		{@render fileBar(row.fields.title)}
+		{@render fileBar(shownTitle)}
 	{:else if todo.data?.result.error?.name === 'InvalidRow'}
 		{@const error = todo.data.result.error}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">

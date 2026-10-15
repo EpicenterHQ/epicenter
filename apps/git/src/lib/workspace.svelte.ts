@@ -14,7 +14,11 @@ import {
 	type TextCapture,
 } from '@epicenter/folder';
 import { readTextFile, withFileNewlines } from '@epicenter/folder/file-browser';
-import { createTextDraft, type TextDraft } from '@epicenter/folder/query';
+import {
+	createTextDraft,
+	type TextDraft,
+	writtenFile,
+} from '@epicenter/folder/query';
 import { describeSync } from '@epicenter/svelte/sync-line';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Result } from 'wellcrafted/result';
@@ -210,7 +214,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			saveMessage = result.error.message;
 			throw new Error(result.error.message);
 		}
-		await draft.saved(sent, result.data);
+		await draft.saved(sent, writtenFile(result.data));
 		showWritten(result.data);
 		buffer = draft.text ?? saved;
 		dirty = buffer !== saved;
@@ -391,10 +395,11 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			draft.change(capture, buffer);
 			dirty = buffer !== saved;
 			saveMessage = dirty ? 'Unsaved changes' : 'Saved';
+			// Saved a second after the last keystroke, or at once on blur.
 			clearTimeout(timer);
 			timer = setTimeout(() => {
 				void flush().catch(() => {});
-			}, 350);
+			}, 1000);
 		},
 		async useSavedText() {
 			clearTimeout(timer);

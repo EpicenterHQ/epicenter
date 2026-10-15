@@ -11,10 +11,10 @@
  *   opens it; listing and opening write nothing
  * - The timeline orders by the captured instant, names files that are not
  *   captures for repair as text, and lists unreadable files apart
- * - An edit is a draft over the cache, saved at once, keeping metadata
- *   Capture does not declare
- * - Rapid edits run one save at a time; the changes made meanwhile go in
- *   one more save, from the version the first wrote
+ * - An edit is a body draft over the cache, saved when the view sends it,
+ *   keeping metadata Capture does not declare
+ * - Saves run one at a time; text typed meanwhile goes in one more save,
+ *   from the version the first wrote
  * - A change reported on the folder's channel reads the view again, and
  *   never replaces an edit not saved yet
  * - A save that meets a change made elsewhere merges with it, and the edit
@@ -36,6 +36,8 @@ import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openCaptures } from './browser-folder.test-support.js';
+import type { CaptureForm } from './capture-form.svelte.js';
+import type { Captures } from './captures.svelte.js';
 import {
 	cached,
 	cachedText,
@@ -149,6 +151,19 @@ test('the timeline orders by the instant across offsets, names files to repair, 
 	]);
 });
 
+/** What the capture view does with typed text once the person pauses: put it in the form, then save. */
+function typeText(form: CaptureForm, text: string) {
+	form.inputText(text);
+	void form.flush();
+}
+
+/** What the text view does with typed text once the person pauses. */
+function typeFile(captures: Captures, path: string, text: string) {
+	const taken = captures.editText(path, text);
+	void captures.saveText(path);
+	return taken;
+}
+
 // ============================================================================
 // Edits and writes
 // ============================================================================
@@ -160,14 +175,14 @@ test('an edit is shown at once and saved to the file, keeping metadata Capture d
 	const form = captures.formOf('one');
 	form.inputNewThought('second');
 	expect(form.addThought()).toBe(true);
-	form.inputText('Edited');
-	expect(form.draft?.body).toContain('\nEdited\n');
+	typeText(form, 'Edited');
+	expect(form.body).toContain('\nEdited\n');
 	await quiet(captures);
 	expect(await harness.text(PATH)).toBe(
 		`${FORMATTED.replace('\nText\n', '\nEdited\n')}- second\n`,
 	);
 	// The saves landed: the edit is done, and the cache holds what they wrote.
-	expect(form.draft).toBeUndefined();
+	expect(form.body).toBeUndefined();
 	expect(cached(captures, 'one').sha256).toBe(
 		expectOk(await harness.folder.files.read(PATH)).sha256,
 	);
@@ -179,10 +194,10 @@ test('rapid edits run one save at a time, and the changes made meanwhile go in o
 	const { captures, counter } = harness;
 	const form = captures.formOf('one');
 	const { held, release } = harness.holdNextMarkdownWrite();
-	form.inputText('T');
+	typeText(form, 'T');
 	await held;
 	const before = counter.mdWrites;
-	for (const text of ['Ty', 'Typ', 'Typi', 'Typing']) form.inputText(text);
+	for (const text of ['Ty', 'Typ', 'Typi', 'Typing']) typeText(form, text);
 	expect(savesRunning(harness)).toBe(1);
 	release();
 	await quiet(captures);
@@ -198,19 +213,19 @@ test('a change reported elsewhere reads the view again, and never replaces an ed
 	const { captures } = harness;
 	const form = captures.formOf('one');
 	const { held, release } = harness.holdNextMarkdownWrite();
-	form.inputText('Mine');
+	typeText(form, 'Mine');
 	await held;
-	form.inputText('Mine, more');
+	typeText(form, 'Mine, more');
 	// The channel reports a change while the save is held: the view reads
 	// the file again, which still holds the version before the save.
 	await captures.queryClient.invalidateQueries(
 		captures.folder$.pathFilter([PATH]),
 	);
 	expect(cached(captures, 'one').row.body).toContain('\nText\n');
-	expect(form.draft?.body).toContain('\nMine, more\n');
+	expect(form.body).toContain('\nMine, more\n');
 	release();
 	await quiet(captures);
-	expect(form.draft).toBeUndefined();
+	expect(form.body).toBeUndefined();
 	expect(harness.failures).toEqual([]);
 	expect(cached(captures, 'one').row.body).toContain('\nMine, more\n');
 	expect(await harness.text(PATH)).toContain('\nMine, more\n');
@@ -219,7 +234,7 @@ test('a change reported elsewhere reads the view again, and never replaces an ed
 	await harness.writeElsewhere(PATH, `${await harness.text(PATH)}- theirs\n`);
 	await harness.reportChange(PATH);
 	expect(cached(captures, 'one').row.body).toContain('- theirs');
-	form.inputText('Mine again');
+	typeText(form, 'Mine again');
 	await quiet(captures);
 	const saved = await harness.text(PATH);
 	expect(saved).toContain('\nMine again\n');
@@ -232,7 +247,7 @@ test('a save that meets a change made elsewhere merges with it: the edit wins wh
 	const { captures } = harness;
 	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
 	await harness.writeElsewhere(PATH, theirs);
-	captures.formOf('one').inputText('Mine');
+	typeText(captures.formOf('one'), 'Mine');
 	await quiet(captures);
 	expect(harness.failures).toEqual([]);
 	// Both changed the text line, so the edit's stands. Only they removed
@@ -263,19 +278,19 @@ test('a save that fails keeps the edit and reports it, and the next change sends
 	const { captures } = harness;
 	const form = captures.formOf('one');
 	harness.failNextWrite(PATH);
-	form.inputText('First');
+	typeText(form, 'First');
 	await quiet(captures);
 	expect(harness.failures.map((failure) => failure.text)).toEqual([
 		expect.stringContaining('\nFirst\n'),
 	]);
 	expect(await harness.text(PATH)).toBe(HAND);
-	expect(form.draft?.body).toContain('\nFirst\n');
+	expect(form.body).toContain('\nFirst\n');
 	expect(captures.unsettled).toBe(true);
 
-	form.inputText('Second');
+	typeText(form, 'Second');
 	await quiet(captures);
 	expect(harness.failures).toHaveLength(1);
-	expect(form.draft).toBeUndefined();
+	expect(form.body).toBeUndefined();
 	expect(await harness.text(PATH)).toContain('\nSecond\n');
 });
 
@@ -285,7 +300,7 @@ test('a save to a file deleted elsewhere drops the edit, reports its text, and t
 	captures.open('one', 'capture');
 	await harness.deleteElsewhere(PATH);
 	const form = captures.formOf('one');
-	form.inputText('Mine');
+	typeText(form, 'Mine');
 	await quiet(captures);
 	expect(harness.failures).toMatchObject([
 		{
@@ -294,7 +309,7 @@ test('a save to a file deleted elsewhere drops the edit, reports its text, and t
 			text: expect.stringContaining('\nMine\n'),
 		},
 	]);
-	expect(form.draft).toBeUndefined();
+	expect(form.body).toBeUndefined();
 	// A save never recreates a deleted file.
 	expect(await harness.text(PATH)).toBeUndefined();
 	expect(listing(captures)).toEqual([]);
@@ -306,31 +321,12 @@ test('a change the body cannot hold is refused with the reason, and nothing is w
 	const form = captures.formOf('one');
 	const before = counter.mdWrites;
 	// An open fence would absorb the Thoughts section.
-	form.inputText('```\nopen fence');
+	typeText(form, '```\nopen fence');
 	expect(form.refusal).toContain('would not read back');
 	expect(cached(captures, 'one').row.body).toContain('\nText\n');
 	await quiet(captures);
 	expect(counter.mdWrites).toBe(before);
 });
-
-test('the folder refuses a value it cannot hold, and writes nothing', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	// Inputs commit only values the schema accepts; this bypasses them.
-	captures.formOf('one').edit((row) => {
-		row.fields.capturedAt = 'not a date' as (typeof row.fields)['capturedAt'];
-	});
-	await quiet(captures);
-	expect(harness.failures).toMatchObject([
-		{ path: PATH, error: { name: 'InvalidValues' } },
-	]);
-	expect(await harness.text(PATH)).toBe(HAND);
-	expect<string>(cached(captures, 'one').row.fields.capturedAt).toBe(AT);
-});
-
-// ============================================================================
-// Repair as text
-// ============================================================================
 
 test('an invalid row opens as text, is written as typed, and opens as a capture once repaired', async () => {
 	const broken = '---\ncapturedAt: nope\n---\n\nBroken\n\n## Thoughts\n';
@@ -348,12 +344,12 @@ test('an invalid row opens as text, is written as typed, and opens as a capture 
 	expect(cachedText(captures, PATH)).toBe(broken);
 	// Invalid text is written exactly as typed.
 	const still = '---\ncapturedAt: still nope\n---\n\nBroken\n\n## Thoughts\n';
-	captures.editText(PATH, still);
+	typeFile(captures, PATH, still);
 	await quiet(captures);
 	expect(await harness.text(PATH)).toBe(still);
 
 	const repaired = `---\ncapturedAt: ${AT}\n---\n\nRepaired\n\n## Thoughts\n`;
-	captures.editText(PATH, repaired);
+	typeFile(captures, PATH, repaired);
 	await quiet(captures);
 	stop();
 	expect(harness.failures).toEqual([]);
@@ -379,7 +375,7 @@ test('a write of the text that meets a change made elsewhere merges with it by l
 	await quiet(captures);
 	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n`;
 	await harness.writeElsewhere(PATH, theirs);
-	captures.editText(PATH, `${HAND}- mine\n`);
+	typeFile(captures, PATH, `${HAND}- mine\n`);
 	await quiet(captures);
 	stop();
 	// Their changes and the added line do not compete, so both stand, and
@@ -399,7 +395,7 @@ test('a write of the text to a file deleted elsewhere drops the typed text, and 
 	const stop = observe(captures, PATH);
 	await quiet(captures);
 	await harness.deleteElsewhere(PATH);
-	captures.editText(PATH, `${HAND}- mine\n`);
+	typeFile(captures, PATH, `${HAND}- mine\n`);
 	await quiet(captures);
 	stop();
 	expect(harness.failures).toMatchObject([
@@ -477,13 +473,14 @@ test('a delete runs after the edit is saved and removes what it saved', async ()
 	expect(deletion).toMatchObject({ path: PATH, title: 'Text' });
 	// Typing while the confirmation is open is written first.
 	const { held, release } = harness.holdNextMarkdownWrite();
-	captures.formOf('one').inputText('Saving while deleted');
+	typeText(captures.formOf('one'), 'Saving while deleted');
 	await held;
 	const removing = captures.remove(deletion);
 	await Bun.sleep(5);
 	expect(captures.isRemoving(PATH)).toBe(true);
 	// Edits wait while the delete runs.
-	expect(captures.formOf('one').edit(() => {})).toBe(false);
+	captures.formOf('one').inputNewThought('Later');
+	expect(captures.formOf('one').addThought()).toBe(false);
 	release();
 	expectOk(await removing);
 	await quiet(captures);
@@ -513,7 +510,7 @@ test('saves never commit; Save version records one, and delete says when changes
 	const harness = await open({ [PATH]: HAND });
 	const { captures, folder } = harness;
 	const form = captures.formOf('one');
-	form.inputText('Edited');
+	typeText(form, 'Edited');
 	form.inputNewThought('another');
 	form.addThought();
 	await quiet(captures);
@@ -535,7 +532,7 @@ test('saves never commit; Save version records one, and delete says when changes
 		unversioned: false,
 	});
 
-	form.inputText('Edited again');
+	typeText(form, 'Edited again');
 	await quiet(captures);
 	await Bun.sleep(20);
 	expect(expectOk(await folder.git.log(5))).toHaveLength(1);
@@ -559,9 +556,9 @@ test('close waits for a write already sent and the newest edit after it, and eve
 	const { captures } = harness;
 	const form = captures.formOf('one');
 	const { held, release } = harness.holdNextMarkdownWrite();
-	form.inputText('Sent');
+	typeText(form, 'Sent');
 	await held;
-	form.inputText('Typed later');
+	typeText(form, 'Typed later');
 	let closed = false;
 	const first = captures.close();
 	expect(captures.close()).toBe(first);
@@ -574,7 +571,7 @@ test('close waits for a write already sent and the newest edit after it, and eve
 	await first;
 	expect(await harness.text(PATH)).toContain('\nTyped later\n');
 	// After close, edits change nothing.
-	form.inputText('After close');
-	expect(form.draft).toBeUndefined();
+	typeText(form, 'After close');
+	expect(form.body).toBeUndefined();
 	expect(await harness.text(PATH)).toContain('\nTyped later\n');
 });

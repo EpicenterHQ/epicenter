@@ -1,6 +1,6 @@
 <!--
-	A chat's focus words and their stages. A stage press is an edit like any
-	other: it changes the word's draft, which is saved at once.
+	A chat's focus words and their stages. A stage press is sent at once, an
+	update of the word's file as it is now.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -19,7 +19,7 @@
 <h2 class="mb-3 text-sm font-semibold">Focus words</h2>
 {#each focus as item (item.entryId)}
 	{@const listed = focusWord(words.data ?? [], item)}
-	{@const entry = listed && entries.shown(listed)}
+	{@const entry = listed}
 	<div class="mb-4">
 		<p class="font-medium">{item.text}</p>
 		{#if entry}

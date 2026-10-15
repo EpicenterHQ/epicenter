@@ -25,6 +25,12 @@
  * - A value the field does not admit is `InvalidValues`, and nothing is
  *   written
  * - `epicenter.json` keeps its bytes throughout
+ * - An update sets and unsets fields of the row as it is now: a field
+ *   another writer changed between its read and its write survives, because
+ *   the update tries again on their row; the update wins the field it set
+ *   and replaces nothing; an unset field is removed; a missing row is
+ *   `NotFound`; a value the field does not admit is `InvalidValues`; and a
+ *   row that changes on every attempt is `KeptChanging`
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -37,6 +43,7 @@ import {
 	type FileTable,
 	restoreTheirs,
 	type StoredRow,
+	UPDATE_ATTEMPTS,
 } from './contract.js';
 
 type AnyTable = FileTable<Record<string, unknown>>;
@@ -375,5 +382,115 @@ test('a value the field does not admit is InvalidValues, and nothing is written'
 
 	expect(refused.name).toBe('InvalidValues');
 	expect((await read()).sha256).toBe(theirs.sha256);
+	await folder.close();
+});
+
+/**
+ * Another writer saves `texts[n]` right after the update's read number `n`,
+ * before its write, for as many reads as there are texts.
+ */
+function writeAfterReads(table: AnyTable, root: string, texts: string[]) {
+	const read = table.get;
+	let reads = 0;
+	table.get = async (stem) => {
+		const result = await read(stem);
+		const text = texts[reads++];
+		if (text !== undefined) await writeFile(join(root, 'notes/one.md'), text);
+		return result;
+	};
+}
+
+test('an update over a change to another field made between its read and its write keeps both', async () => {
+	const { root, folder, table, read } = await setup();
+	writeAfterReads(table, root, [ROW.replace('done: false', 'done: true')]);
+
+	const saved = expectOk(await table.update('one', { set: { title: 'Mine' } }));
+
+	expect(saved).toMatchObject({ merged: false, replaced: [] });
+	expect((await read()).row).toEqual({
+		fields: { title: 'Mine', done: true, tags: ['a'] },
+		body: 'first\nsecond\nthird\n',
+	});
+	await folder.close();
+});
+
+test('an update and another writer set one field: the update wins', async () => {
+	const { root, folder, table, read } = await setup();
+	writeAfterReads(table, root, [
+		ROW.replace('title: One', 'title: Theirs').replace(
+			'tags: [a]',
+			'tags: [a, b]',
+		),
+	]);
+
+	const saved = expectOk(await table.update('one', { set: { title: 'Mine' } }));
+
+	expect(saved.replaced).toEqual([]);
+	expect((await read()).row.fields).toEqual({
+		title: 'Mine',
+		done: false,
+		tags: ['a', 'b'],
+	});
+	await folder.close();
+});
+
+test('an update that unsets a field removes it and keeps the body', async () => {
+	const { folder, table, read } = await setup();
+
+	expectOk(await table.update('one', { unset: ['tags'] }));
+
+	expect((await read()).row).toEqual({
+		fields: { title: 'One', done: false },
+		body: 'first\nsecond\nthird\n',
+	});
+	await folder.close();
+});
+
+test('an update of a row that is not there is NotFound, and creates nothing', async () => {
+	const { root, folder, table } = await setup();
+
+	const refused = expectErr(
+		await table.update('two', { set: { title: 'Two' } }),
+	);
+
+	expect(refused).toMatchObject({ name: 'NotFound', path: 'notes/two.md' });
+	expect(
+		await readFile(join(root, 'notes/two.md'), 'utf8').catch(() => null),
+	).toBe(null);
+	await folder.close();
+});
+
+test('an update to a value the field does not admit is InvalidValues, and nothing is written', async () => {
+	const { folder, table, read } = await setup();
+	const before = await read();
+
+	const refused = expectErr(
+		await table.update('one', { set: { done: 'yes' } }),
+	);
+
+	expect(refused.name).toBe('InvalidValues');
+	expect((await read()).sha256).toBe(before.sha256);
+	await folder.close();
+});
+
+test('an update that meets another change on every attempt is KeptChanging, and writes nothing of its own', async () => {
+	const { root, folder, table, read } = await setup();
+	const theirs = [1, 2, 3].map((n) =>
+		ROW.replace('title: One', `title: Theirs ${n}`),
+	);
+	writeAfterReads(table, root, theirs);
+
+	const refused = expectErr(await table.update('one', { set: { done: true } }));
+
+	expect(refused).toMatchObject({
+		name: 'KeptChanging',
+		path: 'notes/one.md',
+		attempts: UPDATE_ATTEMPTS,
+	});
+	expect((await read()).row.fields).toEqual({
+		title: 'Theirs 3',
+		done: false,
+		tags: ['a'],
+	});
 	await folder.close();
 });

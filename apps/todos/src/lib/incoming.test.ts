@@ -35,17 +35,10 @@ import {
 	prepareGitSession,
 } from '../../server/git-server.js';
 import { todosDefinition } from './definition.js';
-import {
-	cached,
-	editorsReady,
-	observe,
-	quiet,
-	rowEditor,
-} from './query.test-support.js';
+import { cached, notesEditor, observe, quiet } from './query.test-support.js';
 import type { Todos } from './todos.svelte.js';
 
 const { createTodos } = await import('./todos.svelte.ts');
-await editorsReady;
 
 const originalFetch = globalThis.fetch;
 const env = {
@@ -186,10 +179,6 @@ function rowOf(text: string): AnyRow {
 	return expectOk(parseRow(todosDefinition.tables.todos, text));
 }
 
-const noted =
-	(body: string) =>
-	<T extends { body: string }>(row: T): T => ({ ...row, body });
-
 /**
  * A sync interrupted at the write of `todos/milk.md`: bread landed, milk did
  * not, and nothing records the update.
@@ -234,7 +223,7 @@ test('a sync brings remote changes in byte for byte, the cache shows them, and a
 	expect(cached(todos, 'bread').row.fields.title).toBe('Bake bread');
 
 	// A write saves the standard form, and the undeclared keys stay.
-	rowEditor(todos, 'milk')(noted('Three cartons.\n'));
+	notesEditor(todos, 'milk')('Three cartons.\n');
 	await quiet(todos);
 	expect(rowOf((await text(todos, MILK))!)).toEqual({
 		fields: {
@@ -294,7 +283,7 @@ test('an interrupted sync leaves changed files; Save version and editing go ahea
 	const created = expectOk(await todos.rows.create('Call mom'));
 	await quiet(todos);
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
-	rowEditor(todos, stem)(noted('Today.\n'));
+	notesEditor(todos, stem)('Today.\n');
 	await quiet(todos);
 	expect(expectOk(await todos.git.saveVersion()).status).toBe('committed');
 

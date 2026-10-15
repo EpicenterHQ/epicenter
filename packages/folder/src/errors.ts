@@ -274,7 +274,7 @@ export const TableError = defineErrors({
 	 * found it changed again, `attempts` times. Nothing of this save landed.
 	 */
 	KeptChanging: ({ path, attempts }: { path: string; attempts: number }) => ({
-		message: `'${path}' kept changing while it was saved; gave up after ${attempts} merges`,
+		message: `'${path}' kept changing while it was saved; gave up after ${attempts} attempts`,
 		path,
 		attempts,
 	}),
@@ -342,6 +342,12 @@ export type TableSaveError =
 			'UnknownBase' | 'KeptChanging' | 'InvalidValues' | 'InvalidRow'
 	  >;
 
+/**
+ * Why an update wrote nothing: the row could not be read (`NotFound` when no
+ * file is at the stem), or any reason a save fails.
+ */
+export type TableUpdateError = TableSaveError | TableErrorOf<'InvalidUtf8'>;
+
 /** A guarded row move preserves the file move's failures, its landed capture included. */
 export type TableRenameError = FileError | MoveError;
 
@@ -351,7 +357,7 @@ export type TableDeleteError = FileError;
 /** Every failure a table write can report. */
 export type TableWriteError =
 	| TableCreateError
-	| TableSaveError
+	| TableUpdateError
 	| TableRenameError
 	| TableDeleteError;
 

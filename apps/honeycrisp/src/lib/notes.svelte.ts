@@ -10,19 +10,19 @@
  * writes put their result in the cache, or make what they changed stale.
  * Nothing rereads on focus.
  *
- * An edit holds its own starting version. The title, folder, pin, rich text,
- * and Source of a note, a list action on any note, and a folder's name are
- * all edits of a row's draft (`createDraftState`), one draft per row, which
- * the open note and the lists share. A draft captures the cached row at its
- * first change and keeps the edited row outside the cache, so a read never
- * replaces typing. Each change saves at once; one save runs at a time per
- * row, and changes made meanwhile are sent next. `table.save` merges with
- * whatever changed in the file since the draft began. A save that fails
- * keeps the draft on screen and reports the failure; a note deleted
- * elsewhere drops it. A file open as its exact text has a text draft of its
- * own (`createTextDraftState`), saved over the version it started from and
- * merged by line with whatever changed since (ADR-0551). A save that
- * replaced another writer's change names it, with a way to put theirs back.
+ * A field edit is an update of the file as it is now (ADR-0554): a note's
+ * title, folder, and pin, a list action on any note, and a folder's name
+ * each set their fields and keep every field another writer changed. The
+ * open note holds a title typed and not yet sent. A note's body, from rich
+ * text or Source, is a document: a body draft (`createBodyDraftState`), one
+ * per note, which keeps the version it started from and is saved a second
+ * after the last change, or at once when the view leaves it, merged by line
+ * with whatever changed since. A file open as its exact text has a text
+ * draft of its own (`createTextDraftState`), saved the same way (ADR-0551).
+ * Writes to one file run one at a time, in the order made. A body save that
+ * fails keeps the body on screen and reports the failure; a note deleted
+ * elsewhere drops it. A save that replaced another writer's lines names
+ * them, with a way to put theirs back.
  *
  * Every other action is a mutation: create, rename, delete, deleting a
  * folder, Save version, and terminal commands. Closing the notes fences new
@@ -36,7 +36,6 @@ import {
 	type FileError,
 	type FileListing,
 	type FileSaveError,
-	formatRow,
 	type GitError,
 	type MoveError,
 	parseRow,
@@ -66,12 +65,16 @@ import {
 	whenIdle,
 } from '@epicenter/folder/query';
 import {
-	createDraftState,
+	createBodyDraftState,
 	createTextDraftState,
-	type DraftState,
 	type TextDraftState,
 } from '@epicenter/folder/svelte';
-import type { MutationFilters, QueryClient } from '@tanstack/svelte-query';
+import type {
+	Mutation,
+	MutationFilters,
+	QueryClient,
+} from '@tanstack/svelte-query';
+import { useDebounce } from 'runed';
 import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { createQueryFactories, defineKeys } from 'wellcrafted/query';
@@ -88,7 +91,7 @@ import {
 } from './data.js';
 import type { NoteBody } from './editor/rich-text.js';
 import { nameProblem } from './files.js';
-import { displayTitle } from './note-source.js';
+import { displayTitle, withBody } from './note-source.js';
 import type { NotesHost, NotesTerminal } from './platform/types.js';
 import { createTerminalSession } from './terminal.svelte.js';
 
@@ -354,12 +357,32 @@ export function createNotes(
 		selected?.path === path && selected.as === 'text';
 
 	/**
-	 * One table's rows: the listing in the cache, and the drafts of the rows
-	 * being edited, by stem.
+	 * The path a folder write is to: a row save's base, a row update's stem
+	 * in its table, or a file write's path.
+	 */
+	function writePath(mutation: Pick<Mutation, 'state' | 'options'>) {
+		const sent = mutation.state.variables as
+			| { stem?: string; base?: FileCapture; path?: string }
+			| undefined;
+		if (sent?.base !== undefined) return sent.base.path;
+		if (sent?.path !== undefined) return sent.path;
+		const key = mutation.options.mutationKey;
+		if (sent?.stem === undefined || key?.at(-1) !== 'update') return undefined;
+		return rowPath(String(key.at(-2)), sent.stem);
+	}
+	const writing = (path?: string) =>
+		queryClient.isMutating({
+			predicate: (mutation) => {
+				const at = writePath(mutation);
+				return at !== undefined && (path === undefined || at === path);
+			},
+		}) > 0;
+
+	/**
+	 * One table's rows: the listing in the cache, and the update that sets a
+	 * row's fields as its file is now (ADR-0554).
 	 */
 	function rowTable<TFields>(name: TableName, options: TableOptions<TFields>) {
-		const declared = honeycrispDefinition.tables[name];
-		const drafts = new SvelteMap<string, DraftState<TFields>>();
 		const listing = () =>
 			queryClient.getQueryData<TableListing<TFields>>(options.list.queryKey());
 
@@ -369,151 +392,58 @@ export function createNotes(
 			return result?.error === null ? result.data : undefined;
 		}
 
-		/** The text a person would lose with a row that could not be saved. */
-		function rowText(row: Row<TFields>) {
-			return formatRow(declared, row).data ?? (row as Row<unknown>).body;
-		}
-
-		const save = {
-			...options.save.mutationOptions(),
-			onError: (error, { base, row }) => {
-				const stem = rowStemOf(name, base.path);
-				// A row deleted elsewhere is not written back: its edit leaves the
-				// screen, the lists, read again, let it go, and the person is
-				// offered its text.
-				const gone = error.name === 'NotFound';
-				if (gone && stem !== undefined) {
-					drafts.get(stem)?.discard();
-					drafts.delete(stem);
-				}
+		const update = {
+			...options.update.mutationOptions(),
+			// A row deleted elsewhere is not written back; anything else leaves
+			// what was typed on screen, to be sent again.
+			onError: (error, { stem }) =>
 				onWriteFailed({
-					path: base.path,
+					path: rowPath(name, stem),
 					error,
-					unsaved: rowText(row),
-					kept: !gone,
-				});
-			},
-		} satisfies ReturnType<TableOptions<TFields>['save']['mutationOptions']>;
-
-		/** Name what a row's save replaced, and offer theirs back as one more save. */
-		function report(saved: SavedRow<TFields>, restore: () => void) {
-			// Both sides moving `updatedAt` is not a change worth a notice.
-			const told = saved.replaced.filter(
-				(entry) => !(entry.kind === 'field' && entry.field === 'updatedAt'),
-			);
-			if (told.length > 0)
-				onReplaced({ path: saved.stored.path, replaced: told, restore });
-		}
-
-		function draftOf(stem: string) {
-			const existing = drafts.get(stem);
-			if (existing !== undefined) return existing;
-			const draft = createDraftState<TFields>({
-				save: (sent) => runMutation(queryClient, save, sent),
-				onSaved: report,
-			});
-			drafts.set(stem, draft);
-			return draft;
-		}
+					unsaved: '',
+					kept: error.name !== 'NotFound',
+				}),
+		} satisfies ReturnType<TableOptions<TFields>['update']['mutationOptions']>;
 
 		/**
-		 * Save the draft of `stem` until no change is left; then a draft with
-		 * nothing left is let go.
+		 * Why fields of the row at `stem` take no update now, if they do not:
+		 * closing, a rename or delete of the file, the file open as text, or a
+		 * row the list does not hold.
 		 */
-		function saveDraft(stem: string): Promise<void> {
-			const draft = drafts.get(stem);
-			if (draft === undefined) return Promise.resolve();
-			if (draft.saving) return draft.save();
-			return draft.save().then(() => {
-				if (
-					draft.row === undefined &&
-					!draft.saving &&
-					drafts.get(stem) === draft
-				)
-					drafts.delete(stem);
-			});
-		}
-
-		/**
-		 * Change the row at `stem` through its draft, which saves it. Answers
-		 * why the change was refused, changing nothing: once the notes are
-		 * closing, while a rename or delete of the file runs, and while the
-		 * file is open as text.
-		 */
-		function edit(
-			stem: string,
-			change: (row: Row<TFields>) => Row<TFields>,
-		): string | undefined {
+		function refusalAt(stem: string): string | undefined {
 			const path = rowPath(name, stem);
 			const why = refused();
 			if (why !== undefined) return why;
 			if (moving(path)) return BUSY;
 			if (asText(path)) return OPEN_AS_TEXT;
-			const current = storedOf(stem);
-			if (current === undefined) return NOT_LISTED;
-			const from = drafts.get(stem)?.row ?? current.row;
-			const next = change(from);
-			if (next === from) return undefined;
-			const { fields, body } = structuredClone(next);
-			draftOf(stem).change(current, (row) => {
-				row.fields = fields;
-				row.body = body;
-			});
-			void saveDraft(stem);
+			if (storedOf(stem) === undefined) return NOT_LISTED;
 			return undefined;
 		}
 
-		/** The drafts of this table whose saves are running, each until its loop ends. */
-		const running = () =>
-			[...drafts.values()]
-				.filter((draft) => draft.saving)
-				.map((draft) => draft.save());
+		/** Set fields of the row at `stem` as its file is now; answers why not, if not. */
+		function set(stem: string, fields: Partial<TFields>): string | undefined {
+			const why = refusalAt(stem);
+			if (why !== undefined) return why;
+			void runMutation(queryClient, update, { stem, set: fields }).catch(
+				() => {},
+			);
+			return undefined;
+		}
 
 		return {
 			name,
 			table: folder.tables[name],
 			listing,
 			storedOf,
-			edit,
-			running,
-			/** The row as shown: its draft while one is held, else as the cache holds it. */
-			rowOf(stem: string): Row<TFields> | undefined {
-				const draft = drafts.get(stem)?.row;
-				// A copy, so a view that compares rows sees each change.
-				if (draft !== undefined)
-					return { fields: { ...draft.fields }, body: draft.body };
-				return storedOf(stem)?.row;
-			},
-			/** Whether a save of `stem` is running. */
-			saving: (stem: string) => drafts.get(stem)?.saving === true,
-			/** Whether `stem` holds an edit that is not saved and no save is running. */
-			unsaved(stem: string) {
-				const draft = drafts.get(stem);
-				return draft !== undefined && !draft.saving && draft.row !== undefined;
-			},
-			/** Whether any row of this table holds an edit that is not saved. */
-			anyUnsaved: () =>
-				[...drafts.values()].some(
-					(draft) => !draft.saving && draft.row !== undefined,
-				),
-			anySaving: () => [...drafts.values()].some((draft) => draft.saving),
-			saveDraft,
-			/** Resolves once the save of `stem`, if one runs, landed or failed. */
-			settled(stem: string) {
-				const draft = drafts.get(stem);
-				return draft?.saving ? draft.save() : Promise.resolve();
-			},
+			update,
+			refusalAt,
+			set,
 			/** The capture the cache holds for `stem`: a row's, or a row that does not read's own bytes. */
 			capture(stem: string): FileCapture | undefined {
 				const result = listing()?.find((entry) => entry.stem === stem)?.result;
 				if (result?.error === null) return result.data;
 				if (result?.error.name === 'InvalidRow') return result.error;
 				return undefined;
-			},
-			/** Drop the draft of `stem`: its file was renamed or deleted. */
-			forget(stem: string) {
-				drafts.get(stem)?.discard();
-				drafts.delete(stem);
 			},
 		};
 	}
@@ -530,12 +460,124 @@ export function createNotes(
 		return undefined;
 	}
 
+	/** A document being typed: its draft, and the save that runs after a pause. */
+	type Typed<TDraft> = {
+		readonly draft: TDraft;
+		readonly later: ReturnType<typeof useDebounce<[], Promise<void>>>;
+	};
+
+	/**
+	 * Save the draft of `typed` now, as leaving it does, until no change is
+	 * left; then a draft with nothing left is let go from `held`.
+	 */
+	async function saveTyped<
+		TDraft extends {
+			readonly text: string | undefined;
+			readonly saving: boolean;
+			save(): Promise<void>;
+		},
+	>(held: SvelteMap<string, Typed<TDraft>>, key: string): Promise<void> {
+		const typed = held.get(key);
+		if (typed === undefined) return;
+		if (typed.later.pending) void typed.later.runScheduledNow();
+		await typed.draft.save();
+		if (
+			typed.draft.text === undefined &&
+			!typed.draft.saving &&
+			held.get(key) === typed
+		)
+			held.delete(key);
+	}
+
+	/**
+	 * Note bodies being typed, by stem (ADR-0554). A body is a document: its
+	 * draft keeps the version it started from, and its save merges by line
+	 * with whatever changed since. It saves a second after the last change,
+	 * and at once when the view leaves it (`saveBody`).
+	 */
+	const bodies = new SvelteMap<
+		string,
+		Typed<TextDraftState<StoredRow<NoteFields>>>
+	>();
+
+	const saveNote = {
+		...folder$.notes.save.mutationOptions(),
+		onError: (error, { base, row }) => {
+			const stem = noteIdOf(base.path);
+			// A note deleted elsewhere is not written back: its body leaves the
+			// screen, the lists, read again, let it go, and the person is
+			// offered its text.
+			const gone = error.name === 'NotFound';
+			if (gone && stem !== undefined) {
+				bodies.get(stem)?.draft.discard();
+				bodies.delete(stem);
+			}
+			onWriteFailed({ path: base.path, error, unsaved: row.body, kept: !gone });
+		},
+	} satisfies ReturnType<typeof folder$.notes.save.mutationOptions>;
+
+	/** Name what a note's save replaced, and offer theirs back as one more save. */
+	function report(saved: SavedRow<NoteFields>, restore: () => void) {
+		// Both sides moving `updatedAt` is not a change worth a notice.
+		const told = saved.replaced.filter(
+			(entry) => !(entry.kind === 'field' && entry.field === 'updatedAt'),
+		);
+		if (told.length > 0)
+			onReplaced({ path: saved.stored.path, replaced: told, restore });
+	}
+
+	function bodyOf(stem: string) {
+		const known = bodies.get(stem);
+		if (known !== undefined) return known;
+		const draft = createBodyDraftState<NoteFields>({
+			save: ({ base, content }) =>
+				runMutation(queryClient, saveNote, {
+					base,
+					row: withBody(base.row, content),
+				}),
+			onSaved: report,
+		});
+		const typed = {
+			draft,
+			later: useDebounce(() => saveTyped(bodies, stem), 1000),
+		};
+		bodies.set(stem, typed);
+		return typed;
+	}
+
+	/** The note at `stem` as shown: its body typed while one is held, else as the cache holds it. */
+	function noteRowOf(stem: string): Row<NoteFields> | undefined {
+		const stored = noteRows.storedOf(stem);
+		if (stored === undefined) return undefined;
+		const typed = bodies.get(stem)?.draft.text;
+		return typed === undefined
+			? stored.row
+			: { fields: stored.row.fields, body: typed };
+	}
+
+	/**
+	 * Type `body` as the body of the note at `path`; it saves after a pause.
+	 * Answers why the change was refused, changing nothing, if it was.
+	 */
+	function editBody(path: string, body: string): string | undefined {
+		const stem = noteIdOf(path);
+		if (stem === undefined) return NOT_LISTED;
+		const why = noteRows.refusalAt(stem);
+		if (why !== undefined) return why;
+		const stored = noteRows.storedOf(stem);
+		if (stored === undefined) return NOT_LISTED;
+		const typed = bodyOf(stem);
+		typed.draft.change(stored, body);
+		void typed.later();
+		return undefined;
+	}
+
 	const textKey = (path: string) => folder$.files.text.queryKey(path);
 	const textData = (path: string) =>
 		queryClient.getQueryData<OpenedFile>(textKey(path));
 
 	/** Text edits in progress, by path. */
-	const textDrafts = new SvelteMap<string, TextDraftState>();
+	const textDrafts = new SvelteMap<string, Typed<TextDraftState>>();
 
 	const writeText = {
 		...folder$.files.write.mutationOptions(),
@@ -543,7 +585,7 @@ export function createNotes(
 		// that saved nothing: the view takes the file as it is now, read
 		// again, and the person is offered what they typed.
 		onError: (error, { path, content }) => {
-			textDrafts.get(path)?.discard();
+			textDrafts.get(path)?.draft.discard();
 			textDrafts.delete(path);
 			onWriteFailed({
 				path,
@@ -554,74 +596,76 @@ export function createNotes(
 		},
 	} satisfies ReturnType<typeof folder$.files.write.mutationOptions>;
 
-	/** An edit of one file's exact text, saved one write at a time; what a save replaced is named. */
-	function createTextDraft(path: string) {
-		return createTextDraftState({
-			save: (sent) => runMutation(queryClient, writeText, { path, ...sent }),
-			onSaved: ({ replaced }, restore) => {
-				if (replaced.length > 0) onReplaced({ path, replaced, restore });
-			},
-			definition: folder.definition,
-		});
+	/** An edit of one file's exact text, saved one write at a time after a pause; what a save replaced is named. */
+	function textDraftOf(path: string) {
+		const known = textDrafts.get(path);
+		if (known !== undefined) return known;
+		const typed = {
+			draft: createTextDraftState({
+				save: (sent) => runMutation(queryClient, writeText, { path, ...sent }),
+				onSaved: ({ replaced }, restore) => {
+					if (replaced.length > 0) onReplaced({ path, replaced, restore });
+				},
+				definition: folder.definition,
+			}),
+			later: useDebounce(() => saveTyped(textDrafts, path), 1000),
+		};
+		textDrafts.set(path, typed);
+		return typed;
 	}
 
-	/** Write the text draft of `path`; once it is written, it is let go. */
-	function saveText(path: string): Promise<void> {
-		const draft = textDrafts.get(path);
-		if (draft === undefined) return Promise.resolve();
-		if (draft.saving) return draft.save();
-		return draft.save().then(() => {
-			if (draft.text === undefined && textDrafts.get(path) === draft)
-				textDrafts.delete(path);
-		});
-	}
+	/** Whether `draft` holds text whose save failed: nothing saving it or about to. */
+	const failed = (
+		draft: { readonly text: string | undefined; readonly saving: boolean },
+		later: { readonly pending: boolean },
+	) => draft.text !== undefined && !draft.saving && !later.pending;
 
-	/** Whether a save of a row or a file's text is running. */
-	const saving = () =>
-		noteRows.anySaving() ||
-		folderRows.anySaving() ||
-		[...textDrafts.values()].some((draft) => draft.saving);
+	/** Every document draft held now. */
+	const typedDrafts = () => [...bodies.values(), ...textDrafts.values()];
 
-	/** Resolves once every save running now, and every save it leads to, landed or failed. */
+	/** Whether a save of a row or a file's text is running, or typing waits to be sent. */
+	const saving = () => {
+		trackMutations();
+		return (
+			writing() ||
+			typedDrafts().some(
+				({ draft, later }) =>
+					draft.saving || (later.pending && draft.text !== undefined),
+			)
+		);
+	};
+
+	/** Resolves once every document typed is sent, and every write running now and every one it leads to landed or failed. */
 	async function writesSettled() {
 		for (;;) {
-			const running = [
-				...noteRows.running(),
-				...folderRows.running(),
-				...[...textDrafts.values()]
-					.filter((draft) => draft.saving)
-					.map((draft) => draft.save()),
-			];
-			if (running.length === 0) return;
-			await Promise.all(running);
+			await Promise.all([
+				...[...bodies.keys()].map((stem) => saveTyped(bodies, stem)),
+				...[...textDrafts.keys()].map((path) => saveTyped(textDrafts, path)),
+			]);
+			await whenIdle(queryClient, {
+				predicate: (mutation) => writePath(mutation) !== undefined,
+			});
+			if (typedDrafts().every(({ draft }) => !draft.saving)) return;
 		}
 	}
 
-	/** Resolves once the save of `path`, as a row or as text, landed or failed. */
-	function settledAt(path: string) {
-		const at = rowAt(path);
-		return Promise.all([
-			at?.rows.settled(at.stem),
-			textDrafts.get(path)?.saving ? textDrafts.get(path)?.save() : undefined,
+	/** Resolves once what is typed at `path` is sent, and its writes landed or failed. */
+	async function settledAt(path: string) {
+		const stem = noteIdOf(path);
+		await Promise.all([
+			stem === undefined ? undefined : saveTyped(bodies, stem),
+			saveTyped(textDrafts, path),
 		]);
+		await whenIdle(queryClient, {
+			predicate: (mutation) => writePath(mutation) === path,
+		});
 	}
 
-	/** Change the note at `path` through its draft, which saves it; answers why not, if not. */
-	function editNote(
-		path: string,
-		change: (row: Row<NoteFields>) => Row<NoteFields>,
-	): string | undefined {
+	/** Set some fields of a note as its file is now: pin, move to a folder, trash, restore. */
+	function patchNote(path: string, fields: Partial<NoteFields>) {
 		const stem = noteIdOf(path);
 		if (stem === undefined) return NOT_LISTED;
-		return noteRows.edit(stem, change);
-	}
-
-	/** Change some fields of a note from a list: pin, move to a folder, trash, restore. */
-	function patchNote(path: string, fields: Partial<NoteFields>) {
-		return editNote(path, (row) => ({
-			...row,
-			fields: { ...row.fields, ...fields },
-		}));
+		return noteRows.set(stem, fields);
 	}
 
 	/** Whether edits to `path` are refused now: closing, or a rename or delete runs. */
@@ -651,20 +695,27 @@ export function createNotes(
 		return opened?.kind === 'text' ? opened.file : undefined;
 	}
 
+	/** Drop what is typed for `path`: its file was renamed or deleted. */
+	function forget(path: string) {
+		const stem = noteIdOf(path);
+		if (stem !== undefined) {
+			bodies.get(stem)?.draft.discard();
+			bodies.delete(stem);
+		}
+		textDrafts.get(path)?.draft.discard();
+		textDrafts.delete(path);
+	}
+
 	/** After a rename: the drafts let the old path go, and the open item follows the file. */
 	function moved(from: string, to: string) {
-		const at = rowAt(from);
-		if (at !== undefined) at.rows.forget(at.stem);
-		textDrafts.delete(from);
+		forget(from);
 		queryClient.removeQueries({ queryKey: textKey(from), exact: true });
 		if (selected?.path === from) selected = { ...selected, path: to };
 	}
 
 	/** After a delete: the drafts and the open item let the file go. */
 	function deleted(path: string) {
-		const at = rowAt(path);
-		if (at !== undefined) at.rows.forget(at.stem);
-		textDrafts.delete(path);
+		forget(path);
 		queryClient.removeQueries({ queryKey: textKey(path), exact: true });
 		if (selected?.path === path) selected = undefined;
 	}
@@ -825,8 +876,9 @@ export function createNotes(
 
 	/**
 	 * Delete a folder after moving its notes out. Refused while any note
-	 * cannot say which folder it is in. Each note moves out by an edit, like
-	 * any list action; once every save landed, the notes are read again, and
+	 * cannot say which folder it is in. Writes running land first; each note
+	 * then moves out by an update, like any list action; once every write
+	 * landed, the notes are read again, and
 	 * the folder's file goes only when none is still in it. Not one atomic
 	 * step: a note already moved out stays moved out if the delete stops,
 	 * and another program can still put a note in the folder after the last
@@ -840,6 +892,9 @@ export function createNotes(
 			> => {
 				const why = refused();
 				if (why !== undefined) return NotesError.NotStarted({ reason: why });
+				// Writes running now land first, so the listing says where each
+				// note is.
+				await writesSettled();
 				const listing = noteRows.listing();
 				if (listing === undefined)
 					return NotesError.NotStarted({
@@ -856,13 +911,8 @@ export function createNotes(
 					});
 				const id = entry.stem;
 				for (const note of notesOf(listing)) {
-					// An edit not saved yet counts: its draft is what is shown.
-					const shown = noteRows.rowOf(note.stem) ?? note.row;
-					if (shown.fields.folderId !== id) continue;
-					const refusal = editNote(note.path, (row) => ({
-						...row,
-						fields: { ...row.fields, folderId: null },
-					}));
+					if (note.row.fields.folderId !== id) continue;
+					const refusal = patchNote(note.path, { folderId: null });
 					if (refusal !== undefined)
 						return NotesError.NotStarted({
 							reason: `A note could not be moved out of the folder: ${refusal}`,
@@ -990,8 +1040,7 @@ export function createNotes(
 				// A note opened as its file while its row is being saved is read
 				// once that save lands, never under it.
 				queryFn: async () => {
-					const at = rowAt(path);
-					if (at !== undefined) await at.rows.settled(at.stem);
+					await settledAt(path);
 					return unwrap(await readTextFile(folder.files, path));
 				},
 			};
@@ -1037,13 +1086,13 @@ export function createNotes(
 		// State read reactively
 		// ------------------------------------------------------------------
 
-		/** Whether a save of a row or a file's text is running. */
+		/** Whether a save of a row or a file's text is running, or typing waits to be sent. */
 		get saving() {
 			return saving();
 		},
-		/** Whether a row holds an edit whose save failed and that no save is running for. */
+		/** Whether a document typed holds text whose save failed and that no save is running for. */
 		get unsaved() {
-			return noteRows.anyUnsaved() || folderRows.anyUnsaved();
+			return typedDrafts().some(({ draft, later }) => failed(draft, later));
 		},
 		/** Whether anything is saving or mutating: a save, an action, or a terminal command. */
 		get busy() {
@@ -1055,18 +1104,28 @@ export function createNotes(
 			trackMutations();
 			return queryClient.isMutating(filters);
 		},
-		/** Whether a save of `path` is running. */
+		/** Whether a write of `path` is running, or typing there waits to be sent. */
 		isWriting(path: string) {
-			const at = rowAt(path);
+			trackMutations();
+			const stem = noteIdOf(path);
 			return (
-				at?.rows.saving(at.stem) === true ||
-				textDrafts.get(path)?.saving === true
+				writing(path) ||
+				[
+					stem === undefined ? undefined : bodies.get(stem),
+					textDrafts.get(path),
+				].some(
+					(typed) =>
+						typed !== undefined &&
+						(typed.draft.saving ||
+							(typed.later.pending && typed.draft.text !== undefined)),
+				)
 			);
 		},
-		/** Whether `path` holds an edit whose save failed, with no save running. */
+		/** Whether the body typed at `path` did not save, with no save running. */
 		isUnsaved(path: string) {
-			const at = rowAt(path);
-			return at?.rows.unsaved(at.stem) === true;
+			const stem = noteIdOf(path);
+			const typed = stem === undefined ? undefined : bodies.get(stem);
+			return typed !== undefined && failed(typed.draft, typed.later);
 		},
 		/** Whether edits of `path` are refused now: closing, or a rename or delete runs. */
 		isLocked(path: string) {
@@ -1083,75 +1142,96 @@ export function createNotes(
 		// ------------------------------------------------------------------
 
 		/**
-		 * Change the note at `path` through its draft, which saves it at once.
-		 * Answers why the change was refused, changing nothing, if it was.
+		 * The update a view sends a field typed into a note with: `{ stem, set }`,
+		 * set on the note as its file is now. Ask `refusalAt` first.
 		 */
-		editNote,
+		noteUpdate: noteRows.update,
+		/** Why the note at `path` takes no update or body now, if it does not. */
+		refusalAt(path: string): string | undefined {
+			const stem = noteIdOf(path);
+			return stem === undefined ? NOT_LISTED : noteRows.refusalAt(stem);
+		},
+		/**
+		 * Type `body` as the note's body; it saves a second after the last
+		 * change, or at once with `saveBody`. Answers why not, if not.
+		 */
+		editBody,
+		/** Send the body typed at `path` now, as leaving it does; resolves once no save of it runs. */
+		saveBody(path: string): Promise<void> {
+			const stem = noteIdOf(path);
+			return stem === undefined ? Promise.resolve() : saveTyped(bodies, stem);
+		},
 		/**
 		 * The note at `path` as the rich-text editor uses it: the row shown
-		 * now, read reactively, which is its draft while one is held; whether
-		 * it takes edits; and `edit`, which answers whether the change was
-		 * taken.
+		 * now, read reactively, with the body typed while one is held;
+		 * whether it takes edits; and `edit`, which types the body it
+		 * returns and answers whether that was taken.
 		 */
 		noteBody(path: string): NoteBody {
+			const row = () => {
+				trackQueries();
+				const stem = noteIdOf(path);
+				return stem === undefined ? undefined : noteRowOf(stem);
+			};
 			return {
 				get row() {
-					trackQueries();
-					const stem = noteIdOf(path);
-					return stem === undefined ? undefined : noteRows.rowOf(stem);
+					return row();
 				},
 				get locked() {
 					trackMutations();
 					return lockedAt(path);
 				},
-				edit: (change) => editNote(path, change) === undefined,
+				edit(change) {
+					const shown = row();
+					if (shown === undefined) return false;
+					const next = change(shown);
+					if (next.body === shown.body) return true;
+					return editBody(path, next.body) === undefined;
+				},
 			};
 		},
-		/** Save again an edit of `path` whose save failed. */
+		/** Save again a body of `path` whose save failed. */
 		saveAgain(path: string) {
 			if (refused() !== undefined) return;
-			const at = rowAt(path);
-			if (at !== undefined) void at.rows.saveDraft(at.stem);
+			const stem = noteIdOf(path);
+			if (stem !== undefined) void bodies.get(stem)?.draft.save();
 		},
-		/** Change some fields of a note from a list: pin, move to a folder, trash, restore. */
+		/** Set some fields of a note as its file is now: pin, move to a folder, trash, restore. */
 		patchNote,
 		/** Move a note to Recently Deleted. The file stays; `deletedAt` is set. */
 		trashNote: (path: string) => patchNote(path, { deletedAt: now() }),
 		restoreNote: (path: string) => patchNote(path, { deletedAt: null }),
-		/** Change a folder's fields; answers why not, if not. */
+		/** Set a folder's fields as its file is now; answers why not, if not. */
 		patchFolder(path: string, fields: Partial<FolderFields>) {
 			const stem = rowStemOf(FOLDERS, path);
 			if (stem === undefined) return NOT_LISTED;
-			return folderRows.edit(stem, (row) => ({
-				...row,
-				fields: { ...row.fields, ...fields },
-			}));
+			return folderRows.set(stem, fields);
 		},
 		/** The text typed into `path` and not yet written, read reactively. */
 		typedText(path: string): string | undefined {
-			return textDrafts.get(path)?.text;
+			return textDrafts.get(path)?.draft.text;
 		},
 		/**
-		 * Type `text` as the whole text of `path`, which writes it at once.
-		 * Answers whether the change was taken.
+		 * Type `text` as the whole text of `path`; it is written a second after
+		 * the last change, or at once with `saveText`. Answers whether the
+		 * change was taken.
 		 */
 		editText(path: string, text: string): boolean {
 			if (refused() !== undefined || moving(path)) return false;
 			const opened = textData(path);
 			if (opened?.kind !== 'text') return false;
-			let draft = textDrafts.get(path);
-			if (draft === undefined) {
-				draft = createTextDraft(path);
-				textDrafts.set(path, draft);
-			}
-			draft.change(opened.file, text);
-			void saveText(path);
+			const typed = textDraftOf(path);
+			typed.draft.change(opened.file, text);
+			void typed.later();
 			return true;
 		},
+		/** Write the text typed into `path` now, as leaving it does; resolves once no write of it runs. */
+		saveText: (path: string) => saveTyped(textDrafts, path),
 		/**
 		 * Put a committed version of a note in the note: the version's fields
-		 * over the note's, and its body. It saves at once, like any edit. A
-		 * version that does not read as a note is refused.
+		 * over the note's, and its body, saved at once over the note as the
+		 * list holds it, which drops a body typed and not yet sent. A version
+		 * that does not read as a note is refused.
 		 */
 		useVersion(path: string, source: string): string | undefined {
 			const { data: version, error } = parseRow(
@@ -1160,10 +1240,22 @@ export function createNotes(
 			);
 			if (error !== null)
 				return `This version does not read as a note (${error[0].message}). Use Edit as file to change the text by hand.`;
-			return editNote(path, (row) => ({
-				fields: { ...row.fields, ...version.fields },
-				body: version.body,
-			}));
+			const stem = noteIdOf(path);
+			if (stem === undefined) return NOT_LISTED;
+			const why = noteRows.refusalAt(stem);
+			if (why !== undefined) return why;
+			const stored = noteRows.storedOf(stem);
+			if (stored === undefined) return NOT_LISTED;
+			bodies.get(stem)?.draft.discard();
+			bodies.delete(stem);
+			void runMutation(queryClient, saveNote, {
+				base: stored,
+				row: {
+					fields: { ...stored.row.fields, ...version.fields },
+					body: version.body,
+				},
+			}).catch(() => {});
+			return undefined;
 		},
 
 		// ------------------------------------------------------------------
@@ -1213,7 +1305,7 @@ export function createNotes(
 					() => undefined,
 				);
 			const stem = noteIdOf(path);
-			const row = stem === undefined ? undefined : noteRows.rowOf(stem);
+			const row = stem === undefined ? undefined : noteRowOf(stem);
 			return Ok({
 				kind: 'file',
 				path,
