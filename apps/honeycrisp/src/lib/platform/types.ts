@@ -7,18 +7,19 @@
  * except through the optional capabilities below, which neither leaf gives
  * today.
  */
-import { APPS } from '@epicenter/constants/apps';
 import type { Folder, FolderDefinition } from '@epicenter/folder';
+import manifest from '../../../epicenter.app.json';
 import type { honeycrispDefinition } from '../data.js';
 
 type Definition = typeof honeycrispDefinition;
 
 /**
- * Honeycrisp's own folder. The browser names its scoped OPFS directory after
- * it and opens no other; Epicenter registers its own directory under it and
- * hands it to a window opened without a folder.
+ * Honeycrisp's own folder, named by its app id in `epicenter.app.json`. The
+ * browser names its scoped OPFS directory after it and opens no other;
+ * Epicenter registers its own directory under it and hands it to a window
+ * opened without a folder.
  */
-export const HONEYCRISP_FOLDER_ID = APPS.HONEYCRISP.id;
+export const HONEYCRISP_FOLDER_ID = manifest.id;
 
 /**
  * The folder the notes UI uses, whole: `folderOptions` reads and writes it

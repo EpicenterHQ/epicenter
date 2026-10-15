@@ -12,13 +12,15 @@ import type {
 	FolderDefinition,
 	FolderLocation,
 } from '@epicenter/folder';
+import manifest from '../../../epicenter.app.json';
 
 /**
- * Capture's own folder. The browser names its scoped OPFS directory after it
- * and opens no other; the desktop shell registers its directory under it and
- * hands it to a window opened without a folder.
+ * Capture's own folder, named by its app id in `epicenter.app.json`. The
+ * browser names its scoped OPFS directory after it and opens no other; the
+ * desktop shell registers its directory under it and hands it to a window
+ * opened without a folder.
  */
-export const CAPTURE_FOLDER_ID = 'so.epicenter.capture';
+export const CAPTURE_FOLDER_ID = manifest.id;
 
 /**
  * The folder a leaf opens: its captures table, its files (a capture's exact

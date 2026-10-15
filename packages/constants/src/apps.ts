@@ -31,12 +31,10 @@ export const APPS = {
 	WHISPERING: {
 		port: 1420,
 		url: 'https://whispering.epicenter.so',
-		id: 'so.epicenter.whispering',
 	},
 	HONEYCRISP: {
 		port: 5175,
 		url: 'https://honeycrisp.epicenter.so',
-		id: 'so.epicenter.honeycrisp',
 	},
 	VOCAB: {
 		port: 8888,
@@ -46,12 +44,10 @@ export const APPS = {
 	CAPTURE: {
 		port: 5179,
 		url: 'https://capture.epicenter.so',
-		id: 'so.epicenter.capture',
 	},
 	TODOS: {
 		port: 5186,
 		url: 'https://todos.epicenter.so',
-		id: 'so.epicenter.todos',
 	},
 	ZHONGWEN: {
 		port: 5207,
@@ -72,8 +68,9 @@ export const APPS = {
  * `createHostedBrowserRedirectAuth`. A reader who met `AppId` here and grepped
  * for it found the wrong concept.
  *
- * The three application rows carry an id, so one row is everything a build needs
- * to name itself.
+ * A row carries an id only for an app that names itself from it. An installed
+ * app (Todos, Capture, Whispering, Honeycrisp) reads its id from its own
+ * `epicenter.app.json` instead (ADR-0560).
  */
 export type AppKey = keyof typeof APPS;
 
