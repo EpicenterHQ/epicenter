@@ -10,18 +10,14 @@
  *   - blobs          any S3 endpoint via the existing `BLOBS_S3_*` env
  *
  * This is additive: `wrangler dev`/`deploy` still serve the Worker unchanged.
- * `bun --watch server.ts` boots instantly with real stack traces. It is the
- * hosted cloud on Bun (local dev and the runtime-parity smoke), NOT the self-host
- * artifact: the single-partition instance has its own entry
- * (`apps/self-host/server.ts`), composing no Better Auth and no Postgres (ADR-0075).
+ * `bun --watch server.ts` boots instantly with real stack traces. This entry is
+ * also the self-host path: the same Better Auth, Postgres, and mounts as the
+ * Worker, on any machine with Bun, Postgres, and an optional S3 endpoint.
  *
- * The whole hosted-cloud-on-Bun bootstrap lives here, in the app, not behind a
- * shared `@epicenter/server` factory: everything mechanical (the `pg.Pool`, the
- * the cloud auth layer, the session/inference/blobs
- * mounts, `Bun.serve`) is this app's composition to own. The instance does NOT
- * share it (it diverges on the substrate that matters: no Better Auth, no
- * Postgres), so a shared launcher would re-introduce the mode knob ADR-0075/0076
- * deleted. The library ships the parts; each Bun entry composes its own product.
+ * The whole Bun bootstrap lives here, in the app, not behind a shared
+ * `@epicenter/server` factory: everything mechanical (the `pg.Pool`, the cloud
+ * auth layer, the session/inference/blobs mounts, `Bun.serve`) is this app's
+ * composition to own. The library ships the parts.
  *
  * The wiring lives in {@link startBunApiServer} so `server.dev.ts` can boot the
  * SAME server with a dev `resolveBearerPrincipal` injected (the parity smoke's credential)

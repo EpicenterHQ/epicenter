@@ -84,4 +84,4 @@ export const API_ROUTES = {
 	},
 } as const;
 // The billing prefix (`/api/billing`) lives in apps/api/worker/billing/routes.ts:
-// it is hosted-only and the self-hosted single-partition instance never mounts it.
+// it is hosted-only, so the Bun entry never mounts it.

@@ -39,7 +39,7 @@ import type { Env } from '../types.js';
 
 export type GitService = 'git-upload-pack' | 'git-receive-pack';
 
-/** The replaceable part of hosted Git: Artifacts on the cloud, none on self-host yet. */
+/** The replaceable part of hosted Git: Artifacts on the Worker, none on Bun yet. */
 export type GitRepositoryStore = {
 	/**
 	 * Find or create `principal`'s repository for `folder`, and mint a write

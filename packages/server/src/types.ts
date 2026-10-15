@@ -27,8 +27,7 @@ import type { ServerBindings } from './server-bindings.js';
  * `c.var.resolveBearerPrincipal`.
  *
  * The cloud closes over `resolveRequestSessionPrincipal`, which verifies a signed
- * bearer against its Better Auth session row; an instance closes over its env-token
- * resolver (`createEnvTokenResolver`). A dev-only entrypoint closes over a trivial
+ * bearer against its Better Auth session row. A dev-only entrypoint closes over a trivial
  * `dev:<principalId>` resolver so the runtime-parity smoke needs no interactive
  * login; that bypass lives in a dev entry production never imports, never an
  * env-gated branch in this library.
@@ -37,7 +36,7 @@ import type { ServerBindings } from './server-bindings.js';
  * different resolver slots in without touching the wrappers' error handling
  * (HTTP 401, the Bearer `WWW-Authenticate` challenge, or the relay's 4401 close).
  *
- * Generic over the context it reads: the instance's env-token resolver needs only
+ * Generic over the context it reads: a resolver like the dev one needs only
  * the portable {@link Env}; the cloud's `resolveRequestSessionPrincipal` reads
  * `c.var.auth`, so it is a `ResolveBearerPrincipal<CloudEnv>`. The
  * wrapper that closes over a resolver carries the same `E`, so a cloud resolver
@@ -75,7 +74,7 @@ export type Env = {
 		 * Origins this deployment trusts for CORS, cookie-mutation CSRF, and
 		 * Better Auth's redirect allow-list. Supplied by the deployment
 		 * (`createServerApp`'s `resolveTrustedOrigins`), never hardcoded in the
-		 * library: a self-host trusts its own origins, not Epicenter cloud's.
+		 * library.
 		 */
 		trustedOrigins: string[];
 		principal: Principal;
@@ -84,10 +83,8 @@ export type Env = {
 
 /**
  * The CLOUD context: the portable {@link Env} plus the relational-auth state only
- * the hosted cloud composes (Better Auth + Postgres). The single-partition
- * instance composes none of it, so these never appear on the instance's `Env`
- * (ADR-0076): the type makes "the instance reads no cloud secret" a compile fact,
- * not a JSDoc promise. The cloud's auth wrappers, `createCloudContextMiddleware`,
+ * apps/api composes on both runtimes (Better Auth + Postgres). The cloud's auth
+ * wrappers, `createCloudContextMiddleware`,
  * and the hosted auth routes type against this; the portable surfaces stay on `Env`.
  */
 export type CloudEnv = {

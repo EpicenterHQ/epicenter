@@ -35,14 +35,14 @@ export type Identity = {
 	 * `env`. Becomes the Better Auth `baseURL` and hosted callback origin,
 	 * so it must be stable per deployment and never inferred from `c.req.url`.
 	 * `apps/api` returns `env.API_PUBLIC_ORIGIN ?? PRODUCTION_API_URL` (dev
-	 * override, else the baked constant); `apps/self-host` returns the operator-set
-	 * `env.API_PUBLIC_ORIGIN`.
+	 * override, else the baked constant); its Bun entry returns
+	 * `API_PUBLIC_ORIGIN` or its localhost listen origin.
 	 */
 	resolveOrigin: (env: ServerBindings) => string;
 	/**
 	 * The origins this deployment trusts for CORS, cookie-mutation CSRF, and
 	 * Better Auth's redirect allow-list. The library hardcodes none: `apps/api`
-	 * supplies the Epicenter app origins, a self-host supplies its own. Receives
+	 * supplies the Epicenter app origins. Receives
 	 * the resolved `baseURL` so a deployment can include its own origin without
 	 * restating it, and the per-request `env` so a deployment whose trust set is
 	 * operator-configured can read its own binding. A deployment that resolves
@@ -63,8 +63,7 @@ export type Identity = {
  *
  * The deployment is responsible for exposing a health endpoint on `/`. The cloud's
  * relational-auth context (`c.var.auth`, `c.var.db`) is NOT installed here: the
- * cloud adds it via {@link createCloudContextMiddleware}, so the
- * single-partition instance composes no Better Auth and no Postgres (ADR-0076).
+ * cloud adds it via {@link createCloudContextMiddleware} on the routes that need it.
  */
 export function createServerApp<E extends Env = Env>({
 	resolveOrigin,

@@ -16,11 +16,9 @@
 #     S3, or a live Google endpoint; they keep their own workflows on their
 #     own triggers.
 #
-# The gate's tests do need two local programs, which this job installs:
-#   - PostgreSQL's initdb and pg_ctl. The session handoff tests in
-#     packages/server start their own disposable cluster on a loopback port.
-#   - Playwright's Chromium. The self-host lifecycle test plays a stored blob
-#     in a real browser.
+# The gate's tests do need one local program, which this job installs:
+# PostgreSQL's initdb and pg_ctl. The session handoff tests in packages/server
+# start their own disposable cluster on a loopback port.
 name: Code quality
 
 on:
@@ -63,10 +61,5 @@ jobs:
             bin=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -n 1)
           fi
           echo "$bin" >> "$GITHUB_PATH"
-      - name: Install the tests' Chromium
-        # From a package that depends on Playwright, so the browser matches the
-        # locked version.
-        working-directory: packages/ui
-        run: bun x playwright install --with-deps --only-shell chromium
       - name: Canonical gate
         run: bun run check

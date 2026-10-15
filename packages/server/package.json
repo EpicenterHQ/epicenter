@@ -3,14 +3,11 @@
 	"version": "0.1.1",
 	"private": true,
 	"type": "module",
-	"description": "Shared Hono server for Epicenter cloud and the self-hosted single-partition instance.",
+	"description": "Shared Hono server for apps/api on Cloudflare Workers and on Bun with Postgres.",
 	"exports": {
 		".": "./src/index.ts",
 		"./bun": "./src/bun.ts",
-		"./cloud-db": "./src/cloud-db.ts",
-		"./self-host-auth": "./src/self-host-auth/index.ts",
-		"./self-host-auth/worker": "./src/self-host-auth/worker.ts",
-		"./self-host-auth/bun": "./src/self-host-auth/bun.ts"
+		"./cloud-db": "./src/cloud-db.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit && tsc --noEmit -p workers/tsconfig.json",
@@ -25,7 +22,6 @@
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@hono/standard-validator": "catalog:",
-		"@simplewebauthn/server": "13.3.2",
 		"arktype": "catalog:",
 		"aws4fetch": "catalog:",
 		"better-auth": "catalog:",
