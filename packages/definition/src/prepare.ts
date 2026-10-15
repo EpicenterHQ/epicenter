@@ -1,7 +1,7 @@
 /**
  * Prepare developer declarations for reading.
  *
- * A field is a native TypeBox schema, and a prepared definition has the shape
+ * A field is a native TypeBox schema, and a prepared schema has the shape
  * it was declared in: `kv` and each table's `fields` are records of native
  * schemas. Preparation adds what a declaration cannot say by itself: usable
  * names, an owned frozen snapshot of each schema, and TypeBox's compiled
@@ -25,10 +25,8 @@ import { Format } from 'typebox/format';
 import { Resolve } from 'typebox/schema';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result, trySync } from 'wellcrafted/result';
-import { DATA_ADDRESS_CEILINGS, isDataId, isTableName } from './addresses.js';
 import {
 	type ConformanceIssue,
-	type DataDefinition,
 	type DataSchema,
 	type FieldMap,
 	KV_ROOT,
@@ -37,6 +35,7 @@ import {
 	type TableDeclaration,
 } from './declaration.js';
 import { isJsonSafe, type JsonObject, type JsonValue } from './json.js';
+import { isTableName } from './table-name.js';
 
 export const DataDefinitionParseError = defineErrors({
 	Malformed: ({ reason }: { reason: string }) => ({
@@ -67,15 +66,15 @@ export type Conformance = {
 	issues: ConformanceIssue[];
 };
 
-/** One memo per shape, so a definition and a schema never answer for each other. */
-type Memo = WeakMap<object, Result<DataSchema, DataDefinitionParseError>>;
-const preparedDefinitions: Memo = new WeakMap();
-const preparedSchemas: Memo = new WeakMap();
+const preparedSchemas = new WeakMap<
+	object,
+	Result<DataSchema, DataDefinitionParseError>
+>();
 
 /**
- * Check one definition and return the copy every read uses (ADR-0266).
+ * Check one schema and return the copy every read uses (ADR-0266).
  *
- * The result has the declared shape and the declared type: `id`, an optional
+ * The result has the declared shape and the declared type: an optional
  * `title`, `kv`, and `tables`, each table holding `fields` and its optional
  * `body`. It is owned here. Every field is the declared schema's frozen JSON
  * (see `plainSchema`). `kv`, `tables`, and each `fields` are frozen
@@ -83,84 +82,37 @@ const preparedSchemas: Memo = new WeakMap();
  * entry or as nothing. A body conversion is carried by reference and never
  * read.
  *
+ * A schema names no dataset: a declaration with an own `id` is malformed.
+ *
  * Names come from the record keys and are stored nowhere else. No field or
  * table name can be an integer, so a record keeps its declaration order.
  *
  * Memoised on object identity, for the declaration handed in and for the
- * definition handed back, so preparing a prepared definition returns it. The
- * memo is what makes eager validation free: `defineStore` prepares at the
- * authoring call so a malformed definition fails there, not at first open,
- * and an opener given that result does no work twice.
- *
- * Identity keying means a declaration MUTATED IN PLACE reads back its old
- * preparation. That is the intent: the prepared definition is a snapshot.
- */
-export function prepareData<TDefinition extends DataDefinition>(
-	value: TDefinition,
-): Result<TDefinition, DataDefinitionParseError> {
-	// The snapshot has the declared shape, so it has the declared type.
-	return memoised(preparedDefinitions, value, prepareDefinition) as Result<
-		TDefinition,
-		DataDefinitionParseError
-	>;
-}
-
-/**
- * Check one schema, a declaration that names no dataset, and return the copy
- * every read uses.
- *
- * Everything {@link prepareData} says holds, except the identity: the result
- * is an optional `title`, `kv`, and `tables`, and a declaration with an own
- * `id` is malformed. A storage that selects its dataset when it opens takes
- * the ID there, so an ID here would name nothing. The memo is its own: a
- * prepared definition is not a prepared schema, and the reverse.
+ * schema handed back, so preparing a prepared schema returns it. Identity
+ * keying means a declaration MUTATED IN PLACE reads back its old preparation.
+ * That is the intent: the prepared schema is a snapshot.
  */
 export function prepareSchema<
 	TSchema extends DataSchema & { readonly id?: never },
 >(value: TSchema): Result<TSchema, DataDefinitionParseError> {
-	return memoised(preparedSchemas, value, prepareIdentityFree) as Result<
-		TSchema,
-		DataDefinitionParseError
-	>;
+	return memoised(value) as Result<TSchema, DataDefinitionParseError>;
 }
 
 function memoised(
-	memo: Memo,
 	value: unknown,
-	prepare: (value: unknown) => Result<DataSchema, DataDefinitionParseError>,
 ): Result<DataSchema, DataDefinitionParseError> {
 	// A declaration that arrived untyped may not be an object, and only an
 	// object can be a memo key.
-	if (typeof value !== 'object' || value === null) return prepare(value);
-	const found = memo.get(value);
+	if (typeof value !== 'object' || value === null) return prepareRoot(value);
+	const found = preparedSchemas.get(value);
 	if (found !== undefined) return found;
-	const result = prepare(value);
-	memo.set(value, result);
-	if (result.error === null) memo.set(result.data, result);
+	const result = prepareRoot(value);
+	preparedSchemas.set(value, result);
+	if (result.error === null) preparedSchemas.set(result.data, result);
 	return result;
 }
 
-function prepareDefinition(
-	value: unknown,
-): Result<DataDefinition, DataDefinitionParseError> {
-	if (!isPlainObject(value))
-		return DataDefinitionParseError.Malformed({
-			reason: 'it is not a plain object',
-		});
-	const { id } = value as Partial<DataDefinition>;
-	if (typeof id !== 'string' || !isDataId(id, DATA_ADDRESS_CEILINGS)) {
-		return DataDefinitionParseError.Malformed({
-			reason: 'it declares an invalid id',
-		});
-	}
-	// A dataset is shared across releases, and an older one must read the keys
-	// a newer one added, so it has no closed tables.
-	const schema = prepareShape(value, { closable: false });
-	if (schema.error !== null) return schema;
-	return Ok(Object.freeze({ id, ...schema.data }));
-}
-
-function prepareIdentityFree(
+function prepareRoot(
 	value: unknown,
 ): Result<DataSchema, DataDefinitionParseError> {
 	if (!isPlainObject(value))
@@ -171,16 +123,12 @@ function prepareIdentityFree(
 		return DataDefinitionParseError.Malformed({
 			reason: 'it declares an id, and a schema names no dataset',
 		});
-	return prepareShape(value, { closable: true });
+	return prepareShape(value);
 }
 
-/**
- * The prepared title, kv, and tables of a plain-object declaration. A table
- * may be closed only when `closable`.
- */
+/** The prepared title, kv, and tables of a plain-object declaration. */
 function prepareShape(
 	value: Record<string, unknown>,
-	{ closable }: { closable: boolean },
 ): Result<DataSchema, DataDefinitionParseError> {
 	const { title, kv, tables } = value as Partial<DataSchema>;
 	if (
@@ -206,10 +154,7 @@ function prepareShape(
 	const preparedTables: Record<string, TableDeclaration> = Object.create(null);
 	const foldedNames = new Set<string>();
 	for (const [tableName, declaration] of Object.entries(tables)) {
-		if (
-			!isTableName(tableName, DATA_ADDRESS_CEILINGS) ||
-			RESERVED_TABLE_NAMES.includes(tableName)
-		) {
+		if (!isTableName(tableName) || RESERVED_TABLE_NAMES.includes(tableName)) {
 			return DataDefinitionParseError.Malformed({
 				reason: `table name '${tableName}' is not usable`,
 			});
@@ -241,10 +186,6 @@ function prepareShape(
 			if (table.additionalProperties !== false)
 				return DataDefinitionParseError.Malformed({
 					reason: `table '${tableName}' declares additionalProperties; the only value is false, which closes the table`,
-				});
-			if (!closable)
-				return DataDefinitionParseError.Malformed({
-					reason: `table '${tableName}' is closed, but a dataset must read the keys a newer release adds; remove additionalProperties`,
 				});
 		}
 		if (table.body !== undefined && !isBodyCodec(table.body)) {
@@ -336,7 +277,7 @@ function validatorOf(schema: TSchema & object): ReturnType<typeof Compile> {
 	const validator = validators.get(schema);
 	if (validator === undefined)
 		throw new Error(
-			'This schema was not prepared. Read fields from the definition that prepareData, prepareSchema, defineStore, or defineFolder returned.',
+			'This schema was not prepared. Read fields from the schema that prepareSchema or defineFolder returned.',
 		);
 	return validator;
 }

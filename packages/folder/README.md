@@ -725,8 +725,8 @@ and header CRLF in source are normalized away by the first save.
 ### Rows as SQL
 
 `projectTables(db, tables)` builds the projection `epicenter query` reads
-(ADR-0520) in any `SqlTarget` (`run` and `transaction`, such as an
-`@epicenter/sqlite` handle), so Bun and a browser's SQLite
+(ADR-0520) in any `SqlTarget` (`run` and `transaction`; `scripts/epicenter.ts`
+adapts a `bun:sqlite` database in six lines), so Bun and a browser's SQLite
 build the same tables. Each table has `stem`, one quoted column per declared
 field, and `body`; a list or object is JSON text and a boolean is `0` or `1`.
 Pass only rows that conform and name the files you left out. The database is
@@ -1282,8 +1282,7 @@ reader prepares.
 A definition is `{ title?, kv, tables }` and nothing else. `defineFolder`
 throws on an `id`; an opener given an untyped definition with one returns
 `InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
-`DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`. A store
-definition keeps its required `id` and its own `prepareData`.
+`DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`.
 
 `defineFolder` returns the prepared definition. It has the shape and type of
 what was declared: `kv` and each table's `fields` are records of native

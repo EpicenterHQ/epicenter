@@ -25,7 +25,7 @@
  * list, or a wrapped schema after the call changes nothing here.
  *
  * Helpers return native schema objects. Copies retain the input's property
- * descriptors. `prepareData` takes ownership by returning a frozen
+ * descriptors. `prepareSchema` takes ownership by returning a frozen
  * snapshot. Editing a helper's schema natively before then is the author's
  * edit to make, and the editor follows the edited schema.
  *
@@ -51,7 +51,7 @@ import {
 import { Memory } from 'typebox/system';
 import type { Brand } from 'wellcrafted/brand';
 import type { JsonValue } from 'wellcrafted/json';
-import { DATA_ADDRESS_CEILINGS, isTableName } from '../addresses.js';
+import { isTableName } from '../table-name.js';
 import type { CalendarDateString } from './calendar-date-string.js';
 import type { DateTimeString } from './datetime-string.js';
 import { type Annotated, annotate, type Kind } from './editor.js';
@@ -166,7 +166,7 @@ function reference<
 	table: TTable,
 	opts?: StringOptions,
 ): Annotated<StringSchema<T>, Hint<'reference', { readonly target: TTable }>> {
-	if (typeof table !== 'string' || !isTableName(table, DATA_ADDRESS_CEILINGS))
+	if (typeof table !== 'string' || !isTableName(table))
 		throw new TypeError('field.reference needs the name of a table');
 	return annotate(stringSchema('reference', opts, 1), {
 		kind: 'reference',

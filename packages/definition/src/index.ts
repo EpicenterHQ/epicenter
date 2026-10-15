@@ -1,17 +1,15 @@
 /**
  * `@epicenter/definition`: inert data-definition vocabulary, its preparation,
- * and the reads over a prepared definition.
+ * and the reads over a prepared schema.
  *
  * A storage imports this to read a declaration; it acquires nothing and knows
- * no storage. `@epicenter/app` binds the body conversion to its Yjs stores,
- * and `@epicenter/folder` refuses one.
+ * no storage. `@epicenter/folder` is the one storage, and it refuses a body
+ * conversion.
  */
 
-export * from './addresses.js';
 export {
 	type ConformanceIssue,
 	type CreateRowOf,
-	type DataDefinition,
 	type DataSchema,
 	type DeclaredMark,
 	type DeclaredTable,
@@ -48,7 +46,6 @@ export {
 	check,
 	DataDefinitionParseError,
 	isOptional,
-	prepareData,
 	prepareSchema,
 } from './prepare.js';
 export {

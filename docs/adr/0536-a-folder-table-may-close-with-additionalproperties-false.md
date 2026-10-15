@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-14
+- **Amended by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md) at the dataset clause: with folders the only data model, `prepareData` and datasets are deleted, and `prepareSchema` is the only preparation.
 - **Relates:** [ADR-0525](0525-a-field-is-plain-json-schema.md) (a field is plain JSON Schema), [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (one read pipeline), [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (`check` and `query`)
 
 ## Context
