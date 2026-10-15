@@ -24,8 +24,10 @@
 //! `Busy` at its grant, so the folder's windows are the only ones that reach
 //! it. So a save through the shell is never overtaken between its check and
 //! its rename by another save through the shell, whichever window, engine,
-//! or origin made either. Another process would publish outside that mutex,
-//! which is what the lock keeps out.
+//! or origin made either. Another Epicenter shell is kept out by the root
+//! lock; a Bun process, such as the `epicenter` CLI, may still write the
+//! folder, and the two take turns under the folder's save lock
+//! (`lock::SaveLock`), held with the mutex across each check and change.
 //!
 //! A folder is an application's own (`FolderKind::Application`), whose
 //! directory the shell chose and creates, or a data folder a person made
@@ -39,7 +41,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::Serialize;
 use specta::Type;
 
-use crate::lock::{LockError, RootLock};
+use crate::lock::{LockError, RootLock, SaveLock, SAVE_LOCK_WAIT};
 use crate::root::{enclosing_repository, prepare_directory, resolve_root, verify_layout, PrepareError};
 
 /// Who a version is recorded as when Git's configuration names no one.
@@ -163,9 +165,20 @@ pub struct Granted {
 
 /// One admitted page change or `git` run; dropping it ends it.
 pub struct PageWork {
-    /// The publishing mutex of the root the work was admitted for.
+    /// The canonical root the work was admitted for.
+    root: PathBuf,
+    /// The publishing mutex of that root.
     publishing: Arc<Mutex<()>>,
     kind: FolderKind,
+}
+
+/// A held turn to check and change a root's files: its publishing mutex,
+/// for this shell's windows, then its save lock, for other processes.
+/// Dropping it releases both.
+pub struct Publishing<'a> {
+    // Fields drop in order: the save lock before the mutex.
+    _save: SaveLock,
+    _turn: MutexGuard<'a, ()>,
 }
 
 impl PageWork {
@@ -176,13 +189,22 @@ impl PageWork {
         init_problem(self.kind, root)
     }
 
-    /// Hold the root's publishing mutex: a rename or removal that checks its
-    /// path and then changes it holds this across both, so no other change
-    /// through the shell on the same root lands in between.
-    pub fn publishing(&self) -> MutexGuard<'_, ()> {
-        self.publishing
+    /// Hold the root's publishing mutex, then its save lock (`SaveLock`): a
+    /// rename or removal that checks its path and then changes it holds both
+    /// across the two, so no other change through the shell on the same
+    /// root, and no save by the Bun host in another process, lands in
+    /// between. Refused, changing nothing, when another process holds the
+    /// save lock for longer than `SAVE_LOCK_WAIT`.
+    pub fn publishing(&self) -> Result<Publishing<'_>, String> {
+        let turn = self
+            .publishing
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let save = SaveLock::acquire(&self.root, SAVE_LOCK_WAIT)?;
+        Ok(Publishing {
+            _save: save,
+            _turn: turn,
+        })
     }
 }
 
@@ -349,8 +371,9 @@ impl Registry {
                 .or_default(),
         );
         Ok((
-            root,
+            root.clone(),
             PageWork {
+                root,
                 publishing,
                 kind,
             },

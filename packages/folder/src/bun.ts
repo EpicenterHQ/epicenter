@@ -18,20 +18,29 @@
  * directory's Git configuration.
  *
  * Saves to one directory take turns within this process, across every handle
- * it opens, so the check of the observed version just before each rename
- * holds. Across processes nothing waits (ADR-0541): a script and a desktop
- * window on one directory are writers kept apart only by Git's lock files,
- * the branch's compare-and-swap, and those checks. Nothing watches the
- * directory, so `onFilesChanged` reports this handle's own saves
- * and incoming updates, not other programs' edits.
+ * it opens, and with every other process that takes the directory's save
+ * lock: the desktop shell's checked renames and other Bun processes
+ * (ADR-0556). The lock is an exclusive SQLite transaction on
+ * `.<name>.epicenter-save-lock` beside the directory, the same one the shell
+ * takes, held only across one rename or removal and the check of the observed
+ * version just before it, so that check holds. A save waits up to ten
+ * seconds for another process's; past that it fails and changes nothing.
+ * Commits are kept apart by Git's lock files and the branch's
+ * compare-and-swap. Nothing watches the directory, so `onFilesChanged`
+ * reports this handle's own saves and incoming updates, not other programs'
+ * edits.
  */
 
+import { Database } from 'bun:sqlite';
 import { lstat, realpath } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
-import { directoryHandle } from './directory-handle.js';
+import {
+	type DirectoryPrimitives,
+	directoryHandle,
+} from './directory-handle.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder, FolderGitOptions } from './folder.js';
@@ -161,12 +170,116 @@ async function directoryRoot(
 
 /** This process's file system and `git`, at `resolved`. */
 function directory(resolved: string) {
+	const files = savingPrimitives(resolved);
 	return {
-		root: directoryHandle(nodeDirectoryPrimitives, resolved),
+		root: directoryHandle(files, resolved),
 		rootPath: resolved,
-		git: { run: createGitRunner(resolved), files: nodeDirectoryPrimitives },
+		git: { run: createGitRunner(resolved), files },
 		locks,
 	};
+}
+
+/**
+ * `node:fs`, with each rename and removal, and the check of what it expects
+ * just before it, under the directory's save lock (`holdingSaveLock`), as the
+ * desktop shell makes each one under its publishing and save locks.
+ */
+function savingPrimitives(resolved: string): DirectoryPrimitives {
+	return {
+		...nodeDirectoryPrimitives,
+		rename: (from, to, expected) =>
+			holdingSaveLock(resolved, () =>
+				nodeDirectoryPrimitives.rename(from, to, expected),
+			),
+		remove: (path, options) =>
+			holdingSaveLock(resolved, () =>
+				nodeDirectoryPrimitives.remove(path, options),
+			),
+	};
+}
+
+/** How long a save waits for another process's save to the same directory. */
+const SAVE_LOCK_WAIT_MS = 10_000;
+
+/** One turn at a time per directory within this process, before the file lock. */
+const saveTurns = new Map<string, ReturnType<typeof createMutex>>();
+
+/**
+ * Run `work`, one check and one change, holding the save lock of the
+ * directory at `resolved`: an exclusive SQLite transaction on
+ * `.<name>.epicenter-save-lock` beside it, which the desktop shell takes
+ * around each checked rename and removal (`lock.rs` in
+ * `tauri-plugin-epicenter-folder`). SQLite holds it with an operating-system
+ * file lock (`fcntl` on Unix, `LockFileEx` on Windows), which the system
+ * releases when the process ends, however it ends, so a killed save leaves
+ * nothing to recover. The transaction writes nothing.
+ *
+ * Saves in this process take turns first, so only one connection per
+ * directory waits on the file lock, and it waits by polling with timers,
+ * never by blocking the event loop. A save that cannot take the lock within
+ * `SAVE_LOCK_WAIT_MS` throws before `work` runs, so it changed nothing.
+ */
+function holdingSaveLock<T>(
+	resolved: string,
+	work: () => Promise<T>,
+): Promise<T> {
+	let turn = saveTurns.get(resolved);
+	if (turn === undefined) {
+		turn = createMutex();
+		saveTurns.set(resolved, turn);
+	}
+	return turn.run(async () => {
+		const held = await takeSaveLock(resolved);
+		try {
+			return await work();
+		} finally {
+			try {
+				held.run('ROLLBACK');
+			} finally {
+				held.close();
+			}
+		}
+	});
+}
+
+async function takeSaveLock(resolved: string): Promise<Database> {
+	const parent = dirname(resolved);
+	if (parent === resolved)
+		throw new Error(
+			`Nothing was saved to the folder at ${resolved}: it has no parent directory to hold its save lock.`,
+		);
+	const path = join(parent, `.${basename(resolved)}.epicenter-save-lock`);
+	// Never a database somewhere else. Checked once, as the shell checks it.
+	const found = await lstat(path).catch((cause: { code?: string }) => {
+		if (cause.code === 'ENOENT') return undefined;
+		throw cause;
+	});
+	if (found !== undefined && !found.isFile())
+		throw new Error(
+			`Nothing was saved to the folder at ${resolved}: ${path} is ${found.isSymbolicLink() ? 'a symbolic link' : 'not a regular file'}. Remove it, then save again.`,
+		);
+	const database = new Database(path, { create: true });
+	try {
+		database.run('PRAGMA busy_timeout = 0');
+		const deadline = Date.now() + SAVE_LOCK_WAIT_MS;
+		for (let pause = 1; ; pause = Math.min(pause * 2, 25)) {
+			try {
+				database.run('BEGIN EXCLUSIVE');
+				return database;
+			} catch (cause) {
+				const code = String((cause as { code?: unknown }).code);
+				if (!/^SQLITE_(BUSY|LOCKED)/.test(code)) throw cause;
+				if (Date.now() >= deadline)
+					throw new Error(
+						`Nothing was saved to the folder at ${resolved}: another program held its save lock (${path}) for more than ${SAVE_LOCK_WAIT_MS / 1000} seconds. Save again; if it keeps happening, quit the other program.`,
+					);
+				await Bun.sleep(pause);
+			}
+		}
+	} catch (cause) {
+		database.close();
+		throw cause;
+	}
 }
 
 /**

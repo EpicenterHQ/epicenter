@@ -51,12 +51,14 @@ import {
  * `remote.origin.url` is the remote, on `branch`, and `user.name` and
  * `user.email` the author, with `author` for whichever is missing.
  *
- * No handle waits for another across processes (ADR-0541). A save is checked
- * where it lands: the desktop shell checks each rename against what the page
- * expects, and in Bun the check runs just before the rename, under `locks`
- * so saves within one process take turns. A commit moves the branch only by
- * compare-and-swap, and Git's own lock files keep its index whole. Each
- * handle orders its own Git work.
+ * A save is checked where it lands: the desktop shell checks each rename
+ * against what the page expects, and in Bun the check runs just before the
+ * rename, under `locks` so saves within one process take turns. Across
+ * processes, the shell and the Bun host each hold the folder's save lock
+ * across one check and rename (ADR-0556), so saves wait only for each other
+ * and only for that long. A commit moves the branch only by compare-and-swap,
+ * and Git's own lock files keep its index whole. Each handle orders its own
+ * Git work.
  *
  * `detector` is the host's one detector of changes made outside the handle
  * (ADR-0548): the shell's watcher on the desktop, none in Bun.

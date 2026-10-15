@@ -30,10 +30,11 @@
 //!
 //! A rename or a removal also carries what the page expects at the path it
 //! changes (`Expectation`), and lands only if the path holds that. The caller
-//! holds the root's publishing lock (`registry::PageWork::publishing`) across
-//! the check and the change, so no other window's change through the shell
-//! lands between them. A Bun script, or any other program, takes no such
-//! lock.
+//! holds the root's publishing lock and save lock
+//! (`registry::PageWork::publishing`) across the check and the change, so no
+//! other window's change through the shell, and no save by the Bun host
+//! (`@epicenter/folder/bun`, which takes the same save lock), lands between
+//! them. Any other program takes no such lock.
 
 use std::fs;
 use std::io::{ErrorKind, Write};
