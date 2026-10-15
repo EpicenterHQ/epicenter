@@ -22,21 +22,26 @@ import { tauriGitRun } from './tauri-git.js';
 
 export async function openGrantedFolder<
 	const TDefinition extends FolderDefinition,
+	TDeclared extends FolderDefinition = TDefinition,
 >({
 	definition,
+	lens,
 	id,
 	granted,
 	credentials,
 }: {
 	/** The page's definition, or `'declared'` for the folder's own. */
 	readonly definition: TDefinition | 'declared';
+	/** With `'declared'`, the prepared shape the folder must contain. */
+	readonly lens?: FolderDefinition;
 	readonly id: string;
 	readonly granted: Granted;
 	readonly credentials?: GitCredentials;
-}): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
+}): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
 	const files = tauriDirectoryPrimitives(id);
-	return openDirectoryFolder({
+	return openDirectoryFolder<TDefinition, TDeclared>({
 		definition,
+		lens,
 		root: directoryHandle(files, granted.root),
 		rootPath: granted.root,
 		git: { run: tauriGitRun(id), files },

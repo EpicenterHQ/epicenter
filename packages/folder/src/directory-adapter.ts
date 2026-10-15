@@ -57,8 +57,10 @@ import {
  */
 export async function openDirectoryFolder<
 	const TDefinition extends FolderDefinition,
+	TDeclared extends FolderDefinition = TDefinition,
 >({
 	definition,
+	lens,
 	initProblem,
 	root,
 	rootPath,
@@ -71,6 +73,8 @@ export async function openDirectoryFolder<
 }: {
 	/** The opener's definition, or `'declared'` for the folder's own. */
 	readonly definition: TDefinition | 'declared';
+	/** With `'declared'`, the prepared shape the folder must contain (ADR-0538). */
+	readonly lens?: FolderDefinition;
 	/**
 	 * Why the first commit of a `'declared'` folder with no repository must
 	 * not create one here.
@@ -94,7 +98,7 @@ export async function openDirectoryFolder<
 	readonly branch?: string;
 	/** Asked before each push and fetch; see `GitCredentials`. */
 	readonly credentials?: GitCredentials;
-}): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
+}): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
 	let schema: FolderSchema = 'declared';
 	if (definition !== 'declared') {
 		const { data: prepared, error: definitionError } =
@@ -102,6 +106,12 @@ export async function openDirectoryFolder<
 		if (definitionError !== null)
 			return OpenFolderError.InvalidDefinition(definitionError);
 		schema = prepared;
+	}
+	let shape: FolderDefinition | undefined;
+	if (lens !== undefined) {
+		const { data: prepared, error: lensError } = prepareFolderDefinition(lens);
+		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
+		shape = prepared;
 	}
 	ensureBufferGlobal();
 	const configured = async (key: string) => {
@@ -130,11 +140,12 @@ export async function openDirectoryFolder<
 	} catch {
 		// Leftovers are inert; an open that cannot clear them still opens.
 	}
-	return openAtRoot<TDefinition>(
+	return openAtRoot<TDefinition, TDeclared>(
 		schema,
 		{ BroadcastChannel: hintChannel },
 		{
 			at,
+			lens: shape,
 			location: { kind: 'directory', root: rootPath },
 			async start({ relay, landed }) {
 				const boundary =

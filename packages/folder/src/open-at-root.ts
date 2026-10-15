@@ -9,6 +9,7 @@
  * changes: Web Locks in the browser, the host's checks and Git's on a
  * directory (ADR-0541).
  */
+import { shapeProblems } from '@epicenter/definition';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FileBoundary } from './boundary.js';
 import { readDeclaration } from './declaration.js';
@@ -70,15 +71,23 @@ export type StartFolder = (wiring: {
 	) => ReturnType<typeof createHistory>;
 }>;
 
-export async function openAtRoot<TDefinition extends FolderDefinition>(
+export async function openAtRoot<
+	TDefinition extends FolderDefinition,
+	TDeclared extends FolderDefinition = TDefinition,
+>(
 	schema: FolderSchema,
 	environment: Pick<OpfsEnvironment, 'BroadcastChannel'>,
 	captured: {
 		readonly at: Pick<FolderAddress, 'hintChannel'>;
 		readonly location: FolderLocation;
 		readonly start: StartFolder;
+		/**
+		 * With `'declared'`, the prepared shape the caller reads. The folder's
+		 * declaration must contain it (ADR-0538), or nothing opens.
+		 */
+		readonly lens?: FolderDefinition;
 	},
-): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
+): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
 	const { at } = captured;
 	let channel: BroadcastChannel | undefined;
 	let channelOpen = false;
@@ -127,6 +136,13 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 				return OpenFolderError.InvalidDeclaration(error);
 			}
 			prepared = declared ?? UNDECLARED;
+			if (captured.lens !== undefined) {
+				const problems = shapeProblems(prepared, captured.lens);
+				if (problems.length > 0) {
+					release();
+					return OpenFolderError.ShapeMismatch({ problems });
+				}
+			}
 		} else prepared = schema;
 		const history = started.history(prepared);
 		if (channel !== undefined) {
@@ -137,8 +153,9 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 				hints.receive(data as string[]);
 			};
 		}
-		const folder = assembleFolder<TDefinition>({
+		const folder = assembleFolder<TDefinition, TDeclared>({
 			prepared,
+			lens: schema === 'declared' ? captured.lens : undefined,
 			publishes: schema !== 'declared',
 			storage: withPublication({
 				storage: boundary,

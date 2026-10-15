@@ -26,7 +26,11 @@
 
 import { isTauri } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { OpenDataFolder, OpenFolder } from './contract.js';
+import type {
+	OpenDataFolder,
+	OpenDataFolderOptions,
+	OpenFolder,
+} from './contract.js';
 import {
 	type FolderDefinition,
 	prepareFolderDefinition,
@@ -103,15 +107,27 @@ export const openFolder: OpenFolder = async ({
 /**
  * Open the folder the shell registered under `id` with the schema in its own
  * `epicenter.json`, which the handle never writes. Refused as `openFolder`
- * is, and with `InvalidDeclaration` for an `epicenter.json` that cannot be
- * used. Opening creates no repository; the first commit does.
+ * is, with `InvalidDeclaration` for an `epicenter.json` that cannot be
+ * used, and with `ShapeMismatch` for one that does not contain the `lens`.
+ * Opening creates no repository; the first commit does.
  */
-export const openDataFolder: OpenDataFolder = async ({ id, credentials }) => {
+export const openDataFolder: OpenDataFolder = async <
+	const TLens extends FolderDefinition = FolderDefinition,
+>({
+	id,
+	credentials,
+	lens,
+}: OpenDataFolderOptions<TLens>) => {
+	if (lens !== undefined) {
+		const { error: lensError } = prepareFolderDefinition(lens);
+		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
+	}
 	const { data: granted, error } = await grant(id);
 	if (error !== null) return Err(error);
 	const { openGrantedFolder } = await import('./tauri-directory.js');
-	return openGrantedFolder<FolderDefinition>({
+	return openGrantedFolder<TLens, FolderDefinition>({
 		definition: 'declared',
+		lens,
 		id,
 		granted,
 		credentials,

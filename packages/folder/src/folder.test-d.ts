@@ -275,7 +275,7 @@ expectTypeOf(root.openDataFolder).toEqualTypeOf<OpenDataFolder>();
 expectTypeOf(browser.openDataFolder).toEqualTypeOf<OpenDataFolder>();
 expectTypeOf(tauri.openDataFolder).toEqualTypeOf<OpenDataFolder>();
 expectTypeOf<keyof OpenDataFolderOptions>().toEqualTypeOf<
-	'id' | 'credentials' | 'browser'
+	'id' | 'credentials' | 'browser' | 'lens'
 >();
 expectTypeOf(root.openDataFolder).returns.toEqualTypeOf<
 	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
@@ -287,6 +287,61 @@ async function untypedRows(folder: Folder<FolderDefinition>) {
 	void table;
 }
 void untypedRows;
+
+// A lens types the tables and settings it reads; `definition` stays the
+// folder's own declaration, and a table may refuse to add rows.
+const board = defineFolder({
+	kv: { theme: field.string() },
+	tables: {
+		todos: defineTable({
+			fields: { title: field.string(), status: field.select(['todo', 'done']) },
+		}),
+	},
+});
+type Lensed = Folder<typeof board, FolderDefinition>;
+expectTypeOf(root.openDataFolder<typeof board>).returns.toEqualTypeOf<
+	Promise<Result<Lensed, OpenFolderError>>
+>();
+expectTypeOf(browser.openDataFolder<typeof board>).returns.toEqualTypeOf<
+	Promise<Result<Lensed, OpenFolderError>>
+>();
+expectTypeOf(bun.openDataFolder<typeof board>).returns.toEqualTypeOf<
+	Promise<Result<Lensed, OpenFolderError>>
+>();
+async function lensedRows() {
+	const { data: folder, error } = await root.openDataFolder({
+		id: 'so.epicenter.todos',
+		lens: board,
+	});
+	if (error !== null) {
+		if (error.name === 'ShapeMismatch')
+			expectTypeOf(error.problems[0]!.kind).toEqualTypeOf<
+				| 'missingTable'
+				| 'incompatibleTable'
+				| 'missingField'
+				| 'incompatibleField'
+			>();
+		return;
+	}
+	expectTypeOf(folder).toEqualTypeOf<Lensed>();
+	expectTypeOf(folder.definition).toEqualTypeOf<FolderDefinition>();
+	expectTypeOf(folder.tables.todos.canCreate).toEqualTypeOf<boolean>();
+	// @ts-expect-error The lens declares no such table.
+	void folder.tables.projects;
+	const created = await folder.tables.todos.create({
+		fields: { title: 'Milk', status: 'todo' },
+		body: '',
+	});
+	if (created.error?.name === 'CannotCreate')
+		expectTypeOf(created.error.fields).toEqualTypeOf<readonly string[]>();
+	folder.tables.todos.create({
+		// @ts-expect-error A lens field keeps its declared type.
+		fields: { title: 'Milk', status: 'blocked' },
+		body: '',
+	});
+	expectTypeOf(folder.kv).toEqualTypeOf<FileKv<KvOf<typeof board>>>();
+}
+void lensedRows;
 
 // Every entry exports the same contract, so a build may resolve one for another.
 type Contract = typeof contract;
@@ -304,10 +359,10 @@ expectTypeOf<EntryPoint<typeof tauri>>().toEqualTypeOf<Contract>();
 expectTypeOf<Pick<typeof bun, keyof Contract>>().toEqualTypeOf<Contract>();
 
 // The directory openers are their own contract: an explicit root and history.
-expectTypeOf(bun.openDataFolder)
+expectTypeOf(bun.openDataFolder<FolderDefinition>)
 	.parameter(0)
 	.toEqualTypeOf<bun.DataFolderOptions>();
-expectTypeOf(bun.openDataFolder).returns.toEqualTypeOf<
+expectTypeOf(bun.openDataFolder<FolderDefinition>).returns.toEqualTypeOf<
 	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
 >();
 expectTypeOf(bun.openFolder<typeof definition>)

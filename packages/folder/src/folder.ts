@@ -13,7 +13,11 @@
  * file helpers; storage applications already started return their actual
  * outcome. Closing makes no last commit.
  */
-import type { CreateRowOf, KvOf } from '@epicenter/definition';
+import {
+	type CreateRowOf,
+	type KvOf,
+	requiredOutsideShape,
+} from '@epicenter/definition';
 import type { Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
@@ -211,36 +215,44 @@ export type FolderLocation =
 	/** An ordinary directory, by absolute path. */
 	| { readonly kind: 'directory'; readonly root: string };
 
-export type Folder<TDefinition extends FolderDefinition> =
-	FolderAccess<TDefinition> & {
-		/**
-		 * The prepared definition this handle reads with: the one `openFolder`
-		 * was given, or the folder's own `epicenter.json` as `openDataFolder`
-		 * read it when it opened (no tables and no settings when there was
-		 * none). Its tables are `tables`, its settings `kv`, and Sync merges
-		 * rows by it. A declaration changed after opening is read by the next
-		 * open.
-		 */
-		readonly definition: TDefinition;
-		readonly location: FolderLocation;
-		readonly sync: FolderSync;
-		/**
-		 * Hear that files changed, as a hint to read again. The paths are the
-		 * ones a change reached. There is not one call per save, calls are not
-		 * ordered against other folders' saves, and a hint is never a capture.
-		 * Subscribe before the first read so no change falls between them.
-		 * Returns the function that stops listening; closing stops all of them.
-		 */
-		onFilesChanged(listener: (paths: readonly string[]) => void): () => void;
-		/** Aborts when closing starts. */
-		readonly signal: AbortSignal;
-		/**
-		 * Fence the next storage call and drain owned Git work before release.
-		 * Await each file operation that must finish before closing; close does
-		 * not wait for file helpers or their publication replies.
-		 */
-		close(): Promise<void>;
-	};
+/**
+ * An opened folder. `TDefinition` types `tables` and `kv`; `TDeclared` types
+ * `definition`, and differs from it only for a lens, whose tables are typed by
+ * the lens while the handle reads and writes with the folder's own
+ * declaration.
+ */
+export type Folder<
+	TDefinition extends FolderDefinition,
+	TDeclared extends FolderDefinition = TDefinition,
+> = FolderAccess<TDefinition> & {
+	/**
+	 * The prepared definition this handle reads with: the one `openFolder`
+	 * was given, or the folder's own `epicenter.json` as `openDataFolder`
+	 * read it when it opened (no tables and no settings when there was
+	 * none), lens or not. Every row and setting is checked against it, and
+	 * Sync merges rows by it. A declaration changed after opening is read
+	 * by the next open.
+	 */
+	readonly definition: TDeclared;
+	readonly location: FolderLocation;
+	readonly sync: FolderSync;
+	/**
+	 * Hear that files changed, as a hint to read again. The paths are the
+	 * ones a change reached. There is not one call per save, calls are not
+	 * ordered against other folders' saves, and a hint is never a capture.
+	 * Subscribe before the first read so no change falls between them.
+	 * Returns the function that stops listening; closing stops all of them.
+	 */
+	onFilesChanged(listener: (paths: readonly string[]) => void): () => void;
+	/** Aborts when closing starts. */
+	readonly signal: AbortSignal;
+	/**
+	 * Fence the next storage call and drain owned Git work before release.
+	 * Await each file operation that must finish before closing; close does
+	 * not wait for file helpers or their publication replies.
+	 */
+	close(): Promise<void>;
+};
 
 /** The history observations and requests the handle exposes. */
 export type FolderHistory = FolderGit & {
@@ -329,9 +341,18 @@ function createFolderGit(history: FolderHistory): FolderGit {
  * declaration `openDataFolder` read. It is the snapshot every table and the
  * KV read through, never the declaration the opener was handed. No argument
  * carries `TDefinition`, so the opener names it.
+ *
+ * With a `lens` that `prepared` contains, the handle has the lens's tables
+ * alone, each still reading and writing through `prepared`'s table, so a row
+ * is checked against every field the folder declares and keeps the fields
+ * the lens does not name.
  */
-export function assembleFolder<TDefinition extends FolderDefinition>({
+export function assembleFolder<
+	TDefinition extends FolderDefinition,
+	TDeclared extends FolderDefinition = TDefinition,
+>({
 	prepared,
+	lens,
 	publishes,
 	storage: suppliedStorage,
 	history,
@@ -340,6 +361,8 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 	release,
 }: {
 	prepared: FolderDefinition;
+	/** The shape the caller reads, contained by `prepared` (ADR-0538). */
+	lens?: FolderDefinition;
 	/**
 	 * Whether the handle publishes `prepared` to `epicenter.json` before its
 	 * first write. `openFolder`'s handles do; `openDataFolder`'s, whose
@@ -352,7 +375,7 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 	hints: FileHints;
 	/** Releases this attachment after owned Git work settles. */
 	release: () => Promise<void>;
-}): Folder<TDefinition> {
+}): Folder<TDefinition, TDeclared> {
 	const controller = new AbortController();
 	let closing: Promise<void> | undefined;
 
@@ -363,17 +386,23 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 	const tables: Record<string, FileTable<unknown>> = {};
 	// A table's key is its name and its directory.
 	// The opener prepared every table, which is what the type's mark records.
-	for (const [name, table] of Object.entries(prepared.tables))
+	for (const name of Object.keys((lens ?? prepared).tables)) {
+		const table = prepared.tables[name] as PreparedFolderTable;
+		const shape = lens?.tables[name];
 		tables[name] = createTable<unknown>(
 			{ storage },
 			name,
-			table as PreparedFolderTable,
+			table,
+			shape === undefined
+				? []
+				: Object.freeze(requiredOutsideShape(table, shape)),
 		);
+	}
 	const files = createFiles({ storage });
 	const git = createFolderGit(history);
 
 	return Object.freeze({
-		definition: prepared as TDefinition,
+		definition: prepared as TDeclared,
 		tables: Object.freeze(tables) as Folder<TDefinition>['tables'],
 		kv: createKv({ storage }, prepared.kv) as Folder<TDefinition>['kv'],
 		files,
@@ -398,5 +427,5 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 			})().then(completion.resolve, completion.reject);
 			return closing;
 		},
-	} satisfies Folder<TDefinition>);
+	} satisfies Folder<TDefinition, TDeclared>);
 }

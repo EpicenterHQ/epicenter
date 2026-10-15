@@ -11,6 +11,7 @@
  * carries the exact text, the hash of the bytes read, and every issue, so the
  * row can be repaired as text and saved guarded by those bytes.
  */
+import type { ShapeProblem } from '@epicenter/definition';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { FileCapture } from './capture.js';
 import type { Issue, Issues } from './row-text.js';
@@ -244,6 +245,22 @@ export const TableError = defineErrors({
 		issues,
 	}),
 	/**
+	 * The folder requires `fields` in every row of `table`, and the lens this
+	 * table was opened with does not declare them, so it cannot supply them.
+	 * Rows can be read and replaced through the lens, not added (ADR-0538).
+	 */
+	CannotCreate: ({
+		table,
+		fields,
+	}: {
+		table: string;
+		fields: readonly string[];
+	}) => ({
+		message: `The folder requires ${fields.map((name) => `'${table}.${name}'`).join(', ')} in every row, which this lens does not declare, so it cannot add rows to '${table}'`,
+		table,
+		fields,
+	}),
+	/**
 	 * The file was read, but its bytes are not UTF-8. `sha256` is the hash of
 	 * the bytes read, so a repair can be guarded by them.
 	 */
@@ -269,8 +286,13 @@ export type TableReadError = FileError | TableErrorOf<'InvalidUtf8'>;
 /** Why a read row file is not a row: there was no text, or the text is not a valid row. */
 export type RowReadError = TableReadError | TableErrorOf<'InvalidRow'>;
 
-/** The row cannot be written as a valid row, or publication failed. */
-export type TableCreateError = FileError | TableErrorOf<'InvalidValues'>;
+/**
+ * The row cannot be written as a valid row, the table's lens cannot add rows,
+ * or publication failed.
+ */
+export type TableCreateError =
+	| FileError
+	| TableErrorOf<'InvalidValues' | 'CannotCreate'>;
 
 /** The row cannot be written as a valid row, or the guarded publication failed. */
 export type TableReplaceError = FileError | TableErrorOf<'InvalidValues'>;
@@ -316,6 +338,16 @@ export const OpenFolderError = defineErrors({
 	InvalidDeclaration: ({ reason }: { reason: string }) => ({
 		message: `The folder's epicenter.json cannot be used: ${reason}`,
 		reason,
+	}),
+	/**
+	 * The folder's own `epicenter.json` does not contain the shape of the lens
+	 * `openDataFolder` was given (ADR-0538): a table or field the lens reads
+	 * is missing, or the folder admits values there the lens does not. Every
+	 * problem is listed. Nothing was opened.
+	 */
+	ShapeMismatch: ({ problems }: { problems: readonly ShapeProblem[] }) => ({
+		message: `The folder's epicenter.json does not contain this lens: ${problems.map((problem) => problem.message).join('; ')}`,
+		problems,
 	}),
 	/** A folder ID names one directory: not empty, `.`, or `..`, with no slash, backslash, or control character. */
 	InvalidId: ({ id }: { id: string }) => ({

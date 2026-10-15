@@ -187,15 +187,32 @@ export const openFolder: OpenFolder = async ({ definition, ...options }) => {
  * handle never writes; a folder without one has no tables and no settings.
  * Opening writes nothing, as `openFolder`'s does: a folder nobody wrote to
  * lists no files, and its first write creates its directory and repository.
- * An `epicenter.json` that cannot be used is `InvalidDeclaration`.
+ * An `epicenter.json` that cannot be used is `InvalidDeclaration`, and one
+ * that does not contain the `lens` is `ShapeMismatch`.
  */
-export const openDataFolder: OpenDataFolder = (options) =>
-	openBrowserFolder<FolderDefinition>('declared', options);
+export const openDataFolder: OpenDataFolder = async <
+	const TLens extends FolderDefinition = FolderDefinition,
+>({
+	lens,
+	...options
+}: OpenDataFolderOptions<TLens>) => {
+	let shape: FolderDefinition | undefined;
+	if (lens !== undefined) {
+		const { data: prepared, error: lensError } = prepareFolderDefinition(lens);
+		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
+		shape = prepared;
+	}
+	return openBrowserFolder<TLens, FolderDefinition>('declared', options, shape);
+};
 
-async function openBrowserFolder<TDefinition extends FolderDefinition>(
+async function openBrowserFolder<
+	TDefinition extends FolderDefinition,
+	TDeclared extends FolderDefinition = TDefinition,
+>(
 	schema: FolderSchema,
 	{ id, credentials, browser = {} }: OpenDataFolderOptions,
-): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
+	lens?: FolderDefinition,
+): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
 	if (isTauri()) return OpenFolderError.InsideTauri();
 	if (!isFolderName(id)) return OpenFolderError.InvalidId({ id: String(id) });
 	const author = browser.author ?? LOCAL_AUTHOR;
@@ -220,8 +237,9 @@ async function openBrowserFolder<TDefinition extends FolderDefinition>(
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });
 	}
-	return openAtRoot<TDefinition>(schema, environment, {
+	return openAtRoot<TDefinition, TDeclared>(schema, environment, {
 		at,
+		lens,
 		location: { kind: 'opfs', directory: at.directory },
 		// An incoming update a closed tab left half published stays pending:
 		// opening reads it into the snapshot and never resumes it.
