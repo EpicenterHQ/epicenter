@@ -111,10 +111,7 @@ async function main(): Promise<void> {
 			host: {
 				async [Symbol.asyncDispose]() {
 					ownedDesktopAuth[Symbol.dispose]();
-					await Promise.all([
-						aiCatalog!.close(),
-						noAccountAiCatalog!.close(),
-					]);
+					await Promise.all([aiCatalog!.close(), noAccountAiCatalog!.close()]);
 				},
 			},
 			parentPipe,
@@ -124,10 +121,7 @@ async function main(): Promise<void> {
 		if (!lifecycleOwnsResources) {
 			if (server) void server.stop(true);
 			desktopAuth?.[Symbol.dispose]();
-			await Promise.all([
-				aiCatalog?.close(),
-				noAccountAiCatalog?.close(),
-			]);
+			await Promise.all([aiCatalog?.close(), noAccountAiCatalog?.close()]);
 			await parentPipe.cancel();
 		}
 	}

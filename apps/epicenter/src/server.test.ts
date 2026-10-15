@@ -328,7 +328,6 @@ function authenticatedHeaders(server: TestServer) {
 	return { cookie: authenticationFor(server).cookie };
 }
 
-
 describe('loadStaticAssets', () => {
 	test('every declared compiled application must have built, and so must Home', async () => {
 		// One omission at a time, so the message names the application that is
