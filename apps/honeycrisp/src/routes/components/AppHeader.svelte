@@ -34,11 +34,12 @@
 		onToggleTerminal: () => void;
 	} = $props();
 
-	// Observed so Git status is read again on focus and after actions; the
-	// lines below read the snapshot that read updates.
-	createQuery(() => notes.statusQuery());
+	// Observed so Git status is read again when the folder reports a change and
+	// after the app's own saves and actions; the lines below read the snapshot
+	// that read updates.
+	createQuery(() => notes.folder$.history.status.queryOptions());
 
-	const saves = $derived(savesLine({ saving: notes.saving }));
+	const saves = $derived(savesLine({ saving: notes.saving, unsaved: notes.unsaved }));
 	const changes = $derived(changesLine(notes.git));
 	const history = $derived(historyLine(notes.git));
 	const summary = $derived(summaryLine({ saves, changes, history }));
@@ -148,9 +149,6 @@
 					</dd>
 				</div>
 			</dl>
-			<div class="flex items-center gap-2 border-t px-3 py-2">
-				<Button variant="outline" size="sm" onclick={() => void notes.refresh()}>Check again</Button>
-			</div>
 		</Popover.Content>
 	</Popover.Root>
 

@@ -15,8 +15,14 @@
 
 	let { notes }: { notes: Notes } = $props();
 
-	const noteRows = createQuery(() => notes.notesQuery(notesOf));
-	const folderRows = createQuery(() => notes.foldersQuery(foldersOf));
+	const noteRows = createQuery(() => ({
+		...notes.folder$.notes.list.queryOptions(),
+		select: notesOf,
+	}));
+	const folderRows = createQuery(() => ({
+		...notes.folder$.folders.list.queryOptions(),
+		select: foldersOf,
+	}));
 	const folders = $derived(
 		(folderRows.data ?? []).toSorted((a, b) => nameOf(a).localeCompare(nameOf(b))),
 	);

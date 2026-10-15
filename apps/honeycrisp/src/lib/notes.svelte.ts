@@ -1,56 +1,51 @@
 /**
- * The Honeycrisp product state over one opened notes folder, kept in a
- * TanStack Query cache (ADR-0528).
+ * The Honeycrisp product state over one opened notes folder, read through a
+ * TanStack Query cache (ADR-0548).
  *
- * Reads are queries: the note rows, the folder rows, the file listing the
- * file browser shows, the text of each file opened as text, and Git status.
- * They are read when the page opens, when the window regains focus, and
- * after the app's own actions and terminal commands. Nothing follows the
- * folder's change reports.
+ * Reads are queries from `folderOptions(folder)`: the note rows, the folder
+ * rows, the file listing the file browser shows, Git status, and the text of
+ * each file opened as text. The cache changes in two ways only. Changes the
+ * page did not make arrive on `folder.onFilesChanged`, which makes exactly
+ * the queries they name stale (the one line in `createNotes`). The page's own
+ * writes put their result in the cache, or make what they changed stale.
+ * Nothing rereads on focus.
  *
- * An edit goes straight into the cache: one immutable `map` over a table's
- * listing changes one row, and one replacement changes a file's text. The
- * title, folder, pin, rich text, and Source of an open note, a list action
- * on any note, and a folder's name are all such edits. Each is written by a
- * mutation keyed and scoped by its file's path, so writes to one file run
- * one at a time while writes to different files run side by side. A write
- * reads the cache when it runs, so it saves the newest row, guarded by the
- * newest confirmed `sha256`; a file has at most one write running and one
- * waiting. A write that succeeds moves the guard forward and keeps what was
- * typed meanwhile. A write that fails reads that one file again, which rolls
- * the edit back, and reports what was lost.
+ * An edit holds its own starting version. The title, folder, pin, rich text,
+ * and Source of a note, a list action on any note, and a folder's name are
+ * all edits of a row's draft (`createDraftState`), one draft per row, which
+ * the open note and the lists share. A draft captures the cached row at its
+ * first change and keeps the edited row outside the cache, so a read never
+ * replaces typing. Each change saves at once; one save runs at a time per
+ * row, and changes made meanwhile are sent next. `table.save` merges with
+ * whatever changed in the file since the draft began. A save that fails
+ * keeps the draft on screen and reports the failure; a note deleted
+ * elsewhere drops it. A file open as its exact text has a text draft of its
+ * own, written whole and guarded by its version.
  *
- * No read starts while a write runs: an edit cancels reads in flight,
- * nothing goes stale on its own, focus does not read while writing, and
- * everything is read again once the last write settles.
- *
- * Every other action is a mutation too: create, rename, delete, deleting a
+ * Every other action is a mutation: create, rename, delete, deleting a
  * folder, Save version, and terminal commands. Closing the notes fences new
- * input, then waits until nothing is mutating before it releases the folder.
- * Saves
- * never commit (ADR-0529); a version is recorded only by Save version.
+ * input, then waits until every save and action settled before it releases
+ * the folder. Saves never commit (ADR-0529); a version is recorded only by
+ * Save version.
  */
 import {
 	type CommitOutcome,
 	type FileCapture,
 	type FileError,
 	type FileListing,
-	type FilesObservation,
-	type FileTable,
 	formatRow,
 	type GitError,
 	type MoveError,
 	parseRow,
+	type Replaced,
 	type Row,
 	type RowReadError,
 	rowPath,
 	rowStemOf,
-	type SavedRow,
 	type StoredRow,
 	type TableCreateError,
 	type TableError,
 	type TableListing,
-	type TableSaveError,
 } from '@epicenter/folder';
 import {
 	ancestorsOf,
@@ -59,18 +54,18 @@ import {
 	joinPath,
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
-import { createSaveBases } from '@epicenter/folder/query';
+import { folderOptions, type TableOptions } from '@epicenter/folder/query';
+import { createDraftState, type DraftState } from '@epicenter/folder/svelte';
 import type {
 	MutationFilters,
 	MutationOptions,
 	QueryClient,
 } from '@tanstack/svelte-query';
-import { createSubscriber, SvelteSet } from 'svelte/reactivity';
+import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import {
 	createQueryFactories,
 	defineKeys,
-	resultMutationOptions,
 	resultQueryOptions,
 } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -134,12 +129,24 @@ export type Deletion =
 			readonly unversioned: boolean | undefined;
 	  };
 
-/** A write that failed and was rolled back to the file. */
+/** A save that failed. */
 export type WriteFailure = {
 	readonly path: string;
 	readonly error: TableError | FileError;
-	/** The text that was in the editor and is not in the file. */
-	readonly lost: string;
+	/** The text of the edit the file does not hold. */
+	readonly unsaved: string;
+	/**
+	 * Whether the edit stays on screen, to be saved again. Otherwise the view
+	 * shows the file: the note is gone, or a text edit lost to another
+	 * program's change.
+	 */
+	readonly kept: boolean;
+};
+
+/** A save that replaced another writer's change to the same values. */
+export type ReplacedChange = {
+	readonly path: string;
+	readonly replaced: readonly Replaced[];
 };
 
 /** Why an action did not start, or stopped before it changed anything. */
@@ -153,22 +160,12 @@ const BUSY =
 	'This file is being renamed or deleted. Try again when it finishes.';
 const OPEN_AS_TEXT =
 	'This file is open as text. Change it there, or open it as a note.';
-const NOT_LISTED =
-	'This file is not in the list as last read. Check again and retry.';
+const NOT_LISTED = 'This file is not in the list, so nothing was changed.';
 const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
 
-/** Cache identity for every query and mutation the app runs. */
+/** Cache identity for the app's own actions; the folder's reads and writes are `folder$`'s. */
 export const notesKeys = defineKeys({
-	/** Every query the app keeps; read again after actions and terminal commands. */
 	all: ['honeycrisp'],
-	rows: (table: TableName) => ['honeycrisp', 'rows', table] as const,
-	files: ['honeycrisp', 'files'],
-	status: ['honeycrisp', 'status'],
-	text: (path: string) => ['honeycrisp', 'text', path] as const,
-	/** Every write of a row or a file's text. */
-	writes: ['honeycrisp', 'write'],
-	write: (path: string) => ['honeycrisp', 'write', 'row', path] as const,
-	writeText: (path: string) => ['honeycrisp', 'write', 'text', path] as const,
 	move: (path: string) => ['honeycrisp', 'move', path] as const,
 	remove: (path: string) => ['honeycrisp', 'remove', path] as const,
 	saveVersion: ['honeycrisp', 'save-version'],
@@ -191,6 +188,8 @@ export function describeError(
 			return error.actualSha256 === undefined
 				? 'The file is no longer here, so nothing was changed.'
 				: 'The file changed elsewhere, so nothing was changed. Its current version is shown.';
+		case 'KeptChanging':
+			return 'The file kept changing elsewhere while it was saved, so the edit is not saved yet.';
 		case 'DirectoryNotEmpty':
 			return 'The folder is not empty, so nothing was deleted.';
 		case 'SourceNotRemoved':
@@ -262,17 +261,14 @@ export function unreadableOf(
 }
 
 /**
- * Resolves once nothing matching `filters` is mutating. It watches the
- * mutation cache, so a mutation that starts meanwhile is waited for too.
+ * Resolves once nothing is mutating. It watches the mutation cache, so a
+ * mutation that starts meanwhile is waited for too.
  */
-export function whenIdle(
-	queryClient: QueryClient,
-	filters?: MutationFilters,
-): Promise<void> {
+function whenIdle(queryClient: QueryClient): Promise<void> {
 	return new Promise((resolve) => {
 		const unsubscribe = queryClient.getMutationCache().subscribe(check);
 		function check() {
-			if (queryClient.isMutating(filters) > 0) return;
+			if (queryClient.isMutating() > 0) return;
 			unsubscribe();
 			resolve();
 		}
@@ -285,12 +281,16 @@ export function createNotes(
 	queryClient: QueryClient,
 	{
 		onWriteFailed = () => {},
+		onReplaced = () => {},
 	}: {
-		/** A write failed and was rolled back; the app tells the person. */
+		/** A save failed; the app tells the person. */
 		onWriteFailed?: (failure: WriteFailure) => void;
+		/** A save replaced another writer's change to the same values; the app may say so. */
+		onReplaced?: (change: ReplacedChange) => void;
 	} = {},
 ) {
 	const { folder } = host;
+	const folder$ = folderOptions<typeof honeycrispDefinition>(folder);
 	const { defineMutation } = createQueryFactories(queryClient);
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
 	const trackMutations = createSubscriber((update) =>
@@ -323,38 +323,46 @@ export function createNotes(
 	/** Why no edit or action starts now, if one does not. */
 	const refused = () => (fenced ? CLOSING : undefined);
 
-	// Every read and write is local: nothing waits for a network, and nothing retries.
-	queryClient.setQueryDefaults(notesKeys.all, {
+	// Every read and write is local: nothing waits for a network, and nothing
+	// retries. A query goes stale only when the folder reports a change or the
+	// app's own action makes it stale, so a view that mounts shows the cache.
+	queryClient.setQueryDefaults(folder$.key, {
 		networkMode: 'always',
 		retry: false,
-		// Nothing goes stale on its own: a view that mounts shows what the cache
-		// holds, and reads happen only when asked for, never while a write runs.
 		staleTime: Number.POSITIVE_INFINITY,
-		refetchOnWindowFocus: () => (released || writing() ? false : 'always'),
 	});
-	queryClient.setMutationDefaults(notesKeys.all, {
-		networkMode: 'always',
-		retry: false,
-	});
-
-	/** Whether a write of a row or a file's text is running or waiting. */
-	const writing = () =>
-		queryClient.isMutating({ mutationKey: notesKeys.writes }) > 0;
-
-	/** Resolves once no write of a row or a file's text is running or waiting. */
-	const writesSettled = () =>
-		whenIdle(queryClient, { mutationKey: notesKeys.writes });
-
-	/** How many writes of `path` are running or waiting. */
-	const writesOf = (path: string) =>
-		queryClient.isMutating({
-			mutationKey: notesKeys.write(path),
-			exact: true,
-		}) +
-		queryClient.isMutating({
-			mutationKey: notesKeys.writeText(path),
-			exact: true,
+	for (const key of [folder$.key, notesKeys.all])
+		queryClient.setMutationDefaults(key, {
+			networkMode: 'always',
+			retry: false,
 		});
+
+	// Changes the page did not make arrive here, and make exactly the queries
+	// they name stale. Stopped when the notes close.
+	const stopChanges = folder.onFilesChanged((change) =>
+		queryClient.invalidateQueries(folder$.pathFilter(change)),
+	);
+
+	/**
+	 * After the app's own action: what it changed at `paths` is read again,
+	 * Git status included. The folder does not report a page's own writes
+	 * to it.
+	 */
+	const changed = (...paths: string[]) =>
+		released
+			? Promise.resolve()
+			: queryClient.invalidateQueries(folder$.pathFilter(paths));
+
+	/** Run one write from `options`; it rejects when the write fails. */
+	function execute<TData, TError, TVariables>(
+		options: MutationOptions<TData, TError, TVariables, unknown>,
+		variables: TVariables,
+	): Promise<TData> {
+		return queryClient
+			.getMutationCache()
+			.build(queryClient, options)
+			.execute(variables);
+	}
 
 	/** Whether a rename or delete of `path` is running or waiting, which pauses its edits. */
 	const moving = (path: string) =>
@@ -369,150 +377,96 @@ export function createNotes(
 	const asText = (path: string) =>
 		selected?.path === path && selected.as === 'text';
 
-	/** Start one write from `options`; its outcome arrives through the options' callbacks. */
-	function run<TData, TError>(
-		options: MutationOptions<TData, TError, void, unknown>,
-	) {
-		void queryClient
-			.getMutationCache()
-			.build(queryClient, options)
-			.execute(undefined)
-			.catch(() => {});
-	}
-
 	/**
-	 * Read again what an action may have changed. While a write runs nothing
-	 * is read: the last write to settle reads everything again.
+	 * One table's rows: the listing in the cache, and the drafts of the rows
+	 * being edited, by stem.
 	 */
-	const invalidate = (queryKey: readonly unknown[] = notesKeys.all) =>
-		writing() || released
-			? Promise.resolve()
-			: queryClient.invalidateQueries({ queryKey });
-
-	/**
-	 * After a write settles: once it is the last one, everything is read
-	 * again. The write does not wait for that read; a text read waits for the
-	 * file's row write, so waiting here would wait on itself.
-	 */
-	const afterWrite = () => {
-		// The write settling still counts as running here.
-		if (
-			queryClient.isMutating({ mutationKey: notesKeys.writes }) <= 1 &&
-			!released
-		)
-			void queryClient.invalidateQueries({ queryKey: notesKeys.all });
-	};
-
-	/**
-	 * One table's rows in the cache: reading them, editing one with an
-	 * immutable `map`, writing it, and taking it back from its file after a
-	 * failed write.
-	 */
-	function rowCache<TFields>(name: TableName, table: FileTable<TFields>) {
-		const key = notesKeys.rows(name);
+	function rowTable<TFields>(name: TableName, options: TableOptions<TFields>) {
 		const declared = honeycrispDefinition.tables[name];
-		const data = () => queryClient.getQueryData<TableListing<TFields>>(key);
-		/** The row each cached version held, which a save merges from. */
-		const bases = createSaveBases<TFields>();
+		const drafts = new SvelteMap<string, DraftState<TFields>>();
+		const listing = () =>
+			queryClient.getQueryData<TableListing<TFields>>(options.list.queryKey());
 
 		/** The row the cache holds for `stem`, if it reads as one. */
-		function rowOf(stem: string): StoredRow<TFields> | undefined {
-			const result = data()?.find((entry) => entry.stem === stem)?.result;
+		function storedOf(stem: string): StoredRow<TFields> | undefined {
+			const result = listing()?.find((entry) => entry.stem === stem)?.result;
 			return result?.error === null ? result.data : undefined;
 		}
 
-		/** Change the row at `stem` in the cache. Answers whether a row was there. */
-		function map(
-			stem: string,
-			change: (stored: StoredRow<TFields>) => StoredRow<TFields>,
-		): boolean {
-			let found = false;
-			queryClient.setQueryData<TableListing<TFields>>(key, (entries) =>
-				entries?.map((entry) => {
-					if (entry.stem !== stem || entry.result.error !== null) return entry;
-					found = true;
-					return { ...entry, result: Ok(change(entry.result.data)) };
-				}),
-			);
-			return found;
-		}
-
-		/**
-		 * After a failed write, the cache takes the row as the file holds it
-		 * now. TanStack awaits this before the next write of the file runs, so
-		 * that write saves the file's own bytes instead of the failed edit.
-		 */
-		async function reload(stem: string) {
-			await queryClient.cancelQueries({ queryKey: key, exact: true });
-			const { data: stored, error } = await table.get(stem);
-			queryClient.setQueryData<TableListing<TFields>>(key, (entries) =>
-				entries?.flatMap((entry) => {
-					if (entry.stem !== stem) return [entry];
-					if (error !== null) return [{ stem, result: Err(error) }];
-					return stored === undefined ? [] : [{ stem, result: Ok(stored) }];
-				}),
-			);
-		}
-
-		/** The text a person loses with a row that could not be written. */
+		/** The text a person would lose with a row that could not be saved. */
 		function rowText(row: Row<TFields>) {
 			return formatRow(declared, row).data ?? (row as Row<unknown>).body;
 		}
 
-		/**
-		 * The write of one row. It saves the row the cache holds when it
-		 * runs over the version the cache last confirmed, from the row that
-		 * version held; a file changed elsewhere since is merged with it.
-		 */
-		function write(stem: string) {
-			const path = rowPath(name, stem);
-			return resultMutationOptions({
-				mutationKey: notesKeys.write(path),
-				// Row and text writes, renames, and deletes of one file share its queue.
-				scope: { id: path },
-				mutationFn: async (): Promise<
-					Result<SavedRow<TFields> | undefined, TableSaveError>
-				> => {
-					const stored = rowOf(stem);
-					if (stored === undefined) return Ok(undefined);
-					const saved = await table.save(
-						bases.baseOf(stem, stored),
-						stored.row,
+		const save = {
+			...options.save.mutationOptions(),
+			onError: (error, { base, row }) => {
+				const stem = rowStemOf(name, base.path);
+				// A row deleted elsewhere is not written back: its edit leaves the
+				// screen, the lists let it go, and the person is offered its text.
+				const gone = error.name === 'NotFound';
+				if (gone && stem !== undefined) {
+					drafts.get(stem)?.discard();
+					drafts.delete(stem);
+					void changed(base.path);
+				}
+				onWriteFailed({
+					path: base.path,
+					error,
+					unsaved: rowText(row),
+					kept: !gone,
+				});
+			},
+		} satisfies ReturnType<TableOptions<TFields>['save']['mutationOptions']>;
+
+		function draftOf(stem: string) {
+			const existing = drafts.get(stem);
+			if (existing !== undefined) return existing;
+			const draft = createDraftState<TFields>({
+				save: (sent) => execute(save, sent),
+				onSaved: ({ stored, replaced }) => {
+					// Both sides moving `updatedAt` is not a change worth a notice.
+					const told = replaced.filter(
+						(entry) => !(entry.kind === 'field' && entry.field === 'updatedAt'),
 					);
-					if (saved.error === null) bases.saved(stem, stored.row, saved.data);
-					return saved;
+					if (told.length > 0)
+						onReplaced({ path: stored.path, replaced: told });
 				},
-				onSuccess: (saved) => {
-					if (saved === undefined) return;
-					// TanStack awaits this before the next write in the scope runs.
-					map(stem, (stored) => ({
-						...stored,
-						path: saved.stored.path,
-						sha256: saved.stored.sha256,
-					}));
-					// The same file's text, if a view read it, is read again.
-					void invalidate(notesKeys.text(path));
-				},
-				onError: async (error) => {
-					const lost = rowOf(stem);
-					await reload(stem);
-					onWriteFailed({
-						path,
-						error,
-						lost: lost === undefined ? '' : rowText(lost.row),
-					});
-				},
-				onSettled: afterWrite,
+			});
+			drafts.set(stem, draft);
+			return draft;
+		}
+
+		/**
+		 * Save the draft of `stem` until no change is left. Once its loop
+		 * ends, the file's Git status and its text, if a view read it, are
+		 * read again, and a draft with nothing left is let go.
+		 */
+		function saveDraft(stem: string): Promise<void> {
+			const draft = drafts.get(stem);
+			if (draft === undefined) return Promise.resolve();
+			if (draft.saving) return draft.save();
+			return draft.save().then(() => {
+				if (released) return;
+				const path = rowPath(name, stem);
+				void queryClient.invalidateQueries({
+					queryKey: folder$.history.status.queryKey(),
+				});
+				void queryClient.invalidateQueries({ queryKey: textKey(path) });
+				if (
+					draft.row === undefined &&
+					!draft.saving &&
+					drafts.get(stem) === draft
+				)
+					drafts.delete(stem);
 			});
 		}
 
 		/**
-		 * Change the row at `stem` in the cache, and queue its write when one
-		 * is needed: only when fewer than two are running or waiting for the
-		 * file, since the waiting one saves whatever the cache holds when it
-		 * runs. Answers why the change was refused, changing nothing: once the
-		 * notes are closing, while a rename or delete of the file runs, and
-		 * while the file is open as text.
+		 * Change the row at `stem` through its draft, which saves it. Answers
+		 * why the change was refused, changing nothing: once the notes are
+		 * closing, while a rename or delete of the file runs, and while the
+		 * file is open as text.
 		 */
 		function edit(
 			stem: string,
@@ -523,78 +477,77 @@ export function createNotes(
 			if (why !== undefined) return why;
 			if (moving(path)) return BUSY;
 			if (asText(path)) return OPEN_AS_TEXT;
-			if (rowOf(stem) === undefined) return NOT_LISTED;
-			// A read still running could replace this edit when it lands.
-			void queryClient.cancelQueries({ queryKey: key, exact: true });
-			let changed = false;
-			map(stem, (stored) => {
-				const row = change(stored.row);
-				if (row === stored.row) return stored;
-				changed = true;
-				bases.editing(stem, stored);
-				return { ...stored, row };
+			const current = storedOf(stem);
+			if (current === undefined) return NOT_LISTED;
+			const from = drafts.get(stem)?.row ?? current.row;
+			const next = change(from);
+			if (next === from) return undefined;
+			const { fields, body } = structuredClone(next);
+			draftOf(stem).change(current, (row) => {
+				row.fields = fields;
+				row.body = body;
 			});
-			if (changed && writesOf(path) < 2) run(write(stem));
+			void saveDraft(stem);
 			return undefined;
 		}
 
+		/** The drafts of this table whose saves are running, each until its loop ends. */
+		const running = () =>
+			[...drafts.values()]
+				.filter((draft) => draft.saving)
+				.map((draft) => draft.save());
+
 		return {
 			name,
-			table,
-			key,
-			data,
-			rowOf,
-			reload,
+			table: folder.tables[name],
+			listing,
+			storedOf,
 			edit,
-			/** The listing, narrowed by `select` for one view. */
-			query<TData = TableListing<TFields>>(
-				select?: (listing: TableListing<TFields>) => TData,
-			) {
-				return resultQueryOptions({
-					queryKey: key,
-					queryFn: () => table.list(),
-					select,
-				});
+			running,
+			/** The row as shown: its draft while one is held, else as the cache holds it. */
+			rowOf(stem: string): Row<TFields> | undefined {
+				const draft = drafts.get(stem)?.row;
+				// A copy, so a view that compares rows sees each change.
+				if (draft !== undefined)
+					return { fields: { ...draft.fields }, body: draft.body };
+				return storedOf(stem)?.row;
+			},
+			/** Whether a save of `stem` is running. */
+			saving: (stem: string) => drafts.get(stem)?.saving === true,
+			/** Whether `stem` holds an edit that is not saved and no save is running. */
+			unsaved(stem: string) {
+				const draft = drafts.get(stem);
+				return draft !== undefined && !draft.saving && draft.row !== undefined;
+			},
+			/** Whether any row of this table holds an edit that is not saved. */
+			anyUnsaved: () =>
+				[...drafts.values()].some(
+					(draft) => !draft.saving && draft.row !== undefined,
+				),
+			anySaving: () => [...drafts.values()].some((draft) => draft.saving),
+			saveDraft,
+			/** Resolves once the save of `stem`, if one runs, landed or failed. */
+			settled(stem: string) {
+				const draft = drafts.get(stem);
+				return draft?.saving ? draft.save() : Promise.resolve();
 			},
 			/** The capture the cache holds for `stem`: a row's, or a row that does not read's own bytes. */
 			capture(stem: string): FileCapture | undefined {
-				const result = data()?.find((entry) => entry.stem === stem)?.result;
+				const result = listing()?.find((entry) => entry.stem === stem)?.result;
 				if (result?.error === null) return result.data;
 				if (result?.error.name === 'InvalidRow') return result.error;
 				return undefined;
 			},
-			/** After a rename: the row follows its file, or leaves the table. */
-			moved(stem: string, nextStem: string | undefined, to: string) {
-				queryClient.setQueryData<TableListing<TFields>>(key, (entries) =>
-					entries?.flatMap((entry) => {
-						if (entry.stem !== stem) return [entry];
-						if (nextStem === undefined) return [];
-						const result =
-							entry.result.error === null
-								? Ok({ ...entry.result.data, path: to })
-								: entry.result;
-						return [{ stem: nextStem, result }];
-					}),
-				);
-			},
-			/** After a delete: the row leaves the table. */
-			deleted(stem: string) {
-				queryClient.setQueryData<TableListing<TFields>>(key, (entries) =>
-					entries?.filter((entry) => entry.stem !== stem),
-				);
-			},
-			/** After a create: the new row joins the table. */
-			created(stem: string, stored: StoredRow<TFields>) {
-				queryClient.setQueryData<TableListing<TFields>>(
-					key,
-					(entries) => entries && [...entries, { stem, result: Ok(stored) }],
-				);
+			/** Drop the draft of `stem`: its file was renamed or deleted. */
+			forget(stem: string) {
+				drafts.get(stem)?.discard();
+				drafts.delete(stem);
 			},
 		};
 	}
 
-	const noteRows = rowCache('notes', folder.tables.notes);
-	const folderRows = rowCache('folders', folder.tables.folders);
+	const noteRows = rowTable<NoteFields>('notes', folder$.notes);
+	const folderRows = rowTable<FolderFields>('folders', folder$.folders);
 
 	/** The row table `path` is in, and its stem, if it is a row file. */
 	function rowAt(path: string) {
@@ -605,69 +558,150 @@ export function createNotes(
 		return undefined;
 	}
 
+	/**
+	 * Where a file's text, as opened for editing, is cached: under the
+	 * folder's read of that file, so a change reported there makes it stale.
+	 */
+	const textKey = (path: string) =>
+		[...folder$.files.read.queryKey(path), 'text'] as const;
 	const textData = (path: string) =>
-		queryClient.getQueryData<OpenedFile>(notesKeys.text(path));
+		queryClient.getQueryData<OpenedFile>(textKey(path));
 
-	/** Change the text of `path` in the cache, if it holds text. */
-	function mapText(
-		path: string,
-		change: (file: { path: string; sha256: string; text: string }) => {
-			path: string;
-			sha256: string;
-			text: string;
+	/** Text edits in progress, by path. */
+	const textDrafts = new SvelteMap<
+		string,
+		ReturnType<typeof createTextDraft>
+	>();
+
+	const writeText = {
+		...folder$.files.write.mutationOptions(),
+		// The text is written whole, with no merge: a file changed elsewhere
+		// refuses it. The view takes the file as it is now, and the person is
+		// offered what they typed.
+		onError: (error, { path, content }) => {
+			textDrafts.get(path)?.discard();
+			textDrafts.delete(path);
+			void queryClient.invalidateQueries({ queryKey: textKey(path) });
+			onWriteFailed({
+				path,
+				error,
+				unsaved: typeof content === 'string' ? content : '',
+				kept: false,
+			});
 		},
-	): boolean {
-		let changed = false;
-		queryClient.setQueryData<OpenedFile>(notesKeys.text(path), (opened) => {
-			if (opened?.kind !== 'text') return opened;
-			changed = true;
-			return { kind: 'text', file: change(opened.file) };
+	} satisfies ReturnType<typeof folder$.files.write.mutationOptions>;
+
+	/**
+	 * An edit of one file's exact text. It holds the version it started from
+	 * and the text typed, writes one at a time, and sends text typed
+	 * meanwhile next, over the version the last write made.
+	 */
+	function createTextDraft(path: string) {
+		let base: FileCapture | undefined;
+		let text = $state.raw<string>();
+		let revision = 0;
+		let running = $state.raw<Promise<void>>();
+
+		async function loop() {
+			try {
+				while (base !== undefined && text !== undefined) {
+					const sent = { over: base, content: text, revision };
+					const written = await execute(writeText, {
+						path,
+						content: sent.content,
+						over: sent.over,
+					}).catch(() => undefined);
+					// The write's `onError` reported it and dropped this draft.
+					if (written === undefined) return;
+					queryClient.setQueryData<OpenedFile>(textKey(path), {
+						kind: 'text',
+						file: {
+							path: written.path,
+							sha256: written.sha256,
+							text: sent.content,
+						},
+					});
+					if (revision === sent.revision) {
+						base = undefined;
+						text = undefined;
+					} else base = written;
+				}
+			} finally {
+				running = undefined;
+			}
+		}
+
+		return {
+			/** The text typed; `undefined` once every change is written. */
+			get text() {
+				return text;
+			},
+			get saving() {
+				return running !== undefined;
+			},
+			/** Type `next` over `current`, the file as the cache holds it now. */
+			change(current: FileCapture, next: string) {
+				base ??= { path: current.path, sha256: current.sha256 };
+				text = next;
+				revision++;
+			},
+			discard() {
+				base = undefined;
+				text = undefined;
+			},
+			save(): Promise<void> {
+				if (running !== undefined) return running;
+				if (text === undefined) return Promise.resolve();
+				running = loop();
+				return running;
+			},
+		};
+	}
+
+	/** Write the text draft of `path`; once it is written, what the text changed is read again. */
+	function saveText(path: string): Promise<void> {
+		const draft = textDrafts.get(path);
+		if (draft === undefined) return Promise.resolve();
+		if (draft.saving) return draft.save();
+		return draft.save().then(async () => {
+			if (draft.text === undefined && textDrafts.get(path) === draft)
+				textDrafts.delete(path);
+			// A row file's text decides whether it reads as a row.
+			await changed(path);
 		});
-		return changed;
 	}
 
-	/** After a failed write of a file's text, the cache takes the file as it is now. */
-	async function reloadText(path: string) {
-		const key = notesKeys.text(path);
-		await queryClient.cancelQueries({ queryKey: key, exact: true });
-		const read = await readTextFile(folder.files, path);
-		if (read.error === null) queryClient.setQueryData(key, read.data);
-		else await queryClient.invalidateQueries({ queryKey: key, exact: true });
+	/** Whether a save of a row or a file's text is running. */
+	const saving = () =>
+		noteRows.anySaving() ||
+		folderRows.anySaving() ||
+		[...textDrafts.values()].some((draft) => draft.saving);
+
+	/** Resolves once every save running now, and every save it leads to, landed or failed. */
+	async function writesSettled() {
+		for (;;) {
+			const running = [
+				...noteRows.running(),
+				...folderRows.running(),
+				...[...textDrafts.values()]
+					.filter((draft) => draft.saving)
+					.map((draft) => draft.save()),
+			];
+			if (running.length === 0) return;
+			await Promise.all(running);
+		}
 	}
 
-	/** The write of one file's text, as a row table's `write` is for a row. */
-	function textWrite(path: string) {
-		return resultMutationOptions({
-			mutationKey: notesKeys.writeText(path),
-			scope: { id: path },
-			mutationFn: async (): Promise<
-				Result<FileCapture | undefined, FileError>
-			> => {
-				const opened = textData(path);
-				if (opened?.kind !== 'text') return Ok(undefined);
-				return folder.files.replace(opened.file, opened.file.text);
-			},
-			onSuccess: (saved) => {
-				if (saved === undefined) return;
-				mapText(path, (file) => ({ ...file, sha256: saved.sha256 }));
-				// A row file's text decides whether it reads as a row.
-				const at = rowAt(path);
-				if (at !== undefined) void invalidate(at.rows.key);
-			},
-			onError: async (error) => {
-				const lost = textData(path);
-				await reloadText(path);
-				onWriteFailed({
-					path,
-					error,
-					lost: lost?.kind === 'text' ? lost.file.text : '',
-				});
-			},
-			onSettled: afterWrite,
-		});
+	/** Resolves once the save of `path`, as a row or as text, landed or failed. */
+	function settledAt(path: string) {
+		const at = rowAt(path);
+		return Promise.all([
+			at?.rows.settled(at.stem),
+			textDrafts.get(path)?.saving ? textDrafts.get(path)?.save() : undefined,
+		]);
 	}
 
-	/** Change the note at `path` in the cache, which writes it; answers why not, if not. */
+	/** Change the note at `path` through its draft, which saves it; answers why not, if not. */
 	function editNote(
 		path: string,
 		change: (row: Row<NoteFields>) => Row<NoteFields>,
@@ -698,8 +732,9 @@ export function createNotes(
 	}
 
 	/**
-	 * The capture a rename or delete of `path` acts on, read when it runs: the
-	 * newest hash the cache confirmed for what the app edits, if it holds one.
+	 * The capture a rename or delete of `path` acts on, read when it runs,
+	 * after the file's saves landed: the version the cache holds for what the
+	 * app edits, if it holds one.
 	 */
 	function heldCapture(path: string): FileCapture | undefined {
 		const at = rowAt(path);
@@ -711,20 +746,21 @@ export function createNotes(
 		return opened?.kind === 'text' ? opened.file : undefined;
 	}
 
-	/** After a rename: the caches and the open item follow the file. */
+	/** After a rename: the drafts let the old path go, and the open item follows the file. */
 	function moved(from: string, to: string) {
 		const at = rowAt(from);
-		if (at !== undefined)
-			at.rows.moved(at.stem, rowStemOf(at.rows.name, to), to);
-		queryClient.removeQueries({ queryKey: notesKeys.text(from), exact: true });
+		if (at !== undefined) at.rows.forget(at.stem);
+		textDrafts.delete(from);
+		queryClient.removeQueries({ queryKey: textKey(from), exact: true });
 		if (selected?.path === from) selected = { ...selected, path: to };
 	}
 
-	/** After a delete: the caches and the open item let the file go. */
+	/** After a delete: the drafts and the open item let the file go. */
 	function deleted(path: string) {
 		const at = rowAt(path);
-		if (at !== undefined) at.rows.deleted(at.stem);
-		queryClient.removeQueries({ queryKey: notesKeys.text(path), exact: true });
+		if (at !== undefined) at.rows.forget(at.stem);
+		textDrafts.delete(path);
+		queryClient.removeQueries({ queryKey: textKey(path), exact: true });
 		if (selected?.path === path) selected = undefined;
 	}
 
@@ -733,7 +769,7 @@ export function createNotes(
 		const stem = noteIdOf(path);
 		if (stem === undefined) return 'text';
 		const result = noteRows
-			.data()
+			.listing()
 			?.find((entry) => entry.stem === stem)?.result;
 		return result === undefined || result.error === null ? 'note' : 'text';
 	}
@@ -744,25 +780,6 @@ export function createNotes(
 		for (const ancestor of ancestorsOf(path)) expanded.add(ancestor);
 		if (selected?.path === path && selected.as === as) return;
 		selected = { path, as, id: ++openings };
-		// Text read on an earlier opening is read again: no view watched it since.
-		if (as === 'text') void invalidate(notesKeys.text(path));
-	}
-
-	/** The file listing the file browser shows. */
-	function filesQuery() {
-		return resultQueryOptions({
-			queryKey: notesKeys.files,
-			queryFn: () => folder.files.list(),
-		});
-	}
-
-	/** Git status: changes since the last version. */
-	function statusQuery() {
-		return resultQueryOptions({
-			queryKey: notesKeys.status,
-			queryFn: (): Promise<Result<FilesObservation, GitError>> =>
-				folder.git.status(),
-		});
 	}
 
 	/** What a person reads about an action's outcome: nothing, or why it failed. */
@@ -772,7 +789,10 @@ export function createNotes(
 		return result.error === null ? undefined : describeError(result.error);
 	}
 
-	/** A terminal command may write anything, so it is a mutation, and everything is read again after it. */
+	/**
+	 * A terminal command may write anything, so it is a mutation that closing
+	 * waits for. What it wrote reaches the cache as any outside change does.
+	 */
 	const runCommand = defineMutation({
 		mutationKey: ['honeycrisp', 'terminal'],
 		mutationFn: async ({
@@ -782,7 +802,6 @@ export function createNotes(
 			shell: NotesTerminal;
 			command: string;
 		}) => Ok(await shell.exec(command)),
-		onSettled: () => invalidate(),
 	});
 	const shell = host.terminal;
 	const terminal =
@@ -827,13 +846,10 @@ export function createNotes(
 				{ stem: newId() },
 			);
 		},
-		onSuccess: (created) => {
-			const stem = noteIdOf(created.path);
-			if (stem !== undefined) noteRows.created(stem, created);
+		onSuccess: async (created) => {
+			await changed(created.path);
 			open(created.path, 'note');
 		},
-		onSettled: () =>
-			Promise.all([invalidate(noteRows.key), invalidate(notesKeys.files)]),
 	});
 
 	const createFolder = defineMutation({
@@ -850,12 +866,7 @@ export function createNotes(
 				{ stem: newId() },
 			);
 		},
-		onSuccess: (created) => {
-			const stem = rowStemOf(FOLDERS, created.path);
-			if (stem !== undefined) folderRows.created(stem, created);
-		},
-		onSettled: () =>
-			Promise.all([invalidate(folderRows.key), invalidate(notesKeys.files)]),
+		onSuccess: (created) => changed(created.path),
 	});
 
 	const createFile = defineMutation({
@@ -871,8 +882,10 @@ export function createNotes(
 			if (why !== undefined) return NotesError.NotStarted({ reason: why });
 			return folder.files.create(joinPath(directory, name), '');
 		},
-		onSuccess: (created) => open(created.path, 'text'),
-		onSettled: () => invalidate(),
+		onSuccess: async (created) => {
+			await changed(created.path);
+			open(created.path, 'text');
+		},
 	});
 
 	const createDirectory = defineMutation({
@@ -887,7 +900,9 @@ export function createNotes(
 			const why = refused() ?? nameProblem(directory, name);
 			if (why !== undefined) return NotesError.NotStarted({ reason: why });
 			const path = joinPath(directory, name);
-			const listing = queryClient.getQueryData<FileListing>(notesKeys.files);
+			const listing = queryClient.getQueryData<FileListing>(
+				folder$.files.list.queryKey(),
+			);
 			if (
 				listing?.directories.includes(path) ||
 				listing?.files.some((file) => file.path === path)
@@ -897,20 +912,20 @@ export function createNotes(
 				});
 			return folder.files.mkdir(path);
 		},
-		onSuccess: (_, { directory }) => {
+		onSuccess: (_, { directory, name }) => {
 			if (directory !== '') expanded.add(directory);
+			return changed(joinPath(directory, name));
 		},
-		onSettled: () => invalidate(notesKeys.files),
 	});
 
 	/**
 	 * Delete a folder after moving its notes out. Refused while any note
 	 * cannot say which folder it is in. Each note moves out by an edit, like
-	 * any list action; once every write settled, the notes are read again,
-	 * and the folder's file goes only when none is still in it. Not one
-	 * atomic step: a note already moved out stays moved out if the delete
-	 * stops, and another program can still put a note in the folder after
-	 * the last read.
+	 * any list action; once every save landed, the notes are read again, and
+	 * the folder's file goes only when none is still in it. Not one atomic
+	 * step: a note already moved out stays moved out if the delete stops,
+	 * and another program can still put a note in the folder after the last
+	 * read.
 	 */
 	function deleteFolder(entry: FolderEntry) {
 		return defineMutation({
@@ -920,7 +935,7 @@ export function createNotes(
 			> => {
 				const why = refused();
 				if (why !== undefined) return NotesError.NotStarted({ reason: why });
-				const listing = noteRows.data();
+				const listing = noteRows.listing();
 				if (listing === undefined)
 					return NotesError.NotStarted({
 						reason:
@@ -936,7 +951,9 @@ export function createNotes(
 					});
 				const id = entry.stem;
 				for (const note of notesOf(listing)) {
-					if (note.row.fields.folderId !== id) continue;
+					// An edit not saved yet counts: its draft is what is shown.
+					const shown = noteRows.rowOf(note.stem) ?? note.row;
+					if (shown.fields.folderId !== id) continue;
 					const refusal = editNote(note.path, (row) => ({
 						...row,
 						fields: { ...row.fields, folderId: null },
@@ -964,23 +981,22 @@ export function createNotes(
 			onSuccess: () => {
 				deleted(entry.path);
 				if (view.folderId === entry.stem) view = { ...view, folderId: null };
+				return changed(entry.path);
 			},
-			onSettled: () => invalidate(),
 		})();
 	}
 
 	/**
 	 * Rename a file within its folder. A row renames through its table,
 	 * unless it is open as text; any other file moves as exact bytes. It
-	 * runs after the file's queued writes and moves what the last one
-	 * confirmed. Edits of the file wait meanwhile.
+	 * waits for the file's saves to land and moves what the last one wrote.
+	 * Edits of the file wait meanwhile.
 	 */
 	function rename(path: string, name: string) {
 		const directory = dirname(path);
 		const to = joinPath(directory, name);
 		return defineMutation({
 			mutationKey: notesKeys.move(path),
-			scope: { id: path },
 			mutationFn: async (): Promise<
 				Result<
 					FileCapture | undefined,
@@ -997,35 +1013,37 @@ export function createNotes(
 					return NotesError.NotStarted({
 						reason: `A ${at.rows.name === NOTES ? 'note' : 'folder'} file keeps its .md extension.`,
 					});
+				await settledAt(path);
 				let capture = heldCapture(path);
 				if (capture === undefined) {
 					const { data, error } = await captureNow(path);
 					if (error !== null) return Err(error);
 					capture = data;
 				}
-				// A close that began during the read stops the move.
+				// A close that began meanwhile stops the move.
 				const late = refused();
 				if (late !== undefined) return NotesError.NotStarted({ reason: late });
 				return at !== undefined && nextStem !== undefined && !asText(path)
 					? at.rows.table.rename(capture, nextStem)
 					: folder.files.move(capture, to);
 			},
-			onSuccess: (renamed) => {
-				if (renamed !== undefined) moved(path, to);
+			onSuccess: async (renamed) => {
+				if (renamed === undefined) return;
+				// The listings take the new name before the open item follows it.
+				await changed(path, to);
+				moved(path, to);
 			},
-			onSettled: () => invalidate(),
 		})();
 	}
 
 	/**
-	 * Delete what was confirmed. It runs after the file's queued writes, so
+	 * Delete what was confirmed. It waits for the file's saves to land, so
 	 * it removes what this app saved last; a file another program changed
 	 * since is refused.
 	 */
 	function remove(deletion: Deletion) {
 		return defineMutation({
 			mutationKey: notesKeys.remove(deletion.path),
-			scope: { id: deletion.path },
 			mutationFn: async (): Promise<
 				Result<undefined, FileError | TableError | NotesError>
 			> => {
@@ -1033,17 +1051,22 @@ export function createNotes(
 				if (why !== undefined) return NotesError.NotStarted({ reason: why });
 				if (deletion.kind === 'folder')
 					return folder.files.rmdir(deletion.path);
+				await settledAt(deletion.path);
 				const capture = heldCapture(deletion.path) ?? deletion.capture;
 				return folder.files.remove(capture);
 			},
-			onSuccess: () => deleted(deletion.path),
-			onSettled: () => invalidate(),
+			onSuccess: () => {
+				deleted(deletion.path);
+				return changed(deletion.path);
+			},
 		})();
 	}
 
 	return {
 		host,
 		queryClient,
+		/** The folder's query and mutation options; views read through these. */
+		folder$,
 		terminal,
 		expanded,
 		get git() {
@@ -1055,41 +1078,32 @@ export function createNotes(
 		// Reads
 		// ------------------------------------------------------------------
 
-		/** The note listing, narrowed by `select` for one view. */
-		notesQuery: noteRows.query,
-		/** The folder listing, narrowed by `select` for one view. */
-		foldersQuery: folderRows.query,
-		filesQuery,
 		/** One file's complete text, or its type and size when it is not editable text. */
 		textQuery(path: string) {
 			return resultQueryOptions({
-				queryKey: notesKeys.text(path),
+				queryKey: textKey(path),
 				queryFn: async () => {
-					// A note opened as its file while its row is still being
-					// written is read once that write lands, never under it.
-					await whenIdle(queryClient, {
-						mutationKey: notesKeys.write(path),
-						exact: true,
-					});
+					// A note opened as its file while its row is being saved is
+					// read once that save lands, never under it. A text write is
+					// not waited for: it reads this query again itself.
+					const at = rowAt(path);
+					if (at !== undefined) await at.rows.settled(at.stem);
 					return readTextFile(folder.files, path);
 				},
 			});
 		},
-		statusQuery,
 		/**
 		 * Read the listings and Git status when the page opens. A listing that
 		 * fails is shown where it is used.
 		 */
 		async load() {
 			await Promise.all([
-				queryClient.prefetchQuery(noteRows.query()),
-				queryClient.prefetchQuery(folderRows.query()),
-				queryClient.prefetchQuery(filesQuery()),
-				queryClient.prefetchQuery(statusQuery()),
+				queryClient.prefetchQuery(folder$.notes.list.queryOptions()),
+				queryClient.prefetchQuery(folder$.folders.list.queryOptions()),
+				queryClient.prefetchQuery(folder$.files.list.queryOptions()),
+				queryClient.prefetchQuery(folder$.history.status.queryOptions()),
 			]);
 		},
-		/** Read everything again: the person's "Check again". Nothing is read while a write runs. */
-		refresh: () => invalidate(),
 
 		// ------------------------------------------------------------------
 		// What the lists and the detail show
@@ -1119,25 +1133,36 @@ export function createNotes(
 		// State read reactively
 		// ------------------------------------------------------------------
 
-		/** Whether a write of a row or a file's text is running or waiting. */
+		/** Whether a save of a row or a file's text is running. */
 		get saving() {
-			trackMutations();
-			return writing();
+			return saving();
 		},
-		/** Whether anything is mutating: a write, an action, or a terminal command. */
+		/** Whether a row holds an edit whose save failed and that no save is running for. */
+		get unsaved() {
+			return noteRows.anyUnsaved() || folderRows.anyUnsaved();
+		},
+		/** Whether anything is saving or mutating: a save, an action, or a terminal command. */
 		get busy() {
 			trackMutations();
-			return queryClient.isMutating() > 0;
+			return saving() || queryClient.isMutating() > 0;
 		},
 		/** How many mutations match `filters`. */
 		mutating(filters?: MutationFilters) {
 			trackMutations();
 			return queryClient.isMutating(filters);
 		},
-		/** Whether a write of `path` is running or waiting. */
+		/** Whether a save of `path` is running. */
 		isWriting(path: string) {
-			trackMutations();
-			return writesOf(path) > 0;
+			const at = rowAt(path);
+			return (
+				at?.rows.saving(at.stem) === true ||
+				textDrafts.get(path)?.saving === true
+			);
+		},
+		/** Whether `path` holds an edit whose save failed, with no save running. */
+		isUnsaved(path: string) {
+			const at = rowAt(path);
+			return at?.rows.unsaved(at.stem) === true;
 		},
 		/** Whether edits of `path` are refused now: closing, or a rename or delete runs. */
 		isLocked(path: string) {
@@ -1154,21 +1179,22 @@ export function createNotes(
 		// ------------------------------------------------------------------
 
 		/**
-		 * Change the note at `path` in the cache, which writes it at once.
+		 * Change the note at `path` through its draft, which saves it at once.
 		 * Answers why the change was refused, changing nothing, if it was.
 		 */
 		editNote,
 		/**
-		 * The note at `path` as the rich-text editor uses it: the row the
-		 * cache holds now, read reactively; whether it takes edits; and
-		 * `edit`, which answers whether the change was taken.
+		 * The note at `path` as the rich-text editor uses it: the row shown
+		 * now, read reactively, which is its draft while one is held; whether
+		 * it takes edits; and `edit`, which answers whether the change was
+		 * taken.
 		 */
 		noteBody(path: string): NoteBody {
 			return {
 				get row() {
 					trackQueries();
 					const stem = noteIdOf(path);
-					return stem === undefined ? undefined : noteRows.rowOf(stem)?.row;
+					return stem === undefined ? undefined : noteRows.rowOf(stem);
 				},
 				get locked() {
 					trackMutations();
@@ -1176,6 +1202,12 @@ export function createNotes(
 				},
 				edit: (change) => editNote(path, change) === undefined,
 			};
+		},
+		/** Save again an edit of `path` whose save failed. */
+		saveAgain(path: string) {
+			if (refused() !== undefined) return;
+			const at = rowAt(path);
+			if (at !== undefined) void at.rows.saveDraft(at.stem);
 		},
 		/** Change some fields of a note from a list: pin, move to a folder, trash, restore. */
 		patchNote,
@@ -1191,23 +1223,30 @@ export function createNotes(
 				fields: { ...row.fields, ...fields },
 			}));
 		},
+		/** The text typed into `path` and not yet written, read reactively. */
+		typedText(path: string): string | undefined {
+			return textDrafts.get(path)?.text;
+		},
 		/**
-		 * Replace the text of `path` in the cache, which writes it at once.
+		 * Type `text` as the whole text of `path`, which writes it at once.
 		 * Answers whether the change was taken.
 		 */
 		editText(path: string, text: string): boolean {
 			if (refused() !== undefined || moving(path)) return false;
-			void queryClient.cancelQueries({
-				queryKey: notesKeys.text(path),
-				exact: true,
-			});
-			if (!mapText(path, (file) => ({ ...file, text }))) return false;
-			if (writesOf(path) < 2) run(textWrite(path));
+			const opened = textData(path);
+			if (opened?.kind !== 'text') return false;
+			let draft = textDrafts.get(path);
+			if (draft === undefined) {
+				draft = createTextDraft(path);
+				textDrafts.set(path, draft);
+			}
+			draft.change(opened.file, text);
+			void saveText(path);
 			return true;
 		},
 		/**
 		 * Put a committed version of a note in the note: the version's fields
-		 * over the note's, and its body. It writes at once, like any edit. A
+		 * over the note's, and its body. It saves at once, like any edit. A
 		 * version that does not read as a note is refused.
 		 */
 		useVersion(path: string, source: string): string | undefined {
@@ -1247,7 +1286,9 @@ export function createNotes(
 		async deletionFor(path: string): Promise<Result<Deletion, string>> {
 			const why = refused();
 			if (why !== undefined) return Err(why);
-			const listing = queryClient.getQueryData<FileListing>(notesKeys.files);
+			const listing = queryClient.getQueryData<FileListing>(
+				folder$.files.list.queryKey(),
+			);
 			if (listing?.directories.includes(path)) {
 				const prefix = `${path}/`;
 				const occupied =
@@ -1261,12 +1302,14 @@ export function createNotes(
 			}
 			const { data: capture, error } = await captureNow(path);
 			if (error !== null) return Err(describeError(error));
-			const status = await queryClient.fetchQuery(statusQuery()).then(
-				(observed) => observed,
-				() => undefined,
-			);
+			const status = await queryClient
+				.fetchQuery(folder$.history.status.queryOptions())
+				.then(
+					(observed) => observed,
+					() => undefined,
+				);
 			const stem = noteIdOf(path);
-			const row = stem === undefined ? undefined : noteRows.rowOf(stem)?.row;
+			const row = stem === undefined ? undefined : noteRows.rowOf(stem);
 			return Ok({
 				kind: 'file',
 				path,
@@ -1277,7 +1320,7 @@ export function createNotes(
 		},
 		remove: async (deletion: Deletion) => problem(await remove(deletion)),
 		/**
-		 * Record a version: commit the saved files (ADR-0529). Writes still
+		 * Record a version: commit the saved files (ADR-0529). Saves still
 		 * running land first.
 		 */
 		saveVersion: defineMutation({
@@ -1288,7 +1331,10 @@ export function createNotes(
 				await writesSettled();
 				return Ok(await folder.git.commit());
 			},
-			onSettled: () => invalidate(notesKeys.status),
+			onSettled: () =>
+				queryClient.invalidateQueries({
+					queryKey: folder$.history.status.queryKey(),
+				}),
 		}),
 
 		// ------------------------------------------------------------------
@@ -1296,15 +1342,17 @@ export function createNotes(
 		// ------------------------------------------------------------------
 
 		/**
-		 * Fence input for good, wait until nothing is mutating, then release
-		 * the folder. Every call answers the same completion.
+		 * Fence input for good, wait until every save and action settled, then
+		 * release the folder. Every call answers the same completion.
 		 */
 		close(): Promise<void> {
 			closing ??= (async () => {
 				fenced = true;
+				await writesSettled();
 				await whenIdle(queryClient);
 				released = true;
-				await queryClient.cancelQueries({ queryKey: notesKeys.all });
+				stopChanges();
+				await queryClient.cancelQueries({ queryKey: folder$.key });
 				await host.close();
 			})();
 			return closing;

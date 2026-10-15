@@ -35,13 +35,22 @@ const SEVERITY: Record<Tone, number> = {
 };
 
 /**
- * Saves: every edit is written as it is made. A write that failed was rolled
- * back and reported when it happened, so only one in flight is news.
+ * Saves: every edit is saved as it is made. A save that failed keeps the
+ * edit on screen until it is saved again, so it stays news until then.
  */
-export function savesLine(state: { saving: boolean }): StatusLine {
-	return state.saving
-		? { label: 'Saving…', tone: 'busy' }
-		: { label: 'Saved', tone: 'good' };
+export function savesLine(state: {
+	saving: boolean;
+	unsaved: boolean;
+}): StatusLine {
+	if (state.saving) return { label: 'Saving…', tone: 'busy' };
+	if (state.unsaved)
+		return {
+			label: 'Not saved',
+			detail:
+				'A save failed. The edit is still on screen, and it saves again with your next change or Save again.',
+			tone: 'error',
+		};
+	return { label: 'Saved', tone: 'good' };
 }
 
 function changesLabel(count: number) {

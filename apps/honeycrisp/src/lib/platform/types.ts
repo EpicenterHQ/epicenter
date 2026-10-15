@@ -8,7 +8,7 @@
  * the optional capabilities below.
  */
 import { APPS } from '@epicenter/constants/apps';
-import type { Folder, FolderGit } from '@epicenter/folder';
+import type { Folder } from '@epicenter/folder';
 import type { honeycrispDefinition } from '../data.js';
 
 type Definition = typeof honeycrispDefinition;
@@ -21,13 +21,11 @@ type Definition = typeof honeycrispDefinition;
 export const HONEYCRISP_FOLDER_ID = APPS.HONEYCRISP.id;
 
 /**
- * The folder surface the notes UI uses: its tables and files, whole, since
- * edits write through them, and the Git status, versions, and history it
- * shows. Remotes are outside this app.
+ * The folder the notes UI uses, whole: `folderOptions` reads and writes it
+ * through the query cache, and its change channel reports what changed
+ * outside the page. The app never syncs; remotes are outside it.
  */
-export type NotesFolder = Pick<Folder<Definition>, 'tables' | 'files'> & {
-	git: Pick<FolderGit, 'snapshot' | 'subscribe' | 'status' | 'commit' | 'log'>;
-};
+export type NotesFolder = Folder<Definition>;
 
 export type TerminalRun = {
 	readonly stdout: string;

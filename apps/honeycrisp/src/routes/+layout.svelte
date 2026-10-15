@@ -9,7 +9,11 @@
 	let props = $props();
 
 	// One cache for the app: the files it shows, and every write and action.
-	const queryClient = new QueryClient();
+	// The folder's change channel is the one way an outside change reaches it,
+	// so returning to the window reads nothing.
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { refetchOnWindowFocus: false } },
+	});
 </script>
 
 <svelte:head><title>Honeycrisp</title></svelte:head>

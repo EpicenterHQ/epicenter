@@ -46,8 +46,8 @@ export function describeDeletion(deletion: Deletion) {
 }
 
 /**
- * Ask before deleting `path`. The delete runs after the file's queued
- * writes, so it removes what the app saved last; a file changed elsewhere
+ * Ask before deleting `path`. The delete waits for the file's saves to
+ * land, so it removes what the app saved last; a file changed elsewhere
  * since is refused.
  */
 export async function confirmDelete(notes: Notes, path: string) {

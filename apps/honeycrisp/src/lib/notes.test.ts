@@ -4,34 +4,36 @@
  * Drives the real notes state and its TanStack Query cache against
  * Honeycrisp's real browser folder over the folder package's in-memory OPFS
  * stand-in. Screens are stood in for as they behave: they observe the
- * queries they show. Another program's writes and removals go below the
- * folder's API (`put`, `drop`), so the app sees them only when it reads.
+ * queries they show. Another tab's writes go through the folder's API and
+ * reach the app on its change channel; another program's writes and
+ * removals go below it (`put`, `drop`), so nothing reports them.
  *
  * Key behaviors:
- * - Opening a note writes nothing; an edit changes the cache at once and is
- *   written to the file
- * - Rapid edits run one write at a time per file with one waiting, which
- *   saves the newest note, guarded by the hash the previous write confirmed
- * - No read starts while a write runs: not on returning to the window, not
- *   when a view mounts
- * - A write that meets a change made elsewhere merges with it, and the edit
+ * - Opening a note writes nothing; an edit is held by the note's draft at
+ *   once and saved
+ * - Rapid edits run one save at a time, and the edits made meanwhile are
+ *   saved next, from the version the save wrote
+ * - A read that lands while an edit is held does not replace it, and the
+ *   save merges with the change the read brought
+ * - A save that meets a change made elsewhere merges with it, and the edit
  *   wins only where both changed
- * - A write that fails, that holds a value a file cannot, or whose note was
- *   deleted elsewhere rolls the cache back to the file and reports the text
- *   that was lost
- * - Returning to the window shows a change made elsewhere
+ * - A save that fails keeps the edit on screen and says so; Save again, or
+ *   the next change, saves it. A note deleted elsewhere drops the edit,
+ *   leaves the list, and offers the text
+ * - A change another tab saved shows in the lists and the open note
  * - A note whose text is not a valid note is named for repair, opens as
  *   text, is written as typed, and opens as a note once repaired; while it
- *   is open as text, list actions on it are refused
- * - A note opened as its file while its write runs is read once the write
+ *   is open as text, list actions on it are refused. A text edit over a file
+ *   changed elsewhere is refused and offers the text
+ * - A note opened as its file while its save runs is read once the save
  *   lands
  * - Deleting a folder moves its notes out first, and is refused while a
  *   note cannot say which folder it is in
- * - Rename and delete run after the file's queued writes and act on what
- *   the last one saved; a file changed elsewhere since is refused
+ * - Rename and delete wait for the file's saves and act on what the last
+ *   one wrote; a file changed elsewhere since is refused
  * - Saves never commit; Save version records one, and delete says when a
  *   file has changes in no saved version
- * - Closing stops input and actions, waits for every write and action, a
+ * - Closing stops input and actions, waits for every save and action, a
  *   whole folder delete included, and every call shares it
  */
 import './svelte-modules.test-support.js';
@@ -49,16 +51,12 @@ import type { Notes, WriteFailure } from './notes.svelte.js';
 import {
 	cached,
 	createQueryClient,
-	focusManager,
 	listing,
 	observe,
-	QueryObserver,
 	quiet,
 } from './query.test-support.js';
 
-const { createNotes, foldersOf, notesKeys, repairsOf } = await import(
-	'./notes.svelte.ts'
-);
+const { createNotes, foldersOf, repairsOf } = await import('./notes.svelte.ts');
 
 const A = 'notes/a.md';
 const B = 'notes/b.md';
@@ -109,6 +107,9 @@ const bodied =
 const writesTo = (disk: NotesFolderFixture, path: string) =>
 	disk.writes().filter((at) => at === path).length;
 
+/** The note at `path` as the views show it now. */
+const shown = (notes: Notes, path: string) => notes.noteBody(path).row;
+
 async function sha(notes: Notes, path: string) {
 	return expectOk(await notes.host.folder.files.read(path)).sha256;
 }
@@ -119,11 +120,17 @@ async function versions(notes: Notes) {
 	return data ?? [];
 }
 
+/** The folder rows the cache holds. */
+const folderRows = (notes: Notes) =>
+	foldersOf(
+		notes.queryClient.getQueryData(notes.folder$.folders.list.queryKey()) ?? [],
+	);
+
 // ============================================================================
-// Edits and writes
+// Edits and saves
 // ============================================================================
 
-test('opening a note writes nothing, and an edit changes the cache at once and is written', async () => {
+test('opening a note writes nothing, and an edit is held at once and saved', async () => {
 	const { notes, disk, failures } = await open();
 	const before = disk.text(A);
 	const start = writesTo(disk, A);
@@ -134,80 +141,71 @@ test('opening a note writes nothing, and an edit changes the cache at once and i
 	expect(disk.text(A)).toBe(before);
 
 	expect(notes.editNote(A, titled('Alpha two'))).toBeUndefined();
-	expect(cached(notes, 'a').row.fields.title).toBe('Alpha two');
+	expect(shown(notes, A)?.fields.title).toBe('Alpha two');
 	await quiet(notes);
 	expect(failures).toEqual([]);
 	expect(disk.text(A)).toContain('title: Alpha two');
 	// A key Honeycrisp does not declare is kept.
 	expect(disk.text(A)).toContain('owner');
+	expect(cached(notes, 'a').row.fields.title).toBe('Alpha two');
 	expect(cached(notes, 'a').sha256).toBe(await sha(notes, A));
 });
 
-test('rapid edits run one write at a time with one waiting, which saves the newest note with no conflict', async () => {
+test('rapid edits run one save at a time, and the edits made meanwhile are saved next', async () => {
 	const { notes, disk, failures } = await open();
 	const start = writesTo(disk, A);
 	disk.hold();
 	notes.editNote(A, bodied('O\n'));
-	await until(() => disk.held().length === 1, 'the first write to start');
+	await until(() => disk.held().length === 1, 'the first save to start');
 	for (const body of ['On\n', 'One\n', 'One more\n', 'One more time\n'])
 		notes.editNote(A, bodied(body));
-	// One write runs and one waits; no more were queued.
-	expect(
-		notes.queryClient.isMutating({ mutationKey: notesKeys.write(A) }),
-	).toBe(2);
-	expect(cached(notes, 'a').row.body).toBe('One more time\n');
+	expect(disk.held()).toEqual([A]);
+	expect(notes.isWriting(A)).toBe(true);
+	expect(shown(notes, A)?.body).toBe('One more time\n');
 
 	disk.release({ all: true });
 	await quiet(notes);
 	expect(failures).toEqual([]);
-	// The held write, then one write of the newest note.
+	// The held save, then one save of the newest note.
 	expect(writesTo(disk, A) - start).toBe(2);
 	expect(disk.text(A)).toContain('One more time\n');
 	expect(cached(notes, 'a').sha256).toBe(await sha(notes, A));
 
-	// The guard moved forward: the next edit writes on top.
 	notes.editNote(A, bodied('Once more.\n'));
 	await quiet(notes);
 	expect(failures).toEqual([]);
 	expect(disk.text(A)).toContain('Once more.\n');
 });
 
-test('no read starts while a write runs: not on returning to the window, not when a view mounts', async () => {
+test('a read that lands while an edit is held does not replace it, and the save merges what it brought', async () => {
 	const { notes, disk, failures } = await open();
+	notes.open(A);
+	// Another program changed the body; the report has not arrived yet.
+	disk.put(A, noteText({ title: 'Alpha', body: 'Their body.\n' }));
 	disk.hold();
 	notes.editNote(A, titled('Typed'));
-	await until(() => disk.held().length === 1, 'the write to start');
-	// Returning to the window while the write is held reads nothing.
-	focusManager.setFocused(false);
-	focusManager.setFocused(true);
-	// The client refetches on focus a tick later, after resuming paused writes.
-	await Bun.sleep(0);
-	// Neither does a view that mounts now.
-	const mounted = new QueryObserver(
-		notes.queryClient,
-		notes.notesQuery(),
-	).subscribe(() => {});
-	expect(
-		notes.queryClient.isFetching({ queryKey: notesKeys.rows('notes') }),
-	).toBe(0);
-	expect(cached(notes, 'a').row.fields.title).toBe('Typed');
+	await until(() => disk.held().length === 1, 'the save to start');
+	// The report arrives while the save is held, and the read lands.
+	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([A]));
+	expect(cached(notes, 'a').row.body).toBe('Their body.\n');
+	// The edit is the draft's: the read changed the cache, not what is shown.
+	expect(shown(notes, A)?.fields.title).toBe('Typed');
+	expect(shown(notes, A)?.body).toBe('One.\n');
+
 	disk.release({ all: true });
 	await quiet(notes);
-	mounted();
 	expect(failures).toEqual([]);
-	expect(cached(notes, 'a').row.fields.title).toBe('Typed');
-	expect(cached(notes, 'a').sha256).toBe(await sha(notes, A));
-
-	notes.editNote(A, titled('Typed again'));
-	await quiet(notes);
-	expect(failures).toEqual([]);
-	expect(disk.text(A)).toContain('title: Typed again');
+	expect(disk.text(A)).toContain('title: Typed');
+	expect(disk.text(A)).toContain('Their body.\n');
+	expect(shown(notes, A)).toMatchObject({
+		fields: { title: 'Typed' },
+		body: 'Their body.\n',
+	});
 });
 
-test('a write that meets a change made elsewhere merges with it: the edit wins only where both changed', async () => {
+test('a save that meets a change made elsewhere merges with it: the edit wins only where both changed', async () => {
 	const { notes, disk, failures } = await open();
-	const elsewhere = noteText({ title: 'Theirs', body: 'Their body.\n' });
-	disk.put(A, elsewhere);
+	disk.put(A, noteText({ title: 'Theirs', body: 'Their body.\n' }));
 
 	notes.editNote(A, titled('Mine'));
 	await quiet(notes);
@@ -219,38 +217,43 @@ test('a write that meets a change made elsewhere merges with it: the edit wins o
 	expect(cached(notes, 'a').row.body).toBe('Their body.\n');
 });
 
-test('a note deleted elsewhere rolls back out of the list, and nothing writes it again', async () => {
+test('a note deleted elsewhere drops the edit, leaves the list, and nothing writes it again', async () => {
 	const { notes, disk, failures } = await open();
 	notes.open(A);
 	disk.drop(A);
 	notes.editNote(A, bodied('Mine.\n'));
 	await quiet(notes);
-	expect(failures).toMatchObject([{ path: A, error: { name: 'NotFound' } }]);
-	expect(failures[0]?.lost).toContain('Mine.');
+	expect(failures).toMatchObject([
+		{ path: A, error: { name: 'NotFound' }, kept: false },
+	]);
+	expect(failures[0]?.unsaved).toContain('Mine.');
 	expect(disk.text(A)).toBeUndefined();
 	expect(listing(notes).some((entry) => entry.stem === 'a')).toBe(false);
+	expect(notes.isUnsaved(A)).toBe(false);
 });
 
-test('a write that fails rolls back, and the write waiting behind it saves the note as the file holds it', async () => {
+test('a save that fails keeps the edit on screen and says so, and Save again saves it', async () => {
 	const { notes, disk, failures } = await open();
+	const before = disk.text(A);
 	disk.failNextWrite();
 	notes.editNote(A, titled('First'));
-	notes.editNote(A, titled('Second'));
-	expect(
-		notes.queryClient.isMutating({ mutationKey: notesKeys.write(A) }),
-	).toBe(2);
 	await quiet(notes);
-	// The rollback lands before the waiting write runs, so it saves the
-	// file's own note and fails nothing.
-	expect(failures.map((failure) => failure.lost)).toEqual([
-		expect.stringContaining('title: Second'),
-	]);
-	expect(disk.text(A)).toContain('title: Alpha\n');
-	expect(disk.text(A)).not.toContain('Second');
-	expect(cached(notes, 'a').row.fields.title).toBe('Alpha');
+	expect(failures).toMatchObject([{ path: A, kept: true }]);
+	expect(failures[0]?.unsaved).toContain('title: First');
+	expect(disk.text(A)).toBe(before);
+	expect(shown(notes, A)?.fields.title).toBe('First');
+	expect(notes.isUnsaved(A)).toBe(true);
+	expect(notes.unsaved).toBe(true);
+
+	notes.saveAgain(A);
+	await quiet(notes);
+	expect(failures).toHaveLength(1);
+	expect(disk.text(A)).toContain('title: First');
+	expect(notes.isUnsaved(A)).toBe(false);
+	expect(notes.unsaved).toBe(false);
 });
 
-test('a value a file cannot hold is refused by the folder, and the cache rolls back', async () => {
+test('a value a file cannot hold is refused by the folder, and the file is unchanged', async () => {
 	const { notes, disk, failures } = await open();
 	const saved = disk.text(A);
 	// Inputs commit only values the schema accepts; this bypasses them.
@@ -266,21 +269,17 @@ test('a value a file cannot hold is refused by the folder, and the cache rolls b
 	expect(cached(notes, 'a').row.fields.pinned).toBe(false);
 });
 
-test('writes to one note wait for each other, and writes to different notes do not', async () => {
+test("a note's edits wait for its running save, and another note's edit does not", async () => {
 	const { notes, disk, failures } = await open();
 	disk.hold();
 	notes.editNote(A, titled('A typed'));
-	await until(() => disk.held().length === 1, 'the write to start');
+	await until(() => disk.held().length === 1, 'the save to start');
 	notes.editNote(A, titled('A typed again'));
 	notes.editNote(B, titled('B typed'));
-	const paused = (path: string) =>
-		notes.queryClient
-			.getMutationCache()
-			.findAll({ mutationKey: notesKeys.write(path) })
-			.map((write) => write.state.isPaused);
-	// A's second write waits in A's queue; B's write is not held by A's.
-	expect(paused(A)).toEqual([false, true]);
-	expect(paused(B)).toEqual([false]);
+	// A's second edit waits in its draft; B's save started on its own.
+	expect(notes.isWriting(A)).toBe(true);
+	expect(notes.isWriting(B)).toBe(true);
+	expect(disk.held()).toEqual([A]);
 	disk.release({ all: true });
 	await quiet(notes);
 	expect(failures).toEqual([]);
@@ -288,16 +287,21 @@ test('writes to one note wait for each other, and writes to different notes do n
 	expect(disk.text(B)).toContain('title: B typed');
 });
 
-test('returning to the window shows a change made elsewhere', async () => {
+test('a change another tab saved shows in the lists and the open note', async () => {
 	const { notes, disk } = await open();
 	notes.open(A);
-	disk.put(A, noteText({ title: 'Theirs' }));
-	disk.put('notes/c.md', noteText({ title: 'Gamma' }));
-	focusManager.setFocused(false);
-	focusManager.setFocused(true);
-	await Bun.sleep(0);
+	const tab = await disk.otherTab();
+	const theirs = expectOk(await tab.tables.notes.get('a'));
+	if (theirs === undefined) throw new Error('No note a');
+	expectOk(await tab.tables.notes.save(theirs, titled('Theirs')(theirs.row)));
+	expectOk(await tab.files.create('notes/c.md', noteText({ title: 'Gamma' })));
+	await until(
+		() =>
+			listing(notes).some((entry) => entry.stem === 'c') &&
+			shown(notes, A)?.fields.title === 'Theirs',
+		'the reported change to be read',
+	);
 	await quiet(notes);
-	expect(cached(notes, 'a').row.fields.title).toBe('Theirs');
 	expect(cached(notes, 'c').row.fields.title).toBe('Gamma');
 });
 
@@ -308,9 +312,12 @@ test('returning to the window shows a change made elsewhere', async () => {
 test('a note whose text is not a note is named for repair, opens as text, is written as typed, and opens as a note once repaired', async () => {
 	const { notes, disk, failures } = await open();
 	const broken = '---\ntitle: Gamma\npinned: maybe\n---\nBody.\n';
-	disk.put('notes/c.md', broken);
-	await notes.refresh();
-	await quiet(notes);
+	const tab = await disk.otherTab();
+	expectOk(await tab.files.create('notes/c.md', broken));
+	await until(
+		() => repairsOf(listing(notes)).length === 1,
+		'the reported file to be read',
+	);
 	expect(repairsOf(listing(notes)).map((repair) => repair.path)).toEqual([
 		'notes/c.md',
 	]);
@@ -323,9 +330,11 @@ test('a note whose text is not a note is named for repair, opens as text, is wri
 	expect(notes.patchNote('notes/c.md', { pinned: true })).toBeDefined();
 	const repaired = noteText({ title: 'Gamma', body: 'Body.\n' });
 	expect(notes.editText('notes/c.md', repaired)).toBe(true);
+	expect(notes.typedText('notes/c.md')).toBe(repaired);
 	await quiet(notes);
 	expect(failures).toEqual([]);
 	expect(disk.text('notes/c.md')).toBe(repaired);
+	expect(notes.typedText('notes/c.md')).toBeUndefined();
 	expect(repairsOf(listing(notes))).toEqual([]);
 	notes.open('notes/c.md', 'note');
 	expect(notes.selected).toMatchObject({ path: 'notes/c.md', as: 'note' });
@@ -350,24 +359,44 @@ test('a note open as its file is a text edit, and the list shows it after the wr
 	expect(cached(notes, 'a').row.fields.title).toBe('By hand');
 });
 
-test('a note opened as its file while its write runs is read once the write lands', async () => {
+test('a text edit over a file changed elsewhere is refused, shows the file, and offers the text', async () => {
+	const { notes, disk, failures } = await open();
+	notes.open(A, 'text');
+	cleanup.push(observe(notes, A));
+	await quiet(notes);
+	disk.put(A, noteText({ title: 'Theirs' }));
+	expect(notes.editText(A, 'Mine\n')).toBe(true);
+	await quiet(notes);
+	expect(failures).toMatchObject([
+		{ path: A, error: { name: 'Conflict' }, unsaved: 'Mine\n', kept: false },
+	]);
+	expect(disk.text(A)).toBe(noteText({ title: 'Theirs' }));
+	expect(notes.typedText(A)).toBeUndefined();
+	const opened = notes.queryClient.getQueryData<{ file: { text: string } }>(
+		notes.textQuery(A).queryKey,
+	);
+	expect(opened?.file.text).toBe(noteText({ title: 'Theirs' }));
+});
+
+test('a note opened as its file while its save runs is read once the save lands', async () => {
 	const { notes, disk, failures } = await open();
 	notes.open(A);
 	disk.hold();
 	notes.editNote(A, titled('Typed as a note'));
-	await until(() => disk.held().length === 1, 'the write to start');
+	await until(() => disk.held().length === 1, 'the save to start');
 	notes.open(A, 'text');
 	cleanup.push(observe(notes, A));
 	await Bun.sleep(5);
-	expect(notes.queryClient.getQueryData(notesKeys.text(A))).toBeUndefined();
+	const textKey = notes.textQuery(A).queryKey;
+	expect(notes.queryClient.getQueryData(textKey)).toBeUndefined();
 	disk.release({ all: true });
 	await quiet(notes);
 	const opened = notes.queryClient.getQueryData<{
 		kind: string;
 		file: { text: string };
-	}>(notesKeys.text(A));
+	}>(textKey);
 	expect(opened?.file.text).toContain('title: Typed as a note');
-	// Its text writes on top of what the note wrote, with no conflict.
+	// Its text writes on top of what the note saved, with no conflict.
 	expect(
 		notes.editText(A, (opened?.file.text ?? '').replace('Typed', 'Then typed')),
 	).toBe(true);
@@ -380,13 +409,18 @@ test('a note opened as its file while its write runs is read once the write land
 // List and folder actions
 // ============================================================================
 
-test('a list action is an edit like any other, written at once', async () => {
+test('a list action is an edit like any other, saved at once', async () => {
 	const { notes, disk, failures } = await open();
 	expect(notes.trashNote(B)).toBeUndefined();
 	await quiet(notes);
 	expect(disk.text(B)).toMatch(/deletedAt: "?\d{4}-/);
 	expect(notes.restoreNote(B)).toBeUndefined();
 	expect(notes.patchNote(B, { pinned: true })).toBeUndefined();
+	// The open note and the lists share the edit before its save lands.
+	expect(shown(notes, B)?.fields).toMatchObject({
+		pinned: true,
+		deletedAt: null,
+	});
 	await quiet(notes);
 	expect(failures).toEqual([]);
 	expect(disk.text(B)).toContain('deletedAt: null');
@@ -397,9 +431,7 @@ test('a new note is created in the folder shown and opened', async () => {
 	const { notes, disk } = await open();
 	expect(await notes.createFolder('Work')).toBeUndefined();
 	await quiet(notes);
-	const [work] = foldersOf(
-		notes.queryClient.getQueryData(notesKeys.rows('folders')) ?? [],
-	);
+	const [work] = folderRows(notes);
 	if (work === undefined) throw new Error('No folder');
 	notes.showFolder(work.stem);
 	expect(await notes.createNote()).toBeUndefined();
@@ -414,9 +446,7 @@ test('deleting a folder moves its notes out first, then deletes its file', async
 	const { notes, disk, failures } = await open();
 	expect(await notes.createFolder('Work')).toBeUndefined();
 	await quiet(notes);
-	const [work] = foldersOf(
-		notes.queryClient.getQueryData(notesKeys.rows('folders')) ?? [],
-	);
+	const [work] = folderRows(notes);
 	if (work === undefined) throw new Error('No folder');
 	notes.patchNote(A, { folderId: work.stem });
 	notes.patchNote(B, { folderId: work.stem });
@@ -428,30 +458,30 @@ test('deleting a folder moves its notes out first, then deletes its file', async
 	expect(disk.text(A)).toContain('folderId: null');
 	expect(disk.text(B)).toContain('folderId: null');
 	expect(cached(notes, 'a').row.fields.folderId).toBeNull();
+	expect(folderRows(notes)).toEqual([]);
 });
 
 test('a folder is not deleted while a note cannot say which folder it is in', async () => {
 	const { notes, disk } = await open();
 	expect(await notes.createFolder('Work')).toBeUndefined();
 	await quiet(notes);
-	const [work] = foldersOf(
-		notes.queryClient.getQueryData(notesKeys.rows('folders')) ?? [],
-	);
+	const [work] = folderRows(notes);
 	if (work === undefined) throw new Error('No folder');
-	disk.put('notes/c.md', 'no frontmatter\n');
-	await notes.refresh();
-	await quiet(notes);
+	const tab = await disk.otherTab();
+	expectOk(await tab.files.create('notes/c.md', 'no frontmatter\n'));
+	await until(
+		() => listing(notes).some((entry) => entry.stem === 'c'),
+		'the reported file to be read',
+	);
 	expect(await notes.deleteFolder(work)).toContain('c.md');
 	expect(disk.text(work.path)).toBeDefined();
 });
 
-test('a folder name is an edit to its row, written at once', async () => {
+test('a folder name is an edit to its row, saved at once', async () => {
 	const { notes, disk, failures } = await open();
 	expect(await notes.createFolder('Work')).toBeUndefined();
 	await quiet(notes);
-	const [work] = foldersOf(
-		notes.queryClient.getQueryData(notesKeys.rows('folders')) ?? [],
-	);
+	const [work] = folderRows(notes);
 	if (work === undefined) throw new Error('No folder');
 	expect(notes.patchFolder(work.path, { name: 'Play' })).toBeUndefined();
 	await quiet(notes);
@@ -463,14 +493,14 @@ test('a folder name is an edit to its row, written at once', async () => {
 // Rename and delete
 // ============================================================================
 
-test('a rename runs after the queued writes and moves what they saved; the open note follows it', async () => {
+test('a rename waits for the save and moves what it wrote; the open note follows it', async () => {
 	const { notes, disk, failures } = await open();
 	notes.open(A);
 	const opening = notes.selected;
 	if (opening === undefined) throw new Error('Nothing opened');
 	disk.hold();
 	notes.editNote(A, bodied('Before the rename.\n'));
-	await until(() => disk.held().length === 1, 'the write to start');
+	await until(() => disk.held().length === 1, 'the save to start');
 	const renaming = notes.rename(A, 'renamed.md');
 	// Edits wait while the rename runs.
 	expect(notes.editNote(A, bodied('During.\n'))).toBeDefined();
@@ -511,12 +541,12 @@ test('a name some disk reads as another file is refused in words a person reads,
 	expect(disk.text(A)).toContain('Alpha');
 });
 
-test('a delete runs after the queued writes and removes what they saved', async () => {
+test('a delete waits for the save and removes what it wrote', async () => {
 	const { notes, disk, failures } = await open();
 	notes.open(A);
 	const deletion = expectOk(await notes.deletionFor(A));
 	expect(deletion).toMatchObject({ kind: 'file', title: 'Alpha' });
-	// Typed while the confirmation is open: written, then deleted.
+	// Typed while the confirmation is open: saved, then deleted.
 	notes.editNote(A, bodied('Typed during the dialog.\n'));
 	expect(await notes.remove(deletion)).toBeUndefined();
 	await quiet(notes);
@@ -557,6 +587,7 @@ test('nothing commits on its own after edits; Save version records one, and dele
 	expect(outcome.status).toBe('committed');
 	const [head] = await versions(notes);
 	expect(head?.oid).toBe(outcome.status === 'committed' ? outcome.oid : '');
+	await quiet(notes);
 	expect(expectOk(await notes.deletionFor(A))).toMatchObject({
 		unversioned: false,
 	});
@@ -569,11 +600,11 @@ test('nothing commits on its own after edits; Save version records one, and dele
 	});
 });
 
-test('Save version waits for writes still running, and records what they saved', async () => {
+test('Save version waits for saves still running, and records what they wrote', async () => {
 	const { notes, disk } = await open();
 	disk.hold();
 	notes.editNote(A, titled('In flight'));
-	await until(() => disk.held().length === 1, 'the write to start');
+	await until(() => disk.held().length === 1, 'the save to start');
 	const saving = notes.saveVersion();
 	disk.release({ all: true });
 	const outcome = expectOk(await saving);
@@ -586,12 +617,12 @@ test('Save version waits for writes still running, and records what they saved',
 // Closing
 // ============================================================================
 
-test('close waits for a running write, every call shares one completion, and nothing starts after', async () => {
+test('close waits for a running save, every call shares one completion, and nothing starts after', async () => {
 	const { notes, disk, closing } = await open();
 	closing();
 	disk.hold();
 	notes.editNote(A, bodied('Last words.\n'));
-	await until(() => disk.held().length === 1, 'the write to start');
+	await until(() => disk.held().length === 1, 'the save to start');
 	let closed = false;
 	const first = notes.close();
 	const second = notes.close();
@@ -609,13 +640,11 @@ test('close waits for a running write, every call shares one completion, and not
 	expect(disk.text(A)).toContain('Last words.\n');
 });
 
-test('close waits for a whole folder delete, not only the write running when it began', async () => {
+test('close waits for a whole folder delete, not only the save running when it began', async () => {
 	const { notes, disk, closing } = await open();
 	expect(await notes.createFolder('Work')).toBeUndefined();
 	await quiet(notes);
-	const [work] = foldersOf(
-		notes.queryClient.getQueryData(notesKeys.rows('folders')) ?? [],
-	);
+	const [work] = folderRows(notes);
 	if (work === undefined) throw new Error('No folder');
 	notes.patchNote(B, { folderId: work.stem });
 	await quiet(notes);
