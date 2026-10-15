@@ -39,6 +39,7 @@
 		"@tauri-apps/api": "catalog:",
 		"hono": "catalog:",
 		"mime": "catalog:",
+		"runed": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},

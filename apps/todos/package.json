@@ -58,6 +58,7 @@
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"buffer": "^6.0.3",
+		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
