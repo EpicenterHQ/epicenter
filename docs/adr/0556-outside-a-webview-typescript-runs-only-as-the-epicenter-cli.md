@@ -161,7 +161,9 @@ needs and the package manager; npm or pnpm would need Node as well.
 - Rust's keychain: `apps/epicenter/src-tauri/src/keyring_storage.rs` (131, and 43 of tests) and the `keyring` dependency.
 - Each `*-development.json` capability file, which differs from its production twin only in `identifier` and `remote.urls`.
 - The page-side broker: `packages/auth/src/desktop-broker-auth.ts` (223) and test (428), its `./desktop` export, and the stamped boot snapshot.
+<!-- doc-path-check: ignore-next-line -->
 - Home Chat: `apps/epicenter/src/host.ts` (505) and test (582), `apps/epicenter/src/test-home-host.ts` (22), `apps/epicenter/src/ui/session.svelte.ts` (161), `Chat.svelte` (209), `Composer.svelte` (54), `Transcript.svelte` (78), and `homeEngineFromEnvironment` with the `EPICENTER_INFERENCE_*` variables. `@epicenter/agent`, `@epicenter/agent-protocol`, and `bindAgentConversation` stay for `apps/vocab/src/lib/chat/session.svelte.ts`.
+<!-- doc-path-check: ignore-next-line -->
 - Dead code: `apps/epicenter/src/session-client.ts` (90), `apps/epicenter/src/local-source-catalog.ts` (128), `apps/epicenter/src/stdio-mcp-catalog.ts` (184), and `packages/ai/src/endpoint-transport.ts` (26) with the `/_epicenter/inference` relay.
 - The API's desktop callbacks: `epicenter://auth/callback` and `http://127.0.0.1:<port>/_epicenter/sign-in/callback` (`apps/api/worker/session-callbacks.ts:18-20`), the `desktopPort` parameter, and `EPICENTER_DEV_PORT` (`apps/api/scripts/dev.ts:13`, `:81`; `apps/api/worker/index.ts:100`). ADR-0549's loopback redirect replaces both.
 - `'tauri://localhost'` in `apps/api/worker/trusted-origins.ts:26`, which no page uses.

@@ -1,6 +1,5 @@
 import type { Account } from '@epicenter/auth';
 import { isTauri } from '@tauri-apps/api/core';
-import { endpointFetch } from './endpoint-transport.js';
 import { createInference, validateInferenceDestination } from './inference.js';
 import { createRuntimeTranscriber } from './runtime-transcriber.js';
 
@@ -24,7 +23,10 @@ export async function openEndpointInference({
 	getAuthHeaders,
 }: EndpointInferenceOptions) {
 	return createInference(
-		{ baseURL: validateInferenceDestination(baseURL), fetch: endpointFetch() },
+		{
+			baseURL: validateInferenceDestination(baseURL),
+			fetch: globalThis.fetch.bind(globalThis),
+		},
 		getAuthHeaders,
 	);
 }
