@@ -1,6 +1,6 @@
 # 0543. A recording streams into its folder from the moment it starts
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Unbuilt:** a real desktop run: the microphone permission prompt, a recording through the shell's recorder, and a quit mid-recording leaving a playable WAV once `recoverRecordings` runs.
 

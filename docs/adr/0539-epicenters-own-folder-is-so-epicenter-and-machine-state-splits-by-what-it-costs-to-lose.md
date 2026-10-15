@@ -1,6 +1,6 @@
 # 0539. Epicenter's own folder is so.epicenter, and machine state splits by what it costs to lose
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Built:** the `so.epicenter` folder, registered for the Folders window and Settings, with its `apps` table (title, source, commit; written by the Folders window, `apps/epicenter/src/folders/epicenter-folder.ts`) and the `defaultApp` setting; `~/Epicenter/Apps/`; `approvals.json` in app data, written only by the shell; built bundles in Caches (`cache_dir` in `apps/epicenter/src-tauri/src/app_data.rs`, `EPICENTER_CACHE_DIR`).
 - **Unbuilt:** reading `defaultApp` anywhere; the row's `folder` ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)); model choices in `kv.json`; Settings opening `so.epicenter` (its scope is registered for the `home` window, which holds no folder plugin grant yet); installing an app from a row synced from another machine; downloaded models under `models/<provider>/<model-id>/` in app data (they are in the shared Hugging Face cache today).

@@ -1,6 +1,6 @@
 # 0549. Every Epicenter resource accepts only opaque access tokens from one OAuth 2.1 authorization server
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Supersedes:** [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md), whose hosted-only OAuth and static self-host token give way to one authorization server in every deployment; [ADR-0076](0076-the-relational-auth-substrate-is-a-cloud-only-layer-the-instance-composes-neither.md), whose self-host composes neither Better Auth nor Postgres; [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), whose self-host is a separate single-partition app behind an operator-supplied bearer.
 - **Amends:** [ADR-0331](0331-whispering-authenticates-with-an-oauth-bearer-on-every-surface.md) at its web-grant hardening (a refresh token in `localStorage`, refresh rotation in the browser) and its self-host `createInstanceTokenAuth` sentence; [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) at its clause that a custom instance still requires a token.

@@ -1,6 +1,6 @@
 # 0544. A blob is a file in its folder, and Git decides how it travels
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Unbuilt:** all of it, in this order: the Worker's LFS routes; the engine's LFS client, download first, then upload. Until it uploads, the engine keeps refusing `filter` attributes.
 

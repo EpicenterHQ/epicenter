@@ -1,6 +1,6 @@
 # 0552. Every app is installed, from a folder in any Git repository
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Relates:** updates [ADR-0493](0493-whisperings-only-desktop-shell-is-epicenter.md) (Whispering is an installed app), [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) (the Folders window offers installed apps only), [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) (no built-in app to offer on other folders), [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) (every app is a row, and the row gains `folder`), and [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (an app is a folder in a repository) in place, since all five are Proposed.
 - **Unbuilt:** all of it: installing from a folder, listing the apps in a repository, the `folder` field, `epicenter.app.json` in any first-party app, "Install Todos" in the empty Folders window, native features and AI settings for installed apps, and every deletion below.

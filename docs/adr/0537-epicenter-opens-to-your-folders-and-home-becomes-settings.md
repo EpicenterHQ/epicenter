@@ -1,6 +1,6 @@
 # 0537. Epicenter opens to your folders, and Home becomes Settings
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Amends:** [ADR-0209](0209-epicenter-is-the-raw-view-beside-its-applications-not-a-shell-above-them.md): its raw view, deleted when the host stopped owning application data ([ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md)), returns as the Folders window, and Epicenter opens to it instead of to Home's Apps pane.
 - **Built:** opening to the Folders window from launch, the Dock, the tray, and a bare `epicenter://`; "Open in" for the built-in apps on their own folders and the Apps list for every other app (`apps/epicenter/src/folders/openers.ts`); Settings as the person-facing name of the `home` window, without its Apps pane; `/api/apps` and `Applications.svelte` deleted.

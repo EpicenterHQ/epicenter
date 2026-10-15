@@ -1,6 +1,6 @@
 # 0533. One folder handle opens in three hosts, chosen by where the code runs
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-14
 - **Relates:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) runs the engine in a desktop page; [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) names the directory a page opens.
 

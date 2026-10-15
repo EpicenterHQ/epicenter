@@ -1,6 +1,6 @@
 # 0541. A desktop folder needs no Web Locks, and a commit that loses a race retries
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 
 ## Context

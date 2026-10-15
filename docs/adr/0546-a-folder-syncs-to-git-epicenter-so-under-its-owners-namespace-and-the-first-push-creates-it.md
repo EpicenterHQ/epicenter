@@ -1,6 +1,6 @@
 # 0546. A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Unbuilt:** all of it: the `git.epicenter.so` routes, push-to-create, `GET /api/repos`, `epicenter login` and `epicenter git-credential` on the authorization server of [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md), Connect and "Clone from Epicenter" in the Folders window, and Todos moving off `POST /api/git/connect`.
 

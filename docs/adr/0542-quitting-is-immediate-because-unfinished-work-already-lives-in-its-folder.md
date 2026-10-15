@@ -1,6 +1,6 @@
 # 0542. Quitting is immediate, because unfinished work already lives in its folder
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 
 ## Context

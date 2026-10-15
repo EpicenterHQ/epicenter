@@ -1,6 +1,6 @@
 # 0540. An app is installed by building its source, and approving a commit trusts it fully
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Built:** `epicenter.app.json`; installing from a Git URL or a local path, building, approving, and updating (`apps/epicenter/src-tauri/src/installed_apps.rs`); `approvals.json`; serving installed apps at `/apps/<app-id>/` and opening each in its own window on the folder it is offered on; the Folders window's install, approval, and Update (`apps/epicenter/src/folders/App.svelte`).
 - **Unbuilt:** installing an app from a folder within its repository, and Todos and Capture installed that way from the Epicenter monorepo ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)); installing the ids of the apps Epicenter compiles in today, which are refused; a full diff view in the approval (it shows `git log` and `git diff --stat`); removing an installed app from the window; sandboxed builds; an `opens` shape written as TypeScript.

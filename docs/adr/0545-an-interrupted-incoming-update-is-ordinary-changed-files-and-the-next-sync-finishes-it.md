@@ -1,6 +1,6 @@
 # 0545. An interrupted incoming update is ordinary changed files, and the next Sync finishes it
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Supersedes:** [ADR-0474](0474-incoming-git-adoption-retains-a-recoverable-plan.md)
 - **Amends:** [ADR-0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md), withdrawing `git.recoverIncoming()` and `git.snapshot.pendingIncoming`.

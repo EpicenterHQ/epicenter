@@ -1,6 +1,6 @@
 # 0550. Epicenter's MCP server reaches hosted folders through grants that target namespaces
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Unbuilt:** all of it: the server at `https://mcp.epicenter.so/mcp`, its Protected Resource Metadata, the six tools, and the server-side commit behind `write_files`, whose feasibility against Artifacts is not yet measured.
 

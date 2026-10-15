@@ -1,6 +1,6 @@
 # 0547. Every repository has one owner namespace, and a person is a namespace of one
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Unbuilt:** the `namespace` and `namespace_member` tables, the personal namespace made with each account, membership checks on Git requests, and groups with invitations.
 
