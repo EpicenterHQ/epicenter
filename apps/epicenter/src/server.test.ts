@@ -49,7 +49,6 @@ import {
 	HOME_ROUTE,
 	SESSION_ROUTE,
 	SESSION_STREAM_ROUTE,
-	WHISPERING_ROUTE,
 } from './routes.ts';
 import {
 	createHomeServer,
@@ -208,11 +207,7 @@ test.each([
 		expect(signout.headers.get('x-epicenter-auth-state')).toBe('signed-out');
 	}
 
-	for (const route of [
-		HOME_ROUTE.url(origin),
-		WHISPERING_ROUTE.url(origin),
-		FOLDERS_ROUTE.url(origin),
-	]) {
+	for (const route of [HOME_ROUTE.url(origin), FOLDERS_ROUTE.url(origin)]) {
 		for (const credential of [cookie, '']) {
 			const response = await app.request(route, {
 				headers: { host: new URL(origin).host, cookie: credential },
@@ -244,7 +239,7 @@ const MCP_FIXTURE = new URL(
 const PAGE = '<!doctype html><html><body>Home test page</body></html>';
 const applicationPage = (title: string) =>
 	`<!doctype html><html><body>${title} test application</body></html>`;
-const WHISPERING_PAGE = applicationPage('Whispering');
+const FOLDERS_PAGE = applicationPage('Folders');
 
 /** Parse a Content-Security-Policy header into directive name to its token list. */
 function cspDirectives(header: string | null): Map<string, string[]> {
@@ -364,21 +359,21 @@ function writeAppsDistFixture(homePage: string = PAGE): string {
 		homePage,
 		applicationPage: ({ title }) => applicationPage(title),
 	});
-	mkdirSync(join(root, 'whispering', '_app', 'immutable'), { recursive: true });
-	mkdirSync(join(root, 'whispering', 'vad'), { recursive: true });
+	mkdirSync(join(root, 'folders', '_app', 'immutable'), { recursive: true });
+	mkdirSync(join(root, 'folders', 'vad'), { recursive: true });
 	writeFileSync(
-		join(root, 'whispering', '_app', 'immutable', 'entry.js'),
-		'window.whisperingLoaded = true;',
+		join(root, 'folders', '_app', 'immutable', 'entry.js'),
+		'window.foldersLoaded = true;',
 	);
 	writeFileSync(
-		join(root, 'whispering', 'vad', 'silero_vad_v5.onnx'),
+		join(root, 'folders', 'vad', 'silero_vad_v5.onnx'),
 		'vad-model',
 	);
 	// The onnxruntime binary the VAD trigger compiles in the WebView. It belongs
 	// in the fixture because a policy that admits WebAssembly is only truthful if
 	// the WebAssembly it admits is actually served from this origin.
 	writeFileSync(
-		join(root, 'whispering', 'vad', 'ort-wasm-simd-threaded.wasm'),
+		join(root, 'folders', 'vad', 'ort-wasm-simd-threaded.wasm'),
 		'\0asm\x01\0\0\0',
 	);
 	return root;
@@ -480,24 +475,22 @@ describe('loadStaticAssets', () => {
 
 	test('resolves nested generated assets and extensionless SPA routes', async () => {
 		const assets = await createAppsDistFixture();
-		const whispering = applicationAssets(assets, 'whispering');
-		const nested = await whispering.resolve(
-			'/apps/whispering/_app/immutable/entry.js',
+		const folders = applicationAssets(assets, 'folders');
+		const nested = await folders.resolve(
+			'/apps/folders/_app/immutable/entry.js',
 		);
 		expect(nested?.contentType).toContain('text/javascript');
-		expect(await nested?.file.text()).toContain('whisperingLoaded');
+		expect(await nested?.file.text()).toContain('foldersLoaded');
 
-		const vad = await whispering.resolve(
-			'/apps/whispering/vad/silero_vad_v5.onnx',
-		);
+		const vad = await folders.resolve('/apps/folders/vad/silero_vad_v5.onnx');
 		expect(await vad?.file.text()).toBe('vad-model');
 
-		const fallback = await whispering.resolve(
-			'/apps/whispering/settings/transcription',
+		const fallback = await folders.resolve(
+			'/apps/folders/settings/transcription',
 		);
-		expect(await fallback?.file.text()).toBe(WHISPERING_PAGE);
+		expect(await fallback?.file.text()).toBe(FOLDERS_PAGE);
 		expect(
-			await whispering.resolve('/apps/whispering/_app/missing.js'),
+			await folders.resolve('/apps/folders/_app/missing.js'),
 		).toBeUndefined();
 	});
 
@@ -507,28 +500,28 @@ describe('loadStaticAssets', () => {
 		writeFileSync(join(outside, 'secret.txt'), 'outside secret');
 		symlinkSync(
 			join(outside, 'secret.txt'),
-			join(root, 'whispering', 'linked-secret.txt'),
+			join(root, 'folders', 'linked-secret.txt'),
 		);
 		symlinkSync(
 			join(outside, 'secret.txt'),
-			join(root, 'whispering', 'linked-secret'),
+			join(root, 'folders', 'linked-secret'),
 		);
 		const assets = await loadStaticAssets(root, COMPILED_APPLICATIONS);
-		const whispering = applicationAssets(assets, 'whispering');
+		const folders = applicationAssets(assets, 'folders');
 
 		for (const pathname of [
-			'/apps/whispering/../home/index.html',
-			'/apps/whispering/%2e%2e/home/index.html',
-			'/apps/whispering/%252e%252e/home/index.html',
-			'/apps/whispering/%2fetc/passwd',
-			'/apps/whispering/%252fetc/passwd',
-			'/apps/whispering//etc/passwd',
-			'/apps/whispering/..\\query\\index.html',
-			'/apps/whispering/%00index.html',
-			'/apps/whispering/linked-secret.txt',
-			'/apps/whispering/linked-secret',
+			'/apps/folders/../home/index.html',
+			'/apps/folders/%2e%2e/home/index.html',
+			'/apps/folders/%252e%252e/home/index.html',
+			'/apps/folders/%2fetc/passwd',
+			'/apps/folders/%252fetc/passwd',
+			'/apps/folders//etc/passwd',
+			'/apps/folders/..\\query\\index.html',
+			'/apps/folders/%00index.html',
+			'/apps/folders/linked-secret.txt',
+			'/apps/folders/linked-secret',
 		]) {
-			expect(await whispering.resolve(pathname)).toBeUndefined();
+			expect(await folders.resolve(pathname)).toBeUndefined();
 		}
 	});
 });
@@ -781,7 +774,6 @@ describe('createHomeServer', () => {
 				})),
 			).toEqual([
 				{ id: 'home', pattern: '/apps/home/' },
-				{ id: 'whispering', pattern: '/apps/whispering/' },
 				{ id: 'folders', pattern: '/apps/folders/' },
 			]);
 
@@ -792,55 +784,52 @@ describe('createHomeServer', () => {
 			expect(queryPage).toContain('id="epicenter-auth-bootstrap"');
 			expect(withoutAuthBootstrap(queryPage)).toBe(PAGE);
 
-			const whispering = await fetch(WHISPERING_ROUTE.url(server.url.origin), {
+			const folders = await fetch(FOLDERS_ROUTE.url(server.url.origin), {
 				headers: authenticatedHeaders(server),
 			});
-			const whisperingPage = await whispering.text();
-			expect(whisperingPage).toContain('id="epicenter-auth-bootstrap"');
-			expect(withoutAuthBootstrap(whisperingPage)).toBe(WHISPERING_PAGE);
-			const whisperingAsset = await fetch(
-				`${server.url.origin}/apps/whispering/_app/immutable/entry.js?v=1`,
+			const foldersPage = await folders.text();
+			expect(foldersPage).toContain('id="epicenter-auth-bootstrap"');
+			expect(withoutAuthBootstrap(foldersPage)).toBe(FOLDERS_PAGE);
+			const foldersAsset = await fetch(
+				`${server.url.origin}/apps/folders/_app/immutable/entry.js?v=1`,
 				{ headers: authenticatedHeaders(server) },
 			);
-			expect(await whisperingAsset.text()).toContain('whisperingLoaded');
-			expect(whisperingAsset.headers.get('content-type')).toContain(
+			expect(await foldersAsset.text()).toContain('foldersLoaded');
+			expect(foldersAsset.headers.get('content-type')).toContain(
 				'text/javascript',
 			);
 			const vadAsset = await fetch(
-				`${server.url.origin}/apps/whispering/vad/silero_vad_v5.onnx`,
+				`${server.url.origin}/apps/folders/vad/silero_vad_v5.onnx`,
 				{ headers: authenticatedHeaders(server) },
 			);
 			expect(await vadAsset.text()).toBe('vad-model');
 			const clientRoute = await fetch(
-				`${server.url.origin}/apps/whispering/settings/transcription?tab=models`,
+				`${server.url.origin}/apps/folders/settings/transcription?tab=models`,
 				{ headers: authenticatedHeaders(server) },
 			);
-			expect(withoutAuthBootstrap(await clientRoute.text())).toBe(
-				WHISPERING_PAGE,
-			);
+			expect(withoutAuthBootstrap(await clientRoute.text())).toBe(FOLDERS_PAGE);
 			// Apps that used to be compiled in are installed now (ADR-0552): their
 			// old routes serve nothing.
-			for (const id of ['honeycrisp', 'capture', 'mail', 'todos', 'books']) {
+			for (const id of [
+				'whispering',
+				'honeycrisp',
+				'capture',
+				'mail',
+				'todos',
+				'books',
+			]) {
 				const gone = await fetch(`${server.url.origin}/apps/${id}/`, {
 					headers: authenticatedHeaders(server),
 				});
 				expect(gone.status).toBe(404);
 			}
 
-			const folders = await fetch(FOLDERS_ROUTE.url(server.url.origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(withoutAuthBootstrap(await folders.text())).toBe(
-				applicationPage('Folders'),
-			);
-
 			for (const response of [
 				query,
-				whispering,
-				whisperingAsset,
+				folders,
+				foldersAsset,
 				vadAsset,
 				clientRoute,
-				folders,
 			]) {
 				expect(response.status).toBe(200);
 				expect(response.headers.get('cache-control')).toBe('no-store');
@@ -865,7 +854,7 @@ describe('createHomeServer', () => {
 				'/apps/home%2f',
 				'/apps/home/%2e%2e/%2e%2e/package.json',
 				'/apps/home/%252e%252e/%252e%252e/package.json',
-				'/apps/whispering/missing.js',
+				'/apps/folders/missing.js',
 			]) {
 				const response = await fetch(`${server.url.origin}${path}`);
 				expect(response.status).toBe(404);
@@ -964,7 +953,7 @@ describe('createHomeServer', () => {
 			// The capability is real on this origin, not a token for its own sake:
 			// the binary the policy admits is served by this host.
 			const wasm = await fetch(
-				`${server.url.origin}/apps/whispering/vad/ort-wasm-simd-threaded.wasm`,
+				`${server.url.origin}/apps/folders/vad/ort-wasm-simd-threaded.wasm`,
 				{ headers: authenticatedHeaders(server) },
 			);
 			expect(wasm.status).toBe(200);
@@ -995,7 +984,6 @@ describe('createHomeServer', () => {
 		try {
 			const closed = ["'self'", 'ipc:', 'http://ipc.localhost'];
 			expect(await connectSrc(HOME_ROUTE.url(origin))).toEqual(closed);
-			expect(await connectSrc(WHISPERING_ROUTE.url(origin))).toEqual(closed);
 			expect(await connectSrc(FOLDERS_ROUTE.url(origin))).toEqual(closed);
 		} finally {
 			await server.stop(true);
@@ -1550,13 +1538,11 @@ describe('sidecar end-to-end smoke', () => {
 			expect(cookie).toBeDefined();
 			// Startup paths win even when the child environment names other roots.
 			const headers = { cookie: cookie ?? '', origin };
-			const whispering = await fetch(WHISPERING_ROUTE.url(origin), {
+			const folders = await fetch(FOLDERS_ROUTE.url(origin), {
 				headers,
 			});
-			expect(whispering.status).toBe(200);
-			expect(withoutAuthBootstrap(await whispering.text())).toBe(
-				WHISPERING_PAGE,
-			);
+			expect(folders.status).toBe(200);
+			expect(withoutAuthBootstrap(await folders.text())).toBe(FOLDERS_PAGE);
 
 			const served = await fetch(HOME_ROUTE.url(origin), {
 				headers: { cookie: cookie ?? '' },

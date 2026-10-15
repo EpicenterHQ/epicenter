@@ -133,7 +133,7 @@ try {
 	config.productName = 'Native AI Evidence';
 	config.build = { frontendDist: 'frontend-placeholder' };
 	config.bundle = { active: false, icon: ['icons/icon.png'] };
-	config.app.security.capabilities = ['trusted-app-windows-production'];
+	config.app.security.capabilities = ['installed-whispering-production'];
 	await Bun.write(join(native, 'tauri.conf.json'), JSON.stringify(config));
 	await Bun.write(
 		join(native, 'examples/ai_runtime_webview.rs'),
@@ -155,7 +155,7 @@ fn main() {
   .manage(cache)
   .invoke_handler(tauri::generate_handler![epicenter_lib::transcription::list_inference_models,epicenter_lib::transcription::transcribe_audio_bytes,epicenter_lib::transcription::get_active_model])
   .setup(move |app| {
-   WebviewWindowBuilder::new(app, "whispering", WebviewUrl::External(std::env::var("EPICENTER_EVIDENCE_URL").unwrap().parse().unwrap()))
+   WebviewWindowBuilder::new(app, "app:so_epicenter_whispering", WebviewUrl::External(std::env::var("EPICENTER_EVIDENCE_URL").unwrap().parse().unwrap()))
     .title("Native inference acceptance").incognito(true).visible(false).build()?;
    let handle = app.handle().clone();
    std::thread::spawn(move || {

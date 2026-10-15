@@ -20,6 +20,9 @@ tauri-build = { version = "2.6", features = [] }
 # The mock runtime verifies native path selection for both bundled identities.
 # Test builds only: these features do not enter the shipped binary.
 tauri = { version = "2.12", features = ["test"] }
+# The pattern type Tauri matches a capability's `windows` against window
+# labels, so a test can check which windows a capability selects.
+glob = "0.3"
 
 [dependencies]
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }

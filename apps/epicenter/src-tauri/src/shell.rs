@@ -39,14 +39,12 @@ pub struct GlobalShortcutTriggered {
 pub struct GlobalShortcutRegistry(Mutex<Vec<GlobalShortcutRegistration>>);
 
 pub fn create_tray(app: &DesktopAppHandle) -> tauri::Result<()> {
-    let mut menu = MenuBuilder::new(app)
+    let menu = MenuBuilder::new(app)
         .text("show-folders", "Show Folders")
-        .text("show-settings", "Show Settings");
-    // Offered while Epicenter hosts Whispering (`BuiltInApp::is_hosted`).
-    if BuiltInApp::Whispering.is_hosted() {
-        menu = menu.text("show-whispering", "Show Whispering");
-    }
-    let menu = menu.separator().text("quit", "Quit Epicenter").build()?;
+        .text("show-settings", "Show Settings")
+        .separator()
+        .text("quit", "Quit Epicenter")
+        .build()?;
     let icon = tray_icon(false)?;
 
     TrayIconBuilder::with_id(TRAY_ID)
@@ -56,7 +54,6 @@ pub fn create_tray(app: &DesktopAppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show-folders" => request_window(app, BuiltInApp::Folders),
             "show-settings" => request_window(app, BuiltInApp::Home),
-            "show-whispering" => request_window(app, BuiltInApp::Whispering),
             "quit" => app.exit(0),
             _ => {}
         })

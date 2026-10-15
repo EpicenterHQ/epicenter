@@ -6,11 +6,9 @@
 		"security": {
 			"capabilities": [
 				"home-model-administration-development",
-				"trusted-app-windows-development",
-				"trusted-whispering-native-development",
-				"trusted-whispering-overlay-development",
 				"folders-development",
-				"installed-app-windows-development"
+				"installed-app-windows-development",
+				"installed-whispering-development"
 			]
 		}
 	}

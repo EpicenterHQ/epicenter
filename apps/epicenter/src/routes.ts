@@ -28,7 +28,6 @@ function builtInRoute<const TId extends string>(id: TId, title: string) {
 
 export const BUILT_IN_ROUTES = {
 	home: builtInRoute('home', 'Settings'),
-	whispering: builtInRoute('whispering', 'Whispering'),
 	folders: builtInRoute('folders', 'Folders'),
 } as const;
 
@@ -40,7 +39,6 @@ export const ACCOUNT_CANCEL_CONNECTION_ROUTE = route(
 );
 export const ACCOUNT_SIGN_OUT_ROUTE = route('/_epicenter/account/sign-out');
 export const HOME_ROUTE = BUILT_IN_ROUTES.home;
-export const WHISPERING_ROUTE = BUILT_IN_ROUTES.whispering;
 export const FOLDERS_ROUTE = BUILT_IN_ROUTES.folders;
 export const SESSION_ROUTE = route('/api/home/session');
 export const SESSION_STREAM_ROUTE = route('/api/home/session/stream');
