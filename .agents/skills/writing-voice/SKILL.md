@@ -107,7 +107,9 @@ added words marked, as a numbered item he can keep or strike by number. Show a
 proposed ending after the paragraph that leads into it, so he hears how the
 page arrives there. Show a proposed reordering as the passage now and the
 passage reordered, both in full and one after the other, with a one-line map of
-what moved.
+what moved. Inside quoted prose, bold only what he needs to look at: the words
+you added or the words a choice would change. Everything else stays plain, so
+the bold leads his eye.
 
 When showing alternatives, show the sentence they attach to and name what is
 unresolved, label each candidate with a letter and its consequential
