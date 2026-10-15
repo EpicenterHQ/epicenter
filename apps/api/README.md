@@ -11,11 +11,12 @@ server the person chooses (ADR-0521). This Worker is Epicenter's hosted choice:
 it mounts `mountGitApp` from `@epicenter/server` over Cloudflare Artifacts
 (`worker/git-repositories.ts`). See [Hosted Git](#hosted-git).
 
-The Yjs store sync this Worker used to serve is removed (ADR-0534). Migration
-`v6` in `wrangler.jsonc` deletes its Durable Object classes, `StoreAuthority`
-and `GenerationsLedger`, and everything they stored, on the next deploy. The
-GitHub connector that relayed a browser's Git to GitHub is removed too;
-migration `v7` deletes its `GitHubConnection` class and every grant it held.
+The Yjs store sync this Worker used to serve is removed (ADR-0534), and so is
+the GitHub connector that relayed a browser's Git to GitHub. Their Durable
+Object classes (`StoreAuthority`, `GenerationsLedger`, `GitHubConnection`) are
+not migrated away: the Worker carries no migration history, and the next
+deploy starts by deleting the existing `api` Worker, which removes every object
+those classes stored, then deploys this configuration as a new Worker.
 
 ## Why a hub exists
 
@@ -198,7 +199,8 @@ session: Artifacts checks the token, and the Worker forwards each request to
 without a binding lookup. Hosted Git is unmetered.
 
 Deploying needs the production-only `ARTIFACTS_ACCOUNT_ID` secret and an account
-on the Workers Paid plan. Keep the secret in Infisical's `prod /api`; the
+on the Workers Paid plan, and, once, deleting the existing `api` Worker first:
+this configuration has no Durable Object migrations to apply over it. Keep the secret in Infisical's `prod /api`; the
 Cloudflare Workers secret sync copies it to the `api` Worker. Artifacts has no
 local simulator, so `bun dev:api` removes the `ARTIFACTS` binding, namespace
 variable, and required account secret from its local config. Hosted Git answers

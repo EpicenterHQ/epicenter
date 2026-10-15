@@ -197,7 +197,8 @@ merged back.
 
 - Deleted: `apps/api/worker/git-connector/` (the GitHub App, encrypted grants,
   pairings, relay, and `/sync` callbacks) with its Durable Object, whose
-  migration `v7` deletes every stored grant on the next deploy; Todos'
+  grants are removed when the `api` Worker is deleted and recreated
+  (ADR-0534); Todos'
   `GitHubPicker`, `GitHubReturn`, and `/sync`; the browser transport's GitHub
   rewriting; and the desktop's hosted download and relay.
 - A token in a desktop `git` process's environment is readable by other
