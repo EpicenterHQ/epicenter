@@ -146,6 +146,14 @@ test('a missing or unusable epicenter.json is a tool failure with exit 2', async
 		}),
 	);
 	expect(run('check', folder).exitCode).toBe(2);
+
+	// A declaration missing a section was not generated; say how to make one.
+	await write('epicenter.json', JSON.stringify({ tables: {} }));
+	const noKv = run('check', folder);
+	expect(noKv.exitCode).toBe(2);
+	expect(noKv.stderr).toContain(
+		"it has no 'kv'; every generated declaration has both, so declare the folder in epicenter.ts and run `epicenter generate`",
+	);
 });
 
 test('a typo epicenter.json would otherwise ignore is refused, and $schema is allowed', async () => {

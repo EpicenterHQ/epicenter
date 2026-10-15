@@ -1,6 +1,12 @@
 /**
  * `epicenter.json`: a data folder's declaration as JSON Schema (ADR-0517).
  *
+ * The file is a generated, portable contract, not a source to author: an
+ * application writes it from its code definition, and a folder no application
+ * owns keeps its declaration in `epicenter.ts`, from which `epicenter generate`
+ * writes it (ADR-0527). Every written file has `kv` and `tables`, even when
+ * empty, so a reader never guesses at a missing section.
+ *
  * Each table is one object schema, `{ type: 'object', properties, required }`,
  * whose properties are the table's fields exactly as a prepared definition
  * holds them. `kv` is the same without `required`, since every setting may be
@@ -81,6 +87,14 @@ export function parseDeclaration(
 	if (unknown !== undefined)
 		return refuse(
 			`unknown top-level key ${unknown}; expected title, kv, tables, or $schema`,
+		);
+
+	const missing = (['kv', 'tables'] as const).filter(
+		(key) => declared[key] === undefined,
+	);
+	if (missing.length > 0)
+		return refuse(
+			`it has no ${missing.map((key) => `'${key}'`).join(' or ')}; every generated declaration has both, so declare the folder in epicenter.ts and run \`epicenter generate\``,
 		);
 
 	const kv = objectSchema(declared.kv, 'kv', false);
