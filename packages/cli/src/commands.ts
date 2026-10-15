@@ -14,6 +14,8 @@ const ADR_PATHS: Record<string, string> = {
 		'docs/adr/0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md',
 	'ADR-0558':
 		'docs/adr/0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md',
+	'ADR-0559':
+		'docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md',
 };
 
 /** `ADR-0558 (docs/adr/0558-….md)`, where a record lives in the repository. */
@@ -55,6 +57,24 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 1,
 		summary: 'changed files, ahead and behind, and the remote',
 		adr: 'ADR-0558',
+	},
+	{
+		path: ['history'],
+		args: '<dir>',
+		minArgs: 1,
+		maxArgs: 1,
+		summary: 'the versions of the folder',
+		adr: 'ADR-0559',
+		hidden: true,
+	},
+	{
+		path: ['save-version'],
+		args: '<dir>',
+		minArgs: 1,
+		maxArgs: 1,
+		summary: "commit the folder's edits as a version",
+		adr: 'ADR-0559',
+		hidden: true,
 	},
 	{
 		path: ['sync'],
@@ -100,7 +120,9 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '',
 		minArgs: 0,
 		maxArgs: 0,
-		summary: 'the apps installed on this machine',
+		options: [{ name: 'repository', value: '<url>' }],
+		summary:
+			'the apps installed on this machine, or with --repository the apps in a repository',
 		adr: 'ADR-0558',
 	},
 	{
@@ -118,7 +140,10 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<id>',
 		minArgs: 1,
 		maxArgs: 1,
-		options: [{ name: 'approve' }],
+		options: [
+			{ name: 'approve' },
+			{ name: 'commit', value: '<sha>', hidden: true },
+		],
 		summary: 'update an installed app',
 		adr: 'ADR-0558',
 		long: true,

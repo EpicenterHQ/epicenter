@@ -33,6 +33,18 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./folder-commands.ts')).query(dir as string, sql, json),
 	generate: async ({ positionals: [dir], json }) =>
 		(await import('./folder-commands.ts')).generate(dir as string, json),
+	'app list': async ({ options, json }) =>
+		(await import('./app-commands.ts')).appList(options, json),
+	'app install': async ({ positionals: [source], options, json }) =>
+		(await import('./app-commands.ts')).appInstall(
+			source as string,
+			options,
+			json,
+		),
+	'app update': async ({ positionals: [id], options, json }) =>
+		(await import('./app-commands.ts')).appUpdate(id as string, options, json),
+	'app remove': async ({ positionals: [id], json }) =>
+		(await import('./app-commands.ts')).appRemove(id as string, json),
 	'install-command': async ({ options, json }) =>
 		(await import('./install-command.ts')).installCommand({
 			json,
@@ -52,6 +64,15 @@ EXPLAIN) over the files that conform and prints tab-separated rows. A file
 that does not conform is left out of every table and named on stderr (in
 "excluded" with --json); check says why. Exits 0 when it answers and 2 when
 the folder, the declaration, or the statement cannot be used.`,
+	'app install': `Clones the repository into Apps/<app-id>/, the id read from the
+epicenter.app.json in --folder (the root by default), then builds it with
+bun run build:installed. A commit nobody approved on this machine is not
+built: the command prints it with its log and exits 1 until it runs again
+with --approve. --json prints NDJSON progress lines and one result line.`,
+	'app update': `Fetches the app's upstream, fast-forwards or rebases the commits made
+here, and builds the result if it may run. A commit made on this machine runs
+without asking; one fetched from elsewhere is printed with its log and diff
+stat, and the command exits 1 until it runs again with --approve.`,
 	generate: `Runs <dir>/epicenter.ts, whose default export is defineFolder({...}) from
 @epicenter/folder, and writes the epicenter.json it declares. It is the only
 command that runs a folder's code; check and query read only epicenter.json.

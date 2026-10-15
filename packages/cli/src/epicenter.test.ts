@@ -457,10 +457,8 @@ test('every command ADR-0558 names parses, and one not built exits 2 naming its 
 		['clone', 'braden/notes'],
 		['repos'],
 		['open', folder, '--app', 'so.epicenter.todos'],
-		['app', 'list'],
-		['app', 'install', 'https://example.com/r.git', '--approve'],
-		['app', 'update', 'so.epicenter.todos'],
-		['app', 'remove', 'so.epicenter.todos'],
+		['history', folder],
+		['save-version', folder, '--desktop'],
 		['auth', 'login', '--loopback'],
 		['auth', 'logout'],
 		['auth', 'status'],
@@ -472,7 +470,7 @@ test('every command ADR-0558 names parses, and one not built exits 2 naming its 
 		expect(text.exitCode).toBe(2);
 		expect(text.stdout).toBe('');
 		expect(text.stderr).toContain(`epicenter ${args[0]}`);
-		expect(text.stderr).toMatch(/is not built yet; see ADR-055[68]/);
+		expect(text.stderr).toMatch(/is not built yet; see ADR-055[689]/);
 		const json = run(...args, '--json');
 		expect(json.exitCode).toBe(2);
 		expect(JSON.parse(json.stdout).error).toContain('is not built yet');
@@ -506,7 +504,15 @@ test('--help lists every command but send and install-command, and --json descri
 		described
 			.filter((c: { built: boolean }) => c.built)
 			.map((c: { command: string }) => c.command),
-	).toEqual(['check', 'query', 'generate']);
+	).toEqual([
+		'check',
+		'query',
+		'generate',
+		'app list',
+		'app install',
+		'app update',
+		'app remove',
+	]);
 	expect(
 		described.find((c: { command: string }) => c.command === 'sync').output,
 	).toBe('ndjson');

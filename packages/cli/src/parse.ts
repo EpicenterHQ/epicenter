@@ -67,6 +67,9 @@ export function parseArgs(
 		} else if (token === '--json') json = true;
 		else if (token === '--help' || token === '-h') help = true;
 		else if (token === '--version' || token === '-V') version = true;
+		// Hidden: Rust runs every command with it to select the desktop grant
+		// (ADR-0558). No command uses a grant yet, so it changes nothing.
+		else if (token === '--desktop') continue;
 		else rest.push(token);
 	}
 
