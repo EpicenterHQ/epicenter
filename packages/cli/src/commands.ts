@@ -65,6 +65,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<dir>',
 		minArgs: 1,
 		maxArgs: 1,
+		options: [{ name: 'depth', value: '<n>' }],
 		summary: 'the versions of the folder',
 		adr: 'ADR-0559',
 		hidden: true,
@@ -74,6 +75,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '<dir>',
 		minArgs: 1,
 		maxArgs: 1,
+		options: [{ name: 'message', value: '<text>', short: 'm' }],
 		summary: "commit the folder's edits as a version",
 		adr: 'ADR-0559',
 		hidden: true,
@@ -86,6 +88,11 @@ export const COMMANDS: readonly CommandSpec[] = [
 		options: [
 			{ name: 'to', value: '<namespace>/<name>' },
 			{ name: 'resolve', value: '<choices.json>' },
+			// Connect to any network remote, as a page's `sync.connect` does.
+			{ name: 'remote', value: '<url>', hidden: true },
+			{ name: 'allow-unrelated', hidden: true },
+			// A page's token for one remote, as `{"credential": …}` on stdin.
+			{ name: 'credential-stdin', hidden: true },
 		],
 		summary: 'fetch, merge by file kind, commit, and push',
 		adr: 'ADR-0558',
