@@ -47,8 +47,13 @@ Better Auth owns identity and sessions. Hosted Epicenter configures Google,
 GitHub, Microsoft, and Apple social sign-in, with optional passkeys and no
 email/password flow. Browser apps, the dashboard, and the Bun desktop host
 receive independent signed sessions through a PKCE/state handoff. Resources
-validate those session bearers against live session rows. Epicenter no longer
-issues OAuth access/refresh grants to its applications.
+validate those session bearers against live session rows.
+
+This Worker is also the OAuth 2.1 authorization server of
+[ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md).
+It issues opaque access tokens, but no client uses them yet and no route
+accepts them: clients still sign in through the session handoff until they
+move to the authorization server. See [Authorization server](#authorization-server).
 
 ## Trust model
 
@@ -91,9 +96,13 @@ For the full argument:
 ```
 Cloudflare Workers
 ├── Hono app (worker/index.ts)
-│   ├── /auth/*                Better Auth (social login, sessions, handoff, passkeys)
+│   ├── /auth/*                Better Auth (social login, sessions, handoff, passkeys,
+│   │                          OAuth 2.1 authorize, token, revoke, device grant)
 │   ├── /sign-in               hosted browser sign-in
 │   ├── /session/callback      dashboard handoff completion
+│   ├── /consent               OAuth consent, with the folder picker
+│   ├── /device                device approval, with the folder picker
+│   ├── /.well-known/*         authorization server and protected resource metadata
 │   ├── /api/session           the principal projection
 │   ├── /api/git/connect       find or create a folder's repository, mint its token
 │   ├── /git/:name.git/*       Git smart HTTP, forwarded to Artifacts
@@ -152,8 +161,18 @@ bun run db:push:local
 Production uses Supabase Postgres in Frankfurt (`eu-central-1`). Better Auth
 continues to own Epicenter sign-in; Supabase supplies the database. The runtime
 Hyperdrive connection uses the `epicenter_api` role with read and write access
-to Epicenter's six tables. Query caching is disabled so session and permission
-checks read current data.
+to Epicenter's tables. Migration `0002` adds the OAuth and namespace tables,
+so that role needs `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on them before a
+deploy that serves the authorization server: the account trigger from `0003`
+inserts the personal namespace as the role that inserts the account.
+
+Query caching must stay disabled on that Hyperdrive configuration. This Worker
+is the OAuth authorization server, and every resource checks access tokens in
+this database on each request; Hyperdrive's default cache (60 seconds, plus 15
+of stale reads) would keep a revoked token or a removed member working. A new
+configuration is created with `--caching-disabled`, and an existing one is
+corrected with `wrangler hyperdrive update <id> --caching-disabled`, which is
+a production operation.
 
 The production `/ops` `DATABASE_URL` uses Supabase's session pooler for IPv4
 admin access. `drizzle.config.ts` loads the public `supabase-ca.crt` certificate
@@ -178,13 +197,49 @@ bun dev              # Local dev server (uses local Postgres)
 bun run smoke:local  # Runtime-parity smoke with dev auth and fake local env
 bun deploy           # Deploy to Cloudflare Workers
 bun run typecheck    # Type check
-bun test             # Run tests
+bun run test         # Run tests, each file isolated
 ```
 
 `smoke:local` is the no-Infisical verification path. It starts `server.dev.ts`,
 runs `apps/api/scripts/smoke.ts`, keeps its server log and data directory under a
 temporary directory, and skips the blob leg unless `BLOBS_S3_*` points at a
 local S3-compatible store.
+
+### Authorization server
+
+`@epicenter/server` composes Better Auth's OAuth provider (ADR-0549) on the
+`/auth/*` routes only; see `packages/server/README.md` for the policy. This app
+names what is deployment-specific, in `worker/oauth-registrations.ts`:
+
+- **Audiences.** Hosted, they are `https://api.epicenter.so`,
+  `https://git.epicenter.so`, and `https://mcp.epicenter.so/mcp`. Any other
+  origin (local dev, self-host) serves all three from itself: `<origin>`,
+  `<origin>/git`, and `<origin>/mcp` (ADR-0326).
+- **First-party clients.** Each browser build is its app id, a public PKCE
+  client with its exact `/auth/callback`, consent skipped, target `*`. The
+  desktop app is `so.epicenter`, with a loopback redirect on any port and
+  `offline_access`. The CLI is `so.epicenter.cli`, with the device grant only.
+
+Migration `0004_hosted_oauth_registrations` seeds the hosted rows, and
+`oauth-server.postgres.test.ts` fails if it drifts from
+`buildFirstPartyClients(PRODUCTION_API_URL)`. The Bun entry serves its own
+origin, so it writes its registrations at boot with
+`registerFirstPartyClients`. `bun dev:api` (local `wrangler dev`) writes none:
+run the Bun entry, or call `registerFirstPartyClients` for the local origin,
+to sign a client in locally.
+
+The refresh family is keyed on grant lineage by a vendored patch of
+`@better-auth/oauth-provider`, applied by Bun from the root `package.json`
+`patchedDependencies`
+(`patches/@better-auth%2Foauth-provider@1.7.9.patch`). It is meant for
+upstream; re-verify it on every Better Auth upgrade.
+
+`oauth-server.postgres.test.ts` runs the spike's checks (refresh lineage, grant
+target, silent re-authorization, and the end-to-end flows) against both
+entries as separate processes on a disposable Postgres cluster: `bun
+server.ts`, and the Worker under `wrangler dev --local` with Hyperdrive's
+local connection string. `bun run test` runs each test file isolated
+(`--isolate`), because `runtime-profile.test.ts` replaces `pg` with a probe.
 
 ### Hosted Git
 
@@ -249,6 +304,10 @@ bun run db:studio:remote # Open Drizzle Studio (remote, via Infisical)
 ```
 
 See `wrangler.jsonc` for the Artifacts binding, the Durable Object migration history, and Hyperdrive (Postgres connection pool) configuration.
+
+`auth:generate:remote` writes every Better Auth model into
+`packages/server/src/db/schema/auth.ts`; move the OAuth provider's models into
+`oauth.ts` beside it before generating a migration.
 
 ## License
 
