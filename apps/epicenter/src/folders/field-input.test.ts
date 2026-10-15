@@ -7,12 +7,20 @@
  * Key behaviors:
  * - Columns keep declared order and follow each field's hint
  * - A field whose hint does not fit its schema gets the JSON editor
+ * - A field with no hint gets the editor its plain JSON Schema type implies;
+ *   a hint that is present still wins
  * - Clearing an optional field removes it; clearing a required number saves nothing
  * - Numbers, tags, and JSON parse their text, and say plainly when they cannot
  */
 import { expect, test } from 'bun:test';
-import { defineFolder, defineTable, field } from '@epicenter/folder';
-import { columnsOf, commitText, textOf } from './field-input';
+import {
+	defineFolder,
+	defineTable,
+	field,
+	parseDeclaration,
+} from '@epicenter/folder';
+import { expectOk } from 'wellcrafted/testing';
+import { columnsOf, commitText, editorOf, textOf } from './field-input';
 
 const definition = defineFolder({
 	kv: {},
@@ -85,4 +93,74 @@ test('numbers, tags, and JSON parse their text', () => {
 	expect(textOf('tags', ['a', 'b'])).toBe('a, b');
 	expect(textOf('integer', 3)).toBe('3');
 	expect(textOf('string', undefined)).toBe('');
+});
+
+test('a plain JSON Schema declaration gets editors by type', () => {
+	// The demo's books: a hand-written declaration with no x-field hints.
+	const declared = expectOk(
+		parseDeclaration(
+			JSON.stringify({
+				kv: { type: 'object', properties: {} },
+				tables: {
+					books: {
+						type: 'object',
+						properties: {
+							title: { type: 'string' },
+							read: { type: 'boolean' },
+							rating: { type: 'integer' },
+							price: { type: 'number' },
+							shelf: { type: 'string', enum: ['home', 'office'] },
+							started: { type: 'string', format: 'date' },
+							finished: { type: 'string', format: 'date-time' },
+							link: { type: 'string', format: 'uri' },
+							moods: {
+								type: 'array',
+								items: { type: 'string', enum: ['calm', 'tense'] },
+							},
+							tags: { type: 'array', items: { type: 'string' } },
+							note: { anyOf: [{ type: 'boolean' }, { type: 'null' }] },
+							meta: { type: 'object' },
+						},
+						required: ['title', 'read'],
+					},
+				},
+			}),
+		),
+	);
+	const books = declared.tables.books;
+	if (books === undefined) throw new Error('no books table');
+	expect(
+		Object.entries(books.fields).map(([name, schema]) => [
+			name,
+			editorOf(schema),
+		]),
+	).toEqual([
+		['title', { kind: 'string' }],
+		['read', { kind: 'boolean' }],
+		['rating', { kind: 'integer' }],
+		['price', { kind: 'number' }],
+		['shelf', { kind: 'select', options: ['home', 'office'] }],
+		['started', { kind: 'date' }],
+		['finished', { kind: 'datetime' }],
+		['link', { kind: 'url' }],
+		['moods', { kind: 'multiSelect', options: ['calm', 'tense'] }],
+		['tags', { kind: 'tags' }],
+		['note', { kind: 'boolean' }],
+		['meta', { kind: 'json' }],
+	]);
+});
+
+test('a hint that is present wins over the plain type, even a JSON one', () => {
+	expect(editorOf(field.json(field.boolean()))).toEqual({ kind: 'json' });
+	expect(
+		editorOf({ type: 'string', 'x-field': { kind: 'date' } } as never),
+	).toEqual({ kind: 'date' });
+	// A malformed hint is still a hint: the JSON editor, not a guess.
+	expect(editorOf({ type: 'boolean', 'x-field': 'checkbox' } as never)).toEqual(
+		{
+			kind: 'json',
+		},
+	);
+	// An enum of other than strings has no menu.
+	expect(editorOf({ enum: [1, 2] } as never)).toEqual({ kind: 'json' });
 });
