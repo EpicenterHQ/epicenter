@@ -157,6 +157,7 @@ needs and the package manager; npm or pnpm would need Node as well.
 
 **Deleted** (`wc -l` at `999012befb`):
 
+<!-- doc-path-check: ignore-next-line -->
 - The Bun host: `apps/epicenter/src/sidecar-runtime.ts` (670) and test (664), `apps/epicenter/src/server.ts` (586) and test (1,699), `apps/epicenter/src/desktop-auth-authority.ts` (300) and test (954), `apps/epicenter/src/account-transport.test.ts` (483), `apps/epicenter/src/static-assets.ts` (316, ported) and test (36), `apps/epicenter/src/main.ts` (203), `apps/epicenter/src/app-secrets.ts` (82), `apps/epicenter/src/routes.ts` (44), `apps/epicenter/src/test-apps-dist.ts` (36), `apps/epicenter/src/test-home-host.ts` (22), and the `__host` mode of `apps/epicenter/src/epicenter-binary.ts`.
 - About 1,030 lines of Rust in `lib.rs` and about 250 of its tests: frames and `HostState` (`:138-353`), `request_start` through `send_native_frame` (`:758-1257`), child stop (`:1355-1417`), and `OnHostStop`, `invalidate_windows`, `refuses_exit`, host logs, `launch_token`, `boot_frame_json`, `read_ready_frame`, `initialization_script`, the loopback navigation check, and port selection (`:1583-1873`). The auth-server descriptor (`:1258-1354`) moves to the CLI's configuration.
 - Rust's keychain: `apps/epicenter/src-tauri/src/keyring_storage.rs` (131, and 43 of tests) and the `keyring` dependency.

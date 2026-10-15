@@ -275,7 +275,7 @@ describe('boot protocol', () => {
 	test('ready frames contain exactly the versioned readiness contract', () => {
 		expect(createReadyFrame(PRODUCTION_PORT)).toEqual({
 			type: 'ready',
-			protocolVersion: 13,
+			protocolVersion: 14,
 			port: PRODUCTION_PORT,
 		});
 	});
@@ -593,21 +593,20 @@ test('one native reader settles requests and rejects calls after pipe closure', 
 			createRequestId: () => String(++next),
 		},
 	);
-	const secret = native.getAppSecret('so.epicenter.notes', 'api-key');
-	const auth = native.storeAuth(null);
+	let isFirstSettled = false;
+	const first = native.storeAuth(null).then(() => {
+		isFirstSettled = true;
+	});
+	const second = native.openAuthUrl('https://auth.example.test/authorize');
 	controller.enqueue(
 		JSON.stringify({ type: 'native-result', requestId: '2', status: 'ok' }),
 	);
+	await second;
+	expect(isFirstSettled).toBe(false);
 	controller.enqueue(
-		JSON.stringify({
-			type: 'native-result',
-			requestId: '1',
-			status: 'ok',
-			value: 'stored',
-		}),
+		JSON.stringify({ type: 'native-result', requestId: '1', status: 'ok' }),
 	);
-	expect(await secret).toBe('stored');
-	await auth;
+	await first;
 	const pending = native.storeAuth(null);
 	controller.close();
 	await expect(pending).rejects.toThrow('closed');

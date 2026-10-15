@@ -30,7 +30,8 @@
 	 * its log and diff stat. The `epicenter` CLI installs, updates, approves,
 	 * and builds (`app-commands.ts`, ADR-0556), and each step it reports is
 	 * said while it runs. Each app that runs is recorded as a row of
-	 * Epicenter's own folder (`epicenter-folder.ts`).
+	 * Epicenter's own folder (`epicenter-folder.ts`), whose declaration this
+	 * window publishes when it opens, before it opens any app.
 	 */
 	import type { Folder, FolderDefinition } from '@epicenter/folder';
 	import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
@@ -50,7 +51,10 @@
 		type Review,
 		updateApp,
 	} from './app-commands.ts';
-	import { recordInstalledApps } from './epicenter-folder.ts';
+	import {
+		declareEpicenterFolder,
+		recordInstalledApps,
+	} from './epicenter-folder.ts';
 	import FolderView from './FolderView.svelte';
 	import InstallApps from './InstallApps.svelte';
 	import { installedOpeners, type Opener } from './openers.ts';
@@ -189,9 +193,27 @@
 		if (updated !== undefined) review(updated);
 	}
 
+	/**
+	 * Epicenter's own folder's declaration, published when this window opens
+	 * (`declareEpicenterFolder`). An app opened from here may read that folder
+	 * through a lens, so a launch waits for it.
+	 */
+	let declared: Promise<void> = Promise.resolve();
+	/** Why that declaration was not published, when it was not. */
+	let declareProblem = $state<string | undefined>(undefined);
+
+	async function declareOwnFolder() {
+		const problem = await declareEpicenterFolder().catch((cause: unknown) =>
+			cause instanceof Error ? cause.message : String(cause),
+		);
+		if (problem !== undefined)
+			declareProblem = `Epicenter's own folder was not updated, so apps may not read it. ${problem}`;
+	}
+
 	/** Open `application` on `folder`, then read what building it changed. */
 	async function launch(application: Opener, folder?: string) {
 		busy = `Opening ${application.title}…`;
+		await declared;
 		await launcher.launch(application, folder);
 		busy = undefined;
 		await listInstalled();
@@ -249,6 +271,7 @@
 			DATA_FOLDERS_CHANGED,
 			() => void list(),
 		);
+		declared = declareOwnFolder();
 		void list();
 		void listInstalled();
 		return () => {
@@ -334,6 +357,13 @@
 		{/if}
 
 		<h2 class="px-4 pt-2 pb-1 text-sm font-semibold">Apps</h2>
+		{#if declareProblem !== undefined}
+			<div class="px-3 pb-2">
+				<Alert.Root variant="destructive">
+					<Alert.Description>{declareProblem}</Alert.Description>
+				</Alert.Root>
+			</div>
+		{/if}
 		{#if appsProblem !== undefined}
 			<div class="px-3 pb-2">
 				<Alert.Root variant="destructive">

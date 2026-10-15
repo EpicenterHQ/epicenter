@@ -1,14 +1,10 @@
-import type { AiCatalog } from './ai-catalog.ts';
-import { createAiCatalogRoutes } from './ai-catalog-routes.ts';
 /**
- * The Bun-owned Device origin: trusted SPA documents, the account broker, and
- * the AI catalog. The launch credential can only mint short-lived browser
- * sessions at the bootstrap route; it never appears in a URL or durable
- * browser storage.
+ * The Bun-owned Device origin: trusted SPA documents and the account broker.
+ * The launch credential can only mint short-lived browser sessions at the
+ * bootstrap route; it never appears in a URL or durable browser storage.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { deviceOwnerPath } from '@epicenter/principal';
 import { type Context, Hono, type Next } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
@@ -37,8 +33,6 @@ export type HomeServerOptions = {
 	installedApplications?: InstalledApplications;
 	/** One credential owner for every compiled desktop window. */
 	desktopAuth: DesktopAuthAuthority;
-	aiCatalog?: AiCatalog;
-	noAccountAiCatalog?: AiCatalog;
 };
 
 const SESSION_COOKIE = 'epicenter_session';
@@ -52,13 +46,10 @@ export function createHomeServer({
 	staticAssets,
 	installedApplications,
 	desktopAuth,
-	aiCatalog,
-	noAccountAiCatalog,
 }: HomeServerOptions) {
 	if (launchToken === '') {
 		throw new Error('Device refuses to serve without a launch token.');
 	}
-	const bootAccount = desktopAuth.account;
 	const activeUrl = validateOrigin(origin);
 	const activeHost = activeUrl.host;
 	const sessionHashes = new Set<string>();
@@ -164,23 +155,6 @@ export function createHomeServer({
 			c.header('x-epicenter-auth-state', 'signed-out');
 		return response;
 	});
-
-	app.use('/_epicenter/ai/*', async (c, next) => {
-		c.header('cache-control', 'no-store');
-		if (c.req.method === 'GET' || c.req.method === 'HEAD')
-			return requireBrowserSession(c, next);
-		return requirePrivateBroker(c, next);
-	});
-	if (aiCatalog)
-		app.route(
-			`/_epicenter/ai/${deviceOwnerPath(bootAccount ?? undefined).replaceAll('/', '_')}`,
-			createAiCatalogRoutes(aiCatalog),
-		);
-	if (bootAccount && noAccountAiCatalog)
-		app.route(
-			'/_epicenter/ai/no-account',
-			createAiCatalogRoutes(noAccountAiCatalog),
-		);
 
 	app.all('/_epicenter/account/http', async (c) => {
 		const account = desktopAuth.account;

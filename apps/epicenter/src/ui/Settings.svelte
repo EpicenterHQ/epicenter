@@ -9,12 +9,14 @@
 	import { auth, bootstrap } from './auth.js';
 	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
+	import AiConnections from './connections/AiConnections.svelte';
 	import LocalModelAdministration from './LocalModelAdministration.svelte';
 	import { localModels } from './local-models.svelte';
 
 	/**
-	 * Host-level administration (ADR-0189) includes the cloud connection and local
-	 * transcription model (ADR-0180), which lives here rather than in the shell
+	 * Host-level administration (ADR-0189) includes the cloud connection, the AI
+	 * connections every app may use (ADR-0557), and the local transcription
+	 * model (ADR-0180), which lives here rather than in the shell
 	 * header: choosing what every application on this device transcribes with is
 	 * a settings act, not a conversation control.
 	 *
@@ -94,6 +96,7 @@
 		{/if}
 		{#if connectionError}<p role="alert" class="text-destructive">{connectionError}</p>{/if}
 	</div>
+	<AiConnections />
 {/if}
 
 {#if localModels.available}

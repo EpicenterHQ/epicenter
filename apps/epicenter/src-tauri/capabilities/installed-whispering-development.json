@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "installed-whispering-development",
-	"description": "The native commands installed Whispering (app id so.epicenter.whispering) uses, granted to its windows by app id: every label open_installed_window makes for that id, with or without a folder. It records into the folder its window was granted (ADR-0543), transcribes with the one active local model and reads whether that model is ready (ADR-0180), and opens Settings where that model is chosen. The folder plugin comes from installed-app-windows. Approving an app trusts it fully (ADR-0540), so this is wiring, not a sandbox: it lists what the app calls, and nothing it does not.",
+	"description": "The native commands installed Whispering (app id so.epicenter.whispering) uses, granted to its windows by app id: every label open_installed_window makes for that id, with or without a folder. It records into the folder its window was granted (ADR-0543), transcribes with the one active local model and reads whether that model is ready (ADR-0180), opens Settings where that model is chosen, and sends its transcription and text requests over its AI connections with the key this computer saved, which it never reads (ADR-0557). Opening its window also permits it into so.epicenter, whose connections table holds those connections. The folder plugin comes from installed-app-windows. Approving an app trusts it fully (ADR-0540), so this is wiring, not a sandbox: it lists what the app calls, and nothing it does not.",
 	"local": false,
 	"windows": ["app:so_epicenter_whispering", "app:so_epicenter_whispering:*"],
 	"remote": {
@@ -12,6 +12,10 @@
 		"allow-list-inference-models",
 		"allow-transcribe-audio-bytes",
 		"allow-get-local-transcription-readiness",
-		"allow-open-home"
+		"allow-open-home",
+		"allow-ai-send",
+		"allow-ai-key-set",
+		"allow-ai-key-remove",
+		"allow-ai-key-state"
 	]
 }

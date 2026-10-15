@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ai-send"
+description = "Enables the ai_send command without any pre-configured scope."
+commands.allow = ["ai_send"]
+
+[[permission]]
+identifier = "deny-ai-send"
+description = "Denies the ai_send command without any pre-configured scope."
+commands.deny = ["ai_send"]

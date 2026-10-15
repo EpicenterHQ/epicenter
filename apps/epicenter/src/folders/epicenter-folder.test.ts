@@ -8,15 +8,20 @@
  * - A row that already says the same is left as it is; a changed one keeps
  *   the body and any field a person added
  * - `defaultApp` holds a folder id to app id record
+ * - Each AI connection is a row `connections/<id>.md` holding its kind,
+ *   title, and model, never an endpoint or key; an app's lens reads it
+ * - Opening the Folders window publishes the declaration, so a lens on a
+ *   table an update added fits before anything else writes the folder
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { connectionsLens } from '@epicenter/ai/connection-table';
 import type { InstalledApp } from '@epicenter/cli';
-import { openFolder } from '@epicenter/folder/bun';
+import { openDataFolder, openFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
-import { epicenterDefinition, writeAppRows } from './epicenter-folder';
+import { declare, epicenterDefinition, writeAppRows } from './epicenter-folder';
 
 const author = { name: 'Epicenter', email: 'epicenter@localhost' };
 const originalEnv = { ...process.env };
@@ -122,5 +127,94 @@ test('defaultApp records the app each folder opens in', async () => {
 		});
 	} finally {
 		await folder.close();
+	}
+});
+
+test('an AI connection is a row of kind, title, and model, which an app reads through its lens', async () => {
+	const { root, folder } = await open();
+	try {
+		expectOk(
+			await folder.tables.connections.create(
+				{
+					fields: {
+						kind: 'openai-compatible',
+						title: 'Groq',
+						model: 'whisper-large-v3',
+					},
+					body: '',
+				},
+				{ stem: 'groq' },
+			),
+		);
+		const text = await readFile(join(root, 'connections/groq.md'), 'utf8');
+		expect(text).toContain('kind: openai-compatible');
+		expect(text).toContain('model: whisper-large-v3');
+		expect(text).not.toContain('endpoint');
+		expectOk(
+			await folder.tables.connections.update('groq', {
+				set: { model: 'whisper-large-v3-turbo' },
+			}),
+		);
+
+		const lens = expectOk(
+			await openDataFolder({ root, lens: connectionsLens, git: { author } }),
+		);
+		try {
+			const row = expectOk(await lens.tables.connections.get('groq'));
+			expect(row?.row.fields).toEqual({
+				kind: 'openai-compatible',
+				title: 'Groq',
+				model: 'whisper-large-v3-turbo',
+			});
+		} finally {
+			await lens.close();
+		}
+	} finally {
+		await folder.close();
+	}
+});
+
+test('declaring publishes the definition, so a lens on a table an update added fits', async () => {
+	const { root, folder } = await open();
+	const path = join(root, 'epicenter.json');
+	try {
+		expect(await declare(folder)).toBeUndefined();
+	} finally {
+		await folder.close();
+	}
+	const current = await readFile(path, 'utf8');
+
+	// The declaration an Epicenter before `connections` published.
+	const earlier = JSON.parse(current);
+	delete earlier.tables.connections;
+	await writeFile(path, JSON.stringify(earlier));
+	const refused = await openDataFolder({
+		root,
+		lens: connectionsLens,
+		git: { author },
+	});
+	expect(refused.error?.name).toBe('ShapeMismatch');
+
+	// The next launch's handle publishes it again, before anything else writes.
+	const next = expectOk(
+		await openFolder({
+			root,
+			definition: epicenterDefinition,
+			git: { author },
+		}),
+	);
+	try {
+		expect(await declare(next)).toBeUndefined();
+	} finally {
+		await next.close();
+	}
+	expect(await readFile(path, 'utf8')).toBe(current);
+	const lens = expectOk(
+		await openDataFolder({ root, lens: connectionsLens, git: { author } }),
+	);
+	try {
+		expect(expectOk(await lens.tables.connections.list())).toEqual([]);
+	} finally {
+		await lens.close();
 	}
 });

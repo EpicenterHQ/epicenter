@@ -10,9 +10,11 @@
  * (`granted-folder.test-support.ts`); nothing here runs the Rust shell or a
  * WebView.
  *
- * The connections are Epicenter's real AI catalog and its routes, from
- * `apps/epicenter/src`, over a stubbed endpoint, so a test about a key or a
- * request runs against what Epicenter's host really does with them.
+ * The connections are rows of a real `so.epicenter` folder on disk, opened
+ * through `connectionsLens`. The AI commands are scripted with the code the
+ * `epicenter` CLI runs (`@epicenter/ai/send`) over an in-memory keychain and
+ * a stubbed endpoint, so a test about a key or a request runs against what
+ * the CLI really checks and sends.
  * Local transcription answers with scripted shell commands.
  */
 import '../svelte-modules.test-support.js';
@@ -21,12 +23,20 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { connectionsLens } from '@epicenter/ai/connection-table';
+import {
+	base64ToBytes,
+	createMemorySecrets,
+	keyState,
+	responseEvents,
+	saveKey,
+	sendRequest,
+} from '@epicenter/ai/send';
+import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
-import { createAiCatalog } from '../../../../epicenter/src/ai-catalog.js';
-import { createAiCatalogRoutes } from '../../../../epicenter/src/ai-catalog-routes.js';
-import { createProcessMemoryAppSecrets } from '../../../../epicenter/src/app-secrets.js';
 import { toneWav } from '../capture.js';
+import type { ConnectionCommands } from './desktop-connections.js';
 import {
 	createGrantedShell,
 	type GrantedShell,
@@ -143,73 +153,120 @@ type ProviderCall = {
 };
 
 /**
- * Epicenter's real AI catalog behind its real routes, mounted where the host
- * mounts them for a window with no account, over an endpoint that answers
- * every request. `fetch` is what the page's same-origin requests reach;
- * `replies` holds every body the page was sent.
+ * Epicenter as Whispering's connections reach it: a real `so.epicenter`
+ * folder on disk, and the AI commands answered by the code `epicenter send`
+ * and `epicenter auth key` run, over an in-memory keychain and an endpoint
+ * that answers every request. `keychain` is what the CLI would hold; the
+ * page is never handed it.
  */
 async function epicenter() {
-	const dataRoot = await mkdtemp(join(tmpdir(), 'whispering-epicenter-ai-'));
+	const root = await mkdtemp(join(tmpdir(), 'whispering-so-epicenter-'));
+	const keychain = createMemorySecrets();
 	const provider: ProviderCall[] = [];
-	const catalog = await createAiCatalog({
-		dataRoot,
-		secrets: createProcessMemoryAppSecrets(),
-		// A counted local stand-in for the endpoint. Nothing leaves this process.
-		fetch: (async (input: URL | string, init?: RequestInit) => {
-			const request = new Request(input, init);
-			provider.push({
-				url: request.url,
-				authorization: request.headers.get('authorization'),
-				cookie: request.headers.get('cookie'),
-				body: request,
-			});
-			if (request.url.endsWith('/audio/transcriptions'))
-				return Response.json({ text: 'a steady tone' });
-			return Response.json({
-				choices: [
-					{ message: { role: 'assistant', content: 'A steady tone.' } },
-				],
-			});
-		}) as typeof fetch,
-	});
-	const routes = createAiCatalogRoutes(catalog);
-	cleanups.push(async () => {
-		await catalog.close();
-		await rm(dataRoot, { recursive: true, force: true });
-	});
-	const prefix = '/_epicenter/ai/no-account';
-	const replies: string[] = [];
-	const requested: {
-		url: string;
-		credentials: RequestCredentials | undefined;
-	}[] = [];
+	/** Every line the page was sent. */
+	const lines: string[] = [];
 	let losing = false;
-	const fetch = (async (input: string, init?: RequestInit) => {
-		const url = new URL(input);
-		requested.push({ url: input, credentials: init?.credentials });
-		if (url.origin !== ORIGIN || !url.pathname.startsWith(`${prefix}/`))
-			throw new TypeError(`the page asked ${input}, which is not the catalog`);
-		const reply = await routes.request(
-			`${url.pathname.slice(prefix.length)}${url.search}`,
-			init,
-		);
-		replies.push(await reply.clone().text());
-		// The host handled the request in full; its reply is lost on the way back.
-		if (losing && url.pathname.includes('/inference/'))
-			throw new TypeError('Load failed');
-		return reply;
-	}) as typeof globalThis.fetch;
+	const endpoint = (async (
+		input: URL | string | Request,
+		init?: RequestInit,
+	) => {
+		const request = new Request(input, init);
+		provider.push({
+			url: request.url,
+			authorization: request.headers.get('authorization'),
+			cookie: request.headers.get('cookie'),
+			body: request,
+		});
+		if (request.url.endsWith('/audio/transcriptions'))
+			return Response.json({ text: 'a steady tone' });
+		return Response.json({
+			choices: [{ message: { role: 'assistant', content: 'A steady tone.' } }],
+		});
+	}) as typeof fetch;
+	const ai: ConnectionCommands = {
+		async aiKeyState(connection) {
+			const { data, error } = await keyState(keychain, connection);
+			return error === null
+				? { status: 'ok', data, error: null }
+				: {
+						status: 'error',
+						data: null,
+						error: { name: 'Refused', message: error.message },
+					};
+		},
+		async aiKeySet(connection, url, key) {
+			const { data, error } = await saveKey(keychain, connection, {
+				endpoint: url,
+				key,
+			});
+			return error === null
+				? { status: 'ok', data, error: null }
+				: {
+						status: 'error',
+						data: null,
+						error: { name: 'Refused', message: error.message },
+					};
+		},
+		async aiSend(target, request, channel) {
+			const deliver = (line: string) => {
+				lines.push(line);
+				channel.onmessage(line);
+			};
+			const { data: response, error } = await sendRequest({
+				target,
+				request: {
+					...request,
+					body: request.body === null ? undefined : base64ToBytes(request.body),
+				},
+				secrets: keychain,
+				fetch: endpoint,
+			});
+			// The CLI sent it and got an answer; the answer is lost on its way back.
+			if (losing) throw new Error('Load failed');
+			if (error !== null)
+				deliver(
+					JSON.stringify({
+						type: 'error',
+						name: error.name,
+						message: error.message,
+					}),
+				);
+			else
+				for await (const event of responseEvents(response))
+					deliver(JSON.stringify(event));
+			const exit = { code: error === null ? 0 : 2, stderr: '' };
+			deliver(JSON.stringify({ type: 'exit', ...exit }));
+			return { status: 'ok', data: exit, error: null };
+		},
+	} as ConnectionCommands;
+	cleanups.push(() => rm(root, { recursive: true, force: true }));
 	return {
-		catalog,
+		root,
+		keychain,
 		provider,
-		replies,
-		requested,
-		fetch,
+		lines,
+		ai,
+		open: () =>
+			openBunFolder({
+				root,
+				definition: connectionsLens,
+				git: { author: { name: 'Test', email: 'test@localhost' } },
+			}),
 		lose(next: boolean) {
 			losing = next;
 		},
 	};
 }
+
+type Epicenter = Awaited<ReturnType<typeof epicenter>>;
+
+/** The desktop workspace over `host`'s connections. */
+const openWith = (host: Epicenter) =>
+	openDesktopWorkspace({
+		commands: noCommands,
+		connectionCommands: host.ai,
+		openConnectionsFolder: host.open,
+	});
 
 // ============================================================================
 // Which storage is asked for
@@ -268,7 +325,7 @@ test('the page names the folder by its ID and nothing else, and opens the direct
 	const { root } = await granted();
 
 	const workspace = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: noCommands }),
+		await openDesktopWorkspace({ commands: noCommands }),
 	);
 
 	// No root, author, or branch: the shell decided all of them.
@@ -306,7 +363,7 @@ test('a refusal from the shell is returned, and nothing is opened in its place',
 		};
 
 		const refused = expectErr(
-			await openDesktopWorkspace({ origin: ORIGIN, commands: noCommands }),
+			await openDesktopWorkspace({ commands: noCommands }),
 		);
 
 		expect(refused.name).toBe('DesktopFolder');
@@ -326,7 +383,7 @@ test('saves and history go through the shell', async () => {
 	setup();
 	const { root } = await granted();
 	const workspace = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: noCommands }),
+		await openDesktopWorkspace({ commands: noCommands }),
 	);
 	const audio = new Uint8Array([1, 2, 3, 0, 255]);
 
@@ -353,9 +410,7 @@ test('saves and history go through the shell', async () => {
 test('a version is recorded as the person Git’s configuration names, and as Whispering only when none is set', async () => {
 	setup();
 	const { root } = await granted();
-	const first = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: noCommands }),
-	);
+	const first = expectOk(await openDesktopWorkspace({ commands: noCommands }));
 	expectOk(await first.folder.files.create('notes.md', 'first'));
 	expect((await first.folder.git.commit()).status).toBe('committed');
 	await first.close();
@@ -366,9 +421,7 @@ test('a version is recorded as the person Git’s configuration names, and as Wh
 	// The person sets who they are; the next opening records versions as them.
 	await git(root, 'config', 'user.name', 'Someone');
 	await git(root, 'config', 'user.email', 'someone@example.test');
-	const second = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: noCommands }),
-	);
+	const second = expectOk(await openDesktopWorkspace({ commands: noCommands }));
 	expectOk(await second.folder.files.create('notes-2.md', 'second'));
 	expect((await second.folder.git.commit()).status).toBe('committed');
 	await second.close();
@@ -386,7 +439,7 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 		'---\ntitle: Clean up\nmodel: null\nendpoint: null\n---\nTidy.\n',
 	);
 	const workspace = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: noCommands }),
+		await openDesktopWorkspace({ commands: noCommands }),
 	);
 	const table = workspace.folder.tables.transformations;
 	const stored = expectOk(await table.get('clean'))!;
@@ -425,20 +478,14 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 });
 
 // ============================================================================
-// Connections are Epicenter's, and keys stay in its keychain
+// Connections are rows of so.epicenter, and keys stay in the keychain
 // ============================================================================
 
-test('a connection is an entry in Epicenter’s AI connections; the page is told whether a key is set and never the key', async () => {
-	const stored = setup();
+test('a connection is a row of so.epicenter with its endpoint and key in the keychain; the page is told whether a key is set and never the key', async () => {
+	setup();
 	await granted();
 	const host = await epicenter();
-	const first = expectOk(
-		await openDesktopWorkspace({
-			origin: ORIGIN,
-			fetch: host.fetch,
-			commands: noCommands,
-		}),
-	);
+	const first = expectOk(await openWith(host));
 	expect(await first.connections.read()).toEqual({
 		transcription: undefined,
 		text: undefined,
@@ -458,17 +505,19 @@ test('a connection is an entry in Epicenter’s AI connections; the page is told
 		keyPresent: true,
 		readOnlyReason: undefined,
 	});
-	// One entry, named for what it is, and Whispering remembers which.
-	const [entry] = host.catalog.getAll().connections;
-	expect(entry).toMatchObject({
-		name: 'Whispering text',
-		baseUrl: ENDPOINT,
-		models: ['chat-model'],
-		hasApiKey: true,
-	});
-	expect(JSON.parse(stored.get('whispering.epicenterConnections')!)).toEqual({
-		text: entry!.id,
-	});
+	// One row, named for what it is, holding no endpoint and no key.
+	const row = await readFile(
+		join(host.root, 'connections/whispering-text.md'),
+		'utf8',
+	);
+	expect(row).toContain('kind: openai-compatible');
+	expect(row).toContain('title: Whispering text');
+	expect(row).toContain('model: chat-model');
+	expect(row).not.toContain(ENDPOINT);
+	expect(row).not.toContain('device-secret-key');
+	expect(await host.keychain.get('whispering-text')).toBe(
+		JSON.stringify({ endpoint: ENDPOINT, key: 'device-secret-key' }),
+	);
 
 	// The key is never carried to another base URL.
 	const moved = await first.connections.set('text', {
@@ -477,17 +526,13 @@ test('a connection is an entry in Epicenter’s AI connections; the page is told
 		key: { action: 'keep' },
 	});
 	expect(moved.error).toContain('the saved key is not sent there');
-	expect(host.catalog.getAll().connections[0]?.baseUrl).toBe(ENDPOINT);
+	expect(
+		JSON.parse((await host.keychain.get('whispering-text'))!).endpoint,
+	).toBe(ENDPOINT);
 	await first.close();
 
-	// Another window reads the same entry; removing the key keeps the entry.
-	const second = expectOk(
-		await openDesktopWorkspace({
-			origin: ORIGIN,
-			fetch: host.fetch,
-			commands: noCommands,
-		}),
-	);
+	// Another window reads the same row; removing the key keeps the endpoint.
+	const second = expectOk(await openWith(host));
 	expect((await second.connections.read()).text?.keyPresent).toBe(true);
 	const removed = expectOk(
 		await second.connections.set('text', {
@@ -497,20 +542,23 @@ test('a connection is an entry in Epicenter’s AI connections; the page is told
 		}),
 	);
 	expect(removed.text).toMatchObject({
+		baseUrl: ENDPOINT,
 		model: 'other-model',
 		keyPresent: false,
 	});
-	expect(host.catalog.getAll().connections).toHaveLength(1);
+	expect(await host.keychain.get('whispering-text')).toBe(
+		JSON.stringify({ endpoint: ENDPOINT, key: '' }),
+	);
 	const { error: adopted } = await second.connections.adoptLegacyKey({});
 	expect(adopted).toContain('No key from an earlier version');
 	await second.close();
 
-	// Every request was same-origin, and no reply carried the key.
-	for (const { url, credentials } of host.requested) {
-		expect(new URL(url).origin).toBe(ORIGIN);
-		expect(credentials).toBe('same-origin');
-	}
-	expect(host.replies.join('\n')).not.toContain('device-secret-key');
+	// A row synced from another computer is not set up here until this
+	// computer saves its endpoint.
+	await host.keychain.delete('whispering-text');
+	const third = expectOk(await openWith(host));
+	expect((await third.connections.read()).text).toBeUndefined();
+	await third.close();
 });
 
 test('a transcription reads the audio through the shell and Epicenter sends it with the key, only while the connection is the one it was prepared for', async () => {
@@ -518,13 +566,7 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 	const granting = await granted();
 	await granting.write('recordings/take.wav', toneWav());
 	const host = await epicenter();
-	const workspace = expectOk(
-		await openDesktopWorkspace({
-			origin: ORIGIN,
-			fetch: host.fetch,
-			commands: noCommands,
-		}),
-	);
+	const workspace = expectOk(await openWith(host));
 	const request = {
 		audioPath: 'recordings/take.wav',
 		expectedBaseUrl: ENDPOINT,
@@ -558,12 +600,13 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 		Array.from(toneWav()),
 	);
 	expect(form.get('model')).toBe('whisper-1');
-	// The page read the audio through the shell.
+	// The page read the audio through the shell, and was never sent the key.
 	expect(
 		sent('read_folder_file').some((read) =>
 			String(read.args.path).endsWith('recordings/take.wav'),
 		),
 	).toBe(true);
+	expect(host.lines.join('\n')).not.toContain('transcription-key');
 
 	// A request prepared for another base URL is not sent.
 	const { error: changed } = await workspace.transcribe({
@@ -586,13 +629,7 @@ test('a reply Epicenter never delivered is reported as unknown, never as not sen
 	const granting = await granted();
 	await granting.write('recordings/take.wav', toneWav());
 	const host = await epicenter();
-	const workspace = expectOk(
-		await openDesktopWorkspace({
-			origin: ORIGIN,
-			fetch: host.fetch,
-			commands: noCommands,
-		}),
-	);
+	const workspace = expectOk(await openWith(host));
 	for (const operation of ['transcription', 'text'] as const)
 		expectOk(
 			await workspace.connections.set(operation, {
@@ -646,16 +683,12 @@ test('the chosen microphone is kept in the origin’s storage and survives a new
 	const stored = setup();
 	await granted();
 	const usb = { deviceId: 'usb-id', label: 'USB Microphone' };
-	const first = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: noCommands }),
-	);
+	const first = expectOk(await openDesktopWorkspace({ commands: noCommands }));
 	expect(await first.preferences.microphone()).toBeUndefined();
 	expect(await first.preferences.setMicrophone(usb)).toBeUndefined();
 	await first.close();
 
-	const second = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: noCommands }),
-	);
+	const second = expectOk(await openDesktopWorkspace({ commands: noCommands }));
 	expect(await second.preferences.microphone()).toEqual(usb);
 	expect(await second.preferences.setMicrophone(undefined)).toBeUndefined();
 	expect(stored.has('whispering.microphone')).toBe(false);
@@ -724,7 +757,7 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 	await granting.write('recordings/take.wav', toneWav());
 	const local = localModel({ active: 'parakeet-tdt-0.6b-v3' });
 	const workspace = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: local.commands }),
+		await openDesktopWorkspace({ commands: local.commands }),
 	);
 	const transcriber = workspace.localTranscription!;
 
@@ -755,7 +788,7 @@ test('with no active local model nothing is transcribed, and the reason names Se
 	await granting.write('recordings/take.wav', toneWav());
 	const local = localModel({ active: undefined });
 	const workspace = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: local.commands }),
+		await openDesktopWorkspace({ commands: local.commands }),
 	);
 	const transcriber = workspace.localTranscription!;
 
@@ -791,7 +824,7 @@ test('a local model that fails is reported as that failure, and an empty recordi
 	] as const) {
 		const local = localModel({ active: 'whisper-small', outcome });
 		const workspace = expectOk(
-			await openDesktopWorkspace({ origin: ORIGIN, commands: local.commands }),
+			await openDesktopWorkspace({ commands: local.commands }),
 		);
 		const { error } = await workspace.localTranscription!.transcribe(
 			'recordings/take.wav',
@@ -806,7 +839,7 @@ test('a local model that fails is reported as that failure, and an empty recordi
 		outcome: { outcome: 'empty-audio' },
 	});
 	const workspace = expectOk(
-		await openDesktopWorkspace({ origin: ORIGIN, commands: empty.commands }),
+		await openDesktopWorkspace({ commands: empty.commands }),
 	);
 	expect(
 		expectOk(

@@ -25,10 +25,9 @@ export type AiConnectionRecord = {
 	models: string[];
 };
 
-/** A host snapshot omits its key and identifies the captured access revision. */
+/** A record as the catalog hands it out, with whether it holds a key. */
 export type AiConnectionSnapshot = AiConnectionRecord & {
 	hasApiKey?: boolean;
-	accessVersion?: string;
 };
 
 /** Platform owner behind the public App connection collection. */
