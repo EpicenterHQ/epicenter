@@ -87,7 +87,7 @@ function chatsOver(
 ) {
 	const queryClient = createQueryClient();
 	const folder$ = folderOptions(folder);
-	setVocabDefaults(queryClient, folder$);
+	setVocabDefaults(queryClient);
 	const failures: WriteFailure[] = [];
 	const chats = createChats({ ...folder, ...over }, folder$, queryClient, {
 		refused: () => undefined,
