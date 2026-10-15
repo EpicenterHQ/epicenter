@@ -836,7 +836,8 @@ export async function gitCredential(
 }
 
 /** One argument for `sh`, single-quoted. */
-const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+export const shellQuote = (value: string) =>
+	`'${value.replaceAll("'", `'\\''`)}'`;
 
 /**
  * Make this CLI Git's credential helper for the deployment's Git audience in

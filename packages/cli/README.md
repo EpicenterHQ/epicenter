@@ -28,6 +28,7 @@ apps/epicenter build:sidecar`). That binary also has the Bun host as a hidden
 | `epicenter history <dir> [--depth <n>]` | built, hidden | `runHistory` |
 | `epicenter save-version <dir> [-m <text>]` | built, hidden | `runHistory` |
 | `epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]` | built but `--to` | `runHistory` |
+| `epicenter merge-driver <dir>` | built | `src/merge-driver.ts`, over `mergeForGit` in `@epicenter/folder/bun` |
 | `epicenter clone <namespace>/<name> \| <url> [<dir>]` | not built | |
 | `epicenter repos` | not built | |
 | `epicenter open <dir> [--app <id>]` | not built | |
@@ -196,6 +197,49 @@ hooks and the `ext` and `fd` transports refused. One install, update, or
 build runs at a time (`<cache>/apps.lock`). The Folders window writes each
 app's row in `so.epicenter`; the CLI does not.
 
+## Merging with plain Git
+
+`epicenter merge-driver <dir>` makes `git merge`, `git pull`, an agent's Git,
+and any Git client merge the folder's files by kind, with the merge saves and
+Sync use (ADR-0551, ADR-0566): rows by field and body line, `kv.json` by key, other
+text by line. It writes two things, neither committed:
+
+```txt
+.git/info/attributes   * merge=epicenter
+.git/config            merge.epicenter.name   = Epicenter folder merge
+                       merge.epicenter.driver = '<this binary>' merge-driver -- %O %A %B %P
+```
+
+A sync that connects a remote (`--remote`) writes the same. A clone does not
+carry it: Git reads a driver only from the repository's own configuration,
+and a committed `merge=` attribute is one the folder engine refuses. Without
+it, Git merges these files as text, which loses nothing.
+
+Git runs the driver from the top of the working tree for each file both
+sides changed. It finds the file's kind from the nearest `epicenter.json`
+above the path, merges with `mergeFile`, and writes the result over Git's
+`%A`:
+
+- A clean merge exits 0. A row is written in its canonical form.
+- Units both sides changed differently exit 1, so Git stops with a conflict
+  and keeps the file's stages for Sync to merge again. The file holds each
+  side's merge, that side winning every competing unit, with
+  `<<<<<<< ours`, `=======`, and `>>>>>>> theirs` around the lines where the
+  two differ.
+- A path in no data folder, a declaration that does not read, a version that
+  is not text (a binary file stays ours, a conflict), and any failure of the
+  driver's own are merged by `git merge-file`, as Git would without a driver.
+
+It never exits above 128, which Git reads as a crash that ends the whole
+merge. If the configured binary is gone, Git records a conflict and keeps
+our version without markers. Each file costs one start of this binary:
+37 ms median on macOS arm64 with the compiled binary, against 27 ms for
+`--version` and 9 ms for `git merge-file`, so a merge where both sides
+changed 100 rows takes about 4 seconds.
+
+The engine's own Sync never runs `git merge`, so the driver never runs
+there, and the attribute does not change what it refuses.
+
 ## Output and exit codes
 
 Every command but `auth git-credential` takes `--json`, and only `--json` switches the output: one JSON
@@ -230,6 +274,7 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/parse.ts` | The hand-written parser. |
 | `src/folder-commands.ts` | `check`, `query`, and `generate`, printing what `@epicenter/folder/bun` returns. |
 | `src/install-command.ts` | `install-command`. |
+| `src/merge-driver.ts` | `merge-driver`: Git's merge driver, and the repository configuration that names it. |
 | `src/app-commands.ts` | `app list`, `install`, `update`, and `remove`, printing what `src/installed-apps.ts` returns. |
 | `src/installed-apps.ts` | Installing apps: the manifest, approvals, clones, updates, and builds. |
 | `src/app-paths.ts` | Where installed apps, approvals, builds, and the sign-in locks live, by the shell's rule. |

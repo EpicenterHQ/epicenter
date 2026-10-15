@@ -18,6 +18,8 @@ const ADR_PATHS: Record<string, string> = {
 		'docs/adr/0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md',
 	'ADR-0559':
 		'docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md',
+	'ADR-0566':
+		'docs/adr/0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-an-opt-in-merge-driver.md',
 };
 
 /** `ADR-0558 (docs/adr/0558-….md)`, where a record lives in the repository. */
@@ -97,6 +99,15 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: 'fetch, merge by file kind, commit, and push',
 		adr: 'ADR-0558',
 		long: true,
+	},
+	{
+		path: ['merge-driver'],
+		args: '<dir>',
+		minArgs: 1,
+		// Git runs it with four: `-- %O %A %B %P`.
+		maxArgs: 4,
+		summary: "make git merge and git pull merge the folder's files by kind",
+		adr: 'ADR-0566',
 	},
 	{
 		path: ['clone'],
