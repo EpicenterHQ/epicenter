@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** all of it: `table.save` with the merge in the engine, `folder.onFilesChanged` fed by one detector per host, the desktop file watcher, `folderOptions` in `@epicenter/folder/query`, and moving every app onto them.
+- **Built:** the desktop file watcher: one per granted root in `tauri-plugin-epicenter-folder` (`src/watcher.rs`), from the first grant until shutdown, debounced 50 ms, emitting the Tauri event `epicenter-folder://changed` with `{ scope, paths }` to the scope's permitted windows; `paths` is folder-relative, `.git` for history moving, or `null` for everything (see the plugin's README).
+- **Unbuilt:** `table.save` with the merge in the engine, `folder.onFilesChanged` fed by one detector per host (the desktop listener included), `folderOptions` in `@epicenter/folder/query`, and moving every app onto them.
 
 ## Context
 

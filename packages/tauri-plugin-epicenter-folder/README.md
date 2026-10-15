@@ -15,7 +15,7 @@ author.
 | Path | What it is |
 | --- | --- |
 | `core/` | `epicenter-folder-core`: the registry, the cross-process lock, the shared path rule, and the checked reads, file changes, and `git` runs. No Tauri; its tests need only `git` and `bun`. |
-| `src/` | The Tauri plugin: the commands and the `git` runs each window's page started. |
+| `src/` | The Tauri plugin: the commands, the `git` runs each window's page started, and the watcher that tells a scope's windows what changed (`watcher.rs`). |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `write_folder_file` are not in them (see Reads and File changes). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 | `fixtures/page-file-changes.json` | Every file change the engine makes in `@epicenter/folder`'s real-Git tests; `page_files.rs` allows each. |
@@ -153,6 +153,14 @@ be a link. Then it must be:
   directory `.git/epicenter/scratch` and its files, and the private index
   copies `.git/index.tmp-*`.
 
+A folder has no repository until its first commit, Sync or Save version
+([ADR-0535](../../docs/adr/0535-an-existing-folder-opens-with-its-own-declaration.md)),
+but its first save stages in `.git/epicenter/scratch` before that. So
+`make_folder_directory` makes `.git` itself on the way to scratch when `.git`
+is absent, which is exactly when no repository exists; `git init` later fills
+in the same directory. `.git` is never a change's target, and nothing else in
+it becomes reachable, with or without `HEAD`.
+
 `write_folder_file` writes only a new staged file or index copy, and only
 with `create-new`, so nothing already at the path, such as a hard link another
 program planted, is written through. The engine never writes a data file in
@@ -231,6 +239,48 @@ for it belongs to the page before, which is gone: each is cancelled. A
 refused as it starts; a page change forgets those. Cancelling kills `git`
 and the helpers it started, such as `git-remote-https`.
 
+## Changes outside the page
+
+From a folder's first grant, by whichever window, the plugin watches its root
+([ADR-0548](../../docs/adr/0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md)),
+until shutdown or exit (`watcher.rs`). It uses notify's recommended watcher,
+FSEvents on macOS, and `notify-debouncer-full` with a 50 ms debounce; the full
+debouncer passes a rescan through, which the mini debouncer drops. Each batch
+is one Tauri event, `epicenter-folder://changed`, emitted to each window
+permitted into the scope when the batch is reported, by label, and to no
+other window:
+
+```ts
+type FolderChanged = { scope: string; paths: string[] | null };
+```
+
+| What changed | `paths` |
+| --- | --- |
+| A path outside `.git` | The path, relative to the root with `/`; each once per batch, sorted |
+| `.git` itself, `.git/HEAD`, `.git/packed-refs`, or a ref under `.git/refs/` | `".git"`: history moved |
+| Anything else in `.git`: objects, the index, logs, lock files, `.git/epicenter/scratch`, `.git/index.tmp-*` | Nothing is reported |
+| Watching began, the operating system dropped events or asked for a rescan (notify's `Flag::Rescan`, FSEvents' `MustScanSubDirs`), a watch error arrived, the root itself changed, or the computer woke from sleep | `null`: anything may have changed |
+
+A sleep is noticed by a clock thread that reads the wall clock every 5
+seconds: a jump of more than 30 seconds past that, or a step backward, reports
+`null` for every watched scope. A clock set by hand reads the same and costs
+one reread. Reading a file is not a change. The watch never follows a link and
+keeps no file ID cache, so nothing outside the root is watched or read, and an
+event naming a path outside the root is ignored.
+
+The event carries no content: a window rereads through the plugin's reads. A
+missed event costs a delay, never data. The page's own saves are reported too,
+which at most rereads a file whose content did not change. `FolderChanged` and
+`FOLDER_CHANGED_EVENT` are in the generated bindings as a type and a constant
+rather than through tauri-specta's events, which would name the event
+`plugin:epicenter-folder:<name>`.
+
+Tauri delivers an event emitted to a label to that window's listeners and to
+every listener registered for any target, in any window: a page should listen
+with `getCurrentWebviewWindow().listen(...)`, not the global `listen(...)`, or
+it hears other windows' folders too. A folder that cannot be watched still
+opens; the failure is logged and its windows hear no outside change.
+
 ## Shutdown
 
 Every file change and `git` run holds an admission while it runs; a read
@@ -251,9 +301,11 @@ names. A late change is refused as `ShuttingDown` and writes nothing.
   the same directory (`@epicenter/folder/bun`) does not take it. The system
   releases it when the process ends, however it ends. It is unreliable on
   some network filesystems.
-- Nothing watches the directory, and the shell tells no window of another's
-  save. Pages read again on focus and after their own commands; conditional
-  saves turn a stale write, another window's included, into a conflict.
+- A change made in the moment between a grant and its watch starting is
+  reported only by the `null` that watching begins with, which a page that
+  subscribes after its grant does not hear; it already reads after the grant.
+  Conditional saves turn a stale write, another window's included, into a
+  conflict either way.
 - The expectation is checked under the root's mutex in this process only. A
   Bun script or another program that changes a path between that check and
   the rename is not seen.
