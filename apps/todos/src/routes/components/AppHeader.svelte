@@ -56,7 +56,7 @@
 	// change, and after the app's own saves and actions.
 	const status = createQuery(() => todos.git.status.options);
 	const saveVersion = createMutation(() => todos.git.saveVersion.options);
-	const writing = useIsMutating({ mutationKey: todos.rows.save.mutationKey });
+	const writing = useIsMutating(todos.writing);
 	const files = $derived(filesLine({ saving: writing.current > 0 }));
 	const versions = $derived(versionLine(todos.git.snapshot));
 	const lastVersion = $derived(lastVersionLine(todos.git.snapshot));
