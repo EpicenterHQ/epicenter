@@ -224,7 +224,8 @@ subscription and drops the folder's cache. On the desktop the reports are the
 shell's file watcher's. Focus refetch is off and the view has no refresh of its
 own, so another window's save, an agent's edit, or Sync landing a change
 appears within the watcher's debounce. A changed `epicenter.json` opens the
-folder again once queued saves settle, so the grid follows the new declaration.
+folder again once the writes running settle, so the grid follows the new
+declaration.
 
 Beside a folder, the page offers the installed apps that open it
 (`src/folders/openers.ts`, ADR-0538). An app is offered when the folder's
@@ -258,30 +259,30 @@ always wins. Clearing an optional field removes it from the row.
 
 ### Saves and merges
 
-Each row's edit is a draft (`createDraft` from `@epicenter/folder/query`, in
-`src/folders/row-edits.svelte.ts`) that captures the row and its version at
-the first change: the first keystroke in a box, or the click of a checkbox,
-menu, or toggle. Until then a box follows the stored value, even while
-focused. A text field saves on Enter or when it loses focus, the body when its
-box loses focus, and every other editor on change; Escape, or leaving a box
-with the text it showed, saves nothing. An edit the page has not yet sent when
-Epicenter quits is lost, such as body text still being typed (see
-[Quitting Epicenter](#quitting-epicenter)).
+Each field editor sends its own updates (ADR-0554): `table.update` through
+the table's update mutation, which sets or unsets that field on the file as it
+is now and keeps every field another window changed. A checkbox, menu, or
+toggle sends at the click. A text field holds what is typed, shows it whatever
+is read meanwhile, and sends it a second after the last keystroke, on Enter,
+when it loses focus, and when it goes away; Escape puts back the stored value.
+Text that does not parse as the field's value is not sent, and says why.
+Writes to one row run one at a time, in the order made. A field update that
+fails says why beside the field and keeps the typed text.
 
-A refetch updates the cache, never the draft. While a row's draft is open and
-the cache's version differs from the draft's, the row says "Changed elsewhere;
-your edit will be merged". Every save is `table.save` over the draft's
-starting version, through the table's save mutation, one save at a time. The
-engine merges with whatever changed since (ADR-0548): a field or body lines
-only one side changed keep that side's change. Where both changed a field, or
-the same body lines, this edit wins, and a notice names each value it replaced,
-by field or by notes line, with what was kept and what was theirs. The notice
-stays until dismissed. "Restore theirs" is one more save of
-`restoreTheirs(saved)`, over the version the first save wrote, that puts their
-values back in those fields and their side of those lines (ADR-0551). A row
-another window deleted, or saved in a form that does not read as a row, is not
-overwritten. When a save fails, the view says why and the editors show the
-stored values again.
+A row's body is a document, so the side panel's Notes box holds a body draft
+(`createBodyDraftState` from `@epicenter/folder/svelte`, in
+`src/folders/RowBody.svelte`) that captures the row and its version at the
+first keystroke, and saves with `table.save` over that version a second after
+the last keystroke, when the box loses focus, and when the panel goes away.
+The engine merges by line with whatever changed since (ADR-0548): lines only
+one side changed keep that side's change. Where both changed the same lines,
+the typing wins, and a notice names what of theirs it replaced, with what was
+kept. "Restore theirs" is one more save of what `restoreTheirs(saved)` builds,
+over the version the save wrote, that puts their side of those lines back
+(ADR-0551). A row another window deleted, or saved in a form that does not
+read as a row, is not overwritten. An edit not yet sent when Epicenter quits
+is lost, at most the last second of typing (see
+[Quitting Epicenter](#quitting-epicenter)).
 
 "Save version" runs the folder's `saveVersion` mutation, `folder.git.commit()`
 (ADR-0529), and reports a version saved, nothing new to save, or why none was

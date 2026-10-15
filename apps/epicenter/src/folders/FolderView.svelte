@@ -6,13 +6,11 @@
 		type PreparedFolderTable,
 	} from '@epicenter/folder';
 	import { visibleRows } from '@epicenter/folder/file-browser';
-	import { type FolderOptions, runMutation, type TableOptions } from '@epicenter/folder/query';
+	import { type FolderOptions, type TableOptions, whenIdle } from '@epicenter/folder/query';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
-	import ReplacedNotice from '@epicenter/svelte/replaced-notice';
-	import { createRowEdits } from './row-edits.svelte';
 	import TableGrid from './TableGrid.svelte';
 	import { changesMessage, type VersionLine, versionMessage } from './version';
 
@@ -21,11 +19,12 @@
 	 * declares no tables, and Save version. Everything shown is read through
 	 * `folder$`, the folder's query options, whose cache the app root keeps
 	 * fresh from `folder.onFilesChanged`; this view has no refresh of its own.
-	 * Every edit saves at once (`row-edits.svelte.ts`).
+	 * Each field editor sends its own updates, and a row's body is a draft
+	 * (`TableGrid`, ADR-0554).
 	 *
 	 * `declarationChanged` is called once the folder's `epicenter.json` reads
-	 * as other bytes than when this view first read it, after every queued
-	 * save settled: the folder must be opened again to use the new
+	 * as other bytes than when this view first read it, after every write to
+	 * the folder settled: the folder must be opened again to use the new
 	 * declaration.
 	 */
 	let {
@@ -52,10 +51,6 @@
 	/** A table's query options; every row is untyped in a folder opened by its declaration. */
 	const optionsOf = (name: string) =>
 		folder$.tables[name] as TableOptions<Record<string, unknown>>;
-
-	const edits = createRowEdits((name, variables) =>
-		runMutation(client, optionsOf(name).save.mutationOptions(), variables),
-	);
 
 	const files = createQuery(() => ({
 		...folder$.files.list.queryOptions(),
@@ -90,8 +85,8 @@
 		}
 		if (now === declaredAs || reopening) return;
 		reopening = true;
-		// Queued saves finish against the declaration they were made with.
-		void edits.settled().then(declarationChanged);
+		// Writes running finish against the declaration they were made with.
+		void whenIdle(client, { mutationKey: folder$.key }).then(declarationChanged);
 	});
 
 	async function saveNewVersion() {
@@ -143,29 +138,10 @@
 			{versionLine.text}
 		</p>
 	{/if}
-	{#if edits.problem !== undefined}
-		<div class="flex items-start gap-2 border-b px-4 py-2">
-			<Alert.Root variant="destructive">
-				<Alert.Description>{edits.problem}</Alert.Description>
-			</Alert.Root>
-			<Button size="xs" variant="ghost" onclick={edits.dismissProblem}>Dismiss</Button>
-		</div>
-	{/if}
-	{#each edits.notices as notice (notice.id)}
-		<div class="border-b px-4 py-2">
-			<ReplacedNotice
-				replaced={notice.saved.replaced}
-				subject={notice.stem}
-				onRestore={() => edits.restore(notice)}
-				onDismiss={() => edits.dismiss(notice)}
-			/>
-		</div>
-	{/each}
-
 	{#if tableName !== undefined}
 		{@const name = tableName}
 		{#key name}
-			<TableGrid {name} table={tables[name]!} options={optionsOf(name)} {edits} />
+			<TableGrid {name} table={tables[name]!} options={optionsOf(name)} />
 		{/key}
 	{:else}
 		<div class="min-h-0 flex-1 overflow-auto p-4">

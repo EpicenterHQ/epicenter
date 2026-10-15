@@ -5,30 +5,25 @@
 	import { Button } from '@epicenter/ui/button';
 	import { createQuery } from '@tanstack/svelte-query';
 	import FieldEditor from './FieldEditor.svelte';
-	import {
-		applyFieldChange,
-		columnsOf,
-		displayOf,
-		type FieldChange,
-	} from './field-input';
-	import type { RowEdits, StoredAnyRow } from './row-edits.svelte';
+	import { columnsOf, displayOf } from './field-input';
+	import RowBody from './RowBody.svelte';
 
 	/**
 	 * One table of an opened folder: a grid of its rows, one column per
 	 * declared field, and a side panel for the selected row with its body.
 	 * The rows are the cache's (`list`), which the folder's change channel
-	 * keeps fresh; every edit goes through `edits`.
+	 * keeps fresh. Each field editor sends its own updates of the row's file
+	 * as it is now; the body is a draft saved over the version it started
+	 * from (ADR-0554).
 	 */
 	let {
 		name,
 		table,
 		options,
-		edits,
 	}: {
 		name: string;
 		table: PreparedFolderTable;
 		options: TableOptions<Record<string, unknown>>;
-		edits: RowEdits;
 	} = $props();
 
 	const listing = createQuery(() => options.list.queryOptions());
@@ -42,33 +37,6 @@
 	let selectedStem = $state<string | undefined>(undefined);
 	const selected = $derived(rows?.find((item) => item.stem === selectedStem));
 
-	const changeField = (
-		stem: string,
-		stored: StoredAnyRow,
-		field: string,
-		change: FieldChange,
-	) =>
-		edits.commit(name, stem, stored, (row) =>
-			applyFieldChange(row.fields, field, change),
-		);
-
-	let bodyBox = $state<HTMLTextAreaElement | undefined>();
-	/** The body the box shows when typing begins: what an edit is measured from. */
-	let bodyShown = '';
-	/** Whether the person typed since the box last showed the stored body. */
-	let bodyTyping = false;
-	const storedBody = $derived(
-		selected?.result.error === null ? selected.result.data.row.body : '',
-	);
-	// The box follows the stored body until the person types in it.
-	$effect(() => {
-		const text = storedBody;
-		edits.resets;
-		if (bodyBox !== undefined && !bodyTyping) {
-			bodyShown = text;
-			bodyBox.value = text;
-		}
-	});
 </script>
 
 {#if listing.error}
@@ -87,7 +55,6 @@
 		{:else if rows.length === 0}
 			<p class="p-4 text-sm text-muted-foreground">No rows in this table.</p>
 		{:else}
-			{#key edits.resets}
 				<table class="w-full border-collapse text-sm">
 					<thead class="sticky top-0 z-10 bg-background">
 						<tr class="border-b text-left">
@@ -115,24 +82,17 @@
 									>
 										{item.stem}
 									</button>
-									{#if edits.changedElsewhere(name, item.stem, stored)}
-										<p class="mt-1 text-xs text-muted-foreground" role="status">
-											Changed elsewhere; your edit will be merged
-										</p>
-									{/if}
 								</td>
 								{#if stored !== undefined}
 									{#each columns as column (column.name)}
 										<td class="px-2 py-1.5">
 											<FieldEditor
 												{column}
+												stem={item.stem}
+												{options}
 												value={Object.hasOwn(stored.row.fields, column.name)
 													? stored.row.fields[column.name]
 													: undefined}
-												begin={() => edits.begin(name, item.stem, stored)}
-												commit={(change) =>
-													changeField(item.stem, stored, column.name, change)}
-												revert={() => edits.revert(name, item.stem)}
 											/>
 										</td>
 									{/each}
@@ -153,7 +113,6 @@
 						{/each}
 					</tbody>
 				</table>
-			{/key}
 		{/if}
 	</div>
 
@@ -167,26 +126,19 @@
 			</div>
 			{#if selected.result.error === null}
 				{@const stored = selected.result.data}
-				{@const stem = selected.stem}
 				<div class="flex flex-col gap-3 p-4">
-					{#if edits.changedElsewhere(name, stem, stored)}
-						<p class="text-xs text-muted-foreground" role="status">
-							Changed elsewhere; your edit will be merged
-						</p>
-					{/if}
-					{#key edits.resets}
+					{#key selected.stem}
 						{#each columns as column (column.name)}
 							<div class="flex flex-col gap-1">
 								<span class="text-xs font-medium text-muted-foreground">{column.name}</span>
 								<FieldEditor
 									{column}
+									stem={selected.stem}
+									{options}
 									multiline
 									value={Object.hasOwn(stored.row.fields, column.name)
 										? stored.row.fields[column.name]
 										: undefined}
-									begin={() => edits.begin(name, stem, stored)}
-									commit={(change) => changeField(stem, stored, column.name, change)}
-									revert={() => edits.revert(name, stem)}
 								/>
 							</div>
 						{/each}
@@ -197,33 +149,9 @@
 							<span class="font-mono text-xs break-all">{displayOf(stored.row.fields[extra])}</span>
 						</div>
 					{/each}
-					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-muted-foreground">Notes</span>
-						<textarea
-							bind:this={bodyBox}
-							class="min-h-48 w-full rounded-md border border-input bg-transparent p-2 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
-							oninput={() => {
-								if (bodyTyping) return;
-								bodyTyping = true;
-								edits.begin(name, stem, stored);
-							}}
-							onblur={(event) => {
-								if (!bodyTyping) return;
-								bodyTyping = false;
-								const text = event.currentTarget.value;
-								if (text === bodyShown) {
-									edits.revert(name, stem);
-									event.currentTarget.value = storedBody;
-									bodyShown = storedBody;
-									return;
-								}
-								edits.commit(name, stem, stored, (row) => {
-									row.body = text;
-								});
-							}}
-						></textarea>
-						<span class="text-xs text-muted-foreground">Saved when you leave the box.</span>
-					</label>
+					{#key selected.stem}
+						<RowBody {stored} {options} />
+					{/key}
 				</div>
 			{:else if selected.result.error.name === 'InvalidRow'}
 				{@const invalid = selected.result.error}
