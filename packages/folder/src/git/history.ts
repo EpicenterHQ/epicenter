@@ -91,7 +91,9 @@ import {
 import { createPassRunner, type PassRunner } from './runner.js';
 import { sourceFiles } from './scope.js';
 import {
+	type AttemptStore,
 	type HeldAttempt,
+	type HeldSync,
 	type SyncAttempt,
 	type SyncChoices,
 	type SyncCommits,
@@ -274,6 +276,7 @@ export function createHistory({
 	author,
 	definition,
 	landed = () => {},
+	attempts,
 }: {
 	backend: GitBackend;
 	boundary: FileBoundary;
@@ -282,6 +285,12 @@ export function createHistory({
 	definition?: FolderDefinition;
 	/** Paths an incoming update wrote or removed, whether or not it completed. */
 	landed?: (paths: readonly string[]) => void;
+	/**
+	 * Where the current sync attempt is recorded for another process to
+	 * settle (`AttemptStore`). Without it, the attempt lives only in this
+	 * handle, as in a page.
+	 */
+	attempts?: AttemptStore;
 }) {
 	let clock = 0;
 	let lastEdit = 0;
@@ -375,12 +384,13 @@ export function createHistory({
 		);
 	}
 
-	async function refreshSync() {
+	/** `head`, when given, is the branch head the caller just read. */
+	async function refreshSync(known?: { head: string | undefined }) {
 		try {
 			// Another page or program may have set the remote.
 			await backend.refreshRemote();
 			const [head, remote] = await Promise.all([
-				backend.readBranch(),
+				known === undefined ? backend.readBranch() : known.head,
 				backend.readRemoteTracking(),
 			]);
 			const [ahead, behind] = await backend.withObjects((access) =>
@@ -481,7 +491,7 @@ export function createHistory({
 						changes: diffFileMaps(committed, hashes),
 					};
 					observeFiles(capturedAt, value);
-					await refreshSync();
+					await refreshSync({ head });
 					emit();
 					return Ok(value);
 				} catch (cause) {
@@ -510,17 +520,23 @@ export function createHistory({
 	 */
 	function commitCurrentFiles(
 		onCapture?: (capturedAt: number) => void,
+		subject?: string,
 	): Promise<CommitOutcome> {
 		return exclusive(async (): Promise<CommitOutcome> => {
-			const first = await attemptCommit(onCapture);
+			const first = await attemptCommit(onCapture, subject);
 			if (first.status !== 'branchMoved') return first;
-			return attemptCommit(onCapture);
+			return attemptCommit(onCapture, subject);
 		});
 	}
 
-	/** One attempt at a whole-folder commit, inside the backend's protection. */
+	/**
+	 * One attempt at a whole-folder commit, inside the backend's protection.
+	 * `subject` is the message a person gave; without it the message names
+	 * what changed.
+	 */
 	async function attemptCommit(
 		onCapture?: (capturedAt: number) => void,
+		subject?: string,
 	): Promise<CommitOutcome> {
 		// A folder whose repository its first commit creates gets it here.
 		const unborn = await backend.createRepository?.();
@@ -555,7 +571,7 @@ export function createHistory({
 							committed,
 							await readTreeFiles(access, tree),
 						);
-						const message = commitSubject(changes);
+						const message = subject ?? commitSubject(changes);
 						if (message === undefined) return undefined;
 						const oid = await writeCommitObject(access, {
 							tree,
@@ -657,12 +673,18 @@ export function createHistory({
 	 */
 	function commitNow(
 		onCapture?: (capturedAt: number) => void,
+		subject?: string,
 	): Promise<CommitOutcome> {
 		if (closing.signal.aborted) return Promise.resolve({ status: 'closed' });
+		if (subject !== undefined) {
+			const problem = messageProblem(subject);
+			if (problem !== undefined)
+				return Promise.resolve({ status: 'failed', error: problem });
+		}
 		return owned('commit', async (): Promise<CommitOutcome> => {
 			let outcome: CommitOutcome;
 			try {
-				outcome = await commitCurrentFiles(onCapture);
+				outcome = await commitCurrentFiles(onCapture, subject);
 			} catch (cause) {
 				// Refused while waiting: nothing ran, so no attempt is recorded.
 				if (refusedByClose(cause)) return { status: 'closed' };
@@ -1404,6 +1426,8 @@ export function createHistory({
 			if (remote === undefined) return SyncError.NoRemote();
 			const run = ++runs;
 			current = undefined;
+			// A recorded attempt is retired by this run, wherever it was made.
+			await attempts?.clear();
 			let capturedAt = 0;
 			const checkpoint = await commitNow((at) => {
 				capturedAt = at;
@@ -1456,7 +1480,13 @@ export function createHistory({
 							conflicts: other.length > 0 ? other : mergeError.conflicts,
 						});
 					const held = rules.attempt(commits);
-					if (run === runs && !closing.signal.aborted) current = held;
+					if (run === runs && !closing.signal.aborted) {
+						current = held;
+						await attempts?.save({
+							id: held.attempt.id,
+							commits: held.commits,
+						});
+					}
 					return SyncError.NeedsChoices({ attempt: held.attempt });
 				}
 				if (mergeError?.name === 'UnsupportedHistory' && mergeError.bases === 0)
@@ -1479,17 +1509,34 @@ export function createHistory({
 	 * caller's object change nothing that is published.
 	 */
 	function resolveSync(
-		attempt: SyncAttempt,
+		attempt: SyncAttempt | Pick<SyncAttempt, 'id'>,
 		choices: SyncChoices,
 	): Promise<Result<SyncOutcome, SyncError>> {
+		const id = (attempt as Partial<SyncAttempt> | null | undefined)?.id;
+		const mine = current !== undefined && current.attempt.id === id;
+		// Restoring a recorded attempt awaits, so its choices are copied now:
+		// later edits to the caller's object change nothing.
+		let submitted: unknown = choices;
+		if (!mine && attempts !== undefined)
+			try {
+				submitted = structuredClone(choices);
+			} catch {
+				submitted = null;
+			}
 		return syncing(async () => {
-			const held = current;
-			const id = (attempt as Partial<SyncAttempt> | null | undefined)?.id;
+			let held = mine ? current : undefined;
+			if (held === undefined && attempts !== undefined) {
+				const saved = await attempts.load();
+				if (saved !== undefined && saved.id === id)
+					held = await restoreAttempt(saved);
+				if (held !== undefined) current = held;
+			}
 			if (held === undefined || id !== held.attempt.id)
 				return SyncError.Stale({ reason: 'replaced' });
-			const { data: settled, error: choiceError } = held.settle(choices);
+			const { data: settled, error: choiceError } = held.settle(submitted);
 			if (choiceError !== null) return Err(choiceError);
 			current = undefined;
+			await attempts?.clear();
 			let capturedAt = 0;
 			const { data: merged, error: mergeError } = await incomingNow(
 				'merge',
@@ -1519,6 +1566,36 @@ export function createHistory({
 			const head = merged.status === 'merged' ? merged.to : undefined;
 			return Ok(await settleSync(head, held.commits.fetched, capturedAt));
 		});
+	}
+
+	/**
+	 * The attempt a recorded `saved` names, merged again from its commits
+	 * with sync's rules, or `undefined` when they no longer hold one: the
+	 * same commits and definition hold the same conflicts, under the same
+	 * IDs. Writes no file, index entry, or ref.
+	 */
+	async function restoreAttempt(
+		saved: HeldSync,
+	): Promise<HeldAttempt | undefined> {
+		const rules = syncMerge(definition);
+		const { base, head, fetched } = saved.commits;
+		const prepared = await backend.withObjects((access) =>
+			prepareMerge(access, {
+				base,
+				head,
+				fetched,
+				author,
+				message: `Merge remote-tracking branch 'origin/${backend.branch}'`,
+				mergePath: rules.mergePath,
+			}),
+		);
+		if (
+			prepared.kind !== 'conflicted' ||
+			prepared.conflicts.length > 0 ||
+			prepared.held.length === 0
+		)
+			return undefined;
+		return rules.attempt(saved.commits, saved.id);
 	}
 
 	/**
@@ -1558,8 +1635,12 @@ export function createHistory({
 		},
 		status: (): Promise<Result<FilesObservation, GitError>> =>
 			scanRunner.follow(),
-		/** Commits the folder's current files without pushing. */
-		commit: (): Promise<CommitOutcome> => commitNow(),
+		/**
+		 * Commits the folder's current files without pushing, with `message`
+		 * when a person gave one.
+		 */
+		commit: ({ message }: { message?: string } = {}): Promise<CommitOutcome> =>
+			commitNow(undefined, message),
 		async commitAndPush({
 			signal,
 		}: {

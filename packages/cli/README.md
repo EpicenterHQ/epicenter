@@ -24,10 +24,10 @@ apps/epicenter build:sidecar`). That binary also has the Bun host as a hidden
 | `epicenter check <dir>` | built | `checkFolder` in `@epicenter/folder/bun` |
 | `epicenter query <dir> [<sql>]` | built | `checkFolder`, `queryFolder`, `describeTables` |
 | `epicenter generate <dir>` | built | `generateDeclaration` |
-| `epicenter status <dir>` | not built | |
-| `epicenter history <dir>` | not built, hidden | |
-| `epicenter save-version <dir>` | not built, hidden | |
-| `epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]` | not built | |
+| `epicenter status <dir>` | built | `runHistory` in `@epicenter/folder/bun` |
+| `epicenter history <dir> [--depth <n>]` | built, hidden | `runHistory` |
+| `epicenter save-version <dir> [-m <text>]` | built, hidden | `runHistory` |
+| `epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]` | built but `--to` | `runHistory` |
 | `epicenter clone <namespace>/<name> \| <url> [<dir>]` | not built | |
 | `epicenter repos` | not built | |
 | `epicenter open <dir> [--app <id>]` | not built | |
@@ -46,8 +46,48 @@ apps/epicenter build:sidecar`). That binary also has the Bun host as a hidden
 
 A command not built yet parses its arguments, shows in `--help` marked
 "not built yet", and exits 2 naming its ADR. `send`, `history`,
-`save-version`, `install-command`, `auth login --loopback`, and
-`app update --commit` are left out of `--help`: the desktop app runs them.
+`save-version`, `install-command`, `auth login --loopback`,
+`app update --commit`, and `sync`'s `--remote`, `--allow-unrelated`, and
+`--credential-stdin` are left out of `--help`: the desktop app runs them.
+
+## Folder history
+
+`status`, `history`, `save-version`, and `sync` run a folder's history over
+the system `git` (ADR-0559), each a thin wrapper over `runHistory` in
+`@epicenter/folder/bun`, the engine a desktop page's history runs in. The
+desktop shell runs them for a page, one child per operation, with `--json`;
+the one reply line is `history-wire.ts`'s encoding, which the page decodes.
+The shell sets `EPICENTER_AUTHOR_NAME`, `EPICENTER_AUTHOR_EMAIL`,
+`EPICENTER_BRANCH`, and `EPICENTER_FOLDER_KIND` from the folder's
+registration; a terminal leaves them unset, and Git's own configuration
+names the author. When the shell ends the child (a page reloaded, or its
+window closed), the child ends every `git` it started, with their helpers.
+
+- `status` reads only, and takes no lock.
+- `save-version` records the folder's edits as one commit, with `-m` as its
+  message when given, under the folder's history lock.
+- `sync` records the edits, fetches, merges by each file's kind (ADR-0551),
+  and pushes, under the same lock. `--remote <url>` connects first, to a
+  network URL only. Changes both sides made to one unit exit 1 with the
+  conflicts and record the attempt as `.git/epicenter/sync-attempt.json`:
+  its ID and the commits it merged. `--resolve <file>`, or `-` for standard
+  input, settles it with `{"attempt": "<id>", "choices": {...}}`; the
+  conflicts are merged again from the recorded commits. A later sync
+  retires the attempt. `--credential-stdin` reads
+  `{"credential": {"url", "username", "password"}}` from standard input,
+  sent by Git only to that exact `https` URL. `--to` is not built.
+
+The history lock is an exclusive SQLite transaction on
+`.<name>.epicenter-history-lock` beside the folder, the mechanism of the
+save lock (ADR-0562): Bun has no `flock`, and SQLite's `fcntl` or
+`LockFileEx` lock is released by the system when its process ends, however
+it ends. It is apart from the save lock, so a page's saves never wait on a
+sync. Each waits up to 60 seconds.
+
+`git` is found without macOS's xcrun shim (`locateGit` in
+`@epicenter/folder/bun`; `EPICENTER_GIT` names one outright). Without one,
+each history command exits 2 with `{"error": "GitMissing", "install": ...}`
+under `--json`.
 Every command also accepts the hidden `--desktop`, which Rust passes to select
 the desktop grant (ADR-0558); `auth token`, `auth logout`,
 `auth git-credential`, and `send` act on that grant only with it.
@@ -163,13 +203,17 @@ work prints `{"error": "..."}` on stdout with `--json`, and the message on
 stderr without it.
 
 Exit codes are ADR-0520's: 0 done, 1 a finding a person acts on (a file that
-does not conform, an app waiting for approval), 2 input the command cannot use (a folder that is not one,
-a refused statement, an unknown option, a command not built yet).
+does not conform, an app waiting for approval, a sync that needs choices), 2
+input the command cannot use (a folder that is not one, a refused statement,
+an unknown option, a command not built yet, no `git`).
 
 Options are matched exactly, so a SQL statement that starts with `--` stays a
 statement. A token shaped like an option the command does not take is
 refused. After `--`, every token is a positional. The CLI never calls
-`process.exit`, so stdout drains before the process ends.
+`process.exit`, so stdout drains before the process ends, except when a
+signal ends a history command, whose output nobody reads then. A running
+command holds a timer, since Bun 1.3.14 can otherwise end the process while
+`crypto.subtle` work started after a child process exited is still pending.
 
 ## Layout
 

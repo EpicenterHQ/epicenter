@@ -141,10 +141,13 @@ describe('what a Vite build of the same application emits', () => {
 		expect(granted).toHaveLength(1);
 		expect(browser).toHaveLength(1);
 		// The page engine over a granted directory is the directory folder:
-		// the folder plugin's reads and the shell's Git, and none of the
-		// browser's own storage address, download, or private Git.
+		// the folder plugin's reads, and its history through the shell's
+		// history commands, which run the `epicenter` CLI (ADR-0559). None of
+		// the browser's own storage address, download, or private Git, and no
+		// Git engine of its own.
 		expect(granted[0]).toContain(READS);
-		expect(granted[0]).toContain('plugin:epicenter-folder|run_git');
+		expect(granted[0]).toContain('"settle_sync"');
+		expect(granted[0]).not.toContain(GIT);
 		expect(granted[0]).not.toContain(BROWSER);
 		// Loading the desktop adapter loads no Git and no browser storage.
 		expect(desktop[0]).not.toContain(GIT);

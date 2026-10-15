@@ -180,8 +180,9 @@ plugin's commands.
 ```text
 Todos window (WebView)
         | @epicenter/folder directory folder: the browser's file storage
-        |   over the folder plugin's commands, and the native Git backend
-        |   (`run_git`: the shell runs `git` in the granted directory only)
+        |   over the folder plugin's commands; history through the shell's
+        |   history commands, each one `epicenter` child over the granted
+        |   directory (ADR-0559)
         v
 ~/Epicenter/so.epicenter.todos          (locked and granted by the Rust shell)
 ```

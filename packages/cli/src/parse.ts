@@ -14,6 +14,8 @@ export type OptionSpec = {
 	readonly value?: string;
 	/** Left out of `--help`, as `--loopback` is (ADR-0558). */
 	readonly hidden?: boolean;
+	/** A one-letter spelling, as `-m` is for `--message`. */
+	readonly short?: string;
 };
 
 /** One command as the parser and `--help` see it. */
@@ -132,13 +134,17 @@ export function parseArgs(
 			afterSeparator = true;
 			continue;
 		}
-		if (!OPTION_SHAPE.test(token)) {
+		const short = command.options?.find(
+			(o) => o.short !== undefined && token === `-${o.short}`,
+		);
+		if (short === undefined && !OPTION_SHAPE.test(token)) {
 			positionals.push(token);
 			continue;
 		}
-		const equals = token.indexOf('=');
-		const key = token.slice(2, equals === -1 ? undefined : equals);
-		const option = command.options?.find((o) => o.name === key);
+		const equals = short === undefined ? token.indexOf('=') : -1;
+		const key =
+			short?.name ?? token.slice(2, equals === -1 ? undefined : equals);
+		const option = short ?? command.options?.find((o) => o.name === key);
 		if (option === undefined)
 			return {
 				kind: 'usage',
@@ -180,7 +186,10 @@ export function parseArgs(
 export function usageLine(command: CommandSpec) {
 	const options = (command.options ?? [])
 		.filter((o) => !o.hidden)
-		.map((o) => (o.value ? `[--${o.name} ${o.value}]` : `[--${o.name}]`));
+		.map((o) => {
+			const name = o.short ? `-${o.short}|--${o.name}` : `--${o.name}`;
+			return o.value ? `[${name} ${o.value}]` : `[${name}]`;
+		});
 	return ['epicenter', ...command.path, command.args, ...options]
 		.filter(Boolean)
 		.join(' ');

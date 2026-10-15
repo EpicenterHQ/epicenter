@@ -2,8 +2,6 @@
 /// for each, and a test checks the list against the registered handlers.
 pub const COMMANDS: &[&str] = &[
     "grant_directory",
-    "run_git",
-    "cancel_git",
     "read_folder_directory",
     "stat_folder_path",
     "read_folder_file",

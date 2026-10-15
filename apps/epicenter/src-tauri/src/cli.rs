@@ -92,7 +92,7 @@ pub enum CliError {
     Failed { message: String },
 }
 
-fn failed(message: impl Into<String>) -> CliError {
+pub(crate) fn failed(message: impl Into<String>) -> CliError {
     CliError::Failed {
         message: message.into(),
     }
@@ -118,7 +118,21 @@ pub async fn run_with_env(
     args: &[OsString],
     env: &[(OsString, OsString)],
     stdin: Option<Vec<u8>>,
+    on_line: impl FnMut(String) -> Result<(), String>,
+) -> Result<CliExit, CliError> {
+    run_child(program, args, env, stdin, on_line, |_| {}).await
+}
+
+/// [`run_with_env`], calling `started` with the child's process ID once it
+/// runs. On Unix the child leads its own process group, so the shell can end
+/// it with every process it started (`history::CliChildren`).
+pub(crate) async fn run_child(
+    program: &Program,
+    args: &[OsString],
+    env: &[(OsString, OsString)],
+    stdin: Option<Vec<u8>>,
     mut on_line: impl FnMut(String) -> Result<(), String>,
+    started: impl FnOnce(u32),
 ) -> Result<CliExit, CliError> {
     let mut command = Command::new(&program.program);
     command
@@ -133,12 +147,17 @@ pub async fn run_with_env(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    #[cfg(unix)]
+    command.process_group(0);
     let mut child = command.spawn().map_err(|error| {
         failed(format!(
             "{} could not be started: {error}",
             program.program.display()
         ))
     })?;
+    if let Some(pid) = child.id() {
+        started(pid);
+    }
 
     let writer = match (stdin, child.stdin.take()) {
         (Some(body), Some(mut pipe)) => Some(tokio::spawn(async move {

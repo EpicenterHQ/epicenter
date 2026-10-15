@@ -10,11 +10,12 @@
 //! directory. The first `grant` takes the folder's cross-process lock and
 //! every grant, from any permitted window, hands back the same canonical
 //! root; the lock is held until `shutdown` or the process ends, so no other
-//! process opens the folder meanwhile. Each file change or `git` run a page
-//! asks for holds a `PageWork` while it runs; `shutdown` refuses new ones and
-//! waits for none. Quitting is immediate (ADR-0542): every save is an atomic
-//! rename, so a quit leaves each file whole, and a `git` run cut short leaves
-//! at most a lock file Git names.
+//! process opens the folder meanwhile. Each file change a page asks for
+//! holds a `PageWork` while it runs; `shutdown` refuses new ones and waits
+//! for none. Quitting is immediate (ADR-0542): every save is an atomic
+//! rename, so a quit leaves each file whole. The folder's Git runs in the
+//! `epicenter` CLI, which the shell starts for a page (ADR-0559), over the
+//! root `granted_folder` names.
 //!
 //! Several windows may edit one folder because the shell, not the page,
 //! decides every publish. Each publishing rename and removal checks its path
@@ -121,8 +122,8 @@ pub struct ScopeConfig {
     pub windows: Vec<String>,
 }
 
-/// Why a window was not given a folder, or a change or `git` run for it was
-/// not admitted.
+/// Why a window was not given a folder, or a change for it was not
+/// admitted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "name")]
 pub enum GrantError {
@@ -158,12 +159,24 @@ pub struct Granted {
     pub author_name: String,
     pub author_email: String,
     /// Why the page's first `git init` may not run here: a data folder
-    /// inside another repository's working tree, as the grant found it.
-    /// `run_git` refuses that `init` too, whenever it is asked.
+    /// inside another repository's working tree, as the grant found it. The
+    /// `epicenter` CLI refuses that `init` too, whenever it is asked.
     pub init_problem: Option<String>,
 }
 
-/// One admitted page change or `git` run; dropping it ends it.
+/// A granted folder as the shell registered it: what the `epicenter` CLI
+/// needs to run its Git for a window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantedFolder {
+    /// The canonical root.
+    pub root: PathBuf,
+    /// The fallback author where Git's configuration names none.
+    pub author: Author,
+    pub branch: String,
+    pub kind: FolderKind,
+}
+
+/// One admitted page change; dropping it ends it.
 pub struct PageWork {
     /// The canonical root the work was admitted for.
     root: PathBuf,
@@ -354,7 +367,7 @@ impl Registry {
         })
     }
 
-    /// Admit one page change or `git` run for `window`'s grant of `scope`:
+    /// Admit one page change for `window`'s grant of `scope`:
     /// its canonical root, and the `PageWork` to hold until it ends. Refused
     /// once `shutdown` has begun.
     pub fn admit_page_work(
@@ -384,6 +397,27 @@ impl Registry {
     /// its windows: where that window's changes and Git commands run.
     pub fn granted_root(&self, scope: &str, window: &str) -> Result<PathBuf, GrantError> {
         self.granted(scope, window).map(|(root, _)| root)
+    }
+
+    /// `scope` as `window` was granted it: its canonical root and what the
+    /// shell registered for it, for the `epicenter` CLI that runs the
+    /// folder's Git for that window (ADR-0559).
+    pub fn granted_folder(&self, scope: &str, window: &str) -> Result<GrantedFolder, GrantError> {
+        let (root, kind) = self.granted(scope, window)?;
+        let scopes = self.scopes();
+        let folder = &scopes
+            .get(scope)
+            .ok_or_else(|| GrantError::UnknownScope {
+                scope: scope.to_string(),
+            })?
+            .config
+            .folder;
+        Ok(GrantedFolder {
+            root,
+            author: folder.author.clone(),
+            branch: folder.branch.clone(),
+            kind,
+        })
     }
 
     /// `granted_root`, with the kind of folder it is.

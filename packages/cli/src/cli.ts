@@ -33,6 +33,14 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./folder-commands.ts')).query(dir as string, sql, json),
 	generate: async ({ positionals: [dir], json }) =>
 		(await import('./folder-commands.ts')).generate(dir as string, json),
+	status: async ({ positionals: [dir], options, json }) =>
+		history('status', dir as string, options, json),
+	history: async ({ positionals: [dir], options, json }) =>
+		history('history', dir as string, options, json),
+	'save-version': async ({ positionals: [dir], options, json }) =>
+		history('save-version', dir as string, options, json),
+	sync: async ({ positionals: [dir], options, json }) =>
+		history('sync', dir as string, options, json),
 	'app list': async ({ options, json }) =>
 		(await import('./app-commands.ts')).appList(options, json),
 	'app install': async ({ positionals: [source], options, json }) =>
@@ -84,6 +92,31 @@ const HANDLERS: Record<string, Run> = {
 		}),
 };
 
+/**
+ * Run a history command. When the shell ends this process (a page reloaded,
+ * or its window closed), every `git` it started ends too, with the helpers
+ * each started (ADR-0559).
+ */
+async function history(
+	command: 'status' | 'history' | 'save-version' | 'sync',
+	dir: string,
+	options: Record<string, string | true>,
+	json: boolean,
+) {
+	const [{ historyCommand }, { endGitCommands }] = await Promise.all([
+		import('./history-commands.ts'),
+		import('@epicenter/folder/bun'),
+	]);
+	for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const)
+		process.once(signal, () => {
+			endGitCommands();
+			process.exit(
+				128 + (signal === 'SIGTERM' ? 15 : signal === 'SIGINT' ? 2 : 1),
+			);
+		});
+	return historyCommand(command, dir, options, json);
+}
+
 /** What `epicenter <command> --help` adds below the usage line. */
 const DETAILS: Record<string, string> = {
 	check: `Prints one line per file that does not conform, compiler style, then a
@@ -129,6 +162,20 @@ keychain. The Epicenter app's sign-in is separate; sign it out in its Settings.`
 the deployment's Git origin with a username, an access token as the password,
 and password_expiry_utc; any other host gets no answer. store and erase do
 nothing. Takes no --json.`,
+	status: `Prints the folder's branch and head, the files changed since the last
+version, and the remote with how far ahead and behind it is. Reads only: it
+runs Git and writes nothing. With --json, one line in the history encoding
+the desktop app reads. Exits 0, or 2 when the folder cannot be used or git
+is not installed ({"error": "GitMissing"} with --json).`,
+	sync: `Records the folder's edits as a version, fetches the remote branch, merges
+it by each file's kind, and pushes, under the folder's history lock, so two
+syncs or a sync and save-version never interleave. Changes both sides made to
+one setting, field, body, or file are not written: the command exits 1 with
+the conflicts and records the attempt under .git/epicenter. --resolve <file>
+settles it with {"attempt": "<id>", "choices": {"<conflict id>": choice}},
+where a choice is {"kind": "take", "side": "local" | "incoming"},
+{"kind": "replace", "value": ...}, or {"kind": "remove"}; - reads it from
+standard input. A later sync retires the attempt.`,
 	generate: `Runs <dir>/epicenter.ts, whose default export is defineFolder({...}) from
 @epicenter/folder, and writes the epicenter.json it declares. It is the only
 command that runs a folder's code; check and query read only epicenter.json.
@@ -238,6 +285,11 @@ export async function runCli(argv: readonly string[]): Promise<number> {
 					`epicenter ${name(invocation.command)} is not built yet; see ${adrPointer(invocation.command.adr)}`,
 					invocation.json,
 				);
+			// Bun 1.3.14 can end the process while a command still awaits
+			// `crypto.subtle` work started after a child process exited, as
+			// isomorphic-git's hashing does between two `git` runs; a ref'd
+			// timer keeps it running until the command returns.
+			const alive = setInterval(() => {}, 2 ** 30);
 			try {
 				return await run(invocation);
 			} catch (error) {
@@ -246,6 +298,8 @@ export async function runCli(argv: readonly string[]): Promise<number> {
 					error instanceof Error ? error.message : String(error),
 					invocation.json,
 				);
+			} finally {
+				clearInterval(alive);
 			}
 		}
 	}

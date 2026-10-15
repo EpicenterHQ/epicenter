@@ -34,8 +34,9 @@ The page opens the folder with `@epicenter/folder/tauri` and names only the
 folder's ID. The shared Rust plugin (`tauri-plugin-epicenter-folder`), in
 Epicenter's process, grants Whispering's window the directory and holds the
 folder's lock. The page's own folder engine then makes every read
-(`read_folder_file` and the rest), every change (`write_folder_file` and the
-rest), and every `git` command (`run_git`) through the folder plugin. It reads
+(`read_folder_file` and the rest) and every change (`write_folder_file` and
+the rest) through the folder plugin; its history runs in the `epicenter` CLI
+through Epicenter's history commands (ADR-0559). It reads
 only inside the granted directory and never through a link; it checks each
 change against the shared path rule and keeps it out of Git's private state.
 This app has no folder code of its own on the desktop: no copy of the plugin's

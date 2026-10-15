@@ -1,8 +1,8 @@
 /**
- * The folder over an ordinary directory, as the desktop app opens it: files
- * through the browser folder's storage over directory primitives, history
- * through real Git. Here the primitives are `node:fs` and Git is the system
- * `git`; the desktop app supplies the same two through its shell. Every check
+ * The folder over an ordinary directory: files through the browser folder's
+ * storage over directory primitives, history through real Git. Here the
+ * primitives are `node:fs` and Git is the system `git`, as in the
+ * `epicenter` CLI that runs a desktop page's history. Every check
  * reads the result with native Git, since another Git program shares the
  * repository.
  */
@@ -20,6 +20,7 @@ import {
 	SCRATCH_DIRECTORY,
 } from './directory-handle.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
+import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
 import {
 	createBareRemote,
@@ -40,26 +41,10 @@ const definition = defineFolder({
 const author = { name: 'Todos', email: 'todos@localhost' };
 
 /**
- * Every Git call these folders make, recorded for the desktop shell's
- * contract: `page_git.rs` runs only these shapes for a page, and its tests
- * check every call in the fixture. `FOLDER_WRITE_GIT_CALLS=1` rewrites it.
- */
-const GIT_CALLS = join(
-	import.meta.dir,
-	'../../tauri-plugin-epicenter-folder/fixtures/page-git-calls.json',
-);
-type GitCall = {
-	root: string;
-	args: string[];
-	indexFile: string | null;
-	origin: string | null;
-};
-const recorded: GitCall[] = [];
-
-/**
  * Every file change these folders make, as a path below the root with Git's
- * object names and staging names reduced to their kind. The desktop shell
- * makes each change itself, and `page_files.rs` tests every recorded path.
+ * object names and staging names reduced to their kind. `page_files.rs`
+ * tests every recorded path; the desktop shell makes the file changes of a
+ * page, and the `epicenter` CLI those of its history (ADR-0559).
  */
 const FILE_CHANGES = join(
 	import.meta.dir,
@@ -109,20 +94,6 @@ function recording(
 	};
 }
 
-/** A call with what varies between runs left out: what the fixture keeps. */
-function shapeOf({ root, args, origin }: GitCall): string {
-	return args
-		.map((arg) =>
-			(origin === null ? arg : arg.replaceAll(origin, '<origin>'))
-				.replaceAll(root, '<root>')
-				.replace(/[0-9a-f]{40}/g, '<oid>')
-				.replace(/^-n\d+$/, '-n<depth>'),
-		)
-		.map((arg, index, all) =>
-			all.indexOf('--') !== -1 && index > all.indexOf('--') ? '<path>' : arg,
-		)
-		.join(' ');
-}
 const originalEnv = { ...process.env };
 
 beforeAll(() => {
@@ -134,16 +105,7 @@ beforeAll(() => {
 	});
 });
 afterAll(() => {
-	const shapes = new Map(recorded.map((call) => [shapeOf(call), call]));
 	if (process.env.FOLDER_WRITE_GIT_CALLS === '1') {
-		writeFileSync(
-			GIT_CALLS,
-			`${JSON.stringify(
-				[...shapes.values()].sort((a, b) => (shapeOf(a) < shapeOf(b) ? -1 : 1)),
-				null,
-				'\t',
-			)}\n`,
-		);
 		writeFileSync(
 			FILE_CHANGES,
 			`${JSON.stringify([...changed].sort(), null, '\t')}\n`,
@@ -158,18 +120,6 @@ afterAll(() => {
 		if (unlisted.length > 0)
 			throw new Error(
 				`The folder engine changes paths the desktop contract does not list; run FOLDER_WRITE_GIT_CALLS=1 bun test src/directory-folder.test.ts and update page_files.rs if its tests fail:\n${unlisted.join('\n')}`,
-			);
-		const known = new Set(
-			existsSync(GIT_CALLS)
-				? (JSON.parse(readFileSync(GIT_CALLS, 'utf8')) as GitCall[]).map(
-						shapeOf,
-					)
-				: [],
-		);
-		const unknown = [...shapes.keys()].filter((shape) => !known.has(shape));
-		if (unknown.length > 0)
-			throw new Error(
-				`The folder engine makes Git calls the desktop contract does not list; run FOLDER_WRITE_GIT_CALLS=1 bun test src/directory-folder.test.ts and update page_git.rs if its tests fail:\n${unknown.join('\n')}`,
 			);
 	}
 	for (const key of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'])
@@ -188,22 +138,6 @@ function open(
 	const files = recording(root, options.primitives ?? nodeDirectoryPrimitives);
 	const system = createGitRunner(root);
 	const run: typeof system = async (args, runOptions) => {
-		// `push --porcelain <url> …`, `fetch --no-tags --quiet <url> …`, and
-		// the URL `config remote.origin.url <url>` makes the remote.
-		const url =
-			args[0] === 'push'
-				? args[2]
-				: args[0] === 'fetch'
-					? args[3]
-					: args[0] === 'config' && args[1] === 'remote.origin.url'
-						? args[2]
-						: undefined;
-		recorded.push({
-			root,
-			args: [...args],
-			indexFile: runOptions?.env?.GIT_INDEX_FILE ?? null,
-			origin: url ?? null,
-		});
 		await options.beforeGit?.(args);
 		return system(args, runOptions);
 	};
@@ -211,8 +145,8 @@ function open(
 		definition,
 		root: directoryHandle(files, root),
 		rootPath: root,
-		git: { run, files },
-		author,
+		files,
+		history: nativeHistory({ rootPath: root, host: { run, files }, author }),
 	});
 }
 

@@ -11,8 +11,14 @@
 	import { Button } from '@epicenter/ui/button';
 	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
+	import { commands } from '../ui/bindings.gen';
 	import TableGrid from './TableGrid.svelte';
-	import { changesMessage, type VersionLine, versionMessage } from './version';
+	import {
+		changesMessage,
+		gitMissingNotice,
+		type VersionLine,
+		versionMessage,
+	} from './version';
 
 	/**
 	 * One opened data folder: its tables and their rows, or its files when it
@@ -60,6 +66,18 @@
 	const changes = $derived(
 		status.data && changesMessage(status.data, status.isFetching),
 	);
+	/** What to say when this computer has no `git` for the folder's history. */
+	const gitMissing = $derived(
+		status.error?.name === 'GitMissing'
+			? gitMissingNotice(status.error.install)
+			: undefined,
+	);
+	let installProblem = $state<string | undefined>(undefined);
+	async function installGit() {
+		installProblem = undefined;
+		const { error } = await commands.installGit();
+		if (error !== null) installProblem = error;
+	}
 	const saveVersion = createMutation(() =>
 		folder$.history.saveVersion.mutationOptions(),
 	);
@@ -127,6 +145,21 @@
 		</div>
 	</header>
 
+	{#if gitMissing !== undefined}
+		<Alert.Root class="rounded-none border-x-0 border-t-0">
+			<Alert.Description>
+				<p>{gitMissing.text}</p>
+				{#if installProblem !== undefined}
+					<p class="text-destructive">{installProblem}</p>
+				{/if}
+				{#if gitMissing.action !== undefined}
+					<Button size="sm" variant="outline" class="mt-2" onclick={installGit}>
+						{gitMissing.action}
+					</Button>
+				{/if}
+			</Alert.Description>
+		</Alert.Root>
+	{/if}
 	{#if versionLine !== undefined}
 		<p
 			class={[

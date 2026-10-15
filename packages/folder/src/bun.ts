@@ -32,7 +32,15 @@
  */
 
 import { Database } from 'bun:sqlite';
-import { lstat, realpath } from 'node:fs/promises';
+import {
+	lstat,
+	mkdir,
+	readFile,
+	realpath,
+	rename,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderDefinition } from './definition.js';
@@ -44,8 +52,11 @@ import {
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder, FolderGitOptions } from './folder.js';
+import type { GitCredentials } from './git/http.js';
 import { createMutex } from './git/mutex.js';
+import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
+import type { AttemptStore, HeldSync } from './git/sync.js';
 import type { OpfsLocks } from './opfs-store.js';
 
 export {
@@ -63,7 +74,32 @@ export {
 	generateDeclaration,
 } from './generate-declaration.js';
 export { GitCommandError, type GitRun } from './git/native-backend.js';
-export { createGitRunner } from './git/native-host.js';
+export {
+	createGitRunner,
+	endGitCommands,
+	GitMissingError,
+	gitInstall,
+	isNetworkUrl,
+	locateGit,
+} from './git/native-host.js';
+export {
+	answerShellHistory,
+	type HistoryOptions,
+	historyExitCode,
+	historyRequestOf,
+	runHistory,
+	type ShellHistoryCommand,
+} from './history-command.js';
+export {
+	decodeHistory,
+	encodeHistory,
+	type GitMissingReply,
+	type HistoryReply,
+	type HistoryRequest,
+	type HistoryResults,
+	type HistoryState,
+	type UrlCredential,
+} from './history-wire.js';
 export {
 	type QueryAnswer,
 	QueryFolderError,
@@ -126,8 +162,7 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 	return openDirectoryFolder<TDefinition>({
 		definition,
 		...directory(resolved),
-		author: git.author,
-		credentials: git.credentials,
+		history: systemHistory(resolved, git),
 	});
 }
 
@@ -159,10 +194,8 @@ export async function openDataFolder<
 	return openDirectoryFolder<TLens, FolderDefinition>({
 		definition: 'declared',
 		lens,
-		initProblem: () => enclosingRepository(resolved),
 		...directory(resolved),
-		author: git.author,
-		credentials: git.credentials,
+		history: systemHistory(resolved, git, () => enclosingRepository(resolved)),
 	});
 }
 
@@ -170,7 +203,7 @@ export async function openDataFolder<
  * `root` with its links resolved, or why it cannot hold a folder: it is not
  * a directory, or its `.git` is not a directory of its own.
  */
-async function directoryRoot(
+export async function directoryRoot(
 	root: string,
 ): Promise<Result<string, { root: string; cause: unknown }>> {
 	try {
@@ -186,14 +219,87 @@ async function directoryRoot(
 	}
 }
 
-/** This process's file system and `git`, at `resolved`. */
-function directory(resolved: string) {
+/** This process's file system at `resolved`. */
+export function directory(resolved: string) {
 	const files = savingPrimitives(resolved);
 	return {
 		root: directoryHandle(files, resolved),
 		rootPath: resolved,
-		git: { run: createGitRunner(resolved), files },
+		files,
 		locks,
+	};
+}
+
+/**
+ * History over this process's own `git` at `resolved`, recording a sync
+ * attempt that needs choices under `.git/epicenter` (`attemptFile`), so
+ * another process can settle it.
+ */
+export function systemHistory(
+	resolved: string,
+	git: {
+		readonly author: FolderGitOptions['author'];
+		readonly credentials?: GitCredentials;
+		readonly branch?: string;
+		/** Whether this history may commit; see `nativeHistory`. */
+		readonly commits?: boolean;
+	},
+	initProblem?: () => Promise<string | undefined>,
+) {
+	return nativeHistory({
+		rootPath: resolved,
+		host: { run: createGitRunner(resolved), files: savingPrimitives(resolved) },
+		author: git.author,
+		branch: git.branch,
+		credentials: git.credentials,
+		initProblem,
+		attempts: attemptFile(resolved),
+		commits: git.commits,
+	});
+}
+
+/**
+ * The sync attempt a run left for a person, recorded as
+ * `.git/epicenter/sync-attempt.json`: its ID and the commits it merged, and
+ * nothing a caller supplied. `epicenter sync --resolve` reads it to settle
+ * the attempt in a later process (ADR-0559). A run retires it, and so does a
+ * resolve that got past its choices. A record that does not read is no
+ * record: the attempt is stale, and a run makes a new one.
+ */
+export function attemptFile(resolved: string): AttemptStore {
+	const directory = join(resolved, '.git', 'epicenter');
+	const path = join(directory, 'sync-attempt.json');
+	const oid = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+	return {
+		async load() {
+			const text = await readFile(path, 'utf8').catch(() => undefined);
+			if (text === undefined) return undefined;
+			try {
+				const { id, commits } = JSON.parse(text) as HeldSync;
+				const { base, head, fetched } = commits;
+				if (
+					typeof id !== 'string' ||
+					!oid.test(head) ||
+					!oid.test(fetched) ||
+					(base !== undefined && !oid.test(base))
+				)
+					return undefined;
+				return { id, commits: { base, head, fetched } };
+			} catch {
+				return undefined;
+			}
+		},
+		async save({ id, commits }) {
+			// `.git/epicenter` is a real directory: every Git command made
+			// it (`noHooksDirectory`) and refuses a link there.
+			await mkdir(directory, { recursive: true });
+			const staged = `${path}.${crypto.randomUUID()}`;
+			await writeFile(staged, JSON.stringify({ id, commits }), { flag: 'wx' });
+			await rename(staged, path);
+		},
+		async clear() {
+			await rm(path, { force: true });
+		},
 	};
 }
 
@@ -219,35 +325,58 @@ function savingPrimitives(resolved: string): DirectoryPrimitives {
 /** How long a save waits for another process's save to the same directory. */
 const SAVE_LOCK_WAIT_MS = 10_000;
 
-/** One turn at a time per directory within this process, before the file lock. */
-const saveTurns = new Map<string, ReturnType<typeof createMutex>>();
-
 /**
  * Run `work`, one check and one change, holding the save lock of the
  * directory at `resolved`: an exclusive SQLite transaction on
  * `.<name>.epicenter-save-lock` beside it, which the desktop shell takes
  * around each checked rename and removal (`lock.rs` in
- * `tauri-plugin-epicenter-folder`). SQLite holds it with an operating-system
- * file lock (`fcntl` on Unix, `LockFileEx` on Windows), which the system
- * releases when the process ends, however it ends, so a killed save leaves
- * nothing to recover. The transaction writes nothing.
- *
- * Saves in this process take turns first, so only one connection per
- * directory waits on the file lock, and it waits by polling with timers,
- * never by blocking the event loop. A save that cannot take the lock within
+ * `tauri-plugin-epicenter-folder`). A save that cannot take the lock within
  * `SAVE_LOCK_WAIT_MS` throws before `work` runs, so it changed nothing.
  */
 function holdingSaveLock<T>(
 	resolved: string,
 	work: () => Promise<T>,
 ): Promise<T> {
-	let turn = saveTurns.get(resolved);
+	return holdingFileLock(resolved, 'save', SAVE_LOCK_WAIT_MS, work);
+}
+
+/** What each lock guards, for the message when it cannot be taken. */
+const LOCKED = {
+	save: (resolved: string) => `Nothing was saved to the folder at ${resolved}`,
+	history: (resolved: string) =>
+		`The history of the folder at ${resolved} was not changed`,
+} as const;
+
+/** One turn at a time per lock file within this process, before the file lock. */
+const lockTurns = new Map<string, ReturnType<typeof createMutex>>();
+
+/**
+ * Run `work` holding `.<name>.epicenter-<kind>-lock` beside the directory at
+ * `resolved`: an exclusive SQLite transaction, which writes nothing. SQLite
+ * holds it with an operating-system file lock (`fcntl` on Unix,
+ * `LockFileEx` on Windows), which the system releases when the process
+ * ends, however it ends, so a killed holder leaves nothing to recover. Bun
+ * has no `flock`, so this is the one cross-process lock it can take without
+ * native code, and the shell takes the same kind (`lock.rs`).
+ *
+ * Work in this process takes turns first, so only one connection per lock
+ * waits on the file lock, and it waits by polling with timers, never by
+ * blocking the event loop. Past `waitMs` it throws before `work` runs.
+ */
+function holdingFileLock<T>(
+	resolved: string,
+	kind: keyof typeof LOCKED,
+	waitMs: number,
+	work: () => Promise<T>,
+): Promise<T> {
+	const key = `${kind}:${resolved}`;
+	let turn = lockTurns.get(key);
 	if (turn === undefined) {
 		turn = createMutex();
-		saveTurns.set(resolved, turn);
+		lockTurns.set(key, turn);
 	}
 	return turn.run(async () => {
-		const held = await takeSaveLock(resolved);
+		const held = await takeFileLock(resolved, kind, waitMs);
 		try {
 			return await work();
 		} finally {
@@ -260,13 +389,18 @@ function holdingSaveLock<T>(
 	});
 }
 
-async function takeSaveLock(resolved: string): Promise<Database> {
+async function takeFileLock(
+	resolved: string,
+	kind: keyof typeof LOCKED,
+	waitMs: number,
+): Promise<Database> {
+	const refused = LOCKED[kind](resolved);
 	const parent = dirname(resolved);
 	if (parent === resolved)
 		throw new Error(
-			`Nothing was saved to the folder at ${resolved}: it has no parent directory to hold its save lock.`,
+			`${refused}: it has no parent directory to hold its ${kind} lock.`,
 		);
-	const path = join(parent, `.${basename(resolved)}.epicenter-save-lock`);
+	const path = join(parent, `.${basename(resolved)}.epicenter-${kind}-lock`);
 	// Never a database somewhere else. Checked once, as the shell checks it.
 	const found = await lstat(path).catch((cause: { code?: string }) => {
 		if (cause.code === 'ENOENT') return undefined;
@@ -274,12 +408,12 @@ async function takeSaveLock(resolved: string): Promise<Database> {
 	});
 	if (found !== undefined && !found.isFile())
 		throw new Error(
-			`Nothing was saved to the folder at ${resolved}: ${path} is ${found.isSymbolicLink() ? 'a symbolic link' : 'not a regular file'}. Remove it, then save again.`,
+			`${refused}: ${path} is ${found.isSymbolicLink() ? 'a symbolic link' : 'not a regular file'}. Remove it, then try again.`,
 		);
 	const database = new Database(path, { create: true });
 	try {
 		database.run('PRAGMA busy_timeout = 0');
-		const deadline = Date.now() + SAVE_LOCK_WAIT_MS;
+		const deadline = Date.now() + waitMs;
 		for (let pause = 1; ; pause = Math.min(pause * 2, 25)) {
 			try {
 				database.run('BEGIN EXCLUSIVE');
@@ -289,7 +423,7 @@ async function takeSaveLock(resolved: string): Promise<Database> {
 				if (!/^SQLITE_(BUSY|LOCKED)/.test(code)) throw cause;
 				if (Date.now() >= deadline)
 					throw new Error(
-						`Nothing was saved to the folder at ${resolved}: another program held its save lock (${path}) for more than ${SAVE_LOCK_WAIT_MS / 1000} seconds. Save again; if it keeps happening, quit the other program.`,
+						`${refused}: another program held its ${kind} lock (${path}) for more than ${waitMs / 1000} seconds. Try again; if it keeps happening, quit the other program.`,
 					);
 				await Bun.sleep(pause);
 			}
@@ -300,11 +434,33 @@ async function takeSaveLock(resolved: string): Promise<Database> {
 	}
 }
 
+/** How long a history operation waits for another process's. */
+const HISTORY_LOCK_WAIT_MS = 60_000;
+
+/**
+ * Run `work`, one whole history operation (a save version, or a sync and
+ * the settling of its attempt), holding the history lock of the directory
+ * at `resolved`: an exclusive SQLite transaction on
+ * `.<name>.epicenter-history-lock` beside it, the mechanism of the save
+ * lock, held by whichever process runs the operation (ADR-0559). Two
+ * `epicenter` children, from two windows or a terminal, take turns, so a
+ * commit never lands between a sync's checkpoint and its merge. It is apart
+ * from the save lock, so a page's saves never wait on a sync's network.
+ * Reading status or history takes no lock. Waits up to
+ * `HISTORY_LOCK_WAIT_MS`, then throws before `work` runs.
+ */
+export function holdingHistoryLock<T>(
+	resolved: string,
+	work: () => Promise<T>,
+): Promise<T> {
+	return holdingFileLock(resolved, 'history', HISTORY_LOCK_WAIT_MS, work);
+}
+
 /**
  * Why `resolved` may not get a repository of its own: a directory above it
  * holds `.git`, so it is inside that repository's working tree.
  */
-async function enclosingRepository(
+export async function enclosingRepository(
 	resolved: string,
 ): Promise<string | undefined> {
 	for (let at = dirname(resolved); ; at = dirname(at)) {

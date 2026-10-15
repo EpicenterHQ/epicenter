@@ -1,8 +1,11 @@
 # tauri-plugin-epicenter-folder
 
 The desktop shell's side of an Epicenter folder: it grants a directory to the
-windows registered for it, and makes each window's reads and file changes and
-runs its `git` under checks the page cannot get around.
+windows registered for it, and makes each window's reads and file changes
+under checks the page cannot get around. It runs no `git`: the folder's
+history runs in the `epicenter` CLI, which the shell starts for a page over
+the root this crate granted
+([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
 
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
@@ -14,12 +17,11 @@ author.
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the registry, the cross-process folder and save locks, the shared path rule, and the checked reads, file changes, and `git` runs. No Tauri; its tests need only `git` and `bun`. |
-| `src/` | The Tauri plugin: the commands, the `git` runs each window's page started, and the watcher that tells a scope's windows what changed (`watcher.rs`). |
+| `core/` | `epicenter-folder-core`: the registry, the cross-process folder and save locks, the shared path rule, and the checked reads and file changes. No Tauri; its tests need only `git` and `bun`. |
+| `src/` | The Tauri plugin: the commands, and the watcher that tells a scope's windows what changed (`watcher.rs`). |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `write_folder_file` are not in them (see Reads and File changes). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 | `fixtures/page-file-changes.json` | Every file change the engine makes in `@epicenter/folder`'s real-Git tests; `page_files.rs` allows each. |
-| `fixtures/page-git-calls.json` | Every `git` call the engine makes in the same tests; `page_git.rs` allows each. |
 
 This crate has no JavaScript package of its own. A page reaches it through
 `@epicenter/folder` (or `@epicenter/folder/tauri`).
@@ -102,8 +104,8 @@ first grant, from whichever of the scope's windows asks first:
 A grant returns `{ root, branch, authorName, authorEmail, initProblem }`.
 `initProblem` is `null`, or, for a data folder whose root is inside another
 repository's working tree, why it may not get a repository of its own; the
-page's first commit is then blocked with that reason, and `run_git` refuses
-`init` there whatever the page asks. A later grant,
+page's first commit is then blocked with that reason, and the `epicenter`
+CLI refuses `init` there whatever the page asks. A later grant,
 such as a reloaded page's or another window's, returns the same root under
 the same lock. The lock is per folder, not per window: it keeps out a second
 Epicenter process, whose saves this shell could not check and publish under
@@ -204,48 +206,23 @@ content crosses IPC as it is rather than as a JSON array of numbers. Its argumen
 Tauri's `postMessage` fallback, is accepted too.
 The generated bindings cannot type a raw request, so the command is left out
 of them; the plugin dispatches it beside the typed commands, under the same
-permission, and `directory-tauri.ts` invokes it by name. The page writes no Git object: the engine stores each with
-`git hash-object -w`, which names and checks it.
+permission, and `directory-tauri.ts` invokes it by name. The page writes no Git object: the `epicenter` CLI
+stores each with `git hash-object -w`, which names and checks it.
 
 ## Git
 
-The page keeps the folder's history with the system `git`, which it asks
-this crate to run (`run_git`, stopped by `cancel_git`). `page_git.rs` runs a
-command only in a root granted to the calling window, and only when the
-arguments are exactly one of the operations the folder engine runs, each
-value checked for its kind. Before every command it checks the root's Git
-state again, as the grant did (`root::verify_layout`), since another program
-may change `.git` while the folder is open. Push and fetch reach only the URL
-`remote.origin.url` names, and a page may set that only to a network URL
-(`https://`, `ssh://`, `user@host:path`, or plain `http://` to this
-computer's loopback, `127.0.0.1` or `localhost`), never a local path, a
-`file://` URL, or a `transport::address` helper, so a push cannot write
-another repository on the computer. Every command runs with `core.hooksPath`
-naming `.git/epicenter/no-hooks`, which must be a real, empty directory: if
-another program put anything there, or a link in its place, every command is
-refused until it is removed. Commands also run with fsmonitor off, without
-the inherited variables that point Git elsewhere or trace it, and without a
-terminal prompt. `GIT_INDEX_FILE` may name only a private index copy directly
-in the root's `.git`, compared name by name so either separator counts.
-
-A push or fetch may carry one credential, a `Basic` or `Bearer` header value
-for exactly the folder's `https` origin
-([ADR-0521](../../docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
-Git gets it from its environment as `http.<origin>.extraHeader`, with
-redirects off both in general and for that URL by name (a repository's own
-`http.<origin>.followRedirects=true` would otherwise win), and the credential
-helper list empty, so the token is in no argument list and no helper is asked
-or told. Without one, transfers use the person's own credential helper or
-SSH.
-
-The page names each run with a random ID (`crypto.randomUUID()`), and the
-plugin keys it by window label and that ID (`git_runs.rs`), so no run is
-reachable from another window, or from a page with another ID. When a page
-starts loading in a window, or the window is destroyed, every run registered
-for it belongs to the page before, which is gone: each is cancelled. A
-`cancel_git` that arrives before its `run_git` is remembered, and the run is
-refused as it starts; a page change forgets those. Cancelling kills `git`
-and the helpers it started, such as `git-remote-https`.
+This crate runs no `git`. A page's history (status, the log, Save version,
+Sync, and settling a Sync) runs in the `epicenter` CLI, one child per
+operation, which the shell starts with fixed arguments over the root a
+window was granted
+([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
+`Folders::granted_folder(scope, window)` names that root with the
+registration's fallback author, branch, and kind, refused as `granted_root`
+is for a window without a grant; the Epicenter shell's `history.rs` reads it.
+The Git rules (no hooks, no fsmonitor, a scrubbed environment, a remote that
+is a network URL, a credential only for an `https` origin, and Git state
+checked again before each operation) live in the CLI's runner,
+`packages/folder/src/git/native-host.ts`.
 
 ## Changes outside the page
 
@@ -291,14 +268,13 @@ opens; the failure is logged and its windows hear no outside change.
 
 ## Shutdown
 
-Every file change and `git` run holds an admission while it runs; a read
+Every file change holds an admission while it runs; a read
 holds none. When the app exits, or the shell calls
 `app.folders().shutdown()`, the plugin refuses new grants, reads, and work,
 and releases every folder's lock. It waits for nothing: quitting is
 immediate ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
 Every save is an atomic rename, so a change cut off at exit leaves the old
-file or the new one, and a `git` run cut off leaves at most a lock file Git
-names. A late change is refused as `ShuttingDown` and writes nothing.
+file or the new one. A late change is refused as `ShuttingDown` and writes nothing.
 
 ## What is best effort
 
@@ -322,12 +298,7 @@ names. A late change is refused as `ShuttingDown` and writes nothing.
 - A compromised page keeps the powers the engine needs: it can move the
   branch, reset the index, and change or delete any data path. Each is
   visible and repairable from the reflog and the remote.
-- A file save crosses IPC as a raw body, but `git`'s input and output
-  (`run_git`) cross as JSON number arrays, and the engine stores each object
-  through that input. That is acceptable for Markdown and slow for
-  committing large audio files.
-- Whether this crate builds or runs on Windows has not been checked. There,
-  cancelling a run kills `git`'s process tree with `taskkill /T`.
+- Whether this crate builds or runs on Windows has not been checked.
 
 ## Commands
 

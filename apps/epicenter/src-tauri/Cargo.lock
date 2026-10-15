@@ -1405,6 +1405,7 @@ dependencies = [
  "hf-hub",
  "hound",
  "keyring",
+ "libc",
  "log",
  "notify",
  "notify-debouncer-full",
@@ -1448,7 +1449,6 @@ name = "epicenter-folder-core"
 version = "0.0.1"
 dependencies = [
  "dunce",
- "libc",
  "rusqlite",
  "serde",
  "sha2",
