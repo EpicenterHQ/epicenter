@@ -31,7 +31,6 @@ import {
 	type FieldMap,
 	KV_ROOT,
 	RESERVED_TABLE_NAMES,
-	type TableBody,
 	type TableDeclaration,
 } from './declaration.js';
 import { isJsonSafe, type JsonObject, type JsonValue } from './json.js';
@@ -75,12 +74,11 @@ const preparedSchemas = new WeakMap<
  * Check one schema and return the copy every read uses (ADR-0266).
  *
  * The result has the declared shape and the declared type: an optional
- * `title`, `kv`, and `tables`, each table holding `fields` and its optional
- * `body`. It is owned here. Every field is the declared schema's frozen JSON
+ * `title`, `kv`, and `tables`, each table holding `fields` and, when it is
+ * closed, `additionalProperties`. It is owned here. Every field is the declared schema's frozen JSON
  * (see `plainSchema`). `kv`, `tables`, and each `fields` are frozen
  * records without a prototype, so a name like `constructor` reads as its own
- * entry or as nothing. A body conversion is carried by reference and never
- * read.
+ * entry or as nothing.
  *
  * A schema names no dataset: a declaration with an own `id` is malformed.
  *
@@ -168,14 +166,13 @@ function prepareShape(
 		foldedNames.add(folded);
 		if (!isPlainObject(declaration)) {
 			return DataDefinitionParseError.Malformed({
-				reason: `table '${tableName}' must declare fields and an optional body codec`,
+				reason: `table '${tableName}' must declare fields`,
 			});
 		}
 		const table = declaration as TableDeclaration;
 		if (
 			Object.keys(table).some(
-				(key) =>
-					key !== 'fields' && key !== 'body' && key !== 'additionalProperties',
+				(key) => key !== 'fields' && key !== 'additionalProperties',
 			)
 		) {
 			return DataDefinitionParseError.Malformed({
@@ -188,11 +185,6 @@ function prepareShape(
 					reason: `table '${tableName}' declares additionalProperties; the only value is false, which closes the table`,
 				});
 		}
-		if (table.body !== undefined && !isBodyCodec(table.body)) {
-			return DataDefinitionParseError.Malformed({
-				reason: `table '${tableName}' declares an invalid body codec`,
-			});
-		}
 		const fields = prepareFields(tableName, table.fields, {
 			allOptional: false,
 		});
@@ -200,7 +192,6 @@ function prepareShape(
 		// One declared table reused under two names is prepared once per name.
 		preparedTables[tableName] = Object.freeze({
 			fields: fields.data,
-			...(table.body === undefined ? {} : { body: table.body }),
 			...(table.additionalProperties === false
 				? { additionalProperties: false as const }
 				: {}),
@@ -594,14 +585,6 @@ function plainSchema(declared: object, optional: boolean): TSchema & object {
 		pending.push(...Object.values(value));
 	}
 	return plain;
-}
-
-/** Check both conversion verbs at the runtime definition boundary. */
-function isBodyCodec(value: unknown): value is TableBody {
-	const codec = value as Partial<TableBody> | undefined;
-	return (
-		typeof codec?.encode === 'function' && typeof codec.decode === 'function'
-	);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

@@ -626,13 +626,13 @@ async function typedValues(
 }
 void typedValues;
 
-// A table with a body conversion is not a folder table.
+// A table declares fields, not a body conversion: a row's body is the file's Markdown text.
 defineFolder({
 	kv: {},
 	tables: {
-		// @ts-expect-error A folder stores the body as the file's Markdown text.
 		notes: defineTable({
 			fields: { title: field.string() },
+			// @ts-expect-error A table has no body option.
 			body: { encode: () => '', decode: () => undefined },
 		}),
 	},

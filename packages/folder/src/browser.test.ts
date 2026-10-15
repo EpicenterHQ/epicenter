@@ -9,7 +9,6 @@
  * file alone.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import type { DataSchema } from '@epicenter/definition';
 import * as isogit from 'isomorphic-git';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
@@ -23,7 +22,6 @@ import {
 	browserStorage,
 	configureRemote,
 	createTestStorage,
-	opfsOf,
 	rawBrowserFolder,
 	type TestStorage,
 	testBrowserStorage,
@@ -321,32 +319,6 @@ describe('browser folder tables', () => {
 			path: 'todos/rec.take.md',
 			row: { fields: { title: 'T', done: false }, body: '' },
 		});
-	});
-
-	test('rejects a definition that supplies a body codec', async () => {
-		const withCodec: DataSchema = {
-			kv: {},
-			tables: {
-				notes: defineTable({
-					fields: { title: field.string() },
-					body: { encode: () => '', decode: () => undefined },
-				}),
-			},
-		};
-		const storage = createTestStorage();
-		const refused = expectErr(
-			await openFolder({
-				id: 'codec',
-				definition: withCodec,
-				browser: { author, ...browserStorage(storage) },
-			}),
-		);
-		expect(refused.name).toBe('InvalidDefinition');
-		expect(refused.message).toContain('body codec');
-		// Refused before any storage was acquired.
-		expect(opfsOf(storage).directories()).toEqual([]);
-		// The same definition is refused where it would be declared.
-		expect(() => defineFolder(withCodec as never)).toThrow('body codec');
 	});
 
 	test('admits a reference field as a string that nothing checks or repairs', async () => {

@@ -6,8 +6,7 @@
  * no dataset: the opener is given the folder's ID, so one definition can read
  * several folders and several definitions can read one.
  *
- * A folder stores a row as one Markdown file. Its body is the file's text, so
- * a table that declares a body conversion is refused, never ignored.
+ * A folder stores a row as one Markdown file, and its body is the file's text.
  *
  * A field's editor hint decides nothing here. `field.reference` is a string
  * schema like any other: the folder checks no target, and renaming or
@@ -24,8 +23,8 @@ import {
 } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
-/** A table a folder can keep: declared with `defineTable`, with no body conversion. */
-export type FolderTable = DeclaredTable & { readonly body?: undefined };
+/** A table a folder can keep: one declared with `defineTable`. */
+export type FolderTable = DeclaredTable;
 
 /**
  * Declared and never assigned: the mark exists only in types, so a prepared
@@ -82,10 +81,6 @@ export function prepareFolderDefinition<TDefinition extends FolderDefinition>(
 	const kvProblem = publicationProblem(KV_ROOT, prepared.kv);
 	if (kvProblem !== undefined) return Err({ reason: kvProblem });
 	for (const [name, table] of Object.entries(prepared.tables)) {
-		if (table.body !== undefined)
-			return Err({
-				reason: `Table '${name}' declares a body codec. A file folder stores the body as Markdown text; remove the codec from this definition.`,
-			});
 		const problem = publicationProblem(name, table.fields);
 		if (problem !== undefined) return Err({ reason: problem });
 	}
@@ -191,9 +186,8 @@ function resolved(id: string, base: string | undefined): string {
  * folder. Tables use `defineTable` and fields use `field`, the same
  * vocabulary every Epicenter storage declares with.
  *
- * The definition is checked here, where it is written: a malformed schema, a
- * body conversion, or an `id` throws at the declaration, not at the first
- * open. What comes back has the declared shape and type, and is the prepared
+ * The definition is checked here, where it is written: a malformed schema
+ * or an `id` throws at the declaration, not at the first open. What comes back has the declared shape and type, and is the prepared
  * definition: an owned, frozen snapshot of each schema. Its tables are typed
  * {@link PreparedFolderTable}, so `parseRow` and `formatRow` take them.
  */

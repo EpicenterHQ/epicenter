@@ -3,8 +3,7 @@
  * and the reads over a prepared schema.
  *
  * A storage imports this to read a declaration; it acquires nothing and knows
- * no storage. `@epicenter/folder` is the one storage, and it refuses a body
- * conversion.
+ * no storage. `@epicenter/folder` is the one storage.
  */
 
 export {
@@ -19,7 +18,6 @@ export {
 	type KvOf,
 	RESERVED_TABLE_NAMES,
 	type RowOf,
-	type TableBody,
 	type TableDeclaration,
 } from './declaration.js';
 export {

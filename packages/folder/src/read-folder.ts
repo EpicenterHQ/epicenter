@@ -108,7 +108,6 @@ export async function readFolder(
 		string,
 		Result<TableListing<Record<string, unknown>>, TableEnumerationError>
 	> = {};
-	// prepareFolderDefinition refused body conversions, which JSON cannot carry.
 	for (const [name, table] of Object.entries(definition.tables))
 		tables[name] = await createTable<Record<string, unknown>>(
 			{ storage },

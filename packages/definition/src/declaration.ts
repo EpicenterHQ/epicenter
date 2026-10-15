@@ -1,9 +1,9 @@
 /**
  * What an application declares, and what that declaration reads as.
  *
- * All vocabulary and no behaviour. A schema separates each table's value fields
- * from its optional body conversion; the lens at the
- * bottom turns that declaration into the types an application writes.
+ * All vocabulary and no behaviour. A schema declares each table's value
+ * fields; the lens at the bottom turns that declaration into the types an
+ * application writes.
  *
  * Every type here is a LOOKUP. None asks whether its argument is a
  * declaration, because the parameter says so, and none can answer `never` for
@@ -35,31 +35,15 @@ export type FieldMap = {
 };
 
 /**
- * The widest body conversion a table may declare: two verbs between a live
- * body and file text.
- *
- * This package prepares declarations for more than one storage. What a live
- * body is belongs to the storage that keeps one, so the node and the decoded
- * content are opaque here. A storage narrows them through the `TBody`
- * parameter below; one that keeps no live body refuses a declared conversion.
- */
-export type TableBody = {
-	readonly encode: (node: never) => string;
-	readonly decode: (text: string) => unknown;
-};
-
-/**
- * Value-field schemas, the optional conversion for the row's separately
- * edited body, and whether the table is closed.
+ * Value-field schemas, and whether the table is closed.
  *
  * `additionalProperties: false` is JSON Schema's own keyword for a closed
  * object: a stored row with a key `fields` does not declare does not conform.
  * Only a storage whose rows people write by hand keeps a closed table; one
  * that must read keys a newer release added refuses it.
  */
-export type TableDeclaration<TBody extends TableBody = TableBody> = {
+export type TableDeclaration = {
 	readonly fields: FieldMap;
-	readonly body?: TBody;
 	readonly additionalProperties?: false;
 };
 
@@ -87,8 +71,7 @@ declare const DECLARED: unique symbol;
 export type DeclaredMark = { readonly [DECLARED]: true };
 
 /** A table declaration that went through `defineTable`. */
-export type DeclaredTable<TBody extends TableBody = TableBody> =
-	TableDeclaration<TBody> & DeclaredMark;
+export type DeclaredTable = TableDeclaration & DeclaredMark;
 
 /**
  * How stored data reads, naming no dataset: the optional title, the KV fields,
@@ -100,11 +83,11 @@ export type DeclaredTable<TBody extends TableBody = TableBody> =
  * by it. A storage selects its dataset when it opens, so `prepareSchema`
  * refuses an `id`.
  */
-export type DataSchema<TBody extends TableBody = TableBody> = {
+export type DataSchema = {
 	readonly title?: string;
 	readonly kv: FieldMap;
 	readonly tables: {
-		readonly [table: string]: DeclaredTable<TBody>;
+		readonly [table: string]: DeclaredTable;
 	};
 };
 

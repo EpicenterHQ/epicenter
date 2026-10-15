@@ -6,7 +6,6 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { DataSchema } from '@epicenter/definition';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
@@ -180,25 +179,6 @@ describe('native folder', () => {
 		} finally {
 			await folder.close();
 		}
-	});
-
-	test('an unsupported definition is refused before a repository is initialized', async () => {
-		const root = await scratch('native-refused-');
-		const withCodec: DataSchema = {
-			kv: {},
-			tables: {
-				notes: defineTable({
-					fields: { title: field.string() },
-					body: { encode: () => '', decode: () => undefined },
-				}),
-			},
-		};
-		const refused = expectErr(
-			await openFolder({ root, definition: withCodec, git: { author } }),
-		);
-		expect(refused.name).toBe('InvalidDefinition');
-		expect(refused.message).toContain('body codec');
-		expect(await readdir(root)).toEqual([]);
 	});
 
 	test('a root that is not a directory is a returned refusal, and the handle says where it opened', async () => {
