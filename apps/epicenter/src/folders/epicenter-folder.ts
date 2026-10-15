@@ -75,6 +75,45 @@ export function appRow(app: InstalledApp): AppRow {
 }
 
 /**
+ * Publish `epicenterDefinition` to `so.epicenter/epicenter.json`. Opens the
+ * folder for one write and closes it after. Returns the problem, if any.
+ *
+ * A handle publishes its declaration just before its first write, never on
+ * open (ADR-0508), and an installed app opens this folder through a lens the
+ * published declaration must contain (ADR-0538). So after an update adds a
+ * table here, every app reading it is refused with `ShapeMismatch` until
+ * something writes this folder. The Folders window calls this when it opens:
+ * it opens first in every run, and only it opens installed apps
+ * (`open_installed_app`), so the declaration is current before any app reads
+ * it.
+ */
+export async function declareEpicenterFolder(): Promise<string | undefined> {
+	const { data: folder, error } = await openFolder({
+		id: EPICENTER_FOLDER_ID,
+		definition: epicenterDefinition,
+	});
+	if (error !== null) return error.message;
+	try {
+		return await declare(folder);
+	} finally {
+		await folder.close();
+	}
+}
+
+/**
+ * Make the handle's first write, which publishes its declaration first: the
+ * `connections` table's directory, the table apps read through a lens. A
+ * directory already there is left as it is, and so is an `epicenter.json`
+ * that already holds the declaration's bytes.
+ */
+export async function declare(
+	folder: Folder<typeof epicenterDefinition>,
+): Promise<string | undefined> {
+	const { error } = await folder.files.mkdir('connections');
+	return error?.message;
+}
+
+/**
  * Record every installed app that runs in Epicenter's own folder. Opens the
  * folder for the writes and closes it after. Returns the first problem, if
  * any; the rows it could write are written.

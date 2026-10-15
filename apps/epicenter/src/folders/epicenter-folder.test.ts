@@ -10,6 +10,8 @@
  * - `defaultApp` holds a folder id to app id record
  * - Each AI connection is a row `connections/<id>.md` holding its kind,
  *   title, and model, never an endpoint or key; an app's lens reads it
+ * - Opening the Folders window publishes the declaration, so a lens on a
+ *   table an update added fits before anything else writes the folder
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -19,7 +21,7 @@ import { connectionsLens } from '@epicenter/ai/connection-table';
 import { openDataFolder, openFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
 import type { InstalledApp } from '../ui/bindings.gen';
-import { epicenterDefinition, writeAppRows } from './epicenter-folder';
+import { declare, epicenterDefinition, writeAppRows } from './epicenter-folder';
 
 const author = { name: 'Epicenter', email: 'epicenter@localhost' };
 const originalEnv = { ...process.env };
@@ -169,5 +171,50 @@ test('an AI connection is a row of kind, title, and model, which an app reads th
 		}
 	} finally {
 		await folder.close();
+	}
+});
+
+test('declaring publishes the definition, so a lens on a table an update added fits', async () => {
+	const { root, folder } = await open();
+	const path = join(root, 'epicenter.json');
+	try {
+		expect(await declare(folder)).toBeUndefined();
+	} finally {
+		await folder.close();
+	}
+	const current = await readFile(path, 'utf8');
+
+	// The declaration an Epicenter before `connections` published.
+	const earlier = JSON.parse(current);
+	delete earlier.tables.connections;
+	await writeFile(path, JSON.stringify(earlier));
+	const refused = await openDataFolder({
+		root,
+		lens: connectionsLens,
+		git: { author },
+	});
+	expect(refused.error?.name).toBe('ShapeMismatch');
+
+	// The next launch's handle publishes it again, before anything else writes.
+	const next = expectOk(
+		await openFolder({
+			root,
+			definition: epicenterDefinition,
+			git: { author },
+		}),
+	);
+	try {
+		expect(await declare(next)).toBeUndefined();
+	} finally {
+		await next.close();
+	}
+	expect(await readFile(path, 'utf8')).toBe(current);
+	const lens = expectOk(
+		await openDataFolder({ root, lens: connectionsLens, git: { author } }),
+	);
+	try {
+		expect(expectOk(await lens.tables.connections.list())).toEqual([]);
+	} finally {
+		await lens.close();
 	}
 });
