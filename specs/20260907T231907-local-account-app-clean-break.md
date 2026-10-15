@@ -176,7 +176,7 @@ A fresh-chat prompt lives beside this file with the `.handoff.md` suffix.
 The direct-session auth rewrite landed in `0c329cbb54` (server foundation),
 `23bade0df4` (client integration), and `b589fddf75` (evidence and closeout).
 Read `packages/auth/README.md` and
-[ADR-0354](../docs/adr/0354-hosted-applications-authenticate-with-better-auth-session-bearers.md)
+ADR-0354 (deleted; see ADR-0549)
 for current authentication. Its execution spec was retired.
 
 `createSessionAuth` persists `{ token, principalId }`. Account exposes

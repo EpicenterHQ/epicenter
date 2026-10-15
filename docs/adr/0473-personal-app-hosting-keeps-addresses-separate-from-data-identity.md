@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Amends:** [ADR-0335](0335-a-person-is-an-origin-and-an-app-is-a-path-under-it.md) at mandatory app paths, shared browser state, blanket trust between apps, and the required hosting suffix. Independently published apps have separate origins.
 - **Amends:** [ADR-0246](0246-an-app-is-named-by-its-full-reverse-domain-id-everywhere-including-the-ones-epicenter-ships.md) at public hosted addresses: readable hostname labels may resolve full app IDs; internal host routes, deep links, and on-disk IDs keep the full identifier.
-- **Relates:** [Independent applications](0449-epicenter-connects-independent-applications-through-personal-data.md) and [publisher identity](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md).
+- **Relates:** [Independent applications](0449-epicenter-connects-independent-applications-through-personal-data.md).
 - **Unbuilt:** all personal bundle hosting, username allocation, certificates, custom-domain bindings, and authenticated cross-origin data access.
 
 ## Context

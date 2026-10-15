@@ -60,13 +60,13 @@ given to `git` by a credential helper.** A terminal or an agent's machine runs
 person approves it in a browser where they are signed in and picks the grant's
 scopes and target, and the CLI keeps the grant's refresh token in the OS
 keychain. `epicenter git-credential` is Git's `credential.helper` for
-`git.epicenter.so`: it answers with a one-hour access token minted from that
+`git.epicenter.so`: it answers with an eight-hour access token minted from that
 refresh token, with `password_expiry_utc`, refreshing under a file lock, so
 Epicenter's `git`, a terminal's, and an agent's all authenticate the same way,
 and no token is in a URL, in `.git/config`, or in `git`'s environment. The
 desktop shell registers the same helper for its runs. A browser app hands its
-own access token to isomorphic-git directly. Each grant is listed in Settings
-and revoked there; an agent that needs less gets its own grant with a narrower
+own access token to isomorphic-git directly. Each grant is listed on the authorization
+server's account pages and revoked there; an agent that needs less gets its own grant with a narrower
 scope and target.
 
 **Deleting a repository removes it.** Its row, its aliases, and its stored copy

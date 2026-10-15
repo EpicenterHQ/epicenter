@@ -65,8 +65,8 @@ it**, since its window opens to `HostMissing`.
   Epicenter's app data. None is built.
 - `apps/whispering/README.md` describes the folder at
   `~/Epicenter/local/so.epicenter.whispering` and a Whispering that needs no
-  Epicenter desktop; both change. [ADR-0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md)'s
-  proposed move to `com.bradenwong.whispering` is not decided here.
+  Epicenter desktop; both change, and its folder becomes
+  `~/Epicenter/so.epicenter.whispering`.
 
 ## Considered alternatives
 

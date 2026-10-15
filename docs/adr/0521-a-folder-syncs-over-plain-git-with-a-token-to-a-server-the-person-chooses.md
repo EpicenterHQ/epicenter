@@ -194,8 +194,8 @@ merged back.
   one more program the `epicenter` CLI ships.
 - One Sync journey on every device: sign in, connect, sync. A person needs no
   GitHub account.
-- A token from Epicenter's server reaches one repository and expires. A
-  Forgejo token reaches every repository of its person.
+- A token from Epicenter's server reaches its grant's target and expires
+  within eight hours. A Forgejo token reaches every repository of its person.
 - Epicenter holds hosted folders' history: storage, retention, deletion, and
   backups. Self-host gives that to the operator.
 - The hosted store is a beta product with 1 GB per repository and 32 MB per

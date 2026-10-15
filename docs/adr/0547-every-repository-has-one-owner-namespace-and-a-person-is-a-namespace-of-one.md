@@ -30,9 +30,8 @@ account, so every account has exactly one.
 
 **Each account gets its personal namespace when it is created**, with that
 account as its only `owner`. The namespace id is Epicenter's own, not the
-account id: lowercase and dot-free, so it is safe in a URL and in the Artifacts
-name `<namespace>.<name>`, and a namespace outlives any change in how accounts
-are identified.
+account id: lowercase and dot-free, so it is safe in a URL path segment, and
+a namespace outlives any change in how accounts are identified.
 
 **Access is membership, one rule for every namespace, through one table of
 what each role may do.**

@@ -64,7 +64,7 @@ is different from the refused migration of old storage layouts.
 
 Start with git status and the actual code. The direct-session foundation landed
 in `0c329cbb54`, client integration in `23bade0df4`, and auth closeout in
-`b589fddf75`. Read `packages/auth/README.md` and ADR-0354 for the resulting
+`b589fddf75`. Read `packages/auth/README.md` and ADR-0354 (deleted; see ADR-0549) for the resulting
 contracts; the retired auth spec is no longer an execution dependency.
 `createSessionAuth` owns persisted `{ token, principalId }`. Account still exposes
 `principalId`, `baseURL`, `fetch`, `openWebSocket`, and `getProfile`; desktop boot

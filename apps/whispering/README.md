@@ -1,11 +1,13 @@
 <h1 align="center">Whispering</h1>
 <p align="center">Record → transcribe → transform → keep it all as files.</p>
 
-Whispering is a standalone desktop app for voice notes. It records audio,
+Whispering is an app for voice notes. It records audio,
 transcribes it with an OpenAI-compatible endpoint you choose, turns a transcript
 into another text with prompts you write, and keeps every recording, transcript,
 prompt, result, and setting as an ordinary file in one Git-versioned folder. It
-needs no account, no Epicenter desktop, and no hosted API.
+needs no account and no hosted API. Whispering runs in Epicenter
+([ADR-0493](../../docs/adr/0493-whisperings-only-desktop-shell-is-epicenter.md));
+the standalone desktop shell is being removed.
 
 This is a development milestone, not a release. Its voice-note workflow is launch, record,
 stop, save, play, transcribe, transform, inspect files and history, quit, reopen.
@@ -18,7 +20,7 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 ## The data folder
 
 ```text
-~/Epicenter/local/so.epicenter.whispering/
+~/Epicenter/so.epicenter.whispering/
 ├── kv.json                          transcription endpoint and model an earlier version saved; read, never written
 ├── recordings/
 │   ├── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
@@ -110,7 +112,7 @@ cargo test --manifest-path src-tauri/Cargo.toml   # the shell: folder registrati
 
 | Variable | Meaning |
 | --- | --- |
-| `WHISPERING_DATA_ROOT` | The data folder. Default `~/Epicenter/local/so.epicenter.whispering`. Created when absent. |
+| `WHISPERING_DATA_ROOT` | The data folder. The standalone shell's default is `~/Epicenter/local/so.epicenter.whispering`. Created when absent. |
 | `WHISPERING_TRANSCRIPTION_API_KEY` | Makes the transcription connection for this launch: this key (empty for none) at `WHISPERING_TRANSCRIPTION_BASE_URL` with `WHISPERING_TRANSCRIPTION_MODEL`. It replaces the saved transcription connection and cannot be changed from the app. It is never used for text. |
 | `WHISPERING_TRANSCRIPTION_BASE_URL`, `WHISPERING_TRANSCRIPTION_MODEL` | With the key above, that connection's base URL and model (default `https://api.openai.com/v1` and `whisper-1`). Without it, only where the transcription form starts. |
 | `WHISPERING_AUDIO_FIXTURE` | Debug builds only. A file whose bytes answer every recording. See [Fixture audio](#fixture-audio). |

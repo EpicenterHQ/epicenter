@@ -344,7 +344,7 @@ historical. Reconfirm paths because concurrent composition work is active.
 
 - [ ] Run affected typechecks, builds and browser/native smokes; independently
   review the cumulative result and resolve findings.
-- [ ] Align ADR-0361's Proposed text with final shared credential ownership.
+- [ ] ADR-0361 is deleted; ADR-0549 owns credential lifetime.
   Reconcile conflicting accepted ADR-0326 through explicit bounded amendment,
   preserving historical decisions. ADR-0369's fixed App lifetime remains.
 - [ ] Update ADR-0374 to match the final shape and name genuinely unbuilt work.

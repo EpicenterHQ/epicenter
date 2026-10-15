@@ -614,7 +614,6 @@ Two habits make the link hard to forget:
 
 When you add an ADR, add its row here.
 
-| [0361](0361-hosted-and-instance-credentials-share-one-account-lifetime.md) | Hosted and instance credentials share one Account lifetime | Proposed |
 
 | [0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md) | A recorder captures into its explicit local blob destination | Proposed |
 | [0369](0369-an-application-page-owns-one-library-and-changing-it-ends-the-page.md) | An application page owns one library and changing it ends the page | Accepted (unbuilt) |
@@ -711,7 +710,6 @@ When you add an ADR, add its row here.
 | [0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) | A table and file stem address a row, and a title is a field | Proposed (exact paths and readable-stem policy; file-authoritative creation unbuilt) |
 | [0458](0458-markdown-links-may-cross-data-folders-by-relative-path.md) | Markdown links may cross data folders by relative path | Proposed (cross-folder link resolution unbuilt) |
 | [0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) | SQLite is a local capability for derived or transactional state | Proposed (file-backed application stores and derived indexes unbuilt) |
-| [0460](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md) | Vocab and Whispering are Braden Wong's apps built on Epicenter | Proposed (personal-domain homes and Whispering ID migration unbuilt) |
 | [0463](0463-queryable-exports-contain-completed-sqlite-snapshots.md) | Completed SQLite query exports are deferred | Proposed (historical proposal; SQL export has no caller and is not planned work) |
 | [0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) | File table updates conditionally replace the captured whole file | Proposed |
 | [0466](0466-opened-media-provides-stable-input-bytes.md) | Opened media provides stable input bytes | Proposed (stable media reads and transcription migration unbuilt) |

@@ -272,7 +272,8 @@ attribute each failure to a particular edit.
 ### Self-host credential documentation
 
 Both `apps/self-host/worker/index.ts` and `apps/self-host/server.ts` resolve
-named-user sessions. ADR-0375 reflects that implementation. ADR-0361 and parts
+named-user sessions. ADR-0375 reflects that implementation. ADR-0361 (deleted;
+see ADR-0549) and parts
 of the [one-account plan](../specs/20260908T214916-one-active-account.md)
 still describe static operator-token entry. Reconcile the intended client
 sign-in flow with the deployed server contract before implementing those

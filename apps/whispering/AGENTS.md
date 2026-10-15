@@ -56,7 +56,8 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   named service commands to the intended window and served origin. Validate
   inputs and protocol compatibility in Rust; a failed desktop acquisition is
   visible and never selects browser storage. `ARCHITECTURE.md` describes the
-  current startup order; ADR-0493 records the shared-service migration.
+  current startup order. Whispering runs in Epicenter (ADR-0493); the
+  standalone desktop shell is being removed.
 - **A lost reply is not a refusal.** When a native service does not answer, the page
   does not know whether the endpoint was called. Report it as unknown, never
   as "not sent", and never send a provider request again without the person

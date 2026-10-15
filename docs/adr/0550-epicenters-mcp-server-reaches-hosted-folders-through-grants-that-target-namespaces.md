@@ -78,9 +78,10 @@ Folders window.
 
 - A person connects Claude or ChatGPT by adding `https://mcp.epicenter.so/mcp`,
   signing in, and choosing "Read your folders" or "Read and edit your folders"
-  and a target; Settings lists the connection and revokes it.
+  and a target; the authorization server's account pages list the connection
+  and revoke it.
 - A third-party client reaches folders and nothing else: no AI spending, no
-  account reads, no Git.
+  profile reads, no Git.
 - Each tool call costs the token query, plus the store's reads or one commit.
 - A client that lacks `folders:write` receives a 403 naming both scopes and
   can ask the person to step up.

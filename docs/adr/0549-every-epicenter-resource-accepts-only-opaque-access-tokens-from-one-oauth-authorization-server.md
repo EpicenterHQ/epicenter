@@ -82,7 +82,7 @@ removed: bearer(), sessionHandoff
 
 | Client | `client_id` | Grant | Redirect | Holds | Consent and target |
 | --- | --- | --- | --- | --- | --- |
-| A first-party app's browser build (Todos, Capture, Whispering, Honeycrisp) | The app id, e.g. `so.epicenter.todos`; public, pre-registered | Authorization code with S256 PKCE; no `offline_access` | `https://<app origin>/auth/callback`, exact | One access token in `sessionStorage` | Skipped; target `*` |
+| A first-party app's browser build (Todos, Capture, Whispering, Honeycrisp) | The app id, e.g. `so.epicenter.todos`; public, pre-registered | Authorization code with S256 PKCE; no `offline_access` | `https://<app origin>/auth/callback`, exact | One access token in `localStorage`, shared by the origin's tabs | Skipped; target `*` |
 | The Epicenter desktop app | `so.epicenter`; public, pre-registered | Authorization code with PKCE and `offline_access` | `http://127.0.0.1:<any port>/callback`, port ignored | Refresh token in the OS keychain; access tokens in the Bun host's memory; WebViews hold none ([ADR-0155](0155-epicenter-desktop-auth-is-one-credential-free-window-bun-authority.md)) | Skipped; target `*` |
 | The `epicenter` CLI and agents on the person's machine | `so.epicenter.cli`; public, pre-registered; the only client allowed the device grant | Device authorization (RFC 8628) only | None | Refresh token in the OS keychain | Device approval page, every time |
 | A third-party MCP client | The HTTPS URL of its client ID metadata document | Authorization code with PKCE and `offline_access` | Exactly those its document lists; loopback port ignored | Its own storage | Consent page, every time; reaches only the MCP resource ([ADR-0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md)) |
@@ -96,11 +96,16 @@ migrations, not by an admin session.
 
 | Resource (`resource`, the token's audience) | Serves | `allowedScopes` |
 | --- | --- | --- |
-| `https://api.epicenter.so` | `/v1/*` inference and transcription, `GET /api/repos`, the profile and usage reads | `ai`, `account`, `folders:read` |
+| `https://api.epicenter.so` | `/v1/*` inference and transcription, `GET /api/repos`, the profile and usage reads | `ai`, `profile`, `folders:read` |
 | `https://git.epicenter.so` | Git smart HTTP and LFS ([ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md), [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)) | `folders:read`, `folders:write` |
 | `https://mcp.epicenter.so/mcp` | The folder MCP server (ADR-0550) | `folders:read`, `folders:write` |
 
-Access tokens last one hour (`accessTokenTtl` on each `oauthResource` row).
+**Every client's access tokens last eight hours, GitHub's lifetime for user
+tokens, and a refresh token lapses after 30 days unused.** The lifetime is
+`accessTokenTtl` on each `oauthResource` row. Every request checks the token in
+the database, so a revocation is immediate, and the lifetime only bounds a
+theft nobody notices.
+
 The store keeps a SHA-256 hash of each token, never the token. A token is
 checked by one SQL statement, which a revocation affects on the very next
 request:
@@ -123,7 +128,7 @@ A resource answers a missing or wrong-audience token with 401 and
 403 `insufficient_scope`. Git accepts the token as the Basic password with
 any username, or as a Bearer token.
 
-**Scopes are `folders:read`, `folders:write`, `ai`, and `account`, plus
+**Scopes are `folders:read`, `folders:write`, `ai`, and `profile`, plus
 `openid` and `offline_access`.**
 
 | Scope | Allows |
@@ -131,9 +136,11 @@ any username, or as a Bearer token.
 | `folders:read` | Fetch, clone, LFS download, `GET /api/repos`, MCP read tools |
 | `folders:write` | Push, push-to-create, LFS upload, MCP `write_files` |
 | `ai` | `/v1/*` inference and transcription |
-| `account` | Reading the person's profile, plan, and usage; it changes nothing |
+| `profile` | Reading the person's name, email, plan, and usage; it changes nothing |
 
-A scope exists only while some route refuses a token without it.
+A scope exists only while some route refuses a token without it. No scope
+changes the account: linking a provider, deleting the account, and billing
+happen only on the authorization server's own pages, with its session cookie.
 
 **A grant targets `*` or one namespace, `ns:<id>`
 ([ADR-0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md)).**
@@ -160,8 +167,12 @@ answered `invalid_grant` is retried once. A grant with `offline_access` has
 its `sessionId` cleared at issuance, so it outlives the browser session that
 approved it.
 
-**A browser app holds no refresh token.** When its access token is missing or
-within ten minutes of expiry, the app navigates top level to
+**A browser app keeps its access token in `localStorage` and holds no refresh
+token.** The token is one per app origin, shared by that origin's tabs, and
+survives a reload. Every browser storage is equally readable by script on the
+origin (RFC 10017), so `localStorage` adds no exposure and spares each new tab
+and reload a renewal redirect. When the access token is missing or within ten
+minutes of expiry, the app navigates top level to
 `/auth/oauth2/authorize` with `prompt=none`. While the authorization server's
 session cookie exists, that returns a code without a page; otherwise it
 answers `login_required` and the app shows sign-in. There is no hidden iframe:
@@ -206,9 +217,8 @@ planned: Better Auth's core deviceAuthorization(), its API key package, a sessio
 **Operations:** the authorization server's Hyperdrive configuration has
 caching disabled, so a revocation is not served stale. Resources are seeded at
 migration with `resourceSeedMode: "insertOnly"`. The CIMD cache is
-module-level, so it outlives a request. The token endpoint's rate limit is
-raised above Better Auth's default of 20 per minute, which Git helpers behind
-one address exceed.
+module-level, so it outlives a request. The token endpoint keeps Better
+Auth's default rate limit.
 
 ## Consequences
 
@@ -219,8 +229,8 @@ one address exceed.
 - Each request costs one indexed query, as `getSession` costs today, without
   its daily renewal write. Git, LFS, and MCP already join membership on that
   query (ADR-0547).
-- A browser app redirects through the authorization server about once an hour
-  while open. A browser recording in progress at that moment is lost.
+- A browser app redirects through the authorization server about once every
+  eight hours while open, once for all of its tabs. A browser recording in progress at that moment is lost.
 - A process that dies after the server rotates its refresh token and before it
   writes the new one has 60 seconds to replay; after that its installation signs
   in again. No other installation is affected.
@@ -259,6 +269,14 @@ one address exceed.
   library's, and a device lineage stamped after issuance by a separate write.
 - **Browser refresh tokens with a Web Locks single flight.** A 30-day secret
   in `localStorage` and the cross-tab race of 2026-08.
+- **A browser access token in `sessionStorage`.** Script on the origin reads
+  it as easily (RFC 10017), and every new tab redirects to get its own.
+- **Shorter access tokens, or a lifetime per client.** Revocation is already
+  immediate at the next request, so a shorter lifetime only adds renewals,
+  such as an hourly redirect in every browser app.
+- **A writable `account` scope.** A token that can link providers, delete the
+  account, or spend through billing is the session authority this record
+  removes from clients; those changes stay on the authorization server's pages.
 - **`prompt=none` in a hidden iframe.** The `SameSite=Lax` cookie is not sent
   in a cross-site frame.
 - **Loopback login for the CLI.** A second CLI flow beside the device grant,
