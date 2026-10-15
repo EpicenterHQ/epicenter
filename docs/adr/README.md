@@ -781,10 +781,11 @@ When you add an ADR, add its row here.
 | [0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) | A field edit sets fields on the file as it is now | Proposed |
 | [0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) | Apps reach native code through official Tauri plugins first, granted by app id | Accepted (amends 0552) |
 | [0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) | Outside a WebView, TypeScript runs only as the epicenter CLI | Accepted (supersedes 0323; amends 0112, 0226, 0155, 0549, and 0080) |
-| [0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) | An AI connection is a row in so.epicenter whose key stays in this machine's keychain | Accepted (amends 0552 and 0539) |
+| [0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) | An AI connection is a row in so.epicenter whose key stays in this machine's keychain | Accepted (amends 0552 and 0539; endpoint storage, kind name, and app admission amended by 0564) |
 | [0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) | The epicenter CLI groups only its app and auth commands | Accepted (amends 0520, 0546, and 0549) |
 | [0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) | All desktop Git runs in the epicenter CLI, over system git | Accepted (amends 0531, 0533, 0540, 0546, and 0549) |
 | [0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) | An app's manifest only names it, and every installed app is offered on every folder | Accepted (amends 0540, 0538, 0552, and 0539) |
 | [0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) | Rust serves every app from one epicenter-app origin | Accepted (amends 0118 and 0540) |
 | [0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) | The CLI and the shell take turns writing a folder under one save lock | Accepted (amends 0541) |
 | [0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) | A hidden app window keeps running until Epicenter quits | Accepted |
+| [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Proposed (amends 0557) |
