@@ -13,7 +13,8 @@ old readable content into the current working copy and applies ordinary edits.
 Neither folding nor content recovery needs a remote restore product.
 
 The earlier cleanup retained activation and retirement pending a caller audit.
-The [2026-09-21 review](../reports/20260921-generation-removal.md) found no
+<!-- doc-path-check: ignore-next-line -->
+The 2026-09-21 review (`docs/reports/20260921-generation-removal.md`, deleted; recover via `git log --all --full-history`) found no
 production replacement caller. Their presence in tests does not require them
 as a maintenance capability. Generation removal is specified in ADR-0417 and
 remains unimplemented.

@@ -1,261 +1,161 @@
 # Epicenter architecture
 
-Epicenter is a local-first personal data platform. An application holds a
-complete replica of its own data and reads it synchronously; a hosted or
-self-hosted authority keeps a person's devices converged while they sleep.
+Epicenter keeps a person's data in data folders: directories of Markdown and
+JSON files with Git history beside them. Apps read and write those files, a
+person or an agent can edit them with any tool, and a folder travels between
+machines only when someone syncs it over Git.
 
 This page is the five-minute map. Durable decisions live in
 [`docs/adr`](adr/README.md). Shared vocabulary lives in
-[`docs/CONTEXT.md`](CONTEXT.md). Package-owned current behavior belongs in
-package READMEs and code. For how this replaced the previous stack, verb by
-verb, see
-[`the store and what it replaced`](the-store-and-what-it-replaced.md).
+[`docs/CONTEXT.md`](CONTEXT.md). Package-owned behavior belongs in package
+READMEs and code; start with [`apps/README.md`](../apps/README.md) and the
+[folder package](../packages/folder/README.md).
 
-## The direction
+## Data folders are the only data model
 
-> Epicenter keeps your data understandable and your actions explicit. Account
-> records synchronize; files have independent local and remote lives. Recordings
-> save locally first and reach another device only through an explicit upload.
-> Your data can become readable Markdown that you or an agent can edit, then
-> push back into the app. Recovering older content uses that same workflow.
-> A separate backup product is deferred.
+A data folder is the one way an app keeps and syncs data
+([ADR-0534](adr/0534-data-folders-are-the-only-data-model.md)). The Yjs store,
+its sync Durable Objects, and the apps built only on it are deleted.
 
-The working folder contains documents, settings, and a checkout manifest. Blob
-IDs and remote URLs remain ordinary references; materialization neither copies
-local audio nor fetches remote audio. Saving a copy of that folder preserves its
-current contents, including unpushed edits, not every byte the app can reference.
-
-Pull writes app data to the folder. Push previews and applies folder edits
-relative to the manifest. Deleting a tracked Markdown file deletes its row on
-approved Push, but never deletes its blobs. Trash is an application field.
-Recover selected old content by first pulling the current working copy, keeping
-its manifest, then copying in old content and pushing. Missing rows receive fresh
-identities; invalid content can be edited and retried.
-
-This folder workflow is wired into host-backed Honeycrisp. Whispering does not
-use it: its data is a Git-versioned folder of files that the app reads and
-writes directly, with no store and no export step (see
-[its README](../apps/whispering/README.md)). Unused backup orchestration and structural
-archives are removed; live store safeguards remain under
-[ADR-0379](adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md). [ADR-0394](adr/0394-materialization-contains-documents-and-blob-references.md)
-and [ADR-0395](adr/0395-restore-is-one-request-that-carries-its-own-safety-copy.md)
-record the folder and recovery decisions.
-
-## One runtime
-
-A desktop SPA in a WebView, over a store the client owns (ADR-0227). The Bun
-host serves bundles and brokers credentials. It owns no application data and
-constructs no database (ADR-0226).
-
-Serving that same bundle over HTTP is not a second runtime, because there is no
-platform seam left to differ: every build opens its own store. What ADR-0227
-refused was a hosted surface that reached a host-owned replica instead.
-
-## The stack
-
-```text
-+---------------------------------------------------------------------------+
-| APPS                                                                      |
-|                                                                           |
-| honeycrisp   whispering   vocab   skills   epicenter   sync-lab           |
-| api          self-host    landing  matter  local-books  local-mail        |
-+---------------------------------------------------------------------------+
-                                     |
-                                     v
-+---------------------------------------------------------------------------+
-| SURFACE                                                                   |
-|                                                                           |
-| @epicenter/ui        @epicenter/app-shell     @epicenter/svelte         |
-| @epicenter/client    @epicenter/blobs         @epicenter/skills           |
-+---------------------------------------------------------------------------+
-                                     |
-                                     v
-+---------------------------------------------------------------------------+
-| CORE                                                                      |
-|                                                                           |
-| @epicenter/app       declarations, lifetime, store, persistence, and sync |
-| @epicenter/app/field release-local field declarations                     |
-| @epicenter/sqlite    one engine seam over bun:sqlite and sqlite-wasm      |
-| @epicenter/sync      route contracts a browser can import                 |
-| @epicenter/server    the shared Hono package both deployables consume     |
-+---------------------------------------------------------------------------+
+```txt
+~/Epicenter/so.epicenter.todos/
+  epicenter.json        the folder's declaration: its tables and settings
+  kv.json               settings
+  todos/<id>.md         one row per file: YAML frontmatter fields, Markdown body
+  recordings/...        ordinary files, including blobs
+  .git/                 history, and the remote in remote.origin.url
 ```
 
-`@epicenter/app` supplies `defineStore`, `defineTable`, and `field` at its root.
-The definition is platform-free. `openLocal` and `openPersonal` from
-`@epicenter/app/open` acquire independent stores. Each resolves after document
-and blob acquisition. The default constructors select browser or host resources
-with `isTauri()`. `createMemoryStoreRuntime()` from `@epicenter/app/testing`
-isolates document and blob storage for store tests. Its storage survives store
-close and reopen until runtime disposal.
-Independent `/definition`, `/store`, `/sync`, and `/artifact/format`
-entrypoints let engine consumers load only their required modules. The Bun
-memory opener has a separate entrypoint because it imports `bun:sqlite`.
-`/data` opens over caller-owned SQLite; browser persistence is internal to the store. See the [application architecture](../packages/app/ARCHITECTURE.md). There is no `./projection`: the packaged SQL
-follower was deleted (ADR-0269), and a derived index is now app-owned, in
-memory, and rebuilt on read (ADR-0307).
+- **The files are the data.** No cache, event, or window state is
+  authoritative
+  ([ADR-0548](adr/0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md)).
+- **A folder is the directory its ID names.** In a browser that is
+  `<OPFS root>/<id>/`; on the desktop it is `~/Epicenter/<id>/`. No account,
+  scope, or marker is part of the address, so signing in or out opens the same
+  folder
+  ([ADR-0532](adr/0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)).
+- **A folder declares its shape and names no app.** An app opens any folder
+  whose `epicenter.json` contains the tables and fields it reads. The app that
+  creates a folder publishes its declaration; every other app opens it with a
+  lens and never rewrites it
+  ([ADR-0535](adr/0535-an-existing-folder-opens-with-its-own-declaration.md),
+  [ADR-0538](adr/0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md)).
+- **One write path.** `table.save` merges by field, and the body by line, when
+  the file changed since it was read, and reports what it replaced. Sync uses
+  the same merge and asks the person only about overlapping edits.
+- **Transfers happen only when a person syncs**
+  ([ADR-0489](adr/0489-folder-transfers-happen-only-when-a-person-syncs.md)).
+  Nothing syncs in real time. An incoming update that stops partway leaves
+  ordinary changed files, and the next Sync finishes it
+  ([ADR-0545](adr/0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md)).
 
-`@epicenter/server` and the core packages above it are AGPL. See
-[`licensing strategy`](licensing/licensing-strategy.md).
+## One folder engine, three hosts
 
-## A store has one database document
+`@epicenter/folder` is the engine: tables, `kv`, files, history, merge, and
+Sync. Every host returns the same `Folder` handle
+([ADR-0533](adr/0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md)).
 
-One database `Y.Doc` per store is persisted under the application log
-name `app` (ADR-0257). Its current top-level roots are the bare named root
-`kv` and one `tables:<name>` root for each declared table. Each table declares
-ordinary value fields under `fields` and an optional `body` codec.
+| Host | Entry | Storage | History |
+| --- | --- | --- | --- |
+| Browser tab | `@epicenter/folder` | the origin's private file system | isomorphic-git over a private `.git` |
+| Desktop page | `@epicenter/folder` | `~/Epicenter/<id>/`, through the shell | the system `git`, run by the shell |
+| Bun process (tests, scripts) | `@epicenter/folder/bun` | the directory it is given | the system `git`, run itself |
 
-```text
-Y.Doc "app"
- |- get("kv")               one value: this application's settings
- |- get("tables:notes")
- |   |- <rowId>             a nested Y.Node; holding it IS existing
- |   |   |- title           a field is an attribute on the row
- |   |   |- folderId
- |   |   `- child[0]          stable body Y.Node
- |   `- <rowId> ...
- `- get("tables:folders")
-```
+`openFolder` picks the browser or desktop adapter with `isTauri()` when it is
+called. A desktop page that cannot open its folder gets that refusal, never
+browser storage. Declarations come from `@epicenter/definition`.
 
-A row is an attribute on its table root rather than a root of its own. That is
-not a style choice: `Item.write` scans `doc.share` linearly, so one root per row
-makes encoding quadratic, measured at 5,417 ms against 13 ms at 20,000 rows.
-Deletion removes the row's attribute outright and the whole subtree goes with
-it, which leaves one deleted map key rather than a permanent corpse. The row is
-a value snapshot at the public API: `id` and its declared fields. Every row
-owns a sole body child, exposed separately through `table.body(id)`. An
-optional body codec supplies its file representation.
+## The shell grants the directory and checks every write
 
-## The body is the row’s sole sequence child
+On the desktop the page runs the engine; the Tauri shell owns the disk
+([ADR-0531](adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
+`tauri-plugin-epicenter-folder` grants each window the folders it may edit and
+then makes every read and every change itself:
 
-The `body` codec only maps that node to and from the artifact body:
+- One path rule, shared by the engine (`pathProblem`) and the shell
+  (`path_problem`), refuses `.git`, `HEAD`, and any name that does not mean
+  only itself on every disk.
+- A change must be a data path, checked on disk with no link on the way. A
+  publish carries what the page expects at the path (nothing, a file, or a
+  SHA-256), and Rust checks it under one lock per root, so a save another
+  window overtook is a `Conflict` rather than a lost write.
+- `run_git` runs only the exact Git operations the engine uses, in a granted
+  root whose `.git` is its own, with hooks disabled, pushing and fetching only
+  `origin`.
+- One file watcher per granted root emits `epicenter-folder://changed` to the
+  windows that hold the folder, so an edit in one window reaches the others.
 
-```ts
-const row = data.tables.notes.get(noteId);
-row?.title;
-data.tables.notes.body(noteId); // the live Y.Node an editor binds to directly
-```
+Quitting is immediate. Every save is an atomic rename and long-running work
+writes into its folder from the start, so no window is asked before the app
+exits ([ADR-0542](adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md),
+[ADR-0543](adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
 
-Storage creates an empty body node with every row unless `create` receives a
-fresh one. Deleting the row removes that node with the row. Lists and previews
-read value fields without opening another document; editors bind the row’s sole
-body child.
+## Epicenter opens to your folders
 
-## What granularity an edit has
+The Epicenter desktop app (`apps/epicenter`) opens to its Folders window
+([ADR-0537](adr/0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md)).
+It lists every folder under `~/Epicenter` that holds an `epicenter.json`,
+opens one with its own declaration, edits its rows, and offers the apps whose
+shape the folder contains as "Open in". Settings (the `home` window) keeps
+Chat and model administration.
 
-| edit | merge |
-| --- | --- |
-| two devices, different fields of one row | both survive |
-| two devices, one value field | last write wins |
-| two devices, one array or object field | last write wins on the WHOLE value |
-| two devices, an edit inside a row's body node | per character |
+Epicenter's own folder is `~/Epicenter/so.epicenter`. What a person or agent
+edits lives in folders; what only Epicenter writes, such as `approvals.json`,
+lives in app data; built bundles live in Caches
+([ADR-0539](adr/0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md)).
 
-The third row is a decision, not a gap (ADR-0228). A field is one value, which
-is one sentence of semantics instead of a per-field CRDT type system. The cost
-is that a set several devices append to concurrently loses an addition, and the
-answer is that such a collection wants to be a table, where each element is its
-own row and nothing collides.
+## Built-in and installed apps
 
-## Data definitions never migrate user data
+Built-in apps are compiled into Epicenter and served below `/apps/<id>/`:
+Todos, Capture, and Whispering, beside the Folders window. Honeycrisp and the
+Git lab ship their own desktop shells over the same engine. Vocab runs in the
+browser.
 
-A data definition is a release-local view over durable JSON (ADR-0255). A
-release may add a field, remove one, or change validation. Rows that no longer
-conform stay exactly as written and surface as nonconforming for that release.
-Nothing copies a database, runs an upcaster, or reinterprets an old write.
+An installed app is a Git repository with `epicenter.app.json` at its root.
+Epicenter clones it into `~/Epicenter/Apps/<app-id>/`, builds it, and runs a
+commit fetched from elsewhere only after a person approves it. Approval trusts
+the app's code fully; it never makes a synced folder trusted
+([ADR-0540](adr/0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)).
+Moving Todos and Capture into their own repositories is unbuilt.
 
-Prevention is not available and asking for it is the wrong axis. A declaration is
-release-local and rows arrive from NEWER releases, so no discipline in this
-release stops a future one retyping a field. What exists instead is the material
-to heal: `rows` and `nonconforming` are separate table reads, each failure carries its
-`address`, machine-readable `issues`, the `conforming` survivors and the
-unmodified `raw`, and repair is an ordinary `update` because a patch validates
-only the values it supplies. A derived index cannot help here: it is built from
-rows that conformed, so a repair surface finds its subjects through
-`nonconforming` rather than through SQL.
+## Sync is Git
 
-```text
-durable JSON stays unchanged
-        |
-        +-- old release's declaration -> one interpretation
-        `-- new release's declaration -> typed rows plus nonconforming diagnostics
-```
+A folder syncs over plain Git to the remote in its own Git configuration
+([ADR-0521](adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
+On the desktop that can be any Git remote. Epicenter's hosted Git keeps
+repositories in Cloudflare Artifacts: today `POST /api/git/connect` in
+`packages/server/src/routes/git.ts` finds or creates a folder's repository
+and answers a short-lived write token for it.
 
-## Reads are synchronous
+Unbuilt, decided:
 
-`openLocal` and `openPersonal` resolve to ready stores. Row and KV operations
-then read and edit the in-memory document synchronously; persistence, blobs,
-and network work remain async.
+- Hosted remotes at `https://git.epicenter.so/<namespace>/<name>.git`, where
+  Connect sets the remote and the first push creates the repository
+  ([ADR-0546](adr/0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md)).
+- One owner namespace per repository, with a person as a namespace of one
+  ([ADR-0547](adr/0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md)).
+- Blobs as files in the folder, with `.gitattributes` choosing LFS and
+  Epicenter's blob storage serving as the LFS server
+  ([ADR-0544](adr/0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)).
 
-Each store owns its document and blob admission. Duplicate acquisition of the
-same store address fails with `AlreadyOpen`. Closing fences new work and drains
-admitted operations; failed cleanup retains exclusion when another writer would
-be unsafe. SQL, secrets, recording, and inference have separate constructors
-and lifetimes.
+## Auth and the hosted API
 
-```ts
-import { openPersonal } from '@epicenter/app/open';
+`apps/api` is the hosted Cloudflare Worker, built on the shared Hono package
+`packages/server`: auth, hosted Git, AI, blobs, and billing. Billing is
+hosted-only and lives in `apps/api/worker/billing/`. Today every hosted
+request carries a Better Auth session, issued per client through
+`sessionHandoff`.
 
-const data = await openPersonal(honeycrispDefinition, { account });
-const rows = data.tables.notes.rows;
-const nonconforming = data.tables.notes.nonconforming;
-data.tables.notes.update(noteId, { title: 'x' });
-data.tables.notes.subscribe(() => { /* refresh the table view */ });
-// Explicitly retire this store when its workflow finishes.
-await data.close();
-```
-
-`subscribe` names the rows a commit touched (ADR-0221), so a view refreshes
-what moved rather than everything. SQL, when an application wants it, is a
-follower it composes over this surface, rebuilt from the live document at the
-next read (ADR-0241). The package shipped one and nothing composed it, so it
-was deleted (ADR-0269): a person who wants to read their data outside the app
-reads the export, which is Markdown files (ADR-0268).
-
-## Where the durable facts live
-
-The store keeps the update log and the authority positions a crash cannot
-reconstruct (ADR-0238, amended by ADR-0300). Each update record carries its
-authority position, so the outbox and cursor are read from the same `updates`
-store. There is no worker and no OPFS, and nothing derived is restored, only
-rebuilt.
-
-History lives outside the CRDT (ADR-0214). The document runs with garbage
-collection on, which is what collapses a field edited five thousand times to two
-structs.
-
-## The authority owns availability, not meaning
-
-The mounted authority uses a stable application/data address resolved
-from the authenticated principal. It owns the current generation and appends
-opaque bytes without interpreting row values. Historical per-generation objects
-are a different layout; the historical ledger still prevents silently opening
-an empty replacement over existing data.
-
-Being signed in is the whole of the sharing model. The route stamps the
-principal from the bearer and addresses one Durable Object by it, so every
-device on one account converges without anything being paired or invited.
-
-The host supplies only `dial`, a function that makes a socket. The sync connection owns
-the cursor, attach and detach, reconnect on close and on `needsResync`, and the
-unacknowledged-submission watchdog (ADR-0222).
-
-Blobs are a separate plane and were never CRDT-backed. Rows store opaque minted
-keys or ordinary remote URLs. App-local bytes and account-remote objects have
-independent lifetimes; uploads are explicit, with no automatic byte sync or
-row-driven cleanup.
-
-## Two deployables, one shared package
-
-`packages/server` is the shared Hono package. `apps/api` is the hosted personal
-cloud and `apps/self-host` is the self-hosted single-partition instance
-reference, which is community-supported rather than Epicenter-operated. They
-differ by principal resolver: an instance resolves every valid bearer to the
-literal `instance` principal (ADR-0075, amended by ADR-0092). Billing is
-hosted-only and lives in `apps/api/worker/billing/`.
+Unbuilt, decided: every Epicenter resource accepts only opaque access tokens
+from one OAuth 2.1 authorization server, with device login behind
+`epicenter login` and `epicenter git-credential`
+([ADR-0549](adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)),
+and an MCP server at `https://mcp.epicenter.so/mcp` reaches hosted folders
+through grants that target namespaces
+([ADR-0550](adr/0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md)).
 
 ## Implementation status
 
-ADRs describe decisions, not a current build report. Check the affected app's
-code and verification scripts before treating historical migration checkpoints
-as present failures. The archive/recovery cleanup plan above names the remaining
-work without classifying live startup and synchronization safeguards as obsolete.
+ADRs describe decisions, not a build report. Each recent ADR lists what is
+built and unbuilt in its header; check those lines and the affected code
+before treating a decision as shipped.

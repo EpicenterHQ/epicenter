@@ -8,6 +8,7 @@
   [ADR-0213](0213-a-lens-is-arktype-json-and-an-application-queries-only-its-own-projection.md)
   (a Lens is pure JSON),
   [ADR-0125](0125-record-definitions-are-release-local-lenses-and-never-migrate-user-data.md).
+<!-- doc-path-check: ignore-next-line -->
 - Evidence: measured in `docs/the-store-and-what-it-replaced.md`, "What
   granularity an edit actually has".
 

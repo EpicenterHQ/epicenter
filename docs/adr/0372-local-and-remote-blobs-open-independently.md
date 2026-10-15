@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-08
-- **Implementation (2026-09-22):** The scoped API and transport are implemented. Whispering uses store-owned blobs and scoped copy references; product playback-worker registration remains deferred; see the [verification report](../reports/20260922-store-owned-blobs-implementation.md).
+<!-- doc-path-check: ignore-next-line -->
+- **Implementation (2026-09-22):** The scoped API and transport are implemented. Whispering uses store-owned blobs and scoped copy references; product playback-worker registration remains deferred; see the verification report (`docs/reports/20260922-store-owned-blobs-implementation.md`, deleted; recover via `git log --all --full-history`).
 - **Amended by:** [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md) at hosted ownership, addressing, and operations: Personal stores no longer lend `.blobs`; an Account-bound client publishes owner-level authority URLs. Local BlobIds and the recorder destination remain. The remote examples below describe the former transport.
 
 ## Context

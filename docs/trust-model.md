@@ -26,6 +26,7 @@ For a long time Epicenter encrypted every CRDT value before it entered the synce
 
 It worked, and the tell is that it still trusted the server. The root key lived on Epicenter's infrastructure, so server code could read your data, a bug could log it, an operator could inspect it. You were never server-blind; you were trusting the application. Once you grant that, the per-owner workspace key buys nothing but a key-recovery tax and a class of "unreadable cell" failures. So we deleted it: the `@epicenter/encryption` package, the keyring, the key derivation, and the `ENCRYPTION_SECRETS` root.
 
+<!-- doc-path-check: ignore-next-line -->
 The full argument is in `docs/articles/20260615T140000-dont-encrypt-the-data-dont-hold-it.md`. The design that drove the removal is `specs/20260615T120000-trusted-relay-and-collaborative-fields.md`.
 
 ## What the server sees
@@ -52,15 +53,6 @@ Epicenter sees nothing.
 Content is only half of what a server learns. The server also sees the metadata
 around the bytes: who pushed, to which repository, when, how much, and from which
 IP. Run the server yourself and that metadata is yours too.
-
-## The live attach relay follows the same trust model
-
-Super Chat remote attach adds a second, live channel beside folder sync, but not a second privacy promise (ADR-0115).
-
-- **The sync server holds plaintext.** It decrypts nothing because nothing is encrypted, and its operator can read what it holds.
-- **The live attach relay forwards plaintext live frames.** It carries a Super Chat session (prompts, tool results, approvals) between two of your own signed-in devices, addressed by `principalId`, `hostId`, `deviceId`, and `attachId`. It stores no frames and exposes no route/capability/tool surface, but hosted Epicenter may observe the live payloads while forwarding them. It is endpoint-addressed, not route-addressed, so it is not a resurrection of the deleted relay floor (ADR-0086, ADR-0115).
-
-Confidentiality follows topology. On Cloud, the operator can read live attach frames just as it can read your synced data. On self-host the operator is you. The private answer is to run the deployment yourself.
 
 ## Big files (audio, images) follow the same rule
 
