@@ -12,7 +12,7 @@
  * - Unknown, non-canonical, and traversal-shaped app paths stay closed
  * - Host, Origin, CSP, frame, and referrer policies are enforced
  * - The real vite build emits one document with no external asset references
- * - The spawned `main.ts` sidecar announces versioned readiness and serves
+ * - The spawned `epicenter-binary.ts __host` sidecar announces versioned readiness and serves
  *   the built SPA
  */
 
@@ -908,7 +908,7 @@ describe('the built SPA', () => {
 });
 
 // ============================================================================
-// Sidecar End-to-End Smoke (the real main.ts entrypoint)
+// Sidecar End-to-End Smoke (the real `__host` entrypoint)
 // ============================================================================
 
 /**
@@ -994,7 +994,7 @@ describe('sidecar end-to-end smoke', () => {
 		const folderDir = testDataDir();
 		const ignoredDirectory = testDataDir();
 		const sidecar = Bun.spawn(
-			['bun', 'run', 'src/main.ts', '--runtime-mode=development'],
+			['bun', 'run', 'src/epicenter-binary.ts', '__host', '--runtime-mode=development'],
 			{
 				cwd: queryDir,
 				env: {
@@ -1059,7 +1059,7 @@ describe('sidecar end-to-end smoke', () => {
 		});
 		const occupiedPort = boundPort(occupied);
 		const sidecar = Bun.spawn(
-			['bun', 'run', 'src/main.ts', '--runtime-mode=development'],
+			['bun', 'run', 'src/epicenter-binary.ts', '__host', '--runtime-mode=development'],
 			{
 				cwd: queryDir,
 				env: {
@@ -1097,7 +1097,7 @@ describe('sidecar end-to-end smoke', () => {
 		const port = boundPort(portProbe);
 		await portProbe.stop(true);
 		const sidecar = Bun.spawn(
-			['bun', 'run', 'src/main.ts', '--runtime-mode=development'],
+			['bun', 'run', 'src/epicenter-binary.ts', '__host', '--runtime-mode=development'],
 			{
 				cwd: queryDir,
 				env: {
