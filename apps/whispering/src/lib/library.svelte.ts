@@ -50,7 +50,6 @@ import type {
 	Replaced,
 	Row,
 	RowReadError,
-	SavedFile,
 	SavedRow,
 	StoredRow,
 	TableError,
@@ -60,7 +59,6 @@ import type {
 import {
 	formatRow,
 	parseRow,
-	restoreTheirs,
 	rowPath,
 	rowStemOf,
 } from '@epicenter/folder';
@@ -594,33 +592,19 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 					rowSaveFailed(table, path, error);
 					throw error;
 				}),
-			onSaved: (saved) => savedRow(save, path, saved),
+			onSaved: tell(path),
 		});
 		rowDrafts.set(path, draft);
 		return draft;
 	}
 
-	/** A row's save landed: what it replaced is named. */
-	function savedRow(
-		save: MutationObserverOptions<
-			SavedRow<Fields>,
-			TableSaveError,
-			SaveRowVariables<Fields>
-		>,
-		path: string,
-		saved: SavedRow<Fields>,
-	) {
-		if (saved.replaced.length === 0) return;
-		notify({
-			kind: 'replaced',
-			path,
-			replaced: saved.replaced,
-			restore: () =>
-				void runMutation(queryClient, save, restoreTheirs(saved))
-					.then((restored) => savedRow(save, path, restored))
-					.catch(() => {}),
-		});
-	}
+	/** What a save of `path` replaced, named with the save that restores it. */
+	const tell =
+		(path: string) =>
+		({ replaced }: { replaced: readonly Replaced[] }, restore: () => void) => {
+			if (replaced.length > 0)
+				notify({ kind: 'replaced', path, replaced, restore });
+		};
 
 	/**
 	 * A row's save failed. Its edit is kept for the next save, unless the
@@ -644,42 +628,27 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const textEdits = new SvelteMap<string, TextDraftState>();
 	const writeFile = folder$.files.write.mutationOptions();
 
-	/** A text save landed: what it replaced is named. */
-	function savedText(path: string, saved: SavedFile) {
-		if (saved.replaced.length === 0) return;
-		notify({
-			kind: 'replaced',
-			path,
-			replaced: saved.replaced,
-			restore: () => {
-				const { base, content } = restoreTheirs(saved, folder.definition);
-				void runMutation(queryClient, writeFile, { path, content, base })
-					.then((restored) => savedText(path, restored))
-					.catch(() => {});
-			},
-		});
-	}
-
 	/** The text edit of `path`, made at its first change. */
 	function textEdit(path: string): TextDraftState {
 		const held = textEdits.get(path);
 		if (held !== undefined) return held;
 		const draft = createTextDraftState({
-			save: ({ base, text }) =>
-				runMutation(queryClient, writeFile, {
-					path,
-					content: text,
-					base,
-				}).catch((error: FileSaveError) => {
-					// What was typed is reported with the failure and dropped, so
-					// the view shows the file as it is.
-					const lost = draft.text ?? text;
-					draft.discard();
-					textEdits.delete(path);
-					notify({ kind: 'failed', path, error, lost });
-					throw error;
-				}),
-			onSaved: (saved) => savedText(path, saved),
+			save: (sent) =>
+				runMutation(queryClient, writeFile, { path, ...sent }).catch(
+					(error: FileSaveError) => {
+						// What was typed is reported with the failure and dropped, so
+						// the view shows the file as it is.
+						const lost =
+							draft.text ??
+							(typeof sent.content === 'string' ? sent.content : undefined);
+						draft.discard();
+						textEdits.delete(path);
+						notify({ kind: 'failed', path, error, lost });
+						throw error;
+					},
+				),
+			onSaved: tell(path),
+			definition: folder.definition,
 		});
 		textEdits.set(path, draft);
 		return draft;

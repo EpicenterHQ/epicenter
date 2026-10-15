@@ -47,11 +47,8 @@ import {
 	type Replaced,
 	type Row,
 	type RowReadError,
-	restoreTheirs,
 	rowPath,
 	rowStemOf,
-	type SavedFile,
-	type SavedRow,
 	type StoredRow,
 	type TableCreateError,
 	type TableError,
@@ -361,69 +358,42 @@ export function createCaptures(
 					onWriteFailed({ path, error, text });
 					throw error;
 				}),
-			onSaved: (saved) => savedRow(path, saved),
+			onSaved: tell(path),
 			locked: () => refused() !== undefined || removing(path),
 		});
 		forms.set(stem, form);
 		return form;
 	}
 
-	/** A capture's save landed: what it replaced is named. */
-	function savedRow(path: string, saved: SavedRow<CaptureFields>) {
-		if (saved.replaced.length === 0) return;
-		onReplaced({
-			path,
-			replaced: saved.replaced,
-			restore: () =>
-				void runMutation(
-					queryClient,
-					folder$.captures.save.mutationOptions(),
-					restoreTheirs(saved),
-				)
-					.then((restored) => savedRow(path, restored))
-					.catch(() => {}),
-		});
-	}
-
-	/** A text save landed: what it replaced is named. */
-	function savedText(path: string, saved: SavedFile) {
-		if (saved.replaced.length === 0) return;
-		onReplaced({
-			path,
-			replaced: saved.replaced,
-			restore: () => {
-				const { base, content } = restoreTheirs(saved);
-				void runMutation(queryClient, folder$.files.write.mutationOptions(), {
-					path,
-					content,
-					base,
-				})
-					.then((restored) => savedText(path, restored))
-					.catch(() => {});
-			},
-		});
-	}
+	/** What a save of `path` replaced, named with the save that restores it. */
+	const tell =
+		(path: string) =>
+		({ replaced }: { replaced: readonly Replaced[] }, restore: () => void) => {
+			if (replaced.length > 0) onReplaced({ path, replaced, restore });
+		};
 
 	/** The text edit of `path`, made at its first change. */
 	function textDraftOf(path: string): TextDraftState {
 		const known = texts.get(path);
 		if (known !== undefined) return known;
 		const draft = createTextDraftState({
-			save: ({ base, text }) =>
+			save: (sent) =>
 				runMutation(queryClient, folder$.files.write.mutationOptions(), {
 					path,
-					content: text,
-					base,
+					...sent,
 				}).catch((error: FileSaveError) => {
 					// The save neither landed nor merged: the typed text gives way
 					// to the file as it is now, read again, and the notice offers it.
-					const lost = draft.text ?? text;
+					const lost =
+						draft.text ??
+						(typeof sent.content === 'string' ? sent.content : '');
 					draft.discard();
 					texts.delete(path);
 					onWriteFailed({ path, error, text: lost });
 					throw error;
 				}),
-			onSaved: (saved) => savedText(path, saved),
+			onSaved: tell(path),
+			definition: folder.definition,
 		});
 		texts.set(path, draft);
 		return draft;

@@ -849,13 +849,21 @@ A Svelte component holds one with `createDraftState({ save })` from
 `@epicenter/folder/svelte`: the same draft, read reactively, and a `save()`
 that runs one save at a time and sends changes made meanwhile from the
 version the last save wrote. A failed save keeps the draft; the error is the
-save mutation's. `createTextDraftState({ save })` is the same over
-`createTextDraft()`, with the files' write mutation as `save`.
+save mutation's. `onSaved(saved, restore)` hears each save that landed:
+`restore` is one more save of `restoreTheirs(saved)` through the same
+`save`, for a notice's "Restore theirs", and its result is heard the same
+way. `createTextDraftState({ save, definition? })` is the same over
+`createTextDraft()`, sending `{ base, content }` as the files' write
+mutation takes them; restoring a file at a row path or `kv.json` needs the
+folder's `definition`.
 
 ```svelte
 <script lang="ts">
   const save = createMutation(() => folder$.todos.save.mutationOptions());
-  const draft = createDraftState<Todo>({ save: (sent) => save.mutateAsync(sent) });
+  const draft = createDraftState<Todo>({
+    save: (sent) => save.mutateAsync(sent),
+    onSaved: ({ replaced }, restore) => toastReplaced({ replaced, restore }),
+  });
   const todo = createQuery(() => folder$.todos.get.queryOptions(stem));
   const row = $derived(draft.row ?? todo.data?.row);
 

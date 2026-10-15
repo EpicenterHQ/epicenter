@@ -160,7 +160,7 @@ test('a text draft keeps its base apart from its text, and after a merged save c
 	draft.change(first, 'ONE\ntwo\n');
 	expect(draft.base).toBe(first);
 	const sent = draft.toSave()!;
-	expect(sent).toMatchObject({ base: first, text: 'ONE\ntwo\n' });
+	expect(sent).toMatchObject({ base: first, content: 'ONE\ntwo\n' });
 	draft.change(first, 'ONE\ntwo\nthree\n');
 	// Another writer changed the second line; the save merged it in.
 	const written = file('c', 'ONE\nTWO\n');
@@ -173,7 +173,7 @@ test('a text draft keeps its base apart from its text, and after a merged save c
 	expect(draft.text).toBe('ONE\nTWO\nthree\n');
 	const again = draft.toSave()!;
 	await draft.saved(again, {
-		stored: file('d', again.text),
+		stored: file('d', again.content),
 		merged: false,
 		replaced: [],
 	});

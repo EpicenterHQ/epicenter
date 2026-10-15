@@ -10,12 +10,16 @@
  * the next `save()` tries again. The failure itself is the mutation's to
  * show.
  *
- * `save` is the table's save mutation, as a promise that rejects on failure:
+ * `save` is the table's save mutation, as a promise that rejects on failure.
+ * `onSaved` hears each save that landed, with `restore`: one more save, of
+ * `restoreTheirs(saved)` through the same `save`, that puts back what it
+ * replaced of another writer's change; its own result is heard the same way.
  *
  * ```ts
  * const save = createMutation(() => folder$.todos.save.mutationOptions());
  * const draft = createDraftState<TodoFields>({
  *   save: (sent) => save.mutateAsync(sent),
+ *   onSaved: ({ replaced }, restore) => toastReplaced({ replaced, restore }),
  * });
  * const shown = $derived(draft.row ?? todo.data?.row);
  * draft.change(todo.data, (row) => { row.fields.title = title; });
@@ -23,9 +27,12 @@
  * ```
  *
  * `createTextDraftState({ save })` is the same for one file's exact text,
- * over `createTextDraft()`; `save` is the files' write mutation.
+ * over `createTextDraft()`; `save` is the files' write mutation, sent
+ * `{ base, content }`. Restoring a file at a row path or `kv.json` needs
+ * the folder's `definition`.
  */
 import { createSubscriber } from 'svelte/reactivity';
+import type { FolderDefinition } from '../definition.js';
 import {
 	createDraft,
 	createTextDraft,
@@ -34,7 +41,7 @@ import {
 	type TextDraft,
 } from '../draft.js';
 import type { SaveRowVariables } from '../query.js';
-import type { SavedFile } from '../save-file.js';
+import { restoreTheirs, type SavedFile } from '../save-file.js';
 import type { SavedRow } from '../table.js';
 
 /** The reactive half every draft state shares: a save loop and change tracking. */
@@ -60,6 +67,25 @@ export type TextDraftState = Pick<
 	'base' | 'text' | 'change' | 'changedElsewhere' | 'discard'
 > &
 	Loop;
+
+/** What a draft state hears of each save that landed, with the save that restores theirs. */
+type OnSaved<TSaved> = (saved: TSaved, restore: () => void) => void;
+
+/**
+ * `onSaved` with each save's `restore`: one more `save` of what `theirs`
+ * builds from it, heard the same way. A failed restore is the save's to
+ * report.
+ */
+function heard<TSent, TSaved>(
+	save: (sent: TSent) => Promise<TSaved>,
+	theirs: (saved: TSaved) => TSent,
+	onSaved: OnSaved<TSaved> | undefined,
+) {
+	if (onSaved === undefined) return undefined;
+	const hear = (saved: TSaved) =>
+		onSaved(saved, () => void save(theirs(saved)).then(hear, () => {}));
+	return hear;
+}
 
 /**
  * The save loop over `draft`: `track` subscribes a read, `changed` wakes
@@ -120,14 +146,14 @@ export function createDraftState<TFields>({
 }: {
 	/** Write one save: the table's save mutation, rejecting on failure. */
 	save: (sent: SaveRowVariables<TFields>) => Promise<SavedRow<TFields>>;
-	/** Each save that landed, as for a notice of what it replaced. */
-	onSaved?: (saved: SavedRow<TFields>) => void;
+	/** Each save that landed, as for a notice of what it replaced, and the save that restores it. */
+	onSaved?: OnSaved<SavedRow<TFields>>;
 }): DraftState<TFields> {
 	const draft = createDraft<TFields>();
 	const reactive = saveLoop(
 		draft,
 		({ base, row }) => save({ base, row }),
-		onSaved,
+		heard(save, restoreTheirs, onSaved),
 	);
 	return {
 		get base() {
@@ -160,17 +186,20 @@ export function createDraftState<TFields>({
 export function createTextDraftState({
 	save,
 	onSaved,
+	definition,
 }: {
-	/** Write one save of the text: the files' write mutation, rejecting on failure. */
+	/** Write one save of the file: the files' write mutation, rejecting on failure. */
 	save: (sent: SaveTextVariables) => Promise<SavedFile>;
-	/** Each save that landed, as for a notice of what it replaced. */
-	onSaved?: (saved: SavedFile) => void;
+	/** Each save that landed, as for a notice of what it replaced, and the save that restores it. */
+	onSaved?: OnSaved<SavedFile>;
+	/** The folder's definition, which restoring a row file or `kv.json` by field or key needs. */
+	definition?: FolderDefinition;
 }): TextDraftState {
 	const draft = createTextDraft();
 	const reactive = saveLoop(
 		draft,
-		({ base, text }) => save({ base, text }),
-		onSaved,
+		({ base, content }) => save({ base, content }),
+		heard(save, (saved) => restoreTheirs(saved, definition), onSaved),
 	);
 	return {
 		get base() {

@@ -27,23 +27,19 @@
 
 import { InstantString } from '@epicenter/definition/field';
 import {
-	type ContentCapture,
 	type FileCapture,
 	type FileError,
 	hashBytes,
 	type Replaced,
 	type Row,
-	restoreTheirs,
 	rowPath,
-	type SavedFile,
-	type SavedRow,
 	type StoredRow,
 	type TableError,
 	type TableListing,
 	wellFormed,
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
-import { runMutation } from '@epicenter/folder/query';
+import { runMutation, type SaveTextVariables } from '@epicenter/folder/query';
 import {
 	createDraftState,
 	createTextDraftState,
@@ -141,7 +137,7 @@ export function repairsOf(listing: EntryListing): UnreadableFile[] {
 }
 
 export function createEntries(
-	folder: Pick<VocabFolder, 'tables' | 'files'>,
+	folder: Pick<VocabFolder, 'tables' | 'files' | 'definition'>,
 	folder$: Pick<VocabOptions, 'entries' | 'files' | 'pathFilter'>,
 	queryClient: QueryClient,
 	{
@@ -215,35 +211,21 @@ export function createEntries(
 					},
 					sent,
 				),
-			onSaved: (saved) => reportRow(id, saved),
+			onSaved: tell(path),
 		});
 		drafts.set(id, draft);
 		return draft;
 	}
 
-	/** Name what a word's save replaced, and offer theirs back as one more save. */
-	function reportRow(id: string, saved: SavedRow<EntryFields>) {
-		if (saved.replaced.length === 0) return;
-		onReplaced({
-			path: pathOf(id),
-			replaced: saved.replaced,
-			restore: () =>
-				void runMutation(
-					queryClient,
-					folder$.entries.save.mutationOptions(),
-					restoreTheirs(saved),
-				)
-					.then((restored) => reportRow(id, restored))
-					.catch(() => {}),
-		});
-	}
+	/** What a save of `path` replaced, named with the save that restores it. */
+	const tell =
+		(path: string) =>
+		({ replaced }: { replaced: readonly Replaced[] }, restore: () => void) => {
+			if (replaced.length > 0) onReplaced({ path, replaced, restore });
+		};
 
-	/** Save repair text of `path` over `base`: one run of the files' write mutation. */
-	function writeText(
-		path: string,
-		base: ContentCapture,
-		content: string | Uint8Array,
-	) {
+	/** Save repair text of `path`: one run of the files' write mutation. */
+	function writeText(path: string, sent: SaveTextVariables) {
 		return runMutation(
 			queryClient,
 			{
@@ -256,23 +238,8 @@ export function createEntries(
 						retry: () => void repair?.draft.save(),
 					}),
 			},
-			{ path, content, base },
+			{ path, ...sent },
 		);
-	}
-
-	/** A repair text save landed: what it replaced is named. */
-	function wroteText(path: string, saved: SavedFile) {
-		if (saved.replaced.length === 0) return;
-		onReplaced({
-			path,
-			replaced: saved.replaced,
-			restore: () => {
-				const { base, content } = restoreTheirs(saved);
-				void writeText(path, base, content)
-					.then((restored) => wroteText(path, restored))
-					.catch(() => {});
-			},
-		});
 	}
 
 	/**
@@ -472,8 +439,9 @@ export function createEntries(
 			repair = {
 				path,
 				draft: createTextDraftState({
-					save: ({ base, text }) => writeText(path, base, text),
-					onSaved: (saved) => wroteText(path, saved),
+					save: (sent) => writeText(path, sent),
+					onSaved: tell(path),
+					definition: folder.definition,
 				}),
 			};
 		},

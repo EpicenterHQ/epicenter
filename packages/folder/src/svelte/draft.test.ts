@@ -8,6 +8,7 @@
  * - A component re-reads the draft's row and "changed elsewhere" on each change
  * - Changes made while a save runs are sent next, from the version it wrote
  * - A failed save keeps the draft, and the next save sends it again
+ * - `restore` sends theirs back through the same save, heard like any save
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
@@ -129,4 +130,34 @@ test('a failed save keeps the draft, and the next save sends it again', async ()
 	calls[1]?.land(landed(stored('b', 'Mine')));
 	await retry;
 	expect(draft.row).toBeUndefined();
+});
+
+test('restore sends theirs back through the same save, and its result is heard', async () => {
+	const { calls, save } = heldSaves();
+	const heard: { saved: SavedRow<Todo>; restore: () => void }[] = [];
+	const draft = createDraftState<Todo>({
+		save,
+		onSaved: (saved, restore) => heard.push({ saved, restore }),
+	});
+	draft.change(stored('a', 'One'), (row) => {
+		row.fields.title = 'Mine';
+	});
+	const done = draft.save();
+	const written = stored('b', 'Mine');
+	calls[0]?.land({
+		stored: written,
+		merged: true,
+		replaced: [
+			{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Theirs' },
+		],
+	});
+	await done;
+
+	heard[0]?.restore();
+	expect(calls[1]?.sent.base).toBe(written);
+	expect(calls[1]?.sent.row.fields.title).toBe('Theirs');
+	const restored = stored('c', 'Theirs');
+	calls[1]?.land(landed(restored));
+	await Bun.sleep(0);
+	expect(heard.map(({ saved }) => saved.stored)).toEqual([written, restored]);
 });

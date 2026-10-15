@@ -205,7 +205,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		const sent = draft.toSave();
 		if (!sent || !dirty) return;
 		saveMessage = 'Saving…';
-		const result = await folder.files.save(sent.base, sent.text);
+		const result = await folder.files.save(sent.base, sent.content);
 		if (result.error !== null) {
 			saveMessage = result.error.message;
 			throw new Error(result.error.message);

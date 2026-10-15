@@ -43,10 +43,8 @@ import {
 	type Replaced,
 	type Row,
 	type RowReadError,
-	restoreTheirs,
 	rowPath,
 	rowStemOf,
-	type SavedFile,
 	type SavedRow,
 	type StoredRow,
 	type TableCreateError,
@@ -398,20 +396,13 @@ export function createNotes(
 		} satisfies ReturnType<TableOptions<TFields>['save']['mutationOptions']>;
 
 		/** Name what a row's save replaced, and offer theirs back as one more save. */
-		function report(saved: SavedRow<TFields>) {
+		function report(saved: SavedRow<TFields>, restore: () => void) {
 			// Both sides moving `updatedAt` is not a change worth a notice.
 			const told = saved.replaced.filter(
 				(entry) => !(entry.kind === 'field' && entry.field === 'updatedAt'),
 			);
-			if (told.length === 0) return;
-			onReplaced({
-				path: saved.stored.path,
-				replaced: told,
-				restore: () =>
-					void runMutation(queryClient, save, restoreTheirs(saved))
-						.then(report)
-						.catch(() => {}),
-			});
+			if (told.length > 0)
+				onReplaced({ path: saved.stored.path, replaced: told, restore });
 		}
 
 		function draftOf(stem: string) {
@@ -563,27 +554,14 @@ export function createNotes(
 		},
 	} satisfies ReturnType<typeof folder$.files.write.mutationOptions>;
 
-	/** A text save landed: what it replaced is named. */
-	function savedText(path: string, saved: SavedFile) {
-		if (saved.replaced.length === 0) return;
-		onReplaced({
-			path,
-			replaced: saved.replaced,
-			restore: () => {
-				const { base, content } = restoreTheirs(saved, folder.definition);
-				void runMutation(queryClient, writeText, { path, content, base })
-					.then((restored) => savedText(path, restored))
-					.catch(() => {});
-			},
-		});
-	}
-
-	/** An edit of one file's exact text, saved one write at a time. */
+	/** An edit of one file's exact text, saved one write at a time; what a save replaced is named. */
 	function createTextDraft(path: string) {
 		return createTextDraftState({
-			save: ({ base, text }) =>
-				runMutation(queryClient, writeText, { path, content: text, base }),
-			onSaved: (saved) => savedText(path, saved),
+			save: (sent) => runMutation(queryClient, writeText, { path, ...sent }),
+			onSaved: ({ replaced }, restore) => {
+				if (replaced.length > 0) onReplaced({ path, replaced, restore });
+			},
+			definition: folder.definition,
 		});
 	}
 
