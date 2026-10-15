@@ -73,6 +73,12 @@ export type TableListing<TFields> = readonly {
 
 export type FileTable<TFields> = {
 	readonly name: string;
+	/**
+	 * Whether `create` can add a row. False only for a table opened through a
+	 * lens that does not declare every field the folder requires (ADR-0538):
+	 * its rows can be read and replaced, and `create` is `CannotCreate`.
+	 */
+	readonly canCreate: boolean;
 	/** An outer error means the listing itself failed; no partial listing is returned. */
 	list(): Promise<Result<TableListing<TFields>, TableEnumerationError>>;
 	/** `undefined` only when no file is at the stem. */
@@ -83,7 +89,8 @@ export type FileTable<TFields> = {
 	 * Save a new row at `stem`, or a generated stem. The row must be valid:
 	 * a value that does not conform or cannot be written is `InvalidValues`,
 	 * and nothing is published. Unknown keys are kept. Refused as `Exists`
-	 * when a file is at the path.
+	 * when a file is at the path, and as `CannotCreate` when `canCreate` is
+	 * false.
 	 */
 	create(
 		row: Row<TFields>,
@@ -123,12 +130,16 @@ function decode(bytes: Uint8Array): string | undefined {
 
 /**
  * The file table for one declared table. `name` is its key in the prepared
- * definition and its directory; `table` is its prepared definition.
+ * definition and its directory; `table` is its prepared definition, which
+ * every read and write is checked against. `unsupplied` lists the fields
+ * `table` requires that the caller's lens does not declare; when there are
+ * any, `create` refuses.
  */
 export function createTable<TFields>(
 	{ storage }: { storage: FolderStorage },
 	name: string,
 	table: PreparedFolderTable,
+	unsupplied: readonly string[] = [],
 ): FileTable<TFields> {
 	/** The row path a literal stem addresses, or why it is not one filename segment here. */
 	function rowAddress(
@@ -206,6 +217,7 @@ export function createTable<TFields>(
 
 	return {
 		name,
+		canCreate: unsupplied.length === 0,
 		async list() {
 			const { data: filenames, error: listError } = await filenamesOf();
 			if (listError !== null) return Err(listError);
@@ -250,6 +262,8 @@ export function createTable<TFields>(
 			return storedRow(path, read);
 		},
 		async create(row, options) {
+			if (unsupplied.length > 0)
+				return TableError.CannotCreate({ table: name, fields: unsupplied });
 			const { data: path, error: addressError } = rowAddress(
 				options?.stem ?? generateStem(),
 			);

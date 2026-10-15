@@ -55,10 +55,17 @@ export type DirectoryFolderOptions<TDefinition extends FolderDefinition> = {
 	readonly git: FolderGitOptions;
 };
 
-export type DataFolderOptions = {
+export type DataFolderOptions<
+	TLens extends FolderDefinition = FolderDefinition,
+> = {
 	/** An existing directory. Opening creates nothing in it. */
 	readonly root: string;
 	readonly git: FolderGitOptions;
+	/**
+	 * The shape this caller reads, which the folder's declaration must
+	 * contain (ADR-0538); see `OpenDataFolderOptions`.
+	 */
+	readonly lens?: TLens;
 };
 
 /** One mutex per lock name, shared by every folder this process opens. */
@@ -102,6 +109,8 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
  * `epicenter.json`, which the handle never writes (ADR-0535). A directory
  * without one opens with no tables and no settings; one that cannot be used
  * is `InvalidDeclaration`. The root is refused as `openFolder` refuses it.
+ * With a `lens`, a declaration that does not contain it is `ShapeMismatch`,
+ * and the handle's tables are the lens's (ADR-0538).
  *
  * Opening creates nothing. A directory with no repository reads as an empty
  * history with every file uncommitted, and its first commit creates the
@@ -109,16 +118,20 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
  * tree: that commit is `blocked`, and the files are committed with that
  * repository's Git (ADR-0517).
  */
-export async function openDataFolder({
+export async function openDataFolder<
+	const TLens extends FolderDefinition = FolderDefinition,
+>({
 	root,
 	git,
-}: DataFolderOptions): Promise<
-	Result<Folder<FolderDefinition>, OpenFolderError>
+	lens,
+}: DataFolderOptions<TLens>): Promise<
+	Result<Folder<TLens, FolderDefinition>, OpenFolderError>
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
-	return openDirectoryFolder<FolderDefinition>({
+	return openDirectoryFolder<TLens, FolderDefinition>({
 		definition: 'declared',
+		lens,
 		initProblem: () => enclosingRepository(resolved),
 		...directory(resolved),
 		author: git.author,

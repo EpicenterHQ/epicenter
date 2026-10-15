@@ -63,7 +63,7 @@ openDataFolder({ grant });                        // desktop page: a shell-issue
 | Lifecycle | created on first write | must exist; opening creates nothing |
 | Schema | the caller's `definition` | the folder's `epicenter.json`, prepared like `readFolder` prepares it |
 | `epicenter.json` | published before the first write, only if its bytes differ | never written |
-| Types | `Folder<typeof definition>` | untyped rows, checked at run time |
+| Types | `Folder<typeof definition>` | untyped rows, checked at run time, or typed by a lens (ADR-0538) |
 
 - **Opening an existing folder creates nothing.** A folder with no
   repository has no history until its first commit (Sync or Save version)
@@ -85,7 +85,8 @@ openDataFolder({ grant });                        // desktop page: a shell-issue
   table-reading pipeline. It takes no lock, initializes nothing, clears
   nothing, and needs no grant, which an opened handle cannot promise.
 - **A typed lens over an existing folder opens it when the folder's
-  declaration contains the lens's shape**, never publishing
+  declaration contains the lens's shape**, never publishing; every write is
+  still checked against the folder's own declaration
   ([ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md)).
 
 **Any number of windows may edit a folder, once the shell decides every

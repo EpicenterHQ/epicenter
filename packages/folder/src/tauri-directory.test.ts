@@ -14,6 +14,8 @@
  * - `openDataFolder` reads with the folder's own `epicenter.json` and never
  *   writes it, runs no `git` before the first commit creates the repository,
  *   and merges rows on Sync by that declaration
+ * - Through a lens, a data folder has the lens's tables, keeps the fields the
+ *   lens does not name, and refuses a lens its declaration does not contain
  * - A data folder the shell grants inside another repository's working tree
  *   blocks its first commit with the shell's reason, and runs no `git init`
  */
@@ -580,6 +582,54 @@ test('a data folder grant refused is the refusal', async () => {
 	const refused = expectErr(await openDataFolder({ id: 'so.epicenter.vault' }));
 	expect(refused.name).toBe('UnknownScope');
 	expect(calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
+});
+
+test('a data folder opened through a lens reads its fields, keeps the rest, and never writes epicenter.json', async () => {
+	const root = await scratch('tauri-data-folder-lens-');
+	await nodeFs.writeFile(join(root, 'epicenter.json'), DECLARED);
+	await nodeFs.mkdir(join(root, 'todos'));
+	await nodeFs.writeFile(
+		join(root, 'todos/one.md'),
+		'---\ntitle: One\ndone: false\nsource: phone\n---\n',
+	);
+	grantRoot(root);
+	const lens = defineFolder({
+		kv: {},
+		tables: { todos: defineTable({ fields: { title: field.string() } }) },
+	});
+	const folder = expectOk(
+		await openDataFolder({ id: 'so.epicenter.vault', lens }),
+	);
+	expect(Object.keys(folder.definition.tables)).toEqual(['todos']);
+	const todos = folder.tables.todos;
+	// The folder requires `done`, which the lens does not declare.
+	expect(todos.canCreate).toBe(false);
+	expect(
+		expectErr(await todos.create({ fields: { title: 'Two' }, body: '' })).name,
+	).toBe('CannotCreate');
+	const one = expectOk(await todos.get('one'))!;
+	one.row.fields.title = 'One, renamed';
+	expectOk(await todos.replace(one, one.row));
+	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
+		'---\ntitle: One, renamed\ndone: false\nsource: phone\n---\n',
+	);
+	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(
+		changedPaths().filter((path) => path.endsWith('epicenter.json')),
+	).toEqual([]);
+	await folder.close();
+
+	const mismatch = defineFolder({
+		kv: {},
+		tables: { todos: defineTable({ fields: { done: field.string() } }) },
+	});
+	const refused = expectErr(
+		await openDataFolder({ id: 'so.epicenter.vault', lens: mismatch }),
+	);
+	expect(refused).toMatchObject({
+		name: 'ShapeMismatch',
+		problems: [{ kind: 'incompatibleField', table: 'todos', field: 'done' }],
+	});
 });
 
 test("a data folder's Sync merges rows by its own declaration", async () => {

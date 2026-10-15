@@ -185,7 +185,8 @@ openDataFolder({
   id,          // a folder the desktop shell registered, or a browser folder's ID
   credentials, // optional, as for openFolder
   browser,     // optional, as for openFolder
-}): Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
+  lens,        // optional: the shape this caller reads; see below
+}): Promise<Result<Folder<typeof lens, FolderDefinition>, OpenFolderError>>
 ```
 
 | | `openFolder` | `openDataFolder` |
@@ -195,7 +196,7 @@ openDataFolder({
 | No `epicenter.json` | published on the first write | no tables and no settings; files, history, and Sync work |
 | An unusable `epicenter.json` | replaced on the first write | `InvalidDeclaration`, and nothing opens |
 | Repository on disk | created when the folder opens | created by the first commit (Save version, or Sync's checkpoint), staging, or `sync.connect`; until then status is an empty history with every file uncommitted |
-| Tables | typed by the definition | keyed by any name, rows checked at run time |
+| Tables | typed by the definition | keyed by any name, rows checked at run time; with a `lens`, the lens's tables, typed by it ([below](#opening-another-apps-folder-through-a-lens)) |
 
 Both return the same handle, and `folder.definition` is the prepared
 definition it reads with, so a view can render a folder it did not declare.
@@ -209,6 +210,56 @@ issues grants for folders a person picks. In a browser, `openDataFolder`
 opens the origin-private folder named `id`; as with `openFolder`, a folder
 nobody wrote to has no files, and its first write creates its directory and
 repository.
+
+### Opening another app's folder through a lens
+
+An app that reads a folder it did not create passes the shape it reads as
+`lens`, a `defineFolder` definition of only the tables and fields it knows
+(ADR-0538). The folder opens when its own declaration contains that shape,
+and its tables and settings are typed by the lens:
+
+```ts
+const board = defineFolder({
+  kv: {},
+  tables: {
+    todos: defineTable({ fields: { title: field.string(), status: field.select(['todo', 'done']) } }),
+  },
+});
+
+const { data: folder, error } = await openDataFolder({ id: 'so.epicenter.todos', lens: board });
+if (error?.name === 'ShapeMismatch') return show(error.problems); // every problem, listed
+const { data: stored } = await folder.tables.todos.get('milk');
+stored.row.fields.status = 'done';                  // fields the lens does not name stay on the row
+await folder.tables.todos.replace(stored, stored.row);
+```
+
+The folder contains the lens when, for every table of the lens, it declares a
+table of that name, and for every field the lens reads, in a table or in `kv`,
+it declares that field with a schema whose every value the lens's field
+accepts (`schemaContainment` in `@epicenter/definition`). A lens `string`
+accepts a folder `string`, a select of strings, or a date; a lens `number`
+accepts an `integer`; a nullable lens field accepts a field that is never
+`null`; a lens select accepts a select of some of its options. A field the
+lens requires must be required by the folder; an optional one may be either.
+A closed folder table (`additionalProperties: false`) contains a lens that
+reads some of its fields; a closed lens table needs a closed folder table with
+no other field. The check is conservative: a pair it cannot decide is a
+problem with the reason, and the app widens its lens. A folder without
+`epicenter.json` contains only a lens with no tables and no settings.
+
+| | Through a lens |
+| --- | --- |
+| A folder that does not contain the lens | `ShapeMismatch` with `problems`: `missingTable`, `missingField`, `incompatibleField`, or `incompatibleTable`, each with its table, field, and reason. Nothing opens. |
+| `tables` | the lens's tables alone, typed by it; the folder's other tables are not on the handle |
+| A row read | every field the file holds, the ones the lens does not name included, so a `replace` of the row read keeps them |
+| A write | checked against the folder's own declaration, every field of it: the lens cannot save a value the folder refuses |
+| `create` | `canCreate` is false, and `create` is `CannotCreate` naming the fields, when the folder requires a field the lens does not declare; rows can still be edited |
+| `definition` | the folder's own prepared declaration, as without a lens |
+| `epicenter.json` | never written |
+
+Fields the lens does not name are kept only on the row the lens read. A row
+built from scratch and passed to `replace` drops them, and the folder refuses
+it when one of them is required.
 
 ### The folder, opened lazily, and its remote
 
@@ -405,7 +456,8 @@ const opened = await openDataFolder({
 ```
 
 `openDataFolder` opens an existing directory with its own `epicenter.json`
-([above](#an-existing-folder-with-its-own-declaration)). A script that edits a
+([above](#an-existing-folder-with-its-own-declaration)), and takes a `lens`
+as the other entries do. A script that edits a
 data folder uses it; passing `parseDeclaration` of the file to `openFolder` is
 safe only for a declaration `epicenter generate` wrote, since `openFolder`
 publishes its own formatting on the first write. Opening creates nothing. A
@@ -465,7 +517,7 @@ successful reading does not mean an application can open the folder.
 
 | Member | Contract |
 | --- | --- |
-| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `get(stem)` returns a `StoredRow` (`path`, `sha256`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `replace`, `rename`, and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
+| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `replace`, `rename`, and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
 | `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` merges one key into the current file, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and re-applies itself when another writer got there first. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `files` | Ordinary files at literal paths. See below. |
 | `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, `recoverIncoming()`, and `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |

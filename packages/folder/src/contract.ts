@@ -218,21 +218,34 @@ export type OpenFolder = <const TDefinition extends FolderDefinition>(
 /**
  * Which existing folder `openDataFolder` opens: `openFolder`'s options
  * without a definition, since the folder's own `epicenter.json` is its
- * schema.
+ * schema, and optionally the lens this caller reads it through.
  */
-export type OpenDataFolderOptions = Omit<
-	OpenFolderOptions<FolderDefinition>,
-	'definition'
->;
+export type OpenDataFolderOptions<
+	TLens extends FolderDefinition = FolderDefinition,
+> = Omit<OpenFolderOptions<FolderDefinition>, 'definition'> & {
+	/**
+	 * The shape this caller reads: the tables and fields it knows, as a
+	 * `defineFolder` definition (ADR-0538). The folder opens only when its
+	 * declaration contains the lens, and its tables and settings are then
+	 * typed by the lens. Every write is still checked against the folder's
+	 * own declaration, and nothing publishes the lens.
+	 */
+	readonly lens?: TLens;
+};
 
 /**
  * Open a folder that already exists with the schema in its own
  * `epicenter.json`, which the handle never writes. A folder without one opens
- * with no tables and no settings; files, history, and Sync work. Rows are
- * checked at run time, so tables are keyed by any name. The automatic, the
- * browser, and the desktop entry each export an `openDataFolder` of exactly
- * this type.
+ * with no tables and no settings; files, history, and Sync work.
+ *
+ * Without a lens, rows are checked at run time, so tables are keyed by any
+ * name. With one, a folder whose declaration does not contain it is
+ * `ShapeMismatch`; otherwise the handle has the lens's tables, typed by it,
+ * and `definition` stays the folder's own. The automatic, the browser, and
+ * the desktop entry each export an `openDataFolder` of exactly this type.
  */
-export type OpenDataFolder = (
-	options: OpenDataFolderOptions,
-) => Promise<Result<Folder<FolderDefinition>, OpenFolderError>>;
+export type OpenDataFolder = <
+	const TLens extends FolderDefinition = FolderDefinition,
+>(
+	options: OpenDataFolderOptions<TLens>,
+) => Promise<Result<Folder<TLens, FolderDefinition>, OpenFolderError>>;

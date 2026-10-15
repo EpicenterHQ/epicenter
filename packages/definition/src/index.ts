@@ -51,3 +51,9 @@ export {
 	prepareData,
 	prepareSchema,
 } from './prepare.js';
+export {
+	requiredOutsideShape,
+	type ShapeProblem,
+	schemaContainment,
+	shapeProblems,
+} from './shape.js';
