@@ -56,7 +56,7 @@
 
 	/** A table's query options; every row is untyped in a folder opened by its declaration. */
 	const optionsOf = (name: string) =>
-		folder$.tables[name] as unknown as TableOptions<Record<string, unknown>>;
+		folder$.tables[name] as TableOptions<Record<string, unknown>>;
 
 	const edits = createRowEdits((name, variables) =>
 		new MutationObserver(client, optionsOf(name).save.mutationOptions()).mutate(

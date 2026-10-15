@@ -304,7 +304,7 @@ export function createNotes(
 	} = {},
 ) {
 	const { folder } = host;
-	const folder$ = folderOptions<typeof honeycrispDefinition>(folder);
+	const folder$ = folderOptions(folder);
 	const { defineMutation } = createQueryFactories(queryClient);
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
 	const trackMutations = createSubscriber((update) =>

@@ -375,7 +375,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const tableOf = <T extends TableName>(name: T) =>
 		folder.tables[name] as unknown as FileTable<Tables[T]>;
 	const optionsOf = <T extends TableName>(name: T) =>
-		folder$.tables[name] as unknown as TableOptions<Tables[T]>;
+		folder$.tables[name] as TableOptions<Tables[T]>;
 
 	let closing = $state(false);
 

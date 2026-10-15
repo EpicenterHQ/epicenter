@@ -307,7 +307,7 @@ export function createCaptures(
 	} = {},
 ) {
 	const { folder } = host;
-	const folder$ = folderOptions<typeof captureDefinition>(folder);
+	const folder$ = folderOptions(folder);
 	const table = folder.tables.captures;
 	const pathOf = (stem: string) => rowPath(CAPTURES_TABLE, stem);
 	const { defineMutation } = createQueryFactories(queryClient);

@@ -14,7 +14,7 @@ import { folderOptions } from '@epicenter/folder/query';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber } from 'svelte/reactivity';
 import { createChats } from './chat/chats.js';
-import type { VocabFolder, vocabFolder } from './data.js';
+import type { VocabFolder } from './data.js';
 import { createEntries, type ReplacedNotice } from './entries.svelte.js';
 import {
 	CLOSING,
@@ -38,7 +38,7 @@ export function createVocab(
 		onReplaced?: (notice: ReplacedNotice) => void;
 	} = {},
 ) {
-	const folder$ = folderOptions<typeof vocabFolder>(folder);
+	const folder$ = folderOptions(folder);
 	setVocabDefaults(queryClient, folder$);
 	const stopChanges = folder.onFilesChanged((change) =>
 		queryClient.invalidateQueries(folder$.pathFilter(change)),

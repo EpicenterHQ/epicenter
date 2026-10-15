@@ -30,7 +30,6 @@ import {
 } from '@tanstack/query-core';
 import { createContext } from 'svelte';
 import { createQueryFactories } from 'wellcrafted/query';
-import type { todosDefinition } from './definition.js';
 import { createGit } from './git.js';
 import type { TodosFolder } from './platform/types.js';
 import { createRows } from './rows.js';
@@ -86,7 +85,7 @@ export function createTodos(
 	});
 	queryClient.mount();
 	const { defineQuery, defineMutation } = createQueryFactories(queryClient);
-	const folder$ = folderOptions<typeof todosDefinition>(folder);
+	const folder$ = folderOptions(folder);
 	const stopChanges = folder.onFilesChanged((change) =>
 		queryClient.invalidateQueries(folder$.pathFilter(change)),
 	);

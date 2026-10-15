@@ -32,7 +32,7 @@
  * the client TanStack hands its callbacks. Importing this module opens
  * nothing.
  */
-import type { CreateRowOf, KvOf } from '@epicenter/definition';
+import type { KvOf } from '@epicenter/definition';
 import type {
 	InvalidateQueryFilters,
 	Query,
@@ -56,7 +56,7 @@ import type {
 	TableRenameError,
 	TableSaveError,
 } from './errors.js';
-import type { FilesChanged, Folder } from './folder.js';
+import type { FilesChanged, Folder, FolderAccess } from './folder.js';
 import type { SyncError } from './git/errors.js';
 import type {
 	CommitOutcome,
@@ -189,19 +189,26 @@ export type HistoryOptions = {
 /** Names `folderOptions` uses itself; a table so named is under `tables` only. */
 type Reserved = 'tables' | 'kv' | 'files' | 'history' | 'pathFilter' | 'key';
 
-type TablesOptions<TDefinition extends FolderDefinition> = {
-	readonly [K in keyof TDefinition['tables'] & string]: TableOptions<
-		CreateRowOf<TDefinition['tables'][K]>
-	>;
+/** Each of a folder's tables (`folder.tables`) as its options. */
+type TablesOptions<TTables> = {
+	readonly [K in keyof TTables & string]: TTables[K] extends FileTable<
+		infer TFields
+	>
+		? TableOptions<TFields>
+		: never;
 };
 
-export type FolderOptions<TDefinition extends FolderDefinition> = Omit<
-	TablesOptions<TDefinition>,
+/**
+ * The options of an opened folder whose tables are `TTables` and whose
+ * settings are `TValues`: what `folderOptions(folder)` returns.
+ */
+export type FolderOptionsOf<TTables, TValues> = Omit<
+	TablesOptions<TTables>,
 	Reserved
 > & {
 	/** Every table by name, including one named like a member below. */
-	readonly tables: TablesOptions<TDefinition>;
-	readonly kv: KvOptions<KvOf<TDefinition>>;
+	readonly tables: TablesOptions<TTables>;
+	readonly kv: KvOptions<TValues>;
 	readonly files: FilesOptions;
 	readonly history: HistoryOptions;
 	/** The prefix of every key this folder's queries cache under. */
@@ -214,6 +221,19 @@ export type FolderOptions<TDefinition extends FolderDefinition> = Omit<
 	 * makes the log stale. `'everything'` is every query of this folder.
 	 */
 	pathFilter(change: FilesChanged): InvalidateQueryFilters;
+};
+
+/** The options of a folder opened with `TDefinition`. */
+export type FolderOptions<TDefinition extends FolderDefinition> =
+	FolderOptionsOf<FolderAccess<TDefinition>['tables'], KvOf<TDefinition>>;
+
+/** What `folderOptions` reads of a folder: its tables and settings typed by inference. */
+type OptionsSource<TTables, TValues> = Pick<
+	Folder<FolderDefinition>,
+	'location' | 'files' | 'git' | 'sync'
+> & {
+	readonly tables: TTables;
+	readonly kv: FileKv<TValues>;
 };
 
 /** The key prefix for one opened folder: where its files are. */
@@ -236,9 +256,9 @@ function orNull<T, E>(result: Result<T | undefined, E>): Result<T | null, E> {
 /** Whether `path` is inside the folder's Git directory. */
 const inGit = (path: string) => path === '.git' || path.startsWith('.git/');
 
-export function folderOptions<TDefinition extends FolderDefinition>(
-	folder: Folder<TDefinition, FolderDefinition>,
-): FolderOptions<TDefinition> {
+export function folderOptions<TTables, TValues>(
+	folder: OptionsSource<TTables, TValues>,
+): FolderOptionsOf<TTables, TValues> {
 	const root = folderKey(folder);
 	const keys = {
 		table: (name: string) => [...root, 'tables', name] as const,
@@ -352,7 +372,7 @@ export function folderOptions<TDefinition extends FolderDefinition>(
 	}
 
 	const tables: Record<string, TableOptions<Fields>> = {};
-	for (const name of Object.keys(folder.tables))
+	for (const name of Object.keys(folder.tables as object))
 		tables[name] = tableOptions(name);
 
 	const settings = folder.kv as unknown as FileKv<Fields>;
@@ -533,5 +553,5 @@ export function folderOptions<TDefinition extends FolderDefinition>(
 		history,
 		key: root,
 		pathFilter,
-	}) as unknown as FolderOptions<TDefinition>;
+	}) as unknown as FolderOptionsOf<TTables, TValues>;
 }
