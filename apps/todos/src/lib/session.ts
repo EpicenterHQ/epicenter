@@ -8,7 +8,7 @@
  */
 import type { FileError, TableError } from '@epicenter/folder';
 import type { FolderOptions } from '@epicenter/folder/query';
-import type { MutationFilters, QueryClient } from '@tanstack/query-core';
+import type { QueryClient } from '@tanstack/query-core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { type createQueryFactories, defineKeys } from 'wellcrafted/query';
 import type { todosDefinition } from './definition.js';
@@ -48,8 +48,6 @@ export type Session = {
 	readonly writesSettled: () => Promise<void>;
 	/** Read `queryKey` again; every query of the folder by default. */
 	readonly invalidate: (queryKey?: readonly unknown[]) => Promise<void>;
-	/** Resolves once nothing matching `filters` is mutating, including what starts meanwhile. */
-	readonly whenIdle: (filters?: MutationFilters) => Promise<void>;
 	/** A save failed; the page tells the person. */
 	readonly onWriteFailed: (failure: WriteFailure) => void;
 };

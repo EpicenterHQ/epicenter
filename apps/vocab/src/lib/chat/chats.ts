@@ -5,9 +5,9 @@
  * The list is one query over the folder's `chats` table and the message
  * files an earlier version saved. Messages saved now are named by their
  * chat, so the list never reads them; the open conversation reads its own.
- * The list is keyed under the `chats` table's listing, so it is read on open
- * and again when the folder reports a change to `chats/`. A chat this page
- * starts is put in the list by the start itself.
+ * The list is a query over `chats/` and `messages/` (`folder$.query`), so
+ * it is read on open and again when a change reaches either. A chat this
+ * page starts is put in the list by the start itself.
  *
  * Starting a chat and saving each message are mutations. A message's save is
  * scoped to its chat's file, so one chat's messages are written in order,
@@ -17,7 +17,7 @@
 import { AgentMessageStoreError, agentMessageText } from '@epicenter/agent';
 import { type FileError, rowPath } from '@epicenter/folder';
 import type { QueryClient } from '@tanstack/svelte-query';
-import { createQueryFactories, resultQueryOptions } from 'wellcrafted/query';
+import { createQueryFactories } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	type FocusItem,
@@ -51,7 +51,7 @@ export type ChatListing = {
 
 export function createChats(
 	{ tables, files }: Pick<VocabFolder, 'tables' | 'files'>,
-	folder$: Pick<VocabOptions, 'chats'>,
+	folder$: Pick<VocabOptions, 'query'>,
 	queryClient: QueryClient,
 	{
 		refused,
@@ -64,8 +64,6 @@ export function createChats(
 	},
 ) {
 	const { defineMutation } = createQueryFactories(queryClient);
-	/** Under the `chats` listing's key, so a change to `chats/` reaches it. */
-	const listKey = [...folder$.chats.list.queryKey(), 'summaries'];
 
 	async function readChats(): Promise<Result<ChatListing, FileError>> {
 		const [
@@ -85,14 +83,17 @@ export function createChats(
 		});
 	}
 
+	const listing = folder$.query({
+		paths: [tables.chats.name, tables.messages.name],
+		key: ['summaries'],
+		queryFn: readChats,
+	});
+	const listKey = listing.queryKey;
+
 	return {
 		/** The chat list, narrowed by `select` for one view. */
 		chatsQuery<TData = ChatListing>(select?: (listing: ChatListing) => TData) {
-			return resultQueryOptions({
-				queryKey: listKey,
-				queryFn: readChats,
-				select,
-			});
+			return { ...listing, select };
 		},
 		/**
 		 * Save the focus as a new chat. It is in the list once the folder holds

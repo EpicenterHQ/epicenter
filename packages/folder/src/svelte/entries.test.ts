@@ -4,7 +4,9 @@
  * Svelte is an optional peer: only `@epicenter/folder/svelte` may reach it.
  * These tests follow every runtime import from each package export through
  * the package's own modules, so a re-export or a stray helper import that
- * would make core or platform code load Svelte fails here.
+ * would make core or platform code load Svelte fails here. The Svelte entry
+ * itself loads the draft, the merges it and `restoreTheirs` need, and no
+ * host or storage backend.
  */
 import { expect, test } from 'bun:test';
 import { dirname, join } from 'node:path';
@@ -50,14 +52,30 @@ test('no core or platform entry loads Svelte or the adapter', async () => {
 	}
 });
 
-test('the Svelte entry loads only svelte/reactivity, the draft, and the row merge at runtime', async () => {
+test('the Svelte entry loads the draft, its merges, and restoreTheirs, and no platform', async () => {
 	const { files, outside } = await reached(manifest.exports['./svelte']);
-	expect(files).toEqual([
-		join(packageRoot, 'src/svelte/draft.svelte.ts'),
-		join(packageRoot, 'src/draft.ts'),
-		join(packageRoot, 'src/git/merge-lines.ts'),
-		join(packageRoot, 'src/row-merge.ts'),
+	const own = files.map((file) => file.slice(packageRoot.length + 1));
+	expect(own.slice(0, 3)).toEqual([
+		'src/svelte/draft.svelte.ts',
+		'src/draft.ts',
+		'src/save-file.ts',
 	]);
-	// The line merge loads `diff` only when a merged save is carried over.
-	expect(outside).toEqual(['svelte/reactivity', 'diff']);
+	// No host, storage backend, or Git beyond the line merge.
+	expect(
+		own.filter(
+			(file) =>
+				/^src\/(browser|tauri|bun|opfs|directory|native)/.test(file) ||
+				(file.startsWith('src/git/') && file !== 'src/git/merge-lines.ts'),
+		),
+	).toEqual([]);
+	// The line merge loads `diff` only when a merge runs.
+	expect(outside.sort()).toEqual([
+		'@epicenter/definition',
+		'diff',
+		'jsonc-parser',
+		'svelte/reactivity',
+		'wellcrafted/error',
+		'wellcrafted/result',
+		'yaml',
+	]);
 });

@@ -45,7 +45,6 @@ export function createRows({
 	onWriteFailed,
 }: Session) {
 	const listing = folder$.todos.list.queryOptions();
-	const save = folder$.todos.save.mutationOptions();
 
 	/** The bytes the cache holds for `stem`: a row's, or text that is not one. */
 	function capturedOf(stem: string): FileCapture | undefined {
@@ -96,12 +95,11 @@ export function createRows({
 		},
 		/**
 		 * The save of one todo, for an editing view's draft. A save that lands
-		 * puts its row in the cache. Git status is read again once the last
-		 * running save settles, since the folder does not report a page's own
-		 * saves to it. A failed save is reported with the edit as text.
+		 * puts its row in the cache and marks Git status stale. A failed save
+		 * is reported with the edit as text.
 		 */
 		save: {
-			...save,
+			...folder$.todos.save.mutationOptions(),
 			onError: (error, { base, row }) =>
 				onWriteFailed({
 					path: base.path,
@@ -110,11 +108,7 @@ export function createRows({
 						formatRow(todosDefinition.tables.todos, row).data ??
 						row.fields.title,
 				}),
-			onSettled: () =>
-				queryClient.isMutating({ mutationKey: save.mutationKey }) <= 1
-					? invalidate(folder$.history.status.queryKey())
-					: undefined,
-		} satisfies typeof save,
+		} satisfies ReturnType<typeof folder$.todos.save.mutationOptions>,
 		/** Add a todo titled `title`. The caller decides whether to show it. */
 		create: defineMutation({
 			mutationKey: ['todos', 'create'],

@@ -21,7 +21,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { restoreTheirs, type Row, type SavedRow, wellFormed } from '@epicenter/folder';
+	import { type Row, wellFormed } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createDraftState } from '@epicenter/folder/svelte';
 	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
@@ -52,18 +52,10 @@
 	const save = createMutation(() => todos.rows.save);
 	const draft = createDraftState<TodoFields>({
 		save: (sent) => save.mutateAsync(sent),
-		onSaved: report,
+		// Name what a save replaced of another writer's change, and offer it back.
+		onSaved: ({ replaced, stored }, restore) =>
+			void toastReplaced({ replaced, subject: stored.row.fields.title, restore }),
 	});
-
-	/** Name what a save replaced of another writer's change, and offer it back. */
-	function report(saved: SavedRow<TodoFields>) {
-		void toastReplaced({
-			replaced: saved.replaced,
-			subject: saved.stored.row.fields.title,
-			// A failed restore is the mutation's to report, like any save.
-			restore: () => void save.mutateAsync(restoreTheirs(saved)).then(report, () => {}),
-		});
-	}
 	/** The row as the cache holds it, when the file reads as a todo. */
 	const stored = $derived(todo.data?.result.error === null ? todo.data.result.data : undefined);
 	/**

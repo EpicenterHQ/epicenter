@@ -101,3 +101,17 @@ expectTypeOf<NonNullable<ReturnType<typeof draft.toSave>>>().toMatchTypeOf<
 expectTypeOf(draft.changedElsewhere)
 	.parameter(0)
 	.toEqualTypeOf<FileCapture | undefined>();
+
+// The definition is inferred from the folder, with no settings declared too.
+const plain = defineFolder({
+	title: 'Plain',
+	kv: {},
+	tables: {
+		todos: defineTable({ fields: { title: field.string() } }),
+	},
+});
+declare const plainFolder: Folder<typeof plain>;
+const plain$ = folderOptions(plainFolder);
+expectTypeOf<
+	QueryData<ReturnType<typeof plain$.todos.list.queryOptions>>
+>().toEqualTypeOf<TableListing<{ title: string }>>();

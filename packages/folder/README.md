@@ -849,13 +849,21 @@ A Svelte component holds one with `createDraftState({ save })` from
 `@epicenter/folder/svelte`: the same draft, read reactively, and a `save()`
 that runs one save at a time and sends changes made meanwhile from the
 version the last save wrote. A failed save keeps the draft; the error is the
-save mutation's. `createTextDraftState({ save })` is the same over
-`createTextDraft()`, with the files' write mutation as `save`.
+save mutation's. `onSaved(saved, restore)` hears each save that landed:
+`restore` is one more save of `restoreTheirs(saved)` through the same
+`save`, for a notice's "Restore theirs", and its result is heard the same
+way. `createTextDraftState({ save, definition? })` is the same over
+`createTextDraft()`, sending `{ base, content }` as the files' write
+mutation takes them; restoring a file at a row path or `kv.json` needs the
+folder's `definition`.
 
 ```svelte
 <script lang="ts">
   const save = createMutation(() => folder$.todos.save.mutationOptions());
-  const draft = createDraftState<Todo>({ save: (sent) => save.mutateAsync(sent) });
+  const draft = createDraftState<Todo>({
+    save: (sent) => save.mutateAsync(sent),
+    onSaved: ({ replaced }, restore) => toastReplaced({ replaced, restore }),
+  });
   const todo = createQuery(() => folder$.todos.get.queryOptions(stem));
   const row = $derived(draft.row ?? todo.data?.row);
 
@@ -1065,19 +1073,44 @@ folder.onFilesChanged((change) =>
 | --- | --- | --- |
 | each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `create`, `save`, `rename`, `delete` |
 | `kv` | `get` (the reading, or `null`) | `set({ key, value })` |
-| `files` | `list`, `read(path)` | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
+| `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
 | `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
 
-A mutation updates the cache from its own result: `save` and `create` set the
-row's query and its entry in the listing, `delete` drops the entry, and the
-others mark what they touched stale. `pathFilter(change)` matches each row
-at a changed path, the listing of each table whose directory a path is in,
-the settings for `kv.json`, the file listing and each changed file, and the
-history's status; a path in `.git` also matches the log, and `'everything'`
-matches every query of the folder. Since the channel is the folder's one
-detector, apps turn TanStack's own focus refetch off
-(`refetchOnWindowFocus: false`). A table named like a member (`kv`, `files`,
-`history`, `tables`, `pathFilter`, `key`) is under `folder$.tables` only.
+`folder$.query({ paths, key, queryFn })` is a query of the page's own over
+the files at `paths`, each a file or a directory: cached like the reads
+above, and stale whenever a change reaches one of `paths`. A list derived
+from two tables names both directories.
+
+A write keeps the cache in step inside its own `mutationFn`, so a caller's
+`onSuccess`, `onError`, or `onSettled` adds to it and replaces nothing. It
+puts its result where it can: `save` and `create` set the row's query and
+its entry in the listing, `delete` drops them, `kv.set` sets the reading,
+and `files.write` sets the file's `read` and `text`. The folder does not
+report a page's own writes to it, so the write marks stale the rest of what
+a change to its paths would, the history's status included. A read still
+running when the write lands may predate it, or a later change, so it is
+read again rather than kept. A failed write reads its paths again: the
+file was not what the base said, or the reply was lost.
+
+`pathFilter(change)` matches each row at a changed path, the listing of
+each table whose directory a path is in, the settings for `kv.json`, the
+file listing and each changed file's `read` and `text`, each `query` over a
+changed path, and the history's status; a path in `.git` also matches the
+log, and `'everything'` matches every query of the folder. Invalidating
+reads again only what a view or observer holds; a store that reads with
+`getQueryData` observes what it shows. A table named like a member (`kv`,
+`files`, `history`, `tables`, `pathFilter`, `key`, `query`) is under
+`folder$.tables` only.
+
+Every read is local and changes only when the folder's channel or the
+page's own write says so, so the options set `networkMode: 'always'`, no
+retry (on mount either), `staleTime: Infinity`, and no focus refetch; an app sets none of
+these for the folder's queries.
+
+`runMutation(client, options, variables)` runs a write from outside a
+component, as `mutateAsync` does, through the client's mutation cache.
+`whenIdle(client, filters?)` resolves once nothing matching `filters` is
+mutating, counting a draft's next save that is about to start.
 
 ## History
 

@@ -27,7 +27,7 @@ import {
 } from '@epicenter/agent';
 import { folderOptions } from '@epicenter/folder/query';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { VocabFolder, vocabFolder } from '../data.js';
+import type { VocabFolder } from '../data.js';
 import {
 	createBrowser,
 	fileText,
@@ -86,8 +86,8 @@ function chatsOver(
 	over: Partial<Pick<VocabFolder, 'tables' | 'files'>> = {},
 ) {
 	const queryClient = createQueryClient();
-	const folder$ = folderOptions<typeof vocabFolder>(folder);
-	setVocabDefaults(queryClient, folder$);
+	const folder$ = folderOptions(folder);
+	setVocabDefaults(queryClient);
 	const failures: WriteFailure[] = [];
 	const chats = createChats({ ...folder, ...over }, folder$, queryClient, {
 		refused: () => undefined,

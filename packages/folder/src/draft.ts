@@ -18,6 +18,7 @@
  */
 import type { ContentCapture, FileCapture } from './capture.js';
 import { mergeLines } from './git/merge-lines.js';
+import type { FileContent } from './merge-file.js';
 import type { SaveRowVariables } from './query.js';
 import { type AnyRow, mergeRows, setField } from './row-merge.js';
 import type { Row } from './row-text.js';
@@ -139,10 +140,21 @@ export function createDraft<TFields>(): Draft<TFields> {
 	};
 }
 
-/** What a text save sends: the version the edit started from, and the text. */
+/**
+ * What a file save sends: the version the edit started from, and the
+ * content, as `files.write` takes them. A text draft sends its text; the
+ * restore of what a save replaced may send bytes.
+ */
 export type SaveTextVariables = {
 	readonly base: ContentCapture;
-	readonly text: string;
+	readonly content: FileContent;
+};
+
+/** What a text draft sends: always its text. */
+type SentText = {
+	readonly base: ContentCapture;
+	readonly content: string;
+	readonly revision: number;
 };
 
 /** An edit of one file's exact text; see `Draft`. */
@@ -159,12 +171,9 @@ export type TextDraft = {
 	/** Whether the file changed since the edit started; false with no edit. */
 	changedElsewhere(current: FileCapture | undefined): boolean;
 	/** What the file save sends; `undefined` with no edit. */
-	toSave(): (SaveTextVariables & { readonly revision: number }) | undefined;
+	toSave(): SentText | undefined;
 	/** A save of `sent` landed as `saved`; as `Draft.saved`. */
-	saved(
-		sent: SaveTextVariables & { readonly revision: number },
-		saved: SavedFile,
-	): Promise<void>;
+	saved(sent: SentText, saved: SavedFile): Promise<void>;
 	/** Drop the edit. */
 	discard(): void;
 };
@@ -190,7 +199,7 @@ export function createTextDraft(): TextDraft {
 		changedElsewhere: (current) => movedFrom(base, current),
 		toSave() {
 			if (base === undefined || text === undefined) return undefined;
-			return { base, text, revision };
+			return { base, content: text, revision };
 		},
 		async saved(sent, result) {
 			if (sent.revision === revision) {
@@ -210,7 +219,7 @@ export function createTextDraft(): TextDraft {
 				if (typed === undefined || base !== from) return;
 				// Lines typed since the save win where the merge changed them too.
 				const merged = await mergeLines({
-					base: sent.text,
+					base: sent.content,
 					ours: typed,
 					theirs: written,
 				});

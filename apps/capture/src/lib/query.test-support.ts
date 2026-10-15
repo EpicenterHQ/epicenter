@@ -18,9 +18,7 @@ export { QueryClient, QueryObserver };
 
 /** A fresh cache, configured and mounted as the layout's. */
 export function createQueryClient() {
-	const client = new QueryClient({
-		defaultOptions: { queries: { refetchOnWindowFocus: false } },
-	});
+	const client = new QueryClient();
 	client.mount();
 	return client;
 }
@@ -34,7 +32,10 @@ export function observe(captures: Captures, ...paths: string[]) {
 		new QueryObserver(captures.queryClient, captures.rowsQuery()),
 		...paths.map(
 			(path) =>
-				new QueryObserver(captures.queryClient, captures.textQuery(path)),
+				new QueryObserver(
+					captures.queryClient,
+					captures.folder$.files.text.queryOptions(path),
+				),
 		),
 	];
 	const stops = observers.map((observer) => observer.subscribe(() => {}));
@@ -81,7 +82,7 @@ export function cachedText(captures: Captures, path: string): string {
 	const file = captures.queryClient.getQueryData<{
 		kind: string;
 		file?: { text: string };
-	}>(captures.folder$.files.read.queryKey(path));
+	}>(captures.folder$.files.text.queryKey(path));
 	if (file?.kind !== 'text' || file.file === undefined)
 		throw new Error(`No text for ${path} in the cache`);
 	return file.file.text;

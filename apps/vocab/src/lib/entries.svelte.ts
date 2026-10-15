@@ -27,36 +27,33 @@
 
 import { InstantString } from '@epicenter/definition/field';
 import {
-	type ContentCapture,
 	type FileCapture,
 	type FileError,
 	hashBytes,
 	type Replaced,
 	type Row,
-	restoreTheirs,
 	rowPath,
-	type SavedFile,
-	type SavedRow,
 	type StoredRow,
 	type TableError,
 	type TableListing,
 	wellFormed,
 } from '@epicenter/folder';
-import { type OpenedFile, readTextFile } from '@epicenter/folder/file-browser';
+import type { OpenedFile } from '@epicenter/folder/file-browser';
+import { runMutation, type SaveTextVariables } from '@epicenter/folder/query';
 import {
 	createDraftState,
 	createTextDraftState,
 	type DraftState,
 	type TextDraftState,
 } from '@epicenter/folder/svelte';
-import type { MutationOptions, QueryClient } from '@tanstack/svelte-query';
+import type { QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber, SvelteMap } from 'svelte/reactivity';
 import {
 	defineErrors,
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-import { createQueryFactories, resultQueryOptions } from 'wellcrafted/query';
+import { createQueryFactories } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	type Entry,
@@ -104,9 +101,6 @@ export type ReplacedNotice = {
 /** The directory, and table, that holds the words. */
 const ENTRIES = 'entries';
 
-/** Word files larger than this are named for repair but not opened as text. */
-const EDITABLE_TEXT_LIMIT = 1024 * 1024;
-
 /** What the learner is told about a failed change. */
 export function describeError(error: {
 	readonly name: string;
@@ -143,7 +137,7 @@ export function repairsOf(listing: EntryListing): UnreadableFile[] {
 }
 
 export function createEntries(
-	folder: Pick<VocabFolder, 'tables' | 'files'>,
+	folder: Pick<VocabFolder, 'tables' | 'files' | 'definition'>,
 	folder$: Pick<VocabOptions, 'entries' | 'files' | 'pathFilter'>,
 	queryClient: QueryClient,
 	{
@@ -165,11 +159,7 @@ export function createEntries(
 		queryClient.getMutationCache().subscribe(update),
 	);
 	const listKey = folder$.entries.list.queryKey();
-	/** The text of a word file open for repair, under the folder's read of that file. */
-	const textKey = (path: string) => [
-		...folder$.files.read.queryKey(path),
-		'text',
-	];
+	const textKey = (path: string) => folder$.files.text.queryKey(path);
 	/** Each word's edit, by ID; one draft whichever view edits it. */
 	const drafts = new SvelteMap<string, DraftState<EntryFields>>();
 	/** The word file open as text for repair, if one is, and its typed text. */
@@ -179,16 +169,6 @@ export function createEntries(
 	const listingData = () => queryClient.getQueryData<EntryListing>(listKey);
 	const textData = (path: string) =>
 		queryClient.getQueryData<OpenedFile>(textKey(path));
-
-	/** Run a write's TanStack options once, through the cache, so closing waits for it. */
-	const run = <TData, TError, TVariables>(
-		options: MutationOptions<TData, TError, TVariables>,
-		variables: TVariables,
-	) =>
-		queryClient
-			.getMutationCache()
-			.build(queryClient, options)
-			.execute(variables) as Promise<TData>;
 
 	/** The word the cache holds at `id`, if it reads as one. */
 	function rowOf(id: string): StoredRow<EntryFields> | undefined {
@@ -210,7 +190,8 @@ export function createEntries(
 		const path = pathOf(id);
 		const draft: DraftState<EntryFields> = createDraftState<EntryFields>({
 			save: (sent) =>
-				run(
+				runMutation(
+					queryClient,
 					{
 						...folder$.entries.save.mutationOptions(),
 						onError: (error) => {
@@ -230,35 +211,23 @@ export function createEntries(
 					},
 					sent,
 				),
-			onSaved: (saved) => reportRow(id, saved),
+			onSaved: tell(path),
 		});
 		drafts.set(id, draft);
 		return draft;
 	}
 
-	/** Name what a word's save replaced, and offer theirs back as one more save. */
-	function reportRow(id: string, saved: SavedRow<EntryFields>) {
-		if (saved.replaced.length === 0) return;
-		onReplaced({
-			path: pathOf(id),
-			replaced: saved.replaced,
-			restore: () =>
-				void run(folder$.entries.save.mutationOptions(), restoreTheirs(saved))
-					.then((restored) => {
-						received(id, restored.stored);
-						reportRow(id, restored);
-					})
-					.catch(() => {}),
-		});
-	}
+	/** What a save of `path` replaced, named with the save that restores it. */
+	const tell =
+		(path: string) =>
+		({ replaced }: { replaced: readonly Replaced[] }, restore: () => void) => {
+			if (replaced.length > 0) onReplaced({ path, replaced, restore });
+		};
 
-	/** Save repair text of `path` over `base`: one run of the files' write mutation. */
-	function writeText(
-		path: string,
-		base: ContentCapture,
-		content: string | Uint8Array,
-	) {
-		return run(
+	/** Save repair text of `path`: one run of the files' write mutation. */
+	function writeText(path: string, sent: SaveTextVariables) {
+		return runMutation(
+			queryClient,
 			{
 				...folder$.files.write.mutationOptions(),
 				onError: (error) =>
@@ -269,31 +238,8 @@ export function createEntries(
 						retry: () => void repair?.draft.save(),
 					}),
 			},
-			{ path, content, base },
+			{ path, ...sent },
 		);
-	}
-
-	/** The repair text a save wrote is what the file holds; name what it replaced. */
-	function wroteText(path: string, saved: SavedFile) {
-		queryClient.setQueryData<OpenedFile>(textKey(path), {
-			kind: 'text',
-			file: {
-				path,
-				sha256: saved.stored.sha256,
-				text: new TextDecoder().decode(saved.stored.bytes),
-			},
-		});
-		if (saved.replaced.length === 0) return;
-		onReplaced({
-			path,
-			replaced: saved.replaced,
-			restore: () => {
-				const { base, content } = restoreTheirs(saved);
-				void writeText(path, base, content)
-					.then((restored) => wroteText(path, restored))
-					.catch(() => {});
-			},
-		});
 	}
 
 	/**
@@ -406,12 +352,7 @@ export function createEntries(
 			return { ...folder$.entries.list.queryOptions(), select };
 		},
 		/** One word file's exact text, or its type and size when it is not editable text. */
-		textQuery(path: string) {
-			return resultQueryOptions({
-				queryKey: textKey(path),
-				queryFn: () => readTextFile(folder.files, path, EDITABLE_TEXT_LIMIT),
-			});
-		},
+		textQuery: (path: string) => folder$.files.text.queryOptions(path),
 		/** `entry` as the learner sees it: with its edit, while one is unsaved. Read reactively. */
 		shown(entry: Entry): Entry {
 			const row = drafts.get(entry.id)?.row;
@@ -498,15 +439,16 @@ export function createEntries(
 			repair = {
 				path,
 				draft: createTextDraftState({
-					save: ({ base, text }) => writeText(path, base, text),
-					onSaved: (saved) => wroteText(path, saved),
+					save: (sent) => writeText(path, sent),
+					onSaved: tell(path),
+					definition: folder.definition,
 				}),
 			};
 		},
 		/**
-		 * Close the repair once its text is written, and read the file again,
-		 * so a repaired file shows as a word. Answers whether it closed: a
-		 * text that could not be written keeps the repair open.
+		 * Close the repair once its text is written; the write marked the
+		 * word stale, so a repaired file shows as a word. Answers whether it
+		 * closed: a text that could not be written keeps the repair open.
 		 */
 		async closeRepair(): Promise<boolean> {
 			const open = repair;
@@ -515,8 +457,6 @@ export function createEntries(
 			if (open.draft.text !== undefined) return false;
 			if (repair === open) repair = undefined;
 			queryClient.removeQueries({ queryKey: textKey(open.path), exact: true });
-			// This page's own write is not reported back to it.
-			await queryClient.invalidateQueries(folder$.pathFilter([open.path]));
 			return true;
 		},
 		/** Type the text of the word file open for repair; each change is written as typed. */

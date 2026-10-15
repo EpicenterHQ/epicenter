@@ -60,8 +60,8 @@ export function createCaptureForm(capture: {
 	stored(): StoredRow<CaptureFields> | undefined;
 	/** Write one save: the table's save mutation, rejecting on failure. */
 	save(sent: SaveRowVariables<CaptureFields>): Promise<SavedRow<CaptureFields>>;
-	/** A save landed. */
-	onSaved(saved: SavedRow<CaptureFields>): void;
+	/** A save landed, with the save that restores what it replaced. */
+	onSaved(saved: SavedRow<CaptureFields>, restore: () => void): void;
 	/** Whether input is refused now: closing, or deleting. */
 	locked(): boolean;
 }) {

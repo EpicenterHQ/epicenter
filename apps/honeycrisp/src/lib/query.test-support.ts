@@ -20,9 +20,7 @@ export { QueryClient, QueryObserver };
 
 /** A fresh cache, configured and mounted as the layout's provider makes it. */
 export function createQueryClient() {
-	const client = new QueryClient({
-		defaultOptions: { queries: { refetchOnWindowFocus: false } },
-	});
+	const client = new QueryClient();
 	client.mount();
 	return client;
 }

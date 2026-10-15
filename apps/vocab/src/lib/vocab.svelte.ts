@@ -10,18 +10,13 @@
  * version": its folder records history only through a sync, which Vocab
  * does not run.
  */
-import { folderOptions } from '@epicenter/folder/query';
+import { folderOptions, whenIdle } from '@epicenter/folder/query';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber } from 'svelte/reactivity';
 import { createChats } from './chat/chats.js';
-import type { VocabFolder, vocabFolder } from './data.js';
+import type { VocabFolder } from './data.js';
 import { createEntries, type ReplacedNotice } from './entries.svelte.js';
-import {
-	CLOSING,
-	setVocabDefaults,
-	type WriteFailure,
-	whenIdle,
-} from './query.js';
+import { CLOSING, setVocabDefaults, type WriteFailure } from './query.js';
 
 export type Vocab = ReturnType<typeof createVocab>;
 
@@ -38,8 +33,8 @@ export function createVocab(
 		onReplaced?: (notice: ReplacedNotice) => void;
 	} = {},
 ) {
-	const folder$ = folderOptions<typeof vocabFolder>(folder);
-	setVocabDefaults(queryClient, folder$);
+	const folder$ = folderOptions(folder);
+	setVocabDefaults(queryClient);
 	const stopChanges = folder.onFilesChanged((change) =>
 		queryClient.invalidateQueries(folder$.pathFilter(change)),
 	);

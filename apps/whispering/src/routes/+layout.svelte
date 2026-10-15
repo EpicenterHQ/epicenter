@@ -20,9 +20,9 @@
 	// it: a route change renders another page inside the same session. Importing
 	// modules opens nothing, and no page opens a folder of its own.
 	// One cache for the session: the files it shows, and every write and action.
-	// The folder's change reports are the one detector of outside changes, so
-	// returning to the window reads nothing.
-	const queryClient = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false } } });
+	// The folder's queries are read again only when its change reports or the
+	// session's own writes say so.
+	const queryClient = new QueryClient();
 	// A scoped mutation waiting its turn pauses while TanStack thinks the page
 	// is unfocused; a recording's steps must run in a hidden window too.
 	focusManager.setEventListener((setFocused) => {
