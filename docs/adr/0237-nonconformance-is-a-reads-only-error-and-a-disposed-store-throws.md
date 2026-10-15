@@ -18,6 +18,7 @@
   (the superseded stack's read surface already drew this line: "classification
   failure is row data, but operational failure is control flow"; this record
   carries it into the store),
+  <!-- doc-path-check: ignore-next-line -->
   [ADR-0125 territory restated in `docs/the-store-and-what-it-replaced.md`]
   (nonconforming is a view, not damage),
   [ADR-0213](0213-a-lens-is-arktype-json-and-an-application-queries-only-its-own-projection.md)

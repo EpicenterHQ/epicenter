@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-24
+<!-- doc-path-check: ignore-next-line -->
 - **Relates:** [ADR-0068](0068-privacy-is-a-deployment-not-a-product-feature.md) (privacy is which deployment runs the program; this names what a "deployment" is), [ADR-0035](0035-durable-storage-is-one-per-person-coordination-box.md) (the star: anchor, store, worker, relay roles), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) / [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (inference is an OpenAI-compatible endpoint chosen by base URL) / [ADR-0067](0067-auth-owns-the-session-endpoint-the-data-client-is-owner-scoped.md) (the owner-scoped client and the `{baseUrl, apiKey?}` floor); the in-flight work and gap ledger live in `specs/20260624T223835-privacy-is-a-deployment-self-host-and-relay-anchor-gradations.md`.
 
 ## Context

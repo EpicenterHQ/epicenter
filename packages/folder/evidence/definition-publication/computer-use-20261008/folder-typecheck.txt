@@ -1,5 +1,0 @@
-$ svelte-check --tsconfig ./tsconfig.json
-Loading svelte-check in workspace: /Users/braden/Code/worktrees/epicenter/app-schema-derive-export-import/packages/folder
-Getting Svelte diagnostics...
-
-svelte-check found 0 errors and 0 warnings

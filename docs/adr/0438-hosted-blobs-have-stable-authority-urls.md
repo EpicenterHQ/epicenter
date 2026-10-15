@@ -168,7 +168,8 @@ public URLs for safe media can be used directly in HTML media elements. The
 server admits only an explicit set of inert media types for inline public
 responses and serves other types as attachments. It retains `nosniff` and
 sandbox response protection so untrusted content cannot gain script authority
-on the API origin. [Local Chrome verification](../reports/20260924-personal-hosted-blob-real-storage-verification.md)
+<!-- doc-path-check: ignore-next-line -->
+on the API origin. Local Chrome verification (`docs/reports/20260924-personal-hosted-blob-real-storage-verification.md`, deleted; recover via `git log --all --full-history`)
 confirmed public WAV playback with those response headers; deployed Worker and
 R2 playback remain unverified. The server, including the self-hosted server,
 enforces the same owner and visibility rules. A public

@@ -236,7 +236,8 @@ starting: a prior session may already have completed it.
 - Desired result: Physical recording interrupted by account-change restart
   releases the microphone and staging resources; a reopened app can record
   again while previously saved audio survives.
-- Grounding: The [runtime lifetime plan](specs/20260919T090341-runtime-lifetime-collapse.md)
+<!-- doc-path-check: ignore-next-line -->
+- Grounding: The runtime lifetime plan (`specs/20260919T090341-runtime-lifetime-collapse.md`, deleted; recover via `git log --all --full-history`)
   retains this gate. Previous attempts failed before acquisition because macOS
   exposed no input device. Synthetic capture and restart evidence are recorded
   there but do not prove physical capture interruption.
@@ -627,6 +628,7 @@ starting: a prior session may already have completed it.
   separated songs, recordings, and platform entries. It suggested external
   matching services as candidates, but did not establish their coverage or
   commit Epicenter to building this app. The draft
+  <!-- doc-path-check: ignore-next-line -->
   `specs/20260511T111700-item-tagging-schema.md` concerns tags on music and other
   items; it does not settle cross-service recording identity.
 - Revisit when: Building a music collection or importing likes from more than

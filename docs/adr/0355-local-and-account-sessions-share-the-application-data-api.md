@@ -378,7 +378,8 @@ slice, looking for duplicate facts and boundaries that no longer own a distinct
 job. The implementing agent owns integration and verifies review findings.
 
 Execution checkpoints and evidence targets live in
-[the implementation spec](../../specs/20260907T231907-local-account-app-clean-break.md).
+<!-- doc-path-check: ignore-next-line -->
+the implementation spec (`specs/20260907T231907-local-account-app-clean-break.md`, deleted; recover via `git log --all --full-history`).
 
 ## Consequences
 
