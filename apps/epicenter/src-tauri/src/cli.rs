@@ -15,7 +15,10 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use serde::Serialize;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use tauri::ipc::Channel;
 use tauri::{Runtime, Webview};
 use tauri_plugin_epicenter_folder::{FolderExt, GrantError};
@@ -81,6 +84,9 @@ pub struct CliExit {
 pub enum CliError {
     /// This window holds no grant for the folder.
     NotGranted { grant: GrantError },
+    /// The CLI refused the input with exit code 2 and said why on stdout:
+    /// an id, an endpoint, or a keychain it cannot use.
+    Refused { message: String },
     /// The binary could not be started or read, stopped without an exit
     /// code, or the page stopped listening.
     Failed { message: String },
@@ -233,6 +239,258 @@ pub async fn folder_check<R: Runtime>(
         |line| on_line.send(line).map_err(|error| error.to_string()),
     )
     .await
+}
+
+// ---------------------------------------------------------------------------
+// AI connections (ADR-0557): one request over a connection, and its key in
+// the keychain. The CLI holds both; these commands only carry the page's
+// typed input to one fixed invocation, so no page reads a saved key.
+// ---------------------------------------------------------------------------
+
+/// Where a request goes: a connection by its id, which is the stem of its row
+/// in `so.epicenter/connections`. An `openai-compatible` target names the
+/// endpoint the page prepared the request for; the CLI sends only while the
+/// keychain entry still holds it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum AiTarget {
+    OpenaiCompatible {
+        connection: String,
+        endpoint: String,
+    },
+    Epicenter {
+        connection: String,
+    },
+    Local {
+        connection: String,
+    },
+}
+
+impl AiTarget {
+    fn connection(&self) -> &str {
+        match self {
+            Self::OpenaiCompatible { connection, .. }
+            | Self::Epicenter { connection }
+            | Self::Local { connection } => connection,
+        }
+    }
+}
+
+/// An OpenAI-compatible request, relative to its connection's endpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, specta::Type)]
+pub struct AiRequest {
+    pub method: String,
+    /// Below the endpoint, such as `audio/transcriptions`.
+    pub path: String,
+    pub headers: Vec<(String, String)>,
+    /// The body in base64, decoded here and written to the CLI as raw bytes.
+    pub body: Option<String>,
+}
+
+/// What this computer's keychain holds for a connection. Never the key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum AiKeyState {
+    Missing,
+    Saved {
+        endpoint: String,
+        #[serde(rename = "hasKey")]
+        has_key: bool,
+    },
+}
+
+/// A connection id, as `@epicenter/ai/send` reads one: it goes into the
+/// CLI's arguments, so it may never look like an option.
+fn connection_id(id: &str) -> Result<&str, CliError> {
+    let valid = (1..=128).contains(&id.len())
+        && id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if valid {
+        Ok(id)
+    } else {
+        Err(CliError::Refused {
+            message: format!("'{id}' is not a connection id"),
+        })
+    }
+}
+
+/// What `epicenter send` reads on stdin: one JSON line naming the target
+/// and the request, then the body's raw bytes (`encodeSendInput` in
+/// `@epicenter/ai/send`).
+fn send_input(target: &AiTarget, request: &AiRequest) -> Result<Vec<u8>, CliError> {
+    let body = match &request.body {
+        Some(encoded) => STANDARD
+            .decode(encoded)
+            .map_err(|error| CliError::Refused {
+                message: format!("the request body is not base64: {error}"),
+            })?,
+        None => Vec::new(),
+    };
+    let mut input = serde_json::to_vec(&json!({
+        "target": target,
+        "request": {
+            "method": request.method,
+            "path": request.path,
+            "headers": request.headers,
+        },
+    }))
+    .map_err(|error| failed(error.to_string()))?;
+    input.push(b'\n');
+    input.extend_from_slice(&body);
+    Ok(input)
+}
+
+/// `epicenter send --json`, each NDJSON line handed to `on_line`.
+async fn send_with(
+    program: &Program,
+    target: &AiTarget,
+    request: &AiRequest,
+    on_line: impl FnMut(String) -> Result<(), String>,
+) -> Result<CliExit, CliError> {
+    connection_id(target.connection())?;
+    let input = send_input(target, request)?;
+    run(
+        program,
+        &["send".into(), "--json".into()],
+        Some(input),
+        on_line,
+    )
+    .await
+}
+
+/// Run one `epicenter auth key` invocation and read its one JSON line.
+async fn key_command(
+    program: &Program,
+    action: &str,
+    connection: &str,
+    stdin: Option<Vec<u8>>,
+) -> Result<Value, CliError> {
+    let connection = connection_id(connection)?;
+    let mut answer = None;
+    let exit = run(
+        program,
+        &[
+            "auth".into(),
+            "key".into(),
+            action.into(),
+            connection.into(),
+            "--json".into(),
+        ],
+        stdin,
+        |line| {
+            answer = Some(line);
+            Ok(())
+        },
+    )
+    .await?;
+    let value = answer
+        .as_deref()
+        .and_then(|line| serde_json::from_str::<Value>(line).ok());
+    match (exit.code, value) {
+        (0, Some(value)) => Ok(value),
+        (_, Some(Value::Object(object))) if object.contains_key("error") => {
+            Err(CliError::Refused {
+                message: object["error"].as_str().unwrap_or_default().to_string(),
+            })
+        }
+        (code, _) => Err(failed(format!(
+            "epicenter auth key {action} exited {code}: {}",
+            exit.stderr.trim()
+        ))),
+    }
+}
+
+fn key_state(value: Value) -> Result<AiKeyState, CliError> {
+    serde_json::from_value(value).map_err(|error| {
+        failed(format!(
+            "the CLI answered a key state that does not read: {error}"
+        ))
+    })
+}
+
+async fn key_set_with(
+    program: &Program,
+    connection: &str,
+    endpoint: &str,
+    key: &str,
+) -> Result<AiKeyState, CliError> {
+    let input = serde_json::to_vec(&json!({ "endpoint": endpoint, "key": key }))
+        .map_err(|error| failed(error.to_string()))?;
+    key_state(key_command(program, "set", connection, Some(input)).await?)
+}
+
+async fn key_state_with(program: &Program, connection: &str) -> Result<AiKeyState, CliError> {
+    key_state(key_command(program, "state", connection, None).await?)
+}
+
+async fn key_remove_with(program: &Program, connection: &str) -> Result<bool, CliError> {
+    let value = key_command(program, "remove", connection, None).await?;
+    value["removed"]
+        .as_bool()
+        .ok_or_else(|| failed("the CLI answered a removal that does not read"))
+}
+
+/// Send one request over an AI connection with the key saved on this
+/// computer, through `epicenter send` (ADR-0557). Each line of its NDJSON
+/// (the response's head, its body in base64 chunks, and `end`, or an
+/// `error`) goes to `on_event`; the page reads them back into a `Response`.
+/// One more line, `{"type":"exit","code","stderr"}`, follows the CLI's own
+/// on the same channel, so a page that sees it knows no other line is
+/// coming, whenever the command's own result arrives.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_send(
+    connection: AiTarget,
+    request: AiRequest,
+    on_event: Channel<String>,
+) -> Result<CliExit, CliError> {
+    let exit = send_with(
+        &bundled_program().map_err(failed)?,
+        &connection,
+        &request,
+        |line| on_event.send(line).map_err(|error| error.to_string()),
+    )
+    .await?;
+    let last = json!({ "type": "exit", "code": exit.code, "stderr": exit.stderr });
+    on_event
+        .send(last.to_string())
+        .map_err(|error| failed(error.to_string()))?;
+    Ok(exit)
+}
+
+/// Save `endpoint` and `key` for `connection` in this computer's keychain,
+/// through `epicenter auth key set`, which reads both on stdin. An empty key
+/// confirms a keyless endpoint.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_key_set(
+    connection: String,
+    endpoint: String,
+    key: String,
+) -> Result<AiKeyState, CliError> {
+    key_set_with(
+        &bundled_program().map_err(failed)?,
+        &connection,
+        &endpoint,
+        &key,
+    )
+    .await
+}
+
+/// Remove what this computer saved for `connection`; whether there was anything.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_key_remove(connection: String) -> Result<bool, CliError> {
+    key_remove_with(&bundled_program().map_err(failed)?, &connection).await
+}
+
+/// Whether a key is saved for `connection`, and for which endpoint. Never the key.
+#[tauri::command]
+#[specta::specta]
+pub async fn ai_key_state(connection: String) -> Result<AiKeyState, CliError> {
+    key_state_with(&bundled_program().map_err(failed)?, &connection).await
 }
 
 #[cfg(test)]
@@ -463,5 +721,254 @@ process.exitCode = 1;
 
         app.folders().shutdown();
         let _ = fs::remove_dir_all(root);
+    }
+
+    /// The CLI's source under the `bun` on `PATH`, as a development build
+    /// runs it, with the keychain replaced by the in-memory store
+    /// `EPICENTER_TEST_SECRETS` seeds, so no test touches the real keychain.
+    fn cli_with_secrets(dir: &std::path::Path, secrets: Value) -> Program {
+        let env = dir.join("secrets.env");
+        fs::write(&env, format!("EPICENTER_TEST_SECRETS='{secrets}'\n")).unwrap();
+        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../packages/cli/src/bin.ts");
+        Program {
+            program: PathBuf::from("bun"),
+            prefix: vec![
+                format!("--env-file={}", env.display()).into(),
+                "--no-install".into(),
+                entry.into_os_string(),
+            ],
+        }
+    }
+
+    /// One HTTP exchange on a local port: answers `body` with status 200 and
+    /// hands back the request it read, head and body.
+    async fn fake_endpoint(body: Vec<u8>) -> (String, tokio::task::JoinHandle<Vec<u8>>) {
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let served = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = vec![0u8; 64 * 1024];
+            loop {
+                let read = socket.read(&mut chunk).await.unwrap();
+                request.extend_from_slice(&chunk[..read]);
+                let text = String::from_utf8_lossy(&request).to_lowercase();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .map(|value| value.trim().parse::<usize>().unwrap())
+                        .unwrap_or(0);
+                    if request.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+                if read == 0 {
+                    break;
+                }
+            }
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(head.as_bytes()).await.unwrap();
+            socket.write_all(&body).await.unwrap();
+            socket.shutdown().await.unwrap();
+            request
+        });
+        (format!("http://127.0.0.1:{}/v1", address.port()), served)
+    }
+
+    fn openai(endpoint: &str) -> AiTarget {
+        AiTarget::OpenaiCompatible {
+            connection: "groq".into(),
+            endpoint: endpoint.into(),
+        }
+    }
+
+    /// `ai_send` runs exactly `epicenter send --json`, writes the target and
+    /// request as one JSON line followed by the body's raw bytes, and passes
+    /// each line the child prints on, unread. The child here reports what it
+    /// was given.
+    #[tokio::test]
+    async fn ai_send_writes_one_fixed_invocation_with_the_raw_body() {
+        let dir = scratch("send-input");
+        let script = dir.join("child.ts");
+        fs::write(
+            &script,
+            r#"
+const input = await Bun.stdin.bytes();
+const newline = input.indexOf(10);
+const head = JSON.parse(new TextDecoder().decode(input.subarray(0, newline)));
+const body = input.subarray(newline + 1);
+console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subarray(0, 4)], length: body.length }));
+"#,
+        )
+        .unwrap();
+        let program = Program {
+            program: PathBuf::from("bun"),
+            prefix: vec![script.into_os_string()],
+        };
+        let mut body = vec![0u8, 10, 13, 255];
+        body.extend(std::iter::repeat(7u8).take(2 * 1024 * 1024));
+        let request = AiRequest {
+            method: "POST".into(),
+            path: "audio/transcriptions".into(),
+            headers: vec![(
+                "content-type".into(),
+                "multipart/form-data; boundary=x".into(),
+            )],
+            body: Some(STANDARD.encode(&body)),
+        };
+        let mut lines = Vec::new();
+        let exit = send_with(
+            &program,
+            &openai("https://api.groq.com/openai/v1"),
+            &request,
+            |line| {
+                lines.push(line);
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(exit.code, 0, "{}", exit.stderr);
+        let seen: Value = serde_json::from_str(&lines[0]).unwrap();
+        assert_eq!(seen["argv"], json!(["send", "--json"]));
+        assert_eq!(
+            seen["head"],
+            json!({
+                "target": { "kind": "openai-compatible", "connection": "groq", "endpoint": "https://api.groq.com/openai/v1" },
+                "request": {
+                    "method": "POST",
+                    "path": "audio/transcriptions",
+                    "headers": [["content-type", "multipart/form-data; boundary=x"]],
+                },
+            })
+        );
+        assert_eq!(seen["body"], json!([0, 10, 13, 255]));
+        assert_eq!(seen["length"], body.len());
+
+        let refused = send_with(
+            &program,
+            &AiTarget::Epicenter {
+                connection: "--json".into(),
+            },
+            &request,
+            |_| Ok(()),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(refused, CliError::Refused { .. }), "{refused:?}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Through the real CLI: the key state names the endpoint and never the
+    /// key, a request reaches the endpoint with the keychain's key and comes
+    /// back as head, chunks, and end, and a request prepared for another
+    /// endpoint is refused without being sent.
+    #[tokio::test]
+    async fn ai_send_and_the_key_commands_run_the_cli() {
+        let dir = scratch("send-cli");
+        let reply: Vec<u8> = (0..200_000u32).map(|index| (index % 251) as u8).collect();
+        let (endpoint, served) = fake_endpoint(reply.clone()).await;
+        let program = cli_with_secrets(
+            &dir,
+            json!({ "groq": { "endpoint": endpoint, "key": "sk-rust" } }),
+        );
+
+        assert_eq!(
+            key_state_with(&program, "groq").await.unwrap(),
+            AiKeyState::Saved {
+                endpoint: endpoint.clone(),
+                has_key: true
+            }
+        );
+        assert_eq!(
+            key_state_with(&program, "other").await.unwrap(),
+            AiKeyState::Missing
+        );
+        assert_eq!(
+            key_set_with(&program, "other", "https://API.example.com/v1/", "")
+                .await
+                .unwrap(),
+            AiKeyState::Saved {
+                endpoint: "https://api.example.com/v1".into(),
+                has_key: false
+            }
+        );
+        let refused = key_set_with(&program, "other", "ftp://x", "k")
+            .await
+            .unwrap_err();
+        assert!(matches!(refused, CliError::Refused { .. }), "{refused:?}");
+        assert!(!key_remove_with(&program, "other").await.unwrap());
+
+        let request = AiRequest {
+            method: "POST".into(),
+            path: "chat/completions".into(),
+            headers: vec![("cookie".into(), "ambient=1".into())],
+            body: Some(STANDARD.encode(b"{\"model\":\"m\"}")),
+        };
+        let mut events = Vec::new();
+        let exit = send_with(&program, &openai(&endpoint), &request, |line| {
+            events.push(serde_json::from_str::<Value>(&line).unwrap());
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert_eq!(exit.code, 0, "{}", exit.stderr);
+        assert_eq!(events[0]["type"], "head");
+        assert_eq!(events[0]["status"], 200);
+        assert_eq!(events.last().unwrap()["type"], "end");
+        let mut body = Vec::new();
+        for event in &events[1..events.len() - 1] {
+            assert_eq!(event["type"], "chunk");
+            body.extend(STANDARD.decode(event["data"].as_str().unwrap()).unwrap());
+        }
+        assert_eq!(body, reply);
+        let sent = String::from_utf8(served.await.unwrap()).unwrap();
+        assert!(sent.starts_with("POST /v1/chat/completions "), "{sent}");
+        assert!(
+            sent.to_lowercase()
+                .contains("authorization: bearer sk-rust"),
+            "{sent}"
+        );
+        assert!(!sent.to_lowercase().contains("cookie"), "{sent}");
+        assert!(sent.ends_with("{\"model\":\"m\"}"), "{sent}");
+
+        let mut events = Vec::new();
+        let exit = send_with(
+            &program,
+            &openai("https://api.example.com/v1"),
+            &request,
+            |line| {
+                events.push(serde_json::from_str::<Value>(&line).unwrap());
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(exit.code, 2);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["name"], "EndpointChanged");
+
+        let mut events = Vec::new();
+        send_with(
+            &program,
+            &AiTarget::Epicenter {
+                connection: "account".into(),
+            },
+            &request,
+            |line| {
+                events.push(serde_json::from_str::<Value>(&line).unwrap());
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(events[0]["name"], "SignInUnavailable");
+        let _ = fs::remove_dir_all(dir);
     }
 }

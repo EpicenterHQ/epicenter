@@ -9,8 +9,6 @@
 
 import { join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { type AiCatalog, createAiCatalog } from './ai-catalog.ts';
-import { createNativeAppSecrets } from './app-secrets.ts';
 import { COMPILED_APPLICATIONS } from './applications.ts';
 import {
 	createDesktopAuthAuthority,
@@ -45,8 +43,6 @@ async function main(): Promise<void> {
 	let desktopAuth: DesktopAuthAuthority | undefined;
 	let server: ReturnType<typeof Bun.serve> | undefined;
 	let lifecycleOwnsResources = false;
-	let aiCatalog: AiCatalog | undefined;
-	let noAccountAiCatalog: AiCatalog | undefined;
 
 	try {
 		const runtimeMode = parseRuntimeMode(Bun.argv);
@@ -63,19 +59,6 @@ async function main(): Promise<void> {
 					: undefined,
 		});
 		desktopAuth = auth;
-
-		const dataRoot = boot.dataDir;
-		// The credential store is Rust's, reached over the private sidecar pipe.
-		// Bun sends two labels and never a keyring address (ADR-0310).
-		const appSecrets = createNativeAppSecrets(nativePort);
-		aiCatalog = await createAiCatalog({
-			dataRoot,
-			secrets: appSecrets,
-			account: auth.account ?? undefined,
-		});
-		noAccountAiCatalog = auth.account
-			? await createAiCatalog({ dataRoot, secrets: appSecrets })
-			: aiCatalog;
 
 		const appsDist = process.env.EPICENTER_APPS_DIST;
 		if (!appsDist) {
@@ -96,8 +79,6 @@ async function main(): Promise<void> {
 				join(boot.cacheDir, 'builds'),
 			),
 			desktopAuth: auth,
-			aiCatalog,
-			noAccountAiCatalog,
 		});
 
 		server = Bun.serve({
@@ -114,7 +95,6 @@ async function main(): Promise<void> {
 			host: {
 				async [Symbol.asyncDispose]() {
 					ownedDesktopAuth[Symbol.dispose]();
-					await Promise.all([aiCatalog!.close(), noAccountAiCatalog!.close()]);
 				},
 			},
 			parentPipe,
@@ -124,7 +104,6 @@ async function main(): Promise<void> {
 		if (!lifecycleOwnsResources) {
 			if (server) void server.stop(true);
 			desktopAuth?.[Symbol.dispose]();
-			await Promise.all([aiCatalog?.close(), noAccountAiCatalog?.close()]);
 			await parentPipe.cancel();
 		}
 	}
@@ -135,9 +114,8 @@ export async function runHost(): Promise<void> {
 	try {
 		await main();
 	} catch (error) {
-		// Opening the store is part of boot, and it reports its refusals by
-		// throwing what a `defineErrors` factory produced. Those are plain
-		// objects, so an `instanceof Error` test would print `[object Object]`
+		// A boot failure may be a plain object a `defineErrors` factory
+		// produced, so an `instanceof Error` test would print `[object Object]`
 		// for exactly the failure an operator most needs spelled out.
 		console.error(extractErrorMessage(error));
 		process.exitCode = 1;

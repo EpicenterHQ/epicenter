@@ -6,6 +6,7 @@
 		"security": {
 			"capabilities": [
 				"home-model-administration-development",
+				"home-ai-connections-development",
 				"folders-development",
 				"installed-app-windows-development",
 				"installed-whispering-development"

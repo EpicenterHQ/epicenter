@@ -22,11 +22,11 @@ epicenter.app.json          the manifest  id so.epicenter.whispering and the tit
              ┌─────────┴── page ───┐     ▼
              │ the folder engine   │   the data folder and its .git
              └─────────┬───────────┘
-                       │ fetch /_epicenter/ai/no-account/…
+                       │ invoke ai_send
 ┌──────────────────────▼─────────────────────────────┐
-│ Epicenter's host (Bun): serves the page; AI        │
-│ connections, keys in the keychain; forwards each   │
-│ request to its connection with the key             │
+│ the `epicenter` CLI, run by the shell: endpoints   │
+│ and keys in this computer's keychain; checks the   │
+│ endpoint, adds the key, sends, streams the answer  │
 └────────────────────────────────────────────────────┘
 ```
 
@@ -43,14 +43,15 @@ bindings and no second transport.
 
 Every other native service is Epicenter's, granted to Whispering's windows by
 its app id (`installed-whispering-*` in `apps/epicenter/src-tauri/capabilities`):
-the recorder, and local transcription with Epicenter's active model. The two
-connections are entries in Epicenter's AI connections, whose keys stay in
-the system keychain; a request goes through Epicenter's host, which adds the
-key. Nothing native opens the folder for the page, takes its lock for it, or
+the recorder, local transcription with Epicenter's active model, and the AI
+commands. The two connections are rows of Epicenter's own folder
+`so.epicenter`, whose endpoints and keys stay in this computer's keychain; a
+request goes through the `epicenter` CLI, which adds the key. Nothing native opens the folder for the page, takes its lock for it, or
 saves a file the folder tracks.
 
-The two fail apart. If Epicenter's host stops while Whispering is open, the
-folder is still open and still saves; what stops is a request that was out.
+The two fail apart. If the `epicenter` command fails while Whispering is
+open, the folder is still open and still saves; what stops is a request that
+was out.
 
 ## The data model
 
@@ -93,12 +94,15 @@ What Whispering adds on top:
   transcript, so recording deletion never counts or waits on it.
 - `kv.json` holds the transcription endpoint and model an earlier build saved.
   It is read, to fill in the transcription form, and never written.
-- Connections are not folder data. There are two, transcription and text, each
-  a canonical base URL, a default model, and an optional key. In Epicenter
-  each is an entry in Epicenter's AI connections, named "Whispering
-  transcription" or "Whispering text", with its key in the system keychain;
-  the page remembers which entries in its origin's `localStorage`
-  (`src/lib/workspace/epicenter-connections.ts`). In a browser tab they are
+- Connections are not data in Whispering's folder. There are two,
+  transcription and text, each a canonical base URL, a default model, and an
+  optional key. In Epicenter each is a row of the `connections` table in
+  Epicenter's own folder `so.epicenter`, `connections/whispering-transcription.md`
+  or `connections/whispering-text.md`, holding the kind `openai-compatible`,
+  the title "Whispering transcription" or "Whispering text", and the model.
+  The base URL and key are not in the row: they are in this computer's
+  keychain under the row's id (`src/lib/workspace/desktop-connections.ts`).
+  In a browser tab they are
   `whispering.connections` in `localStorage`, where an earlier build's single
   key stays, unused, until the person moves it into a connection.
   `src/lib/connections.ts` holds the rules both storages apply.
@@ -122,8 +126,8 @@ implementation when the app layout mounts:
 | --- | --- | --- |
 | Folder | The real directory Epicenter's shell grants, opened by the page's engine (`openFolder` from `@epicenter/folder/tauri`) | One OPFS directory, files and `.git` together (`openFolder` from `@epicenter/folder/browser`); a folder an earlier build kept in IndexedDB is not read |
 | Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
-| Transcription and transformation | The page reads the audio and sends the request through Epicenter's host, which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
-| Connections and keys | Entries in Epicenter's AI connections; keys in the keychain; the page is told no key | `whispering.connections` in `localStorage` |
+| Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
+| Connections and keys | Rows of `so.epicenter`'s `connections` table; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
 | Local transcription | Epicenter's active local model (`local-transcription.ts`) | None |
 | Chosen microphone | `localStorage` | `localStorage` |
 | Terminal, reveal, failure injection | None | None |
@@ -180,22 +184,35 @@ its readiness, and opening Settings. Epicenter's README states the rule.
 
 ## Connections through Epicenter
 
-`src/lib/workspace/epicenter-connections.ts` reads and changes the two
-entries over `/_epicenter/ai/no-account/`, on the page's own origin with its
-session cookie. A save changes the entry in place, or adds one; `keep` sends
-no key, `replace` sends the new key, and `remove` sends an empty one.
+Opening Whispering's window permits it into Epicenter's own folder,
+`so.epicenter`. `src/lib/workspace/desktop-connections.ts` opens it with
+`openDataFolder` through `connectionsLens` from
+`@epicenter/ai/connection-table`, and reads and changes the two rows of its
+`connections` table, which sync with that folder. The endpoint and key are
+in this computer's keychain under the row's id, and only the `epicenter` CLI
+reads or writes them (`epicenter auth key set|remove|state`), through the
+Rust commands `ai_key_set`, `ai_key_remove`, and `ai_key_state`. The page
+learns the endpoint and whether a key is saved, never the key. A save writes
+the keychain entry first, then makes or updates the row; `keep` leaves the
+entry as it is, `replace` saves the new key, and `remove` saves none.
 `applyConnectionChange` refuses keeping a key for another base URL before
-anything is sent, as in a browser tab.
+anything is saved, as in a browser tab. A row synced from another computer is
+not set up on this one until a person saves its endpoint, and key if it has
+one, here.
 
 `transcribe` and `transform` take what to send, the model, and the base URL
 the page prepared the request for (`expectedBaseUrl`). The workspace reads
-the operation's entry once, at entry; if none is set up, or its base URL is
-not exactly `expectedBaseUrl`, it answers `ConnectionUnavailable` or
-`ConnectionChanged` and sends nothing. Otherwise the request goes to
-`/_epicenter/ai/no-account/inference/<id>/<access version>/…`, where the host
-adds the entry's key and forwards it to the entry's own base URL. A change
-saved while the request is out changes the entry's access version, and the
-host refuses the request rather than retarget it.
+the operation's row and keychain entry once, at entry; if either is missing,
+or the base URL is not exactly `expectedBaseUrl`, it answers
+`ConnectionUnavailable` or `ConnectionChanged` and sends nothing. Otherwise
+the request goes to the Rust command `ai_send`, which runs `epicenter send`.
+The CLI checks that the keychain entry still holds the endpoint the request
+was prepared for, and refuses the request, with nothing sent, rather than
+retarget it. Then it adds the key, sends with redirects refused and no
+cookie, and streams the response back as NDJSON lines over a Tauri `Channel`.
+The page reads those lines into a `Response` with `createResponseReader`
+from `@epicenter/ai/send`. The request never leaves from the page, so the
+endpoint needs no CORS headers.
 
 A transcription reads its audio through the folder engine, from the path the
 recording's row names, and sends those bytes with the file's own name and the
@@ -203,9 +220,9 @@ type its extension calls for. The folder plugin reads only beneath the root
 and never through a link. Audio that cannot be read is `AudioUnreadable`, and
 nothing is sent.
 
-A request whose reply never arrived from Epicenter's host says only that no
-reply arrived: the host may have forwarded it and had the answer lost on the
-way back. The page reports that as `HostUnavailable`, worded as an unknown
+A request whose reply never arrived from the `epicenter` command says only
+that no reply arrived: the command may have sent it and had the answer lost
+on the way back. The page reports that as `HostUnavailable`, worded as an unknown
 outcome and never as "not sent", and does not make the call again; trying
 again is the person's choice and is one more request.
 
@@ -348,7 +365,7 @@ the model, the prompt as the system message, and the input as the user
 message, reading `choices[0].message.content`. It is plain `fetch` with
 `redirect: 'error'` and `credentials: 'omit'`, shared by both workspaces like
 the transcription request (in Epicenter, its `fetch` goes through
-Epicenter's host), and it refuses a base URL
+the `epicenter` CLI), and it refuses a base URL
 that is not plain HTTP(S) before sending. `transformOverConnection` is the one
 entry both use: it reads the text connection once, refuses a request prepared
 for another base URL, and sends with that connection's key. An error never

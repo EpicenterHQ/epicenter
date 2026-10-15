@@ -36,5 +36,5 @@ export async function openWorkspace(): Promise<
 		return openBrowserWorkspace();
 	}
 	const { openDesktopWorkspace } = await import('./desktop.js');
-	return openDesktopWorkspace({ origin: location.origin });
+	return openDesktopWorkspace();
 }

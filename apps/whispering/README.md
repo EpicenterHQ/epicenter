@@ -99,8 +99,8 @@ folder's lock. The page is the UI, and it opens the folder itself: it reads
 the files, saves them, and records history, and every save and every `git`
 command goes through the shell, which keeps them inside the folder and out of
 Git's private files. The shell's recorder writes a recording into the folder
-as it captures. Requests to an endpoint go through Epicenter's host, which
-adds the connection's key.
+as it captures. Requests to an endpoint go through the `epicenter` CLI,
+which adds the connection's key.
 
 Checks, from `apps/whispering`:
 
@@ -321,12 +321,14 @@ changed the connection since, it is not sent: delete it and run anew.
 
 Settings has two connections, **Transcription** and **Text**. Each is a base
 URL, the model used when a request names none, and an optional API key. They
-are kept on this device, never in the folder. In Epicenter each is an entry in
-Epicenter's AI connections ("Whispering transcription" and "Whispering
-text"), which other apps in Epicenter can use too: its base URL and model in
-Epicenter's application data, its key in the system keychain. In a browser
-tab they are in this site's `localStorage`. Nothing about them is in
-`kv.json` or history.
+are never in Whispering's folder. In Epicenter each is a row of Epicenter's
+own folder `so.epicenter` ("Whispering transcription" and "Whispering
+text"), which other apps in Epicenter can use too. The row holds the model
+and syncs with that folder; the base URL and key stay in this computer's
+keychain. A connection synced from another computer is not set up on this
+one until you save its base URL, and key, here. In a browser tab they are in
+this site's `localStorage`. Nothing about them is in `kv.json` or
+history.
 
 - Nothing is sent until a connection is saved. A keyless local endpoint is
   set up the same way, with no key.
@@ -344,13 +346,14 @@ tab they are in this site's `localStorage`. Nothing about them is in
   carried to another URL. Base URLs are `http` or `https` with no user name,
   password, query, or fragment.
 - The window is told only each connection's endpoint, model, and whether it
-  has a key. In Epicenter the key never reaches the window, the folder, or
-  history: Epicenter's host adds it to the request, and the endpoint needs no
-  CORS headers.
+  has a key. In Epicenter the key never reaches the window, a folder, or
+  history: the `epicenter` CLI adds it to the request, and the endpoint needs
+  no CORS headers.
 - In a browser tab (`bun dev:whispering`) the tab sends requests itself, so
   the endpoint must allow the page's origin (CORS). Most hosted providers
-  refuse that; a local endpoint or Epicenter works. Errors that echo the key
-  have it removed.
+  refuse that; a local endpoint or Epicenter works. The key is saved in this
+  browser, where code running on the site can read it, and the key form says
+  so. Errors that echo the key have it removed.
 
 **From an earlier version.** An earlier version kept one key for every
 endpoint, and the endpoint and model in `kv.json`. In a browser tab, that key

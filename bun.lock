@@ -118,6 +118,7 @@
       "name": "@epicenter/epicenter",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/ai": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/cli": "workspace:*",
         "@epicenter/definition": "workspace:*",
@@ -383,6 +384,7 @@
       "name": "@epicenter/whispering",
       "version": "7.11.1",
       "dependencies": {
+        "@epicenter/ai": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
@@ -453,6 +455,7 @@
       "dependencies": {
         "@epicenter/auth": "workspace:*",
         "@epicenter/client": "workspace:*",
+        "@epicenter/folder": "workspace:*",
         "@epicenter/principal": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
@@ -521,6 +524,7 @@
         "epicenter": "./src/bin.ts",
       },
       "dependencies": {
+        "@epicenter/ai": "workspace:*",
         "@epicenter/folder": "workspace:*",
       },
       "devDependencies": {

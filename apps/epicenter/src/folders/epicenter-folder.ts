@@ -1,7 +1,7 @@
 /**
  * Epicenter's own folder, `so.epicenter` (ADR-0539): which apps are
- * installed, and Epicenter's settings, as files a person or an agent can read,
- * edit, and version.
+ * installed, the AI connections every app may use, and Epicenter's settings,
+ * as files a person or an agent can read, edit, and version.
  *
  * Epicenter creates this folder, so it owns the schema and opens it with
  * `openFolder`, which publishes `epicenter.json`. Each installed app is a row,
@@ -11,8 +11,15 @@
  * `approvals.json` in app data, which only the shell writes, so a row synced
  * from another machine runs nothing here until it is approved here. Built-in
  * apps are not rows.
+ *
+ * Each AI connection is a row, `connections/<id>.md`, holding its kind,
+ * title, and model (ADR-0557). Its endpoint and key are never in the folder:
+ * they are in this computer's keychain under the same id, written and read
+ * only by the `epicenter` CLI. The table is `@epicenter/ai`'s, so an
+ * installed app opens it through the same lens.
  */
 
+import { connectionsTable } from '@epicenter/ai/connection-table';
 import {
 	type CreateRowOf,
 	defineFolder,
@@ -50,6 +57,8 @@ export const epicenterDefinition = defineFolder({
 				commit: field.string(),
 			},
 		}),
+		/** One row per AI connection, at `connections/<id>.md`. */
+		connections: connectionsTable,
 	},
 });
 

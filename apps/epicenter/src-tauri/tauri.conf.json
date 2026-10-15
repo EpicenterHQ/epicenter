@@ -17,6 +17,7 @@
 		"security": {
 			"capabilities": [
 				"home-model-administration-production",
+				"home-ai-connections-production",
 				"folders-production",
 				"installed-app-windows-production",
 				"installed-whispering-production"

@@ -73,12 +73,7 @@ const noCommands: LocalTranscriptionCommands = {
 	openHome: unexpected,
 };
 
-const open = () =>
-	openDesktopWorkspace({
-		origin: 'http://127.0.0.1:39130',
-		fetch: unexpected,
-		commands: noCommands,
-	});
+const open = () => openDesktopWorkspace({ commands: noCommands });
 
 /** Open the window as the shell does, handed `folder` in `?folder=`, or none. */
 function openWindow(folder?: string) {
