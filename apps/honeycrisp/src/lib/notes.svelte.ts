@@ -329,9 +329,7 @@ export function createNotes(
 
 	// Changes the page did not make arrive here, and make exactly the queries
 	// they name stale. Stopped when the notes close.
-	const stopChanges = folder.onFilesChanged((change) =>
-		queryClient.invalidateQueries(folder$.pathFilter(change)),
-	);
+	const stopChanges = folder$.invalidateOnChange(queryClient);
 
 	/**
 	 * After the app's own action: what it changed at `paths` is read again,

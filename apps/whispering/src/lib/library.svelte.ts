@@ -372,9 +372,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	// The one channel of outside change (ADR-0548): each report makes exactly
 	// the queries it names stale, and the ones shown are read again.
-	const stopChanges = folder.onFilesChanged((change) =>
-		queryClient.invalidateQueries(folder$.pathFilter(change)),
-	);
+	const stopChanges = folder$.invalidateOnChange(queryClient);
 
 	const trackQueries = createSubscriber((update) =>
 		queryClient.getQueryCache().subscribe(update),

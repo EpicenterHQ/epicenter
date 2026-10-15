@@ -1098,9 +1098,7 @@ const done = createMutation(() => folder$.todos.update.mutationOptions());
 done.mutate({ stem: 'milk', set: { done: true } });
 
 // The app root, once: changes the page did not make mark what they name stale.
-folder.onFilesChanged((change) =>
-  queryClient.invalidateQueries(folder$.pathFilter(change)),
-);
+const stopChanges = folder$.invalidateOnChange(queryClient);
 ```
 
 | Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
@@ -1133,7 +1131,10 @@ running when the write lands may predate it, or a later change, so it is
 read again rather than kept. A failed write reads its paths again: the
 file was not what the base said, or the reply was lost.
 
-`pathFilter(change)` matches each row at a changed path, the listing of
+`invalidateOnChange(queryClient)` subscribes to `folder.onFilesChanged` and
+invalidates each change's `pathFilter`; it returns the function that stops
+it. `pathFilter(change)`, also usable on its own to invalidate, cancel, or
+refetch, matches each row at a changed path, the listing of
 each table whose directory a path is in, the settings for `kv.json`, the
 file listing and each changed file's `read` and `text`, each `query` over a
 changed path, and the history's status; a path in `.git` also matches the

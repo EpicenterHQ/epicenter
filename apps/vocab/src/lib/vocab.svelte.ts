@@ -35,9 +35,7 @@ export function createVocab(
 ) {
 	const folder$ = folderOptions(folder);
 	setVocabDefaults(queryClient);
-	const stopChanges = folder.onFilesChanged((change) =>
-		queryClient.invalidateQueries(folder$.pathFilter(change)),
-	);
+	const stopChanges = folder$.invalidateOnChange(queryClient);
 	const trackMutations = createSubscriber((update) =>
 		queryClient.getMutationCache().subscribe(update),
 	);
