@@ -778,7 +778,7 @@ When you add an ADR, add its row here.
 | [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Accepted |
 | [0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) | Every app is installed, from a folder in any Git repository | Accepted |
 | [0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) | A page's own writes keep its folder cache in step, and folder queries carry their read policy | Proposed |
-| [0554](0554-a-field-edit-is-a-patch-the-engine-applies-to-the-file-as-it-is-now.md) | A field edit is a patch the engine applies to the file as it is now | Proposed |
+| [0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) | A field edit sets fields on the file as it is now | Proposed |
 | [0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) | Apps reach native code through official Tauri plugins first, granted by app id | Proposed |
 | [0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) | Outside a WebView, TypeScript runs only as the epicenter CLI | Proposed |
 | [0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) | An AI connection is a row in so.epicenter whose key stays in this machine's keychain | Proposed |

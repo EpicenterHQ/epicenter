@@ -1,4 +1,4 @@
-# 0554. A field edit is a patch the engine applies to the file as it is now
+# 0554. A field edit sets fields on the file as it is now
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
@@ -29,33 +29,45 @@ already work this way: `kv.set` is an intent applied to the file as it is
 
 ## Decision
 
-**A field edit is a patch.** `table.update(stem, { fields, remove })` sets the
-named fields, and removes those in `remove`, on whatever the file holds now:
+**A field edit is an update.** `table.update(stem, { set, unset })` does what a
+database's `UPDATE … SET` does: it takes the row as it is now, sets the named
+fields, clears the named optional ones, and writes the result, so every field
+it does not name keeps whatever the file holds at that moment. Files have no
+transactions, so the read and the write are made atomic by the strict
+compare-and-swap of ADR-0551 (`{ merge: false }`): when another writer saved
+in between, the update is done again on the newer row.
 
 ```ts
-async update(stem, { fields = {}, remove = [] }) {
-  const current = await this.get(stem);                 // a content-carrying capture
-  if (current === undefined) return Err(NotFound);
-  const values = { ...current.row.fields, ...fields };
-  for (const name of remove) delete values[name];
-  return this.save(current, { fields: values, body: current.row.body });
+async update(stem, { set = {}, unset = [] }) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = await this.get(stem);                      // the row now
+    if (current === undefined) return Err(NotFound);
+    const fields = { ...current.row.fields, ...set };
+    for (const name of unset) delete fields[name];
+    const saved = await this.save(current, { fields, body: current.row.body }, { merge: false });
+    if (saved.error?.name !== 'Conflict') return saved;        // written, or a real failure
+  }
+  return Err(KeptChanging);
 }
 ```
 
-It is a read and the existing `save`. When another writer saves between the
-read and the write, `save` merges from `current`: the patch differs from
-`current` only in its fields, so the merge keeps every other change, and the
-patched fields win where both sides changed them. No second mechanism re-applies
-the patch; the merge is that. `remove` exists because `null` may be a field's
-real value. A patch never carries the body: a whole body is a document, and
-setting it would replace another writer's lines.
+Nothing is merged, because nothing the person did not name is sent. Redoing
+the update on a newer row cannot undo another writer's change, and an update
+replaces nothing it did not name, so its `replaced` is always empty. `unset`
+is typed to accept only optional fields, so clearing a required field does not
+compile; `null` stays a value a field may hold. An update never touches the
+body: a whole body is a document.
 
-**A page sends patches through one mutation per editable thing.**
+**`save` stays the write for whole rows.** A document editor, a script holding
+a row, and Sync send a whole row with the version it started from; only they
+need the three-way merge, because only they send fields the person did not
+just change.
+
+**A page sends updates through one mutation per editable thing.**
 `folderOptions(folder).tables.<name>.update.mutationOptions()` runs
 `table.update` with the TanStack mutation scope set to the file's path, so one
 file's updates run in the order they were made, whichever control made them.
-A patch is data, so the mutation's variables can be shown, logged, and
-inspected.
+An update is plain data, so its variables show in devtools and logs.
 
 **A typed field is composed in the component.** What the person typed lives in
 the framework's own state until it is sent; `undefined` means nothing typed, so
@@ -79,7 +91,7 @@ older cached value in between.
     if (title === undefined) return;
     const sent = title;
     saveTitle.mutate(
-      { stem, fields: { title: sent } },
+      { stem, set: { title: sent } },
       { onSuccess: () => { if (title === sent) title = undefined; } },
     );
   }, 1000);
@@ -88,7 +100,7 @@ older cached value in between.
 </script>
 
 <input type="checkbox" checked={todo.data?.row.fields.done}
-  onchange={(e) => saveDone.mutate({ stem, fields: { done: e.currentTarget.checked } })} />
+  onchange={(e) => saveDone.mutate({ stem, set: { done: e.currentTarget.checked } })} />
 
 <input value={title ?? todo.data?.row.fields.title}
   oninput={(e) => { title = e.currentTarget.value; void sendTitle(); }}
@@ -102,7 +114,7 @@ save, so "Try again" sends what is typed now. The library adds no helper for
 this; one is extracted when a second app repeats the pattern.
 
 **Documents keep a starting version.** A note body, a transcript, or a file's
-text cannot be a patch. Their editors keep the text draft
+text cannot be an update. Their editors keep the text draft
 (`createTextDraft`): the text typed and the version it started from, saved
 after a pause through `files.save` or `table.save`, with a merged save's lines
 folded back in under the cursor.
@@ -114,17 +126,17 @@ folded back in under the cursor.
   Folders window's save queue, and the per-control drafts in every app.
 - An update reads the file before writing, one read more than a save from a
   version known to be current.
-- A person's save wins, with no notice, on a field another writer changed while
-  they typed in it; every field they did not touch keeps the other writer's
-  value.
+- A person's update wins, with no notice, on a field another writer changed
+  while they typed in it; every field they did not name keeps the other
+  writer's value.
 - Quitting loses at most the last second of typing, within
   [ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)'s
   "a field mid-edit is lost on quit".
 - Each typed field is about a dozen lines in its component, and each must be
   keyed by its file and flush when it goes away; two components editing the
   same field do not share typed text.
-- Relative changes (a counter, appending to a list) are not patches. Scripts and
-  agents read the row and `save` it.
+- Relative changes (a counter, appending to a list) are not updates; a script
+  reads the row and saves it.
 
 ## Considered alternatives
 
@@ -132,10 +144,21 @@ folded back in under the cursor.
   overlap it creates is most of the draft's code.
 - **One pending edit per file, owned by the page or the folder,** with changes
   kept as functions and replayed after a merged save. Correct, and a store with
-  its own lifetime and framework bindings; the patch gets the same result from
-  the existing merge.
-- **A change callback instead of a patch.** Expresses relative changes, which a
-  person's controls never produce, and cannot be shown, logged, or resent.
+  its own lifetime and framework bindings; an update applied to the current
+  file gets the same result with neither.
+- **A callback that changes a copy of the fields (`(f) => { f.title = … }`).**
+  Expresses relative changes, which a person's controls never produce; needs a
+  deep copy so the callback cannot alter the version being saved over, and a
+  comparison to learn what it touched; can delete a required field, found only
+  when the save refuses it; and its variables are a function.
+- **A callback that returns new fields (`(f) => ({ ...f, title })`).** Spreading
+  the cache's row instead of `f` sends back stale values of fields the person
+  never touched.
+- **An update through `save`'s three-way merge.** Correct, but it reports the
+  person's own field as replaced and needs those entries filtered out; redoing
+  the update on the newer row needs no merge at all.
+- **Writing the whole row the page last read.** Reverts every field another
+  writer changed since that read.
 - **Typed text in TanStack's cache.** The next refresh replaces it, and the edit
   loses the version it started from.
 - **A Yjs document as the buffer.** A second copy of a file that agents write
