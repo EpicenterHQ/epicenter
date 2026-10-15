@@ -121,6 +121,7 @@ export async function openBrowserWorkspace(): Promise<
 	return Ok({
 		kind: 'browser',
 		folder,
+		folderId: WHISPERING_FOLDER_ID,
 		location: 'Private files for this site in this browser',
 		terminal: undefined,
 		capture: wantsToneFixture()

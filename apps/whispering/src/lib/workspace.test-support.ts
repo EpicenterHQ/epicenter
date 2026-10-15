@@ -32,7 +32,11 @@ import {
 import { whisperingDefinition } from './definition.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
-import type { RecordingWriteHook, Workspace } from './workspace/types.js';
+import {
+	type RecordingWriteHook,
+	WHISPERING_FOLDER_ID,
+	type Workspace,
+} from './workspace/types.js';
 
 type TransformRequest = Parameters<Workspace['transform']>[0];
 type TranscribeRequest = Parameters<Workspace['transcribe']>[0];
@@ -300,6 +304,7 @@ export async function openTestWorkspace({
 			...folder,
 			tables,
 		} as Workspace['folder'],
+		folderId: WHISPERING_FOLDER_ID,
 		location: root,
 		terminal: {
 			get cwd() {

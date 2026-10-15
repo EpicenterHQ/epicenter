@@ -136,10 +136,7 @@ import type {
 	Workspace,
 	WorkspaceTerminal,
 } from './workspace/index.js';
-import {
-	type RecordingWriteHook,
-	WHISPERING_FOLDER_ID,
-} from './workspace/types.js';
+import type { RecordingWriteHook } from './workspace/types.js';
 
 export type Library = ReturnType<typeof createLibrary>;
 
@@ -924,7 +921,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	/** The folder a capture writes its audio into. */
 	const recordingFolder = (): RecordingFolder => ({
-		id: WHISPERING_FOLDER_ID,
+		id: workspace.folderId,
 		files: folder.files,
 	});
 

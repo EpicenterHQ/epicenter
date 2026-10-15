@@ -62,7 +62,7 @@ import {
 	summaryLine,
 	uncommittedLine,
 } from './status.js';
-import type { Workspace } from './workspace/types.js';
+import { WHISPERING_FOLDER_ID, type Workspace } from './workspace/types.js';
 import {
 	eventually,
 	openTestFolder,
@@ -143,6 +143,7 @@ async function open({
 				},
 			},
 		} as Workspace['folder'],
+		folderId: WHISPERING_FOLDER_ID,
 		location: directory,
 		terminal: {
 			cwd: '/',
