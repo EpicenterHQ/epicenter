@@ -994,7 +994,13 @@ describe('sidecar end-to-end smoke', () => {
 		const folderDir = testDataDir();
 		const ignoredDirectory = testDataDir();
 		const sidecar = Bun.spawn(
-			['bun', 'run', 'src/epicenter-binary.ts', '__host', '--runtime-mode=development'],
+			[
+				'bun',
+				'run',
+				'src/epicenter-binary.ts',
+				'__host',
+				'--runtime-mode=development',
+			],
 			{
 				cwd: queryDir,
 				env: {
@@ -1059,7 +1065,13 @@ describe('sidecar end-to-end smoke', () => {
 		});
 		const occupiedPort = boundPort(occupied);
 		const sidecar = Bun.spawn(
-			['bun', 'run', 'src/epicenter-binary.ts', '__host', '--runtime-mode=development'],
+			[
+				'bun',
+				'run',
+				'src/epicenter-binary.ts',
+				'__host',
+				'--runtime-mode=development',
+			],
 			{
 				cwd: queryDir,
 				env: {
@@ -1097,7 +1109,13 @@ describe('sidecar end-to-end smoke', () => {
 		const port = boundPort(portProbe);
 		await portProbe.stop(true);
 		const sidecar = Bun.spawn(
-			['bun', 'run', 'src/epicenter-binary.ts', '__host', '--runtime-mode=development'],
+			[
+				'bun',
+				'run',
+				'src/epicenter-binary.ts',
+				'__host',
+				'--runtime-mode=development',
+			],
 			{
 				cwd: queryDir,
 				env: {
