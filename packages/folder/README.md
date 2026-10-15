@@ -468,7 +468,7 @@ successful reading does not mean an application can open the folder.
 | `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `get(stem)` returns a `StoredRow` (`path`, `sha256`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `replace`, `rename`, and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
 | `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` merges one key into the current file, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and re-applies itself when another writer got there first. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `files` | Ordinary files at literal paths. See below. |
-| `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, `recoverIncoming()`, and `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |
+| `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, and `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |
 | `sync` | `run()` commits saved files, fetches, merges, and pushes; competing settings, row fields, row bodies, and whole row files come back as a `SyncAttempt` that `resolve(attempt, choices)` settles. See [Sync](#sync). |
 | `definition` | The prepared definition the handle reads with: `openFolder`'s `definition`, or the folder's own `epicenter.json` as `openDataFolder` read it when it opened. Its tables are `tables`, its settings `kv`, and Sync merges rows by it. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
@@ -1020,62 +1020,34 @@ on the desktop, asks `git check-attr --source`; the browser evaluates the
 commit's attribute files the same way, matching patterns as a case-insensitive
 checkout does.
 
-A browser folder publishes an incoming update in steps, under its Git Web Lock
-and then its files lock. Ordinary saves take only the files lock. They wait
-while an incoming update publishes or recovers its working tree, index, and
-branch, but not for fetching or preparing the incoming Git objects.
+An incoming update publishes files, then the index, then the branch, and no
+host records it in progress (ADR-0545). A browser folder publishes under its
+Git Web Lock and then its files lock. Ordinary saves take only the files lock.
+They wait while an update publishes its working tree, index, and branch, but
+not for fetching or preparing the incoming Git objects.
 
-1. Admission. Every portable file must still have the hash the update
-   captured, no new file may have appeared, and the index must be the bytes
-   its clean check left; otherwise nothing is written and the update is
-   `Refused` or `StagedChanges`. A path the update writes a file at that holds
-   a directory the update does not empty is refused here as `NotAFile`, as is
-   one holding a file no portable path names, such as `.DS_Store`. A folder
-   with no index first gets a valid empty one. Both commits are pinned under `refs/epicenter/incoming/`, and
-   the record `.git/epicenter-incoming.json` is written: an operation ID, the
-   branch, the head it was admitted over, and the commit it publishes.
-2. Only after the record's stream closed: removals (pruning only the
-   directories they emptied; empty directories a person made stay), then the
-   directories the update emptied where it writes files, then writes, then
-   the index, then the branch, compared with the pinned head.
-   So `a/b` can become a file `a`, and a file `a` a directory `a/b`.
-3. Once everything reads back as the published commit, the record and pins
-   are removed.
+1. Admission, in a browser folder. Every portable file must still have the
+   hash the update captured, no new file may have appeared, and the index
+   must be the bytes its clean check left; otherwise nothing is written and
+   the update is `Refused` or `StagedChanges`. A path the update writes a
+   file at that holds a directory the update does not empty is refused here
+   as `NotAFile`, as is one holding a file no portable path names, such as
+   `.DS_Store`. A directory folder, in Bun or on the desktop, checks each
+   changed file's own condition as it writes, best effort.
+2. Removals (pruning only the directories they emptied; empty directories a
+   person made stay), then the directories the update emptied where it
+   writes files, then writes, then the index, then the branch, compared with
+   the pinned head. So `a/b` can become a file `a`, and a file `a` a
+   directory `a/b`.
 
-A step that fails reports the steps that landed (`Partial`), or `Unconfirmed`
-when its outcome is unknown; either way the record stays.
-
-A directory folder, in Bun or on the desktop, applies ordered file steps,
-updates the index, and moves the branch last. A failure reports the steps
-that completed, marks the saved-files observation stale, and requests no
-commit. It does not retain an incoming recovery record: its
-`pendingIncoming` is absent and `recoverIncoming()` returns `none`. Durable
-incoming recovery is implemented for the browser only; on a directory, the
-next Sync records and merges what a stopped update wrote.
-
-### Interrupted incoming updates
-
-A browser record that remains, because a step failed or the tab closed, is
-pending. `git.snapshot.pendingIncoming` shows it, and nothing resumes it on
-its own. File saves continue; `stage()` is `IncomingPending`, a commit is
-`blocked`, and pulls and merges are `IncomingPending` until it is resolved.
-
-| `pendingIncoming.state` | Meaning |
-| --- | --- |
-| `recorded` | `{ operationId, branch, expectedHead, nextHead }`: the update was admitted and may have changed files. |
-| `unadmitted` | The record is empty: its admission never finished, so no authored file was changed by it. |
-| `unreadable` | The record holds bytes that are not a record, including one an earlier version wrote for a merge left unfinished. It is never deleted automatically. |
-
-`git.recoverIncoming()` resolves it explicitly:
-
-| Result | When |
-| --- | --- |
-| `none` | Nothing was pending. |
-| `admissionCleared` | The empty record was removed. Status is observed again. |
-| `cleared` | The branch already names the published commit. The record is removed without writing files; status is observed again, not assumed clean. |
-| `completed`, with `changedPaths` | The branch is at the admitted head. Each changed path is at its before or after state; those at their before state are written, then the index and the branch, and the record is removed. |
-| `RecoveryRefused`, with `paths` | A path holds a third value (another file, an empty file where there was none, a file where a directory belongs, or a directory where the update writes a file that the update did not empty), or the index, the branch, or the record is not what the update left. A directory counts as emptied by the update only when it, and each directory in it, held a file the update removes. The paths are named, nothing is written, and the record stays. Restore them and recover again. |
-| `Partial` or `Unconfirmed` | A recovery step failed or its outcome is unknown. The record stays. |
+An update that stops partway, because a step failed or the tab closed, is
+`Interrupted` with the `paths` it wrote or may have written. Nothing is
+pending afterward: the files it wrote differ from the branch head, status
+shows them as changed, saves and commits go ahead, and the next Sync records
+them and merges with the remote. A fast-forward cut off partway holds, at each
+path, the old version or the new one (in a browser, also an empty file whose
+creation never closed), so that merge lands on the remote's tree. The Sync can
+add one local commit of the mixed tree before its merge commit.
 
 ### Merging incoming changes
 
@@ -1091,7 +1063,7 @@ Diverged histories normally need exactly one merge base; none or several is
 explicitly combines histories with no common commit over an empty base. Both
 heads remain parents of the merge commit. Several bases are refused either way. The merge writes one commit whose parents are the pinned
 head and the pinned fetched commit, and publishes its files, a clean index,
-and the branch the way a fast-forward does, with the same record.
+and the branch the way a fast-forward does.
 
 - Root `kv.json` changed on both sides merges by key with `mergeKv`, and is
   saved with sorted keys. A nested `kv.json` is an ordinary file.
@@ -1217,9 +1189,7 @@ against other programs. File bytes cross the desktop bridge as JSON number
 arrays, which is slow for large audio.
 
 In a browser, OPFS quota exhaustion and eviction surface as the failing
-step's `Io` or `Unconfirmed`; nothing reserves space. Nothing abandons a
-pending incoming update: a record recovery refuses stays until the named
-paths are restored. Pages of other origins or browser profiles are outside
+step's `Io` or `Unconfirmed`; nothing reserves space. Pages of other origins or browser profiles are outside
 what the Web Locks can see.
 
 

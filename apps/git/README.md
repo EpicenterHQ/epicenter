@@ -41,9 +41,8 @@ knowledge without updating working files. The changes list separates index
 and worktree columns; ahead and behind are relative to the last fetched head.
 Pull applies the fetched head only as a fast-forward. Merge merges it when it
 fast-forwards or merges cleanly; a conflict writes nothing and points to Sync.
-In the browser, if publication stops partway, the page shows the pending
-update and offers explicit recovery. The desktop build records no pending
-update; its next Sync reconciles.
+If publication stops partway, the files it wrote show as changes, and the
+next Sync records and merges them, in the browser and on the desktop.
 
 Enter an HTTP(S) remote or leave the URL empty for local history. A copy
 with no origin connects to the remote once, when it opens, and keeps it as
