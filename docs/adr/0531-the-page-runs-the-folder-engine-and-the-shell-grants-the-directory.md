@@ -78,8 +78,8 @@ directory handle built on seven calls, and the native Git backend over a
 host of a `git` runner and the same calls. The repository is used as Git
 left it, and Git's configuration names the remote and author.
 
-Every desktop folder opens this way: Todos and Capture in Epicenter, and
-the standalone Honeycrisp, Whispering, and Git lab shells. The Rust owner,
+Every desktop folder opens this way: Todos, Capture, and Whispering in
+Epicenter ([ADR-0493](0493-whisperings-only-desktop-shell-is-epicenter.md)), and the standalone Honeycrisp and Git lab shells. The Rust owner,
 its page protocol, and the desktop adapter that spoke it are deleted.
 
 **Quitting is immediate** ([ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)):

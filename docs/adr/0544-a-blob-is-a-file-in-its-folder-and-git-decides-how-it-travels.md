@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** all of it, in this order: the Worker's LFS routes; the desktop's bundled `git-lfs` and the engine's LFS checkpoint, push, and fetch; browser download; browser upload. Until both clients handle LFS, the engine keeps refusing `filter` attributes.
+- **Unbuilt:** all of it, in this order: the Worker's LFS routes; the engine's LFS client, download first, then upload. Until it uploads, the engine keeps refusing `filter` attributes.
 
 ## Context
 
@@ -34,27 +34,25 @@ it by editing those files.
 **Epicenter's hosted blob storage is the LFS server for hosted folders.**
 Cloudflare Artifacts has no LFS (its documentation and changelog through
 2026-10-01 name none), and caps a file at 32 MB and a repository at 1 GB, so
-audio needs LFS there. The Worker serves `POST /git/<name>.git/info/lfs/objects/batch`
-and `.../info/lfs/verify` beside the Git routes in `mountGitApp`, checks the same
-credential and namespace Git requests carry ([ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md)), and answers with
+audio needs LFS there. The Worker serves `POST /<namespace>/<name>.git/info/lfs/objects/batch`
+and `.../info/lfs/verify` on `git.epicenter.so` beside the Git routes in `mountGitApp`, checks the same
+access token and namespace Git requests carry ([ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md),
+[ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)), and answers with
 presigned URLs on its S3-compatible blob storage under `lfs/<repo>/<oid>`, so
 the bytes never pass through the Worker. `.../info/lfs/locks/verify` answers
 501.
 
-**The desktop ships `git-lfs` and fixes its configuration on every run.**
-`run_git` passes `filter.lfs.process`, `filter.lfs.clean`, `filter.lfs.smudge`,
-and `filter.lfs.required=true` naming the bundled binary by absolute path, and
-`lfs.url`, so neither a missing `git lfs install` nor another program's
-configuration changes what runs. LFS objects upload with
-`git lfs push --object-id` before the refs that name them are pushed; no
-pre-push hook runs. Incoming pointers are fetched with `git lfs fetch` and
-materialized by the shell into data paths under the same checked publish as
-every save.
-
-**The browser has its own LFS client**, since isomorphic-git has none: it reads
-the three-line pointer, asks the batch endpoint with the person's session, and
-fetches the returned link, about 150 lines. Download comes first; until upload
-exists, the browser refuses to change an LFS path.
+**The folder engine has one LFS client, in TypeScript, for every host.** The
+browser, the desktop page, and Bun run the same code in `@epicenter/folder`:
+it reads and writes the three-line pointer, asks the batch endpoint with the
+grant's access token for `git.epicenter.so`, and moves bytes with `fetch` to
+and from the presigned links it returns. Saving an LFS path uploads the object,
+then stores its pointer as the path's blob (on the desktop and in Bun with
+`git hash-object -w --stdin`, which runs no filters); an incoming pointer is downloaded and materialized into its data path
+under the same checked publish as every save. Epicenter configures no
+`filter.lfs` in `run_git` and ships no `git-lfs`. An agent or a terminal using
+plain `git` on the same repository installs `git-lfs` itself and reads the same
+pointers.
 
 **Embedding a blob writes a file and links it by relative path.** An image
 pasted into a row's body becomes `attachments/<name>` in the folder, marked for
@@ -69,12 +67,12 @@ the cache at any time.
 
 ## Consequences
 
-- The per-app device blob cache in app data has no job left: LFS keeps its
-  objects in each folder's `.git/lfs`.
+- The per-app device blob cache in app data has no job left: LFS objects live
+  in each folder's `.git/lfs`.
 - A file not yet downloaded is its pointer: a reference until it is fetched.
-- Desktop, CLI, and an agent's plain `git` all move blobs the same way.
-- Epicenter ships `git-lfs` as a sidecar (MIT, about 13 MB per architecture);
-  a Finder-launched app cannot rely on a Homebrew install being on its `PATH`.
+- Every host moves blobs through one client; an agent's plain `git` reads the
+  same pointers through its own `git-lfs`.
+- A plain `git` without `git-lfs` checks out pointers, not bytes.
 
 Open before this is built: whether a read-only Artifacts token is refused for
 `git-receive-pack` (the upload check relies on it), and whether R2 enforces a
@@ -92,3 +90,8 @@ a feasibility spike on 2026-10-15 with git 2.50.1 and git-lfs 3.8.0.
   bytes, and a folder synced to GitHub still keeps its blobs on Epicenter. The
   LFS client the browser needs makes the same request this design would.
 - **Unguessable public links.** Anyone who sees the link sees the blob.
+- **A bundled `git-lfs` with `filter.lfs.*` fixed in `run_git`.** The engine
+  writes objects with `git hash-object --stdin`, which runs no filters, so the
+  configuration would be inert for its own reads and writes, and the browser
+  would still need its own client: two clients and a 13 MB sidecar per
+  architecture.

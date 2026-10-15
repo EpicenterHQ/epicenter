@@ -24,8 +24,8 @@ Applications migrate only after the native owner preserves their publication,
 terminal, history, and shutdown guarantees. The older
 [desktop packaging decision](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md)
 also excludes a standalone Whispering shell, contrary to the current README.
-The proposed [three deployment forms](0493-whispering-runs-as-one-application-in-three-deployment-forms.md)
-resolve that packaging discrepancy separately from the folder transport.
+[ADR-0493](0493-whisperings-only-desktop-shell-is-epicenter.md) resolves that
+packaging discrepancy separately from the folder transport.
 
 ## Desired outcome
 

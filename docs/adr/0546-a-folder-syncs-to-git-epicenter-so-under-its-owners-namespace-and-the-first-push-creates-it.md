@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** all of it: the `git.epicenter.so` routes, push-to-create, `GET /api/repos`, Better Auth's `device-authorization` plugin behind `epicenter login`, `epicenter git-credential`, Connect and "Clone from Epicenter" in the Folders window, and Todos moving off `POST /api/git/connect`.
+- **Unbuilt:** all of it: the `git.epicenter.so` routes, push-to-create, `GET /api/repos`, `epicenter login` and `epicenter git-credential` on the authorization server of [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md), Connect and "Clone from Epicenter" in the Folders window, and Todos moving off `POST /api/git/connect`.
 
 ## Context
 
@@ -52,20 +52,22 @@ letters are lowercased, characters outside `a-z`, `0-9`, `.`, `_`, `-` become
 `demo-books`. After the first push the directory may be renamed freely; the URL
 does not change.
 
-**The credential is the device's own session, given to `git` by a credential
-helper.** Every signed-in device is one Better Auth session, listed in Settings
-as a device and revocable there. The app signs in as it does today; a terminal
-or an agent's machine runs `epicenter login`, which uses Better Auth's
-`device-authorization` plugin (RFC 8628): it shows a code and a link, the person
-approves it in a browser where they are signed in, and the device receives its
-own session. `epicenter git-credential` is Git's `credential.helper` for
-`git.epicenter.so` and answers with that session's token from the system
-keychain, so Epicenter's `git`, a terminal's, and an agent's all authenticate the
-same way, and no token is in a URL, in `.git/config`, or in `git`'s environment.
-The desktop shell registers the same helper for its runs. A browser hands its
-session's token to isomorphic-git directly. A narrower key for an agent or CI,
-limited to Git or to one group, is Better Auth's API key package when a case
-needs it.
+**The credential is an access token for `https://git.epicenter.so` from
+Epicenter's authorization server
+([ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)),
+given to `git` by a credential helper.** A terminal or an agent's machine runs
+`epicenter login`, the device grant (RFC 8628): it shows a code and a link, the
+person approves it in a browser where they are signed in and picks the grant's
+scopes and target, and the CLI keeps the grant's refresh token in the OS
+keychain. `epicenter git-credential` is Git's `credential.helper` for
+`git.epicenter.so`: it answers with a one-hour access token minted from that
+refresh token, with `password_expiry_utc`, refreshing under a file lock, so
+Epicenter's `git`, a terminal's, and an agent's all authenticate the same way,
+and no token is in a URL, in `.git/config`, or in `git`'s environment. The
+desktop shell registers the same helper for its runs. A browser app hands its
+own access token to isomorphic-git directly. Each grant is listed in Settings
+and revoked there; an agent that needs less gets its own grant with a narrower
+scope and target.
 
 **Deleting a repository removes it.** Its row, its aliases, and its stored copy
 go, and its name is free at once; nothing keeps a tombstone. Every clone holds
@@ -122,7 +124,7 @@ behind the same routes.
   `~/Epicenter/<name>`, where its app looks for it.
 - Plain `git clone https://git.epicenter.so/<namespace>/<name>.git` works
   anywhere the credential helper is installed.
-- Every Git request costs one database query: the device's session, joined with
+- Every Git request costs one database query: the access token, joined with
   the namespace membership (ADR-0547); nothing is cached.
 - A typo in a remote creates a private repository in the person's namespace on
   push; it appears in their repository list and is deleted like any other.
@@ -139,9 +141,10 @@ behind the same routes.
 
 - **`POST /api/git/connect` with hourly per-repository tokens** (ADR-0521 as
   first built). Plain `git` and agents cannot renew them.
-- **A separate Git token system per device.** A session per device already is
-  one, listed and revocable; scoped keys come from Better Auth's API key package
-  when needed.
+- **The device's own Better Auth session as the Git credential**, from the
+  core `device-authorization` plugin, with Better Auth's API key package for
+  narrower keys. A session can change the account, Git's other helpers may
+  store it, and the API key package is a fourth credential kind.
 - **A token in the remote URL, in `git`'s environment, or in `~/.netrc`.** The
   URL puts it in `.git/config` and logs; the environment reaches only runs
   Epicenter starts; `.netrc` is a plaintext file.

@@ -29,7 +29,7 @@ finalizes it too; nothing deletes it but `cancel`.
 ```txt
 @epicenter/recorder                    the bare import chooses by isTauri()
   /tauri    → tauri-plugin-epicenter-recorder: the recorder moved out of
-              apps/epicenter, registered by the Epicenter host and standalone Whispering
+              apps/epicenter, registered by the Epicenter host (ADR-0493)
   /browser  → MediaRecorder in memory, written to the folder on stop
 ```
 

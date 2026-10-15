@@ -147,7 +147,7 @@ The front checks the person's credential and namespace for every store
 | Deployment | Runtime | Repository store | Sign-in |
 | --- | --- | --- | --- |
 | hosted | `apps/api` Worker | Artifacts binding, one namespace per environment | Better Auth |
-| self-host | `apps/self-host` | none yet | passkeys |
+| self-host | `apps/self-host` | none yet | Better Auth (ADR-0549) |
 
 Hosted Git is unmetered, like hosted blobs. Billing would stay in `apps/api`
 as one more `auth` middleware before connect; a token can also reach
@@ -162,14 +162,14 @@ host them or ship apps of their own; a sync server never serves app pages.
 The remote is never part of a build: Connect proposes it (ADR-0546), and the
 folder keeps it in `remote.origin.url`.
 
-**The credential is the device's own session, given to `git` by a
-credential helper (ADR-0546): the browser sends its session's token on the
-Git routes, and on the desktop `epicenter git-credential` is `git`'s
-`credential.helper` for the server, so no token is passed in `git`'s
-environment and nothing renews a token per repository. For any other server,
-the person enters the URL and a token, kept on the device for that URL. A
-desktop page also accepts any network URL with the person's own Git
-credentials. No app registers as an OAuth client in this version.
+**The credential for Epicenter's server is an access token from its
+authorization server ([ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)):
+the browser app sends its own on the Git routes, and on the desktop
+`epicenter git-credential` is `git`'s `credential.helper` for the server
+(ADR-0546), so no token is passed in `git`'s environment and nothing renews a
+token per repository. For any other server, the person enters the URL and a
+token, kept on the device for that URL. A desktop page also accepts any
+network URL with the person's own Git credentials.
 
 | Server | Desktop page | Browser |
 | --- | --- | --- |
@@ -189,10 +189,9 @@ merged back.
   (ADR-0534); Todos'
   `GitHubPicker`, `GitHubReturn`, and `/sync`; the browser transport's GitHub
   rewriting; and the desktop's hosted download and relay.
-- A token in a desktop `git` process's environment is readable by other
-  processes of the same user, as the person's other secrets on that account
-  are. A credential helper fed over a private channel would hide it from them
-  too, at the cost of a bundled helper and its lifecycle; it was not built.
+- `git` receives its token from the credential helper over Git's credential
+  protocol, so no token sits in a `git` process's environment; the helper is
+  one more program the `epicenter` CLI ships.
 - One Sync journey on every device: sign in, connect, sync. A person needs no
   GitHub account.
 - A token from Epicenter's server reaches one repository and expires. A
@@ -210,13 +209,9 @@ merged back.
 - Safari may clear a site's private file system after a week without a visit
   unless the app is installed, which leaves the server's copy as the durable
   one. Unverified.
-- Connect is scoped by principal, not by app: anything holding the person's
-  session, including any window the desktop host serves through its account
-  relay, can mint a write token for any folder ID. That is acceptable while
-  every app is Epicenter's own; installed apps' hosted sync needs per-app
-  scoping first.
-- Third-party web apps on arbitrary servers need per-app permission and OAuth
-  registration before people outside development use them.
+- What a token reaches is its grant's scopes and target ([ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)).
+  Installed apps share the desktop app's grant, as they share its origin
+  ([ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)).
 
 ## Considered alternatives
 
