@@ -765,4 +765,4 @@ When you add an ADR, add its row here.
 | [0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) | One folder handle opens in three hosts, chosen by where the code runs | Proposed |
 | [0534](0534-data-folders-are-the-only-data-model.md) | Data folders are the only data model | Proposed (superseding the store records, retired Durable Object data) |
 | [0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | An existing folder opens with its own declaration | Proposed (amends 0508, 0531, and 0533) |
-| [0533](0533-a-folder-table-may-close-with-additionalproperties-false.md) | A folder table may close with additionalProperties false | Accepted |
+| [0536](0536-a-folder-table-may-close-with-additionalproperties-false.md) | A folder table may close with additionalProperties false | Accepted |
