@@ -16,7 +16,7 @@
  *   to, and deletion of, its transformation
  * - A run's result row is written with every field and an empty body before
  *   the request goes out, and its body is filled when the answer arrives
- *   (ADR-0542); a run holds nothing in the window that leaving would lose
+ *   (ADR-0542)
  * - A request that fails leaves its row unfinished, keeps the transcript, and
  *   runs again from the row's own fields into the same row
  * - An answer whose write fails is written again while the page lives; a row
@@ -628,8 +628,6 @@ test('a run’s row is in the folder from its start with every field and no body
 	});
 	expect(await names(root, RUNS)).toEqual([`${output.stem}.md`]);
 	expect(library.recipeRuns).toHaveLength(1);
-	// Leaving now loses only the answer; the run is already in the folder.
-	expect(library.unsavedWork).toEqual([]);
 
 	answer.resolve(Ok({ text: 'done' }));
 	await running;
@@ -666,7 +664,6 @@ test('a refused request leaves its row unfinished; running it again sends the sa
 	});
 	expect(output.row.body).toBe('');
 	expect(await readFile(join(root, transcript.path))).toEqual(transcriptBytes);
-	expect(library.holdsUnsavedWork).toBe(false);
 
 	// A transport that throws is a failure too, never a run left running.
 	expect(await library.runAgain(output.path)).toBeUndefined();
@@ -730,7 +727,6 @@ test('an answer whose write fails is written again while the page lives', async 
 		message: expect.stringContaining('disk refused the result'),
 	});
 	expect(filesLineOf(library).label).toBe('1 answer not written yet');
-	expect(library.holdsUnsavedWork).toBe(false);
 
 	await eventually(() => library.unwrittenAnswers === 0);
 	await settle(library);

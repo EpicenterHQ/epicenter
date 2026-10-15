@@ -28,7 +28,7 @@
  *   a reload its row is unfinished
  * - Renaming a file moves its open draft; recording and transformation files
  *   keep their names
- * - Leaving and closing wait for admitted commands
+ * - Closing waits for admitted commands
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -162,7 +162,6 @@ async function open({
 		},
 		transform: async ({ input }) => Ok({ text: input }),
 		transformNote: 'test',
-		closing: undefined,
 		connections: device.member,
 		preferences: {
 			microphone: async () => undefined,
@@ -404,8 +403,6 @@ test('a recording’s row is written when it starts, naming its audio, and gets 
 		audioPath: `recordings/${entry?.stem}.wav`,
 	});
 	expect(entry?.row.fields.durationMs).toBeUndefined();
-	// Nothing is held in this window: the recording is in the folder.
-	expect(library.holdsUnsavedWork).toBe(false);
 
 	await library.stopRecording();
 
@@ -687,7 +684,6 @@ test('an answer whose write fails is written again while the page lives, and doe
 	});
 	expect(library.unwrittenAnswers).toBe(1);
 	expect(status(library).files.label).toBe('1 answer not written yet');
-	expect(library.holdsUnsavedWork).toBe(false);
 
 	await eventually(() => library.unwrittenAnswers === 0);
 	await settle(library);
@@ -934,32 +930,8 @@ test('recording and transformation files keep their names, and a transcript keep
 });
 
 // ============================================================================
-// Leaving and closing
+// Closing
 // ============================================================================
-
-test('quit preparation awaits a file command through publication before approving', async () => {
-	const reached = Promise.withResolvers<void>();
-	const release = Promise.withResolvers<void>();
-	const { library, root } = await open({
-		beforeFileCreate: async () => {
-			reached.resolve();
-			await release.promise;
-		},
-	});
-	const creating = library.createFile('', 'created.txt');
-	await reached.promise;
-	let approved = false;
-	const preparing = library.prepareToLeave().then((safe) => {
-		approved = safe;
-		return safe;
-	});
-	await Bun.sleep(10);
-	expect(approved).toBe(false);
-	release.resolve();
-	expect(await creating).toBeUndefined();
-	expect(await preparing).toBe(true);
-	expect(await readFile(join(root, 'created.txt'), 'utf8')).toBe('');
-});
 
 test('close drains accepted commands and refuses a new command', async () => {
 	const reached = Promise.withResolvers<void>();

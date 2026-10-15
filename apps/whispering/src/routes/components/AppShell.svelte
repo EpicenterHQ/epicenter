@@ -11,7 +11,6 @@
 	import BottomNav from './BottomNav.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import FolderTerminal from './FolderTerminal.svelte';
-	import LeavePrompt from './LeavePrompt.svelte';
 	import VerticalNav from './VerticalNav.svelte';
 	import { reportWriteFailure } from './file-actions.js';
 
@@ -24,7 +23,7 @@
 
 	// One session per mounted layout: the layout opens it once and never swaps it.
 	// svelte-ignore state_referenced_locally
-	const { library, view, leave } = session;
+	const { library, view } = session;
 	// svelte-ignore state_referenced_locally
 	setSession(session);
 
@@ -32,10 +31,10 @@
 	$effect(() => library.onWriteFailed(reportWriteFailure));
 
 	// Changes still being saved live only in this window until they land.
-	// Moving between this app's pages keeps them, so that is never held back. Leaving the document is: in a browser tab the
-	// cancel becomes the browser's leave warning. The desktop shell does not
-	// raise that warning, so it asks before closing or quitting and the leave
-	// guard answers, showing a confirmation when something is held.
+	// Moving between this app's pages keeps them, so that is never held back.
+	// Leaving the document is: in a browser tab the cancel becomes the
+	// browser's leave warning. Closing or quitting the desktop app is
+	// immediate (ADR-0542).
 	beforeNavigate((navigation) => {
 		// svelte-ignore state_referenced_locally
 		if (session.blocksNavigation(navigation)) navigation.cancel();
@@ -107,7 +106,6 @@
 	{/if}
 {/snippet}
 
-<LeavePrompt guard={leave} />
 
 {#if wide.current}
 	<Sidebar.Provider bind:open={view.sidebarOpen} class="h-dvh min-h-0 overflow-hidden">

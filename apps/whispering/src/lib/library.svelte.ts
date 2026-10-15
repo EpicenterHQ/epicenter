@@ -22,7 +22,7 @@
  * Every other action is a mutation too: a recording's row and its length,
  * writing a transcript or a result (scoped by the recording's file, so they
  * write in order), create, rename, delete, Save version, settings, and
- * terminal commands. Leaving and closing stop new work, then wait until nothing is
+ * terminal commands. Closing stops new work, then waits until nothing is
  * mutating. Saves never commit (ADR-0529); a version is recorded only by
  * Save version.
  *
@@ -193,8 +193,7 @@ export type RecorderState =
 	| { readonly phase: 'recording'; readonly startedAt: number }
 	| { readonly phase: 'stopping' };
 
-const LEAVING = 'Whispering is closing, so nothing new was started.';
-const CLOSING = 'The library is closing.';
+const CLOSING = 'Whispering is closing, so nothing new was started.';
 const RECORDING_NAME =
 	'A recording’s file is named by its ID, which its transcription results refer to. Change the title instead.';
 const RECORDING_AUDIO_NAME =
@@ -344,18 +343,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		folder.tables[name] as unknown as FileTable<Tables[T]>;
 
 	let closing = $state(false);
-	/**
-	 * Whether new work starts: a capture, a request, a retry, a file change, or
-	 * input. Off while the page decides whether it may close, so what it saves
-	 * and inspects is all there is. Work accepted before stays accepted.
-	 */
-	let admitting = $state(true);
 
-	/** Why nothing new starts now, if it does not. */
+	/** Why nothing new starts now, if it does not. Work accepted before stays accepted. */
 	function refused(): string | undefined {
-		if (closing) return CLOSING;
-		if (!admitting) return LEAVING;
-		return undefined;
+		return closing ? CLOSING : undefined;
 	}
 
 	// Every read and write is local: nothing waits for a network, and a read
@@ -806,7 +797,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	}
 
 	/**
-	 * Run `work` as a mutation, so leaving and closing wait for it. `scope`
+	 * Run `work` as a mutation, so closing waits for it. `scope`
 	 * names the file whose queue a write joins: a recording's lifecycle steps
 	 * run in order, after that file's queued writes, and the folder is read
 	 * again after each. Work with no scope only reads.
@@ -906,7 +897,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 							return shell.cwd;
 						},
 						async exec(command, options) {
-							if (refused() !== undefined) throw new Error(LEAVING);
+							const why = refused();
+							if (why !== undefined) throw new Error(why);
 							// A command that throws is shown in the terminal's output.
 							const ran = await runCommand({ shell, command, options });
 							if (ran.error !== null) throw ran.error;
@@ -927,11 +919,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		for (const ancestor of ancestorsOf(path)) expanded.add(ancestor);
 		if (rowTableOf(path) === TRANSFORMATIONS) selectedTransformationPath = path;
 		else selectedPath = path;
-	}
-
-	/** Everything held only in this window, in the words the leave prompt shows. */
-	function unsavedWork(): string[] {
-		return writing() ? ['Changes are still being saved.'] : [];
 	}
 
 	// --- recording ----------------------------------------------------------
@@ -1007,7 +994,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 	});
 
-	/** An action that does not start while leaving or closing; answers what the person is told. */
+	/** An action that does not start while closing; answers what the person is told. */
 	function action<TArgs extends unknown[]>(
 		name: string,
 		work: (...args: TArgs) => Promise<string | undefined>,
@@ -1190,7 +1177,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		 * Change the row at `stem` in the cache and write it. A write is queued
 		 * only when fewer than two are running or waiting for that file: the
 		 * waiting one saves whatever the cache holds when it runs. Refused,
-		 * changing nothing, while leaving or closing, and while a rename or
+		 * changing nothing, while closing, and while a rename or
 		 * delete of the file runs. Inputs commit only values the schema accepts.
 		 */
 		editRow<T extends RowTable>(
@@ -1251,10 +1238,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			trackMutations();
 			return writing();
 		},
-		/** Whether input is refused now: while leaving, while closing, or while `path` is renamed or deleted. */
+		/** Whether input is refused now: while closing, or while `path` is renamed or deleted. */
 		locked(path?: string) {
 			trackMutations();
-			return !admitting || closing || (path !== undefined && moving(path));
+			return closing || (path !== undefined && moving(path));
 		},
 		/**
 		 * Edit a row file's whole text instead of its fields. Its writes land
@@ -1301,24 +1288,11 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 
 		// ------------------------------------------------------------------
-		// Leaving and closing
+		// Closing
 		// ------------------------------------------------------------------
 
 		get closing() {
 			return closing;
-		},
-		/** Whether new work starts now. Off from the moment the shell asks to close. */
-		get admitting() {
-			return admitting;
-		},
-		/** Start nothing new. Work already accepted continues and settles. */
-		pauseAdmission() {
-			admitting = false;
-		},
-		/** Start admitting new work again, after the person chose to keep working. */
-		resumeAdmission() {
-			if (closing) return;
-			admitting = true;
 		},
 		/** Hear which recording files each successful listing found. */
 		onRecordingsListed(
@@ -1326,24 +1300,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		): () => void {
 			recordingsListed.add(listener);
 			return () => recordingsListed.delete(listener);
-		},
-		/** Whether leaving now would lose captured audio, a received answer, a live recording, or a write still running. */
-		get holdsUnsavedWork() {
-			trackMutations();
-			return unsavedWork().length > 0;
-		},
-		/** What leaving now would lose, one plain line each. */
-		get unsavedWork() {
-			trackMutations();
-			return unsavedWork();
-		},
-		/**
-		 * Get ready to leave: wait until nothing is mutating, then report
-		 * whether anything is still held only in this window.
-		 */
-		async prepareToLeave(): Promise<boolean> {
-			await whenIdle(queryClient);
-			return unsavedWork().length === 0;
 		},
 
 		// ------------------------------------------------------------------
@@ -1819,7 +1775,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		 */
 		async close() {
 			closing = true;
-			admitting = false;
 			runs.stop();
 			// The microphone first: nothing still being written may keep it open.
 			input.close();

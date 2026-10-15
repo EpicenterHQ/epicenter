@@ -628,9 +628,9 @@ test('a transcript is edited in the cache beside its recording, which stays sele
 	editor.edit((row) => {
 		row.body = 'Yesterday I finished the importer. Today: the exporter.\n';
 	});
-	// Written from the moment it is typed: leaving now would wait for it.
+	// Written from the moment it is typed.
 	expect(library.isSaving(TRANSCRIPT)).toBe(true);
-	expect(library.holdsUnsavedWork).toBe(true);
+	expect(library.saving).toBe(true);
 	// The list shows it at once: it reads the same cache.
 	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toBe(
 		'Yesterday I finished the importer. Today: the exporter.',
@@ -641,7 +641,7 @@ test('a transcript is edited in the cache beside its recording, which stays sele
 	// The fields as they were, the new text.
 	expect(saved.split('---')[1]).toBe(before.split('---')[1]);
 	expect(saved).toContain('Today: the exporter.');
-	expect(library.holdsUnsavedWork).toBe(false);
+	expect(library.saving).toBe(false);
 	expect(library.selectedPath).toBe(path('standup'));
 	expect(library.selection?.kind).toBe('recording');
 
@@ -706,7 +706,7 @@ test('closing the details and changing page lose no typing: the draft is the ses
 	// Leaving the app is what is held back while the save runs.
 	expect(session.blocksNavigation({ willUnload: true })).toBe(true);
 
-	expect(await library.prepareToLeave()).toBe(true);
+	await settle(library);
 	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
 		'Typed just before closing the details.',
 	);

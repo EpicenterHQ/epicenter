@@ -146,8 +146,6 @@ test('a write whose reply was lost is reported with its text, holds nothing, and
 		{ name: 'Unconfirmed', lost: expect.stringContaining('Tidy it.') },
 	]);
 	expect(await shell.text(PATH)).toContain('Tidy it.');
-	expect(library.unsavedWork).toEqual([]);
-	expect(await library.prepareToLeave()).toBe(true);
 
 	shell.control.failReads.delete(PATH);
 	await library.check();
@@ -234,5 +232,4 @@ test('a deletion whose reply was lost is reported and recreates nothing', async 
 	);
 	expect(await shell.text(PATH)).toBeUndefined();
 	expect(shell.kinds).toEqual(['remove']);
-	expect(await library.prepareToLeave()).toBe(true);
 });

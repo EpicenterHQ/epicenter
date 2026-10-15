@@ -70,7 +70,7 @@
 	const issues = $derived(parsed?.error ?? undefined);
 	/** The recipe as typed: its fields, or its text when it reads. */
 	const recipe = $derived(row ?? parsed?.data ?? undefined);
-	/** Edits wait while the app decides whether to close, and while this file is renamed or deleted. */
+	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
 	const saving = $derived(library.isSaving(path));
 	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);

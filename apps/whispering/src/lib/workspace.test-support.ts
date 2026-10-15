@@ -32,11 +32,7 @@ import {
 import { whisperingDefinition } from './definition.js';
 import { TranscriptionError } from './transcription.js';
 import { TransformationError } from './transformation.js';
-import type {
-	CloseDecision,
-	RecordingWriteHook,
-	Workspace,
-} from './workspace/types.js';
+import type { RecordingWriteHook, Workspace } from './workspace/types.js';
 
 type TransformRequest = Parameters<Workspace['transform']>[0];
 type TranscribeRequest = Parameters<Workspace['transcribe']>[0];
@@ -289,10 +285,6 @@ export async function openTestWorkspace({
 
 	const transformed: TransformRequest[] = [];
 	const transcribed: TranscribeRequest[] = [];
-	const answers: CloseDecision[] = [];
-	const closeListeners = new Set<() => void>();
-	/** A close the shell asked for while nothing was listening. */
-	let closeAsked = false;
 	const terminalRuns: string[] = [];
 	let cwd = '/';
 	let opens = 0;
@@ -358,23 +350,6 @@ export async function openTestWorkspace({
 			return Ok({ text: `Transformed: ${request.input.trim()}` });
 		},
 		transformNote: 'test',
-		closing: {
-			// As the desktop workspace does: a request with nobody listening is
-			// kept and handed to the first listener.
-			onRequest(listener) {
-				closeListeners.add(listener);
-				if (closeAsked) {
-					closeAsked = false;
-					listener();
-				}
-				return () => closeListeners.delete(listener);
-			},
-			async answer(decision) {
-				answers.push(decision);
-			},
-			onRequestWithoutHost: () => () => {},
-			quitWithoutHost() {},
-		},
 		connections: device.member,
 		preferences: {
 			microphone: async () => undefined,
@@ -407,13 +382,6 @@ export async function openTestWorkspace({
 		transcribed,
 		/** The device's stored connections, keys included, and its earlier key. */
 		device,
-		answers,
-		closeListeners,
-		/** The shell asks to close, as the workspace delivers it: now, or kept. */
-		requestClose() {
-			if (closeListeners.size === 0) closeAsked = true;
-			for (const listener of closeListeners) listener();
-		},
 		terminalRuns,
 		get opens() {
 			return opens;

@@ -12,8 +12,7 @@
  * The host that serves this page does the rest: the terminal is the person's
  * shell in that directory, transcription and text requests leave from the
  * host over the device's two connections, the microphone chosen on this
- * device is kept beside them, and the shell's close question arrives on the host's
- * event stream. The host holds no folder. Nothing reports what its terminal
+ * device is kept beside them. The host holds no folder. Nothing reports what its terminal
  * or any other program writes: the library reads again after each terminal
  * command and when the person returns to the window.
  *
@@ -42,11 +41,6 @@ import { whisperingDefinition } from '../definition.js';
 import { createMicrophoneDevice } from '../microphone.js';
 import { TranscriptionError } from '../transcription.js';
 import { TransformationError } from '../transformation.js';
-import {
-	CLOSE_BLOCKED_EVENT,
-	QUIT_PATH,
-	watchCloseRequests,
-} from './closing.js';
 import {
 	type InjectionState,
 	WHISPERING_FOLDER_ID,
@@ -121,25 +115,6 @@ export async function openDesktopWorkspace(
 						bridge.app<{ name: string; bytes: Uint8Array }>('fixture'),
 				});
 
-	// The shell's close question, heard from here on for the workspace's
-	// lifetime: over the host's event stream, and as a page event when the
-	// host is gone. Nothing listens for either until the session has finished
-	// starting, so one that arrives first is kept, not dropped, and handed to
-	// the first listener.
-	const closeListeners = new Set<() => void>();
-	let closeAsked = false;
-	const stopWatching = watchCloseRequests(bridge, () => {
-		if (closeListeners.size === 0) closeAsked = true;
-		for (const listener of closeListeners) listener();
-	});
-	const hostGoneListeners = new Set<() => void>();
-	let closeAskedWithoutHost = false;
-	const closeBlocked = () => {
-		if (hostGoneListeners.size === 0) closeAskedWithoutHost = true;
-		for (const listener of hostGoneListeners) listener();
-	};
-	window.addEventListener(CLOSE_BLOCKED_EVENT, closeBlocked);
-
 	return Ok({
 		kind: 'native',
 		folder,
@@ -194,35 +169,6 @@ export async function openDesktopWorkspace(
 		},
 		transformNote:
 			'Requests are sent by Whispering’s host, not by this window, over the text connection in Settings. Its key is never given to the window or written to the folder.',
-		closing: {
-			onRequest(listener) {
-				closeListeners.add(listener);
-				if (closeAsked) {
-					closeAsked = false;
-					listener();
-				}
-				return () => closeListeners.delete(listener);
-			},
-			// An answer that cannot be delivered rejects. The host may or may not
-			// have taken it; the guard decides what the person is shown.
-			async answer(decision) {
-				await bridge.app('close', { decision });
-			},
-			// With the host gone there is no bridge. The shell raises this event in
-			// the page, and watches for a navigation to the quit address, which it
-			// refuses to load and treats as the answer.
-			onRequestWithoutHost(listener) {
-				hostGoneListeners.add(listener);
-				if (closeAskedWithoutHost) {
-					closeAskedWithoutHost = false;
-					listener();
-				}
-				return () => hostGoneListeners.delete(listener);
-			},
-			quitWithoutHost() {
-				window.location.assign(`${connection.origin}${QUIT_PATH}`);
-			},
-		},
 		// The host holds the keys and answers with what is set, never a key.
 		connections: {
 			storedIn:
@@ -290,12 +236,8 @@ export async function openDesktopWorkspace(
 					},
 				}
 			: undefined,
-		// Stop hearing the host, then close the folder. Closing waits for the
-		// saves already under way and commits nothing.
-		async close() {
-			window.removeEventListener(CLOSE_BLOCKED_EVENT, closeBlocked);
-			await stopWatching();
-			await folder.close();
-		},
+		// Closing the folder waits for the saves already under way and commits
+		// nothing.
+		close: () => folder.close(),
 	});
 }
