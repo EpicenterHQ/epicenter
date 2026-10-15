@@ -30,6 +30,36 @@ The host brokers credentials and owns native resources. Product pages own
 unsaved input. The Bun sidecar serves product bundles without owning their row
 input.
 
+## The epicenter binary
+
+Epicenter ships one compiled Bun binary (ADR-0556): the `epicenter` CLI from
+[`packages/cli`](../../packages/cli/README.md), with the Bun host as its hidden
+`__host` mode until the shell serves apps itself. `src/epicenter-binary.ts` is
+its entry, and `bun run build:sidecar` compiles it to
+`src-tauri/binaries/epicenter-cli-<target triple>`, the `externalBin`. The
+bundle calls it `epicenter-cli` because Tauri refuses a sidecar named like the
+Cargo package, `epicenter`; on `PATH` it is `epicenter`.
+
+The one binary has three uses:
+
+- The shell starts the host as `epicenter-cli __host --runtime-mode=production`
+  (`host_command` in `src-tauri/src/lib.rs`). Development runs
+  `bun run src/epicenter-binary.ts __host --runtime-mode=development`.
+- Run with `BUN_BE_BUN=1`, it is `bun`, which installs and builds apps
+  ([Installed apps](#installed-apps)).
+- The shell's narrow CLI runner (`src-tauri/src/cli.rs`) runs it for a page's
+  fixed commands. A page has no generic exec: each command maps to one
+  `epicenter` invocation, writes stdin on its own task, and streams each
+  stdout line to the page's `Channel`. The one command so far is
+  `folder_check(scope, onLine)`, granted to the Folders window alone: it runs
+  `epicenter check <root> --json` on a folder that window was granted and
+  answers `{ code, stderr }`, or `NotGranted` with the grant error.
+  Development runs the CLI's source under `bun` instead of the binary.
+
+`epicenter install-command`, run from the bundled binary, links it onto `PATH`
+as `/usr/local/bin/epicenter`, asking before `sudo` when that directory is not
+writable. Settings does not offer it yet.
+
 ## Configure the server
 
 A desktop build connects to one server. The default is Epicenter Cloud. Set
@@ -350,8 +380,9 @@ What runs is decided per commit:
 The shell runs every Git command for an app as the folder plugin runs a
 page's: no hooks, no fsmonitor, no terminal prompt, and no inherited variable
 pointing Git at another repository. Builds stop after 15 minutes. In a
-release, `bun` is the bundled host itself (`BUN_BE_BUN=1`, linked as `bun`
-first on the build's `PATH`); development uses the `bun` on `PATH`.
+release, `bun` is the bundled [`epicenter` binary](#the-epicenter-binary)
+itself (`BUN_BE_BUN=1`, linked as `bun` first on the build's `PATH`);
+development uses the `bun` on `PATH`.
 
 The Bun host serves an installed app's current build at `/apps/<app-id>/` on
 Epicenter's origin, behind the same session gate and auth bootstrap as a
@@ -437,7 +468,7 @@ not submit is lost, as people expect.
 ## Build and verify
 
 ```bash
-# Build Settings, every compiled application, and the Bun sidecar
+# Build Settings, every compiled application, and the epicenter binary
 bun run --cwd apps/epicenter build:desktop
 
 # Package the complete native application
@@ -459,7 +490,7 @@ Whispering and Honeycrisp, are checked in their own folders.
 ## Ownership rules
 
 - `src-tauri` owns native commands, permissions, windows, deep links, and packaging.
-- `src` owns the Bun host, built-in routes, static-asset containment, and the Settings page.
+- `src` owns the Bun host, built-in routes, static-asset containment, the Settings page, and the entry of the `epicenter` binary. The CLI's commands live in `packages/cli`.
 - `dist` is generated. Never edit it or commit product source beneath it.
 - A product SPA owns its UI and browser deployment from its own app folder.
 - A multi-host SPA selects implementations through build-time `#platform/*` conditions. Runtime checks guard optional capabilities; they do not choose which implementation was bundled.
