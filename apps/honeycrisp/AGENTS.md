@@ -53,7 +53,7 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   lands, and that save while another tab changed the file, guard the
   drafts; keep them.
 - Every action is a mutation (create, rename, delete, delete folder, Save
-  version, terminal commands), so `notes.close()` can wait for the mutation
+  version), so `notes.close()` can wait for the mutation
   cache to be idle before it releases the folder. Do not add a manual `refresh()` after an action; its mutation
   invalidates what it changed.
 - Commits happen only on **Save version** (`folder.git.commit()`, ADR-0529).
@@ -109,7 +109,7 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   or the new one, because each save renames into place.
 - `notes.close()` releases the folder when the page itself goes away. Once it
   begins, `notes.fenced` is set for good: edits are refused, notes actions
-  and the terminal refuse to run, and `NotesView` is `inert`. A new way to
+  refuse to run, and `NotesView` is `inert`. A new way to
   change a file must check it, and a control in a menu, popover, or dialog
   must also be `disabled`, because those render outside the inert root.
 - Keep the reload and in-page navigation guards in `NotesView`
@@ -141,7 +141,8 @@ shell, and the folder plugin fit together, and verify it against the code. The c
 - Honeycrisp has no desktop shell and no native commands of its own (ADR-0552).
   A native need is a host function Epicenter grants by app id (ADR-0555); do
   not add a Tauri shell back to this app. Neither leaf gives `NotesHost` a
-  `terminal`, `reveal`, or `history` today.
+  `reveal` today; ADR-0555's `reveal_folder` folder action will supply it,
+  and `FileBrowser` shows **Reveal folder** once one does.
 - Do not describe the native conditional save as atomic. It compares, then
   replaces; another program can write in between.
 - Do not add fault injection to Epicenter's shell or wrap the folder's writes to

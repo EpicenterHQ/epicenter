@@ -1,8 +1,8 @@
 /**
  * The browser leaf: a folder in this browser's OPFS, with the same
- * files and Git history as the desktop directory. A browser has no shell, so
- * there is no terminal. Nothing native is imported here, and this entry
- * refuses inside the desktop app.
+ * files and Git history as the desktop directory. A browser has no file
+ * manager, so there is no reveal. Nothing native is imported here, and this
+ * entry refuses inside the desktop app.
  */
 import { openFolder } from '@epicenter/folder/browser';
 import { honeycrispDefinition } from '../data.js';
@@ -21,10 +21,8 @@ async function acquire(): Promise<NotesHost> {
 	if (error) throw new Error(error.message);
 	return {
 		folder,
-		terminal: undefined,
 		location: 'This browser',
 		reveal: undefined,
-		history: undefined,
 		close: () => folder.close(),
 	};
 }

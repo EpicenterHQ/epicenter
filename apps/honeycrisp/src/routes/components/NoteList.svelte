@@ -228,7 +228,7 @@
 				</div>
 			{/each}
 			<p class="px-3 pt-1 text-xs text-muted-foreground">
-				These files are still in the folder. Repair or remove them from Files or the terminal.
+				These files are still in the folder. Repair or remove them from Files or in a terminal.
 			</p>
 		{/if}
 	</div>

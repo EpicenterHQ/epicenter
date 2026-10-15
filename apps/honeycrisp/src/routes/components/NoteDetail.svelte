@@ -18,7 +18,6 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Tabs from '@epicenter/ui/tabs';
-	import HistoryIcon from '@lucide/svelte/icons/history';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { wellFormed } from '@epicenter/folder';
@@ -29,7 +28,6 @@
 	import { folderLabel, type NoteFields, noteIdOf } from '$lib/data.js';
 	import { foldersOf, type NoteListing, type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete } from './file-actions.js';
-	import NoteHistory from './NoteHistory.svelte';
 	import RichEditor from './RichEditor.svelte';
 
 	let {
@@ -57,7 +55,6 @@
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
 	let tab = $state<'rich' | 'source'>('rich');
-	let historyOpen = $state(false);
 
 	/** Say so when a change was refused. */
 	function refusal(problem: string | undefined) {
@@ -175,17 +172,6 @@
 			>
 				<PinIcon class={pinned ? 'fill-current' : ''} />
 			</Button>
-			{#if notes.host.history}
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					aria-label="History"
-					tooltip="Saved versions of this note"
-					onclick={() => (historyOpen = true)}
-				>
-					<HistoryIcon />
-				</Button>
-			{/if}
 		</div>
 
 		<Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">
@@ -295,13 +281,3 @@
 		<Loading class="flex-1" label="Opening the note…" />
 	{/if}
 </section>
-
-{#if notes.host.history && historyOpen}
-	<NoteHistory
-		history={notes.host.history}
-		{path}
-		admitting={!locked}
-		onUse={(source) => notes.useVersion(path, source)}
-		bind:open={historyOpen}
-	/>
-{/if}

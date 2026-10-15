@@ -7,7 +7,6 @@
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
 	import HistoryIcon from '@lucide/svelte/icons/history';
-	import SquareTerminalIcon from '@lucide/svelte/icons/square-terminal';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { getAbortSignal } from 'svelte';
 	import { describeError, type Notes, notesKeys } from '$lib/notes.svelte.js';
@@ -23,15 +22,11 @@
 	let {
 		notes,
 		filesOpen,
-		terminalOpen,
 		onToggleFiles,
-		onToggleTerminal,
 	}: {
 		notes: Notes;
 		filesOpen: boolean;
-		terminalOpen: boolean;
 		onToggleFiles: () => void;
-		onToggleTerminal: () => void;
 	} = $props();
 
 	// Observed so Git status is read again when the folder reports a change and
@@ -174,18 +169,5 @@
 			<FolderTreeIcon />
 			Files
 		</Button>
-		{#if notes.terminal}
-			<Button
-				variant={terminalOpen ? 'secondary' : 'ghost'}
-				size="sm"
-				tooltip={terminalOpen ? 'Hide terminal (Ctrl+`)' : 'Show terminal (Ctrl+`)'}
-				aria-pressed={terminalOpen}
-				data-terminal-toggle
-				onclick={onToggleTerminal}
-			>
-				<SquareTerminalIcon />
-				Terminal
-			</Button>
-		{/if}
 	</div>
 </header>

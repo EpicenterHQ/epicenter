@@ -16,7 +16,7 @@
  *   layout or settings are added
  * - A handed folder whose declaration lacks Honeycrisp's shape is refused by
  *   name
- * - The installed leaf gives no terminal, reveal, or per-file history
+ * - The installed leaf gives no reveal
  *
  * See also:
  * - `packages/folder/src/lens.test.ts` for the containment check
@@ -220,14 +220,12 @@ test('a handed folder without the notes Honeycrisp reads is refused by name', as
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(recipes);
 });
 
-test('the installed window has no terminal, reveal, or per-file history', async () => {
+test('the installed window has no reveal', async () => {
 	openWindow();
 	await register(HONEYCRISP_FOLDER_ID);
 
 	const host = await openHost();
 
-	expect(host.terminal).toBeUndefined();
 	expect(host.reveal).toBeUndefined();
-	expect(host.history).toBeUndefined();
 	await host.close();
 });

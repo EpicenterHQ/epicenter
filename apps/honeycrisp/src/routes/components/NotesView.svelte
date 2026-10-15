@@ -2,21 +2,18 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
-	import { tick } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import type { Notes } from '$lib/notes.svelte.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import FileView from './FileView.svelte';
 	import FolderNav from './FolderNav.svelte';
-	import FolderTerminal from './FolderTerminal.svelte';
 	import NoteDetail from './NoteDetail.svelte';
 	import NoteList from './NoteList.svelte';
 
 	let { notes }: { notes: Notes } = $props();
 
 	let filesOpen = $state(false);
-	let terminalOpen = $state(false);
 
 	// Saves and actions run in this window. A reload or in-page navigation
 	// waits while one runs: it is cancelled here, and the webview asks first.
@@ -25,14 +22,6 @@
 	beforeNavigate(({ cancel }) => {
 		if (notes.busy) cancel();
 	});
-
-	async function toggleTerminal() {
-		terminalOpen = !terminalOpen;
-		if (terminalOpen) return;
-		await tick();
-		if (document.activeElement === null || document.activeElement === document.body)
-			document.querySelector<HTMLElement>('[data-terminal-toggle]')?.focus();
-	}
 </script>
 
 <svelte:window
@@ -51,9 +40,6 @@
 		} else if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
 			event.preventDefault();
 			filesOpen = !filesOpen;
-		} else if (notes.terminal && event.ctrlKey && event.key === '`') {
-			event.preventDefault();
-			void toggleTerminal();
 		} else if (mod && !event.shiftKey && event.key.toLowerCase() === 'n') {
 			event.preventDefault();
 			const problem = await notes.createNote();
@@ -68,52 +54,40 @@
 	<AppHeader
 		{notes}
 		{filesOpen}
-		{terminalOpen}
 		onToggleFiles={() => (filesOpen = !filesOpen)}
-		onToggleTerminal={() => void toggleTerminal()}
 	/>
 
-	<Resizable.PaneGroup direction="vertical" class="min-h-0 flex-1">
-		<Resizable.Pane id="main" order={1} minSize={30}>
-			<Resizable.PaneGroup direction="horizontal">
-				<Resizable.Pane id="folders" order={1} defaultSize={16} minSize={10} maxSize={30}>
-					<FolderNav {notes} />
-				</Resizable.Pane>
-				<Resizable.Handle />
-				<Resizable.Pane id="list" order={2} defaultSize={24} minSize={15}>
-					<NoteList {notes} />
-				</Resizable.Pane>
-				<Resizable.Handle />
-				<Resizable.Pane id="detail" order={3} defaultSize={filesOpen ? 40 : 60} minSize={30}>
-					{@const shown = notes.selected}
-					{#if shown?.as === 'note'}
-						<!-- One mount per opening: a rename keeps it, and its undo history. -->
-						{#key shown.id}
-							<NoteDetail {notes} path={shown.path} />
-						{/key}
-					{:else if shown !== undefined}
-						{#key shown.id}
-							<FileView {notes} path={shown.path} />
-						{/key}
-					{:else}
-						<Empty.Root class="h-full">
-							<Empty.Title>No note selected</Empty.Title>
-							<Empty.Description>Choose a note from the list, or press ⌘N to create one.</Empty.Description>
-						</Empty.Root>
-					{/if}
-				</Resizable.Pane>
-				{#if filesOpen}
-					<Resizable.Handle />
-					<Resizable.Pane id="files" order={4} defaultSize={20} minSize={14} maxSize={40}>
-						<FileBrowser {notes} />
-					</Resizable.Pane>
-				{/if}
-			</Resizable.PaneGroup>
+	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
+		<Resizable.Pane id="folders" order={1} defaultSize={16} minSize={10} maxSize={30}>
+			<FolderNav {notes} />
 		</Resizable.Pane>
-		{#if terminalOpen && notes.terminal}
+		<Resizable.Handle />
+		<Resizable.Pane id="list" order={2} defaultSize={24} minSize={15}>
+			<NoteList {notes} />
+		</Resizable.Pane>
+		<Resizable.Handle />
+		<Resizable.Pane id="detail" order={3} defaultSize={filesOpen ? 40 : 60} minSize={30}>
+			{@const shown = notes.selected}
+			{#if shown?.as === 'note'}
+				<!-- One mount per opening: a rename keeps it, and its undo history. -->
+				{#key shown.id}
+					<NoteDetail {notes} path={shown.path} />
+				{/key}
+			{:else if shown !== undefined}
+				{#key shown.id}
+					<FileView {notes} path={shown.path} />
+				{/key}
+			{:else}
+				<Empty.Root class="h-full">
+					<Empty.Title>No note selected</Empty.Title>
+					<Empty.Description>Choose a note from the list, or press ⌘N to create one.</Empty.Description>
+				</Empty.Root>
+			{/if}
+		</Resizable.Pane>
+		{#if filesOpen}
 			<Resizable.Handle />
-			<Resizable.Pane id="terminal" order={2} defaultSize={32} minSize={15} maxSize={70}>
-				<FolderTerminal session={notes.terminal} onClose={() => void toggleTerminal()} />
+			<Resizable.Pane id="files" order={4} defaultSize={20} minSize={14} maxSize={40}>
+				<FileBrowser {notes} />
 			</Resizable.Pane>
 		{/if}
 	</Resizable.PaneGroup>

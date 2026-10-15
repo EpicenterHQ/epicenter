@@ -25,9 +25,8 @@
  * them, with a way to put theirs back.
  *
  * Every other action is a mutation: create, rename, delete, deleting a
- * folder, Save version, and terminal commands. Closing the notes fences new
- * input, then waits until every save and action settled before it releases
- * the folder. Saves never commit (ADR-0529); a version is recorded only by
+ * folder, and Save version. Closing the notes fences new input, then waits
+ * until every save and action settled before it releases the folder. Saves never commit (ADR-0529); a version is recorded only by
  * Save version.
  */
 import {
@@ -38,7 +37,6 @@ import {
 	type FileSaveError,
 	type GitError,
 	type MoveError,
-	parseRow,
 	type Replaced,
 	type Row,
 	type RowReadError,
@@ -82,7 +80,6 @@ import { Err, Ok, type Result, unwrap } from 'wellcrafted/result';
 import {
 	type FolderEntry,
 	type FolderFields,
-	honeycrispDefinition,
 	NOTES,
 	type NoteEntry,
 	type NoteFields,
@@ -92,8 +89,7 @@ import {
 import type { NoteBody } from './editor/rich-text.js';
 import { nameProblem } from './files.js';
 import { displayTitle, withBody } from './note-source.js';
-import type { NotesHost, NotesTerminal } from './platform/types.js';
-import { createTerminalSession } from './terminal.svelte.js';
+import type { NotesHost } from './platform/types.js';
 
 export type Notes = ReturnType<typeof createNotes>;
 
@@ -743,40 +739,6 @@ export function createNotes(
 		return result.error === null ? undefined : describeError(result.error);
 	}
 
-	/**
-	 * A terminal command may write anything, so it is a mutation that closing
-	 * waits for. What it wrote reaches the cache as any outside change does.
-	 */
-	const runCommand = defineMutation({
-		mutationKey: ['honeycrisp', 'terminal'],
-		mutationFn: async ({
-			shell,
-			command,
-		}: {
-			shell: NotesTerminal;
-			command: string;
-		}) => Ok(await shell.exec(command)),
-	});
-	const shell = host.terminal;
-	const terminal =
-		shell === undefined
-			? undefined
-			: createTerminalSession(
-					{
-						get cwd() {
-							return shell.cwd;
-						},
-						description: shell.description,
-						async exec(command) {
-							// A command that throws is shown in the terminal's output.
-							const ran = await runCommand({ shell, command });
-							if (ran.data === null) throw ran.error;
-							return ran.data;
-						},
-					},
-					() => refused() === undefined,
-				);
-
 	const createNote = defineMutation({
 		mutationKey: ['honeycrisp', 'create-note'],
 		mutationFn: async (): Promise<
@@ -1020,7 +982,6 @@ export function createNotes(
 		queryClient,
 		/** The folder's query and mutation options; views read through these. */
 		folder$,
-		terminal,
 		expanded,
 		get git() {
 			trackGit();
@@ -1092,7 +1053,7 @@ export function createNotes(
 		get unsaved() {
 			return typedDrafts().some(({ draft, later }) => failed(draft, later));
 		},
-		/** Whether anything is saving or mutating: a save, an action, or a terminal command. */
+		/** Whether anything is saving or mutating: a save or an action. */
 		get busy() {
 			trackMutations();
 			return saving() || queryClient.isMutating() > 0;
@@ -1225,36 +1186,6 @@ export function createNotes(
 		},
 		/** Write the text typed into `path` now, as leaving it does; resolves once no write of it runs. */
 		saveText: (path: string) => saveTyped(textDrafts, path),
-		/**
-		 * Put a committed version of a note in the note: the version's fields
-		 * over the note's, and its body, saved at once over the note as the
-		 * list holds it, which drops a body typed and not yet sent. A version
-		 * that does not read as a note is refused.
-		 */
-		useVersion(path: string, source: string): string | undefined {
-			const { data: version, error } = parseRow(
-				honeycrispDefinition.tables.notes,
-				source,
-			);
-			if (error !== null)
-				return `This version does not read as a note (${error[0].message}). Use Edit as file to change the text by hand.`;
-			const stem = noteIdOf(path);
-			if (stem === undefined) return NOT_LISTED;
-			const why = noteRows.refusalAt(stem);
-			if (why !== undefined) return why;
-			const stored = noteRows.storedOf(stem);
-			if (stored === undefined) return NOT_LISTED;
-			bodies.get(stem)?.draft.discard();
-			bodies.delete(stem);
-			void runMutation(queryClient, saveNote, {
-				base: stored,
-				row: {
-					fields: { ...stored.row.fields, ...version.fields },
-					body: version.body,
-				},
-			}).catch(() => {});
-			return undefined;
-		},
 
 		// ------------------------------------------------------------------
 		// Actions; each answers what the person is told, if anything

@@ -18,8 +18,8 @@
  * The page names the folder by its scope and nothing else; the shell chose
  * the directory, the fallback author, and the windows that may use it. The
  * author and any `origin` come from Git's configuration. Epicenter gives an
- * installed window no terminal, reveal, or per-file history command, so
- * those stay absent here, as in the browser.
+ * installed window no reveal command yet, so `reveal` stays absent here, as in
+ * the browser.
  *
  * A folder that cannot be opened is an error on screen. There is no browser
  * folder to fall back to in this build. Quitting Epicenter asks this window
@@ -85,11 +85,9 @@ async function acquire(): Promise<NotesHost> {
 	const { location } = folder;
 	return {
 		folder,
-		terminal: undefined,
 		location:
 			location.kind === 'directory' ? location.root : location.directory,
 		reveal: undefined,
-		history: undefined,
 		close: () => folder.close(),
 	};
 }

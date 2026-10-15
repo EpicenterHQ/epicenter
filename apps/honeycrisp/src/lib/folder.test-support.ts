@@ -88,10 +88,8 @@ export async function openNotesFolder() {
 
 	const host: NotesHost = {
 		folder,
-		terminal: undefined,
 		location: 'This browser',
 		reveal: undefined,
-		history: undefined,
 		close: closeAll,
 	};
 
