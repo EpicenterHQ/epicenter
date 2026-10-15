@@ -23,8 +23,10 @@ branch, and an interrupted update is reconciled by the next Sync.
 incoming update as the desktop does: files first, then the index, then the
 branch. An update cut off partway leaves files that differ from `HEAD`; status
 shows them as changed, and the next Sync records them and merges with the
-tracking ref. A fast-forward cut off partway holds, at each path, either the old
-version or the new one, so that merge lands on the remote's tree.
+tracking ref. A fast-forward cut off partway holds, at each path, the old version,
+the new one, or, in the browser when a file's close fails, an empty file;
+in each case the next Sync lands on the remote's tree
+(`git/opfs-incoming.test.ts` interrupts the update at six points).
 
 **Removed from the folder contract:** `git.recoverIncoming()`,
 `git.snapshot.pendingIncoming`, `RecordedIncoming`, `PendingIncoming`,
