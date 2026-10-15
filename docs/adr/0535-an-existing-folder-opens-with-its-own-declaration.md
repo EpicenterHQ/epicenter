@@ -4,14 +4,16 @@
 - **Date:** 2026-10-14
 - **Amends:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md), which overwrites `epicenter.json` from whatever definition opened the folder: only an application's own folder publishes, and only when the bytes differ. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), whose one window per folder and cross-process lock give way to any number of windows once the shell compares and publishes every save, under one mutex per root. [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md), whose script example imports `epicenter.json` as a definition, which its shape does not allow.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (a data folder is a directory with `epicenter.json`), [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (`readFolder`), [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) (`epicenter.ts` is the authored source), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (no automatic commits), [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md).
-- **Unbuilt:** all of it.
+- **Built:** an unchanged declaration is not rewritten (b3bb9cacb2); scratch names carry their engine and coordination names derive from the root (a5870ca92e); the shell compares and publishes every save, prerequisite 1 below.
+- **Unbuilt:** `openDataFolder`, `definition` on every handle, granting one directory to many windows, and the persisted grant registry and its dialog.
 
 ## Context
 
 Every opener takes a definition from code: `openFolder({ id, definition })`
 in a page, `openFolder({ root, definition, git })` in Bun. Every handle
-publishes that definition to `epicenter.json` just before its first write,
-without comparing (`declaring` in `publish-definition.ts`). That is right for
+publishes that definition to `epicenter.json` just before its first write
+(`declaring` in `publish-definition.ts`), at the time of this decision
+without comparing. That is right for
 an application's own folder, whose schema ships in its code. It is wrong for
 a folder whose schema belongs to the folder:
 
@@ -37,10 +39,10 @@ branches move by compare-and-swap, and ADR-0529 removed the automatic commit
 worker. Saves are not. A save's check of the observed version runs in the
 page under a lock that covers only its own process or origin, so two engines
 can both pass it and the second rename silently replaces the first. Opening
-also clears every file in `.git/epicenter/scratch` under that same narrow
-lock, so a second engine can delete another's staged bytes before their
-rename. And the lock and channel names include the scope ID, so two openers
-of one root with different IDs never coordinate.
+also cleared every file in `.git/epicenter/scratch` under that same narrow
+lock, so a second engine could delete another's staged bytes before their
+rename, and the lock and channel names included the scope ID, so two openers
+of one root with different IDs never coordinated; a5870ca92e fixed both.
 
 ## Decision
 
@@ -78,8 +80,8 @@ openDataFolder({ grant });                        // desktop page: a shell-issue
   is the folder's own declaration, so merges validate against the schema
   the folder's other readers use.
 - **Only `openFolder` publishes, and only when the bytes differ.** ADR-0508's
-  "publish without comparing" is withdrawn; an unchanged declaration is not
-  rewritten.
+  "publish without comparing" is withdrawn; b3bb9cacb2 made `publishDefinition`
+  skip a declaration whose bytes already match.
 - **`readFolder` keeps its own lifecycle** and shares the parsing and
   table-reading pipeline. It takes no lock, initializes nothing, clears
   nothing, and needs no grant, which an opened handle cannot promise.
@@ -97,20 +99,28 @@ one hash, both pass, and both rename: the second silently replaces the
 first. Saves are not committed (ADR-0529), so the replaced edit is in no
 history and cannot be repaired. Git's `index.lock`, the branch
 compare-and-swap, and private index copies protect history, not saves. So
-many editors need three changes, and the binding goes only after all three:
+many editors need three changes, and the binding goes only after all three.
+All three are built:
 
 1. **The shell compares and publishes.** The rename that publishes a staged
-   file takes `expected: { sha256 } | absent | any`; the shell reads and
-   hashes the target and renames under one mutex per canonical root, in the
-   shell's process. Every window of the shell is then serialized whatever
-   its origin, and an overtaken save is `Conflict` across windows. The cost
-   is one read and hash of the target per publish.
-2. **Coordination names derive from the canonical root alone,** so Web Lock
-   names and the hint channel stop including the scope ID, and Todos and a
-   browser window on one root share them.
-3. **Each engine names its scratch files with its own prefix,**
-   `.git/epicenter/scratch/<time>-<engine>-<n>`, and opening clears only
-   names older than any write could still be staging, so no engine deletes
+   file, and a removal, take `expected`: `"absent"` for a create or a move's
+   destination, `"present"` for a replacement without a hash,
+   `{ sha256 }` for one with a hash, and `"any"` for an overwrite, the
+   declaration, and an incoming Sync write. The shell checks the path, reading
+   and hashing it when `expected` names a hash, and renames or removes under
+   one mutex per canonical root, held in its registry and shared by every
+   scope and window on that root. Every window of the shell is then
+   serialized whatever its origin, and an overtaken save is `Conflict`, or
+   `Exists` for a create, across windows, never `Unconfirmed`. A move retires
+   its source only if it still holds the bytes moved. The cost is one read
+   and hash of the target per guarded publish.
+2. **Coordination names derive from the canonical root alone** (a5870ca92e),
+   so Web Lock names and the hint channel do not include the scope ID, and
+   Todos and a browser window on one root share them.
+3. **Each engine names its scratch files with its own ID**
+   (a5870ca92e), `.git/epicenter/scratch/<time>-<engine>-<n>`, and opening
+   clears only names older than any write could still be staging, an earlier
+   handle's `<time>-<n>-<random>` names included, so no engine deletes
    another's staged bytes. Names stay one level deep, which the shell's
    write check (`page_files.rs`) already admits.
 

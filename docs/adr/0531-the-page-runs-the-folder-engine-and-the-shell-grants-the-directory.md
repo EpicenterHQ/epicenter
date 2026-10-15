@@ -38,7 +38,12 @@ path on disk: the root or beneath it, and no link on the way. A read may
 reach anything there, `.git` included; a final link is described and never
 followed. A change must also be a data path the shared path rule accepts or,
 inside `.git`, only the engine's staging files and private index copies, each
-created as a new file. The shell keeps no list of a
+created as a new file. A rename that publishes a file, and a removal, carry
+what the page expects at the path (nothing, a file, a file with a given
+SHA-256, or anything); Rust checks it and makes the change under one lock
+per root, so no other change through the shell lands between them
+([ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md)).
+The shell keeps no list of a
 folder's files: an app's definition, a Sync, or a file browser may write any
 data path.
 

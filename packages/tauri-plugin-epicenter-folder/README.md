@@ -140,6 +140,21 @@ the engine writes a staged copy and renames it over the path
 through it. A directory is removed only when empty; nothing removes a tree
 whole.
 
+`rename_folder_path` and `remove_folder_path` also take `expected`, what the
+page expects at the path it changes: `"absent"` (a new file or a move's
+destination), `"present"` (a file, whatever its bytes), `{ "sha256": "<hex>" }` (a
+file whose bytes hash to that lowercase SHA-256), or `"any"` (an overwrite,
+the folder's declaration, an incoming Sync write, a staged file). The plugin
+checks the path and then renames or removes it while holding one mutex per
+canonical root, kept in the registry and shared by every scope and window on
+that root, so no other change through the plugin lands between the check and
+the change. The cost is a read and hash of the destination when `expected`
+names a hash. A path that holds something else changes nothing and is
+refused as a `ChangeError` the page tells apart: `Conflict` with
+`actualSha256` (the hash of the file there, or `null` when none is),
+`Exists`, or `NotFound`. Every other refusal or failure is `Failed` with its
+message. A refused rename leaves its staged source for the page to remove.
+
 `write_folder_file` takes the file's bytes as the request's raw body, so
 content crosses IPC as it is rather than as a JSON array of numbers. Its arguments are headers, each percent-encoded:
 `scope`, `path`, and `create-new` (`true` or `false`). A JSON array of bytes,
@@ -211,6 +226,9 @@ they did. A late change is refused as `ShuttingDown` and writes nothing.
   some network filesystems.
 - Nothing watches the directory. Pages read again on focus and after their
   own commands; conditional saves turn a stale write into a conflict.
+- The expectation is checked under the root's mutex in this process only. A
+  Bun script or another program that changes a path between that check and
+  the rename is not seen.
 - A compromised page keeps the powers the engine needs: it can move the
   branch, reset the index, and change or delete any data path. Each is
   visible and repairable from the reflog and the remote.

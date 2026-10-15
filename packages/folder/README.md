@@ -276,7 +276,14 @@ root and never through a link on the way, and makes every change and checks
 its whole path: any data path the shared path rule accepts
 (`paths.ts`, held to the plugin's `fixtures/path-rules.json` with its Rust
 twin), no link on the way, and inside `.git` only the engine's staging and
-private index copies. A change whose reply is lost may have happened: a
+private index copies. Each rename that publishes a file, and each removal,
+names what it expects at its path: nothing, a file, a file with a given
+SHA-256, or anything. The shell checks it and changes the path under one
+lock per root, which every window's changes share, so a save another window
+landed after this page checked is `Conflict`, or `Exists` for a create,
+never `Unconfirmed`. `directory-node.ts` checks it too, as a separate step
+before the change: a Bun script is the one writer the shell does not
+serialize. A change whose reply is lost may have happened: a
 removal is done if the path is then gone and `Unconfirmed` if it is still
 there, and a write is `Unconfirmed`. Objects
 are stored with `git hash-object -w` through the host (`ObjectStore` in
@@ -440,9 +447,12 @@ Bun directory, and a desktop page's directory enforce this where they publish. T
 is no sentinel union mixing hashes with `'absent'` or `'any'`.
 
 A directory folder, in Bun or a desktop page, checks that a `replace`'s file
-is there and then renames a staged copy over it. A file another program
-removes between that check and the rename comes back with the new bytes; it
-shows as an ordinary file and can be removed again (ADR-0533).
+is there, or holds the expected bytes, where it renames a staged copy over
+it. On the desktop the shell makes that check and the rename under one lock
+per root, so no other window's change lands between them. A file a Bun
+script or another program removes between the check and the rename comes
+back with the new bytes; it shows as an ordinary file and can be removed
+again (ADR-0533).
 A directory folder reads names literally: on a case-insensitive file system,
 `plan.md` does not reach `Plan.md`, and creating or moving to `plan.md`
 there is `Exists`. Browser folders are unaffected. OPFS opens the file without creating it
