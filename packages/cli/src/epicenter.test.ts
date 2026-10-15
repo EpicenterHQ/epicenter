@@ -485,6 +485,7 @@ test('--help lists every command but send and install-command, and --json descri
 		'epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]',
 		'epicenter app install <url> [--folder <path>] [--approve]',
 		'epicenter auth git-credential get | store | erase',
+		'epicenter merge-driver <dir>',
 	])
 		expect(help.stdout).toContain(usage);
 	expect(help.stdout).not.toContain('epicenter send');
@@ -501,6 +502,7 @@ test('--help lists every command but send and install-command, and --json descri
 		'generate',
 		'status',
 		'sync',
+		'merge-driver',
 		'app list',
 		'app install',
 		'app update',
