@@ -140,7 +140,8 @@ export function createRowEdits(
 		/**
 		 * Editing began: the first keystroke in a box. The row's draft
 		 * captures the row as the cache holds it now, unless it holds an edit
-		 * already.
+		 * already; either way it counts as a change, so a save of the row
+		 * running now leaves the draft open for this edit.
 		 */
 		begin(table: string, stem: string, current: StoredAnyRow) {
 			const key = keyOf(table, stem);
