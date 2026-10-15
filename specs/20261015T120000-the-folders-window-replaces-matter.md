@@ -13,7 +13,7 @@ deleted.
 
 ## Already decided
 
-- **How folders open (ADR-0535, on `claude/git-sync`).** `openFolder` opens an
+- **How folders open (ADR-0535).** `openFolder` opens an
   application's own data with its code definition; `openDataFolder` opens a
   folder that already exists with its own `epicenter.json`, never writes it,
   and creates nothing. Several windows may edit one folder; the shell compares
@@ -22,11 +22,11 @@ deleted.
   application owns declares itself in `epicenter.ts` and runs
   `epicenter generate` (ADR-0527).
 - **The Folders window** lists the data folders under the Epicenter root and
-  edits rows in a grid (`claude/git-sync`).
+  edits rows in a grid.
 - **One SQL projection** (`projectTables` in `@epicenter/folder`, over
   `@epicenter/sqlite`'s handle): `epicenter query` and a page build the same
-  tables (this branch).
-- **Closed tables** report undeclared keys (ADR-0536, this branch).
+  tables.
+- **Closed tables** report undeclared keys (ADR-0536).
 
 ## What is left
 
@@ -50,7 +50,9 @@ deleted.
 
 ## Order
 
-These wait for `claude/git-sync` to reach `main`. Then: the Vault opens
+This work continues on the same long-lived branch as the folder engine,
+which reaches `main` only once its deploy gate holds (merging to `main`
+deploys the API and its Durable Object migrations). In order: the Vault opens
 through `openDataFolder({ root })` and closes its tables (its own repository);
 picked folders (1); SQL (2) and editors (3); views and the board (4); delete
 Matter (5).
