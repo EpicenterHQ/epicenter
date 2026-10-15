@@ -193,3 +193,25 @@ export type OpenFolderOptions<TDefinition extends FolderDefinition> = {
 export type OpenFolder = <const TDefinition extends FolderDefinition>(
 	options: OpenFolderOptions<TDefinition>,
 ) => Promise<Result<Folder<TDefinition>, OpenFolderError>>;
+
+/**
+ * Which existing folder `openDataFolder` opens: `openFolder`'s options
+ * without a definition, since the folder's own `epicenter.json` is its
+ * schema.
+ */
+export type OpenDataFolderOptions = Omit<
+	OpenFolderOptions<FolderDefinition>,
+	'definition'
+>;
+
+/**
+ * Open a folder that already exists with the schema in its own
+ * `epicenter.json`, which the handle never writes. A folder without one opens
+ * with no tables and no settings; files, history, and Sync work. Rows are
+ * checked at run time, so tables are keyed by any name. The automatic, the
+ * browser, and the desktop entry each export an `openDataFolder` of exactly
+ * this type.
+ */
+export type OpenDataFolder = (
+	options: OpenDataFolderOptions,
+) => Promise<Result<Folder<FolderDefinition>, OpenFolderError>>;

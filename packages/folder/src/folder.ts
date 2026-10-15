@@ -213,6 +213,15 @@ export type FolderLocation =
 
 export type Folder<TDefinition extends FolderDefinition> =
 	FolderAccess<TDefinition> & {
+		/**
+		 * The prepared definition this handle reads with: the one `openFolder`
+		 * was given, or the folder's own `epicenter.json` as `openDataFolder`
+		 * read it when it opened (no tables and no settings when there was
+		 * none). Its tables are `tables`, its settings `kv`, and Sync merges
+		 * rows by it. A declaration changed after opening is read by the next
+		 * open.
+		 */
+		readonly definition: TDefinition;
 		readonly location: FolderLocation;
 		readonly sync: FolderSync;
 		/**
@@ -315,14 +324,15 @@ function createFolderGit(history: FolderHistory): FolderGit {
 }
 
 /**
- * Assemble the handle over acquired storage. `prepared` is the opener's
- * `prepareFolderDefinition` result, taken before it acquired anything: the
- * snapshot every table and the KV read through, never the declaration the
- * opener was handed. No argument carries `TDefinition`, so the opener names
- * it.
+ * Assemble the handle over acquired storage. `prepared` is the prepared
+ * definition: `openFolder`'s `prepareFolderDefinition` result, or the
+ * declaration `openDataFolder` read. It is the snapshot every table and the
+ * KV read through, never the declaration the opener was handed. No argument
+ * carries `TDefinition`, so the opener names it.
  */
 export function assembleFolder<TDefinition extends FolderDefinition>({
 	prepared,
+	publishes,
 	storage: suppliedStorage,
 	history,
 	location,
@@ -330,6 +340,12 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 	release,
 }: {
 	prepared: FolderDefinition;
+	/**
+	 * Whether the handle publishes `prepared` to `epicenter.json` before its
+	 * first write. `openFolder`'s handles do; `openDataFolder`'s, whose
+	 * definition is that file, never write it.
+	 */
+	publishes: boolean;
 	storage: FolderStorage;
 	history: FolderHistory;
 	location: FolderLocation;
@@ -341,7 +357,7 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 	let closing: Promise<void> | undefined;
 
 	const storage = fenceStorage(
-		declaring(suppliedStorage, prepared),
+		publishes ? declaring(suppliedStorage, prepared) : suppliedStorage,
 		controller.signal,
 	);
 	const tables: Record<string, FileTable<unknown>> = {};
@@ -357,6 +373,7 @@ export function assembleFolder<TDefinition extends FolderDefinition>({
 	const git = createFolderGit(history);
 
 	return Object.freeze({
+		definition: prepared as TDefinition,
 		tables: Object.freeze(tables) as Folder<TDefinition>['tables'],
 		kv: createKv({ storage }, prepared.kv) as Folder<TDefinition>['kv'],
 		files,

@@ -308,6 +308,15 @@ export const OpenFolderError = defineErrors({
 		message: `This definition cannot be opened as a folder: ${reason}`,
 		reason,
 	}),
+	/**
+	 * The folder's own `epicenter.json`, which `openDataFolder` reads, is not
+	 * a readable file, is not UTF-8 JSON, is not the declaration grammar, or
+	 * declares a field a folder cannot keep. Nothing was opened.
+	 */
+	InvalidDeclaration: ({ reason }: { reason: string }) => ({
+		message: `The folder's epicenter.json cannot be used: ${reason}`,
+		reason,
+	}),
 	/** A folder ID names one directory: not empty, `.`, or `..`, with no slash, backslash, or control character. */
 	InvalidId: ({ id }: { id: string }) => ({
 		message: `'${id}' cannot name a folder`,

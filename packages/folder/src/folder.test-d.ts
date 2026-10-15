@@ -20,6 +20,7 @@ import {
 	type FileKv,
 	type FileTable,
 	type Folder,
+	type FolderDefinition,
 	type FolderLocation,
 	field,
 	formatRow,
@@ -30,6 +31,8 @@ import {
 	type KvReading,
 	type KvWriteError,
 	type MoveError,
+	type OpenDataFolder,
+	type OpenDataFolderOptions,
 	type OpenFolder,
 	type OpenFolderError,
 	type OpenFolderOptions,
@@ -236,6 +239,8 @@ expectTypeOf<Opened['tables']['todos']>().toEqualTypeOf<
 	FileTable<CreateRowOf<typeof definition.tables.todos>>
 >();
 expectTypeOf<Opened['kv']>().toEqualTypeOf<FileKv<KvOf<typeof definition>>>();
+// Every handle exposes the definition it reads with.
+expectTypeOf<Opened['definition']>().toEqualTypeOf<typeof definition>();
 expectTypeOf<
 	CreateRowOf<typeof definition.tables.todos>['due']
 >().toEqualTypeOf<InstantString | null>();
@@ -264,9 +269,28 @@ void root.openFolder({
 	definition: { id: 'test.folder', kv: {}, tables: {} },
 });
 
+// One data-folder opener signature at the automatic entry and at both
+// explicit entries: an existing folder by ID, with its own schema.
+expectTypeOf(root.openDataFolder).toEqualTypeOf<OpenDataFolder>();
+expectTypeOf(browser.openDataFolder).toEqualTypeOf<OpenDataFolder>();
+expectTypeOf(tauri.openDataFolder).toEqualTypeOf<OpenDataFolder>();
+expectTypeOf<keyof OpenDataFolderOptions>().toEqualTypeOf<
+	'id' | 'credentials' | 'browser'
+>();
+expectTypeOf(root.openDataFolder).returns.toEqualTypeOf<
+	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
+>();
+async function untypedRows(folder: Folder<FolderDefinition>) {
+	// A data folder's tables are whatever its epicenter.json declares.
+	const table = folder.tables.anything;
+	expectTypeOf(folder.definition).toEqualTypeOf<FolderDefinition>();
+	void table;
+}
+void untypedRows;
+
 // Every entry exports the same contract, so a build may resolve one for another.
 type Contract = typeof contract;
-type EntryPoint<T> = Omit<T, 'openFolder'>;
+type EntryPoint<T> = Omit<T, 'openFolder' | 'openDataFolder'>;
 expectTypeOf<EntryPoint<typeof root>>().toEqualTypeOf<Contract>();
 // A browser folder takes an author, a transport, and test storage; its
 // remote is its Git configuration, which `sync.connect` sets.
@@ -279,7 +303,13 @@ expectTypeOf<EntryPoint<typeof browser>>().toEqualTypeOf<Contract>();
 expectTypeOf<EntryPoint<typeof tauri>>().toEqualTypeOf<Contract>();
 expectTypeOf<Pick<typeof bun, keyof Contract>>().toEqualTypeOf<Contract>();
 
-// The directory opener is its own contract: an explicit root and history.
+// The directory openers are their own contract: an explicit root and history.
+expectTypeOf(bun.openDataFolder)
+	.parameter(0)
+	.toEqualTypeOf<bun.DataFolderOptions>();
+expectTypeOf(bun.openDataFolder).returns.toEqualTypeOf<
+	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
+>();
 expectTypeOf(bun.openFolder<typeof definition>)
 	.parameter(0)
 	.toEqualTypeOf<bun.DirectoryFolderOptions<typeof definition>>();

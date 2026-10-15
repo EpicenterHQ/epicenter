@@ -11,23 +11,33 @@
  *   `Unconfirmed` if it is still there
  * - A save the shell finds overtaken where it publishes is `Conflict`, or
  *   `Exists` for a create, never `Unconfirmed`; an overwrite still lands
+ * - `openDataFolder` reads with the folder's own `epicenter.json` and never
+ *   writes it, runs no `git` before the first commit creates the repository,
+ *   and merges rows on Sync by that declaration
  */
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import * as nodeFs from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { OpenFolderError } from './errors.js';
 import { createGitRunner } from './git/native-host.js';
-import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import {
+	createBareRemote,
+	GIT_ENV,
+	git,
+	scratch,
+} from './git-http.test-support.js';
 import type { Expectation } from './native/bindings.gen.js';
 import { installWebLocks } from './web-locks.test-support.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 let grantedRoot: string | undefined;
 let calls: Call[] = [];
+/** `git` commands other than `init` asked for where there is no repository. */
+let gitWithoutRepository: string[][] = [];
 let grant: (args: Record<string, unknown>) => unknown = () => {
 	throw new Error('no grant scripted');
 };
@@ -67,6 +77,15 @@ mock.module('@tauri-apps/api/core', () => ({
 			const root = grantedRoot;
 			if (root === undefined)
 				throw { name: 'Unavailable', message: 'not granted' };
+			const command = args.args as string[];
+			if (command[0] !== 'init' && !existsSync(join(root, '.git/HEAD')))
+				gitWithoutRepository.push(command);
+			// The shell runs only `git init` where there is no `.git`.
+			if (command[0] !== 'init' && !existsSync(join(root, '.git')))
+				throw {
+					name: 'Unavailable',
+					message: `'${root}' has no Git repository yet, so only \`git init\` runs there`,
+				};
 			const result = await createGitRunner(root)(args.args as string[], {
 				input:
 					args.input === null
@@ -198,7 +217,7 @@ const kindOf = (entry: {
 				? 'directory'
 				: 'other';
 
-const { openFolder } = await import('./tauri-adapter.js');
+const { openDataFolder, openFolder } = await import('./tauri-adapter.js');
 const { defineFolder, defineTable, field } = await import('./contract.js');
 
 const definition = defineFolder({
@@ -227,6 +246,7 @@ afterAll(() => {
 });
 beforeEach(() => {
 	calls = [];
+	gitWithoutRepository = [];
 	afterRemove = () => {};
 	beforeChange = () => {};
 });
@@ -281,6 +301,7 @@ test('a granted folder opens over its real directory', async () => {
 	for (const call of calls.slice(1))
 		expect(call.args.scope).toBe('so.epicenter.todos');
 	expect(folder.location).toEqual({ kind: 'directory', root });
+	expect(folder.definition).toBe(definition);
 
 	const created = expectOk(
 		await folder.tables.todos.create({
@@ -418,5 +439,161 @@ test('a save another window overtakes where it publishes is refused for what is 
 			.filter(({ cmd }) => cmd === 'rename_folder_path')
 			.map(({ args }) => args.expected),
 	).toEqual(['any', 'absent', { sha256: created.sha256 }, 'absent', 'any']);
+	await folder.close();
+});
+
+/** Hand-formatted, as no publication would write it. */
+const DECLARED = `{"kv":{"type":"object","properties":{}},"tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
+
+/** The shell grants `root` as `so.epicenter.vault`. */
+function grantRoot(root: string) {
+	grantedRoot = root;
+	grant = () => ({
+		root,
+		branch: 'main',
+		authorName: 'Vault',
+		authorEmail: 'vault@localhost',
+	});
+}
+
+/** Every path the page asked the shell to write, rename onto, or remove. */
+const changedPaths = () =>
+	calls.flatMap(({ cmd, args }) =>
+		cmd === 'write_folder_file' || cmd === 'remove_folder_path'
+			? [args.path as string]
+			: cmd === 'rename_folder_path'
+				? [args.to as string]
+				: [],
+	);
+
+test('a data folder reads with its own epicenter.json, never writes it, and its first commit creates the repository', async () => {
+	const root = await scratch('tauri-data-folder-');
+	await nodeFs.writeFile(join(root, 'epicenter.json'), DECLARED);
+	await nodeFs.mkdir(join(root, 'todos'));
+	await nodeFs.writeFile(
+		join(root, 'todos/one.md'),
+		'---\ntitle: One\ndone: false\n---\n',
+	);
+	grantRoot(root);
+	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
+	expect(calls[0]).toEqual({
+		cmd: 'grant_directory',
+		args: { scope: 'so.epicenter.vault' },
+	});
+	// Opening read the declaration and ran no `git`.
+	expect(calls.some(({ cmd }) => cmd === 'run_git')).toBe(false);
+	expect(changedPaths()).toEqual([]);
+	expect(existsSync(join(root, '.git'))).toBe(false);
+	expect(Object.keys(folder.definition.tables)).toEqual(['todos']);
+	const heard: string[] = [];
+	folder.onFilesChanged((paths) => heard.push(...paths));
+
+	const todos = folder.tables.todos!;
+	const one = expectOk(await todos.get('one'));
+	expectOk(
+		await todos.replace(one!, {
+			fields: { title: 'One', done: true },
+			body: '',
+		}),
+	);
+	expectOk(
+		await todos.create({ fields: { title: 'Two', done: false }, body: '' }),
+	);
+	expect(expectOk(await folder.git.status()).head).toBeUndefined();
+	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
+	expect((await folder.git.commit()).status).toBe('committed');
+	expect(await git(root, 'status', '--porcelain')).toBe('');
+	await git(root, 'fsck', '--strict');
+
+	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
+	expect(
+		changedPaths().filter((path) => path.endsWith('epicenter.json')),
+	).toEqual([]);
+	expect(heard).not.toContain('epicenter.json');
+	expect(gitWithoutRepository).toEqual([]);
+	await folder.close();
+});
+
+test('a data folder without epicenter.json opens with no tables, and files work', async () => {
+	const root = await scratch('tauri-data-folder-none-');
+	grantRoot(root);
+	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
+	expect(folder.definition).toEqual({ kv: {}, tables: {} });
+	expect(folder.tables).toEqual({});
+	expectOk(await folder.files.create('notes/a.md', 'a\n'));
+	expect(
+		new TextDecoder().decode(
+			expectOk(await folder.files.read('notes/a.md')).bytes,
+		),
+	).toBe('a\n');
+	expect(existsSync(join(root, 'epicenter.json'))).toBe(false);
+	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
+	expect(gitWithoutRepository).toEqual([]);
+	await folder.close();
+});
+
+test('a data folder whose epicenter.json cannot be used is InvalidDeclaration and opens nothing', async () => {
+	const root = await scratch('tauri-data-folder-invalid-');
+	await nodeFs.writeFile(
+		join(root, 'epicenter.json'),
+		'{"kv":{"type":"object","properties":{}},"tables":{"todos":{"type":"object","properties":{},"required":["title"]}}}',
+	);
+	grantRoot(root);
+	const refused = expectErr(await openDataFolder({ id: 'so.epicenter.vault' }));
+	expect(refused.name).toBe('InvalidDeclaration');
+	expect(refused.message).toContain("requires 'title'");
+	expect(calls.some(({ cmd }) => cmd === 'run_git')).toBe(false);
+	expect(changedPaths()).toEqual([]);
+});
+
+test('a data folder grant refused is the refusal', async () => {
+	grant = () => {
+		throw { name: 'UnknownScope', scope: 'so.epicenter.vault' };
+	};
+	const refused = expectErr(await openDataFolder({ id: 'so.epicenter.vault' }));
+	expect(refused.name).toBe('UnknownScope');
+	expect(calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
+});
+
+test("a data folder's Sync merges rows by its own declaration", async () => {
+	const project = await scratch('tauri-data-folder-sync-');
+	const bare = await createBareRemote(project);
+	const native = join(project, 'native');
+	await git(project, 'clone', '--quiet', bare, native);
+	await nodeFs.writeFile(join(native, 'epicenter.json'), DECLARED);
+	await nodeFs.mkdir(join(native, 'todos'));
+	await nodeFs.writeFile(
+		join(native, 'todos/one.md'),
+		'---\ntitle: One\ndone: false\n---\n',
+	);
+	await git(native, 'add', '--all');
+	await git(native, 'commit', '--quiet', '-m', 'Start');
+	await git(native, 'push', '--quiet', 'origin', 'HEAD:main');
+	const root = join(project, 'desktop');
+	await git(project, 'clone', '--quiet', bare, root);
+	grantRoot(root);
+	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
+
+	// Adjacent lines, which a line merge would hold for a person; two
+	// fields, which the declaration's row merge combines.
+	await nodeFs.writeFile(
+		join(native, 'todos/one.md'),
+		'---\ntitle: One, renamed\ndone: false\n---\n',
+	);
+	await git(native, 'commit', '--quiet', '-am', 'Rename');
+	await git(native, 'push', '--quiet', 'origin', 'main');
+	const todos = folder.tables.todos!;
+	const one = expectOk(await todos.get('one'));
+	expectOk(
+		await todos.replace(one!, {
+			fields: { title: 'One', done: true },
+			body: '',
+		}),
+	);
+	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
+		'---\ntitle: One, renamed\ndone: true\n---\n',
+	);
+	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
 	await folder.close();
 });

@@ -16,12 +16,8 @@
 import { lstat, realpath } from 'node:fs/promises';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { parseDeclaration } from './declaration.js';
-import {
-	type FolderDefinition,
-	type PreparedFolderTable,
-	prepareFolderDefinition,
-} from './definition.js';
+import { readDeclaration } from './declaration.js';
+import type { FolderDefinition, PreparedFolderTable } from './definition.js';
 import {
 	FileError,
 	type KvReadError,
@@ -74,8 +70,6 @@ export type FolderReading = {
 	>;
 };
 
-const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
-
 /**
  * Read the data folder at `root`. A directory with no `epicenter.json` is
  * `NotDataFolder`; one whose declaration cannot be used is
@@ -106,36 +100,14 @@ export async function readFolder(
 		landed: () => {},
 	});
 
-	const { data: read, error: readError } = await storage.read(DECLARATION_PATH);
-	if (readError !== null)
-		return readError.name === 'NotFound'
-			? ReadFolderError.NotDataFolder({ root })
-			: ReadFolderError.InvalidDeclaration({
-					root,
-					reason: readError.message,
-				});
-	let text: string;
-	try {
-		text = utf8.decode(read.bytes);
-	} catch {
+	const { data: definition, error: declarationError } =
+		await readDeclaration(storage);
+	if (declarationError !== null)
 		return ReadFolderError.InvalidDeclaration({
 			root,
-			reason: 'it is not UTF-8 text',
+			reason: declarationError.reason,
 		});
-	}
-	const { data: declared, error: parseError } = parseDeclaration(text);
-	if (parseError !== null)
-		return ReadFolderError.InvalidDeclaration({
-			root,
-			reason: parseError.reason,
-		});
-	const { data: definition, error: definitionError } =
-		prepareFolderDefinition(declared);
-	if (definitionError !== null)
-		return ReadFolderError.InvalidDeclaration({
-			root,
-			reason: definitionError.reason,
-		});
+	if (definition === undefined) return ReadFolderError.NotDataFolder({ root });
 
 	const tables: Record<
 		string,

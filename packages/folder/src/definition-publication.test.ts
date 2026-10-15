@@ -105,7 +105,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 		const declaration = async (folder: {
 			files: Folder<typeof definition>['files'];
 		}) => decode(expectOk(await folder.files.read('epicenter.json')).bytes);
-		let folder = await open(definition);
+		let folder: Folder<FolderDefinition> = await open(definition);
 		try {
 			expect(expectErr(await folder.files.read('epicenter.json')).name).toBe(
 				'NotFound',
@@ -170,7 +170,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 			);
 		/** The paths the saves in `write` landed, as this handle heard them. */
 		const landed = async (
-			folder: Folder<typeof definition>,
+			folder: Folder<FolderDefinition>,
 			write: () => Promise<unknown>,
 		) => {
 			const paths: string[] = [];
@@ -179,7 +179,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 			stop();
 			return paths;
 		};
-		let folder = await open(definition);
+		let folder: Folder<FolderDefinition> = await open(definition);
 		try {
 			expect(
 				await landed(folder, async () =>

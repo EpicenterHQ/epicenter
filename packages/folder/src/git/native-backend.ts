@@ -50,6 +50,7 @@ import {
 	writeCommitObject,
 } from './objects.js';
 import { primitiveFs } from './primitive-fs.js';
+import { gitignoreMatcher } from './scope.js';
 
 const ZERO = '0000000000000000000000000000000000000000';
 const REMOTE_NAME = 'origin';
@@ -136,11 +137,31 @@ export async function createNativeGitBackend({
 	host,
 	exclusive,
 	credentials,
+	initialize = 'open',
+	initialized,
+	initProblem,
 }: {
 	root: string;
 	branch: string;
 	boundary: FileBoundary;
 	host: NativeGitHost;
+	/**
+	 * When a folder with no repository gets one. `'open'` runs `git init`
+	 * here. `'commit'` creates it with the first commit or staging
+	 * (`createRepository`), or when a remote is set; until then the folder
+	 * reads as an empty history with every file uncommitted, and no `git`
+	 * runs, since the desktop shell runs only `git init` where there is no
+	 * repository.
+	 */
+	initialize?: 'open' | 'commit';
+	/** Runs once a deferred `git init` has created the repository. */
+	initialized?: () => Promise<void>;
+	/**
+	 * Why a deferred `git init` must not run here, such as a root inside
+	 * another repository's working tree. `createRepository` answers it, and
+	 * staging or setting a remote throws it.
+	 */
+	initProblem?: () => Promise<string | undefined>;
 	/** Asked before each push and fetch; see `GitCredentials`. */
 	credentials?: GitCredentials;
 	/**
@@ -181,12 +202,42 @@ export async function createNativeGitBackend({
 	}
 	const trackingRef = `refs/remotes/${REMOTE_NAME}/${branch}`;
 
-	const isRepository = (await files.lstat(`${gitdir}/HEAD`)) !== undefined;
-	if (!isRepository)
-		await run(['init', '--quiet', `--initial-branch=${branch}`]);
+	// Only `git init` writes `HEAD`. Writes stage their bytes under
+	// `.git/epicenter`, so `.git` alone does not mean a repository.
+	const head = `${gitdir}/HEAD`;
+	const init = () => run(['init', '--quiet', `--initial-branch=${branch}`]);
+	let present = (await files.lstat(head)) !== undefined;
+	if (!present && initialize === 'open') {
+		await init();
+		present = true;
+	}
+	/** Whether the repository exists. Another program may have created it. */
+	async function exists(): Promise<boolean> {
+		present ||= (await files.lstat(head)) !== undefined;
+		return present;
+	}
+	/**
+	 * Create the repository if there is none; see `initialize`. Answers why
+	 * it may not be created here, having run nothing.
+	 */
+	async function createRepository(): Promise<string | undefined> {
+		if (await exists()) return undefined;
+		const problem = await initProblem?.();
+		if (problem !== undefined) return problem;
+		await init();
+		present = true;
+		await initialized?.();
+		return undefined;
+	}
+	/** Create the repository for a write that needs one, or throw why not. */
+	async function repository() {
+		const problem = await createRepository();
+		if (problem !== undefined) throw new Error(problem);
+	}
 
 	/** The remote Git configuration names: `remote.origin.url`, on this branch. */
 	async function configuredRemote(): Promise<GitRemote | undefined> {
+		if (!(await exists())) return undefined;
 		const { code, stdout } = await run(
 			['config', '--get', `remote.${REMOTE_NAME}.url`],
 			{ allowFailure: true },
@@ -202,6 +253,7 @@ export async function createNativeGitBackend({
 	const serialized: GitBackend['exclusive'] = exclusive ?? queue.run;
 
 	async function resolve(ref: string): Promise<string | undefined> {
+		if (!(await exists())) return undefined;
 		const result = await run(
 			['rev-parse', '--verify', '--quiet', `${ref}^{commit}`],
 			{
@@ -278,6 +330,7 @@ export async function createNativeGitBackend({
 	}
 
 	const backend: GitBackend = {
+		...(initialize === 'commit' ? { createRepository } : {}),
 		branch,
 		get remote() {
 			return remote;
@@ -287,6 +340,7 @@ export async function createNativeGitBackend({
 			return remote;
 		},
 		async setRemote(url) {
+			await repository();
 			await run(['config', `remote.${REMOTE_NAME}.url`, url]);
 			remote = { url, branch };
 			return remote;
@@ -315,6 +369,8 @@ export async function createNativeGitBackend({
 			throw new GitCommandError(['update-ref'], result.code, result.stderr);
 		},
 		async blocked() {
+			// No repository has no operation in progress.
+			if (!(await exists())) return undefined;
 			const head = await run(['symbolic-ref', '--quiet', 'HEAD'], {
 				allowFailure: true,
 			});
@@ -366,6 +422,7 @@ export async function createNativeGitBackend({
 			return undefined;
 		},
 		async reconcileIndex(commit) {
+			if (!(await exists())) return;
 			// `diff-index --cached` lists every index entry that differs from the
 			// tree, including staged-only additions and deletions.
 			const differing = await run([
@@ -379,7 +436,14 @@ export async function createNativeGitBackend({
 			const paths = text(differing.stdout).split('\0').filter(Boolean);
 			await syncIndex(commit, paths);
 		},
-		async ignoredPaths(candidates) {
+		async ignoredPaths(candidates, current) {
+			// With no repository there is no `git` to ask: the folder's own
+			// `.gitignore` files decide, as in a browser folder. Its first
+			// commit creates the repository and asks `git` first.
+			if (!(await exists())) {
+				const ignored = gitignoreMatcher(current);
+				return new Set(candidates.filter((path) => ignored(path)));
+			}
 			// `--no-index` evaluates the rules alone; the caller keeps tracked files.
 			const result = await run(
 				['check-ignore', '--no-index', '--stdin', '-z'],
@@ -396,6 +460,7 @@ export async function createNativeGitBackend({
 		},
 		readIndex: () => readPrivate('index'),
 		async pathStatus() {
+			if (!(await exists())) return [];
 			const result = await run([
 				'status',
 				'--porcelain=v1',
@@ -405,10 +470,13 @@ export async function createNativeGitBackend({
 			return parsePorcelain(result.stdout);
 		},
 		async stage(paths) {
+			await repository();
 			if (paths === 'all') await run(['add', '--all']);
 			else await run([...literal, 'add', '--all', '--', ...paths]);
 		},
 		async commitIndex(message, author) {
+			// Nothing was staged where there is no repository.
+			if (!(await exists())) return { status: 'nothing' };
 			// The parent is pinned before anything is written; the branch moves
 			// only from it.
 			const parent = await resolve(branchRef);
@@ -434,6 +502,7 @@ export async function createNativeGitBackend({
 			return { status: 'committed', oid, parent };
 		},
 		async diff({ staged, paths }) {
+			if (!(await exists())) return '';
 			const result = await run([
 				...literal,
 				'diff',

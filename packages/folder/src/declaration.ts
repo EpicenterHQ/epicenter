@@ -30,7 +30,12 @@
 
 import { type FieldMap, field, isOptional } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FolderDefinition } from './definition.js';
+import type { FolderStorage } from './boundary.js';
+import {
+	type FolderDefinition,
+	prepareFolderDefinition,
+} from './definition.js';
+import { DECLARATION_PATH } from './paths.js';
 
 /** The text an opener publishes for a prepared definition. */
 export function formatDeclaration(definition: FolderDefinition): string {
@@ -97,6 +102,32 @@ export function parseDeclaration(
 		kv: kv.data,
 		tables,
 	} as FolderDefinition);
+}
+
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+/**
+ * Read a folder's own `epicenter.json` through `storage` and prepare it, as
+ * `readFolder` and `openDataFolder` both do: `undefined` when the folder has
+ * none, or why the file cannot be used. It writes nothing.
+ */
+export async function readDeclaration(
+	storage: Pick<FolderStorage, 'read'>,
+): Promise<Result<FolderDefinition | undefined, { readonly reason: string }>> {
+	const { data: read, error: readError } = await storage.read(DECLARATION_PATH);
+	if (readError !== null)
+		return readError.name === 'NotFound'
+			? Ok(undefined)
+			: Err({ reason: readError.message });
+	let text: string;
+	try {
+		text = utf8.decode(read.bytes);
+	} catch {
+		return Err({ reason: 'it is not UTF-8 text' });
+	}
+	const { data: declared, error: parseError } = parseDeclaration(text);
+	if (parseError !== null) return Err(parseError);
+	return prepareFolderDefinition(declared);
 }
 
 /**

@@ -22,7 +22,11 @@ import {
 } from './git/native-backend.js';
 import type { Author } from './git/objects.js';
 import { webLockExclusive } from './git/web-lock-exclusive.js';
-import { type FolderAddress, openAtRoot } from './open-at-root.js';
+import {
+	type FolderAddress,
+	type FolderSchema,
+	openAtRoot,
+} from './open-at-root.js';
 import {
 	createOpfsFileBoundary,
 	type OpfsDirectoryHandle,
@@ -36,6 +40,11 @@ import {
  *
  * The directory is the folder: there is no ready marker and no address to
  * claim, and a repository someone already made there is used as it is.
+ * With a `definition`, a directory with no repository gets one when opened,
+ * and the handle publishes the definition to `epicenter.json`. With
+ * `'declared'`, the handle reads with the folder's own `epicenter.json` and
+ * never writes it, and opening creates nothing: the first commit, staging,
+ * or remote creates the repository.
  * Files are read and written through the browser folder's storage over
  * `root`. History is real Git (`createNativeGitBackend` over `git`), so it
  * honors Git's lock files, packed refs, and configuration, and another Git
@@ -49,6 +58,7 @@ export async function openDirectoryFolder<
 	const TDefinition extends FolderDefinition,
 >({
 	definition,
+	initProblem,
 	root,
 	rootPath,
 	git: host,
@@ -58,7 +68,13 @@ export async function openDirectoryFolder<
 	branch = 'main',
 	credentials,
 }: {
-	readonly definition: TDefinition;
+	/** The opener's definition, or `'declared'` for the folder's own. */
+	readonly definition: TDefinition | 'declared';
+	/**
+	 * Why the first commit of a `'declared'` folder with no repository must
+	 * not create one here.
+	 */
+	readonly initProblem?: () => Promise<string | undefined>;
 	/** The directory, as a handle over the host's file system. */
 	readonly root: OpfsDirectoryHandle;
 	/** The directory's absolute path, for showing to a person and naming locks. */
@@ -73,10 +89,14 @@ export async function openDirectoryFolder<
 	/** Asked before each push and fetch; see `GitCredentials`. */
 	readonly credentials?: GitCredentials;
 }): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
-	const { data: prepared, error: definitionError } =
-		prepareFolderDefinition(definition);
-	if (definitionError !== null)
-		return OpenFolderError.InvalidDefinition(definitionError);
+	let schema: FolderSchema = 'declared';
+	if (definition !== 'declared') {
+		const { data: prepared, error: definitionError } =
+			prepareFolderDefinition(definition);
+		if (definitionError !== null)
+			return OpenFolderError.InvalidDefinition(definitionError);
+		schema = prepared;
+	}
 	ensureBufferGlobal();
 	const configured = async (key: string) => {
 		const { code, stdout } = await host.run(['config', '--get', key], {
@@ -113,7 +133,7 @@ export async function openDirectoryFolder<
 		// Leftovers are inert; an open that cannot clear them still opens.
 	}
 	return openAtRoot<TDefinition>(
-		prepared,
+		schema,
 		{ BroadcastChannel: hintChannel },
 		{
 			at,
@@ -125,11 +145,21 @@ export async function openDirectoryFolder<
 					filesLock: at.filesLock,
 					landed: relay,
 				});
-				// Creating the repository runs under the open lock: two windows
-				// that open a new folder at once would both run `git init`.
-				// Afterward every window of the app orders the folder's index
-				// and branch work through one Web Lock; other processes meet
-				// Git's own lock files.
+				// The person's own Git identity, read once the repository exists:
+				// the desktop shell answers `config --get` only inside one.
+				let identity = author;
+				const readIdentity = async () => {
+					identity = {
+						name: (await configured('user.name')) ?? author.name,
+						email: (await configured('user.email')) ?? author.email,
+					};
+				};
+				// Creating the repository on open runs under the open lock: two
+				// windows that open a new folder at once would both run
+				// `git init`. A deferred one runs inside the Git lock, with the
+				// first commit. Every window of the app orders the folder's
+				// index and branch work through that one Web Lock; other
+				// processes meet Git's own lock files.
 				const backend = await locks.request(at.openLock, {}, () =>
 					createNativeGitBackend({
 						root: rootPath,
@@ -138,22 +168,33 @@ export async function openDirectoryFolder<
 						host,
 						exclusive: webLockExclusive(locks, at.gitLock),
 						credentials,
+						initialize: definition === 'declared' ? 'commit' : 'open',
+						initialized: readIdentity,
+						initProblem,
 					}),
 				);
-				// Read once the repository exists, so a folder's first open
-				// commits as the person's own Git identity too. The desktop
-				// shell answers `config --get` only inside a repository.
-				const history = createHistory({
-					backend,
+				if ((await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined)
+					await readIdentity();
+				return {
 					boundary,
-					author: {
-						name: (await configured('user.name')) ?? author.name,
-						email: (await configured('user.email')) ?? author.email,
-					},
-					definition: prepared,
-					landed,
-				});
-				return { boundary, history };
+					history: (prepared) =>
+						createHistory({
+							backend,
+							boundary,
+							// Read at each commit, so a repository the first commit
+							// creates commits as the person's identity too.
+							author: {
+								get name() {
+									return identity.name;
+								},
+								get email() {
+									return identity.email;
+								},
+							},
+							definition: prepared,
+							landed,
+						}),
+				};
 			},
 		},
 	);

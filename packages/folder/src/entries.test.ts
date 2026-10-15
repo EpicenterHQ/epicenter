@@ -8,13 +8,14 @@
  *
  * Key behaviors:
  * - Importing any entry opens nothing and touches no global
- * - Every entry exports the same names besides its opener
+ * - Every entry exports the same names besides its openers
  * - The automatic entry asks whether this is the desktop app when it is
  *   called, not when it is imported, and loads only the adapter it chose
  * - On a server, or anywhere without the origin private file system, opening
  *   is a returned refusal
  * - The browser entry refuses inside the desktop app, even with storage
- *   handed to it; the desktop entry refuses outside it; neither falls back
+ *   handed to it; the desktop entry refuses outside it; neither falls back,
+ *   for a data folder either
  * - A browser folder has a local author by default and needs an explicit one
  *   to use a remote
  * - Handles that share browser storage hear each other's saves
@@ -79,10 +80,10 @@ test('importing every entry opens nothing and adds no global', () => {
 	).toBeUndefined();
 });
 
-test('every entry exports the same contract beside its opener', () => {
+test('every entry exports the same contract beside its openers', () => {
 	const names = (entry: object) =>
 		Object.keys(entry)
-			.filter((name) => name !== 'openFolder')
+			.filter((name) => name !== 'openFolder' && name !== 'openDataFolder')
 			.sort();
 	const shared = names(contract);
 	expect(shared).toContain('defineFolder');
@@ -94,6 +95,7 @@ test('every entry exports the same contract beside its opener', () => {
 	expect(names(bun)).toEqual(expect.arrayContaining(shared));
 	for (const entry of [root, browser, tauri, bun]) {
 		expect(typeof entry.openFolder).toBe('function');
+		expect(typeof entry.openDataFolder).toBe('function');
 		for (const name of shared)
 			expect((entry as Record<string, unknown>)[name]).toBe(
 				(contract as Record<string, unknown>)[name],
@@ -102,6 +104,9 @@ test('every entry exports the same contract beside its opener', () => {
 	// One opener per entry: they are different functions with one signature.
 	expect(
 		new Set([root, browser, tauri, bun].map((e) => e.openFolder)).size,
+	).toBe(4);
+	expect(
+		new Set([root, browser, tauri, bun].map((e) => e.openDataFolder)).size,
 	).toBe(4);
 });
 
@@ -113,6 +118,11 @@ test('on a server the automatic entry refuses, and so does each explicit entry',
 	expect(expectErr(await tauri.openFolder({ id, definition })).name).toBe(
 		'NotTauri',
 	);
+	for (const entry of [root, browser])
+		expect(expectErr(await entry.openDataFolder({ id }))).toMatchObject({
+			name: 'NoFileSystem',
+		});
+	expect(expectErr(await tauri.openDataFolder({ id })).name).toBe('NotTauri');
 	expect(invoked).toEqual([]);
 });
 
@@ -178,6 +188,14 @@ test('the browser entry refuses inside the desktop app even when handed storage'
 		}),
 	);
 	expect(refused.name).toBe('InsideTauri');
+	expect(
+		expectErr(
+			await browser.openDataFolder({
+				id,
+				browser: { author, ...browserStorage(storage) },
+			}),
+		).name,
+	).toBe('InsideTauri');
 	expect(storage.opfs.directories()).toEqual([]);
 	expect(invoked).toEqual([]);
 });

@@ -101,6 +101,36 @@ function holdNextWrite(opfs: ReturnType<typeof memoryOpfs>) {
 	};
 }
 
+test('a copy keeps its own epicenter.json: saves and commits never write it, and reopening reads its tables', async () => {
+	const { workspace } = await setup();
+	// Hand-formatted, as no publication would write it.
+	const declared =
+		'{"kv":{"type":"object","properties":{}},"tables":{"notes":{"type":"object","properties":{"title":{"type":"string"}}}}}';
+	const read = async (folder: typeof workspace.folder) =>
+		new TextDecoder().decode(
+			expectOk(await folder.files.read('epicenter.json')).bytes,
+		);
+	expectOk(await workspace.folder.files.create('epicenter.json', declared));
+	workspace.input('edited\n');
+	await workspace.flush();
+	await workspace.commit();
+	expect(workspace.snapshot.lastCommit?.status).toBe('committed');
+	expect(await read(workspace.folder)).toBe(declared);
+	// Opened before the declaration existed, this handle has no tables.
+	expect(workspace.folder.definition.tables).toEqual({});
+
+	await workspace.close();
+	opened.splice(opened.indexOf(workspace), 1);
+	const again = await openWorkingCopy('a', '');
+	opened.push(again);
+	expect(Object.keys(again.folder.definition.tables)).toEqual(['notes']);
+	await again.refresh();
+	await again.select('a.txt');
+	again.input('edited again\n');
+	await again.flush();
+	expect(await read(again.folder)).toBe(declared);
+});
+
 test('concurrent flush waiters share the write of newer input', async () => {
 	const { workspace, opfs } = await setup();
 	const hold = holdNextWrite(opfs);

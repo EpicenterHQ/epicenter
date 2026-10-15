@@ -29,7 +29,8 @@ export async function openGrantedFolder<
 	granted,
 	credentials,
 }: {
-	readonly definition: TDefinition;
+	/** The page's definition, or `'declared'` for the folder's own. */
+	readonly definition: TDefinition | 'declared';
 	readonly id: string;
 	readonly granted: Granted;
 	readonly credentials?: GitCredentials;

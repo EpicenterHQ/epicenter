@@ -443,6 +443,7 @@ describe('a save never reads its bytes back', () => {
 		};
 		const folder = assembleFolder<typeof definition>({
 			prepared: definition,
+			publishes: true,
 			storage: boundary,
 			history,
 			location: locationOf('reread'),

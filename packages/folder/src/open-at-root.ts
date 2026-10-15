@@ -9,7 +9,11 @@
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FileBoundary } from './boundary.js';
-import type { FolderDefinition } from './definition.js';
+import { readDeclaration } from './declaration.js';
+import {
+	type FolderDefinition,
+	prepareFolderDefinition,
+} from './definition.js';
 import { OpenFolderError } from './errors.js';
 import {
 	assembleFolder,
@@ -34,19 +38,38 @@ export type FolderAddress = {
 };
 
 /**
- * Make the folder's storage and history. `relay` hears each landed step, to
- * tell other pages; `landed` hears the paths an incoming update wrote.
+ * Whose schema a handle reads with: the opener's prepared definition, which
+ * the handle publishes to `epicenter.json` (`openFolder`), or `'declared'`,
+ * the folder's own `epicenter.json`, read once the files are reachable and
+ * never written (`openDataFolder`).
+ */
+export type FolderSchema = FolderDefinition | 'declared';
+
+/** What a folder with no `epicenter.json` declares: no tables and no settings. */
+const UNDECLARED = (() => {
+	const { data, error } = prepareFolderDefinition({ kv: {}, tables: {} });
+	if (error !== null) throw new Error(error.reason);
+	return data;
+})();
+
+/**
+ * Make the folder's storage, and its history once the definition is known.
+ * `relay` hears each landed step, to tell other pages; `landed` hears the
+ * paths an incoming update wrote.
  */
 export type StartFolder = (wiring: {
 	readonly relay: (paths: readonly string[]) => void;
 	readonly landed: (paths: readonly string[]) => void;
 }) => Promise<{
 	readonly boundary: FileBoundary;
-	readonly history: ReturnType<typeof createHistory>;
+	/** The history, whose Sync merges rows by `definition`. */
+	readonly history: (
+		definition: FolderDefinition,
+	) => ReturnType<typeof createHistory>;
 }>;
 
 export async function openAtRoot<TDefinition extends FolderDefinition>(
-	prepared: FolderDefinition,
+	schema: FolderSchema,
 	environment: Pick<OpfsEnvironment, 'BroadcastChannel'>,
 	captured: {
 		readonly at: FolderAddress;
@@ -87,10 +110,23 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 				);
 		};
 		const hints = createFileHints();
-		const { boundary, history } = await captured.start({
+		const started = await captured.start({
 			relay,
 			landed: (paths) => hints.emit(paths),
 		});
+		const { boundary } = started;
+		let prepared: FolderDefinition;
+		if (schema === 'declared') {
+			// Read through the folder's own file boundary, after the grant, as
+			// every later read is.
+			const { data: declared, error } = await readDeclaration(boundary);
+			if (error !== null) {
+				release();
+				return OpenFolderError.InvalidDeclaration(error);
+			}
+			prepared = declared ?? UNDECLARED;
+		} else prepared = schema;
+		const history = started.history(prepared);
 		if (channel !== undefined) {
 			channel.onmessage = ({ data }) => {
 				if (!channelOpen || history.snapshot.closed || !Array.isArray(data))
@@ -101,6 +137,7 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 		}
 		const folder = assembleFolder<TDefinition>({
 			prepared,
+			publishes: schema !== 'declared',
 			storage: withPublication({
 				storage: boundary,
 				history,

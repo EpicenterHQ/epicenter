@@ -167,6 +167,15 @@ export type RecoverIncomingResult =
 	  };
 
 export type GitBackend = {
+	/**
+	 * Create the repository if there is none yet. Only a backend whose
+	 * repository the first commit creates has this (a folder opened with
+	 * `openDataFolder` on disk); history calls it inside `exclusive` before a
+	 * whole-folder commit, and staging or setting a remote creates it too.
+	 * The others create theirs when opened or with their first write.
+	 * Answers why no repository may be created here, having created nothing.
+	 */
+	createRepository?(): Promise<string | undefined>;
 	readonly branch: string;
 	/** The remote as this backend last read or set it. */
 	readonly remote: GitRemote | undefined;

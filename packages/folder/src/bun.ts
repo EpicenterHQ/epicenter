@@ -2,7 +2,10 @@
  * `@epicenter/folder/bun`: open an ordinary directory as a folder, in Bun.
  *
  * For command-line tools, recovery scripts, and tests that are given a
- * directory. A page in the desktop app opens its folder through
+ * directory. `openFolder` opens it with a definition from code, which it
+ * publishes to `epicenter.json`; `openDataFolder` opens an existing data
+ * folder with its own `epicenter.json`, which it never writes; `readFolder`
+ * reads one without opening it. A page in the desktop app opens its folder through
  * `@epicenter/folder/tauri` instead, where the shell grants the page its
  * directory, changes its files, and runs `git` for it.
  *
@@ -22,8 +25,8 @@
  */
 
 import { lstat, realpath } from 'node:fs/promises';
-import { join } from 'node:path';
-import type { Result } from 'wellcrafted/result';
+import { dirname, join } from 'node:path';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { directoryHandle } from './directory-handle.js';
@@ -49,6 +52,12 @@ export type DirectoryFolderOptions<TDefinition extends FolderDefinition> = {
 	readonly git: FolderGitOptions;
 };
 
+export type DataFolderOptions = {
+	/** An existing directory. Opening creates nothing in it. */
+	readonly root: string;
+	readonly git: FolderGitOptions;
+};
+
 /** One lock manager for every folder this process opens. */
 const locks = createProcessLocks();
 
@@ -65,24 +74,85 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 }: DirectoryFolderOptions<TDefinition>): Promise<
 	Result<Folder<TDefinition>, OpenFolderError>
 > {
-	let resolved: string;
+	const { data: resolved, error } = await directoryRoot(root);
+	if (error !== null) return OpenFolderError.InvalidRoot(error);
+	return openDirectoryFolder<TDefinition>({
+		definition,
+		...directory(resolved),
+		author: git.author,
+		credentials: git.credentials,
+	});
+}
+
+/**
+ * Open the existing directory at `root` with the schema in its own
+ * `epicenter.json`, which the handle never writes (ADR-0535). A directory
+ * without one opens with no tables and no settings; one that cannot be used
+ * is `InvalidDeclaration`. The root is refused as `openFolder` refuses it.
+ *
+ * Opening creates nothing. A directory with no repository reads as an empty
+ * history with every file uncommitted, and its first commit creates the
+ * repository, unless the directory is inside another repository's working
+ * tree: that commit is `blocked`, and the files are committed with that
+ * repository's Git (ADR-0517).
+ */
+export async function openDataFolder({
+	root,
+	git,
+}: DataFolderOptions): Promise<
+	Result<Folder<FolderDefinition>, OpenFolderError>
+> {
+	const { data: resolved, error } = await directoryRoot(root);
+	if (error !== null) return OpenFolderError.InvalidRoot(error);
+	return openDirectoryFolder<FolderDefinition>({
+		definition: 'declared',
+		initProblem: () => enclosingRepository(resolved),
+		...directory(resolved),
+		author: git.author,
+		credentials: git.credentials,
+	});
+}
+
+/**
+ * `root` with its links resolved, or why it cannot hold a folder: it is not
+ * a directory, or its `.git` is not a directory of its own.
+ */
+async function directoryRoot(
+	root: string,
+): Promise<Result<string, { root: string; cause: unknown }>> {
 	try {
-		resolved = await realpath(root);
+		const resolved = await realpath(root);
 		if (!(await lstat(resolved)).isDirectory())
 			throw new Error(`${root} is not a directory`);
 		const dotGit = await lstat(join(resolved, '.git')).catch(() => undefined);
 		if (dotGit !== undefined && !dotGit.isDirectory())
 			throw new Error(`${root}/.git is not a directory of its own`);
+		return Ok(resolved);
 	} catch (cause) {
-		return OpenFolderError.InvalidRoot({ root, cause });
+		return Err({ root, cause });
 	}
-	return openDirectoryFolder<TDefinition>({
-		definition,
+}
+
+/** This process's file system and `git`, at `resolved`. */
+function directory(resolved: string) {
+	return {
 		root: directoryHandle(nodeDirectoryPrimitives, resolved),
 		rootPath: resolved,
 		git: { run: createGitRunner(resolved), files: nodeDirectoryPrimitives },
 		locks,
-		author: git.author,
-		credentials: git.credentials,
-	});
+	};
+}
+
+/**
+ * Why `resolved` may not get a repository of its own: a directory above it
+ * holds `.git`, so it is inside that repository's working tree.
+ */
+async function enclosingRepository(
+	resolved: string,
+): Promise<string | undefined> {
+	for (let at = dirname(resolved); ; at = dirname(at)) {
+		if ((await lstat(join(at, '.git')).catch(() => undefined)) !== undefined)
+			return `${resolved} is inside the repository at ${at}; commit it with that repository's Git`;
+		if (dirname(at) === at) return undefined;
+	}
 }

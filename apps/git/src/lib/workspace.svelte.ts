@@ -1,9 +1,8 @@
 import {
-	defineFolder,
 	type FileCapture,
 	type FileListing,
 	type GitSnapshot,
-	openFolder,
+	openDataFolder,
 	type PathStatus,
 	type SyncAttempt,
 	type SyncChoiceProblem,
@@ -16,7 +15,6 @@ import { describeSync } from '@epicenter/svelte/sync-line';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { Result } from 'wellcrafted/result';
 
-const definition = defineFolder({ kv: {}, tables: {} });
 export type WorkingCopy = NonNullable<
 	Awaited<ReturnType<typeof openWorkingCopy>>
 >;
@@ -40,9 +38,10 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		).join('');
 		id = `so.epicenter.git.${key}.${copy}`;
 	}
-	const opened = await openFolder({
+	// A working copy is an existing folder, not this app's data: it opens with
+	// its own epicenter.json, if any, and saving never writes that file.
+	const opened = await openDataFolder({
 		id,
-		definition,
 		browser: {
 			author: {
 				name: `Working copy ${copy.toUpperCase()}`,

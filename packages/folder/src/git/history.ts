@@ -546,6 +546,9 @@ export function createHistory({
 		onCapture?: (capturedAt: number) => void,
 	): Promise<CommitOutcome> {
 		return exclusive(async (): Promise<CommitOutcome> => {
+			// A folder whose repository its first commit creates gets it here.
+			const unborn = await backend.createRepository?.();
+			if (unborn !== undefined) return { status: 'blocked', reason: unborn };
 			const blocked = await wholeFolderProblem();
 			if (blocked !== undefined) return { status: 'blocked', reason: blocked };
 			// Pin the parent, then capture, both inside the Git lock. A pull or

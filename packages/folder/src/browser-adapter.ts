@@ -22,14 +22,26 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { ensureBufferGlobal } from './buffer-global.js';
-import type { OpenFolder } from './contract.js';
-import { prepareFolderDefinition } from './definition.js';
+import type {
+	OpenDataFolder,
+	OpenDataFolderOptions,
+	OpenFolder,
+} from './contract.js';
+import {
+	type FolderDefinition,
+	prepareFolderDefinition,
+} from './definition.js';
 import { OpenFolderError } from './errors.js';
+import type { Folder } from './folder.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
 import { createHistory } from './git/history.js';
 import type { Author } from './git/objects.js';
 import { createOpfsGitStore } from './git/opfs-git.js';
-import { type FolderAddress, openAtRoot } from './open-at-root.js';
+import {
+	type FolderAddress,
+	type FolderSchema,
+	openAtRoot,
+} from './open-at-root.js';
 import {
 	createOpfsFileBoundary,
 	errorName,
@@ -162,16 +174,28 @@ function lazyDirectory(
  * definition a folder cannot keep, a page inside the desktop app, an ID that
  * cannot name a directory, or missing browser storage. Nothing is written.
  */
-export const openFolder: OpenFolder = async ({
-	definition,
-	id,
-	credentials,
-	browser = {},
-}) => {
+export const openFolder: OpenFolder = async ({ definition, ...options }) => {
 	const { data: prepared, error: definitionError } =
 		prepareFolderDefinition(definition);
 	if (definitionError !== null)
 		return OpenFolderError.InvalidDefinition(definitionError);
+	return openBrowserFolder<typeof definition>(prepared, options);
+};
+
+/**
+ * Open the browser folder named `id` with its own `epicenter.json`, which the
+ * handle never writes; a folder without one has no tables and no settings.
+ * Opening writes nothing, as `openFolder`'s does: a folder nobody wrote to
+ * lists no files, and its first write creates its directory and repository.
+ * An `epicenter.json` that cannot be used is `InvalidDeclaration`.
+ */
+export const openDataFolder: OpenDataFolder = (options) =>
+	openBrowserFolder<FolderDefinition>('declared', options);
+
+async function openBrowserFolder<TDefinition extends FolderDefinition>(
+	schema: FolderSchema,
+	{ id, credentials, browser = {} }: OpenDataFolderOptions,
+): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
 	if (isTauri()) return OpenFolderError.InsideTauri();
 	if (!isFolderName(id)) return OpenFolderError.InvalidId({ id: String(id) });
 	const author = browser.author ?? LOCAL_AUTHOR;
@@ -196,7 +220,7 @@ export const openFolder: OpenFolder = async ({
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });
 	}
-	return openAtRoot<typeof definition>(prepared, environment, {
+	return openAtRoot<TDefinition>(schema, environment, {
 		at,
 		location: { kind: 'opfs', directory: at.directory },
 		// An incoming update a closed tab left half published stays pending:
@@ -224,14 +248,17 @@ export const openFolder: OpenFolder = async ({
 				credentials,
 			});
 			ensureRepository = backend.ensureRepository;
-			const history = createHistory({
-				backend,
+			return {
 				boundary,
-				author,
-				definition: prepared,
-				landed,
-			});
-			return { boundary, history };
+				history: (prepared) =>
+					createHistory({
+						backend,
+						boundary,
+						author,
+						definition: prepared,
+						landed,
+					}),
+			};
 		},
 	});
-};
+}

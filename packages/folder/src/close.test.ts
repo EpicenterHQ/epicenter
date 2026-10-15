@@ -157,6 +157,7 @@ async function held() {
 	const hints = createFileHints();
 	const folder = assembleFolder<typeof definition>({
 		prepared: definition,
+		publishes: true,
 		storage: withPublication({
 			storage: boundary,
 			history,
