@@ -109,7 +109,7 @@ fn install<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), String> 
     app.folders().register(ScopeConfig {
         scope: root::SCOPE.to_string(),
         folder: folder_config(&root),
-        window: WINDOW.to_string(),
+        windows: vec![WINDOW.to_string()],
     })?;
     app.manage(Shell {
         gate: CloseGate::new(),

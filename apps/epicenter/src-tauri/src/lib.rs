@@ -751,8 +751,8 @@ pub fn run() {
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
             // Each page runs `@epicenter/folder`'s own engine over its
-            // directory; the shell locks it and grants it to that page's
-            // window, and owns nothing else. The repository's own author and
+            // directory; the shell locks it and grants it to the windows
+            // registered for it, here each app's own, and owns nothing else. The repository's own author and
             // origin are read there; these authors are the fallback.
             app.folders().register(ScopeConfig {
                 scope: "so.epicenter.todos".into(),
@@ -760,7 +760,7 @@ pub fn run() {
                     desktop_paths.folder_dir.join("so.epicenter.todos"),
                     FolderAuthor { name: "Todos".into(), email: "todos@localhost".into() },
                 ),
-                window: "todos".into(),
+                windows: vec!["todos".into()],
             }).map_err(anyhow::Error::msg)?;
             app.folders().register(ScopeConfig {
                 scope: "so.epicenter.capture".into(),
@@ -768,7 +768,7 @@ pub fn run() {
                     desktop_paths.folder_dir.join("so.epicenter.capture"),
                     FolderAuthor { name: "Capture".into(), email: "capture@localhost".into() },
                 ),
-                window: "capture".into(),
+                windows: vec!["capture".into()],
             }).map_err(anyhow::Error::msg)?;
             app.manage(desktop_paths);
 

@@ -1,7 +1,9 @@
 /**
  * The desktop opener: a folder whose directory the desktop shell grants.
  *
- * The shell registers each folder's directory under an ID for one window.
+ * The shell registers each folder's directory under an ID for the windows
+ * that may edit it; several windows of one folder each open their own engine
+ * over the same directory, and the shell checks and publishes every save.
  * This opener asks the shell for that directory (`grant_directory`) and opens
  * it with the folder engine (`tauri-directory.ts`): files are read and
  * changed through the shell, which checks every path, and history is the

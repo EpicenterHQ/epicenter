@@ -1,12 +1,12 @@
 /**
  * The Epicenter host leaf: the page was served by the desktop host, so the
  * captures are a real directory the shell grants this window, and the page
- * runs the folder engine over it (ADR-0531): it reads through Tauri's fs
- * plugin, and the shell makes each change and runs the folder's `git`. It
- * opens through the desktop entry only, which refuses outside the shell.
+ * runs the folder engine over it (ADR-0531): the shell makes each read and
+ * change and runs the folder's `git`. It opens through the desktop entry
+ * only, which refuses outside the shell.
  *
  * The page names the folder by its ID and nothing else; the shell chose the
- * directory, the fallback author, and the one window that may use it. The
+ * directory, the fallback author, and the windows that may use it. The
  * collection finishes its intended saves before closing closes the folder:
  * nothing else finishes them once the page is gone.
  *

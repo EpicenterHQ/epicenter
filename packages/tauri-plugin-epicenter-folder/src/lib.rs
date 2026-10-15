@@ -1,5 +1,5 @@
-//! The desktop shell's grant of an Epicenter folder to the one window that
-//! edits it.
+//! The desktop shell's grant of an Epicenter folder to the windows that edit
+//! it.
 //!
 //! A shell installs the plugin once and registers its folders from trusted
 //! Rust code once it knows its paths:
@@ -11,22 +11,27 @@
 //!         app.folders().register(ScopeConfig {
 //!             scope: "so.epicenter.todos".into(),
 //!             folder: FolderConfig::new(todos_directory, author),
-//!             window: "todos".into(),
+//!             windows: vec!["todos".into()],
 //!         })?;
 //!         Ok(())
 //!     })
 //! ```
 //!
-//! A page names a scope and nothing else. The root and the fallback author
+//! `Folders::permit` lets another window into a registered folder later. A
+//! page names a scope and nothing else. The root and the fallback author
 //! come from `register`. The page runs `@epicenter/folder`'s engine over the
 //! directory `grant_directory` hands it: it reads and changes files through
 //! this plugin's checked commands, and records history with the system
 //! `git`, which `run_git` runs for it.
 //!
-//! The folder is locked on its first grant and stays locked until the app
-//! exits or the shell calls `Folders::shutdown`, which refuses new work,
-//! waits a bounded time for the changes and `git` runs already admitted, and
-//! releases each folder's cross-process lock.
+//! Several windows may edit one folder: the shell checks and publishes each
+//! of their saves under one mutex per root, so a save another window
+//! overtook is refused as `Conflict` rather than silently replaced. The
+//! folder is locked against other processes on its first grant, from
+//! whichever window, and stays locked until the app exits or the shell calls
+//! `Folders::shutdown`, which refuses new work, waits a bounded time for the
+//! changes and `git` runs already admitted in every window, and releases each
+//! folder's cross-process lock.
 
 use tauri::plugin::TauriPlugin;
 use tauri::webview::PageLoadEvent;
@@ -56,10 +61,16 @@ pub struct Folders {
 }
 
 impl Folders {
-    /// Register a folder under a scope and name the window that may use it.
-    /// A scope's configuration never changes once registered.
+    /// Register a folder under a scope and name the windows that may edit
+    /// it. Afterward only its windows change, through `permit`.
     pub fn register(&self, config: ScopeConfig) -> Result<(), String> {
         self.registry.register(config)
+    }
+
+    /// Let `window` edit the registered folder `scope` beside the windows
+    /// already permitted. It is granted the same root, under the same lock.
+    pub fn permit(&self, scope: &str, window: &str) -> Result<(), GrantError> {
+        self.registry.permit(scope, window)
     }
 
     /// Refuse new work, wait a bounded time for work already admitted, and

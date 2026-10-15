@@ -1,18 +1,20 @@
 //! Scopes, grants, page work, and the cross-process lock.
 //!
 //! Key behaviors:
-//! - A scope is granted only to the one window registered for it; a refused
-//!   grant creates nothing.
+//! - A scope is granted only to the windows registered or later permitted
+//!   for it; a refused grant creates nothing.
 //! - The first grant locks the folder and initializes nothing; a reloaded
-//!   page's grant returns the same root.
+//!   page's grant, or another window's, returns the same root under the same
+//!   lock. A second scope on that root is `Busy`.
 //! - A linked `.git` or a linked folder directory is refused; a linked
 //!   parent is not.
-//! - Shutdown waits for running page work, refuses new work, and releases
-//!   the lock.
+//! - Shutdown waits for running page work in every window, refuses new work,
+//!   and releases the lock.
 //! - The lock excludes another process, in both directions with the Bun
 //!   hosts' lock, and a killed process leaves nothing to recover.
-//! - Saves racing on one root with the same expected hash publish one at a
-//!   time: exactly one lands, and the others are `Conflict`.
+//! - Saves racing on one root with the same expected hash, from two windows,
+//!   publish one at a time: exactly one lands, and the others are
+//!   `Conflict`.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -30,7 +32,7 @@ fn scope(name: &str, root: &Path, window: &str) -> ScopeConfig {
     ScopeConfig {
         scope: name.to_string(),
         folder: FolderConfig::new(root, author()),
-        window: window.to_string(),
+        windows: vec![window.to_string()],
     }
 }
 
@@ -87,6 +89,59 @@ fn a_scope_is_granted_locked_and_initialized_by_nothing() {
         Some(GrantError::ShuttingDown)
     );
     drop(RootLock::acquire(&canonical).expect("shutdown releases the lock"));
+}
+
+#[test]
+fn every_window_of_a_scope_is_granted_one_root_under_one_lock() {
+    let temp = TempDir::new("grant-windows");
+    let root = temp.folder("notes");
+    let registry = Registry::new();
+    assert!(registry
+        .register(ScopeConfig {
+            windows: Vec::new(),
+            ..scope("notes", &root, "main")
+        })
+        .is_err());
+    registry
+        .register(ScopeConfig {
+            windows: vec!["main".into(), "side".into()],
+            ..scope("notes", &root, "main")
+        })
+        .unwrap();
+    let granted = registry.grant("notes", "main").unwrap();
+    assert_eq!(registry.grant("notes", "side").unwrap(), granted);
+    let canonical = root.canonicalize().unwrap();
+    assert_eq!(registry.admit_page_work("notes", "side").unwrap().0, canonical);
+    assert_eq!(
+        registry.grant("notes", "browser").err(),
+        Some(GrantError::WindowNotPermitted {
+            scope: "notes".into(),
+            window: "browser".into()
+        })
+    );
+
+    // A window the shell lets in later shares the root, and the lock stays
+    // the one taken by the first grant.
+    registry.permit("notes", "browser").unwrap();
+    registry.permit("notes", "browser").unwrap();
+    assert_eq!(registry.grant("notes", "browser").unwrap(), granted);
+    assert!(matches!(
+        RootLock::acquire(&canonical),
+        Err(LockError::Busy { .. })
+    ));
+    assert_eq!(
+        registry.permit("other", "browser").err(),
+        Some(GrantError::UnknownScope {
+            scope: "other".into()
+        })
+    );
+
+    registry.shutdown();
+    assert_eq!(
+        registry.permit("notes", "late").err(),
+        Some(GrantError::ShuttingDown)
+    );
+    drop(RootLock::acquire(&canonical).expect("shutdown releases the one lock"));
 }
 
 #[test]
@@ -168,11 +223,13 @@ fn a_folder_directory_that_is_a_link_is_refused_and_a_linked_parent_is_not() {
 }
 
 #[test]
-fn shutdown_waits_for_running_page_work_and_refuses_new_work() {
+fn shutdown_waits_for_every_windows_running_page_work_and_refuses_new_work() {
     let temp = TempDir::new("grant-work");
     let registry = Arc::new(registry(&temp.path().join("notes"), "main"));
+    registry.permit("notes", "side").unwrap();
     registry.grant("notes", "main").unwrap();
     let (_, work) = registry.admit_page_work("notes", "main").unwrap();
+    let (_, side_work) = registry.admit_page_work("notes", "side").unwrap();
     let finished = Arc::new(AtomicBool::new(false));
     let shutting = {
         let registry = Arc::clone(&registry);
@@ -187,8 +244,11 @@ fn shutdown_waits_for_running_page_work_and_refuses_new_work() {
         registry.admit_page_work("notes", "main"),
         Err(GrantError::ShuttingDown)
     ));
-    finished.store(true, Ordering::SeqCst);
     drop(work);
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(!shutting.is_finished(), "shutdown waits for the other window's work");
+    finished.store(true, Ordering::SeqCst);
+    drop(side_work);
     shutting.join().unwrap();
 }
 
@@ -197,14 +257,16 @@ fn hex_sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// Every admitted change on a root shares its publishing mutex, so saves
-/// that read the same version check and rename one at a time.
+/// Every admitted change on a root shares its publishing mutex, whichever
+/// window it came from, so saves that read the same version check and rename
+/// one at a time.
 #[test]
 fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
     const SAVES: usize = 8;
     let temp = TempDir::new("grant-race");
     let root = temp.folder("notes");
     let registry = Arc::new(registry(&root, "main"));
+    registry.permit("notes", "side").unwrap();
     registry.grant("notes", "main").unwrap();
     std::fs::create_dir_all(root.join(".git/epicenter/scratch")).unwrap();
     let target = root.join("a.md");
@@ -221,7 +283,8 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
             std::thread::spawn(move || {
                 let bytes = format!("save {save}");
                 page_files::write_file(&root, &staged, bytes.as_bytes(), true).unwrap();
-                let (root, work) = registry.admit_page_work("notes", "main").unwrap();
+                let window = if save % 2 == 0 { "main" } else { "side" };
+                let (root, work) = registry.admit_page_work("notes", window).unwrap();
                 start.wait();
                 let _held = work.publishing();
                 let landed = page_files::rename(&root, &staged, &target, &expected);

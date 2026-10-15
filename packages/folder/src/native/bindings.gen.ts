@@ -118,7 +118,7 @@ export type GitOutput = {
 export type GrantError =
 /**  The shell registered no folder under this scope. */
 { name: "UnknownScope"; scope: string } |
-/**  The scope exists, but belongs to another window. */
+/**  The scope exists, but is not registered for this window. */
 { name: "WindowNotPermitted"; scope: string; window: string } |
 /**  Another process holds the folder. */
 { name: "Busy"; root: string } |

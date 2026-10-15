@@ -1,26 +1,28 @@
 //! Which window may use which folder.
 //!
 //! The shell registers scopes: a scope ID, the folder's directory and the
-//! fallbacks for what its repository does not configure, and the one window
-//! label allowed to use it. A page names only the scope ID. It never supplies
-//! a root or an author, so a compromised page cannot point the folder
-//! somewhere else.
+//! fallbacks for what its repository does not configure, and the labels of
+//! the windows that may edit it. `permit` adds a window to a registered
+//! scope later. A page names only the scope ID. It never supplies a root or
+//! an author, so a compromised page cannot point the folder somewhere else.
 //!
-//! The page runs `@epicenter/folder`'s engine over the directory. `grant`
-//! takes the folder's cross-process lock on first use and hands the window
-//! the canonical root; the lock is held until `shutdown`, so no other process
-//! opens the folder meanwhile. One window per scope is one live editor per
-//! folder: the engine coordinates only the page that opened it. Each file
-//! change or `git` run the page asks for holds a `PageWork` while it runs;
-//! `shutdown` refuses new ones and waits a bounded time for those running, so
-//! a quit never cuts a rename or a `git` run short.
+//! Each permitted window's page runs `@epicenter/folder`'s engine over the
+//! directory. The first `grant` takes the folder's cross-process lock and
+//! every grant, from any permitted window, hands back the same canonical
+//! root; the lock is held until `shutdown`, so no other process opens the
+//! folder meanwhile. Each file change or `git` run a page asks for holds a
+//! `PageWork` while it runs; `shutdown` refuses new ones and waits a bounded
+//! time for those running in every window, so a quit never cuts a rename or
+//! a `git` run short.
 //!
-//! Every publishing rename and removal checks its path against the page's
-//! expectation and changes it under one mutex per canonical root, held here
-//! and shared by every scope and window on that root (`PageWork::publishing`).
-//! So a save through the shell is never overtaken between its check and its
-//! rename by another save through the shell, whichever engine or origin made
-//! either.
+//! Several windows may edit one folder because the shell, not the page,
+//! decides every publish. Each publishing rename and removal checks its path
+//! against the page's expectation and changes it under one mutex per
+//! canonical root, held here and shared by every scope and window on that
+//! root (`PageWork::publishing`). So a save through the shell is never
+//! overtaken between its check and its rename by another save through the
+//! shell, whichever window, engine, or origin made either. Another process
+//! would publish outside that mutex, which is what the lock keeps out.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -71,8 +73,9 @@ pub struct ScopeConfig {
     /// The only thing a page names.
     pub scope: String,
     pub folder: FolderConfig,
-    /// The label of the one window that may use this scope.
-    pub window: String,
+    /// The labels of the windows that may edit this scope; at least one.
+    /// `Registry::permit` adds more once the scope is registered.
+    pub windows: Vec<String>,
 }
 
 /// Why a window was not given a folder, or a change or `git` run for it was
@@ -82,7 +85,7 @@ pub struct ScopeConfig {
 pub enum GrantError {
     /// The shell registered no folder under this scope.
     UnknownScope { scope: String },
-    /// The scope exists, but belongs to another window.
+    /// The scope exists, but is not registered for this window.
     WindowNotPermitted { scope: String, window: String },
     /// Another process holds the folder.
     Busy { root: String },
@@ -169,13 +172,19 @@ impl Registry {
     }
 
     /// Register a scope. Trusted shell code calls this once it has resolved
-    /// its paths; a scope's configuration never changes afterward.
+    /// its paths; afterward only its windows change, through `permit`.
     pub fn register(&self, config: ScopeConfig) -> Result<(), String> {
         if self.fenced.load(Ordering::SeqCst) {
             return Err("the folder registry is shutting down".to_string());
         }
         if config.scope.trim().is_empty() {
             return Err("a folder scope needs a nonempty ID".to_string());
+        }
+        if config.windows.is_empty() {
+            return Err(format!(
+                "the folder scope '{}' needs at least one window",
+                config.scope
+            ));
         }
         let mut scopes = self.scopes();
         if scopes.contains_key(&config.scope) {
@@ -194,7 +203,28 @@ impl Registry {
         Ok(())
     }
 
-    /// The registered scope `scope`, if `window` is the one it belongs to.
+    /// Let `window` edit the registered `scope` too. Trusted shell code calls
+    /// this, as it does `register`; a window already permitted stays so. The
+    /// window shares the scope's one root and lock, and each of its saves is
+    /// checked and published under the root's mutex like any other window's.
+    pub fn permit(&self, scope: &str, window: &str) -> Result<(), GrantError> {
+        let mut scopes = self.scopes();
+        if self.fenced.load(Ordering::SeqCst) {
+            return Err(GrantError::ShuttingDown);
+        }
+        let Some(entry) = scopes.get_mut(scope) else {
+            return Err(GrantError::UnknownScope {
+                scope: scope.to_string(),
+            });
+        };
+        let windows = &mut entry.config.windows;
+        if !windows.iter().any(|permitted| permitted == window) {
+            windows.push(window.to_string());
+        }
+        Ok(())
+    }
+
+    /// The registered scope `scope`, if `window` is one of its windows.
     fn permitted<'a>(
         scopes: &'a mut BTreeMap<String, Scope>,
         scope: &str,
@@ -205,7 +235,7 @@ impl Registry {
                 scope: scope.to_string(),
             });
         };
-        if entry.config.window != window {
+        if !entry.config.windows.iter().any(|permitted| permitted == window) {
             return Err(GrantError::WindowNotPermitted {
                 scope: scope.to_string(),
                 window: window.to_string(),
@@ -214,11 +244,12 @@ impl Registry {
         Ok(entry)
     }
 
-    /// Give `window` the directory of `scope`. The first grant creates the
-    /// directory if it is missing, refuses a directory that is a link or Git
-    /// state that would send writes elsewhere (`verify_layout`), and takes
-    /// the folder's cross-process lock; a later grant, such as a reloaded
-    /// page's, returns the same root.
+    /// Give `window` the directory of `scope`. The first grant, from whichever
+    /// permitted window asks first, creates the directory if it is missing,
+    /// refuses a directory that is a link or Git state that would send writes
+    /// elsewhere (`verify_layout`), and takes the folder's cross-process lock;
+    /// every later grant, a reloaded page's or another window's, returns the
+    /// same root under the same lock.
     pub fn grant(&self, scope: &str, window: &str) -> Result<Granted, GrantError> {
         let mut scopes = self.scopes();
         if self.fenced.load(Ordering::SeqCst) {
@@ -278,8 +309,8 @@ impl Registry {
         ))
     }
 
-    /// The canonical root of `scope`, already granted to the window it
-    /// belongs to: where that window's changes and Git commands run.
+    /// The canonical root of `scope`, already granted, if `window` is one of
+    /// its windows: where that window's changes and Git commands run.
     pub fn granted_root(&self, scope: &str, window: &str) -> Result<PathBuf, GrantError> {
         let mut scopes = self.scopes();
         if self.fenced.load(Ordering::SeqCst) {

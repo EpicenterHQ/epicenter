@@ -6,8 +6,10 @@
 //!
 //! Key behaviors:
 //! - The generated TypeScript bindings match the registered commands.
-//! - A scope is granted only to the window registered for it, and a page
-//!   never supplies a root.
+//! - A scope is granted only to the windows registered or permitted for it,
+//!   each the same root, and a page never supplies a root.
+//! - Two windows of one scope racing to save one file over the same version
+//!   publish one at a time: exactly one lands, and the other is `Conflict`.
 //! - Reads reach the granted root and everything beneath it, `.git`
 //!   included, and nothing else: never another window's root, never through
 //!   a link on the way. A final link is described, not followed.
@@ -154,7 +156,7 @@ fn fixture_in(label: &str, context: tauri::Context<MockRuntime>) -> Fixture {
                     email: "test@example.com".to_string(),
                 },
             ),
-            window: "main".to_string(),
+            windows: vec!["main".to_string()],
         })
         .unwrap();
     Fixture {
@@ -354,10 +356,11 @@ fn git(
 }
 
 #[test]
-fn a_scope_is_granted_to_its_window_and_no_other() {
+fn a_scope_is_granted_to_its_windows_and_no_other() {
     let fixture = fixture("grant");
     let main = window(&fixture.app, "main");
     let other = window(&fixture.app, "other");
+    let side = window(&fixture.app, "side");
     assert_eq!(
         grant(&other).unwrap_err(),
         json!({ "name": "WindowNotPermitted", "scope": "notes", "window": "other" })
@@ -384,6 +387,82 @@ fn a_scope_is_granted_to_its_window_and_no_other() {
     assert_eq!(grant(&main).unwrap(), granted);
     assert!(text(&write(&fixture, &other, "a.md", "a").unwrap_err())
         .contains("WindowNotPermitted"));
+
+    // A window the shell permits later gets the same folder, and both
+    // windows read and change it.
+    fixture.app.folders().permit("notes", "side").unwrap();
+    assert_eq!(grant(&side).unwrap(), granted);
+    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    write(&fixture, &main, "a.md", "main's\n").unwrap();
+    assert_eq!(read_file(&side, "notes", &inside(&fixture, "a.md")).unwrap(), b"main's\n");
+    write(&fixture, &side, "b.md", "side's\n").unwrap();
+    assert_eq!(read_file(&main, "notes", &inside(&fixture, "b.md")).unwrap(), b"side's\n");
+    assert!(text(&grant(&other).unwrap_err()).contains("WindowNotPermitted"));
+}
+
+/// Two windows of one scope stage a save of the same file over the version
+/// both read, then publish at once. The shell checks and renames under the
+/// root's mutex, so exactly one save lands and the other is `Conflict`
+/// naming what is there, whichever wins.
+#[test]
+fn two_windows_saving_one_file_over_the_same_version_publish_once() {
+    const ROUNDS: usize = 8;
+    let fixture = fixture("two-editors");
+    fixture.app.folders().permit("notes", "side").unwrap();
+    let main = window(&fixture.app, "main");
+    let side = window(&fixture.app, "side");
+    grant(&main).unwrap();
+    grant(&side).unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    let scratch = inside(&fixture, ".git/epicenter/scratch");
+    invoke(
+        &main,
+        "make_folder_directory",
+        json!({ "scope": "notes", "path": scratch }),
+    )
+    .unwrap();
+    let target = inside(&fixture, "a.md");
+    write(&fixture, &main, "a.md", "round 0\n").unwrap();
+    for round in 1..=ROUNDS {
+        let expected = json!({ "sha256": sha256(format!("round {}\n", round - 1).as_bytes()) });
+        let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let saves: Vec<_> = [&main, &side]
+            .into_iter()
+            .map(|editor| {
+                let content = format!("round {round}\n");
+                let content = format!("{content}{}\n", editor.label());
+                let staged = format!("{scratch}/{}-{round}", editor.label());
+                write_file(editor, &staged, content.as_bytes(), true).unwrap();
+                let (editor, start) = (editor.clone(), std::sync::Arc::clone(&start));
+                let args = json!({
+                    "scope": "notes",
+                    "from": staged,
+                    "to": target,
+                    "expected": expected,
+                });
+                std::thread::spawn(move || {
+                    start.wait();
+                    (content, invoke(&editor, "rename_folder_path", args))
+                })
+            })
+            .collect();
+        let outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
+        let landed: Vec<_> = outcomes.iter().filter(|(_, outcome)| outcome.is_ok()).collect();
+        assert_eq!(landed.len(), 1, "round {round}: {outcomes:?}");
+        let won = &landed[0].0;
+        assert_eq!(&std::fs::read_to_string(fixture.root.join("a.md")).unwrap(), won);
+        let (_, refused) = outcomes
+            .iter()
+            .find(|(_, outcome)| outcome.is_err())
+            .unwrap();
+        assert_eq!(
+            refused.clone().unwrap_err(),
+            json!({ "name": "Conflict", "actualSha256": sha256(won.as_bytes()) })
+        );
+        // The next round expects what landed, as an editor that read again
+        // after its `Conflict` would.
+        write(&fixture, &main, "a.md", &format!("round {round}\n")).unwrap();
+    }
 }
 
 #[test]
@@ -670,7 +749,7 @@ fn two_windows_each_read_only_their_own_folder() {
                     email: "test@example.com".to_string(),
                 },
             ),
-            window: "other".to_string(),
+            windows: vec!["other".to_string()],
         })
         .unwrap();
     let main = window(&fixture.app, "main");
@@ -880,7 +959,7 @@ fn two_windows_runs_with_the_same_id_stay_apart() {
                     email: "test@example.com".to_string(),
                 },
             ),
-            window: "other".to_string(),
+            windows: vec!["other".to_string()],
         })
         .unwrap();
     let main = window(&fixture.app, "main");

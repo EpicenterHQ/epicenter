@@ -8,8 +8,9 @@ use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig
 
 struct Copies {
     root: PathBuf,
-    /// Each registered copy's scope and the one window that holds it. A
-    /// folder scope belongs to one window for as long as the app runs.
+    /// Each registered copy's scope and the one window that holds it. The
+    /// plugin would let several windows edit one scope; the lab keeps each
+    /// copy with the window that opened it first, so a window is one copy.
     registered: Mutex<BTreeMap<String, String>>,
 }
 #[derive(Serialize)]
@@ -72,7 +73,7 @@ fn open_copy(
             );
             window.app_handle().folders().register(ScopeConfig {
                 scope: scope.clone(),
-                window: label.clone(),
+                windows: vec![label.clone()],
                 folder,
             })?;
             registered.insert(scope.clone(), label);

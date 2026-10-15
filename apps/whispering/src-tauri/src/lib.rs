@@ -262,7 +262,7 @@ fn register_folder<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), 
                 email: "whispering@localhost".to_string(),
             },
         ),
-        window: MAIN_WINDOW.to_string(),
+        windows: vec![MAIN_WINDOW.to_string()],
     })
 }
 

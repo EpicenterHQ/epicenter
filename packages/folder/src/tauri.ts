@@ -10,8 +10,8 @@
  * storage instead.
  *
  * The shell installs the `tauri-plugin-epicenter-folder` crate and registers
- * each folder's directory under an ID for one window. Importing this module
- * does none of that and opens nothing.
+ * each folder's directory under an ID for the windows that may edit it.
+ * Importing this module does none of that and opens nothing.
  */
 export * from './contract.js';
 export { openFolder } from './tauri-adapter.js';
