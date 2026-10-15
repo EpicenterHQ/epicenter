@@ -41,9 +41,13 @@ it.** `openFolder({ root, definition, git })` takes the directory, the
 definition, and the commit author from the caller, because no app or shell
 supplies them. `epicenter.json` is not a definition as it stands: each table
 in it is a JSON Schema object, `{ type, properties, required }`, where a
-definition holds `fields`. A script kept inside a folder parses it with
-`parseDeclaration`, which every entry exports, and passes the result and its
-own directory as `root`; one that only reads calls `readFolder` instead.
+definition holds `fields`. Passing `parseDeclaration` of it to `openFolder` is
+safe only for an `epicenter.json` that `epicenter generate` wrote, because
+`openFolder` publishes its own formatting of the definition on the first
+write. A script that edits an existing folder opens it with
+`openDataFolder({ root, git })`, which reads with the folder's own
+`epicenter.json` and never writes it (ADR-0535); one that only reads calls
+`readFolder`.
 
 **A script and a desktop page open the same directory folder.** `openFolder`
 in `bun.ts` calls `openDirectoryFolder`, as `tauri-directory.ts` does, over

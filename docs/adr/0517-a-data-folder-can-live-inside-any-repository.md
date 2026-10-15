@@ -4,7 +4,7 @@
 - **Date:** 2026-10-11
 - **Amended by:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) at executing a declaration: `epicenter generate` may run a folder's `epicenter.ts` on request; readers still read only `epicenter.json`.
 - **Relates:** [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) (queries build transient projections), [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) (a private repository per synced folder), [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) (sync with the Git origin), [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) (opening publishes the declaration), [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) (a folder is the directory its ID names)
-- **Unbuilt:** discovering data folders by `epicenter.json` in apps, opener refusal of a root inside another repository, extraction tooling, and opening a submodule-hosted data folder in the native engine.
+- **Unbuilt:** discovering data folders by `epicenter.json` in apps, opener refusal of a root inside another repository (Bun's `openDataFolder` refuses only that root's first commit, ADR-0535; `openFolder` and the desktop opener still run `git init`), extraction tooling, and opening a submodule-hosted data folder in the native engine.
 
 ## Context
 

@@ -135,9 +135,9 @@ folder ID.
 | `@epicenter/folder/tauri` | The desktop shell's folder only: this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 
-The first three export the same `openFolder` signature and the same contract,
-so one application source builds against any of them. Importing an entry
-opens nothing. On a server, opening returns a refusal.
+The first three export the same `openFolder` and `openDataFolder` signatures
+and the same contract, so one application source builds against any of them.
+Importing an entry opens nothing. On a server, opening returns a refusal.
 
 ```ts
 openFolder({
@@ -170,6 +170,45 @@ global fetch or change the remote.
 In the desktop app the shell chooses the directory; the page reads the author
 and remote from the repository, with the shell's author as the fallback. The
 policy in effect is on `folder.git.snapshot`.
+
+### An existing folder, with its own declaration
+
+`openFolder` is for an application's own data: its schema ships in the
+application's code, and the handle publishes it to `epicenter.json` before
+its first write (only when the bytes differ). A folder whose schema belongs to
+the folder, such as a vault that generates `epicenter.json` from
+`epicenter.ts` or a working copy of someone else's repository, opens with
+`openDataFolder` instead (ADR-0535):
+
+```ts
+openDataFolder({
+  id,          // a folder the desktop shell registered, or a browser folder's ID
+  credentials, // optional, as for openFolder
+  browser,     // optional, as for openFolder
+}): Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
+```
+
+| | `openFolder` | `openDataFolder` |
+| --- | --- | --- |
+| Schema | the caller's `definition` | the folder's `epicenter.json`, read and prepared as `readFolder` does when the folder opens |
+| `epicenter.json` | published before the first write, if its bytes differ | never written |
+| No `epicenter.json` | published on the first write | no tables and no settings; files, history, and Sync work |
+| An unusable `epicenter.json` | replaced on the first write | `InvalidDeclaration`, and nothing opens |
+| Repository on disk | created when the folder opens | created by the first commit (Save version, or Sync's checkpoint), staging, or `sync.connect`; until then status is an empty history with every file uncommitted |
+| Tables | typed by the definition | keyed by any name, rows checked at run time |
+
+Both return the same handle, and `folder.definition` is the prepared
+definition it reads with, so a view can render a folder it did not declare.
+History and Sync use it too: Sync merges a data folder's rows by the folder's
+own declaration. The definition is read once, when the folder opens; a
+declaration that changes afterward, such as one a Sync brought, is read by the
+next open.
+
+On the desktop, `id` names a folder the shell registered, until the shell
+issues grants for folders a person picks. In a browser, `openDataFolder`
+opens the origin-private folder named `id`; as with `openFolder`, a folder
+nobody wrote to has no files, and its first write creates its directory and
+repository.
 
 ### The folder, opened lazily, and its remote
 
@@ -338,7 +377,25 @@ const opened = await openFolder({
 });
 ```
 
-This opener takes the directory and the history settings explicitly, and this
+```ts
+import { openDataFolder } from '@epicenter/folder/bun';
+
+const opened = await openDataFolder({
+  root: '/Users/me/Code/vault',
+  git: { author: { name: 'Tool', email: 'tool@example.test' } },
+});
+```
+
+`openDataFolder` opens an existing directory with its own `epicenter.json`
+([above](#an-existing-folder-with-its-own-declaration)). A script that edits a
+data folder uses it; passing `parseDeclaration` of the file to `openFolder` is
+safe only for a declaration `epicenter generate` wrote, since `openFolder`
+publishes its own formatting on the first write. Opening creates nothing. A
+directory inside another repository's working tree, where ADR-0517 records
+the folder in the host's history, never gets a repository of its own: its
+first commit is `blocked`, naming the host.
+
+These openers take the directory and the history settings explicitly, and this
 process reaches the disk itself, with `node:fs` and its own `git`. It opens
 the same directory folder a desktop page does (`openDirectoryFolder`), so files
 are replaced the same way: a staged copy under `.git/epicenter/scratch` is
@@ -393,6 +450,7 @@ successful reading does not mean an application can open the folder.
 | `files` | Ordinary files at literal paths. See below. |
 | `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, `recoverIncoming()`, and `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |
 | `sync` | `run()` commits saved files, fetches, merges, and pushes; competing settings, row fields, row bodies, and whole row files come back as a `SyncAttempt` that `resolve(attempt, choices)` settles. See [Sync](#sync). |
+| `definition` | The prepared definition the handle reads with: `openFolder`'s `definition`, or the folder's own `epicenter.json` as `openDataFolder` read it when it opened. Its tables are `tables`, its settings `kv`, and Sync merges rows by it. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
 | `onFilesChanged(listener)` | A hint that paths changed, so read again. Returns the function that stops listening. |
 | `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no commit. |
