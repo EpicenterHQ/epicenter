@@ -8,13 +8,15 @@
  * landed, and where a read can fail.
  *
  * Key behaviors:
- * - typing is written as it is typed: one write at a time and one waiting,
- *   which saves the newest input, so input superseded meanwhile is never written
- * - a write that failed, whose reply was lost, or that met another writer's
- *   change rolls back to the file and is reported with the lost text; nothing
- *   is held, and the next edit writes on top
- * - a deletion runs after the file's writes, and one whose reply was lost
- *   is reported and recreates nothing
+ * - typing is written as it is typed, one save at a time; what was typed
+ *   while one ran is saved next, so input superseded meanwhile is never
+ *   written
+ * - a save that failed or whose reply was lost is reported and keeps the
+ *   edit, and the next edit saves it
+ * - a save over another writer's change merges with it, and names what of
+ *   theirs it replaced
+ * - a deletion runs after the edits are written, and one whose reply was
+ *   lost is reported and recreates nothing
  *
  * See also:
  * - `desktop.test.ts` for the workspace over the shell and the host
@@ -26,6 +28,7 @@ import { rm } from 'node:fs/promises';
 import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../definition.js';
 import { settle, transformationEditor } from '../edits.test-support.js';
+import type { WriteNotice } from '../library.svelte.js';
 import { createQueryClient } from '../query.test-support.js';
 import { deferred, openTestWorkspace } from '../workspace.test-support.js';
 import {
@@ -98,11 +101,9 @@ async function open(files: Record<string, string>, path = PATH) {
 	});
 	await library.start();
 	await library.open(path);
-	const failures: { name: string; lost: string }[] = [];
-	library.onWriteFailed(({ error, lost }) =>
-		failures.push({ name: error.name, lost }),
-	);
-	return { library, failures, session: transformationEditor(library) };
+	const notices: WriteNotice[] = [];
+	library.onWriteNotice((notice) => notices.push(notice));
+	return { library, notices, session: transformationEditor(library) };
 }
 
 /** Type a new body into the open transformation. */
@@ -130,8 +131,8 @@ function holdNext(kind: DataChange['kind']) {
 	return { reached: reached.promise, release: () => held.resolve() };
 }
 
-test('a write whose reply was lost is reported with its text, holds nothing, and the file shows what landed once it reads', async () => {
-	const { library, failures, session } = await open({ [PATH]: SEED });
+test('a save whose reply was lost is reported and keeps the edit, which saves again over what landed', async () => {
+	const { library, notices, session } = await open({ [PATH]: SEED });
 	shell.control.loseReplies = 1;
 	// The engine reads the file to check it before it writes. Once the write
 	// is under way, the file cannot be read back either.
@@ -142,19 +143,27 @@ test('a write whose reply was lost is reported with its text, holds nothing, and
 
 	type(session, 'Tidy it.\n');
 	await settle(library);
-	expect(failures).toEqual([
-		{ name: 'Unconfirmed', lost: expect.stringContaining('Tidy it.') },
+	expect(notices).toMatchObject([
+		{ kind: 'failed', error: { name: 'Unconfirmed' }, lost: undefined },
 	]);
 	expect(await shell.text(PATH)).toContain('Tidy it.');
+	expect(library.unsaved).toBe(true);
 
 	shell.control.failReads.delete(PATH);
-	await library.check();
+	type(session, 'Tidy it all.\n');
 	await settle(library);
-	expect(session.draft.body).toBe('Tidy it.\n');
+	// Whether the lost save landed was unknown, so the edit saves again from
+	// where it started, over what did land, and says what it replaced.
+	expect(notices.slice(1)).toMatchObject([
+		{ kind: 'replaced', replaced: [{ kind: 'body', theirs: 'Tidy it.\n' }] },
+	]);
+	expect(library.unsaved).toBe(false);
+	expect(session.draft.body).toBe('Tidy it all.\n');
+	expect(await shell.text(PATH)).toContain('Tidy it all.\n');
 });
 
-test('typing during a write is shown at once and written after it; input superseded meanwhile is never written', async () => {
-	const { library, failures, session } = await open({ [PATH]: SEED });
+test('typing during a save is shown at once and saved after it; input superseded meanwhile is never written', async () => {
+	const { library, notices, session } = await open({ [PATH]: SEED });
 	const first = holdNext('write');
 
 	type(session, 'First.\n');
@@ -166,38 +175,42 @@ test('typing during a write is shown at once and written after it; input superse
 	first.release();
 	await settle(library);
 
-	expect(failures).toEqual([]);
+	expect(notices).toEqual([]);
 	expect(shell.kinds).toEqual(['write', 'write']);
 	expect(written(0)).toContain('First.\n');
 	expect(written(1)).toContain('Third.\n');
 	expect(await shell.text(PATH)).toContain('Third.\n');
 });
 
-test('a refused write rolls back and is reported; the next edit writes', async () => {
-	const { library, failures, session } = await open({ [PATH]: SEED });
+test('a refused save is reported and keeps the edit; the next edit saves it', async () => {
+	const { library, notices, session } = await open({ [PATH]: SEED });
 	shell.control.refuseNext = 1;
 
 	type(session, 'Mine.\n');
 	await settle(library);
-	expect(failures).toEqual([
-		{ name: expect.any(String), lost: expect.stringContaining('Mine.') },
-	]);
-	expect(session.draft.body).toBe('Tidy.\n');
+	expect(notices).toMatchObject([{ kind: 'failed', lost: undefined }]);
+	expect(session.draft.body).toBe('Mine.\n');
 	expect(await shell.text(PATH)).toBe(SEED);
 
-	type(session, 'Mine.\n');
+	type(session, 'Mine, again.\n');
 	await settle(library);
-	expect(failures).toHaveLength(1);
-	expect(await shell.text(PATH)).toContain('Mine.\n');
+	expect(notices).toHaveLength(1);
+	expect(await shell.text(PATH)).toContain('Mine, again.\n');
 });
 
-test('another writer’s change merges with the typing: where both changed, the typing wins', async () => {
-	const { library, failures, session } = await open({ [PATH]: SEED });
+test('another writer’s change merges with the typing: where both changed, the typing wins and says so', async () => {
+	const { library, notices, session } = await open({ [PATH]: SEED });
 	await shell.write(PATH, SEED.replace('Tidy.', 'Theirs.'));
 
 	type(session, 'Mine.\n');
 	await settle(library);
-	expect(failures).toEqual([]);
+	expect(notices).toMatchObject([
+		{
+			kind: 'replaced',
+			path: PATH,
+			replaced: [{ kind: 'body', kept: 'Mine.\n', theirs: 'Theirs.\n' }],
+		},
+	]);
 	expect(await shell.text(PATH)).toContain('Mine.\n');
 	expect(await shell.text(PATH)).not.toContain('Theirs.');
 });

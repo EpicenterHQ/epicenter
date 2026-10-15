@@ -47,7 +47,7 @@ import {
 	transcriptEditor,
 	transformationEditor,
 } from './edits.test-support.js';
-import type { Library } from './library.svelte.js';
+import type { Library, WriteNotice } from './library.svelte.js';
 import { createQueryClient } from './query.test-support.js';
 import { filesLineOf } from './status.js';
 import { TransformationError } from './transformation.js';
@@ -432,12 +432,12 @@ test('a save of the transcript’s file still running settles first, then what i
 	expect(transformed[0]!.input).toBe('Typed in Files.\n');
 });
 
-test('a transcript whose write failed rolls back, and what is sent is what the file holds', async () => {
+test('a transcript whose save failed keeps the edit, and a run saves it before it sends', async () => {
 	const { library, root, transformed } = await open();
-	const { transcript, transcriptText } = await transcribed(library, root);
+	const { transcript } = await transcribed(library, root);
 	const editor = await cleanupProfile(library);
-	const failures: string[] = [];
-	library.onWriteFailed((failure) => failures.push(failure.lost));
+	const notices: WriteNotice[] = [];
+	library.onWriteNotice((notice) => notices.push(notice));
 	const source = await openedTranscript(library, transcript.path);
 	chmodSync(join(root, 'transcriptions'), 0o555);
 	try {
@@ -448,15 +448,17 @@ test('a transcript whose write failed rolls back, and what is sent is what the f
 	} finally {
 		chmodSync(join(root, 'transcriptions'), 0o755);
 	}
-	expect(failures).toEqual([expect.stringContaining('Mine.')]);
-	expect(source.draft.body).toBe(transcriptText.split('---\n')[2] ?? '');
+	expect(notices).toMatchObject([
+		{ kind: 'failed', path: transcript.path, lost: undefined },
+	]);
+	expect(source.draft.body).toBe('Mine.\n');
 
 	expect(await library.transform(transcript.path, editor.path)).toBeUndefined();
 
 	expect(transformed).toHaveLength(1);
-	expect(transformed[0]?.input).toBe(source.draft.body);
-	expect(await readFile(join(root, transcript.path), 'utf8')).toBe(
-		transcriptText,
+	expect(transformed[0]?.input).toBe('Mine.\n');
+	expect(await readFile(join(root, transcript.path), 'utf8')).toEndWith(
+		'---\nMine.\n',
 	);
 });
 
@@ -773,6 +775,43 @@ test('an answer for a row someone filled or deleted meanwhile writes nothing', a
 
 	expect(await names(root, RUNS)).toEqual([`${output.stem}.md`]);
 	expect(library.unwrittenAnswers).toBe(0);
+});
+
+test('an answer never writes over a body someone filled between its read and its write', async () => {
+	const answer =
+		deferred<Awaited<ReturnType<Library['workspace']['transform']>>>();
+	const { library, root, workspace, transformed } = await open({
+		transform: () => answer.promise,
+	});
+	const { transcript } = await transcribed(library, root);
+	const editor = await cleanupProfile(library);
+	const running = library.transform(transcript.path, editor.path);
+	await eventually(() => transformed.length === 1);
+	const { output } = newestResult(library, transcript.stem);
+	const path = join(root, output.path);
+	// The fill reads the row empty; right after that read, someone fills it.
+	const table = workspace.folder.tables.transformation_runs;
+	const get = table.get;
+	let theirs: string | undefined;
+	(table as { get: typeof get }).get = async (stem) => {
+		const read = await get(stem);
+		if (stem === output.stem && theirs === undefined) {
+			theirs = `${await readFile(path, 'utf8')}Typed by hand.\n`;
+			await writeFile(path, theirs);
+		}
+		return read;
+	};
+
+	answer.resolve(Ok({ text: 'from the endpoint' }));
+	await running;
+	await settle(library);
+
+	expect(theirs).toBeDefined();
+	expect(await readFile(path, 'utf8')).toBe(theirs as string);
+	expect(library.unwrittenAnswers).toBe(0);
+	expect(library.outputsFor(transcript.stem)[0]?.row.body).toBe(
+		'Typed by hand.\n',
+	);
 });
 
 // ============================================================================

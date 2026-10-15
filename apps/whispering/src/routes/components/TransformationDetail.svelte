@@ -1,8 +1,8 @@
 <!--
 	One transformation: its instructions, model, results, and a place to try
 	it. The fields come from the transformations listing in the cache, and
-	Source from the file's own text query. Each edit goes into the cache and
-	is written at once.
+	Source from the file's own text query. An edit holds the version it
+	started from and is saved at once.
 -->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
@@ -61,12 +61,17 @@
 	} = $props();
 
 	const asText = $derived(library.showsText(path));
-	/** The transformation as the cache holds it, while its fields are what is edited. */
-	const row = $derived(asText ? undefined : library.rowAt(TRANSFORMATIONS, path)?.row);
+	/** The transformation as shown, while its fields are what is edited: as typed, or as the cache holds it. */
+	const row = $derived(asText ? undefined : library.rowAt(TRANSFORMATIONS, path));
 	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
-	const source = $derived(asText && opened.data?.kind === 'text' ? opened.data.file : undefined);
+	/** The file's text as typed while an edit is unsaved, else as read. */
+	const source = $derived(
+		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.file.text) : undefined,
+	);
 	/** The text on screen read as a recipe, or why it does not read. */
-	const parsed = $derived(source && parseRow(whisperingDefinition.tables.transformations, source.text));
+	const parsed = $derived(
+		source === undefined ? undefined : parseRow(whisperingDefinition.tables.transformations, source),
+	);
 	const issues = $derived(parsed?.error ?? undefined);
 	/** The recipe as typed: its fields, or its text when it reads. */
 	const recipe = $derived(row ?? parsed?.data ?? undefined);
@@ -75,8 +80,8 @@
 	const saving = $derived(library.isSaving(path));
 	const loading = $derived(asText ? source === undefined && !opened.isError : row === undefined);
 
-	/** Change the transformation in the cache; it is written at once. */
-	function set(change: (row: Row<TransformationFields>) => Row<TransformationFields>) {
+	/** Change the transformation; it is saved at once. */
+	function set(change: (row: Row<TransformationFields>) => void) {
 		library.editRow(TRANSFORMATIONS, id, change);
 	}
 	const text = (key: 'title' | 'model' | 'endpoint') => recipe?.fields[key] ?? '';
@@ -223,7 +228,10 @@
 				class="flex-1 text-base font-medium"
 				bind:value={
 					() => row?.fields.title ?? '',
-					(value) => set((r) => ({ ...r, fields: { ...r.fields, title: wellFormed(value) } }))
+					(value) =>
+						set((r) => {
+							r.fields.title = wellFormed(value);
+						})
 				}
 				disabled={locked}
 				placeholder="Title"
@@ -267,7 +275,7 @@
 		<Loading class="flex-1" label="Opening the transformation…" />
 	{:else}
 	<Tabs.Root bind:value={
-		() => tab === 'try' ? 'try' : source ? 'source' : 'instructions',
+		() => tab === 'try' ? 'try' : source !== undefined ? 'source' : 'instructions',
 		(value) => {
 			if (value === 'try') {
 				tab = 'try';
@@ -304,7 +312,10 @@
 									variant="outline"
 									class="self-start"
 									disabled={locked}
-									onclick={() => set((r) => ({ ...r, fields: { ...r.fields, endpoint: null } }))}
+									onclick={() =>
+										set((r) => {
+											r.fields.endpoint = null;
+										})}
 									data-testid="remove-endpoint-constraint"
 								>
 									Remove the endpoint and use the text connection
@@ -322,7 +333,10 @@
 							class="min-h-36 resize-y font-sans"
 							bind:value={
 								() => lf(row?.body ?? ''),
-								(value) => set((r) => ({ ...r, body: withFileNewlines(wellFormed(value), r.body) }))
+								(value) =>
+									set((r) => {
+										r.body = withFileNewlines(wellFormed(value), r.body);
+									})
 							}
 							disabled={locked}
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
@@ -355,10 +369,9 @@
 										() => row?.fields.model ?? '',
 										(value) =>
 											// An empty model uses the text connection's model.
-											set((r) => ({
-												...r,
-												fields: { ...r.fields, model: value.trim() === '' ? null : wellFormed(value) },
-											}))
+											set((r) => {
+												r.fields.model = value.trim() === '' ? null : wellFormed(value);
+											})
 									}
 									disabled={locked}
 									placeholder={connection?.model ? `The text connection’s model: ${connection.model}` : 'The text connection’s model'}
@@ -521,13 +534,13 @@
 			</div>
 		</Tabs.Content>
 		<Tabs.Content value="source" class="flex min-h-0 flex-1 flex-col gap-2">
-			{#if source}
+			{#if source !== undefined}
 				<p class="text-xs text-muted-foreground">
 					The file’s exact text. It saves as typed, readable or not.
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(source?.text ?? ''), (value) => library.editText(path, withFileNewlines(value, source?.text ?? ''))}
+					bind:value={() => lf(source ?? ''), (value) => library.editText(path, withFileNewlines(value, source ?? ''))}
 					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}

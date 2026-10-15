@@ -1,9 +1,9 @@
 /**
  * What a view does to edit a file, for tests that drive the library without
- * mounting components: change the row or the text in the cache, which
- * writes it. `draft` reads what the cache holds now. Type-only imports from
- * the library, so this loads before the Svelte compiler plugin is
- * registered.
+ * mounting components: change the row or the text, which writes it. `draft`
+ * reads what the view shows now: the edit while it is unsaved, else the
+ * cache. Type-only imports from the library, so this loads before the
+ * Svelte compiler plugin is registered.
  */
 import { type Row, rowStemOf } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
@@ -13,7 +13,7 @@ import type {
 	TransformationFields,
 } from './definition.js';
 import type { Library, RowTable } from './library.svelte.js';
-import { quiet } from './query.test-support.js';
+import { QueryObserver, quiet } from './query.test-support.js';
 
 type FieldsOf<T extends RowTable> = T extends 'recordings'
 	? RecordingFields
@@ -31,20 +31,15 @@ function rowEditor<T extends RowTable>(
 	if (stem === undefined) throw new Error(`${path} is not a ${table} row`);
 	return {
 		path,
-		/** The row the cache holds now. Throws when it does not hold one. */
+		/** The row shown now. Throws when there is none. */
 		get draft(): Row<FieldsOf<T>> {
-			const stored = library.rowAt(table, path);
-			if (stored === undefined)
-				throw new Error(`No row for ${path} in the cache`);
-			return stored.row as Row<FieldsOf<T>>;
+			const row = library.rowAt(table, path);
+			if (row === undefined) throw new Error(`No row for ${path} to show`);
+			return row as Row<FieldsOf<T>>;
 		},
 		/** Change the row as a person typing does; it is written at once. */
 		edit(change: (row: Row<FieldsOf<T>>) => void) {
-			library.editRow(table, stem, (row) => {
-				const next = structuredClone(row) as Row<FieldsOf<T>>;
-				change(next);
-				return next as never;
-			});
+			library.editRow(table, stem, change as never);
 		},
 	};
 }
@@ -70,7 +65,7 @@ export function textEditor(library: Library, path: string) {
 			);
 			if (opened?.kind !== 'text')
 				throw new Error(`${path} is not open as text`);
-			return opened.file.text;
+			return library.editedText(path) ?? opened.file.text;
 		},
 		input(text: string) {
 			library.editText(path, text);
@@ -78,18 +73,24 @@ export function textEditor(library: Library, path: string) {
 	};
 }
 
-/** Read the text of `path` into the cache, as a text view does when it mounts. */
+/**
+ * Read the text of `path` into the cache and keep observing it, as a text
+ * view does while it is mounted, so it is read again when it goes stale.
+ */
 export async function openText(library: Library, path: string) {
 	await library.queryClient.fetchQuery(library.textQuery(path));
+	new QueryObserver(library.queryClient, library.textQuery(path)).subscribe(
+		() => {},
+	);
 	return textEditor(library, path);
 }
 
 /**
- * Let writes and actions land, then read the folder again as returning to
- * the window does, and let that read land.
+ * Let edits, writes, and actions land, then read the folder again, as a
+ * report that files changed does, and let that read land.
  */
 export async function settle(library: Library) {
 	await quiet(library.queryClient);
-	await library.check();
+	await library.readAgain();
 	await quiet(library.queryClient);
 }

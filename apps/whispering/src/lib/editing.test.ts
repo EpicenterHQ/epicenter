@@ -4,32 +4,31 @@
  * Drives the real library and its TanStack Query cache against a real browser
  * folder over an in-memory OPFS stand-in, with a fixture capture device and
  * stubbed endpoints. Views are stood in for as they behave: an editor changes
- * the row or text in the cache, which queues the file's write.
+ * the row or the text, which the library holds as an edit of its own and
+ * writes.
  *
  * Key behaviors:
- * - An edit changes the cache at once and is written to the file at once
- * - Rapid edits run one write at a time per file, with one waiting; the
- *   waiting write saves the newest row, guarded by the hash the previous one
- *   confirmed, so typing never conflicts with itself
- * - No read starts while a write runs: not on returning to the window, not
- *   on Check again, not when a view mounts
- * - A write that meets a change made elsewhere, or fails, rolls back to the
- *   file and reports the text that was lost; the write waiting behind it
- *   saves the file as it is
- * - A recording deleted elsewhere stays deleted: its write fails and nothing
- *   creates it again
+ * - An edit shows at once and is saved at once; the listing takes the saved row
+ * - Changes made while a save runs are saved next, from the version it wrote,
+ *   so typing never conflicts with itself
+ * - A read of the folder never touches an edit: an outside change read while
+ *   an edit is unsaved is merged with it when it saves
+ * - A save over a change made elsewhere merges with it; where both changed,
+ *   the edit wins and what it replaced is reported
+ * - A save that fails keeps the edit, and the next change saves it
+ * - A recording deleted elsewhere stays deleted: its save fails, the text
+ *   typed is reported, and nothing creates it again
  * - A row that is not valid is named for repair, edited as its text, and
  *   edited as fields once it reads
- * - A recording's lifecycle writes run in its file's queue, in order
- * - A deletion runs after the file's writes and removes what they saved; its
- *   audio stays
+ * - A deletion runs after the edits are written and removes what they saved;
+ *   its audio stays
  * - Nothing commits on its own; Save version records a version
- * - Close waits for writes in flight
+ * - Close waits for an edit being written
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
-import { MutationObserver } from '@tanstack/query-core';
+import { folderOptions } from '@epicenter/folder/query';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	createTestStorage,
@@ -44,17 +43,12 @@ import {
 	settle,
 	transcriptEditor,
 } from './edits.test-support.js';
-import type { Library, WriteFailure } from './library.svelte.js';
+import type { Library, WriteNotice } from './library.svelte.js';
 import { holdCloses } from './opfs-holds.test-support.js';
-import {
-	createQueryClient,
-	focusManager,
-	QueryObserver,
-	quiet,
-} from './query.test-support.js';
+import { createQueryClient, quiet } from './query.test-support.js';
 import { openTestWorkspace } from './workspace.test-support.js';
 
-const { createLibrary, whisperingKeys } = await import('./library.svelte.ts');
+const { createLibrary } = await import('./library.svelte.ts');
 
 const opened: { library: Library; remove: () => Promise<void> }[] = [];
 let count = 0;
@@ -69,7 +63,7 @@ afterEach(async () => {
 /**
  * The library over a fresh browser folder. `holdNextMarkdownWrite` holds the
  * next published `.md` write until released, `mdWrites` counts every one,
- * and `failures` collects every write that failed and was rolled back.
+ * and `notices` collects what each write told the person.
  */
 async function open() {
 	const storage = createTestStorage();
@@ -102,12 +96,12 @@ async function open() {
 	const library = createLibrary(fixture.workspace, createQueryClient());
 	opened.push({ library, remove: fixture.remove });
 	await library.start();
-	const failures: WriteFailure[] = [];
-	library.onWriteFailed((failure) => failures.push(failure));
+	const notices: WriteNotice[] = [];
+	library.onWriteNotice((notice) => notices.push(notice));
 	const faults = opfsOf(storage).faults;
 	return {
 		library,
-		failures,
+		notices,
 		counter,
 		holdNextMarkdownWrite() {
 			hold = Promise.withResolvers<void>();
@@ -165,9 +159,17 @@ async function transcript(library: Library) {
 	return transcriptEditor(library, result.path);
 }
 
-/** The newest hash the cache confirmed for the recording at `path`. */
-const cachedSha = (library: Library, path: string) =>
-	library.rowAt('recordings', path)?.sha256;
+/** The listed recording at `path`, as the table shows it. */
+const listed = (library: Library, path: string) =>
+	library.entries.find((entry) => entry.path === path);
+
+/** An outside change, reported as the folder's change channel reports one. */
+async function reportChanged(library: Library, path: string) {
+	await library.queryClient.invalidateQueries(
+		folderOptions(library.folder).pathFilter([path]),
+	);
+	await quiet(library.queryClient);
+}
 
 /** Commits on the branch now. */
 async function commits(library: Library) {
@@ -179,32 +181,36 @@ const recordingText = (title: string, audioPath: string) =>
 	`---\ntitle: ${title}\nrecordedAt: 2026-01-02T03:04:05.000Z\ndurationMs: 1000\ncapture: fixture\naudioPath: ${audioPath}\n---\n`;
 
 // ============================================================================
-// Edits and writes
+// Edits and saves
 // ============================================================================
 
-test('an edit changes the cache at once and is written to the file at once', async () => {
-	const { library, failures } = await open();
+test('an edit shows at once and is saved at once; the listing takes the saved row', async () => {
+	const { library, notices } = await open();
 	const editor = await record(library);
 	const audioPath = editor.draft.fields.audioPath;
 
 	editor.edit((row) => {
 		row.fields.title = 'Morning notes';
 	});
-	// The table and the detail read the same cache: both show it now.
-	expect(library.entries[0]?.row.fields.title).toBe('Morning notes');
+	// The detail shows the edit now; the save is under way.
+	expect(editor.draft.fields.title).toBe('Morning notes');
 	expect(library.isSaving(editor.path)).toBe(true);
 	await quiet(library.queryClient);
 
-	expect(failures).toEqual([]);
+	expect(notices).toEqual([]);
 	const written = await text(library, editor.path);
 	expect(written).toContain('title: Morning notes');
 	// The audio link is untouched by typing.
 	expect(written).toContain(`audioPath: ${audioPath}`);
-	expect(cachedSha(library, editor.path)).toBe(await sha(library, editor.path));
+	expect(listed(library, editor.path)?.row.fields.title).toBe('Morning notes');
+	expect(listed(library, editor.path)?.sha256).toBe(
+		await sha(library, editor.path),
+	);
+	expect(library.unsaved).toBe(false);
 });
 
-test('rapid edits run one write at a time with one waiting, which saves the newest row with no conflict', async () => {
-	const { library, failures, counter, holdNextMarkdownWrite } = await open();
+test('changes made while a save runs are saved next, from the version it wrote', async () => {
+	const { library, notices, counter, holdNextMarkdownWrite } = await open();
 	const editor = await record(library);
 	const { held, release } = holdNextMarkdownWrite();
 	editor.edit((row) => {
@@ -216,119 +222,90 @@ test('rapid edits run one write at a time with one waiting, which saves the newe
 		editor.edit((row) => {
 			row.fields.title = title;
 		});
-	// One write runs and one waits; no more were queued.
-	expect(
-		library.queryClient.isMutating({
-			mutationKey: whisperingKeys.write(editor.path),
-		}),
-	).toBe(2);
 	expect(editor.draft.fields.title).toBe('Morning notes');
 
 	release();
 	await quiet(library.queryClient);
-	expect(failures).toEqual([]);
-	// The held write, then one write of the newest row.
+	expect(notices).toEqual([]);
+	// The held save, then one save of the newest row.
 	expect(counter.mdWrites - before).toBe(1);
 	expect(await text(library, editor.path)).toContain('title: Morning notes');
-	expect(cachedSha(library, editor.path)).toBe(await sha(library, editor.path));
 
-	// The guard moved forward: the next edit writes on top.
 	editor.edit((row) => {
 		row.fields.title = 'Morning notes, two';
 	});
 	await quiet(library.queryClient);
-	expect(failures).toEqual([]);
+	expect(notices).toEqual([]);
 	expect(await text(library, editor.path)).toContain(
 		'title: Morning notes, two',
 	);
 });
 
-test('no read starts while a write runs: not on returning to the window, not on Check again, not when a view mounts', async () => {
-	const { library, failures, holdNextMarkdownWrite } = await open();
+test('a read never touches an unsaved edit, and the edit merges with the change it read', async () => {
+	const { library, notices, failNextWrite } = await open();
 	const editor = await record(library);
-	const client = library.queryClient;
-	// The recordings table is on screen: it observes the listing.
-	const table = new QueryObserver(client, library.rowsQuery('recordings'));
-	const stopTable = table.subscribe(() => {});
-
-	const { held, release } = holdNextMarkdownWrite();
+	// A save that fails keeps the edit unsaved.
+	failNextWrite(editor.path);
 	editor.edit((row) => {
-		row.fields.title = 'Typed while held';
-	});
-	await held;
-	// Returning to the window while the write is held reads nothing.
-	focusManager.setFocused(false);
-	focusManager.setFocused(true);
-	// The client refetches on focus a tick later, after resuming paused writes.
-	await Bun.sleep(0);
-	expect(client.isFetching()).toBe(0);
-	// Neither does the window's own check, nor a view that mounts now.
-	await library.check();
-	const detail = new QueryObserver(client, library.rowsQuery('recordings'));
-	const stopDetail = detail.subscribe(() => {});
-	expect(client.isFetching()).toBe(0);
-	expect(editor.draft.fields.title).toBe('Typed while held');
-
-	release();
-	await settle(library);
-	stopDetail();
-	stopTable();
-	focusManager.setFocused(undefined);
-	expect(failures).toEqual([]);
-	expect(editor.draft.fields.title).toBe('Typed while held');
-	expect(cachedSha(library, editor.path)).toBe(await sha(library, editor.path));
-
-	editor.edit((row) => {
-		row.fields.title = 'Typed after';
+		row.fields.title = 'Mine';
 	});
 	await quiet(library.queryClient);
-	expect(failures).toEqual([]);
-	expect(await text(library, editor.path)).toContain('title: Typed after');
+	expect(notices).toMatchObject([{ kind: 'failed', lost: undefined }]);
+	expect(library.unsaved).toBe(true);
+
+	// Another program changes the notes, and the folder reports it.
+	await writeElsewhere(
+		library,
+		editor.path,
+		`${await text(library, editor.path)}Their notes.\n`,
+	);
+	await reportChanged(library, editor.path);
+	// The listing reads the file; the edit is untouched.
+	expect(listed(library, editor.path)?.row.body).toBe('Their notes.\n');
+	expect(editor.draft.fields.title).toBe('Mine');
+	expect(editor.draft.body).toBe('');
+
+	// The next change saves the edit over the version it started from.
+	editor.edit((row) => {
+		row.fields.title = 'Mine, again';
+	});
+	await quiet(library.queryClient);
+	const written = await text(library, editor.path);
+	expect(written).toContain('title: Mine, again');
+	expect(written).toEndWith('---\nTheir notes.\n');
+	expect(library.unsaved).toBe(false);
+	expect(notices).toHaveLength(1);
 });
 
-test('a write that meets a change made elsewhere merges with it: the edit wins where both changed', async () => {
-	const { library, failures } = await open();
+test('a save over a change made elsewhere merges with it, and the edit wins where both changed', async () => {
+	const { library, notices } = await open();
 	const editor = await record(library);
 	const audioPath = editor.draft.fields.audioPath;
 	await writeElsewhere(
 		library,
 		editor.path,
-		recordingText('Theirs', audioPath),
+		`${recordingText('Theirs', audioPath)}Their notes.\n`,
 	);
 
 	editor.edit((row) => {
 		row.fields.title = 'Mine';
 	});
 	await quiet(library.queryClient);
-	expect(failures).toEqual([]);
-	expect(await text(library, editor.path)).toContain('title: Mine');
+	const written = await text(library, editor.path);
+	expect(written).toContain('title: Mine');
+	expect(written).toEndWith('---\nTheir notes.\n');
+	expect(notices).toMatchObject([
+		{
+			kind: 'replaced',
+			path: editor.path,
+			replaced: [{ kind: 'field', field: 'title', theirs: 'Theirs' }],
+		},
+	]);
 	expect(library.saving).toBe(false);
 });
 
-test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {
-	const { library, failures, failNextWrite } = await open();
-	const editor = await record(library);
-	const saved = await text(library, editor.path);
-	failNextWrite(editor.path);
-	editor.edit((row) => {
-		row.fields.title = 'First';
-	});
-	editor.edit((row) => {
-		row.fields.title = 'Second';
-	});
-	await quiet(library.queryClient);
-
-	// The rollback lands before the waiting write runs, so it saves the
-	// file's own row and fails nothing.
-	expect(failures.map((failure) => failure.lost)).toEqual([
-		expect.stringContaining('title: Second'),
-	]);
-	expect(await text(library, editor.path)).toBe(saved);
-	expect(editor.draft.fields.title).not.toBe('Second');
-});
-
-test('the folder refuses a value it cannot hold, and the cache rolls back', async () => {
-	const { library, failures } = await open();
+test('the folder refuses a value it cannot hold, and the file stays as it was', async () => {
+	const { library, notices } = await open();
 	const editor = await record(library);
 	const saved = await text(library, editor.path);
 	// Inputs commit only values the schema accepts; this bypasses them.
@@ -336,13 +313,15 @@ test('the folder refuses a value it cannot hold, and the cache rolls back', asyn
 		(row.fields as { durationMs: unknown }).durationMs = 'long';
 	});
 	await quiet(library.queryClient);
-	expect(failures).toMatchObject([{ error: { name: 'InvalidValues' } }]);
+	expect(notices).toMatchObject([
+		{ kind: 'failed', error: { name: 'InvalidValues' } },
+	]);
 	expect(await text(library, editor.path)).toBe(saved);
-	expect(editor.draft.fields.durationMs).toBe(1000);
+	expect(listed(library, editor.path)?.row.fields.durationMs).toBe(1000);
 });
 
-test('a recording deleted elsewhere stays deleted: its write fails, nothing creates it again, and the lost text is reported', async () => {
-	const { library, failures } = await open();
+test('a recording deleted elsewhere stays deleted: its save fails, nothing creates it again, and the text typed is reported', async () => {
+	const { library, notices } = await open();
 	const editor = await record(library);
 	const { path } = editor;
 	const audioPath = editor.draft.fields.audioPath;
@@ -353,33 +332,34 @@ test('a recording deleted elsewhere stays deleted: its write fails, nothing crea
 	});
 	await settle(library);
 
-	expect(failures).toHaveLength(1);
-	expect(failures[0]).toMatchObject({ path, error: { name: 'NotFound' } });
-	expect(failures[0]?.lost).toContain('title: Typed after it was deleted');
+	expect(notices).toHaveLength(1);
+	expect(notices[0]).toMatchObject({
+		kind: 'failed',
+		path,
+		error: { name: 'NotFound' },
+	});
+	expect(notices[0]?.kind === 'failed' && notices[0].lost).toContain(
+		'title: Typed after it was deleted',
+	);
 	expect(await text(library, path)).toBeUndefined();
-	// The cache let it go: the table and the detail show it gone.
+	// The listing read it gone: the table and the detail show it gone.
 	expect(library.entries).toEqual([]);
 	expect(library.selection).toBeUndefined();
-	expect(library.saving).toBe(false);
+	expect(library.unsaved).toBe(false);
 	// Its audio is an ordinary file, left where it was.
 	expect((await library.folder.files.read(audioPath)).error).toBeNull();
 
 	// A later edit has no row to change, and writes nothing.
-	library.editRow(
-		'recordings',
-		path.slice('recordings/'.length, -3),
-		(row) => ({
-			...row,
-			body: 'Still typing.\n',
-		}),
-	);
+	library.editRow('recordings', path.slice('recordings/'.length, -3), (row) => {
+		row.body = 'Still typing.\n';
+	});
 	await settle(library);
 	expect(await text(library, path)).toBeUndefined();
-	expect(failures).toHaveLength(1);
+	expect(notices).toHaveLength(1);
 });
 
 test('a transcript deleted elsewhere stays deleted too', async () => {
-	const { library, failures } = await open();
+	const { library, notices } = await open();
 	await record(library);
 	const editor = await transcript(library);
 	await deleteElsewhere(library, editor.path);
@@ -388,8 +368,8 @@ test('a transcript deleted elsewhere stays deleted too', async () => {
 		row.body = 'Mine.\n';
 	});
 	await settle(library);
-	expect(failures).toMatchObject([{ path: editor.path }]);
-	expect(failures[0]?.lost).toContain('Mine.');
+	expect(notices).toMatchObject([{ kind: 'failed', path: editor.path }]);
+	expect(notices[0]?.kind === 'failed' && notices[0].lost).toContain('Mine.');
 	expect(await text(library, editor.path)).toBeUndefined();
 	expect(library.transcriptions).toEqual([]);
 });
@@ -399,7 +379,7 @@ test('a transcript deleted elsewhere stays deleted too', async () => {
 // ============================================================================
 
 test('a row that is not valid is named for repair, is written as typed text, and reads as fields once repaired', async () => {
-	const { library, failures } = await open();
+	const { library, notices } = await open();
 	const editor = await record(library);
 	const { path } = editor;
 	const audioPath = editor.draft.fields.audioPath;
@@ -414,8 +394,9 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	expect(await library.useForm(path)).toContain('does not read');
 
 	source.input(recordingText('Repaired', audioPath));
+	expect(source.draft).toBe(recordingText('Repaired', audioPath));
 	await settle(library);
-	expect(failures).toEqual([]);
+	expect(notices).toEqual([]);
 	expect(await text(library, path)).toBe(recordingText('Repaired', audioPath));
 	expect(library.repairs).toEqual([]);
 	expect(await library.useForm(path)).toBeUndefined();
@@ -423,8 +404,31 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	expect(recordingEditor(library).draft.fields.title).toBe('Repaired');
 });
 
+test('text typed over a file changed elsewhere is not written, and is reported', async () => {
+	const { library, notices } = await open();
+	const editor = await record(library);
+	const { path } = editor;
+	const audioPath = editor.draft.fields.audioPath;
+	expect(await library.editSource(path)).toBeUndefined();
+	const source = await openText(library, path);
+	const theirs = recordingText('Theirs', audioPath);
+	await writeElsewhere(library, path, theirs);
+
+	source.input(recordingText('Mine', audioPath));
+	await settle(library);
+	expect(notices).toMatchObject([
+		{ kind: 'failed', path, error: { name: 'Conflict' } },
+	]);
+	expect(notices[0]?.kind === 'failed' && notices[0].lost).toBe(
+		recordingText('Mine', audioPath),
+	);
+	expect(await text(library, path)).toBe(theirs);
+	// The view shows the file as it is.
+	expect(source.draft).toBe(theirs);
+});
+
 test('Source edits a valid row as its exact text, after the fields it was typed in are written', async () => {
-	const { library, failures, holdNextMarkdownWrite } = await open();
+	const { library, notices, holdNextMarkdownWrite } = await open();
 	const editor = await record(library);
 	const { path } = editor;
 	const { held, release } = holdNextMarkdownWrite();
@@ -441,74 +445,17 @@ test('Source edits a valid row as its exact text, after the fields it was typed 
 
 	source.input(source.draft.replace('Typed in the fields.', 'Typed as text.'));
 	await settle(library);
-	expect(failures).toEqual([]);
+	expect(notices).toEqual([]);
 	expect(await text(library, path)).toEndWith('---\nTyped as text.\n');
 	expect(await library.useForm(path)).toBeUndefined();
 	expect(recordingEditor(library).draft.body).toBe('Typed as text.\n');
 });
 
 // ============================================================================
-// A recording's lifecycle
-// ============================================================================
-
-test('a new recording is in the listing when it opens, even while another write keeps the reread waiting', async () => {
-	const { library, failures } = await open();
-	// Another file's write, still running: the listing rereads only once it
-	// settles, as it does while a person keeps typing elsewhere.
-	const other = Promise.withResolvers<void>();
-	const running = new MutationObserver(library.queryClient, {
-		mutationKey: ['whispering', 'write', 'row', 'elsewhere.md'],
-		mutationFn: () => other.promise,
-	}).mutate();
-
-	await library.startRecording();
-	await library.stopRecording();
-	expect(library.recorderError).toBeUndefined();
-	const opened = library.selectedPath;
-	expect(opened).toBeDefined();
-	expect(library.entries.map((entry) => entry.path)).toEqual([opened ?? '']);
-
-	other.resolve();
-	await running;
-	await settle(library);
-	expect(failures).toEqual([]);
-	expect(library.entries).toHaveLength(1);
-});
-
-test('a recording\u2019s transcript is saved in its file\u2019s queue, after the writes queued before it', async () => {
-	const { library, failures, holdNextMarkdownWrite } = await open();
-	const editor = await record(library);
-	const { held, release } = holdNextMarkdownWrite();
-	editor.edit((row) => {
-		row.fields.title = 'Titled first';
-	});
-	await held;
-	const [entry] = library.entries;
-	if (entry === undefined) throw new Error('Expected a recording');
-
-	const transcribing = library.transcribe(entry);
-	await Bun.sleep(20);
-	// The answer arrived, and its save waits behind the recording's write.
-	expect(library.transcriptionRun(entry.stem)?.kind).toBe('running');
-	expect(
-		(await library.folder.files.list()).data?.files.map((file) => file.path),
-	).not.toContainEqual(expect.stringMatching(/^transcriptions\//));
-	expect(library.saving).toBe(true);
-
-	release();
-	await transcribing;
-	await settle(library);
-	expect(failures).toEqual([]);
-	expect(await text(library, editor.path)).toContain('title: Titled first');
-	expect(library.resultsFor(entry.stem)).toHaveLength(1);
-	expect(library.saving).toBe(false);
-});
-
-// ============================================================================
 // Deleting
 // ============================================================================
 
-test('a deletion runs after the file\u2019s writes and removes the recording and its results, keeping its audio', async () => {
+test('a deletion runs after the edits are written and removes the recording and its results, keeping its audio', async () => {
 	const { library, holdNextMarkdownWrite } = await open();
 	const editor = await record(library);
 	const { path } = editor;
@@ -597,9 +544,10 @@ test('nothing commits on its own: edits are written with no commit, and Save ver
 	expect(await commits(library)).toBe(before + 1);
 });
 
-test('close waits for a write in flight, and the write lands before the folder closes', async () => {
+test('close waits for an edit being written, and it lands before the folder closes', async () => {
 	const { library, holdNextMarkdownWrite } = await open();
 	const editor = await record(library);
+	const { path } = editor;
 	const { held, release } = holdNextMarkdownWrite();
 	editor.edit((row) => {
 		row.fields.title = 'Typed before closing';
@@ -618,9 +566,8 @@ test('close waits for a write in flight, and the write lands before the folder c
 	release();
 	await closing;
 	expect(closed).toBe(true);
-	const writes = library.queryClient
-		.getMutationCache()
-		.findAll({ mutationKey: whisperingKeys.write(editor.path) });
-	// The write finished before the folder closed; the late edit wrote nothing.
-	expect(writes.map((write) => write.state.status)).toEqual(['success']);
+	expect(library.saving).toBe(false);
+	expect(library.rowAt('recordings', path)?.fields.title).toBe(
+		'Typed before closing',
+	);
 });

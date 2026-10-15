@@ -102,6 +102,7 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 		'@epicenter/folder/browser',
 		'@epicenter/folder/file-browser',
 		'@epicenter/folder/query',
+		'@epicenter/folder/svelte',
 		'@epicenter/folder/tauri',
 	]);
 	// The bare specifier is built against the browser entry. It is the exact

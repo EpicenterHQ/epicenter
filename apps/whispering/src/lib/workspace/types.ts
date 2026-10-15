@@ -7,7 +7,7 @@
  * is the same code for both. Capabilities a storage cannot offer are
  * `undefined` here, not emulated: a browser folder has no directory to reveal.
  */
-import type { FolderAccess, OpenFolderError } from '@epicenter/folder';
+import type { Folder, OpenFolderError } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
@@ -28,7 +28,7 @@ import type {
 	TransformationError,
 } from '../transformation.js';
 
-export type WhisperingFolder = FolderAccess<typeof whisperingDefinition>;
+export type WhisperingFolder = Folder<typeof whisperingDefinition>;
 
 /**
  * The folder both workspaces open. The browser names its scoped OPFS directory

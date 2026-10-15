@@ -1,30 +1,32 @@
 /**
  * The Whispering product state over one opened workspace, kept in a TanStack
- * Query cache (ADR-0528).
+ * Query cache (ADR-0528, ADR-0548).
  *
- * Reads are queries: each table's rows (`table.list()`), the listing the
- * file browser shows, `kv.json`, and the text of each file opened as text.
- * They are read when the page opens, when the person returns to the window,
- * and after the app's own actions and terminal commands. Nothing follows the
- * folder's change reports. Rows that read are listed to edit; the rest are
- * named, with why, for repair as text.
+ * Reads are the folder's queries (`folderOptions`): each table's rows, the
+ * listing the file browser shows, `kv.json`, Git status, and the text of each
+ * file opened as text. The library observes the listings and Git status for
+ * as long as it is open, so every page shows them. They are read when the
+ * page opens and after the app's own actions and terminal commands; changes
+ * made anywhere else arrive on `folder.onFilesChanged`, which makes exactly
+ * the queries they name stale. Rows that read are listed to edit; the rest
+ * are named, with why, for repair as text.
  *
- * An edit goes straight into the cache: one immutable `map` over a listing
- * changes one row, and one replacement changes a file's text. Each edit is
- * written by a mutation scoped to its file, so writes to one file run one at
- * a time while writes to different files run side by side. A write reads the
- * cache when it runs, so it saves the newest row and is guarded by the newest
- * confirmed `sha256`; a file has at most one write running and one waiting.
- * A write that fails reads that file again, which rolls the edit back, and is
- * reported with the text that was lost. A row deleted elsewhere stays
- * deleted: its write fails, and nothing creates it again.
+ * An edit holds its own starting version, outside the cache: a draft per row
+ * file (`createDraftState`), and per file edited as its exact text. A read
+ * never touches a draft. A row's draft saves with `table.save`, one save at a
+ * time, which merges with whatever changed since the edit started; a save
+ * that replaced another writer's change says so. Text has no merge: its
+ * write is guarded by the version it started from, and a file changed
+ * elsewhere refuses it, which is reported with the text that was not
+ * written. A row deleted elsewhere stays deleted: its save fails, and
+ * nothing creates it again.
  *
- * Every other action is a mutation too: a recording's row and its length,
+ * Every other action is a mutation: a recording's row and its length,
  * writing a transcript or a result (scoped by the recording's file, so they
  * write in order), create, rename, delete, Save version, settings, and
- * terminal commands. Closing stops new work, then waits until nothing is
- * mutating. Saves never commit (ADR-0529); a version is recorded only by
- * Save version.
+ * terminal commands. Closing stops new work, then waits for the edits and
+ * until nothing is mutating. Saves never commit (ADR-0529); a version is
+ * recorded only by Save version.
  *
  * A recording is in the folder from the moment it starts (ADR-0543): its row
  * is written then, naming its audio, and on the desktop the audio is written
@@ -43,6 +45,7 @@ import type {
 	FileTable,
 	KvReading,
 	MoveError,
+	Replaced,
 	Row,
 	RowReadError,
 	SavedRow,
@@ -58,20 +61,25 @@ import {
 	joinPath,
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
-import { createSaveBases } from '@epicenter/folder/query';
+import {
+	folderOptions,
+	type SaveRowVariables,
+	type TableOptions,
+} from '@epicenter/folder/query';
+import { createDraftState, type DraftState } from '@epicenter/folder/svelte';
 import { type RecordingFolder, recoverRecordings } from '@epicenter/recorder';
-import type {
-	MutationFilters,
-	MutationOptions,
-	QueryClient,
-	QueryFunctionContext,
-} from '@tanstack/svelte-query';
+import {
+	hashKey,
+	type MutationObserverOptions,
+	type QueryClient,
+	type QueryFunctionContext,
+	QueryObserver,
+} from '@tanstack/query-core';
 import { customAlphabet } from 'nanoid';
-import { createSubscriber, SvelteSet } from 'svelte/reactivity';
+import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
 import {
 	createQueryFactories,
 	defineKeys,
-	resultMutationOptions,
 	resultQueryOptions,
 } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -182,13 +190,26 @@ export type Selection = {
 	readonly entry: RecordingEntry | undefined;
 };
 
-/** A write that failed and was rolled back to the file. */
-export type WriteFailure = {
-	readonly path: string;
-	readonly error: TableError | FileError;
-	/** The text that was in the editor and is not in the file. */
-	readonly lost: string;
-};
+/** What the person is told about an edit's write. */
+export type WriteNotice =
+	/**
+	 * The write failed. A row's edit is kept and is saved again with the
+	 * next change, or before anything that reads it. `lost` is the text that
+	 * was dropped instead: a row whose file is gone, or text whose file
+	 * changed elsewhere.
+	 */
+	| {
+			readonly kind: 'failed';
+			readonly path: string;
+			readonly error: TableError | FileError;
+			readonly lost: string | undefined;
+	  }
+	/** The save landed, and replaced what another writer changed in the same places. */
+	| {
+			readonly kind: 'replaced';
+			readonly path: string;
+			readonly replaced: readonly Replaced[];
+	  };
 
 export type RecorderState =
 	| { readonly phase: 'idle' }
@@ -212,20 +233,13 @@ const suffix = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 4);
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
 
-/** Cache identity for every query and mutation the app runs. */
+/**
+ * Cache identity for the app's own actions. What the folder holds is cached
+ * under the folder's keys (`folderOptions`).
+ */
 export const whisperingKeys = defineKeys({
-	/** Every query the app keeps; read again after the app's own actions. */
+	/** Every action the app runs. */
 	all: ['whispering'],
-	/** The listings every page shows: the tables, the files, and `kv.json`. */
-	lists: ['whispering', 'list'],
-	rows: (table: TableName) => ['whispering', 'list', 'rows', table] as const,
-	files: ['whispering', 'list', 'files'],
-	kv: ['whispering', 'list', 'kv'],
-	text: (path: string) => ['whispering', 'text', path] as const,
-	/** Every write of a row or a file's text. */
-	writes: ['whispering', 'write'],
-	write: (path: string) => ['whispering', 'write', 'row', path] as const,
-	writeText: (path: string) => ['whispering', 'write', 'text', path] as const,
 	move: (path: string) => ['whispering', 'move', path] as const,
 	remove: (path: string) => ['whispering', 'remove', path] as const,
 	/** A recording's lifecycle: its row and length, and saving its transcripts and results. */
@@ -305,17 +319,14 @@ function byNewest<
 }
 
 /**
- * Resolves once nothing matching `filters` is mutating. It watches the
- * mutation cache, so a mutation that starts meanwhile is waited for too.
+ * Resolves once nothing is mutating. It watches the mutation cache, so a
+ * mutation that starts meanwhile is waited for too.
  */
-export function whenIdle(
-	queryClient: QueryClient,
-	filters?: MutationFilters,
-): Promise<void> {
+function whenIdle(queryClient: QueryClient): Promise<void> {
 	return new Promise((resolve) => {
 		const unsubscribe = queryClient.getMutationCache().subscribe(check);
 		function check() {
-			if (queryClient.isMutating(filters) > 0) return;
+			if (queryClient.isMutating() > 0) return;
 			unsubscribe();
 			resolve();
 		}
@@ -341,9 +352,12 @@ function perListing<TListing extends object, TValue>(
 export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const { folder } = workspace;
 	const keys = whisperingKeys;
+	const folder$ = folderOptions(folder);
 	const { defineMutation } = createQueryFactories(queryClient);
 	const tableOf = <T extends TableName>(name: T) =>
 		folder.tables[name] as unknown as FileTable<Tables[T]>;
+	const optionsOf = <T extends TableName>(name: T) =>
+		folder$.tables[name] as unknown as TableOptions<Tables[T]>;
 
 	let closing = $state(false);
 
@@ -354,22 +368,25 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 	// Every read and write is local: nothing waits for a network, and a read
 	// or write that failed is shown rather than retried.
-	queryClient.setQueryDefaults(keys.all, {
+	queryClient.setQueryDefaults(folder$.key, {
 		networkMode: 'always',
 		retry: false,
-		// Nothing goes stale on its own: a view that mounts shows what the cache
-		// holds, and reads happen only when asked for, never while a write runs.
+		retryOnMount: false,
+		// Nothing goes stale on its own: what changed is read when the folder
+		// reports it, or after the app's own action.
 		staleTime: Number.POSITIVE_INFINITY,
-		refetchOnWindowFocus: () => (writing() ? false : 'always'),
 	});
-	// Every page shows the listings, whether or not a view observes them now.
-	queryClient.setQueryDefaults(keys.lists, {
-		gcTime: Number.POSITIVE_INFINITY,
-	});
-	queryClient.setMutationDefaults(keys.all, {
-		networkMode: 'always',
-		retry: false,
-	});
+	for (const key of [folder$.key, keys.all])
+		queryClient.setMutationDefaults(key, {
+			networkMode: 'always',
+			retry: false,
+		});
+
+	// The one channel of outside change (ADR-0548): each report makes exactly
+	// the queries it names stale, and the ones shown are read again.
+	const stopChanges = folder.onFilesChanged((change) =>
+		queryClient.invalidateQueries(folder$.pathFilter(change)),
+	);
 
 	const trackQueries = createSubscriber((update) =>
 		queryClient.getQueryCache().subscribe(update),
@@ -379,35 +396,13 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	);
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
 
-	/** Whether a write of a row or a file's text is running or waiting. */
-	const writing = () =>
-		queryClient.isMutating({ mutationKey: keys.writes }) > 0;
-	/** Resolves once no write of a row or a file's text is running or waiting. */
-	const writesSettled = () =>
-		whenIdle(queryClient, { mutationKey: keys.writes });
-
 	// --- reads -----------------------------------------------------------------
 
-	function rowsQuery<T extends TableName>(table: T) {
-		return resultQueryOptions({
-			queryKey: keys.rows(table),
-			queryFn: () => tableOf(table).list(),
-		});
-	}
-	const filesQuery = () =>
-		resultQueryOptions({
-			queryKey: keys.files,
-			queryFn: () => folder.files.list(),
-		});
-	/** `kv.json` as read, or null when the folder has none. */
-	const kvQuery = () =>
-		resultQueryOptions({
-			queryKey: keys.kv,
-			queryFn: async () => {
-				const read = await folder.kv.get();
-				return read.error === null ? Ok(read.data ?? null) : read;
-			},
-		});
+	const listingOf = <T extends TableName>(table: T) =>
+		optionsOf(table).list.queryOptions();
+	/** The key a file's text is cached under: beside the folder's read of that file, so a change to it reaches both. */
+	const textKey = (path: string) =>
+		[...folder$.files.read.queryKey(path), 'opened'] as const;
 	/**
 	 * One file's complete text, or its type and size when it is not editable
 	 * text. The same options object for each path, so a view that asks again
@@ -416,7 +411,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const textQueries = new Map<string, ReturnType<typeof textQueryOf>>();
 	const textQueryOf = (path: string) =>
 		resultQueryOptions({
-			queryKey: keys.text(path),
+			queryKey: textKey(path),
 			queryFn: () => readTextFile(folder.files, path),
 		});
 	function textQuery(path: string) {
@@ -427,20 +422,35 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		}
 		return options;
 	}
+	/** The listings every page shows: the tables, the files, and `kv.json`. */
 	const listingQueries = () => [
-		rowsQuery(RECORDINGS),
-		rowsQuery(TRANSCRIPTIONS),
-		rowsQuery(TRANSFORMATIONS),
-		rowsQuery(TRANSFORMATION_RUNS),
-		rowsQuery(TEXT_RUNS),
-		filesQuery(),
-		kvQuery(),
+		listingOf(RECORDINGS),
+		listingOf(TRANSCRIPTIONS),
+		listingOf(TRANSFORMATIONS),
+		listingOf(TRANSFORMATION_RUNS),
+		listingOf(TEXT_RUNS),
+		folder$.files.list.queryOptions(),
+		folder$.kv.get.queryOptions(),
 	];
+	/**
+	 * What the library observes while it is open: the listings, and Git
+	 * status, whose read updates the folder's history snapshot the header
+	 * shows. Observed, they are read again whenever they go stale.
+	 */
+	const shownQueries = () => [
+		...listingQueries(),
+		folder$.history.status.queryOptions(),
+	];
+	const listingKeys = listingQueries().map((options) => options.queryKey);
+	/** Stops observing what `start` began observing. */
+	let stopObserving: (() => void)[] = [];
 
 	/** A listing as the cache holds it, read reactively. */
 	function listed<T extends TableName>(table: T) {
 		trackQueries();
-		return queryClient.getQueryData<TableListing<Tables[T]>>(keys.rows(table));
+		return queryClient.getQueryData<TableListing<Tables[T]>>(
+			optionsOf(table).list.queryKey(),
+		);
 	}
 	/** Why the last read of a query failed, read reactively. */
 	function readError(queryKey: readonly unknown[]): string | undefined {
@@ -448,7 +458,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		return queryClient.getQueryState(queryKey)?.error?.message;
 	}
 	const textData = (path: string) =>
-		queryClient.getQueryData<OpenedFile>(keys.text(path));
+		queryClient.getQueryData<OpenedFile>(textKey(path));
 
 	const recordingsOf = perListing((listing: TableListing<RecordingFields>) => {
 		const read = split(RECORDINGS, listing);
@@ -496,60 +506,15 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	};
 	const entries = () => recordingsRead()?.entries ?? [];
 
-	// --- the cache's rows and text ---------------------------------------------
-
 	/** The row the cache holds for `stem`, if it reads. */
 	function rowOf<T extends RowTable>(
 		table: T,
 		stem: string,
 	): StoredRow<Tables[T]> | undefined {
 		const result = queryClient
-			.getQueryData<TableListing<Tables[T]>>(keys.rows(table))
+			.getQueryData<TableListing<Tables[T]>>(optionsOf(table).list.queryKey())
 			?.find((entry) => entry.stem === stem)?.result;
 		return result?.error === null ? result.data : undefined;
-	}
-
-	/** Change the row at `stem` in the cache: one immutable `map` over the listing. */
-	/**
-	 * The row each cached version held, by path, which a save merges from.
-	 * Every table's rows share it: a path names one table's row.
-	 */
-	const bases = createSaveBases<Record<string, unknown>>();
-
-	function mapRow<T extends RowTable>(
-		table: T,
-		stem: string,
-		change: (stored: StoredRow<Tables[T]>) => StoredRow<Tables[T]>,
-	): boolean {
-		let changed = false;
-		queryClient.setQueryData<TableListing<Tables[T]>>(
-			keys.rows(table),
-			(listing) =>
-				listing?.map((entry) => {
-					if (entry.stem !== stem || entry.result.error !== null) return entry;
-					changed = true;
-					return { ...entry, result: Ok(change(entry.result.data)) };
-				}),
-		);
-		return changed;
-	}
-
-	/** Change the text of `path` in the cache, if it holds text. */
-	function mapText(
-		path: string,
-		change: (file: { path: string; sha256: string; text: string }) => {
-			path: string;
-			sha256: string;
-			text: string;
-		},
-	): boolean {
-		let changed = false;
-		queryClient.setQueryData<OpenedFile>(keys.text(path), (opened) => {
-			if (opened?.kind !== 'text') return opened;
-			changed = true;
-			return { kind: 'text', file: change(opened.file) };
-		});
-		return changed;
 	}
 
 	/** The text a person loses with a row that could not be written. */
@@ -561,79 +526,17 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		return formatted.data ?? row.body;
 	}
 
-	/**
-	 * Read one row file into the cache as the file holds it now: gone when
-	 * the file is gone, added when the listing has not seen it. After a failed
-	 * write, TanStack awaits this before the next write of the file runs, so
-	 * that write saves the file's own bytes.
-	 */
-	async function reloadRow(table: RowTable, stem: string) {
-		await queryClient.cancelQueries({
-			queryKey: keys.rows(table),
-			exact: true,
-		});
-		const { data: stored, error } = await tableOf(table).get(stem);
-		const read =
-			error !== null
-				? { stem, result: Err(error) }
-				: stored === undefined
-					? undefined
-					: { stem, result: Ok(stored) };
-		queryClient.setQueryData<TableListing<unknown>>(
-			keys.rows(table),
-			(listing) => {
-				if (listing === undefined) return listing;
-				const others = listing.filter((entry) => entry.stem !== stem);
-				if (read === undefined) return others;
-				// A file the listing has not seen yet joins it.
-				return others.length === listing.length
-					? [...listing, read]
-					: listing.map((entry) => (entry.stem === stem ? read : entry));
-			},
-		);
+	/** Read again what an action may have changed: every folder query a view shows, Git status with them. */
+	async function invalidate() {
+		if (closing) return;
+		await queryClient.invalidateQueries({ queryKey: folder$.key });
 	}
 
-	/** After a failed write of a file's text, the cache takes the file as it is now. */
-	async function reloadText(path: string) {
-		const key = keys.text(path);
-		await queryClient.cancelQueries({ queryKey: key, exact: true });
-		const read = await readTextFile(folder.files, path);
-		if (read.error === null) queryClient.setQueryData(key, read.data);
-		else
-			await queryClient.invalidateQueries({
-				queryKey: key,
-				exact: true,
-				refetchType: 'all',
-			});
-	}
-
-	/**
-	 * Read again what an action may have changed, and Git status with it.
-	 * While a write runs nothing is read: the last write to settle reads
-	 * everything again.
-	 */
-	async function invalidate(queryKey: readonly unknown[] = keys.all) {
-		if (writing() || closing) return;
-		await Promise.all([
-			queryClient.invalidateQueries({ queryKey, refetchType: 'all' }),
-			folder.git.status(),
-		]);
-	}
-
-	/**
-	 * After a write settles: once it is the last one, everything is read
-	 * again. The write does not wait for that read; an edit made meanwhile
-	 * cancels it.
-	 */
-	function afterWrite() {
-		if (queryClient.isMutating({ mutationKey: keys.writes }) > 1 || closing)
-			return;
+	/** Git status after one of the app's own saves, which the folder does not report to this page. */
+	const statusMoved = () =>
 		void queryClient.invalidateQueries({
-			queryKey: keys.all,
-			refetchType: 'all',
+			queryKey: folder$.history.status.queryKey(),
 		});
-		void folder.git.status();
-	}
 
 	/** Whether a rename or delete of `path` is running or waiting, which pauses its edits. */
 	const moving = (path: string) =>
@@ -666,7 +569,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		if (table !== undefined && !asText.has(path)) {
 			const stem = rowStemOf(table, path);
 			const result = queryClient
-				.getQueryData<TableListing<unknown>>(keys.rows(table))
+				.getQueryData<TableListing<unknown>>(optionsOf(table).list.queryKey())
 				?.find((entry) => entry.stem === stem)?.result;
 			if (result?.error === null)
 				return { path: result.data.path, sha256: result.data.sha256 };
@@ -679,99 +582,152 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			: undefined;
 	}
 
-	const failureListeners = new Set<(failure: WriteFailure) => void>();
-	function reportFailure(failure: WriteFailure) {
-		for (const listener of failureListeners) listener(failure);
+	// --- edits -----------------------------------------------------------------
+
+	const noticeListeners = new Set<(notice: WriteNotice) => void>();
+	function notify(notice: WriteNotice) {
+		for (const listener of noticeListeners) listener(notice);
+	}
+
+	/** Run a mutation from its options now, as a view's `mutateAsync` does: it rejects with the mutation's error. */
+	function execute<TData, TError, TVariables>(
+		options: MutationObserverOptions<TData, TError, TVariables>,
+		variables: TVariables,
+	): Promise<TData> {
+		return queryClient
+			.getMutationCache()
+			.build(queryClient, options)
+			.execute(variables);
+	}
+
+	type Fields = Record<string, unknown>;
+	/**
+	 * Each row file's edit, by path: the version it started from and the row
+	 * as typed. Held here rather than by a view, so an edit outlives the view
+	 * it was made in, as the session does.
+	 */
+	const rowDrafts = new SvelteMap<string, DraftState<Fields>>();
+
+	function rowDraft(table: RowTable, path: string): DraftState<Fields> {
+		const held = rowDrafts.get(path);
+		if (held !== undefined) return held;
+		const save = optionsOf(
+			table,
+		).save.mutationOptions() as unknown as MutationObserverOptions<
+			SavedRow<Fields>,
+			TableSaveError,
+			SaveRowVariables<Fields>
+		>;
+		const draft = createDraftState<Fields>({
+			save: (sent) =>
+				execute(save, sent).catch((error: TableSaveError) => {
+					rowSaveFailed(table, path, error);
+					throw error;
+				}),
+			onSaved: (saved) => {
+				statusMoved();
+				if (saved.replaced.length > 0)
+					notify({ kind: 'replaced', path, replaced: saved.replaced });
+			},
+		});
+		rowDrafts.set(path, draft);
+		return draft;
 	}
 
 	/**
-	 * The write of one row: the newest row the cache holds when it runs,
-	 * over the version the cache last confirmed, from the row that version
-	 * held; a file changed elsewhere since is merged with it.
+	 * A row's save failed. Its edit is kept for the next save, unless the
+	 * file is gone: a save never recreates a row, so that edit is dropped.
 	 */
-	function rowWrite<T extends RowTable>(table: T, stem: string) {
-		const path = rowPath(table, stem);
-		return resultMutationOptions({
-			mutationKey: keys.write(path),
-			// Row and text writes of one file share its queue.
-			scope: { id: path },
-			mutationFn: async (): Promise<
-				Result<SavedRow<Tables[T]> | undefined, TableSaveError>
-			> => {
-				const stored = rowOf(table, stem);
-				if (stored === undefined) return Ok(undefined);
-				const saved = await tableOf(table).save(
-					bases.baseOf(path, stored) as FileCapture & {
-						readonly row?: Row<Tables[T]>;
-					},
-					stored.row,
-				);
-				if (saved.error === null)
-					bases.saved(
-						path,
-						stored.row as Row<Record<string, unknown>>,
-						saved.data as SavedRow<Record<string, unknown>>,
-					);
-				return saved;
-			},
-			onSuccess: (saved) => {
-				if (saved === undefined) return;
-				// TanStack awaits this before the next write in the scope runs.
-				mapRow(table, stem, (stored) => ({
-					...stored,
-					path: saved.stored.path,
-					sha256: saved.stored.sha256,
-				}));
-			},
-			onError: async (error) => {
-				const lost = rowOf(table, stem);
-				await reloadRow(table, stem);
-				reportFailure({
-					path,
-					error,
-					lost: lost === undefined ? '' : rowText(table, lost.row),
-				});
-			},
-			onSettled: afterWrite,
-		});
+	function rowSaveFailed(table: RowTable, path: string, error: TableSaveError) {
+		if (error.name !== 'NotFound') {
+			notify({ kind: 'failed', path, error, lost: undefined });
+			return;
+		}
+		const draft = rowDrafts.get(path);
+		const lost =
+			draft?.row === undefined
+				? undefined
+				: rowText(table, draft.row as Row<never>);
+		draft?.discard();
+		notify({ kind: 'failed', path, error, lost });
+		// The listing reads the file gone.
+		void queryClient.invalidateQueries(folder$.pathFilter([path]));
 	}
 
-	/** The write of one file's text, as `rowWrite` is for a row. */
-	function textWrite(path: string) {
-		return resultMutationOptions({
-			mutationKey: keys.writeText(path),
-			scope: { id: path },
-			mutationFn: async (): Promise<
-				Result<FileCapture | undefined, FileError>
-			> => {
-				const opened = textData(path);
-				if (opened?.kind !== 'text') return Ok(undefined);
-				return folder.files.replace(opened.file, opened.file.text);
-			},
-			onSuccess: (saved) => {
-				if (saved === undefined) return;
-				mapText(path, (file) => ({ ...file, sha256: saved.sha256 }));
-			},
-			onError: async (error) => {
-				const lost = textData(path);
-				await reloadText(path);
-				reportFailure({
-					path,
-					error,
-					lost: lost?.kind === 'text' ? lost.file.text : '',
-				});
-			},
-			onSettled: afterWrite,
-		});
+	/** A file's text as typed, over the version the edit started from. */
+	type TextEdit = {
+		readonly base: FileCapture;
+		readonly text: string;
+		/** Counts changes, so a write knows whether the text moved on while it ran. */
+		readonly revision: number;
+	};
+	const textEdits = new SvelteMap<string, TextEdit>();
+	/** The write of each file's text that is running, by path. */
+	const textWrites = new SvelteMap<string, Promise<void>>();
+	const writeFile = folder$.files.write.mutationOptions();
+
+	/**
+	 * Write the text typed into `path`, one write at a time, until nothing is
+	 * left unwritten. Each write is guarded by the version the last one wrote.
+	 * Text has no merge: a file changed elsewhere refuses the write, and what
+	 * was typed is reported with the failure and dropped, so the view shows
+	 * the file as it is.
+	 */
+	function saveText(path: string): Promise<void> {
+		const running = textWrites.get(path);
+		if (running !== undefined) return running;
+		if (!textEdits.has(path)) return Promise.resolve();
+		const loop = (async () => {
+			try {
+				for (
+					let sent = textEdits.get(path);
+					sent !== undefined;
+					sent = textEdits.get(path)
+				) {
+					let written: FileCapture;
+					try {
+						written = await execute(writeFile, {
+							path,
+							content: sent.text,
+							over: sent.base,
+						});
+					} catch (error) {
+						const lost = textEdits.get(path)?.text;
+						textEdits.delete(path);
+						notify({ kind: 'failed', path, error: error as FileError, lost });
+						// The view shows the file as it is now.
+						void queryClient.invalidateQueries(folder$.pathFilter([path]));
+						return;
+					}
+					// The page's own write is not reported to it: what reads this
+					// file, a row of it included, is read again.
+					void queryClient.invalidateQueries(folder$.pathFilter([path]));
+					const latest = textEdits.get(path);
+					if (latest === undefined) return;
+					if (latest.revision !== sent.revision) {
+						textEdits.set(path, { ...latest, base: written });
+						continue;
+					}
+					queryClient.setQueryData<OpenedFile>(textKey(path), {
+						kind: 'text',
+						file: { ...written, text: sent.text },
+					});
+					textEdits.delete(path);
+				}
+			} finally {
+				textWrites.delete(path);
+			}
+		})();
+		textWrites.set(path, loop);
+		return loop;
 	}
 
-	/** Run a mutation from its options now, as a view's `mutate` does. */
-	function run(options: MutationOptions<unknown, unknown, void, unknown>) {
-		void queryClient
-			.getMutationCache()
-			.build(queryClient, options)
-			.execute(undefined)
-			.catch(() => undefined);
+	/** Resolves once every edit has been written, or its write failed. */
+	async function writesSettled() {
+		await Promise.all([
+			...[...rowDrafts.values()].map((draft) => draft.save()),
+			...[...textEdits.keys()].map(saveText),
+		]);
 	}
 
 	/** After a rename: the caches and the selection follow the file. */
@@ -780,7 +736,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		const nextStem = rowStemOf(TRANSCRIPTIONS, to);
 		if (stem !== undefined)
 			queryClient.setQueryData<TableListing<TranscriptionFields>>(
-				keys.rows(TRANSCRIPTIONS),
+				optionsOf(TRANSCRIPTIONS).list.queryKey(),
 				(listing) =>
 					listing?.flatMap((entry) => {
 						if (entry.stem !== stem) return [entry];
@@ -792,29 +748,33 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 						return [{ stem: nextStem, result }];
 					}),
 			);
-		queryClient.removeQueries({ queryKey: keys.text(from), exact: true });
+		queryClient.removeQueries({ queryKey: textKey(from), exact: true });
+		rowDrafts.delete(from);
+		textEdits.delete(from);
 		if (asText.delete(from)) asText.add(to);
 		if (selectedPath === from) selectedPath = to;
 	}
 
-	/** After a delete: the caches and the selection let the file go. */
+	/** After a delete: the caches, the edits, and the selection let the file go. */
 	function deleted(path: string) {
-		const table = rowTableOf(path);
-		const stem = table && rowStemOf(table, path);
-		if (table !== undefined && stem !== undefined)
-			queryClient.setQueryData<TableListing<unknown>>(
-				keys.rows(table),
-				(listing) => listing?.filter((entry) => entry.stem !== stem),
-			);
-		for (const results of [TRANSFORMATION_RUNS, TEXT_RUNS] as const) {
-			const resultStem = rowStemOf(results, path);
-			if (resultStem !== undefined)
+		for (const table of [
+			RECORDINGS,
+			TRANSCRIPTIONS,
+			TRANSFORMATIONS,
+			TRANSFORMATION_RUNS,
+			TEXT_RUNS,
+		] as const) {
+			const stem = rowStemOf(table, path);
+			if (stem !== undefined)
 				queryClient.setQueryData<TableListing<unknown>>(
-					keys.rows(results),
-					(listing) => listing?.filter((entry) => entry.stem !== resultStem),
+					optionsOf(table).list.queryKey(),
+					(listing) => listing?.filter((entry) => entry.stem !== stem),
 				);
 		}
-		queryClient.removeQueries({ queryKey: keys.text(path), exact: true });
+		queryClient.removeQueries({ queryKey: textKey(path), exact: true });
+		rowDrafts.get(path)?.discard();
+		rowDrafts.delete(path);
+		textEdits.delete(path);
 		asText.delete(path);
 		if (selectedPath === path) selectedPath = undefined;
 		if (selectedTransformationPath === path)
@@ -824,8 +784,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/**
 	 * Run `work` as a mutation, so closing waits for it. `scope`
 	 * names the file whose queue a write joins: a recording's lifecycle steps
-	 * run in order, after that file's queued writes, and the folder is read
-	 * again after each. Work with no scope only reads.
+	 * run in order, and the folder is read again after each. Work with no
+	 * scope only reads.
 	 */
 	async function track<T>(work: () => Promise<T>, scope?: string): Promise<T> {
 		const ran = await defineMutation({
@@ -878,10 +838,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const deleting = new Set<string>();
 	/** Told the recording files a listing found, each time one is read. */
 	const recordingsListed = new Set<(present: ReadonlySet<string>) => void>();
+	const recordingsHash = hashKey(optionsOf(RECORDINGS).list.queryKey());
 	const stopListening = queryClient.getQueryCache().subscribe((event) => {
 		if (event.type !== 'updated' || event.action.type !== 'success') return;
-		const key = event.query.queryKey;
-		if (key.length !== 4 || key[2] !== 'rows' || key[3] !== RECORDINGS) return;
+		if (event.query.queryHash !== recordingsHash) return;
 		const read = recordingsRead();
 		if (read === undefined) return;
 		for (const listener of recordingsListed) listener(read.paths);
@@ -997,13 +957,14 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		}, path);
 		if (lengthError !== undefined)
 			recorderError = `The recording is saved, but its length could not be written: ${lengthError}`;
-		await reloadRow(RECORDINGS, id);
 		if (selectedPath === selectionBefore) open(path);
 	}
 
 	const deletionContext = (): DeletionContext => ({
 		folder,
-		listing: queryClient.getQueryData<FileListing>(keys.files),
+		listing: queryClient.getQueryData<FileListing>(
+			folder$.files.list.queryKey(),
+		),
 		writesSettled,
 		held: heldCapture,
 		busy: (id) =>
@@ -1054,8 +1015,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	const kvReading = () => {
 		trackQueries();
 		return (
-			queryClient.getQueryData<KvReading<LegacySettings> | null>(keys.kv) ??
-			undefined
+			queryClient.getQueryData<KvReading<LegacySettings> | null>(
+				folder$.kv.get.queryKey(),
+			) ?? undefined
 		);
 	};
 
@@ -1069,7 +1031,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		/** Whether a listing is being read now; the lists show the last read until it ends. */
 		get refreshing() {
 			trackQueries();
-			return queryClient.isFetching({ queryKey: keys.lists }) > 0;
+			return listingKeys.some(
+				(queryKey) => queryClient.isFetching({ queryKey, exact: true }) > 0,
+			);
 		},
 		/** Recordings that read, newest first. */
 		get entries() {
@@ -1084,15 +1048,17 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return listing ? transcriptionsOf(listing) : [];
 		},
 		get listError() {
-			return readError(keys.rows(RECORDINGS));
+			return readError(optionsOf(RECORDINGS).list.queryKey());
 		},
 		/** Every file and directory in the folder, as last listed. */
 		get listing() {
 			trackQueries();
-			return queryClient.getQueryData<FileListing>(keys.files);
+			return queryClient.getQueryData<FileListing>(
+				folder$.files.list.queryKey(),
+			);
 		},
 		get listingError() {
-			return readError(keys.files);
+			return readError(folder$.files.list.queryKey());
 		},
 		expanded,
 		get git() {
@@ -1109,7 +1075,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 		/** Why `kv.json` could not be read, or what in it does not conform. */
 		get settingsProblem() {
-			const error = readError(keys.kv);
+			const error = readError(folder$.kv.get.queryKey());
 			if (error !== undefined) return error;
 			const kv = kvReading();
 			if (kv === undefined || kv.issues.length === 0) return undefined;
@@ -1177,88 +1143,95 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		// Edits and writes
 		// ------------------------------------------------------------------
 
-		rowsQuery,
 		textQuery,
-		/** The row of `table` at `path` as the cache holds it, if it reads; read reactively. */
+		/**
+		 * The row of `table` at `path` as shown, read reactively: the edit
+		 * while one is unsaved, else the row the cache holds, if it reads.
+		 */
 		rowAt<T extends RowTable>(
 			table: T,
 			path: string,
-		): StoredRow<Tables[T]> | undefined {
+		): Row<Tables[T]> | undefined {
+			const edited = rowDrafts.get(path)?.row;
+			if (edited !== undefined) return edited as Row<Tables[T]>;
 			const stem = rowStemOf(table, path);
 			if (stem === undefined) return undefined;
 			const result = listed(table)?.find(
 				(entry) => entry.stem === stem,
 			)?.result;
-			return result?.error === null ? result.data : undefined;
+			return result?.error === null ? result.data.row : undefined;
+		},
+		/** The text typed into `path` that is not written yet, read reactively. */
+		editedText(path: string): string | undefined {
+			return textEdits.get(path)?.text;
 		},
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText(path: string) {
 			return showsText(path);
 		},
 		/**
-		 * Change the row at `stem` in the cache and write it. A write is queued
-		 * only when fewer than two are running or waiting for that file: the
-		 * waiting one saves whatever the cache holds when it runs. Refused,
-		 * changing nothing, while closing, and while a rename or
-		 * delete of the file runs. Inputs commit only values the schema accepts.
+		 * Change the row at `stem` and save it. The first change captures the
+		 * row the cache holds as the version the edit started from; the edit
+		 * is saved over it, merged with whatever changed since, one save at a
+		 * time. Refused, changing nothing, while closing, and while a rename
+		 * or delete of the file runs. Inputs commit only values the schema
+		 * accepts.
 		 */
 		editRow<T extends RowTable>(
 			table: T,
 			stem: string,
-			change: (row: Row<Tables[T]>) => Row<Tables[T]>,
+			change: (row: Row<Tables[T]>) => void,
 		): void {
 			const path = rowPath(table, stem);
 			if (refused() !== undefined || moving(path)) return;
-			// A read still running could replace this edit when it lands.
-			void queryClient.cancelQueries({
-				queryKey: keys.rows(table),
-				exact: true,
-			});
-			const changed = mapRow(table, stem, (stored) => {
-				bases.editing(path, stored as StoredRow<Record<string, unknown>>);
-				return { ...stored, row: change(stored.row) };
-			});
-			if (!changed) return;
-			if (
-				queryClient.isMutating({ mutationKey: keys.write(path), exact: true }) <
-				2
-			)
-				run(rowWrite(table, stem) as never);
+			const held = rowDrafts.get(path);
+			const current =
+				(rowOf(table, stem) as StoredRow<Fields> | undefined) ?? held?.base;
+			if (current === undefined) return;
+			const draft = held ?? rowDraft(table, path);
+			draft.change(current, change as (row: Row<Fields>) => void);
+			void draft.save();
 		},
-		/** Replace the text of `path` in the cache and write it, as `editRow` does. */
+		/** Replace the text of `path` and write it, over the version the edit started from. */
 		editText(path: string, text: string): void {
 			if (refused() !== undefined || moving(path)) return;
-			void queryClient.cancelQueries({
-				queryKey: keys.text(path),
-				exact: true,
+			const held = textEdits.get(path);
+			const opened = textData(path);
+			const base =
+				held?.base ??
+				(opened?.kind === 'text'
+					? { path: opened.file.path, sha256: opened.file.sha256 }
+					: undefined);
+			if (base === undefined) return;
+			textEdits.set(path, {
+				base,
+				text,
+				revision: (held?.revision ?? 0) + 1,
 			});
-			if (!mapText(path, (file) => ({ ...file, text }))) return;
-			if (
-				queryClient.isMutating({
-					mutationKey: keys.writeText(path),
-					exact: true,
-				}) < 2
-			)
-				run(textWrite(path) as never);
+			void saveText(path);
 		},
-		/** Hear each write that failed and was rolled back, with the text it lost. */
-		onWriteFailed(listener: (failure: WriteFailure) => void): () => void {
-			failureListeners.add(listener);
-			return () => failureListeners.delete(listener);
+		/** Hear what an edit's write did that the person is told: it failed, or it replaced another writer's change. */
+		onWriteNotice(listener: (notice: WriteNotice) => void): () => void {
+			noticeListeners.add(listener);
+			return () => noticeListeners.delete(listener);
 		},
-		/** Whether a write of `path` is running or waiting, read reactively. */
+		/** Whether a write of `path` is running, read reactively. */
 		isSaving(path: string) {
-			trackMutations();
+			return (rowDrafts.get(path)?.saving ?? false) || textWrites.has(path);
+		},
+		/** Whether a write of any file is running, read reactively. */
+		get saving() {
 			return (
-				queryClient.isMutating({
-					predicate: (mutation) => mutation.options.scope?.id === path,
-				}) > 0
+				[...rowDrafts.values()].some((draft) => draft.saving) ||
+				textWrites.size > 0
 			);
 		},
-		/** Whether a write of any file is running or waiting, read reactively. */
-		get saving() {
-			trackMutations();
-			return writing();
+		/** Whether an edit is not in its file yet: being written, or kept after its write failed. */
+		get unsaved() {
+			return (
+				[...rowDrafts.values()].some((draft) => draft.row !== undefined) ||
+				textEdits.size > 0
+			);
 		},
 		/** Whether input is refused now: while closing, or while `path` is renamed or deleted. */
 		locked(path?: string) {
@@ -1290,20 +1263,22 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			const table = rowTableOf(path);
 			if (table === undefined) return undefined;
 			const opened = textData(path);
+			const typed =
+				textEdits.get(path)?.text ??
+				(opened?.kind === 'text' ? opened.file.text : undefined);
 			if (
-				opened?.kind === 'text' &&
-				parseRow(whisperingDefinition.tables[table], opened.file.text).error !==
-					null
+				typed !== undefined &&
+				parseRow(whisperingDefinition.tables[table], typed).error !== null
 			)
 				return STILL_TEXT;
 			await writesSettled();
 			await queryClient
-				.fetchQuery({ ...rowsQuery(table), staleTime: 0 })
+				.fetchQuery({ ...listingOf(table), staleTime: 0 })
 				.catch(() => undefined);
 			const stem = rowStemOf(table, path);
-			const result = queryClient
-				.getQueryData<TableListing<unknown>>(keys.rows(table))
-				?.find((entry) => entry.stem === stem)?.result;
+			const result = listed(table)?.find(
+				(entry) => entry.stem === stem,
+			)?.result;
 			if (result !== undefined && result.error !== null) return STILL_TEXT;
 			asText.delete(path);
 			return undefined;
@@ -1328,8 +1303,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		// Reads on request
 		// ------------------------------------------------------------------
 
-		/** The person's "Check again", and returning to the window. */
-		check: () => invalidate(),
+		/** Read the folder again, as after a read that failed. */
+		readAgain: () => invalidate(),
 		/**
 		 * First read after opening: repair recordings a quit or a crash cut
 		 * off, then the folder, then what this device has set up. Nothing is
@@ -1346,8 +1321,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			// problem; one that throws means the folder cannot be read at all,
 			// and the opening fails with it.
 			const thrown: unknown[] = [];
-			await Promise.all([
-				...listingQueries().map((options) =>
+			await Promise.all(
+				shownQueries().map((options) =>
 					queryClient
 						.fetchQuery({
 							...(options as unknown as QueryOptions),
@@ -1364,9 +1339,14 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 						})
 						.catch(() => undefined),
 				),
-				folder.git.status(),
-			]);
+			);
 			if (thrown.length > 0) throw thrown[0];
+			// Observed from now on, so what the folder reports changed is read again.
+			stopObserving = shownQueries().map((options) =>
+				new QueryObserver(queryClient, options as QueryOptions).subscribe(
+					() => {},
+				),
+			);
 			await readConnections();
 			// The saved choice only: no microphone is opened or listed at launch.
 			await input.load();
@@ -1395,7 +1375,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return listing ? transformationsOf(listing).entries : [];
 		},
 		get transformationsError() {
-			return readError(keys.rows(TRANSFORMATIONS));
+			return readError(optionsOf(TRANSFORMATIONS).list.queryKey());
 		},
 		/** Transformation files that do not read as transformations, with why. */
 		get transformationRepairs() {
@@ -1438,7 +1418,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			);
 		},
 		get textResultsError() {
-			return readError(keys.rows(TEXT_RUNS));
+			return readError(optionsOf(TEXT_RUNS).list.queryKey());
 		},
 		/** Files in `text_runs/` that do not read as results. */
 		get textRepairs() {
@@ -1448,7 +1428,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		/** Changes each time the folder listing is read; audio players recheck their file on it. */
 		get generation() {
 			trackQueries();
-			return queryClient.getQueryState(keys.files)?.dataUpdatedAt ?? 0;
+			return (
+				queryClient.getQueryState(folder$.files.list.queryKey())
+					?.dataUpdateCount ?? 0
+			);
 		},
 		/** The recording whose row names `path` as its audio, if one does. */
 		recordingNaming(path: string): RecordingEntry | undefined {
@@ -1523,7 +1506,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			);
 			if (created.error !== null)
 				recorderError = `The recording is running, but its file could not be written, so it is not listed: ${describeError(created.error)}. Its audio is ${capture.audioPath}.`;
-			else await reloadRow(RECORDINGS, id);
 		},
 		/** Stop: the audio file is finished and the row gets its length. */
 		async stopRecording() {
@@ -1590,7 +1572,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				const stem = rowStemOf(TRANSFORMATIONS, created.path);
 				if (stem !== undefined)
 					queryClient.setQueryData<TableListing<TransformationFields>>(
-						keys.rows(TRANSFORMATIONS),
+						optionsOf(TRANSFORMATIONS).list.queryKey(),
 						(listing) => listing && [...listing, { stem, result: Ok(created) }],
 					);
 				open(created.path);
@@ -1639,9 +1621,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 
 		/**
 		 * Rename a file within its folder. Recording and transformation files
-		 * keep their names, and so does audio a recording names. It runs after
-		 * the file's queued writes and moves what the last one confirmed; edits
-		 * of the file wait meanwhile.
+		 * keep their names, and so does audio a recording names. The edits
+		 * being written land first, and it moves what the last one confirmed;
+		 * edits of the file wait meanwhile.
 		 */
 		async rename(path: string, name: string): Promise<string | undefined> {
 			const why = refused();
@@ -1666,6 +1648,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				mutationFn: async (): Promise<
 					Result<FileCapture, FileError | MoveError | TableError | string>
 				> => {
+					await writesSettled();
 					let capture = heldCapture(path);
 					if (capture === undefined) {
 						const { data: read, error } = await folder.files.read(path);
@@ -1691,7 +1674,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				const problem = nameProblem(directory, name);
 				if (problem !== undefined) return problem;
 				const path = joinPath(directory, name);
-				const listing = queryClient.getQueryData<FileListing>(keys.files);
+				const listing = queryClient.getQueryData<FileListing>(
+					folder$.files.list.queryKey(),
+				);
 				if (listing?.directories.includes(path))
 					return `"${name}" already exists here.`;
 				const { error } = await folder.files.create(path, '');
@@ -1706,7 +1691,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				const problem = nameProblem(directory, name);
 				if (problem !== undefined) return problem;
 				const path = joinPath(directory, name);
-				const listing = queryClient.getQueryData<FileListing>(keys.files);
+				const listing = queryClient.getQueryData<FileListing>(
+					folder$.files.list.queryKey(),
+				);
 				if (
 					listing?.directories.includes(path) ||
 					listing?.files.some((file) => file.path === path)
@@ -1728,8 +1715,9 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			return captureDeletion(deletionContext(), path);
 		},
 		/**
-		 * Delete exactly what was confirmed, after the file's queued writes; a
-		 * file another program changed since is refused.
+		 * Delete exactly what was confirmed, after the edits being written
+		 * land: what this window saved since goes with it, and a file another
+		 * program changed since is refused.
 		 */
 		async remove(deletion: Deletion): Promise<string | undefined> {
 			const why = refused();
@@ -1753,8 +1741,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			const removed = await defineMutation({
 				mutationKey: keys.remove(path),
 				scope: { id: path },
-				mutationFn: async () =>
-					Ok(
+				mutationFn: async () => {
+					// Typed while the person was asked: written first, and deleted with it.
+					await writesSettled();
+					return Ok(
 						await removeDeletion(
 							{
 								...deletionContext(),
@@ -1764,7 +1754,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 							},
 							deletion,
 						),
-					),
+					);
+				},
 				onSettled: () => invalidate(),
 			})();
 			return removed.error === null
@@ -1784,15 +1775,18 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 					await writesSettled();
 					return Ok(await folder.git.commit());
 				},
-				onSettled: () => folder.git.status(),
+				onSettled: () =>
+					queryClient.invalidateQueries({
+						queryKey: folder$.history.status.queryKey(),
+					}),
 			})();
 			return saved.error === null
 				? (saved.data as CommitOutcome)
 				: { status: 'failed', error: describe(saved.error) };
 		},
 		/**
-		 * Stop new work, finish a recording that is running, wait until nothing
-		 * is mutating, then release the folder. An answer whose file could not
+		 * Stop new work, finish a recording that is running, write the edits,
+		 * wait until nothing is mutating, then release the folder. An answer whose file could not
 		 * be written ends with the page, and its row stays unfinished.
 		 */
 		async close() {
@@ -1804,12 +1798,15 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			starting = undefined;
 			// Kept, never deleted: a recording is in the folder from its start.
 			await finishRecording();
+			await writesSettled();
 			await whenIdle(queryClient);
 			await input.saved();
-			await queryClient.cancelQueries({ queryKey: keys.all });
+			stopChanges();
+			for (const stop of stopObserving) stop();
+			await queryClient.cancelQueries({ queryKey: folder$.key });
 			stopListening();
 			recordingsListed.clear();
-			failureListeners.clear();
+			noticeListeners.clear();
 			await workspace.close();
 		},
 	};

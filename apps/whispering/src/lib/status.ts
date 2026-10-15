@@ -44,9 +44,11 @@ function withTime(
 	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
 }
 
-/** What is saved to files: edits being written, and answers whose write failed. */
+/** What is saved to files: edits being written or kept after a failed write, and answers whose write failed. */
 export function filesLine(state: {
 	saving: boolean;
+	/** An edit is kept in this window because its write failed. */
+	unsaved?: boolean;
 	/** Answers that arrived and whose result file could not be written yet. */
 	unwrittenAnswers: number;
 }): StatusLine {
@@ -60,16 +62,26 @@ export function filesLine(state: {
 			tone: 'error',
 		};
 	if (state.saving) return { label: 'Saving…', tone: 'busy' };
+	if (state.unsaved)
+		return {
+			label: 'An edit is not saved yet',
+			short: 'Not saved',
+			detail:
+				'Its write failed. The edit is kept in this window and is saved again with your next change to it.',
+			tone: 'error',
+		};
 	return { label: 'All changes saved to files', short: 'Saved', tone: 'good' };
 }
 
 /** The files line for the product state, as the header shows it. */
 export function filesLineOf(library: {
 	readonly saving: boolean;
+	readonly unsaved: boolean;
 	readonly unwrittenAnswers: number;
 }): StatusLine {
 	return filesLine({
 		saving: library.saving,
+		unsaved: library.unsaved,
 		unwrittenAnswers: library.unwrittenAnswers,
 	});
 }

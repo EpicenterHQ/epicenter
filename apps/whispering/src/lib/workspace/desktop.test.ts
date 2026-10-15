@@ -710,17 +710,12 @@ test('a release shell offers no failure injection, and asks the host for none', 
 	await workspace.close();
 });
 
-test('a debug shell tells the host once the folder is open, and wraps each recording write in its own obstacle', async () => {
+test('a debug shell wraps each recording write in its own obstacle, and asks the host nothing else at launch', async () => {
 	setup();
-	const { root } = await granted();
+	await granted();
 	const order: string[] = [];
 	const served = host(
 		{
-			'injection-launch': () => {
-				if (existsSync(join(root, '.git', 'HEAD'))) order.push('git');
-				order.push('injection-launch');
-				return { rowWrites: 0, audioWrites: 0, commitsBlocked: true };
-			},
 			obstruct: () => {
 				order.push('obstruct');
 				return { obstacle: 'obstacle-1' };
@@ -736,9 +731,8 @@ test('a debug shell tells the host once the folder is open, and wraps each recor
 	const workspace = expectOk(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
 	);
-	// The host is told once the folder is open. Opening made no repository:
-	// a lock asked for at launch waits for the first commit to create Git.
-	expect(order).toEqual(['injection-launch']);
+	// The host took any launch lock when it started; opening asks for nothing.
+	expect(served.operationsAsked.map((call) => call.op)).toEqual(['info']);
 
 	const around = workspace.injection!.aroundRecordingWrite;
 	const audio = await around(
@@ -758,7 +752,7 @@ test('a debug shell tells the host once the folder is open, and wraps each recor
 		'the folder’s own answer',
 	]);
 	// Each write is its own: obstructed, made, and cleared before the next.
-	expect(order.slice(1)).toEqual([
+	expect(order).toEqual([
 		'obstruct',
 		'audio',
 		'unobstruct',
@@ -785,9 +779,6 @@ test('an obstacle that was not placed, or a host that cannot be asked, never kee
 	const removed: unknown[] = [];
 	const served = host(
 		{
-			'injection-launch': () => {
-				throw new Error('the branch is held by another Git process');
-			},
 			obstruct: () => {
 				if (obstructs === 'fault') throw new Error('the host faulted');
 				return { obstacle: null };
@@ -799,7 +790,6 @@ test('an obstacle that was not placed, or a host that cannot be asked, never kee
 		},
 		info({ debug: true }),
 	);
-	// A launch lock the host could not take does not keep the workspace from opening.
 	const workspace = expectOk(
 		await openDesktopWorkspace({
 			...CONNECTION,

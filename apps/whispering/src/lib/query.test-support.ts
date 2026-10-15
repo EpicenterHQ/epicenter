@@ -9,11 +9,11 @@
  * depends on, so the install holds one copy and a mounted test that mixes
  * the two shares every class and manager. Change the two pins together.
  */
-import { focusManager, QueryClient, QueryObserver } from '@tanstack/query-core';
+import { QueryClient, QueryObserver } from '@tanstack/query-core';
 
-export { focusManager, QueryClient, QueryObserver };
+export { QueryClient, QueryObserver };
 
-/** A fresh cache, mounted as the layout's provider mounts it, so it hears focus. */
+/** A fresh cache, mounted as the layout's provider mounts it. */
 export function createQueryClient() {
 	const client = new QueryClient();
 	client.mount();

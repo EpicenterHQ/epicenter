@@ -203,8 +203,10 @@ export async function createHost(options: HostOptions) {
 		join(root, '.git', 'epicenter', 'whispering', 'device.json'),
 	);
 
-	// Arming at launch touches nothing: the counters are numbers, and the branch
-	// lock waits until the page says it has opened the folder.
+	// The counters armed at launch are numbers and touch nothing. The branch
+	// lock is taken now: it needs no repository, since the first commit
+	// creates the branch it locks. A lock it cannot take is logged, and the
+	// host starts all the same.
 	const injection: FailureInjection | undefined = options.debug
 		? createFailureInjection({
 				root,
@@ -213,10 +215,18 @@ export async function createHost(options: HostOptions) {
 					audioWrites: Number(
 						options.env.WHISPERING_DEBUG_FAIL_AUDIO_WRITES ?? 0,
 					),
-					commitsBlocked: options.env.WHISPERING_DEBUG_BLOCK_COMMITS === '1',
 				},
 			})
 		: undefined;
+	if (
+		injection !== undefined &&
+		options.env.WHISPERING_DEBUG_BLOCK_COMMITS === '1'
+	)
+		await injection.arm({ commitsBlocked: true }).catch((cause) => {
+			options.log(
+				`The branch lock asked for at launch was not taken: ${describe(cause)}`,
+			);
+		});
 
 	async function fixtureInfo(): Promise<HostInfo['fixture']> {
 		if (!options.debug || options.fixturePath === undefined) return null;
@@ -468,9 +478,6 @@ export async function createHost(options: HostOptions) {
 				return debugInjection().arm(payload);
 			case 'injection':
 				return debugInjection().state;
-			// The page opened the folder: take a lock asked for at launch, if Git exists.
-			case 'injection-launch':
-				return debugInjection().armLaunch();
 			case 'obstruct':
 				return {
 					obstacle: await debugInjection().obstruct({

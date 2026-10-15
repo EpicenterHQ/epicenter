@@ -12,11 +12,13 @@
  * What lives only in this window is what is happening: a request under way,
  * why one failed, and an answer whose write failed. Such an answer is written
  * again while the page lives; a reload drops it and its row stays unfinished.
- * Filling reads the row first: a row that is gone was discarded, and a row
- * with a body was filled already, so neither is written.
+ * Filling writes only into an empty body: a row that is gone was discarded,
+ * and a row with a body was filled already, here or elsewhere, so neither is
+ * written.
  */
 import {
 	type FileTable,
+	formatRow,
 	type Row,
 	rowPath,
 	rowStemOf,
@@ -109,6 +111,8 @@ const STILL_RECORDING =
 	'This recording is still recording. Stop it, then transcribe it.';
 const NO_AUDIO =
 	'This recording’s file names no audio, so there is nothing to transcribe. Add the audio file’s path in Source.';
+/** How many times a fill reads the row again after another writer changed it. */
+const FILL_READS = 3;
 /** The first wait before an answer is written again, doubled each time up to the last. */
 const RETRY_FIRST_MS = 500;
 const RETRY_LAST_MS = 30_000;
@@ -222,18 +226,38 @@ export function createRuns({
 		return problem;
 	}
 
-	/** Fill the row's empty body. A row that is gone or already has a body is left as it is. */
+	/**
+	 * Fill the row's empty body, and only an empty one. A row that is gone or
+	 * already has a body is left as it is.
+	 *
+	 * Not `table.save`: a save merges with a file changed since it was read,
+	 * and when another writer filled the body meanwhile, both changed the
+	 * body and the save's edit would win. This writes the row's text over
+	 * the exact version it read empty, so a file changed since refuses the
+	 * write; it is read again, and filled only while its body is still empty.
+	 */
 	async function fill(target: Target, body: string) {
 		const table = tableOf(target.table);
+		const definition = folder.definition.tables[target.table];
 		try {
-			const { data: stored, error } = await table.get(target.stem);
-			if (error !== null) return describeError(error);
-			if (stored === undefined || stored.row.body !== '') return undefined;
-			const { error: replaceError } = await table.save(stored, {
-				fields: stored.row.fields,
-				body,
-			});
-			return replaceError === null ? undefined : describeError(replaceError);
+			for (let reads = 0; reads < FILL_READS; reads++) {
+				const { data: stored, error } = await table.get(target.stem);
+				if (error !== null) return describeError(error);
+				if (stored === undefined || stored.row.body !== '') return undefined;
+				const { data: text, error: formatError } = formatRow(definition, {
+					fields: stored.row.fields as never,
+					body,
+				});
+				if (formatError !== null) return formatError.message;
+				const { error: replaceError } = await folder.files.replace(
+					stored,
+					text,
+				);
+				if (replaceError === null) return undefined;
+				if (replaceError.name !== 'Conflict')
+					return describeError(replaceError);
+			}
+			return 'The file kept changing while its answer was written.';
 		} catch (cause) {
 			return describe(cause);
 		}

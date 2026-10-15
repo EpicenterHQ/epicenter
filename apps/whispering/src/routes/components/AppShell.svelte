@@ -12,7 +12,7 @@
 	import FileBrowser from './FileBrowser.svelte';
 	import FolderTerminal from './FolderTerminal.svelte';
 	import VerticalNav from './VerticalNav.svelte';
-	import { reportWriteFailure } from './file-actions.js';
+	import { reportWriteNotice } from './file-actions.js';
 
 	/**
 	 * The frame every page sits in: navigation, the header with status and
@@ -27,10 +27,10 @@
 	// svelte-ignore state_referenced_locally
 	setSession(session);
 
-	// A write that failed was rolled back; the person is told what was lost.
-	$effect(() => library.onWriteFailed(reportWriteFailure));
+	// A write that failed, or replaced a change made elsewhere, is told.
+	$effect(() => library.onWriteNotice(reportWriteNotice));
 
-	// Changes still being saved live only in this window until they land.
+	// Edits not yet saved live only in this window until they land.
 	// Moving between this app's pages keeps them, so that is never held back.
 	// Leaving the document is: in a browser tab the cancel becomes the
 	// browser's leave warning. Closing or quitting the desktop app is
@@ -71,14 +71,7 @@
 	}
 </script>
 
-<!-- Returning to the app reads the files and Git status again, unless a write is running. -->
-<svelte:document
-	onvisibilitychange={() => {
-		if (document.visibilityState === 'visible') void library.check();
-	}}
-/>
 <svelte:window
-	onfocus={() => void library.check()}
 	onkeydown={(event) => {
 		if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'e') {
 			event.preventDefault();

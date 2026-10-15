@@ -1,9 +1,8 @@
 <!--
 	A file opened beside the recordings. A transcript that reads shows its
-	body, edited in the transcriptions listing in the cache. Any other text
-	file, and a row file shown as text, shows its exact text from its own
-	query. Each edit goes into the cache and is written at once, one write at
-	a time for this file.
+	body, edited as a row. Any other text file, and a row file shown as text,
+	shows its exact text from its own query. An edit holds the version it
+	started from and is written at once, one write at a time for this file.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -48,12 +47,15 @@
 		table === TRANSCRIPTIONS && !asText ? library.rowAt(TRANSCRIPTIONS, path) : undefined,
 	);
 	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
-	const text = $derived(opened.data?.kind === 'text' ? opened.data.file : undefined);
+	/** The file's text as typed while an edit is unsaved, else as read. */
+	const text = $derived(
+		opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.file.text) : undefined,
+	);
 	/** Why a row file's text is not a row yet, read live from what is typed. */
 	const issues = $derived(
 		table === undefined || text === undefined
 			? undefined
-			: (parseRow(whisperingDefinition.tables[table], text.text).error ?? undefined),
+			: (parseRow(whisperingDefinition.tables[table], text).error ?? undefined),
 	);
 	const locked = $derived(library.locked(path));
 	const saving = $derived(library.isSaving(path));
@@ -134,12 +136,11 @@
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-sans"
 				bind:value={
-					() => lf(transcript?.row.body ?? ''),
+					() => lf(transcript?.body ?? ''),
 					(value) =>
-						library.editRow(TRANSCRIPTIONS, stem, (row) => ({
-							...row,
-							body: withFileNewlines(wellFormed(value), row.body),
-						}))
+						library.editRow(TRANSCRIPTIONS, stem, (row) => {
+							row.body = withFileNewlines(wellFormed(value), row.body);
+						})
 				}
 				disabled={locked}
 				aria-label="Contents of {name}"
@@ -150,7 +151,7 @@
 			<Empty.Title>{name} is no longer in the folder</Empty.Title>
 			<Empty.Description>It was renamed or deleted, here or by another program.</Empty.Description>
 		</Empty.Root>
-	{:else if text}
+	{:else if text !== undefined}
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
 			{saving ? 'Saving…' : 'Saved'}
 		</p>
@@ -175,7 +176,7 @@
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(text?.text ?? ''), (value) => library.editText(path, withFileNewlines(value, text?.text ?? ''))}
+				bind:value={() => lf(text ?? ''), (value) => library.editText(path, withFileNewlines(value, text ?? ''))}
 				disabled={locked}
 				aria-label="Contents of {name}"
 				spellcheck={false}

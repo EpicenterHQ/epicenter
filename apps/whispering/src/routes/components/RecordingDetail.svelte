@@ -1,9 +1,9 @@
 <!--
 	One recording: its audio, transcripts, notes, and source. The fields come
 	from the recordings listing in the cache, so this view never disagrees
-	with the table. Each edit goes into that cache and is written at once.
-	A recording deleted elsewhere is never written again: its write fails,
-	and the view closes.
+	with the table. An edit holds the version it started from and is saved
+	at once, merged with whatever changed since. A recording deleted
+	elsewhere is never written again: its save fails, and the view closes.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -53,20 +53,23 @@
 	 * kept, one press away, under File details.
 	 */
 	const asText = $derived(library.showsText(path));
-	/** The recording as the cache holds it, while its fields are what is edited. */
-	const row = $derived(asText ? undefined : library.rowAt(RECORDINGS, path)?.row);
+	/** The recording as shown, while its fields are what is edited: as typed, or as the cache holds it. */
+	const row = $derived(asText ? undefined : library.rowAt(RECORDINGS, path));
 	const opened = createQuery(() => ({ ...library.textQuery(path), enabled: asText }));
-	const text = $derived(asText && opened.data?.kind === 'text' ? opened.data.file : undefined);
+	/** The file's text as typed while an edit is unsaved, else as read. */
+	const text = $derived(
+		asText && opened.data?.kind === 'text' ? (library.editedText(path) ?? opened.data.file.text) : undefined,
+	);
 	/** Why the text on screen is not a recording yet, read live from what is typed. */
-	const issues = $derived(text && (parseRow(whisperingDefinition.tables.recordings, text.text).error ?? undefined));
+	const issues = $derived(text === undefined ? undefined : (parseRow(whisperingDefinition.tables.recordings, text).error ?? undefined));
 	const id = $derived(rowStemOf(RECORDINGS, path) ?? path);
 	const title = $derived(row?.fields.title ?? entry?.row.fields.title ?? '');
 	/** Edits wait while the app is closing, and while this file is renamed or deleted. */
 	const locked = $derived(library.locked(path));
 	const saving = $derived(library.isSaving(path));
 
-	/** Change the recording in the cache; it is written at once. */
-	function set(change: (row: Row<RecordingFields>) => Row<RecordingFields>) {
+	/** Change the recording; it is saved at once. */
+	function set(change: (row: Row<RecordingFields>) => void) {
 		library.editRow(RECORDINGS, id, change);
 	}
 	const results = $derived(library.resultsFor(id));
@@ -100,7 +103,10 @@
 				class="flex-1 text-base font-medium"
 				bind:value={
 					() => row?.fields.title ?? '',
-					(value) => set((r) => ({ ...r, fields: { ...r.fields, title: wellFormed(value) } }))
+					(value) =>
+						set((r) => {
+							r.fields.title = wellFormed(value);
+						})
 				}
 				disabled={locked}
 				placeholder="Title"
@@ -197,7 +203,10 @@
 						class="min-h-28 resize-y font-sans"
 						bind:value={
 							() => lf(row?.body ?? ''),
-							(value) => set((r) => ({ ...r, body: withFileNewlines(wellFormed(value), r.body) }))
+							(value) =>
+								set((r) => {
+									r.body = withFileNewlines(wellFormed(value), r.body);
+								})
 						}
 						disabled={locked}
 						placeholder="Notes in Markdown, saved in the recording’s file"
@@ -257,13 +266,13 @@
 			{/if}
 		</Tabs.Content>
 		<Tabs.Content value="source" class="flex min-h-0 flex-1 flex-col gap-2">
-			{#if text}
+			{#if text !== undefined}
 				<p class="text-xs text-muted-foreground">
 					The file’s exact text. It saves as typed, readable or not.
 				</p>
 				<Textarea
 					class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-					bind:value={() => lf(text?.text ?? ''), (value) => library.editText(path, withFileNewlines(value, text?.text ?? ''))}
+					bind:value={() => lf(text ?? ''), (value) => library.editText(path, withFileNewlines(value, text ?? ''))}
 					disabled={locked}
 					aria-label="Markdown source"
 					spellcheck={false}

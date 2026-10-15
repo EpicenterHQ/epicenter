@@ -432,20 +432,14 @@ test('a locked branch fails the commit and never the save; unlocking lets it com
 	});
 	const git = (...args: string[]) =>
 		execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: 'pipe' });
-	// Asked for at launch, and not taken: the folder has not been opened.
+	// Asked for at launch, and taken then: no repository is needed, since the
+	// first commit creates the branch it locks.
 	expect(
 		(await bridge.app<{ commitsBlocked: boolean }>('injection')).commitsBlocked,
-	).toBe(false);
-	expect(await readdir(root)).toEqual([]);
+	).toBe(true);
+	expect(await readdir(root)).toEqual(['.git']);
 
 	const folder = await opened(root);
-	// The folder's first commit creates Git, and the page says it has opened
-	// the folder; the lock is taken now.
-	await folder.git.commit();
-	expect(
-		(await bridge.app<{ commitsBlocked: boolean }>('injection-launch'))
-			.commitsBlocked,
-	).toBe(true);
 	const pending = capture();
 
 	const { row, audio } = await saveRecording(
@@ -840,7 +834,6 @@ test('fixture audio and failure injection exist only in a debug shell', async ()
 	for (const [op, payload] of [
 		['inject', { rowWrites: 1 }],
 		['injection', {}],
-		['injection-launch', {}],
 		['obstruct', { step: 'audio', stem: 'take', path: 'recordings/take.wav' }],
 		['unobstruct', { obstacle: 'any' }],
 	] as const)

@@ -721,7 +721,7 @@ mod tests {
         assert_eq!(granted["authorName"], "Whispering");
         assert_eq!(granted["authorEmail"], "whispering@localhost");
         // The shell owns nothing more: the page's engine creates the
-        // repository when it opens the folder.
+        // repository with the folder's first commit.
         assert!(!root.join(".git").exists());
 
         // The grant reaches the folder's directory through the folder
