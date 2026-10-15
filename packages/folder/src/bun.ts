@@ -101,6 +101,12 @@ export {
 	type UrlCredential,
 } from './history-wire.js';
 export {
+	CONFLICT_LABELS,
+	type GitMerge,
+	gitMergeKind,
+	mergeForGit,
+} from './merge-driver.js';
+export {
 	type QueryAnswer,
 	QueryFolderError,
 	queryFolder,
