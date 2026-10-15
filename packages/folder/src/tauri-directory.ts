@@ -2,10 +2,10 @@
  * A desktop folder the page opens with its own engine: the shell granted
  * this window the folder's directory (`grant_directory`) and holds its lock.
  * The page reads and changes files through the shell, which checks every
- * path, and records history with the system `git`, which the shell runs for
- * it (`run_git`). Real Git does the transfers too,
- * with the person's own credentials. The shell's watcher of the directory
- * tells the page what changed (`epicenter-folder://changed`).
+ * path. Its history is the `epicenter` CLI's, one child per operation, run
+ * by the shell over the system `git` (`tauri-history.ts`, ADR-0559); the
+ * page runs no Git. The shell's watcher of the directory tells the page
+ * what changed (`epicenter-folder://changed`).
  *
  * Loaded only once a folder is granted, so importing the desktop opener
  * carries none of this.
@@ -20,7 +20,7 @@ import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import type { GitCredentials } from './git/http.js';
 import type { Granted } from './native/bindings.gen.js';
-import { tauriGitRun } from './tauri-git.js';
+import { cliHistory } from './tauri-history.js';
 
 export async function openGrantedFolder<
 	const TDefinition extends FolderDefinition,
@@ -46,14 +46,12 @@ export async function openGrantedFolder<
 		lens,
 		root: directoryHandle(files, granted.root),
 		rootPath: granted.root,
-		git: { run: tauriGitRun(id), files },
+		files,
+		// The CLI commits as the person's Git identity, with the shell's
+		// author where Git names none, and refuses a data folder's first
+		// commit inside another repository, as the grant reported.
+		history: cliHistory({ scope: id, branch: granted.branch, credentials }),
 		// The shell's watcher is the one detector of outside changes.
 		detector: tauriChangeDetector(id),
-		author: { name: granted.authorName, email: granted.authorEmail },
-		branch: granted.branch,
-		credentials,
-		// The shell's answer at the grant: a data folder inside another
-		// repository's working tree. `run_git` refuses that `git init` too.
-		initProblem: async () => granted.initProblem ?? undefined,
 	});
 }

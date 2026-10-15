@@ -6,12 +6,18 @@
  * folder plugin's read and change commands with `node:fs`, failing with the
  * operating system's message as text (a rename or removal as the plugin's
  * `ChangeError`, landing only if its path holds what the page expected), and
- * `run_git` with the system `git` in the granted root.
+ * the history commands (`status`, `history`, `save_version`, `sync`,
+ * `settle_sync`) with the engine the `epicenter` CLI runs, in this process
+ * (`answerShellHistory`, ADR-0559).
  *
  * Neither checks paths the way the shell does; the folder package's own
  * tests and the shell's cover that. Git reads no global or system
  * configuration here, so the grant's author is the one Git records.
  */
+import {
+	answerShellHistory,
+	type ShellHistoryCommand,
+} from '@epicenter/folder/bun';
 import { createHash } from 'node:crypto';
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -41,20 +47,11 @@ function gitEnvironment(root: string): Record<string, string> {
 	};
 }
 
-async function runGit(
-	root: string,
-	args: readonly string[],
-	options: { input?: Uint8Array; indexFile?: string } = {},
-) {
+async function runGit(root: string, args: readonly string[]) {
 	const child = Bun.spawn(['git', ...args], {
 		cwd: root,
-		env: {
-			...gitEnvironment(root),
-			...(options.indexFile === undefined
-				? {}
-				: { GIT_INDEX_FILE: options.indexFile }),
-		},
-		stdin: options.input ?? 'ignore',
+		env: gitEnvironment(root),
+		stdin: 'ignore',
 		stdout: 'pipe',
 		stderr: 'pipe',
 	});
@@ -97,24 +94,24 @@ export async function shellCommand(
 	root: string,
 	cmd: string,
 	args: Record<string, unknown>,
+	author = { name: 'Epicenter', email: 'epicenter@localhost' },
 ): Promise<{ reply: unknown } | undefined> {
 	switch (cmd) {
-		case 'run_git': {
-			const { code, stdout, stderr } = await runGit(
-				root,
-				args.args as string[],
-				{
-					input:
-						args.input == null
-							? undefined
-							: Uint8Array.from(args.input as number[]),
-					indexFile: (args.indexFile as string | null) ?? undefined,
-				},
-			);
-			return { reply: { code, stdout: Array.from(stdout), stderr } };
-		}
-		case 'cancel_git':
-			return { reply: null };
+		case 'status':
+		case 'history':
+		case 'save_version':
+		case 'sync':
+		case 'settle_sync':
+			// The CLI's `git`, like the person's, reads no configuration here.
+			process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+			process.env.GIT_CONFIG_NOSYSTEM = '1';
+			return {
+				reply: await answerShellHistory(
+					root,
+					{ command: cmd, ...args } as unknown as ShellHistoryCommand,
+					{ author },
+				),
+			};
 		case 'read_folder_directory': {
 			const entries = await asShellError(() =>
 				nodeFs.readdir(args.path as string, { withFileTypes: true }),

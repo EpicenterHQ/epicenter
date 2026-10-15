@@ -370,10 +370,10 @@ through the shell's commands:
 | | Browser folder | Granted desktop folder |
 | --- | --- | --- |
 | Files | OPFS | The real directory, through the shell's commands |
-| History | isomorphic-git in a private OPFS `.git` | The system `git` in the real `.git`, which the shell runs (`run_git`) |
+| History | isomorphic-git in a private OPFS `.git` | The system `git` in the real `.git`, run by the `epicenter` CLI, one child per operation (`tauri-history.ts`) |
 | Identity | The directory its ID names | The shell's registration and lock |
 | Remote and author | `remote.origin.url`, set by `sync.connect`, and `browser.author` | Git's own configuration: `remote.origin.url`, `user.name`, `user.email`, with the shell's author as fallback |
-| Transfers | `httpFetch`, regular fetch by default, with `credentials` as a header | Git's own: `credentials` as a URL-scoped header, or the person's credential helper or SSH |
+| Transfers | `httpFetch`, regular fetch by default, with `credentials` as a header | Git's own, in the CLI: `credentials` as a URL-scoped header, or the person's credential helper or SSH |
 | Pages of one folder | Web Locks; each page tells the others the paths it wrote on a `BroadcastChannel` | Several windows may open one root; the shell checks each save where it lands, Git orders commits (ADR-0541), and the shell's watcher tells each window what changed |
 
 Files go through the browser folder's file storage (`opfs-store.ts`) over a
@@ -406,11 +406,17 @@ are stored with `git hash-object -w` through the host (`ObjectStore` in
 `git/primitive-fs.ts`), in Bun as on the desktop, so no object file is
 written by hand.
 
-History is the native Git backend (`git/native-backend.ts`), the one a Bun
-directory folder uses. It reaches the machine only through a host: a `git`
-runner and the same directory primitives (`git/native-host.ts` in Bun,
-`tauri-git.ts` on desktop). Both runners run every command with no hook and
-no fsmonitor, whatever the repository configures: `core.hooksPath` names
+History is the native Git backend (`git/native-backend.ts`), which runs only
+in Bun: in a script, and in the `epicenter` CLI, which runs a desktop page's
+history ([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
+It reaches the machine through a host: a `git` runner and directory
+primitives (`git/native-host.ts`). The runner finds `git` without starting
+macOS's xcrun shim (`locateGit`: `/opt/homebrew/bin` and `/usr/local/bin`
+first, `/usr/bin/git` only when `xcode-select -p` names an installed
+developer directory, whose own `git` it runs), and throws `GitMissingError`
+when there is none. Each `git` leads its own process group, so an abort ends
+it with its helpers. It runs every command with no hook and no fsmonitor,
+whatever the repository configures: `core.hooksPath` names
 `.git/epicenter/no-hooks`, which must be a real, empty directory, and
 `core.fsmonitor` is off. So the folder shares the repository with every
 other Git program the way Git programs share one: index and ref changes go
@@ -426,7 +432,7 @@ check it has instead:
 
 | Host | Save | Commit | First commit, staging, or remote |
 | --- | --- | --- | --- |
-| Desktop page | The shell's checked rename | Git's lock files and the branch's compare-and-swap | `git init`, run again if another opener raced it |
+| Desktop page | The shell's checked rename | In the CLI, under the folder's history lock, then Git's lock files and the branch's compare-and-swap | `git init` in the CLI, run again if another opener raced it |
 | Bun | Checked just before the rename, under the folder's save lock, which saves from this process, other Bun processes, and the desktop shell take in turn | Git's lock files and the branch's compare-and-swap | The same |
 | Browser (OPFS) | The files Web Lock | The Git Web Lock, under which the branch is read, compared, and written | The open Web Lock |
 
@@ -436,7 +442,56 @@ save that another one overtook
 where its host checks it merges with theirs and writes again
 ([Saving a row](#saving-a-row)), and a commit whose branch the other moved
 retries ([History](#history)). How a page hears what changed is
-[Changes](#changes). A page that reloads ends the work it was running.
+[Changes](#changes). A page that reloads ends the work it was running,
+the CLI children the shell started for it included.
+
+### A desktop page's history runs in the CLI
+
+A desktop page runs no Git
+([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
+Its `folder.git` and `folder.sync` (`tauri-history.ts`) call the Epicenter
+shell's fixed history commands, each of which runs one `epicenter` child over
+the folder the window was granted and answers one reply line
+(`history-wire.ts`):
+
+| Folder call | Shell command | CLI |
+| --- | --- | --- |
+| `git.status()` | `status` | `epicenter status <root> --json` |
+| `git.log(depth)` | `history` | `epicenter history <root> --depth <n> --json` |
+| `git.commit()` | `save_version` | `epicenter save-version <root> [--message <text>] --json` |
+| `sync.run()`, `sync.connect(url)` | `sync` | `epicenter sync <root> [--remote <url>] --json` |
+| `sync.resolve(attempt, choices)` | `settle_sync` | `epicenter sync <root> --resolve - --json` |
+
+The child runs the engine a Bun process runs (`runHistory` in
+`history-command.ts`), so the merge is the same TypeScript on every host
+(ADR-0551). A save version, a sync, and settling a sync hold the folder's
+history lock, an exclusive SQLite transaction on
+`.<name>.epicenter-history-lock` beside the folder (`holdingHistoryLock` in
+`bun.ts`), so two windows' children, or a window's and a terminal's, take
+turns; it is apart from the save lock, so a page's saves never wait on a
+sync's network. Status and the log take no lock. A sync that needs choices
+records its attempt as `.git/epicenter/sync-attempt.json`: its ID and the
+commits it merged, nothing a caller supplied. `resolve` sends only the
+attempt's ID and the choices; the child merges the recorded commits again,
+which hold the same conflicts under the same IDs, and settles them. A later
+sync retires the record, and so does a resolve past its choices. What a
+sync wrote comes back in the reply (`landed`) and is reported once on
+`onFilesChanged`; the shell's watcher reports the same files and the moved
+history, which at most rereads them.
+
+The finer steps (`push`, `fetch`, `pullFastForward`, `mergeIncoming`,
+`paths`, `stage`, `commitStaged`, `diff`) have no desktop command and answer
+`Failed`; `commitAndPush` saves a version and skips the push. A page's
+`credentials` are asked for the remote's URL before each sync and cross to
+the child on its standard input. A computer with no `git` answers
+`GitError.GitMissing`, with how to get one (`install`); files still read and
+save.
+
+Status costs one child: on macOS arm64, with 200 files, a median of about
+80 ms from spawn to exit (20 runs), of which about 20 ms is the binary's
+start. The page holds what it last read (`folderOptions`, ADR-0553) and reads
+again only when a change or its own write marks it stale, with at most one
+read running and one waiting.
 An incoming update that stops partway keeps no record here: the files it
 wrote show as changes, and the next Sync records and merges them.
 
@@ -1472,7 +1527,7 @@ dangle.
 | --- | --- |
 | `src/contract.ts` | Everything an application names besides the opener. Every entry exports it unchanged. Loads no storage, Git implementation, or runtime module. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
-| `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-git.ts`, and the directory folder only then. |
+| `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-history.ts`, and the directory folder only then. |
 | `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds `save` and its merge. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
 | `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions` and `createTextDraft`. |
@@ -1481,7 +1536,8 @@ dangle.
 | `src/svelte/` | `@epicenter/folder/svelte` (`draft.svelte.ts`), its tests, and the Svelte boundary tests. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
-| `git/native-*.ts` | The `git` program a directory folder records history with. |
+| `git/native-*.ts` | The `git` program a directory folder records history with, in Bun. |
+| `src/history-command.ts`, `history-wire.ts`, `tauri-history.ts` | A desktop page's history: what the `epicenter` CLI runs (`runHistory`), the reply line it prints, and the page's `folder.git` over the shell's history commands. |
 | `src/native/bindings.gen.ts` | Commands generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
 | `fixtures/` | Vectors the tests read: `kv-merge.json` for `mergeKv`, and `commit-subjects.txt`, the subjects `commitSubject` writes (`bun run gen:vectors` rewrites it). |
 | `evidence/` | Tests that build real bundles and read real import closures; `evidence/opfs`, a page that runs the browser checks in a real browser. |

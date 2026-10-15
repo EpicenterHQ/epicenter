@@ -156,6 +156,28 @@ export type SyncCommits = {
 	readonly fetched: string;
 };
 
+/**
+ * What a held attempt is, as its owner may record it to settle it from
+ * another process: its ID and the commits it merged. The conflicts and how
+ * choices settle them are derived again by merging those commits, so nothing
+ * a caller supplied is kept.
+ */
+export type HeldSync = {
+	readonly id: string;
+	readonly commits: SyncCommits;
+};
+
+/**
+ * Where a history keeps its current attempt beyond its own lifetime, so the
+ * next process that opens the folder can settle it. The Bun host keeps one
+ * file under `.git/epicenter` (ADR-0559); a page keeps none.
+ */
+export type AttemptStore = {
+	load(): Promise<HeldSync | undefined>;
+	save(held: HeldSync): Promise<void>;
+	clear(): Promise<void>;
+};
+
 /** An attempt and what only its owner keeps: how choices settle it. */
 export type HeldAttempt = {
 	readonly attempt: SyncAttempt;
@@ -282,7 +304,8 @@ export function syncMerge(
 ): {
 	readonly mergePath: MergePath;
 	readonly held: ReadonlyMap<string, Held>;
-	attempt(commits: SyncCommits): HeldAttempt;
+	/** The attempt this merge held, named `id`, or a new random ID. */
+	attempt(commits: SyncCommits, id?: string): HeldAttempt;
 } {
 	const held = new Map<string, Held>();
 	const mergePath: MergePath = async (path, versions) => {
@@ -303,12 +326,12 @@ export function syncMerge(
 	return {
 		mergePath,
 		held,
-		attempt(commits) {
+		attempt(commits, id = crypto.randomUUID()) {
 			const conflicts = [...held]
 				.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
 				.flatMap(([, entry]) => entry.conflicts);
 			const attempt: SyncAttempt = Object.freeze({
-				id: crypto.randomUUID(),
+				id,
 				local: commits.head,
 				incoming: commits.fetched,
 				conflicts: Object.freeze(conflicts),

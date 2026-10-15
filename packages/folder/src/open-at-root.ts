@@ -48,6 +48,8 @@ export type FolderAddress = {
 export type ChangeDetector = (report: (change: FilesChanged) => void) => {
 	readonly relay?: (paths: readonly string[]) => void;
 	readonly stop: () => void;
+	/** Settles once the detector hears changes; opening waits for it. */
+	readonly ready?: Promise<void>;
 };
 
 /**
@@ -137,6 +139,8 @@ export async function openAtRoot<
 				}
 			}
 		} else prepared = schema;
+		// A change made once the handle is returned is heard.
+		await detected?.ready;
 		const opened = started.history(prepared);
 		history = opened;
 		const folder = assembleFolder<TDefinition, TDeclared>({

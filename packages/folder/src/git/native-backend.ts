@@ -21,9 +21,9 @@
  * a staged commit runs no commit hooks and is not signed.
  *
  * The backend reaches the machine only through its host: a `git` runner and
- * directory primitives. `native-host.ts` supplies them in Bun and Node; the
- * desktop app supplies them through its shell (`tauri-git.ts` runs `git`,
- * `tauri-directory.ts` assembles the host).
+ * directory primitives, which `native-host.ts` supplies in Bun and Node. A
+ * desktop page runs none of this: the `epicenter` CLI runs it for the page
+ * (ADR-0559, `tauri-history.ts`).
  */
 import type { FileBoundary } from '../boundary.js';
 import type { DirectoryPrimitives } from '../directory-handle.js';
@@ -96,8 +96,7 @@ export type GitAuthorization = {
  * variables, so the header never appears in a process list. Redirects are
  * refused for the URL too: Git prefers a URL-specific
  * `http.<url>.followRedirects` from any other configuration over a plain
- * `http.followRedirects`. The desktop shell builds the same configuration
- * (`page_git.rs`).
+ * `http.followRedirects`.
  */
 export function credentialEnvironment({
 	url,
@@ -146,8 +145,7 @@ export async function createNativeGitBackend({
 	 * repository gets one with its first commit or staging
 	 * (`createRepository`), or when a remote is set, never when it opens;
 	 * until then it reads as an empty history with every file uncommitted,
-	 * and no `git` runs, since the desktop shell runs only `git init` where
-	 * there is no repository.
+	 * and no `git` runs.
 	 */
 	initialized?: () => Promise<void>;
 	/**

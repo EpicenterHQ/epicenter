@@ -29,6 +29,23 @@ export const GitError = defineErrors({
 	}),
 	Closed: () => ({ message: 'The folder is closed' }),
 	NoRemote: () => ({ message: 'No remote is configured for this folder' }),
+	/**
+	 * No usable `git` was found, so history cannot run; files still read and
+	 * save (ADR-0559). `install` names how this computer gets one: the
+	 * Command Line Tools on macOS, Git for Windows, or the system's package
+	 * manager.
+	 */
+	GitMissing: ({
+		operation,
+		install,
+	}: {
+		operation: string;
+		install: GitInstall;
+	}) => ({
+		message: `Git ${operation} needs git, which is not installed on this computer`,
+		operation,
+		install,
+	}),
 	StoppedWaiting: ({ operation }: { operation: string }) => ({
 		message: `Stopped waiting for Git ${operation}; the shared attempt may still complete`,
 		operation,
@@ -51,6 +68,12 @@ export const GitError = defineErrors({
 	}),
 });
 export type GitError = InferErrors<typeof GitError>;
+
+/** How a computer without `git` gets one. */
+export type GitInstall =
+	| 'command-line-tools'
+	| 'git-for-windows'
+	| 'package-manager';
 
 export const PullError = defineErrors({
 	NoFetchedHead: () => ({
