@@ -117,9 +117,14 @@ async function setup() {
 		},
 		/** The word with `text` as the learner sees it, with any unsaved edit. */
 		shown: (text: string) => vocab.entries.shown(cached(vocab, text)),
-		/** Another program writes the file. */
+		/** Another program writes the file over whatever is there. */
 		async writeElsewhere(path: string, content: string) {
-			expectOk(await folder.files.overwrite(path, content));
+			const current = await folder.files.read(path);
+			if (current.error?.name === 'NotFound')
+				return void expectOk(await folder.files.create(path, content));
+			expectOk(
+				await folder.files.save(expectOk(current), content, { merge: false }),
+			);
 		},
 		/** The words a reload would list, from the folder opened again. */
 		async reopened() {
@@ -370,7 +375,7 @@ test("another tab's edit reaches this page's list through the folder's change ch
 	);
 });
 
-test('a save that meets a change made elsewhere merges with it: the edit wins only where both changed, and says so', async () => {
+test('a save that meets a change made elsewhere merges with it: the edit wins only where both changed, says so, and can restore theirs', async () => {
 	const context = await setup();
 	const { vocab, entries, failures } = context;
 	const entry = await context.add('lucid');
@@ -383,9 +388,26 @@ test('a save that meets a change made elsewhere merges with it: the edit wins on
 	// Both changed the note, so the edit's stands; only they changed the stage.
 	expect(await context.text(path)).toContain('note: mine');
 	expect(await context.text(path)).toContain('stage: usable');
-	expect(context.replaced).toEqual([{ path, fields: ['note'] }]);
+	expect(context.replaced).toMatchObject([
+		{
+			path,
+			replaced: [
+				{ kind: 'field', field: 'note', kept: 'mine', theirs: 'theirs' },
+			],
+		},
+	]);
 	expect(cached(vocab, 'lucid')).toMatchObject({
 		note: 'mine',
+		stage: 'usable',
+	});
+
+	// Restoring theirs is one more save, over the version this one wrote.
+	context.replaced[0]?.restore();
+	await quiet(vocab);
+	expect(failures).toEqual([]);
+	expect(await context.text(path)).toContain('note: theirs');
+	expect(cached(vocab, 'lucid')).toMatchObject({
+		note: 'theirs',
 		stage: 'usable',
 	});
 });
