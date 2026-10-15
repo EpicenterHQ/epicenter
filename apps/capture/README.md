@@ -115,15 +115,30 @@ Any typed character counts, spaces included, until you add it or clear it.
 - Reloading, closing the tab, or leaving the app asks first while any of it
   exists, a save is still running, or an edit could not be saved. The
   reload shortcut is refused with a message.
-- On the desktop, closing the Capture window hides it; the page and its text
-  stay loaded. Quitting or restarting Epicenter asks nothing, and text not
-  added is lost, as it is when any app quits.
-- If Epicenter's background service stops, the window is created again once
-  the service is back, and text not added is lost.
+- On the desktop, closing the Capture window destroys it, as Epicenter does
+  any installed app's window. Quitting or restarting Epicenter asks nothing,
+  and text not added is lost, as it is when any app quits.
+- If Epicenter's background service stops, the window is closed, and text not
+  added is lost; open Capture again from the Folders window.
 
 Nothing persists text not added across a reload or a quit you confirm.
 
 ## Desktop, inside Epicenter
+
+Capture installs into Epicenter as an app, from this folder of the Epicenter
+repository (ADR-0552); Epicenter compiles no app in. `epicenter.app.json`
+names the id `so.epicenter.capture`, the shape it opens (`shape.json`), the
+build (`bun run build:installed`), and its output (`dist`). In the Folders
+window, "Install from a repository…" with Epicenter's repository lists Capture
+with its folder, `apps/capture`; installing clones the repository into
+`~/Epicenter/Apps/so.epicenter.capture/`, and approving it runs `bun install`
+at the repository's root and the build here. Opened from the Folders window's
+Apps list, Capture opens its own folder, `so.epicenter.capture`.
+
+`shape.json` is `formatDeclaration` of `captureDefinition` in
+`packages/capture/src/definition.ts`. After changing the definition, run
+`bun run --cwd apps/capture shape`; `apps/capture/scripts/shape.test.ts`
+fails until the two agree.
 
 The captures are files in `so.epicenter.capture/captures` under Epicenter's
 working-copy directory (`~/Epicenter/so.epicenter.capture` in production).
@@ -182,9 +197,9 @@ Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder  ->  <directory>
 
 The page names the folder by its ID, `so.epicenter.capture`
 (`CAPTURE_FOLDER_ID` in `src/lib/platform/types.ts`), and nothing else. The
-shell registered that ID with its directory, a fallback author, and the one
-window that may use it (`capture`), so a page cannot ask for an arbitrary
-directory. There is no HTTP route and no Bun process between the window and
+shell registers that ID with its directory and a fallback author as an
+installed app's own folder, and permits the Capture window into it when
+Capture is opened (ADR-0552), so a page cannot ask for an arbitrary directory. There is no HTTP route and no Bun process between the window and
 its files.
 
 `src/lib/platform/folder.epicenter-host.ts` is the whole desktop leaf. It
@@ -225,8 +240,8 @@ with no plugin installed, opening fails and the page shows the reason.
 | Event | What happens |
 | --- | --- |
 | The page is destroyed or reloaded | The page stops hearing the folder's changes, and `captures.close()` refuses input and waits until every edit held is saved and no write or action is running before `host.close()` closes the page's folder. Teardown writes no unadded text. Work still running when a page is torn down without closing stops; the files and Git stay as it left them, and the next open cleans the engine's scratch files. |
-| The Capture window is closed | The shell hides it. The page, its open capture, and its text stay loaded. |
-| Epicenter's Bun service stops | The shell destroys the window and creates it again once the service is back; the page reopens its folder. Text typed and not added is lost. |
+| The Capture window is closed | The shell destroys it, as it does any installed app's window. Text typed and not added is lost. |
+| Epicenter's Bun service stops | The shell destroys the window; open Capture again from the Folders window. Text typed and not added is lost. |
 
 ### Quitting and restarting
 
@@ -260,12 +275,14 @@ bun run --cwd apps/capture test             # unit tests, then the mounted compo
 bun run --cwd packages/capture typecheck
 bun run --cwd apps/capture typecheck        # both seam leaves and the scripts
 bun run --cwd apps/capture build            # browser
-bun run --cwd apps/capture build:epicenter  # the build Epicenter serves
+bun run --cwd apps/capture build:installed  # the build Epicenter installs
 bun scripts/check-ui-boundary.ts
 ```
 
-The two builds share SvelteKit's output directory, so run them one after the
-other. The mounted tests run with `--conditions=browser --conditions=svelte`
+The browser build writes `build/` and serves a fallback page. The installed
+build writes `dist/` here and prerenders each page with relative asset paths,
+so it runs below whatever path the host serves it at. The two builds share
+SvelteKit's output directory, so run them one after the other. The mounted tests run with `--conditions=browser --conditions=svelte`
 (`test:mounted`), so Svelte and the UI kit resolve as a page build resolves
 them.
 

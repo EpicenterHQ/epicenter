@@ -3,7 +3,10 @@ import { APPS } from '@epicenter/constants/apps';
 import { workspaceAppViteConfig } from '@epicenter/vite-config';
 import { defaultClientConditions, defineConfig, mergeConfig } from 'vite';
 
-/** The build the Epicenter desktop host serves below `/apps/capture/`. */
+/**
+ * The build the Epicenter desktop host serves, as an installed app
+ * (ADR-0552); `src/routes/+layout.ts` prerenders it.
+ */
 const isEpicenterHost = process.env.EPICENTER_HOST === '1';
 
 export default defineConfig(
@@ -31,6 +34,11 @@ export default defineConfig(
 					replacement: fileURLToPath(import.meta.resolve('buffer/')),
 				},
 			],
+		},
+		define: {
+			'import.meta.env.EPICENTER_HOST': JSON.stringify(
+				isEpicenterHost ? '1' : '',
+			),
 		},
 		optimizeDeps: { include: ['buffer'] },
 	}),

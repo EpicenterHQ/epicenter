@@ -1,0 +1,7 @@
+{
+	"id": "so.epicenter.capture",
+	"title": "Capture",
+	"opens": "shape.json",
+	"build": "bun run build:installed",
+	"output": "dist"
+}
