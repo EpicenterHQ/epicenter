@@ -288,8 +288,11 @@ a capture and is refused as `Conflict` instead.
 A desktop shell registers each folder's directory for the windows that may
 edit it, with the `tauri-plugin-epicenter-folder` crate. Opening it with
 `@epicenter/folder/tauri` asks the shell to grant it (`grant_directory`): the
-shell creates the directory if it is missing, refuses a linked `.git`, and
-takes the folder's cross-process lock. The page then opens a directory
+shell creates an application's directory if it is missing (a missing data
+folder is `OpenFolderError.Missing`), refuses a linked `.git`, and takes the
+folder's cross-process lock. A data folder inside another repository's
+working tree never gets a repository of its own there either: the shell
+names the host at the grant, and the first commit is `blocked`. The page then opens a directory
 folder (`directory-adapter.ts`) and reads and changes that directory alone
 through the shell's commands:
 
@@ -318,9 +321,11 @@ twin), no link on the way, and inside `.git` only the engine's staging and
 private index copies. Each rename that publishes a file, and each removal,
 names what it expects at its path: nothing, a file, a file with a given
 SHA-256, or anything. The shell checks it and changes the path under one
-lock per root, which every window's changes share, so a save another window
-landed after this page checked is `Conflict`, or `Exists` for a create,
-never `Unconfirmed`. `directory-node.ts` checks it too, as a separate step
+lock per root, which every window's changes share, so a save that carries
+what it read (a hash, or a create) and that another window landed after
+this page checked is `Conflict`, or `Exists` for a create, never
+`Unconfirmed`. An `overwrite` is last-writer-wins by contract: it replaces
+whatever is there. `directory-node.ts` checks it too, as a separate step
 before the change: a Bun script is the one writer the shell does not
 serialize. A change whose reply is lost may have happened: a
 removal is done if the path is then gone and `Unconfirmed` if it is still

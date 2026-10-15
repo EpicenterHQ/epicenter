@@ -31,7 +31,7 @@ The shell registers each folder for the windows that may edit it, and may
 permit another window later. Each window's page runs its own engine over the
 same directory; several editors are safe because the shell checks every
 publish (below). The first `grant_directory`, from any of those windows,
-creates the directory, refuses a directory that is a link and a linked
+creates an application's directory (never a data folder's), refuses a directory that is a link and a linked
 `.git`, and takes the folder's one cross-process lock until shutdown, which
 keeps out a second Epicenter process whose saves this shell would not
 serialize. It adds nothing to the app's access control. Rust makes every read
@@ -45,7 +45,9 @@ created as a new file. A rename that publishes a file, and a removal, carry
 what the page expects at the path (nothing, a file, a file with a given
 SHA-256, or anything); Rust checks it and makes the change under one lock
 per root, so no other change through the shell, from any window, lands
-between them, and a save another window overtook is `Conflict`
+between them. A save that carries what it read (a hash, or nothing for a
+create) and that another window overtook is `Conflict`; an overwrite is
+last-writer-wins by contract
 ([ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md)).
 The shell keeps no list of a
 folder's files: an app's definition, a Sync, or a file browser may write any

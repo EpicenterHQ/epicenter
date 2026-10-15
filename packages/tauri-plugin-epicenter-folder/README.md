@@ -57,17 +57,20 @@ window stays permitted until the app exits.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `root` | required | The folder's directory. The first grant creates it if it is missing. |
+| `root` | required | The folder's directory. The first grant of an application's folder creates it if it is missing. |
 | `author` | required | The fallback for whichever of `user.name` and `user.email` Git's configuration does not set. |
 | `branch` | `main` | The local branch history is recorded on. |
+| `kind` | `Application` | `FolderKind::Application` for an application's own folder, made by `FolderConfig::new`. `FolderKind::Data` for a data folder found under the Epicenter root, made by `FolderConfig::data`: its root is never created (a missing one is refused `Missing`), and it never gets a repository of its own inside another repository's working tree. |
 
 Everything else, the remote included, is the repository's: the page's engine
 reads it from Git's configuration.
 
 Several windows may edit one scope at once. Each page runs its own engine over
 the directory, and the shell checks and publishes every save under one mutex
-per root (see File changes), so a save another window overtook is refused as
-`Conflict` instead of silently replacing it. Only a scope's windows change once
+per root (see File changes), so a save that carries the hash it read, or a
+create, that another window overtook is refused as `Conflict` (or `Exists`)
+instead of silently replacing it. An overwrite replaces whatever is there, by
+contract. Only a scope's windows change once
 it is registered. Two scopes cannot hold one root at once, since the second
 cannot take its lock.
 
@@ -83,9 +86,11 @@ The page calls `grant_directory(scope)`. A window the scope does not name is
 refused as `WindowNotPermitted`, an unregistered scope as `UnknownScope`. The
 first grant, from whichever of the scope's windows asks first:
 
-1. creates the root if it is missing (its parent may be a link a person
-   chose; the root itself must be a real directory) and resolves it to its
-   canonical path, a plain drive path on Windows rather than a `\\?\` one;
+1. creates the root if it is missing and the folder is an application's
+   (a missing data folder's root is refused `Missing`); its parent may be a
+   link a person chose, and the root itself must be a real directory. It
+   resolves the root to its canonical path, a plain drive path on Windows
+   rather than a `\\?\` one;
 2. takes the folder's cross-process lock (`lock.rs`), held until shutdown, or
    answers `Busy` when another process holds it;
 3. refuses Git state that would send writes elsewhere (`root::verify_layout`):
@@ -94,7 +99,11 @@ first grant, from whichever of the scope's windows asks first:
    `.git/refs`, or `.git/logs`, and a linked `.git/epicenter` or scratch
    directory.
 
-A grant returns `{ root, branch, authorName, authorEmail }`; a later grant,
+A grant returns `{ root, branch, authorName, authorEmail, initProblem }`.
+`initProblem` is `null`, or, for a data folder whose root is inside another
+repository's working tree, why it may not get a repository of its own; the
+page's first commit is then blocked with that reason, and `run_git` refuses
+`init` there whatever the page asks. A later grant,
 such as a reloaded page's or another window's, returns the same root under
 the same lock. The lock is per folder, not per window: it keeps out a second
 Epicenter process, whose saves this shell could not check and publish under
@@ -156,11 +165,12 @@ whole.
 page expects at the path it changes: `"absent"` (a new file or a move's
 destination), `"present"` (a file, whatever its bytes), `{ "sha256": "<hex>" }` (a
 file whose bytes hash to that lowercase SHA-256), or `"any"` (an overwrite,
-the folder's declaration, an incoming Sync write, a staged file). The plugin
-checks the path and then renames or removes it while holding one mutex per
-canonical root, kept in the registry and shared by every scope and window on
-that root, so no other change through the plugin lands between the check and
-the change. The cost is a read and hash of the destination when `expected`
+the folder's declaration, a staged file). An incoming Sync write carries the
+hash of the file it replaces, or `"absent"`. The plugin checks the path and
+then renames or removes it while holding one mutex per canonical root, kept
+in the registry and shared by every window of the folder (a second scope on
+one root is refused `Busy`), so no other change through the plugin lands
+between the check and the change. The cost is a read and hash of the destination when `expected`
 names a hash. A path that holds something else changes nothing and is
 refused as a `ChangeError` the page tells apart: `Conflict` with
 `actualSha256` (the hash of the file there, or `null` when none is),

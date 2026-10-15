@@ -4,8 +4,8 @@
 - **Date:** 2026-10-14
 - **Amends:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md), which overwrites `epicenter.json` from whatever definition opened the folder: only an application's own folder publishes, and only when the bytes differ. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), whose one window per folder gives way to any number of windows once the shell compares and publishes every save, under one mutex per root; its cross-process lock stays, one per folder. [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md), whose script example imports `epicenter.json` as a definition, which its shape does not allow.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (a data folder is a directory with `epicenter.json`), [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (`readFolder`), [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) (`epicenter.ts` is the authored source), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (no automatic commits), [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md).
-- **Built:** an unchanged declaration is not rewritten (b3bb9cacb2); scratch names carry their engine and coordination names derive from the root (a5870ca92e); the shell compares and publishes every save, prerequisite 1 below; a folder is registered for several windows and may permit more (`ScopeConfig.windows`, `Folders::permit`), under one cross-process lock per folder; the two openers and `definition` on every handle. `openDataFolder` takes `{ root, git }` in Bun and, until opaque grants exist, `{ id }` naming a registered scope in a desktop page; the browser form opens an origin-private folder by ID, whose first write creates its directory and repository as `openFolder`'s does. The Git lab opens its working copies with it. The shell lists the data folders under the Epicenter folder root for its Folders window (`list_data_folders`): an application's folder through the application's own scope, which the window is permitted into, and any other through a `data:<directory name>` scope registered for that window once per run. The listing returns scope IDs and titles, never paths, though the page still learns each root from the plugin's grant. The Folders window opens each listed folder with `openDataFolder({ id })`, edits its rows by the folder's own declaration, saves every edit at once, and settles a `Conflict` from another window with `mergeRow`, this window's edit winning a field or body lines both changed.
-- **Unbuilt:** opaque grants, so a page never receives a root; the persisted grant registry, and its dialog for a folder outside the Epicenter root; refusing a desktop data folder's first commit inside another repository (Bun refuses it).
+- **Built:** an unchanged declaration is not rewritten (b3bb9cacb2); scratch names carry their engine and coordination names derive from the root (a5870ca92e); the shell compares and publishes every save, prerequisite 1 below; a folder is registered for several windows and may permit more (`ScopeConfig.windows`, `Folders::permit`), under one cross-process lock per folder; the two openers and `definition` on every handle. `openDataFolder` takes `{ root, git }` in Bun and, until opaque grants exist, `{ id }` naming a registered scope in a desktop page; the browser form opens an origin-private folder by ID, whose first write creates its directory and repository as `openFolder`'s does. The Git lab opens its working copies with it. The shell lists the data folders under the Epicenter folder root for its Folders window (`list_data_folders`): an application's folder through the application's own scope, which the window is permitted into, and any other through a `data:<directory name>` scope registered for that window once per run. The listing returns scope IDs and titles, never paths, though the page still learns each root from the plugin's grant. The Folders window opens each listed folder with `openDataFolder({ id })`, edits its rows by the folder's own declaration, saves every edit at once, and settles a `Conflict` from another window with `mergeRow`, this window's edit winning a field or body lines both changed; a desktop data folder inside another repository never gets its own, as in Bun: the shell names the host at the grant and refuses `git init` there, and never creates a data folder's missing root.
+- **Unbuilt:** opaque grants, so a page never receives a root; the persisted grant registry, and its dialog for a folder outside the Epicenter root.
 
 ## Context
 
@@ -104,14 +104,19 @@ All three are built:
 1. **The shell compares and publishes.** The rename that publishes a staged
    file, and a removal, take `expected`: `"absent"` for a create or a move's
    destination, `"present"` for a replacement without a hash,
-   `{ sha256 }` for one with a hash, and `"any"` for an overwrite, the
-   declaration, and an incoming Sync write. The shell checks the path, reading
-   and hashing it when `expected` names a hash, and renames or removes under
-   one mutex per canonical root, held in its registry and shared by every
-   scope and window on that root. Every window of the shell is then
-   serialized whatever its origin, and an overtaken save is `Conflict`, or
-   `Exists` for a create, across windows, never `Unconfirmed`. A move retires
-   its source only if it still holds the bytes moved. The cost is one read
+   `{ sha256 }` for one with a hash, and `"any"` for an overwrite and the
+   declaration. An incoming Sync write carries what the update found at its
+   path: the hash of the file it replaces, or `"absent"`; its removals carry
+   their hash. The shell checks the path, reading and hashing it when
+   `expected` names a hash, and renames or removes under one mutex per
+   canonical root, held in its registry and shared by every window of the
+   folder (a second scope on one root is refused `Busy`). Every window of the
+   shell is then serialized whatever its origin. A save that carries what it
+   read (a replacement, removal, or move with a hash, or a create) and that
+   another window overtook is `Conflict`, or `Exists` for a create, never
+   `Unconfirmed`. An overwrite is last-writer-wins by contract: it replaces
+   whatever is there. A move retires its source only if it still holds the
+   bytes moved. The cost is one read
    and hash of the target per guarded publish.
 2. **Coordination names derive from the canonical root alone** (a5870ca92e),
    so Web Lock names and the hint channel do not include the scope ID, and
@@ -154,8 +159,9 @@ The page never receives its path.
 - A desktop browser can open any data folder, including an application's
   folder while the application has it open, once the shell permits the
   browser's window into that folder (`Folders::permit`).
-- Two windows of one folder can overtake each other's saves. Each sees
-  `Conflict` on a stale save and reads again. Views in another origin may be
+- Two windows of one folder can overtake each other's saves. A save that
+  carries the hash it read sees `Conflict` when it is stale and reads again;
+  an overwrite replaces whatever is there, by contract. Views in another origin may be
   stale until focus. A Bun script beside a window is not serialized and can
   still replace a window's save without `Conflict`.
 - `openFolder`'s `definition` remains the only way to create a folder, so a
