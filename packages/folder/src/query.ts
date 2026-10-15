@@ -660,12 +660,15 @@ export function folderOptions<TTables, TValues>(
 						if (error !== null) return Err(error);
 						return Ok({ stored, merged: false, replaced: [] });
 					},
-					// The file read and opened is what the write wrote.
+					// The file read and opened, where a view holds them, is what the
+					// write wrote.
 					wrote: async (client, { stored }) => {
 						const { path } = stored;
 						await Promise.all([
-							put(client, keys.file(path), () => stored),
-							put(client, keys.text(path), () => openedFile(stored)),
+							put(client, keys.file(path), (held) => held && stored),
+							put(client, keys.text(path), (held) =>
+								held === undefined ? undefined : openedFile(stored),
+							),
 						]);
 						ownWrite(client, [path], [keys.file(path), keys.text(path)]);
 					},
