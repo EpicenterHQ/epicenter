@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-15
 - **Relates:** updates [ADR-0493](0493-whisperings-only-desktop-shell-is-epicenter.md) (Whispering is an installed app), [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) (the Folders window offers installed apps only), [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) (no built-in app to offer on other folders), [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) (every app is a row, and the row gains `folder`), and [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (an app is a folder in a repository) in place, since all five are Proposed.
-- **Built:** installing from a folder in a repository, recorded as `epicenter.folder` in the clone, with `bun install` at the root and the build in the folder, and listing the apps in a repository (`apps/epicenter/src-tauri/src/installed_apps.rs`); the row's `folder` (`apps/epicenter/src/folders/epicenter-folder.ts`); `apps/todos/epicenter.app.json`, with `shape.json` and an installed build (`build:installed`) that writes `apps/todos/dist` with relative asset paths; "Install from a repository…" and "Install Todos" while no app is installed (`apps/epicenter/src/folders/InstallApps.svelte`). `so.epicenter.todos` is no longer refused, and installed Todos opened without a folder is handed `so.epicenter.todos`.
-- **Unbuilt:** Whispering, Capture, Honeycrisp, and every other first-party app as installed apps; native features and AI settings for installed apps; and every deletion below, including the built-in Todos and the refusal of the other built-in ids.
+- **Built:** installing from a folder in a repository, recorded as `epicenter.folder` in the clone, with `bun install` at the root and the build in the folder, and listing the apps in a repository (`apps/epicenter/src-tauri/src/installed_apps.rs`); the row's `folder` (`apps/epicenter/src/folders/epicenter-folder.ts`); `epicenter.app.json`, `shape.json`, and an installed build (`build:installed`) that writes `dist` with relative asset paths, in `apps/todos` and `apps/capture`; "Install from a repository…" and "Install Todos" while no app is installed (`apps/epicenter/src/folders/InstallApps.svelte`); only `so.epicenter` refused; an installed app opened without a folder handed its own folder, `<folder_dir>/<app-id>` (`own_folder` in `apps/epicenter/src-tauri/src/data_folders.rs`); the Folders window opening Settings with `open_home`; and the deletions below except Whispering's: the built-in Todos, Capture, Honeycrisp, Mail, and Books, `launch_application` and its capability files, `APPLICATION_FOLDERS` and its capability files, `FOLDER_OPENERS`, the placeholder pages, `build:todos` and `build:capture`, and `capture-application.test.ts`.
+- **Unbuilt:** Whispering, Honeycrisp, and every other first-party app as installed apps, and with Whispering the deletion of its built-in app (`BuiltInApp::Whispering`, its route, `build:whispering`, `@epicenter/whispering`) and of `test-apps-dist.ts`, which the server tests use for the compiled apps that remain; Honeycrisp's standalone shell deleted; native features and AI settings for installed apps.
 
 ## Context
 
@@ -17,6 +17,7 @@ Folders window and Settings open them with `launch_application`
 (`apps/epicenter/src-tauri/src/lib.rs:568`), which resolves an id against that
 enum. Todos and Capture get their folders from `APPLICATION_FOLDERS`
 (`apps/epicenter/src-tauri/src/data_folders.rs:62-74`). Mail and Books are
+<!-- doc-path-check: ignore-next-line -->
 placeholder pages (`apps/epicenter/src/placeholder-pages.ts`). Building
 Epicenter builds Whispering, Capture, and Todos (`build:apps` in
 `apps/epicenter/package.json:12`).
@@ -110,6 +111,7 @@ Deleted:
   wiring (`apps/epicenter/src-tauri/src/lib.rs:634`,
   `apps/epicenter/src-tauri/src/lib.rs:681`), `launchApplication`
   (`apps/epicenter/src/ui/runtime.ts:31`), and its capability files
+  <!-- doc-path-check: ignore-next-line -->
   (`apps/epicenter/src-tauri/capabilities/launch-application-production.json`
   and its development twin, 22 lines). The Folders window opens Settings with
   `open_home` (`apps/epicenter/src-tauri/src/lib.rs:525`).
@@ -123,6 +125,7 @@ Deleted:
   with `capture-folder-*.json` and `todos-folder-*.json` (60 lines). An
   installed app's window is granted the folder it opens, as any installed app's
   is (`open_installed_window`, `apps/epicenter/src-tauri/src/lib.rs:1702`).
+<!-- doc-path-check: ignore-next-line -->
 - The Mail and Books placeholder pages (`apps/epicenter/src/placeholder-pages.ts`,
   47 lines) and their routes (`apps/epicenter/src/server.ts:346-359`).
 - The refusal to install a built-in app's id
