@@ -1,8 +1,6 @@
 # Epicenter desktop host
 
-Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the short list of what it compiles in. Epicenter ships with no apps installed (ADR-0552): every app, Todos, Capture, and Whispering included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
-
-Honeycrisp ships its own desktop shell and is built from `apps/honeycrisp`.
+Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the short list of what it compiles in. Epicenter ships with no apps installed (ADR-0552): every app, Todos, Capture, Whispering, and Honeycrisp included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
 
 ```text
 trusted SPA source                 Epicenter build output
@@ -21,7 +19,7 @@ The host serves Settings (the `home` document) and one compiled application,
 its own Folders window. Application routes live below `/apps/<id>/`. Apps a
 person installs from a Git repository are served below `/apps/<app-id>/` too.
 The `epicenter-host` build condition selects each product's host
-integrations. Honeycrisp has a separate desktop shell.
+integrations.
 
 Installed apps reach native file folders through the shared Folder plugin.
 Each page runs `@epicenter/folder`'s own engine over a directory the shell
@@ -153,7 +151,8 @@ own folder: `<folderDir>/<app-id>`, under the authored folder root native
 startup resolved (`~/Epicenter` in production, `~/Epicenter Dev` in
 development, or `EPICENTER_FOLDER_DIR`), with the scope `<app-id>` (ADR-0552).
 Installed Todos opens `so.epicenter.todos`, installed Capture
-`so.epicenter.capture`, and installed Whispering `so.epicenter.whispering`. The shell registers that scope the first time the app
+`so.epicenter.capture`, installed Whispering `so.epicenter.whispering`, and
+installed Honeycrisp `so.epicenter.honeycrisp`. The shell registers that scope the first time the app
 is opened that way or the Folders window lists a folder named by an installed
 app's id, whichever comes first (`own_folder` in `src-tauri/src/data_folders.rs`).
 The first grant creates the directory and takes the cross-process lock until
@@ -307,9 +306,10 @@ ADR-0552):
 
 - `id` is a lowercase reverse-domain name. Only `so.epicenter`, Epicenter's
   own folder, is refused. Todos (`so.epicenter.todos`), Capture
-  (`so.epicenter.capture`), and Whispering (`so.epicenter.whispering`)
-  install from `apps/todos`, `apps/capture`, and `apps/whispering` of
-  Epicenter's repository.
+  (`so.epicenter.capture`), Whispering (`so.epicenter.whispering`), and
+  Honeycrisp (`so.epicenter.honeycrisp`) install from `apps/todos`,
+  `apps/capture`, `apps/whispering`, and `apps/honeycrisp` of Epicenter's
+  repository.
 - `opens` is the path, within the app's folder, of the shape the app reads
   (ADR-0538): a JSON declaration, the output of
   `formatDeclaration(definition)` from `@epicenter/folder`, committed beside
@@ -459,7 +459,7 @@ cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 ```
 
 The root `bun typecheck` runs each workspace's checks. Installed apps, such as
-Whispering, are checked in their own folders.
+Whispering and Honeycrisp, are checked in their own folders.
 
 ## Ownership rules
 
