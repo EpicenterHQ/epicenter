@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** deleting the departure round, the page quit voters, the folder plugin's quit wait, the standalone close gates, and the native quit harnesses; streaming recordings ([ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)); writing Whispering's run results as they arrive.
+- **Unbuilt:** deleting the departure round, the page quit voters, the folder plugin's quit wait, the standalone close gates, and the native quit harnesses; streaming recordings ([ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)); writing Whispering's run results when they start. The deletion lands after both.
 
 ## Context
 
@@ -31,10 +31,21 @@ decided.
 
 **No work lives only in memory longer than a keystroke, where the host allows
 it.** Text is saved when a person submits it; a field mid-edit is lost on quit,
-as people expect. Long-running work writes its row and its output into the
-folder from the start: a recording ([ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md))
-and each run result in Whispering. In the browser, a page refresh may lose work
-in progress, and the folder shows what is missing.
+as people expect, including Capture's "New capture" text and thought inputs
+before they are added. Long-running work writes its row and its output into the
+folder from the start:
+
+| Work | Written when it starts | Filled when it finishes |
+| --- | --- | --- |
+| A recording | `recordings/<name>.md` and the audio file ([ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)) | The audio, as it is captured |
+| A transcription or recipe run in Whispering | Its result row, with every field fixed and an empty body | The body, when the answer arrives |
+| A recipe run on pasted text | The same row, saved without a separate Save | The body |
+
+A row with no body and no live request is unfinished, derived, never written as
+a status. If writing an answer fails, the page retries the write while it lives;
+after a reload the row stays without a body and a person runs it again. In the
+browser, a page refresh may lose work in progress, and the folder shows what is
+missing.
 
 **Persist facts; derive state.** A row records what happened: a file, a time, a
 transcript. Nothing that says what is happening is written: no `status`,
@@ -66,6 +77,18 @@ Deleted, about 9,000 lines including tests and harnesses:
 
 Kept: closing a built-in window hides it; the Bun host's graceful shutdown; the
 browser's `beforeNavigate` guards; the shell's checked save.
+
+Also deleted, by writing run results when they start: the held results in
+`apps/whispering/src/lib/runs.svelte.ts` (`unsaved`, `retrySaveResult`,
+`saveTextRun`, `discardTransformationRun`, `held()`), part of
+`RecoveryNotices.svelte`, and their tests, about 1,000 lines. With
+[ADR-0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md)
+and ADR-0543 the two principles delete about 14,000 lines in all.
+
+Kept, because each is a fact rather than a state: Capture's
+`recovery/legacy-import-receipt-<account>.json`, which records which old items
+were imported so a deleted capture is not imported again; the scratch directory
+`.git/epicenter/scratch`; and the sibling `.<folder>.epicenter-lock` file.
 
 Lost: what a person typed and did not submit, a recording in the browser on
 refresh, and the last fraction of a second of audio buffered when a desktop

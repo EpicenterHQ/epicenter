@@ -723,7 +723,7 @@ When you add an ADR, add its row here.
 | [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, files, and Git | Accepted |
 | [0472](0472-epicenter-so-is-canonical-and-product-domains-need-a-distinct-identity.md) | Epicenter.so is canonical, and product domains need a distinct identity | Proposed |
 | [0473](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md) | Personal app hosting keeps addresses separate from data identity | Proposed (publisher app subdomains and explicit portable-folder reuse or copying unbuilt) |
-| [0474](0474-incoming-git-adoption-retains-a-recoverable-plan.md) | Incoming Git adoption retains a recoverable plan | Accepted |
+| [0474](0474-incoming-git-adoption-retains-a-recoverable-plan.md) | Incoming Git adoption retains a recoverable plan | Superseded by 0545 |
 | [0476](0476-whisperings-desktop-folder-uses-one-rust-library-in-both-tauri-shells.md) | Whispering's desktop folder uses one Rust library in both Tauri shells | Superseded by 0531 |
 | [0477](0477-file-folder-operations-tolerate-repairable-layout-disorder.md) | File-folder operations tolerate repairable layout disorder | Accepted |
 | [0478](0478-folder-is-an-independent-package-with-automatic-and-explicit-openers.md) | Folder is an independent package with automatic and explicit openers | Proposed (package, identity-free Folder definitions, explicit dataset IDs, and matching openers implemented; production acceptance across all builds remains) |
@@ -774,3 +774,4 @@ When you add an ADR, add its row here.
 | [0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md) | Quitting is immediate, because unfinished work already lives in its folder | Proposed |
 | [0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) | A recording streams into its folder from the moment it starts | Proposed |
 | [0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) | A blob is a file in its folder, and Git decides how it travels | Proposed |
+| [0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) | An interrupted incoming update is ordinary changed files, and the next Sync finishes it | Proposed (supersedes 0474, amends 0471) |
