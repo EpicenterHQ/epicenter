@@ -6,7 +6,7 @@
 //!   only across one save's check and rename (or removal), by the shell and
 //!   by the Bun host (`@epicenter/folder/bun`) alike, so a save from the
 //!   `epicenter` CLI and a save from a window never interleave between the
-//!   check and the change (ADR-0556). It waits for the other holder, up to
+//!   check and the change (ADR-0562). It waits for the other holder, up to
 //!   `SAVE_LOCK_WAIT`.
 //!
 //! Each lock is an exclusive SQLite transaction on its file, which `rusqlite`

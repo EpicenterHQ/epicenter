@@ -55,7 +55,7 @@ import {
  * against what the page expects, and in Bun the check runs just before the
  * rename, under `locks` so saves within one process take turns. Across
  * processes, the shell and the Bun host each hold the folder's save lock
- * across one check and rename (ADR-0556), so saves wait only for each other
+ * across one check and rename (ADR-0562), so saves wait only for each other
  * and only for that long. A commit moves the branch only by compare-and-swap,
  * and Git's own lock files keep its index whole. Each handle orders its own
  * Git work.

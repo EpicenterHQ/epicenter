@@ -3,7 +3,7 @@
  *
  * `@epicenter/folder/bun` takes the directory's save lock, an exclusive SQLite
  * transaction on `.<name>.epicenter-save-lock` beside it, around each check
- * and rename, as the desktop shell does (ADR-0556). Saves from separate
+ * and rename, as the desktop shell does (ADR-0562). Saves from separate
  * processes take turns, so none is lost.
  *
  * Key behaviors:

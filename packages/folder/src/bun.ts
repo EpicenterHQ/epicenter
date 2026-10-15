@@ -20,7 +20,7 @@
  * Saves to one directory take turns within this process, across every handle
  * it opens, and with every other process that takes the directory's save
  * lock: the desktop shell's checked renames and other Bun processes
- * (ADR-0556). The lock is an exclusive SQLite transaction on
+ * (ADR-0562). The lock is an exclusive SQLite transaction on
  * `.<name>.epicenter-save-lock` beside the directory, the same one the shell
  * takes, held only across one rename or removal and the check of the observed
  * version just before it, so that check holds. A save waits up to ten
