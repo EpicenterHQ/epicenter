@@ -12,7 +12,11 @@
  * - A refused grant (an unregistered scope, a refused window, a folder
  *   another Epicenter holds, a missing plugin, a call that never reaches the
  *   shell) fails the open with its reason
- * - The page names the Capture scope and is told the directory
+ * - A window handed no folder names the Capture scope and is told the
+ *   directory
+ * - A window handed another folder opens it through Capture's shape and
+ *   leaves its declaration as it was
+ * - A handed folder whose declaration lacks Capture's shape is refused by name
  * - A save writes the row and keeps undeclared metadata
  * - An edit made elsewhere merges with this one: both survive
  * - Closing waits for a save already sent and the latest edit after it
@@ -74,6 +78,16 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
+/** Hand the window `folder` as the shell does, in its URL's `?folder=`. */
+function handWindow(folder: string) {
+	Object.defineProperty(globalThis, 'location', {
+		value: new URL(
+			`http://127.0.0.1/apps/so.epicenter.capture/?folder=${encodeURIComponent(folder)}`,
+		),
+		configurable: true,
+	});
+}
+
 const { openCaptureHost } = await import('./folder.epicenter-host.js');
 const { createCaptures } = await import('../captures.svelte.ts');
 const { createQueryClient, observe, quiet } = await import(
@@ -128,6 +142,7 @@ afterEach(async () => {
 	calls = [];
 	grant = undefined;
 	before = {};
+	Reflect.deleteProperty(globalThis, 'location');
 });
 
 /** A Rust `Err` rejects with the error value itself, not an `Error`. */
@@ -185,7 +200,7 @@ test.each([
 	expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
 });
 
-test('the page names the Capture scope and is told the directory', async () => {
+test('a window handed no folder names the Capture scope and is told the directory', async () => {
 	const host = await openCaptureHost();
 
 	expect(calls[0]).toEqual({
@@ -198,6 +213,68 @@ test('the page names the Capture scope and is told the directory', async () => {
 		expect(call.args.scope).toBe(CAPTURE_FOLDER_ID);
 	expect(host.location).toEqual({ kind: 'directory', root });
 	await host.close();
+});
+
+const STRING = { type: 'string', 'x-field': { kind: 'string' } };
+/** A folder's `epicenter.json` with `tables`, as Epicenter writes one. */
+const declaration = (title: string, tables: Record<string, unknown>) =>
+	`${JSON.stringify({ title, kv: { type: 'object', properties: {} }, tables }, null, '\t')}\n`;
+/** A folder declaring Capture's captures table, a field more, and a table of its own. */
+const NOTES = declaration('Notes', {
+	captures: {
+		type: 'object',
+		properties: {
+			capturedAt: {
+				type: 'string',
+				format: 'date-time',
+				'x-field': { kind: 'datetime' },
+			},
+			source: STRING,
+		},
+		required: ['capturedAt'],
+	},
+	people: {
+		type: 'object',
+		properties: { name: STRING },
+		required: ['name'],
+	},
+});
+
+test('a window handed another folder opens it through the shape and keeps its declaration', async () => {
+	handWindow('data:Notes');
+	await put('epicenter.json', NOTES);
+	await put(PATH, SAVED);
+
+	const { host, captures } = await opened();
+
+	expect(calls[0]).toEqual({
+		cmd: 'grant_directory',
+		args: { scope: 'data:Notes' },
+	});
+	for (const call of calls.slice(1)) expect(call.args.scope).toBe('data:Notes');
+	const { form } = await openOne(captures);
+	expect(form).toBeDefined();
+	// The folder's own declaration stays; Capture's is never published over it.
+	expect(await text('epicenter.json')).toBe(NOTES);
+	await captures.close();
+	await host.close();
+});
+
+test('a handed folder without the captures Capture reads is refused by name', async () => {
+	handWindow('data:Recipes');
+	const recipes = declaration('Recipes', {
+		recipes: {
+			type: 'object',
+			properties: { title: STRING },
+			required: ['title'],
+		},
+	});
+	await put('epicenter.json', recipes);
+
+	await expect(openCaptureHost()).rejects.toThrow(
+		"Capture cannot open the folder 'Recipes': The folder declares no 'captures' table.",
+	);
+	expect(await text('epicenter.json')).toBe(recipes);
 });
 
 test('a write saves the row on disk and keeps undeclared metadata', async () => {

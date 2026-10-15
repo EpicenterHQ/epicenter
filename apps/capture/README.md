@@ -133,7 +133,11 @@ window, "Install from a repository…" with Epicenter's repository lists Capture
 with its folder, `apps/capture`; installing clones the repository into
 `~/Epicenter/Apps/so.epicenter.capture/`, and approving it runs `bun install`
 at the repository's root and the build here. Opened from the Folders window's
-Apps list, Capture opens its own folder, `so.epicenter.capture`.
+Apps list, Capture opens its own folder, `so.epicenter.capture`. Opened with
+"Open in Capture" beside another folder whose declaration contains its shape,
+it opens that folder and reads its captures through its shape (ADR-0538): it
+never rewrites that folder's `epicenter.json`, and a folder whose declaration
+lacks the shape is refused with a message naming the folder.
 
 `shape.json` is `formatDeclaration` of `captureDefinition` in
 `packages/capture/src/definition.ts`. After changing the definition, run
@@ -183,7 +187,8 @@ whose README states what a grant allows. What that means for Capture:
 
 ```text
 Capture window (WebView)
-   openFolder({ id, definition })  from @epicenter/folder/tauri
+   openFolder({ id, definition })     its own folder, from @epicenter/folder/tauri
+   openDataFolder({ id, lens })       any other folder it is handed
    the folder engine, in the page
         |  plugin:epicenter-folder|grant_directory   -> { root, branch, author }
         |  plugin:epicenter-folder|read_folder_directory, stat_folder_path,
@@ -195,17 +200,23 @@ Capture window (WebView)
 Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder  ->  <directory>
 ```
 
-The page names the folder by its ID, `so.epicenter.capture`
-(`CAPTURE_FOLDER_ID` in `src/lib/platform/types.ts`), and nothing else. The
-shell registers that ID with its directory and a fallback author as an
-installed app's own folder, and permits the Capture window into it when
-Capture is opened (ADR-0552), so a page cannot ask for an arbitrary directory. There is no HTTP route and no Bun process between the window and
+The page names the folder by its scope and nothing else. The shell hands the
+window that scope as `?folder=` in its URL (`open_installed_app`): Capture's
+own, `so.epicenter.capture` (`CAPTURE_FOLDER_ID` in
+`src/lib/platform/types.ts`), or the scope the Folders window listed for
+another folder. A window handed none opens Capture's own. The shell registers
+Capture's own scope with its directory and a fallback author as an installed
+app's own folder, and permits the Capture window into the folder it hands it
+(ADR-0552), so a page cannot ask for an arbitrary directory. There is no HTTP route and no Bun process between the window and
 its files.
 
-`src/lib/platform/folder.epicenter-host.ts` is the whole desktop leaf. It
-calls `openFolder` from `@epicenter/folder/tauri`, which asks the shell for
-the directory and opens it, or returns why it cannot, and hands the folder
-to the same store the
+`src/lib/platform/folder.epicenter-host.ts` is the whole desktop leaf. For
+Capture's own folder it calls `openFolder` from `@epicenter/folder/tauri`
+with `captureDefinition`; for any other folder it calls `openDataFolder` with
+`captureDefinition` as the lens, which never writes that folder's declaration
+and refuses one without Capture's shape. Either asks the shell for the
+directory and opens it, or returns why it cannot, and the leaf hands the
+folder to the same store the
 browser build uses. The browser leaf calls `openFolder`
 from `@epicenter/folder/browser` and states its own history policy: a local
 author and no remote. Each entry refuses in the
@@ -289,7 +300,7 @@ them.
 | Test | What it checks |
 | --- | --- |
 | `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved at once keeping undeclared metadata, rapid edits with one save running and the rest in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere and what it replaced, a failed save kept and sent again, a deleted file, changes the body or the folder cannot hold, repair as text, a text write merged with a change made elsewhere and one to a deleted file, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, and close. |
-| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, a write saves the row, an outside edit merges with the window's, closing waits for a save already sent, and Save version commits and rewrites nothing. It does not run the shell's path or Git checks. |
+| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, a window handed no folder opens Capture's own, a window handed another folder opens it through Capture's shape and keeps its declaration, one without the shape is refused by name, a write saves the row, an outside edit merges with the window's, closing waits for a save already sent, and Save version commits and rewrites nothing. It does not run the shell's path or Git checks. |
 | `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, nothing of the host package, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter or generated bindings. |
 | `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a save merged with a change made elsewhere, a reported change shown, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
 

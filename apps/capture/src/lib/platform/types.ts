@@ -7,19 +7,27 @@
  */
 
 import type { captureDefinition } from '@epicenter/capture';
-import type { Folder, FolderLocation } from '@epicenter/folder';
+import type {
+	Folder,
+	FolderDefinition,
+	FolderLocation,
+} from '@epicenter/folder';
 
 /**
- * The folder both leaves open. The browser names its scoped OPFS directory after
- * it; the desktop shell registers its directory under it.
+ * Capture's own folder. The browser names its scoped OPFS directory after it
+ * and opens no other; the desktop shell registers its directory under it and
+ * hands it to a window opened without a folder.
  */
 export const CAPTURE_FOLDER_ID = 'so.epicenter.capture';
 
 /**
- * The folder both leaves open: its captures table, its files (a capture's
- * exact text), its Git history, and its channel of outside changes.
+ * The folder a leaf opens: its captures table, its files (a capture's exact
+ * text), its Git history, and its channel of outside changes. Its own
+ * `definition` is `captureDefinition` for Capture's own folder, and the
+ * folder's declaration for any other folder the desktop opens with Capture's
+ * shape as the lens.
  */
-export type CaptureFolder = Folder<typeof captureDefinition>;
+export type CaptureFolder = Folder<typeof captureDefinition, FolderDefinition>;
 
 export type CaptureHost = {
 	readonly folder: CaptureFolder;
