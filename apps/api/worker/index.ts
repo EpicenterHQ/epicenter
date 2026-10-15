@@ -11,7 +11,10 @@
  * knobs (optional cloud policies, auth choice for AI).
  */
 
-import { PRODUCTION_API_URL } from '@epicenter/constants/apps';
+import {
+	PRODUCTION_API_URL,
+	resolveOAuthAudiences,
+} from '@epicenter/constants/apps';
 import {
 	type CloudEnv,
 	connectHyperdriveDb,
@@ -39,7 +42,6 @@ import {
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
 import { createArtifactsRepositoryStore } from './git-repositories.js';
-import { resolveOAuthAudiences } from './oauth-registrations.js';
 import { buildSessionCallbacks } from './session-callbacks.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 

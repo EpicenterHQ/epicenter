@@ -44,7 +44,10 @@
  * reset and does not resume legacy receipts.
  */
 
-import { API_BUN_DEV_PORT } from '@epicenter/constants/apps';
+import {
+	API_BUN_DEV_PORT,
+	resolveOAuthAudiences,
+} from '@epicenter/constants/apps';
 import {
 	CloudAuthBindings,
 	type CloudEnv,
@@ -69,10 +72,7 @@ import { type } from 'arktype';
 import type { Context } from 'hono';
 import { every } from 'hono/combine';
 import pg from 'pg';
-import {
-	buildFirstPartyClients,
-	resolveOAuthAudiences,
-} from './worker/oauth-registrations.js';
+import { buildFirstPartyClients } from './worker/oauth-registrations.js';
 import { buildSessionCallbacks } from './worker/session-callbacks.js';
 import { buildEpicenterTrustedOrigins } from './worker/trusted-origins.js';
 

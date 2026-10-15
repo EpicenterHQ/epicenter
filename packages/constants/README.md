@@ -8,7 +8,7 @@ This is a floor, not a junk drawer. A fact belongs here only when more than one 
 
 ### `@epicenter/constants/apps`
 
-The app origin and port registry (`APPS`), plus the origin helpers CORS and sign-in callback approval derive from it (`localUrl`, `appOrigins`, `prodOrigins`) and the Node API-base default (`EPICENTER_API_URL`). Exact callback paths are approved by the hosted auth configuration, separately from trusted origins.
+The app origin and port registry (`APPS`), plus the origin helpers CORS and sign-in callback approval derive from it (`localUrl`, `appOrigins`, `prodOrigins`) the Node API-base default (`EPICENTER_API_URL`), and a deployment's OAuth token audiences (`resolveOAuthAudiences`), which the API registers and the `epicenter` CLI requests. Exact callback paths are approved by the hosted auth configuration, separately from trusted origins.
 
 ```typescript
 import { APPS, appOrigins } from '@epicenter/constants/apps';

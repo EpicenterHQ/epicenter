@@ -18,7 +18,10 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { PRODUCTION_API_URL } from '@epicenter/constants/apps';
+import {
+	PRODUCTION_API_URL,
+	resolveOAuthAudiences,
+} from '@epicenter/constants/apps';
 import {
 	authorizeResourceRequest,
 	createDb,
@@ -43,10 +46,7 @@ import {
 	type OAuthHarness,
 } from '../../packages/server/src/test-helpers/oauth-checks.js';
 import { OAuthTestClient } from '../../packages/server/src/test-helpers/oauth-client.js';
-import {
-	buildFirstPartyClients,
-	resolveOAuthAudiences,
-} from './worker/oauth-registrations.js';
+import { buildFirstPartyClients } from './worker/oauth-registrations.js';
 
 const apiRoot = import.meta.dir;
 /** Postgres here sorts text bytewise (`--no-locale`); so does this. */

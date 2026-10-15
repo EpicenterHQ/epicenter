@@ -4,28 +4,17 @@
  * origins and app ids, so they live in `apps/api`, beside the trusted origins,
  * not in the shared library.
  *
- * The deployment names the authority (ADR-0326). The hosted cloud's audiences
- * are `api`, `git`, and `mcp.epicenter.so`; any other deployment (local dev,
- * self-host) serves all three from its own origin.
+ * The deployment names the authority (ADR-0326). Its audiences come from
+ * `resolveOAuthAudiences` in `@epicenter/constants/apps`, which the
+ * `epicenter` CLI reads too.
  */
 import {
 	APPS,
 	localUrl,
-	PRODUCTION_API_URL,
 	prodOrigins,
+	resolveOAuthAudiences,
 } from '@epicenter/constants/apps';
-import type { FirstPartyClient, OAuthAudiences } from '@epicenter/server';
-
-export function resolveOAuthAudiences(origin: string): OAuthAudiences {
-	const base = new URL(origin).origin;
-	if (base === PRODUCTION_API_URL)
-		return {
-			api: PRODUCTION_API_URL,
-			git: 'https://git.epicenter.so',
-			mcp: 'https://mcp.epicenter.so/mcp',
-		};
-	return { api: base, git: `${base}/git`, mcp: `${base}/mcp` };
-}
+import type { FirstPartyClient } from '@epicenter/server';
 
 function isLoopback(origin: string) {
 	return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
@@ -107,7 +96,10 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 				'urn:ietf:params:oauth:grant-type:device_code',
 				'refresh_token',
 			],
+			// `openid` lets `epicenter auth status` read who approved the grant
+			// from userinfo; the client still gets no ID token, being public.
 			scopes: [
+				'openid',
 				'offline_access',
 				'profile',
 				'ai',

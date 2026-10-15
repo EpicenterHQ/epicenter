@@ -17,7 +17,7 @@ INSERT INTO "oauth_client" ("id", "client_id", "name", "redirect_uris", "grant_t
 	('so.epicenter.vocab', 'so.epicenter.vocab', 'Vocab', ARRAY['https://vocab.epicenter.so/auth/callback'], ARRAY['authorization_code'], ARRAY['code'], ARRAY['openid', 'profile', 'ai', 'folders:read', 'folders:write'], true, 'web', 'none', true, false, now(), now()),
 	('com.bradenwong.zhongwen', 'com.bradenwong.zhongwen', 'Zhongwen', ARRAY['https://zhongwen.bradenwong.com/auth/callback'], ARRAY['authorization_code'], ARRAY['code'], ARRAY['openid', 'profile', 'ai', 'folders:read', 'folders:write'], true, 'web', 'none', true, false, now(), now()),
 	('so.epicenter', 'so.epicenter', 'Epicenter', ARRAY['http://127.0.0.1/callback'], ARRAY['authorization_code', 'refresh_token'], ARRAY['code'], ARRAY['openid', 'offline_access', 'profile', 'ai', 'folders:read', 'folders:write'], true, 'native', 'none', true, false, now(), now()),
-	('so.epicenter.cli', 'so.epicenter.cli', 'Epicenter CLI', '{}'::text[], ARRAY['urn:ietf:params:oauth:grant-type:device_code', 'refresh_token'], '{}'::text[], ARRAY['offline_access', 'profile', 'ai', 'folders:read', 'folders:write'], false, 'native', 'none', true, false, now(), now())
+	('so.epicenter.cli', 'so.epicenter.cli', 'Epicenter CLI', '{}'::text[], ARRAY['urn:ietf:params:oauth:grant-type:device_code', 'refresh_token'], '{}'::text[], ARRAY['openid', 'offline_access', 'profile', 'ai', 'folders:read', 'folders:write'], false, 'native', 'none', true, false, now(), now())
 ON CONFLICT ("client_id") DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "oauth_client_resource" ("id", "client_id", "resource_id", "created_at") VALUES

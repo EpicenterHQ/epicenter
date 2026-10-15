@@ -209,16 +209,20 @@ local S3-compatible store.
 
 `@epicenter/server` composes Better Auth's OAuth provider (ADR-0549) on the
 `/auth/*` routes only; see `packages/server/README.md` for the policy. This app
-names what is deployment-specific, in `worker/oauth-registrations.ts`:
+names what is deployment-specific:
 
-- **Audiences.** Hosted, they are `https://api.epicenter.so`,
-  `https://git.epicenter.so`, and `https://mcp.epicenter.so/mcp`. Any other
-  origin (local dev, self-host) serves all three from itself: `<origin>`,
-  `<origin>/git`, and `<origin>/mcp` (ADR-0326).
-- **First-party clients.** Each browser build is its app id, a public PKCE
+- **Audiences**, from `resolveOAuthAudiences` in `@epicenter/constants/apps`,
+  which the `epicenter` CLI reads too. Hosted, they are
+  `https://api.epicenter.so`, `https://git.epicenter.so`, and
+  `https://mcp.epicenter.so/mcp`. Any other origin (local dev, self-host)
+  serves all three from itself: `<origin>`, `<origin>/git`, and
+  `<origin>/mcp` (ADR-0326).
+- **First-party clients**, in `worker/oauth-registrations.ts`. Each browser build is its app id, a public PKCE
   client with its exact `/auth/callback`, consent skipped, target `*`. The
   desktop app is `so.epicenter`, with a loopback redirect on any port and
-  `offline_access`. The CLI is `so.epicenter.cli`, with the device grant only.
+  `offline_access`. The CLI is `so.epicenter.cli`, with the device grant only
+  and `openid`, so `epicenter auth login` can read who approved it from
+  userinfo.
 
 Migration `0004_hosted_oauth_registrations` seeds the hosted rows, and
 `oauth-server.postgres.test.ts` fails if it drifts from
@@ -228,10 +232,12 @@ origin, so it writes its registrations at boot with
 run the Bun entry, or call `registerFirstPartyClients` for the local origin,
 to sign a client in locally.
 
-The refresh family is keyed on grant lineage by a vendored patch of
-`@better-auth/oauth-provider`, applied by Bun from the root `package.json`
-`patchedDependencies`
-(`patches/@better-auth%2Foauth-provider@1.7.9.patch`). It is meant for
+A vendored patch of `@better-auth/oauth-provider`, applied by Bun from the
+root `package.json` `patchedDependencies`
+(`patches/@better-auth%2Foauth-provider@1.7.9.patch`), keys the refresh
+family on grant lineage, ends the whole lineage when a refresh token is
+revoked, and keeps a refresh token's scopes whole when a refresh names one
+audience, so one grant serves both the API and Git. It is meant for
 upstream; re-verify it on every Better Auth upgrade.
 
 `oauth-server.postgres.test.ts` runs the spike's checks (refresh lineage, grant
