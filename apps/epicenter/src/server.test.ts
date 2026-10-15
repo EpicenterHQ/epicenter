@@ -7,7 +7,7 @@
  *
  * Key behaviors:
  * - The launch token is accepted only by the bootstrap route
- * - Served documents and broker routes require an HttpOnly browser session
+ * - Served documents require an HttpOnly browser session
  * - Settings and each compiled application serve their builds
  * - Unknown, non-canonical, and traversal-shaped app paths stay closed
  * - Host, Origin, CSP, frame, and referrer policies are enforced
@@ -28,12 +28,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { epicenterCloud } from '@epicenter/auth';
-import { expectOk } from 'wellcrafted/testing';
 import { COMPILED_APPLICATIONS } from './applications.ts';
-import { createDesktopAuthAuthority } from './desktop-auth-authority.js';
 import {
-	ACCOUNT_SIGN_OUT_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
 	FOLDERS_ROUTE,
@@ -50,154 +46,6 @@ import {
 	loadStaticAssets,
 } from './static-assets.ts';
 import { writeAppsDist } from './test-apps-dist.ts';
-import { createTestDesktopAuth } from './test-home-host.ts';
-
-test('development browser callback completes the pending sign-in without a Home cookie', async () => {
-	const origin = 'http://127.0.0.1:49152';
-	const callbackUrl = `${origin}/_epicenter/sign-in/callback`;
-	const opened = Promise.withResolvers<string>();
-	let relaunches = 0;
-	using desktopAuth = createDesktopAuthAuthority({
-		accountManagement: true,
-		server: epicenterCloud('https://api.epicenter.so'),
-		authCell: null,
-		callbackUrl,
-		nativeAuthPort: {
-			async storeAuth() {},
-			async openAuthUrl(url) {
-				opened.resolve(url);
-			},
-			relaunch() {
-				relaunches++;
-			},
-			onAuthCallback() {
-				return () => false;
-			},
-			completed: new Promise(() => {}),
-		},
-		async fetch(input) {
-			return new URL(String(input)).pathname === '/api/session'
-				? Response.json({ principalId: 'alice' })
-				: Response.json({ token: 'alice' });
-		},
-	});
-	const options = {
-		origin,
-		launchToken: 'launch',
-		staticAssets: await createAppsDistFixture(PAGE),
-
-		desktopAuth,
-	};
-	const { app } = createHomeServer(options);
-	const pending = desktopAuth.startSignIn();
-	const launch = new URL(await opened.promise);
-	const request = (url: string) =>
-		app.request(url, { headers: { host: new URL(origin).host } });
-	expect((await request(`${callbackUrl}?code=code&state=wrong`)).status).toBe(
-		400,
-	);
-	const params = new URLSearchParams({
-		code: 'code',
-		state: launch.searchParams.get('state')!,
-	});
-	const response = await request(`${callbackUrl}?${params}`);
-	expect(response.status).toBe(200);
-	expect(response.headers.get('set-cookie')).toBeNull();
-	expect(response.headers.get('cache-control')).toBe('no-store');
-	expectOk(await pending);
-	expect(relaunches).toBe(1);
-	expect((await request(`${callbackUrl}?${params}`)).status).toBe(400);
-	using productionAuth = createTestDesktopAuth();
-	const production = createHomeServer({
-		...options,
-		desktopAuth: productionAuth,
-	});
-	expect(
-		(
-			await production.app.request(callbackUrl, {
-				headers: { host: new URL(origin).host },
-			})
-		).status,
-	).toBe(404);
-});
-
-test.each([
-	'restart',
-	'storage',
-	'boot-verification',
-] as const)('failed %s serves restart-required documents without stale boot identity', async (failure) => {
-	using desktopAuth = createDesktopAuthAuthority({
-		server: epicenterCloud('https://api.epicenter.so'),
-		accountManagement: true,
-		authCell: JSON.stringify({
-			origin: 'https://api.epicenter.so',
-			auth: { token: 'alice-token', principalId: 'alice' },
-		}),
-		nativeAuthPort: {
-			completed: new Promise(() => {}),
-			async storeAuth() {
-				if (failure === 'storage')
-					throw new Error('keychain write acknowledgement failed');
-			},
-			async openAuthUrl() {},
-			onAuthCallback() {
-				return () => false;
-			},
-			relaunch() {
-				throw new Error('native restart failed');
-			},
-		},
-		fetch: async () =>
-			failure === 'boot-verification'
-				? Response.json({ principalId: 'other' })
-				: new Response(null),
-	});
-	const origin = 'http://127.0.0.1:49152';
-	const { app } = createHomeServer({
-		origin,
-		launchToken: 'launch',
-		staticAssets: await createAppsDistFixture(PAGE),
-		desktopAuth,
-	});
-	const bootstrap = await app.request(origin + '/_epicenter/bootstrap', {
-		method: 'POST',
-		headers: {
-			host: new URL(origin).host,
-			origin,
-			authorization: 'Bearer launch',
-		},
-	});
-	const cookie = bootstrap.headers.get('set-cookie')!.split(';')[0]!;
-	if (failure === 'boot-verification') {
-		await expect(
-			desktopAuth.account!.fetch('/api/example'),
-		).rejects.toBeDefined();
-		expect(desktopAuth.restartRequired).toBe(true);
-	} else {
-		const signout = await app.request(ACCOUNT_SIGN_OUT_ROUTE.url(origin), {
-			method: 'POST',
-			headers: { host: new URL(origin).host, origin, cookie },
-		});
-		expect(signout.status).toBe(500);
-		expect(signout.headers.get('x-epicenter-auth-state')).toBe('signed-out');
-	}
-
-	for (const route of [HOME_ROUTE.url(origin), FOLDERS_ROUTE.url(origin)]) {
-		for (const credential of [cookie, '']) {
-			const response = await app.request(route, {
-				headers: { host: new URL(origin).host, cookie: credential },
-			});
-			const html = await response.text();
-			expect(html).toContain('Restart Epicenter to continue');
-			expect(html).not.toContain('epicenter-auth-bootstrap');
-			expect(html).not.toContain('<script');
-			expect(response.headers.get('cache-control')).toBe('no-store');
-		}
-	}
-	await expect(
-		desktopAuth.account!.fetch('/api/example'),
-	).rejects.toBeDefined();
-});
 
 const TOKEN = 'per-launch-secret';
 
@@ -215,14 +63,6 @@ function cspDirectives(header: string | null): Map<string, string[]> {
 		if (name !== undefined && name !== '') directives.set(name, tokens);
 	}
 	return directives;
-}
-
-/** Strip what the host stamps onto an app window, recovering the built page. */
-function withoutAuthBootstrap(page: string): string {
-	return page.replace(
-		/<script id="epicenter-auth-bootstrap" type="application\/json">[\s\S]*?<\/script>/,
-		'',
-	);
 }
 
 const queryDir = fileURLToPath(new URL('..', import.meta.url));
@@ -254,7 +94,6 @@ async function serveHost(page: string = PAGE) {
 		origin,
 		launchToken: TOKEN,
 		staticAssets: await createAppsDistFixture(page),
-		desktopAuth: createTestDesktopAuth(),
 	});
 	const server = Bun.serve({
 		hostname: '127.0.0.1',
@@ -409,13 +248,11 @@ describe('loadStaticAssets', () => {
 describe('createHomeServer', () => {
 	test('refuses an empty launch token and non-loopback origins', async () => {
 		const staticAssets = await createAppsDistFixture();
-		const desktopAuth = createTestDesktopAuth();
 		expect(() =>
 			createHomeServer({
 				origin: 'http://127.0.0.1:39130',
 				launchToken: '',
 				staticAssets,
-				desktopAuth,
 			}),
 		).toThrow(/launch token/);
 		for (const origin of [
@@ -429,7 +266,6 @@ describe('createHomeServer', () => {
 					origin,
 					launchToken: TOKEN,
 					staticAssets,
-					desktopAuth,
 				}),
 			).toThrow(/exact http:\/\/127\.0\.0\.1/);
 		}
@@ -464,9 +300,9 @@ describe('createHomeServer', () => {
 			});
 			expect(wrongOrigin.status).toBe(403);
 			const queryToken = await fetch(
-				`${origin}/_epicenter/account/http?path=/api/session&token=${TOKEN}`,
+				`${HOME_ROUTE.url(origin)}?token=${TOKEN}`,
 			);
-			expect(queryToken.status).toBe(401);
+			expect(await queryToken.text()).toContain('__EPICENTER_SESSION_READY__');
 		} finally {
 			await server.stop(true);
 		}
@@ -482,7 +318,7 @@ describe('createHomeServer', () => {
 			const page = await fetch(HOME_ROUTE.url(server.url.origin), {
 				headers: authenticatedHeaders(server),
 			});
-			expect(withoutAuthBootstrap(await page.text())).toBe(PAGE);
+			expect(await page.text()).toBe(PAGE);
 
 			// Home Chat's session routes, and the routes before them, are gone.
 			for (const retired of [
@@ -524,7 +360,6 @@ describe('createHomeServer', () => {
 			launchToken: TOKEN,
 			staticAssets: await createAppsDistFixture(),
 			installedApplications: createInstalledApplications(buildsDir),
-			desktopAuth: createTestDesktopAuth(),
 		});
 		const headers = { host: '127.0.0.1:43128' };
 		const get = (path: string, cookie?: string) =>
@@ -546,7 +381,7 @@ describe('createHomeServer', () => {
 		const page = await get(`/apps/${id}/?folder=data%3Avault`, cookie);
 		const text = await page.text();
 		expect(text).toContain('<title>one</title>');
-		expect(text).toContain('epicenter-auth-bootstrap');
+		expect(text).not.toContain('epicenter-auth-bootstrap');
 		// The document's own inline script is admitted by its policy.
 		const hash = createHash('sha256').update('boot()').digest('base64');
 		expect(page.headers.get('content-security-policy')).toContain(
@@ -593,16 +428,13 @@ describe('createHomeServer', () => {
 			const query = await fetch(HOME_ROUTE.url(server.url.origin), {
 				headers: authenticatedHeaders(server),
 			});
-			const queryPage = await query.text();
-			expect(queryPage).toContain('id="epicenter-auth-bootstrap"');
-			expect(withoutAuthBootstrap(queryPage)).toBe(PAGE);
+			// The host stamps nothing: the page is the build, byte for byte.
+			expect(await query.text()).toBe(PAGE);
 
 			const folders = await fetch(FOLDERS_ROUTE.url(server.url.origin), {
 				headers: authenticatedHeaders(server),
 			});
-			const foldersPage = await folders.text();
-			expect(foldersPage).toContain('id="epicenter-auth-bootstrap"');
-			expect(withoutAuthBootstrap(foldersPage)).toBe(FOLDERS_PAGE);
+			expect(await folders.text()).toBe(FOLDERS_PAGE);
 			const foldersAsset = await fetch(
 				`${server.url.origin}/apps/folders/_app/immutable/entry.js?v=1`,
 				{ headers: authenticatedHeaders(server) },
@@ -620,7 +452,7 @@ describe('createHomeServer', () => {
 				`${server.url.origin}/apps/folders/settings/transcription?tab=models`,
 				{ headers: authenticatedHeaders(server) },
 			);
-			expect(withoutAuthBootstrap(await clientRoute.text())).toBe(FOLDERS_PAGE);
+			expect(await clientRoute.text()).toBe(FOLDERS_PAGE);
 			// Apps that used to be compiled in are installed now (ADR-0552): their
 			// old routes serve nothing.
 			for (const id of [
@@ -677,7 +509,7 @@ describe('createHomeServer', () => {
 				{ headers: authenticatedHeaders(server) },
 			);
 			expect(queryState.status).toBe(200);
-			expect(withoutAuthBootstrap(await queryState.text())).toBe(PAGE);
+			expect(await queryState.text()).toBe(PAGE);
 
 			// URL fragments are browser state and are not sent in an HTTP request.
 			// The server therefore sees this as the one canonical Folders path.
@@ -686,9 +518,7 @@ describe('createHomeServer', () => {
 				{ headers: authenticatedHeaders(server) },
 			);
 			expect(browserFragment.status).toBe(200);
-			expect(withoutAuthBootstrap(await browserFragment.text())).toBe(
-				applicationPage('Folders'),
-			);
+			expect(await browserFragment.text()).toBe(applicationPage('Folders'));
 		} finally {
 			await server.stop(true);
 		}
@@ -790,49 +620,6 @@ describe('createHomeServer', () => {
 			await server.stop(true);
 		}
 	});
-
-	test('the account broker requires the browser session and grants no bearer', async () => {
-		const server = await serveHost();
-		const { cookie, origin } = authenticationFor(server);
-		try {
-			const unauthorized = await fetch(ACCOUNT_SIGN_OUT_ROUTE.url(origin), {
-				method: 'POST',
-				headers: { origin },
-			});
-			expect(unauthorized.status).toBe(401);
-
-			const missingOrigin = await fetch(ACCOUNT_SIGN_OUT_ROUTE.url(origin), {
-				method: 'POST',
-				headers: { cookie },
-			});
-			expect(missingOrigin.status).toBe(403);
-
-			const profileWithoutSession = await fetch(
-				`${origin}/_epicenter/account/http?path=%2Fapi%2Fsession`,
-			);
-			expect(profileWithoutSession.status).toBe(401);
-			const obsoleteProfile = await fetch(
-				`${origin}/_epicenter/account/profile`,
-				{ headers: { cookie, origin } },
-			);
-			expect(obsoleteProfile.status).toBe(404);
-
-			const selected = await fetch(`${origin}/_epicenter/account/connect`, {
-				method: 'POST',
-				headers: { cookie, origin, 'content-type': 'application/json' },
-				body: JSON.stringify({ server: 'https://self.example' }),
-			});
-			expect(selected.status).toBe(404);
-
-			const signedOut = await fetch(ACCOUNT_SIGN_OUT_ROUTE.url(origin), {
-				method: 'POST',
-				headers: { cookie, origin },
-			});
-			expect(signedOut.status).toBe(202);
-		} finally {
-			await server.stop(true);
-		}
-	});
 });
 
 // ============================================================================
@@ -892,7 +679,7 @@ describe('the built SPA', () => {
 				headers: authenticatedHeaders(server),
 			});
 			expect(response.status).toBe(200);
-			expect(withoutAuthBootstrap(await response.text())).toBe(page);
+			expect(await response.text()).toBe(page);
 			const scriptSrc =
 				cspDirectives(response.headers.get('content-security-policy')).get(
 					'script-src',
@@ -1017,7 +804,7 @@ describe('sidecar end-to-end smoke', () => {
 		try {
 			// The credential and Rust-resolved port travel in the boot frame.
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir, folderDir, cacheDir: testDataDir() })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port, dataDir, folderDir, cacheDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			const ready = await readReadyFrame(sidecar, 30_000);
@@ -1044,12 +831,12 @@ describe('sidecar end-to-end smoke', () => {
 				headers,
 			});
 			expect(folders.status).toBe(200);
-			expect(withoutAuthBootstrap(await folders.text())).toBe(FOLDERS_PAGE);
+			expect(await folders.text()).toBe(FOLDERS_PAGE);
 
 			const served = await fetch(HOME_ROUTE.url(origin), {
 				headers: { cookie: cookie ?? '' },
 			});
-			expect(withoutAuthBootstrap(await served.text())).toBe(page);
+			expect(await served.text()).toBe(page);
 		} finally {
 			sidecar.kill('SIGTERM');
 			expect(await sidecar.exited).toBe(0);
@@ -1085,7 +872,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port: occupiedPort, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir(), cacheDir: testDataDir() })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port: occupiedPort, dataDir: testDataDir(), folderDir: testDataDir(), cacheDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			expect(await exitWithin(sidecar, 30_000)).not.toBe(0);
@@ -1129,7 +916,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir(), cacheDir: testDataDir() })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port, dataDir: testDataDir(), folderDir: testDataDir(), cacheDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			const ready = await readReadyFrame(sidecar, 30_000);

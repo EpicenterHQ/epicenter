@@ -25,6 +25,7 @@ pub const COMMANDS: &[&str] = &[
     "list_data_folders",
     "folder_check",
     "ai_send",
+    "account_send",
     "ai_key_set",
     "ai_key_remove",
     "ai_key_state",

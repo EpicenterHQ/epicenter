@@ -7,7 +7,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	/**
 	 *  Delivers text to the cursor, falling back to the clipboard when it cannot.
-	 *
+	 * 
 	 *  With `keep_on_clipboard`, the transcript is the intended final clipboard
 	 *  state. Otherwise this command borrows the clipboard, pastes, then restores
 	 *  the exact previous macOS pasteboard or the previous text on other platforms.
@@ -27,7 +27,7 @@ export const commands = {
 	 *  frontend fires this fire-and-forget at capture start (manual record or VAD
 	 *  listen) for a local route, overlapping the ~1 s model load with the user's
 	 *  speech instead of paying it after they stop.
-	 *
+	 * 
 	 *  Idempotent and cheap: a no-op when the active model is already resident.
 	 *  Shares the one load path with active-model transcription (`ModelCache::prewarm`
 	 *  and `transcribe` both resolve through `ensure_loaded`), so the model warmed
@@ -38,7 +38,7 @@ export const commands = {
 	prewarmModel: () => typedError<null, TranscriptionError>(__TAURI_INVOKE("prewarm_model")),
 	/**
 	 *  Open macOS Accessibility settings.
-	 *
+	 * 
 	 *  This is intentionally a fixed command instead of a general command
 	 *  runner. The app only needs this one OS handoff, so the frontend should
 	 *  not receive shell or process execution privileges.
@@ -46,7 +46,7 @@ export const commands = {
 	openAccessibilitySettings: () => typedError<null, string>(__TAURI_INVOKE("open_accessibility_settings")),
 	/**
 	 *  Show the macOS Accessibility permission prompt.
-	 *
+	 * 
 	 *  macOS never lets an app grant itself Accessibility, so this only surfaces the
 	 *  system prompt (which also adds the app to the Accessibility list, toggled
 	 *  off); the live grant is observed by the Rust tap supervisor, not returned
@@ -57,7 +57,7 @@ export const commands = {
 	requestAccessibilityPermission: () => __TAURI_INVOKE<void>("request_accessibility_permission"),
 	/**
 	 *  Read the microphone authorization the OS records up front.
-	 *
+	 * 
 	 *  One owner for every platform. macOS reads AVFoundation's
 	 *  `authorizationStatusForMediaType:` directly, so all four Apple states arrive
 	 *  intact and a not-yet-asked user is reported as `NotDetermined` instead of
@@ -69,14 +69,14 @@ export const commands = {
 	/**
 	 *  Elicit a microphone grant the way each platform allows, and answer with the
 	 *  authorization that holds once there is nothing left to elicit.
-	 *
+	 * 
 	 *  Returning the status is what lets the caller ask once. macOS is the only
 	 *  platform that can move the answer inside this call: when the status is
 	 *  `NotDetermined` it raises the system prompt and awaits the real completion
 	 *  handler, so the returned value is the user's decision, not a guess. Every
 	 *  other status is already final, so prompting is a documented no-op and the
 	 *  call short-circuits.
-	 *
+	 * 
 	 *  Windows has no programmatic grant for an unpackaged desktop app, so a
 	 *  `Denied` consent store deep-links the privacy page and reports `Denied`: the
 	 *  toggle happens in Settings, outside this call. Other platforms (Linux) have
@@ -86,7 +86,7 @@ export const commands = {
 	/**
 	 *  The active local model's identity and whether it can run right now, or
 	 *  `None` when nobody has chosen one.
-	 *
+	 * 
 	 *  **Administration only.** Home holds this grant because Home chooses the
 	 *  active model and must show which one that is. Applications are not granted
 	 *  this command. Their active-model route reads `get_local_transcription_readiness`;
@@ -121,7 +121,7 @@ export const commands = {
 	setActiveModel: (modelId: string | null) => typedError<null, SettingsError>(__TAURI_INVOKE("set_active_model", { modelId })),
 	/**
 	 *  Whether the local transcription route can run right now, and what it accepts.
-	 *
+	 * 
 	 *  Readiness for the active-model route lets an app warn the user before they
 	 *  speak, which matters because the surface that reports a
 	 *  failure afterwards (a dictation pill) has nowhere to put a recovery action.
@@ -132,25 +132,27 @@ export const commands = {
 	/**
 	 *  Take the user to the app that can fix an unavailable local transcription
 	 *  route.
-	 *
+	 * 
 	 *  The app shell owns this navigation. The host reports that the route is
 	 *  unavailable, an application decides how to present it, and getting the user
 	 *  to Home is neither of their jobs: an application asks the shell to show a
 	 *  section of Home, and the shell decides how.
-	 *
+	 * 
 	 *  The intent is recorded *before* any window work, which is what makes this
 	 *  safe against the state Home happens to be in. Home may be absent, still
 	 *  booting, hidden, or already open; in every case the intent is waiting when
 	 *  Home next asks for it, and the event below is only an optimization for the
 	 *  already-running case. Emitting the section directly would lose it whenever
 	 *  no listener existed yet, which is exactly the recovery path that matters.
-	 *
+	 * 
 	 *  It mutates no transcription state: it opens a window, and the user chooses.
-	 *
+	 * 
 	 *  Without a section it only opens Settings: the Folders window's Settings
 	 *  button (ADR-0537, ADR-0552).
 	 */
-	openHome: (section: HomeSection | null) => __TAURI_INVOKE<void>("open_home", { section }),
+	openHome: (section: 
+/**  Local transcription model administration. */
+"transcription" | null) => __TAURI_INVOKE<void>("open_home", { section }),
 	/**
 	 *  Claim the pending section intent, if any. Home calls this on mount and
 	 *  whenever it is nudged; taking is destructive, so one intent opens one
@@ -162,7 +164,7 @@ export const commands = {
 	/**
 	 *  List the data folders under the Epicenter folder root, and let the Folders
 	 *  window open each one.
-	 *
+	 * 
 	 *  Granted to the `folders` window alone. Every scope it returns is one that
 	 *  window is registered or permitted for, so `openDataFolder({ id })` there
 	 *  can be granted it. Off the main thread, since it reads the disk.
@@ -180,10 +182,17 @@ export const commands = {
 	 *  (the response's head, its body in base64 chunks, and `end`, or an
 	 *  `error`) goes to `on_event`; the page reads them back into a `Response`.
 	 *  One more line, `{"type":"exit","code","stderr"}`, follows the CLI's own
-	 *  on the same channel, so a page that sees it knows no other line is
-	 *  coming, whenever the command's own result arrives.
+	 *  on the same channel (`end_channel`).
 	 */
 	aiSend: (connection: AiTarget, request: AiRequest, onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("ai_send", { connection, request, onEvent })),
+	/**
+	 *  Send one request to the deployment's `audience` resource with the app's
+	 *  grant, through `epicenter send` (ADR-0549, ADR-0556). The lines are
+	 *  `ai_send`'s: the response's head, its body in base64 chunks, and `end`,
+	 *  or an `error` such as `NoAccountToken` when the app is not signed in,
+	 *  then the shell's own `{"type":"exit","code","stderr"}`.
+	 */
+	accountSend: (audience: AccountAudience, request: AiRequest, onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("account_send", { audience, request, onEvent })),
 	/**
 	 *  Save `endpoint` and `key` for `connection` in this computer's keychain,
 	 *  through `epicenter auth key set`, which reads both on stdin. An empty key
@@ -194,6 +203,20 @@ export const commands = {
 	aiKeyRemove: (connection: string) => typedError<boolean, CliError>(__TAURI_INVOKE("ai_key_remove", { connection })),
 	/**  Whether a key is saved for `connection`, and for which endpoint. Never the key. */
 	aiKeyState: (connection: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_state", { connection })),
+	/**
+	 *  Sign the app in: the CLI's loopback sign-in as `so.epicenter`. The shell
+	 *  opens the authorization page in the person's browser; each line the CLI
+	 *  prints (`{"open"}`, then `{"signedIn"}` or `{"error"}`) goes to
+	 *  `on_event`.
+	 */
+	authLogin: (onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("auth_login", { onEvent })),
+	/**  Who each of the CLI's grants on this computer belongs to. */
+	authStatus: () => typedError<AuthStatus, CliError>(__TAURI_INVOKE("auth_status")),
+	/**
+	 *  Sign the app out: the CLI revokes its grant and deletes it from the
+	 *  keychain. A terminal's `epicenter auth login` is left signed in.
+	 */
+	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
 	/**  The folder's changed files, its head, and its remote, ahead and behind. */
 	status: (scope: string) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("status", { scope })),
 	/**  The folder's last `depth` versions. */
@@ -227,20 +250,6 @@ export const commands = {
 	 *  package manager installs it, which this cannot start.
 	 */
 	installGit: () => typedError<null, string>(__TAURI_INVOKE("install_git")),
-	/**
-	 *  Sign the app in: the CLI's loopback sign-in as `so.epicenter`. The shell
-	 *  opens the authorization page in the person's browser; each line the CLI
-	 *  prints (`{"open"}`, then `{"signedIn"}` or `{"error"}`) goes to
-	 *  `on_event`.
-	 */
-	authLogin: (onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("auth_login", { onEvent })),
-	/**  Who each of the CLI's grants on this computer belongs to. */
-	authStatus: () => typedError<AuthStatus, CliError>(__TAURI_INVOKE("auth_status")),
-	/**
-	 *  Sign the app out: the CLI revokes its grant and deletes it from the
-	 *  keychain. A terminal's `epicenter auth login` is left signed in.
-	 */
-	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
 	/**
 	 *  `epicenter app list --json`: every app installed under `Apps/`, with
 	 *  whether it can run.
@@ -303,7 +312,7 @@ export const commands = {
 	/**
 	 *  Remove a downloaded model's file from the shared HF cache, reclaiming its
 	 *  space, and stand down the active choice if this was it.
-	 *
+	 * 
 	 *  One host operation, not two invokes, because the host owns both halves: the
 	 *  file and the active-model setting live on the same side of the boundary, and
 	 *  splitting them would let a caller succeed at deleting and then fail (or
@@ -311,7 +320,7 @@ export const commands = {
 	 *  learned. Clearing is deliberate rather than promoting another installed
 	 *  model: there is no substitution, so the next transcription fails with an
 	 *  actionable error until the user chooses again.
-	 *
+	 * 
 	 *  Best-effort on the file: removes the snapshot pointer and its backing blob. A
 	 *  no-op when the model is not downloaded. Other quantizations in the same repo
 	 *  are untouched (each is its own blob + pointer).
@@ -370,9 +379,16 @@ export const events = {
 
 /* Types */
 /**
+ *  The deployment's resources an account request may carry a token for, by
+ *  role: `api` for the profile read, `git` for Git and the folder connect
+ *  call. A closed set, so a page cannot name an audience of its own.
+ */
+export type AccountAudience = "api" | "git";
+
+/**
  *  The one active local model as **Home** sees it: its exact identity and
  *  whether its file is on this machine right now.
- *
+ * 
  *  Administration data, not application data (ADR-0180). Home chooses the active
  *  model, so Home is told which one it is; an ordinary application never learns
  *  model identity and reads `get_local_transcription_readiness` instead. Nothing
@@ -405,10 +421,14 @@ export type ActiveModel = {
 /**  What this computer's keychain holds for a connection. Never the key. */
 export type AiKeyState = { state: "missing" } | { state: "saved"; endpoint: string; hasKey: boolean };
 
-/**  An OpenAI-compatible request, relative to its connection's endpoint. */
+/**
+ *  One request `epicenter send` carries, relative to its target: below an AI
+ *  connection's endpoint, or below the deployment's origin for an account
+ *  request.
+ */
 export type AiRequest = {
 	method: string,
-	/**  Below the endpoint, such as `audio/transcriptions`. */
+	/**  Below the target, such as `audio/transcriptions` or `api/git/connect`. */
 	path: string,
 	headers: ([string, string])[],
 	/**  The body in base64, decoded here and written to the CLI as raw bytes. */
@@ -425,7 +445,7 @@ export type AiTarget = { kind: "openai-compatible"; connection: string; endpoint
 
 /**
  *  Which advisory hints the run actually applied.
- *
+ * 
  *  Built from the exact values handed to the runtime, never from what the caller
  *  asked for. A hint the active model cannot take is reported as not applied
  *  rather than dropped in silence, so a caller can tell its user that the prompt
@@ -486,14 +506,14 @@ export type AuthStatus = {
 export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "DeleteFailed"; message: string };
 
 /**  Why a command did not run the CLI, or the CLI did not finish. */
-export type CliError =
+export type CliError = 
 /**  This window holds no grant for the folder. */
-{ name: "NotGranted"; grant: GrantError } |
+{ name: "NotGranted"; grant: GrantError } | 
 /**
  *  The CLI refused the input with exit code 2 and said why on stdout:
  *  an id, an endpoint, or a keychain it cannot use.
  */
-{ name: "Refused"; message: string } |
+{ name: "Refused"; message: string } | 
 /**
  *  The binary could not be started or read, stopped without an exit
  *  code, or the page stopped listening.
@@ -529,33 +549,33 @@ export type DataFolder = {
  *  grant. macOS is the only platform that gates it, and the only process that
  *  can authoritatively know is the one holding the tap (this one), so Rust owns
  *  this value and the frontend is a pure view over it (ADR-0117).
- *
+ * 
  *  It folds two facts the frontend used to infer separately: the macOS trust
  *  probe (`AXIsProcessTrusted`) and the tap's liveness. Crucially `Broken` is
  *  distinguishable from `Active` only here, because `AXIsProcessTrusted` reports
  *  a stale post-update grant as trusted: the tap dying under a held grant is the
  *  only signal that tells them apart.
  */
-export type DictationCapability =
+export type DictationCapability = 
 /**
  *  The supervisor has not determined the value yet. Rust resolves this
  *  synchronously at startup, so it exists only as the frontend's pre-seed
  *  initial value before the first probe lands.
  */
-"unknown" |
+"unknown" | 
 /**
  *  Auto-paste-at-cursor is off, so nothing needs the grant: the tap is
  *  deliberately not running and no Accessibility is touched. Global shortcuts
  *  are plugin chords and work regardless.
  */
-"inactive" |
+"inactive" | 
 /**
  *  macOS Accessibility is not granted, so paste at cursor falls back to the
  *  clipboard. Turning Epicenter on in System Settings unlocks the paste.
  */
-"untrusted" |
+"untrusted" | 
 /**  The tap is running and the app is trusted: paste at cursor can land. */
-"active" |
+"active" | 
 /**
  *  macOS reports the app trusted, but the tap keeps dying under the held
  *  grant: a stale post-update signature. Removing and re-adding Epicenter
@@ -616,20 +636,20 @@ export type GlobalShortcutTriggered = {
  *  Why a window was not given a folder, or a change for it was not
  *  admitted.
  */
-export type GrantError =
+export type GrantError = 
 /**  The shell registered no folder under this scope. */
-{ name: "UnknownScope"; scope: string } |
+{ name: "UnknownScope"; scope: string } | 
 /**  The scope exists, but is not registered for this window. */
-{ name: "WindowNotPermitted"; scope: string; window: string } |
+{ name: "WindowNotPermitted"; scope: string; window: string } | 
 /**  Another process holds the folder. */
-{ name: "Busy"; root: string } |
+{ name: "Busy"; root: string } | 
 /**
  *  A data folder's directory is not there. The shell creates only an
  *  application's own folder.
  */
-{ name: "Missing"; root: string } |
+{ name: "Missing"; root: string } | 
 /**  The folder could not be prepared, locked, or reached. */
-{ name: "Unavailable"; message: string } |
+{ name: "Unavailable"; message: string } | 
 /**  The shell is shutting its folders down. */
 { name: "ShuttingDown" };
 
@@ -648,12 +668,12 @@ export type HistoryOutput = {
 
 /**
  *  A section of Epicenter Home an application can ask the shell to open.
- *
+ * 
  *  A closed set, not a string-addressed destination: Home is a privileged
  *  built-in app, so what an application may name inside it is enumerated
  *  here rather than parsed.
  */
-export type HomeSection =
+export type HomeSection = 
 /**  Local transcription model administration. */
 "transcription";
 
@@ -673,30 +693,30 @@ export type InferenceModel = {
 
 /**
  *  Whether the active-model transcription route is ready and which hints it accepts.
- *
+ * 
  *  This route preserves ADR-0180's identity-free readiness response. It is advisory
  *  UI state, not a preflight gate: a caller uses it to warn before capture and to
  *  decide whether to offer a prompt or language field, never to decide whether
  *  a transcription may be requested. Transcription resolves the active model
  *  independently at the point of use, so a stale read here can only produce a
  *  stale hint, never a wrong transcription.
- *
+ * 
  *  That distinction is load-bearing because the shared Hugging Face cache can
  *  change outside Epicenter: a model deleted by another tool between this read
  *  and the next transcribe turns a `ready` answer stale, and the transcribe path
  *  still fails closed on its own.
  */
-export type LocalTranscriptionReadiness = { status: "ready";
+export type LocalTranscriptionReadiness = { status: "ready"; 
 /**  Whether the active model accepts an initial prompt. */
-supportsPrompt: boolean;
+supportsPrompt: boolean; 
 /**  Whether it takes a spoken-language hint. */
-supportsLanguage: boolean } | { status: "unavailable"; reason: UnavailableReason;
+supportsLanguage: boolean } | { status: "unavailable"; reason: UnavailableReason; 
 /**  A user-facing sentence that names no model. */
 message: string };
 
 /**
  *  The OS-level microphone authorization, read from the platform privacy store.
- *
+ * 
  *  Only `Granted` and `Unknown` are usable. `Unknown` (no entry in the store, or
  *  a platform with no such gate) means "can't tell from here": the caller treats
  *  it as available and lets the recorder's stream-open fallback
@@ -704,7 +724,7 @@ message: string };
  *  classify any real denial from the error itself. So this signal can only
  *  *add* a pre-record denial; it never newly blocks a setup that was already
  *  working.
- *
+ * 
  *  `NotDetermined` is the one state that is neither usable nor final: the user
  *  has not been asked yet. It is not `Unknown` (we know exactly what the OS
  *  thinks) and not `Denied` (nothing has been refused). It exists so
@@ -741,32 +761,32 @@ export type ModelInfo = {
  */
 export type SettingsError = { name: "UnknownModel"; message: string } | { name: "SaveFailed"; message: string };
 
-export type TranscriptionError = { name: "AudioReadError"; message: string } |
+export type TranscriptionError = { name: "AudioReadError"; message: string } | 
 /**
  *  The local route cannot run at all: no model is active on this device, or
  *  the active model's file is not here.
- *
+ * 
  *  One public precondition family (ADR-0180). The two cases differ only as
  *  compact `reason` data, because the caller's job is the same either way:
  *  say so honestly and point at Home. `message` never names a model, since
  *  model identity is administration data an application does not receive.
- *
+ * 
  *  Failing here changes nothing. No model is adopted, downloaded,
  *  substituted, or routed to the cloud on the caller's behalf.
  */
-{ name: "LocalRouteUnavailable"; reason: UnavailableReason; message: string } |
+{ name: "LocalRouteUnavailable"; reason: UnavailableReason; message: string } | 
 /**
  *  Operational, not a precondition: the active model was resolvable but the
  *  runtime could not load it. Kept distinct so a broken install does not
  *  read as "you have not set this up".
  */
-{ name: "ModelLoadError"; message: string } |
+{ name: "ModelLoadError"; message: string } | 
 /**  Operational: inference itself failed. */
 { name: "TranscriptionError"; message: string };
 
 /**
  *  The advisory hints an application supplies with a transcription.
- *
+ * 
  *  The active-model route resolves the model from host settings. Explicit file
  *  inference receives the model separately from these hints. Neither route
  *  changes the active-model setting. Language and prompt remain application-owned;
@@ -779,7 +799,7 @@ export type TranscriptionHints = {
 
 /**
  *  What a transcription request produced.
- *
+ * 
  *  Two outcomes because there are two honest stories. `transcribed` names the
  *  exact model that produced the text, which makes accidental substitution
  *  detectable. Explicit inference must name the requested model; the active-model
@@ -788,20 +808,20 @@ export type TranscriptionHints = {
  *  no applied hints, because claiming either would be claiming an inference that
  *  never happened.
  */
-export type TranscriptionOutcome = { outcome: "transcribed"; text: string; modelId: string; applied: AppliedHints } |
+export type TranscriptionOutcome = { outcome: "transcribed"; text: string; modelId: string; applied: AppliedHints } | 
 /**  The audio held no samples, so no model was loaded and no hint applied. */
 { outcome: "empty-audio" };
 
 /**
  *  Why the local transcription route cannot run right now.
- *
+ * 
  *  A compact reason, deliberately not a model. It is enough for an application
  *  to write an honest sentence and name Home as the fix, and it carries no
  *  identity, no inventory, and nothing about what is cached or resident.
  */
-export type UnavailableReason =
+export type UnavailableReason = 
 /**  Nobody has chosen an active local model on this device. */
-"no-active-model" |
+"no-active-model" | 
 /**
  *  A model is active, but it cannot run here: its file is not on this
  *  machine, or it is not a model this build knows about.
@@ -810,16 +830,16 @@ export type UnavailableReason =
 
 /**
  *  How long after the last transcription the resident model should be dropped.
- *
+ * 
  *  `Immediately` is enforced synchronously at the end of each transcription;
  *  timed variants are enforced by the background idle watcher.
  */
 export type UnloadPolicy = "never" | "immediately" | "after_5_minutes" | "after_30_minutes";
 
 /**  Where `write_text` left the transcript. */
-export type WriteTextOutcome =
+export type WriteTextOutcome = 
 /**  The synthetic paste landed at the cursor. */
-"pasted" |
+"pasted" | 
 /**  Delivery could not paste, so the transcript remains on the clipboard. */
 "leftOnClipboard";
 

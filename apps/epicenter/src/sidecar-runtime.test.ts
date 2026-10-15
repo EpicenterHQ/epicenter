@@ -15,7 +15,6 @@ import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-	createNativePort,
 	createReadyFrame,
 	type ParentPipe,
 	PRODUCTION_PORT,
@@ -27,14 +26,6 @@ import {
 } from './sidecar-runtime.js';
 
 const TOKEN = 'valid_base64url-token';
-const CLOUD_SERVER = {
-	baseURL: 'https://api.epicenter.so',
-	authorityId: 'epicenter-api',
-};
-const SELF_HOSTED_SERVER = {
-	baseURL: 'https://self.example',
-	authorityId: 'instance-68747470733a2f2f73656c662e6578616d706c65',
-};
 
 function bootFrame(overrides: Record<string, unknown> = {}): string {
 	return JSON.stringify({
@@ -42,9 +33,6 @@ function bootFrame(overrides: Record<string, unknown> = {}): string {
 		protocolVersion: SIDECAR_PROTOCOL_VERSION,
 		token: TOKEN,
 		port: PRODUCTION_PORT,
-		authCell: null,
-		authServer: CLOUD_SERVER,
-		accountManagement: true,
 		dataDir: join(tmpdir(), 'so.epicenter.dev'),
 		folderDir: join(tmpdir(), 'Epicenter Dev'),
 		cacheDir: join(tmpdir(), 'so.epicenter.dev-cache'),
@@ -58,7 +46,6 @@ function setup() {
 	const signals = new EventEmitter();
 	const parentPipe: ParentPipe = {
 		bootLine: Promise.resolve(bootFrame()),
-		frames: new ReadableStream<string>(),
 		closed: parentClosed.promise,
 		async cancel() {
 			events.push('pipe.cancel');
@@ -128,67 +115,6 @@ describe('runtime mode', () => {
 });
 
 describe('boot protocol', () => {
-	test('invalid server descriptors cannot enter the sidecar', () => {
-		for (const authServer of [
-			null,
-			[],
-			{},
-			{ ...SELF_HOSTED_SERVER, authorityId: '' },
-			{ ...SELF_HOSTED_SERVER, extra: true },
-		]) {
-			expect(() =>
-				parseBootFrame(bootFrame({ authServer }), 'production'),
-			).toThrow('authServer');
-		}
-		for (const baseURL of [
-			'file:///tmp',
-			'https://user@self.example',
-			'https://self.example/path',
-			'https://self.example?query',
-			'https://self.example#fragment',
-		]) {
-			expect(() =>
-				parseBootFrame(
-					bootFrame({
-						authServer: {
-							...SELF_HOSTED_SERVER,
-							baseURL,
-						},
-					}),
-					'production',
-				),
-			).toThrow('authServer');
-		}
-	});
-
-	test('boot preserves Cloud and self-hosted descriptors under either account management setting', () => {
-		for (const authServer of [
-			CLOUD_SERVER,
-			SELF_HOSTED_SERVER,
-			{
-				baseURL: 'https://other.example',
-				authorityId: 'explicit-native-identity',
-			},
-		]) {
-			for (const accountManagement of [false, true]) {
-				const frame = parseBootFrame(
-					bootFrame({ authServer, accountManagement }),
-					'production',
-				);
-				expect(frame.authServer).toEqual(authServer);
-				expect(frame.accountManagement).toBe(accountManagement);
-			}
-		}
-	});
-
-	test('account management must be an explicit boolean', () => {
-		for (const accountManagement of [undefined, null, 1, 'true']) {
-			expect(() =>
-				parseBootFrame(bootFrame({ accountManagement }), 'production'),
-			).toThrow();
-		}
-	});
-
 	test('malformed JSON and non-object frames are rejected', () => {
 		expect(() => parseBootFrame('{', 'production')).toThrow('valid JSON');
 		expect(() => parseBootFrame('[]', 'production')).toThrow('JSON object');
@@ -201,9 +127,6 @@ describe('boot protocol', () => {
 					type: 'boot',
 					protocolVersion: SIDECAR_PROTOCOL_VERSION,
 					token: TOKEN,
-					authCell: null,
-					authServer: CLOUD_SERVER,
-					accountManagement: true,
 				}),
 				'production',
 			),
@@ -211,6 +134,12 @@ describe('boot protocol', () => {
 		expect(() =>
 			parseBootFrame(bootFrame({ unexpected: true }), 'production'),
 		).toThrow('contain exactly');
+		// Protocol 14 carried the desktop auth cell and server; the account is
+		// the CLI's now (ADR-0556).
+		for (const field of ['authCell', 'authServer', 'accountManagement'])
+			expect(() =>
+				parseBootFrame(bootFrame({ [field]: null }), 'production'),
+			).toThrow('contain exactly');
 	});
 
 	test('unknown protocol versions are rejected', () => {
@@ -275,42 +204,42 @@ describe('boot protocol', () => {
 	test('ready frames contain exactly the versioned readiness contract', () => {
 		expect(createReadyFrame(PRODUCTION_PORT)).toEqual({
 			type: 'ready',
-			protocolVersion: 14,
+			protocolVersion: 15,
 			port: PRODUCTION_PORT,
 		});
-	});
-
-	test('auth cell accepts only an opaque string or null', () => {
-		expect(
-			parseBootFrame(bootFrame({ authCell: 'opaque' }), 'production').authCell,
-		).toBe('opaque');
-		for (const authCell of [false, 12, {}, []]) {
-			expect(() =>
-				parseBootFrame(bootFrame({ authCell }), 'production'),
-			).toThrow('string or null');
-		}
 	});
 });
 
 describe('parent pipe', () => {
-	test('the first line is boot and later lines remain available as native frames', async () => {
+	test('the first line is boot, and the pipe closing ends it', async () => {
 		const stream = new ReadableStream<Uint8Array>({
 			start(controller) {
 				controller.enqueue(new TextEncoder().encode('first half'));
+				controller.enqueue(new TextEncoder().encode(' second half\n'));
+				controller.close();
+			},
+		});
+		const parentPipe = watchParentPipe(stream);
+
+		expect(await parentPipe.bootLine).toBe('first half second half');
+		await expect(parentPipe.closed).resolves.toBeUndefined();
+	});
+
+	test('a line after boot fails the pipe: Rust sends nothing more', async () => {
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
 				controller.enqueue(
-					new TextEncoder().encode(' second half\nframe-one\nframe-two\n'),
+					new TextEncoder().encode(
+						`${bootFrame()}\n{"type":"auth-callback","url":"epicenter://auth/callback?code=x"}\n`,
+					),
 				);
 				controller.close();
 			},
 		});
 		const parentPipe = watchParentPipe(stream);
-		const reader = parentPipe.frames.getReader();
 
-		expect(await parentPipe.bootLine).toBe('first half second half');
-		expect(await reader.read()).toEqual({ done: false, value: 'frame-one' });
-		expect(await reader.read()).toEqual({ done: false, value: 'frame-two' });
-		expect(await reader.read()).toEqual({ done: true, value: undefined });
-		await expect(parentPipe.closed).resolves.toBeUndefined();
+		expect(await parentPipe.bootLine).toBe(bootFrame());
+		await expect(parentPipe.closed).rejects.toThrow('after the boot frame');
 	});
 
 	test('EOF before a newline rejects the incomplete boot frame', async () => {
@@ -323,109 +252,6 @@ describe('parent pipe', () => {
 		const parentPipe = watchParentPipe(stream);
 
 		await expect(parentPipe.bootLine).rejects.toThrow('complete boot line');
-	});
-});
-
-describe('native auth port', () => {
-	test('correlates fixed native requests and forwards one queued auth callback', async () => {
-		let controller!: ReadableStreamDefaultController<string>;
-		const parentPipe: ParentPipe = {
-			bootLine: Promise.resolve(bootFrame()),
-			frames: new ReadableStream<string>({
-				start(nextController) {
-					controller = nextController;
-				},
-			}),
-			closed: new Promise(() => undefined),
-			async cancel() {},
-		};
-		const writes: string[] = [];
-		const native = createNativePort(
-			{ parentPipe },
-			{
-				createRequestId: () => 'request-1',
-				writeLine: (line) => writes.push(line),
-			},
-		);
-
-		const stored = native.storeAuth('opaque-cell');
-		expect(JSON.parse(writes[0] ?? '')).toEqual({
-			type: 'store-auth',
-			serialized: 'opaque-cell',
-			requestId: 'request-1',
-		});
-		controller.enqueue(
-			JSON.stringify({
-				type: 'native-result',
-				requestId: 'request-1',
-				status: 'ok',
-			}),
-		);
-		await stored;
-		native.relaunch();
-		expect(JSON.parse(writes.at(-1) ?? '')).toEqual({ type: 'relaunch' });
-
-		controller.enqueue(
-			JSON.stringify({
-				type: 'auth-callback',
-				url: 'epicenter://auth/callback?code=code&state=state',
-			}),
-		);
-		await Promise.resolve();
-		const callbacks: string[] = [];
-		native.onAuthCallback((url) => callbacks.push(url));
-		expect(callbacks).toEqual([
-			'epicenter://auth/callback?code=code&state=state',
-		]);
-		controller.close();
-		await native.completed;
-	});
-
-	test('native errors reject their matching request', async () => {
-		let controller!: ReadableStreamDefaultController<string>;
-		const parentPipe: ParentPipe = {
-			bootLine: Promise.resolve(bootFrame()),
-			frames: new ReadableStream<string>({
-				start(nextController) {
-					controller = nextController;
-				},
-			}),
-			closed: new Promise(() => undefined),
-			async cancel() {},
-		};
-		const native = createNativePort(
-			{ parentPipe },
-			{ createRequestId: () => 'request-2', writeLine() {} },
-		);
-		const opened = native.openAuthUrl('https://api.epicenter.so/auth');
-		controller.enqueue(
-			JSON.stringify({
-				type: 'native-result',
-				requestId: 'request-2',
-				status: 'error',
-				message: 'denied',
-			}),
-		);
-		await expect(opened).rejects.toThrow('denied');
-		controller.close();
-		await native.completed;
-	});
-
-	test('unknown frames fail the protocol generation', async () => {
-		let controller!: ReadableStreamDefaultController<string>;
-		const parentPipe: ParentPipe = {
-			bootLine: Promise.resolve(bootFrame()),
-			frames: new ReadableStream<string>({
-				start(nextController) {
-					controller = nextController;
-				},
-			}),
-			closed: new Promise(() => undefined),
-			async cancel() {},
-		};
-		const native = createNativePort({ parentPipe }, { writeLine() {} });
-		controller.enqueue(JSON.stringify({ type: 'execute', command: 'shell' }));
-		await expect(native.completed).rejects.toThrow('Unknown native frame');
 	});
 });
 
@@ -550,114 +376,25 @@ describe('shutdown', () => {
 		);
 	});
 
-	test('a protocol failure disposes every owner before it propagates', async () => {
+	test('a parent pipe failure disposes every owner before it propagates', async () => {
 		const { events, host, parentPipe, report, reported, server, signals } =
 			setup();
-		const failure = Promise.reject(new Error('invalid native frame'));
 		const supervised = superviseSidecar({
 			server,
 			host,
-			parentPipe,
-			protocol: { completed: failure },
+			parentPipe: {
+				...parentPipe,
+				closed: Promise.reject(new Error('a line after boot')),
+			},
 			signals,
 			report,
 		});
 
-		await expect(supervised).rejects.toThrow('invalid native frame');
+		await expect(supervised).rejects.toThrow('a line after boot');
 		expect(events).toEqual(['server.stop:true', 'host.dispose', 'pipe.cancel']);
 		// The rejection still propagates, and the reason still names itself.
 		expect(reported).toEqual([
-			'Epicenter host: shutting down after the native protocol failing: invalid native frame.',
+			'Epicenter host: shutting down after the parent pipe failing: a line after boot.',
 		]);
 	});
-});
-
-test('one native reader settles requests and rejects calls after pipe closure', async () => {
-	let controller!: ReadableStreamDefaultController<string>;
-	const parentPipe: ParentPipe = {
-		bootLine: Promise.resolve(bootFrame()),
-		frames: new ReadableStream({
-			start(value) {
-				controller = value;
-			},
-		}),
-		closed: new Promise(() => undefined),
-		async cancel() {},
-	};
-	const writes: string[] = [];
-	let next = 0;
-	const native = createNativePort(
-		{ parentPipe },
-		{
-			writeLine: (line) => writes.push(line),
-			createRequestId: () => String(++next),
-		},
-	);
-	let isFirstSettled = false;
-	const first = native.storeAuth(null).then(() => {
-		isFirstSettled = true;
-	});
-	const second = native.openAuthUrl('https://auth.example.test/authorize');
-	controller.enqueue(
-		JSON.stringify({ type: 'native-result', requestId: '2', status: 'ok' }),
-	);
-	await second;
-	expect(isFirstSettled).toBe(false);
-	controller.enqueue(
-		JSON.stringify({ type: 'native-result', requestId: '1', status: 'ok' }),
-	);
-	await first;
-	const pending = native.storeAuth(null);
-	controller.close();
-	await expect(pending).rejects.toThrow('closed');
-	await native.completed;
-	await expect(native.storeAuth(null)).rejects.toThrow('closed');
-	expect(writes.length).toBe(3);
-});
-
-test('local frame limits reject only that request while pipe write failure completes the port', async () => {
-	let controller!: ReadableStreamDefaultController<string>;
-	const parentPipe: ParentPipe = {
-		bootLine: Promise.resolve(bootFrame()),
-		frames: new ReadableStream({
-			start(value) {
-				controller = value;
-			},
-		}),
-		closed: new Promise(() => undefined),
-		async cancel() {},
-	};
-	let shouldFail = false;
-	let next = 0;
-	const writes: string[] = [];
-	const native = createNativePort(
-		{ parentPipe },
-		{
-			createRequestId: () => String(++next),
-			writeLine(line) {
-				if (shouldFail) throw new Error('pipe broken');
-				writes.push(line);
-			},
-		},
-	);
-	const active = native.storeAuth('small');
-	await expect(native.storeAuth('x'.repeat(8 * 1024 * 1024))).rejects.toThrow(
-		'frame exceeds',
-	);
-	const emptyFrame = JSON.parse(writes[0]!);
-	emptyFrame.serialized = '';
-	emptyFrame.requestId = '3';
-	const exactPayload = 'x'.repeat(
-		8 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(emptyFrame)),
-	);
-	await expect(native.storeAuth(exactPayload)).rejects.toThrow('frame exceeds');
-	controller.enqueue(
-		JSON.stringify({ type: 'native-result', requestId: '1', status: 'ok' }),
-	);
-	await active;
-	expect(writes.length).toBe(1);
-	shouldFail = true;
-	await expect(native.storeAuth('next')).rejects.toThrow('pipe broken');
-	await native.completed;
-	await expect(native.storeAuth('after')).rejects.toThrow('pipe broken');
 });

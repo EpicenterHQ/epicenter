@@ -10,14 +10,8 @@
 import { join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { COMPILED_APPLICATIONS } from './applications.ts';
-import {
-	createDesktopAuthAuthority,
-	type DesktopAuthAuthority,
-} from './desktop-auth-authority.ts';
-import { SIGN_IN_CALLBACK_ROUTE } from './routes.ts';
 import { createHomeServer } from './server.ts';
 import {
-	createNativePort,
 	createReadyFrame,
 	parseBootFrame,
 	parseRuntimeMode,
@@ -29,8 +23,8 @@ import {
 	loadStaticAssets,
 } from './static-assets.ts';
 
-// 1.3.1 and 1.3.3 report false stdin EOF during native sign-in, leaving
-// a live sidecar without its HTTP listener. 1.3.14 passes the native flow.
+// 1.3.1 and 1.3.3 report false stdin EOF, leaving a live sidecar without
+// its HTTP listener.
 const MINIMUM_BUN_VERSION = '1.3.14';
 
 async function main(): Promise<void> {
@@ -40,25 +34,12 @@ async function main(): Promise<void> {
 		);
 	}
 	const parentPipe = watchParentPipe(Bun.stdin.stream());
-	let desktopAuth: DesktopAuthAuthority | undefined;
 	let server: ReturnType<typeof Bun.serve> | undefined;
 	let lifecycleOwnsResources = false;
 
 	try {
 		const runtimeMode = parseRuntimeMode(Bun.argv);
 		const boot = parseBootFrame(await parentPipe.bootLine, runtimeMode);
-		const nativePort = createNativePort({ parentPipe });
-		const auth = createDesktopAuthAuthority({
-			authCell: boot.authCell,
-			server: boot.authServer,
-			accountManagement: boot.accountManagement,
-			nativeAuthPort: nativePort,
-			callbackUrl:
-				runtimeMode === 'development'
-					? SIGN_IN_CALLBACK_ROUTE.url(`http://127.0.0.1:${boot.port}`)
-					: undefined,
-		});
-		desktopAuth = auth;
 
 		const appsDist = process.env.EPICENTER_APPS_DIST;
 		if (!appsDist) {
@@ -78,7 +59,6 @@ async function main(): Promise<void> {
 			installedApplications: createInstalledApplications(
 				join(boot.cacheDir, 'builds'),
 			),
-			desktopAuth: auth,
 		});
 
 		server = Bun.serve({
@@ -89,21 +69,15 @@ async function main(): Promise<void> {
 		});
 		process.stdout.write(`${JSON.stringify(createReadyFrame(boot.port))}\n`);
 		lifecycleOwnsResources = true;
-		const ownedDesktopAuth = auth;
 		await superviseSidecar({
 			server,
-			host: {
-				async [Symbol.asyncDispose]() {
-					ownedDesktopAuth[Symbol.dispose]();
-				},
-			},
+			// The host owns nothing beyond its server; the account is the CLI's.
+			host: { async [Symbol.asyncDispose]() {} },
 			parentPipe,
-			protocol: nativePort,
 		});
 	} finally {
 		if (!lifecycleOwnsResources) {
 			if (server) void server.stop(true);
-			desktopAuth?.[Symbol.dispose]();
 			await parentPipe.cancel();
 		}
 	}

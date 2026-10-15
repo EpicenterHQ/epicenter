@@ -120,7 +120,6 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/ai": "workspace:*",
-        "@epicenter/auth": "workspace:*",
         "@epicenter/cli": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
@@ -310,6 +309,7 @@
       "name": "@epicenter/todos",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/ai": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/epicenter": "workspace:*",

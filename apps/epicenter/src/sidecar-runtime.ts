@@ -1,8 +1,9 @@
-import type { AuthServer } from '@epicenter/auth';
 /**
  * The private Rust-to-Bun startup protocol and the Bun sidecar lifecycle.
  * Rust resolves the runtime mode and port, then keeps stdin open as its parent
  * lifetime signal. Bun validates that input but never resolves a port itself.
+ * After the boot frame the pipe carries nothing: the account is the
+ * `epicenter` CLI's (ADR-0556), so no auth crosses it.
  */
 
 import { isAbsolute } from 'node:path';
@@ -19,9 +20,8 @@ import { extractErrorMessage } from 'wellcrafted/error';
  */
 const SHUTDOWN_GRACE_MS = 10_000;
 const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;
-const MAX_NATIVE_PENDING = 64;
 
-export const SIDECAR_PROTOCOL_VERSION = 14;
+export const SIDECAR_PROTOCOL_VERSION = 15;
 export const PRODUCTION_PORT = 39_130;
 
 export type SidecarRuntimeMode = 'production' | 'development';
@@ -31,9 +31,6 @@ export type BootFrame = {
 	protocolVersion: typeof SIDECAR_PROTOCOL_VERSION;
 	token: string;
 	port: number;
-	authCell: string | null;
-	authServer: AuthServer;
-	accountManagement: boolean;
 	dataDir: string;
 	folderDir: string;
 	/** Disposable: built installed apps, under `builds/<app-id>/<commit>/`. */
@@ -62,29 +59,12 @@ type SignalSource = {
 
 export type ParentPipe = {
 	bootLine: Promise<string>;
-	frames: ReadableStream<string>;
+	/** Resolves when Rust closes the pipe; rejects when it sends anything after boot. */
 	closed: Promise<void>;
 	cancel(): Promise<void>;
 };
 
-export type NativePort = ReturnType<typeof createNativePort>;
-
-/**
- * The slice of the native port the desktop auth authority uses.
- *
- * Declared as a subset rather than the whole port so that adding an operation
- * for somebody else does not oblige every auth test double to grow a method it
- * never calls.
- */
-export type NativeAuthPort = Pick<
-	NativePort,
-	'completed' | 'storeAuth' | 'openAuthUrl' | 'relaunch' | 'onAuthCallback'
->;
-
 const BOOT_FRAME_KEYS = [
-	'accountManagement',
-	'authCell',
-	'authServer',
 	'cacheDir',
 	'dataDir',
 	'folderDir',
@@ -94,7 +74,6 @@ const BOOT_FRAME_KEYS = [
 	'type',
 ];
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
-const AUTH_CALLBACK = 'epicenter://auth/callback';
 
 /**
  * Parse the one explicit runtime-mode argument supplied by the Rust parent.
@@ -145,7 +124,7 @@ export function parseBootFrame(
 		keys.some((key, index) => key !== BOOT_FRAME_KEYS[index])
 	) {
 		throw new Error(
-			'The boot frame must contain exactly type, protocolVersion, token, port, authCell, authServer, accountManagement, dataDir, folderDir, and cacheDir.',
+			'The boot frame must contain exactly type, protocolVersion, token, port, dataDir, folderDir, and cacheDir.',
 		);
 	}
 
@@ -174,46 +153,6 @@ export function parseBootFrame(
 	if (runtimeMode === 'production' && frame.port !== PRODUCTION_PORT) {
 		throw new Error(`Production must bind port ${PRODUCTION_PORT}.`);
 	}
-	if (frame.authCell !== null && typeof frame.authCell !== 'string') {
-		throw new Error('The boot auth cell must be a string or null.');
-	}
-
-	const authServer = frame.authServer;
-	if (
-		typeof authServer !== 'object' ||
-		authServer === null ||
-		Array.isArray(authServer)
-	) {
-		throw new Error('The boot authServer must be a server descriptor.');
-	}
-	const descriptor = authServer as Record<string, unknown>;
-	if (
-		Object.keys(descriptor).sort().join(',') !== 'authorityId,baseURL' ||
-		typeof descriptor.baseURL !== 'string' ||
-		typeof descriptor.authorityId !== 'string' ||
-		descriptor.authorityId.length === 0
-	) {
-		throw new Error(
-			'The boot authServer must contain exactly baseURL and a non-empty authorityId.',
-		);
-	}
-	const origin = URL.parse(descriptor.baseURL);
-	if (
-		!origin ||
-		!['http:', 'https:'].includes(origin.protocol) ||
-		origin.origin !== descriptor.baseURL ||
-		origin.username ||
-		origin.password
-	) {
-		throw new Error(
-			'The boot authServer baseURL must be an HTTP or HTTPS origin.',
-		);
-	}
-
-	if (typeof frame.accountManagement !== 'boolean') {
-		throw new Error('The boot accountManagement must be a boolean.');
-	}
-
 	for (const key of ['dataDir', 'folderDir', 'cacheDir'] as const) {
 		const directory = frame[key];
 		if (
@@ -235,7 +174,11 @@ export function createReadyFrame(port: number): ReadyFrame {
 	};
 }
 
-/** Read the boot line, then expose every later Rust frame on the same pipe. */
+/**
+ * Read the boot line, then watch the pipe for Rust closing it. Rust sends
+ * nothing after boot, so a later line is a protocol mismatch that ends the
+ * host.
+ */
 export function watchParentPipe(
 	stream: ReadableStream<Uint8Array>,
 ): ParentPipe {
@@ -243,12 +186,6 @@ export function watchParentPipe(
 	const decoder = new TextDecoder();
 	let isBootSettled = false;
 	const boot = Promise.withResolvers<string>();
-	let frameController!: ReadableStreamDefaultController<string>;
-	const frames = new ReadableStream<string>({
-		start(controller) {
-			frameController = controller;
-		},
-	});
 
 	const closed = (async (): Promise<void> => {
 		let buffer = '';
@@ -258,18 +195,19 @@ export function watchParentPipe(
 				if (value) {
 					buffer += decoder.decode(value, { stream: true });
 					if (buffer.length > MAX_NATIVE_FRAME_BYTES)
-						throw new Error('Native frame exceeds limit.');
+						throw new Error('A line on the parent pipe exceeds its limit.');
 				}
 
 				let newline = buffer.indexOf('\n');
 				while (newline !== -1) {
 					const line = buffer.slice(0, newline).replace(/\r$/, '');
 					buffer = buffer.slice(newline + 1);
-					if (isBootSettled) frameController.enqueue(line);
-					else {
-						isBootSettled = true;
-						boot.resolve(line);
-					}
+					if (isBootSettled)
+						throw new Error(
+							'Rust sent a line after the boot frame; the pipe carries nothing else.',
+						);
+					isBootSettled = true;
+					boot.resolve(line);
 					newline = buffer.indexOf('\n');
 				}
 
@@ -279,14 +217,10 @@ export function watchParentPipe(
 					boot.reject(
 						new Error('The parent pipe closed before a complete boot line.'),
 					);
+					return;
 				}
-				if (buffer !== '') {
-					frameController.error(
-						new Error('The parent pipe closed during an incomplete frame.'),
-					);
-				} else {
-					frameController.close();
-				}
+				if (buffer !== '')
+					throw new Error('The parent pipe closed during an incomplete line.');
 				return;
 			}
 		} catch (error) {
@@ -298,14 +232,12 @@ export function watchParentPipe(
 						: new Error('Failed to read the parent pipe.'),
 				);
 			}
-			frameController.error(error);
 			throw error;
 		}
 	})();
 
 	return {
 		bootLine: boot.promise,
-		frames,
 		closed,
 		async cancel() {
 			await reader.cancel();
@@ -313,223 +245,11 @@ export function watchParentPipe(
 	};
 }
 
-/**
- * Bind the fixed native operations to the versioned Rust pipe.
- *
- * The port names no keyring entry and invokes no arbitrary native command. It
- * carries the desktop auth cell, an authorization URL to open, and a relaunch.
- * Rust composes the service and account strings the auth cell is stored under,
- * so no address in the credential store crosses this pipe (ADR-0310).
- */
-export function createNativePort(
-	{ parentPipe }: { parentPipe: ParentPipe },
-	{
-		writeLine = (line) => process.stdout.write(`${line}\n`),
-		createRequestId = () => crypto.randomUUID(),
-	}: {
-		writeLine?: (line: string) => unknown;
-		createRequestId?: () => string;
-	} = {},
-) {
-	const pending = new Map<
-		string,
-		{
-			resolve(): void;
-			reject(error: Error): void;
-		}
-	>();
-	const reader = parentPipe.frames.getReader();
-	const callbackListeners = new Set<(url: string) => void>();
-	let queuedCallback: string | null = null;
-	let failure: Error | undefined;
-	function fail(error: Error) {
-		if (failure) return;
-		failure = error;
-		for (const request of pending.values()) request.reject(failure);
-		pending.clear();
-		// Wake the sole reader so supervision observes terminal write failure too.
-		void reader.cancel().catch(() => undefined);
-	}
-
-	function send(frame: unknown) {
-		if (failure) throw failure;
-		const line = JSON.stringify(frame);
-		// Native framing counts the newline appended by writeLine.
-		if (Buffer.byteLength(line) + 1 > MAX_NATIVE_FRAME_BYTES)
-			throw new Error('Native frame exceeds limit.');
-		try {
-			writeLine(line);
-		} catch (cause) {
-			fail(cause instanceof Error ? cause : new Error(String(cause)));
-			throw failure;
-		}
-	}
-
-	function request(
-		frame:
-			| { type: 'store-auth'; serialized: string | null }
-			| { type: 'open-auth-url'; url: string },
-	): Promise<void> {
-		if (failure) return Promise.reject(failure);
-		if (pending.size >= MAX_NATIVE_PENDING)
-			return Promise.reject(new Error('Native request queue is full.'));
-		const requestId = createRequestId();
-		if (!requestId || requestId.length > 128 || pending.has(requestId))
-			return Promise.reject(
-				new Error('Invalid or duplicate native request id.'),
-			);
-		return new Promise<void>((resolve, reject) => {
-			pending.set(requestId, { resolve, reject });
-			try {
-				send({ ...frame, requestId });
-			} catch (cause) {
-				pending
-					.get(requestId)
-					?.reject(cause instanceof Error ? cause : new Error(String(cause)));
-				pending.delete(requestId);
-			}
-		});
-	}
-
-	function accept(line: string) {
-		const frame = parseNativeFrame(line);
-		if (frame.type === 'auth-callback') {
-			if (callbackListeners.size === 0) queuedCallback = frame.url;
-			else for (const listener of callbackListeners) listener(frame.url);
-			return;
-		}
-
-		const request = pending.get(frame.requestId);
-		if (!request) {
-			throw new Error(
-				`Rust returned unknown native request ${frame.requestId}.`,
-			);
-		}
-		pending.delete(frame.requestId);
-		if (frame.status === 'ok') request.resolve();
-		else request.reject(new Error(frame.message));
-	}
-
-	const completed = (async () => {
-		try {
-			while (true) {
-				const { value, done } = await reader.read();
-				if (done) return;
-				accept(value);
-			}
-		} catch (cause) {
-			fail(cause instanceof Error ? cause : new Error(String(cause)));
-			throw cause;
-		} finally {
-			fail(new Error('The native port closed.'));
-			reader.releaseLock();
-		}
-	})();
-
-	return {
-		completed,
-		async storeAuth(serialized: string | null) {
-			await request({ type: 'store-auth', serialized });
-		},
-		async openAuthUrl(url: string) {
-			await request({ type: 'open-auth-url', url });
-		},
-		/** Restart Epicenter now. Nothing is asked first (ADR-0542). */
-		relaunch() {
-			send({ type: 'relaunch' });
-		},
-		onAuthCallback(listener: (url: string) => void) {
-			callbackListeners.add(listener);
-			if (queuedCallback !== null) {
-				const callback = queuedCallback;
-				queuedCallback = null;
-				listener(callback);
-			}
-			return () => callbackListeners.delete(listener);
-		},
-	};
-}
-
-type NativeFrame =
-	| { type: 'native-result'; requestId: string; status: 'ok' }
-	| {
-			type: 'native-result';
-			requestId: string;
-			status: 'error';
-			message: string;
-	  }
-	| { type: 'auth-callback'; url: string };
-
-function parseNativeFrame(line: string): NativeFrame {
-	let value: unknown;
-	try {
-		value = JSON.parse(line);
-	} catch {
-		throw new Error('The native frame must be valid JSON.');
-	}
-	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-		throw new Error('The native frame must be a JSON object.');
-	}
-	const frame = value as Record<string, unknown>;
-	if (frame.type === 'auth-callback') {
-		assertExactKeys(frame, ['type', 'url']);
-		if (typeof frame.url !== 'string' || !isAuthCallback(frame.url)) {
-			throw new Error('Rust sent an invalid auth callback URL.');
-		}
-		return frame as NativeFrame;
-	}
-	if (frame.type === 'native-result') {
-		assertExactKeys(
-			frame,
-			frame.status === 'error'
-				? ['message', 'requestId', 'status', 'type']
-				: ['requestId', 'status', 'type'],
-		);
-		if (typeof frame.requestId !== 'string' || frame.requestId === '') {
-			throw new Error('The native result requestId must be non-empty.');
-		}
-		if (frame.status !== 'ok' && frame.status !== 'error') {
-			throw new Error('The native result status must be ok or error.');
-		}
-		if (frame.status === 'error' && typeof frame.message !== 'string') {
-			throw new Error('The native result error must include a message.');
-		}
-		return frame as NativeFrame;
-	}
-	throw new Error(`Unknown native frame: ${String(frame.type)}.`);
-}
-
-function assertExactKeys(value: Record<string, unknown>, expected: string[]) {
-	const keys = Object.keys(value).sort();
-	if (
-		keys.length !== expected.length ||
-		keys.some((key, index) => key !== expected[index])
-	) {
-		throw new Error(`Unexpected keys in ${String(value.type)} frame.`);
-	}
-}
-
-function isAuthCallback(value: string): boolean {
-	try {
-		const url = new URL(value);
-		return (
-			`${url.protocol}//${url.host}${url.pathname}` === AUTH_CALLBACK &&
-			(url.searchParams.has('code') || url.searchParams.has('error')) &&
-			url.username === '' &&
-			url.password === '' &&
-			url.hash === ''
-		);
-	} catch {
-		return false;
-	}
-}
-
 /** Wait for a parent exit signal, then stop accepting work and release state. */
 export async function superviseSidecar({
 	server,
 	host,
 	parentPipe,
-	protocol,
 	signals = process,
 	report = (message) => {
 		process.stderr.write(`${message}\n`);
@@ -540,7 +260,6 @@ export async function superviseSidecar({
 	server: SidecarServer;
 	host: SidecarHost;
 	parentPipe: ParentPipe;
-	protocol?: { completed: Promise<void> };
 	signals?: SignalSource;
 	report?: (message: string) => void;
 	exit?: (code: number) => void;
@@ -559,12 +278,9 @@ export async function superviseSidecar({
 		cause = await Promise.race([
 			shutdownRequested.promise,
 			parentPipe.closed.then(() => 'the parent pipe closing'),
-			...(protocol
-				? [protocol.completed.then(() => 'the native protocol completing')]
-				: []),
 		]);
 	} catch (error) {
-		cause = `the native protocol failing: ${extractErrorMessage(error)}`;
+		cause = `the parent pipe failing: ${extractErrorMessage(error)}`;
 		throw error;
 	} finally {
 		report(`Epicenter host: shutting down after ${cause}.`);

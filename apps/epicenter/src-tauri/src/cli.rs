@@ -308,11 +308,13 @@ impl AiTarget {
     }
 }
 
-/// An OpenAI-compatible request, relative to its connection's endpoint.
+/// One request `epicenter send` carries, relative to its target: below an AI
+/// connection's endpoint, or below the deployment's origin for an account
+/// request.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, specta::Type)]
 pub struct AiRequest {
     pub method: String,
-    /// Below the endpoint, such as `audio/transcriptions`.
+    /// Below the target, such as `audio/transcriptions` or `api/git/connect`.
     pub path: String,
     pub headers: Vec<(String, String)>,
     /// The body in base64, decoded here and written to the CLI as raw bytes.
@@ -351,7 +353,7 @@ fn connection_id(id: &str) -> Result<&str, CliError> {
 /// What `epicenter send` reads on stdin: one JSON line naming the target
 /// and the request, then the body's raw bytes (`encodeSendInput` in
 /// `@epicenter/ai/send`).
-fn send_input(target: &AiTarget, request: &AiRequest) -> Result<Vec<u8>, CliError> {
+fn send_input(target: &impl Serialize, request: &AiRequest) -> Result<Vec<u8>, CliError> {
     let body = match &request.body {
         Some(encoded) => STANDARD
             .decode(encoded)
@@ -374,16 +376,16 @@ fn send_input(target: &AiTarget, request: &AiRequest) -> Result<Vec<u8>, CliErro
     Ok(input)
 }
 
-/// `epicenter send --json --desktop`, each NDJSON line handed to `on_line`.
-/// `--desktop` gives an Epicenter connection the app's own grant (ADR-0558).
-async fn send_with(
+/// `epicenter send --json --desktop` over `target`, each NDJSON line handed
+/// to `on_line`. `--desktop` gives an Epicenter connection and an account
+/// request the app's own grant (ADR-0558).
+async fn run_send(
     program: &Program,
     env: &[(OsString, OsString)],
-    target: &AiTarget,
+    target: &impl Serialize,
     request: &AiRequest,
     on_line: impl FnMut(String) -> Result<(), String>,
 ) -> Result<CliExit, CliError> {
-    connection_id(target.connection())?;
     let input = send_input(target, request)?;
     run_with_env(
         program,
@@ -393,6 +395,34 @@ async fn send_with(
         on_line,
     )
     .await
+}
+
+/// [`run_send`] over an AI connection, whose id is checked first.
+async fn send_with(
+    program: &Program,
+    env: &[(OsString, OsString)],
+    target: &AiTarget,
+    request: &AiRequest,
+    on_line: impl FnMut(String) -> Result<(), String>,
+) -> Result<CliExit, CliError> {
+    connection_id(target.connection())?;
+    run_send(program, env, target, request, on_line).await
+}
+
+/// Send one line of a send's output to the page's channel.
+fn to_channel(on_event: &Channel<String>) -> impl FnMut(String) -> Result<(), String> + '_ {
+    |line| on_event.send(line).map_err(|error| error.to_string())
+}
+
+/// After a send's own lines, one more, `{"type":"exit","code","stderr"}`, so
+/// a page that sees it knows no other line is coming, whenever the command's
+/// own result arrives.
+fn end_channel(on_event: &Channel<String>, exit: CliExit) -> Result<CliExit, CliError> {
+    let last = json!({ "type": "exit", "code": exit.code, "stderr": exit.stderr });
+    on_event
+        .send(last.to_string())
+        .map_err(|error| failed(error.to_string()))?;
+    Ok(exit)
 }
 
 /// The deployment the CLI is to sign in to and send to: the one the shell
@@ -479,8 +509,7 @@ async fn key_remove_with(program: &Program, connection: &str) -> Result<bool, Cl
 /// (the response's head, its body in base64 chunks, and `end`, or an
 /// `error`) goes to `on_event`; the page reads them back into a `Response`.
 /// One more line, `{"type":"exit","code","stderr"}`, follows the CLI's own
-/// on the same channel, so a page that sees it knows no other line is
-/// coming, whenever the command's own result arrives.
+/// on the same channel (`end_channel`).
 #[tauri::command]
 #[specta::specta]
 pub async fn ai_send(
@@ -493,14 +522,10 @@ pub async fn ai_send(
         &deployment_env()?,
         &connection,
         &request,
-        |line| on_event.send(line).map_err(|error| error.to_string()),
+        to_channel(&on_event),
     )
     .await?;
-    let last = json!({ "type": "exit", "code": exit.code, "stderr": exit.stderr });
-    on_event
-        .send(last.to_string())
-        .map_err(|error| failed(error.to_string()))?;
-    Ok(exit)
+    end_channel(&on_event, exit)
 }
 
 /// Save `endpoint` and `key` for `connection` in this computer's keychain,
@@ -534,6 +559,71 @@ pub async fn ai_key_remove(connection: String) -> Result<bool, CliError> {
 #[specta::specta]
 pub async fn ai_key_state(connection: String) -> Result<AiKeyState, CliError> {
     key_state_with(&bundled_program().map_err(failed)?, &connection).await
+}
+
+// ---------------------------------------------------------------------------
+// Account requests (ADR-0549, ADR-0556): a page's call to one of the
+// deployment's resources, which `epicenter send` makes with the app's grant.
+// The page names the resource by role and never holds the token.
+// ---------------------------------------------------------------------------
+
+/// The deployment's resources an account request may carry a token for, by
+/// role: `api` for the profile read, `git` for Git and the folder connect
+/// call. A closed set, so a page cannot name an audience of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum AccountAudience {
+    Api,
+    Git,
+}
+
+/// The account target `epicenter send` reads: `{"kind":"account","audience"}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum AccountTarget {
+    Account { audience: AccountAudience },
+}
+
+/// `epicenter send --json --desktop` with an account target. The CLI sends
+/// only a path below the deployment's `/api/`.
+async fn account_send_with(
+    program: &Program,
+    env: &[(OsString, OsString)],
+    audience: AccountAudience,
+    request: &AiRequest,
+    on_line: impl FnMut(String) -> Result<(), String>,
+) -> Result<CliExit, CliError> {
+    run_send(
+        program,
+        env,
+        &AccountTarget::Account { audience },
+        request,
+        on_line,
+    )
+    .await
+}
+
+/// Send one request to the deployment's `audience` resource with the app's
+/// grant, through `epicenter send` (ADR-0549, ADR-0556). The lines are
+/// `ai_send`'s: the response's head, its body in base64 chunks, and `end`,
+/// or an `error` such as `NoAccountToken` when the app is not signed in,
+/// then the shell's own `{"type":"exit","code","stderr"}`.
+#[tauri::command]
+#[specta::specta]
+pub async fn account_send(
+    audience: AccountAudience,
+    request: AiRequest,
+    on_event: Channel<String>,
+) -> Result<CliExit, CliError> {
+    let exit = account_send_with(
+        &bundled_program().map_err(failed)?,
+        &deployment_env()?,
+        audience,
+        &request,
+        to_channel(&on_event),
+    )
+    .await?;
+    end_channel(&on_event, exit)
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,6 +1180,141 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: [...body.subar
         .await
         .unwrap_err();
         assert!(matches!(refused, CliError::Refused { .. }), "{refused:?}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// `account_send` runs exactly `epicenter send --json --desktop`, and
+    /// stdin's head carries the account target, named by role, and the
+    /// request. The child here reports what it was given.
+    #[tokio::test]
+    async fn account_send_writes_the_account_target_and_request() {
+        let dir = scratch("account-send-input");
+        let script = dir.join("child.ts");
+        fs::write(
+            &script,
+            r#"
+const input = await Bun.stdin.bytes();
+const newline = input.indexOf(10);
+const head = JSON.parse(new TextDecoder().decode(input.subarray(0, newline)));
+console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecoder().decode(input.subarray(newline + 1)) }));
+"#,
+        )
+        .unwrap();
+        let program = Program {
+            program: PathBuf::from("bun"),
+            prefix: vec![script.into_os_string()],
+        };
+        let request = AiRequest {
+            method: "POST".into(),
+            path: "api/git/connect".into(),
+            headers: vec![("content-type".into(), "application/json".into())],
+            body: Some(STANDARD.encode(br#"{"folder":"so.epicenter.todos"}"#)),
+        };
+        let mut lines = Vec::new();
+        let exit = account_send_with(&program, &[], AccountAudience::Git, &request, |line| {
+            lines.push(line);
+            Ok(())
+        })
+        .await
+        .unwrap();
+        assert_eq!(exit.code, 0, "{}", exit.stderr);
+        let seen: Value = serde_json::from_str(&lines[0]).unwrap();
+        assert_eq!(seen["argv"], json!(["send", "--json", "--desktop"]));
+        assert_eq!(
+            seen["head"],
+            json!({
+                "target": { "kind": "account", "audience": "git" },
+                "request": {
+                    "method": "POST",
+                    "path": "api/git/connect",
+                    "headers": [["content-type", "application/json"]],
+                },
+            })
+        );
+        assert_eq!(seen["body"], r#"{"folder":"so.epicenter.todos"}"#);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// A page names a resource by role; an audience outside the closed set,
+    /// such as a URL or another resource, never reaches the CLI.
+    #[test]
+    fn an_account_audience_outside_the_enum_does_not_deserialize() {
+        assert_eq!(
+            serde_json::from_value::<AccountAudience>(json!("api")).unwrap(),
+            AccountAudience::Api
+        );
+        assert_eq!(
+            serde_json::from_value::<AccountAudience>(json!("git")).unwrap(),
+            AccountAudience::Git
+        );
+        for refused in [
+            json!("mcp"),
+            json!("Git"),
+            json!("https://git.epicenter.so"),
+            json!(""),
+            json!(null),
+            json!({ "kind": "account", "audience": "git" }),
+        ] {
+            assert!(
+                serde_json::from_value::<AccountAudience>(refused.clone()).is_err(),
+                "{refused} deserialized"
+            );
+        }
+    }
+
+    /// Through the real CLI, with a keychain that holds no grant: an account
+    /// request below `/api/` is refused for want of the app's sign-in, and
+    /// one outside it is refused before any token is asked for.
+    #[tokio::test]
+    async fn account_send_through_the_cli_needs_the_apps_grant_and_an_api_path() {
+        let dir = scratch("account-send-cli");
+        let program = cli_with_secrets(&dir, json!({}));
+        let env = [("EPICENTER_API_URL".into(), "http://127.0.0.1:9".into())];
+        let request = |path: &str| AiRequest {
+            method: "GET".into(),
+            path: path.into(),
+            headers: Vec::new(),
+            body: None,
+        };
+        let mut events = Vec::new();
+        let exit = account_send_with(
+            &program,
+            &env,
+            AccountAudience::Api,
+            &request("api/session"),
+            |line| {
+                events.push(serde_json::from_str::<Value>(&line).unwrap());
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(exit.code, 2);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["name"], "NoAccountToken");
+        assert!(
+            events[0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("Sign in from Epicenter's Settings"),
+            "{}",
+            events[0]
+        );
+
+        let mut events = Vec::new();
+        account_send_with(
+            &program,
+            &env,
+            AccountAudience::Api,
+            &request("auth/oauth2/revoke"),
+            |line| {
+                events.push(serde_json::from_str::<Value>(&line).unwrap());
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(events[0]["name"], "InvalidRequest");
         let _ = fs::remove_dir_all(dir);
     }
 

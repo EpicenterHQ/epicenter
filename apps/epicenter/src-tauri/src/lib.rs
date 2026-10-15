@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -56,9 +56,6 @@ use download::{cancel_download, DownloadManager};
 mod delivery;
 use delivery::{simulate_enter_keystroke, write_text};
 
-mod keyring_storage;
-use keyring_storage::{read_auth_cell, write_auth_cell};
-
 pub mod media;
 use media::{pause_playback, resume_playback};
 
@@ -83,7 +80,7 @@ pub mod clipboard;
 const PRODUCTION_PORT: u16 = 39_130;
 #[cfg(any(debug_assertions, test))]
 const DEVELOPMENT_PORT: u16 = 39_131;
-const PROTOCOL_VERSION: u8 = 14;
+const PROTOCOL_VERSION: u8 = 15;
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long Bun gets to shut down after its stdin closes before it is killed.
@@ -132,8 +129,9 @@ impl BuiltInApp {
 
 type DesktopAppHandle = AppHandle<Wry>;
 
-/// The largest line either side writes on the private native pipe, newline
-/// included. Bun holds the same limit (`MAX_NATIVE_FRAME_BYTES`).
+/// The largest line either side writes on the private pipe, newline
+/// included: the boot frame and the ready frame. Bun holds the same limit
+/// (`MAX_NATIVE_FRAME_BYTES`).
 const MAX_NATIVE_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
@@ -143,9 +141,6 @@ struct BootFrame<'a> {
     protocol_version: u8,
     token: &'a str,
     port: u16,
-    auth_cell: Option<&'a str>,
-    auth_server: AuthServer,
-    account_management: bool,
     #[serde(flatten)]
     paths: &'a app_data::DesktopPaths,
 }
@@ -158,46 +153,11 @@ struct ReadyFrame {
     port: u16,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
-enum BunToRustNativeFrame {
-    StoreAuth {
-        #[serde(rename = "requestId")]
-        request_id: String,
-        serialized: Option<String>,
-    },
-    OpenAuthUrl {
-        #[serde(rename = "requestId")]
-        request_id: String,
-        url: String,
-    },
-    /// Restart for an account change, at once: no window is asked
-    /// (ADR-0415, ADR-0542).
-    Relaunch {},
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-enum RustToBunNativeFrame<'a> {
-    NativeResult {
-        #[serde(rename = "requestId")]
-        request_id: &'a str,
-        status: &'static str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        message: Option<&'a str>,
-    },
-    AuthCallback {
-        url: &'a str,
-    },
-}
-
 struct ManagedChild {
     generation: u64,
     child: Child,
-    stdin: Option<mpsc::SyncSender<String>>,
-    /// Set when the command pipe to Bun fails; the generation is then terminal.
-    writer_failed: Arc<AtomicBool>,
-    writer: Option<thread::JoinHandle<()>>,
+    /// Held open as Bun's parent lifetime signal; dropping it asks Bun to stop.
+    stdin: Option<ChildStdin>,
 }
 
 struct HostState {
@@ -207,7 +167,6 @@ struct HostState {
     /// The launch token of the Bun generation windows are opened for.
     active_token: Mutex<Option<String>>,
     pending_apps: Mutex<Vec<BuiltInApp>>,
-    pending_auth_callback: Mutex<Option<String>>,
     /// A section of Home an application asked the shell to open, held until Home
     /// is able to claim it. Only the latest survives: two recovery nudges in a
     /// row should land the user somewhere once, not queue a backlog.
@@ -224,7 +183,6 @@ impl HostState {
             process: Mutex::new(None),
             active_token: Mutex::new(None),
             pending_apps: Mutex::new(Vec::new()),
-            pending_auth_callback: Mutex::new(None),
             pending_home_section: Mutex::new(None),
             shutting_down: AtomicBool::new(false),
             starting: AtomicBool::new(false),
@@ -260,20 +218,6 @@ impl HostState {
         self.pending_home_section
             .lock()
             .expect("pending home section lock poisoned")
-            .take()
-    }
-
-    fn queue_auth_callback(&self, url: String) {
-        *self
-            .pending_auth_callback
-            .lock()
-            .expect("pending auth callback lock poisoned") = Some(url);
-    }
-
-    fn take_auth_callback(&self) -> Option<String> {
-        self.pending_auth_callback
-            .lock()
-            .expect("pending auth callback lock poisoned")
             .take()
     }
 
@@ -335,6 +279,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             data_folders::list_data_folders,
             cli::folder_check::<tauri::Wry>,
             cli::ai_send,
+            cli::account_send,
             cli::ai_key_set,
             cli::ai_key_remove,
             cli::ai_key_state,
@@ -569,9 +514,6 @@ pub fn run() {
             let mut opened_window = false;
             if let Some(urls) = current {
                 for url in &urls {
-                    if let Some(callback) = parse_auth_callback(url) {
-                        queue_or_send_auth_callback(app.handle(), callback);
-                    }
                     if let Some(built_in) = parse_app_deep_link(url) {
                         request_window(app.handle(), built_in);
                         opened_window = true;
@@ -599,14 +541,6 @@ pub fn run() {
 
 fn open_forwarded_deep_links(app: &DesktopAppHandle, arguments: &[String]) {
     let built_ins = apps_from_arguments(arguments);
-    for argument in arguments {
-        let Ok(url) = tauri::Url::parse(argument) else {
-            continue;
-        };
-        if let Some(callback) = parse_auth_callback(&url) {
-            queue_or_send_auth_callback(app, callback);
-        }
-    }
     if built_ins.is_empty() {
         request_window(app, BuiltInApp::Folders);
     } else {
@@ -634,50 +568,9 @@ fn apps_from_arguments(arguments: &[String]) -> Vec<BuiltInApp> {
 
 fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
     for url in urls {
-        if let Some(callback) = parse_auth_callback(url) {
-            queue_or_send_auth_callback(app, callback);
-        }
         if let Some(built_in) = parse_app_deep_link(url) {
             request_window(app, built_in);
         }
-    }
-}
-
-fn parse_auth_callback(url: &tauri::Url) -> Option<String> {
-    if url.scheme() != "epicenter"
-        || url.host_str() != Some("auth")
-        || url.path() != "/callback"
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.port().is_some()
-        || url.fragment().is_some()
-        || !(url.query_pairs().any(|(key, _)| key == "code")
-            || url.query_pairs().any(|(key, _)| key == "error"))
-    {
-        return None;
-    }
-    Some(url.to_string())
-}
-
-fn queue_or_send_auth_callback(app: &DesktopAppHandle, url: String) {
-    let state = app.state::<HostState>();
-    let generation = state
-        .process
-        .lock()
-        .expect("host state lock poisoned")
-        .as_ref()
-        .map(|process| process.generation);
-    let Some(generation) = generation else {
-        state.queue_auth_callback(url);
-        return;
-    };
-    if let Err(error) = send_native_frame(
-        &state,
-        generation,
-        &RustToBunNativeFrame::AuthCallback { url: &url },
-    ) {
-        state.queue_auth_callback(url);
-        append_parent_log(app, &format!("deliver auth callback: {error:#}"));
     }
 }
 
@@ -721,7 +614,7 @@ fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
 ///
 /// The segment is `app` because it is the same ID space as `/apps/<id>/`: a
 /// person pasting a link names the thing they want, not the frame it arrives
-/// in. `epicenter://auth/...` stays disjoint by segment.
+/// in.
 fn parse_app_deep_link(url: &tauri::Url) -> Option<BuiltInApp> {
     if url.scheme() != "epicenter"
         || !url.username().is_empty()
@@ -814,37 +707,11 @@ fn start_once(app: &DesktopAppHandle) -> Result<()> {
             stop_starting_child(child, stdin);
             bail!("a Bun host is already managed by Epicenter");
         }
-        let (sender, receiver) = mpsc::sync_channel::<String>(64);
-        let failed = Arc::new(AtomicBool::new(false));
-        let writer_failed = failed.clone();
-        let writer = thread::spawn(move || {
-            let mut stdin = stdin;
-            for line in receiver {
-                if writeln!(stdin, "{line}")
-                    .and_then(|()| stdin.flush())
-                    .is_err()
-                {
-                    writer_failed.store(true, Ordering::Release);
-                    break;
-                }
-            }
-        });
         *process = Some(ManagedChild {
             generation,
             child,
-            stdin: Some(sender),
-            writer_failed: failed,
-            writer: Some(writer),
+            stdin: Some(stdin),
         });
-    }
-
-    if let Some(callback) = state.take_auth_callback() {
-        send_native_frame(
-            &state,
-            generation,
-            &RustToBunNativeFrame::AuthCallback { url: &callback },
-        )
-        .context("deliver the queued auth callback")?;
     }
 
     state.activate(&token);
@@ -882,14 +749,7 @@ fn launch_host(app: &DesktopAppHandle, port: u16) -> Result<LaunchedHost> {
     let mut stdin = child.stdin.take().context("capture Bun stdin")?;
     let stdout = child.stdout.take().context("capture Bun stdout")?;
     let token = launch_token()?;
-    let auth_cell =
-        read_auth_cell(&app.config().identifier).context("read the desktop auth cell")?;
-    let frame = boot_frame_json(
-        &token,
-        port,
-        auth_cell.as_deref(),
-        &app.state::<app_data::DesktopPaths>(),
-    )?;
+    let frame = boot_frame_json(&token, port, &app.state::<app_data::DesktopPaths>())?;
 
     if let Err(error) = writeln!(stdin, "{frame}").and_then(|()| stdin.flush()) {
         stop_starting_child(child, stdin);
@@ -992,27 +852,20 @@ fn host_command(_app: &DesktopAppHandle) -> Result<Command> {
 }
 
 fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<ChildStdout>) {
+    // After readiness Bun writes nothing on stdout, so whatever arrives there,
+    // or its closing, ends this generation.
     let (stdout_sender, stdout_receiver) = mpsc::sync_channel(1);
-    thread::spawn(move || loop {
+    thread::spawn(move || {
         let mut line = String::new();
-        let event = match (&mut stdout)
+        let message = match (&mut stdout)
             .take((MAX_NATIVE_FRAME_BYTES + 1) as u64)
             .read_line(&mut line)
         {
-            Ok(0) => Err("Bun closed stdout after readiness".to_string()),
-            Ok(_) if line.len() > MAX_NATIVE_FRAME_BYTES || !line.ends_with('\n') => {
-                Err("Bun closed stdout during an native frame".to_string())
-            }
-            Ok(_) => {
-                serde_json::from_str::<BunToRustNativeFrame>(line.trim_end_matches(['\r', '\n']))
-                    .map_err(|error| format!("Bun emitted an invalid native frame: {error}"))
-            }
-            Err(error) => Err(format!("failed to monitor Bun stdout: {error}")),
+            Ok(0) => "Bun closed stdout after readiness".to_string(),
+            Ok(_) => "Bun wrote to stdout after readiness, which carries nothing more".to_string(),
+            Err(error) => format!("failed to monitor Bun stdout: {error}"),
         };
-        let terminal = event.is_err();
-        if stdout_sender.send(event).is_err() || terminal {
-            return;
-        }
+        let _ = stdout_sender.send(message);
     });
 
     thread::spawn(move || loop {
@@ -1024,23 +877,9 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
             return;
         }
 
-        if let Ok(event) = stdout_receiver.recv_timeout(Duration::from_millis(150)) {
-            match event {
-                Ok(frame) => {
-                    if let Err(error) = handle_native_frame(&app, generation, frame) {
-                        fail_generation(
-                            &app,
-                            generation,
-                            format!("handle Bun native frame: {error:#}"),
-                        );
-                        return;
-                    }
-                }
-                Err(message) => {
-                    fail_generation(&app, generation, message);
-                    return;
-                }
-            }
+        if let Ok(message) = stdout_receiver.recv_timeout(Duration::from_millis(150)) {
+            fail_generation(&app, generation, message);
+            return;
         }
 
         let status = {
@@ -1051,10 +890,6 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
             };
             if process.generation != generation {
                 return;
-            }
-            if process.writer_failed.load(Ordering::Acquire) {
-                // A failed/bounded response pipe is terminal; never strand a request.
-                let _ = process.child.kill();
             }
             process.child.try_wait()
         };
@@ -1081,122 +916,10 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
     });
 }
 
-fn handle_native_frame(
-    app: &DesktopAppHandle,
-    generation: u64,
-    frame: BunToRustNativeFrame,
-) -> Result<()> {
-    {
-        let state = app.state::<HostState>();
-        if state.shutting_down.load(Ordering::Acquire) {
-            bail!("Native frame arrived after host shutdown began");
-        }
-        let process = state.process.lock().expect("host state lock poisoned");
-        if !process
-            .as_ref()
-            .is_some_and(|process| process.generation == generation)
-        {
-            bail!("Native frame belongs to a retired Bun generation");
-        }
-    }
-    // Dispatch without the process lock: restart delivers Exit, whose cleanup
-    // takes this lock before waiting for the Bun child.
-    match frame {
-        BunToRustNativeFrame::StoreAuth {
-            request_id,
-            serialized,
-        } => {
-            let result = write_auth_cell(&app.config().identifier, serialized);
-            send_native_result(app, generation, &request_id, result)
-        }
-        BunToRustNativeFrame::OpenAuthUrl { request_id, url } => {
-            let result = configured_auth_server().and_then(|server| {
-                validate_auth_url(&url, &server.server)?;
-                app.opener()
-                    .open_url(url, None::<String>)
-                    .map_err(Into::into)
-            });
-            send_native_result(app, generation, &request_id, result)
-        }
-        // `request_restart` delivers ExitRequested and Exit from any thread, so
-        // `shutdown_host` stops Bun before the new process starts. `restart`
-        // skips both when called on the main thread.
-        BunToRustNativeFrame::Relaunch {} => {
-            app.request_restart();
-            Ok(())
-        }
-    }
-}
-
-fn send_native_result<E: std::fmt::Display>(
-    app: &DesktopAppHandle,
-    generation: u64,
-    request_id: &str,
-    result: std::result::Result<(), E>,
-) -> Result<()> {
-    if request_id.is_empty() {
-        bail!("native requestId must be non-empty");
-    }
-    let state = app.state::<HostState>();
-    match result {
-        Ok(()) => send_native_frame(
-            &state,
-            generation,
-            &RustToBunNativeFrame::NativeResult {
-                request_id,
-                status: "ok",
-                message: None,
-            },
-        ),
-        Err(error) => {
-            let message = error.to_string();
-            send_native_frame(
-                &state,
-                generation,
-                &RustToBunNativeFrame::NativeResult {
-                    request_id,
-                    status: "error",
-                    message: Some(&message),
-                },
-            )
-        }
-    }
-}
-
-fn send_native_frame(
-    state: &HostState,
-    generation: u64,
-    frame: &RustToBunNativeFrame<'_>,
-) -> Result<()> {
-    let line = serde_json::to_string(frame).context("serialize the native native frame")?;
-    let mut process = state.process.lock().expect("host state lock poisoned");
-    let process = process
-        .as_mut()
-        .filter(|process| process.generation == generation)
-        .context("the target Bun generation is no longer active")?;
-    let stdin = process
-        .stdin
-        .as_mut()
-        .context("the target Bun generation has no command pipe")?;
-    if line.len() > MAX_NATIVE_FRAME_BYTES {
-        bail!("Native response exceeds frame limit");
-    }
-    stdin
-        .try_send(line)
-        .context("native response queue is full or closed")?;
-    Ok(())
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthServer {
-    #[serde(rename = "baseURL")]
-    base_url: String,
-    authority_id: String,
-}
-
+/// The deployment this build signs in to and sends to, and whether it has
+/// the hosted account website.
 struct AuthConfiguration {
-    server: AuthServer,
+    base_url: String,
     account_management: bool,
 }
 
@@ -1205,7 +928,7 @@ struct AuthConfiguration {
 /// and the CLI it runs name one deployment (ADR-0326).
 pub(crate) fn deployment_origin() -> std::result::Result<String, String> {
     configured_auth_server()
-        .map(|config| config.server.base_url)
+        .map(|config| config.base_url)
         .map_err(|error| format!("{error:#}"))
 }
 
@@ -1239,44 +962,17 @@ fn auth_server(self_hosted: Option<&str>, development: Option<&str>) -> Result<A
     {
         bail!("EPICENTER_API_URL must be an HTTP loopback origin in development");
     }
-    let base_url = url.origin().ascii_serialization();
-    let authority_id = if self_hosted.is_some() {
-        let hex: String = base_url
-            .as_bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        format!("instance-{hex}")
-    } else {
-        "epicenter-api".to_owned()
-    };
     Ok(AuthConfiguration {
-        server: AuthServer {
-            base_url,
-            authority_id,
-        },
+        base_url: url.origin().ascii_serialization(),
         account_management: self_hosted.is_none(),
     })
-}
-
-fn validate_auth_url(value: &str, server: &AuthServer) -> Result<()> {
-    let url = tauri::Url::parse(value).context("parse the authorization URL")?;
-    if url.origin().ascii_serialization() != server.base_url
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
-        || url.path() != "/sign-in"
-    {
-        bail!("authorization URL must be {}/sign-in", server.base_url);
-    }
-    Ok(())
 }
 
 /// Ordinary new-tab account links leave the desktop app's work in place.
 /// The host opens only the hosted account destinations in the system browser.
 fn is_hosted_account_url(url: &tauri::Url, config: &AuthConfiguration) -> bool {
     config.account_management
-        && url.origin().ascii_serialization() == config.server.base_url
+        && url.origin().ascii_serialization() == config.base_url
         && url.username().is_empty()
         && url.password().is_none()
         && url.fragment().is_none()
@@ -1339,9 +1035,6 @@ fn stop_child(mut process: ManagedChild) {
     }
     let _ = process.child.kill();
     let _ = process.child.wait();
-    if let Some(writer) = process.writer.take() {
-        let _ = writer.join();
-    }
 }
 
 fn shutdown_host(app: &DesktopAppHandle) {
@@ -1704,21 +1397,12 @@ fn launch_token() -> Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-fn boot_frame_json(
-    token: &str,
-    port: u16,
-    auth_cell: Option<&str>,
-    paths: &app_data::DesktopPaths,
-) -> Result<String> {
-    let config = configured_auth_server()?;
+fn boot_frame_json(token: &str, port: u16, paths: &app_data::DesktopPaths) -> Result<String> {
     serde_json::to_string(&BootFrame {
         r#type: "boot",
         protocol_version: PROTOCOL_VERSION,
         token,
         port,
-        auth_cell,
-        auth_server: config.server,
-        account_management: config.account_management,
         paths,
     })
     .context("serialize the Bun boot frame")
@@ -1841,68 +1525,43 @@ mod tests {
     }
 
     #[test]
-    fn development_sign_in_opens_only_the_configured_local_issuer() {
-        let server = auth_server(None, Some("http://localhost:8787")).unwrap();
-        validate_auth_url("http://localhost:8787/sign-in?state=state", &server.server).unwrap();
-        for url in [
-            "https://api.epicenter.so/sign-in",
-            "http://localhost:8788/sign-in",
-            "http://127.0.0.1:8787/sign-in",
-            "http://localhost:8787/other",
-            "http://user@localhost:8787/sign-in",
-            "http://localhost:8787/sign-in#fragment",
-        ] {
-            assert!(validate_auth_url(url, &server.server).is_err());
-        }
-        assert!(validate_auth_url(
-            "http://localhost:8787/sign-in",
-            &auth_server(None, None).unwrap().server
-        )
-        .is_err());
-        assert!(auth_server(None, Some("https://evil.test")).is_err());
-    }
-
-    #[test]
     fn production_port_is_stable() {
         assert_eq!(PRODUCTION_PORT, 39_130);
     }
 
     #[test]
-    fn native_dashboard_policy_is_independent_of_server_identity() {
+    fn development_names_only_a_local_deployment() {
+        assert_eq!(
+            auth_server(None, Some("http://localhost:8787"))
+                .unwrap()
+                .base_url,
+            "http://localhost:8787"
+        );
+        assert_eq!(
+            auth_server(None, None).unwrap().base_url,
+            "https://api.epicenter.so"
+        );
+        assert!(auth_server(None, Some("https://evil.test")).is_err());
+    }
+
+    #[test]
+    fn native_dashboard_policy_follows_account_management() {
         let mut config = auth_server(Some("https://self.example"), None).unwrap();
-        let identity = config.server.authority_id.clone();
         let dashboard = "https://self.example/dashboard".parse().unwrap();
         assert!(!is_hosted_account_url(&dashboard, &config));
         config.account_management = true;
         assert!(is_hosted_account_url(&dashboard, &config));
-        validate_auth_url("https://self.example/sign-in", &config.server).unwrap();
-        assert_eq!(config.server.authority_id, identity);
     }
 
     #[test]
-    fn fixed_self_hosted_origin_owns_identity_and_browser_allowlist() {
+    fn fixed_self_hosted_origin_wins_and_has_no_account_website() {
         let server = auth_server(
             Some("https://SELF.example:443/"),
             Some("http://localhost:8787"),
         )
         .unwrap();
-        assert_eq!(server.server.base_url, "https://self.example");
-        assert_eq!(
-            server.server.authority_id,
-            "instance-68747470733a2f2f73656c662e6578616d706c65"
-        );
+        assert_eq!(server.base_url, "https://self.example");
         assert!(!server.account_management);
-        validate_auth_url("https://self.example/sign-in?state=pending", &server.server).unwrap();
-        for url in [
-            "https://api.epicenter.so/sign-in",
-            "https://self.example.evil.test/sign-in",
-            "https://self.example:444/sign-in",
-            "https://self.example/dashboard",
-            "https://user@self.example/sign-in",
-            "https://self.example/sign-in#fragment",
-        ] {
-            assert!(validate_auth_url(url, &server.server).is_err());
-        }
         assert!(!is_hosted_account_url(
             &"https://self.example/dashboard".parse().unwrap(),
             &server
@@ -1924,8 +1583,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_the_expected_v14_ready_frame() {
-        read_ready_frame(&mut Cursor::new(ready_line(14, PRODUCTION_PORT)), PRODUCTION_PORT)
+    fn parses_only_the_expected_v15_ready_frame() {
+        read_ready_frame(&mut Cursor::new(ready_line(15, PRODUCTION_PORT)), PRODUCTION_PORT)
             .unwrap();
 
         for invalid in [
@@ -1933,16 +1592,18 @@ mod tests {
             "".to_string(),
             // The earlier protocols: 11 named installed applications, 12
             // booted without the cache directory and relaunched only after a
-            // departure round, and 13 carried labeled application secrets.
+            // departure round, 13 carried labeled application secrets, and
+            // 14 carried the desktop auth cell and the native auth frames.
             ready_line(11, PRODUCTION_PORT),
             "{\"type\":\"ready\",\"protocolVersion\":11,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
             ready_line(12, PRODUCTION_PORT),
             ready_line(13, PRODUCTION_PORT),
-            ready_line(14, 39_131),
+            ready_line(14, PRODUCTION_PORT),
+            ready_line(15, 39_131),
             // A field this protocol does not define refuses the frame.
-            "{\"type\":\"ready\",\"protocolVersion\":14,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
-            "{\"type\":\"boot\",\"protocolVersion\":14,\"port\":39130}\n".to_string(),
-            ready_line(14, PRODUCTION_PORT).trim_end().to_string(),
+            "{\"type\":\"ready\",\"protocolVersion\":15,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
+            "{\"type\":\"boot\",\"protocolVersion\":15,\"port\":39130}\n".to_string(),
+            ready_line(15, PRODUCTION_PORT).trim_end().to_string(),
         ] {
             assert!(
                 read_ready_frame(&mut Cursor::new(invalid.as_bytes()), PRODUCTION_PORT).is_err(),
@@ -2306,6 +1967,8 @@ mod tests {
         include_str!("../capabilities/installed-app-windows-production.json"),
         include_str!("../capabilities/installed-whispering-development.json"),
         include_str!("../capabilities/installed-whispering-production.json"),
+        include_str!("../capabilities/installed-todos-development.json"),
+        include_str!("../capabilities/installed-todos-production.json"),
     ];
 
     /// Whether `capability` applies to the window labelled `label`, decided as
@@ -2382,6 +2045,74 @@ mod tests {
         }
     }
 
+    /// Todos' capability selects every window `open_installed_window` makes
+    /// for `so.epicenter.todos` and no other, and grants what its page calls
+    /// for the account Settings signed in to: who it is (`auth_status`), its
+    /// one account request through the CLI (`account_send`), and opening
+    /// Settings to sign in. No token reaches the page (ADR-0549, ADR-0556).
+    #[test]
+    fn installed_todos_is_granted_its_account_commands_by_app_id() {
+        for encoded in [
+            include_str!("../capabilities/installed-todos-development.json"),
+            include_str!("../capabilities/installed-todos-production.json"),
+        ] {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            for label in [
+                installed_window_label("so.epicenter.todos", None),
+                installed_window_label("so.epicenter.todos", Some("so.epicenter.todos")),
+                installed_window_label("so.epicenter.todos", Some("data:Groceries")),
+            ] {
+                assert!(selects(&capability, &label), "{label} is Todos'");
+            }
+            for label in [
+                installed_window_label("so.epicenter.whispering", None),
+                installed_window_label("so.epicenter.todosx", None),
+                installed_window_label("so.epicenter.todos.other", None),
+                installed_window_label("so.epicenter", Some("so.epicenter.todos")),
+                "todos".to_string(),
+                "home".to_string(),
+                "folders".to_string(),
+            ] {
+                assert!(!selects(&capability, &label), "{label} is not Todos'");
+            }
+            assert_eq!(
+                capability["permissions"],
+                serde_json::json!(["allow-account-send", "allow-auth-status", "allow-open-home"]),
+                "{encoded}"
+            );
+        }
+    }
+
+    /// An account request reaches installed Todos by its app id and no other
+    /// window; who the app is signed in as reaches Settings and Todos; signing
+    /// in and out reaches Settings alone (ADR-0558).
+    #[test]
+    fn account_commands_are_granted_to_settings_and_todos_alone() {
+        for encoded in ALL_CAPABILITIES {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            let permissions = capability["permissions"].as_array().unwrap();
+            let grants = |permission: &str| permissions.contains(&serde_json::json!(permission));
+            let identifier = capability["identifier"].as_str().unwrap();
+            let todos = capability["windows"]
+                == serde_json::json!(["app:so_epicenter_todos", "app:so_epicenter_todos:*"]);
+            let settings_account = capability["windows"] == serde_json::json!(["home"])
+                && identifier.starts_with("home-account");
+            assert_eq!(grants("allow-account-send"), todos, "{identifier}");
+            assert_eq!(
+                grants("allow-auth-status"),
+                todos || settings_account,
+                "{identifier}"
+            );
+            for permission in ["allow-auth-login", "allow-auth-logout"] {
+                assert_eq!(
+                    grants(permission),
+                    settings_account,
+                    "{identifier} {permission}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn each_build_selects_the_home_model_administration_capability() {
         for (encoded, capability) in [
@@ -2426,6 +2157,14 @@ mod tests {
             (
                 include_str!("../tauri.conf.json"),
                 "installed-whispering-production",
+            ),
+            (
+                include_str!("../tauri.dev.conf.json"),
+                "installed-todos-development",
+            ),
+            (
+                include_str!("../tauri.conf.json"),
+                "installed-todos-production",
             ),
         ] {
             let config: serde_json::Value = serde_json::from_str(encoded).unwrap();
@@ -2605,30 +2344,6 @@ mod tests {
     }
 
     #[test]
-    fn auth_deep_links_accept_only_the_exact_callback_route() {
-        for url in [
-            "epicenter://auth/callback?code=code&state=state",
-            "epicenter://auth/callback?error=access_denied&state=state",
-        ] {
-            assert_eq!(
-                parse_auth_callback(&url.parse().unwrap()),
-                Some(url.to_string())
-            );
-        }
-
-        for denied in [
-            "epicenter://auth/callback",
-            "epicenter://auth/callback?state=state",
-            "epicenter://auth/callback/extra?code=code",
-            "epicenter://auth/callback?code=code#fragment",
-            "epicenter://user@auth/callback?code=code",
-            "https://api.epicenter.so/auth/callback?code=code",
-        ] {
-            assert_eq!(parse_auth_callback(&denied.parse().unwrap()), None);
-        }
-    }
-
-    #[test]
     fn system_browser_accepts_only_hosted_account_destinations() {
         for allowed in [
             "https://api.epicenter.so/dashboard?expectedPrincipal=alice",
@@ -2660,81 +2375,6 @@ mod tests {
     }
 
     #[test]
-    fn system_browser_accepts_only_hosted_auth_urls() {
-        for allowed in [
-            "https://api.epicenter.so/sign-in?callback=epicenter%3A%2F%2Fauth%2Fcallback&state=state&challenge=challenge",
-            "https://api.epicenter.so/sign-in?reauth=1",
-        ] {
-            validate_auth_url(allowed, &auth_server(None, None).unwrap().server).unwrap();
-        }
-        for denied in [
-            "http://api.epicenter.so/sign-in",
-            "https://api.epicenter.so.evil.test/sign-in",
-            "https://api.epicenter.so/not-auth",
-            "https://api.epicenter.so/sign-in/extra",
-            "https://api.epicenter.so/auth/sign-in",
-            "https://user@api.epicenter.so/sign-in",
-            "https://api.epicenter.so/sign-in#fragment",
-            "https://api.epicenter.so:444/sign-in",
-        ] {
-            assert!(validate_auth_url(denied, &auth_server(None, None).unwrap().server).is_err());
-        }
-    }
-
-    #[test]
-    fn bun_auth_frames_are_closed_and_exact() {
-        assert_eq!(
-            serde_json::to_value(RustToBunNativeFrame::AuthCallback {
-                url: "epicenter://auth/callback?code=code&state=state",
-            })
-            .unwrap(),
-            serde_json::json!({
-                "type": "auth-callback",
-                "url": "epicenter://auth/callback?code=code&state=state",
-            })
-        );
-        assert_eq!(
-            serde_json::from_str::<BunToRustNativeFrame>(
-                "{\"type\":\"store-auth\",\"requestId\":\"one\",\"serialized\":null}"
-            )
-            .unwrap(),
-            BunToRustNativeFrame::StoreAuth {
-                request_id: "one".to_string(),
-                serialized: None,
-            }
-        );
-        assert!(serde_json::from_str::<BunToRustNativeFrame>(
-            "{\"type\":\"execute\",\"command\":\"shell\"}"
-        )
-        .is_err());
-        assert!(serde_json::from_str::<BunToRustNativeFrame>(
-            "{\"type\":\"relaunch\",\"extra\":true}"
-        )
-        .is_err());
-    }
-
-    /// A relaunch asks nothing first, so its frame carries nothing: no request
-    /// to answer and no grant to hold (ADR-0542).
-    #[test]
-    fn the_relaunch_frame_is_bare() {
-        assert_eq!(
-            serde_json::from_str::<BunToRustNativeFrame>("{\"type\":\"relaunch\"}").unwrap(),
-            BunToRustNativeFrame::Relaunch {}
-        );
-        for invalid in [
-            "{\"type\":\"relaunch\",\"requestId\":\"one\"}",
-            "{\"type\":\"prepare-relaunch\",\"requestId\":\"one\"}",
-            "{\"type\":\"prepare-cancel\",\"requestId\":\"one\"}",
-            "{\"type\":\"relaunch-abort\",\"requestId\":\"one\"}",
-        ] {
-            assert!(
-                serde_json::from_str::<BunToRustNativeFrame>(invalid).is_err(),
-                "{invalid}"
-            );
-        }
-    }
-
-    #[test]
     fn forwarded_arguments_extract_valid_unique_app_links() {
         let arguments = [
             "/Applications/Epicenter.app/Contents/MacOS/Epicenter",
@@ -2753,23 +2393,19 @@ mod tests {
     }
 
     #[test]
-    fn boot_frame_carries_the_native_directories_and_auth_cell() {
+    fn boot_frame_carries_the_native_directories_and_no_auth() {
         let paths = app_data::DesktopPaths {
             data_dir: std::env::temp_dir().join("so.epicenter.dev"),
             folder_dir: std::env::temp_dir().join("Epicenter Dev"),
             cache_dir: std::env::temp_dir().join("so.epicenter.dev-cache"),
         };
-        let json = boot_frame_json("safe_token", PRODUCTION_PORT, Some("opaque"), &paths).unwrap();
+        let json = boot_frame_json("safe_token", PRODUCTION_PORT, &paths).unwrap();
         let frame: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert!(frame["authServer"]["baseURL"].is_string());
-        assert!(frame["authServer"].get("baseUrl").is_none());
         assert_eq!(
             frame,
             serde_json::json!({
-                "type": "boot", "protocolVersion": 14, "token": "safe_token",
-                "port": PRODUCTION_PORT, "authCell": "opaque",
-                "authServer": configured_auth_server().unwrap().server,
-                "accountManagement": configured_auth_server().unwrap().account_management,
+                "type": "boot", "protocolVersion": 15, "token": "safe_token",
+                "port": PRODUCTION_PORT,
                 "dataDir": paths.data_dir, "folderDir": paths.folder_dir,
                 "cacheDir": paths.cache_dir,
             })

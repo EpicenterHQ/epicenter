@@ -33,7 +33,6 @@ enigo = "0.5.0"
 getrandom = "0.3"
 hf-hub = { version = "0.5", features = ["tokio"] }
 hound = "3.5"
-keyring = "4"
 log = "0.4"
 notify = "8"
 notify-debouncer-full = "0.5"

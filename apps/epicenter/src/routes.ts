@@ -32,11 +32,5 @@ export const BUILT_IN_ROUTES = {
 } as const;
 
 export const BOOTSTRAP_ROUTE = route('/_epicenter/bootstrap');
-export const ACCOUNT_SIGN_IN_ROUTE = route('/_epicenter/account/sign-in');
-export const SIGN_IN_CALLBACK_ROUTE = route('/_epicenter/sign-in/callback');
-export const ACCOUNT_CANCEL_CONNECTION_ROUTE = route(
-	'/_epicenter/account/cancel-connection',
-);
-export const ACCOUNT_SIGN_OUT_ROUTE = route('/_epicenter/account/sign-out');
 export const HOME_ROUTE = BUILT_IN_ROUTES.home;
 export const FOLDERS_ROUTE = BUILT_IN_ROUTES.folders;

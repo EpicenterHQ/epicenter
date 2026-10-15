@@ -26,9 +26,9 @@ Each page runs `@epicenter/folder`'s own engine over a directory the shell
 grants (ADR-0531). An app that needs other native commands is granted them by
 its app id (see [Native commands for an installed app](#native-commands-for-an-installed-app)).
 
-The host brokers credentials and owns native resources. Product pages own
-unsaved input. The Bun sidecar serves product bundles without owning their row
-input.
+The host serves product bundles and holds no credential: the `epicenter`
+CLI holds the account and every key (ADR-0556). Product pages own unsaved
+input. The Bun sidecar serves product bundles without owning their row input.
 
 ## The epicenter binary
 
@@ -65,10 +65,20 @@ The one binary has three uses:
   goes to `onEvent`. `auth_status()` runs `epicenter auth status --desktop
   --json` and `auth_logout()` runs `epicenter auth logout --desktop --json`.
   `ai_send` runs `epicenter send --json --desktop`, so an Epicenter
-  connection sends with the app's grant. Each of these passes the shell's
-  configured server as `EPICENTER_API_URL`, so the CLI and the shell name
-  one deployment. The grant's refresh token and cached access tokens are in
-  the CLI's keychain entry; no token reaches a page or Rust.
+  connection sends with the app's grant.
+- `account_send(audience, request, onEvent)` is a page's account request
+  (ADR-0549, ADR-0556). It runs `epicenter send --json --desktop` with the
+  target `{"kind":"account","audience"}`, where `audience` is `api` or `git`,
+  a closed enum that names one of the deployment's resources by role. The CLI
+  sends only a path below the deployment's `/api/`, adds the app's grant's
+  access token for that resource, and streams the response back as
+  `ai_send`'s lines do, followed by the same `{"type":"exit"}` line; with no
+  sign-in it answers `NoAccountToken`. No page holds an access token
+  (ADR-0549's desktop row), so there is no command that hands one out.
+  Each of these passes the shell's configured server as `EPICENTER_API_URL`,
+  so the CLI and the shell name one deployment. The grant's refresh token and
+  cached access tokens are in the CLI's keychain entry; no token reaches a
+  page or Rust.
 
 `epicenter install-command`, run from the bundled binary, links it onto `PATH`
 as `/usr/local/bin/epicenter`, asking before `sudo` when that directory is not
@@ -99,7 +109,7 @@ Windows. Windows storage stays out of roaming profiles because databases and dev
 caches belong to this device. `EPICENTER_DATA_DIR` overrides the complete
 path and must be absolute.
 
-Development uses `so.epicenter.dev` for data, settings, and keyring entries.
+Development uses `so.epicenter.dev` for data and settings.
 Production's authored folder root is `~/Epicenter`; development's is `~/Epicenter Dev`.
 `EPICENTER_FOLDER_DIR` overrides the authored folder root and must be absolute.
 Built installed apps go to the platform cache directory, `so.epicenter` (or
@@ -171,16 +181,13 @@ shows who the app is signed in as. Nothing restarts. It is a separate grant
 from a terminal's `epicenter auth login`, and signing one out leaves the
 other signed in.
 
-An installed app's own Sign in (Todos' sync choices) still goes through the
-host's session sign-in and its account relay, `/_epicenter/account/*`
-(`src/desktop-auth-authority.ts`, `@epicenter/auth/desktop`), because the
-API accepts no OAuth access token yet (ADR-0549). The API rebuilds its
-sign-in page at startup so both sides use the current session handoff.
-That sign-in returns through the running host's loopback callback in
-development, because a raw macOS development executable has no registered
-URL scheme, and through `epicenter://auth/callback` in packaged builds. If
-you set `EPICENTER_DEV_PORT`, set it on this root command so the API
-approves the same exact callback port the host binds.
+An installed app uses the same account. Todos' desktop leaf
+(`apps/todos/src/lib/platform/auth.epicenter-host.ts`, over
+`@epicenter/auth/desktop`) reads who is signed in with `auth_status`, sends
+`POST /api/git/connect` through `account_send` with the `git` resource, and
+sends the person to Settings with `open_home` to sign in; it signs out only
+from Settings. The host has no account routes and stamps nothing into a
+page.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
@@ -190,7 +197,7 @@ Settings from its Settings button with `open_home`. Opening an app opens its own
 window; the OS is the switcher from there, and closing the Folders window
 leaves everything it opened running.
 
-Settings is the window labelled `home`. It holds the account and alone
+Settings is the window labelled `home`. It signs the app in and out and alone
 administers the local transcription model (ADR-0180). An app that needs
 a local model opens it with `open_home` and a section. The tray (Show Folders,
 Show Settings) and deep links remain shortcuts into the same windows; installed
@@ -445,8 +452,7 @@ running the command: in a release the bundled
 the `bun` on `PATH`.
 
 The Bun host serves an installed app's current build at `/apps/<app-id>/` on
-Epicenter's origin, behind the same session gate and auth bootstrap as a
-compiled app, with its document's inline scripts hashed into its own
+Epicenter's origin, behind the same session gate as a compiled app, with its document's inline scripts hashed into its own
 Content-Security-Policy. `open_installed_app` opens it in its own window,
 after the CLI builds the listed commit when it is not the current build,
 labelled `app:<id with _ for .>`, plus `:<folder scope in hex>` when it is
@@ -477,13 +483,22 @@ commands gets them from one capability per app id, in both build variants
 - Native state an app owns, such as an overlay window or global shortcuts, is
   created when the app's window opens, never at startup.
 
-The one such capability today is Whispering's (`so.epicenter.whispering`,
-`installed-whispering-*`): the recorder plugin, which writes into the folder
-the window was granted (ADR-0543); `list_inference_models`,
-`transcribe_audio_bytes`, and `get_local_transcription_readiness`, for
-transcription with the one active local model (ADR-0180); and `open_home`, to
-open Settings where that model is chosen. Whispering's page has no recording
-overlay and registers no global shortcuts, so neither is created or granted.
+Two apps have one:
+
+- Whispering (`so.epicenter.whispering`, `installed-whispering-*`): the
+  recorder plugin, which writes into the folder the window was granted
+  (ADR-0543); `list_inference_models`, `transcribe_audio_bytes`, and
+  `get_local_transcription_readiness`, for transcription with the one active
+  local model (ADR-0180); `open_home`, to open Settings where that model is
+  chosen; and `ai_send`, `ai_key_set`, `ai_key_remove`, and `ai_key_state`,
+  for its AI connections (ADR-0557).
+- Todos (`so.epicenter.todos`, `installed-todos-*`): `auth_status`, to know
+  who Epicenter is signed in as; `account_send`, for its one account request,
+  `POST /api/git/connect` with the `git` resource; and `open_home`, to send
+  the person to Settings to sign in (ADR-0558).
+
+Whispering's page has no recording overlay and registers no global shortcuts,
+so neither is created or granted.
 The shell's overlay panel (`src-tauri/src/overlay.rs`) and the dictation
 commands (global shortcuts, keyboard delivery, playback pause, accessibility,
 and autostart) are compiled but granted to no window. The shell registers the
@@ -506,11 +521,10 @@ not submit is lost, as people expect.
   shutdown) end Tao's loop directly. Either way Tauri delivers `RunEvent::Exit`,
   where the Folder plugin fences new work and releases each folder's lock, and
   `shutdown_host` closes Bun's stdin and gives it `SHUTDOWN_TIMEOUT` to stop.
-- **A host account change restarts at once.** The host's session sign-in or
-  sign-out, which an installed app starts, writes the next credential, then
-  sends `relaunch` over the private Bun pipe, and Rust calls
-  `request_restart` ([ADR-0415](../../docs/adr/0415-runtime-replacement-ends-application-sessions.md)).
-  No window can refuse it.
+- **An account change restarts nothing.** The account is the CLI's desktop
+  grant (ADR-0556); a page that uses it reads it again when its window
+  regains focus. The private Bun pipe carries the boot frame and nothing
+  after it.
 - **A host restart reloads the windows.** When Bun stops, every window it
   served is destroyed, because its initialization script carries that host's
   token. The built-in windows a person could see are queued and created again

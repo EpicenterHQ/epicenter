@@ -23,7 +23,6 @@
 		"@epicenter/ai": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
-		"@epicenter/auth": "workspace:*",
 		"@epicenter/cli": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/svelte": "workspace:*",

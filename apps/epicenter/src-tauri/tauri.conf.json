@@ -21,7 +21,8 @@
 				"home-account-production",
 				"folders-production",
 				"installed-app-windows-production",
-				"installed-whispering-production"
+				"installed-whispering-production",
+				"installed-todos-production"
 			],
 			"csp": "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 		}
