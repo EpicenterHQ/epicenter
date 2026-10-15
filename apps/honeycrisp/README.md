@@ -30,8 +30,7 @@ Checks, from `apps/honeycrisp`:
 | `bun run typecheck` | Both page builds and the scripts. |
 | `bun run test` | The page: the editor, the notes state over the browser folder, first open over a real directory, bundle contents, then `test:dom`. Needs no Rust or C compiler. |
 | `bun run test:dom` | The note view, mounted with its UI library over jsdom, in its own process. |
-| `bun run test:native` | The shell: its Rust tests, then the page's close handling against the shell's real close gate. Needs Rust. |
-| `bun run test:quit` | macOS only, run by hand in a login session: the real app, on a fixture page in a fresh directory, quit through AppKit's `terminate:` twice. The first quit is declined; the second is approved while writes are still running, and every file they leave must be whole. See [the quit evidence](evidence/native-quit/README.md). Opens a window. |
+| `bun run test:native` | The shell: builds the desktop page, then runs its Rust tests. Needs Rust. |
 
 ## Where notes live
 
@@ -175,17 +174,13 @@ moment of typing, and the message offers it to copy. Opening another note
 never asks: there is nothing unsaved to discard. Reloading the page and
 in-page navigation wait while a save or action is running.
 
-Closing the window or quitting the app (including Cmd+Q) waits for every save
-and action to land, then closes. It never asks to discard anything. While the
-desktop app answers a close it takes no input: typing, buttons, menus, and the
-terminal do nothing until the app closes or the close is refused. The editors
-stay as they are, with their undo history. A browser tab has no such step;
-its leave prompt is the browser's.
-
-Every native close asks the page. The shell cannot infer permission from an
-earlier observation of the page: once the notes are open, only the page's
-answer to that one request lets a close through. A page that does not answer
-is asked again on the next attempt, and the window stays.
+Closing the desktop window or quitting the app (including Cmd+Q) quits at
+once. Nothing asks the page, nothing waits, and no dialog appears
+([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
+Each save writes its new text beside the file and renames it into place, so a
+quit in the middle of a save leaves the file's old text or its new text, never
+part of either. What is lost is what a save still running held: at most the
+last moment of typing. In a browser tab, the leave prompt is the browser's.
 
 ## Header controls
 
@@ -234,8 +229,8 @@ that is not text, or is larger than 16 MB, is refused instead of shown.
 
 ```text
 Tauri shell (src-tauri)          one program and one window. It registers the
-        │                        notes directory with the shared folder plugin
-        │                        and asks the page before a close or quit.
+        │                        notes directory with the shared folder plugin.
+        │                        Closing the window quits at once.
         ▼
 Folder plugin                    grants the window the directory and holds its
         │                        lock. The page reads, makes every change, and
@@ -319,7 +314,6 @@ or a working directory.
 
 | Command | Purpose |
 | --- | --- |
-| `close_register`, `close_opened`, `close_approve`, `close_decline` | Close consent, below. |
 | `shell_info` | The root, and where the terminal's next command starts. |
 | `terminal_run` | One command in `/bin/sh`. The shell keeps the working directory between commands, so hiding the terminal or reloading the page loses nothing. |
 | `file_log`, `file_show` | One file's commits, and its text at one of them. The path must be a literal path inside the folder and the commit a hexadecimal id. |
@@ -328,47 +322,14 @@ or a working directory.
 The terminal is an outside writer, exactly as another program is. The page
 reads the folder again after each command.
 
-### Close consent
+### Closing and quitting
 
-Four things can close the app: the window's close button, an exit request
-from the run loop, the Quit menu item, and on macOS a quit from the system.
-On macOS a custom Quit item routes Cmd+Q through the same path, because the
-predefined one bypasses Tauri's preventable exit event. A quit from the Dock,
-a logout, or an Apple Event is AppKit's `terminate:`. Tao's application
-delegate does not answer `applicationShouldTerminate:`, so AppKit would end
-the app without an exit event. During setup, `src-tauri/src/quit.rs` adds
-that one method to Tao's existing delegate class. It always cancels the
-system quit and asks for an ordinary exit instead, so the gate decides. As a
-result, a logout or restart is cancelled every time, even with nothing
-unsaved, and it is never resumed. Start it again once Honeycrisp has exited.
-If the method cannot be added, the app does not start. Each way out asks
-`src-tauri/src/close.rs`:
-
-1. The page registers when it starts, before it opens the folder, and gets a
-   generation. A reload registers again; the page before it can no longer
-   answer.
-2. Until the page says its folder is open, a close goes ahead: a page that is
-   loading, or whose folder failed to open, has nothing to save.
-3. After that every close is held and the page receives a `close-requested`
-   event naming a request. The page stops taking input, waits for every save
-   and action to land, then approves. It never declines and never asks: a
-   save that failed was already put back and reported. Input stays stopped
-   while an approval is on its way. It is taken again only when the gate
-   answers that the approval was not taken because the page was replaced or
-   the request was already answered. Any other failure leaves input stopped,
-   and the next close is asked again.
-4. Only an approval naming the current page and the current request lets the
-   close through. A declined request, a request from before a reload, and a
-   second answer are refused.
-5. On exit the folder plugin refuses any new file or Git command from the
-   page, waits up to 10 seconds for the ones already running, and unlocks the
-   folder. The page approves only after every write it started has landed;
-   this wait covers what else is still running, such as a status check.
-
-A page that never answers is asked the same request again on the next attempt.
-Nothing in the shell approves on its behalf, so if the page's process dies
-after the notes opened, the window can only be force-quit, which loses a save
-still in flight. Until then a logout or restart stays cancelled.
+Closing the window, Cmd+Q, and a quit from the Dock, a logout, or an Apple
+Event all quit at once. The shell holds nothing back and asks the page
+nothing; on macOS the Quit item is Tauri's standard one. The operating system
+releases the folder's lock when the process ends. A save cut off by the quit
+leaves the old file or the new one, and a Git command cut off by it leaves at
+most a ref lock that Git names, which a person or an agent deletes.
 
 ## Testing failures by hand
 
@@ -411,19 +372,15 @@ view and delivers events to it.
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the query cache before it is shown, and semantic state replacement when the cached body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
 | `src/lib/note-source.ts` | The body replacement Rich and Source share (`withBody`), and list previews. |
-| `src/lib/notes.svelte.ts` | The query cache: listing and text queries, edits and their per-file write mutations, rollback after a failed write, note, folder, and file actions, Save version, what the detail shows, and the input fence. |
+| `src/lib/notes.svelte.ts` | The query cache: listing and text queries, edits and their per-file write mutations, rollback after a failed write, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
 | `src/lib/platform/` | The `#platform/notes-host` seam, its two leaves, and `shell.tauri.ts`, the page side of the shell's commands. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files, terminal. |
-| `src-tauri/src/lib.rs` | The desktop shell: the folder plugin, the notes scope, the window, close routing. |
+| `src-tauri/src/lib.rs` | The desktop shell: the folder plugin, the notes scope, and the window. |
 | `src-tauri/src/root.rs` | Choosing and resolving the root directory. |
 | `src/lib/platform/first-open.ts` | Setting up a folder that has no layout yet, through the granted folder. |
 | `src-tauri/src/commands.rs` | The shell's commands, each a thin call into a module below. |
-| `src-tauri/src/close.rs` | Whether a close or quit may go ahead. |
-| `src-tauri/src/quit.rs` | macOS: a quit from the system becomes an exit request the gate answers. |
-| `src-tauri/examples/quit/` | macOS: the real app quit through `terminate:` on a fixture page that approves before its writes land (`bun run test:quit`). |
 | `src-tauri/src/terminal.rs`, `history.rs`, `reveal.rs` | The terminal, per-file history, and reveal. |
 | `src-tauri/capabilities/main.json` | What the notes window may call. |
-| `native-tests/` | The page's close handling against the shell's real close gate. |
 
 ## Tech stack
 
@@ -453,7 +410,8 @@ when you ask (ADR-0529). It drops several promises of the version before it:
   version.
 - A note deleted elsewhere is no longer offered back. Your next edit to it is
   refused, and it leaves the list.
-- Closing and quitting never ask. They wait for saves to land, then close.
+- Closing and quitting never ask and never wait. They quit at once; a save
+  still running when they do leaves the old file or the new one.
 - Saves no longer commit. History grows only through **Save version** and
   your own commits, so each note's history has fewer entries. **Commit saved
   files** is now **Save version**.

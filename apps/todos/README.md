@@ -122,36 +122,23 @@ last read until one of those moments.
 
 ### Closing, quitting, and unsaved typing
 
-Edits are written as you make them. Writes and other actions still running
-are waited for. The title of a new todo you have not added lives in the box
-alone: it stays while the window is open, and quitting or reloading drops it.
+Edits are written as you make them. The title of a new todo you have not
+added lives in the box alone: it stays while the window is open, and quitting
+or reloading drops it.
 
 - Closing the Todos window hides it. The page stays loaded, so a typed title
   is still there when you open Todos again.
-- Quitting Epicenter, or restarting it for an account change, asks this page
-  first, over the host's departure wire (`@epicenter/epicenter/departure`),
-  through the shared page client (`@epicenter/epicenter/departure/page`).
-  From that moment the page takes no input and starts no edit or action. It
-  waits until every write and action already running has finished, then
-  tells Epicenter it is ready. It never asks: Todos has no prompt to show.
-  Once that work is done, nothing in it is lost.
-- Todos opens its folder only once it is listening for a quit or restart and
-  has read from Epicenter whether one is running. If it cannot listen, or
-  cannot read that status, it shows "Todos is waiting for Epicenter" with
-  Retry, and nothing is open or editable meanwhile; returning to the window,
-  or a quit or restart beginning, also reads again.
-- If the quit or restart is cancelled, by you or by another window, the
-  page takes input again. Until
-  Epicenter says the quit is over, the page stays waiting, even if an answer
-  to Epicenter was lost.
-- A host restart after a crash, a forced kill, or a system shutdown that does
-  not ask Epicenter ends the page without asking. A write that had not landed
-  is lost. Written files are on disk and reopen as they were.
-- The browser demo has none of this: leaving the tab while a write or action
-  runs asks first with the browser's leave warning. Opening another todo changes only the address's
-  `?todo=` and never asks.
-- On quit, the page drains its own writes and Git work through the departure
-  round above; Epicenter then releases the directory lock.
+- Quitting Epicenter, or restarting it for an account change, is immediate
+  and asks this page nothing
+  ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
+  A write still running when the process ends is lost; every write is a
+  rename, so the file holds the old version or the new one. Written files are
+  on disk and reopen as they were.
+- When Epicenter's Bun host restarts, the Todos window is created again and
+  reopens its folder.
+- The browser demo asks first with the browser's leave warning when leaving
+  the tab while a write or action runs (`todos.holdsUnsaved`). Opening another
+  todo changes only the address's `?todo=` and never asks.
 - A page reload ends that page's work. A write is published whole or not at
   all (its bytes are renamed into place), but a Save version or Sync the
   page was running stops where it was. An incoming update that stops
@@ -415,12 +402,12 @@ todo; `todos/a.MD` is an ordinary file.
 | --- | --- |
 | `src/lib/definition.ts` | The inert `defineFolder` declaration, written with the shared `defineTable` and `field` vocabulary. It names no folder. |
 | `src/routes/+layout.svelte` | The tooltip provider and toasts; no app state. |
-| `src/routes/+page.svelte` | Opens the folder and creates its store (`createTodos`), then mounts `TodosView` with it. Inside Epicenter it starts the shared departure client (`@epicenter/epicenter/departure/page`) and opens the folder only once a status is known, attaching `todos.departure` the moment it exists (`openForDeparture`); in a browser it opens at once. It turns a failed write into a toast with **Copy your text**. |
+| `src/routes/+page.svelte` | Opens the folder and creates its store (`createTodos`), then mounts `TodosView` with it. It turns a failed write into a toast with **Copy your text**. |
 | `src/routes/auth/callback/+page.svelte` | Where Epicenter's sign-in returns. |
-| `src/lib/platform/` | The `#platform/departure` seam: the host leaf is the shared Tauri window port (`@epicenter/epicenter/departure/window`); the browser leaf has no port. The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens this browser's folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing any of them opens nothing. |
+| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is the contract and holds `TODOS_FOLDER_ID`, `folder.browser.ts` opens this browser's folder through `@epicenter/folder/browser`, and `folder.epicenter-host.ts` opens the host's directory through `@epicenter/folder/tauri`. Each returns the folder or the refusal. The `#platform/auth` seam: redirect sign-in for the browser, Home's account through the host for the desktop. Importing any of them opens nothing. |
 | `src/lib/todo-listing.ts` | The todo listing as the list shows it (`todosOf`, `repairsOf`), and a todo's file and stem (`todoPath`, `todoStem`). |
-| `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry, the quit fence), leaving, and closing. It composes the namespaces below over one `Session`. |
-| `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError` and `DEPARTING`, the `WriteFailure` type, and the `Session` type. |
+| `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry), the browser leave check, and closing. It composes the namespaces below over one `Session`. |
+| `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type. |
 | `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), `edit`, the scoped `write(stem)` each view creates its mutation from, `create`, and `remove`. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
 | `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL, and the review's `apply`. |
@@ -462,8 +449,7 @@ the same queue and carries the version the person confirmed:
 reads it, so nothing the app does changes the file while the person decides
 (`remove(stem, shown)`). When it runs, the cached hash must still be that
 version; otherwise it refuses with `NotStarted`, and the folder's guard
-still refuses a change Todos has not read. The store holds whether
-Epicenter is asking to leave; the URL holds which todo is open; the new todo's title lives in the
+still refuses a change Todos has not read. The URL holds which todo is open; the new todo's title lives in the
 list. Components find the store with `getTodos()` and never touch its query
 client.
 

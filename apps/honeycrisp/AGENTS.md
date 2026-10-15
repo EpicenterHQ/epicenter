@@ -48,8 +48,8 @@ against the code. The constraints below apply to every edit here.
   `notes.test.ts` fail when the focus, staleness, or text-read guard is
   removed; keep them.
 - Every action is a mutation (create, rename, delete, delete folder, Save
-  version, terminal commands), so closing can wait for the mutation cache to
-  be idle. Do not add a manual `refresh()` after an action; its mutation
+  version, terminal commands), so `notes.close()` can wait for the mutation
+  cache to be idle before it releases the folder. Do not add a manual `refresh()` after an action; its mutation
   invalidates what it changed.
 - Commits happen only on **Save version** (`folder.git.commit()`, ADR-0529).
   Nothing commits on its own, and setup records no commit.
@@ -91,50 +91,23 @@ against the code. The constraints below apply to every edit here.
   keystroke or a write, including `locked`; that recreates the view and
   erases undo history. The view is keyed by its opening, so a rename keeps
   it.
-- Views disable their inputs with `notes.isLocked(path)`: while a close is
-  answered, and while the file is renamed or deleted.
+- Views disable their inputs with `notes.isLocked(path)`: once the notes
+  are closing, and while the file is renamed or deleted.
 
 ## Closing
 
-- Once the page holds its folder, every native close needs that page's
-  answer to that request. Nothing else approves one: not a write count, not
-  a timeout, not a page that stopped answering, not the shell itself. Do not
-  add a native prompt that discards on the page's behalf.
-- The page registers with the shell before it opens the folder, listens
-  before it says the folder is open, and says so before the notes exist.
-  `openGuarded` in `src/lib/platform/shell.tauri.ts` keeps that order; do not
-  open the desktop folder around it.
-- An approval names its page generation and its request. Keep both checks in
-  `src-tauri/src/close.rs`. The page answers a close by waiting for the
-  mutation cache to be idle (`notes.settle()`), then approving; it never
-  asks to discard and never declines. The gate's decline stays for the
-  shell's own use.
-- Input is fenced before writes are waited for and stays fenced while the
-  approval is on its way. `notes.fenceInput()` is the one switch: edits are
-  refused, notes actions and the terminal refuse to run, and `NotesView` is
-  `inert`. A new way to change a file must check it, and
-  a control in a menu, popover, or dialog must also be `disabled`, because
-  those render outside the inert root. Do not unmount the editors to fence
-  them: that loses undo history.
-- Release the fence only for the two gate refusals listed in
-  `APPROVAL_NOT_TAKEN` in `shell.tauri.ts`. Those are the texts of
-  `Refusal::StalePage` and `Refusal::NoSuchRequest` in `close.rs`; change
-  them together. "the app is already closing", any other text, and any other
-  failure keep the fence.
-- Route every way out through the gate: the window's close request, the run
-  loop's exit request, and the macOS Quit menu item, which stays custom
-  because the predefined one cannot be prevented.
-- A macOS system quit (Dock, logout, Apple Event) is AppKit's `terminate:`,
-  which Tao's delegate does not answer. `src-tauri/src/quit.rs` adds only
-  `applicationShouldTerminate:` to Tao's existing delegate class during
-  setup. It always cancels and calls `app.exit(0)`, so the gate decides.
-  Do not let it return anything but cancel, keep state, take a lock, or
-  replace the delegate. If the delegate class changes or already answers the
-  question, the app must fail to start; do not make it skip the guard.
-- After any Tauri, Tao, or macOS upgrade, rerun `bun run test:quit` and
-  `evidence/native-quit/late-method-probe.rs`, and record the results in
-  `evidence/native-quit/README.md`. The startup checks cannot see whether
-  AppKit still asks a method added after the delegate was set.
+- Closing the window or quitting quits at once (ADR-0542). Do not add a
+  close gate, a page vote, a wait for writes, an exit hold, or a quit
+  dialog; do not replace the standard Quit item. A save cut off by a quit
+  leaves the old file or the new one, because each save renames into place.
+- `notes.close()` releases the folder when the page itself goes away. Once it
+  begins, `notes.fenced` is set for good: edits are refused, notes actions
+  and the terminal refuse to run, and `NotesView` is `inert`. A new way to
+  change a file must check it, and a control in a menu, popover, or dialog
+  must also be `disabled`, because those render outside the inert root.
+- Keep the reload and in-page navigation guards in `NotesView`
+  (`beforeunload`, `beforeNavigate`): they hold a reload back while a write
+  runs.
 
 ## The boundary
 
@@ -176,11 +149,7 @@ against the code. The constraints below apply to every edit here.
 - A commit failure is a Git fact. Do not turn one into a save error, and do
   not make a save request or wait for a commit.
 - `bun run test` must not need Rust. Tests that need the shell live in
-  `src-tauri` and `native-tests/` and run with `bun run test:native`. The
-  quit harness, `src-tauri/examples/quit`, opens a window and needs a macOS
-  login session, so it runs only on its own (`bun run test:quit`). It quits
-  its own process in a fresh directory. Never point it at the default folder,
-  and never quit another app to test.
+  `src-tauri` and run with `bun run test:native`.
 
 ## Words a person reads
 

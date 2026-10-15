@@ -107,16 +107,10 @@ Any typed character counts, spaces included, until you add it or clear it.
   exists or a write is still running. The reload shortcut is refused with a
   message.
 - On the desktop, closing the Capture window hides it; the page and its text
-  stay loaded. When Epicenter quits or restarts, it asks the window first.
-  The window stops taking input at once and waits for writes and actions
-  already running. If no text is left unadded, it says so. Otherwise it
-  offers **Keep working** or **Discard and quit** (or **Discard and
-  restart**). Text not added is never added on its own because Epicenter is
-  quitting. Neither choice changes your text: if another window keeps
-  Epicenter open, everything is as it was.
-- If Epicenter's background service stops, the window says so. Saving does
-  not depend on that service and carries on; reloading the window may not
-  work until Epicenter restarts.
+  stay loaded. Quitting or restarting Epicenter asks nothing, and text not
+  added is lost, as it is when any app quits.
+- If Epicenter's background service stops, the window is created again once
+  the service is back, and text not added is lost.
 
 Nothing persists text not added across a reload or a quit you confirm.
 
@@ -241,64 +235,26 @@ with no plugin installed, opening fails and the page shows the reason.
 | --- | --- |
 | The page is destroyed or reloaded | `captures.close()` refuses input and waits until no write or action is running before `host.close()` closes the page's folder. Teardown writes no unadded text. Work still running when a page is torn down without closing stops; the files and Git stay as it left them, and the next open cleans the engine's scratch files. |
 | The Capture window is closed | The shell hides it. The page, its open capture, and its text stay loaded. |
-| Epicenter's Bun service stops (`host-stopped`, sent to this window) | A notice. The folder's files go through the shell, not the service, so saving carries on. The service served this page, so a reload may fail until Epicenter restarts. |
+| Epicenter's Bun service stops | The shell destroys the window and creates it again once the service is back; the page reopens its folder. Text typed and not added is lost. |
 
 ### Quitting and restarting
 
-Epicenter asks its windows before it quits, or restarts for an account
-change, over the departure wire that `@epicenter/epicenter/departure`
-publishes (`apps/epicenter/src/departure-wire.ts`). That module states the
-wire and its page rules. The page answers through the shared client
-`@epicenter/epicenter/departure/page`, bound to this window by
-`@epicenter/epicenter/departure/window`, and attaches the store's
-`captures.departure` to it. The host runs one round for every window it
-serves and decides; this page answers only for its own text not added.
-
-| Host to page | Page to host |
-| --- | --- |
-| Event `departure-changed`, sent to this window: read the status again | `invoke('departure_status')`, which returns the status |
-| | `invoke('departure_answer', { generation, round, answer })`: `asking`, then `ready` or `cancel` |
-| Event `host-stopped`, sent to this window | None. The page shows the notice above. |
-
-What the shared client does for this page:
-
-- It registers its listener on this window, then reads the status. The folder
-  opens only once a status is known; if registration or that read fails, the
-  page says so and offers Try again.
-- A round it has not handled fences every input and action before anything
-  is awaited. With nothing unsaved, it answers `ready`. Otherwise it answers
-  `asking`, then settles: every write and action already running finishes.
-  With no text left unadded, it answers `ready`.
-  Otherwise the person chooses Keep working (`cancel`) or Discard and quit,
-  or restart (`ready`). Neither choice closes, discards, or changes what the
-  page holds.
-- A round that arrives while the folder opens fences the store as it
-  attaches; a page whose folder did not open answers `ready`, and its Try
-  again stays disabled until the round ends.
-- The same round with no vote means Quit was pressed again: a page still
-  deciding sends `asking` again, and never asks the person a second time. A
-  newer round is taken up while the page stays fenced.
-- Once the page has answered `ready` or `cancel` for a round, any read of that
-  round that does not show its answer (lost, or reset by Quit pressed again)
-  sends the same answer again, with no new question and nothing changed.
-- Only an `idle` status newer than the round gives the page back. `granted`,
-  `leaving`, and a `discarded` vote keep it fenced and close the question. A
-  lost or refused answer never gives it back; a nudge, Check again, or focus
-  while fenced reads the status again. Older statuses are ignored.
-- Settling waits until the page's query client has no mutation running: a
-  write, a create, a delete, an import, or Save version. Closing the page
-  waits for the same. The engine runs in the page, so nothing finishes a
-  write after the page answers `ready`; settling first is what keeps it.
-
-Which quit paths the host routes through a round, and what it does for a
-window that stays silent, are the host's; see `apps/epicenter`.
+Quitting Epicenter, or restarting it for an account change, is immediate and
+asks this page nothing
+([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
+Every save is a rename into the folder, so a write cut off at exit leaves the
+old file or the new one. The New capture text, a thought typed and not added,
+and a thought edit not saved live only in the page, and a quit drops them, as
+people expect. In the browser, `captures.unsettled` holds back a reload, a
+tab close, or a navigation out of the app while any of them is there or a
+write runs.
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` opens the directory the shell grants and opens the shared departure client over this window's port. `auth.*.ts` is used only by the old-data export. |
-| `src/lib/captures.svelte.ts` | The store, over a TanStack Query cache: the capture listing and a capture's text as queries, `edit` and `editText` that change the cache and queue a write per file, each action (create, delete, Save version, import) as a mutation, which capture is open, departure, and close. |
+| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` opens the directory the shell grants. `auth.*.ts` is used only by the old-data export. |
+| `src/lib/captures.svelte.ts` | The store, over a TanStack Query cache: the capture listing and a capture's text as queries, `edit` and `editText` that change the cache and queue a write per file, each action (create, delete, Save version, import) as a mutation, which capture is open, and close. |
 | `src/lib/capture-form.svelte.ts` | One capture's input not added yet (a new thought, a thought edit) and the commands that turn a change of text or thoughts into a new body for `edit`. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
 | `src/lib/components/` | `CaptureApp.svelte` shows the timeline, the recovery screen, or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each reading the cache. Each is keyed by the open capture. |
@@ -324,10 +280,9 @@ them.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit written at once keeping undeclared metadata, rapid edits with one write running and one waiting, no read while a write runs (on focus or when a view mounts), a conflicting or failed write rolled back with its lost text reported, a deleted file, changes the body or the folder cannot hold, repair as text, thought text kept per capture, stale thought commands, guarded delete after the writes land, Save version and no commit on its own, departure, close, and import. |
-| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, departure is heard on this window only, a write saves the row, an outside edit is a conflict that is not overwritten, closing waits for a save already sent, Save version commits and rewrites nothing, and an import whose export reply was lost is finished by a retry. It does not run the shell's path or Git checks. |
-| `src/lib/platform/departure.test.ts` | The real store behind the shared departure client: a ready vote changes nothing it holds, its open capture comes back unchanged after another page cancels, and settling waits for a held write. The client's own rules are tested in `apps/epicenter/src/departure-page.test.ts`. |
-| `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, of the host package only its departure wire, page client, and window port, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter, generated bindings, or departure gate. |
+| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit written at once keeping undeclared metadata, rapid edits with one write running and one waiting, no read while a write runs (on focus or when a view mounts), a conflicting or failed write rolled back with its lost text reported, a deleted file, changes the body or the folder cannot hold, repair as text, thought text kept per capture, stale thought commands, guarded delete after the writes land, Save version and no commit on its own, close, and import. |
+| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, a write saves the row, an outside edit is a conflict that is not overwritten, closing waits for a save already sent, Save version commits and rewrites nothing, and an import whose export reply was lost is finished by a retry. It does not run the shell's path or Git checks. |
+| `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, nothing of the host package, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter or generated bindings. |
 | `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a conflicting write rolled back in the text box, a change elsewhere shown on return, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
 
 The granted opener and the directory engine are tested in

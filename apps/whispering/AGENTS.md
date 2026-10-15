@@ -23,10 +23,13 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   not open the folder from the Bun host, do not add a second path by which
   the page reads or writes folder files, and do not copy the plugins'
   bindings into this app.
-- **The page settles its saves before it approves a close.** Nothing drains
-  them after the approval: a save still running when the shell exits is
-  lost. Every path that answers `proceed` or uses the quit address waits
-  until nothing is mutating.
+- **Quitting is immediate** (ADR-0542). Closing the window or quitting asks
+  nothing and waits for nothing: a recording streams into the folder from its
+  start (ADR-0543), and a run writes its result row before the request goes
+  out. Do not add a close handshake, a quit prompt, or a wait on exit; keep
+  long-running work in the folder from its start instead. A save still
+  running when the process ends is lost, which is a dropped keystroke, not
+  lost work.
 - **A folder that cannot be opened is reported, not replaced.** Opening
   returns a `Result`. Inside a desktop app, a missing or unreachable native
   service and a shell that refuses the folder are each shown as that refusal; browser
@@ -36,8 +39,8 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   one opening (`mountSession`) and `AppShell` puts its session in context. A page or component takes it with
   `getSession()`; it never opens a workspace, builds a library, or keeps
   product state in a module-level variable. State that must survive a page
-  change belongs to the session. Only leaving the app is guarded, never a
-  navigation between routes. `src/lib/page-boundary.test.ts` enforces the
+  change belongs to the session. Only a browser tab's unload is guarded,
+  while a write is running, never a navigation between routes. `src/lib/page-boundary.test.ts` enforces the
   ownership.
 - **Native services are shared by both desktop shells.** New native services
   use reusable Rust implementations compiled by standalone Whispering and
@@ -54,18 +57,6 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   inputs and protocol compatibility in Rust; a failed desktop acquisition is
   visible and never selects browser storage. `ARCHITECTURE.md` describes the
   current startup order; ADR-0493 records the shared-service migration.
-- **The shell never closes on its own judgement.** Every window close and exit
-  request goes through the close handshake (`ARCHITECTURE.md`, "Closing"). Do
-  not add a path that exits without the page's answer, a timeout that approves,
-  or a reliance on the browser's leave warning in the desktop app. A close is
-  answered without looking only after an opening has failed and everything it
-  opened is closed; never while an opening is under way or a session exists.
-  The close guard is created only after the session's first read and credential
-  check have settled: do not make it listen earlier. On macOS a system quit
-  reaches the handshake only through `src-tauri/src/quit.rs`, which always
-  cancels AppKit's quit and asks for an ordinary exit: do not answer
-  `NSTerminateNow` or `NSTerminateLater` from it, or mirror the handshake's
-  state there.
 - **A lost reply is not a refusal.** When a native service does not answer, the page
   does not know whether the endpoint was called. Report it as unknown, never
   as "not sent", and never send a provider request again without the person
@@ -110,10 +101,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 From `apps/whispering`: `bun run typecheck`, `bun run test` (which runs the
 mounted views under the browser runtime after the rest), `bun run build`. For
 shell changes also
-`cargo test --manifest-path src-tauri/Cargo.toml`. After a change to the shell's
-exit handling, or an upgrade of macOS, Tauri, or Tao, also run the probe and
-the four `bun run test:quit` scenarios in `evidence/native-quit/README.md`.
-Tests establish logic and
+`cargo test --manifest-path src-tauri/Cargo.toml`. Tests establish logic and
 what reaches disk. The TypeScript tests grant a real directory through a
 scripted shell (`src/lib/workspace/granted-folder.test-support.ts`) or open
 it with the Bun opener; they never run the Rust shell. Only running

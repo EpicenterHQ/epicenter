@@ -60,15 +60,17 @@ remote on the desktop
 Keep the inert declaration separate from opening. Mounted routes start it;
 importing a module or preloading a route must not open the folder.
 
-Root handles normally last for the browser/WebView lifetime. Product departure
-fences new work and active capture even while navigation is pending. Full
-document replacement or desktop restart ends the session. A folder's `close()`
+Root handles normally last for the browser/WebView lifetime. Quitting or
+restarting the desktop app is immediate and asks no page
+([ADR-0542](../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)),
+so work belongs in the folder as soon as it starts. Full document replacement
+or desktop restart ends the session. A folder's `close()`
 is terminal and awaitable; it settles admitted work. Navigation itself does not
 prove that pending work was saved.
 
 Application-specific platform differences use `#platform/*` subpath imports,
 resolved at build time: `#platform/folder` for the folder, `#platform/connect`
-for Connect, `#platform/departure` for leaving a desktop window. Tests open
+for Connect. Tests open
 folders over a real directory with `@epicenter/folder/bun`, or over an
 in-memory OPFS stand-in.
 
@@ -81,7 +83,8 @@ in-memory OPFS stand-in.
    the app runs in the desktop host, through `@epicenter/folder/tauri`.
 3. Open the folder from the mounted primary route. Callback and auxiliary
    routes must not open a second copy.
-4. Connect product work to page departure. A sync is an explicit action.
+4. Write work into the folder when it starts, not when the page leaves. A
+   sync is an explicit action.
 5. If the app needs the hosted API in development, add a `dev:<app>` script at
    the repo root.
 
