@@ -401,7 +401,8 @@ describe('an edit that cannot be written', () => {
 	});
 
 	test('Enter is not displayed while the note takes no edit, and writes nothing', async () => {
-		const { press, end, closeNotes, settled, writes, ...view } = await open('one\n');
+		const { press, end, closeNotes, settled, writes, ...view } =
+			await open('one\n');
 		end();
 		const closed = closeNotes();
 		const state = view.shown();
