@@ -22,12 +22,8 @@
  * page URL's (`?todo=<stem>`), not the store's. Saves never commit
  * (ADR-0529); a version is recorded by Sync or by Save version.
  */
-import { folderOptions } from '@epicenter/folder/query';
-import {
-	MutationCache,
-	type MutationFilters,
-	QueryClient,
-} from '@tanstack/query-core';
+import { folderOptions, whenIdle } from '@epicenter/folder/query';
+import { QueryClient } from '@tanstack/query-core';
 import { createContext } from 'svelte';
 import { createQueryFactories } from 'wellcrafted/query';
 import { createGit } from './git.js';
@@ -59,28 +55,19 @@ export function createTodos(
 	let closing: Promise<void> | undefined;
 
 	// The cache for this folder: the todo listing, Git status, and every
-	// save and action. Its rules read the mutation cache, which exists first,
-	// so the client never refers to itself.
-	const mutationCache = new MutationCache();
-
+	// save and action. The folder's options carry their own cache rules;
+	// these give Todos' own queries and actions the same ones: local, so
+	// nothing waits for a network or retries, and stale only when the
+	// folder's change channel, wired below, or a write says so.
 	const queryClient = new QueryClient({
-		mutationCache,
 		defaultOptions: {
-			// Every read is local: nothing waits for a network, and a file that
-			// does not read will not read on a retry either, so a failure shows
-			// at once. Nothing goes stale on its own or on focus: the folder's
-			// change channel, wired below, is the one detector of outside
-			// changes. A read lands whenever it finishes, even while a save
-			// runs; it updates the cache, never an edit's draft.
 			queries: {
 				networkMode: 'always',
 				retry: false,
 				staleTime: Number.POSITIVE_INFINITY,
 				refetchOnWindowFocus: false,
 			},
-			mutations: {
-				networkMode: 'always',
-			},
+			mutations: { networkMode: 'always' },
 		},
 	});
 	queryClient.mount();
@@ -90,31 +77,11 @@ export function createTodos(
 		queryClient.invalidateQueries(folder$.pathFilter(change)),
 	);
 
-	/**
-	 * Resolves once nothing matching `filters` is mutating. It watches the
-	 * mutation cache, so a mutation that starts meanwhile is waited for too.
-	 */
-	function whenIdle(filters?: MutationFilters): Promise<void> {
-		return new Promise((resolve) => {
-			const idle = () => queryClient.isMutating(filters) === 0;
-			const unsubscribe = mutationCache.subscribe(check);
-			function check() {
-				if (!idle()) return;
-				// A draft sends its next save just after the last one settles, so
-				// idle counts only once the tasks queued meanwhile have run.
-				setTimeout(() => {
-					if (!idle()) return;
-					unsubscribe();
-					resolve();
-				});
-			}
-			check();
-		});
-	}
-
 	/** Resolves once no save of a todo's file is running. */
 	const writesSettled = () =>
-		whenIdle({ mutationKey: folder$.todos.save.mutationOptions().mutationKey });
+		whenIdle(queryClient, {
+			mutationKey: folder$.todos.save.mutationOptions().mutationKey,
+		});
 
 	/** Read again what an action may have changed: every query of the folder by default. */
 	const invalidate = (queryKey: readonly unknown[] = folder$.key) =>
@@ -128,7 +95,6 @@ export function createTodos(
 		defineMutation,
 		writesSettled,
 		invalidate,
-		whenIdle,
 		onWriteFailed,
 	};
 
@@ -161,7 +127,7 @@ export function createTodos(
 		close(): Promise<void> {
 			if (closing !== undefined) return closing;
 			closing = (async () => {
-				await whenIdle();
+				await whenIdle(queryClient);
 				stopChanges();
 				await queryClient.cancelQueries({ queryKey: folder$.key });
 				await folder.close();
