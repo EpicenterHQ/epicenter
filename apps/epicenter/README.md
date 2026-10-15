@@ -242,10 +242,27 @@ folder's root from the plugin's grant, as Todos and Capture do.
   in the same run returns the same scope. Registrations last until the
   process exits; a folder removed from the root keeps an unused scope.
 
+The shell watches the root from setup until exit (`watch_data_folders`). When
+an entry directly under it, or a folder's `epicenter.json`, is created,
+changed, or removed, it sends `epicenter://data-folders-changed` to the
+`folders` window, which calls `list_data_folders` again. A rescan or a watch
+error is sent the same way. Deeper changes, such as a row saved in a folder,
+are not.
+
 ### What the view does
 
 The page lists the folders and opens the chosen one in place; choosing another
 closes the open handle first.
+
+The open folder is read through TanStack Query with `folderOptions(folder)`
+from `@epicenter/folder/query` (ADR-0548). The page's root subscribes the
+folder's `onFilesChanged` when it opens it, before anything reads, and each
+report invalidates the queries `pathFilter` names; switching folders stops the
+subscription and drops the folder's cache. On the desktop the reports are the
+shell's file watcher's. Focus refetch is off and the view has no refresh of its
+own, so another window's save, an agent's edit, or Sync landing a change
+appears within the watcher's debounce. A changed `epicenter.json` opens the
+folder again once queued saves settle, so the grid follows the new declaration.
 
 Beside a folder, the page offers the apps that open it (`src/folders/openers.ts`,
 ADR-0538). An app is offered when the folder's declaration contains the app's
@@ -273,32 +290,44 @@ Each field gets the editor its schema and `x-field` hint resolve to
 `boolean`, a menu for `select`, toggles for `multiSelect`, comma-separated
 text for `tags`, a date input for `date`, JSON text for `json` and for any
 field whose hint does not fit its schema, and a text input for the rest.
-Instants and datetimes are edited as their ISO text. Clearing an optional
-field removes it from the row.
+Instants and datetimes are edited as their ISO text. A field with no hint at
+all, as a hand-written JSON Schema declares it, gets the editor its type
+implies: a checkbox for `boolean`, a number input for `integer` and `number`,
+a menu for a string `enum`, a date input for a `date` string, ISO text for a
+`date-time` string, toggles for an array of a string `enum`, tags for an array
+of strings, and a text input for any other string. A hint that is present
+always wins. Clearing an optional field removes it from the row.
 
 ### Saves and merges
 
-The view keeps no drafts. A text field saves on Enter or when it loses
-focus, the body when its box loses focus, and every other editor on change.
-An edit the page has not yet sent when Epicenter quits is lost, such as body
-text still being typed (see [Quitting Epicenter](#quitting-epicenter)).
+Each row's edit is a draft (`createDraft` from `@epicenter/folder/query`, in
+`src/folders/row-edits.svelte.ts`) that captures the row and its version at
+the first change: the first keystroke in a box, or the click of a checkbox,
+menu, or toggle. Until then a box follows the stored value, even while
+focused. A text field saves on Enter or when it loses focus, the body when its
+box loses focus, and every other editor on change; Escape, or leaving a box
+with the text it showed, saves nothing. An edit the page has not yet sent when
+Epicenter quits is lost, such as body text still being typed (see
+[Quitting Epicenter](#quitting-epicenter)).
 
-Every save is `table.save` over the row the edit began from
-(`src/folders/save-row.ts` turns its result into what the view says), one save
-at a time. When another window saved the row first, the engine merges with
-`mergeRow` (ADR-0548): a field or body lines only one side changed keep that
-side's change. Where both changed a field, or the same body lines, this edit
-wins, and the message names each value of theirs it replaced: "Changed in
-another window; merged." A row another window deleted, or saved in a form
-that does not read as a row, is not overwritten. When a save fails, the view
-says why and reads the table again.
+A refetch updates the cache, never the draft. While a row's draft is open and
+the cache's version differs from the draft's, the row says "Changed elsewhere;
+your edit will be merged". Every save is `table.save` over the draft's
+starting version, through the table's save mutation, one save at a time. The
+engine merges with whatever changed since (ADR-0548): a field or body lines
+only one side changed keep that side's change. Where both changed a field, or
+the same body lines, this edit wins, and a notice names each value it replaced,
+by field or by notes line, with what was kept and what was theirs. The notice
+stays until dismissed. "Restore theirs" is one more save, over the version the
+first save wrote, that puts their values back in those fields and lines. A row
+another window deleted, or saved in a form that does not read as a row, is not
+overwritten. When a save fails, the view says why and the editors show the
+stored values again.
 
-The open table is read again when the window gains focus and on
-`folder.onFilesChanged`, which on the desktop carries the shell's watcher's
-reports of what changed in the directory. "Save version" calls `folder.git.commit()` (ADR-0529) and reports
-a version saved, nothing new to save, or why none was saved; the header shows
-how many files changed since the last version. The window never writes
-`epicenter.json`.
+"Save version" runs the folder's `saveVersion` mutation, `folder.git.commit()`
+(ADR-0529), and reports a version saved, nothing new to save, or why none was
+saved; the header shows how many files changed since the last version, from
+the history's `status` query. The window never writes `epicenter.json`.
 
 ## Installed apps
 

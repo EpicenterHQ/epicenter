@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Built:** the desktop file watcher: one per granted root in `tauri-plugin-epicenter-folder` (`src/watcher.rs`), from the first grant until shutdown, debounced 50 ms, emitting the Tauri event `epicenter-folder://changed` with `{ scope, paths }` to the scope's permitted windows; `paths` is folder-relative, `.git` for history moving, or `null` for everything (see the plugin's README); `table.save` with the merge in the engine, its result naming each replaced value and where it stands; the line merge that keeps neighboring edits, for save and Sync alike; `folder.onFilesChanged` with the browser's relay and resume detector and the desktop page's listener for the shell's event; repository creation by the first commit, staging, or remote on every host; `folderOptions`, `createDraft`, and `createSaveBases` in `@epicenter/folder/query`.
-- **Unbuilt:** moving every app onto `folderOptions` and drafts, which removes their own focus rereads and `createSaveBases`; the Folders window's UI for what a save replaced.
+- **Built:** the desktop file watcher: one per granted root in `tauri-plugin-epicenter-folder` (`src/watcher.rs`), from the first grant until shutdown, debounced 50 ms, emitting the Tauri event `epicenter-folder://changed` with `{ scope, paths }` to the scope's permitted windows; `paths` is folder-relative, `.git` for history moving, or `null` for everything (see the plugin's README); `table.save` with the merge in the engine, its result naming each replaced value and where it stands; the line merge that keeps neighboring edits, for save and Sync alike; `folder.onFilesChanged` with the browser's relay and resume detector and the desktop page's listener for the shell's event; repository creation by the first commit, staging, or remote on every host; `folderOptions`, `createDraft`, and `createSaveBases` in `@epicenter/folder/query`; the Folders window's notice naming each value a save replaced, with "Restore theirs".
+- **Unbuilt:** moving every app onto `folderOptions` and drafts, which removes their own focus rereads and `createSaveBases`.
 
 ## Context
 
