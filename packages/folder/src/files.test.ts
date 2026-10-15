@@ -428,7 +428,6 @@ describe('a save never reads its bytes back', () => {
 			fetch: unused,
 			pullFastForward: unused,
 			mergeIncoming: unused,
-			recoverIncoming: unused,
 			sync: {
 				run: unused,
 				resolve: unused,

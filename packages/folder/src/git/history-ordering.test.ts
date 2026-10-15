@@ -12,8 +12,6 @@
  * - An external branch move between that pin and publication is refused
  * - `close()` waits for held `stage` and `commitStaged` work, including the
  *   staged commit's refresh, and starts no network work
- * - A staged commit that waited for the Git lock while an incoming record
- *   was admitted refuses under the lock, leaving files, index, and head
  * - A pull whose files landed but whose index or branch did not never leaves
  *   a fresh clean observation behind
  * - Explicit `commit()` never pushes; `commitAndPush()` does, once
@@ -24,11 +22,10 @@
  * - `history-attempt.test.ts` for commit attempts and lock failures
  */
 import { expect, test } from 'bun:test';
-import { expectErr, expectOk } from 'wellcrafted/testing';
+import { expectOk } from 'wellcrafted/testing';
 import type { FileBoundary } from '../boundary.js';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
 import { hashBytes } from '../capture.js';
-import { FileError } from '../errors.js';
 import type { GitBackend, PublishResult } from './backend.js';
 import { createHistory } from './history.js';
 import { writeCommitObject, writeFilesTree } from './objects.js';
@@ -99,49 +96,6 @@ async function setup(
 		pushes: () => pushStarts,
 	};
 }
-
-test('a staged commit that waited while an incoming record was admitted refuses and touches nothing', async () => {
-	const { raw, real, history, write } = await setup();
-	await write('a.txt', 'one');
-	const committed = await history.commit();
-	if (committed.status !== 'committed') throw new Error(committed.status);
-	await write('a.txt', 'two');
-	expectOk(await history.stage(['a.txt']));
-
-	// Another tab's incoming update stops partway while it holds the Git
-	// lock, leaving its record, and this staged commit waits behind it.
-	const held = gate();
-	const entered = gate();
-	const owner = real.exclusive(async () => {
-		entered.open();
-		await held.opened;
-		raw.opfs.put(
-			'ordering/.git/epicenter-incoming.json',
-			encoder.encode(
-				JSON.stringify({
-					operationId: 'stopped',
-					branch: 'main',
-					expectedHead: committed.oid,
-					nextHead: committed.oid,
-				}),
-			),
-		);
-	});
-	await entered.opened;
-	const committing = history.commitStaged('Two');
-	await Bun.sleep(5);
-	held.open();
-	await owner;
-	const before = await raw.dump();
-
-	expect(expectErr(await committing)).toMatchObject({
-		name: 'IncomingPending',
-		pending: { state: 'recorded', operationId: 'stopped' },
-	});
-	expect(await raw.dump()).toEqual(before);
-	expect(await real.readBranch()).toBe(committed.oid);
-	expect(history.snapshot.lastCommit).toMatchObject({ oid: committed.oid });
-});
 
 test('a checkpoint waiting for the Git lock cannot revert files and a head that landed meanwhile', async () => {
 	const { real, history, write, commitOf } = await setup();
@@ -256,77 +210,53 @@ test('close waits for a held stage and a held staged commit, including its refre
 	expect(pushes() + second.pushes()).toBe(0);
 });
 
-for (const status of ['partial', 'indexFailed', 'branchMoved'] as const) {
-	test(`a pull that returns ${status} after files landed invalidates the clean observation`, async () => {
-		let incoming: string | undefined;
-		let landing!: FileBoundary;
-		const {
-			real,
-			base: boundary,
-			history,
-			write,
-			commitOf,
-		} = await setup((base) => ({
-			readRemoteTracking: async () => incoming,
-			// Files land, then the index or branch step fails.
-			async publishIncoming(plan): Promise<PublishResult> {
-				const { error: applyError } = await landing.apply(plan.changes);
-				expect(applyError).toBeNull();
-				const error = FileError.Io({
-					path: '.git/index',
-					operation: 'lock',
-					cause: 'held',
-				}).error;
-				if (status === 'partial')
-					return {
-						status,
-						applied: plan.changes.map((change) => ({
-							kind: 'write' as const,
-							path: change.kind === 'move' ? change.to : change.path,
-						})),
-						error,
-					};
-				if (status === 'indexFailed')
-					return { status, error: 'index.lock exists' };
-				return {
-					status,
-					actual: await base.readBranch(),
-					filesApplied: true,
-				};
-			},
-		}));
-		landing = boundary;
-		await write('a.txt', 'one');
-		await history.commit();
-		const head = await real.readBranch();
-		incoming = await commitOf(head, { 'a.txt': 'two' });
-		const { data: before, error: beforeError } = await history.status();
-		expect(beforeError).toBeNull();
-		expect(before?.changes).toEqual([]);
+test('a pull interrupted after files landed invalidates the clean observation', async () => {
+	let incoming: string | undefined;
+	let landing!: FileBoundary;
+	const {
+		real,
+		base: boundary,
+		history,
+		write,
+		commitOf,
+	} = await setup(() => ({
+		readRemoteTracking: async () => incoming,
+		// Files land, then the index or branch step fails.
+		async publishIncoming(plan): Promise<PublishResult> {
+			const { error: applyError } = await landing.apply(plan.changes);
+			expect(applyError).toBeNull();
+			return {
+				status: 'interrupted',
+				landed: plan.paths,
+				error: 'index.lock exists',
+			};
+		},
+	}));
+	landing = boundary;
+	await write('a.txt', 'one');
+	await history.commit();
+	const head = await real.readBranch();
+	incoming = await commitOf(head, { 'a.txt': 'two' });
+	const { data: before, error: beforeError } = await history.status();
+	expect(beforeError).toBeNull();
+	expect(before?.changes).toEqual([]);
 
-		const { error: pullError } = await history.pullFastForward();
-		expect(pullError?.name).toBe(
-			status === 'partial'
-				? 'Partial'
-				: status === 'indexFailed'
-					? 'IndexFailed'
-					: 'BranchMoved',
-		);
-		const files = history.snapshot.files;
-		const freshClean =
-			files.state === 'observed' &&
-			!files.stale &&
-			files.value.changes.length === 0;
-		expect(freshClean).toBe(false);
-		// The branch did not move; the landed bytes are uncommitted changes.
-		expect(await real.readBranch()).toBe(head);
-		const { data: after, error: afterError } = await history.status();
-		expect(afterError).toBeNull();
-		expect(after?.changes).toEqual([{ path: 'a.txt', kind: 'modify' }]);
-		expect(history.snapshot.lastCommit?.status).toBe('committed');
-		await history.close();
-	});
-}
+	const { error: pullError } = await history.pullFastForward();
+	expect(pullError).toMatchObject({ name: 'Interrupted', paths: ['a.txt'] });
+	const files = history.snapshot.files;
+	const freshClean =
+		files.state === 'observed' &&
+		!files.stale &&
+		files.value.changes.length === 0;
+	expect(freshClean).toBe(false);
+	// The branch did not move; the landed bytes are uncommitted changes.
+	expect(await real.readBranch()).toBe(head);
+	const { data: after, error: afterError } = await history.status();
+	expect(afterError).toBeNull();
+	expect(after?.changes).toEqual([{ path: 'a.txt', kind: 'modify' }]);
+	expect(history.snapshot.lastCommit?.status).toBe('committed');
+	await history.close();
+});
 
 test('explicit commit stays local; a commit requested during a held pass waits and takes its own; commitAndPush pushes once', async () => {
 	const held = gate();

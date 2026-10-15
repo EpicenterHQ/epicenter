@@ -24,9 +24,7 @@ import type {
 	GitRemote,
 	IncomingPlan,
 	PathStatus,
-	PendingIncoming,
 	PublishResult,
-	RecoverIncomingResult,
 	StatusCode,
 } from './backend.js';
 import { capturedIndexMatchesHead } from './captured-index.js';
@@ -75,14 +73,6 @@ export type BrowserGitStore<TSession extends GitFsSession> = {
 		plan: IncomingPlan,
 		prepared: TSession,
 	): Promise<PublishResult>;
-	/**
-	 * The incoming update whose publication began and has not been recovered.
-	 * While there is one, staging, commits, and new incoming updates wait.
-	 * Throws when a record exists but cannot be read.
-	 */
-	pending(): Promise<PendingIncoming | undefined>;
-	/** Finish or clear the pending update. Called inside the Git lock, only when asked. */
-	recover(): Promise<RecoverIncomingResult>;
 };
 
 /** isomorphic-git's view of private Git state. */
@@ -148,18 +138,6 @@ export async function indexTo(
 			});
 }
 
-/** Why index and branch work waits for `pending`. */
-export function pendingReason(pending: PendingIncoming): string {
-	switch (pending.state) {
-		case 'recorded':
-			return `Incoming update ${pending.operationId} from ${pending.expectedHead ?? 'an empty history'} to ${pending.nextHead} has not finished; recover it with recoverIncoming()`;
-		case 'unadmitted':
-			return 'An incoming update was never admitted: its record is empty; recoverIncoming() clears it';
-		case 'unreadable':
-			return `The incoming update record cannot be read (${pending.reason}); it needs review before Git work continues`;
-	}
-}
-
 export async function createStoredGitBackend<TSession extends GitFsSession>({
 	store,
 	locks,
@@ -210,12 +188,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	}
 
 	const readRef = async (key: string) => refValue(await store.readPrivate(key));
-
-	/** Refuse index and branch work while an incoming update is pending. */
-	async function settled() {
-		const pending = await store.pending();
-		if (pending !== undefined) throw new Error(pendingReason(pending));
-	}
 
 	// Create the private repository when it is first needed. Only creation
 	// writes `HEAD`, so a missing or empty `HEAD` means creation did not
@@ -305,7 +277,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		expected: string | undefined,
 		next: string,
 	): Promise<CasResult> {
-		await settled();
 		await ensureCreated();
 		return store.casRef(branchKey, expected, next);
 	}
@@ -450,15 +421,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		readRemoteTracking: () => readRef(trackingKey),
 		casBranch,
 		replacesDirectories: true,
-		pendingIncoming: () => store.pending(),
-		recoverIncoming: () => store.recover(),
 		async blocked() {
-			try {
-				const pending = await store.pending();
-				if (pending !== undefined) return pendingReason(pending);
-			} catch (cause) {
-				return `The incoming update record cannot be read: ${cause instanceof Error ? cause.message : String(cause)}`;
-			}
 			// A folder with no repository yet has nothing in progress.
 			if (!(await available())) return undefined;
 			const head = await store.readPrivate(`${GITDIR}/HEAD`);
@@ -487,7 +450,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			return normalizingAttribute(attributeFiles, files.keys());
 		},
 		async reconcileIndex(commit) {
-			await settled();
 			await ensureCreated();
 			return withObjects(async (access) => {
 				const mismatched: string[] = [];
@@ -542,7 +504,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			return result;
 		},
 		async stage(paths) {
-			await settled();
 			// A folder with no files has nothing to stage.
 			if (!(await writable())) return;
 			await withObjects(async (access) => {
@@ -572,7 +533,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			});
 		},
 		async commitIndex(message, author) {
-			await settled();
 			if (!(await writable())) return { status: 'nothing' };
 			const session = store.session();
 			const access: ObjectAccess = {
@@ -772,7 +732,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			});
 		},
 		async publishIncoming(plan: IncomingPlan) {
-			await settled();
 			await ensureCreated();
 			// Compute index entries for the new head without writing them; the
 			// store publishes them with the files and the branch.

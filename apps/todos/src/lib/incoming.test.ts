@@ -12,12 +12,9 @@
  * - Sync brings remote content in byte for byte, frontmatter the app does
  *   not declare and comments included; the cache shows it after the sync,
  *   and an edit writes the standard form and keeps the undeclared keys
- * - An interrupted sync is reported and never resumed: reads and reopening
- *   only read it. Sync and Save version wait; editing continues
- * - Recovery runs only when asked. A path in neither state is named,
- *   nothing is written, and the update stays pending until the file holds
- *   one of its versions; then recovery finishes and the cache shows it
- * - Recovery waits for queued writes before it runs
+ * - An interrupted sync leaves the files it wrote as changes (ADR-0545).
+ *   Save version and editing go ahead, and the next Sync finishes it: the
+ *   remote's content lands and the cache shows it
  */
 import './svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
@@ -43,14 +40,7 @@ import {
 	observe,
 	quiet,
 	rowEditor,
-	shown,
 } from './query.test-support.js';
-import {
-	INCOMING_WAITS,
-	incomingLine,
-	recoveryLine,
-	syncOutcomeLine,
-} from './status.js';
 import type { Todos } from './todos.svelte.js';
 
 const { createTodos } = await import('./todos.svelte.ts');
@@ -199,8 +189,8 @@ const noted =
 	<T extends { body: string }>(row: T): T => ({ ...row, body });
 
 /**
- * A sync interrupted at the write of `todos/milk.md`: bread may have landed,
- * milk did not, and the update is pending.
+ * A sync interrupted at the write of `todos/milk.md`: bread landed, milk did
+ * not, and nothing records the update.
  */
 async function interruptedSync() {
 	const demo = await openDemo();
@@ -253,7 +243,6 @@ test('a sync brings remote changes in byte for byte, the cache shows them, and a
 		},
 		body: 'Three cartons.\n',
 	});
-	expect(incomingLine(todos.git.snapshot)).toBeUndefined();
 }, 60_000);
 
 test('the remote-edit demo fixture pushes a hand edit that Sync brings in byte for byte', async () => {
@@ -288,129 +277,31 @@ test('the remote-edit demo fixture pushes a hand edit that Sync brings in byte f
 	});
 }, 60_000);
 
-test('an interrupted sync is reported and never resumed: Sync and Save version wait, editing continues, and reopening only reads it', async () => {
-	const { todos, opfs, before, synced, openTodos } = await interruptedSync();
+test('an interrupted sync leaves changed files; Save version and editing go ahead, and the next Sync finishes it', async () => {
+	const { todos, before, synced } = await interruptedSync();
 	expect(expectErr(synced)).toMatchObject({
 		name: 'Merge',
-		error: { name: 'Partial' },
-	});
-	const pending = todos.git.snapshot.pendingIncoming;
-	expect(pending?.state).toBe('recorded');
-	expect(incomingLine(todos.git.snapshot)).toMatchObject({
-		label: 'Incoming update not finished',
-		tone: 'error',
+		error: { name: 'Interrupted' },
 	});
 	expect(await text(todos, MILK)).toBe(before);
+	expect(await text(todos, BREAD)).toBe(BREAD_REMOTE);
+	const status = expectOk(await todos.git.status.fetch());
+	expect(status.changes).toEqual([{ path: BREAD, kind: 'add' }]);
 
-	// History waits; the folder says so, and nothing is changed.
-	expect(expectOk(await todos.git.saveVersion()).status).toBe('blocked');
-	const waits = await todos.sync.run();
-	expect(expectErr(waits)).toMatchObject({
-		name: 'Checkpoint',
-		outcome: { status: 'blocked' },
-	});
-	expect(syncOutcomeLine(waits, todos.git.snapshot)).toMatchObject({
-		label: 'Sync waits',
-		detail: INCOMING_WAITS,
-	});
-	expect(await text(todos, MILK)).toBe(before);
-
-	// Editing continues.
+	// Nothing is pending: editing and Save version go ahead.
 	const created = expectOk(await todos.rows.create('Call mom'));
 	await quiet(todos);
 	const stem = created.path.slice('todos/'.length, -'.md'.length);
 	rowEditor(todos, stem)(noted('Today.\n'));
 	await quiet(todos);
-	expect(await text(todos, created.path)).toContain('Today.');
+	expect(expectOk(await todos.git.saveVersion()).status).toBe('committed');
 
-	// Reads only read the record; they resume nothing.
-	await todos.queryClient.invalidateQueries({ queryKey: ['todos'] });
+	// The next Sync lands on the remote's content and keeps the local todo.
+	expect(expectOk(await todos.sync.run())).toMatchObject({ kind: 'synced' });
 	await quiet(todos);
-	expect(todos.git.snapshot.pendingIncoming).toEqual(pending);
-	expect(await text(todos, MILK)).toBe(before);
-
-	// Reopening the folder reads the same record and resumes nothing.
-	const files = [...opfs.files()].length;
-	await todos.close();
-	const again = await openTodos();
-	for (
-		let tries = 0;
-		tries < 50 && !again.git.snapshot.pendingIncoming;
-		tries++
-	)
-		await Bun.sleep(5);
-	expect(again.git.snapshot.pendingIncoming).toEqual(pending);
-	expect(await text(again, MILK)).toBe(before);
-	expect([...opfs.files()].length).toBe(files);
-}, 60_000);
-
-test('recovery names a path in neither state and writes nothing, until the file holds one of its versions; then it finishes and the cache shows it', async () => {
-	const { todos, before } = await interruptedSync();
-	const pending = todos.git.snapshot.pendingIncoming;
-	expect(pending?.state).toBe('recorded');
-
-	// Milk is still at its before state; the person edits it to a third one.
-	rowEditor(todos, 'milk')(noted('My own note.\n'));
-	await quiet(todos);
-	const third = (await text(todos, MILK))!;
-
-	const refused = await todos.git.recoverIncoming();
-	expect(refused).toMatchObject({
-		error: { name: 'RecoveryRefused', paths: [MILK] },
-	});
-	const line = recoveryLine(refused);
-	expect(line.label).toBe('Incoming update not recovered');
-	expect(line.detail).toContain(MILK);
-	expect(todos.git.snapshot.pendingIncoming).toEqual(pending);
-	expect(await text(todos, MILK)).toBe(third);
-
-	// The person makes it hold the version from before the update, with
-	// another program, and returns to Todos.
-	expectOk(await todos.folder.files.overwrite(MILK, before));
-	await todos.refresh();
-	await quiet(todos);
-	expect(await text(todos, MILK)).toBe(before);
-
-	// Now the update finishes, and every view reads what it wrote.
-	const recovered = await todos.git.recoverIncoming();
-	expect(recovered).toMatchObject({ data: { status: 'completed' } });
-	await quiet(todos);
-	expect(todos.git.snapshot.pendingIncoming).toBeUndefined();
 	expect(await text(todos, MILK)).toBe(MILK_REMOTE);
+	expect(await text(todos, BREAD)).toBe(BREAD_REMOTE);
+	expect(await text(todos, created.path)).toContain('Today.');
 	expect(cached(todos, 'milk').row.fields.title).toBe('Buy oat milk');
-	expect(incomingLine(todos.git.snapshot)).toBeUndefined();
-	// History continues.
-	expect(expectOk(await todos.git.saveVersion()).status).not.toBe('blocked');
-}, 60_000);
-
-test('recovery waits for queued writes before it runs', async () => {
-	const { todos } = await interruptedSync();
-	const created = expectOk(await todos.rows.create('Call mom'));
-	await quiet(todos);
-	const stem = created.path.slice('todos/'.length, -'.md'.length);
-	// The next write of a row is held until the test lets it go.
-	const table = todos.folder.tables.todos;
-	const replace = table.replace;
-	const gate = Promise.withResolvers<void>();
-	const order: string[] = [];
-	table.replace = async (...args) => {
-		await gate.promise;
-		const written = await replace(...args);
-		order.push('written');
-		return written;
-	};
-	rowEditor(todos, stem)(noted('Today.\n'));
-	const recovering = todos.git.recoverIncoming().then((recovered) => {
-		order.push('recovered');
-		return recovered;
-	});
-	await Bun.sleep(20);
-	expect(order).toEqual([]);
-
-	gate.resolve();
-	expect(await recovering).toMatchObject({ data: { status: 'completed' } });
-	table.replace = replace;
-	expect(order).toEqual(['written', 'recovered']);
-	expect(await text(todos, created.path)).toContain('Today.');
-	expect(await text(todos, MILK)).toBe(MILK_REMOTE);
+	expect(expectOk(await todos.git.status.fetch()).changes).toEqual([]);
 }, 60_000);

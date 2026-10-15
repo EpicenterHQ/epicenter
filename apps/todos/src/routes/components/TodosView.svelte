@@ -14,7 +14,6 @@
 	import { todoPath } from '$lib/todo-listing.js';
 	import { setTodos, type Todos } from '$lib/todos.svelte.js';
 	import AppHeader from './AppHeader.svelte';
-	import IncomingBanner from './IncomingBanner.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 	import DepartureNotice from './DepartureNotice.svelte';
@@ -139,7 +138,6 @@
 	{#if departure}
 		<DepartureNotice {departure} />
 	{/if}
-	<IncomingBanner />
 
 	{#if attempt !== undefined}
 		<!--

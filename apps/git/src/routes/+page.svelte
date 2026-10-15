@@ -153,9 +153,6 @@
       {/key}
      </div>
     {:else}
-    {#if workspace.snapshot.pendingIncoming}
-     <div role="status" class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-sm"><span>An incoming update stopped before it finished. Inspect your files, then recover it explicitly.</span><Button size="xs" variant="outline" disabled={workspace.running} onclick={() => workspace!.recover()}>Recover incoming update</Button></div>
-    {/if}
     {#if workspace.dirty && !['Unsaved changes', 'Saving…'].includes(workspace.saveMessage)}
      <div class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-sm"><span>Your text is still here.</span><Button size="xs" variant="outline" onclick={() => act(() => workspace!.keepMyText())}>Replace saved file with my text</Button><Button size="xs" variant="outline" onclick={() => act(() => workspace!.useSavedText())}>Discard my edits and reload</Button></div>
     {/if}

@@ -28,12 +28,13 @@
 import type { FileBoundary } from '../boundary.js';
 import type { DirectoryPrimitives } from '../directory-handle.js';
 import { byCodePoint, NORMALIZING } from './attributes.js';
-import type {
-	GitBackend,
-	GitRemote,
-	PathStatus,
-	PublishResult,
-	StatusCode,
+import {
+	type GitBackend,
+	type GitRemote,
+	type PathStatus,
+	type PublishResult,
+	type StatusCode,
+	stoppedApplying,
 } from './backend.js';
 import { capturedIndexMatchesHead } from './captured-index.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
@@ -580,30 +581,24 @@ export async function createNativeGitBackend({
 		// condition, and other programs are met only at Git's lock files.
 		async publishIncoming(plan): Promise<PublishResult> {
 			const { error: applyError } = await boundary.apply(plan.changes);
-			if (applyError !== null) {
-				if (applyError.name === 'Partial')
-					return {
-						status: 'partial',
-						applied: applyError.applied,
-						error: applyError.error,
-					};
-				return { status: 'refused', error: applyError };
-			}
+			if (applyError !== null) return stoppedApplying(plan.changes, applyError);
+			const interrupted = (error: string): PublishResult => ({
+				status: 'interrupted',
+				landed: plan.paths,
+				error,
+			});
 			try {
 				await syncIndex(plan.nextHead, plan.paths);
 			} catch (cause) {
-				return {
-					status: 'indexFailed',
-					error: cause instanceof Error ? cause.message : String(cause),
-				};
+				return interrupted(
+					`the Git index could not be updated: ${cause instanceof Error ? cause.message : String(cause)}`,
+				);
 			}
 			const moved = await backend.casBranch(plan.expectedHead, plan.nextHead);
 			if (!moved.ok)
-				return {
-					status: 'branchMoved',
-					actual: moved.actual,
-					filesApplied: true,
-				};
+				return interrupted(
+					`the branch moved to ${moved.actual ?? 'no commit'} before it could be advanced`,
+				);
 			return { status: 'published' };
 		},
 	};

@@ -19,8 +19,6 @@
 	import { Err, Ok } from 'wellcrafted/result';
 	import {
 		filesLine,
-		INCOMING_WAITS,
-		incomingLine,
 		lastVersionLine,
 		pushLine,
 		remoteLabel,
@@ -55,15 +53,12 @@
 	const status = createQuery(() => todos.git.status.options);
 	const saveVersion = createMutation(() => todos.git.saveVersion.options);
 	const writing = useIsMutating({ mutationKey: todosKeys.writes });
-	const recovering = useIsMutating({ mutationKey: todosKeys.recoverIncoming });
 	const files = $derived(filesLine({ saving: writing.current > 0 }));
-	const incoming = $derived(incomingLine(todos.git.snapshot));
 	const versions = $derived(versionLine(todos.git.snapshot));
 	const lastVersion = $derived(lastVersionLine(todos.git.snapshot));
 	const remote = $derived(pushLine(todos.git.snapshot));
-	const summary = $derived(summaryLine({ files, incoming, versions, lastVersion, remote }));
+	const summary = $derived(summaryLine({ files, versions, lastVersion, remote }));
 	const details = $derived<[string, string, StatusLine | undefined][]>([
-		['Incoming', 'status-incoming', incoming],
 		['Files', 'status-files', files],
 		['Changes', 'status-history', versions],
 		['Last version', 'status-last-version', lastVersion],
@@ -93,19 +88,8 @@
 		error: 'bg-destructive',
 	};
 
-	/** Sync and Save version wait for each other, the review, recovery, and a departure. */
-	const busy = $derived(
-		sync.isPending ||
-			saveVersion.isPending ||
-			reviewing ||
-			recovering.current > 0,
-	);
-	/**
-	 * Sync and Save version wait while an incoming update is pending; the
-	 * folder refuses them anyway, so they are off until it is recovered.
-	 * Editing is not affected.
-	 */
-	const pending = $derived(todos.git.snapshot.pendingIncoming !== undefined);
+	/** Sync and Save version wait for each other, the review, and a departure. */
+	const busy = $derived(sync.isPending || saveVersion.isPending || reviewing);
 
 	/** Outcome toasts use the status lines' wording, so the toast and the details agree. */
 	const notify: Record<StatusLine['tone'], typeof toast.info> = {
@@ -237,8 +221,8 @@
 		<Button
 			variant="outline"
 			size="sm"
-			disabled={busy || pending}
-			tooltip={pending ? INCOMING_WAITS : 'Record the saved files as a version in history. Nothing is sent.'}
+			disabled={busy}
+			tooltip="Record the saved files as a version in history. Nothing is sent."
 			data-testid="save-version"
 			onclick={runSaveVersion}
 		>
@@ -253,10 +237,8 @@
 		{:else}
 			<Button
 				size="sm"
-				disabled={busy || pending}
-				tooltip={pending
-					? INCOMING_WAITS
-					: 'Save a version, get the remote, combine them, and send the result. Conflicts ask you first.'}
+				disabled={busy}
+				tooltip="Save a version, get the remote, combine them, and send the result. Conflicts ask you first."
 				data-testid="sync"
 				onclick={runSync}
 			>
