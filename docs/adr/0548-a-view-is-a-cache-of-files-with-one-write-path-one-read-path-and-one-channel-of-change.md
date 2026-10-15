@@ -24,9 +24,25 @@ bare `Conflict` from `table.replace`.
 **One write path: `save`.** A folder table's `replace(capture, row)` is renamed
 `save(capture, row)` and merges inside the engine: if the file is still the
 version `capture` names, it writes; otherwise it reads the current file, merges
-by field and the body by line (`mergeRow`, with the edit winning only where both
-sides changed the same field or lines), writes the result against the current
-version, and reports what of the other side it replaced. Every app, script, and
+by field and the body by line (`mergeRow`), writes the result against the current
+version, and reports what of the other side it replaced.
+
+**Save and Sync are the same merge.** Changes that do not overlap always
+combine. An overlap is decided by fresh intent when there is some, and by a
+person when there is none:
+
+| | Overlap means | Decided by |
+| --- | --- | --- |
+| `save` | both sides changed the same field, or the same line of the body | the saver: the edit wins, the replaced value is named in the result, and the app offers "Restore theirs" until the notice is dismissed, since the other side may be committed nowhere |
+| Sync | the same | the person, in the review; Sync never asks about files that merely differ |
+
+Lines compete only when both sides changed the same line; edits to adjacent
+lines are both kept. No clock breaks a tie: device clocks drift, and offline
+edits are concurrent. Every merged row is validated against the definition the
+handle reads with (the app's own for `openFolder`, the folder's declaration for
+`openDataFolder`) before it is written, and an invalid result writes nothing;
+invariants across fields belong in the declaration, because agents write files
+directly. Every app, script, and
 agent saves the same way. The strict compare-and-swap is the engine's internal
 step.
 
@@ -69,9 +85,14 @@ createMutation(() => folder$.todos.save.mutationOptions());
 | `files` | `list`, `read`, `write`, `move`, `delete` |
 | `history` | `status`, `log`, `saveVersion`, `sync` |
 
-The factory subscribes to `onFilesChanged` once and invalidates exactly the
-queries the paths name. No page has its own refresh logic, and TanStack's own
-focus refetch is off.
+The factory never holds the query client. The app's root wires the channel to
+the cache in one line, so invalidation stays visible:
+
+```ts
+folder.onFilesChanged((paths) => queryClient.invalidateQueries(folder$.pathFilter(paths)));
+```
+
+No page has its own refresh logic, and TanStack's own focus refetch is off.
 
 **An edit holds its own starting version.** An editor captures the row and its
 version at the first change, not on focus, and keeps its draft outside the
