@@ -38,7 +38,7 @@ import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field, parseRow } from './contract.js';
 import type { Row } from './row-text.js';
-import { SAVE_MERGES } from './save-file.js';
+import { WRITE_ATTEMPTS } from './save-file.js';
 import { createTable } from './table.js';
 
 const definition = defineFolder({
@@ -507,10 +507,10 @@ test('a row that keeps changing gives up after the bounded merges, writing nothi
 	expect(refused).toMatchObject({
 		name: 'KeptChanging',
 		path: 'todos/a.md',
-		attempts: SAVE_MERGES,
+		attempts: WRITE_ATTEMPTS,
 	});
-	expect(writes).toBe(SAVE_MERGES + 1);
-	expect(await s.stored('todos/a.md')).toContain(`Newer ${SAVE_MERGES}`);
+	expect(writes).toBe(WRITE_ATTEMPTS + 1);
+	expect(await s.stored('todos/a.md')).toContain(`Newer ${WRITE_ATTEMPTS}`);
 });
 
 // -- Addresses ----------------------------------------------------------------

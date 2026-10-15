@@ -11,7 +11,7 @@
  * 3. The base and the edit merge against the current file by the file's kind
  *    (`mergeFile`), and every competing unit settles with the edit's side.
  * 4. The result must read as its kind whenever the edit does; then the save
- *    swaps on the current hash. That repeats at most `SAVE_MERGES` times,
+ *    swaps on the current hash. That repeats at most `WRITE_ATTEMPTS` times,
  *    then `KeptChanging`. An `Unconfirmed` reply is read back once: our
  *    bytes mean done.
  *
@@ -49,8 +49,14 @@ import { formatRow, parseRow, type Row } from './row-text.js';
 import { replaceCaptured } from './storage.js';
 import type { SavedRow, StoredRow } from './table.js';
 
-/** How many times a save merges with a newer file before it gives up. */
-export const SAVE_MERGES = 3;
+/**
+ * How many times a write is redone when another writer saved the file between
+ * its read and its write: a save merges again, an update sets its fields
+ * again. One redo covers the usual case, two writes in the same few
+ * milliseconds; repeated conflicts mean something writes the file
+ * continuously, and the person hears `KeptChanging` rather than waiting.
+ */
+export const WRITE_ATTEMPTS = 3;
 
 /** How a save treats a file another writer changed since its base. */
 export type SaveOptions = {
@@ -257,8 +263,8 @@ export async function saveFile(
 				}),
 			);
 		if (saveError.name !== 'Conflict' || !merge) return Err(saveError);
-		if (merges === SAVE_MERGES)
-			return TableError.KeptChanging({ path, attempts: SAVE_MERGES });
+		if (merges === WRITE_ATTEMPTS)
+			return TableError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
 		const { data: current, error: readError } = await storage.read(path);
 		if (readError !== null) return Err(readError);
 		const merged = await mergeFile(kind, {

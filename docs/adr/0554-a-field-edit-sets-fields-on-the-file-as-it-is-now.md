@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-15
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) at "an edit holds its own starting version", and [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) where it describes drafts.
-- **Unbuilt:** all of it: `table.update`, `folderOptions`' `update` with a scope per file, Todos, Capture, Honeycrisp, Whispering, Vocab, and the Folders window composed as below, and the deletions.
+- **Built:** `table.update` and `WRITE_ATTEMPTS`; `folderOptions`' `update` and the per-file turn its writes share; Todos, Capture, Honeycrisp, Whispering, Vocab, the Git lab, and the Folders window composed as below; `createTextDraft` and `createBodyDraftState` for documents; and the deletions.
 
 ## Context
 
@@ -39,7 +39,7 @@ in between, the update is done again on the newer row.
 
 ```ts
 async update(stem, { set = {}, unset = [] }) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
     const current = await this.get(stem);                      // the row now
     if (current === undefined) return Err(NotFound);
     const fields = { ...current.row.fields, ...set };
@@ -65,8 +65,14 @@ just change.
 
 **A page sends updates through one mutation per editable thing.**
 `folderOptions(folder).tables.<name>.update.mutationOptions()` runs
-`table.update` with the TanStack mutation scope set to the file's path, so one
-file's updates run in the order they were made, whichever control made them.
+`table.update`. Every write `folderOptions` makes to one file, update or
+save, waits its turn behind the previous one, so one file's writes run in the
+order they were made, whichever control made them. TanStack's mutation
+`scope` is not used for this: its id is fixed when the options are built, not
+per file, and a queued scoped mutation resumes only while the window has
+focus, so a hidden window's saves would wait. `WRITE_ATTEMPTS`, shared with
+`save`, caps how often a write is redone; repeated conflicts mean something
+writes the file continuously.
 An update is plain data, so its variables show in devtools and logs.
 
 **A typed field is composed in the component.** What the person typed lives in
@@ -80,32 +86,36 @@ older cached value in between.
 ```svelte
 <!-- rendered as {#key stem}<TodoDetail {stem} />{/key}: another todo is another editor -->
 <script lang="ts">
-  let { stem } = $props();
+  let { stem: shownStem } = $props();
+  // The file this editor writes, fixed when it is created: while a keyed view is
+  // replaced, its props may already name the next file when its flush runs.
+  const stem = shownStem;
   const todo = createQuery(() => folder$.tables.todos.get.queryOptions(stem));
   const saveDone = createMutation(() => folder$.tables.todos.update.mutationOptions());
   const saveTitle = createMutation(() => folder$.tables.todos.update.mutationOptions());
 
   /** Typed and not yet saved; `undefined` shows the file. */
   let title = $state<string>();
-  const sendTitle = useDebounce(() => {
+  function sendTitle() {
     if (title === undefined) return;
     const sent = title;
     saveTitle.mutate(
       { stem, set: { title: sent } },
       { onSuccess: () => { if (title === sent) title = undefined; } },
     );
-  }, 1000);
+  }
+  const sendTitleLater = useDebounce(sendTitle, 1000);
   // runed's timer outlives the component; send now instead.
-  onDestroy(() => void sendTitle.runScheduledNow());
+  onDestroy(() => void sendTitleLater.runScheduledNow());
 </script>
 
 <input type="checkbox" checked={todo.data?.row.fields.done}
   onchange={(e) => saveDone.mutate({ stem, set: { done: e.currentTarget.checked } })} />
 
 <input value={title ?? todo.data?.row.fields.title}
-  oninput={(e) => { title = e.currentTarget.value; void sendTitle(); }}
-  onblur={() => void sendTitle.runScheduledNow()} />
-{#if saveTitle.isError}Not saved. <button onclick={() => void sendTitle.runScheduledNow()}>Try again</button>{/if}
+  oninput={(e) => { title = e.currentTarget.value; void sendTitleLater(); }}
+  onblur={() => void sendTitleLater.runScheduledNow()} />
+{#if saveTitle.isError}Not saved. <button onclick={sendTitle}>Try again</button>{/if}
 ```
 
 A checkbox shows the file, so a failed click leaves it showing the old value
@@ -133,7 +143,8 @@ folded back in under the cursor.
   [ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)'s
   "a field mid-edit is lost on quit".
 - Each typed field is about a dozen lines in its component, and each must be
-  keyed by its file and flush when it goes away; two components editing the
+  keyed by its file, fix that file when it is created, and flush when it goes
+  away; two components editing the
   same field do not share typed text.
 - Relative changes (a counter, appending to a list) are not updates; a script
   reads the row and saves it.

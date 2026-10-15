@@ -37,7 +37,7 @@ import { createFiles } from './files.js';
 import { createKv } from './kv.js';
 import { mergeKv } from './kv-merge.js';
 import { put } from './put.test-support.js';
-import { SAVE_MERGES } from './save-file.js';
+import { WRITE_ATTEMPTS } from './save-file.js';
 
 const definition = defineFolder({
 	kv: {
@@ -246,7 +246,7 @@ test('a file that keeps changing past the merges is KeptChanging, and the other 
 	s.afterNextReads(write, write, write, write);
 	expect(expectErr(await s.kv.set('theme', 'dark'))).toMatchObject({
 		name: 'KeptChanging',
-		attempts: SAVE_MERGES,
+		attempts: WRITE_ATTEMPTS,
 	});
 	expect(await s.source()).toBe('{"size": 4}');
 });

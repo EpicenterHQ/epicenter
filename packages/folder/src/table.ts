@@ -54,7 +54,12 @@ import {
 	rowStemOf,
 } from './paths.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
-import { type Replaced, type SaveOptions, saveFile } from './save-file.js';
+import {
+	type Replaced,
+	type SaveOptions,
+	saveFile,
+	WRITE_ATTEMPTS,
+} from './save-file.js';
 import { applyOne } from './storage.js';
 
 /**
@@ -79,9 +84,6 @@ export type TableListing<TFields> = readonly {
 	readonly stem: string;
 	readonly result: Result<StoredRow<TFields>, RowReadError>;
 }[];
-
-/** How many times an update reads and tries again before it gives up. */
-export const UPDATE_ATTEMPTS = 3;
 
 /** The keys of `T` that may be absent; any key of a row whose fields are not declared. */
 type OptionalKeys<T> = string extends keyof T
@@ -144,7 +146,7 @@ export type FileTable<TFields> = {
 	 * edit, field by field and the body by line, from the captured row as the
 	 * base, with the edit winning only where both changed the same field or
 	 * the same lines, and the merge is written over the current bytes. That
-	 * repeats at most `SAVE_MERGES` times. With `{ merge: false }` a moved
+	 * repeats at most `WRITE_ATTEMPTS` times. With `{ merge: false }` a moved
 	 * file is `Conflict` instead.
 	 *
 	 * `file` must carry the content it names: a `StoredRow` or an
@@ -169,7 +171,7 @@ export type FileTable<TFields> = {
 	 * unchanged and no merge. When another writer saved between the read and
 	 * the write, the attempt is `Conflict` and the next one starts from their
 	 * row, so their fields stay and the update wins only the fields it
-	 * names. After `UPDATE_ATTEMPTS` conflicts it is `KeptChanging`. An
+	 * names. After `WRITE_ATTEMPTS` conflicts it is `KeptChanging`. An
 	 * update replaces nothing it did not name, so `replaced` is empty.
 	 *
 	 * `unset` names optional fields only; `null` may be a field's real value.
@@ -383,7 +385,7 @@ export function createTable<TFields>(
 			);
 		},
 		async update(stem, { set = {}, unset = [] }) {
-			for (let attempt = 0; attempt < UPDATE_ATTEMPTS; attempt++) {
+			for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
 				const { data: current, error: readError } = await fileTable.get(stem);
 				if (readError !== null) return Err(readError);
 				if (current === undefined)
@@ -405,7 +407,7 @@ export function createTable<TFields>(
 			}
 			return TableError.KeptChanging({
 				path: rowPath(name, stem),
-				attempts: UPDATE_ATTEMPTS,
+				attempts: WRITE_ATTEMPTS,
 			});
 		},
 		async rename(file, nextStem) {

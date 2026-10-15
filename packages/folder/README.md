@@ -835,7 +835,7 @@ await todos.update('milk', { set: { title: 'Oat milk' }, unset: ['due'] });
 removes each field in `unset`, and saves that over what it read with the
 body unchanged and no merge. When another writer saved in between, the save
 is `Conflict`, and the update tries again from their row, up to
-`UPDATE_ATTEMPTS` times, then answers `KeptChanging`. So every field it did
+`WRITE_ATTEMPTS` times, then answers `KeptChanging`. So every field it did
 not name keeps their value, and a field it set wins; `replaced` is always
 empty. `unset` takes only optional fields, since `null` may be a field's
 real value. An update of a missing row is `NotFound`; a value a field does
@@ -910,7 +910,7 @@ Every write to an existing file is one save loop, `saveFile` (ADR-0551):
 3. It merges the base and the edit with the current file by the file's kind,
    and settles every unit both changed with the edit's side.
 4. The result must read as its kind whenever the edit does; then it swaps on
-   the current hash. That repeats at most `SAVE_MERGES` times, then
+   the current hash. That repeats at most `WRITE_ATTEMPTS` times, then
    `KeptChanging`. A reply lost as `Unconfirmed` is read back once: our bytes
    mean done.
 

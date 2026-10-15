@@ -43,7 +43,7 @@ import {
 	type FileTable,
 	restoreTheirs,
 	type StoredRow,
-	UPDATE_ATTEMPTS,
+	WRITE_ATTEMPTS,
 } from './contract.js';
 
 type AnyTable = FileTable<Record<string, unknown>>;
@@ -485,7 +485,7 @@ test('an update that meets another change on every attempt is KeptChanging, and 
 	expect(refused).toMatchObject({
 		name: 'KeptChanging',
 		path: 'notes/one.md',
-		attempts: UPDATE_ATTEMPTS,
+		attempts: WRITE_ATTEMPTS,
 	});
 	expect((await read()).row.fields).toEqual({
 		title: 'Theirs 3',

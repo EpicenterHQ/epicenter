@@ -154,6 +154,7 @@ export {
 	restoreTheirs,
 	type SavedFile,
 	type SaveOptions,
+	WRITE_ATTEMPTS,
 } from './save-file.js';
 export {
 	type FileTable,
@@ -161,7 +162,6 @@ export {
 	type SavedRow,
 	type StoredRow,
 	type TableListing,
-	UPDATE_ATTEMPTS,
 } from './table.js';
 
 /**
