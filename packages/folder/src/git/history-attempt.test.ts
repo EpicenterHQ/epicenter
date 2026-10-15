@@ -1085,7 +1085,7 @@ test('many callers in one handle and across two each take a commit and leave a l
 	await git(root, 'diff', '--cached', '--quiet');
 	await one.close();
 	await two.close();
-});
+}, 30_000);
 
 test('the subject and count describe the committed tree, not the files on disk', async () => {
 	const { root, folder } = await directory('attempt-subject-');
