@@ -2,7 +2,8 @@
 //!
 //! Each test builds an app with the plugin installed, creates windows, and
 //! sends `plugin:epicenter-folder|...` requests exactly as a page's `invoke`
-//! would. The folder is a real directory with the real `git`.
+//! would. The folder is a real directory; a test makes its repository with
+//! the real `git`, which the plugin itself never runs (ADR-0559).
 //!
 //! Key behaviors:
 //! - The generated TypeScript bindings match the registered commands.
@@ -16,15 +17,12 @@
 //! - A grant adds nothing to the app's access control, so an app that
 //!   already scopes another permission grants and reads as any other does.
 //! - Changes land only after a grant, only under the root, and never in
-//!   Git's private state; `git` runs in the root and only as an allowed
-//!   operation.
+//!   Git's private state.
 //! - A staged write takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw.
-//! - A page's `git` runs end with it: a cancel stops a run whether it
-//!   arrives before or after the run starts, a page load or a destroyed
-//!   window cancels every run of the page before it, and two windows' runs
-//!   never meet, whatever IDs their pages chose.
+//! - `granted_folder` names a granted scope's root, author, branch, and kind
+//!   to its windows alone, for the `epicenter` CLI the shell runs.
 //! - From its first grant a folder is watched: every window permitted into
 //!   its scope hears what changed outside it, as folder-relative paths, a
 //!   ref moving as `.git`, and everything when watching begins; Git's own
@@ -340,23 +338,23 @@ fn publish(
     )
 }
 
-fn git(
-    window: &WebviewWindow<MockRuntime>,
-    args: &[&str],
-    request: &str,
-) -> Result<Value, Value> {
-    invoke(
-        window,
-        "run_git",
-        json!({
-            "scope": "notes",
-            "args": args,
-            "input": null,
-            "indexFile": null,
-            "authorization": null,
-            "request": request,
-        }),
-    )
+/// Run the real `git` in the root `window` was granted for `notes`, as a
+/// person or the `epicenter` CLI would; the plugin runs none.
+fn git(window: &WebviewWindow<MockRuntime>, args: &[&str]) -> Result<String, String> {
+    let root = window
+        .folders()
+        .granted_root("notes", window.label())
+        .map_err(|refusal| format!("{refusal:?}"))?;
+    let output = std::process::Command::new("git")
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 #[test]
@@ -397,7 +395,7 @@ fn a_scope_is_granted_to_its_windows_and_no_other() {
     // windows read and change it.
     fixture.app.folders().permit("notes", "side").unwrap();
     assert_eq!(grant(&side).unwrap(), granted);
-    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     write(&fixture, &main, "a.md", "main's\n").unwrap();
     assert_eq!(read_file(&side, "notes", &inside(&fixture, "a.md")).unwrap(), b"main's\n");
     write(&fixture, &side, "b.md", "side's\n").unwrap();
@@ -407,8 +405,9 @@ fn a_scope_is_granted_to_its_windows_and_no_other() {
 
 /// A data folder is opened only as a person left it: a missing one is
 /// `Missing` and is not created, and one inside another repository's working
-/// tree is granted with why it may not get a repository of its own, and
-/// `git init` there is refused, creating nothing.
+/// tree is granted with why it may not get a repository of its own.
+/// `granted_folder` names it to its window alone, as a data folder, for the
+/// `epicenter` CLI, which refuses that `git init` itself.
 #[test]
 fn a_data_folder_is_never_created_or_given_a_nested_repository() {
     let directory = temp("data-folder");
@@ -445,10 +444,12 @@ fn a_data_folder_is_never_created_or_given_a_nested_repository() {
         directory.0.display()
     );
     assert_eq!(grant(&main).unwrap()["initProblem"], json!(problem));
-    assert_eq!(
-        git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap_err(),
-        json!({ "name": "Unavailable", "message": problem })
-    );
+    let granted = app.folders().granted_folder("notes", "main").unwrap();
+    assert_eq!(granted.root, std::fs::canonicalize(&root).unwrap());
+    assert_eq!(granted.kind, crate::FolderKind::Data);
+    assert_eq!(granted.branch, "main");
+    assert_eq!(granted.author.email, "test@example.com");
+    assert!(app.folders().granted_folder("notes", "other").is_err());
     assert!(!root.join(".git").exists());
     app.folders().shutdown();
 }
@@ -466,7 +467,7 @@ fn two_windows_saving_one_file_over_the_same_version_publish_once() {
     let side = window(&fixture.app, "side");
     grant(&main).unwrap();
     grant(&side).unwrap();
-    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     let scratch = inside(&fixture, ".git/epicenter/scratch");
     invoke(
         &main,
@@ -525,7 +526,7 @@ fn changes_land_under_the_root_and_never_in_git_state() {
     grant(&main).unwrap();
     // The engine initializes the repository first; its staged writes need
     // `.git`, which no change command makes.
-    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
 
     invoke(
         &main,
@@ -583,7 +584,7 @@ fn a_save_lands_only_on_what_the_page_expected_and_says_what_it_found() {
     let fixture = fixture("expected");
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
-    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     publish(&fixture, &main, "a.md", "first\n", json!("absent")).unwrap();
 
     assert_eq!(
@@ -639,7 +640,7 @@ fn a_staged_write_takes_its_bytes_raw_and_its_path_percent_encoded() {
     let fixture = fixture("raw-write");
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
-    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     let scratch = inside(&fixture, ".git/epicenter/scratch");
     invoke(
         &main,
@@ -708,7 +709,7 @@ fn reads_reach_the_granted_root_and_nothing_else() {
     // Nothing is read before a grant.
     assert!(text(&read_dir(&main, "notes", &root).unwrap_err()).contains("not been granted"));
     grant(&main).unwrap();
-    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     invoke(
         &main,
         "make_folder_directory",
@@ -871,187 +872,11 @@ fn a_grant_in_an_app_that_already_scopes_a_permission_still_reads() {
 }
 
 #[test]
-fn git_runs_in_the_root_only_as_an_allowed_operation() {
-    let fixture = fixture("git");
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
-    let initialized = git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
-    assert_eq!(initialized["code"], 0, "{initialized}");
-    assert!(fixture.root.join(".git").is_dir());
-    let head = git(&main, &["symbolic-ref", "--quiet", "HEAD"], "2").unwrap();
-    assert_eq!(head["stdout"], json!(b"refs/heads/main\n".to_vec()));
-
-    let refused = git(&main, &["config", "core.hooksPath", "/tmp"], "3").unwrap_err();
-    assert_eq!(refused["name"], "Unavailable", "{refused}");
-    // Cancelling a run that already finished does nothing.
-    invoke(&main, "cancel_git", json!({ "request": "2" })).unwrap();
-}
-
-/// A loopback Git remote that accepts each connection and never answers, so
-/// a fetch from it runs until it is cancelled. Each connection is reported.
-fn silent_remote() -> (String, std::sync::mpsc::Receiver<()>) {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a loopback listener");
-    let port = listener.local_addr().unwrap().port();
-    let (connected, connections) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut held = Vec::new();
-        for stream in listener.incoming() {
-            held.push(stream);
-            if connected.send(()).is_err() {
-                return;
-            }
-        }
-    });
-    (format!("http://127.0.0.1:{port}/r.git"), connections)
-}
-
-/// Start a fetch from `remote` in `window`'s folder `scope` on another
-/// thread, once the remote has seen it connect. Its reply arrives on the
-/// returned channel when the fetch ends.
-fn start_fetch(
-    window: &WebviewWindow<MockRuntime>,
-    scope: &str,
-    remote: &str,
-    connections: &std::sync::mpsc::Receiver<()>,
-    request: &str,
-) -> std::sync::mpsc::Receiver<Result<Value, Value>> {
-    let run = |args: &[&str], request: &str| {
-        invoke(
-            window,
-            "run_git",
-            json!({
-                "scope": scope,
-                "args": args,
-                "input": null,
-                "indexFile": null,
-                "authorization": null,
-                "request": request,
-            }),
-        )
-    };
-    run(&["init", "--quiet", "--initial-branch=main"], "init").unwrap();
-    run(&["config", "remote.origin.url", remote], "remote").unwrap();
-    let (replied, reply) = std::sync::mpsc::channel();
-    let fetching = window.clone();
-    let args = json!({
-        "scope": scope,
-        "args": ["fetch", "--no-tags", "--quiet", remote, "+refs/heads/main:refs/remotes/origin/main"],
-        "input": null,
-        "indexFile": null,
-        "authorization": null,
-        "request": request,
-    });
-    std::thread::spawn(move || {
-        let _ = replied.send(invoke(&fetching, "run_git", args));
-    });
-    connections
-        .recv_timeout(std::time::Duration::from_secs(10))
-        .expect("the fetch reaches the remote");
-    reply
-}
-
-const STILL_RUNNING: std::time::Duration = std::time::Duration::from_millis(300);
-const ENDS: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// A killed `git` reports no exit code.
-fn assert_killed(reply: Result<Value, Value>) {
-    let output = reply.expect("a cancelled run still replies");
-    assert_eq!(output["code"], Value::Null, "{output}");
-}
-
-#[test]
-fn a_page_load_or_a_closed_window_cancels_the_runs_of_the_page_before_it() {
-    let fixture = fixture("reload");
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
-    let (remote, connections) = silent_remote();
-    let reply = start_fetch(&main, "notes", &remote, &connections, "fetch-1");
-    assert!(reply.recv_timeout(STILL_RUNNING).is_err(), "the fetch is running");
-    // What the plugin does when a page starts loading in the window.
-    crate::page_started(main.as_ref());
-    assert_killed(reply.recv_timeout(ENDS).unwrap());
-
-    // The same for a window that is destroyed.
-    let reply = start_fetch(&main, "notes", &remote, &connections, "fetch-2");
-    assert!(reply.recv_timeout(STILL_RUNNING).is_err(), "the fetch is running");
-    crate::window_destroyed(fixture.app.handle(), "main");
-    assert_killed(reply.recv_timeout(ENDS).unwrap());
-}
-
-#[test]
-fn a_cancel_that_arrives_before_its_run_stops_it_as_it_starts() {
-    let fixture = fixture("early-cancel");
-    let main = window(&fixture.app, "main");
-    grant(&main).unwrap();
-    git(&main, &["init", "--quiet", "--initial-branch=main"], "init").unwrap();
-    invoke(&main, "cancel_git", json!({ "request": "early" })).unwrap();
-    let refused = git(&main, &["symbolic-ref", "--quiet", "HEAD"], "early").unwrap_err();
-    assert!(text(&refused).contains("cancelled before it started"), "{refused}");
-    // The cancel is spent: the same ID runs again.
-    let head = git(&main, &["symbolic-ref", "--quiet", "HEAD"], "early").unwrap();
-    assert_eq!(head["code"], 0, "{head}");
-    // A reload forgets a cancel its page left waiting.
-    invoke(&main, "cancel_git", json!({ "request": "left" })).unwrap();
-    crate::page_started(main.as_ref());
-    let head = git(&main, &["symbolic-ref", "--quiet", "HEAD"], "left").unwrap();
-    assert_eq!(head["code"], 0, "{head}");
-}
-
-#[test]
-fn two_windows_runs_with_the_same_id_stay_apart() {
-    let fixture = fixture("two-windows");
-    fixture
-        .app
-        .folders()
-        .register(ScopeConfig {
-            scope: "other-notes".to_string(),
-            folder: FolderConfig::new(
-                fixture.root.parent().unwrap().join("other-notes"),
-                Author {
-                    name: "Test Author".to_string(),
-                    email: "test@example.com".to_string(),
-                },
-            ),
-            windows: vec!["other".to_string()],
-        })
-        .unwrap();
-    let main = window(&fixture.app, "main");
-    let other = window(&fixture.app, "other");
-    grant(&main).unwrap();
-    invoke(&other, "grant_directory", json!({ "scope": "other-notes" })).unwrap();
-    let (remote, connections) = silent_remote();
-    let reply = start_fetch(&main, "notes", &remote, &connections, "same");
-
-    // The other window runs and cancels its own `same`, and main's goes on.
-    let run_other = || {
-        invoke(
-            &other,
-            "run_git",
-            json!({
-                "scope": "other-notes",
-                "args": ["init", "--quiet", "--initial-branch=main"],
-                "input": null,
-                "indexFile": null,
-                "authorization": null,
-                "request": "same",
-            }),
-        )
-    };
-    assert_eq!(run_other().unwrap()["code"], 0);
-    invoke(&other, "cancel_git", json!({ "request": "same" })).unwrap();
-    crate::page_started(other.as_ref());
-    assert!(reply.recv_timeout(STILL_RUNNING).is_err(), "main's run is untouched");
-
-    invoke(&main, "cancel_git", json!({ "request": "same" })).unwrap();
-    assert_killed(reply.recv_timeout(ENDS).unwrap());
-}
-
-#[test]
 fn after_shutdown_a_late_change_is_refused_and_the_folder_is_unlocked() {
     let fixture = fixture("shutdown");
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
-    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     write(&fixture, &main, "kv.json", "{}\n").unwrap();
     fixture.app.folders().shutdown();
     assert!(text(&write(&fixture, &main, "kv.json", "late\n").unwrap_err())
@@ -1192,7 +1017,7 @@ fn the_folder_watcher_reports_history_moving_and_not_gits_own_noise() {
     let main_hears = hear(&main);
     grant(&main).unwrap();
     settle();
-    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"]).unwrap();
     std::fs::write(fixture.root.join("a.md"), "a\n").unwrap();
     until_heard(&main_hears, &[".git", "a.md"]);
     settle();

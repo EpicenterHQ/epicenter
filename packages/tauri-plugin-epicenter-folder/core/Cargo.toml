@@ -1,11 +1,11 @@
 # The folder grant without Tauri: scopes, the cross-process lock, the path
-# rule, and the checked file changes and `git` runs a page asks for. Its tests
-# need only `git` and Bun, so they run without building a webview runtime.
+# rule, and the checked file changes a page asks for. Its tests need only Bun,
+# so they run without building a webview runtime.
 # The plugin crate one directory up adds the IPC commands.
 [package]
 name = "epicenter-folder-core"
 version = "0.0.1"
-description = "The desktop shell's grant of an Epicenter folder: scopes, the lock, checked file changes, and guarded Git"
+description = "The desktop shell's grant of an Epicenter folder: scopes, the lock, and checked file changes"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 publish = false
@@ -18,10 +18,6 @@ serde = { version = "1", features = ["derive"] }
 # Hashes a publishing rename's destination against the page's expectation.
 sha2 = "0.10"
 specta = { version = "=2.0.0-rc.26", features = ["derive"] }
-
-[target.'cfg(unix)'.dependencies]
-# Kills a cancelled `git` with the helpers it started (`page_git`).
-libc = "0.2"
 
 [dev-dependencies]
 serde_json = "1"

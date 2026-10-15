@@ -21,8 +21,9 @@
 //! page names a scope and nothing else. The root and the fallback author
 //! come from `register`. The page runs `@epicenter/folder`'s engine over the
 //! directory `grant_directory` hands it: it reads and changes files through
-//! this plugin's checked commands, and records history with the system
-//! `git`, which `run_git` runs for it.
+//! this plugin's checked commands. Its history runs in the `epicenter` CLI,
+//! which the shell starts for it over the root `Folders::granted_folder`
+//! names (ADR-0559); this plugin runs no `git`.
 //!
 //! Several windows may edit one folder: the shell checks and publishes each
 //! of their saves under one mutex per root, so a save another window
@@ -39,19 +40,16 @@
 use std::path::PathBuf;
 
 use tauri::plugin::TauriPlugin;
-use tauri::webview::PageLoadEvent;
-use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime};
 
 use epicenter_folder_core::registry::Registry;
 pub use epicenter_folder_core::page_files::{ChangeError, Expectation};
-pub use epicenter_folder_core::page_git::GitOutput;
 pub use epicenter_folder_core::registry::{
-    Author, FolderConfig, FolderKind, GrantError, Granted, ScopeConfig,
+    Author, FolderConfig, FolderKind, GrantError, Granted, GrantedFolder, ScopeConfig,
 };
 
 mod command_names;
 mod commands;
-mod git_runs;
 mod watcher;
 
 pub use command_names::COMMANDS;
@@ -63,8 +61,6 @@ const PLUGIN_NAME: &str = "epicenter-folder";
 #[derive(Default)]
 pub struct Folders {
     registry: Registry,
-    /// The `git` runs each window's page started. See `git_runs`.
-    git_runs: git_runs::GitRuns,
     /// One watcher per granted root. See `watcher`.
     watchers: watcher::Watchers,
 }
@@ -87,6 +83,13 @@ impl Folders {
     /// recorder. Refused until the window's page has been granted the scope.
     pub fn granted_root(&self, scope: &str, window: &str) -> Result<PathBuf, GrantError> {
         self.registry.granted_root(scope, window)
+    }
+
+    /// `scope` as `window` was granted it: its root, fallback author,
+    /// branch, and kind, for the `epicenter` CLI the shell runs to record and
+    /// sync its history (ADR-0559). Refused as `granted_root` is.
+    pub fn granted_folder(&self, scope: &str, window: &str) -> Result<GrantedFolder, GrantError> {
+        self.registry.granted_folder(scope, window)
     }
 
     /// Refuse new work, stop watching, and release every lock, without
@@ -147,8 +150,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
             commands::grant_directory::<tauri::Wry>,
-            commands::run_git::<tauri::Wry>,
-            commands::cancel_git::<tauri::Wry>,
             commands::read_folder_directory::<tauri::Wry>,
             commands::stat_folder_path::<tauri::Wry>,
             commands::rename_folder_path::<tauri::Wry>,
@@ -178,37 +179,12 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             app.manage(Folders::default());
             Ok(())
         })
-        .on_page_load(|webview, payload| {
-            if payload.event() == PageLoadEvent::Started {
-                page_started(webview);
+        .on_event(|app, event| {
+            if let RunEvent::Exit = event {
+                app.folders().shutdown();
             }
         })
-        .on_event(|app, event| match event {
-            RunEvent::WindowEvent {
-                label,
-                event: WindowEvent::Destroyed,
-                ..
-            } => window_destroyed(app, label),
-            RunEvent::Exit => app.folders().shutdown(),
-            _ => {}
-        })
         .build()
-}
-
-/// A page started loading in `webview`: the page before it is over, and so
-/// are the `git` runs it started.
-fn page_started<R: Runtime>(webview: &tauri::Webview<R>) {
-    webview
-        .folders()
-        .git_runs
-        .page_ended(webview.window().label());
-}
-
-/// A window was destroyed, and with it its page and that page's `git` runs.
-/// Tauri has already forgotten the window when a plugin hears of it, so this
-/// needs only its label.
-fn window_destroyed<R: Runtime>(app: &tauri::AppHandle<R>, window: &str) {
-    app.folders().git_runs.page_ended(window);
 }
 
 #[cfg(test)]

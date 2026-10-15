@@ -21,8 +21,8 @@
 //! Every name is compared component by component, `.git` and its parts
 //! case-insensitively, so on a disk that ignores case `.GIT/Hooks/x` is
 //! refused as `.git/hooks/x` would be. Git objects are never written here: the
-//! engine stores them with `git hash-object -w` (`page_git`), which names and
-//! checks them itself. A data file is never written in place: the engine
+//! engine stores them with `git hash-object -w` in the `epicenter` CLI
+//! (ADR-0559), which names and checks them itself. A data file is never written in place: the engine
 //! writes a new staged file and renames it over the path, so an existing
 //! hard link is replaced, never written through. A link
 //! another program swaps in between the check and the change is not
@@ -300,19 +300,6 @@ pub fn write_file(
         .open(&target)
         .and_then(|mut file| file.write_all(bytes))
         .map_err(|cause| format!("'{}' could not be written: {cause}", target.display()))
-}
-
-/// Whether `index_file` names a private index copy directly in the root's
-/// `.git` (`.git/index.tmp-*`), compared name by name so either separator
-/// counts: the page joins `/` onto a root Windows writes with `\`.
-pub(crate) fn is_index_copy(root: &Path, index_file: &str) -> bool {
-    let Some(base) = root.to_str() else {
-        return false;
-    };
-    relative_parts(base, index_file).is_some_and(|parts| {
-        parts.first().map(String::as_str) == Some(".git")
-            && classify_parts(&parts) == Some(Kind::IndexCopy)
-    })
 }
 
 #[cfg(test)]

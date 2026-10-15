@@ -12,7 +12,12 @@ bun dev:git:desktop
 ```
 
 The browser is at `http://127.0.0.1:5190/?copy=a`; open `?copy=b` in another
-tab. Desktop opens windows A and B. Both development commands start or reuse
+tab. Desktop opens windows A and B. The desktop shell edits files only: a
+desktop page's history runs in the `epicenter` CLI, which only the Epicenter
+shell starts
+([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)),
+so Git actions and Sync answer `Failed` there until this shell runs it too.
+Use the browser build to exercise history. Both development commands start or reuse
 one loopback smart HTTP backend on port 5191. The command that starts that
 backend owns its lifetime. Keep it running while the other platform uses it.
 The printed temporary root contains the bare remote and seed checkout.
