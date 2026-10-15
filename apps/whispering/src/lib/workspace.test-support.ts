@@ -213,14 +213,10 @@ export type TestWorkspaceOptions = {
 	failAudioWrites?: number;
 	/** Fail this many recording row writes, made when a recording starts. */
 	failRowWrites?: number;
-	/** Fail this many transformation result writes before any byte is written. */
-	failRunWrites?: number;
-	/** Report this many transformation result writes as failed after the file landed. */
-	loseRunWriteAnswers?: number;
-	/** Fail this many writes of results on pasted text before any byte is written. */
-	failTextRunWrites?: number;
-	/** Report this many writes of results on pasted text as failed after the file landed. */
-	loseTextRunWriteAnswers?: number;
+	/** Fail this many result rows written when a run starts, in any result table. */
+	failResultStarts?: number;
+	/** Fail this many answers written into result rows, in any result table. */
+	failAnswerWrites?: number;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Partial<Record<Operation, StoredConnection>>;
 	/** A key an earlier build saved on the device. */
@@ -229,33 +225,34 @@ export type TestWorkspaceOptions = {
 	folder?: Workspace['folder'] & { close(): Promise<void> };
 };
 
+/** Result row writes still to fail: rows written when a run starts, and answers written into them. */
+export type ResultFailures = { starts: number; answers: number };
+
 /**
- * A result table whose next creates fail before writing, or land and then
- * answer as failed, as many times as `counts` says.
+ * A result table whose next creates, or next replaces, fail before writing,
+ * as many times as `failures` says. A test may arm more after opening.
  */
-function withWriteFailures<TFields>(
+export function withResultFailures<TFields>(
 	table: FileTable<TFields>,
-	counts: { fail: number; lose: number },
+	failures: ResultFailures,
 ): FileTable<TFields> {
-	const refused = (stem: string | undefined) =>
+	const refused = (path: string, operation: 'create' | 'write') =>
 		FileError.Io({
-			path: `${table.name}/${stem}.md`,
-			operation: 'create',
+			path,
+			operation,
 			cause: new Error('disk refused the result'),
 		});
 	return {
 		...table,
 		async create(row, options) {
-			if (counts.fail > 0) {
-				counts.fail -= 1;
-				return refused(options?.stem);
-			}
-			const created = await table.create(row, options);
-			if (counts.lose > 0 && created.error === null) {
-				counts.lose -= 1;
-				return refused(options?.stem);
-			}
-			return created;
+			if (failures.starts === 0) return table.create(row, options);
+			failures.starts -= 1;
+			return refused(`${table.name}/${options?.stem}.md`, 'create');
+		},
+		async replace(file, row) {
+			if (failures.answers === 0) return table.replace(file, row);
+			failures.answers -= 1;
+			return refused(file.path, 'write');
 		},
 	};
 }
@@ -265,10 +262,8 @@ export async function openTestWorkspace({
 	transform,
 	failAudioWrites = 0,
 	failRowWrites = 0,
-	failRunWrites = 0,
-	loseRunWriteAnswers = 0,
-	failTextRunWrites = 0,
-	loseTextRunWriteAnswers = 0,
+	failResultStarts = 0,
+	failAnswerWrites = 0,
 	connections,
 	legacyKey,
 	folder: given,
@@ -277,16 +272,18 @@ export async function openTestWorkspace({
 		await mkdtemp(join(tmpdir(), 'whispering-workspace-')),
 	);
 	const folder = given ?? (await openTestFolder(root));
+	const failures: ResultFailures = {
+		starts: failResultStarts,
+		answers: failAnswerWrites,
+	};
 	const tables = {
 		...folder.tables,
-		transformation_runs: withWriteFailures(folder.tables.transformation_runs, {
-			fail: failRunWrites,
-			lose: loseRunWriteAnswers,
-		}),
-		text_runs: withWriteFailures(folder.tables.text_runs, {
-			fail: failTextRunWrites,
-			lose: loseTextRunWriteAnswers,
-		}),
+		transcriptions: withResultFailures(folder.tables.transcriptions, failures),
+		transformation_runs: withResultFailures(
+			folder.tables.transformation_runs,
+			failures,
+		),
+		text_runs: withResultFailures(folder.tables.text_runs, failures),
 	};
 	const device = testConnections({ connections, legacyKey });
 
@@ -397,6 +394,8 @@ export async function openTestWorkspace({
 	return {
 		root,
 		workspace,
+		/** Result row writes still to fail; a test may arm more. */
+		failures,
 		/** What `openSession` is given: it counts how many times a folder was opened. */
 		open: async () => {
 			opens += 1;
@@ -433,4 +432,13 @@ export function deferred<T>() {
 		resolve = settle;
 	});
 	return { promise, resolve };
+}
+
+/** Wait until `check` holds, as work the test does not await lands. */
+export async function eventually(check: () => boolean, timeoutMs = 4000) {
+	const deadline = Date.now() + timeoutMs;
+	while (!check()) {
+		if (Date.now() > deadline) throw new Error('It never happened.');
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
 }

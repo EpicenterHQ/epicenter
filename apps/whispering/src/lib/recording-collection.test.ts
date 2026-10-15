@@ -56,7 +56,11 @@ import {
 } from './recording-collection.js';
 import type { Session } from './session.svelte.js';
 import type { Workspace } from './workspace/types.js';
-import { deferred, openTestWorkspace } from './workspace.test-support.js';
+import {
+	deferred,
+	eventually,
+	openTestWorkspace,
+} from './workspace.test-support.js';
 
 const { openSession } = await import('./session.svelte.ts');
 
@@ -485,9 +489,12 @@ test('a transcription that fails is reported, is not sent again, and does not st
 	expect(outcome.skipped).toEqual([
 		{ title: path('gone'), reason: 'It is no longer in the folder.' },
 	]);
-	// The failure is the library's own failed run, there to be tried again by the person.
-	expect(library.transcriptionRun('dentist')?.kind).toBe('failed');
+	// The failure is on the transcript's row, which stays without a body, there
+	// to be run again by the person.
 	expect(rowOf(library, 'dentist').status).toBe('failed');
+	expect(library.resultsFor('dentist').map((item) => item.row.body)).toEqual([
+		'',
+	]);
 });
 
 test('several are transcribed one at a time: the next is not sent until the one before it has answered', async () => {
@@ -499,6 +506,7 @@ test('several are transcribed one at a time: the next is not sent until the one 
 	);
 
 	const running = transcribeRows(library, [path('dentist'), path('lecture')]);
+	await eventually(() => sent.length > 0);
 	for (let turn = 0; turn < 50; turn++) await Promise.resolve();
 	expect(sent.map((request) => request.audioPath)).toEqual([
 		'recordings/dentist.wav',
@@ -815,6 +823,7 @@ test('closing while several are being transcribed sends nothing more: the one un
 		path('lecture'),
 		path('standup'),
 	]);
+	await eventually(() => sent.length > 0);
 	for (let turn = 0; turn < 50; turn++) await Promise.resolve();
 	expect(sent.map((request) => request.audioPath)).toEqual([
 		'recordings/dentist.wav',
@@ -840,15 +849,17 @@ test('closing while several are being transcribed sends nothing more: the one un
 	]);
 	// The one that was sent is reported as it ended: its answer arrived, and
 	// with the folder closed its file could not be written. It is not called
-	// transcribed, and the library holds the text as a transcript not saved.
+	// transcribed; its row stays without a body, unfinished on the next open.
 	expect(outcome.transcribed).toEqual([]);
 	expect(outcome.failed).toEqual([
-		{ title: 'Dentist reminder', reason: 'The folder is closed' },
+		{
+			title: 'Dentist reminder',
+			reason: expect.stringContaining('The folder is closed'),
+		},
 	]);
-	expect(library.transcriptionRun('dentist')).toMatchObject({
-		kind: 'unsaved',
-		text: 'arrived after the close',
-	});
+	expect(library.resultsFor('dentist').map((item) => item.row.body)).toEqual([
+		'',
+	]);
 	// Asked again after closing, the library sends nothing.
 	await library.transcribe(
 		library.entries.find((entry) => entry.stem === 'lecture')!,

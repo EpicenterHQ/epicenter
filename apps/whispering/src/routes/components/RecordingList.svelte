@@ -97,7 +97,7 @@
 
 	const statusTone: Record<RecordingStatus, string> = {
 		failed: 'text-destructive',
-		unsaved: 'text-destructive',
+		unfinished: 'text-warning',
 		transcribing: 'text-foreground',
 		untranscribed: 'text-muted-foreground',
 		transcribed: 'text-muted-foreground',

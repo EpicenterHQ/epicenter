@@ -11,8 +11,9 @@
 	import { resolvePostProcessing, transformationName } from '$lib/post-processing.js';
 	import { getSession } from '$lib/session.svelte.js';
 	import AudioPlayer from './components/AudioPlayer.svelte';
-	import { copyText, formatTime, openItem, recordingTitle } from './components/file-actions.js';
+	import { confirmDelete, copyText, formatTime, openItem, recordingTitle } from './components/file-actions.js';
 	import RecorderCard from './components/RecorderCard.svelte';
+	import ResultStatus from './components/ResultStatus.svelte';
 	import TransformationOutput from './components/TransformationOutput.svelte';
 
 	const { library, view } = getSession();
@@ -23,16 +24,16 @@
 	const audioPath = $derived(latest ? audioPathIn(latest.row.fields) : undefined);
 	const transcript = $derived(latest ? library.resultsFor(latest.stem)[0] : undefined);
 	const run = $derived(latest ? library.transcriptionRun(latest.stem) : undefined);
+	/** Whether the newest transcript has its answer, or what is happening to it. */
+	const progress = $derived(transcript && library.resultState(transcript.path, transcript.row.body));
 	const model = $derived(library.connections?.transcription?.model);
 
 	/** The transformation chosen beside the recorder, as the folder and the text connection have it now. */
 	const postProcessing = $derived(resolvePostProcessing(view.postProcessing, library.transformations, library.resolve));
-	/** A run on this transcript that is not a saved result yet: the one under way, else the newest. */
-	const postRun = $derived.by(() => {
-		if (transcript === undefined) return undefined;
-		const runs = library.transformationRuns.filter((item) => item.fields.transcriptionId === transcript.stem);
-		return runs.find((item) => item.state.kind === 'running') ?? runs.at(-1);
-	});
+	/** Whether a transformation of the newest transcript is under way. Its result shows below once its file is written. */
+	const postRunning = $derived(
+		transcript !== undefined && library.recipeRuns.some((item) => item.transcriptionId === transcript.stem),
+	);
 	const outputs = $derived(transcript ? library.outputsFor(transcript.stem) : []);
 
 	/** Run the chosen transformation on the latest transcript. This press is the only thing that sends it. */
@@ -73,7 +74,14 @@
 					<span class="shrink-0 text-xs text-muted-foreground max-sm:hidden">{formatTime(latest.row.fields.recordedAt, 'short')}</span>
 				</div>
 
-				{#if transcript}
+				{#if transcript && progress && progress.kind !== 'answered'}
+					<ResultStatus
+						{library}
+						path={transcript.path}
+						result={progress}
+						onDelete={() => void confirmDelete(library, transcript.path)}
+					/>
+				{:else if transcript}
 					<div class="flex items-start gap-2 rounded-md border p-3 text-sm">
 						<p class="max-h-40 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap" data-testid="latest-transcript">
 							{transcript.row.body.trim() || '(empty transcript)'}
@@ -84,36 +92,7 @@
 					</div>
 
 					<!-- Post-processing never starts by itself. The transcript above is not changed by it: a result is its own file. -->
-					{#if postRun?.state.kind === 'running'}
-						<p class="flex items-center gap-2 text-sm text-muted-foreground" role="status" data-testid="post-processing-running">
-							<Spinner class="size-3.5 shrink-0" />
-							<span class="min-w-0 break-words">Running “{postRun.fields.transformationTitle}”…</span>
-						</p>
-					{:else if postRun?.state.kind === 'failed'}
-						<div class="flex flex-wrap items-center gap-2 text-sm" data-testid="post-processing-failed">
-							<p class="min-w-0 flex-1 basis-full break-words text-destructive sm:basis-0" role="alert">
-								“{postRun.fields.transformationTitle}” did not run: {postRun.state.message}
-							</p>
-							<Button size="sm" onclick={() => void library.retryTransformation(postRun.id)} data-testid="post-processing-retry">Try again</Button>
-							<Button size="sm" variant="ghost" onclick={() => library.discardTransformationRun(postRun.id)}>Dismiss</Button>
-						</div>
-					{:else if postRun?.state.kind === 'unsaved'}
-						{@const text = postRun.state.text}
-						<div class="flex flex-wrap items-center gap-2 text-sm" data-testid="post-processing-unsaved">
-							<p class="min-w-0 flex-1 basis-full break-words text-destructive sm:basis-0" role="alert">
-								The result of “{postRun.fields.transformationTitle}” arrived, but its file was not saved: {postRun.state.message}
-							</p>
-							<Button
-								size="sm"
-								tooltip="Writes the file. The endpoint is not called again."
-								onclick={() => void library.retryTransformation(postRun.id)}
-								data-testid="post-processing-save"
-							>
-								Save it again
-							</Button>
-							<Button size="sm" variant="outline" onclick={() => void copyText(text, 'the result')}>Copy</Button>
-						</div>
-					{:else if postProcessing.kind === 'ready'}
+					{#if postProcessing.kind === 'ready'}
 						{@const chosen = library.resolve(postProcessing.entry.row)}
 						{@const name = transformationName(postProcessing.entry)}
 						<div class="flex flex-wrap items-center gap-2 text-sm">
@@ -121,13 +100,13 @@
 							<Button
 								size="sm"
 								variant="outline"
-								disabled={!transcript.row.body.trim()}
+								disabled={!transcript.row.body.trim() || postRunning}
 								aria-label="Run post-processing: {name}"
 								tooltip={chosen.kind === 'ready' ? `Runs “${name}”: sends this transcript to ${chosen.model} at ${chosen.endpoint}` : undefined}
 								onclick={() => void runPostProcessing()}
 								data-testid="run-post-processing"
 							>
-								<WandSparklesIcon />
+								{#if postRunning}<Spinner class="size-3.5" />{:else}<WandSparklesIcon />{/if}
 								Run post-processing
 							</Button>
 							<span class="text-xs text-muted-foreground">Nothing is sent until you press it.</span>
@@ -154,7 +133,7 @@
 					{/if}
 				{:else if run?.kind === 'failed'}
 					<p class="text-sm text-destructive" role="alert" data-testid="transcription-error">{run.message}</p>
-				{:else if audioPath && run?.kind !== 'unsaved'}
+				{:else if audioPath}
 					<p class="text-sm text-muted-foreground">
 						{#if run?.kind === 'running'}
 							Transcribing…
@@ -178,7 +157,7 @@
 					{:else}
 						<p class="flex-1 basis-full text-sm text-muted-foreground sm:basis-0">This recording’s file names no audio, so it cannot be played or transcribed. Open it to add the path.</p>
 					{/if}
-					{#if !transcript && run?.kind !== 'unsaved'}
+					{#if !transcript}
 						<Button
 							size="sm"
 							tooltip={model ? `Transcribes with ${model}` : undefined}

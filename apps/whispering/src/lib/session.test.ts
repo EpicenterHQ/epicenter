@@ -8,8 +8,8 @@
  * Key behaviors:
  * - Opening a session opens the folder once; closing it releases it once
  * - Internal navigation is allowed even while the session holds unsaved work
- * - A navigation that unloads the document is held back only while something
- *   exists only in the window
+ * - A navigation that unloads the document is held back only while a change
+ *   is still being written; a recording or a transcription never holds it
  * - The close guard belongs to the session and stops listening when it closes
  * - A failed opening is answered for only when it was refused, or proves that
  *   everything it opened was closed; any other rejection leaves closes unanswered
@@ -19,11 +19,13 @@ import { afterEach, expect, test } from 'bun:test';
 import { OpenFolderError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { recordingEditor, settle } from './edits.test-support.js';
 import { createQueryClient } from './query.test-support.js';
 import type { Session } from './session.svelte.js';
 import { type Workspace, WorkspaceError } from './workspace/types.js';
 import {
 	deferred,
+	eventually,
 	openTestWorkspace,
 	type TestWorkspaceOptions,
 } from './workspace.test-support.js';
@@ -83,13 +85,22 @@ test('internal navigation is allowed while unloading is blocked only by unsaved 
 	expect(session.blocksNavigation(UNLOAD)).toBe(false);
 	await library.stopRecording();
 
-	// An answer still on its way is held only here.
+	// Neither does a transcription: its row is in the folder before the request goes out.
 	const transcribing = library.transcribe(library.entries[0]!);
-	expect(session.blocksNavigation(INTERNAL)).toBe(false);
-	expect(session.blocksNavigation(UNLOAD)).toBe(true);
-
+	await eventually(
+		() => library.resultsFor(library.entries[0]!.stem).length > 0,
+	);
+	expect(session.blocksNavigation(UNLOAD)).toBe(false);
 	answer.resolve(Ok({ text: 'a steady tone' }));
 	await transcribing;
+
+	// A change still being written is held only here.
+	recordingEditor(library).edit((row) => {
+		row.fields.title = 'Typed just now';
+	});
+	expect(session.blocksNavigation(INTERNAL)).toBe(false);
+	expect(session.blocksNavigation(UNLOAD)).toBe(true);
+	await settle(library);
 	expect(session.blocksNavigation(UNLOAD)).toBe(false);
 });
 
@@ -170,27 +181,17 @@ const refusal = () => {
 };
 
 test('while a session exists, only its guard answers a close: nothing answers for it unseen', async () => {
-	// A transcription whose answer has not arrived is held only in the window.
-	const answer = deferred<Awaited<ReturnType<Workspace['transcribe']>>>();
-	const test = await openTestWorkspace({ transcribe: () => answer.promise });
+	const test = await openTestWorkspace();
 	const { counts, answerClose } = closeAnswerer();
 	const mounted = mountSession(createQueryClient(), test.open, answerClose);
 	const session = expectOk(await mounted.opening);
 	cleanups.push(test.remove);
-	// Something held only in the window.
-	await session.library.startRecording();
-	await session.library.stopRecording();
-	const [entry] = session.library.entries;
-	void session.library.transcribe(entry!);
-	await Bun.sleep(10);
-	expect(session.library.holdsUnsavedWork).toBe(true);
 
-	// The shell asks. The session's own guard is the listener, and it does not approve.
+	// The shell asks. The session's own guard is the listener, and it answers.
 	expect(test.closeListeners.size).toBe(1);
 	for (const listener of test.closeListeners) listener();
 	await Bun.sleep(50);
-	expect(test.answers).toEqual(['asking']);
-	expect(session.leave.asking).toBe(true);
+	expect(test.answers).toEqual(['asking', 'proceed']);
 	expect(counts).toEqual({ started: 0, stopped: 0 });
 
 	mounted.release();
