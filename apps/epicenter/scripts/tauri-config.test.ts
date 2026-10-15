@@ -4,7 +4,7 @@
  * binary before the app compiles, so every command that starts or packages the
  * app must compile the sidecar first. `dev:desktop` once ran only the SPA
  * build, which failed on a fresh clone with a missing
- * `binaries/epicenter-host-<triple>` resource.
+ * `binaries/epicenter-cli-<triple>` resource.
  */
 
 import { expect, test } from 'bun:test';
@@ -35,7 +35,7 @@ function expand(name: string): Set<string> {
 }
 
 test('starting and packaging the app both compile the Bun sidecar first', () => {
-	expect(config.bundle.externalBin).toEqual(['binaries/epicenter-host']);
+	expect(config.bundle.externalBin).toEqual(['binaries/epicenter-cli']);
 	const dev = config.build.beforeDevCommand.script as string;
 	const build = config.build.beforeBuildCommand as string;
 	for (const command of [dev, build]) {
