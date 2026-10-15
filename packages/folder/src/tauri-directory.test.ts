@@ -9,8 +9,11 @@
  * - Every refused or failed grant is an `OpenFolderError` and opens nothing
  * - A removal whose reply is lost is done if the path is gone, and
  *   `Unconfirmed` if it is still there
+ * - A save the shell finds overtaken where it publishes is `Conflict`, or
+ *   `Exists` for a create, never `Unconfirmed`; an overwrite still lands
  */
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import * as nodeFs from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
@@ -19,6 +22,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { OpenFolderError } from './errors.js';
 import { createGitRunner } from './git/native-host.js';
 import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import type { Expectation } from './native/bindings.gen.js';
 import { installWebLocks } from './web-locks.test-support.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
@@ -29,6 +33,11 @@ let grant: (args: Record<string, unknown>) => unknown = () => {
 };
 /** Runs after the shell's removal and may lose its reply by throwing. */
 let afterRemove: (path: string) => void = () => {};
+/**
+ * Runs before the shell checks a rename's destination or a removal's path:
+ * another writer landing there after the page checked it.
+ */
+let beforeChange: (path: string) => Promise<void> | void = () => {};
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
@@ -113,13 +122,19 @@ mock.module('@tauri-apps/api/core', () => ({
 			return null;
 		}
 		if (name === 'rename_folder_path') {
-			await nodeFs.rename(args.from as string, args.to as string);
+			await beforeChange(args.to as string);
+			await check(args.to as string, args.expected as Expectation);
+			await asRefusal(() =>
+				nodeFs.rename(args.from as string, args.to as string),
+			);
 			return null;
 		}
 		if (name === 'remove_folder_path') {
-			await nodeFs.rm(args.path as string, {
-				recursive: args.recursive === true,
-			});
+			await beforeChange(args.path as string);
+			await check(args.path as string, args.expected as Expectation);
+			await asRefusal(() =>
+				nodeFs.rm(args.path as string, { recursive: args.recursive === true }),
+			);
 			afterRemove(args.path as string);
 			return null;
 		}
@@ -139,6 +154,35 @@ const asShellError = async <T>(work: () => Promise<T>): Promise<T> => {
 		throw String(cause);
 	}
 };
+
+/** A rename's or removal's failure as the shell refuses it. */
+const asRefusal = async <T>(work: () => Promise<T>): Promise<T> => {
+	try {
+		return await work();
+	} catch (cause) {
+		throw { name: 'Failed', message: String(cause) };
+	}
+};
+
+/** The shell's check of what a rename or removal expects at `path`. */
+async function check(path: string, expected: Expectation) {
+	if (expected === 'any') return;
+	const found = await nodeFs.lstat(path).catch(() => undefined);
+	if (expected === 'absent') {
+		if (found !== undefined) throw { name: 'Exists' };
+		return;
+	}
+	if (expected === 'present') {
+		if (found === undefined) throw { name: 'NotFound' };
+		return;
+	}
+	if (!found?.isFile()) throw { name: 'Conflict', actualSha256: null };
+	const actualSha256 = createHash('sha256')
+		.update(await nodeFs.readFile(path))
+		.digest('hex');
+	if (actualSha256 !== expected.sha256)
+		throw { name: 'Conflict', actualSha256 };
+}
 
 /** What an entry is, without following a link, as the shell names it. */
 const kindOf = (entry: {
@@ -184,6 +228,7 @@ afterAll(() => {
 beforeEach(() => {
 	calls = [];
 	afterRemove = () => {};
+	beforeChange = () => {};
 });
 
 /** A granted folder over a new directory. */
@@ -311,5 +356,67 @@ test('a removal whose reply is lost with the path still there is unconfirmed', a
 	const refused = expectErr(await folder.files.remove(file));
 	expect(refused.name).toBe('Unconfirmed');
 	expect(await readFile(join(root, 'notes/a.md'), 'utf8')).toBe('a\n');
+	await folder.close();
+});
+
+test('a save another window overtakes where it publishes is refused for what is there', async () => {
+	const { root, folder } = await granted();
+	const sha256 = (text: string) =>
+		createHash('sha256').update(text).digest('hex');
+	// Another window's save lands after this page checked the path and
+	// before the shell publishes this one.
+	const overtaken = new Map<string, string>();
+	beforeChange = (path) => {
+		const theirs = overtaken.get(path);
+		if (theirs === undefined) return;
+		overtaken.delete(path);
+		writeFileSync(path, theirs);
+	};
+	const created = expectOk(
+		await folder.tables.todos.create({
+			fields: { title: 'Mine', done: false },
+			body: '',
+		}),
+	);
+	const path = join(root, created.path);
+	const theirs = '---\ntitle: Theirs\ndone: false\n---\n';
+	overtaken.set(path, theirs);
+	created.row.fields.title = 'Mine, edited';
+	const replaced = await folder.tables.todos.replace(created, created.row);
+	expect(replaced.error).toMatchObject({
+		name: 'Conflict',
+		expectedSha256: created.sha256,
+		actualSha256: sha256(theirs),
+	});
+	expect(await readFile(path, 'utf8')).toBe(theirs);
+	// Each refused stream removed what it staged.
+	const scratchDirectory = join(root, '.git/epicenter/scratch');
+	expect(await nodeFs.readdir(scratchDirectory)).toEqual([]);
+
+	const note = join(root, 'notes/a.md');
+	overtaken.set(note, 'theirs\n');
+	const made = await folder.files.create('notes/a.md', 'mine\n');
+	expect(made.error?.name).toBe('Exists');
+	expect(await readFile(note, 'utf8')).toBe('theirs\n');
+
+	const captured = expectOk(await folder.files.read('notes/a.md'));
+	overtaken.set(note, 'theirs again\n');
+	const removed = await folder.files.remove(captured);
+	expect(removed.error).toMatchObject({
+		name: 'Conflict',
+		actualSha256: sha256('theirs again\n'),
+	});
+
+	overtaken.set(note, 'theirs once more\n');
+	expectOk(await folder.files.overwrite('notes/a.md', 'mine\n'));
+	expect(await readFile(note, 'utf8')).toBe('mine\n');
+	expect(await nodeFs.readdir(scratchDirectory)).toEqual([]);
+	// The page told the shell what each publish expected: the declaration,
+	// published before the first save, takes whatever is there.
+	expect(
+		calls
+			.filter(({ cmd }) => cmd === 'rename_folder_path')
+			.map(({ args }) => args.expected),
+	).toEqual(['any', 'absent', { sha256: created.sha256 }, 'absent', 'any']);
 	await folder.close();
 });

@@ -290,13 +290,25 @@ fn inside(fixture: &Fixture, relative: &str) -> String {
     fixture.root.join(relative).to_str().unwrap().to_string()
 }
 
-/// Write a file as the engine does: its bytes to a new staged file, which
-/// is then renamed over the path.
+/// Write a file as the engine overwrites one: its bytes to a new staged
+/// file, which is then renamed over the path, whatever is there.
 fn write(
     fixture: &Fixture,
     window: &WebviewWindow<MockRuntime>,
     relative: &str,
     content: &str,
+) -> Result<Value, Value> {
+    publish(fixture, window, relative, content, json!("any"))
+}
+
+/// Write a file as `write` does, landing only if the path holds what
+/// `expected` says.
+fn publish(
+    fixture: &Fixture,
+    window: &WebviewWindow<MockRuntime>,
+    relative: &str,
+    content: &str,
+    expected: Value,
 ) -> Result<Value, Value> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let scratch = inside(fixture, ".git/epicenter/scratch");
@@ -313,7 +325,12 @@ fn write(
     invoke(
         window,
         "rename_folder_path",
-        json!({ "scope": "notes", "from": staged, "to": inside(fixture, relative) }),
+        json!({
+            "scope": "notes",
+            "from": staged,
+            "to": inside(fixture, relative),
+            "expected": expected,
+        }),
     )
 }
 
@@ -392,6 +409,7 @@ fn changes_land_under_the_root_and_never_in_git_state() {
             "scope": "notes",
             "from": inside(&fixture, "notes/a.md"),
             "to": inside(&fixture, "notes/b.md"),
+            "expected": "absent",
         }),
     )
     .unwrap();
@@ -404,7 +422,12 @@ fn changes_land_under_the_root_and_never_in_git_state() {
         invoke(
             &main,
             "remove_folder_path",
-            json!({ "scope": "notes", "path": inside(&fixture, path), "recursive": false }),
+            json!({
+                "scope": "notes",
+                "path": inside(&fixture, path),
+                "recursive": false,
+                "expected": "any",
+            }),
         )
         .unwrap();
     }
@@ -415,6 +438,68 @@ fn changes_land_under_the_root_and_never_in_git_state() {
     let outside = fixture.root.parent().unwrap().join("outside.md");
     assert!(write_file(&main, outside.to_str().unwrap(), b"x", false).is_err());
     assert!(!outside.exists());
+}
+
+/// The lowercase hexadecimal SHA-256 the page computes.
+fn sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[test]
+fn a_save_lands_only_on_what_the_page_expected_and_says_what_it_found() {
+    let fixture = fixture("expected");
+    let main = window(&fixture.app, "main");
+    grant(&main).unwrap();
+    git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap();
+    publish(&fixture, &main, "a.md", "first\n", json!("absent")).unwrap();
+
+    assert_eq!(
+        publish(&fixture, &main, "a.md", "again\n", json!("absent")).unwrap_err(),
+        json!({ "name": "Exists" })
+    );
+    assert_eq!(
+        publish(&fixture, &main, "b.md", "b\n", json!("present")).unwrap_err(),
+        json!({ "name": "NotFound" })
+    );
+    let stale = json!({ "sha256": sha256(b"stale\n") });
+    assert_eq!(
+        publish(&fixture, &main, "a.md", "mine\n", stale.clone()).unwrap_err(),
+        json!({ "name": "Conflict", "actualSha256": sha256(b"first\n") })
+    );
+    assert_eq!(
+        invoke(
+            &main,
+            "remove_folder_path",
+            json!({
+                "scope": "notes",
+                "path": inside(&fixture, "a.md"),
+                "recursive": false,
+                "expected": stale,
+            }),
+        )
+        .unwrap_err(),
+        json!({ "name": "Conflict", "actualSha256": sha256(b"first\n") })
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
+        "first\n"
+    );
+    publish(
+        &fixture,
+        &main,
+        "a.md",
+        "second\n",
+        json!({ "sha256": sha256(b"first\n") }),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
+        "second\n"
+    );
+    // Any other refusal names itself.
+    let refused = publish(&fixture, &main, ".git/config", "[core]\n", json!("any")).unwrap_err();
+    assert_eq!(refused["name"], "Failed", "{refused}");
 }
 
 #[test]
@@ -439,7 +524,12 @@ fn a_staged_write_takes_its_bytes_raw_and_its_path_percent_encoded() {
     invoke(
         &main,
         "rename_folder_path",
-        json!({ "scope": "notes", "from": staged, "to": inside(&fixture, "all.bin") }),
+        json!({
+            "scope": "notes",
+            "from": staged,
+            "to": inside(&fixture, "all.bin"),
+            "expected": "absent",
+        }),
     )
     .unwrap();
     assert_eq!(std::fs::read(fixture.root.join("all.bin")).unwrap(), bytes);

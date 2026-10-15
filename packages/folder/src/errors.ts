@@ -386,6 +386,33 @@ export class UnconfirmedWrite extends Error {
 	}
 }
 
+/**
+ * Internal: a directory host checked what a publishing rename or a removal
+ * expected at its path, found something else, and changed nothing. `found`
+ * says what: a file with other bytes (`actualSha256`, or `undefined` when no
+ * file is there), something where nothing was expected, or nothing where a
+ * file was. File storage reports it as `Conflict`, `Exists`, or `NotFound`,
+ * never as `Unconfirmed`.
+ */
+export class UnexpectedTarget extends Error {
+	constructor(
+		readonly path: string,
+		readonly found:
+			| { readonly name: 'Conflict'; readonly actualSha256: string | undefined }
+			| { readonly name: 'Exists' }
+			| { readonly name: 'NotFound' },
+	) {
+		super(
+			found.name === 'Conflict'
+				? `'${path}' does not hold the bytes the change expected`
+				: found.name === 'Exists'
+					? `'${path}' is already occupied`
+					: `No file exists at '${path}'`,
+		);
+		this.name = 'UnexpectedTarget';
+	}
+}
+
 export function describe(cause: unknown): string {
 	if (cause instanceof Error) return cause.message;
 	if (

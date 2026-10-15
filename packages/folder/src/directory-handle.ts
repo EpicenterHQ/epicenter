@@ -22,6 +22,11 @@
  *   written to a scratch file under `.git/epicenter/scratch` and renamed over
  *   the path, so another program sees the old file or the new one, never
  *   part of either. Aborting publishes nothing.
+ * - The rename carries what the stream was opened expecting at the path
+ *   (`expected`), and a removal what it expects at its path. The primitives
+ *   check it where the change lands and reject with `UnexpectedTarget`,
+ *   changing nothing, when the path holds something else. A refused stream
+ *   removes its scratch file.
  * - `getFile` reports the size it finds; its bytes are read when asked for,
  *   and are whatever the path holds then.
  *
@@ -33,6 +38,7 @@
  * check and the write that follows are two steps.
  */
 import type {
+	Expectation,
 	OpfsDirectoryHandle,
 	OpfsFile,
 	OpfsFileHandle,
@@ -79,12 +85,23 @@ export type DirectoryPrimitives = {
 		bytes: Uint8Array,
 		options?: { readonly createNew?: boolean },
 	): Promise<void>;
-	/** Rename `from` to `to`, replacing a file at `to`. */
-	rename(from: string, to: string): Promise<void>;
-	/** Remove a file, an empty directory, or with `recursive` a whole tree. */
+	/**
+	 * Rename `from` to `to`, replacing a file at `to`, if `to` holds what
+	 * `expected` says. Otherwise reject with `UnexpectedTarget` and change
+	 * nothing; `from` stays.
+	 */
+	rename(from: string, to: string, expected: Expectation): Promise<void>;
+	/**
+	 * Remove a file, an empty directory, or with `recursive` a whole tree. With
+	 * `expected`, only if `path` holds what it says; otherwise reject with
+	 * `UnexpectedTarget` and change nothing.
+	 */
 	remove(
 		path: string,
-		options?: { readonly recursive?: boolean },
+		options?: {
+			readonly recursive?: boolean;
+			readonly expected?: Expectation;
+		},
 	): Promise<void>;
 	/** Make the directory at `path` and any missing ancestors. */
 	mkdir(path: string): Promise<void>;
@@ -109,11 +126,20 @@ export const STALE_SCRATCH_MS = 60 * 60 * 1000;
 const SCRATCH_NAME = /^([0-9a-z]+)-[0-9a-f]{32}-[0-9a-z]+$/;
 
 /**
+ * The name handles gave a staged file before each had an engine id: its
+ * creation time (eight base-36 digits for any time since 1973), a counter,
+ * and up to eight random characters, all in base 36. A folder may still hold
+ * one a stopped write left.
+ */
+const EARLIER_SCRATCH_NAME = /^([0-9a-z]{8,})-[0-9a-z]+-[0-9a-z]{1,8}$/;
+
+/**
  * Whether the staged file `name` was made more than `STALE_SCRATCH_MS`
- * before `now`. A name a handle did not make is never stale.
+ * before `now`. A name no handle made, now or earlier, is never stale.
  */
 export function isStaleScratch(name: string, now = Date.now()): boolean {
-	const time = SCRATCH_NAME.exec(name)?.[1];
+	const time = (SCRATCH_NAME.exec(name) ??
+		EARLIER_SCRATCH_NAME.exec(name))?.[1];
 	if (time === undefined) return false;
 	const created = Number.parseInt(time, 36);
 	return Number.isSafeInteger(created) && now - created > STALE_SCRATCH_MS;
@@ -191,8 +217,9 @@ export function directoryHandle(
 					},
 				};
 			},
-			async createWritable(): Promise<OpfsWritable> {
+			async createWritable(options): Promise<OpfsWritable> {
 				// Every caller replaces the whole file (`keepExistingData: false`).
+				const expected = options?.expected ?? 'any';
 				const chunks: Uint8Array[] = [];
 				let settled = false;
 				return {
@@ -224,7 +251,7 @@ export function directoryHandle(
 						const scratch = nextScratch();
 						await primitives.writeFile(scratch, bytes, { createNew: true });
 						try {
-							await primitives.rename(scratch, path);
+							await primitives.rename(scratch, path, expected);
 						} catch (cause) {
 							await primitives.remove(scratch).catch(() => {});
 							throw cause;
@@ -331,6 +358,9 @@ export function directoryHandle(
 				}
 				await primitives.remove(at, {
 					recursive: found.kind === 'directory' && options?.recursive === true,
+					...(options?.expected === undefined
+						? {}
+						: { expected: options.expected }),
 				});
 			},
 			async *values() {

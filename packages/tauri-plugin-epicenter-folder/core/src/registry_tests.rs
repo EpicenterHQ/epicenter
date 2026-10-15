@@ -11,6 +11,8 @@
 //!   the lock.
 //! - The lock excludes another process, in both directions with the Bun
 //!   hosts' lock, and a killed process leaves nothing to recover.
+//! - Saves racing on one root with the same expected hash publish one at a
+//!   time: exactly one lands, and the others are `Conflict`.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -20,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::lock::{LockError, RootLock};
+use crate::page_files::{self, ChangeError, Expectation};
 use crate::registry::{FolderConfig, GrantError, Registry, ScopeConfig};
 use crate::testing::{author, TempDir};
 
@@ -187,6 +190,66 @@ fn shutdown_waits_for_running_page_work_and_refuses_new_work() {
     finished.store(true, Ordering::SeqCst);
     drop(work);
     shutting.join().unwrap();
+}
+
+fn hex_sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Every admitted change on a root shares its publishing mutex, so saves
+/// that read the same version check and rename one at a time.
+#[test]
+fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
+    const SAVES: usize = 8;
+    let temp = TempDir::new("grant-race");
+    let root = temp.folder("notes");
+    let registry = Arc::new(registry(&root, "main"));
+    registry.grant("notes", "main").unwrap();
+    std::fs::create_dir_all(root.join(".git/epicenter/scratch")).unwrap();
+    let target = root.join("a.md");
+    std::fs::write(&target, b"old").unwrap();
+    let expected = Expectation::Sha256(hex_sha256(b"old"));
+    let start = Arc::new(std::sync::Barrier::new(SAVES));
+    let saves: Vec<_> = (0..SAVES)
+        .map(|save| {
+            let registry = Arc::clone(&registry);
+            let start = Arc::clone(&start);
+            let (target, expected) = (target.clone(), expected.clone());
+            let staged = root.join(format!(".git/epicenter/scratch/save-{save}"));
+            let root = root.clone();
+            std::thread::spawn(move || {
+                let bytes = format!("save {save}");
+                page_files::write_file(&root, &staged, bytes.as_bytes(), true).unwrap();
+                let (root, work) = registry.admit_page_work("notes", "main").unwrap();
+                start.wait();
+                let _held = work.publishing();
+                let landed = page_files::rename(&root, &staged, &target, &expected);
+                if landed.is_err() {
+                    page_files::remove(&root, &staged, false, &Expectation::Any).unwrap();
+                }
+                (bytes, landed)
+            })
+        })
+        .collect();
+    let outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
+    let winners: Vec<_> = outcomes.iter().filter(|(_, landed)| landed.is_ok()).collect();
+    assert_eq!(winners.len(), 1, "{outcomes:?}");
+    let won = winners[0].0.as_bytes();
+    assert_eq!(std::fs::read(&target).unwrap(), won);
+    for (_, landed) in outcomes.iter().filter(|(_, landed)| landed.is_err()) {
+        assert_eq!(
+            landed,
+            &Err(ChangeError::Conflict {
+                actual_sha256: Some(hex_sha256(won))
+            })
+        );
+    }
+    assert!(std::fs::read_dir(root.join(".git/epicenter/scratch"))
+        .unwrap()
+        .next()
+        .is_none());
+    registry.shutdown();
 }
 
 /// Another process, in Bun, that takes the same SQLite lock on the same file,

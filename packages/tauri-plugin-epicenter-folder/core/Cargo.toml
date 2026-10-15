@@ -15,6 +15,8 @@ publish = false
 dunce = "1"
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
+# Hashes a publishing rename's destination against the page's expectation.
+sha2 = "0.10"
 specta = { version = "=2.0.0-rc.26", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]

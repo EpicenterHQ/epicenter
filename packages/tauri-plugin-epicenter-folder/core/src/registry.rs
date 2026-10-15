@@ -14,11 +14,18 @@
 //! change or `git` run the page asks for holds a `PageWork` while it runs;
 //! `shutdown` refuses new ones and waits a bounded time for those running, so
 //! a quit never cuts a rename or a `git` run short.
+//!
+//! Every publishing rename and removal checks its path against the page's
+//! expectation and changes it under one mutex per canonical root, held here
+//! and shared by every scope and window on that root (`PageWork::publishing`).
+//! So a save through the shell is never overtaken between its check and its
+//! rename by another save through the shell, whichever engine or origin made
+//! either.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -114,14 +121,29 @@ struct Running {
 }
 
 /// One admitted page change or `git` run; dropping it ends it.
-pub struct PageWork(Arc<Running>);
+pub struct PageWork {
+    running: Arc<Running>,
+    /// The publishing mutex of the root the work was admitted for.
+    publishing: Arc<Mutex<()>>,
+}
+
+impl PageWork {
+    /// Hold the root's publishing mutex: a rename or removal that checks its
+    /// path and then changes it holds this across both, so no other change
+    /// through the shell on the same root lands in between.
+    pub fn publishing(&self) -> MutexGuard<'_, ()> {
+        self.publishing
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
 
 impl Drop for PageWork {
     fn drop(&mut self) {
-        let mut count = self.0.count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut count = self.running.count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         *count -= 1;
         if *count == 0 {
-            self.0.settled.notify_all();
+            self.running.settled.notify_all();
         }
     }
 }
@@ -131,6 +153,8 @@ pub struct Registry {
     scopes: Mutex<BTreeMap<String, Scope>>,
     fenced: AtomicBool,
     running: Arc<Running>,
+    /// One publishing mutex per canonical root, whichever scopes reach it.
+    publishing: Mutex<BTreeMap<PathBuf, Arc<Mutex<()>>>>,
 }
 
 impl Registry {
@@ -238,7 +262,20 @@ impl Registry {
             return Err(GrantError::ShuttingDown);
         }
         *count += 1;
-        Ok((root, PageWork(Arc::clone(&self.running))))
+        let publishing = Arc::clone(
+            self.publishing
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .entry(root.clone())
+                .or_default(),
+        );
+        Ok((
+            root,
+            PageWork {
+                running: Arc::clone(&self.running),
+                publishing,
+            },
+        ))
     }
 
     /// The canonical root of `scope`, already granted to the window it

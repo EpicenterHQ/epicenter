@@ -762,6 +762,7 @@ dependencies = [
  "libc",
  "rusqlite",
  "serde",
+ "sha2",
  "specta",
 ]
 

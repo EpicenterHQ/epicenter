@@ -4,14 +4,16 @@
  *
  * `shellCommand` answers what the shell answers after `grant_directory`: the
  * folder plugin's read and change commands with `node:fs`, failing with the
- * operating system's message as text, and `run_git` with the system `git` in
- * the granted root. `installWebLocks` stands in for Web Locks, which Bun
+ * operating system's message as text (a rename or removal as the plugin's
+ * `ChangeError`, landing only if its path holds what the page expected), and
+ * `run_git` with the system `git` in the granted root. `installWebLocks` stands in for Web Locks, which Bun
  * lacks.
  *
  * Neither checks paths the way the shell does; the folder package's own
  * tests and the shell's cover that. Git reads no global or system
  * configuration here, so the grant's author is the one Git records.
  */
+import { createHash } from 'node:crypto';
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -157,12 +159,21 @@ export async function shellCommand(
 			});
 			return { reply: null };
 		case 'rename_folder_path':
-			await nodeFs.rename(args.from as string, args.to as string);
+			await expectAt(args.to as string, args.expected);
+			await asChangeError(
+				() => nodeFs.rename(args.from as string, args.to as string),
+				'rename',
+			);
 			return { reply: null };
 		case 'remove_folder_path':
-			await nodeFs.rm(args.path as string, {
-				recursive: args.recursive === true,
-			});
+			await expectAt(args.path as string, args.expected);
+			await asChangeError(
+				() =>
+					nodeFs.rm(args.path as string, {
+						recursive: args.recursive === true,
+					}),
+				'remove',
+			);
 			return { reply: null };
 		case 'make_folder_directory':
 			await nodeFs.mkdir(args.path as string, { recursive: true });
@@ -179,6 +190,46 @@ async function asShellError<T>(work: () => Promise<T>): Promise<T> {
 	} catch (cause) {
 		throw String(cause);
 	}
+}
+
+/**
+ * A rename's or removal's failure as the plugin refuses it: `NotFound` for a
+ * removal of a missing path, `Failed` with the reason otherwise.
+ */
+async function asChangeError<T>(
+	work: () => Promise<T>,
+	operation: 'rename' | 'remove',
+): Promise<T> {
+	try {
+		return await work();
+	} catch (cause) {
+		if (
+			operation === 'remove' &&
+			(cause as { code?: string }).code === 'ENOENT'
+		)
+			throw { name: 'NotFound' };
+		throw { name: 'Failed', message: String(cause) };
+	}
+}
+
+/** Refuse, as the plugin does, unless `path` holds what `expected` says. */
+async function expectAt(path: string, expected: unknown): Promise<void> {
+	if (expected === undefined || expected === 'any') return;
+	const found = await nodeFs.lstat(path).catch(() => undefined);
+	if (expected === 'absent') {
+		if (found !== undefined) throw { name: 'Exists' };
+		return;
+	}
+	if (expected === 'present') {
+		if (found === undefined) throw { name: 'NotFound' };
+		return;
+	}
+	if (!found?.isFile()) throw { name: 'Conflict', actualSha256: null };
+	const actualSha256 = createHash('sha256')
+		.update(await nodeFs.readFile(path))
+		.digest('hex');
+	if (actualSha256 !== (expected as { sha256: string }).sha256)
+		throw { name: 'Conflict', actualSha256 };
 }
 
 /** What an entry is, without following a link, as the shell names it. */

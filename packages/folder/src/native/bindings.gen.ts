@@ -41,15 +41,43 @@ export const commands = {
 	/**  The Unix mode, file type bits included, or `None` off Unix. */
 	mode: number | null,
 } | null, string>(__TAURI_INVOKE("plugin:epicenter-folder|stat_folder_path", { scope, path })),
-	/**  Rename within a granted folder (`page_files::rename`). */
-	renameFolderPath: (scope: string, from: string, to: string) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|rename_folder_path", { scope, from, to })),
-	/**  Remove within a granted folder (`page_files::remove`). */
-	removeFolderPath: (scope: string, path: string, recursive: boolean) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_path", { scope, path, recursive })),
+	/**
+	 *  Rename within a granted folder, if `to` holds what `expected` says
+	 *  (`page_files::rename`). The check and the rename hold the root's
+	 *  publishing lock, which every window's changes on that root share, so a
+	 *  save is never overtaken between them by another save through the shell.
+	 *  A refusal names what is there, `Conflict`, `Exists`, or `NotFound`, and
+	 *  changes nothing.
+	 */
+	renameFolderPath: (scope: string, from: string, to: string, expected: Expectation) => typedError<null, ChangeError>(__TAURI_INVOKE("plugin:epicenter-folder|rename_folder_path", { scope, from, to, expected })),
+	/**
+	 *  Remove within a granted folder, if the path holds what `expected` says
+	 *  (`page_files::remove`), under the same publishing lock as a rename.
+	 */
+	removeFolderPath: (scope: string, path: string, recursive: boolean, expected: Expectation) => typedError<null, ChangeError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_path", { scope, path, recursive, expected })),
 	/**  Make a directory in a granted folder (`page_files::mkdir`). */
 	makeFolderDirectory: (scope: string, path: string) => typedError<null, string>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { scope, path })),
 };
 
 /* Types */
+/**
+ *  Why a rename or a removal changed nothing. The first three are the path
+ *  failing the page's `Expectation`; the page reports each as its own
+ *  refusal rather than as a failure whose outcome is unknown.
+ */
+export type ChangeError =
+/**
+ *  The file there does not hash to the expected SHA-256. The hash it
+ *  does have is given, or none when no file is there.
+ */
+{ name: "Conflict"; actualSha256: string | null } |
+/**  Something is there where nothing was expected. */
+{ name: "Exists" } |
+/**  No file is there where one was expected. */
+{ name: "NotFound" } |
+/**  The change was refused or failed for another reason. */
+{ name: "Failed"; message: string };
+
 /**  One name in a directory and what it is. */
 export type DirectoryEntry = {
 	name: string,
@@ -60,6 +88,20 @@ export type DirectoryEntry = {
 export type EntryKind = "file" | "directory" | "link" |
 /**  Anything else, such as a socket or a device. */
 "other";
+
+/**  What a page expects at a path when its rename or removal lands. */
+export type Expectation =
+/**  Nothing is there: a new file, or a move's destination. */
+"absent" |
+/**  A regular file is there, whatever its bytes. */
+"present" |
+/**
+ *  A regular file is there whose bytes hash to this SHA-256, in lowercase
+ *  hexadecimal.
+ */
+{ sha256: string } |
+/**  Whatever is there, or nothing: the page has already decided. */
+"any";
 
 /**  What one `git` process ended with. */
 export type GitOutput = {

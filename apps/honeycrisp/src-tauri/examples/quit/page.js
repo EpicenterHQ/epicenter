@@ -47,6 +47,7 @@
 			scope,
 			from: copy,
 			to: `${root}/${path}`,
+			expected: 'any',
 		});
 	};
 	const report = (name, value) =>

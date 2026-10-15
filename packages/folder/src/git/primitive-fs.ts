@@ -111,7 +111,7 @@ export function primitiveFs(
 			const temporary = `${path}.tmp-${Date.now().toString(36)}-${(temporaryCounter++).toString(36)}`;
 			await primitives.writeFile(temporary, bytes, { createNew: true });
 			try {
-				await primitives.rename(temporary, path);
+				await primitives.rename(temporary, path, 'any');
 			} catch (cause) {
 				await primitives.remove(temporary).catch(() => {});
 				throw cause;

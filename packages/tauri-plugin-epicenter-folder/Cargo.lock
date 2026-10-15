@@ -763,6 +763,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "specta",
 ]
 
@@ -3350,6 +3351,7 @@ dependencies = [
  "epicenter-folder-core",
  "percent-encoding",
  "serde_json",
+ "sha2",
  "specta",
  "specta-typescript",
  "tauri",

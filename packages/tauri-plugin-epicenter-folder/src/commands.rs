@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use epicenter_folder_core::page_files;
+use epicenter_folder_core::page_files::{self, ChangeError, Expectation};
 use epicenter_folder_core::page_git::{self, GitOutput};
 use epicenter_folder_core::page_reads::{self, DirectoryEntry, PathInfo};
 use epicenter_folder_core::registry::{Granted, GrantError, PageWork};
@@ -180,7 +180,12 @@ pub async fn write_folder_file<R: Runtime>(
     .await
 }
 
-/// Rename within a granted folder (`page_files::rename`).
+/// Rename within a granted folder, if `to` holds what `expected` says
+/// (`page_files::rename`). The check and the rename hold the root's
+/// publishing lock, which every window's changes on that root share, so a
+/// save is never overtaken between them by another save through the shell.
+/// A refusal names what is there, `Conflict`, `Exists`, or `NotFound`, and
+/// changes nothing.
 #[tauri::command]
 #[specta::specta]
 pub async fn rename_folder_path<R: Runtime>(
@@ -188,23 +193,26 @@ pub async fn rename_folder_path<R: Runtime>(
     scope: String,
     from: String,
     to: String,
-) -> Result<(), String> {
+    expected: Expectation,
+) -> Result<(), ChangeError> {
     let (root, work) = changing_root(&webview, &scope)?;
     blocking(
         move || {
-            let _work = work;
+            let _held = work.publishing();
             page_files::rename(
                 &root,
                 std::path::Path::new(&from),
                 std::path::Path::new(&to),
+                &expected,
             )
         },
-        Err,
+        |message| Err(ChangeError::Failed { message }),
     )
     .await
 }
 
-/// Remove within a granted folder (`page_files::remove`).
+/// Remove within a granted folder, if the path holds what `expected` says
+/// (`page_files::remove`), under the same publishing lock as a rename.
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_folder_path<R: Runtime>(
@@ -212,14 +220,15 @@ pub async fn remove_folder_path<R: Runtime>(
     scope: String,
     path: String,
     recursive: bool,
-) -> Result<(), String> {
+    expected: Expectation,
+) -> Result<(), ChangeError> {
     let (root, work) = changing_root(&webview, &scope)?;
     blocking(
         move || {
-            let _work = work;
-            page_files::remove(&root, std::path::Path::new(&path), recursive)
+            let _held = work.publishing();
+            page_files::remove(&root, std::path::Path::new(&path), recursive, &expected)
         },
-        Err,
+        |message| Err(ChangeError::Failed { message }),
     )
     .await
 }

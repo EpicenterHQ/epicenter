@@ -24,12 +24,114 @@
 //! hard link is replaced, never written through. A link
 //! another program swaps in between the check and the change is not
 //! defended against; a page cannot make one.
+//!
+//! A rename or a removal also carries what the page expects at the path it
+//! changes (`Expectation`), and lands only if the path holds that. The caller
+//! holds the root's publishing lock (`registry::PageWork::publishing`) across
+//! the check and the change, so no other window's change through the shell
+//! lands between them. A Bun script, or any other program, takes no such
+//! lock.
 
 use std::fs;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use specta::Type;
+
 use crate::paths;
+
+/// What a page expects at a path when its rename or removal lands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Expectation {
+    /// Nothing is there: a new file, or a move's destination.
+    Absent,
+    /// A regular file is there, whatever its bytes.
+    Present,
+    /// A regular file is there whose bytes hash to this SHA-256, in lowercase
+    /// hexadecimal.
+    Sha256(String),
+    /// Whatever is there, or nothing: the page has already decided.
+    Any,
+}
+
+/// Why a rename or a removal changed nothing. The first three are the path
+/// failing the page's `Expectation`; the page reports each as its own
+/// refusal rather than as a failure whose outcome is unknown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "name")]
+pub enum ChangeError {
+    /// The file there does not hash to the expected SHA-256. The hash it
+    /// does have is given, or none when no file is there.
+    Conflict {
+        #[serde(rename = "actualSha256")]
+        actual_sha256: Option<String>,
+    },
+    /// Something is there where nothing was expected.
+    Exists,
+    /// No file is there where one was expected.
+    NotFound,
+    /// The change was refused or failed for another reason.
+    Failed { message: String },
+}
+
+impl From<String> for ChangeError {
+    fn from(message: String) -> Self {
+        Self::Failed { message }
+    }
+}
+
+/// The lowercase hexadecimal SHA-256 of `bytes`, as the page writes one.
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// Whether `target` holds what `expected` says. A final link never counts as
+/// a file: `classify` has already refused one.
+fn check(target: &Path, expected: &Expectation) -> Result<(), ChangeError> {
+    if *expected == Expectation::Any {
+        return Ok(());
+    }
+    let found = match fs::symlink_metadata(target) {
+        Ok(metadata) => Some(metadata),
+        Err(missing) if missing.kind() == ErrorKind::NotFound => None,
+        Err(cause) => {
+            return Err(format!("'{}' could not be inspected: {cause}", target.display()).into())
+        }
+    };
+    let is_file = found.as_ref().is_some_and(|metadata| metadata.is_file());
+    match expected {
+        Expectation::Any => Ok(()),
+        Expectation::Absent if found.is_none() => Ok(()),
+        Expectation::Absent => Err(ChangeError::Exists),
+        Expectation::Present if is_file => Ok(()),
+        Expectation::Present if found.is_none() => Err(ChangeError::NotFound),
+        Expectation::Present => {
+            Err(format!("'{}' is not a file", target.display()).into())
+        }
+        Expectation::Sha256(_) if !is_file => Err(ChangeError::Conflict {
+            actual_sha256: None,
+        }),
+        Expectation::Sha256(expected) => {
+            let bytes = fs::read(target).map_err(|cause| {
+                format!("'{}' could not be read: {cause}", target.display())
+            })?;
+            let actual = sha256(&bytes);
+            if actual == *expected {
+                Ok(())
+            } else {
+                Err(ChangeError::Conflict {
+                    actual_sha256: Some(actual),
+                })
+            }
+        }
+    }
+}
 
 /// What a path is to a page that changes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,28 +301,44 @@ pub(crate) fn is_index_copy(root: &Path, index_file: &str) -> bool {
     })
 }
 
-/// Rename `from` over `to`: a staged file into a data path, or one data path
-/// to another.
-pub fn rename(root: &Path, from: &Path, to: &Path) -> Result<(), String> {
+/// Rename `from` over `to`, if `to` holds what `expected` says: a staged file
+/// into a data path, or one data path to another. A refusal leaves both
+/// paths as they were; removing a staged source is the page's business. The
+/// caller holds the root's publishing lock.
+pub fn rename(
+    root: &Path,
+    from: &Path,
+    to: &Path,
+    expected: &Expectation,
+) -> Result<(), ChangeError> {
     let (source_kind, source) = classify(root, from)?;
     let (target_kind, target) = classify(root, to)?;
     expect(source_kind, &[Kind::Data, Kind::Staged], from)?;
     expect(target_kind, &[Kind::Data, Kind::Staged], to)?;
     if source_kind == Kind::Data && target_kind == Kind::Staged {
-        return Err(refused(to, "a data file is not moved into staging"));
+        return Err(refused(to, "a data file is not moved into staging").into());
     }
+    check(&target, expected)?;
     fs::rename(&source, &target).map_err(|cause| {
         format!(
             "'{}' could not be moved to '{}': {cause}",
             source.display(),
             target.display()
         )
+        .into()
     })
 }
 
 /// Remove a data file, an empty data directory, a staged file, or a private
-/// index copy. A directory's contents are never removed with it.
-pub fn remove(root: &Path, path: &Path, recursive: bool) -> Result<(), String> {
+/// index copy, if the path holds what `expected` says. A directory's
+/// contents are never removed with it. The caller holds the root's
+/// publishing lock.
+pub fn remove(
+    root: &Path,
+    path: &Path,
+    recursive: bool,
+    expected: &Expectation,
+) -> Result<(), ChangeError> {
     let (kind, target) = classify(root, path)?;
     expect(
         kind,
@@ -228,16 +346,21 @@ pub fn remove(root: &Path, path: &Path, recursive: bool) -> Result<(), String> {
         path,
     )?;
     if recursive {
-        return Err(refused(path, "a tree is never removed whole"));
+        return Err(refused(path, "a tree is never removed whole").into());
     }
-    let metadata = fs::symlink_metadata(&target)
-        .map_err(|cause| format!("'{}' could not be removed: {cause}", target.display()))?;
+    check(&target, expected)?;
+    let metadata = fs::symlink_metadata(&target).map_err(|cause| {
+        if cause.kind() == ErrorKind::NotFound {
+            return ChangeError::NotFound;
+        }
+        format!("'{}' could not be removed: {cause}", target.display()).into()
+    })?;
     let removed = if metadata.is_dir() {
         fs::remove_dir(&target)
     } else {
         fs::remove_file(&target)
     };
-    removed.map_err(|cause| format!("'{}' could not be removed: {cause}", target.display()))
+    removed.map_err(|cause| format!("'{}' could not be removed: {cause}", target.display()).into())
 }
 
 /// Make the directory at `path` and any missing ancestors, each one a data
@@ -389,13 +512,13 @@ mod tests {
         let elsewhere = temp.folder("elsewhere");
         std::os::unix::fs::symlink(root.join(".git"), root.join("todos")).unwrap();
         let copy = staged(&root, "a", b"x");
-        assert!(rename(&root, &copy, &root.join("todos/config.md")).is_err());
+        assert!(rename(&root, &copy, &root.join("todos/config.md"), &Expectation::Any).is_err());
         assert!(!root.join(".git/config.md").exists());
         let other = temp.folder("other");
         fs::create_dir_all(other.join(".git")).unwrap();
         std::os::unix::fs::symlink(&elsewhere, other.join("todos")).unwrap();
         let copy = staged(&other, "a", b"x");
-        assert!(rename(&other, &copy, &other.join("todos/a.md")).is_err());
+        assert!(rename(&other, &copy, &other.join("todos/a.md"), &Expectation::Any).is_err());
         assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
         assert!(mkdir(&other, &other.join("todos")).is_err());
     }
@@ -449,7 +572,7 @@ mod tests {
         // A data file is replaced by the staged copy renamed over it.
         fs::hard_link(&outside, root.join("todos/a.md")).unwrap();
         let copy = staged(&root, "a", b"mine");
-        rename(&root, &copy, &root.join("todos/a.md")).unwrap();
+        rename(&root, &copy, &root.join("todos/a.md"), &Expectation::Any).unwrap();
         assert_eq!(fs::read(&outside).unwrap(), b"theirs");
         assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"mine");
         // A private file is only ever written new, so one planted in its
@@ -477,20 +600,98 @@ mod tests {
         assert!(write_file(&root, &staged, b"b", false).is_err());
         write_file(&root, &staged, b"b", true).unwrap();
         assert!(write_file(&root, &staged, b"c", true).is_err());
-        rename(&root, &staged, &root.join("todos/a.md")).unwrap();
+        rename(&root, &staged, &root.join("todos/a.md"), &Expectation::Any).unwrap();
         assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"b");
         let index = root.join(".git/index.tmp-1");
         write_file(&root, &index, b"i", true).unwrap();
-        remove(&root, &index, false).unwrap();
+        remove(&root, &index, false, &Expectation::Any).unwrap();
         assert!(rename(
             &root,
             &root.join("todos/a.md"),
-            &root.join(".git/epicenter/scratch/t")
+            &root.join(".git/epicenter/scratch/t"),
+            &Expectation::Any
         )
         .is_err());
-        assert!(remove(&root, &root.join("todos"), true).is_err());
-        remove(&root, &root.join("todos/a.md"), false).unwrap();
-        remove(&root, &root.join("todos"), false).unwrap();
+        assert!(remove(&root, &root.join("todos"), true, &Expectation::Any).is_err());
+        remove(&root, &root.join("todos/a.md"), false, &Expectation::Any).unwrap();
+        remove(&root, &root.join("todos"), false, &Expectation::Any).unwrap();
         assert!(!root.join("todos").exists());
+    }
+
+    fn folder_with(label: &str, files: &[(&str, &[u8])]) -> (crate::testing::TempDir, PathBuf) {
+        let temp = crate::testing::TempDir::new(label);
+        let root = temp.folder("notes");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::create_dir_all(root.join("todos")).unwrap();
+        for (path, bytes) in files {
+            fs::write(root.join(path), bytes).unwrap();
+        }
+        (temp, root)
+    }
+
+    #[test]
+    fn the_hash_is_the_one_the_page_computes() {
+        assert_eq!(
+            sha256(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn a_publishing_rename_lands_only_on_what_the_page_expected() {
+        let old = sha256(b"old");
+        let (_temp, root) = folder_with("page-files-expect", &[("todos/a.md", b"old")]);
+        let a = root.join("todos/a.md");
+        let b = root.join("todos/b.md");
+
+        // A create over an existing file is `Exists`; the file is untouched
+        // and the staged copy stays for the page to remove.
+        let copy = staged(&root, "1", b"new");
+        assert_eq!(rename(&root, &copy, &a, &Expectation::Absent), Err(ChangeError::Exists));
+        assert_eq!(fs::read(&a).unwrap(), b"old");
+        assert!(copy.exists());
+        // A replacement of a missing file is `NotFound`, guarded or not.
+        assert_eq!(rename(&root, &copy, &b, &Expectation::Present), Err(ChangeError::NotFound));
+        assert_eq!(
+            rename(&root, &copy, &b, &Expectation::Sha256(old.clone())),
+            Err(ChangeError::Conflict { actual_sha256: None })
+        );
+        assert!(!b.exists());
+        // Another hash is `Conflict` with the hash of what is there.
+        assert_eq!(
+            rename(&root, &copy, &a, &Expectation::Sha256(sha256(b"other"))),
+            Err(ChangeError::Conflict { actual_sha256: Some(old.clone()) })
+        );
+        assert_eq!(fs::read(&a).unwrap(), b"old");
+        assert!(copy.exists());
+        // The expected hash lands, and so does a move to an absent path.
+        rename(&root, &copy, &a, &Expectation::Sha256(old.clone())).unwrap();
+        assert_eq!(fs::read(&a).unwrap(), b"new");
+        rename(&root, &a, &b, &Expectation::Absent).unwrap();
+        // `present` needs a file, and `any` takes whatever is there.
+        let copy = staged(&root, "2", b"again");
+        rename(&root, &copy, &b, &Expectation::Present).unwrap();
+        let copy = staged(&root, "3", b"over");
+        rename(&root, &copy, &b, &Expectation::Any).unwrap();
+        assert_eq!(fs::read(&b).unwrap(), b"over");
+        let copy = staged(&root, "4", b"dir");
+        assert!(matches!(
+            rename(&root, &copy, &root.join("todos"), &Expectation::Present),
+            Err(ChangeError::Failed { .. })
+        ));
+    }
+
+    #[test]
+    fn a_guarded_removal_removes_only_the_expected_bytes() {
+        let (_temp, root) = folder_with("page-files-remove", &[("todos/a.md", b"old")]);
+        let a = root.join("todos/a.md");
+        assert_eq!(
+            remove(&root, &a, false, &Expectation::Sha256(sha256(b"other"))),
+            Err(ChangeError::Conflict { actual_sha256: Some(sha256(b"old")) })
+        );
+        assert!(a.exists());
+        remove(&root, &a, false, &Expectation::Sha256(sha256(b"old"))).unwrap();
+        assert_eq!(remove(&root, &a, false, &Expectation::Present), Err(ChangeError::NotFound));
+        assert_eq!(remove(&root, &a, false, &Expectation::Any), Err(ChangeError::NotFound));
     }
 }

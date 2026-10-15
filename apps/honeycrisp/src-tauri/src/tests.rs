@@ -301,7 +301,12 @@ fn write(
     invoke(
         window,
         "plugin:epicenter-folder|rename_folder_path",
-        json!({ "scope": root::SCOPE, "from": staged, "to": inside(fixture, relative) }),
+        json!({
+            "scope": root::SCOPE,
+            "from": staged,
+            "to": inside(fixture, relative),
+            "expected": "any",
+        }),
     )
 }
 

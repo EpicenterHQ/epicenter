@@ -25,6 +25,8 @@ tauri = "2.12"
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
 
 [dev-dependencies]
+# Hashes as the page does, to state the expectations a test sends.
+sha2 = "0.10"
 # The mock runtime drives the real invoke handler in tests. Test builds only.
 tauri = { version = "2.12", features = ["test"] }
 

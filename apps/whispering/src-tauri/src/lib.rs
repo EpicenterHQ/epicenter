@@ -1031,6 +1031,7 @@ mod tests {
                 "scope": FOLDER_SCOPE,
                 "from": staged.to_str().unwrap(),
                 "to": root.join("recordings").join("take.md").to_str().unwrap(),
+                "expected": "absent",
             }),
         )
         .expect("the page renames it into place");

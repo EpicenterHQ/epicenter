@@ -4,8 +4,27 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import type { DirectoryPrimitives } from './directory-handle.js';
-import { UnconfirmedWrite } from './errors.js';
-import { commands } from './native/bindings.gen.js';
+import { UnconfirmedWrite, UnexpectedTarget } from './errors.js';
+import { type ChangeError, commands } from './native/bindings.gen.js';
+
+/** The shell's refusal of a rename or removal at `path`, as an error. */
+function changeRefusal(path: string, refusal: ChangeError): Error {
+	switch (refusal.name) {
+		case 'Conflict':
+			return new UnexpectedTarget(path, {
+				name: 'Conflict',
+				actualSha256: refusal.actualSha256 ?? undefined,
+			});
+		case 'Exists':
+			return new UnexpectedTarget(path, { name: 'Exists' });
+		case 'NotFound':
+			return new UnexpectedTarget(path, { name: 'NotFound' });
+		case 'Failed':
+			return new Error(refusal.message);
+		default:
+			return new Error(String(refusal));
+	}
+}
 
 /**
  * Directory primitives for the folder the shell granted as `scope`. Reads and
@@ -13,12 +32,19 @@ import { commands } from './native/bindings.gen.js';
  * on disk first: no link on the way to a path can carry a read or a write
  * outside the folder, and a final link is described, never followed.
  *
- * A change the shell refused rejects with its reason. A change whose reply
- * was lost (the generated command throws instead of returning a refusal)
- * may have happened or may still: a removal is checked once, and resolves
- * if the path is gone, however it went, or rejects with `UnconfirmedWrite`
- * if it is still there. A lost write or rename reply rejects as it is; file
- * storage reports the write it was publishing as `Unconfirmed`.
+ * A change the shell refused rejects with its reason. A rename or removal
+ * the shell refused because its path did not hold what the page expected
+ * rejects with `UnexpectedTarget`, which says what the shell found; the
+ * shell checks and changes the path under one lock per folder, which every
+ * window's changes share. A removal of a path already gone rejects as
+ * `NotFoundError`, as a directory handle's own does.
+ *
+ * A change whose reply was lost (the generated command throws instead of
+ * returning a refusal) may have happened or may still: a removal is checked
+ * once, and resolves if the path is gone, however it went, or rejects with
+ * `UnconfirmedWrite` if it is still there. A lost write or rename reply
+ * rejects as it is; file storage reports the write it was publishing as
+ * `Unconfirmed`.
  */
 export function tauriDirectoryPrimitives(scope: string): DirectoryPrimitives {
 	/** A generated command's value, or its refusal as an `Error`. */
@@ -72,7 +98,10 @@ export function tauriDirectoryPrimitives(scope: string): DirectoryPrimitives {
 					'create-new': String(options?.createNew === true),
 				},
 			}).then(() => {}, rejected),
-		rename: (from, to) => changed(commands.renameFolderPath(scope, from, to)),
+		async rename(from, to, expected) {
+			const reply = await commands.renameFolderPath(scope, from, to, expected);
+			if (reply.error !== null) throw changeRefusal(to, reply.error);
+		},
 		async remove(path, options) {
 			let reply: Awaited<ReturnType<typeof commands.removeFolderPath>>;
 			try {
@@ -80,6 +109,7 @@ export function tauriDirectoryPrimitives(scope: string): DirectoryPrimitives {
 					scope,
 					path,
 					options?.recursive === true,
+					options?.expected ?? 'any',
 				);
 			} catch (lost) {
 				const gone = await stat(path).then(
@@ -89,7 +119,9 @@ export function tauriDirectoryPrimitives(scope: string): DirectoryPrimitives {
 				if (gone) return;
 				throw new UnconfirmedWrite(path, lost, 'removed');
 			}
-			if (reply.error !== null) throw new Error(reply.error);
+			if (reply.error?.name === 'NotFound')
+				throw new DOMException(`'${path}' does not exist`, 'NotFoundError');
+			if (reply.error !== null) throw changeRefusal(path, reply.error);
 		},
 		mkdir: (path) => changed(commands.makeFolderDirectory(scope, path)),
 	};

@@ -6,8 +6,10 @@
  * The shell grants the window one directory (`grant_directory`). The page
  * reads and changes it through the folder plugin's commands and runs `git`
  * through `run_git`. Here `node:fs` and the system `git` stand in for the
- * plugin, failing as it fails: a refused read or change is text carrying the
- * reason. A test installs `invoke` with `mock.module`, then opens the folder
+ * plugin, failing as it fails: a refused read or staged write is text
+ * carrying the reason, and a refused rename or removal is the plugin's
+ * `ChangeError`. A rename or removal lands only if its path holds what the
+ * page expected, checked when the change is made, as the plugin checks it. A test installs `invoke` with `mock.module`, then opens the folder
  * the way the desktop workspace does.
  *
  * A data file is published as the engine publishes one: its bytes are staged
@@ -19,6 +21,7 @@
  * control. Nothing here is the Rust shell; `packages/tauri-plugin-epicenter-folder`
  * tests what it allows.
  */
+import { createHash } from 'node:crypto';
 import * as nodeFs from 'node:fs/promises';
 import { mkdtemp, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -60,6 +63,46 @@ async function asPluginError<T>(work: () => Promise<T>): Promise<T> {
 		const os = code === 'ENOENT' ? 2 : code === 'EEXIST' ? 17 : 5;
 		throw `failed with error: ${String(cause)} (os error ${os})`;
 	}
+}
+
+/**
+ * A rename's or removal's failure as the plugin refuses it: `NotFound` for a
+ * removal of a missing path, `Failed` with the reason otherwise.
+ */
+async function asChangeError<T>(
+	work: () => Promise<T>,
+	operation: 'rename' | 'remove',
+): Promise<T> {
+	try {
+		return await work();
+	} catch (cause) {
+		if (
+			operation === 'remove' &&
+			(cause as { code?: string }).code === 'ENOENT'
+		)
+			throw { name: 'NotFound' };
+		throw { name: 'Failed', message: String(cause) };
+	}
+}
+
+/** Refuse, as the plugin does, unless `path` holds what `expected` says. */
+async function expectAt(path: string, expected: unknown): Promise<void> {
+	if (expected === undefined || expected === 'any') return;
+	const found = await nodeFs.lstat(path).catch(() => undefined);
+	if (expected === 'absent') {
+		if (found !== undefined) throw { name: 'Exists' };
+		return;
+	}
+	if (expected === 'present') {
+		if (found === undefined) throw { name: 'NotFound' };
+		return;
+	}
+	if (!found?.isFile()) throw { name: 'Conflict', actualSha256: null };
+	const actualSha256 = createHash('sha256')
+		.update(await nodeFs.readFile(path))
+		.digest('hex');
+	if (actualSha256 !== (expected as { sha256: string }).sha256)
+		throw { name: 'Conflict', actualSha256 };
 }
 
 /** What an entry is, without following a link, as the shell names it. */
@@ -115,7 +158,10 @@ export function createGrantedShell(root: string, scope: string) {
 		await control.beforeChange?.(described);
 		if (control.refuseNext > 0) {
 			control.refuseNext -= 1;
-			throw `'${described.path}' could not be written: the disk refused the write`;
+			throw {
+				name: 'Failed',
+				message: `'${described.path}' could not be written: the disk refused the write`,
+			};
 		}
 		await make();
 		changes.push(described);
@@ -194,7 +240,10 @@ export function createGrantedShell(root: string, scope: string) {
 		async rename_folder_path(args) {
 			const from = args.from as string;
 			const to = args.to as string;
-			const rename = () => asPluginError(() => nodeFs.rename(from, to));
+			const rename = async () => {
+				await expectAt(to, args.expected);
+				await asChangeError(() => nodeFs.rename(from, to), 'rename');
+			};
 			if (!from.includes(SCRATCH) || to.includes('/.git/')) {
 				await rename();
 				return null;
@@ -205,10 +254,13 @@ export function createGrantedShell(root: string, scope: string) {
 		},
 		async remove_folder_path(args) {
 			const path = args.path as string;
-			const remove = () =>
-				asPluginError(() =>
-					nodeFs.rm(path, { recursive: args.recursive === true }),
+			const remove = async () => {
+				await expectAt(path, args.expected);
+				await asChangeError(
+					() => nodeFs.rm(path, { recursive: args.recursive === true }),
+					'remove',
 				);
+			};
 			if (path.includes('/.git/')) {
 				await remove();
 				return null;

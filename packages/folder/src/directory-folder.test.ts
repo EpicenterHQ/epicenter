@@ -11,6 +11,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
+import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import {
@@ -93,10 +94,10 @@ function recording(
 			note(path);
 			return files.writeFile(path, bytes, options);
 		},
-		async rename(from, to) {
+		async rename(from, to, expected) {
 			note(from);
 			note(to);
-			return files.rename(from, to);
+			return files.rename(from, to, expected);
 		},
 		async remove(path, options) {
 			note(path);
@@ -220,6 +221,10 @@ const HOUR = 60 * 60 * 1000;
 /** A staged file's name as another process's handle makes it, `offset` from now. */
 const stagedName = (offset: number) =>
 	`${(Date.now() + offset).toString(36)}-${'0'.repeat(32)}-0`;
+
+/** A staged file's name as handles made it before each had an engine id. */
+const earlierStagedName = (offset: number) =>
+	`${(Date.now() + offset).toString(36)}-0-a1b2c3d4`;
 
 type OpenedFolder = NonNullable<Awaited<ReturnType<typeof open>>['data']>;
 
@@ -417,14 +422,76 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
+	test('a save another writer overtakes after its check is refused where it publishes', async () => {
+		const root = await scratch('directory-folder-overtaken-');
+		const sha256 = (text: string) => hashBytes(new TextEncoder().encode(text));
+		// Another writer, sharing no lock with this folder, lands these bytes
+		// on a path after this folder checked it and before it publishes.
+		const overtaken = new Map<string, string>();
+		const overtake = async (path: string) => {
+			const theirs = overtaken.get(path);
+			if (theirs === undefined) return;
+			overtaken.delete(path);
+			await writeFile(path, theirs);
+		};
+		const racing: DirectoryPrimitives = {
+			...nodeDirectoryPrimitives,
+			async rename(from, to, expected) {
+				await overtake(to);
+				return nodeDirectoryPrimitives.rename(from, to, expected);
+			},
+			async remove(path, options) {
+				await overtake(path);
+				return nodeDirectoryPrimitives.remove(path, options);
+			},
+		};
+		const folder = expectOk(await open(root, { primitives: racing }));
+
+		const created = await addTodo(folder, 'Mine');
+		const path = join(root, created.path);
+		const theirs = '---\ntitle: Theirs\ndone: false\n---\n';
+		overtaken.set(path, theirs);
+		created.row.fields.title = 'Mine, edited';
+		const replaced = await folder.tables.todos.replace(created, created.row);
+		expect(replaced.error).toMatchObject({
+			name: 'Conflict',
+			expectedSha256: created.sha256,
+			actualSha256: await sha256(theirs),
+		});
+		expect(await readFile(path, 'utf8')).toBe(theirs);
+
+		const note = join(root, 'todos/a.md');
+		overtaken.set(note, 'theirs\n');
+		const made = await folder.files.create('todos/a.md', 'mine\n');
+		expect(made.error?.name).toBe('Exists');
+		expect(await readFile(note, 'utf8')).toBe('theirs\n');
+
+		const captured = expectOk(await folder.files.read('todos/a.md'));
+		overtaken.set(note, 'theirs again\n');
+		const removed = await folder.files.remove(captured);
+		expect(removed.error).toMatchObject({
+			name: 'Conflict',
+			expectedSha256: captured.sha256,
+			actualSha256: await sha256('theirs again\n'),
+		});
+		expect(await readFile(note, 'utf8')).toBe('theirs again\n');
+
+		// An overwrite takes whatever is there.
+		overtaken.set(note, 'theirs once more\n');
+		expectOk(await folder.files.overwrite('todos/a.md', 'mine\n'));
+		expect(await readFile(note, 'utf8')).toBe('mine\n');
+		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
+		await folder.close();
+	});
+
 	test('a write that stops before it lands leaves nothing at its path, and the next open clears what it staged', async () => {
 		const root = await scratch('directory-folder-interrupted-');
 		// The rename that publishes a todo is lost, as a quit would lose it.
 		const failing: DirectoryPrimitives = {
 			...nodeDirectoryPrimitives,
-			async rename(from, to) {
+			async rename(from, to, expected) {
 				if (to.includes('/todos/')) throw new Error('quit before the rename');
-				return nodeDirectoryPrimitives.rename(from, to);
+				return nodeDirectoryPrimitives.rename(from, to, expected);
 			},
 		};
 		const interrupted = expectOk(await open(root, { primitives: failing }));
@@ -442,6 +509,11 @@ describe('a folder over an ordinary directory', () => {
 		// once it is old enough that no write can still be about to rename it.
 		await mkdir(join(root, SCRATCH_DIRECTORY), { recursive: true });
 		await writeFile(join(root, SCRATCH_DIRECTORY, stagedName(-2 * HOUR)), 'x');
+		// So is one named as handles named them before each had an engine id.
+		await writeFile(
+			join(root, SCRATCH_DIRECTORY, earlierStagedName(-2 * HOUR)),
+			'x',
+		);
 		const reopened = expectOk(await open(root));
 		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
 		await reopened.close();
@@ -454,11 +526,12 @@ describe('a folder over an ordinary directory', () => {
 		// shares no lock with this one.
 		const fresh = stagedName(0);
 		const old = stagedName(-2 * HOUR);
-		for (const name of [fresh, old, 'left-behind'])
+		const earlierFresh = earlierStagedName(0);
+		for (const name of [fresh, old, earlierFresh, 'left-behind'])
 			await writeFile(join(root, SCRATCH_DIRECTORY, name), 'x');
 		const folder = expectOk(await open(root));
 		expect((await readdir(join(root, SCRATCH_DIRECTORY))).sort()).toEqual(
-			[fresh, 'left-behind'].sort(),
+			[fresh, earlierFresh, 'left-behind'].sort(),
 		);
 		await folder.close();
 	});
@@ -508,9 +581,9 @@ describe('a folder over an ordinary directory', () => {
 		// The second incoming file never lands, as a quit would leave it.
 		const stopping: DirectoryPrimitives = {
 			...nodeDirectoryPrimitives,
-			async rename(from, to) {
+			async rename(from, to, expected) {
 				if (to.endsWith('/todos/b.md')) throw new Error('quit partway');
-				return nodeDirectoryPrimitives.rename(from, to);
+				return nodeDirectoryPrimitives.rename(from, to, expected);
 			},
 		};
 		const interrupted = expectOk(await open(root, { primitives: stopping }));

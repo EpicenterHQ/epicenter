@@ -39,6 +39,13 @@
  *
  * Saves are serialized by the Web Lock in the order they take it, not the
  * order their methods were called: whichever lands last on a path stays.
+ *
+ * Each write and removal also names what it expects at its path when it
+ * lands (`Expectation`), on the stream it opens or the removal it asks for.
+ * OPFS ignores it: the files lock already holds every change of an origin.
+ * A directory handle (`directory-handle.ts`) passes it to its host, which
+ * checks it where the bytes publish, so writers that share no lock still
+ * cannot overtake each other's saves unseen.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type {
@@ -54,6 +61,7 @@ import {
 	FileError,
 	type FileStep,
 	UnconfirmedWrite,
+	UnexpectedTarget,
 } from './errors.js';
 import { ancestors, basename, isPortablePath, pathProblem } from './paths.js';
 
@@ -69,12 +77,24 @@ export type OpfsWritable = {
 	abort(reason?: unknown): Promise<void>;
 };
 
+/**
+ * What a change expects at its path when it lands: nothing there, a file, a
+ * file whose bytes hash to `sha256`, or whatever is there.
+ */
+export type Expectation =
+	| 'absent'
+	| 'present'
+	| { readonly sha256: string }
+	| 'any';
+
 export type OpfsFileHandle = {
 	readonly kind: 'file';
 	readonly name: string;
 	getFile(): Promise<OpfsFile>;
 	createWritable(options?: {
 		keepExistingData?: boolean;
+		/** Checked by a directory handle's host when the stream closes; OPFS ignores it. */
+		expected?: Expectation;
 	}): Promise<OpfsWritable>;
 };
 
@@ -89,7 +109,14 @@ export type OpfsDirectoryHandle = {
 		name: string,
 		options?: { create?: boolean },
 	): Promise<OpfsFileHandle>;
-	removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
+	removeEntry(
+		name: string,
+		options?: {
+			recursive?: boolean;
+			/** Checked by a directory handle's host; OPFS ignores it. */
+			expected?: Expectation;
+		},
+	): Promise<void>;
 	values(): AsyncIterable<OpfsFileHandle | OpfsDirectoryHandle>;
 };
 
@@ -366,11 +393,46 @@ export async function captureFiles(
 export type WriteTarget =
 	/** A file must be there; with `expectedSha256` the absence is a conflict. */
 	| { readonly kind: 'replace'; readonly expectedSha256?: string }
+	/** Nothing may be there: a new file, or a move's destination. */
+	| { readonly kind: 'create' }
 	/**
-	 * Create or overwrite. `exists` says whether the plan found a file, so a
-	 * failure leaves that file there and removes only one this write made.
+	 * Whatever is there is replaced. `exists` says whether the plan found a
+	 * file, so a failure leaves that file there and removes only one this
+	 * write made.
 	 */
-	| { readonly kind: 'write'; readonly exists: boolean };
+	| { readonly kind: 'overwrite'; readonly exists: boolean };
+
+/** What a write to `target` expects at its path when its bytes land. */
+function expectationOf(target: WriteTarget): Expectation {
+	if (target.kind === 'create') return 'absent';
+	if (target.kind === 'overwrite') return 'any';
+	return target.expectedSha256 === undefined
+		? 'present'
+		: { sha256: target.expectedSha256 };
+}
+
+/**
+ * A host's refusal of what a change expected, as file storage reports it.
+ * The host changed nothing. A refusal the expectation could not produce is
+ * reported as a failure of `operation`.
+ */
+function unexpected(
+	refusal: UnexpectedTarget,
+	path: string,
+	operation: string,
+	expectedSha256: string | undefined,
+): Result<never, FileError> {
+	const { found } = refusal;
+	if (found.name === 'Exists') return FileError.Exists({ path });
+	if (expectedSha256 !== undefined)
+		return FileError.Conflict({
+			path,
+			expectedSha256,
+			actualSha256: found.name === 'Conflict' ? found.actualSha256 : undefined,
+		});
+	if (found.name === 'NotFound') return FileError.NotFound({ path });
+	return FileError.Io({ path, operation, cause: refusal });
+}
 
 /** One step of an application whose conditions held. */
 type Planned =
@@ -381,7 +443,11 @@ type Planned =
 			readonly sha256: string;
 			readonly target: WriteTarget;
 	  }
-	| { readonly kind: 'remove'; readonly path: string }
+	| {
+			readonly kind: 'remove';
+			readonly path: string;
+			readonly expectedSha256: string | undefined;
+	  }
 	| {
 			readonly kind: 'move';
 			readonly from: string;
@@ -488,7 +554,11 @@ async function plan(
 				const refused = conflict(change.path, found, change.expectedSha256);
 				if (refused) return Err(refused);
 				overlay.set(change.path, null);
-				planned.push({ kind: 'remove', path: change.path });
+				planned.push({
+					kind: 'remove',
+					path: change.path,
+					expectedSha256: change.expectedSha256,
+				});
 				continue;
 			}
 			if (change.kind === 'move') {
@@ -557,7 +627,9 @@ async function plan(
 				target:
 					change.kind === 'replace'
 						? { kind: 'replace', expectedSha256: change.expectedSha256 }
-						: { kind: 'write', exists: found.kind === 'file' },
+						: change.kind === 'create'
+							? { kind: 'create' }
+							: { kind: 'overwrite', exists: found.kind === 'file' },
 			});
 		}
 	} catch (cause) {
@@ -568,7 +640,9 @@ async function plan(
 
 /**
  * Publish `bytes` at `path` as `target` requires. A stream that fails to
- * close is `Unconfirmed`, whatever the path holds afterward.
+ * close is `Unconfirmed`, whatever the path holds afterward, unless its host
+ * refused it for finding something other than `target` there
+ * (`UnexpectedTarget`), which published nothing.
  */
 export async function writeFileAt(
 	root: OpfsDirectoryHandle,
@@ -617,7 +691,7 @@ export async function writeFileAt(
 	// that cannot finish takes it away again, and says so only when the path
 	// is then seen to be absent.
 	const failed = async (cause: unknown) => {
-		if (replace || target.exists)
+		if (replace || (target.kind === 'overwrite' && target.exists))
 			return FileError.Io({ path, operation: 'write', cause });
 		try {
 			await parent.removeEntry(name);
@@ -634,7 +708,10 @@ export async function writeFileAt(
 	};
 	let writable: OpfsWritable;
 	try {
-		writable = await handle.createWritable({ keepExistingData: false });
+		writable = await handle.createWritable({
+			keepExistingData: false,
+			expected: expectationOf(target),
+		});
 	} catch (cause) {
 		if (replace && errorName(cause) === 'NotFoundError') return absent();
 		return failed(cause);
@@ -660,6 +737,13 @@ export async function writeFileAt(
 	try {
 		await writable.close();
 	} catch (cause) {
+		if (cause instanceof UnexpectedTarget)
+			return unexpected(
+				cause,
+				path,
+				'write',
+				replace ? target.expectedSha256 : undefined,
+			);
 		// The close may have published these bytes or not. Bytes read now,
 		// even the submitted ones, say what the path holds, not which write
 		// put them there.
@@ -684,16 +768,25 @@ async function pruneEmptied(root: OpfsDirectoryHandle, path: string) {
 	}
 }
 
+/** Remove the file at `path`; with `expectedSha256`, only if it holds those bytes. */
 export async function removeFileAt(
 	root: OpfsDirectoryHandle,
 	path: string,
+	expectedSha256?: string,
 ): Promise<Result<undefined, FileError>> {
 	try {
 		const parent = await lookup(root, parentOf(path));
 		if (parent.kind !== 'directory') return FileError.NotFound({ path });
-		await parent.handle.removeEntry(basename(path));
+		await parent.handle.removeEntry(
+			basename(path),
+			expectedSha256 === undefined
+				? undefined
+				: { expected: { sha256: expectedSha256 } },
+		);
 		return Ok(undefined);
 	} catch (cause) {
+		if (cause instanceof UnexpectedTarget)
+			return unexpected(cause, path, 'remove', expectedSha256);
 		if (errorName(cause) === 'NotFoundError')
 			return FileError.NotFound({ path });
 		if (cause instanceof UnconfirmedWrite)
@@ -722,7 +815,7 @@ async function perform(
 		if (step.kind === 'write')
 			result = await writeFileAt(root, step.path, step.bytes, step.target);
 		else if (step.kind === 'remove') {
-			result = await removeFileAt(root, step.path);
+			result = await removeFileAt(root, step.path, step.expectedSha256);
 			if (result.error === null && prune)
 				try {
 					await pruneEmptied(root, step.path);
@@ -733,14 +826,14 @@ async function perform(
 		} else {
 			// No portable OPFS move exists, so a move writes the destination,
 			// then retires the source. Between them both paths hold the bytes.
+			// The source is retired only if it still holds the bytes moved.
 			result = await writeFileAt(root, step.to, step.bytes, {
-				kind: 'write',
-				exists: false,
+				kind: 'create',
 			});
 			if (result.error === null) {
 				reached.push({ kind: 'write', path: step.to });
 				landed([step.to]);
-				result = await removeFileAt(root, step.from);
+				result = await removeFileAt(root, step.from, step.sha256);
 			}
 		}
 		const { error: stepError } = result;
