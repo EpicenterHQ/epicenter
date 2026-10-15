@@ -6,7 +6,7 @@
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { openCaptureHost } from '#platform/folder';
-	import type { Replaced } from '@epicenter/folder';
+	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 	import {
 		createCaptures,
 		describeError,
@@ -36,15 +36,9 @@
 		});
 	}
 
-	/** What a save's edit replaced of a change made elsewhere, in words. */
-	const describeReplaced = (replaced: Replaced) =>
-		replaced.kind === 'field' ? replaced.field : 'the text';
-
-	function replacedChange({ path, replaced }: ReplacedChange) {
-		const what = [...new Set(replaced.map(describeReplaced))].join(', ');
-		toast.info(`Saved ${path}`, {
-			description: `Your edit replaced a change made elsewhere to ${what}.`,
-		});
+	/** A save replaced a change made elsewhere: name it, and offer theirs back. */
+	function replacedChange({ path, replaced, restore }: ReplacedChange) {
+		void toastReplaced({ replaced, subject: path, restore });
 	}
 
 	const opening = (async () => {
