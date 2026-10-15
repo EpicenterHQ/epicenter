@@ -4,7 +4,11 @@
  * (ADR-0529); edits are saved to files at once either way.
  */
 
-import type { CommitOutcome, FilesObservation } from '@epicenter/folder';
+import type {
+	CommitOutcome,
+	FilesObservation,
+	GitInstall,
+} from '@epicenter/folder';
 
 /** A line for a person, and whether it reports a problem. */
 export type VersionLine = {
@@ -62,4 +66,32 @@ export function changesMessage(
 				? '1 file changed since the last version'
 				: `${count} files changed since the last version`;
 	return checking ? `${text} (checking)` : text;
+}
+
+/**
+ * What the Folders window says when this computer has no `git` (ADR-0559):
+ * files still open and save, and versions and Sync wait for it. `action`
+ * labels the button that starts the install, where the shell can start one.
+ */
+export function gitMissingNotice(install: GitInstall): {
+	readonly text: string;
+	readonly action: string | undefined;
+} {
+	switch (install) {
+		case 'command-line-tools':
+			return {
+				text: 'Saving versions and syncing need Git, which this Mac does not have yet. Your files still open and save. Installing the Command Line Tools adds Git; it takes a few minutes, once.',
+				action: 'Install Command Line Tools',
+			};
+		case 'git-for-windows':
+			return {
+				text: 'Saving versions and syncing need Git, which this computer does not have yet. Your files still open and save. Install Git for Windows, then open this folder again.',
+				action: 'Get Git for Windows',
+			};
+		case 'package-manager':
+			return {
+				text: "Saving versions and syncing need Git, which this computer does not have yet. Your files still open and save. Install git with your system's package manager, then open this folder again.",
+				action: undefined,
+			};
+	}
 }

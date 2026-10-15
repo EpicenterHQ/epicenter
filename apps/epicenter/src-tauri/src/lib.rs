@@ -32,6 +32,7 @@ mod command_names;
 pub mod app_data;
 mod cli;
 mod data_folders;
+mod history;
 mod installed_apps;
 
 pub mod audio;
@@ -337,6 +338,12 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             cli::ai_key_set,
             cli::ai_key_remove,
             cli::ai_key_state,
+            history::status::<tauri::Wry>,
+            history::history::<tauri::Wry>,
+            history::save_version::<tauri::Wry>,
+            history::sync::<tauri::Wry>,
+            history::settle_sync::<tauri::Wry>,
+            history::install_git::<tauri::Wry>,
             installed_apps::list_installed_apps,
             installed_apps::list_repository_apps,
             installed_apps::install_app,
@@ -493,6 +500,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(HostState::new(port))
         .manage(data_folders::DataFolderScopes::default())
+        .manage(history::CliChildren::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(DownloadManager::default());
 
@@ -500,6 +508,22 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init());
 
     builder
+        // A page that reloads or navigates, and a closed window, end the
+        // `epicenter` children that page started (ADR-0559).
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                webview
+                    .state::<history::CliChildren>()
+                    .page_ended(webview.label());
+            }
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                window
+                    .state::<history::CliChildren>()
+                    .page_ended(window.label());
+            }
+        })
         .invoke_handler(specta_handler)
         .setup(move |app| {
             specta_builder.mount_events(app);
@@ -2164,8 +2188,45 @@ mod tests {
         }
     }
 
-    /// The CLI runner's one page command reaches the Folders window alone, so
-    /// no app window can run the CLI (ADR-0556).
+    /// The folder history commands reach the Folders window and every
+    /// installed app's windows, by app id (`app:<id>`), and no other window;
+    /// each runs only for a folder the window was granted (ADR-0559).
+    /// Starting what installs `git` reaches the Folders window alone.
+    #[test]
+    fn folder_history_is_granted_to_folders_and_installed_apps_alone() {
+        const HISTORY: [&str; 5] = [
+            "allow-status",
+            "allow-history",
+            "allow-save-version",
+            "allow-sync",
+            "allow-settle-sync",
+        ];
+        for encoded in ALL_CAPABILITIES {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            let permissions = capability["permissions"].as_array().unwrap();
+            let granted = HISTORY
+                .iter()
+                .filter(|permission| permissions.contains(&serde_json::json!(permission)))
+                .count();
+            let windows = &capability["windows"];
+            let folders = windows == &serde_json::json!(["folders"]);
+            let expected = folders || windows == &serde_json::json!(["app:*"]);
+            assert_eq!(
+                granted,
+                if expected { HISTORY.len() } else { 0 },
+                "{}",
+                capability["identifier"]
+            );
+            assert_eq!(
+                permissions.contains(&serde_json::json!("allow-install-git")),
+                folders,
+                "{}",
+                capability["identifier"]
+            );
+        }
+    }
+
+    /// `epicenter check` reaches the Folders window alone (ADR-0556).
     #[test]
     fn folder_check_is_granted_to_the_folders_window_alone() {
         for encoded in ALL_CAPABILITIES {
@@ -2372,16 +2433,10 @@ mod tests {
         assert_ne!(production["identifier"], development["identifier"]);
     }
 
-    /// What every window that opens a folder holds: the folder plugin, and
-    /// listening for its change event, `epicenter-folder://changed`.
-    const FOLDER_WINDOW: [&str; 3] = [
-        "epicenter-folder:default",
-        "core:event:allow-listen",
-        "core:event:allow-unlisten",
-    ];
-
     /// The Folders window holds the folder plugin, its own listing, `epicenter
-    /// check` on a granted folder (ADR-0556), the AI commands (ADR-0557),
+    /// check` on a granted folder (ADR-0556), that folder's history through
+    /// the CLI and starting what installs `git` (ADR-0559), the AI commands
+    /// (ADR-0557),
     /// installing and opening apps, and
     /// opening Settings (ADR-0537, ADR-0552), and nothing else: it reaches
     /// folders only through scopes the listing registered or permitted it
@@ -2402,6 +2457,12 @@ mod tests {
                     "core:event:allow-unlisten",
                     "allow-list-data-folders",
                     "allow-folder-check",
+                    "allow-status",
+                    "allow-history",
+                    "allow-save-version",
+                    "allow-sync",
+                    "allow-settle-sync",
+                    "allow-install-git",
                     "allow-ai-send",
                     "allow-ai-key-set",
                     "allow-ai-key-remove",
@@ -2432,9 +2493,10 @@ mod tests {
         }
     }
 
-    /// An installed app's window holds the folder plugin alone, and hears its
-    /// change event, under every label `open_installed_window` makes, and
-    /// nothing that installs, approves, or launches.
+    /// An installed app's window holds the folder plugin and its folder's
+    /// history through the CLI (ADR-0559), and hears the plugin's change
+    /// event, under every label `open_installed_window` makes, and nothing
+    /// that installs, approves, or launches.
     #[test]
     fn installed_app_windows_hold_only_the_folder_plugin() {
         for encoded in [
@@ -2443,10 +2505,22 @@ mod tests {
         ] {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             assert_eq!(capability["windows"], serde_json::json!(["app:*"]));
-            assert_eq!(capability["permissions"], serde_json::json!(FOLDER_WINDOW));
+            assert_eq!(
+                capability["permissions"],
+                serde_json::json!([
+                    "epicenter-folder:default",
+                    "allow-status",
+                    "allow-history",
+                    "allow-save-version",
+                    "allow-sync",
+                    "allow-settle-sync",
+                    "core:event:allow-listen",
+                    "core:event:allow-unlisten"
+                ])
+            );
         }
         // It reads and changes only the directory a grant names: no fs plugin
-        // is installed, and Git transfers run in the `git` the shell starts.
+        // is installed, and its Git runs in the `epicenter` CLI.
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert!(config["plugins"].get("fs").is_none(), "no fs plugin is installed");

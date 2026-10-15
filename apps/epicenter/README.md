@@ -197,11 +197,17 @@ was installed moves to the app's scope when the app is first opened; if the
 Folders window had already opened it in that run, the app's grant is refused
 `Busy` until Epicenter restarts.
 
-The page opens the folder with `@epicenter/folder`'s own engine: reads,
-writes, and Git through the shell (`read_folder_file`, `write_folder_file`,
-`run_git`), which read only beneath the root, never through a link, change only
-data paths the shared path rule accepts, never Git's own state, and run only
-the Git operations the engine uses. A window close destroys an installed app's
+The page opens the folder with `@epicenter/folder`'s own engine: reads and
+writes through the shell (`read_folder_file`, `write_folder_file`), which read
+only beneath the root, never through a link, and change only data paths the
+shared path rule accepts, never Git's own state. Its history runs in the
+`epicenter` CLI: the shell's `status`, `history`, `save_version`, `sync`, and
+`settle_sync` (`src-tauri/src/history.rs`) each run one child over a folder the
+window was granted, granted to the Folders window and to every installed app's
+windows, and a reload or a closed window ends that window's children
+([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
+Without `git` on the computer, the Folders window says so and, on macOS,
+offers to install the Command Line Tools (`install_git`). A window close destroys an installed app's
 window; quitting or restarting Epicenter is immediate and asks nothing (see
 [Quitting Epicenter](#quitting-epicenter)). Two native processes cannot open the
 same directory. See Todos' [README](../todos/README.md) and Capture's
