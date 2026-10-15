@@ -33,6 +33,8 @@
 //! changes and `git` runs already admitted in every window, and releases each
 //! folder's cross-process lock.
 
+use std::path::PathBuf;
+
 use tauri::plugin::TauriPlugin;
 use tauri::webview::PageLoadEvent;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
@@ -71,6 +73,13 @@ impl Folders {
     /// already permitted. It is granted the same root, under the same lock.
     pub fn permit(&self, scope: &str, window: &str) -> Result<(), GrantError> {
         self.registry.permit(scope, window)
+    }
+
+    /// The canonical root `window` was granted for `scope`, for another
+    /// plugin that writes into the folder on the page's behalf, such as the
+    /// recorder. Refused until the window's page has been granted the scope.
+    pub fn granted_root(&self, scope: &str, window: &str) -> Result<PathBuf, GrantError> {
+        self.registry.granted_root(scope, window)
     }
 
     /// Refuse new work, wait a bounded time for work already admitted, and

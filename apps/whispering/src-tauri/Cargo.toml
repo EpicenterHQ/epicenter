@@ -26,6 +26,7 @@ getrandom = "0.3"
 serde_json = "1"
 tauri = { version = "2.12", features = [] }
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
 
 # The same pins as packages/tauri-plugin-epicenter-folder/Cargo.toml. A patch
 # applies only from the crate being built, so a shell that depends on the

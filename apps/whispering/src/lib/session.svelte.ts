@@ -9,7 +9,7 @@
  * The app layout opens exactly one session when it mounts and closes it when it
  * is destroyed. Pages receive it from context and never open a workspace, so
  * moving between `/`, `/recordings`, and `/transformations` keeps the live
- * recording, pending audio, selections, running requests, the query cache,
+ * recording, selections, running requests, the query cache,
  * and the terminal exactly as they were. Only leaving the app is guarded.
  */
 import type { QueryClient } from '@tanstack/svelte-query';

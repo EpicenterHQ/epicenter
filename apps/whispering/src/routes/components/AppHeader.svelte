@@ -194,10 +194,10 @@
 					<div class="flex flex-col gap-2">
 						{#if library.workspace.injection}
 							<Button size="sm" variant="outline" onclick={() => void arm({ rowWrites: (injection?.rowWrites ?? 0) + 1 })} data-testid="inject-row">
-								Fail the next recording file write (audio lands) · armed {injection?.rowWrites ?? 0}
+								Fail the next recording file write, at start · armed {injection?.rowWrites ?? 0}
 							</Button>
 							<Button size="sm" variant="outline" onclick={() => void arm({ audioWrites: (injection?.audioWrites ?? 0) + 1 })} data-testid="inject-audio">
-								Fail the next audio write (nothing lands) · armed {injection?.audioWrites ?? 0}
+								Fail the next fixture audio write, at stop · armed {injection?.audioWrites ?? 0}
 							</Button>
 							<Button
 								size="sm"

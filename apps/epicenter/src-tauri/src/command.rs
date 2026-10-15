@@ -87,9 +87,10 @@ pub async fn request_accessibility_permission() {
 /// Only `Granted` and `Unknown` are usable. `Unknown` (no entry in the store, or
 /// a platform with no such gate) means "can't tell from here": the caller treats
 /// it as available and lets the recorder's stream-open fallback
-/// (`recorder::error::classify_cpal`) classify any real denial from the error
-/// itself. So this signal can only *add* a pre-record denial; it never newly
-/// blocks a setup that was already working.
+/// (`RecorderError::classify_cpal` in `tauri-plugin-epicenter-recorder`)
+/// classify any real denial from the error itself. So this signal can only
+/// *add* a pre-record denial; it never newly blocks a setup that was already
+/// working.
 ///
 /// `NotDetermined` is the one state that is neither usable nor final: the user
 /// has not been asked yet. It is not `Unknown` (we know exactly what the OS

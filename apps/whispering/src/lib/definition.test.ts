@@ -16,7 +16,7 @@ import { expect, test } from 'bun:test';
 import { defineFolder, parseRow } from '@epicenter/folder';
 import {
 	audioPathIn,
-	recordingAudioPath,
+	recordingAudioStem,
 	whisperingDefinition,
 } from './definition.js';
 
@@ -74,8 +74,8 @@ test('a recipe written by an earlier build still reads, and a new one says “us
 });
 
 test('a recording’s audio is only what its row names', () => {
-	expect(recordingAudioPath('20260102-030405-abcd', 'webm')).toBe(
-		'recordings/20260102-030405-abcd.webm',
+	expect(recordingAudioStem('20260102-030405-abcd')).toBe(
+		'recordings/20260102-030405-abcd',
 	);
 	expect(audioPathIn({ audioPath: 'audio/take.wav' })).toBe('audio/take.wav');
 	// A row with no path, or an empty one, names no audio. Nothing is guessed.

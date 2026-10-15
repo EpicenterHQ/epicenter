@@ -1,20 +1,23 @@
 /**
- * Repeatable publication and commit failures, for a debug shell only.
+ * Repeatable recording-write and commit failures, for a debug shell only.
  *
- * Publication failures are counted: arming "fail the next N row writes" makes
- * exactly the next N attempts fail and then publication works again, so a test
- * can exercise failure and retry in a fixed order.
+ * Recording-write failures are counted: arming "fail the next N row writes"
+ * makes exactly the next N attempts fail and then writes work again, so a test
+ * can exercise failure in a fixed order.
  *
- * A recording is published by the page as two writes, each the folder's own
- * operation: the audio file, then the row. The page's folder engine makes
- * them, not this host, and nothing here publishes or answers for it. Just before
+ * A recording reaches the folder in two writes, each the folder's own
+ * operation: its row when it starts, and, for fixture audio, its audio file
+ * when it stops. The page's folder engine makes them, not this host, and
+ * nothing here writes or answers for it. Microphone audio is written by the
+ * shell's recorder as it is captured, so its file is already there when the
+ * page asks and an armed audio failure is not spent on it. Just before
  * the page makes one of those writes it asks for an obstacle, naming the
  * write's step, the recording's stem, and, for the audio, its path. An armed
  * failure for that step puts an empty directory at the path and hands back a
  * name for it; the page makes its write and then has the obstacle removed.
  * The folder refuses that write itself. An obstructed audio write leaves
- * nothing written; an obstructed row write leaves the audio the first write
- * saved. A path that is already occupied is left alone and the failure is
+ * the row without its audio; an obstructed row write leaves the audio without
+ * a row naming it. A path that is already occupied is left alone and the failure is
  * not counted, since the folder refuses it without help.
  *
  * Only those two paths can be obstructed: the recording's row, and audio at
@@ -198,9 +201,9 @@ export function createFailureInjection({
 	}
 
 	/**
-	 * Put an empty directory in the way of one write of a recording's
-	 * publication, when a failure is armed for that step. Returns the
-	 * obstacle's name, or null when nothing was placed.
+	 * Put an empty directory in the way of one write of a recording, when a
+	 * failure is armed for that step. Returns the obstacle's name, or null
+	 * when nothing was placed.
 	 */
 	async function obstruct(write: {
 		step?: unknown;

@@ -19,84 +19,6 @@ export const commands = {
 	/**  Simulates pressing the Enter/Return key. */
 	simulateEnterKeystroke: () =>
 		typedError<null, string>(__TAURI_INVOKE('simulate_enter_keystroke')),
-	enumerateRecordingDevices: () =>
-		typedError<string[], RecorderError>(
-			__TAURI_INVOKE('enumerate_recording_devices'),
-		),
-	startRecording: (
-		deviceIdentifier: string | null,
-		sessionId: string,
-		requestId: string,
-	) =>
-		typedError<HostRecording, RecorderError>(
-			__TAURI_INVOKE('start_recording', {
-				deviceIdentifier,
-				sessionId,
-				requestId,
-			}),
-		),
-	stopRecording: (audioBlobId: string, sessionId: string) =>
-		typedError<StoppedRecording, RecorderError>(
-			__TAURI_INVOKE('stop_recording', { audioBlobId, sessionId }),
-		),
-	cancelRecording: (audioBlobId: string, sessionId: string) =>
-		typedError<null, RecorderError>(
-			__TAURI_INVOKE('cancel_recording', { audioBlobId, sessionId }),
-		),
-	recordingDocumentGeneration: () =>
-		typedError<number, RecorderError>(
-			__TAURI_INVOKE('recording_document_generation'),
-		),
-	registerRecordingSession: (
-		appId: string,
-		account: {
-			authorityId: string;
-			principalId: string;
-		} | null,
-		sessionId: string,
-		generation: number,
-	) =>
-		typedError<null, RecorderError>(
-			__TAURI_INVOKE('register_recording_session', {
-				appId,
-				account,
-				sessionId,
-				generation,
-			}),
-		),
-	/**  Read only this document's live capture. No file or journal is recovered. */
-	currentRecording: (sessionId: string) =>
-		typedError<
-			{
-				audioBlobId: string;
-				device: DeviceAcquisition;
-				/**
-				 *  `None` while capture is running. `Some` means capture is over and this
-				 *  recording is waiting to be stopped (finishing its temporary file) or
-				 *  cancelled (discarding it).
-				 */
-				endedReason: EndedReason | null;
-			} | null,
-			RecorderError
-		>(__TAURI_INVOKE('current_recording', { sessionId })),
-	resolveRecordingStart: (sessionId: string, requestId: string) =>
-		typedError<
-			{
-				audioBlobId: string;
-				device: DeviceAcquisition;
-				/**
-				 *  `None` while capture is running. `Some` means capture is over and this
-				 *  recording is waiting to be stopped (finishing its temporary file) or
-				 *  cancelled (discarding it).
-				 */
-				endedReason: EndedReason | null;
-			} | null,
-			RecorderError
-		>(__TAURI_INVOKE('resolve_recording_start', { sessionId, requestId })),
-	closeRecordingSession: (sessionId: string) =>
-		typedError<null, RecorderError>(
-			__TAURI_INVOKE('close_recording_session', { sessionId }),
-		),
 	/**
 	 *  Canonical transcribe-by-id path. Resolves the canonical local blob, decodes
 	 *  it, then runs inference on the **active** model with the caller's advisory
@@ -409,9 +331,6 @@ export const events = {
 	homeSectionPending: makeEvent<HomeSectionPending, HomeSectionPending>(
 		'home-section-pending',
 	),
-	recordingEndedEvent: makeEvent<RecordingEndedEvent, RecordingEndedEvent>(
-		'recording-ended-event',
-	),
 };
 
 /* Types */
@@ -477,7 +396,7 @@ export type AppliedHints = {
 	initialPrompt: boolean;
 };
 
-/**  The application captured before a native writer creates its temporary file. */
+/**  Which application's blobs, and whose: the directory a read resolves to. */
 export type BlobDestination = {
 	appId: string;
 	account: AccountIdentity | null;
@@ -497,23 +416,6 @@ export type DataFolder = {
 	/**  The application whose window edits this folder too, if any. */
 	app: string | null;
 };
-
-/**
- *  Which microphone a recording actually opened, and whether that was the one
- *  asked for.
- *
- *  Serialized to match `DeviceAcquisitionOutcome` in `@epicenter/recorder`,
- *  which the browser recorder already produces, so both platforms report device
- *  acquisition in one shape.
- */
-export type DeviceAcquisition =
-	/**  The requested device was found and opened. */
-	| { outcome: 'success'; deviceId: string }
-	/**
-	 *  A different device was opened. `device_id` is what actually recorded, so
-	 *  an application can say which microphone it is using and persist it.
-	 */
-	| { outcome: 'fallback'; reason: FallbackReason; deviceId: string };
 
 /**
  *  The single source of truth for whether Epicenter can paste a transcript at
@@ -582,53 +484,6 @@ export type DownloadProgress = {
 	totalBytes: number | null;
 };
 
-/**
- *  Why the host ended a recording's capture on its own.
- *
- *  This never describes a stop, a cancel, or an owner window being destroyed.
- *  Those are endings someone asked for, and the caller already knows about them
- *  from its own call returning.
- */
-export type EndedReason =
-	/**
-	 *  The microphone went away while recording (`ErrorKind::DeviceNotAvailable`).
-	 *  The recovery is physical: reconnect it, or pick another input.
-	 */
-	| 'deviceDisconnected'
-	/**
-	 *  The OS withdrew microphone access mid-recording
-	 *  (`ErrorKind::PermissionDenied`). The device is still there and still
-	 *  works; the recovery is a permission toggle, which is why this is not
-	 *  folded into `DeviceDisconnected`.
-	 */
-	| 'permissionRevoked'
-	/**
-	 *  The capture stream failed for a reason the host cannot make actionable:
-	 *  the configuration was invalidated, the audio host vanished, a resource
-	 *  limit was hit, or the backend reported something cpal could not classify.
-	 *  One variant rather than five, because the person does the same thing
-	 *  about all of them.
-	 */
-	| 'streamFailed'
-	/**
-	 *  The staged file could not be written any further: the disk filled, its
-	 *  volume went away, or the recording reached the longest audio a WAV can
-	 *  describe (about 12 hours of mono capture).
-	 *
-	 *  Kept apart from `StreamFailed` because the microphone is fine and the
-	 *  remedy is on the machine, not the hardware. The three storage causes are
-	 *  *not* kept apart from each other: whichever one it was, the recording is
-	 *  capped at what already reached disk and the next step is the same, so a
-	 *  finer split would be a decorative name on a message string.
-	 */
-	| 'storageFailed';
-
-export type FallbackReason =
-	/**  No device was requested, so the system default was used. */
-	| 'no-device-selected'
-	/**  The requested device is not present, so the system default was used. */
-	| 'preferred-device-unavailable';
-
 export type GlobalShortcutRegistration = {
 	commandId: string;
 	accelerator: string;
@@ -659,21 +514,6 @@ export type HomeSection =
  *  that arrives twice, late, or not at all cannot produce a different outcome.
  */
 export type HomeSectionPending = null;
-
-/**
- *  The document's live capture identity, opened microphone, and terminal event.
- *  `current` reconciles a missed event while that same document remains alive.
- */
-export type HostRecording = {
-	audioBlobId: string;
-	device: DeviceAcquisition;
-	/**
-	 *  `None` while capture is running. `Some` means capture is over and this
-	 *  recording is waiting to be stopped (finishing its temporary file) or
-	 *  cancelled (discarding it).
-	 */
-	endedReason: EndedReason | null;
-};
 
 export type InferenceModel = {
 	id: string;
@@ -717,9 +557,10 @@ export type LocalTranscriptionReadiness =
  *  Only `Granted` and `Unknown` are usable. `Unknown` (no entry in the store, or
  *  a platform with no such gate) means "can't tell from here": the caller treats
  *  it as available and lets the recorder's stream-open fallback
- *  (`recorder::error::classify_cpal`) classify any real denial from the error
- *  itself. So this signal can only *add* a pre-record denial; it never newly
- *  blocks a setup that was already working.
+ *  (`RecorderError::classify_cpal` in `tauri-plugin-epicenter-recorder`)
+ *  classify any real denial from the error itself. So this signal can only
+ *  *add* a pre-record denial; it never newly blocks a setup that was already
+ *  working.
  *
  *  `NotDetermined` is the one state that is neither usable nor final: the user
  *  has not been asked yet. It is not `Unknown` (we know exactly what the OS
@@ -754,56 +595,6 @@ export type ModelInfo = {
 	downloaded: boolean;
 };
 
-export type RecorderError =
-	/**
-	 *  The OS refused microphone access. The frontend checks microphone
-	 *  permission before recording, so this is the stream-open fallback for a
-	 *  denial that slips past that gate (e.g. a declined first-run prompt).
-	 */
-	| { name: 'PermissionDenied'; message: string }
-	/**
-	 *  No usable input device: none selected and no default, the named device
-	 *  is gone, cpal reports the device unavailable mid-open, or the device
-	 *  yields no input configurations at all (query errors or returns empty).
-	 */
-	| { name: 'NoInputDevice'; message: string }
-	/**
-	 *  A recording started by some window is already in flight. There is one
-	 *  host recorder, and a competing start is refused rather than silently
-	 *  displacing a recording another window is relying on.
-	 */
-	| { name: 'Busy'; message: string }
-	/**
-	 *  The named recording is not this window's to end: it has already
-	 *  finished, it is not the one in flight, or another window owns it. One
-	 *  variant for all three because a caller cannot act differently on them,
-	 *  and the distinguishing detail travels in `message`.
-	 */
-	| { name: 'NotRecording'; message: string }
-	/**  Stop consumed this capture, but no finished temporary file exists. */
-	| { name: 'CaptureLost'; message: string }
-	/**
-	 *  Any other recording failure (device config, stream build, filesystem,
-	 *  internal). The frontend does not branch on these.
-	 */
-	| { name: 'Failed'; message: string };
-
-/**
- *  Pushed to the window that owns a recording when the host ends its capture
- *  without being asked. Carries the blob id so a window that has since started
- *  another recording can tell which one lost its microphone, and the reason so
- *  it can say something true about what happened.
- *
- *  A signal, never a result. It carries no audio and no blob: the recording is
- *  still the owner's, and `stop` publishes what it captured. Missing this event
- *  costs nothing, because `current_recording` reports the same ended recording.
- *  See `commands::end_recording_capture` for why.
- */
-export type RecordingEndedEvent = {
-	audioBlobId: string;
-	reason: EndedReason;
-};
-
 /**
  *  Failures the Home administration commands can report. Both are actionable:
  *  the id is not a model this build knows, or the choice could not be made
@@ -812,12 +603,6 @@ export type RecordingEndedEvent = {
 export type SettingsError =
 	| { name: 'UnknownModel'; message: string }
 	| { name: 'SaveFailed'; message: string };
-
-export type StoppedRecording = {
-	blobId: string;
-	durationMs: number;
-	byteLength: number;
-};
 
 export type TranscriptionError =
 	| { name: 'AudioReadError'; message: string }

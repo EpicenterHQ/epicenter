@@ -134,7 +134,7 @@ function scriptedMicrophone(
 				return () => changeListeners.delete(listener);
 			},
 		},
-		async start(options = {}): Promise<Result<ActiveCapture, CaptureError>> {
+		async start(options): Promise<Result<ActiveCapture, CaptureError>> {
 			calls.start.push(options);
 			const { error: openError } = await opening(options.input, options.signal);
 			if (openError !== null) return Err(openError);
@@ -144,19 +144,23 @@ function scriptedMicrophone(
 				if (!settled) open.captures -= 1;
 				settled = true;
 			};
+			const audioPath = `${options.path}.wav`;
 			return Ok({
+				audioPath,
 				startedAt: performance.now(),
 				async stop() {
 					release();
-					return Ok({
-						bytes: toneWav(),
-						extension: 'wav',
-						mimeType: 'audio/wav',
-						durationMs: 1000,
-						source: 'microphone' as const,
-					});
+					const { error } = await options.folder.files.create(
+						audioPath,
+						toneWav(),
+					);
+					if (error !== null)
+						return CaptureError.NotSaved({ reason: error.message });
+					return Ok({ durationMs: 1000 });
 				},
-				cancel: release,
+				async cancel() {
+					release();
+				},
 			});
 		},
 	};
@@ -268,7 +272,7 @@ test('a chosen microphone that is not connected refuses the recording, records n
 	expect(microphone.open.captures).toBe(0);
 	expect(input.choice).toEqual(USB);
 	expect(device.store.saved).toEqual(USB);
-	expect(library.pending).toEqual([]);
+	expect(library.entries).toEqual([]);
 
 	await input.refresh();
 	expect(input.choiceListed).toBe(false);

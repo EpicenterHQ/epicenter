@@ -3,8 +3,10 @@
  *
  * Drives the real microphone device over a scripted WebView: `getUserMedia`,
  * `enumerateDevices`, a recorder, and an audio graph that count what was
- * opened and released. No hardware is involved, so these establish what the
- * app asks the WebView for and what it releases, not how a microphone behaves.
+ * opened and released. Recording goes through `@epicenter/recorder`'s browser
+ * recorder over the same WebView. No hardware is involved, so these establish
+ * what the app asks the WebView for and what it releases, not how a
+ * microphone behaves.
  *
  * Key behaviors:
  * - A chosen microphone is asked for by its exact ID; the system default is
@@ -19,8 +21,13 @@
  *   that arrives after the request was withdrawn is released
  */
 import { expect, test } from 'bun:test';
+import {
+	type BrowserEnvironment,
+	createBrowserRecorder,
+} from '@epicenter/recorder/browser';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { CaptureDevice } from './capture.js';
+import type { CaptureDevice, CaptureStart } from './capture.js';
 import {
 	createMicrophoneDevice,
 	type MicrophoneEnvironment,
@@ -28,6 +35,25 @@ import {
 import { deferred } from './workspace.test-support.js';
 
 const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
+
+/** Where a test's recordings would be written. Nothing here stops one, so nothing is. */
+const INTO: CaptureStart = {
+	folder: {
+		id: 'so.epicenter.test',
+		files: { create: async () => Ok(undefined) },
+	},
+	path: 'recordings/a',
+};
+
+/** The browser recorder over `environment`, as the page records in a browser. */
+const recorderOver = (
+	environment: Omit<BrowserEnvironment, 'createLevelContext' | 'now'>,
+) =>
+	createBrowserRecorder({
+		...environment,
+		createLevelContext: undefined,
+		now: () => 0,
+	}).startRecording;
 
 const named = (name: string) => Object.assign(new Error(name), { name });
 
@@ -72,48 +98,52 @@ function webView({
 	const graphs: { closed: boolean; disconnected: boolean }[] = [];
 	const changeListeners = new Set<() => void>();
 	let listings = 0;
-	const environment: MicrophoneEnvironment = {
-		mediaDevices: {
-			async getUserMedia(constraints = {}) {
-				requests.push(constraints);
-				const stream: FakeStream = {
-					deviceId: await open(constraints),
-					stopped: false,
-				};
-				streams.push(stream);
-				const track = {
-					label:
-						devices.find((device) => device.deviceId === stream.deviceId)
-							?.label ?? '',
-					stop: () => {
-						stream.stopped = true;
-					},
-					getSettings: () => ({ deviceId: stream.deviceId }),
-				};
-				return {
-					getTracks: () => [track],
-					getAudioTracks: () => [track],
-				} as unknown as MediaStream;
-			},
-			async enumerateDevices() {
-				listings += 1;
-				return devices as MediaDeviceInfo[];
-			},
-			addEventListener(_type, listener) {
-				changeListeners.add(listener);
-			},
-			removeEventListener(_type, listener) {
-				changeListeners.delete(listener);
-			},
+	const mediaDevices: MicrophoneEnvironment['mediaDevices'] = {
+		async getUserMedia(constraints = {}) {
+			requests.push(constraints);
+			const stream: FakeStream = {
+				deviceId: await open(constraints),
+				stopped: false,
+			};
+			streams.push(stream);
+			const track = {
+				label:
+					devices.find((device) => device.deviceId === stream.deviceId)
+						?.label ?? '',
+				stop: () => {
+					stream.stopped = true;
+				},
+				getSettings: () => ({ deviceId: stream.deviceId }),
+			};
+			return {
+				getTracks: () => [track],
+				getAudioTracks: () => [track],
+			} as unknown as MediaStream;
 		},
-		Recorder: class extends EventTarget {
-			static isTypeSupported = () => false;
-			mimeType = 'audio/webm';
-			start() {}
-			stop() {
-				this.dispatchEvent(new Event('stop'));
-			}
-		} as unknown as MicrophoneEnvironment['Recorder'],
+		async enumerateDevices() {
+			listings += 1;
+			return devices as MediaDeviceInfo[];
+		},
+		addEventListener(_type, listener) {
+			changeListeners.add(listener);
+		},
+		removeEventListener(_type, listener) {
+			changeListeners.delete(listener);
+		},
+	};
+	const environment: MicrophoneEnvironment = {
+		mediaDevices,
+		record: recorderOver({
+			mediaDevices,
+			Recorder: class extends EventTarget {
+				static isTypeSupported = () => false;
+				mimeType = 'audio/webm';
+				start() {}
+				stop() {
+					this.dispatchEvent(new Event('stop'));
+				}
+			} as unknown as BrowserEnvironment['Recorder'],
+		}),
 		createLevelContext() {
 			const graph = { closed: false, disconnected: false };
 			graphs.push(graph);
@@ -151,8 +181,8 @@ test('a chosen microphone is asked for by its exact ID, and the system default o
 	const view = webView();
 	const device = createMicrophoneDevice(view.environment);
 
-	expectOk(await device.start({ input: USB })).cancel();
-	expectOk(await device.start()).cancel();
+	await expectOk(await device.start({ ...INTO, input: USB })).cancel();
+	await expectOk(await device.start(INTO)).cancel();
 
 	expect(view.requests).toEqual([
 		{ audio: { deviceId: { exact: 'usb-id' } } },
@@ -170,7 +200,7 @@ test('a chosen microphone that is not there refuses after one request, and no ot
 		});
 		const device = createMicrophoneDevice(view.environment);
 
-		const error = expectErr(await device.start({ input: USB }));
+		const error = expectErr(await device.start({ ...INTO, input: USB }));
 
 		expect(error.name).toBe('InputUnavailable');
 		expect(error.message).toContain('USB Microphone');
@@ -186,7 +216,7 @@ test('a stream that is not the chosen microphone is released and refused', async
 	const view = webView({ open: async () => 'built-in-id' });
 	const device = createMicrophoneDevice(view.environment);
 
-	expect(expectErr(await device.start({ input: USB })).name).toBe(
+	expect(expectErr(await device.start({ ...INTO, input: USB })).name).toBe(
 		'InputUnavailable',
 	);
 	expect(expectErr(await inputsOf(device).meter(USB)).name).toBe(
@@ -214,7 +244,7 @@ test('refused access and a missing default microphone are reported as themselves
 		const device = createMicrophoneDevice(view.environment);
 		const inputs = inputsOf(device);
 
-		expect(expectErr(await device.start()).name).toBe(expected);
+		expect(expectErr(await device.start(INTO)).name).toBe(expected);
 		expect(expectErr(await inputs.allow()).name).toBe(expected);
 		expect(expectErr(await inputs.meter(undefined)).name).toBe(expected);
 		expect(view.graphs).toEqual([]);
@@ -224,12 +254,12 @@ test('refused access and a missing default microphone are reported as themselves
 test('a window with no microphone access says so for recording, listing, enabling, and testing', async () => {
 	const device = createMicrophoneDevice({
 		mediaDevices: undefined,
-		Recorder: undefined,
 		createLevelContext: undefined,
+		record: recorderOver({ mediaDevices: undefined, Recorder: undefined }),
 	});
 	const inputs = inputsOf(device);
 
-	expect(expectErr(await device.start()).name).toBe('Unavailable');
+	expect(expectErr(await device.start(INTO)).name).toBe('Unavailable');
 	expect(expectErr(await inputs.list()).name).toBe('Unavailable');
 	expect(expectErr(await inputs.allow()).name).toBe('Unavailable');
 	expect(expectErr(await inputs.meter(undefined)).name).toBe('Unavailable');
@@ -318,7 +348,7 @@ test('a microphone that opens after its request was withdrawn is released, for a
 				? inputs.meter(USB, withdrawn.signal)
 				: request === 'allow'
 					? inputs.allow(withdrawn.signal)
-					: device.start({ input: USB, signal: withdrawn.signal });
+					: device.start({ ...INTO, input: USB, signal: withdrawn.signal });
 		withdrawn.abort();
 		answer.resolve('usb-id');
 
@@ -334,9 +364,9 @@ test('a request withdrawn before it is made opens nothing', async () => {
 	const withdrawn = new AbortController();
 	withdrawn.abort();
 
-	expect(expectErr(await device.start({ signal: withdrawn.signal })).name).toBe(
-		'Cancelled',
-	);
+	expect(
+		expectErr(await device.start({ ...INTO, signal: withdrawn.signal })).name,
+	).toBe('Cancelled');
 	expect(view.requests).toEqual([]);
 });
 

@@ -33,8 +33,8 @@
  *
  * A stopped host does not stop saving. The shell granted the folder to this
  * window, not to the host, and it stays open, so an edit is still written and
- * a pending recording can still be tried again once the person keeps working;
- * what is held is read live, and the prompt follows it. What the host did is what is gone: the terminal and
+ * a held result can still be saved again once the person keeps working; what
+ * is held is read live, and the prompt follows it. What the host did is what is gone: the terminal and
  * new transcription and transformation requests. A save can still fail for
  * its own reasons, as it can at any time.
  *

@@ -73,15 +73,23 @@ test('a session opens the folder once and releases it once', async () => {
 });
 
 test('internal navigation is allowed while unloading is blocked only by unsaved work', async () => {
-	const { session, library } = await open();
+	const answer = deferred<Awaited<ReturnType<Workspace['transcribe']>>>();
+	const { session, library } = await open({ transcribe: () => answer.promise });
 	expect(session.blocksNavigation(INTERNAL)).toBe(false);
 	expect(session.blocksNavigation(UNLOAD)).toBe(false);
 
+	// A recording holds nothing in the window: its row is in the folder from the start.
 	await library.startRecording();
+	expect(session.blocksNavigation(UNLOAD)).toBe(false);
+	await library.stopRecording();
+
+	// An answer still on its way is held only here.
+	const transcribing = library.transcribe(library.entries[0]!);
 	expect(session.blocksNavigation(INTERNAL)).toBe(false);
 	expect(session.blocksNavigation(UNLOAD)).toBe(true);
 
-	await library.stopRecording();
+	answer.resolve(Ok({ text: 'a steady tone' }));
+	await transcribing;
 	expect(session.blocksNavigation(UNLOAD)).toBe(false);
 });
 
@@ -162,7 +170,9 @@ const refusal = () => {
 };
 
 test('while a session exists, only its guard answers a close: nothing answers for it unseen', async () => {
-	const test = await openTestWorkspace({ failAudioWrites: 1 });
+	// A transcription whose answer has not arrived is held only in the window.
+	const answer = deferred<Awaited<ReturnType<Workspace['transcribe']>>>();
+	const test = await openTestWorkspace({ transcribe: () => answer.promise });
 	const { counts, answerClose } = closeAnswerer();
 	const mounted = mountSession(createQueryClient(), test.open, answerClose);
 	const session = expectOk(await mounted.opening);
@@ -170,7 +180,10 @@ test('while a session exists, only its guard answers a close: nothing answers fo
 	// Something held only in the window.
 	await session.library.startRecording();
 	await session.library.stopRecording();
-	expect(session.library.pending).toHaveLength(1);
+	const [entry] = session.library.entries;
+	void session.library.transcribe(entry!);
+	await Bun.sleep(10);
+	expect(session.library.holdsUnsavedWork).toBe(true);
 
 	// The shell asks. The session's own guard is the listener, and it does not approve.
 	expect(test.closeListeners.size).toBe(1);

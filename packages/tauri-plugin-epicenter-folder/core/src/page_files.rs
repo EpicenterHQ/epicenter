@@ -384,6 +384,16 @@ pub fn remove(
     removed.map_err(|cause| format!("'{}' could not be removed: {cause}", target.display()).into())
 }
 
+/// The full path of the data path `relative` in `root`, checked as a change
+/// is: the shared path rule, and no link on the way. For a writer beside the
+/// engine that names a data file itself, such as a recorder appending to its
+/// audio in place.
+pub fn data_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let (kind, target) = classify(root, &root.join(relative))?;
+    expect(kind, &[Kind::Data], Path::new(relative))?;
+    Ok(target)
+}
+
 /// Make the directory at `path` and any missing ancestors, each one a data
 /// directory or the engine's staging directory on its way.
 pub fn mkdir(root: &Path, path: &Path) -> Result<(), String> {
@@ -718,5 +728,33 @@ mod tests {
         remove(&root, &a, false, &Expectation::Sha256(sha256(b"old"))).unwrap();
         assert_eq!(remove(&root, &a, false, &Expectation::Present), Err(ChangeError::NotFound));
         assert_eq!(remove(&root, &a, false, &Expectation::Any), Err(ChangeError::NotFound));
+    }
+
+    /// A writer beside the engine names a data path and gets it checked as a
+    /// change is, before it creates anything there.
+    #[test]
+    fn a_data_path_is_checked_as_a_change_is() {
+        let temp = crate::testing::TempDir::new("page-files-data-path");
+        let root = temp.folder("notes");
+        assert_eq!(
+            data_path(&root, "recordings/a.wav").unwrap(),
+            root.join("recordings/a.wav")
+        );
+        for refused in [
+            ".git/epicenter/scratch/x",
+            ".git/config",
+            "../outside.wav",
+            "recordings/HEAD",
+            "recordings/a.wav.",
+            "",
+        ] {
+            assert!(data_path(&root, refused).is_err(), "{refused:?}");
+        }
+        #[cfg(unix)]
+        {
+            let outside = temp.folder("outside");
+            std::os::unix::fs::symlink(&outside, root.join("linked")).unwrap();
+            assert!(data_path(&root, "linked/a.wav").is_err());
+        }
     }
 }

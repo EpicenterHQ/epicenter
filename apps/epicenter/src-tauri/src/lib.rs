@@ -39,13 +39,6 @@ pub mod audio;
 use audio::encode_recording_for_upload;
 
 pub mod blobs;
-pub mod recorder;
-use recorder::commands::{
-    cancel_recording, cancel_recording_owned_by, close_recording_session, current_recording,
-    enumerate_recording_devices, recording_document_generation, register_recording_session, resolve_recording_start,
-    start_recording, stop_recording,
-};
-use recorder::recorder::Recorder;
 
 pub mod transcription;
 use transcription::{
@@ -440,15 +433,6 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .commands(tauri_specta::collect_commands![
             write_text,
             simulate_enter_keystroke,
-            enumerate_recording_devices,
-            start_recording,
-            stop_recording,
-            cancel_recording,
-            recording_document_generation,
-            register_recording_session,
-            current_recording,
-            resolve_recording_start,
-            close_recording_session,
             transcribe_recording,
             transcribe_audio_bytes,
             list_inference_models,
@@ -481,7 +465,6 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             keyboard::DictationCapabilityEvent,
             GlobalShortcutTriggered,
             HomeSectionPending,
-            recorder::ended::RecordingEndedEvent,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
@@ -655,8 +638,9 @@ const HOST_RESTARTED: &str = "the Epicenter host restarted before the window ope
 
 /// Release the host resources a window owns once it is destroyed.
 ///
-/// A hidden window keeps capture. Destruction releases its document; the
-/// builder's page-load hook also releases it before a replacement page loads.
+/// Destruction ends its page's departure participation; the builder's
+/// page-load hook does the same before a replacement page loads. The recorder
+/// plugin finalizes a recording the window's page started on either.
 ///
 /// Built-in app windows are hidden rather than destroyed when the user closes
 /// them, so this fires for them on a host restart teardown, and
@@ -666,7 +650,6 @@ fn release_host_resources_on_destroy(window: &WebviewWindow<Wry>) {
     let label = window.label().to_string();
     window.on_window_event(move |event| {
         if matches!(event, WindowEvent::Destroyed) {
-            cancel_recording_owned_by(&app, &label);
             departure::page_replaced(&app, &label);
         }
     });
@@ -676,7 +659,6 @@ fn release_host_resources_on_destroy(window: &WebviewWindow<Wry>) {
 /// is gone. Runs before the new document can make an IPC call, so its first
 /// departure read already carries its own generation.
 fn page_started(app: &DesktopAppHandle, label: &str) {
-    cancel_recording_owned_by(app, label);
     departure::page_replaced(app, label);
 }
 
@@ -715,6 +697,11 @@ pub fn run() {
             open_forwarded_deep_links(app, &args);
         }))
         .plugin(tauri_plugin_epicenter_folder::init())
+        .plugin(
+            tauri_plugin_epicenter_recorder::Builder::new()
+                .on_capturing(shell::set_tray_recording_state)
+                .build(),
+        )
         .plugin(log_plugin)
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -729,7 +716,6 @@ pub fn run() {
         .manage(departure::Departure::default())
         .manage(data_folders::DataFolderScopes::default())
         .manage(GlobalShortcutRegistry::default())
-        .manage(Mutex::new(Recorder::new()))
         .manage(DownloadManager::default());
 
     #[cfg(target_os = "macos")]
@@ -2560,14 +2546,6 @@ mod tests {
     /// The operations `@epicenter/app` exposes, and therefore the complete set
     /// of this crate's commands an app window is granted.
     const PUBLIC_CLIENT_COMMANDS: &[&str] = &[
-        "start_recording",
-        "stop_recording",
-        "cancel_recording",
-        "current_recording",
-        "resolve_recording_start",
-        "recording_document_generation",
-    "register_recording_session",
-        "close_recording_session",
         "transcribe_recording",
         "transcribe_audio_bytes",
         "list_inference_models",
@@ -2617,34 +2595,8 @@ mod tests {
         }
     }
 
-    /// Subscribing to an ending is half a lifecycle. A window granted `listen`
-    /// but not `unlisten` leaks a host listener every time an app unsubscribes,
-    /// and the leak is invisible because unsubscribing has no outcome to fail.
-    #[test]
-    fn app_windows_can_both_subscribe_and_unsubscribe() {
-        for encoded in APP_WINDOW_CAPABILITIES {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let permissions = capability["permissions"].as_array().unwrap();
-            for permission in ["core:event:allow-listen", "core:event:allow-unlisten"] {
-                assert!(
-                    permissions.contains(&serde_json::json!(permission)),
-                    "an app window observing recordings needs {permission}"
-                );
-            }
-        }
-    }
-
-    /// The seven commands must exist, or the grant above is a silent no-op and
-    /// the public client invokes into nothing.
-    ///
-    /// That the *client* invokes exactly these seven, with exactly the
-    /// arguments they deserialize, is proved in
-    /// `src/app-client-parity.test.ts`, where the capability, the generated
-    /// bindings, and the client are all ordinary values and both sides can be
-    /// driven through one fake IPC. This test used to parse the client's
-    /// TypeScript as text from here, which was weaker (it compared source
-    /// spelling, not what was sent) and fragile enough to pass or fail on how
-    /// the bindings happened to be formatted.
+    /// The granted commands must exist, or the grant above is a silent no-op
+    /// and an app window invokes into nothing.
     #[test]
     fn the_public_client_api_is_commands_this_build_declares() {
         let declared: std::collections::BTreeSet<&str> =
@@ -2655,20 +2607,6 @@ mod tests {
                 "the app-window grant names {command}, which this build does not declare"
             );
         }
-    }
-
-    /// The one event an app window subscribes to has to be one the host emits.
-    #[test]
-    fn the_host_still_emits_the_recording_ended_event() {
-        // Either quote style, for the same reason the binding freshness check
-        // above accepts both: specta emits double quotes and the repo formatter
-        // rewrites them to single.
-        const BINDINGS: &str = include_str!("../../src/ui/bindings.gen.ts");
-        assert!(
-            BINDINGS.contains("'recording-ended-event'")
-                || BINDINGS.contains("\"recording-ended-event\""),
-            "the host no longer emits the event @epicenter/app subscribes to"
-        );
     }
 
     #[test]

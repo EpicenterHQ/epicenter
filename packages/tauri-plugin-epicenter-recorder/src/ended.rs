@@ -8,7 +8,8 @@
 //!
 //! What ends is the capture, not the recording. The reason below travels to the
 //! owner so it can say something true about what happened; the audio captured up
-//! to that moment stays claimable until the owner stops or cancels it.
+//! to that moment is already in its file, and stays the owner's to stop or
+//! cancel.
 //!
 //! # The taxonomy is exactly as fine as cpal's evidence
 //!
@@ -52,7 +53,7 @@ pub enum EndedReason {
     /// One variant rather than five, because the person does the same thing
     /// about all of them.
     StreamFailed,
-    /// The staged file could not be written any further: the disk filled, its
+    /// The recording's file could not be written any further: the disk filled, its
     /// volume went away, or the recording reached the longest audio a WAV can
     /// describe (about 12 hours of mono capture).
     ///
@@ -81,22 +82,22 @@ pub fn classify(error: &cpal::Error) -> Option<EndedReason> {
     }
 }
 
-/// Pushed to the window that owns a recording when the host ends its capture
-/// without being asked. Carries the blob id so a window that has since started
-/// another recording can tell which one lost its microphone, and the reason so
-/// it can say something true about what happened.
+/// What the recorder tells the page that started a recording, over the channel
+/// it passed to `start`: the microphone's level while it captures, and once,
+/// if it happens, that the capture ended without being asked.
 ///
-/// A signal, never a result. It carries no audio and no blob: the recording is
-/// still the owner's, and `stop` publishes what it captured. Missing this event
-/// costs nothing, because `current_recording` reports the same ended recording.
-/// See `commands::end_recording_capture` for why.
-#[derive(
-    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, tauri_specta::Event,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct RecordingEndedEvent {
-    pub audio_blob_id: String,
-    pub reason: EndedReason,
+/// The channel belongs to that page alone, so nothing here names the window.
+/// Both are signals, never results: an ending carries no audio, because the
+/// recording is still the owner's and `stop` finalizes what it captured.
+/// Missing one costs nothing; a page that reloads has already had its
+/// recording finalized.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum RecordingSignal {
+    /// The root mean square of the samples since the last level, from 0 to 1.
+    Level { level: f32 },
+    /// The host ended the capture on its own, and why.
+    Ended { reason: EndedReason },
 }
 
 #[cfg(test)]
@@ -162,13 +163,15 @@ mod tests {
     }
 
     #[test]
-    fn the_reason_crosses_the_wire_as_a_camel_case_name() {
-        let json = serde_json::to_value(RecordingEndedEvent {
-            audio_blob_id: "blob_aaaaaaaaaaaaaaaaaaaaa".to_string(),
+    fn signals_cross_the_wire_tagged_by_kind() {
+        let json = serde_json::to_value(RecordingSignal::Ended {
             reason: EndedReason::DeviceDisconnected,
         })
         .unwrap();
-        assert_eq!(json["audioBlobId"], "blob_aaaaaaaaaaaaaaaaaaaaa");
+        assert_eq!(json["kind"], "ended");
         assert_eq!(json["reason"], "deviceDisconnected");
+        let json = serde_json::to_value(RecordingSignal::Level { level: 0.5 }).unwrap();
+        assert_eq!(json["kind"], "level");
+        assert_eq!(json["level"], 0.5);
     }
 }

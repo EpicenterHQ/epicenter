@@ -1426,7 +1426,6 @@ dependencies = [
  "core-foundation 0.9.4",
  "core-foundation-sys",
  "core-graphics 0.22.3",
- "cpal",
  "enigo",
  "getrandom 0.3.4",
  "hf-hub",
@@ -1454,6 +1453,7 @@ dependencies = [
  "tauri-plugin-deep-link",
  "tauri-plugin-dialog",
  "tauri-plugin-epicenter-folder",
+ "tauri-plugin-epicenter-recorder",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-http",
  "tauri-plugin-log",
@@ -5751,6 +5751,25 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "tauri-specta",
+]
+
+[[package]]
+name = "tauri-plugin-epicenter-recorder"
+version = "0.0.1"
+dependencies = [
+ "cpal",
+ "epicenter-folder-core",
+ "hound",
+ "log",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-typescript",
+ "tauri",
+ "tauri-plugin",
+ "tauri-plugin-epicenter-folder",
+ "tauri-specta",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

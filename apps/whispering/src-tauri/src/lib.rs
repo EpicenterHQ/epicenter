@@ -8,7 +8,10 @@
 //! locks it and grants that window its directory: the page makes every read
 //! and change and runs every `git` command through the folder plugin, which
 //! checks each path. The page names the folder and
-//! never a path. This crate registers no command of its own.
+//! never a path. It records with `tauri-plugin-epicenter-recorder`, which
+//! writes each recording's WAV into that folder from the moment it starts and
+//! finalizes it when the page reloads or the window closes. This crate
+//! registers no command of its own.
 //!
 //! The child is the Bun host (`native/main.ts`): it serves the page on loopback
 //! and does what a page cannot, such as running the terminal and sending
@@ -121,6 +124,8 @@ pub fn build(page: Option<PathBuf>) -> tauri::Result<App> {
     tauri::Builder::default()
         // Shuts the folder down when the app exits; see the module comment.
         .plugin(tauri_plugin_epicenter_folder::init())
+        // Finalizes a recording whose page reloads or whose window closes.
+        .plugin(tauri_plugin_epicenter_recorder::init())
         .manage(HostState::default())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -272,15 +277,17 @@ fn register_folder<R: Runtime>(app: &AppHandle<R>, root: PathBuf) -> Result<(), 
 /// command at all without this. A page from any other origin or port, a local
 /// page such as the failure page, and any other window are not covered.
 ///
-/// The one permission is the folder plugin's commands: the page reads and
-/// changes its folder and runs its Git through them, and they reach only the
-/// directory `grant_directory` names.
+/// The permissions are the folder plugin's commands, through which the page
+/// reads and changes its folder and runs its Git, and the recorder plugin's,
+/// through which it records into that folder. Both reach only the directory
+/// `grant_directory` names.
 fn folder_capability(port: u16) -> CapabilityBuilder {
     CapabilityBuilder::new(FOLDER_CAPABILITY)
         .local(false)
         .remote(format!("http://127.0.0.1:{port}/*"))
         .window(MAIN_WINDOW)
         .permission("epicenter-folder:default")
+        .permission("epicenter-recorder:default")
 }
 
 /// The default macOS menu's Quit item can end the process without asking. This
@@ -822,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn the_capability_names_one_window_one_origin_and_the_folder_commands() {
+    fn the_capability_names_one_window_one_origin_and_the_folder_and_recorder_commands() {
         let CapabilityFile::Capability(capability) = folder_capability(49321).build() else {
             panic!("the folder capability is a single capability");
         };
@@ -842,7 +849,10 @@ mod tests {
             .iter()
             .map(|permission| permission.identifier().get())
             .collect();
-        assert_eq!(permissions, vec!["epicenter-folder:default"]);
+        assert_eq!(
+            permissions,
+            vec!["epicenter-folder:default", "epicenter-recorder:default"]
+        );
         // No permission names a scope of its own.
         assert!(capability
             .permissions
@@ -936,6 +946,7 @@ mod tests {
         let root = resolve_root(&directory.0.join("data")).unwrap();
         let app = mock_builder()
             .plugin(tauri_plugin_epicenter_folder::init())
+            .plugin(tauri_plugin_epicenter_recorder::init())
             .build(context::<MockRuntime>())
             .expect("mock app");
         let host = "http://127.0.0.1:4000/";
@@ -1041,6 +1052,18 @@ mod tests {
         );
         assert!(write_file(&main, host, &directory.0.join("outside.md"), b"hi").is_err());
         assert!(!directory.0.join("outside.md").exists());
+
+        // The recorder reaches the granted folder too, and only for this window.
+        let recover = |window: &WebviewWindow<MockRuntime>| {
+            invoke(
+                window,
+                host,
+                "plugin:epicenter-recorder|recover",
+                json!({ "scope": FOLDER_SCOPE, "under": "recordings" }),
+            )
+        };
+        assert_eq!(recover(&main).expect("the main window recovers"), json!([]));
+        assert!(recover(&other).is_err());
 
         // The page names only what the shell registered.
         let unknown = grant(&main, host, "so.epicenter.todos").unwrap_err();
