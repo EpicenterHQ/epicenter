@@ -56,8 +56,8 @@ import { createHistory } from './git/history.js';
 import { writeCommitObject, writeFilesTree } from './git/objects.js';
 import {
 	createBareRemote,
-	git,
 	GIT_ENV,
+	git,
 	gitHttpFetch,
 	initWithOrigin,
 	scratch,

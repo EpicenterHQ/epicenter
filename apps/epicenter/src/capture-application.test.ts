@@ -10,10 +10,7 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
-import {
-	CAPTURE_APPLICATION,
-	COMPILED_APPLICATIONS,
-} from './applications.ts';
+import { CAPTURE_APPLICATION, COMPILED_APPLICATIONS } from './applications.ts';
 import { createHomeHost } from './host.ts';
 import {
 	APPLICATIONS_ROUTE,

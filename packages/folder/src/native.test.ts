@@ -23,6 +23,8 @@ import {
 	openFolder,
 } from './bun.js';
 import { hashBytes } from './capture.js';
+import { directoryHandle } from './directory-handle.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createHistory } from './git/history.js';
 import { createNativeGitBackend } from './git/native-backend.js';
 import { nodeGitHost } from './git/native-host.js';
@@ -33,8 +35,6 @@ import {
 	gitHttpFetch,
 	scratch,
 } from './git-http.test-support.js';
-import { directoryHandle } from './directory-handle.js';
-import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createOpfsFileBoundary } from './opfs-store.js';
 import { createProcessLocks } from './process-locks.js';
 import { parseRow } from './row-text.js';

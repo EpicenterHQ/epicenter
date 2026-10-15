@@ -25,8 +25,8 @@ import {
 	createTestStorage,
 	opfsOf,
 	rawBrowserFolder,
-	testBrowserStorage,
 	type TestStorage,
+	testBrowserStorage,
 } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
 import { createHistory } from './git/history.js';

@@ -36,10 +36,7 @@ import type {
 	StatusCode,
 } from './backend.js';
 import { capturedIndexMatchesHead } from './captured-index.js';
-import {
-	basicAuthorization,
-	type GitCredentials,
-} from './http.js';
+import { basicAuthorization, type GitCredentials } from './http.js';
 import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
 import {

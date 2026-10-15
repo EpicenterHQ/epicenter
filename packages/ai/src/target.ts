@@ -1,7 +1,4 @@
-import type {
-	openEpicenterInference,
-	openRuntimeTranscriber,
-} from './ai.js';
+import type { openEpicenterInference, openRuntimeTranscriber } from './ai.js';
 import type { ConnectionCatalog } from './ai-connections.js';
 
 export type InferenceSources = {

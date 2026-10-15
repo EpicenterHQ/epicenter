@@ -6,8 +6,8 @@
  * pins which saved word a chat's focus item may control.
  */
 import { expect, test } from 'bun:test';
-import { InstantString } from '@epicenter/definition/field';
 import { APPS } from '@epicenter/constants/apps';
+import { InstantString } from '@epicenter/definition/field';
 import { expectOk } from 'wellcrafted/testing';
 import { focusWord, readEntry, readRows, vocabFolder } from './data.js';
 import { VOCAB_FOLDER_ID } from './folder.js';

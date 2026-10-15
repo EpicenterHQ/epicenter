@@ -7,7 +7,5 @@
 	"remote": {
 		"urls": ["http://127.0.0.1:39130"]
 	},
-	"permissions": [
-		"allow-launch-application"
-	]
+	"permissions": ["allow-launch-application"]
 }

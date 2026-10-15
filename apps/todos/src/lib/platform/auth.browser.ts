@@ -1,8 +1,8 @@
 import {
+	type CallbackAuthClient,
 	createBrowserRedirectAuth,
 	epicenterCloud,
 	selfHostedServer,
-	type CallbackAuthClient,
 } from '@epicenter/auth';
 import { APPS } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';

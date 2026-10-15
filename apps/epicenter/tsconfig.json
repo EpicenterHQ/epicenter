@@ -5,6 +5,11 @@
 		"noUnusedLocals": true,
 		"noUnusedParameters": true
 	},
-	"include": ["scripts/**/*.ts", "src/**/*.ts", "vite.config.ts", "vite.folders.config.ts"],
+	"include": [
+		"scripts/**/*.ts",
+		"src/**/*.ts",
+		"vite.config.ts",
+		"vite.folders.config.ts"
+	],
 	"exclude": ["dist", "src-tauri"]
 }

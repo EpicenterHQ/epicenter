@@ -8,12 +8,7 @@ import { expect, test } from 'bun:test';
 import { type KvMergeInput, mergeKv, reconcileKv } from './kv-merge.js';
 
 const cases: (KvMergeInput & { name: string; expected: unknown })[] =
-	await Bun.file(
-		new URL(
-			'../fixtures/kv-merge.json',
-			import.meta.url,
-		),
-	).json();
+	await Bun.file(new URL('../fixtures/kv-merge.json', import.meta.url)).json();
 
 for (const fixture of cases) {
 	test(fixture.name, () => {

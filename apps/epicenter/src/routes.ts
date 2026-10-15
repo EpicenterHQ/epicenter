@@ -9,7 +9,6 @@
  * SPA reaches domain code.
  */
 
-
 const stripTrailing = (value: string) => value.replace(/\/+$/, '');
 
 function route(pattern: string) {

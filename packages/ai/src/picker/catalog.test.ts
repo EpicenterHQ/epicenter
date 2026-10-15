@@ -4,13 +4,10 @@
  * Discovery suggests models but cannot revoke a user's explicit selection.
  */
 import { expect, test } from 'bun:test';
-import { createAiConnections } from '../ai-connections.js';
 import { expectOk } from 'wellcrafted/testing';
+import { createAiConnections } from '../ai-connections.js';
 import { openConnectionCatalog } from '../connection-catalog.js';
-import {
-	type AiTransport,
-	createInference,
-} from '../inference.js';
+import { type AiTransport, createInference } from '../inference.js';
 import { createRuntimeTranscriber } from '../runtime-transcriber.js';
 import { createInferenceSelections } from '../selections.js';
 import type { InferenceSources } from '../target.js';

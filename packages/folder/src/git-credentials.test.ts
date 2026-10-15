@@ -34,7 +34,10 @@ const definition = defineFolder({
 	kv: { language: field.string() },
 	tables: {},
 });
-const AUTHORIZATION = basicAuthorization({ username: 'x-token', password: 's3cret' });
+const AUTHORIZATION = basicAuthorization({
+	username: 'x-token',
+	password: 's3cret',
+});
 
 const originalEnv = { ...process.env };
 beforeAll(() => {
@@ -53,7 +56,11 @@ afterAll(() => {
 /** Smart HTTP over `root` that answers 401 without the expected header. */
 async function guardedGit(root: string) {
 	const serveGit = await gitHttpFetch(root);
-	const seen: { url: string; authorization: string | null; init?: RequestInit }[] = [];
+	const seen: {
+		url: string;
+		authorization: string | null;
+		init?: RequestInit;
+	}[] = [];
 	const serve = (request: Request, init?: RequestInit) => {
 		const authorization = request.headers.get('authorization');
 		seen.push({ url: request.url, authorization, init });
@@ -129,10 +136,14 @@ test('a browser folder without a credential is refused by a server that needs on
 	);
 	try {
 		expectOk(await folder.kv.set('language', 'Chinese'));
-		const connected = await folder.sync.connect('https://git.example.test/remote.git');
+		const connected = await folder.sync.connect(
+			'https://git.example.test/remote.git',
+		);
 		expect(connected.error).not.toBeNull();
 		expect(seen.every((request) => request.authorization === null)).toBe(true);
-		expect(seen.every((request) => request.init?.redirect === 'follow')).toBe(true);
+		expect(seen.every((request) => request.init?.redirect === 'follow')).toBe(
+			true,
+		);
 	} finally {
 		await folder.close();
 		await rm(root, { recursive: true, force: true });
@@ -173,9 +184,9 @@ test('a Bun folder passes its credential to `git` through configuration, scoped 
 			await git(directory, 'rev-parse', 'main'),
 		);
 		expect(new Set(asked)).toEqual(new Set([remote]));
-		expect(seen.some((request) => request.url.endsWith('/git-receive-pack'))).toBe(
-			true,
-		);
+		expect(
+			seen.some((request) => request.url.endsWith('/git-receive-pack')),
+		).toBe(true);
 		// Nothing reached the repository's configuration.
 		expect(await git(directory, 'config', '--list', '--local')).not.toContain(
 			's3cret',
@@ -214,7 +225,9 @@ test('a Bun folder passes its credential to `git` through configuration, scoped 
 
 test('a credential becomes URL-scoped Git configuration and nothing else', () => {
 	const remote = 'https://api.example.test/git/todos.git';
-	expect(credentialEnvironment({ url: remote, authorization: AUTHORIZATION })).toEqual({
+	expect(
+		credentialEnvironment({ url: remote, authorization: AUTHORIZATION }),
+	).toEqual({
 		GIT_CONFIG_COUNT: '4',
 		GIT_CONFIG_KEY_0: `http.${remote}.extraHeader`,
 		GIT_CONFIG_VALUE_0: `Authorization: ${AUTHORIZATION}`,
@@ -232,7 +245,9 @@ test('a credential becomes URL-scoped Git configuration and nothing else', () =>
 		'Basic abc def',
 		'Basic abc\r\nX-Other: 1',
 	])
-		expect(() => credentialEnvironment({ url: remote, authorization })).toThrow();
+		expect(() =>
+			credentialEnvironment({ url: remote, authorization }),
+		).toThrow();
 });
 
 test('a credential refuses redirects even where the repository allows them for that remote', async () => {
@@ -243,7 +258,9 @@ test('a credential refuses redirects even where the repository allows them for t
 		await git(root, 'config', `http.${remote}.followRedirects`, 'true');
 		const run = createGitRunner(root);
 		const ask = ['config', '--get-urlmatch', 'http.followRedirects', remote];
-		expect(new TextDecoder().decode((await run(ask)).stdout).trim()).toBe('true');
+		expect(new TextDecoder().decode((await run(ask)).stdout).trim()).toBe(
+			'true',
+		);
 		const scoped = await run(ask, {
 			credential: { url: remote, authorization: AUTHORIZATION },
 		});

@@ -92,8 +92,12 @@ test('a missing repository is created on main, then minted its own token', async
 
 test('missing and existing repositories are recognized by message when the RPC drops the code', async () => {
 	// As the binding's error arrived in a deployed Worker on 2026-10-14.
-	const missing = new Error(`ArtifactsError: Repository not found: ${REPOSITORY}.`);
-	const exists = new Error(`ArtifactsError: repo already exists: ${REPOSITORY}`);
+	const missing = new Error(
+		`ArtifactsError: Repository not found: ${REPOSITORY}.`,
+	);
+	const exists = new Error(
+		`ArtifactsError: repo already exists: ${REPOSITORY}`,
+	);
 	const { store, calls } = scripted([missing, 'found'], [exists]);
 	expect((await store.connect(alice, 'so.epicenter.todos')).name).toBe(
 		REPOSITORY,

@@ -19,7 +19,6 @@ import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
 import { createFiles, type FolderFiles } from './files.js';
 import type { PathStatus } from './git/backend.js';
-import type { GitCredentials } from './git/http.js';
 import type { SyncError } from './git/errors.js';
 import type {
 	CommitAndPushResult,
@@ -37,6 +36,7 @@ import type {
 	RecoverOutcome,
 	StagedCommit,
 } from './git/history.js';
+import type { GitCredentials } from './git/http.js';
 import type { Author, CommitSummary } from './git/objects.js';
 import type {
 	SyncAttempt,

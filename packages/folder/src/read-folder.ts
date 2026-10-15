@@ -18,17 +18,17 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { readDeclaration } from './declaration.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
+import { directoryHandle } from './directory-handle.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
 import {
 	FileError,
 	type KvReadError,
 	type TableEnumerationError,
 } from './errors.js';
 import { createKv, type KvReading } from './kv.js';
-import { directoryHandle } from './directory-handle.js';
-import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createOpfsFileBoundary } from './opfs-store.js';
-import { createProcessLocks } from './process-locks.js';
 import { DECLARATION_PATH } from './paths.js';
+import { createProcessLocks } from './process-locks.js';
 import { createTable, type TableListing } from './table.js';
 
 export const ReadFolderError = defineErrors({

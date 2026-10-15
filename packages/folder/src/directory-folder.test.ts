@@ -603,7 +603,7 @@ describe('a folder over an ordinary directory', () => {
 		await reopened.close();
 	});
 
-	test("a save another window lands while Sync writes the same row survives, and the next Sync asks for a choice", async () => {
+	test('a save another window lands while Sync writes the same row survives, and the next Sync asks for a choice', async () => {
 		const project = await scratch('directory-folder-incoming-race-');
 		const bare = await createBareRemote(project);
 		const root = join(project, 'desktop');

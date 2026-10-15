@@ -121,8 +121,9 @@ export function createRows({
 	/** Whether a delete of `stem` runs or waits, which pauses its edits. */
 	function deleting(stem: string) {
 		return (
-			queryClient.isMutating({ mutationKey: todosKeys.remove(todoPath(stem)) }) >
-			0
+			queryClient.isMutating({
+				mutationKey: todosKeys.remove(todoPath(stem)),
+			}) > 0
 		);
 	}
 

@@ -41,20 +41,13 @@
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR",
-		"args": [
-			"-c",
-			"core.splitIndex=false",
-			"write-tree"
-		],
+		"args": ["-c", "core.splitIndex=false", "write-tree"],
 		"indexFile": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR/.git/index.tmp-f1289cf2-4918-48a4-b0c6-0fff6ce4bea1",
 		"origin": null
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR",
-		"args": [
-			"add",
-			"--all"
-		],
+		"args": ["add", "--all"],
 		"indexFile": null,
 		"origin": null
 	},
@@ -93,52 +86,31 @@
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"check-ignore",
-			"--no-index",
-			"--stdin",
-			"-z"
-		],
+		"args": ["check-ignore", "--no-index", "--stdin", "-z"],
 		"indexFile": null,
 		"origin": null
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"config",
-			"--get",
-			"core.autocrlf"
-		],
+		"args": ["config", "--get", "core.autocrlf"],
 		"indexFile": null,
 		"origin": null
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"config",
-			"--get",
-			"remote.origin.url"
-		],
+		"args": ["config", "--get", "remote.origin.url"],
 		"indexFile": null,
 		"origin": null
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"config",
-			"--get",
-			"user.email"
-		],
+		"args": ["config", "--get", "user.email"],
 		"indexFile": null,
 		"origin": null
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"config",
-			"--get",
-			"user.name"
-		],
+		"args": ["config", "--get", "user.name"],
 		"indexFile": null,
 		"origin": null
 	},
@@ -179,47 +151,25 @@
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"hash-object",
-			"-w",
-			"-t",
-			"blob",
-			"--stdin"
-		],
+		"args": ["hash-object", "-w", "-t", "blob", "--stdin"],
 		"indexFile": null,
 		"origin": null
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"hash-object",
-			"-w",
-			"-t",
-			"commit",
-			"--stdin"
-		],
+		"args": ["hash-object", "-w", "-t", "commit", "--stdin"],
 		"indexFile": null,
 		"origin": null
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"hash-object",
-			"-w",
-			"-t",
-			"tree",
-			"--stdin"
-		],
+		"args": ["hash-object", "-w", "-t", "tree", "--stdin"],
 		"indexFile": null,
 		"origin": null
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-race-A3495b",
-		"args": [
-			"init",
-			"--quiet",
-			"--initial-branch=main"
-		],
+		"args": ["init", "--quiet", "--initial-branch=main"],
 		"indexFile": null,
 		"origin": null
 	},
@@ -236,11 +186,7 @@
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"ls-files",
-			"--stage",
-			"-z"
-		],
+		"args": ["ls-files", "--stage", "-z"],
 		"indexFile": null,
 		"origin": null
 	},
@@ -269,12 +215,7 @@
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"rev-parse",
-			"--verify",
-			"--quiet",
-			"refs/heads/main^{commit}"
-		],
+		"args": ["rev-parse", "--verify", "--quiet", "refs/heads/main^{commit}"],
 		"indexFile": null,
 		"origin": null
 	},
@@ -291,22 +232,13 @@
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-staged-tN0xIR",
-		"args": [
-			"status",
-			"--porcelain=v1",
-			"-z",
-			"--untracked-files=all"
-		],
+		"args": ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
 		"indexFile": null,
 		"origin": null
 	},
 	{
 		"root": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/directory-folder-connect-tQp4za/desktop",
-		"args": [
-			"symbolic-ref",
-			"--quiet",
-			"HEAD"
-		],
+		"args": ["symbolic-ref", "--quiet", "HEAD"],
 		"indexFile": null,
 		"origin": null
 	},

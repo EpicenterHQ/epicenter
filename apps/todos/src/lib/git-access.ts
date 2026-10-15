@@ -34,15 +34,23 @@ export const GitAccessError = defineErrors({
 		message: `These todos sync with ${remote}, which the signed-in Epicenter account does not own. Sign in with the account that connected them, or connect again.`,
 		remote,
 	}),
-	Refused: ({ status, detail }: { status: number; detail: string | undefined }) => ({
+	Refused: ({
+		status,
+		detail,
+	}: {
+		status: number;
+		detail: string | undefined;
+	}) => ({
 		message:
 			status === 503
 				? 'This Epicenter server does not keep todos. Connect to another server.'
-				: (detail ?? `Epicenter refused to connect the todos (HTTP ${status}).`),
+				: (detail ??
+					`Epicenter refused to connect the todos (HTTP ${status}).`),
 		status,
 	}),
 	Unreachable: ({ cause }: { cause: unknown }) => ({
-		message: 'Todos could not reach Epicenter. Check your connection and try again.',
+		message:
+			'Todos could not reach Epicenter. Check your connection and try again.',
 		cause,
 	}),
 	Malformed: () => ({
@@ -108,14 +116,19 @@ export function createGitAccess({
 	};
 
 	/** Ask the server for `current`'s repository and a fresh token for it. */
-	async function connect(current: Account): Promise<Result<Hosted, GitAccessError>> {
+	async function connect(
+		current: Account,
+	): Promise<Result<Hosted, GitAccessError>> {
 		let response: Response;
 		try {
-			response = await current.fetch(new URL('/api/git/connect', current.baseURL), {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ folder: TODOS_FOLDER_ID }),
-			});
+			response = await current.fetch(
+				new URL('/api/git/connect', current.baseURL),
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ folder: TODOS_FOLDER_ID }),
+				},
+			);
 		} catch (cause) {
 			return GitAccessError.Unreachable({ cause });
 		}
@@ -123,7 +136,10 @@ export function createGitAccess({
 		if (!response.ok)
 			return GitAccessError.Refused({
 				status: response.status,
-				detail: isObject(body) && typeof body.message === 'string' ? body.message : undefined,
+				detail:
+					isObject(body) && typeof body.message === 'string'
+						? body.message
+						: undefined,
 			});
 		if (
 			!isObject(body) ||
@@ -157,7 +173,8 @@ export function createGitAccess({
 			throw new Error(error.message);
 		};
 		const current = account();
-		if (current === undefined) return refuse(GitAccessError.SignInRequired().error);
+		if (current === undefined)
+			return refuse(GitAccessError.SignInRequired().error);
 		const known = hosted?.account === current ? hosted : undefined;
 		// This account's own repository is another: ask the server for nothing.
 		if (known !== undefined && known.remote !== url)
@@ -166,8 +183,10 @@ export function createGitAccess({
 		const { data: fresh, error } = await connect(current);
 		if (error !== null) return refuse(error);
 		// A transfer to Epicenter always carries this account's token, or none goes.
-		if (account() !== current) return refuse(GitAccessError.SignInRequired().error);
-		if (fresh.remote !== url) return refuse(GitAccessError.OtherAccount({ remote: url }).error);
+		if (account() !== current)
+			return refuse(GitAccessError.SignInRequired().error);
+		if (fresh.remote !== url)
+			return refuse(GitAccessError.OtherAccount({ remote: url }).error);
 		return fresh.credential;
 	};
 

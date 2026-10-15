@@ -110,7 +110,12 @@ test('a refresh between edit start and save still merges against the edit-start 
 
 test('both changed one field during the edit: this edit wins and their value is named', async () => {
 	const { folder, edits, refresh, otherWindow, save } = await setup();
-	edits.begin('notes', 'one', { kind: 'field', field: 'title' }, await refresh());
+	edits.begin(
+		'notes',
+		'one',
+		{ kind: 'field', field: 'title' },
+		await refresh(),
+	);
 	await otherWindow((row) => {
 		row.fields.title = 'Theirs';
 		row.fields.done = true;

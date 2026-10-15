@@ -44,7 +44,12 @@ function fakeAuth(answer: (call: number) => Response | Promise<Response>) {
 }
 
 const connected = (token: string, expiresIn = 3600, remote = REMOTE) =>
-	Response.json({ remote, token, expiresAt: '2099-01-01T00:00:00Z', expiresIn });
+	Response.json({
+		remote,
+		token,
+		expiresAt: '2099-01-01T00:00:00Z',
+		expiresIn,
+	});
 
 function memoryStorage() {
 	const items = new Map<string, string>();
@@ -80,7 +85,11 @@ describe('Epicenter remotes', () => {
 		let time = Date.parse('2026-10-14T12:00:00Z');
 		// The device clock is far off; renewal follows the server's expiresIn.
 		const server = fakeAuth((call) => connected(`t${call}`, 3600));
-		const access = createGitAccess({ auth: server.auth, storage: memoryStorage(), now: () => time });
+		const access = createGitAccess({
+			auth: server.auth,
+			storage: memoryStorage(),
+			now: () => time,
+		});
 		expect((await access.credentials(REMOTE, signal))?.password).toBe('t1');
 		time += 56 * 60_000;
 		expect((await access.credentials(REMOTE, signal))?.password).toBe('t2');
@@ -89,11 +98,18 @@ describe('Epicenter remotes', () => {
 
 	test('signing out drops the token and refuses the transfer instead of sending none', async () => {
 		const server = fakeAuth(() => connected('t1'));
-		const access = createGitAccess({ auth: server.auth, storage: memoryStorage() });
+		const access = createGitAccess({
+			auth: server.auth,
+			storage: memoryStorage(),
+		});
 		await access.connectEpicenter();
 		server.set({ status: 'signed-out' });
-		await expect(access.credentials(REMOTE, signal)).rejects.toThrow('Sign in to Epicenter');
-		expect((await access.connectEpicenter()).error?.name).toBe('SignInRequired');
+		await expect(access.credentials(REMOTE, signal)).rejects.toThrow(
+			'Sign in to Epicenter',
+		);
+		expect((await access.connectEpicenter()).error?.name).toBe(
+			'SignInRequired',
+		);
 	});
 
 	test('a sign-out while a token is renewed refuses the transfer instead of sending none', async () => {
@@ -105,7 +121,10 @@ describe('Epicenter remotes', () => {
 			await held;
 			return connected('t1');
 		});
-		const access = createGitAccess({ auth: server.auth, storage: memoryStorage() });
+		const access = createGitAccess({
+			auth: server.auth,
+			storage: memoryStorage(),
+		});
 		const asked = access.credentials(REMOTE, signal);
 		server.set({ status: 'signed-out' });
 		release();
@@ -114,10 +133,15 @@ describe('Epicenter remotes', () => {
 
 	test('once this account knows its repository, another one is refused without asking the server', async () => {
 		const server = fakeAuth(() => connected('t1'));
-		const access = createGitAccess({ auth: server.auth, storage: memoryStorage() });
+		const access = createGitAccess({
+			auth: server.auth,
+			storage: memoryStorage(),
+		});
 		await access.connectEpicenter();
 		const other = `${SERVER}/git/so.epicenter.todos.ffffffffffffffff.git`;
-		await expect(access.credentials(other, signal)).rejects.toThrow('does not own');
+		await expect(access.credentials(other, signal)).rejects.toThrow(
+			'does not own',
+		);
 		expect(server.calls()).toBe(1);
 		expect(access.isEpicenter(other)).toBe(true);
 		expect(access.isEpicenter('https://elsewhere.test/git/x.git')).toBe(false);
@@ -126,7 +150,10 @@ describe('Epicenter remotes', () => {
 	test("another account's repository gets no token", async () => {
 		const mine = `${SERVER}/git/so.epicenter.todos.ffffffffffffffff.git`;
 		const server = fakeAuth(() => connected('t1', 3600, mine));
-		const access = createGitAccess({ auth: server.auth, storage: memoryStorage() });
+		const access = createGitAccess({
+			auth: server.auth,
+			storage: memoryStorage(),
+		});
 		await expect(access.credentials(REMOTE, signal)).rejects.toThrow(
 			'does not own',
 		);
@@ -134,18 +161,29 @@ describe('Epicenter remotes', () => {
 
 	test('a refusal and an answer Todos cannot read are named', async () => {
 		const unavailable = fakeAuth(() =>
-			Response.json({ name: 'GitUnavailable', message: 'no store' }, { status: 503 }),
+			Response.json(
+				{ name: 'GitUnavailable', message: 'no store' },
+				{ status: 503 },
+			),
 		);
 		expect(
-			(await createGitAccess({ auth: unavailable.auth, storage: memoryStorage() }).connectEpicenter())
-				.error?.message,
+			(
+				await createGitAccess({
+					auth: unavailable.auth,
+					storage: memoryStorage(),
+				}).connectEpicenter()
+			).error?.message,
 		).toContain('does not keep todos');
 		const elsewhere = fakeAuth(() =>
 			connected('t1', 3600, 'https://evil.test/git/x.git'),
 		);
 		expect(
-			(await createGitAccess({ auth: elsewhere.auth, storage: memoryStorage() }).connectEpicenter())
-				.error?.name,
+			(
+				await createGitAccess({
+					auth: elsewhere.auth,
+					storage: memoryStorage(),
+				}).connectEpicenter()
+			).error?.name,
 		).toBe('Malformed');
 	});
 });
@@ -159,13 +197,27 @@ describe('other remotes', () => {
 		const access = createGitAccess({ auth: server.auth, storage });
 		const forgejo = 'https://git.example.com/me/todos.git';
 		access.remember(forgejo, { username: 'me', password: 'pat' });
-		expect(await access.credentials(forgejo, signal)).toEqual({ username: 'me', password: 'pat' });
-		expect(await access.credentials('https://git.example.com/me/other.git', signal)).toBeUndefined();
-		expect(await access.credentials('https://github.com/me/todos.git', signal)).toBeUndefined();
+		expect(await access.credentials(forgejo, signal)).toEqual({
+			username: 'me',
+			password: 'pat',
+		});
+		expect(
+			await access.credentials('https://git.example.com/me/other.git', signal),
+		).toBeUndefined();
+		expect(
+			await access.credentials('https://github.com/me/todos.git', signal),
+		).toBeUndefined();
 		// A path outside `/git/` on Epicenter's server is not Epicenter's remote.
-		expect(await access.credentials(`${SERVER}/elsewhere.git`, signal)).toBeUndefined();
+		expect(
+			await access.credentials(`${SERVER}/elsewhere.git`, signal),
+		).toBeUndefined();
 		// Kept on this device, and forgotten on request.
-		await expect(createGitAccess({ auth: server.auth, storage }).credentials(forgejo, signal)).resolves.toEqual({
+		await expect(
+			createGitAccess({ auth: server.auth, storage }).credentials(
+				forgejo,
+				signal,
+			),
+		).resolves.toEqual({
 			username: 'me',
 			password: 'pat',
 		});

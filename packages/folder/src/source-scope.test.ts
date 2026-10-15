@@ -24,8 +24,8 @@ import { defineFolder, defineTable, field } from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { gitignoreMatcher } from './git/scope.js';
 import {
-	git,
 	GIT_ENV,
+	git,
 	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';

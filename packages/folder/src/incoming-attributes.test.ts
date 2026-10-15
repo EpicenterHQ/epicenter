@@ -46,8 +46,8 @@ import { formatDeclaration } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import {
 	createBareRemote,
-	git,
 	GIT_ENV,
+	git,
 	gitHttpFetch,
 	initWithOrigin,
 	scratch,
