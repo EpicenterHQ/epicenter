@@ -15,6 +15,14 @@
  * the conflicts are merged again from the recorded commits, never read back
  * from the caller.
  */
+
+import {
+	directory,
+	directoryRoot,
+	enclosingRepository,
+	holdingHistoryLock,
+	systemHistory,
+} from './bun.js';
 import { readDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
 import type { History } from './git/history.js';
@@ -35,13 +43,6 @@ import {
 	type UrlCredential,
 } from './history-wire.js';
 import { createOpfsFileBoundary } from './opfs-store.js';
-import {
-	directory,
-	directoryRoot,
-	enclosingRepository,
-	holdingHistoryLock,
-	systemHistory,
-} from './bun.js';
 
 export type HistoryOptions = {
 	/** Who commits where the folder's Git configuration names nobody. */

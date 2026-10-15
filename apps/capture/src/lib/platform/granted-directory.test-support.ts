@@ -14,14 +14,15 @@
  * tests and the shell's cover that. Git reads no global or system
  * configuration here, so the grant's author is the one Git records.
  */
-import {
-	answerShellHistory,
-	type ShellHistoryCommand,
-} from '@epicenter/folder/bun';
+
 import { createHash } from 'node:crypto';
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import {
+	answerShellHistory,
+	type ShellHistoryCommand,
+} from '@epicenter/folder/bun';
 
 /** A fresh directory under the system temp directory, by its real path. */
 export async function scratch(prefix: string): Promise<string> {
