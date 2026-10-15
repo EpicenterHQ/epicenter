@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-15
 - **Amended by:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md): every write to a file, and Sync's settling, goes through one merge by the file's kind; taking a side of a text unit keeps the other side's lines that did not compete.
-- **Built:** the desktop file watcher: one per granted root in `tauri-plugin-epicenter-folder` (`src/watcher.rs`), from the first grant until shutdown, debounced 50 ms, emitting the Tauri event `epicenter-folder://changed` with `{ scope, paths }` to the scope's permitted windows; `paths` is folder-relative, `.git` for history moving, or `null` for everything (see the plugin's README); `table.save` with the merge in the engine, its result naming each replaced value and where it stands; the line merge that keeps neighboring edits, for save and Sync alike; `folder.onFilesChanged` with the browser's relay and resume detector and the desktop page's listener for the shell's event; repository creation by the first commit, staging, or remote on every host; `folderOptions` and `createDraft` in `@epicenter/folder/query`, and `createDraftState` in `@epicenter/folder/svelte`; Todos, Capture, Honeycrisp, Whispering, and Vocab on `folderOptions` and drafts, and the Git lab on `folder.onFilesChanged`, with their own focus rereads gone; the Folders window's notice naming each value a save replaced, with "Restore theirs".
+- **Built:** the desktop file watcher: one per granted root in `tauri-plugin-epicenter-folder` (`src/watcher.rs`), from the first grant until shutdown, debounced 50 ms, emitting the Tauri event `epicenter-folder://changed` with `{ scope, paths }` to the scope's permitted windows; `paths` is folder-relative, `.git` for history moving, or `null` for everything (see the plugin's README); `table.save` with the merge in the engine, its result naming each replaced value and where it stands; the line merge that keeps neighboring edits, for save and Sync alike; `folder.onFilesChanged` with the browser's relay and resume detector and the desktop page's listener for the shell's event; repository creation by the first commit, staging, or remote on every host; `folderOptions` and `createDraft` in `@epicenter/folder/query`, with writes that keep the cache in step themselves, `files.text`, `folder$.query` for a page's own query over named paths, `runMutation`, and `whenIdle`, and `createDraftState` in `@epicenter/folder/svelte`, whose `onSaved` is handed the save that restores theirs; Todos, Capture, Honeycrisp, Whispering, and Vocab on `folderOptions` and drafts, and the Git lab on `folder.onFilesChanged`, with their own focus rereads gone; the Folders window's notice naming each value a save replaced, with "Restore theirs".
 
 ## Context
 
@@ -85,7 +85,7 @@ createMutation(() => folder$.todos.save.mutationOptions());
 | --- | --- |
 | each table | `list`, `get`, `create`, `save`, `rename`, `delete` |
 | `kv` | `get`, `set` |
-| `files` | `list`, `read`, `write`, `move`, `delete` |
+| `files` | `list`, `read`, `text`, `write`, `move`, `delete` |
 | `history` | `status`, `log`, `saveVersion`, `sync` |
 
 The factory never holds the query client. The app's root wires the channel to
@@ -95,7 +95,11 @@ the cache in one line, so invalidation stays visible:
 folder.onFilesChanged((paths) => queryClient.invalidateQueries(folder$.pathFilter(paths)));
 ```
 
-No page has its own refresh logic, and TanStack's own focus refetch is off.
+No page has its own refresh logic, and TanStack's own focus refetch is off:
+the options set it, so no app does. A write keeps the cache in step itself:
+it sets what its result says, and marks stale the rest of what a change to
+its paths would, such as the history's status, since the folder does not
+report a page's own writes to it.
 
 **An edit holds its own starting version.** An editor captures the row and its
 version at the first change, not on focus, and keeps its draft outside the

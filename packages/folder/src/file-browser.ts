@@ -105,7 +105,7 @@ export type OpenedFile =
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /** How large a file opens as text by default: 1 MiB. */
-export const EDITABLE_TEXT_BYTES = 1024 * 1024;
+const EDITABLE_TEXT_BYTES = 1024 * 1024;
 
 /**
  * A captured file as an editor opens it. Only valid UTF-8 without NUL
