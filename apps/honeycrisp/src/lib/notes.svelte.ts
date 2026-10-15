@@ -59,27 +59,25 @@ import {
 	dirname,
 	joinPath,
 	type OpenedFile,
+	readTextFile,
 } from '@epicenter/folder/file-browser';
-import { folderOptions, type TableOptions } from '@epicenter/folder/query';
+import {
+	folderOptions,
+	runMutation,
+	type TableOptions,
+	whenIdle,
+} from '@epicenter/folder/query';
 import {
 	createDraftState,
 	createTextDraftState,
 	type DraftState,
 	type TextDraftState,
 } from '@epicenter/folder/svelte';
-import type {
-	MutationFilters,
-	MutationOptions,
-	QueryClient,
-} from '@tanstack/svelte-query';
+import type { MutationFilters, QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber, SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import {
-	createQueryFactories,
-	defineKeys,
-	resultQueryOptions,
-} from 'wellcrafted/query';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { createQueryFactories, defineKeys } from 'wellcrafted/query';
+import { Err, Ok, type Result, unwrap } from 'wellcrafted/result';
 import {
 	type FolderEntry,
 	type FolderFields,
@@ -91,7 +89,7 @@ import {
 	instantNow as now,
 } from './data.js';
 import type { NoteBody } from './editor/rich-text.js';
-import { nameProblem, readTextFile } from './files.js';
+import { nameProblem } from './files.js';
 import { displayTitle } from './note-source.js';
 import type { NotesHost, NotesTerminal } from './platform/types.js';
 import { createTerminalSession } from './terminal.svelte.js';
@@ -274,22 +272,6 @@ export function unreadableOf(
 	return unreadable;
 }
 
-/**
- * Resolves once nothing is mutating. It watches the mutation cache, so a
- * mutation that starts meanwhile is waited for too.
- */
-function whenIdle(queryClient: QueryClient): Promise<void> {
-	return new Promise((resolve) => {
-		const unsubscribe = queryClient.getMutationCache().subscribe(check);
-		function check() {
-			if (queryClient.isMutating() > 0) return;
-			unsubscribe();
-			resolve();
-		}
-		check();
-	});
-}
-
 export function createNotes(
 	host: NotesHost,
 	queryClient: QueryClient,
@@ -337,19 +319,12 @@ export function createNotes(
 	/** Why no edit or action starts now, if one does not. */
 	const refused = () => (fenced ? CLOSING : undefined);
 
-	// Every read and write is local: nothing waits for a network, and nothing
-	// retries. A query goes stale only when the folder reports a change or the
-	// app's own action makes it stale, so a view that mounts shows the cache.
-	queryClient.setQueryDefaults(folder$.key, {
+	// The app's own actions are local like the folder's writes: nothing
+	// waits for a network or retries.
+	queryClient.setMutationDefaults(notesKeys.all, {
 		networkMode: 'always',
 		retry: false,
-		staleTime: Number.POSITIVE_INFINITY,
 	});
-	for (const key of [folder$.key, notesKeys.all])
-		queryClient.setMutationDefaults(key, {
-			networkMode: 'always',
-			retry: false,
-		});
 
 	// Changes the page did not make arrive here, and make exactly the queries
 	// they name stale. Stopped when the notes close.
@@ -366,17 +341,6 @@ export function createNotes(
 		released
 			? Promise.resolve()
 			: queryClient.invalidateQueries(folder$.pathFilter(paths));
-
-	/** Run one write from `options`; it rejects when the write fails. */
-	function execute<TData, TError, TVariables>(
-		options: MutationOptions<TData, TError, TVariables, unknown>,
-		variables: TVariables,
-	): Promise<TData> {
-		return queryClient
-			.getMutationCache()
-			.build(queryClient, options)
-			.execute(variables);
-	}
 
 	/** Whether a rename or delete of `path` is running or waiting, which pauses its edits. */
 	const moving = (path: string) =>
@@ -417,12 +381,12 @@ export function createNotes(
 			onError: (error, { base, row }) => {
 				const stem = rowStemOf(name, base.path);
 				// A row deleted elsewhere is not written back: its edit leaves the
-				// screen, the lists let it go, and the person is offered its text.
+				// screen, the lists, read again, let it go, and the person is
+				// offered its text.
 				const gone = error.name === 'NotFound';
 				if (gone && stem !== undefined) {
 					drafts.get(stem)?.discard();
 					drafts.delete(stem);
-					void changed(base.path);
 				}
 				onWriteFailed({
 					path: base.path,
@@ -444,7 +408,7 @@ export function createNotes(
 				path: saved.stored.path,
 				replaced: told,
 				restore: () =>
-					void execute(save, restoreTheirs(saved))
+					void runMutation(queryClient, save, restoreTheirs(saved))
 						.then(report)
 						.catch(() => {}),
 			});
@@ -454,7 +418,7 @@ export function createNotes(
 			const existing = drafts.get(stem);
 			if (existing !== undefined) return existing;
 			const draft = createDraftState<TFields>({
-				save: (sent) => execute(save, sent),
+				save: (sent) => runMutation(queryClient, save, sent),
 				onSaved: report,
 			});
 			drafts.set(stem, draft);
@@ -462,21 +426,14 @@ export function createNotes(
 		}
 
 		/**
-		 * Save the draft of `stem` until no change is left. Once its loop
-		 * ends, the file's Git status and its text, if a view read it, are
-		 * read again, and a draft with nothing left is let go.
+		 * Save the draft of `stem` until no change is left; then a draft with
+		 * nothing left is let go.
 		 */
 		function saveDraft(stem: string): Promise<void> {
 			const draft = drafts.get(stem);
 			if (draft === undefined) return Promise.resolve();
 			if (draft.saving) return draft.save();
 			return draft.save().then(() => {
-				if (released) return;
-				const path = rowPath(name, stem);
-				void queryClient.invalidateQueries({
-					queryKey: folder$.history.status.queryKey(),
-				});
-				void queryClient.invalidateQueries({ queryKey: textKey(path) });
 				if (
 					draft.row === undefined &&
 					!draft.saving &&
@@ -582,12 +539,7 @@ export function createNotes(
 		return undefined;
 	}
 
-	/**
-	 * Where a file's text, as opened for editing, is cached: under the
-	 * folder's read of that file, so a change reported there makes it stale.
-	 */
-	const textKey = (path: string) =>
-		[...folder$.files.read.queryKey(path), 'text'] as const;
+	const textKey = (path: string) => folder$.files.text.queryKey(path);
 	const textData = (path: string) =>
 		queryClient.getQueryData<OpenedFile>(textKey(path));
 
@@ -597,12 +549,11 @@ export function createNotes(
 	const writeText = {
 		...folder$.files.write.mutationOptions(),
 		// The save merges with a change made elsewhere, so this is a failure
-		// that saved nothing: the view takes the file as it is now, and the
-		// person is offered what they typed.
+		// that saved nothing: the view takes the file as it is now, read
+		// again, and the person is offered what they typed.
 		onError: (error, { path, content }) => {
 			textDrafts.get(path)?.discard();
 			textDrafts.delete(path);
-			void queryClient.invalidateQueries({ queryKey: textKey(path) });
 			onWriteFailed({
 				path,
 				error,
@@ -612,23 +563,15 @@ export function createNotes(
 		},
 	} satisfies ReturnType<typeof folder$.files.write.mutationOptions>;
 
-	/** A text save landed: the view shows what it wrote, and what it replaced is named. */
+	/** A text save landed: what it replaced is named. */
 	function savedText(path: string, saved: SavedFile) {
-		queryClient.setQueryData<OpenedFile>(textKey(path), {
-			kind: 'text',
-			file: {
-				path,
-				sha256: saved.stored.sha256,
-				text: new TextDecoder().decode(saved.stored.bytes),
-			},
-		});
 		if (saved.replaced.length === 0) return;
 		onReplaced({
 			path,
 			replaced: saved.replaced,
 			restore: () => {
 				const { base, content } = restoreTheirs(saved, folder.definition);
-				void execute(writeText, { path, content, base })
+				void runMutation(queryClient, writeText, { path, content, base })
 					.then((restored) => savedText(path, restored))
 					.catch(() => {});
 			},
@@ -639,21 +582,19 @@ export function createNotes(
 	function createTextDraft(path: string) {
 		return createTextDraftState({
 			save: ({ base, text }) =>
-				execute(writeText, { path, content: text, base }),
+				runMutation(queryClient, writeText, { path, content: text, base }),
 			onSaved: (saved) => savedText(path, saved),
 		});
 	}
 
-	/** Write the text draft of `path`; once it is written, what the text changed is read again. */
+	/** Write the text draft of `path`; once it is written, it is let go. */
 	function saveText(path: string): Promise<void> {
 		const draft = textDrafts.get(path);
 		if (draft === undefined) return Promise.resolve();
 		if (draft.saving) return draft.save();
-		return draft.save().then(async () => {
+		return draft.save().then(() => {
 			if (draft.text === undefined && textDrafts.get(path) === draft)
 				textDrafts.delete(path);
-			// A row file's text decides whether it reads as a row.
-			await changed(path);
 		});
 	}
 
@@ -1066,17 +1007,16 @@ export function createNotes(
 
 		/** One file's complete text, or its type and size when it is not editable text. */
 		textQuery(path: string) {
-			return resultQueryOptions({
-				queryKey: textKey(path),
+			return {
+				...folder$.files.text.queryOptions(path),
+				// A note opened as its file while its row is being saved is read
+				// once that save lands, never under it.
 				queryFn: async () => {
-					// A note opened as its file while its row is being saved is
-					// read once that save lands, never under it. A text write is
-					// not waited for: it reads this query again itself.
 					const at = rowAt(path);
 					if (at !== undefined) await at.rows.settled(at.stem);
-					return readTextFile(folder.files, path);
+					return unwrap(await readTextFile(folder.files, path));
 				},
-			});
+			};
 		},
 		/**
 		 * Read the listings and Git status when the page opens. A listing that
