@@ -1,4 +1,4 @@
-# 0533. A folder table may close with additionalProperties false
+# 0536. A folder table may close with additionalProperties false
 
 - **Status:** Accepted
 - **Date:** 2026-10-14

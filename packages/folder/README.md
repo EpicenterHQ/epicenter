@@ -1244,7 +1244,7 @@ such a definition returns `InvalidDefinition` before it acquires anything.
 `epicenter.json` holds each table, and `kv`, as one JSON Schema object whose
 properties are the fields. A table declared with `additionalProperties: false`
 beside `fields` is closed: the file holds the same keyword beside `properties`,
-and a row with a key the table does not declare does not conform (ADR-0533).
+and a row with a key the table does not declare does not conform (ADR-0536).
 Open is the default, and a closed table is for folders people write by hand;
 a dataset refuses one. A field's references must mean the same there as
 in the field alone, so a folder also refuses two fields of one table that
