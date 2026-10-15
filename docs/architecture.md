@@ -79,9 +79,12 @@ then makes every read and every change itself:
   publish carries what the page expects at the path (nothing, a file, or a
   SHA-256), and Rust checks it under one lock per root, so a save another
   window overtook is a `Conflict` rather than a lost write.
-- `run_git` runs only the exact Git operations the engine uses, in a granted
-  root whose `.git` is its own, with hooks disabled, pushing and fetching only
-  `origin`.
+- Rust runs no `git`. A page's history (status, the log, Save version, and
+  Sync) runs in the `epicenter` CLI, one child per operation over a root the
+  window was granted, with hooks and fsmonitor off and a remote that must be
+  a network URL
+  ([ADR-0559](adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
+  A reload or a closed window ends that window's children.
 - One file watcher per granted root emits `epicenter-folder://changed` to the
   windows that hold the folder, so an edit in one window reaches the others.
 

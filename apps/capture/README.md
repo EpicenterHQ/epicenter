@@ -10,7 +10,7 @@ There are two builds of the same UI, and the build decides where the folder is:
 
 | Build | Folder | History |
 | --- | --- | --- |
-| Desktop, inside Epicenter | An ordinary directory the Epicenter desktop shell grants to the Capture window. | Real Git in that directory's `.git`, through the system `git`, which the shell runs for the page. Nothing is fetched or pushed. |
+| Desktop, inside Epicenter | An ordinary directory the Epicenter desktop shell grants to the Capture window. | Real Git in that directory's `.git`, through the system `git`, which the `epicenter` CLI runs for the page, one child per operation. Nothing is fetched or pushed. |
 | Browser | One directory in this browser's origin private file system (OPFS), `Epicenter/local/so.epicenter.capture`. | Git in that directory's `.git`, in OPFS beside the files. No remote. |
 
 The browser opens the OPFS directory alone. It does not read, copy, or delete
@@ -193,7 +193,7 @@ Capture window (WebView)
         |    read_folder_file                        -> reads under <root>
         |  plugin:epicenter-folder|write_folder_file, rename_folder_path,
         |    remove_folder_path, make_folder_directory -> changes, path-checked
-        |  plugin:epicenter-folder|run_git           -> the system `git` in <root>
+        |  status, history, save_version             -> one `epicenter` child over <root>
         v
 Epicenter shell (Rust)  ->  tauri-plugin-epicenter-folder  ->  <directory>
 ```

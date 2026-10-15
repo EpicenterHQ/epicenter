@@ -61,6 +61,10 @@ tracing = "0.1.41"
 transcribe-cpp = { version = "0.1.0", default-features = false }
 audiopus = "0.3.0-rc.0"
 
+[target.'cfg(unix)'.dependencies]
+# Ends a window's `epicenter` children with their process groups (`history.rs`).
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Media_Control", "Foundation", "Foundation_Collections", "Win32_System_Com"] }
 winreg = "0.55"

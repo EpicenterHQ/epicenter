@@ -12,23 +12,6 @@ export const commands = {
 	 *  is watched, and the scope's windows hear `epicenter-folder://changed`.
 	 */
 	grantDirectory: (scope: string) => typedError<Granted, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|grant_directory", { scope })),
-	/**
-	 *  Run one Git operation for a folder this window was granted.
-	 *  `page_git` decides which operations and options are allowed, and fixes
-	 *  the environment. `git init` is refused in a data folder inside another
-	 *  repository's working tree (`PageWork::init_problem`), for the reason the
-	 *  grant gave as `initProblem`. `authorization`, for a push or fetch to an
-	 *  `https` origin, is sent to that origin alone. `request` is an ID the
-	 *  page makes up for the run, a random UUID, so `cancel_git` can stop it
-	 *  (`git_runs`).
-	 */
-	runGit: (scope: string, args: string[], input: number[] | null, indexFile: string | null, authorization: string | null, request: string) => typedError<GitOutput, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|run_git", { scope, args, input, indexFile, authorization, request })),
-	/**
-	 *  Stop a `run_git` this window's page started, named by its ID. A run that
-	 *  has not started yet is stopped as it starts. Stopping one that has
-	 *  finished, or another window's, does nothing.
-	 */
-	cancelGit: (request: string) => typedError<null, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|cancel_git", { request })),
 	/**  List a directory in a granted folder (`page_reads::read_dir`). */
 	readFolderDirectory: (scope: string, path: string) => typedError<DirectoryEntry[], string>(__TAURI_INVOKE("plugin:epicenter-folder|read_folder_directory", { scope, path })),
 	/**
@@ -125,17 +108,9 @@ export type FolderChanged = {
 	paths: string[] | null,
 };
 
-/**  What one `git` process ended with. */
-export type GitOutput = {
-	/**  The exit code, or `None` when it was killed. */
-	code: number | null,
-	stdout: number[],
-	stderr: string,
-};
-
 /**
- *  Why a window was not given a folder, or a change or `git` run for it was
- *  not admitted.
+ *  Why a window was not given a folder, or a change for it was not
+ *  admitted.
  */
 export type GrantError =
 /**  The shell registered no folder under this scope. */
@@ -166,8 +141,8 @@ export type Granted = {
 	authorEmail: string,
 	/**
 	 *  Why the page's first `git init` may not run here: a data folder
-	 *  inside another repository's working tree, as the grant found it.
-	 *  `run_git` refuses that `init` too, whenever it is asked.
+	 *  inside another repository's working tree, as the grant found it. The
+	 *  `epicenter` CLI refuses that `init` too, whenever it is asked.
 	 */
 	initProblem: string | null,
 };

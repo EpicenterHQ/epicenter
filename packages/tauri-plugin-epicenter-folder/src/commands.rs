@@ -1,17 +1,14 @@
-//! The IPC surface: the grant, the checked reads and file changes, and
-//! `git`.
+//! The IPC surface: the grant, and the checked reads and file changes.
 //!
 //! A page names a scope and nothing else; the registry decides whether the
-//! invoking window may use it, and every read, change, and `git` run happens
-//! in the root the scope was granted, which the page never supplies. Each
-//! change and `git` run holds a `PageWork` admission while it runs, which
-//! shares its root's publishing mutex. Every command that touches the disk or runs `git` runs on
-//! the blocking pool, never on the thread that drives the windows.
-
-use std::sync::Arc;
+//! invoking window may use it, and every read and change happens in the root
+//! the scope was granted, which the page never supplies. Each change holds a
+//! `PageWork` admission while it runs, which shares its root's publishing
+//! mutex. Every command that touches the disk runs on the blocking pool,
+//! never on the thread that drives the windows. The folder's Git is not here:
+//! the `epicenter` CLI runs it (ADR-0559).
 
 use epicenter_folder_core::page_files::{self, ChangeError, Expectation};
-use epicenter_folder_core::page_git::{self, GitOutput};
 use epicenter_folder_core::page_reads::{self, DirectoryEntry, PathInfo};
 use epicenter_folder_core::registry::{Granted, GrantError, PageWork};
 use tauri::{Manager, Runtime, Webview};
@@ -258,76 +255,4 @@ pub async fn make_folder_directory<R: Runtime>(
         Err,
     )
     .await
-}
-
-/// Run one Git operation for a folder this window was granted.
-/// `page_git` decides which operations and options are allowed, and fixes
-/// the environment. `git init` is refused in a data folder inside another
-/// repository's working tree (`PageWork::init_problem`), for the reason the
-/// grant gave as `initProblem`. `authorization`, for a push or fetch to an
-/// `https` origin, is sent to that origin alone. `request` is an ID the
-/// page makes up for the run, a random UUID, so `cancel_git` can stop it
-/// (`git_runs`).
-#[tauri::command]
-#[specta::specta]
-pub async fn run_git<R: Runtime>(
-    webview: Webview<R>,
-    scope: String,
-    args: Vec<String>,
-    input: Option<Vec<u8>>,
-    index_file: Option<String>,
-    authorization: Option<String>,
-    request: String,
-) -> Result<GitOutput, GrantError> {
-    let app = webview.app_handle().clone();
-    let window = webview.window().label().to_string();
-    let (root, work) = app
-        .state::<Folders>()
-        .registry
-        .admit_page_work(&scope, webview.label())?;
-    let cancel = app
-        .state::<Folders>()
-        .git_runs
-        .start(&window, &request)
-        .map_err(|message| GrantError::Unavailable { message })?;
-    let running = Arc::clone(&cancel);
-    let result = blocking(
-        move || {
-            let initializing = args.first().map(String::as_str) == Some("init");
-            if let Some(problem) = initializing.then(|| work.init_problem(&root)).flatten() {
-                return Err(problem);
-            }
-            let _work = work;
-            page_git::run(
-                &root,
-                &args,
-                input.as_deref(),
-                index_file.as_deref(),
-                authorization.as_deref(),
-                &running,
-            )
-        },
-        Err,
-    )
-    .await;
-    app.state::<Folders>()
-        .git_runs
-        .finish(&window, &request, &cancel);
-    result.map_err(|message| GrantError::Unavailable { message })
-}
-
-/// Stop a `run_git` this window's page started, named by its ID. A run that
-/// has not started yet is stopped as it starts. Stopping one that has
-/// finished, or another window's, does nothing.
-#[tauri::command]
-#[specta::specta]
-pub async fn cancel_git<R: Runtime>(
-    webview: Webview<R>,
-    request: String,
-) -> Result<(), GrantError> {
-    webview
-        .state::<Folders>()
-        .git_runs
-        .cancel(webview.window().label(), &request);
-    Ok(())
 }

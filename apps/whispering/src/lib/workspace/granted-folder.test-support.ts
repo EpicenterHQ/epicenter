@@ -4,9 +4,10 @@
  * (`@epicenter/folder/tauri`) and everything above it.
  *
  * The shell grants the window one directory (`grant_directory`). The page
- * reads and changes it through the folder plugin's commands and runs `git`
- * through `run_git`. Here `node:fs` and the system `git` stand in for the
- * plugin, failing as it fails: a refused read or staged write is text
+ * reads and changes it through the folder plugin's commands, and its history
+ * runs in the `epicenter` CLI through the shell's history commands
+ * (ADR-0559). Here `node:fs` stands in for the plugin, and the CLI's engine
+ * runs in this process (`answerShellHistory`), failing as each fails: a refused read or staged write is text
  * carrying the reason, and a refused rename or removal is the plugin's
  * `ChangeError`. A rename or removal lands only if its path holds what the
  * page expected, checked when the change is made, as the plugin checks it. A test installs `invoke` with `mock.module`, then opens the folder
@@ -26,7 +27,10 @@ import * as nodeFs from 'node:fs/promises';
 import { mkdtemp, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createGitRunner } from '../../../../../packages/folder/src/git/native-host.js';
+import {
+	answerShellHistory,
+	type ShellHistoryCommand,
+} from '../../../../../packages/folder/src/history-command.js';
 
 export type ShellCall = { cmd: string; args: Record<string, unknown> };
 
@@ -150,7 +154,21 @@ export function createGrantedShell(root: string, scope: string) {
 	};
 	const relative = (path: string) =>
 		path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
-	const run = createGitRunner(root);
+	/** One history command, as the shell runs the CLI for it. */
+	const history = (cmd: string) => async (args: Record<string, unknown>) => {
+		// The CLI's `git` reads no global or system configuration here.
+		process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+		process.env.GIT_CONFIG_NOSYSTEM = '1';
+		const granted = control.grant() as {
+			authorName: string;
+			authorEmail: string;
+		};
+		return answerShellHistory(
+			root,
+			{ command: cmd, ...args } as unknown as ShellHistoryCommand,
+			{ author: { name: granted.authorName, email: granted.authorEmail } },
+		);
+	};
 
 	/** One data change, under the test's controls. */
 	async function change(described: DataChange, make: () => Promise<void>) {
@@ -173,25 +191,11 @@ export function createGrantedShell(root: string, scope: string) {
 
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
 		grant_directory: () => control.grant(),
-		async run_git(args) {
-			const result = await run(args.args as string[], {
-				input:
-					args.input === null
-						? undefined
-						: new Uint8Array(args.input as number[]),
-				env:
-					args.indexFile === null
-						? undefined
-						: { GIT_INDEX_FILE: args.indexFile as string },
-				allowFailure: true,
-			});
-			return {
-				code: result.code,
-				stdout: Array.from(result.stdout),
-				stderr: result.stderr,
-			};
-		},
-		cancel_git: () => null,
+		status: history('status'),
+		history: history('history'),
+		save_version: history('save_version'),
+		sync: history('sync'),
+		settle_sync: history('settle_sync'),
 		read_folder_directory: (args) =>
 			asPluginError(async () =>
 				(

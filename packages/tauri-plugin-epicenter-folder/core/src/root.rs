@@ -4,8 +4,8 @@
 //! first grant makes sure it is a real directory, creating an application
 //! folder's when it is missing (`prepare_directory`), resolves it once
 //! (`resolve_root`), and refuses a layout whose Git state would send writes
-//! elsewhere (`verify_layout`), which `page_git` checks again before every
-//! command. A data folder never gets a repository of its own inside another
+//! elsewhere (`verify_layout`), which the `epicenter` CLI checks again
+//! before each history operation (`gitLayoutProblem` in `@epicenter/folder`). A data folder never gets a repository of its own inside another
 //! repository's working tree (`enclosing_repository`).
 
 use std::fs;
@@ -113,8 +113,9 @@ pub fn resolve_root(root: &Path) -> Result<PathBuf, String> {
 /// - a linked `.git/epicenter` or scratch directory. Scratch files are
 ///   renamed into the folder, so they must live inside it.
 ///
-/// The grant runs this, and `page_git` runs it again before every command,
-/// since another program may change `.git` while the folder is open. It does
+/// The grant runs this, and the `epicenter` CLI runs the same check before
+/// each history operation, since another program may change `.git` while the
+/// folder is open. It does
 /// not defend against a link swapped in between that check and the command.
 pub fn verify_layout(root: &Path) -> Result<(), String> {
     let refuse = |label: &str, why: &str| {

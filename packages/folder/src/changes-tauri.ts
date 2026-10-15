@@ -22,7 +22,7 @@ export function tauriChangeDetector(scope: string): ChangeDetector {
 		let open = true;
 		let unlisten: UnlistenFn | undefined;
 		// Loaded when a folder is granted, like the rest of the desktop engine.
-		import('@tauri-apps/api/webviewWindow')
+		const ready = import('@tauri-apps/api/webviewWindow')
 			.then(({ getCurrentWebviewWindow }) =>
 				getCurrentWebviewWindow().listen<FolderChanged>(
 					FOLDER_CHANGED_EVENT,
@@ -45,6 +45,7 @@ export function tauriChangeDetector(scope: string): ChangeDetector {
 					),
 			);
 		return {
+			ready: ready.then(() => {}),
 			stop() {
 				open = false;
 				unlisten?.();

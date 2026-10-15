@@ -77,6 +77,7 @@ export {
 	CONFLICTS_NEED_SYNC,
 	type ConflictVersion,
 	GitError,
+	type GitInstall,
 	type MergeConflict,
 	MergeError,
 	PullError,

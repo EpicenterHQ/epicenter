@@ -227,6 +227,39 @@ export const commands = {
 	aiKeyRemove: (connection: string) => typedError<boolean, CliError>(__TAURI_INVOKE("ai_key_remove", { connection })),
 	/**  Whether a key is saved for `connection`, and for which endpoint. Never the key. */
 	aiKeyState: (connection: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_state", { connection })),
+	/**  The folder's changed files, its head, and its remote, ahead and behind. */
+	status: (scope: string) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("status", { scope })),
+	/**  The folder's last `depth` versions. */
+	history: (scope: string, depth: number) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("history", { scope, depth })),
+	/**  Record the folder's edits as a version, with `message` when a person gave one. */
+	saveVersion: (scope: string, message: string | null) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("save_version", { scope, message })),
+	/**
+	 *  Record the folder's edits, fetch, merge by each file's kind, and push. A
+	 *  sync that needs choices records its attempt in the folder for
+	 *  `settle_sync`.
+	 */
+	sync: (scope: string, remote: string | null, allowUnrelated: boolean, credential: {
+	url: string,
+	username: string,
+	password: string,
+} | null) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated, credential })),
+	/**
+	 *  Settle the sync attempt this folder recorded, named by its ID, with one
+	 *  choice per conflict, then push. The conflicts are read again from the
+	 *  commits the attempt recorded; nothing of them crosses from the page.
+	 */
+	settleSync: (scope: string, attempt: string, choices: string, credential: {
+	url: string,
+	username: string,
+	password: string,
+} | null) => typedError<HistoryOutput, CliError>(__TAURI_INVOKE("settle_sync", { scope, attempt, choices, credential })),
+	/**
+	 *  Start what gives this computer a `git`, after the CLI answered
+	 *  `GitMissing` (ADR-0559): on macOS the Command Line Tools installer, a
+	 *  one-time step; on Windows the Git for Windows download page. Elsewhere a
+	 *  package manager installs it, which this cannot start.
+	 */
+	installGit: () => typedError<null, string>(__TAURI_INVOKE("install_git")),
 	/**
 	 *  `epicenter app list --json`: every app installed under `Apps/`, with
 	 *  whether it can run.
@@ -596,6 +629,16 @@ export type DownloadProgress = {
 	totalBytes: number | null;
 };
 
+/**
+ *  A credential the page holds for exactly one remote URL, which the child
+ *  sends only to that URL, and only when it is `https`.
+ */
+export type GitCredential = {
+	url: string,
+	username: string,
+	password: string,
+};
+
 export type GlobalShortcutRegistration = {
 	commandId: string;
 	accelerator: string;
@@ -609,8 +652,8 @@ export type GlobalShortcutTriggered = {
 };
 
 /**
- *  Why a window was not given a folder, or a change or `git` run for it was
- *  not admitted.
+ *  Why a window was not given a folder, or a change for it was not
+ *  admitted.
  */
 export type GrantError =
 	/**  The shell registered no folder under this scope. */
@@ -628,6 +671,19 @@ export type GrantError =
 	| { name: 'Unavailable'; message: string }
 	/**  The shell is shutting its folders down. */
 	| { name: 'ShuttingDown' };
+
+/**  How a history child ended, and its one reply line. */
+export type HistoryOutput = {
+	/**
+	 *  The CLI's exit code: 0 done, 1 a result a person acts on, 2 a folder
+	 *  or a `git` it cannot use.
+	 */
+	code: number,
+	/**  The last line the child printed: its reply, or `{"error": ...}`. */
+	reply: string | null,
+	/**  The end of what the child wrote for people, at most 64 KiB. */
+	stderr: string,
+};
 
 /**
  *  A section of Epicenter Home an application can ask the shell to open.

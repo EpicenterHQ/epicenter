@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-settle-sync"
+description = "Enables the settle_sync command without any pre-configured scope."
+commands.allow = ["settle_sync"]
+
+[[permission]]
+identifier = "deny-settle-sync"
+description = "Denies the settle_sync command without any pre-configured scope."
+commands.deny = ["settle_sync"]

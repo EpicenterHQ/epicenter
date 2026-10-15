@@ -69,9 +69,10 @@ export type FolderGit = {
 	status(): Promise<Result<FilesObservation, GitError>>;
 	/**
 	 * Commit current source files if they changed, and reset the index to the
-	 * head either way. Never pushes.
+	 * head either way. Never pushes. `message` is a person's own; without it
+	 * the message names what changed.
 	 */
-	commit(): Promise<CommitOutcome>;
+	commit(options?: { message?: string }): Promise<CommitOutcome>;
 	/**
 	 * Commit, then push. `signal` only stops this caller waiting
 	 * (`stoppedWaiting`): a commit or transport that already started keeps
@@ -305,7 +306,7 @@ function createFolderGit(history: FolderHistory): FolderGit {
 		},
 		subscribe: (listener) => history.subscribe(listener),
 		status: () => history.status(),
-		commit: () => history.commit(),
+		commit: (options) => history.commit(options),
 		commitAndPush: (options) => history.commitAndPush(options),
 		push: (options) => history.push(options),
 		fetch: (options) => history.fetch(options),

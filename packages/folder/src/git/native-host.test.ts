@@ -1,7 +1,8 @@
 /**
- * The Bun and Node `git` runner applies the desktop shell's rule for every
- * command (`execute` in `page_git.rs`): a repository's hooks and fsmonitor
- * never run, whatever its configuration says.
+ * The Bun and Node `git` runner, which the `epicenter` CLI runs every
+ * desktop Git operation through (ADR-0559): a repository's hooks and
+ * fsmonitor never run, whatever its configuration says; `git` is found
+ * without the xcrun shim; and a remote must be a network URL.
  *
  * Key behaviors:
  * - A hook in `.git/hooks`, or in a directory the repository's
@@ -9,12 +10,20 @@
  *   plain `git` runs it
  * - A configured `core.fsmonitor` program does not run on `status`
  * - A file planted in the empty hooks directory refuses every command
+ * - An abort ends `git` with the helpers it started, such as
+ *   `git-remote-http` waiting on a server that never answers
+ * - A remote is a network URL; Git state that writes elsewhere is named
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { GIT_ENV, git, scratch } from '../git-http.test-support.js';
-import { createGitRunner } from './native-host.js';
+import { symlink } from 'node:fs/promises';
+import {
+	createGitRunner,
+	gitLayoutProblem,
+	isNetworkUrl,
+} from './native-host.js';
 
 const originalEnv = { ...process.env };
 beforeAll(() => {
@@ -140,3 +149,94 @@ test('a file planted in the empty hooks directory refuses every command', async 
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test.skipIf(process.platform === 'win32')(
+	'an abort ends git with the helpers it started',
+	async () => {
+		const root = await scratch('native-host-abort-');
+		// A server that accepts and never answers.
+		const server = Bun.listen({
+			hostname: '127.0.0.1',
+			port: 0,
+			socket: { data() {}, open() {} },
+		});
+		const url = `http://127.0.0.1:${server.port}/silent.git`;
+		try {
+			await repository(root);
+			const controller = new AbortController();
+			const fetching = createGitRunner(root)(
+				[
+					'fetch',
+					'--no-tags',
+					'--quiet',
+					url,
+					'+refs/heads/main:refs/remotes/origin/main',
+				],
+				{ signal: controller.signal },
+			);
+			const helpers = () =>
+				Bun.spawnSync(['pgrep', '-f', url]).stdout.toString().trim();
+			for (let tries = 0; helpers() === '' && tries < 100; tries++)
+				await Bun.sleep(20);
+			expect(helpers()).not.toBe('');
+			controller.abort(new Error('stopped'));
+			await expect(fetching).rejects.toThrow('stopped');
+			for (let tries = 0; helpers() !== '' && tries < 100; tries++)
+				await Bun.sleep(20);
+			expect(helpers()).toBe('');
+		} finally {
+			server.stop(true);
+			await rm(root, { recursive: true, force: true });
+		}
+	},
+);
+
+test('a remote is a network URL: https, ssh, scp-like, or http to this computer', () => {
+	for (const url of [
+		'https://github.com/o/r.git',
+		'ssh://git@github.com/o/r.git',
+		'git@github.com:o/r.git',
+		'http://127.0.0.1:8080/r.git',
+		'http://localhost/r.git',
+	])
+		expect(isNetworkUrl(url)).toBe(true);
+	for (const url of [
+		'/tmp/r.git',
+		'file:///tmp/r.git',
+		'ext::sh -c x',
+		'http://192.168.1.2/r.git',
+		'https://me:pat@github.com/o/r.git',
+		'https://-oProxyCommand=sh/x',
+		'https://github.com/o/r.git x',
+		'-u',
+		'',
+	])
+		expect(isNetworkUrl(url)).toBe(false);
+});
+
+test.skipIf(process.platform === 'win32')(
+	'Git state that would write elsewhere is named before a history operation',
+	async () => {
+		const root = await scratch('native-host-layout-');
+		const elsewhere = await scratch('native-host-elsewhere-');
+		try {
+			expect(await gitLayoutProblem(root)).toBeUndefined();
+			await repository(root);
+			expect(await gitLayoutProblem(root)).toBeUndefined();
+			await rm(join(root, '.git', 'refs', 'tags'), {
+				recursive: true,
+				force: true,
+			});
+			await symlink(elsewhere, join(root, '.git', 'refs', 'tags'));
+			expect(await gitLayoutProblem(root)).toBe(
+				'.git/refs/tags is a symbolic link',
+			);
+			await rm(join(root, '.git', 'refs', 'tags'));
+			await writeFile(join(root, '.git', 'commondir'), elsewhere);
+			expect(await gitLayoutProblem(root)).toContain('.git/commondir exists');
+		} finally {
+			await rm(root, { recursive: true, force: true });
+			await rm(elsewhere, { recursive: true, force: true });
+		}
+	},
+);

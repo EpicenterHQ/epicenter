@@ -5,19 +5,22 @@
  * does, with the operating system's message as text.
  *
  * Key behaviors:
- * - A granted folder opens over its real directory and commits with `git`
+ * - A granted folder opens over its real directory, and its history runs
+ *   through the shell's history commands: the `epicenter` CLI over `git`,
+ *   which `answerShellHistory` runs in this process
  * - Every refused or failed grant is an `OpenFolderError` and opens nothing
  * - A removal whose reply is lost is done if the path is gone, and
  *   `Unconfirmed` if it is still there
  * - A save the shell finds overtaken where it publishes is `Conflict`, or
  *   `Exists` for a create, never `Unconfirmed`; an overwrite still lands
  * - `openDataFolder` reads with the folder's own `epicenter.json` and never
- *   writes it, runs no `git` before the first commit creates the repository,
- *   and merges rows on Sync by that declaration
+ *   writes it, asks for no history when it opens, creates no repository
+ *   before the first commit, and merges rows on Sync by that declaration
+ * - What a page's Sync wrote reaches its listeners once, from the reply
  * - Through a lens, a data folder has the lens's tables, keeps the fields the
  *   lens does not name, and refuses a lens its declaration does not contain
- * - A data folder the shell grants inside another repository's working tree
- *   blocks its first commit with the shell's reason, and runs no `git init`
+ * - A data folder inside another repository's working tree blocks its first
+ *   commit, and no repository is made
  */
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -27,7 +30,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { OpenFolderError } from './errors.js';
-import { createGitRunner } from './git/native-host.js';
+import {
+	answerShellHistory,
+	type ShellHistoryCommand,
+} from './history-command.js';
 import {
 	createBareRemote,
 	GIT_ENV,
@@ -39,8 +45,16 @@ import type { Expectation } from './native/bindings.gen.js';
 type Call = { cmd: string; args: Record<string, unknown> };
 let grantedRoot: string | undefined;
 let calls: Call[] = [];
-/** `git` commands other than `init` asked for where there is no repository. */
-let gitWithoutRepository: string[][] = [];
+/** The shell's history commands, which run the `epicenter` CLI. */
+const HISTORY_COMMANDS = new Set([
+	'status',
+	'history',
+	'save_version',
+	'sync',
+	'settle_sync',
+]);
+/** Who the shell names as the author where Git names none. */
+let grantedAuthor = { name: 'Todos', email: 'todos@localhost' };
 let grant: (args: Record<string, unknown>) => unknown = () => {
 	throw new Error('no grant scripted');
 };
@@ -75,38 +89,18 @@ mock.module('@tauri-apps/api/core', () => ({
 				: body;
 		calls.push({ cmd: name, args });
 		if (name === 'grant_directory') return grant(args);
-		// The shell runs the folder's Git; here the system `git` stands in.
-		if (name === 'run_git') {
+		// The shell runs one `epicenter` child per history operation; here
+		// the same engine runs in this process.
+		if (HISTORY_COMMANDS.has(name)) {
 			const root = grantedRoot;
 			if (root === undefined)
-				throw { name: 'Unavailable', message: 'not granted' };
-			const command = args.args as string[];
-			if (command[0] !== 'init' && !existsSync(join(root, '.git/HEAD')))
-				gitWithoutRepository.push(command);
-			// The shell runs only `git init` where there is no `.git`.
-			if (command[0] !== 'init' && !existsSync(join(root, '.git')))
-				throw {
-					name: 'Unavailable',
-					message: `'${root}' has no Git repository yet, so only \`git init\` runs there`,
-				};
-			const result = await createGitRunner(root)(args.args as string[], {
-				input:
-					args.input === null
-						? undefined
-						: new Uint8Array(args.input as number[]),
-				env:
-					args.indexFile === null
-						? undefined
-						: { GIT_INDEX_FILE: args.indexFile as string },
-				allowFailure: true,
-			});
-			return {
-				code: result.code,
-				stdout: Array.from(result.stdout),
-				stderr: result.stderr,
-			};
+				throw { name: 'NotGranted', grant: { name: 'Unavailable' } };
+			return answerShellHistory(
+				root,
+				{ command: name, ...args } as unknown as ShellHistoryCommand,
+				{ author: grantedAuthor },
+			);
 		}
-		if (name === 'cancel_git') return null;
 		// The shell's reads; here `node:fs` stands in.
 		if (name === 'read_folder_directory')
 			return asShellError(async () =>
@@ -273,7 +267,6 @@ afterAll(() => {
 beforeEach(() => {
 	calls = [];
 	listenedTo = [];
-	gitWithoutRepository = [];
 	afterRemove = () => {};
 	beforeChange = () => {};
 });
@@ -549,8 +542,8 @@ test('a data folder reads with its own epicenter.json, never writes it, and its 
 		cmd: 'grant_directory',
 		args: { scope: 'so.epicenter.vault' },
 	});
-	// Opening read the declaration and ran no `git`.
-	expect(calls.some(({ cmd }) => cmd === 'run_git')).toBe(false);
+	// Opening read the declaration and asked for no history.
+	expect(calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
 	expect(changedPaths()).toEqual([]);
 	expect(existsSync(join(root, '.git'))).toBe(false);
 	expect(Object.keys(folder.definition.tables)).toEqual(['todos']);
@@ -579,7 +572,6 @@ test('a data folder reads with its own epicenter.json, never writes it, and its 
 		changedPaths().filter((path) => path.endsWith('epicenter.json')),
 	).toEqual([]);
 	expect(heard).not.toContain('epicenter.json');
-	expect(gitWithoutRepository).toEqual([]);
 	await folder.close();
 });
 
@@ -597,7 +589,6 @@ test('a data folder without epicenter.json opens with no tables, and files work'
 	).toBe('a\n');
 	expect(existsSync(join(root, 'epicenter.json'))).toBe(false);
 	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
-	expect(gitWithoutRepository).toEqual([]);
 	await folder.close();
 });
 
@@ -611,14 +602,18 @@ test('a data folder whose epicenter.json cannot be used is InvalidDeclaration an
 	const refused = expectErr(await openDataFolder({ id: 'so.epicenter.vault' }));
 	expect(refused.name).toBe('InvalidDeclaration');
 	expect(refused.message).toContain("requires 'title'");
-	expect(calls.some(({ cmd }) => cmd === 'run_git')).toBe(false);
+	expect(calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
 	expect(changedPaths()).toEqual([]);
 });
 
-test("a data folder inside another repository blocks its first commit with the shell's reason", async () => {
-	const root = await scratch('tauri-data-folder-nested-');
+test('a data folder inside another repository blocks its first commit', async () => {
+	const outer = await scratch('tauri-data-folder-outer-');
+	await git(outer, 'init', '--quiet');
+	const root = join(outer, 'vault');
+	await nodeFs.mkdir(root);
 	await nodeFs.writeFile(join(root, 'epicenter.json'), DECLARED);
-	const initProblem = `${root} is inside the repository at /outer; commit it with that repository's Git`;
+	// The CLI names the folder and the repository by their real paths.
+	const initProblem = `${await nodeFs.realpath(root)} is inside the repository at ${await nodeFs.realpath(outer)}; commit it with that repository's Git`;
 	grantedRoot = root;
 	grant = () => ({
 		root,
@@ -638,7 +633,6 @@ test("a data folder inside another repository blocks its first commit with the s
 		status: 'blocked',
 		reason: initProblem,
 	});
-	expect(calls.some(({ cmd }) => cmd === 'run_git')).toBe(false);
 	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 	await folder.close();
 });
@@ -743,8 +737,8 @@ test("a data folder's Sync merges rows by its own declaration", async () => {
 	await folder.close();
 });
 
-test('a save another window lands while Sync writes the same row survives, and the next Sync asks for a choice', async () => {
-	const project = await scratch('tauri-incoming-race-');
+test("a page's Sync runs in the CLI, reports what it wrote once, and settles a choice from a second child", async () => {
+	const project = await scratch('tauri-sync-cli-');
 	const bare = await createBareRemote(project);
 	const native = join(project, 'native');
 	await git(project, 'clone', '--quiet', bare, native);
@@ -762,39 +756,74 @@ test('a save another window lands while Sync writes the same row survives, and t
 	const folder = expectOk(
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
-	expectOk(await folder.sync.run());
-	await git(native, 'pull', '--quiet', 'origin', 'main');
+	const heard: unknown[] = [];
+	folder.onFilesChanged((change) => heard.push(change));
+	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+
+	await nodeFs.writeFile(
+		join(native, 'todos/two.md'),
+		'---\ntitle: Two\ndone: false\n---\n',
+	);
 	await nodeFs.writeFile(
 		join(native, 'todos/one.md'),
 		'---\ntitle: Remote\ndone: false\n---\n',
 	);
-	await git(native, 'commit', '--quiet', '-am', 'Rename remotely');
+	await git(native, 'add', '--all');
+	await git(native, 'commit', '--quiet', '-m', 'Remote');
 	await git(native, 'push', '--quiet', 'origin', 'main');
+	heard.length = 0;
+	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+	expect(heard).toEqual([['todos/one.md', 'todos/two.md']]);
+	expect(calls.filter(({ cmd }) => cmd === 'sync')).toHaveLength(2);
 
-	// Another window saves the row after this page checked it and before the
-	// shell publishes Sync's write there.
-	const path = join(root, 'todos/one.md');
-	const theirs = '---\ntitle: Other window\ndone: false\n---\n';
-	beforeChange = (target) => {
-		if (target !== path) return;
-		beforeChange = () => {};
-		writeFileSync(path, theirs);
-	};
-	const stopped = await folder.sync.run();
-	expect(stopped.error).toMatchObject({
-		name: 'Merge',
-		error: {
-			name: 'Refused',
-			error: { name: 'Conflict', path: 'todos/one.md' },
+	await git(native, 'pull', '--quiet', 'origin', 'main');
+	await nodeFs.writeFile(
+		join(native, 'todos/one.md'),
+		'---\ntitle: Theirs\ndone: false\n---\n',
+	);
+	await git(native, 'commit', '--quiet', '-am', 'Theirs');
+	await git(native, 'push', '--quiet', 'origin', 'main');
+	const one = expectOk(await folder.tables.todos.get('one'))!;
+	expectOk(
+		await folder.tables.todos.save(one, {
+			fields: { title: 'Mine', done: false },
+			body: '',
+		}),
+	);
+	const held = await folder.sync.run();
+	if (held.error?.name !== 'NeedsChoices')
+		throw new Error(`expected NeedsChoices, got ${JSON.stringify(held)}`);
+	const { attempt } = held.error;
+	expect(attempt.conflicts).toMatchObject([
+		{
+			kind: 'field',
+			field: 'title',
+			local: { present: true, value: 'Mine' },
+			incoming: { present: true, value: 'Theirs' },
 		},
+	]);
+	// Only the attempt's ID and the choices cross to the shell.
+	const choices = {
+		[attempt.conflicts[0]!.id]: { kind: 'take', side: 'incoming' },
+	} as const;
+	expect(expectOk(await folder.sync.resolve(attempt, choices)).kind).toBe(
+		'synced',
+	);
+	const settle = calls.find(({ cmd }) => cmd === 'settle_sync')!;
+	expect(Object.keys(settle.args).sort()).toEqual([
+		'attempt',
+		'choices',
+		'credential',
+		'scope',
+	]);
+	expect(settle.args.attempt).toBe(attempt.id);
+	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
+		'---\ntitle: Theirs\ndone: false\n---\n',
+	);
+	// The attempt is spent.
+	expect(expectErr(await folder.sync.resolve(attempt, choices))).toMatchObject({
+		name: 'Stale',
+		reason: 'replaced',
 	});
-	expect(await readFile(path, 'utf8')).toBe(theirs);
-
-	const next = await folder.sync.run();
-	expect(next.error?.name).toBe('NeedsChoices');
-	expect(
-		next.error?.name === 'NeedsChoices' ? next.error.attempt.conflicts : [],
-	).toMatchObject([{ kind: 'field', field: 'title', path: 'todos/one.md' }]);
-	expect(await readFile(path, 'utf8')).toBe(theirs);
 	await folder.close();
 });

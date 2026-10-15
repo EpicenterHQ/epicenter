@@ -71,7 +71,10 @@ mock.module('@tauri-apps/api/core', () => ({
 						authorName: 'Capture',
 						authorEmail: 'capture@localhost',
 					};
-		const answered = await shellCommand(root, call.cmd, args);
+		const answered = await shellCommand(root, call.cmd, args, {
+			name: 'Capture',
+			email: 'capture@localhost',
+		});
 		if (answered === undefined)
 			throw new Error(`the scripted shell has no ${call.cmd}`);
 		return answered.reply;
@@ -353,14 +356,15 @@ test('Save version commits and rewrites no file', async () => {
 
 	calls = [];
 	expect(expectOk(await captures.saveVersion()).status).toBe('committed');
-	// Only Git ran and files were read: none was written, moved, or removed.
+	// Only the CLI's save version ran: the page wrote, moved, and removed
+	// nothing.
 	expect(
 		new Set(
 			calls
 				.map((call) => call.cmd)
 				.filter((cmd) => !cmd.startsWith('read_') && !cmd.startsWith('stat_')),
 		),
-	).toEqual(new Set(['run_git']));
+	).toEqual(new Set(['save_version']));
 	expect(await text(path)).toBe(saved);
 	expect(await git(root, 'show', '--format=', '--name-only', 'HEAD')).toContain(
 		path,
