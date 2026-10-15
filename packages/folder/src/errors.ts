@@ -365,6 +365,15 @@ export const OpenFolderError = defineErrors({
 		message: `Another Epicenter is already using the folder at ${root}. Quit the other Epicenter, then open this one again.`,
 		root,
 	}),
+	/**
+	 * A data folder's directory is not there, perhaps moved or removed since
+	 * it was listed. The desktop shell creates only an application's own
+	 * folder, never a data folder's.
+	 */
+	Missing: ({ root }: { root: string }) => ({
+		message: `There is no folder at ${root}; it may have been moved or removed.`,
+		root,
+	}),
 	/** The folder's storage could not be reached or made ready. */
 	Unavailable: ({ cause }: { cause: unknown }) => ({
 		message: `The folder could not be opened: ${describe(cause)}`,

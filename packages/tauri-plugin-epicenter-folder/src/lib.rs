@@ -41,7 +41,7 @@ use epicenter_folder_core::registry::Registry;
 pub use epicenter_folder_core::page_files::{ChangeError, Expectation};
 pub use epicenter_folder_core::page_git::GitOutput;
 pub use epicenter_folder_core::registry::{
-    Author, FolderConfig, GrantError, Granted, ScopeConfig,
+    Author, FolderConfig, FolderKind, GrantError, Granted, ScopeConfig,
 };
 
 mod command_names;

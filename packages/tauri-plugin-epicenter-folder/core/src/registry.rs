@@ -18,11 +18,17 @@
 //! Several windows may edit one folder because the shell, not the page,
 //! decides every publish. Each publishing rename and removal checks its path
 //! against the page's expectation and changes it under one mutex per
-//! canonical root, held here and shared by every scope and window on that
-//! root (`PageWork::publishing`). So a save through the shell is never
-//! overtaken between its check and its rename by another save through the
-//! shell, whichever window, engine, or origin made either. Another process
-//! would publish outside that mutex, which is what the lock keeps out.
+//! canonical root, held here and shared by every window of the folder
+//! (`PageWork::publishing`); a second scope on the same root is refused
+//! `Busy` at its grant, so the folder's windows are the only ones that reach
+//! it. So a save through the shell is never overtaken between its check and
+//! its rename by another save through the shell, whichever window, engine,
+//! or origin made either. Another process would publish outside that mutex,
+//! which is what the lock keeps out.
+//!
+//! A folder is an application's own (`FolderKind::Application`), whose
+//! directory the shell chose and creates, or a data folder a person made
+//! (`FolderKind::Data`), which the shell opens only as it finds it.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -34,7 +40,7 @@ use serde::Serialize;
 use specta::Type;
 
 use crate::lock::{LockError, RootLock};
-use crate::root::{prepare_directory, resolve_root, verify_layout};
+use crate::root::{enclosing_repository, prepare_directory, resolve_root, verify_layout, PrepareError};
 
 /// Who a version is recorded as when Git's configuration names no one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,28 +49,63 @@ pub struct Author {
     pub email: String,
 }
 
+/// Whose directory a folder is, which decides what the shell may do to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderKind {
+    /// An application's own folder, at a directory the shell chose. The
+    /// first grant creates the directory when it is missing, and the page's
+    /// engine gives it a repository of its own wherever it is, as the Bun
+    /// `openFolder` does.
+    Application,
+    /// A data folder: a directory a person made, which the shell opens only
+    /// as it finds it. A missing one is refused `Missing`, never created.
+    /// While a directory above it holds `.git`, its first `git init` is
+    /// refused (`Granted::init_problem`), as the Bun `openDataFolder` blocks
+    /// that first commit: its files are that repository's to commit.
+    Data,
+}
+
 /// One folder as the shell registers it. Everything else (the remote, the
 /// author Git's configuration names, what is tracked) is the repository's,
 /// read by the page's engine.
 #[derive(Debug, Clone)]
 pub struct FolderConfig {
-    /// The folder's directory, chosen by the shell. The first grant creates
-    /// it if it is missing.
+    /// The folder's directory, chosen by the shell or found by it.
     pub root: PathBuf,
     /// The fallback author for whichever of `user.name` and `user.email` Git's
     /// configuration does not set.
     pub author: Author,
     /// The local branch history is recorded on.
     pub branch: String,
+    pub kind: FolderKind,
 }
 
 impl FolderConfig {
+    /// An application's own folder, whose directory the first grant creates
+    /// when it is missing.
     pub fn new(root: impl Into<PathBuf>, author: Author) -> Self {
         Self {
             root: root.into(),
             author,
             branch: "main".to_string(),
+            kind: FolderKind::Application,
         }
+    }
+
+    /// A data folder a person made, granted only while its directory exists.
+    pub fn data(root: impl Into<PathBuf>, author: Author) -> Self {
+        Self {
+            kind: FolderKind::Data,
+            ..Self::new(root, author)
+        }
+    }
+}
+
+/// Why `git init` may not run at the canonical `root` of a `kind` folder.
+fn init_problem(kind: FolderKind, root: &std::path::Path) -> Option<String> {
+    match kind {
+        FolderKind::Application => None,
+        FolderKind::Data => enclosing_repository(root),
     }
 }
 
@@ -89,6 +130,9 @@ pub enum GrantError {
     WindowNotPermitted { scope: String, window: String },
     /// Another process holds the folder.
     Busy { root: String },
+    /// A data folder's directory is not there. The shell creates only an
+    /// application's own folder.
+    Missing { root: String },
     /// The folder could not be prepared, locked, or reached.
     Unavailable { message: String },
     /// The shell is shutting its folders down.
@@ -111,6 +155,10 @@ pub struct Granted {
     pub branch: String,
     pub author_name: String,
     pub author_email: String,
+    /// Why the page's first `git init` may not run here: a data folder
+    /// inside another repository's working tree, as the grant found it.
+    /// `run_git` refuses that `init` too, whenever it is asked.
+    pub init_problem: Option<String>,
 }
 
 /// How long `shutdown` waits for page work already running.
@@ -128,9 +176,17 @@ pub struct PageWork {
     running: Arc<Running>,
     /// The publishing mutex of the root the work was admitted for.
     publishing: Arc<Mutex<()>>,
+    kind: FolderKind,
 }
 
 impl PageWork {
+    /// Why `git init` may not run at `root`, the canonical root this work
+    /// was admitted for: a data folder inside another repository's working
+    /// tree. Asked each time, since a repository may appear above it later.
+    pub fn init_problem(&self, root: &std::path::Path) -> Option<String> {
+        init_problem(self.kind, root)
+    }
+
     /// Hold the root's publishing mutex: a rename or removal that checks its
     /// path and then changes it holds this across both, so no other change
     /// through the shell on the same root lands in between.
@@ -156,7 +212,8 @@ pub struct Registry {
     scopes: Mutex<BTreeMap<String, Scope>>,
     fenced: AtomicBool,
     running: Arc<Running>,
-    /// One publishing mutex per canonical root, whichever scopes reach it.
+    /// One publishing mutex per canonical root. Only one scope at a time
+    /// holds a root's lock, so its windows are the ones that share it.
     publishing: Mutex<BTreeMap<PathBuf, Arc<Mutex<()>>>>,
 }
 
@@ -245,7 +302,8 @@ impl Registry {
     }
 
     /// Give `window` the directory of `scope`. The first grant, from whichever
-    /// permitted window asks first, creates the directory if it is missing,
+    /// permitted window asks first, creates an application folder's directory
+    /// if it is missing and refuses a missing data folder as `Missing`,
     /// refuses a directory that is a link or Git state that would send writes
     /// elsewhere (`verify_layout`), and takes the folder's cross-process lock;
     /// every later grant, a reloaded page's or another window's, returns the
@@ -259,7 +317,14 @@ impl Registry {
         let folder = &entry.config.folder;
         if entry.granted.is_none() {
             let unavailable = |message: String| GrantError::Unavailable { message };
-            prepare_directory(&folder.root).map_err(unavailable)?;
+            prepare_directory(&folder.root, folder.kind == FolderKind::Application).map_err(
+                |error| match error {
+                    PrepareError::Missing => GrantError::Missing {
+                        root: folder.root.display().to_string(),
+                    },
+                    PrepareError::Failed(message) => unavailable(message),
+                },
+            )?;
             let root = resolve_root(&folder.root).map_err(unavailable)?;
             let lock = RootLock::acquire(&root).map_err(|error| match error {
                 LockError::Busy { root } => GrantError::Busy {
@@ -276,6 +341,7 @@ impl Registry {
             branch: folder.branch.clone(),
             author_name: folder.author.name.clone(),
             author_email: folder.author.email.clone(),
+            init_problem: init_problem(folder.kind, root),
         })
     }
 
@@ -287,7 +353,7 @@ impl Registry {
         scope: &str,
         window: &str,
     ) -> Result<(PathBuf, PageWork), GrantError> {
-        let root = self.granted_root(scope, window)?;
+        let (root, kind) = self.granted(scope, window)?;
         let mut count = self.running.count.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if self.fenced.load(Ordering::SeqCst) {
             return Err(GrantError::ShuttingDown);
@@ -305,6 +371,7 @@ impl Registry {
             PageWork {
                 running: Arc::clone(&self.running),
                 publishing,
+                kind,
             },
         ))
     }
@@ -312,12 +379,18 @@ impl Registry {
     /// The canonical root of `scope`, already granted, if `window` is one of
     /// its windows: where that window's changes and Git commands run.
     pub fn granted_root(&self, scope: &str, window: &str) -> Result<PathBuf, GrantError> {
+        self.granted(scope, window).map(|(root, _)| root)
+    }
+
+    /// `granted_root`, with the kind of folder it is.
+    fn granted(&self, scope: &str, window: &str) -> Result<(PathBuf, FolderKind), GrantError> {
         let mut scopes = self.scopes();
         if self.fenced.load(Ordering::SeqCst) {
             return Err(GrantError::ShuttingDown);
         }
-        match &Self::permitted(&mut scopes, scope, window)?.granted {
-            Some((root, _)) => Ok(root.clone()),
+        let entry = Self::permitted(&mut scopes, scope, window)?;
+        match &entry.granted {
+            Some((root, _)) => Ok((root.clone(), entry.config.folder.kind)),
             None => Err(GrantError::Unavailable {
                 message: format!("the folder scope '{scope}' has not been granted yet"),
             }),

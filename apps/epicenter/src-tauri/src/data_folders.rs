@@ -13,7 +13,13 @@
 //!   instead, and both windows publish under the plugin's one mutex per root.
 //! - Any other folder gets a scope of its own, `data:<directory name>`, the
 //!   first time it is listed in a run, registered for the Folders window
-//!   alone. Listing again returns the same scope.
+//!   alone as a data folder (`FolderConfig::data`): the shell never creates
+//!   its directory, and never gives it a repository of its own inside
+//!   another repository's working tree. Listing again returns the same
+//!   scope.
+//!
+//! A folder whose scope cannot be permitted or registered is left out of the
+//! listing and logged; the others are still listed.
 //!
 //! The reply carries scope IDs and titles, never paths. The page still learns
 //! a folder's root from the plugin's grant, as every folder page does today.
@@ -151,9 +157,10 @@ fn list_in(
             .iter()
             .find(|folder| folder.scope == name)
         {
-            folders
-                .permit(owned.scope, window)
-                .map_err(|error| format!("{error:?}"))?;
+            if let Err(error) = folders.permit(owned.scope, window) {
+                log::warn!("data folder '{name}' was not listed: {error:?}");
+                continue;
+            }
             listed.push(DataFolder {
                 id: owned.scope.to_string(),
                 title,
@@ -167,17 +174,21 @@ fn list_in(
             None => {
                 let id = format!("data:{name}");
                 let (author, email) = DATA_FOLDER_AUTHOR;
-                folders.register(ScopeConfig {
+                let folder = FolderConfig::data(
+                    root,
+                    Author {
+                        name: author.into(),
+                        email: email.into(),
+                    },
+                );
+                if let Err(error) = folders.register(ScopeConfig {
                     scope: id.clone(),
-                    folder: FolderConfig::new(
-                        root,
-                        Author {
-                            name: author.into(),
-                            email: email.into(),
-                        },
-                    ),
+                    folder,
                     windows: vec![window.into()],
-                })?;
+                }) {
+                    log::warn!("data folder '{name}' was not listed: {error}");
+                    continue;
+                }
                 registered.insert(name, id.clone());
                 id
             }
@@ -409,10 +420,50 @@ mod tests {
         let fixture = fixture("stable");
         data_folder(&fixture, "vault", "{}");
         let first = fixture.list();
-        // A second registration of `data:vault` would fail the listing.
+        // A second registration of `data:vault` would leave it out.
         let second = fixture.list();
         assert_eq!(first, second);
         assert_eq!(first[0].id, "data:vault");
+    }
+
+    #[test]
+    fn a_folder_that_cannot_be_registered_is_left_out_and_the_rest_are_listed() {
+        let fixture = fixture("skipped");
+        data_folder(&fixture, "vault", "{}");
+        data_folder(&fixture, "notes", "{}");
+        // Something else already registered `data:vault`, so this listing's
+        // registration of it is refused.
+        fixture
+            .app
+            .folders()
+            .register(ScopeConfig {
+                scope: "data:vault".into(),
+                folder: FolderConfig::data(
+                    fixture.folder_dir.join("vault"),
+                    Author {
+                        name: "Elsewhere".into(),
+                        email: "elsewhere@localhost".into(),
+                    },
+                ),
+                windows: vec!["elsewhere".into()],
+            })
+            .unwrap();
+
+        let ids: Vec<String> = fixture.list().into_iter().map(|folder| folder.id).collect();
+        assert_eq!(ids, ["data:notes"]);
+    }
+
+    #[test]
+    fn a_data_folder_removed_after_listing_is_missing_not_recreated() {
+        let fixture = fixture("removed");
+        data_folder(&fixture, "vault", "{}");
+        let folders = fixture.window("folders");
+        let id = fixture.list().remove(0).id;
+        fs::remove_dir_all(fixture.folder_dir.join("vault")).unwrap();
+
+        let refused = invoke(&folders, "grant_directory", json!({ "scope": id })).unwrap_err();
+        assert_eq!(refused["name"], "Missing");
+        assert!(!fixture.folder_dir.join("vault").exists());
     }
 
     #[test]

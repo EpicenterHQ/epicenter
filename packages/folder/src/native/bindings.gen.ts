@@ -14,9 +14,12 @@ export const commands = {
 	/**
 	 *  Run one Git operation for a folder this window was granted.
 	 *  `page_git` decides which operations and options are allowed, and fixes
-	 *  the environment. `authorization`, for a push or fetch to an `https`
-	 *  origin, is sent to that origin alone. `request` is an ID the page makes
-	 *  up for the run, a random UUID, so `cancel_git` can stop it (`git_runs`).
+	 *  the environment. `git init` is refused in a data folder inside another
+	 *  repository's working tree (`PageWork::init_problem`), for the reason the
+	 *  grant gave as `initProblem`. `authorization`, for a push or fetch to an
+	 *  `https` origin, is sent to that origin alone. `request` is an ID the
+	 *  page makes up for the run, a random UUID, so `cancel_git` can stop it
+	 *  (`git_runs`).
 	 */
 	runGit: (scope: string, args: string[], input: number[] | null, indexFile: string | null, authorization: string | null, request: string) => typedError<GitOutput, GrantError>(__TAURI_INVOKE("plugin:epicenter-folder|run_git", { scope, args, input, indexFile, authorization, request })),
 	/**
@@ -122,6 +125,11 @@ export type GrantError =
 { name: "WindowNotPermitted"; scope: string; window: string } |
 /**  Another process holds the folder. */
 { name: "Busy"; root: string } |
+/**
+ *  A data folder's directory is not there. The shell creates only an
+ *  application's own folder.
+ */
+{ name: "Missing"; root: string } |
 /**  The folder could not be prepared, locked, or reached. */
 { name: "Unavailable"; message: string } |
 /**  The shell is shutting its folders down. */
@@ -137,6 +145,12 @@ export type Granted = {
 	branch: string,
 	authorName: string,
 	authorEmail: string,
+	/**
+	 *  Why the page's first `git init` may not run here: a data folder
+	 *  inside another repository's working tree, as the grant found it.
+	 *  `run_git` refuses that `init` too, whenever it is asked.
+	 */
+	initProblem: string | null,
 };
 
 /**  What a path is, without following a final link. */

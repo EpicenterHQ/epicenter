@@ -1,38 +1,81 @@
 //! Where a folder's directory is, and whether it can be opened.
 //!
 //! The shell names a folder's directory when it registers the scope. The
-//! first grant makes it exist as a real directory (`prepare_directory`),
-//! resolves it once (`resolve_root`), and refuses a layout whose Git state
-//! would send writes elsewhere (`verify_layout`), which `page_git` checks
-//! again before every command.
+//! first grant makes sure it is a real directory, creating an application
+//! folder's when it is missing (`prepare_directory`), resolves it once
+//! (`resolve_root`), and refuses a layout whose Git state would send writes
+//! elsewhere (`verify_layout`), which `page_git` checks again before every
+//! command. A data folder never gets a repository of its own inside another
+//! repository's working tree (`enclosing_repository`).
 
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-/// Make `root` exist as a real directory. Its parent may be a link a person
-/// chose and is created when missing; `root` itself must be a directory, not
-/// a link to one, so the folder never resolves outside where the shell put it.
-pub fn prepare_directory(root: &Path) -> Result<(), String> {
+/// Why a folder's directory could not be made ready.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrepareError {
+    /// Nothing is there, and the directory was not to be created.
+    Missing,
+    /// It could not be created or inspected, or it is a link or not a
+    /// directory.
+    Failed(String),
+}
+
+/// Make sure `root` is a real directory, creating it first when `create` is
+/// set. Its parent may be a link a person chose and is created along with
+/// it; `root` itself must be a directory, not a link to one, so the folder
+/// never resolves outside where the shell put it.
+pub fn prepare_directory(root: &Path, create: bool) -> Result<(), PrepareError> {
     let failed = |cause: std::io::Error| {
-        format!("The folder directory '{}' could not be created: {cause}", root.display())
+        PrepareError::Failed(format!(
+            "The folder directory '{}' could not be created: {cause}",
+            root.display()
+        ))
     };
-    if let Some(parent) = root.parent() {
-        fs::create_dir_all(parent).map_err(failed)?;
+    if create {
+        if let Some(parent) = root.parent() {
+            fs::create_dir_all(parent).map_err(failed)?;
+        }
+        match fs::create_dir(root) {
+            Ok(()) => {}
+            Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {}
+            Err(cause) => return Err(failed(cause)),
+        }
     }
-    match fs::create_dir(root) {
-        Ok(()) => {}
-        Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {}
-        Err(cause) => return Err(failed(cause)),
-    }
-    let kind = fs::symlink_metadata(root).map_err(failed)?.file_type();
+    let kind = match fs::symlink_metadata(root) {
+        Ok(stats) => stats.file_type(),
+        Err(cause) if cause.kind() == ErrorKind::NotFound => return Err(PrepareError::Missing),
+        Err(cause) => {
+            return Err(PrepareError::Failed(format!(
+                "The folder directory '{}' could not be inspected: {cause}",
+                root.display()
+            )))
+        }
+    };
     if kind.is_symlink() || !kind.is_dir() {
-        return Err(format!(
+        return Err(PrepareError::Failed(format!(
             "The folder directory '{}' is a link or not a directory, so it was not opened",
             root.display()
-        ));
+        )));
     }
     Ok(())
+}
+
+/// Why `root` may not get a repository of its own: a directory above it
+/// holds `.git`, so it is inside that repository's working tree. The same
+/// answer, in the same words, as `enclosingRepository` in
+/// `@epicenter/folder`'s Bun opener.
+pub fn enclosing_repository(root: &Path) -> Option<String> {
+    root.ancestors().skip(1).find_map(|at| {
+        fs::symlink_metadata(at.join(".git")).is_ok().then(|| {
+            format!(
+                "{} is inside the repository at {}; commit it with that repository's Git",
+                root.display(),
+                at.display()
+            )
+        })
+    })
 }
 
 /// Resolve the folder root once, refusing a path that is not a directory.

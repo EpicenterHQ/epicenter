@@ -83,12 +83,23 @@ impl From<String> for ChangeError {
     }
 }
 
-/// The lowercase hexadecimal SHA-256 of `bytes`, as the page writes one.
+/// A SHA-256 digest in lowercase hexadecimal, as the page writes one.
+fn hex(digest: &[u8]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The lowercase hexadecimal SHA-256 of `bytes`.
+#[cfg(test)]
 fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    hex(&Sha256::digest(bytes))
+}
+
+/// The lowercase hexadecimal SHA-256 of the file at `target`, streamed so a
+/// large file is never held in memory under the publishing mutex.
+fn file_sha256(target: &Path) -> std::io::Result<String> {
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut fs::File::open(target)?, &mut hasher)?;
+    Ok(hex(&hasher.finalize()))
 }
 
 /// Whether `target` holds what `expected` says. A final link never counts as
@@ -118,10 +129,9 @@ fn check(target: &Path, expected: &Expectation) -> Result<(), ChangeError> {
             actual_sha256: None,
         }),
         Expectation::Sha256(expected) => {
-            let bytes = fs::read(target).map_err(|cause| {
+            let actual = file_sha256(target).map_err(|cause| {
                 format!("'{}' could not be read: {cause}", target.display())
             })?;
-            let actual = sha256(&bytes);
             if actual == *expected {
                 Ok(())
             } else {
@@ -301,6 +311,15 @@ pub(crate) fn is_index_copy(root: &Path, index_file: &str) -> bool {
     })
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How long a test's rename on this thread waits between checking its
+    /// destination and renaming onto it, so a race test can show that the
+    /// publishing mutex, not luck, keeps another save out of that gap.
+    pub(crate) static PAUSE_AFTER_CHECK: std::cell::Cell<std::time::Duration> =
+        const { std::cell::Cell::new(std::time::Duration::ZERO) };
+}
+
 /// Rename `from` over `to`, if `to` holds what `expected` says: a staged file
 /// into a data path, or one data path to another. A refusal leaves both
 /// paths as they were; removing a staged source is the page's business. The
@@ -319,6 +338,8 @@ pub fn rename(
         return Err(refused(to, "a data file is not moved into staging").into());
     }
     check(&target, expected)?;
+    #[cfg(test)]
+    std::thread::sleep(PAUSE_AFTER_CHECK.with(std::cell::Cell::get));
     fs::rename(&source, &target).map_err(|cause| {
         format!(
             "'{}' could not be moved to '{}': {cause}",
@@ -635,6 +656,10 @@ mod tests {
             sha256(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+        // A file is hashed as it streams, to the same digest as its bytes.
+        let bytes: Vec<u8> = (0..200_000u32).map(|n| (n % 251) as u8).collect();
+        let (_temp, root) = folder_with("page-files-hash", &[("todos/big.bin", &bytes)]);
+        assert_eq!(file_sha256(&root.join("todos/big.bin")).unwrap(), sha256(&bytes));
     }
 
     #[test]

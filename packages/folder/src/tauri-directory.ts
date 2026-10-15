@@ -50,5 +50,8 @@ export async function openGrantedFolder<
 		author: { name: granted.authorName, email: granted.authorEmail },
 		branch: granted.branch,
 		credentials,
+		// The shell's answer at the grant: a data folder inside another
+		// repository's working tree. `run_git` refuses that `git init` too.
+		initProblem: async () => granted.initProblem ?? undefined,
 	});
 }

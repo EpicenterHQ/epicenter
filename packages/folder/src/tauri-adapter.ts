@@ -47,6 +47,8 @@ function grantRefusal(refusal: GrantError) {
 			return OpenFolderError.WindowNotPermitted(refusal);
 		case 'Busy':
 			return OpenFolderError.Busy(refusal);
+		case 'Missing':
+			return OpenFolderError.Missing(refusal);
 		case 'Unavailable':
 			return OpenFolderError.Unavailable({ cause: refusal.message });
 		case 'ShuttingDown':

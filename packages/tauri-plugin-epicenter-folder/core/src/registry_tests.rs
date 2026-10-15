@@ -8,13 +8,17 @@
 //!   lock. A second scope on that root is `Busy`.
 //! - A linked `.git` or a linked folder directory is refused; a linked
 //!   parent is not.
+//! - An application folder's missing directory is created; a data folder's
+//!   is refused `Missing`, and nothing is created.
+//! - A data folder inside another repository's working tree may not get a
+//!   repository of its own; an application folder there may.
 //! - Shutdown waits for running page work in every window, refuses new work,
 //!   and releases the lock.
 //! - The lock excludes another process, in both directions with the Bun
 //!   hosts' lock, and a killed process leaves nothing to recover.
 //! - Saves racing on one root with the same expected hash, from two windows,
 //!   publish one at a time: exactly one lands, and the others are
-//!   `Conflict`.
+//!   `Conflict`, even when each pauses between its check and its rename.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -25,7 +29,7 @@ use std::time::Duration;
 
 use crate::lock::{LockError, RootLock};
 use crate::page_files::{self, ChangeError, Expectation};
-use crate::registry::{FolderConfig, GrantError, Registry, ScopeConfig};
+use crate::registry::{FolderConfig, FolderKind, GrantError, Registry, ScopeConfig};
 use crate::testing::{author, TempDir};
 
 fn scope(name: &str, root: &Path, window: &str) -> ScopeConfig {
@@ -89,6 +93,79 @@ fn a_scope_is_granted_locked_and_initialized_by_nothing() {
         Some(GrantError::ShuttingDown)
     );
     drop(RootLock::acquire(&canonical).expect("shutdown releases the lock"));
+}
+
+#[test]
+fn a_missing_data_folder_is_refused_and_not_created() {
+    let temp = TempDir::new("grant-missing");
+    let root = temp.path().join("absent").join("vault");
+    let registry = Registry::new();
+    registry
+        .register(ScopeConfig {
+            folder: FolderConfig::data(&root, author()),
+            ..scope("vault", &root, "main")
+        })
+        .unwrap();
+    assert_eq!(
+        registry.grant("vault", "main").err(),
+        Some(GrantError::Missing {
+            root: root.display().to_string()
+        })
+    );
+    assert!(!temp.path().join("absent").exists(), "nothing was created");
+    // Once a person makes it, the same scope is granted.
+    std::fs::create_dir_all(&root).unwrap();
+    registry.grant("vault", "main").unwrap();
+    registry.shutdown();
+}
+
+/// A directory above the root holds `.git`: a data folder there is that
+/// repository's working tree, so its first `git init` is refused, in the
+/// words the Bun opener uses; an application folder there is not.
+#[test]
+fn a_data_folder_inside_another_repository_may_not_get_its_own() {
+    let temp = TempDir::new("grant-nested");
+    let outer = temp.folder("outer");
+    std::fs::create_dir(outer.join(".git")).unwrap();
+    let problem = |root: &Path| {
+        format!(
+            "{} is inside the repository at {}; commit it with that repository's Git",
+            root.display(),
+            outer.display()
+        )
+    };
+    for (kind, name) in [(FolderKind::Data, "vault"), (FolderKind::Application, "todos")] {
+        let root = temp.folder(&format!("outer/deeper/{name}"));
+        let registry = Registry::new();
+        let mut config = scope(name, &root, "main");
+        config.folder.kind = kind;
+        registry.register(config).unwrap();
+        let granted = registry.grant(name, "main").unwrap();
+        let (canonical, work) = registry.admit_page_work(name, "main").unwrap();
+        let expected = (kind == FolderKind::Data).then(|| problem(&canonical));
+        assert_eq!(granted.init_problem, expected, "{kind:?}");
+        assert_eq!(work.init_problem(&canonical), expected, "{kind:?}");
+        drop(work);
+        registry.shutdown();
+    }
+
+    // Asked again at each `init`: once the repository above is gone, a data
+    // folder may get its own.
+    let root = temp.folder("outer/vault");
+    let registry = Registry::new();
+    registry
+        .register(ScopeConfig {
+            folder: FolderConfig::data(&root, author()),
+            ..scope("vault", &root, "main")
+        })
+        .unwrap();
+    registry.grant("vault", "main").unwrap();
+    let (canonical, work) = registry.admit_page_work("vault", "main").unwrap();
+    assert_eq!(work.init_problem(&canonical), Some(problem(&canonical)));
+    std::fs::remove_dir(outer.join(".git")).unwrap();
+    assert_eq!(work.init_problem(&canonical), None);
+    drop(work);
+    registry.shutdown();
 }
 
 #[test]
@@ -259,7 +336,9 @@ fn hex_sha256(bytes: &[u8]) -> String {
 
 /// Every admitted change on a root shares its publishing mutex, whichever
 /// window it came from, so saves that read the same version check and rename
-/// one at a time.
+/// one at a time. Each save pauses between its check and its rename
+/// (`PAUSE_AFTER_CHECK`), so without the mutex every save would pass the
+/// check before any renamed, and more than one would land.
 #[test]
 fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
     const SAVES: usize = 8;
@@ -281,6 +360,7 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
             let staged = root.join(format!(".git/epicenter/scratch/save-{save}"));
             let root = root.clone();
             std::thread::spawn(move || {
+                page_files::PAUSE_AFTER_CHECK.with(|pause| pause.set(Duration::from_millis(50)));
                 let bytes = format!("save {save}");
                 page_files::write_file(&root, &staged, bytes.as_bytes(), true).unwrap();
                 let window = if save % 2 == 0 { "main" } else { "side" };

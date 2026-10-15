@@ -396,6 +396,7 @@ fn the_notes_window_is_granted_its_root_with_the_fallback_author() {
             "branch": "main",
             "authorName": "Honeycrisp",
             "authorEmail": "honeycrisp@localhost",
+            "initProblem": null,
         })
     );
     // Granting writes nothing inside the root.

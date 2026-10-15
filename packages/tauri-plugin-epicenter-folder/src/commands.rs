@@ -254,9 +254,12 @@ pub async fn make_folder_directory<R: Runtime>(
 
 /// Run one Git operation for a folder this window was granted.
 /// `page_git` decides which operations and options are allowed, and fixes
-/// the environment. `authorization`, for a push or fetch to an `https`
-/// origin, is sent to that origin alone. `request` is an ID the page makes
-/// up for the run, a random UUID, so `cancel_git` can stop it (`git_runs`).
+/// the environment. `git init` is refused in a data folder inside another
+/// repository's working tree (`PageWork::init_problem`), for the reason the
+/// grant gave as `initProblem`. `authorization`, for a push or fetch to an
+/// `https` origin, is sent to that origin alone. `request` is an ID the
+/// page makes up for the run, a random UUID, so `cancel_git` can stop it
+/// (`git_runs`).
 #[tauri::command]
 #[specta::specta]
 pub async fn run_git<R: Runtime>(
@@ -282,6 +285,10 @@ pub async fn run_git<R: Runtime>(
     let running = Arc::clone(&cancel);
     let result = blocking(
         move || {
+            let initializing = args.first().map(String::as_str) == Some("init");
+            if let Some(problem) = initializing.then(|| work.init_problem(&root)).flatten() {
+                return Err(problem);
+            }
             let _work = work;
             page_git::run(
                 &root,

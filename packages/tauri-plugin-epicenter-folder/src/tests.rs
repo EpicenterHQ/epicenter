@@ -381,6 +381,7 @@ fn a_scope_is_granted_to_its_windows_and_no_other() {
             "branch": "main",
             "authorName": "Test Author",
             "authorEmail": "test@example.com",
+            "initProblem": null,
         })
     );
     // A reloaded page asks again and gets the same folder.
@@ -398,6 +399,54 @@ fn a_scope_is_granted_to_its_windows_and_no_other() {
     write(&fixture, &side, "b.md", "side's\n").unwrap();
     assert_eq!(read_file(&main, "notes", &inside(&fixture, "b.md")).unwrap(), b"side's\n");
     assert!(text(&grant(&other).unwrap_err()).contains("WindowNotPermitted"));
+}
+
+/// A data folder is opened only as a person left it: a missing one is
+/// `Missing` and is not created, and one inside another repository's working
+/// tree is granted with why it may not get a repository of its own, and
+/// `git init` there is refused, creating nothing.
+#[test]
+fn a_data_folder_is_never_created_or_given_a_nested_repository() {
+    let directory = temp("data-folder");
+    std::fs::create_dir(directory.0.join(".git")).unwrap();
+    let root = directory.0.join("vault");
+    let app = mock_builder()
+        .plugin(init())
+        .build(context())
+        .expect("mock app");
+    app.folders()
+        .register(ScopeConfig {
+            scope: "notes".to_string(),
+            folder: FolderConfig::data(
+                &root,
+                Author {
+                    name: "Test Author".to_string(),
+                    email: "test@example.com".to_string(),
+                },
+            ),
+            windows: vec!["main".to_string()],
+        })
+        .unwrap();
+    let main = window(&app, "main");
+    assert_eq!(
+        grant(&main).unwrap_err(),
+        json!({ "name": "Missing", "root": root.to_str().unwrap() })
+    );
+    assert!(!root.exists());
+
+    std::fs::create_dir(&root).unwrap();
+    let problem = format!(
+        "{} is inside the repository at {}; commit it with that repository's Git",
+        root.display(),
+        directory.0.display()
+    );
+    assert_eq!(grant(&main).unwrap()["initProblem"], json!(problem));
+    assert_eq!(
+        git(&main, &["init", "--quiet", "--initial-branch=main"], "1").unwrap_err(),
+        json!({ "name": "Unavailable", "message": problem })
+    );
+    assert!(!root.join(".git").exists());
+    app.folders().shutdown();
 }
 
 /// Two windows of one scope stage a save of the same file over the version
