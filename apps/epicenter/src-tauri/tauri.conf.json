@@ -17,11 +17,9 @@
 		"security": {
 			"capabilities": [
 				"home-model-administration-production",
-				"trusted-app-windows-production",
-				"trusted-whispering-native-production",
-				"trusted-whispering-overlay-production",
 				"folders-production",
-				"installed-app-windows-production"
+				"installed-app-windows-production",
+				"installed-whispering-production"
 			],
 			"csp": "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 		}

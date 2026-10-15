@@ -1,68 +1,19 @@
 /**
- * The small pure pieces the workflow rests on: the bridge's wire encoding, the
- * audio container check that names a recording's file, and the transcription
- * request.
+ * The small pure pieces the workflow rests on: the audio container check
+ * that names a recording's file, and the transcription request.
  */
 import { expectOk } from 'wellcrafted/testing';
 import './svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import { FileError } from '@epicenter/folder/bun';
 import {
 	audioMimeTypeOf,
 	resolveAudioFormat,
 	wavDurationMs,
 } from './audio-format.js';
-import { decode, encode } from './bridge/codec.js';
 import { toneWav } from './capture.js';
 import { requestTranscription } from './transcription.js';
 
 const { recordingId } = await import('./library.svelte.ts');
-
-const roundTrip = (value: unknown) =>
-	decode(JSON.parse(JSON.stringify(encode(value))));
-
-test('undefined, bytes, maps, and results cross the bridge unchanged', () => {
-	const entry = {
-		path: 'recordings/a.md',
-		issues: undefined,
-		fields: { title: 'A', durationMs: 5, audioPath: 'recordings/a.wav' },
-	};
-	const back = roundTrip(entry) as typeof entry;
-	expect(back).toEqual(entry);
-	expect(Object.hasOwn(back, 'issues')).toBe(true);
-
-	const bytes = new Uint8Array([0, 1, 2, 253, 254, 255]);
-	expect(roundTrip({ bytes })).toEqual({ bytes });
-	expect(roundTrip(new Map([['a', { data: bytes, error: null }]]))).toEqual(
-		new Map([['a', { data: bytes, error: null }]]),
-	);
-	expect(roundTrip({ data: undefined, error: null })).toEqual({
-		data: undefined,
-		error: null,
-	});
-});
-
-test('a failure keeps its name, fields, and the cause text', () => {
-	const failure = FileError.Io({
-		path: 'a.md',
-		operation: 'read',
-		cause: new Error('disk gone'),
-	});
-	const { error: back } = roundTrip(failure) as typeof failure;
-	expect(back?.name).toBe('Io');
-	expect(back?.message).toContain('disk gone');
-	expect((back?.cause as Error).message).toBe('disk gone');
-});
-
-test('a data object that uses the tag key is not misread', () => {
-	const tricky = { $t: 'b', v: 'not bytes' };
-	expect(roundTrip(tricky)).toEqual(tricky);
-});
-
-test('large byte arrays survive the encoding', () => {
-	const bytes = new Uint8Array(300_000).map((_, index) => index % 251);
-	expect(roundTrip(bytes)).toEqual(bytes);
-});
 
 test('the container signature names the extension, not the claimed type', () => {
 	expect(resolveAudioFormat(toneWav(), 'audio/webm').extension).toBe('wav');

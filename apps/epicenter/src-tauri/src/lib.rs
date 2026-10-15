@@ -94,35 +94,20 @@ const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// exits by itself. The kill is the bound for a host that hangs anyway.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(12);
 
-/// Epicenter's own windows, and Whispering, the one app still compiled in
-/// until it installs like every other app (ADR-0552). Every other app is
-/// installed and opened with `open_installed_app`.
+/// Epicenter's own windows. Every app is installed and opened with
+/// `open_installed_app` (ADR-0552).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
-    Whispering,
     Folders,
 }
 
 impl BuiltInApp {
-    const ALL: [Self; 3] = [Self::Home, Self::Whispering, Self::Folders];
-
-    /// Whether the shell opens this app's window at all, from startup, the
-    /// tray, or a deep link.
-    ///
-    /// Whispering is built and served but not hosted for now: inside Epicenter
-    /// no folder or host of its own is registered for it, so its page can only
-    /// report that the desktop app did not start Whispering's host. While it is
-    /// not, the shell opens neither its hidden window nor its recording overlay
-    /// at startup and offers no tray item for it.
-    const fn is_hosted(self) -> bool {
-        !matches!(self, Self::Whispering)
-    }
+    const ALL: [Self; 2] = [Self::Home, Self::Folders];
 
     const fn id(self) -> &'static str {
         match self {
             Self::Home => "home",
-            Self::Whispering => "whispering",
             Self::Folders => "folders",
         }
     }
@@ -130,7 +115,6 @@ impl BuiltInApp {
     const fn path(self) -> &'static str {
         match self {
             Self::Home => "/apps/home/",
-            Self::Whispering => "/apps/whispering/",
             Self::Folders => "/apps/folders/",
         }
     }
@@ -138,7 +122,6 @@ impl BuiltInApp {
     const fn title(self) -> &'static str {
         match self {
             Self::Home => "Epicenter: Settings",
-            Self::Whispering => "Epicenter: Whispering",
             Self::Folders => "Epicenter: Folders",
         }
     }
@@ -715,9 +698,6 @@ fn queue_or_send_auth_callback(app: &DesktopAppHandle, url: String) {
 /// or an app). It is wrong for `open_installed_app`, where a person clicked
 /// and is owed an outcome, so that command waits on the main thread instead.
 fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
-    if !built_in.is_hosted() {
-        return;
-    }
     let state = app.state::<HostState>();
     let Some(token) = state.active_token() else {
         state.queue_app(built_in);
@@ -1445,20 +1425,9 @@ fn create_windows_on_main_thread(
     let app = app.clone();
     let token = token.to_string();
     app.clone().run_on_main_thread(move || {
-        let result = (|| {
-            // Whispering's hidden window and its recording overlay, while
-            // Epicenter hosts it.
-            if BuiltInApp::Whispering.is_hosted() {
-                #[cfg(target_os = "macos")]
-                create_recording_overlay(&app, port, &token)?;
-
-                ensure_window(&app, BuiltInApp::Whispering, port, &token, false)?;
-            }
-
-            built_ins
-                .into_iter()
-                .try_for_each(|built_in| ensure_window(&app, built_in, port, &token, true))
-        })();
+        let result = built_ins
+            .into_iter()
+            .try_for_each(|built_in| ensure_window(&app, built_in, port, &token, true));
         let _ = sender.send(result);
     })?;
     receiver
@@ -1466,21 +1435,10 @@ fn create_windows_on_main_thread(
         .context("the main thread stopped before creating Epicenter windows")?
 }
 
-#[cfg(target_os = "macos")]
-fn create_recording_overlay(app: &DesktopAppHandle, port: u16, token: &str) -> Result<()> {
-    let origin = origin(port);
-    let url: tauri::Url = format!("{origin}/apps/whispering/recording-overlay/").parse()?;
-    let initialization_script = initialization_script(&origin, token)?;
-    overlay::create_recording_overlay(app, url, initialization_script, port)
-        .context("create the Whispering recording overlay")
-}
-
 /// Make sure the one window for this built-in app exists, and reveal it.
 ///
 /// The window label is the app's ID, which is what every capability file in
-/// `src-tauri/capabilities/` selects on. One built-in app has one window here;
-/// an app owning a second window (Whispering's recording overlay) creates it
-/// separately, under its own label.
+/// `src-tauri/capabilities/` selects on. One built-in app has one window.
 fn ensure_window(
     app: &DesktopAppHandle,
     built_in: BuiltInApp,
@@ -1548,7 +1506,10 @@ fn create_app_window(
 /// The window label of installed app `id` opened on `folder`: one window per
 /// app and folder. A label may hold only letters, digits, `-`, `/`, `:`, and
 /// `_`, so the id's dots become `_` (an id has no `_`) and the folder's scope
-/// is spelled in hex. The installed-app capability selects `app:*`.
+/// is spelled in hex. The installed-app capability selects `app:*`. An app
+/// that needs native commands is granted them by its id: a capability whose
+/// windows are `app:<id with _ for .>` and `app:<id with _ for .>:*`, which
+/// select exactly the labels made here for that id (`installed-whispering-*`).
 fn installed_window_label(id: &str, folder: Option<&str>) -> String {
     let mut label = format!("{INSTALLED_WINDOW_PREFIX}{}", id.replace('.', "_"));
     if let Some(folder) = folder {
@@ -1633,7 +1594,8 @@ enum OnHostStop {
     /// `NSException`, and the exception unwinds into tao's event loop, which
     /// Rust cannot catch. Converting it back with `Panel::to_window` first does
     /// not prevent it. Its page keeps the stopped host's token until Epicenter
-    /// restarts, so hosting Whispering again must hand it the next one.
+    /// restarts, so a page that creates it again must hand it the next one.
+    /// Nothing creates it today: installed Whispering's page has no overlay.
     Hide,
     /// Not a window of the host's session.
     Keep,
@@ -2067,20 +2029,9 @@ mod tests {
             actual,
             [
                 ("home", "/apps/home/", "Epicenter: Settings"),
-                ("whispering", "/apps/whispering/", "Epicenter: Whispering"),
                 ("folders", "/apps/folders/", "Epicenter: Folders"),
             ]
         );
-    }
-
-    #[test]
-    fn only_whispering_is_built_in_and_not_hosted() {
-        let unhosted: Vec<&str> = BuiltInApp::ALL
-            .into_iter()
-            .filter(|window| !window.is_hosted())
-            .map(BuiltInApp::id)
-            .collect();
-        assert_eq!(unhosted, ["whispering"], "only Whispering is not hosted for now");
     }
 
     /// A Bun host that ends after readiness destroys and reopens the windows
@@ -2108,57 +2059,6 @@ mod tests {
         assert!(!refuses_exit(Some(tauri::RESTART_EXIT_CODE)));
     }
 
-    #[test]
-    fn trusted_app_capabilities_grant_the_shared_http_slice() {
-        for encoded in [
-            include_str!("../capabilities/trusted-app-windows-development.json"),
-            include_str!("../capabilities/trusted-app-windows-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert_eq!(
-                capability["windows"],
-                serde_json::json!(["whispering"]),
-                "the trusted-app HTTP slice reaches Whispering alone while installed apps are parked"
-            );
-
-            let http = capability["permissions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|permission| permission["identifier"] == "http:default")
-                .expect("the app capability must scope the HTTP plugin");
-            let allowed: Vec<&str> = http["allow"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|entry| entry["url"].as_str().unwrap())
-                .collect();
-            assert_eq!(
-                allowed,
-                ["http://*", "https://*", "http://*:*", "https://*:*"],
-                "the first trusted-app authority slice is unrestricted HTTP(S) egress"
-            );
-        }
-    }
-
-    #[test]
-    fn whispering_native_capabilities_do_not_duplicate_trusted_app_http() {
-        for encoded in [
-            include_str!("../capabilities/trusted-whispering-native-development.json"),
-            include_str!("../capabilities/trusted-whispering-native-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert!(
-                capability["permissions"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|permission| permission["identifier"] != "http:default"),
-                "trusted-app HTTP belongs to the shared app capability, not Whispering native"
-            );
-        }
-    }
-
     /// The `tauri-plugin-macos-permissions` plugin is gone from this build:
     /// `command.rs` owns the two OS permission capabilities Epicenter exposes,
     /// through AVFoundation and the Accessibility API directly.
@@ -2167,16 +2067,11 @@ mod tests {
     /// plugin commands (screen recording, input monitoring, full disk access,
     /// camera) to reach the two it used. A grant naming a plugin this build does
     /// not ship is a silent no-op, so nothing would fail if it were pasted back;
-    /// what it would do is describe an authority the app does not have. Both
-    /// Whispering windows are checked, not just the one that had it.
+    /// what it would do is describe an authority the app does not have. Every
+    /// capability is checked, not just the one that had it.
     #[test]
-    fn no_whispering_capability_grants_the_deleted_permissions_plugin() {
-        for encoded in [
-            include_str!("../capabilities/trusted-whispering-native-development.json"),
-            include_str!("../capabilities/trusted-whispering-native-production.json"),
-            include_str!("../capabilities/trusted-whispering-overlay-development.json"),
-            include_str!("../capabilities/trusted-whispering-overlay-production.json"),
-        ] {
+    fn no_capability_grants_the_deleted_permissions_plugin() {
+        for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for permission in capability["permissions"].as_array().unwrap() {
                 // Permissions are either a bare identifier string or an object
@@ -2249,18 +2144,7 @@ mod tests {
     fn capability_grants_name_only_commands_this_build_has() {
         let declared: std::collections::BTreeSet<&str> =
             crate::command_names::COMMANDS.iter().copied().collect();
-        for encoded in [
-            include_str!("../capabilities/home-model-administration-development.json"),
-            include_str!("../capabilities/home-model-administration-production.json"),
-            include_str!("../capabilities/trusted-whispering-native-development.json"),
-            include_str!("../capabilities/trusted-whispering-native-production.json"),
-            include_str!("../capabilities/trusted-app-windows-development.json"),
-            include_str!("../capabilities/trusted-app-windows-production.json"),
-            include_str!("../capabilities/folders-development.json"),
-            include_str!("../capabilities/folders-production.json"),
-            include_str!("../capabilities/installed-app-windows-development.json"),
-            include_str!("../capabilities/installed-app-windows-production.json"),
-        ] {
+        for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for permission in capability["permissions"].as_array().unwrap() {
                 let Some(name) = permission.as_str() else {
@@ -2344,11 +2228,13 @@ mod tests {
             }
         }
 
-        for encoded in [
-            include_str!("../capabilities/trusted-whispering-native-development.json"),
-            include_str!("../capabilities/trusted-whispering-native-production.json"),
-        ] {
+        // Applications read readiness and transcribe, and can send the person
+        // to Settings to fix it; none administers the model.
+        for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            if capability["windows"] == serde_json::json!(["home"]) {
+                continue;
+            }
             let permissions = capability["permissions"].as_array().unwrap();
             for permission in ADMINISTRATION {
                 assert!(
@@ -2356,104 +2242,88 @@ mod tests {
                     "an application must not administer models: {permission}"
                 );
             }
-            // It still prewarms, still reads advisory readiness so it can warn
-            // before capture, and can still send the user to Home to fix it.
-            for permission in [
-                "allow-prewarm-model",
-                "allow-get-local-transcription-readiness",
-                "allow-open-home",
-            ] {
-                assert!(
-                    permissions.contains(&serde_json::json!(permission)),
-                    "Whispering must keep {permission}"
-                );
-            }
-        }
-
-        // Catalog apps transcribe through the same public client, so the same
-        // separation has to hold for the window class that did not exist when
-        // ADR-0180 was written.
-        for encoded in APP_WINDOW_CAPABILITIES {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let permissions = capability["permissions"].as_array().unwrap();
-            for permission in ADMINISTRATION {
-                assert!(
-                    !permissions.contains(&serde_json::json!(permission)),
-                    "an app window must not administer models: {permission}"
-                );
-            }
         }
     }
 
-    /// Both variants of the one capability that says what an app window may
-    /// reach natively.
-    const APP_WINDOW_CAPABILITIES: &[&str] = &[
-        include_str!("../capabilities/trusted-app-windows-development.json"),
-        include_str!("../capabilities/trusted-app-windows-production.json"),
+    /// Every capability file, for checks that hold for all of them.
+    const ALL_CAPABILITIES: &[&str] = &[
+        include_str!("../capabilities/home-model-administration-development.json"),
+        include_str!("../capabilities/home-model-administration-production.json"),
+        include_str!("../capabilities/folders-development.json"),
+        include_str!("../capabilities/folders-production.json"),
+        include_str!("../capabilities/installed-app-windows-development.json"),
+        include_str!("../capabilities/installed-app-windows-production.json"),
+        include_str!("../capabilities/installed-whispering-development.json"),
+        include_str!("../capabilities/installed-whispering-production.json"),
     ];
 
-    /// The operations `@epicenter/app` exposes, and therefore the complete set
-    /// of this crate's commands an app window is granted.
-    const PUBLIC_CLIENT_COMMANDS: &[&str] = &[
-        "transcribe_audio_bytes",
-        "list_inference_models",
-        "prewarm_model",
-        "get_local_transcription_readiness",
-    ];
-
-    /// Every bare `allow-<command>` grant in a capability, as command names.
-    ///
-    /// Plugin and core grants (`core:event:allow-listen`, the scoped
-    /// `http:default` object) are not this crate's commands and are checked
-    /// where they are relevant instead.
-    fn granted_app_commands(encoded: &str) -> std::collections::BTreeSet<String> {
-        let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-        capability["permissions"]
+    /// Whether `capability` applies to the window labelled `label`, decided as
+    /// Tauri decides it: each `windows` entry is a `glob::Pattern` matched
+    /// against the label (`tauri::ipc::authority`).
+    fn selects(capability: &serde_json::Value, label: &str) -> bool {
+        capability["windows"]
             .as_array()
             .unwrap()
             .iter()
-            .filter_map(|permission| permission.as_str())
-            .filter(|name| !name.contains(':'))
-            .filter_map(|name| name.strip_prefix("allow-"))
-            .map(|command| command.replace('-', "_"))
-            .collect()
+            .any(|pattern| glob::Pattern::new(pattern.as_str().unwrap()).unwrap().matches(label))
     }
 
-    /// An app window's native command API is the public client's API, exactly:
-    /// nothing the client cannot call, and nothing it can call that the window
-    /// was not granted.
-    ///
-    /// This is API wiring, not a sandbox. An app window already holds the
-    /// shared origin, the session, and the Epicenter application's own device
-    /// grants (ADR-0179); what an equality check buys is that the *product*
-    /// boundary stays a decision. A permission pasted in to unblock something
-    /// fails here rather than quietly widening what an app window can do.
+    /// Native commands reach an installed app by its id, never by a label a
+    /// built-in window or another app could hold: Whispering's capability
+    /// selects every window `open_installed_window` makes for
+    /// `so.epicenter.whispering`, opened on its own folder or on another, and
+    /// no other window. It grants what Whispering's page calls and nothing
+    /// else: the recorder into its granted folder (ADR-0543), local
+    /// transcription with the active model and its readiness (ADR-0180), and
+    /// opening Settings where that model is chosen.
     #[test]
-    fn app_windows_reach_exactly_the_public_client_api() {
-        let expected: std::collections::BTreeSet<String> = PUBLIC_CLIENT_COMMANDS
-            .iter()
-            .map(|command| command.to_string())
-            .collect();
-        for encoded in APP_WINDOW_CAPABILITIES {
+    fn installed_whispering_is_granted_its_native_commands_by_app_id() {
+        for encoded in [
+            include_str!("../capabilities/installed-whispering-development.json"),
+            include_str!("../capabilities/installed-whispering-production.json"),
+        ] {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            for label in [
+                installed_window_label("so.epicenter.whispering", None),
+                installed_window_label("so.epicenter.whispering", Some("so.epicenter.whispering")),
+                installed_window_label("so.epicenter.whispering", Some("data:Voice notes")),
+            ] {
+                assert!(selects(&capability, &label), "{label} is Whispering's");
+            }
+            for label in [
+                installed_window_label("so.epicenter.todos", None),
+                installed_window_label("so.epicenter.whisperingx", None),
+                installed_window_label("so.epicenter.whispering.other", None),
+                installed_window_label("so.epicenter", Some("so.epicenter.whispering")),
+                "whispering".to_string(),
+                "home".to_string(),
+                "folders".to_string(),
+            ] {
+                assert!(!selects(&capability, &label), "{label} is not Whispering's");
+            }
             assert_eq!(
-                granted_app_commands(encoded),
-                expected,
-                "the app-window capability must grant the public client's API and nothing else"
+                capability["permissions"],
+                serde_json::json!([
+                    "epicenter-recorder:default",
+                    "allow-list-inference-models",
+                    "allow-transcribe-audio-bytes",
+                    "allow-get-local-transcription-readiness",
+                    "allow-open-home"
+                ]),
+                "{encoded}"
             );
         }
-    }
-
-    /// The granted commands must exist, or the grant above is a silent no-op
-    /// and an app window invokes into nothing.
-    #[test]
-    fn the_public_client_api_is_commands_this_build_declares() {
-        let declared: std::collections::BTreeSet<&str> =
-            crate::command_names::COMMANDS.iter().copied().collect();
-        for command in PUBLIC_CLIENT_COMMANDS {
-            assert!(
-                declared.contains(command),
-                "the app-window grant names {command}, which this build does not declare"
-            );
+        // Every installed app, Whispering included, holds the folder plugin
+        // under the same labels.
+        for encoded in [
+            include_str!("../capabilities/installed-app-windows-development.json"),
+            include_str!("../capabilities/installed-app-windows-production.json"),
+        ] {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            assert!(selects(
+                &capability,
+                &installed_window_label("so.epicenter.whispering", None)
+            ));
         }
     }
 
@@ -2477,6 +2347,14 @@ mod tests {
             (
                 include_str!("../tauri.conf.json"),
                 "installed-app-windows-production",
+            ),
+            (
+                include_str!("../tauri.dev.conf.json"),
+                "installed-whispering-development",
+            ),
+            (
+                include_str!("../tauri.conf.json"),
+                "installed-whispering-production",
             ),
         ] {
             let config: serde_json::Value = serde_json::from_str(encoded).unwrap();
@@ -2544,16 +2422,10 @@ mod tests {
                 "{encoded}"
             );
         }
-        for encoded in [
-            include_str!("../capabilities/trusted-app-windows-development.json"),
-            include_str!("../capabilities/trusted-app-windows-production.json"),
-            include_str!("../capabilities/trusted-whispering-native-development.json"),
-            include_str!("../capabilities/trusted-whispering-native-production.json"),
-            include_str!("../capabilities/home-model-administration-development.json"),
-            include_str!("../capabilities/home-model-administration-production.json"),
-            include_str!("../capabilities/installed-app-windows-development.json"),
-            include_str!("../capabilities/installed-app-windows-production.json"),
-        ] {
+        for encoded in ALL_CAPABILITIES
+            .iter()
+            .filter(|encoded| !encoded.contains("\"identifier\": \"folders-"))
+        {
             assert!(
                 !encoded.contains("list-data-folders"),
                 "the listing belongs to the Folders window alone"
@@ -2608,7 +2480,6 @@ mod tests {
     fn deep_links_accept_only_the_closed_built_in_app_table() {
         for (url, expected) in [
             ("epicenter://app/home", BuiltInApp::Home),
-            ("epicenter://app/whispering", BuiltInApp::Whispering),
             ("epicenter://app/folders", BuiltInApp::Folders),
             // A link without a path opens what launching Epicenter opens.
             ("epicenter://", BuiltInApp::Folders),
@@ -2625,6 +2496,8 @@ mod tests {
             // Installed apps are opened from the Folders window, not by link.
             "epicenter://app/todos",
             "epicenter://app/so.epicenter.todos",
+            "epicenter://app/whispering",
+            "epicenter://app/so.epicenter.whispering",
             "epicenter://app/home/",
             "epicenter://app/home/extra",
             "epicenter://app/home?mode=other",
@@ -2784,7 +2657,7 @@ mod tests {
         .map(String::from);
         assert_eq!(
             apps_from_arguments(&arguments),
-            vec![BuiltInApp::Home, BuiltInApp::Whispering, BuiltInApp::Folders]
+            vec![BuiltInApp::Home, BuiltInApp::Folders]
         );
     }
 

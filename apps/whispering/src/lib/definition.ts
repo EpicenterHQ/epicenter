@@ -39,7 +39,7 @@ import { defineFolder } from '@epicenter/folder';
  * The file stem is a row's identity. A recording's title is a field, so
  * renaming a recording never moves a file or breaks a result's `recordingId`.
  *
- * The page and Whispering's Bun host both load this module, so it names only
+ * The page and `scripts/shape.ts` both load this module, so it names only
  * the inert vocabulary. It names no folder: each workspace opens
  * `WHISPERING_FOLDER_ID`. `defineFolder` checks and prepares the definition
  * here, where it is written, so the openers and `parseRow` read rows through

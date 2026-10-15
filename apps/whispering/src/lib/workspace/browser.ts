@@ -13,11 +13,7 @@
 import { openFolder } from '@epicenter/folder/browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
-import {
-	createFixtureDevice,
-	type MicrophonePreference,
-	toneWav,
-} from '../capture.js';
+import { createFixtureDevice, toneWav } from '../capture.js';
 import {
 	adoptLegacyKey,
 	applyConnectionChange,
@@ -39,6 +35,7 @@ import {
 	TransformationError,
 	transformOverConnection,
 } from '../transformation.js';
+import { localPreferences } from './microphone-preference.js';
 import {
 	WHISPERING_FOLDER_ID,
 	type Workspace,
@@ -49,7 +46,6 @@ import {
 const CONNECTIONS_STORAGE = 'whispering.connections';
 /** Where an earlier build kept its one key. Read only to move it into a connection. */
 const LEGACY_KEY_STORAGE = 'whispering.transcriptionApiKey';
-const MICROPHONE_STORAGE = 'whispering.microphone';
 
 const UNREADABLE_CONNECTIONS =
 	'This browser’s saved Whispering connections do not read as a JSON object, so they were left as they are. Set them up again in Settings after removing whispering.connections from this site’s storage.';
@@ -97,24 +93,6 @@ function readConnections(): ConnectionsInfo {
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
-
-/** Read the saved microphone; storage and JSON failures reach the chooser. */
-function savedMicrophone(): MicrophonePreference | undefined {
-	const saved: unknown = JSON.parse(
-		localStorage.getItem(MICROPHONE_STORAGE) ?? 'null',
-	);
-	if (
-		typeof saved === 'object' &&
-		saved !== null &&
-		'deviceId' in saved &&
-		typeof saved.deviceId === 'string' &&
-		saved.deviceId !== '' &&
-		'label' in saved &&
-		typeof saved.label === 'string'
-	)
-		return { deviceId: saved.deviceId, label: saved.label };
-	return undefined;
-}
 
 /**
  * A development build opened with `?fixture=tone` records a generated tone
@@ -181,11 +159,12 @@ export async function openBrowserWorkspace(): Promise<
 			if (transformError?.name === 'Unreachable')
 				return TransformationError.Unreachable({
 					url: transformError.url,
-					reason: `${transformError.reason}. In a browser tab the endpoint must allow requests from ${location.origin} (CORS). The desktop app sends from Whispering’s host and has no such limit`,
+					reason: `${transformError.reason}. In a browser tab the endpoint must allow requests from ${location.origin} (CORS). Whispering in Epicenter sends from Epicenter and has no such limit`,
 				});
 			return answered;
 		},
-		transformNote: `Requests are sent from this browser tab over the text connection in Settings, so its endpoint must allow requests from ${location.origin} (CORS). Most hosted providers refuse that; a local endpoint or the desktop app works.`,
+		transformNote: `Requests are sent from this browser tab over the text connection in Settings, so its endpoint must allow requests from ${location.origin} (CORS). Most hosted providers refuse that; a local endpoint or Whispering in Epicenter works.`,
+		localTranscription: undefined,
 		// One synchronous read and write per change, so a key never sits beside
 		// a base URL it was not saved for.
 		connections: {
@@ -236,23 +215,7 @@ export async function openBrowserWorkspace(): Promise<
 				}
 			},
 		},
-		preferences: {
-			microphone: async () => savedMicrophone(),
-			async setMicrophone(microphone) {
-				try {
-					if (microphone === undefined)
-						localStorage.removeItem(MICROPHONE_STORAGE);
-					else
-						localStorage.setItem(
-							MICROPHONE_STORAGE,
-							JSON.stringify(microphone),
-						);
-					return undefined;
-				} catch (cause) {
-					return cause instanceof Error ? cause.message : String(cause);
-				}
-			},
-		},
+		preferences: localPreferences,
 		debugControls: import.meta.env.DEV,
 		injection: undefined,
 		close: () => folder.close(),

@@ -1,9 +1,9 @@
 /**
  * One transcription request to an OpenAI-compatible endpoint.
  *
- * Plain `fetch` and nothing else, so the page (browser folder) and the Bun
- * host (desktop) run the same request. The desktop host makes the call so the
- * key stays out of the page and the endpoint needs no CORS headers.
+ * Plain `fetch` and nothing else. A browser tab sends it itself; inside
+ * Epicenter the `fetch` goes through Epicenter's host, which adds the key, so
+ * the key stays out of the page and the endpoint needs no CORS headers.
  *
  * The base URL and key are the transcription connection's (see
  * `connections.ts`). A redirect is refused, not followed, so the key is never
@@ -47,13 +47,13 @@ export const TranscriptionError = defineErrors({
 		configured,
 	}),
 	/**
-	 * The host did not answer, or its answer never arrived. That says nothing
-	 * about what the host did: it may never have been reached, or it may have
-	 * sent the request and had its answer lost on the way back. The outcome is
+	 * Epicenter did not answer, or its answer never arrived. That says nothing
+	 * about what it did: it may never have been reached, or it may have sent
+	 * the request and had its answer lost on the way back. The outcome is
 	 * unknown, and nothing is sent again without the person asking.
 	 */
 	HostUnavailable: ({ reason }: { reason: string }) => ({
-		message: `Whispering’s host did not answer, so it is not known whether the request was sent or what came back: ${reason}. Nothing is sent again unless you try again.`,
+		message: `Epicenter did not answer, so it is not known whether the request was sent or what came back: ${reason}. Nothing is sent again unless you try again.`,
 		reason,
 	}),
 	/** The audio was not read, so no request was made. This one is certain. */
@@ -84,6 +84,11 @@ export const TranscriptionError = defineErrors({
 	Malformed: ({ url }: { url: string }) => ({
 		message: `The transcription endpoint at ${url} did not answer with transcript text`,
 		url,
+	}),
+	/** Epicenter's local model ran and failed: it did not load, or inference failed. */
+	LocalFailed: ({ reason }: { reason: string }) => ({
+		message: `Transcription on this computer failed: ${reason}`,
+		reason,
 	}),
 });
 export type TranscriptionError = InferErrors<typeof TranscriptionError>;

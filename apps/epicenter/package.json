@@ -9,20 +9,18 @@
 	},
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",
-		"build:apps": "bun run clean:dist && bun run build:home && bun run build:whispering && bun run build:folders",
+		"build:apps": "bun run clean:dist && bun run build:home && bun run build:folders",
 		"build:desktop": "bun run build && bun run build:sidecar",
 		"build:folders": "vite build --config vite.folders.config.ts",
 		"build:home": "vite build",
 		"build:sidecar": "bun run scripts/build-sidecar.ts",
-		"build:whispering": "bun run --cwd ../whispering build:epicenter",
 		"clean:dist": "bun run scripts/clean-dist.ts",
 		"desktop:build": "tauri build",
 		"dev": "bun run dev:desktop",
 		"dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"tauri": "tauri",
 		"test": "bun test",
-		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
-		"typecheck:desktop": "bun run typecheck && bun run --cwd ../whispering typecheck"
+		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
 		"openai": "^7.12.1",
@@ -36,7 +34,6 @@
 		"@epicenter/server": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
-		"@epicenter/whispering": "workspace:*",
 		"@modelcontextprotocol/sdk": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",

@@ -1,13 +1,12 @@
 # Epicenter desktop host
 
-Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the short list of what it compiles in. Epicenter ships with no apps installed (ADR-0552): every app, Todos and Capture included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
+Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the short list of what it compiles in. Epicenter ships with no apps installed (ADR-0552): every app, Todos, Capture, and Whispering included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
 
 Honeycrisp ships its own desktop shell and is built from `apps/honeycrisp`.
 
 ```text
 trusted SPA source                 Epicenter build output
 
-apps/whispering/src  -----------> dist/whispering
 apps/epicenter/src/ui -----------> dist/home
 apps/epicenter/src/folders ------> dist/folders
                                           |
@@ -18,23 +17,16 @@ apps/epicenter/src/folders ------> dist/folders
                               apps/epicenter/src-tauri
 ```
 
-The host serves Settings (the `home` document) and two compiled applications:
-Whispering and its own Folders window. Whispering is built and served but not
-offered for now, because inside Epicenter no folder or host of its own is
-registered for it: neither the tray nor a deep link opens it, and the shell
-opens neither its hidden window nor its recording overlay at startup
-(`BuiltInApp::is_hosted`). It installs like every other app in a later change.
-Application routes live below `/apps/<id>/`. Apps a person installs from a Git
-repository are served below `/apps/<app-id>/` too. The `epicenter-host` build
-condition selects each product's host integrations. Honeycrisp has a separate
-desktop shell.
+The host serves Settings (the `home` document) and one compiled application,
+its own Folders window. Application routes live below `/apps/<id>/`. Apps a
+person installs from a Git repository are served below `/apps/<app-id>/` too.
+The `epicenter-host` build condition selects each product's host
+integrations. Honeycrisp has a separate desktop shell.
 
 Installed apps reach native file folders through the shared Folder plugin.
 Each page runs `@epicenter/folder`'s own engine over a directory the shell
-grants (ADR-0531). The shared-host Whispering bundle currently has no supported
-folder bridge and refuses before acquiring a folder; being served by the host
-does not establish usable hosted editing.
-Standalone Whispering owns its own folder and lifecycle.
+grants (ADR-0531). An app that needs other native commands is granted them by
+its app id (see [Native commands for an installed app](#native-commands-for-an-installed-app)).
 
 The host brokers credentials and owns native resources. Product pages own
 unsaved input. The Bun sidecar serves product bundles without owning their row
@@ -160,8 +152,8 @@ An installed app opened without a folder, from the Apps list, is handed its
 own folder: `<folderDir>/<app-id>`, under the authored folder root native
 startup resolved (`~/Epicenter` in production, `~/Epicenter Dev` in
 development, or `EPICENTER_FOLDER_DIR`), with the scope `<app-id>` (ADR-0552).
-Installed Todos opens `so.epicenter.todos`, and installed Capture
-`so.epicenter.capture`. The shell registers that scope the first time the app
+Installed Todos opens `so.epicenter.todos`, installed Capture
+`so.epicenter.capture`, and installed Whispering `so.epicenter.whispering`. The shell registers that scope the first time the app
 is opened that way or the Folders window lists a folder named by an installed
 app's id, whichever comes first (`own_folder` in `src-tauri/src/data_folders.rs`).
 The first grant creates the directory and takes the cross-process lock until
@@ -313,8 +305,9 @@ ADR-0552):
 ```
 
 - `id` is a lowercase reverse-domain name. Only `so.epicenter`, Epicenter's
-  own folder, is refused. Todos (`so.epicenter.todos`) and Capture
-  (`so.epicenter.capture`) install from `apps/todos` and `apps/capture` of
+  own folder, is refused. Todos (`so.epicenter.todos`), Capture
+  (`so.epicenter.capture`), and Whispering (`so.epicenter.whispering`)
+  install from `apps/todos`, `apps/capture`, and `apps/whispering` of
   Epicenter's repository.
 - `opens` is the path, within the app's folder, of the shape the app reads
   (ADR-0538): a JSON declaration, the output of
@@ -378,6 +371,38 @@ permitted into that folder's scope and the page gets `?folder=<scope>`, which
 the app opens with `openDataFolder({ id, lens })`. Opened with no folder, the
 app is handed its own folder, [`<app-id>`](#an-apps-own-folder).
 
+### Native commands for an installed app
+
+Every installed app's window holds the folder plugin and nothing else, unless
+a capability names its app id. An app that needs more of Epicenter's native
+commands gets them from one capability per app id, in both build variants
+(`src-tauri/capabilities/installed-<name>-development.json` and
+`-production.json`):
+
+- Its `windows` are `app:<id with _ for .>` and `app:<id with _ for .>:*`.
+  Tauri matches each entry against a window's label as a glob
+  (`glob::Pattern`, in Tauri 2.12's `ipc::authority`), so the two select
+  exactly the labels `installed_window_label` makes for that id: the window
+  on its own folder and one on any other folder. An id holds no `_`, so no
+  other id's window matches, and no built-in window does.
+- Its `permissions` list the commands the app's page calls, by name, and
+  nothing it does not. Approving an app trusts its code fully (ADR-0540), so
+  this is wiring, not a sandbox: the list says what the app reaches, and a
+  test fails when a grant is added without one.
+- Native state an app owns, such as an overlay window or global shortcuts, is
+  created when the app's window opens, never at startup.
+
+The one such capability today is Whispering's (`so.epicenter.whispering`,
+`installed-whispering-*`): the recorder plugin, which writes into the folder
+the window was granted (ADR-0543); `list_inference_models`,
+`transcribe_audio_bytes`, and `get_local_transcription_readiness`, for
+transcription with the one active local model (ADR-0180); and `open_home`, to
+open Settings where that model is chosen. Whispering's page has no recording
+overlay and registers no global shortcuts, so neither is created or granted.
+The shell's overlay panel (`src-tauri/src/overlay.rs`) and the dictation
+commands (global shortcuts, keyboard delivery, playback pause, accessibility,
+and autostart) are compiled but granted to no window.
+
 ## Quitting Epicenter
 
 Quitting is immediate
@@ -405,9 +430,10 @@ not submit is lost, as people expect.
   Destroying the last window does not quit Epicenter: an exit request with no
   code is refused, and Epicenter stays in the tray meanwhile. The failure
   dialog offers Retry, which starts the next host and opens those windows.
-  Whispering's recording overlay is an `NSPanel` that cannot be destroyed
-  (destroying it throws an AppKit exception that aborts the process), so a
-  host restart hides it instead (`on_host_stop` in `src-tauri/src/lib.rs`).
+  The recording overlay is an `NSPanel` that cannot be destroyed (destroying
+  it throws an AppKit exception that aborts the process), so a host restart
+  would hide it instead (`on_host_stop` in `src-tauri/src/lib.rs`); nothing
+  creates it today.
 - **Closing a window hides it.** The built-in windows are hidden, not
   destroyed, so their pages and folders stay open until Epicenter quits. An
   installed app's window is destroyed when it closes.
@@ -424,9 +450,6 @@ bun run --cwd apps/epicenter desktop:build
 # Typecheck the host, Settings, and the Folders window
 bun run --cwd apps/epicenter typecheck
 
-# Typecheck the host, Settings, and Whispering
-bun run --cwd apps/epicenter typecheck:desktop
-
 # Host, routing, sidecar, and window tests
 bun test apps/epicenter/scripts apps/epicenter/src
 
@@ -434,9 +457,8 @@ bun test apps/epicenter/scripts apps/epicenter/src
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 ```
 
-The root `bun typecheck` runs each workspace's checks, including the apps checked
-by `typecheck:desktop`. Use `typecheck:desktop` for standalone verification of
-the host with Whispering.
+The root `bun typecheck` runs each workspace's checks. Installed apps, such as
+Whispering, are checked in their own folders.
 
 ## Ownership rules
 
@@ -462,3 +484,9 @@ require the exact host Origin. Open apps receive committed snapshots over SSE;
 inference requests identify an immutable connection ID and captured access
 version. Apps receive `hasApiKey`, never the stored key. Their workflow choices
 remain separate. See the [App API](../../packages/app/README.md).
+
+Installed Whispering keeps its two connections there, as the entries
+"Whispering transcription" and "Whispering text" in the no-account catalog
+(`/_epicenter/ai/no-account/`), and remembers their ids in its origin's
+storage. ADR-0539 puts AI settings in `so.epicenter`'s `kv.json`; the catalog
+still lives in application data, so that move is not built.

@@ -162,6 +162,7 @@ async function open({
 		},
 		transform: async ({ input }) => Ok({ text: input }),
 		transformNote: 'test',
+		localTranscription: undefined,
 		connections: device.member,
 		preferences: {
 			microphone: async () => undefined,

@@ -3,9 +3,9 @@
  *
  * Verifies the compiled Bun child runs without a system Bun on PATH, refuses a
  * production boot on any port but the fixed one, finds packaged Home and
- * Whispering assets through the Rust-supplied resource path, and exits when the
- * parent pipe closes. Todos assets are served without opening its data folder;
- * native Folder commands belong to the Rust shell.
+ * Folders assets through the Rust-supplied resource path, and exits when the
+ * parent pipe closes. Apps that are installed now, Todos and Whispering, are
+ * not served from the package; native Folder commands belong to the Rust shell.
  *
  * The serving half boots in development mode on a port the OS hands out, not in
  * production mode on 39130. Binding the real production port made this test
@@ -195,22 +195,22 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 		const home = await fetch(`${origin}/apps/home/`, session);
 		expect(home.status).toBe(200);
 		expect(await home.text()).toContain('<title>Settings</title>');
-		const whispering = await fetch(`${origin}/apps/whispering/`, session);
-		expect(whispering.status).toBe(200);
-		const whisperingPage = await whispering.text();
-		expect(whisperingPage).toContain('<title>Whispering</title>');
-		const entryPath = whisperingPage.match(
-			/\/apps\/whispering\/_app\/[^" ]+\.js/,
+		const folders = await fetch(`${origin}/apps/folders/`, session);
+		expect(folders.status).toBe(200);
+		const foldersPage = await folders.text();
+		expect(foldersPage).toContain('<title>Folders</title>');
+		const entryPath = foldersPage.match(
+			/\/apps\/folders\/assets\/[^" ]+\.js/,
 		)?.[0];
 		expect(entryPath).toBeDefined();
 		const entry = await fetch(`${origin}${entryPath ?? ''}`, session);
 		expect(entry.status).toBe(200);
 		expect(entry.headers.get('content-type')).toContain('text/javascript');
-		const folders = await fetch(`${origin}/apps/folders/`, session);
-		expect(folders.status).toBe(200);
-		// Todos is installed now, not compiled in (ADR-0552).
-		const todos = await fetch(`${origin}/apps/todos/`, session);
-		expect(todos.status).toBe(404);
+		// Todos and Whispering are installed now, not compiled in (ADR-0552).
+		for (const id of ['todos', 'whispering']) {
+			const installed = await fetch(`${origin}/apps/${id}/`, session);
+			expect(installed.status).toBe(404);
+		}
 		const removedBridge = await fetch(`${origin}/_epicenter/todos/call`, {
 			method: 'POST',
 			headers: {

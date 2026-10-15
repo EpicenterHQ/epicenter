@@ -1,9 +1,9 @@
 /**
  * The one boundary between Whispering and where its files live.
  *
- * The desktop app reaches a real directory the desktop shell grants it, and
- * its other native abilities through the Whispering host; a
- * browser tab keeps a logical folder in OPFS. Everything above this type
+ * Inside Epicenter, Whispering reaches a real directory Epicenter's shell
+ * grants it, and its connections and local transcription through Epicenter;
+ * a browser tab keeps a logical folder in OPFS. Everything above this type
  * is the same code for both. Capabilities a storage cannot offer are
  * `undefined` here, not emulated: a browser folder has no directory to reveal.
  */
@@ -27,13 +27,14 @@ import type {
 	PreparedTransformation,
 	TransformationError,
 } from '../transformation.js';
+import type { LocalTranscription } from './local-transcription.js';
 
 export type WhisperingFolder = Folder<typeof whisperingDefinition>;
 
 /**
- * The folder both workspaces open. The browser names its scoped OPFS directory
- * after it; the desktop shell registers its directory under it
- * (`FOLDER_SCOPE` in `src-tauri/src/lib.rs`).
+ * The folder both workspaces open, named by Whispering's app id. The browser
+ * names its scoped OPFS directory after it; Epicenter hands an installed app
+ * its own folder, `<folder root>/<app-id>`, under this scope (ADR-0552).
  */
 export const WHISPERING_FOLDER_ID = 'so.epicenter.whispering';
 
@@ -52,39 +53,15 @@ export const WorkspaceError = defineErrors({
 				: refusal.message,
 		refusal,
 	}),
-	/**
-	 * The page is inside a desktop app that did not start the Whispering host,
-	 * so it has no terminal or transcription. Nothing is opened: a folder
-	 * alone is not the app.
-	 */
-	HostMissing: () => ({
-		message:
-			'This window is inside a desktop app that did not start Whispering’s own host, so Whispering cannot run here. Nothing was opened, and browser storage is not used inside a desktop app.',
-	}),
-	/** The Whispering host did not answer when the window opened. */
-	HostUnreachable: ({ reason }: { reason: string }) => ({
-		message: `Whispering’s host could not be reached, so the folder was not opened: ${reason}`,
-		reason,
-	}),
 	/** The desktop shell refused this window its folder, or the folder could not be opened. */
 	DesktopFolder: ({ refusal }: { refusal: OpenFolderError }) => ({
 		message: refusal.message,
 		refusal,
 	}),
-	/**
-	 * The shell's grant and the host name different directories, so audio
-	 * would be read and commands run somewhere other than where files are
-	 * saved.
-	 */
-	FolderMismatch: ({ folder, host }: { folder: string; host: string }) => ({
-		message: `The desktop app opened the folder at ${folder}, but Whispering’s host uses ${host}. Nothing was opened.`,
-		folder,
-		host,
-	}),
 });
 export type WorkspaceError = InferErrors<typeof WorkspaceError>;
 
-/** Repeatable failures a debug desktop shell can arm. */
+/** Repeatable failures a debug build can arm. No workspace arms them today; tests do. */
 export type InjectionState = {
 	readonly rowWrites: number;
 	readonly audioWrites: number;
@@ -100,9 +77,9 @@ export type RecordingWrite =
 	| { readonly step: 'row'; readonly stem: string };
 
 /**
- * Runs one write of a recording. A debug desktop shell puts an armed failure
- * in that write's way and removes it afterward; the write is always the
- * folder's own and so is its answer. On the desktop the microphone's audio is
+ * Runs one write of a recording. Failure injection puts an armed failure in
+ * that write's way and removes it afterward; the write is always the
+ * folder's own and so is its answer. In Epicenter the microphone's audio is
  * written as it is captured, so its file is already there when stop runs and
  * an armed audio failure is left unspent.
  */
@@ -134,13 +111,16 @@ export type Workspace = {
 	readonly folder: WhisperingFolder;
 	/** Where the files are: an absolute directory, or a description of browser storage. */
 	readonly location: string;
-	/** The person's own shell in the folder; absent in a browser, which has none. */
+	/**
+	 * The person's own shell in the folder. Absent: neither Epicenter nor a
+	 * browser offers one to Whispering.
+	 */
 	readonly terminal: WorkspaceTerminal | undefined;
 	/** What this session records from. Fixed when the workspace opens. */
 	readonly capture: CaptureDevice;
 	/** Something the person should know about capture, such as a refused fixture. */
 	readonly captureNotice: string | undefined;
-	/** Show the folder in the system file manager; a problem is returned as text. */
+	/** Show the folder in the system file manager; a problem is returned as text. Absent where nothing can. */
 	readonly reveal: (() => Promise<string | undefined>) | undefined;
 	/**
 	 * Send the audio a row names over the transcription connection, only while
@@ -160,6 +140,11 @@ export type Workspace = {
 	): Promise<Result<{ text: string }, TransformationError>>;
 	/** Where text requests leave from, and what that requires of the endpoint. */
 	readonly transformNote: string;
+	/**
+	 * Transcription with Epicenter's active local model; absent in a browser,
+	 * which has none.
+	 */
+	readonly localTranscription: LocalTranscription | undefined;
 	/**
 	 * This device's two connections. Kept outside the folder; what the page is
 	 * told never includes a key.
@@ -195,7 +180,7 @@ export type Workspace = {
 	};
 	/** Whether debug controls are offered. */
 	readonly debugControls: boolean;
-	/** Failure injection, in a debug desktop shell only. */
+	/** Failure injection: only tests provide it. */
 	readonly injection:
 		| {
 				state(): Promise<InjectionState>;

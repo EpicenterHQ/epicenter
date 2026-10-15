@@ -13,8 +13,8 @@ All workflows live flat in `.github/workflows/` (GitHub Actions requirement). We
 | `meta.{name}` | Repo housekeeping | Whole repo |
 
 Tauri desktop apps get **separate per-app workflows** when their native release
-matrix earns one. Whispering is a standalone Tauri app (`apps/whispering/src-tauri`)
-with no release workflow yet; `bun build:whispering` builds it locally.
+matrix earns one. Epicenter is the desktop shell for Whispering, which installs
+into it like any app (ADR-0493); neither has a release workflow yet.
 
 Web apps (Cloudflare Workers) deploy **together in one workflow** because deploys are fast (~2 min on a single runner) and share the same runtime setup. Each worker's build lives in its own `wrangler.jsonc` `build.command`, which Wrangler runs for both `deploy` and `versions upload`, so production, previews, and local `wrangler deploy` build through one definition. Repo-wide lint, typecheck, and unrelated package builds belong to CI.
 

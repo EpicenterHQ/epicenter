@@ -3,9 +3,9 @@
  * transcription and one for text.
  *
  * A connection is a base URL, the model used when a request names none, and
- * an optional API key. It is kept on this device, never in the folder: the
- * desktop host keeps it in the device file under `.git`, a browser tab in
- * `localStorage`. The folder's files (a recipe's endpoint, `kv.json`) never
+ * an optional API key. It is kept on this device, never in the folder:
+ * Epicenter keeps it in its AI connections, with the key in the system
+ * keychain, and a browser tab in `localStorage`. The folder's files (a recipe's endpoint, `kv.json`) never
  * choose where a request goes or which key it carries. A request names the
  * connection's base URL it was prepared for, and is sent only while the
  * connection still targets exactly that URL, so a change of connection never
@@ -15,8 +15,8 @@
  * is kept only for the destination it was saved for: changing the base URL
  * needs the key replaced or removed in the same change.
  *
- * These rules are pure, so the host and the browser workspace apply the same
- * ones to their own storage. Nothing here reads or writes anything.
+ * These rules are pure, so both workspaces apply the same ones to their own
+ * storage. Nothing here reads or writes anything.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
