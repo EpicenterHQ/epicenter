@@ -24,6 +24,9 @@
 //! A folder whose scope cannot be permitted or registered is left out of the
 //! listing and logged; the others are still listed.
 //!
+//! The shell watches the root (`watch_data_folders`) and tells the Folders
+//! window when the listing may have changed, so it lists again.
+//!
 //! The reply carries scope IDs, titles, and each folder's declaration text,
 //! never paths. The page still learns a folder's root from the plugin's
 //! grant, as every folder page does today, and reads the declaration to offer
@@ -32,11 +35,14 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Component, Path};
 use std::sync::Mutex;
+use std::time::Duration;
 
+use notify::{EventKind, RecommendedWatcher, RecursiveMode};
+use notify_debouncer_full::{new_debouncer_opt, DebounceEventResult, Debouncer, NoCache};
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, Folders, ScopeConfig};
 
 use crate::app_data::DesktopPaths;
@@ -251,6 +257,83 @@ fn list_in(
     Ok(listed)
 }
 
+/// The event the Folders window hears when the listing may have changed. It
+/// carries nothing: the window lists again. `DATA_FOLDERS_CHANGED` in
+/// `src/folders/App.svelte` names it too.
+pub const DATA_FOLDERS_CHANGED: &str = "epicenter://data-folders-changed";
+
+/// How long the root's watcher waits for a burst of events to settle.
+const LISTING_DEBOUNCE: Duration = Duration::from_millis(100);
+
+/// The watch on the Epicenter folder root, kept in the app's state until
+/// exit; dropping it stops the watch.
+pub struct DataFoldersWatch {
+    _debouncer: Debouncer<RecommendedWatcher, NoCache>,
+}
+
+/// Watch `folder_dir` and send `DATA_FOLDERS_CHANGED` to the Folders window
+/// when what `list_in` reads may have changed: an entry directly under the
+/// root, or a folder's `epicenter.json`. The watch is recursive because a
+/// declaration is one level down; every deeper change, such as a row saved
+/// in a folder, is ignored. A rescan or a watch error is reported too. A
+/// root that cannot be watched leaves the listing as the window last read it.
+pub fn watch_data_folders<R: Runtime>(
+    app: &AppHandle<R>,
+    folder_dir: &Path,
+) -> Result<DataFoldersWatch, String> {
+    let root = folder_dir.to_path_buf();
+    let app = app.clone();
+    let mut debouncer = new_debouncer_opt::<_, RecommendedWatcher, NoCache>(
+        LISTING_DEBOUNCE,
+        None,
+        move |result: DebounceEventResult| {
+            let changed = match result {
+                Ok(events) => events.iter().any(|debounced| {
+                    debounced.need_rescan()
+                        || (!matches!(debounced.kind, EventKind::Access(_))
+                            && debounced
+                                .paths
+                                .iter()
+                                .any(|path| changes_listing(&root, path)))
+                }),
+                // Some events could not be delivered.
+                Err(_) => true,
+            };
+            if changed {
+                let _ = app.emit_to(BuiltInApp::Folders.id(), DATA_FOLDERS_CHANGED, ());
+            }
+        },
+        NoCache,
+        notify::Config::default().with_follow_symlinks(false),
+    )
+    .map_err(|cause| format!("'{}' could not be watched: {cause}", folder_dir.display()))?;
+    debouncer
+        .watch(folder_dir, RecursiveMode::Recursive)
+        .map_err(|cause| format!("'{}' could not be watched: {cause}", folder_dir.display()))?;
+    Ok(DataFoldersWatch {
+        _debouncer: debouncer,
+    })
+}
+
+/// Whether a change at `path` can change the listing of `root`: the root
+/// itself, an entry directly in it, or `epicenter.json` directly in one,
+/// leaving out dot entries, which are never listed.
+fn changes_listing(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    let names: Vec<Component> = relative.components().collect();
+    let listed = |name: &std::ffi::OsStr| !name.to_string_lossy().starts_with('.');
+    match names.as_slice() {
+        [] => true,
+        [Component::Normal(entry)] => listed(entry),
+        [Component::Normal(entry), Component::Normal(file)] => {
+            listed(entry) && *file == DECLARATION
+        }
+        _ => false,
+    }
+}
+
 /// `epicenter.json`'s `title`, when the text parses and it is a string.
 fn declared_title(text: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
@@ -381,6 +464,46 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn the_folders_window_hears_a_new_data_folder() {
+        use tauri::Listener;
+
+        let fixture = fixture("watch");
+        let window = fixture.window(BuiltInApp::Folders.id());
+        let (heard, hearing) = std::sync::mpsc::channel();
+        window.listen(DATA_FOLDERS_CHANGED, move |_| {
+            let _ = heard.send(());
+        });
+        let _watch = watch_data_folders(fixture.app.handle(), &fixture.folder_dir).unwrap();
+        // The operating system may report the root's creation late; settle it.
+        std::thread::sleep(Duration::from_millis(500));
+        while hearing.try_recv().is_ok() {}
+
+        data_folder(&fixture, "books", "{}");
+
+        hearing
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the Folders window hears the new folder");
+    }
+
+    #[test]
+    fn only_entries_under_the_root_and_their_declarations_change_the_listing() {
+        let root = PathBuf::from("/home/Epicenter");
+        for path in ["", "books", "books/epicenter.json", "loose.json"] {
+            assert!(changes_listing(&root, &root.join(path)), "{path}");
+        }
+        for path in [
+            "books/b1.md",
+            "books/.git/HEAD",
+            "books/nested/epicenter.json",
+            ".books.epicenter-lock",
+            ".hidden/epicenter.json",
+        ] {
+            assert!(!changes_listing(&root, &root.join(path)), "{path}");
+        }
+        assert!(!changes_listing(&root, Path::new("/elsewhere/books")));
     }
 
     #[test]

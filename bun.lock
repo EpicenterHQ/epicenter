@@ -135,6 +135,7 @@
         "@epicenter/ui": "workspace:*",
         "@epicenter/whispering": "workspace:*",
         "@modelcontextprotocol/sdk": "catalog:",
+        "@tanstack/svelte-query": "catalog:",
         "@tauri-apps/api": "catalog:",
         "hono": "catalog:",
         "mime": "catalog:",

@@ -3,7 +3,9 @@
  * gets (`fieldEditorOf`), and how an editor's text becomes the value saved.
  *
  * The editor follows the field's `x-field` hint where the schema has that
- * widget's shape, and is the JSON editor otherwise. Text editors cover every
+ * widget's shape. A field with no hint at all, as a hand-written plain JSON
+ * Schema declares it, gets the editor its type implies (`plainKind`); any
+ * other field gets the JSON editor. Text editors cover every
  * kind but boolean, select, and multiSelect, which save values directly.
  * Dates are `YYYY-MM-DD`; instants and datetimes are edited as their ISO
  * text, since a `datetime-local` input would drop seconds and the offset.
@@ -12,7 +14,9 @@
  */
 
 import {
+	FIELD_KEYWORD,
 	type FieldEditor,
+	type FieldHint,
 	fieldEditorOf,
 	isOptional,
 } from '@epicenter/definition';
@@ -30,9 +34,108 @@ export type FieldColumn = {
 export function columnsOf(table: PreparedFolderTable): FieldColumn[] {
 	return Object.entries(table.fields).map(([name, schema]) => ({
 		name,
-		editor: fieldEditorOf(schema),
+		editor: editorOf(schema),
 		optional: isOptional(schema),
 	}));
+}
+
+type Schema = PreparedFolderTable['fields'][string];
+type Keywords = Readonly<Record<string, unknown>>;
+
+const isKeywords = (value: unknown): value is Keywords =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * `schema`'s editor: its hint's, or, when neither it nor the member of its
+ * union with `null` carries a hint, the one its plain type implies. A hint
+ * that is present still wins, even when it resolves to the JSON editor.
+ */
+export function editorOf(schema: Schema): FieldEditor {
+	const editor = fieldEditorOf(schema);
+	const keywords = schema as unknown as Keywords;
+	const subject = nullableMember(keywords) ?? keywords;
+	if (
+		editor.kind !== 'json' ||
+		Object.hasOwn(keywords, FIELD_KEYWORD) ||
+		Object.hasOwn(subject, FIELD_KEYWORD)
+	)
+		return editor;
+	const kind = plainKind(subject);
+	if (kind === undefined) return editor;
+	// The hint goes through `fieldEditorOf`, so the same shape checks decide
+	// whether the schema fits it; one that does not stays the JSON editor.
+	return fieldEditorOf({
+		...schema,
+		[FIELD_KEYWORD]: { kind } satisfies FieldHint,
+	} as Schema);
+}
+
+/** The member of `anyOf: [member, { type: 'null' }]`, in either order. */
+function nullableMember(schema: Keywords): Keywords | undefined {
+	const members = schema.anyOf;
+	if (!Array.isArray(members) || members.length !== 2) return undefined;
+	const rest = members.filter(
+		(member) => !(isKeywords(member) && member.type === 'null'),
+	);
+	return rest.length === 1 && isKeywords(rest[0]) ? rest[0] : undefined;
+}
+
+/**
+ * The editor kind a plain JSON Schema's type implies: a checkbox for
+ * `boolean`, a number box for `integer` and `number`, a menu for a string
+ * `enum`, a date input for a `date` string, ISO text for a `date-time` one
+ * (a date input would drop the time), a URL box for a `uri` one, toggles for
+ * an array of a string `enum`, tags for an array of strings, and a text box
+ * for any other string. `undefined` for anything else.
+ */
+function plainKind(
+	schema: Keywords,
+): Exclude<FieldHint['kind'], 'reference'> | undefined {
+	if (Array.isArray(schema.enum)) return 'select';
+	switch (schema.type) {
+		case 'boolean':
+		case 'integer':
+		case 'number':
+			return schema.type;
+		case 'string':
+			switch (schema.format) {
+				case 'date':
+					return 'date';
+				case 'date-time':
+					return 'datetime';
+				case 'uri':
+					return 'url';
+				default:
+					return 'string';
+			}
+		case 'array':
+			if (!isKeywords(schema.items)) return undefined;
+			if (Array.isArray(schema.items.enum)) return 'multiSelect';
+			return schema.items.type === 'string' ? 'tags' : undefined;
+		default:
+			return undefined;
+	}
+}
+
+/** What an edit does to one field: set its value, or leave it out of the row. */
+export type FieldChange =
+	| { readonly kind: 'set'; readonly value: unknown }
+	| { readonly kind: 'remove' };
+
+/** Apply `change` to `fields`, by definition so any field name is an own key. */
+export function applyFieldChange(
+	fields: Record<string, unknown>,
+	field: string,
+	change: FieldChange,
+) {
+	if (change.kind === 'remove') delete fields[field];
+	else
+		Object.defineProperty(fields, field, {
+			value: change.value,
+			enumerable: true,
+			writable: true,
+			configurable: true,
+		});
 }
 
 /** The editor kinds that edit through one line of text. */

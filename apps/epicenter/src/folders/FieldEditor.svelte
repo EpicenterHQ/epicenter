@@ -4,33 +4,37 @@
 	import {
 		commitText,
 		displayOf,
+		type FieldChange,
 		type FieldColumn,
 		type TextKind,
 		textOf,
 	} from './field-input';
-	import type { FieldChange } from './row-edits';
 
 	/**
 	 * One field's editor, chosen by its kind. Every commit saves at once
-	 * through `save`: a text editor commits on Enter or when it loses focus,
-	 * and Escape puts back the stored value. Nothing is held as a draft.
-	 * A text editor calls `begin` when it gains focus, so the save is merged
-	 * against the row as it stood then; the other editors save at the click
-	 * that begins and ends their edit.
+	 * through `commit`: a text editor commits on Enter or when it loses focus,
+	 * and Escape puts back the stored value. A text editor calls `begin` at
+	 * the first keystroke, which is when the row's draft captures the version
+	 * the edit starts from; until then the box follows the stored value, even
+	 * while focused. The other editors commit at the click that begins and
+	 * ends their edit.
 	 */
 	let {
 		column,
 		value,
-		save,
 		begin,
+		commit,
+		revert,
 		multiline = false,
 	}: {
 		column: FieldColumn;
 		/** The stored value; `undefined` when the row leaves the field out. */
 		value: unknown;
-		save: (change: FieldChange) => void;
-		/** Editing began: a text editor gained focus. */
+		/** Editing began: the first keystroke in a text editor. */
 		begin: () => void;
+		commit: (change: FieldChange) => void;
+		/** The person put back what the box showed; nothing is saved. */
+		revert: () => void;
 		/** Edit JSON in a tall box, as the row panel does. */
 		multiline?: boolean;
 	} = $props();
@@ -38,33 +42,41 @@
 	const editor = $derived(column.editor);
 	let problem = $state<string | undefined>(undefined);
 	let element = $state<HTMLInputElement | HTMLTextAreaElement | undefined>();
-	/** The text the box held when it gained focus: what an edit is measured from. */
-	let startText: string | undefined;
+	/** The text the box showed when typing began: what an edit is measured from. */
+	let shown = '';
+	/** Whether the person typed since the box last showed the stored value. */
+	let typing = false;
 
 	const BOX =
 		'w-full min-w-24 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive dark:bg-input/30';
 
-	// Show the stored value, except in the box the person is typing in: a read
-	// that lands meanwhile (focus, another window's save) must not replace it.
+	/** Put the stored value in the box. */
+	function show(input: HTMLInputElement | HTMLTextAreaElement) {
+		shown = textOf(editor.kind as TextKind, value);
+		input.value = shown;
+		typing = false;
+	}
+
+	// Follow the stored value until the person types: a read that lands
+	// after that (another window's save) must not replace what they typed.
 	$effect(() => {
-		const text = textOf(editor.kind as TextKind, value);
-		if (element !== undefined && document.activeElement !== element)
-			element.value = text;
+		value;
+		if (element !== undefined && !typing) show(element);
 	});
 
-	function onfocus() {
-		startText = textOf(editor.kind as TextKind, value);
+	function oninput() {
+		if (typing) return;
+		typing = true;
 		begin();
 	}
 
-	function commit(text: string, input: HTMLInputElement | HTMLTextAreaElement) {
-		const kind = editor.kind as TextKind;
-		const stored = textOf(kind, value);
-		// Measured from the text the edit began with: a read that landed
-		// meanwhile changed `value`, not what the person typed over.
-		if (text === (startText ?? stored)) {
+	function finish(input: HTMLInputElement | HTMLTextAreaElement) {
+		if (!typing) return;
+		const text = input.value;
+		if (text === shown) {
 			problem = undefined;
-			input.value = stored;
+			show(input);
+			revert();
 			return;
 		}
 		const outcome = commitText(column, text);
@@ -74,33 +86,36 @@
 				return;
 			case 'unchanged':
 				problem = undefined;
-				input.value = stored;
+				show(input);
+				revert();
 				return;
 			case 'remove':
-				problem = undefined;
-				save({ kind: 'remove' });
-				return;
 			case 'set':
 				problem = undefined;
-				save({ kind: 'set', value: outcome.value });
+				// The box keeps the text until the save lands and the stored value follows.
+				typing = false;
+				commit(
+					outcome.kind === 'remove'
+						? { kind: 'remove' }
+						: { kind: 'set', value: outcome.value },
+				);
 		}
 	}
 
 	function onkeydown(event: KeyboardEvent) {
 		const input = event.currentTarget as HTMLInputElement | HTMLTextAreaElement;
 		if (event.key === 'Escape') {
-			input.value = textOf(editor.kind as TextKind, value);
 			problem = undefined;
+			if (typing) revert();
+			show(input);
 			input.blur();
 		}
 		// A multiline box takes Enter as a new line; it saves when it loses focus.
 		if (event.key === 'Enter' && input instanceof HTMLInputElement) input.blur();
 	}
 
-	const onchange = (event: Event) => {
-		const input = event.currentTarget as HTMLInputElement | HTMLTextAreaElement;
-		commit(input.value, input);
-	};
+	const onblur = (event: FocusEvent) =>
+		finish(event.currentTarget as HTMLInputElement | HTMLTextAreaElement);
 
 	/** The menu item that clears an optional select; no option is a NUL character. */
 	const NONE = '\u0000';
@@ -116,7 +131,7 @@
 		const next = chosen.includes(option)
 			? chosen.filter((v) => v !== option)
 			: editor.options.filter((o) => o === option || chosen.includes(o));
-		save({ kind: 'set', value: next });
+		commit({ kind: 'set', value: next });
 	}
 </script>
 
@@ -124,7 +139,7 @@
 	<Checkbox
 		checked={value === true}
 		aria-label={column.name}
-		onCheckedChange={(checked) => save({ kind: 'set', value: checked })}
+		onCheckedChange={(checked) => commit({ kind: 'set', value: checked })}
 	/>
 {:else if editor.kind === 'select'}
 	{@const options = editor.options}
@@ -132,7 +147,7 @@
 		type="single"
 		value={selected}
 		onValueChange={(next) =>
-			save(next === NONE ? { kind: 'remove' } : { kind: 'set', value: next })}
+			commit(next === NONE ? { kind: 'remove' } : { kind: 'set', value: next })}
 	>
 		<Select.Trigger size="sm" class="w-full min-w-28" aria-label={column.name}>
 			<span class="truncate">
@@ -174,8 +189,8 @@
 		class={[BOX, 'min-h-20 py-1.5 font-mono text-xs']}
 		aria-label={column.name}
 		aria-invalid={problem !== undefined}
-		{onfocus}
-		{onchange}
+		{oninput}
+		{onblur}
 		{onkeydown}
 	></textarea>
 {:else}
@@ -203,8 +218,8 @@
 		autocomplete="off"
 		aria-label={column.name}
 		aria-invalid={problem !== undefined}
-		{onfocus}
-		{onchange}
+		{oninput}
+		{onblur}
 		{onkeydown}
 	/>
 {/if}

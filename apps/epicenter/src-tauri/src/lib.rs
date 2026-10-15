@@ -706,6 +706,12 @@ pub fn run() {
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
             data_folders::register_application_folders(app.folders(), &desktop_paths.folder_dir)
                 .map_err(anyhow::Error::msg)?;
+            match data_folders::watch_data_folders(app.handle(), &desktop_paths.folder_dir) {
+                Ok(watch) => {
+                    app.manage(watch);
+                }
+                Err(message) => log::warn!("the data folder listing is not watched: {message}"),
+            }
             app.manage(desktop_paths);
 
             // The active local model and the unload policy are device-local host

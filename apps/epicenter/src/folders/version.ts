@@ -4,7 +4,7 @@
  * (ADR-0529); edits are saved to files at once either way.
  */
 
-import type { CommitOutcome, GitSnapshot } from '@epicenter/folder';
+import type { CommitOutcome, FilesObservation } from '@epicenter/folder';
 
 /** A line for a person, and whether it reports a problem. */
 export type VersionLine = {
@@ -49,17 +49,17 @@ export function versionMessage(outcome: CommitOutcome): VersionLine {
 	}
 }
 
-/** How many files changed since the last version, when that is known. */
+/** How many files changed since the last version; `checking` while it is read again. */
 export function changesMessage(
-	files: GitSnapshot['files'],
-): string | undefined {
-	if (files.state !== 'observed') return undefined;
-	const count = files.value.changes.length;
+	files: FilesObservation,
+	checking: boolean,
+): string {
+	const count = files.changes.length;
 	const text =
 		count === 0
 			? 'No changes since the last version'
 			: count === 1
 				? '1 file changed since the last version'
 				: `${count} files changed since the last version`;
-	return files.stale ? `${text} (checking)` : text;
+	return checking ? `${text} (checking)` : text;
 }

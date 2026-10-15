@@ -1,31 +1,35 @@
 /**
  * Row Edit Tests
  *
- * The Folders window saves each edit against the row as it stood when the
- * person began the edit, so a read that lands while they edit cannot turn
- * another window's change into the base the edit silently replaces.
+ * The Folders window's edits of one opened folder, driven as the grid
+ * drives them, against a folder opened by `@epicenter/folder/bun`
+ * (`packages/folder/src/save.test.ts` covers the merge itself).
  *
  * Key behaviors:
- * - A refresh between edit start and save still merges against the
- *   edit-start row: their body lines survive beside this edit's
- * - Where both changed one field, this edit wins and the outcome names
- *   their value, even though the grid already showed it
- * - An edit begun before this window's own earlier save landed is saved
- *   over that save, with no merge reported
- * - A take forgets its begin
+ * - A draft's base is the row at its first change: a refresh after that
+ *   shows "changed elsewhere", and the save still merges against the base
+ * - A save that replaced their values names each one until dismissed, and
+ *   "Restore theirs" saves their values back over the version it wrote
+ * - Changes to different body lines both survive
+ * - Putting back what a box showed drops the draft
+ * - A failed save says why, drops the draft, and resets the editors
  */
+import '../svelte-modules.test-support';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { FileTable } from '@epicenter/folder';
 import { openDataFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
-import { createRowEdits, editedRow, type RowEdit } from './row-edits';
-import { type AnyTable, type StoredAnyRow, saveRow } from './save-row';
+
+const { createRowEdits, failureText, replacedText, restoreTheirs } =
+	await import('./row-edits.svelte');
 
 const author = { name: 'Folders', email: 'folders@localhost' };
 
-const DECLARED = `{"title":"Notes","kv":{"type":"object","properties":{}},"tables":{"notes":{"type":"object","properties":{"title":{"type":"string","x-field":{"kind":"string"}},"done":{"type":"boolean","x-field":{"kind":"boolean"}}},"required":["title","done"]}}}`;
+/** Hand-written, so any rewrite would change its bytes. */
+const DECLARED = `{"title":"Notes","kv":{"type":"object","properties":{}},"tables":{"notes":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
 
 const ROW = '---\ntitle: One\ndone: false\n---\none\ntwo\nthree\nfour\nfive\n';
 
@@ -44,6 +48,8 @@ afterAll(async () => {
 	await Promise.all(roots.map((root) => rm(root, { recursive: true })));
 });
 
+type Fields = Record<string, unknown>;
+
 async function setup() {
 	const root = await mkdtemp(join(tmpdir(), 'folders-row-edits-'));
 	roots.push(root);
@@ -51,126 +57,173 @@ async function setup() {
 	await mkdir(join(root, 'notes'));
 	await writeFile(join(root, 'notes/one.md'), ROW);
 	const folder = expectOk(await openDataFolder({ root, git: { author } }));
-	const table = folder.tables.notes as AnyTable;
-	/** What the grid shows after a read: the row as it is now. */
-	const refresh = async () => {
+	const table = folder.tables.notes as FileTable<Fields>;
+	/** What the cache holds after a read: the row as it is now. */
+	const read = async () => {
 		const stored = expectOk(await table.get('one'));
 		if (stored === undefined) throw new Error('the row is gone');
 		return stored;
 	};
-	/** Another window's save over the row it read. */
-	const otherWindow = async (change: (row: StoredAnyRow['row']) => void) => {
-		const theirs = await refresh();
-		const row = structuredClone(theirs.row);
+	/** Another window's edit of the row as it is now. */
+	const otherWindow = async (
+		change: (row: Awaited<ReturnType<typeof read>>['row']) => void,
+	) => {
+		const captured = await read();
+		const row = structuredClone(captured.row);
 		change(row);
-		expectOk(await table.save(theirs, row));
+		expectOk(await table.save(captured, row));
 	};
-	const edits = createRowEdits();
-	/** Save `edit` as the Folders window does: from its begin, over this window's latest save. */
-	const save = async (start: StoredAnyRow, edit: RowEdit) => {
-		const base = edits.latest(start);
-		const outcome = await saveRow({
-			table,
-			captured: base,
-			edited: await editedRow(start, base, edit),
-		});
-		if (outcome.kind !== 'failed') edits.saved(base, outcome.stored);
-		return outcome;
-	};
-	return { folder, edits, refresh, otherWindow, save };
+	// The grid's save: the table's save mutation, which rejects with the error.
+	const edits = createRowEdits(async (_name, { base, row }) => {
+		const { data, error } = await table.save(base, row);
+		if (error !== null) throw error;
+		return data;
+	});
+	const text = () => readFile(join(root, 'notes/one.md'), 'utf8');
+	return { folder, table, read, otherWindow, edits, text };
 }
 
-test('a refresh between edit start and save still merges against the edit-start row', async () => {
-	const { folder, edits, refresh, otherWindow, save } = await setup();
-	// The person focuses the body box.
-	edits.begin('notes', 'one', { kind: 'body' }, await refresh());
-	await otherWindow((row) => {
-		row.body = 'ONE (theirs)\ntwo\nthree\nfour\nfive\n';
-	});
-	// A focus or a file hint reads the row again; the grid now shows theirs.
-	expect((await refresh()).row.body).toStartWith('ONE (theirs)');
-	// The box still holds what the person typed over the row they began with.
-	const start = edits.take('notes', 'one', { kind: 'body' });
-	if (start === undefined) throw new Error('no begin was recorded');
+test('a refresh after the first change shows "changed elsewhere", and the save still merges', async () => {
+	const { folder, read, otherWindow, edits, text } = await setup();
+	const start = await read();
+	expect(edits.changedElsewhere('notes', 'one', start)).toBe(false);
 
-	const outcome = await save(start, {
-		kind: 'body',
-		text: 'one\ntwo\nthree\nfour\nFIVE (mine)\n',
-	});
-
-	expect(outcome).toMatchObject({ kind: 'merged', replaced: [] });
-	expect((await refresh()).row.body).toBe(
-		'ONE (theirs)\ntwo\nthree\nfour\nFIVE (mine)\n',
-	);
-	await folder.close();
-});
-
-test('both changed one field during the edit: this edit wins and their value is named', async () => {
-	const { folder, edits, refresh, otherWindow, save } = await setup();
-	edits.begin(
-		'notes',
-		'one',
-		{ kind: 'field', field: 'title' },
-		await refresh(),
-	);
+	// The first keystroke captures the base; another window saves meanwhile.
+	edits.begin('notes', 'one', start);
+	expect(edits.changedElsewhere('notes', 'one', start)).toBe(false);
 	await otherWindow((row) => {
 		row.fields.title = 'Theirs';
 		row.fields.done = true;
 	});
-	await refresh();
-	const start = edits.take('notes', 'one', { kind: 'field', field: 'title' });
-	if (start === undefined) throw new Error('no begin was recorded');
+	const refreshed = await read();
+	expect(edits.changedElsewhere('notes', 'one', refreshed)).toBe(true);
 
-	const outcome = await save(start, {
-		kind: 'field',
-		field: 'title',
-		change: { kind: 'set', value: 'Mine' },
+	edits.commit('notes', 'one', refreshed, (row) => {
+		row.fields.title = 'Mine';
 	});
+	await edits.settled();
 
-	expect(outcome).toMatchObject({
-		kind: 'merged',
-		replaced: [{ kind: 'field', field: 'title', theirs: 'Theirs' }],
-	});
-	expect((await refresh()).row.fields).toEqual({ title: 'Mine', done: true });
+	// Their `done` survives; the competing title is named.
+	expect((await read()).row.fields).toEqual({ title: 'Mine', done: true });
+	expect(edits.notices).toHaveLength(1);
+	expect(edits.notices[0]?.saved.replaced).toEqual([
+		{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Theirs' },
+	]);
+	expect(edits.changedElsewhere('notes', 'one', await read())).toBe(false);
+	expect(await text()).toContain('title: Mine');
 	await folder.close();
 });
 
-test("an edit begun before this window's earlier save landed is saved over it, with no merge", async () => {
-	const { folder, edits, refresh, save } = await setup();
-	const shown = await refresh();
-	// Two edits begin over the same row before either saves.
-	edits.begin('notes', 'one', { kind: 'field', field: 'title' }, shown);
-	edits.begin('notes', 'one', { kind: 'body' }, shown);
-	const titleStart = edits.take('notes', 'one', {
-		kind: 'field',
-		field: 'title',
+test('Restore theirs saves their values back over the version just written', async () => {
+	const { folder, read, otherWindow, edits } = await setup();
+	edits.begin('notes', 'one', await read());
+	await otherWindow((row) => {
+		row.fields.title = 'Theirs';
+		row.body = 'one\nTHEIRS\nthree\nfour\nfive\n';
 	});
-	const bodyStart = edits.take('notes', 'one', { kind: 'body' });
-	if (titleStart === undefined || bodyStart === undefined)
-		throw new Error('no begin was recorded');
+	edits.commit('notes', 'one', await read(), (row) => {
+		row.fields.title = 'Mine';
+		row.body = 'one\nMINE\nthree\nfour\nFIVE\n';
+	});
+	await edits.settled();
+	const [notice] = edits.notices;
+	if (notice === undefined) throw new Error('no notice');
+	expect(notice.saved.replaced.map(replacedText)).toEqual([
+		'title: kept "Mine"; theirs was "Theirs"',
+		'Notes, line 2: kept "MINE"; theirs was "THEIRS"',
+	]);
 
-	const first = await save(titleStart, {
-		kind: 'field',
-		field: 'title',
-		change: { kind: 'set', value: 'Mine' },
-	});
-	const second = await save(bodyStart, {
-		kind: 'body',
-		text: 'one\ntwo\nthree\nfour\nfive\nsix\n',
-	});
+	edits.restore(notice);
+	expect(edits.notices).toEqual([]);
+	await edits.settled();
 
-	expect(first.kind).toBe('saved');
-	expect(second.kind).toBe('saved');
-	const stored = await refresh();
-	expect(stored.row.fields.title).toBe('Mine');
-	expect(stored.row.body).toBe('one\ntwo\nthree\nfour\nfive\nsix\n');
+	// Their values return; this edit's change no one competed with stays.
+	expect((await read()).row).toEqual({
+		fields: { title: 'Theirs', done: false },
+		body: 'one\nTHEIRS\nthree\nfour\nFIVE\n',
+	});
+	expect(edits.notices).toEqual([]);
 	await folder.close();
 });
 
-test('a take forgets its begin', async () => {
-	const { folder, edits, refresh } = await setup();
-	edits.begin('notes', 'one', { kind: 'body' }, await refresh());
-	expect(edits.take('notes', 'one', { kind: 'body' })).toBeDefined();
-	expect(edits.take('notes', 'one', { kind: 'body' })).toBeUndefined();
+test('changes to different body lines both survive, with nothing to restore', async () => {
+	const { folder, read, otherWindow, edits } = await setup();
+	edits.begin('notes', 'one', await read());
+	await otherWindow((row) => {
+		row.body = 'one\ntwo\nthree\nfour\nTheirs five\n';
+	});
+	edits.commit('notes', 'one', await read(), (row) => {
+		row.body = 'Mine one\ntwo\nthree\nfour\nfive\n';
+	});
+	await edits.settled();
+
+	expect((await read()).row.body).toBe(
+		'Mine one\ntwo\nthree\nfour\nTheirs five\n',
+	);
+	expect(edits.notices).toEqual([]);
 	await folder.close();
+});
+
+test('putting back what a box showed drops the draft', async () => {
+	const { folder, read, otherWindow, edits } = await setup();
+	edits.begin('notes', 'one', await read());
+	edits.revert('notes', 'one');
+	await otherWindow((row) => {
+		row.fields.title = 'Theirs';
+	});
+	expect(edits.changedElsewhere('notes', 'one', await read())).toBe(false);
+
+	// The next edit starts from the row as it is now, so nothing competes.
+	edits.commit('notes', 'one', await read(), (row) => {
+		row.fields.done = true;
+	});
+	await edits.settled();
+	expect((await read()).row.fields).toEqual({ title: 'Theirs', done: true });
+	expect(edits.notices).toEqual([]);
+	await folder.close();
+});
+
+test('a failed save says why, drops the draft, and resets the editors', async () => {
+	const { folder, table, read, edits } = await setup();
+	const start = await read();
+	edits.begin('notes', 'one', start);
+	expectOk(await table.delete(start));
+	edits.commit('notes', 'one', start, (row) => {
+		row.fields.title = 'Mine';
+	});
+	await edits.settled();
+
+	expect(edits.problem).toBe(
+		'Another window deleted this row, so your edit was not saved.',
+	);
+	expect(edits.resets).toBe(1);
+	expect(edits.changedElsewhere('notes', 'one', undefined)).toBe(false);
+	expect(expectOk(await table.get('one'))).toBeUndefined();
+	edits.dismissProblem();
+	expect(edits.problem).toBeUndefined();
+	await folder.close();
+});
+
+test('restoreTheirs puts back each region from the last up, and removes a field they did not have', () => {
+	const restored = restoreTheirs({
+		stored: {
+			path: 'notes/one.md',
+			sha256: 'a',
+			row: { fields: { title: 'Mine', due: 'x' }, body: 'a\nB\nc\nD\nE\n' },
+		},
+		merged: true,
+		replaced: [
+			{ kind: 'field', field: 'due', kept: 'x', theirs: undefined },
+			{ kind: 'body', line: 1, kept: 'B\n', theirs: 'b\n' },
+			{ kind: 'body', line: 3, kept: 'D\nE\n', theirs: 'd\n' },
+		],
+	});
+	expect(restored).toEqual({ fields: { title: 'Mine' }, body: 'a\nb\nc\nd\n' });
+});
+
+test('a failure that is not a table error is said as its message', () => {
+	expect(failureText(new Error('host went away'))).toBe(
+		'Not saved: host went away',
+	);
+	expect(failureText('odd')).toBe('Not saved: odd');
 });
