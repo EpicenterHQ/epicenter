@@ -22,11 +22,11 @@ because the files on disk are the truth.**
 
 **Each host supplies the referee it has.**
 
-| Host | Save (check, then write) | Commit | First open |
+| Host | Save (check, then write) | Commit | Repository creation |
 | --- | --- | --- | --- |
-| Desktop page | The shell's checked rename | Git's lock files and `casBranch` | A `'declared'` folder's repository is made by its first commit; a defined folder runs `git init` on open, and runs it once more if the first attempt throws, since two concurrent `git init` runs can race on Git's template copy |
-| Bun | Check then rename, not atomic; saves within one process take turns under an in-process lock, saves from separate processes do not | Git's lock files and `casBranch` | As on the desktop: `git init` runs once more if the first attempt throws |
-| Browser (OPFS) | `filesLock`: OPFS has no compare-and-swap | `gitLock`: the browser's `casRef` reads, compares, and writes under it | `openLock` |
+| Desktop page | The shell's checked rename | Git's lock files and `casBranch` | Opening creates none, for any opener (ADR-0548): the first commit, staging, or remote runs `git init`, and runs it once more if the first attempt throws, since two concurrent `git init` runs can race on Git's template copy |
+| Bun | Check then rename, not atomic; saves within one process take turns under an in-process lock, saves from separate processes do not | Git's lock files and `casBranch` | As on the desktop |
+| Browser (OPFS) | `filesLock`: OPFS has no compare-and-swap | `gitLock`: the browser's `casRef` reads, compares, and writes under it | The first Git write, under `openLock` |
 
 **On the desktop, `locks` never waits; in Bun, only saves within one process
 wait for each other.** `openLock` and `gitLock` stay in the engine for the

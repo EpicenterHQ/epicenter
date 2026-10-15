@@ -579,10 +579,9 @@ afplay /tmp/whispering-restore/recordings/<recording-id>.wav
 This build writes each change to its file at once and keeps no draft beside
 it. These promises of the earlier build changed:
 
-- A change made elsewhere is never merged on save. The earlier build combined
-  your edit with theirs and asked about parts you both changed. Now your write
-  is refused, the window shows their version, and the notice offers to copy
-  what you typed.
+- A change made elsewhere merges on save without asking. The earlier build
+  asked about parts you both changed; now your edit wins there, and what
+  only they changed stays (ADR-0548).
 - A file deleted elsewhere stays deleted, transcripts included. The earlier
   build could create one again from your edit.
 - No save bar, **Try again**, or **Discard unsaved changes?**. A failed write

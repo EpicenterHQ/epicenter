@@ -62,10 +62,11 @@ are not UTF-8 text are listed apart and not opened.
   is not applied, the reason is shown, and the text returns to what is in
   the file. Edit as text to write unfinished Markdown.
 - Every write names the version of the file this window last wrote or read.
-  When the file changed elsewhere since, or was deleted, the write is
-  refused: the capture shows the file as it is now, and a notice says your
-  change was not saved and offers **Copy your text**. Nothing is merged. The
-  next change writes on top of what is there now.
+  When the file changed elsewhere since, the write merges with it
+  (ADR-0548): what only the other writer changed stays, and where you both
+  changed the same lines, your edit wins. When the file was deleted, the
+  write is refused: the capture leaves the list, and a notice says your
+  change was not saved and offers **Copy your text**.
 - A write that fails for another reason is handled the same way: the capture
   shows the file as it is, and the notice names the failure and offers your
   text to copy. A write whose reply was lost is one of these failures: the
@@ -157,9 +158,10 @@ whose README states what a grant allows. What that means for Capture:
   first grant and keeps until it shuts down. A second Epicenter is refused
   with a message naming the directory.
 - Other programs are not asked to take the lock. Every write, delete, and
-  import names the version of the file this window last wrote or read, and
-  the folder refuses it if the file is no longer that version, so another
-  program's edit is a conflict, not overwritten. A new capture and an
+  import names the version of the file this window last wrote or read. A
+  row write merges with another program's edit, keeping what only they
+  changed; a text write or an import is refused if the file is no longer that
+  version. A new capture and an
   imported file are created only where no file is. An edit in the instant
   between the folder's last check and its change can still be overwritten:
   none of these is an operating-system compare-and-swap.
@@ -280,10 +282,10 @@ them.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit written at once keeping undeclared metadata, rapid edits with one write running and one waiting, no read while a write runs (on focus or when a view mounts), a conflicting or failed write rolled back with its lost text reported, a deleted file, changes the body or the folder cannot hold, repair as text, thought text kept per capture, stale thought commands, guarded delete after the writes land, Save version and no commit on its own, close, and import. |
-| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, a write saves the row, an outside edit is a conflict that is not overwritten, closing waits for a save already sent, Save version commits and rewrites nothing, and an import whose export reply was lost is finished by a retry. It does not run the shell's path or Git checks. |
+| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit written at once keeping undeclared metadata, rapid edits with one write running and one waiting, no read while a write runs (on focus or when a view mounts), a write merged with a change made elsewhere, a failed write rolled back with its lost text reported, a deleted file, changes the body or the folder cannot hold, repair as text, thought text kept per capture, stale thought commands, guarded delete after the writes land, Save version and no commit on its own, close, and import. |
+| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, a write saves the row, an outside edit merges with the window's, closing waits for a save already sent, Save version commits and rewrites nothing, and an import whose export reply was lost is finished by a retry. It does not run the shell's path or Git checks. |
 | `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, nothing of the host package, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter or generated bindings. |
-| `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a conflicting write rolled back in the text box, a change elsewhere shown on return, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
+| `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a write merged with a change made elsewhere, a change elsewhere shown on return, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
 
 The granted opener and the directory engine are tested in
 `packages/folder/src/tauri-directory.test.ts` and
@@ -293,7 +295,7 @@ desktop window itself is checked by hand in the Epicenter shell.
 
 | Script | What it checks |
 | --- | --- |
-| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, a conflicting write rolled back across pages, Save version, leave warnings, deletion, and an import. Needs a free local port and `bun x playwright install chromium`. |
+| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, a write merged with another page's change, Save version, leave warnings, deletion, and an import. Needs a free local port and `bun x playwright install chromium`. |
 | `bun apps/capture/scripts/recovery-harness.ts [dir] [bundle.json]` | A standalone tool, not the desktop backend: imports a bundle into a real directory twice, through `@epicenter/folder/bun` with an explicit author and no remote, and prints both reports. Exits nonzero if the retry creates anything. `bun run harness:recovery` runs it from here. |
 
 ## Changed promises
@@ -302,11 +304,10 @@ This version edits the files through a query cache (ADR-0528) and records
 versions only on request (ADR-0529). It dropped several promises of the
 version before it:
 
-- A write that meets a change made elsewhere is no longer merged, and there
-  is no review with Your edit and Saved elsewhere. The write is refused, the
-  capture shows the file as it is, and a notice offers the text that was
-  lost to copy. The same holds for a file deleted elsewhere: a write never
-  creates it again.
+- There is no review with Your edit and Saved elsewhere. A write that meets
+  a change made elsewhere merges with it, and your edit wins where you both
+  changed the same lines. A write to a file deleted elsewhere is refused and
+  never creates it again; a notice offers the text that was lost to copy.
 - A failed write no longer keeps your text in the capture with Try again or
   Save again. The capture shows the file, and the notice offers your text.
 - Leaving a capture never asks to discard anything. A thought typed and not

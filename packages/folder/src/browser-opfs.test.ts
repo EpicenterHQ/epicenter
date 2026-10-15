@@ -98,8 +98,8 @@ describe('one path is one stored file', () => {
 		expect(decoder.decode(stored.get('notes/a.md'))).toBe('# A\n');
 		expect(stored.get('bytes.bin')).toEqual(allBytes);
 		expect(stored.get('empty.txt')).toEqual(new Uint8Array());
-		// The repository comes with the folder's first write.
-		expect(stored.has('.git/HEAD')).toBe(true);
+		// Saving creates no repository; the first commit does.
+		expect(stored.has('.git/HEAD')).toBe(false);
 		expect(opfs.directories(ROOT)).toContain('drafts/later');
 
 		const listing = expectOk(await folder.files.list());
@@ -179,10 +179,15 @@ describe('one path is one stored file', () => {
 			actualSha256: read.sha256,
 		});
 		// Git sees the change too: stat caches are never trusted.
+		// Staging creates the repository and records the bytes there now.
+		expectOk(await folder.git.stage(['a.txt']));
 		expect(expectOk(await folder.git.paths())).toEqual([
-			{ path: 'a.txt', index: '?', worktree: '?' },
 			{ path: 'epicenter.json', index: '?', worktree: '?' },
+			{ path: 'a.txt', index: 'A', worktree: ' ' },
 		]);
+		expect(
+			expectOk(await folder.git.diff({ staged: true, paths: ['a.txt'] })),
+		).toContain('+bbbb');
 	});
 
 	test('status sees a committed file rewritten in the same second, at the same size or another', async () => {
@@ -426,7 +431,7 @@ describe('outcomes a caller can rely on', () => {
 		expect(opfs.files(ROOT).get('a.md')).toEqual(new Uint8Array());
 	});
 
-	test('a close that throws is Unconfirmed, whatever the path holds after: hinted, and the next commit records it as it is', async () => {
+	test('a close that throws is Unconfirmed, whatever the path holds after: told to other pages, and the next commit records it as it is', async () => {
 		for (const [fault, after] of [
 			['fail', new Uint8Array()],
 			// The bytes did land; the reply still says nothing of it.
@@ -447,7 +452,8 @@ describe('outcomes a caller can rely on', () => {
 			opfs.faults.close = undefined;
 			expect(expectErr(result).name).toBe('Unconfirmed');
 			expect(opfs.files(ROOT).get('a.md')).toEqual(after);
-			expect(heardHere).toEqual(['a.md']);
+			// A page's own write is not reported to it; other pages hear it.
+			expect(heardHere).toEqual([]);
 			for (let index = 0; index < 50 && heardThere.length === 0; index++)
 				await Bun.sleep(5);
 			expect(heardThere).toContain('a.md');
@@ -506,7 +512,9 @@ describe('address and history', () => {
 
 		expectOk(await folder.files.create('who.md', 'first'));
 		expect(decoder.decode(opfs.files('test').get('who.md'))).toBe('first');
-		// The repository came with the directory; reading it writes nothing.
+		// The first commit creates the repository; reading writes nothing.
+		expect(opfs.files('test').has('.git/HEAD')).toBe(false);
+		expect((await folder.git.commit()).status).toBe('committed');
 		expect(opfs.files('test').has('.git/HEAD')).toBe(true);
 		const stored = () =>
 			[...opfs.files('test')].map(([path, bytes]) => [path, [...bytes]]);

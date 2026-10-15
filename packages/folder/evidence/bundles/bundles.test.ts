@@ -35,8 +35,8 @@ const DESKTOP = 'plugin:epicenter-folder|grant_directory';
 const BROWSER = 'epicenter-folder:${id}:git';
 /** Text only isomorphic-git contains: its Git protocol client. */
 const GIT = 'git-upload-pack';
-/** Text only the page engine over a granted directory contains: its hint channel. */
-const GRANTED = 'epicenter-folder-directory-hints:';
+/** Text only the page engine over a granted directory contains: the watcher's event. */
+const GRANTED = 'epicenter-folder://changed';
 /** Text only the granted directory's reads contain: the file read by name. */
 const READS = 'plugin:epicenter-folder|read_folder_file';
 /** Text only Tauri's fs plugin client contains. No build carries it. */

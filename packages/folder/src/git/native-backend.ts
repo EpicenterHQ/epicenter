@@ -134,7 +134,6 @@ export async function createNativeGitBackend({
 	boundary,
 	host,
 	credentials,
-	initialize = 'open',
 	initialized,
 	initProblem,
 }: {
@@ -143,18 +142,16 @@ export async function createNativeGitBackend({
 	boundary: FileBoundary;
 	host: NativeGitHost;
 	/**
-	 * When a folder with no repository gets one. `'open'` runs `git init`
-	 * here. `'commit'` creates it with the first commit or staging
-	 * (`createRepository`), or when a remote is set; until then the folder
-	 * reads as an empty history with every file uncommitted, and no `git`
-	 * runs, since the desktop shell runs only `git init` where there is no
-	 * repository.
+	 * Runs once `git init` has created the repository. A folder with no
+	 * repository gets one with its first commit or staging
+	 * (`createRepository`), or when a remote is set, never when it opens;
+	 * until then it reads as an empty history with every file uncommitted,
+	 * and no `git` runs, since the desktop shell runs only `git init` where
+	 * there is no repository.
 	 */
-	initialize?: 'open' | 'commit';
-	/** Runs once a deferred `git init` has created the repository. */
 	initialized?: () => Promise<void>;
 	/**
-	 * Why a deferred `git init` must not run here, such as a root inside
+	 * Why `git init` must not run here, such as a root inside
 	 * another repository's working tree. `createRepository` answers it, and
 	 * staging or setting a remote throws it.
 	 */
@@ -208,17 +205,13 @@ export async function createNativeGitBackend({
 		}
 	};
 	let present = (await files.lstat(head)) !== undefined;
-	if (!present && initialize === 'open') {
-		await init();
-		present = true;
-	}
 	/** Whether the repository exists. Another program may have created it. */
 	async function exists(): Promise<boolean> {
 		present ||= (await files.lstat(head)) !== undefined;
 		return present;
 	}
 	/**
-	 * Create the repository if there is none; see `initialize`. Answers why
+	 * Create the repository if there is none; see `initialized`. Answers why
 	 * it may not be created here, having run nothing.
 	 */
 	async function createRepository(): Promise<string | undefined> {
@@ -331,7 +324,7 @@ export async function createNativeGitBackend({
 	}
 
 	const backend: GitBackend = {
-		...(initialize === 'commit' ? { createRepository } : {}),
+		createRepository,
 		branch,
 		get remote() {
 			return remote;

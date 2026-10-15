@@ -4,12 +4,14 @@
  * The page reads and changes files through the shell, which checks every
  * path, and records history with the system `git`, which the shell runs for
  * it (`run_git`). Real Git does the transfers too,
- * with the person's own credentials.
+ * with the person's own credentials. The shell's watcher of the directory
+ * tells the page what changed (`epicenter-folder://changed`).
  *
  * Loaded only once a folder is granted, so importing the desktop opener
  * carries none of this.
  */
 import type { Result } from 'wellcrafted/result';
+import { tauriChangeDetector } from './changes-tauri.js';
 import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { directoryHandle } from './directory-handle.js';
@@ -45,7 +47,8 @@ export async function openGrantedFolder<
 		root: directoryHandle(files, granted.root),
 		rootPath: granted.root,
 		git: { run: tauriGitRun(id), files },
-		BroadcastChannel: globalThis.BroadcastChannel,
+		// The shell's watcher is the one detector of outside changes.
+		detector: tauriChangeDetector(id),
 		author: { name: granted.authorName, email: granted.authorEmail },
 		branch: granted.branch,
 		credentials,

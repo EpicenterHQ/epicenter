@@ -8,9 +8,9 @@
  *
  * - An edit is one immutable `map` over the cached listing. Each todo's
  *   writes run one at a time in its file's queue, and each saves the row the
- *   cache holds when it runs, guarded by the hash the cache last confirmed:
- *   the file the person was editing. A write that fails reads the listing
- *   again, which rolls the edit back.
+ *   cache holds when it runs over the version the cache last confirmed; a
+ *   file changed elsewhere since is merged by `table.save`. A write that
+ *   fails reads the listing again, which rolls the edit back.
  * - A file that does not read as a todo is listed with why; Todos does not
  *   edit its text. Another editor fixes it, and the next read shows it.
  * - Todos does not rename files: a file's name is the file system's, Git's,
@@ -25,10 +25,13 @@ import {
 	type FileError,
 	formatRow,
 	type Row,
+	type SavedRow,
 	type StoredRow,
 	type TableCreateError,
 	type TableError,
+	type TableSaveError,
 } from '@epicenter/folder';
+import { createSaveBases } from '@epicenter/folder/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type TodoFields, todosDefinition } from './definition.js';
 import { type Session, TodosError, todosKeys } from './session.js';
@@ -56,6 +59,9 @@ export function createRows({
 	 * back the file it just reread.
 	 */
 	const unsent = new Set<string>();
+
+	/** The row each cached version held, which a save merges from. */
+	const bases = createSaveBases<TodoFields>();
 
 	/** What the cache holds for `stem`: a row, or why it is not one. */
 	function resultOf(stem: string) {
@@ -166,10 +172,10 @@ export function createRows({
 		 */
 		edit(stem: string, change: (row: Row<TodoFields>) => Row<TodoFields>) {
 			if (deleting(stem)) return false;
-			const changed = mapRow(stem, (stored) => ({
-				...stored,
-				row: change(stored.row),
-			}));
+			const changed = mapRow(stem, (stored) => {
+				bases.editing(stem, stored);
+				return { ...stored, row: change(stored.row) };
+			});
 			if (!changed) return false;
 			unsent.add(stem);
 			return (
@@ -182,7 +188,8 @@ export function createRows({
 		/**
 		 * The write of one todo. Each view that edits it creates its own
 		 * mutation from `.options`. It saves the row the cache holds when it
-		 * runs, guarded by the hash the cache last confirmed.
+		 * runs over the version the cache last confirmed, from the row that
+		 * version held; a file changed elsewhere since is merged with it.
 		 */
 		write(stem: string) {
 			const path = todoPath(stem);
@@ -191,25 +198,26 @@ export function createRows({
 				// Every write and the delete of one file share its queue.
 				scope: { id: path },
 				mutationFn: async (): Promise<
-					Result<
-						StoredRow<TodoFields> | undefined,
-						| Extract<TableError, { name: 'Conflict' | 'InvalidValues' }>
-						| FileError
-					>
+					Result<SavedRow<TodoFields> | undefined, TableSaveError>
 				> => {
 					const stored = rowOf(stem);
 					// The stem leaves `unsent` whether or not there is a row to send.
 					const edited = unsent.delete(stem);
 					if (stored === undefined || !edited) return Ok(undefined);
-					return folder.tables.todos.replace(stored, stored.row);
+					const saved = await folder.tables.todos.save(
+						bases.baseOf(stem, stored),
+						stored.row,
+					);
+					if (saved.error === null) bases.saved(stem, stored.row, saved.data);
+					return saved;
 				},
 				onSuccess: (saved) => {
 					if (saved === undefined) return;
 					// TanStack awaits this before the next write in the scope runs.
 					mapRow(stem, (stored) => ({
 						...stored,
-						path: saved.path,
-						sha256: saved.sha256,
+						path: saved.stored.path,
+						sha256: saved.stored.sha256,
 					}));
 				},
 				// Roll back: the listing is read again, so the cache takes the row as

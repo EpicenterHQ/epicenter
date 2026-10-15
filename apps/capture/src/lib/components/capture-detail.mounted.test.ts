@@ -10,8 +10,8 @@
  * Key behaviors:
  * - The capture text and Add a thought change the cache at once and are
  *   written to the file
- * - A write that meets a change made elsewhere rolls the text box back to
- *   the file and reports the text that was lost
+ * - A write that meets a change made elsewhere merges with it; the typing
+ *   wins where both changed
  * - Returning to the window shows a change made elsewhere
  * - A thought typed and not added stays visible to copy when the capture
  *   stops reading as text and thoughts
@@ -92,19 +92,15 @@ test('the capture text and Add a thought are written to the file', async () => {
 	expect(harness.failures).toEqual([]);
 });
 
-test('a write that meets a change made elsewhere rolls the text box back to the file and reports the lost text', async () => {
+test('a write that meets a change made elsewhere merges with it, and the typing wins where both changed', async () => {
 	const harness = await setup({ [PATH]: FILE }, 'capture');
 	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
 	await harness.writeElsewhere(PATH, theirs);
 	type(field('capture-text'), 'Mine');
 	await settle(harness);
-	expect(harness.failures).toMatchObject([
-		{ path: PATH, error: { name: 'Conflict' } },
-	]);
-	expect(harness.failures[0]?.lost).toContain('\nMine\n');
-	expect(field('capture-text')?.value).toBe('Theirs');
-	expect(harness.target.textContent).not.toContain('first');
-	expect(await harness.text(PATH)).toBe(theirs);
+	expect(harness.failures).toEqual([]);
+	expect(field('capture-text')?.value).toBe('Mine');
+	expect(await harness.text(PATH)).toContain('\nMine\n');
 });
 
 test('returning to the window shows a change made elsewhere', async () => {

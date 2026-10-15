@@ -130,7 +130,8 @@ try {
 		case 'complete': {
 			const stem = args[0];
 			if (stem === undefined) throw new Error('complete needs a stem');
-			// Marked done over the row as it is read now, guarded by that read.
+			// Marked done over the row as it is read now; a save another writer
+			// overtakes merges with theirs.
 			const { data: current, error: readError } =
 				await folder.tables.todos.get(stem);
 			if (readError || current === undefined) {
@@ -139,7 +140,7 @@ try {
 				break;
 			}
 			const { data: updated, error: updatedError } =
-				await folder.tables.todos.replace(current, {
+				await folder.tables.todos.save(current, {
 					...current.row,
 					fields: { ...current.row.fields, done: true },
 				});
@@ -149,7 +150,7 @@ try {
 				break;
 			}
 			print({
-				updated: updated.path,
+				updated: updated.stored.path,
 				history: await folder.git.commitAndPush(),
 			});
 			break;

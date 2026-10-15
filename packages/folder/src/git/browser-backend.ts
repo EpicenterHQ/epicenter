@@ -77,13 +77,11 @@ export type BrowserGitStore<TSession extends GitFsSession> = {
 
 /** isomorphic-git's view of private Git state. */
 /**
- * A backend over a private repository it creates when first needed. A
- * browser folder creates it with its directory, by `ensureRepository`; any
- * Git write creates it too. Until then reads find no history.
+ * A backend over a private repository it creates when first needed: by the
+ * first Git write (a commit, staging, or setting a remote), never by
+ * opening or a file save. Until then reads find no history.
  */
-export type StoredGitBackend = GitBackend & {
-	ensureRepository(): Promise<void>;
-};
+export type StoredGitBackend = GitBackend;
 
 export const GITDIR = '/git';
 /** isomorphic-git's read-only view of the folder's files. */
@@ -233,15 +231,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		});
 		await creating;
 	}
-	/**
-	 * Create the repository with the folder's directory. The directory may be
-	 * made by this handle's own creation, which already holds the lock; that
-	 * creation finishes the repository.
-	 */
-	async function ensureRepository() {
-		if (creating !== undefined) return;
-		await ensureCreated();
-	}
 	/** Whether there is a repository to read. A read never creates one. */
 	const available = created;
 	/**
@@ -385,7 +374,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	}
 
 	const backend: StoredGitBackend = {
-		ensureRepository,
 		branch,
 		get remote() {
 			return remote;

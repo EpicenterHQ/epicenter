@@ -14,8 +14,7 @@
  *   shell) fails the open with its reason
  * - The page names the Capture scope and is told the directory
  * - A write saves the row and keeps undeclared metadata
- * - An edit made elsewhere is a conflict: it is not overwritten, and the
- *   capture shows it
+ * - An edit made elsewhere merges with this one: both survive
  * - Closing waits for a save already sent and the latest edit after it
  * - Save version commits and rewrites no file
  * - An import whose export landed but lost its reply is finished by a
@@ -220,7 +219,7 @@ test('a write saves the row on disk and keeps undeclared metadata', async () => 
 	await host.close();
 });
 
-test('an edit made elsewhere is a conflict: it is not overwritten, and the capture shows it', async () => {
+test('an edit made elsewhere merges with this one: both survive', async () => {
 	await put(PATH, SAVED);
 	const { host, captures, failures } = await opened();
 	const { form } = await openOne(captures);
@@ -229,10 +228,10 @@ test('an edit made elsewhere is a conflict: it is not overwritten, and the captu
 
 	form.inputText('Mine');
 	await quiet(captures);
-	expect(failures).toMatchObject([{ path: PATH, error: { name: 'Conflict' } }]);
-	expect(failures[0]?.lost).toContain('\nMine\n');
-	expect(await text(PATH)).toBe(theirs);
-	expect(cached(captures, 'one').row.body).toContain('- from another window');
+	expect(failures).toEqual([]);
+	// The edit changed the text; the other window added a thought.
+	expect(await text(PATH)).toContain('\nMine\n');
+	expect(await text(PATH)).toContain('- from another window');
 	await captures.close();
 	await host.close();
 });
@@ -274,10 +273,9 @@ test('Save version commits and rewrites no file', async () => {
 	await quiet(captures);
 	const path = `captures/${captures.opened?.stem}.md`;
 	const saved = await text(path);
-	// Saving the file made no commit.
-	expect(await git(root, 'status', '--porcelain', '--', path)).toBe(
-		`?? ${path}`,
-	);
+	// Saving the file made no commit, and no repository: the first commit
+	// creates it.
+	expect(await Bun.file(join(root, '.git/HEAD')).exists()).toBe(false);
 
 	calls = [];
 	expect(expectOk(await captures.saveVersion()).status).toBe('committed');

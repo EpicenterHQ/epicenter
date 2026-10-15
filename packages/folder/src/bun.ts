@@ -49,7 +49,7 @@ export {
 } from './read-folder.js';
 
 export type DirectoryFolderOptions<TDefinition extends FolderDefinition> = {
-	/** An existing directory. A Git repository is initialized there if absent. */
+	/** An existing directory. Opening creates nothing in it; its first commit creates its repository. */
 	readonly root: string;
 	readonly definition: TDefinition;
 	readonly git: FolderGitOptions;

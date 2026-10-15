@@ -12,8 +12,10 @@
  * - Rapid edits run one write at a time with one waiting; the waiting write
  *   saves the newest word, guarded by the hash the previous write confirmed
  * - No read starts while a write runs
- * - A write that meets a change made elsewhere, or that fails, rolls the
- *   cache back to the file and reports the text that was lost
+ * - A write that meets a change made elsewhere merges with it, and the edit
+ *   wins only where both changed
+ * - A write that fails rolls the cache back to the file and reports the
+ *   text that was lost
  * - A file that is not a valid word is named for repair, written as typed
  *   text, and reads as a word once repaired
  * - Delete runs after the word's queued writes and removes what they saved;
@@ -356,30 +358,17 @@ test('no read starts while a write runs: not on returning to the window, not whe
 	expect(await context.text(path)).toContain('note: clear, two');
 });
 
-test('a write that meets a change made elsewhere rolls back to the file and reports the lost text', async () => {
+test('a write that meets a change made elsewhere merges with it: the edit wins only where both changed', async () => {
 	const context = await setup();
 	const { vocab, entries, failures } = context;
 	const entry = await context.add('lucid');
 	const path = entry.stored.path;
-	const elsewhere = wordText('lucid', 'theirs', 'usable');
-	await context.writeElsewhere(path, elsewhere);
+	await context.writeElsewhere(path, wordText('lucid', 'theirs', 'usable'));
 
 	entries.inputNote(entry.id, 'mine');
 	await quiet(vocab);
-	expect(failures).toHaveLength(1);
-	expect(failures[0]).toMatchObject({ path, error: { name: 'Conflict' } });
-	expect(failures[0]?.lost).toContain('note: mine');
-	// The cache shows the file again; nothing was written over it.
-	expect(await context.text(path)).toBe(elsewhere);
-	expect(cached(vocab, 'lucid')).toMatchObject({
-		note: 'theirs',
-		stage: 'usable',
-	});
-
-	// The next edit writes on top of what is there now.
-	entries.inputNote(entry.id, 'mine');
-	await quiet(vocab);
-	expect(failures).toHaveLength(1);
+	expect(failures).toEqual([]);
+	// Both changed the note, so the edit's stands; only they changed the stage.
 	expect(await context.text(path)).toContain('note: mine');
 	expect(await context.text(path)).toContain('stage: usable');
 });

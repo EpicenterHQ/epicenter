@@ -653,7 +653,7 @@ test('a transcript is edited in the cache beside its recording, which stays sele
 	);
 });
 
-test('a transcript changed outside is read on return; typing over a version the window has not read fails, rolls back, and reports the lost text', async () => {
+test('typing over a transcript changed outside, before the window read it again, merges with the change', async () => {
 	const { library, root } = await history();
 	await library.open(path('standup'));
 	const failures: string[] = [];
@@ -665,27 +665,16 @@ test('a transcript changed outside is read on return; typing over a version the 
 	);
 	await writeFile(join(root, TRANSCRIPT), outside);
 
-	// Typing before the window read it again: the write is refused.
+	// Typing before the window read it again: both replaced the same line,
+	// so the typing wins there, and the save says nothing failed.
 	editor.edit((row) => {
 		row.body = 'What I typed.\n';
 	});
 	await settle(library);
-	expect(failures).toEqual([expect.stringContaining('What I typed.')]);
-	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toBe(outside);
-	expect(editor.draft.body).toContain('migration');
-	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toContain(
-		'migration',
-	);
-
-	// The next edit writes on top of what is there now.
-	editor.edit((row) => {
-		row.body = 'What I typed.\n';
-	});
-	await settle(library);
-	expect(failures).toHaveLength(1);
-	expect(await readFile(join(root, TRANSCRIPT), 'utf8')).toContain(
-		'What I typed.',
-	);
+	expect(failures).toEqual([]);
+	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
+	expect(saved).toContain('What I typed.');
+	expect(saved).not.toContain('migration');
 	expect(library.selectedPath).toBe(path('standup'));
 });
 

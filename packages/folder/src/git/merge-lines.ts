@@ -2,9 +2,11 @@
  * The line merge sync uses for a row body and a text file both sides changed.
  *
  * Each side's changes against the base are diffed by line; changes that
- * overlap or touch on the base are one region. A region only one side
- * changed takes that side's lines, a region both sides changed identically
- * takes those lines, and any other region competes. `mergeLines` makes the
+ * overlap on the base, or insert at the same place, are one region. Changes
+ * to neighboring lines do not overlap, so both are kept: lines compete only
+ * where both sides changed the same lines. A region only one side changed
+ * takes that side's lines, a region both sides changed identically takes
+ * those lines, and any other region competes. `mergeLines` makes the
  * whole merge `undefined` when one competes, so the caller holds the unit
  * for a person. `mergeLinesPreferring` settles each competing region with
  * one side's lines and keeps every other region, for a save that decided
@@ -46,14 +48,22 @@ export async function mergeLines(
 	return mergeBy(versions, () => undefined);
 }
 
+/**
+ * One competing region a preferred merge settled: `kept` is the preferred
+ * side's lines, which stand in the merged text from the 0-based `line`, and
+ * `lost` the other side's lines they replaced.
+ */
+export type SettledRegion = {
+	readonly line: number;
+	readonly kept: string;
+	readonly lost: string;
+};
+
 /** A line merge whose competing regions took one side's lines. */
 export type PreferredMerge = {
 	readonly text: string;
-	/**
-	 * The other side's lines in each competing region, in order: what the
-	 * preferred side replaced. Empty when no region competed.
-	 */
-	readonly replaced: readonly string[];
+	/** Each competing region, in order. Empty when no region competed. */
+	readonly replaced: readonly SettledRegion[];
 };
 
 /**
@@ -65,10 +75,10 @@ export async function mergeLinesPreferring(
 	versions: LineVersions,
 	prefer: 'ours' | 'theirs',
 ): Promise<PreferredMerge> {
-	const replaced: string[] = [];
-	const text = await mergeBy(versions, (mine, yours) => {
+	const replaced: SettledRegion[] = [];
+	const text = await mergeBy(versions, (mine, yours, line) => {
 		const [kept, lost] = prefer === 'ours' ? [mine, yours] : [yours, mine];
-		replaced.push(lost);
+		replaced.push({ line, kept, lost });
 		return kept;
 	});
 	// A competing region always resolves, so the merge always has text.
@@ -77,12 +87,13 @@ export async function mergeLinesPreferring(
 
 /**
  * The line merge, where `compete` answers the lines of each region both
- * sides changed differently, given ours and theirs there; `undefined` from
- * it makes the whole merge `undefined`.
+ * sides changed differently, given ours and theirs there and the 0-based
+ * line of the merged text the region starts at; `undefined` from it makes
+ * the whole merge `undefined`.
  */
 async function mergeBy(
 	{ base, ours, theirs }: LineVersions,
-	compete: (mine: string, yours: string) => string | undefined,
+	compete: (mine: string, yours: string, line: number) => string | undefined,
 ): Promise<string | undefined> {
 	// Loaded when a merge needs it: the shell's diff uses the same library,
 	// and a static import would put it in this module's chunk.
@@ -126,7 +137,12 @@ async function mergeBy(
 		const start = all[index]!.baseStart;
 		let end = all[index]!.baseEnd;
 		const group = [all[index++]!];
-		while (index < all.length && all[index]!.baseStart <= end) {
+		// A change joins the region when it overlaps it on the base, or when
+		// both insert at the same place. Neighboring changes stay apart.
+		const joins = (next: Hunk) =>
+			next.baseStart < end ||
+			(next.baseStart === end && next.baseEnd === end && start === end);
+		while (index < all.length && joins(all[index]!)) {
 			end = Math.max(end, all[index]!.baseEnd);
 			group.push(all[index++]!);
 		}
@@ -150,7 +166,7 @@ async function mergeBy(
 			merged += mine;
 		else if (group.every((hunk) => hunk.side === 'theirs')) merged += yours;
 		else {
-			const settled = compete(mine, yours);
+			const settled = compete(mine, yours, lines(merged).length);
 			if (settled === undefined) return undefined;
 			merged += settled;
 		}

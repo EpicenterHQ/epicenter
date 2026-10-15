@@ -255,14 +255,12 @@ describe('a folder over an ordinary directory', () => {
 		expect(existsSync(join(root, 'todos'))).toBe(false);
 		expect(expectOk(await folder.tables.todos.list())).toEqual([]);
 		expect(existsSync(join(root, 'todos'))).toBe(false);
-		// A new repository is a whole one before anything is committed, and
-		// opening and reading wrote nothing into it.
-		expect(await git(root, 'status', '--porcelain')).toBe('');
+		// Opening and reading wrote nothing, and created no repository.
+		expect(existsSync(join(root, '.git'))).toBe(false);
 		const created = await addTodo(folder, 'Buy milk');
 		// The first write published the declaration before its own file.
-		expect(await git(root, 'status', '--porcelain')).toContain(
-			'epicenter.json',
-		);
+		expect(existsSync(join(root, 'epicenter.json'))).toBe(true);
+		expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 		expect(existsSync(join(root, 'todos'))).toBe(true);
 		expect(await readFile(join(root, created.path), 'utf8')).toContain(
 			'title: Buy milk',
@@ -409,20 +407,24 @@ describe('a folder over an ordinary directory', () => {
 		await folder.close();
 	});
 
-	test('a guarded write refuses a file another program changed', async () => {
+	test('a save merges with a file another program changed', async () => {
 		const root = await scratch('directory-folder-guard-');
 		const folder = expectOk(await open(root));
 		const created = await addTodo(folder, 'Mine');
 		const path = join(root, created.path);
-		await writeFile(path, '---\ntitle: Theirs\ndone: false\n---\n');
+		await writeFile(path, '---\ntitle: Mine\ndone: true\n---\n');
 		created.row.fields.title = 'Mine, edited';
-		const replaced = await folder.tables.todos.replace(created, created.row);
-		expect(replaced.error?.name).toBe('Conflict');
-		expect(await readFile(path, 'utf8')).toContain('Theirs');
+		const saved = expectOk(
+			await folder.tables.todos.save(created, created.row),
+		);
+		expect(saved).toMatchObject({ merged: true, replaced: [] });
+		expect(await readFile(path, 'utf8')).toBe(
+			'---\ntitle: Mine, edited\ndone: true\n---\n',
+		);
 		await folder.close();
 	});
 
-	test('a save another writer overtakes after its check is refused where it publishes', async () => {
+	test('a save another writer overtakes after its check merges; other writes are refused where they publish', async () => {
 		const root = await scratch('directory-folder-overtaken-');
 		const sha256 = (text: string) => hashBytes(new TextEncoder().encode(text));
 		// Another writer, sharing no lock with this folder, lands these bytes
@@ -452,13 +454,13 @@ describe('a folder over an ordinary directory', () => {
 		const theirs = '---\ntitle: Theirs\ndone: false\n---\n';
 		overtaken.set(path, theirs);
 		created.row.fields.title = 'Mine, edited';
-		const replaced = await folder.tables.todos.replace(created, created.row);
-		expect(replaced.error).toMatchObject({
-			name: 'Conflict',
-			expectedSha256: created.sha256,
-			actualSha256: await sha256(theirs),
-		});
-		expect(await readFile(path, 'utf8')).toBe(theirs);
+		const saved = expectOk(
+			await folder.tables.todos.save(created, created.row),
+		);
+		expect(saved.replaced).toEqual([
+			{ kind: 'field', field: 'title', kept: 'Mine, edited', theirs: 'Theirs' },
+		]);
+		expect(await readFile(path, 'utf8')).toContain('title: Mine, edited');
 
 		const note = join(root, 'todos/a.md');
 		overtaken.set(note, 'theirs\n');

@@ -19,9 +19,11 @@
  * - `create` writes canonical text that reads back as the same row, captures
  *   the row before anything is awaited, refuses an invalid row before
  *   storage, and refuses an occupied path
- * - `replace`, `rename`, and `delete` are guarded by a capture: a stored row,
- *   an `InvalidRow`, or a listed row; different or missing bytes are
- *   `Conflict`, and a missing row is never recreated
+ * - `save`, `rename`, and `delete` take a capture: a stored row, an
+ *   `InvalidRow`, or a listed row. `rename` and `delete` over different or
+ *   missing bytes are `Conflict`; `save` over different bytes merges (see
+ *   `save.test.ts`), and over missing ones is `NotFound`. A missing row is
+ *   never recreated
  * - Every literal single-segment stem is an address, the empty one included;
  *   only the exact lowercase `.md` extension is a row
  *
@@ -36,7 +38,7 @@ import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field, parseRow } from './contract.js';
 import type { Row } from './row-text.js';
-import { createTable } from './table.js';
+import { createTable, SAVE_MERGES } from './table.js';
 
 const definition = defineFolder({
 	kv: {},
@@ -321,13 +323,13 @@ test('a generated stem is used when none is given', async () => {
 
 // -- Guarded writes -----------------------------------------------------------
 
-test('replace saves a row over the bytes it was read from, reading nothing', async () => {
+test('save writes a row over the bytes it was read from, reading nothing', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
 	stored.row.fields.done = true;
 	s.resetCounts();
-	const replaced = expectOk(await s.table.replace(stored, stored.row));
+	const replaced = expectOk(await s.table.save(stored, stored.row)).stored;
 	expect(s.counts()).toEqual({ reads: 0, applications: 1 });
 	expect<unknown>(replaced.row.fields).toEqual({
 		title: 'External',
@@ -338,15 +340,19 @@ test('replace saves a row over the bytes it was read from, reading nothing', asy
 	expect(expectOk(await s.table.get('a'))).toEqual(replaced);
 });
 
-test('replace against bytes that changed is Conflict, and the newer bytes stay', async () => {
+test('save against bytes that changed merges with them, keeping what only they changed', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
 	await s.put('todos/a.md', NEWER);
-	expect(expectErr(await s.table.replace(stored, todo('Mine'))).name).toBe(
-		'Conflict',
-	);
-	expect(await s.stored('todos/a.md')).toBe(NEWER);
+	const edited = structuredClone(stored.row);
+	edited.fields.done = true;
+	const saved = expectOk(await s.table.save(stored, edited));
+	expect(saved).toMatchObject({ merged: true, replaced: [] });
+	expect<unknown>(expectOk(await s.table.get('a'))?.row).toEqual({
+		fields: { title: 'Newer', done: true, tags: [] },
+		body: '',
+	});
 });
 
 test('a missing row is never recreated by a guarded write', async () => {
@@ -354,8 +360,8 @@ test('a missing row is never recreated by a guarded write', async () => {
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
 	expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/a.md' }]));
-	expect(expectErr(await s.table.replace(stored, todo('Back'))).name).toBe(
-		'Conflict',
+	expect(expectErr(await s.table.save(stored, todo('Back'))).name).toBe(
+		'NotFound',
 	);
 	expect(await s.stored('todos/a.md')).toBeUndefined();
 });
@@ -365,7 +371,7 @@ test('an invalid row is repaired with its own capture', async () => {
 	await s.put('todos/m.md', MALFORMED);
 	const invalid = expectErr(await s.table.get('m'));
 	if (invalid.name !== 'InvalidRow') throw new Error(invalid.message);
-	expectOk(await s.table.replace(invalid, todo('Repaired')));
+	expectOk(await s.table.save(invalid, todo('Repaired'))).stored;
 	expect(expectOk(await s.table.get('m'))?.row.fields.title).toBe('Repaired');
 });
 
@@ -376,7 +382,7 @@ test('replace refuses an invalid row before anything touches storage', async () 
 	s.resetCounts();
 	expect(
 		expectErr(
-			await s.table.replace(stored, {
+			await s.table.save(stored, {
 				fields: { title: 7 as never, done: false, tags: [] },
 				body: '',
 			}),
@@ -448,7 +454,7 @@ test('delete removes the captured row, a listed or invalid one included', async 
 	expect(expectOk(await s.table.list())).toEqual([]);
 });
 
-test('a write that races a competing write returns Conflict once and leaves the competing bytes', async () => {
+test('a save that races a competing write merges over it once, and says what it replaced', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
@@ -457,11 +463,35 @@ test('a write that races a competing write returns Conflict once and leaves the 
 		await s.put('todos/a.md', NEWER);
 	});
 	s.resetCounts();
-	expect(expectErr(await s.table.replace(stored, todo('Mine'))).name).toBe(
-		'Conflict',
-	);
-	expect(s.counts().applications).toBe(1);
-	expect(await s.stored('todos/a.md')).toBe(NEWER);
+	const saved = expectOk(await s.table.save(stored, todo('Mine')));
+	expect(s.counts().applications).toBe(2);
+	expect(saved.replaced).toContainEqual({
+		kind: 'field',
+		field: 'title',
+		kept: 'Mine',
+		theirs: 'Newer',
+	});
+	expect(saved.stored.row.fields.title).toBe('Mine');
+});
+
+test('a row that keeps changing gives up after the bounded merges, writing nothing of its own', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	const stored = await s.row('a');
+	let writes = 0;
+	// Another writer lands before every attempt, so each merge is overtaken.
+	s.beforeApply(async () => {
+		await s.put('todos/a.md', NEWER.replace('Newer', `Newer ${writes++}`));
+	});
+	const refused = expectErr(await s.table.save(stored, todo('Mine')));
+	s.beforeApply(undefined);
+	expect(refused).toMatchObject({
+		name: 'KeptChanging',
+		path: 'todos/a.md',
+		attempts: SAVE_MERGES,
+	});
+	expect(writes).toBe(SAVE_MERGES + 1);
+	expect(await s.stored('todos/a.md')).toContain(`Newer ${SAVE_MERGES}`);
 });
 
 // -- Addresses ----------------------------------------------------------------

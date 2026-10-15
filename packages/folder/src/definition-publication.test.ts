@@ -6,7 +6,7 @@
  * failures while saved rows remain usable.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
@@ -157,7 +157,9 @@ for (const adapter of ['browser', 'bun'] as const) {
 
 	test(`${adapter}: a later handle's first write leaves an unchanged declaration unwritten and rewrites a changed one`, async () => {
 		const root = await scratch('definition-unchanged-');
-		const environment = createTestStorage();
+		// Pages of one origin tell each other the paths they write, so a
+		// second browser handle hears what the first one wrote.
+		const environment = createTestStorage({ BroadcastChannel });
 		const open = async <TSchema extends FolderDefinition>(schema: TSchema) =>
 			expectOk(
 				adapter === 'bun'
@@ -168,16 +170,34 @@ for (const adapter of ['browser', 'bun'] as const) {
 							browser: { ...browserStorage(environment), author },
 						}),
 			);
-		/** The paths the saves in `write` landed, as this handle heard them. */
+		const watched = ['epicenter.json', 'kv.json'];
+		/** Which files the saves in `write` replaced. */
 		const landed = async (
-			folder: Folder<FolderDefinition>,
+			_folder: Folder<FolderDefinition>,
 			write: () => Promise<unknown>,
 		) => {
-			const paths: string[] = [];
-			const stop = folder.onFilesChanged((changed) => paths.push(...changed));
+			if (adapter === 'bun') {
+				// Each save renames a new file into place.
+				const inode = (path: string) =>
+					stat(join(root, path)).then(
+						(found) => found.ino,
+						() => undefined,
+					);
+				const before = await Promise.all(watched.map(inode));
+				await write();
+				const after = await Promise.all(watched.map(inode));
+				return watched.filter((_, index) => before[index] !== after[index]);
+			}
+			const listener = await open(definition);
+			const paths = new Set<string>();
+			listener.onFilesChanged((changed) => {
+				if (changed !== 'everything')
+					for (const path of changed) paths.add(path);
+			});
 			await write();
-			stop();
-			return paths;
+			for (let tries = 0; tries < 20; tries++) await Bun.sleep(5);
+			await listener.close();
+			return watched.filter((path) => paths.has(path));
 		};
 		let folder: Folder<FolderDefinition> = await open(definition);
 		try {

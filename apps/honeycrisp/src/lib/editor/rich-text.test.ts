@@ -589,20 +589,14 @@ describe('the editor follows the cache', () => {
 		expect(folder.text(PATH)).toContain('one!\n');
 	});
 
-	test('a write that meets a change made elsewhere rolls the editor back to the file and reports the typing', async () => {
-		const { folder, type, end, follow, settled, body, failures, ...view } =
-			await open('one\n');
+	test('a write that meets a change made elsewhere to the same line keeps the typing', async () => {
+		const { folder, type, end, settled, body, failures } = await open('one\n');
 		folder.put(PATH, noteText({ body: 'theirs\n' }));
 		end();
 		expect(type('!')).toBe(true);
 		await settled();
-		expect(failures).toMatchObject([
-			{ path: PATH, error: { name: 'Conflict' } },
-		]);
-		expect(failures[0]?.lost).toContain('one!');
-		expect(body()).toBe('theirs\n');
-		follow();
-		expect(view.shown().doc.textContent).toBe('theirs');
-		expect(undoDepth(view.shown())).toBe(0);
+		// Both changed the one line: the typing is the fresher intent.
+		expect(failures).toEqual([]);
+		expect(body()).toBe('one!\n');
 	});
 });

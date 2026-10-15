@@ -5,50 +5,41 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileChange, FolderStorage } from './boundary.js';
 import { type FileCapture, fileCapture, hashBytes } from './capture.js';
-import { FileError, type FileStep, MoveError } from './errors.js';
+import { FileError, MoveError } from './errors.js';
 import type { History } from './git/history.js';
 
-const stepPaths = (step: FileStep | FileChange): string[] =>
-	step.kind === 'move' ? [step.from, step.to] : [step.path];
-
 /**
- * The paths an application may have changed: every path of a confirmed
- * batch, the landed steps of a partial one with its failed step when that
- * outcome is unknown, and every path of an unconfirmed one.
+ * Whether an application may have changed a file: a confirmed batch, a
+ * partial one with a landed step or an unconfirmed failed step, or an
+ * unconfirmed one.
  */
 function mayHaveChanged(
-	changes: readonly FileChange[],
 	error: Awaited<ReturnType<FolderStorage['apply']>>['error'],
-): string[] {
-	if (error === null) return changes.flatMap(stepPaths);
+): boolean {
+	if (error === null) return true;
 	if (error.name === 'Partial')
-		return [
-			...error.applied.flatMap(stepPaths),
-			...(error.error.name === 'Unconfirmed' ? stepPaths(error.failed) : []),
-		];
-	if (error.name === 'Unconfirmed') return changes.flatMap(stepPaths);
-	return [];
+		return error.applied.length > 0 || error.error.name === 'Unconfirmed';
+	return error.name === 'Unconfirmed';
 }
 
-/** Every folder records its local saves here. */
+/**
+ * Every folder records its local saves here: each one that may have changed
+ * a file makes the history's observations stale. A save is not reported to
+ * the handle's own change listeners (ADR-0548): whoever saved holds the
+ * result.
+ */
 export function withPublication({
 	storage,
 	history,
-	landed,
 }: {
 	storage: FolderStorage;
 	history: Pick<History, 'noteEdit'>;
-	landed: (paths: readonly string[]) => void;
 }): FolderStorage {
 	return {
 		...storage,
 		async apply(changes) {
 			const result = await storage.apply(changes);
-			const touched = mayHaveChanged(changes, result.error);
-			if (touched.length > 0) {
-				history.noteEdit();
-				landed(touched);
-			}
+			if (mayHaveChanged(result.error)) history.noteEdit();
 			return result;
 		},
 	};

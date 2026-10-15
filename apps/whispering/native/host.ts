@@ -468,7 +468,7 @@ export async function createHost(options: HostOptions) {
 				return debugInjection().arm(payload);
 			case 'injection':
 				return debugInjection().state;
-			// The page opened the folder, so Git exists: take a lock asked for at launch.
+			// The page opened the folder: take a lock asked for at launch, if Git exists.
 			case 'injection-launch':
 				return debugInjection().armLaunch();
 			case 'obstruct':

@@ -174,9 +174,9 @@ Git backend a Bun directory folder uses, with its `git` run by the shell:
 only the operations the folder engine needs, with no hook, fsmonitor, or
 terminal prompt. Several Todos windows share the folder without waiting on
 each other (ADR-0541): the shell checks each save where it lands, a commit
-whose branch another window moved retries once, and a `BroadcastChannel`
-carries best-effort hints. Nothing watches the directory
-for other programs' edits; Todos reads again at the moments listed
+whose branch another window moved retries once, and a save another window
+overtook merges with it (`table.save`, ADR-0548). Todos does not yet follow
+`folder.onFilesChanged`; it reads again at the moments listed
 [above](#where-the-files-are).
 
 The `epicenter-host` build condition selects the desktop leaf of
@@ -297,11 +297,13 @@ time, and switching never waits or asks.
   at most one more waiting, and the waiting one writes whatever you typed
   by the time it runs, so fast typing writes your latest text, not every
   keystroke. Writes to different files run side by side.
-- Each write is guarded by the version Todos last read or wrote. When the
-  file changed elsewhere since, the write changes nothing, the editor and
-  the list show the file as it is now, and a message says so with **Copy
-  your text**, which copies the text that was not written. You lose at most
-  what was in flight: one click, or the last moment of typing. Nothing
+- Each write names the version Todos last read or wrote. When the file
+  changed elsewhere since, the write merges with it (ADR-0548): what only the
+  other writer changed stays, and where you both changed the same field or
+  lines, your edit wins. When the file was deleted, or the write fails, the
+  editor and the list show the file as it is now, and a message says so with
+  **Copy your text**, which copies the text that was not written. You lose at
+  most what was in flight: one click, or the last moment of typing. Nothing
   merges on a write; Sync is where histories merge.
 - A write that fails for another reason, or whose reply is lost, is reported
   the same way, and the file is read again.
@@ -435,11 +437,12 @@ they cannot disagree. A view that edits a file calls `todos.rows.edit(stem, chan
 immutable `map` over the listing, and queues its own write mutation
 (`mutationKey: ['todos', 'write', path]`, `scope: { id: path }`) only when
 `edit` says one is needed: fewer than two are running or waiting for that
-file. The write reads the cache when it runs and calls guarded
-`table.replace`. Its `onSuccess` moves the cached hash forward and keeps the
-newest row; TanStack awaits it before the next write in the scope runs. Its
-`onError` reads the listing again, which rolls the cache back, and reports
-what was lost. Reads are never held back: one may land while a write runs,
+file. The write reads the cache when it runs and calls `table.save` over the
+row the cached version held (`createSaveBases`), so a file changed elsewhere
+merges with the edit. Its `onSuccess` moves the cached hash forward and keeps
+the newest row; TanStack awaits it before the next write in the scope runs.
+Its `onError` reads the listing again, which rolls the cache back, and
+reports what was lost. Reads are never held back: one may land while a write runs,
 and the last write to settle reads everything again. Nothing goes stale on
 its own. Writes never wait for the page to be visible. Todos does not
 write a file that does not read as a todo; another editor repairs it, and

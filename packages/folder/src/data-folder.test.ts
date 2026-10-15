@@ -91,11 +91,11 @@ test('opens with its own declaration and never writes it', async () => {
 		await todos.create({ fields: { title: 'Two', done: false }, body: '' }),
 	);
 	expectOk(
-		await todos.replace(created, {
+		await todos.save(created, {
 			fields: { title: 'Two', done: true },
 			body: 'Done.\n',
 		}),
-	);
+	).stored;
 	// A row the declaration refuses is refused before anything is written.
 	expect(
 		expectErr(await todos.create({ fields: { title: 3 }, body: '' })).name,
@@ -246,11 +246,11 @@ test("sync merges rows by the folder's own declaration", async () => {
 	const one = expectOk(await todos.get('one'));
 	expect(one).toBeDefined();
 	expectOk(
-		await todos.replace(one!, {
+		await todos.save(one!, {
 			fields: { title: 'One', done: true },
 			body: '',
 		}),
-	);
+	).stored;
 
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
@@ -270,7 +270,8 @@ test('openFolder still publishes its own definition, and exposes it', async () =
 		await openFolder({ root, definition, git: { author } }),
 	);
 	expect(folder.definition).toBe(definition);
-	expect(existsSync(join(root, '.git/HEAD'))).toBe(true);
+	// Opening creates no repository; the first commit does.
+	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 	expectOk(await folder.files.create('notes.txt', 'a\n'));
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).not.toBe(
 		DECLARED,

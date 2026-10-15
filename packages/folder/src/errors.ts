@@ -247,7 +247,7 @@ export const TableError = defineErrors({
 	/**
 	 * The folder requires `fields` in every row of `table`, and the lens this
 	 * table was opened with does not declare them, so it cannot supply them.
-	 * Rows can be read and replaced through the lens, not added (ADR-0538).
+	 * Rows can be read and saved through the lens, not added (ADR-0538).
 	 */
 	CannotCreate: ({
 		table,
@@ -268,6 +268,15 @@ export const TableError = defineErrors({
 		message: `'${path}' is not valid UTF-8 text`,
 		path,
 		sha256,
+	}),
+	/**
+	 * A save found the row changed by another writer, merged with it, and
+	 * found it changed again, `attempts` times. Nothing of this save landed.
+	 */
+	KeptChanging: ({ path, attempts }: { path: string; attempts: number }) => ({
+		message: `'${path}' kept changing while it was saved; gave up after ${attempts} merges`,
+		path,
+		attempts,
 	}),
 });
 export type TableError = InferErrors<typeof TableError>;
@@ -294,8 +303,17 @@ export type TableCreateError =
 	| FileError
 	| TableErrorOf<'InvalidValues' | 'CannotCreate'>;
 
-/** The row cannot be written as a valid row, or the guarded publication failed. */
-export type TableReplaceError = FileError | TableErrorOf<'InvalidValues'>;
+/**
+ * Why a save wrote nothing: the row cannot be written as a valid row
+ * (`InvalidValues`), the row file was deleted (`NotFound`), another writer
+ * left it unreadable as a row (`InvalidUtf8`, `InvalidRow`), it kept
+ * changing past the merges (`KeptChanging`), or storage failed.
+ */
+export type TableSaveError =
+	| FileError
+	| TableErrorOf<
+			'InvalidValues' | 'InvalidUtf8' | 'InvalidRow' | 'KeptChanging'
+	  >;
 
 /** A guarded row move preserves the file move's failures, its landed capture included. */
 export type TableRenameError = FileError | MoveError;
@@ -306,7 +324,7 @@ export type TableDeleteError = FileError;
 /** Every failure a table write can report. */
 export type TableWriteError =
 	| TableCreateError
-	| TableReplaceError
+	| TableSaveError
 	| TableRenameError
 	| TableDeleteError;
 

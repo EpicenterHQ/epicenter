@@ -8,9 +8,10 @@
  * Inside the desktop app it refuses, because that page's folder is a
  * directory the shell owns.
  *
- * Opening writes nothing. The folder's first write creates its directory
- * and its repository together; reads never write. A folder nobody wrote to
- * lists no files and has no history. Its remote is `remote.origin.url` in its Git configuration, which
+ * Opening writes nothing. The folder's first write creates its directory,
+ * and its first commit, staging, or remote creates its repository, as on
+ * every host; reads never write. A folder nobody wrote to lists no files
+ * and has no history. Its remote is `remote.origin.url` in its Git configuration, which
  * `folder.sync.connect` sets. IndexedDB is never required, read, or written.
  *
  * `browser.ts` is the public entry; the automatic entry loads this module
@@ -22,6 +23,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { ensureBufferGlobal } from './buffer-global.js';
+import { browserChangeDetector } from './changes-browser.js';
 import type {
 	OpenDataFolder,
 	OpenDataFolderOptions,
@@ -62,6 +64,8 @@ function globalEnvironment(): Result<
 		navigator?: Navigator;
 		FileSystemFileHandle?: { prototype: object };
 		BroadcastChannel?: typeof BroadcastChannel;
+		window?: EventTarget;
+		document?: EventTarget;
 	};
 	const storage = scope.navigator?.storage;
 	if (typeof storage?.getDirectory !== 'function')
@@ -80,6 +84,7 @@ function globalEnvironment(): Result<
 			storage.getDirectory() as unknown as Promise<OpfsDirectoryHandle>,
 		locks: locks as unknown as OpfsLocks,
 		BroadcastChannel: scope.BroadcastChannel,
+		page: { window: scope.window, document: scope.document },
 	});
 }
 
@@ -94,7 +99,7 @@ const isFolderName = (id: unknown): id is string =>
 	id !== '..' &&
 	!UNNAMEABLE.test(id);
 
-/** The directory, Web Locks, and hint channel of the folder named `id`. */
+/** The directory, Web Locks, and change channel of the folder named `id`. */
 function folderAddress(id: string): FolderAddress {
 	return {
 		address: id,
@@ -114,12 +119,11 @@ const notFound = (name: string) =>
 /**
  * The directory `name` in `origin`, which may not exist yet. Reading a missing
  * directory finds nothing and lists nothing; the first call that creates
- * an entry in it creates it, then awaits `whenMade` before creating that entry.
+ * an entry in it creates it.
  */
 function lazyDirectory(
 	origin: OpfsDirectoryHandle,
 	name: string,
-	whenMade: () => Promise<void>,
 ): OpfsDirectoryHandle {
 	let made: OpfsDirectoryHandle | undefined;
 	let making: Promise<OpfsDirectoryHandle> | undefined;
@@ -142,7 +146,6 @@ function lazyDirectory(
 					create: true,
 				});
 				made = directory;
-				await whenMade();
 				return directory;
 			})().finally(() => {
 				making = undefined;
@@ -186,7 +189,8 @@ export const openFolder: OpenFolder = async ({ definition, ...options }) => {
  * Open the browser folder named `id` with its own `epicenter.json`, which the
  * handle never writes; a folder without one has no tables and no settings.
  * Opening writes nothing, as `openFolder`'s does: a folder nobody wrote to
- * lists no files, and its first write creates its directory and repository.
+ * lists no files, its first write creates its directory, and its first
+ * commit, staging, or remote creates its repository.
  * An `epicenter.json` that cannot be used is `InvalidDeclaration`, and one
  * that does not contain the `lens` is `ShapeMismatch`.
  */
@@ -226,20 +230,16 @@ async function openBrowserFolder<
 	ensureBufferGlobal();
 	const at = folderAddress(id);
 	const { locks } = environment;
-	// The folder's repository comes with its directory: the first write
-	// makes both, so no read ever writes.
-	let ensureRepository = async () => {};
+	// The first write makes the directory, so no read ever writes.
 	let root: OpfsDirectoryHandle;
 	try {
-		root = lazyDirectory(await environment.getDirectory(), at.directory, () =>
-			ensureRepository(),
-		);
+		root = lazyDirectory(await environment.getDirectory(), at.directory);
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });
 	}
-	return openAtRoot<TDefinition, TDeclared>(schema, environment, {
-		at,
+	return openAtRoot<TDefinition, TDeclared>(schema, {
 		lens,
+		detector: browserChangeDetector(environment, at.hintChannel),
 		location: { kind: 'opfs', directory: at.directory },
 		// An incoming update a closed tab left half published stays pending:
 		// opening reads it into the snapshot and never resumes it.
@@ -265,7 +265,6 @@ async function openBrowserFolder<
 				httpFetch,
 				credentials,
 			});
-			ensureRepository = backend.ensureRepository;
 			return {
 				boundary,
 				history: (prepared) =>

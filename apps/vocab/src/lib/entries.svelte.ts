@@ -30,12 +30,15 @@ import {
 	hashBytes,
 	type Row,
 	rowPath,
+	type SavedRow,
 	type StoredRow,
 	type TableError,
 	type TableListing,
+	type TableSaveError,
 	wellFormed,
 } from '@epicenter/folder';
 import { type OpenedFile, readTextFile } from '@epicenter/folder/file-browser';
+import { createSaveBases } from '@epicenter/folder/query';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber } from 'svelte/reactivity';
 import {
@@ -144,6 +147,9 @@ export function createEntries(
 		queryClient.getQueryData<EntryListing>(vocabKeys.entries);
 	const textData = (path: string) =>
 		queryClient.getQueryData<OpenedFile>(vocabKeys.text(path));
+
+	/** The row each cached version held, which a save merges from. */
+	const bases = createSaveBases<EntryFields>();
 
 	/** The word the cache holds at `id`, if it reads as one. */
 	function rowOf(id: string): StoredRow<EntryFields> | undefined {
@@ -258,7 +264,11 @@ export function createEntries(
 		return undefined;
 	}
 
-	/** The write of one word: the row the cache holds when it runs, guarded by the hash it last confirmed. */
+	/**
+	 * The write of one word: the row the cache holds when it runs, over the
+	 * version it last confirmed, from the row that version held; a file
+	 * changed elsewhere since is merged with it.
+	 */
 	function rowWrite(id: string) {
 		const path = pathOf(id);
 		return {
@@ -266,27 +276,24 @@ export function createEntries(
 			// Row and text writes of one file share its queue.
 			scope: { id: path },
 			mutationFn: async (): Promise<
-				Result<
-					StoredRow<EntryFields> | undefined,
-					Extract<TableError, { name: 'InvalidValues' }> | FileError
-				>
+				Result<SavedRow<EntryFields> | undefined, TableSaveError>
 			> => {
 				const stored = rowOf(id);
 				if (stored === undefined) return Ok(undefined);
-				return table.replace(stored, stored.row);
+				const saved = await table.save(bases.baseOf(id, stored), stored.row);
+				if (saved.error === null) bases.saved(id, stored.row, saved.data);
+				return saved;
 			},
-			onSuccess: (saved: StoredRow<EntryFields> | undefined) => {
+			onSuccess: (saved: SavedRow<EntryFields> | undefined) => {
 				if (saved === undefined) return;
 				// TanStack awaits this before the next write in the scope runs.
 				mapRow(id, (stored) => ({
 					...stored,
-					path: saved.path,
-					sha256: saved.sha256,
+					path: saved.stored.path,
+					sha256: saved.stored.sha256,
 				}));
 			},
-			onError: async (
-				error: Extract<TableError, { name: 'InvalidValues' }> | FileError,
-			) => {
+			onError: async (error: TableSaveError) => {
 				const lost = rowOf(id);
 				await reloadRow(id);
 				onWriteFailed({
@@ -429,10 +436,10 @@ export function createEntries(
 			queryKey: vocabKeys.entries,
 			exact: true,
 		});
-		const changed = mapRow(id, (stored) => ({
-			...stored,
-			row: change(stored.row),
-		}));
+		const changed = mapRow(id, (stored) => {
+			bases.editing(id, stored);
+			return { ...stored, row: change(stored.row) };
+		});
 		if (!changed) return false;
 		if (needsWrite(vocabKeys.write(path))) void defineMutation(rowWrite(id))();
 		return true;

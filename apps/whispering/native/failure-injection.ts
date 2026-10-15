@@ -102,7 +102,7 @@ export function createFailureInjection({
 			head = await readFile(join(root, '.git', 'HEAD'), 'utf8');
 		} catch {
 			throw new Error(
-				'The folder has no Git history yet, so there is no branch to lock. Lock it once the app has opened the folder.',
+				'The folder has no Git history yet, so there is no branch to lock. Lock it once the folder\'s first commit has created it.',
 			);
 		}
 		const branch = /^ref: refs\/heads\/(.+)$/.exec(head.trim())?.[1];
@@ -287,9 +287,10 @@ export function createFailureInjection({
 		arm,
 		/**
 		 * Take the branch lock the launch environment asked for. The page calls
-		 * this once it has opened the folder, which is when Git exists.
-		 * A folder with no Git yet keeps the request for the next call; a lock
-		 * someone else holds is theirs, and the request is dropped.
+		 * this once it has opened the folder; Git exists from the folder's
+		 * first commit. A folder with no Git yet keeps the request for the
+		 * next call; a lock someone else holds is theirs, and the request is
+		 * dropped.
 		 */
 		async armLaunch(): Promise<InjectionState> {
 			if (!lockAtLaunch) return { ...state };

@@ -17,9 +17,12 @@
  *   saves the newest row, guarded by the hash the previous write confirmed
  * - No read starts while a write runs: not on returning to the window, not
  *   when a view mounts
- * - A write that fails rolls the cache back to the file and reports the
- *   text that was lost; a change the body or the folder cannot hold is
- *   refused
+ * - A write that meets a change made elsewhere merges with it, and the edit
+ *   wins where both changed; a raw text write still refuses a file changed
+ *   elsewhere
+ * - A write that fails, or whose file was deleted elsewhere, rolls the cache
+ *   back to the file and reports the text that was lost; a change the body
+ *   or the folder cannot hold is refused
  * - A file that is not a valid capture opens as text, is written as typed,
  *   and opens as a capture once repaired
  * - A thought typed and not added stays with its capture; a thought command
@@ -232,28 +235,21 @@ test('no read starts while a write runs: not on returning to the window, not whe
 	expect(await harness.text(PATH)).toContain('\nMine again\n');
 });
 
-test('a write that meets a change made elsewhere rolls back to the file and reports the lost text', async () => {
+test('a write that meets a change made elsewhere merges with it: the edit wins where both changed', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
 	await harness.writeElsewhere(PATH, theirs);
 	captures.formOf('one').inputText('Mine');
 	await quiet(captures);
-	expect(harness.failures).toHaveLength(1);
-	expect(harness.failures[0]).toMatchObject({
-		path: PATH,
-		error: { name: 'Conflict' },
-	});
-	expect(harness.failures[0]?.lost).toContain('\nMine\n');
-	// The cache shows the file again; nothing was written over it.
-	expect(await harness.text(PATH)).toBe(theirs);
-	expect(cached(captures, 'one').row.body).toContain('Theirs');
-
-	// The next edit writes on top of what is there now.
-	captures.formOf('one').inputText('Mine, again');
-	await quiet(captures);
-	expect(harness.failures).toHaveLength(1);
-	expect(await harness.text(PATH)).toContain('\nMine, again\n');
+	expect(harness.failures).toEqual([]);
+	// Both changed the text line, so the edit's stands. Only they removed
+	// `custom` and the thoughts, so those stay removed.
+	const merged = await harness.text(PATH);
+	expect(merged).toContain('\nMine\n');
+	expect(merged).not.toContain('Theirs');
+	expect(merged).not.toContain('custom: kept');
+	expect(merged).not.toContain('- first');
 });
 
 test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {
@@ -285,7 +281,7 @@ test('a write to a file deleted elsewhere rolls back and the capture is gone', a
 	captures.formOf('one').inputText('Mine');
 	await quiet(captures);
 	expect(harness.failures).toMatchObject([
-		{ path: PATH, error: { name: 'Conflict', actualSha256: undefined } },
+		{ path: PATH, error: { name: 'NotFound' } },
 	]);
 	// A write never recreates a deleted file.
 	expect(await harness.text(PATH)).toBeUndefined();

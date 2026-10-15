@@ -146,15 +146,14 @@
 
 	/**
 	 * Save `edit` of row `stem` in the table shown now. Everything it needs is
-	 * taken here, when the edit is made: the table, its declaration, and the
+	 * taken here, when the edit is made: the table and the
 	 * row the edit began from (recorded by `begin`, or the row shown now for
 	 * an edit made by one click). A save queued behind others still saves to
 	 * its own table after the view shows another.
 	 */
 	function edit(stem: string, unit: EditUnit, change: RowEdit) {
 		const name = tableName;
-		const table = prepared;
-		if (name === undefined || table === undefined) return;
+		if (name === undefined) return;
 		const handle = folder.tables[name] as AnyTable;
 		const start = edits.take(name, stem, unit) ?? storedOf(stem);
 		if (start === undefined) return;
@@ -163,7 +162,6 @@
 				const base = edits.latest(start);
 				const outcome = await saveRow({
 					table: handle,
-					prepared: table,
 					captured: base,
 					edited: await editedRow(start, base, change),
 				});
@@ -199,7 +197,7 @@
 		if (replaced.length === 0) return 'Changed in another window; merged.';
 		const parts = replaced.map((item) =>
 			item.kind === 'body'
-				? `the notes (their lines were ${item.theirs.map((lines) => JSON.stringify(lines.replace(/\n$/, ''))).join(', ')})`
+				? `the notes (their lines were ${JSON.stringify(item.theirs.replace(/\n$/, ''))})`
 				: `${item.field} (theirs was ${item.theirs === undefined ? 'empty' : JSON.stringify(item.theirs)})`,
 		);
 		return `Changed in another window; merged. Your edit replaced their change to ${parts.join(', ')}.`;

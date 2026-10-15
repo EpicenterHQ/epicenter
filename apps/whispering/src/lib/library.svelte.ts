@@ -45,9 +45,11 @@ import type {
 	MoveError,
 	Row,
 	RowReadError,
+	SavedRow,
 	StoredRow,
 	TableError,
 	TableListing,
+	TableSaveError,
 } from '@epicenter/folder';
 import { formatRow, parseRow, rowPath, rowStemOf } from '@epicenter/folder';
 import {
@@ -56,6 +58,7 @@ import {
 	joinPath,
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
+import { createSaveBases } from '@epicenter/folder/query';
 import { type RecordingFolder, recoverRecordings } from '@epicenter/recorder';
 import type {
 	MutationFilters,
@@ -507,6 +510,12 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	}
 
 	/** Change the row at `stem` in the cache: one immutable `map` over the listing. */
+	/**
+	 * The row each cached version held, by path, which a save merges from.
+	 * Every table's rows share it: a path names one table's row.
+	 */
+	const bases = createSaveBases<Record<string, unknown>>();
+
 	function mapRow<T extends RowTable>(
 		table: T,
 		stem: string,
@@ -675,7 +684,11 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		for (const listener of failureListeners) listener(failure);
 	}
 
-	/** The write of one row: the newest row the cache holds when it runs. */
+	/**
+	 * The write of one row: the newest row the cache holds when it runs,
+	 * over the version the cache last confirmed, from the row that version
+	 * held; a file changed elsewhere since is merged with it.
+	 */
 	function rowWrite<T extends RowTable>(table: T, stem: string) {
 		const path = rowPath(table, stem);
 		return resultMutationOptions({
@@ -683,19 +696,31 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			// Row and text writes of one file share its queue.
 			scope: { id: path },
 			mutationFn: async (): Promise<
-				Result<StoredRow<Tables[T]> | undefined, TableError | FileError>
+				Result<SavedRow<Tables[T]> | undefined, TableSaveError>
 			> => {
 				const stored = rowOf(table, stem);
 				if (stored === undefined) return Ok(undefined);
-				return tableOf(table).replace(stored, stored.row);
+				const saved = await tableOf(table).save(
+					bases.baseOf(path, stored) as FileCapture & {
+						readonly row?: Row<Tables[T]>;
+					},
+					stored.row,
+				);
+				if (saved.error === null)
+					bases.saved(
+						path,
+						stored.row as Row<Record<string, unknown>>,
+						saved.data as SavedRow<Record<string, unknown>>,
+					);
+				return saved;
 			},
 			onSuccess: (saved) => {
 				if (saved === undefined) return;
 				// TanStack awaits this before the next write in the scope runs.
 				mapRow(table, stem, (stored) => ({
 					...stored,
-					path: saved.path,
-					sha256: saved.sha256,
+					path: saved.stored.path,
+					sha256: saved.stored.sha256,
 				}));
 			},
 			onError: async (error) => {
@@ -964,13 +989,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 			const { data: stored, error } = await tableOf(RECORDINGS).get(id);
 			if (error !== null) return describeError(error);
 			if (stored === undefined) return undefined;
-			const { error: replaceError } = await tableOf(RECORDINGS).replace(
-				stored,
-				{
-					fields: { ...stored.row.fields, durationMs: stopped.durationMs },
-					body: stored.row.body,
-				},
-			);
+			const { error: replaceError } = await tableOf(RECORDINGS).save(stored, {
+				fields: { ...stored.row.fields, durationMs: stopped.durationMs },
+				body: stored.row.body,
+			});
 			return replaceError === null ? undefined : describeError(replaceError);
 		}, path);
 		if (lengthError !== undefined)
@@ -1192,10 +1214,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				queryKey: keys.rows(table),
 				exact: true,
 			});
-			const changed = mapRow(table, stem, (stored) => ({
-				...stored,
-				row: change(stored.row),
-			}));
+			const changed = mapRow(table, stem, (stored) => {
+				bases.editing(path, stored as StoredRow<Record<string, unknown>>);
+				return { ...stored, row: change(stored.row) };
+			});
 			if (!changed) return;
 			if (
 				queryClient.isMutating({ mutationKey: keys.write(path), exact: true }) <

@@ -10,6 +10,7 @@
  * - Spelling never conflicts: quoting, key order, and comments read as the
  *   same values
  * - Two edits of one field conflict even where a line merge would succeed
+ * - Body edits to neighboring lines both merge; only the same lines compete
  * - Competing body lines are one body conflict; merged fields are kept
  * - Two added rows with no base agree only where they are equal
  * - A deleted or unreadable version makes the whole file one unit
@@ -63,6 +64,19 @@ test('both sides changing different body lines merge by line', async () => {
 		theirs: row(['title: Walk', 'done: false'], 'one\ntwo\nTHREE'),
 	});
 	expect(merged.kind === 'merged' && merged.row.body).toBe('ONE\ntwo\nTHREE');
+});
+
+test('body edits to neighboring lines both merge, as Sync and save merge them', async () => {
+	const base = row(['title: Walk', 'done: false'], 'one\ntwo\nthree\n');
+	const merged = await mergeRow(todos, {
+		base,
+		ours: row(['title: Walk', 'done: false'], 'ONE\ntwo\nthree\n'),
+		theirs: row(['title: Walk', 'done: false'], 'one\nTWO\nthree\n'),
+	});
+	expect(merged).toMatchObject({
+		kind: 'merged',
+		row: { body: 'ONE\nTWO\nthree\n' },
+	});
 });
 
 test('a body line merge keeps every character of each line', async () => {

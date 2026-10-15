@@ -38,6 +38,7 @@ import {
 	type OpenFolderOptions,
 	type PreparedFolderTable,
 	parseRow,
+	type Replaced,
 	type Row,
 	type RowReadError,
 	type StoredRow,
@@ -46,7 +47,7 @@ import {
 	type TableEnumerationError,
 	type TableListing,
 	type TableRenameError,
-	type TableReplaceError,
+	type TableSaveError,
 } from './index.js';
 import * as tauri from './tauri.js';
 
@@ -155,14 +156,14 @@ async function nestedValues(
 	stored.sha256 = 'changed';
 	// @ts-expect-error Nor does the row it read.
 	stored.row = { fields: stored.row.fields, body: '' };
-	notes.replace(stored, stored.row);
+	notes.save(stored, stored.row);
 	notes.create({
 		fields: { tags: ['a'], at: instant, meta: { a: [1] } },
 		body: '',
 	});
 	// @ts-expect-error A row is complete: it names its body.
 	notes.create({ fields: { tags: ['a'], at: instant, meta: null } });
-	notes.replace(stored, {
+	notes.save(stored, {
 		...stored.row,
 		// @ts-expect-error An unvalidated string still does not carry the brand.
 		fields: { ...stored.row.fields, at: '2026-10-01T00:00:00.000Z' },
@@ -211,13 +212,13 @@ async function tupleValues(folder: Folder<typeof tuples>) {
 	expectTypeOf(span[1]).toEqualTypeOf<number | undefined>();
 
 	// What was read goes back in, and input keeps the head it requires.
-	rows.replace(stored, { fields: { span }, body: '' });
-	rows.replace(stored, { fields: { span: ['a', 1, 2] }, body: '' });
+	rows.save(stored, { fields: { span }, body: '' });
+	rows.save(stored, { fields: { span: ['a', 1, 2] }, body: '' });
 	rows.create({ fields: { span: ['a'] }, body: '' });
 	// @ts-expect-error The head is a string.
-	rows.replace(stored, { fields: { span: [1, 'a'] }, body: '' });
+	rows.save(stored, { fields: { span: [1, 'a'] }, body: '' });
 	// @ts-expect-error The head is required.
-	rows.replace(stored, { fields: { span: [] }, body: '' });
+	rows.save(stored, { fields: { span: [] }, body: '' });
 	// @ts-expect-error The rest are numbers.
 	rows.create({ fields: { span: ['a', 'b'] }, body: '' });
 
@@ -559,22 +560,23 @@ async function typedValues(
 	folder.tables.todos.delete('milk', { expectedSha256: 'a'.repeat(64) });
 	if (entry.data) {
 		// Every change after create names the bytes it replaces.
-		const { data: saved, error: saveError } = await folder.tables.todos.replace(
+		const { data: saved, error: saveError } = await folder.tables.todos.save(
 			entry.data,
 			entry.data.row,
 		);
-		if (saveError === null)
-			expectTypeOf(saved).toEqualTypeOf<StoredRow<Fields>>();
-		else {
-			expectTypeOf(saveError).toEqualTypeOf<TableReplaceError>();
+		if (saveError === null) {
+			expectTypeOf(saved.stored).toEqualTypeOf<StoredRow<Fields>>();
+			expectTypeOf(saved.replaced).toEqualTypeOf<readonly Replaced[]>();
+		} else {
+			expectTypeOf(saveError).toEqualTypeOf<TableSaveError>();
 			// @ts-expect-error A table never saves text it cannot read back.
 			saveError.name === 'Unparsed';
 		}
 		// @ts-expect-error A table saves a row; complete text is an ordinary file.
-		folder.tables.todos.replace(entry.data, '---\n---\n');
+		folder.tables.todos.save(entry.data, '---\n---\n');
 		folder.files.replace(entry.data, '---\n---\n');
 		// @ts-expect-error A stem is not a capture.
-		folder.tables.todos.replace('milk', entry.data.row);
+		folder.tables.todos.save('milk', entry.data.row);
 		expectTypeOf(
 			await folder.tables.todos.rename(entry.data, 'next'),
 		).toEqualTypeOf<Result<FileCapture, TableRenameError>>();
@@ -616,6 +618,11 @@ async function typedValues(
 
 	expectTypeOf(folder.location).toEqualTypeOf<FolderLocation>();
 	expectTypeOf(folder.onFilesChanged(() => {})).toEqualTypeOf<() => void>();
+	// A change names its paths, or everything when the reporter cannot say.
+	expectTypeOf(folder.onFilesChanged)
+		.parameter(0)
+		.parameter(0)
+		.toEqualTypeOf<readonly string[] | 'everything'>();
 }
 void typedValues;
 

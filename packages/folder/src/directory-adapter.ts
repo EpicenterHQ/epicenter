@@ -21,7 +21,11 @@ import {
 	type NativeGitHost,
 } from './git/native-backend.js';
 import type { Author } from './git/objects.js';
-import { type FolderSchema, openAtRoot } from './open-at-root.js';
+import {
+	type ChangeDetector,
+	type FolderSchema,
+	openAtRoot,
+} from './open-at-root.js';
 import {
 	createOpfsFileBoundary,
 	type OpfsDirectoryHandle,
@@ -35,11 +39,11 @@ import {
  *
  * The directory is the folder: there is no ready marker and no address to
  * claim, and a repository someone already made there is used as it is.
- * With a `definition`, a directory with no repository gets one when opened,
- * and the handle publishes the definition to `epicenter.json`. With
+ * Opening creates nothing: a directory with no repository gets one with its
+ * first commit, staging, or remote. With a `definition`, the handle
+ * publishes it to `epicenter.json` before its first write. With
  * `'declared'`, the handle reads with the folder's own `epicenter.json` and
- * never writes it, and opening creates nothing: the first commit, staging,
- * or remote creates the repository.
+ * never writes it.
  * Files are read and written through the browser folder's storage over
  * `root`. History is real Git (`createNativeGitBackend` over `git`), so it
  * honors Git's lock files, packed refs, and configuration, and another Git
@@ -52,8 +56,10 @@ import {
  * expects, and in Bun the check runs just before the rename, under `locks`
  * so saves within one process take turns. A commit moves the branch only by
  * compare-and-swap, and Git's own lock files keep its index whole. Each
- * handle orders its own Git work. `BroadcastChannel` hints between pages of
- * one origin are best effort.
+ * handle orders its own Git work.
+ *
+ * `detector` is the host's one detector of changes made outside the handle
+ * (ADR-0548): the shell's watcher on the desktop, none in Bun.
  */
 export async function openDirectoryFolder<
 	const TDefinition extends FolderDefinition,
@@ -66,7 +72,7 @@ export async function openDirectoryFolder<
 	rootPath,
 	git: host,
 	locks,
-	BroadcastChannel: hintChannel,
+	detector,
 	author,
 	branch = 'main',
 	credentials,
@@ -75,14 +81,11 @@ export async function openDirectoryFolder<
 	readonly definition: TDefinition | 'declared';
 	/** With `'declared'`, the prepared shape the folder must contain (ADR-0538). */
 	readonly lens?: FolderDefinition;
-	/**
-	 * Why the first commit of a `'declared'` folder with no repository must
-	 * not create one here.
-	 */
+	/** Why the first commit of a folder with no repository must not create one here. */
 	readonly initProblem?: () => Promise<string | undefined>;
 	/** The directory, as a handle over the host's file system. */
 	readonly root: OpfsDirectoryHandle;
-	/** The directory's absolute path, for showing to a person and naming hints. */
+	/** The directory's absolute path, for showing to a person and naming locks. */
 	readonly rootPath: string;
 	/** The system `git` in `rootPath`, and the host's file system. */
 	readonly git: NativeGitHost;
@@ -92,7 +95,8 @@ export async function openDirectoryFolder<
 	 * desktop shell checks each one where it lands.
 	 */
 	readonly locks?: OpfsLocks;
-	readonly BroadcastChannel?: typeof globalThis.BroadcastChannel;
+	/** The host's detector of changes made outside the handle. */
+	readonly detector?: ChangeDetector;
 	/** Who commits, where Git's configuration does not say. */
 	readonly author: Author;
 	readonly branch?: string;
@@ -121,10 +125,9 @@ export async function openDirectoryFolder<
 		const value = new TextDecoder().decode(stdout).trim();
 		return code === 0 && value !== '' ? value : undefined;
 	};
-	// The name comes from the directory alone, so every opener in this
-	// origin hears the others, whatever ID it opened the folder by.
+	// The lock name comes from the directory alone, so every opener in this
+	// process takes turns with the others, whatever ID it opened it by.
 	const address = JSON.stringify(['directory', rootPath]);
-	const at = { hintChannel: `epicenter-folder-directory-hints:${address}` };
 	// A write that stopped before its rename (a crash, a quit) leaves its
 	// staged bytes behind. Another handle or process may be writing the
 	// directory now, so only files staged long enough ago to be abandoned are
@@ -140,70 +143,65 @@ export async function openDirectoryFolder<
 	} catch {
 		// Leftovers are inert; an open that cannot clear them still opens.
 	}
-	return openAtRoot<TDefinition, TDeclared>(
-		schema,
-		{ BroadcastChannel: hintChannel },
-		{
-			at,
-			lens: shape,
-			location: { kind: 'directory', root: rootPath },
-			async start({ relay, landed }) {
-				const boundary =
-					locks === undefined
-						? createOpfsFileBoundary({ root, landed: relay })
-						: createOpfsFileBoundary({
-								root,
-								locks,
-								filesLock: `epicenter-folder-directory-files:${address}`,
-								landed: relay,
-							});
-				// The person's own Git identity, read once the repository exists:
-				// the desktop shell answers `config --get` only inside one.
-				let identity = author;
-				const readIdentity = async () => {
-					identity = {
-						name: (await configured('user.name')) ?? author.name,
-						email: (await configured('user.email')) ?? author.email,
-					};
+	return openAtRoot<TDefinition, TDeclared>(schema, {
+		detector,
+		lens: shape,
+		location: { kind: 'directory', root: rootPath },
+		async start({ relay, landed }) {
+			const boundary =
+				locks === undefined
+					? createOpfsFileBoundary({ root, landed: relay })
+					: createOpfsFileBoundary({
+							root,
+							locks,
+							filesLock: `epicenter-folder-directory-files:${address}`,
+							landed: relay,
+						});
+			// The person's own Git identity, read once the repository exists:
+			// the desktop shell answers `config --get` only inside one.
+			let identity = author;
+			const readIdentity = async () => {
+				identity = {
+					name: (await configured('user.name')) ?? author.name,
+					email: (await configured('user.email')) ?? author.email,
 				};
-				// Two handles that open a new folder at once may both run
-				// `git init`; the backend runs it again when the race fails it.
-				// Each handle orders its own index and branch work; other
-				// handles and processes meet Git's own lock files and the
-				// branch's compare-and-swap.
-				const backend = await createNativeGitBackend({
-					root: rootPath,
-					branch,
-					boundary,
-					host,
-					credentials,
-					initialize: definition === 'declared' ? 'commit' : 'open',
-					initialized: readIdentity,
-					initProblem,
-				});
-				if ((await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined)
-					await readIdentity();
-				return {
-					boundary,
-					history: (prepared) =>
-						createHistory({
-							backend,
-							boundary,
-							// Read at each commit, so a repository the first commit
-							// creates commits as the person's identity too.
-							author: {
-								get name() {
-									return identity.name;
-								},
-								get email() {
-									return identity.email;
-								},
+			};
+			// Two handles that commit a new folder at once may both run
+			// `git init`; the backend runs it again when the race fails it.
+			// Each handle orders its own index and branch work; other
+			// handles and processes meet Git's own lock files and the
+			// branch's compare-and-swap.
+			const backend = await createNativeGitBackend({
+				root: rootPath,
+				branch,
+				boundary,
+				host,
+				credentials,
+				initialized: readIdentity,
+				initProblem,
+			});
+			if ((await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined)
+				await readIdentity();
+			return {
+				boundary,
+				history: (prepared) =>
+					createHistory({
+						backend,
+						boundary,
+						// Read at each commit, so a repository the first commit
+						// creates commits as the person's identity too.
+						author: {
+							get name() {
+								return identity.name;
 							},
-							definition: prepared,
-							landed,
-						}),
-				};
-			},
+							get email() {
+								return identity.email;
+							},
+						},
+						definition: prepared,
+						landed,
+					}),
+			};
 		},
-	);
+	});
 }

@@ -18,7 +18,7 @@ Choose one to three saved expressions in Words and start a chat. Vocab saves the
 
 Every word's note and stage can be changed at once; there is no word to open first. Each note keystroke and each stage press, in Words or in a chat's focus list, changes the word on screen and is saved to its file right away. One save of a word runs at a time and at most one more waits, which saves whatever the word holds when it starts, so fast typing writes the latest note. A note is kept well formed: half of a surrogate pair becomes U+FFFD, so what is shown is what is saved.
 
-Every save is guarded by the version this page last saved or read. When the file changed elsewhere, or the save fails, nothing is written: the word shows the file as it is now, and a notice says what happened with **Copy your text** for the note that was not saved.
+Every save names the version this page last saved or read. When the file changed elsewhere, the save merges with it, and your edit wins where you both changed the same field. When the file was deleted, or the save fails, nothing is written: the word shows the file as it is now, and a notice says what happened with **Copy your text** for the note that was not saved.
 
 The list is read when the page opens, after the learner's own actions, and when they return to the window. Nothing is read while a save is running; the list is read once the last save finishes.
 
@@ -83,7 +83,7 @@ Start from the repository root with `bun dev:vocab`. Run `bun run --cwd apps/voc
 
 This version edits files through the query cache (ADR-0528) instead of keeping a draft in an edit session that autosaved, and dropped several promises of the version before it:
 
-- A save that meets a change made elsewhere is no longer merged or reviewed. It is refused, the word shows the file as it is now, and a notice offers the note that was not saved. There is no "This changed elsewhere" review, **Use this**, **Apply**, or **Try again**, and a word deleted elsewhere cannot be created again from the screen.
+- A save that meets a change made elsewhere is no longer reviewed. It merges with the change (ADR-0548): what only the other writer changed stays, and your edit wins where you both changed the same field. There is no "This changed elsewhere" review, **Use this**, **Apply**, or **Try again**, and a word deleted elsewhere cannot be created again from the screen.
 - A failed save is rolled back instead of kept as an unsaved draft. The learner can lose what was in flight: one press, or the last moment of typing.
 - Every word is editable at once. There is no open word, no read-only note until focus, and nothing asks "Discard unsaved changes?".
 - Returning to the window reads the list again whenever no save is running; it no longer keeps a word's failed draft.

@@ -29,10 +29,10 @@
  * mutation here holds that lock.
  *
  * An application checks every condition first, then applies its steps in
- * order and hints each step that landed. A failure after the first step is
+ * order and reports each step that landed. A failure after the first step is
  * `Partial`; nothing is rolled back. Parent directories a step created stay
  * even when the step fails. A stream that fails to close may or may not have
- * published: the outcome is `Unconfirmed`, and the path is hinted. The bytes
+ * published: the outcome is `Unconfirmed`, and the path is reported. The bytes
  * found there afterward are not taken as proof of which write put them there.
  * A new file whose stream never reached its close is removed again; when its
  * absence cannot be established, the outcome is `Unconfirmed` too.
@@ -135,8 +135,22 @@ export type OpfsEnvironment = {
 	readonly getDirectory: () => Promise<OpfsDirectoryHandle>;
 	/** Web Locks shared by every tab of the origin. Required. */
 	readonly locks: OpfsLocks;
-	/** Carries file-change hints between tabs. Omitted: none are heard. */
+	/**
+	 * Carries the paths each page of the origin writes to the others, which
+	 * is how a page hears changes it did not make (ADR-0548). Omitted: none
+	 * are heard.
+	 */
 	readonly BroadcastChannel?: typeof BroadcastChannel;
+	/**
+	 * Where the page announces that it resumed from being frozen or from the
+	 * back-forward cache, which may have missed any number of writes:
+	 * `window` for `pageshow`, `document` for the Page Lifecycle `resume`.
+	 * Omitted: a resume is not heard.
+	 */
+	readonly page?: {
+		readonly window?: EventTarget;
+		readonly document?: EventTarget;
+	};
 };
 
 /** The folder's private Git directory. `pathProblem` refuses it as a path. */

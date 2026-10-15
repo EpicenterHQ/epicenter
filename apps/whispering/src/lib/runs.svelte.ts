@@ -229,7 +229,7 @@ export function createRuns({
 			const { data: stored, error } = await table.get(target.stem);
 			if (error !== null) return describeError(error);
 			if (stored === undefined || stored.row.body !== '') return undefined;
-			const { error: replaceError } = await table.replace(stored, {
+			const { error: replaceError } = await table.save(stored, {
 				fields: stored.row.fields,
 				body,
 			});

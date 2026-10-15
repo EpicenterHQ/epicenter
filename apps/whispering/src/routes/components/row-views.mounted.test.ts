@@ -8,9 +8,9 @@
  *
  * Key behaviors:
  * - typing in a view edits the cache of the path it shows, and writes it
- * - typing over a change made elsewhere is refused and rolled back: the view
- *   shows theirs, and the lost text is reported; a recording deleted
- *   elsewhere stays deleted and its view closes
+ * - typing over a change made elsewhere merges with it, and the typing wins
+ *   where both changed; a recording deleted elsewhere stays deleted, the
+ *   lost text is reported, and its view closes
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
  * - bodies show in LF and save in the file's line endings; a title and a
@@ -119,7 +119,7 @@ test('typing in a transcript’s view edits the cache of the path it shows, and 
 	expect(writeStatus(target)).toBe('Saved');
 });
 
-test('typing over a change made elsewhere is refused and rolled back: the view shows theirs, and the lost text is reported', async () => {
+test('typing over a change made elsewhere merges with it, and the typing wins where both changed', async () => {
 	const { library, target, failures, root } = await open({
 		[A]: transcript('Alpha.\n'),
 	});
@@ -133,16 +133,9 @@ test('typing over a change made elsewhere is refused and rolled back: the view s
 	await writeFile(join(root, A), transcript('Theirs.\n'));
 	type(body(), 'Mine.\n');
 	await settle(library);
-	expect(failures).toHaveLength(1);
-	expect(failures[0]?.lost).toContain('Mine.');
-	expect(await readFile(join(root, A), 'utf8')).toBe(transcript('Theirs.\n'));
-	expect(body()?.value).toBe('Theirs.\n');
-
-	// Typing again writes on top of theirs.
-	type(body(), 'Mine again.\n');
-	await settle(library);
-	expect(failures).toHaveLength(1);
-	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine again.\n');
+	expect(failures).toEqual([]);
+	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
+	expect(body()?.value).toBe('Mine.\n');
 });
 
 test('a recording deleted elsewhere stays deleted: typing in it is refused, reported, and its view closes', async () => {

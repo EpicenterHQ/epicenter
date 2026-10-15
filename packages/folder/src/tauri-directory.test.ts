@@ -168,6 +168,32 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
+/** The handlers pages registered for the folder plugin's change event. */
+const changeHandlers = new Set<(event: { payload: unknown }) => void>();
+let listenedTo: string[] = [];
+
+/** The shell's watcher announcing a change, as the folder plugin emits it. */
+function emitChanged(payload: { scope: string; paths: string[] | null }) {
+	for (const handler of [...changeHandlers]) handler({ payload });
+}
+
+// The shell sends the event to each permitted window, and the page listens
+// on its own.
+mock.module('@tauri-apps/api/webviewWindow', () => ({
+	getCurrentWebviewWindow: () => ({
+		async listen(
+			event: string,
+			handler: (event: { payload: unknown }) => void,
+		) {
+			listenedTo.push(event);
+			changeHandlers.add(handler);
+			return () => {
+				changeHandlers.delete(handler);
+			};
+		},
+	}),
+}));
+
 /** The shell's errors are strings carrying the operating system's message. */
 const asShellError = async <T>(work: () => Promise<T>): Promise<T> => {
 	try {
@@ -246,6 +272,7 @@ afterAll(() => {
 });
 beforeEach(() => {
 	calls = [];
+	listenedTo = [];
 	gitWithoutRepository = [];
 	afterRemove = () => {};
 	beforeChange = () => {};
@@ -279,8 +306,8 @@ test('a granted folder opens over its real directory', async () => {
 	const folder = expectOk(
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
-	// The grant comes first; every later call is a read or the folder's Git,
-	// for the granted scope. Opening writes nothing.
+	// The grant comes first; every later call is a read, for the granted
+	// scope. Opening writes nothing and runs no `git`.
 	const commands = () => new Set(calls.map(({ cmd }) => cmd));
 	expect(calls[0]).toEqual({
 		cmd: 'grant_directory',
@@ -297,9 +324,11 @@ test('a granted folder opens over its real directory', async () => {
 					].includes(cmd),
 			)
 			.sort(),
-	).toEqual(['grant_directory', 'run_git']);
+	).toEqual(['grant_directory']);
 	for (const call of calls.slice(1))
 		expect(call.args.scope).toBe('so.epicenter.todos');
+	// The shell's watcher is how this page hears outside changes.
+	expect(listenedTo).toEqual(['epicenter-folder://changed']);
 	expect(folder.location).toEqual({ kind: 'directory', root });
 	expect(folder.definition).toBe(definition);
 
@@ -312,10 +341,35 @@ test('a granted folder opens over its real directory', async () => {
 	expect(await readFile(join(root, created.path), 'utf8')).toContain(
 		'title: From the desktop',
 	);
+	// Saving created no repository; the first commit does.
+	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await git(root, 'fsck', '--strict');
 	await folder.close();
+});
+
+test("the shell's change event reaches this folder's listeners: its own scope only, null as everything", async () => {
+	const { folder } = await granted();
+	const heard: unknown[] = [];
+	folder.onFilesChanged((change) => heard.push(change));
+	emitChanged({ scope: 'so.epicenter.todos', paths: ['todos/a.md'] });
+	emitChanged({ scope: 'so.epicenter.notes', paths: ['notes/b.md'] });
+	emitChanged({ scope: 'so.epicenter.todos', paths: null });
+	expect(heard).toEqual([['todos/a.md'], 'everything']);
+	// A page's own save is not reported to it.
+	expectOk(
+		await folder.tables.todos.create({
+			fields: { title: 'Mine', done: false },
+			body: '',
+		}),
+	);
+	expect(heard).toHaveLength(2);
+	// Closing stops listening to the shell.
+	await folder.close();
+	expect(changeHandlers.size).toBe(0);
+	emitChanged({ scope: 'so.epicenter.todos', paths: ['todos/a.md'] });
+	expect(heard).toHaveLength(2);
 });
 
 test('a refused grant is the refusal', async () => {
@@ -381,7 +435,7 @@ test('a removal whose reply is lost with the path still there is unconfirmed', a
 	await folder.close();
 });
 
-test('a save another window overtakes where it publishes is refused for what is there', async () => {
+test('a save another window overtakes where it publishes merges with what is there; other writes are refused', async () => {
 	const { root, folder } = await granted();
 	const sha256 = (text: string) =>
 		createHash('sha256').update(text).digest('hex');
@@ -404,13 +458,14 @@ test('a save another window overtakes where it publishes is refused for what is 
 	const theirs = '---\ntitle: Theirs\ndone: false\n---\n';
 	overtaken.set(path, theirs);
 	created.row.fields.title = 'Mine, edited';
-	const replaced = await folder.tables.todos.replace(created, created.row);
-	expect(replaced.error).toMatchObject({
-		name: 'Conflict',
-		expectedSha256: created.sha256,
-		actualSha256: sha256(theirs),
+	const saved = expectOk(await folder.tables.todos.save(created, created.row));
+	expect(saved).toMatchObject({
+		merged: true,
+		replaced: [
+			{ kind: 'field', field: 'title', kept: 'Mine, edited', theirs: 'Theirs' },
+		],
 	});
-	expect(await readFile(path, 'utf8')).toBe(theirs);
+	expect(await readFile(path, 'utf8')).toContain('title: Mine, edited');
 	// Each refused stream removed what it staged.
 	const scratchDirectory = join(root, '.git/epicenter/scratch');
 	expect(await nodeFs.readdir(scratchDirectory)).toEqual([]);
@@ -439,7 +494,14 @@ test('a save another window overtakes where it publishes is refused for what is 
 		calls
 			.filter(({ cmd }) => cmd === 'rename_folder_path')
 			.map(({ args }) => args.expected),
-	).toEqual(['any', 'absent', { sha256: created.sha256 }, 'absent', 'any']);
+	).toEqual([
+		'any',
+		'absent',
+		{ sha256: created.sha256 },
+		{ sha256: sha256(theirs) },
+		'absent',
+		'any',
+	]);
 	await folder.close();
 });
 
@@ -492,11 +554,11 @@ test('a data folder reads with its own epicenter.json, never writes it, and its 
 	const todos = folder.tables.todos!;
 	const one = expectOk(await todos.get('one'));
 	expectOk(
-		await todos.replace(one!, {
+		await todos.save(one!, {
 			fields: { title: 'One', done: true },
 			body: '',
 		}),
-	);
+	).stored;
 	expectOk(
 		await todos.create({ fields: { title: 'Two', done: false }, body: '' }),
 	);
@@ -609,7 +671,7 @@ test('a data folder opened through a lens reads its fields, keeps the rest, and 
 	).toBe('CannotCreate');
 	const one = expectOk(await todos.get('one'))!;
 	one.row.fields.title = 'One, renamed';
-	expectOk(await todos.replace(one, one.row));
+	expectOk(await todos.save(one, one.row)).stored;
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
 		'---\ntitle: One, renamed\ndone: false\nsource: phone\n---\n',
 	);
@@ -662,11 +724,11 @@ test("a data folder's Sync merges rows by its own declaration", async () => {
 	const todos = folder.tables.todos!;
 	const one = expectOk(await todos.get('one'));
 	expectOk(
-		await todos.replace(one!, {
+		await todos.save(one!, {
 			fields: { title: 'One', done: true },
 			body: '',
 		}),
-	);
+	).stored;
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
 		'---\ntitle: One, renamed\ndone: true\n---\n',

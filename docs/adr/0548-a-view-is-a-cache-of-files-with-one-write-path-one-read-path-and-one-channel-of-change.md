@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Built:** the desktop file watcher: one per granted root in `tauri-plugin-epicenter-folder` (`src/watcher.rs`), from the first grant until shutdown, debounced 50 ms, emitting the Tauri event `epicenter-folder://changed` with `{ scope, paths }` to the scope's permitted windows; `paths` is folder-relative, `.git` for history moving, or `null` for everything (see the plugin's README).
-- **Unbuilt:** `table.save` with the merge in the engine, `folder.onFilesChanged` fed by one detector per host (the desktop listener included), `folderOptions` in `@epicenter/folder/query`, and moving every app onto them.
+- **Built:** the desktop file watcher: one per granted root in `tauri-plugin-epicenter-folder` (`src/watcher.rs`), from the first grant until shutdown, debounced 50 ms, emitting the Tauri event `epicenter-folder://changed` with `{ scope, paths }` to the scope's permitted windows; `paths` is folder-relative, `.git` for history moving, or `null` for everything (see the plugin's README); `table.save` with the merge in the engine, its result naming each replaced value and where it stands; the line merge that keeps neighboring edits, for save and Sync alike; `folder.onFilesChanged` with the browser's relay and resume detector and the desktop page's listener for the shell's event; repository creation by the first commit, staging, or remote on every host; `folderOptions`, `createDraft`, and `createSaveBases` in `@epicenter/folder/query`.
+- **Unbuilt:** moving every app onto `folderOptions` and drafts, which removes their own focus rereads and `createSaveBases`; the Folders window's UI for what a save replaced.
 
 ## Context
 
@@ -65,8 +65,10 @@ events: the files are the record, so a missed event costs a delay, never data.
 | Bun | None by default; a script may watch with `fs.watch` | — |
 
 A page's own `save` updates its cache directly and is not evidence of an
-outside change. On the desktop the watcher also sees the page's own writes and
-Sync's; at most this rereads a file whose content did not change.
+outside change, so it is not reported to that page. The files the page's own
+Sync wrote are reported to it on every host. On the desktop the watcher also
+sees the page's own writes and Sync's; at most this rereads a file whose
+content did not change.
 
 **Pages read folders through TanStack Query, by option factories.**
 `folderOptions(folder)` in `@epicenter/folder/query` mirrors the folder, and each
@@ -103,9 +105,11 @@ version differs from the draft's, derived, with no state of its own.
 
 ## Consequences
 
-- Deleted: the `BroadcastChannel` relay; each app's focus and visibility
-  rereads; `apps/epicenter/src/folders/save-row.ts` and its row-edit
-  bookkeeping, now the engine's `save` and the shared draft helper.
+- Deleted: each app's focus and visibility rereads; the merge in
+  `apps/epicenter/src/folders/save-row.ts`, now the engine's `save`, and its
+  row-edit bookkeeping, replaced by the shared draft helper. The
+  `BroadcastChannel` relay stays as the browser's detector; the desktop page
+  no longer opens one.
 - An agent's edit, Sync landing a change, or another window's save appears in an
   open desktop window within the watcher's debounce.
 - A browser tab sees another tab's edits live. A tab that crashes after writing but before posting leaves other open tabs stale until they resume or reload; saves still merge, so nothing is lost.
@@ -119,6 +123,11 @@ version differs from the draft's, derived, with no state of its own.
 - **Returning to the window as the browser's detector.** Coarse and late; the tabs' own posts are complete, because only same-origin tabs can write a browser folder.
 - **Rereading on return only, on every host.** The window being looked at stays
   stale while an agent or Sync changes its files.
+- **Returning to the window as the browser's detector.** Two tabs on screen
+  side by side never hear each other, and every return rereads everything.
+  Same-origin pages are the only writers of a browser folder's private
+  storage, so their own reports of exact paths cover every change, and a
+  resume covers the time a frozen page could not hear.
 - **The shell announcing its own writes.** Misses agents, editors, and `git`
   in a terminal, which write without the shell.
 - **Events that carry content.** A second way for data to reach a view, with no

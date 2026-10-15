@@ -67,10 +67,11 @@ not reach `Plan.md`, and creating `plan.md` there is `Exists`.
   checks of the observed version keep them apart, and a lost race is a
   visible refusal or a changed file
   ([ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md)).
-- Neither the Bun opener nor a desktop page watches the directory, so an open
-  window shows a script's edits only after it reads again
-  ([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-- A file another program removes between a `replace`'s check and its rename
+- The Bun opener does not watch the directory. A desktop window hears a
+  script's edits from the shell's watcher, on `onFilesChanged`
+  ([ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md)).
+  A lost race on a row save merges instead of refusing (`table.save`).
+- A file another program removes between a guarded write's check and its rename
   comes back with the new bytes, as an ordinary file a person can remove
   again ([ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md)).
 - Deleted with the Bun-only file storage: `native-store.ts`,

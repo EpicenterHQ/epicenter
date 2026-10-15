@@ -763,7 +763,7 @@ async function rowRepair(id: string) {
 			);
 			const repaired = '---\ntitle: Repaired\n---\n';
 			ok(
-				await folder.tables.rows.replace(broken, {
+				await folder.tables.rows.save(broken, {
 					fields: { title: 'Repaired' },
 					body: '',
 				}),

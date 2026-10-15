@@ -436,8 +436,7 @@ test('an invalid row keeps unknown and invalid fields through a guarded raw save
 
 		// The table saves only valid rows.
 		expect(
-			expectErr(await folder.tables.todos.replace(invalid, edited as never))
-				.name,
+			expectErr(await folder.tables.todos.save(invalid, edited as never)).name,
 		).toBe('InvalidValues');
 		// The file verbs save the repair, guarded by the bytes that were read.
 		expectOk(await folder.files.replace(invalid, text));

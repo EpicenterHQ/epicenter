@@ -245,8 +245,8 @@ export function withResultFailures<TFields>(
 			failures.starts -= 1;
 			return refused(`${table.name}/${options?.stem}.md`, 'create');
 		},
-		async replace(file, row) {
-			if (failures.answers === 0) return table.replace(file, row);
+		async save(file, row) {
+			if (failures.answers === 0) return table.save(file, row);
 			failures.answers -= 1;
 			return refused(file.path, 'write');
 		},

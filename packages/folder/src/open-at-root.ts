@@ -3,11 +3,10 @@
  * folder (an OPFS directory its ready marker claims) and the directory folder
  * (a real directory the desktop shell granted).
  *
- * Pages of one origin that open the same folder share it: each landed step is
- * told to the others over a `BroadcastChannel`, best effort. The opener
- * supplies the file storage and the history, and whatever orders their
- * changes: Web Locks in the browser, the host's checks and Git's on a
- * directory (ADR-0541).
+ * The opener supplies the file storage and the history, whatever orders
+ * their changes (Web Locks in the browser, the host's checks and Git's on a
+ * directory, ADR-0541), and the host's one detector of changes made outside
+ * the handle (ADR-0548).
  */
 import { shapeProblems } from '@epicenter/definition';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -21,12 +20,11 @@ import { OpenFolderError } from './errors.js';
 import {
 	assembleFolder,
 	createFileHints,
+	type FilesChanged,
 	type Folder,
 	type FolderLocation,
 } from './folder.js';
 import type { createHistory } from './git/history.js';
-import { callObserver } from './observer.js';
-import type { OpfsEnvironment } from './opfs-store.js';
 import { withPublication } from './storage.js';
 
 /** One folder's captured address and every name derived from it. */
@@ -37,7 +35,19 @@ export type FolderAddress = {
 	readonly openLock: string;
 	readonly filesLock: string;
 	readonly gitLock: string;
+	/** The `BroadcastChannel` pages of this origin tell each other their writes on. */
 	readonly hintChannel: string;
+};
+
+/**
+ * A host's one detector of changes made outside this handle (ADR-0548).
+ * Started once the handle can hear; it calls `report` for each change it
+ * detects. `relay`, when present, hears each step of this handle's own that
+ * landed, for a detector that tells other pages. `stop` ends it at close.
+ */
+export type ChangeDetector = (report: (change: FilesChanged) => void) => {
+	readonly relay?: (paths: readonly string[]) => void;
+	readonly stop: () => void;
 };
 
 /**
@@ -57,7 +67,7 @@ const UNDECLARED = (() => {
 
 /**
  * Make the folder's storage, and its history once the definition is known.
- * `relay` hears each landed step, to tell other pages; `landed` hears the
+ * `relay` hears each landed step, for the detector; `landed` hears the
  * paths an incoming update wrote.
  */
 export type StartFolder = (wiring: {
@@ -76,11 +86,11 @@ export async function openAtRoot<
 	TDeclared extends FolderDefinition = TDefinition,
 >(
 	schema: FolderSchema,
-	environment: Pick<OpfsEnvironment, 'BroadcastChannel'>,
 	captured: {
-		readonly at: Pick<FolderAddress, 'hintChannel'>;
 		readonly location: FolderLocation;
 		readonly start: StartFolder;
+		/** The host's detector of outside changes; none in Bun. */
+		readonly detector?: ChangeDetector;
 		/**
 		 * With `'declared'`, the prepared shape the caller reads. The folder's
 		 * declaration must contain it (ADR-0538), or nothing opens.
@@ -88,42 +98,25 @@ export async function openAtRoot<
 		readonly lens?: FolderDefinition;
 	},
 ): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
-	const { at } = captured;
-	let channel: BroadcastChannel | undefined;
-	let channelOpen = false;
-	const release = () => {
-		channelOpen = false;
-		try {
-			channel?.close();
-		} catch {
-			// A channel that will not close has nothing left to give back.
-		}
-	};
+	const hints = createFileHints();
+	let history: ReturnType<typeof createHistory> | undefined;
+	let detected: ReturnType<ChangeDetector> | undefined;
+	const release = () => detected?.stop();
 	try {
-		// Other pages of this origin share the directory. Each landed step is
-		// told to them as it lands; this handle's own listeners hear a save
-		// when it finishes.
-		if (environment.BroadcastChannel !== undefined) {
-			channel = new environment.BroadcastChannel(at.hintChannel);
-			// A runtime that counts an open channel as pending work must not be
-			// kept alive by a folder nobody closed.
-			(channel as { unref?: () => void }).unref?.();
-			channelOpen = true;
-		}
-		// A relay that fails is another page's missed hint, never this save's
-		// failure.
-		const relay = (paths: readonly string[]) => {
-			if (channelOpen && paths.length > 0)
-				callObserver(
-					'change relay',
-					(landed: readonly string[]) => channel?.postMessage([...landed]),
-					paths,
-				);
-		};
-		const hints = createFileHints();
+		// An outside change makes the history's observations stale and tells
+		// the listeners. Reports before the history exists, or after it
+		// closed, reach nobody: no listener can have subscribed yet, or all
+		// are gone.
+		detected = captured.detector?.((change) => {
+			if (history === undefined || history.snapshot.closed) return;
+			history.noteEdit();
+			hints.report(change);
+		});
 		const started = await captured.start({
-			relay,
-			landed: (paths) => hints.emit(paths),
+			relay: (paths) => detected?.relay?.(paths),
+			// What this handle's own Sync wrote is a change its listeners did
+			// not make, so it is reported like an outside one.
+			landed: (paths) => hints.report(paths),
 		});
 		const { boundary } = started;
 		let prepared: FolderDefinition;
@@ -144,25 +137,14 @@ export async function openAtRoot<
 				}
 			}
 		} else prepared = schema;
-		const history = started.history(prepared);
-		if (channel !== undefined) {
-			channel.onmessage = ({ data }) => {
-				if (!channelOpen || history.snapshot.closed || !Array.isArray(data))
-					return;
-				history.noteEdit();
-				hints.receive(data as string[]);
-			};
-		}
+		const opened = started.history(prepared);
+		history = opened;
 		const folder = assembleFolder<TDefinition, TDeclared>({
 			prepared,
 			lens: schema === 'declared' ? captured.lens : undefined,
 			publishes: schema !== 'declared',
-			storage: withPublication({
-				storage: boundary,
-				history,
-				landed: (paths) => hints.emit(paths),
-			}),
-			history,
+			storage: withPublication({ storage: boundary, history: opened }),
+			history: opened,
 			location: captured.location,
 			hints,
 			release: async () => release(),

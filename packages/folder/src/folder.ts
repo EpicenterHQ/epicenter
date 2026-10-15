@@ -221,13 +221,23 @@ export type Folder<
 	readonly location: FolderLocation;
 	readonly sync: FolderSync;
 	/**
-	 * Hear that files changed, as a hint to read again. The paths are the
-	 * ones a change reached. There is not one call per save, calls are not
-	 * ordered against other folders' saves, and a hint is never a capture.
+	 * Hear that files may have changed, as a reason to read again (ADR-0548).
+	 * `change` is the paths a change reached, or `'everything'` when the
+	 * reporter cannot say which. A call carries no content and is never a
+	 * capture; read through the folder to learn what the files hold.
+	 *
+	 * Reports come from the host's one detector of changes made outside
+	 * this handle, and from incoming updates this handle's own Sync wrote.
+	 * In a browser the detector is other pages of this origin, which tell
+	 * the paths they write; on the desktop it is the shell's watcher of the
+	 * granted directory; in Bun there is none. This handle's own saves are
+	 * not reported: whoever saved holds the result.
+	 *
+	 * Nothing records reports, so one missed costs a delay, never data.
 	 * Subscribe before the first read so no change falls between them.
 	 * Returns the function that stops listening; closing stops all of them.
 	 */
-	onFilesChanged(listener: (paths: readonly string[]) => void): () => void;
+	onFilesChanged(listener: (change: FilesChanged) => void): () => void;
 	/** Aborts when closing starts. */
 	readonly signal: AbortSignal;
 	/**
@@ -244,44 +254,35 @@ export type FolderHistory = FolderGit & {
 	close(): Promise<void>;
 };
 
-/** File-change hints for one opened folder. */
+/** Which files changed: their paths, or `'everything'` when a report cannot say. */
+export type FilesChanged = readonly string[] | 'everything';
+
+/** Reports of file changes for one opened folder. */
 export type FileHints = {
-	/** A change this handle made: tell listeners, and whoever relays it onward. */
-	emit(paths: readonly string[]): void;
-	/** A change reported from elsewhere: tell listeners only. */
-	receive(paths: readonly string[]): void;
-	subscribe(listener: (paths: readonly string[]) => void): () => void;
-	/** Stop calling this handle's listeners and drop them. Relaying continues. */
+	/** Files changed: tell every listener. An empty list is no change. */
+	report(change: FilesChanged): void;
+	subscribe(listener: (change: FilesChanged) => void): () => void;
+	/** Stop calling this handle's listeners and drop them. */
 	close(): void;
 };
 
-/** `relay` carries this handle's own changes to other handles on the same files. */
-export function createFileHints(
-	relay?: (paths: readonly string[]) => void,
-): FileHints {
-	const listeners = new Set<(paths: readonly string[]) => void>();
+export function createFileHints(): FileHints {
+	const listeners = new Set<(change: FilesChanged) => void>();
 	let closed = false;
-	function receive(paths: readonly string[]) {
-		// A listener may close the folder or stop another listener. The ones
-		// after it are asked again before each call, so neither hears a hint it
-		// was fenced from, and one that throws does not silence the rest.
-		for (const listener of [...listeners]) {
-			if (closed) return;
-			if (listeners.has(listener))
-				callObserver('change listener', listener, paths);
-		}
-	}
 	return {
-		emit(paths) {
-			if (paths.length === 0) return;
-			receive(paths);
-			// A save that finishes while this handle closes still changed the
-			// files other handles are looking at. A relay that fails is that
-			// handle's missed hint, never this save's failure.
-			if (relay !== undefined) callObserver('change relay', relay, paths);
-		},
-		receive(paths) {
-			if (paths.length > 0) receive(paths);
+		report(change) {
+			if (change !== 'everything' && change.length === 0) return;
+			const reported =
+				change === 'everything' ? change : Object.freeze([...change]);
+			// A listener may close the folder or stop another listener. The ones
+			// after it are asked again before each call, so neither hears a
+			// report it was fenced from, and one that throws does not silence
+			// the rest.
+			for (const listener of [...listeners]) {
+				if (closed) return;
+				if (listeners.has(listener))
+					callObserver('change listener', listener, reported);
+			}
 		},
 		subscribe(listener) {
 			if (closed) return () => {};
@@ -392,7 +393,7 @@ export function assembleFolder<
 		git,
 		location: Object.freeze(location),
 		sync: history.sync,
-		onFilesChanged: (listener: (paths: readonly string[]) => void) =>
+		onFilesChanged: (listener: (change: FilesChanged) => void) =>
 			hints.subscribe(listener),
 		signal: controller.signal,
 		close() {

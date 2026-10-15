@@ -104,7 +104,7 @@ export async function writeAppRows(
 			current.commit === fields.commit
 		)
 			continue;
-		const { error: replaceError } = await folder.tables.apps.replace(stored, {
+		const { error: replaceError } = await folder.tables.apps.save(stored, {
 			fields: { ...current, ...fields },
 			body: stored.row.body,
 		});

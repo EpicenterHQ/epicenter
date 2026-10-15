@@ -215,11 +215,11 @@ test('one prepared definition opens two folders that stay apart, and another def
 	// Keys the narrower definition does not declare are still on the row.
 	expect<object>(milk.row.fields).toEqual({ title: 'Milk', done: false });
 	expectOk(
-		await reopened.tables.todos.replace(milk, {
+		await reopened.tables.todos.save(milk, {
 			...milk.row,
 			fields: { ...milk.row.fields, title: 'Oat milk' },
 		}),
-	);
+	).stored;
 	expect(text(expectOk(await reopened.files.read('todos/milk.md')).bytes)).toBe(
 		made.replace('Milk', 'Oat milk'),
 	);

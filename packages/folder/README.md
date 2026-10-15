@@ -25,9 +25,10 @@ const { data: created, error: createError } = await folder.tables.todos.create({
 });
 if (createError !== null) show(createError.message);
 else {
-  created.row.fields.done = true;                      // the row is yours to edit
-  const { error: replaceError } = await folder.tables.todos.replace(created, created.row);
-  if (replaceError !== null) show(replaceError.message); // Conflict if the file changed since
+  const edited = { ...created.row, fields: { ...created.row.fields, done: true } };
+  const { data: saved, error: saveError } = await folder.tables.todos.save(created, edited);
+  if (saveError !== null) show(saveError.message);     // deleted, invalid, or kept changing
+  else if (saved.replaced.length > 0) say(saved.replaced); // another writer's change it overrode
 }
 await folder.close();                                  // closed either way
 ```
@@ -134,6 +135,7 @@ folder ID.
 | `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. | A web-only build, or a test that injects an OPFS stand-in with `browser.opfs`. |
 | `@epicenter/folder/tauri` | The desktop shell's folder only: this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
+| `@epicenter/folder/query` | Nothing: TanStack Query option factories and the draft helper over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
 
 The first three export the same `openFolder` and `openDataFolder` signatures
 and the same contract, so one application source builds against any of them.
@@ -208,8 +210,8 @@ next open.
 On the desktop, `id` names a folder the shell registered, until the shell
 issues grants for folders a person picks. In a browser, `openDataFolder`
 opens the origin-private folder named `id`; as with `openFolder`, a folder
-nobody wrote to has no files, and its first write creates its directory and
-repository.
+nobody wrote to has no files, its first write creates its directory, and its
+first commit creates its repository.
 
 ### Opening another app's folder through a lens
 
@@ -230,7 +232,7 @@ const { data: folder, error } = await openDataFolder({ id: 'so.epicenter.todos',
 if (error?.name === 'ShapeMismatch') return show(error.problems); // every problem, listed
 const { data: stored } = await folder.tables.todos.get('milk');
 stored.row.fields.status = 'done';                  // fields the lens does not name stay on the row
-await folder.tables.todos.replace(stored, stored.row);
+await folder.tables.todos.save(stored, stored.row);
 ```
 
 The folder contains the lens when, for every table of the lens, it declares a
@@ -251,23 +253,25 @@ problem with the reason, and the app widens its lens. A folder without
 | --- | --- |
 | A folder that does not contain the lens | `ShapeMismatch` with `problems`: `missingTable`, `missingField`, `incompatibleField`, or `incompatibleTable`, each with its table, field, and reason. Nothing opens. |
 | `tables` | the lens's tables alone, typed by it; the folder's other tables are not on the handle |
-| A row read | every field the file holds, the ones the lens does not name included, so a `replace` of the row read keeps them |
-| A write | checked against the folder's own declaration, every field of it: the lens cannot save a value the folder refuses |
+| A row read | every field the file holds, the ones the lens does not name included, so a `save` of the row read keeps them |
+| A write | checked against the folder's own declaration, every field of it, a merged row included: the lens cannot save a value the folder refuses |
 | `create` | `canCreate` is false, and `create` is `CannotCreate` naming the fields, when the folder requires a field the lens does not declare; rows can still be edited |
 | `definition` | the folder's own prepared declaration, as without a lens |
 | `epicenter.json` | never written |
 
 Fields the lens does not name are kept only on the row the lens read. A row
-built from scratch and passed to `replace` drops them, and the folder refuses
+built from scratch and passed to `save` drops them, and the folder refuses
 it when one of them is required.
 
 ### The folder, opened lazily, and its remote
 
 Opening a browser folder writes nothing. The folder's first write creates its
-directory and its repository together, and publishes `epicenter.json` just
-before it; each table's directory appears with its first row. Reads never
-write: a folder nobody wrote to lists nothing, has no history, and a commit of
-it writes nothing. An ID that cannot name one directory (empty, `.` or `..`,
+directory, and publishes `epicenter.json` just before it; each table's
+directory appears with its first row. Its repository comes with its first
+commit, staging, or remote, as on every host (see
+[Repository creation](#repository-creation)). Reads never write: a folder
+nobody wrote to lists nothing, has no history, and a commit of it writes
+nothing. An ID that cannot name one directory (empty, `.` or `..`,
 or with a slash, backslash, or control character) is `InvalidId`. A directory
 someone else wrote under the ID is that folder.
 
@@ -297,6 +301,17 @@ keeps no record: the files it wrote are local files, and the next sync merges
 them with identical remote files cleanly. On the desktop the shell lets a page
 set the remote only to a network URL.
 
+### Repository creation
+
+Opening a folder never creates its repository, on any host or opener. The
+first commit (`git.commit`, Save version, or Sync's checkpoint), the first
+staging (`git.stage`), or setting a remote (`sync.connect`) creates it. Until
+then the folder reads as an empty history with every file uncommitted, and on
+the desktop no `git` runs, since the shell runs only `git init` where there
+is no repository. A directory inside another repository's working tree never
+gets a repository of its own: its first commit is `blocked`, naming that
+repository (ADR-0517).
+
 A desktop page whose folder cannot be opened (no plugin, no permission, an
 unregistered ID, a window the folder does not belong to, a folder another
 process holds) gets that refusal. It is never given browser storage instead.
@@ -325,14 +340,14 @@ visible, empty, from its creation until its stream closes.
 | What happened | Outcome |
 | --- | --- |
 | A step failed before its stream closed | `Io`. A file the step created is removed again; when its absence cannot be established, `Unconfirmed`. |
-| A stream's close threw | `Unconfirmed`, whatever the path holds afterward: matching bytes do not prove which write put them there. The path is hinted and the history observation turns stale. |
-| A move landed its destination and could not remove its source | `SourceNotRemoved`. The destination is hinted. |
+| A stream's close threw | `Unconfirmed`, whatever the path holds afterward: matching bytes do not prove which write put them there. The path is posted to other pages and the history observation turns stale. |
+| A move landed its destination and could not remove its source | `SourceNotRemoved`. The destination is posted to other pages. |
 
 Saves are ordered by the lock alone, not by when their methods were called.
 A save that hashes or waits longer can land after one asked for later, from
-the same page or another, and whichever lands last on a path stays. A save
-that must not overwrite bytes its caller did not review names them with
-a capture and is refused as `Conflict` instead.
+the same page or another, and whichever lands last on a path stays. A write
+that must not overwrite bytes its caller did not review names them with a
+capture: a file write is refused as `Conflict`, and a row save merges.
 
 ### A directory the desktop shell grants
 
@@ -354,7 +369,7 @@ through the shell's commands:
 | Identity | The directory its ID names | The shell's registration and lock |
 | Remote and author | `remote.origin.url`, set by `sync.connect`, and `browser.author` | Git's own configuration: `remote.origin.url`, `user.name`, `user.email`, with the shell's author as fallback |
 | Transfers | `httpFetch`, regular fetch by default, with `credentials` as a header | Git's own: `credentials` as a URL-scoped header, or the person's credential helper or SSH |
-| Pages of one folder | Web Locks and a `BroadcastChannel` | Several windows may open one root; the shell checks each save where it lands, Git orders commits, and `BroadcastChannel` hints are best effort (ADR-0541) |
+| Pages of one folder | Web Locks; each page tells the others the paths it wrote on a `BroadcastChannel` | Several windows may open one root; the shell checks each save where it lands, Git orders commits (ADR-0541), and the shell's watcher tells each window what changed |
 
 Files go through the browser folder's file storage (`opfs-store.ts`) over a
 directory handle (`directory-handle.ts`) built on seven calls: `readDir`,
@@ -400,7 +415,7 @@ or a submodule, or converts line endings, refuses a commit and names why.
 A directory folder takes no Web Lock (ADR-0541). Each host supplies the
 check it has instead:
 
-| Host | Save | Commit | First open |
+| Host | Save | Commit | First commit, staging, or remote |
 | --- | --- | --- | --- |
 | Desktop page | The shell's checked rename | Git's lock files and the branch's compare-and-swap | `git init`, run again if another opener raced it |
 | Bun | Checked just before the rename, not atomically; saves within one process take turns, saves from separate processes do not | Git's lock files and the branch's compare-and-swap | The same |
@@ -408,13 +423,10 @@ check it has instead:
 
 Each handle orders its own index and branch work. Two windows or scripts on
 one directory do not wait for each other: a save that another one overtook
-is refused where its host checks it, and a commit whose branch the other
-moved retries
-([History](#history)). `BroadcastChannel` hints between pages are best
-effort; a page reads again when it chooses to.
-
-Nothing watches the directory for other programs' changes; a page reads
-again when it chooses to. A page that reloads ends the work it was running.
+where its host checks it merges with theirs and writes again
+([Saving a row](#saving-a-row)), and a commit whose branch the other moved
+retries ([History](#history)). How a page hears what changed is
+[Changes](#changes). A page that reloads ends the work it was running.
 An incoming update that stops partway keeps no record here: the files it
 wrote show as changes, and the next Sync records and merges them.
 
@@ -473,7 +485,9 @@ renamed over the file. Saves to one directory take turns within the process,
 across every handle it opens, so two concurrent saves of one file from one
 script cannot both pass the check. Across processes nothing waits: a script
 and an open desktop window on one directory meet only at the checks above
-and Git's lock files. It does not watch the directory.
+and Git's lock files. It does not watch the directory, so `onFilesChanged`
+hears only what this handle's own Sync wrote; a script that needs other
+programs' changes watches with `fs.watch` itself.
 
 ### Reading a data folder without opening it
 
@@ -517,14 +531,14 @@ successful reading does not mean an application can open the folder.
 
 | Member | Contract |
 | --- | --- |
-| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `replace`, `rename`, and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
+| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `save(capture, row)` writes an edit over the version it started from, merging with another writer's newer file. `rename` and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
 | `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` merges one key into the current file, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and re-applies itself when another writer got there first. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `files` | Ordinary files at literal paths. See below. |
 | `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, and `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |
 | `sync` | `run()` commits saved files, fetches, merges, and pushes; competing settings, row fields, row bodies, and whole row files come back as a `SyncAttempt` that `resolve(attempt, choices)` settles. See [Sync](#sync). |
 | `definition` | The prepared definition the handle reads with: `openFolder`'s `definition`, or the folder's own `epicenter.json` as `openDataFolder` read it when it opened. Its tables are `tables`, its settings `kv`, and Sync merges rows by it. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
-| `onFilesChanged(listener)` | A hint that paths changed, so read again. Returns the function that stops listening. |
+| `onFilesChanged(listener)` | Files may have changed: `listener(change)` with the paths, or `'everything'`, so read again. Never this handle's own saves. Returns the function that stops listening. See [Changes](#changes). |
 | `signal`, `close()` | Closing fences the next storage call and stops network work. Git work drains before storage is released; file operations own their completion promises. It makes no commit. |
 
 ### Files
@@ -659,9 +673,9 @@ same pipeline. Each item is `{ stem, result }`, where `result` is the
 listing itself failed.
 
 A read is a snapshot. Nothing follows the file: an application reads again
-when a view opens, after its own actions, and when the person returns to it.
-`onFilesChanged` (see Hints) is the low-level signal for an application that
-wants to reread sooner.
+when a view opens and when `onFilesChanged` says the file may have changed
+([Changes](#changes)). With TanStack Query, `@epicenter/folder/query` wires
+both ([Queries](#queries)).
 
 ### Rows as text
 
@@ -752,39 +766,80 @@ refuse paths a filesystem could not hold apart; see Incoming changes.
 
 ### Saving a row
 
-`create` is the one unconditional write. Every other write names the bytes it
-replaces with a capture, `{ path, sha256 }`: a `StoredRow`, an `InvalidRow`,
-or a listed row passes as it is.
+`create` is the one unconditional write. Every other write names the version
+it started from with a capture, `{ path, sha256 }`: a `StoredRow`, an
+`InvalidRow`, or a listed row passes as it is.
 
 ```ts
 const created = await todos.create({ fields, body: '' }, { stem: 'milk' }); // Exists if taken
-const replaced = await todos.replace(stored, stored.row); // a StoredRow of what was saved
+const saved = await todos.save(stored, edited); // { stored, merged, replaced }
 const moved = await todos.rename(stored, 'groceries'); // the capture at the new path
 await todos.delete(stored);
 ```
 
-A capture whose file no longer holds those bytes is `Conflict`, and a missing
-file is `Conflict` too: a guarded write never recreates a deleted row.
-Nothing retries. `create` and `replace` save only a valid row: a value that
-does not conform or cannot be written is `InvalidValues`, and nothing is
-published. A rename to the stem it already has is `InvalidPath`; a rename
-onto an occupied stem is `Exists`. A move that landed its destination but
-could not remove its source is `MoveError.SourceNotRemoved`; its `moved`
-capture names the destination, so the application can continue from there
-and remove the leftover source under its own guard.
+`save(capture, row)` is the one way an app, a script, or an agent writes an
+edit (ADR-0548). When the file still holds the captured bytes, it writes
+`row` over them. When another writer changed the file since, it reads the
+current file, merges the edit with it, and writes the merge over the current
+bytes:
+
+- A field only one side changed keeps that side's value. Body lines only one
+  side changed keep that side's lines; edits to neighboring lines both stay.
+- Where both changed one field, or the same body lines, the edit wins, and
+  `replaced` names what of theirs it overrode: `{ kind: 'field', field,
+  kept, theirs }`, or `{ kind: 'body', line, kept, theirs }` with the edit's
+  lines standing in the saved body from the 0-based `line`. That is enough to
+  put theirs back with another save.
+- The merge is checked against the definition the handle reads with, as any
+  save is, and written in the standard form. If the file changed again, it
+  merges again, at most `SAVE_MERGES` times.
+
+The merge base is the row the captured bytes held. A `StoredRow` this table
+returned knows it even after its `row` was edited in place; any other capture
+with a `row` is taken to carry the row as those bytes held it. A capture
+without one, such as an `InvalidRow` being repaired, has no base: wherever
+the two sides differ, the edit wins and says so.
+
+A save fails, writing nothing, only when the row does not conform or cannot
+be written (`InvalidValues`), the file was deleted (`NotFound`: a save never
+recreates a row), another writer left text that is not a row (`InvalidRow`,
+`InvalidUtf8`), or the file kept changing (`KeptChanging`). Its
+compare-and-swap is internal.
+
+`rename` and `delete` are refused as `Conflict` when the file no longer holds
+the captured bytes, and nothing retries. A rename to the stem it already has
+is `InvalidPath`; a rename onto an occupied stem is `Exists`. A move that
+landed its destination but could not remove its source is
+`MoveError.SourceNotRemoved`; its `moved` capture names the destination, so
+the application can continue from there and remove the leftover source under
+its own guard.
 
 A host that loses a reply reports `Unconfirmed`: the change may or may not
 have landed. Present it as uncertainty, never as a definite failure.
 
 ### Editing a row
 
-The folder keeps no draft and no save queue. An application holds the rows it
-read in its query cache and writes each edit with `replace`, guarded by the
-capture the last read or write returned (ADR-0528). Each successful write
-returns the capture that guards the next one. A change made elsewhere, such as
-a Git pull, another tab, or an agent, is `Conflict`; the other change stays,
-and the application reads the file again. Nothing is merged on save; only sync
-merges.
+The folder keeps no draft and no save queue. An edit holds its own starting
+version (ADR-0548): it captures the row and its version at the first change,
+keeps the edited row outside any cache, and saves with that row as the base.
+A read in between updates the cache, never the edit. "Changed elsewhere" is
+the cache's version differing from the edit's, derived, with no state of its
+own. `createDraft()` in `@epicenter/folder/query` is this, in plain
+TypeScript:
+
+```ts
+const draft = createDraft<Todo>();
+draft.change(cachedRow, (row) => { row.fields.title = 'Oat milk'; }); // base captured here, once
+draft.changedElsewhere(cachedRowNow);  // the cache moved past the base
+const sent = draft.toSave();           // { base, row, revision } for the save mutation
+// after the save lands:
+draft.saved(sent, saved);              // done, or later changes continue from it
+```
+
+An application whose cache holds edited rows in place (each entry the
+confirmed version's capture with the edited row) records each version's row
+with `createSaveBases()` instead: `editing` before the first change at a
+version, `baseOf` for the save, `saved` after it lands.
 
 A row that is not valid is repaired as text: `files.replace(invalidRow, text)`
 saves over the `InvalidRow` the read returned, guarded by its bytes.
@@ -876,11 +931,12 @@ formatter, so a local save and a merge produce the same file. Every folder's `gi
 ### Merging a row
 
 `mergeRow(table, { base, ours, theirs })` merges three texts of one row file
-of a prepared table, each `null` for no file, by field and body. Sync uses it
-for declared tables, and an editor can use it to settle a save that returned
-`Conflict`. Every version is read through `parseRow`, so spelling never
+of a prepared table, each `null` for no file, by field and body. Sync and
+`table.save` both use it, so a row merges the same way wherever two writers
+meet. Every version is read through `parseRow`, so spelling never
 conflicts. For each field, equal values agree and a side unchanged from the
-base yields; values compare as JSON. The body merges by line.
+base yields; values compare as JSON. The body merges by line: lines compete
+only where both sides changed the same lines, or inserted at the same place.
 
 The result is `merged` with the row; `conflict` with a row of every field that
 merged, beside the competing fields and body (that row leaves competing fields
@@ -895,23 +951,72 @@ There is no multi-file transaction: an application that keeps a row beside a
 media file saves the media first and the row after, and on a failure between
 them reads what landed before deciding what to save next.
 
-### Hints
+### Changes
 
-`onFilesChanged` says which paths a change reached, as a request to read again.
-There is not one call per save, calls are not ordered against other writers,
-and a hint is never a capture. Subscribe before the first read so nothing falls
-between them. Closing stops all listeners at once, including the ones still
-waiting in a dispatch that a listener closed the folder from.
+`onFilesChanged(listener)` is the one channel by which a handle hears that
+files may have changed (ADR-0548). `listener` receives
+`FilesChanged = readonly string[] | 'everything'`: the paths a change
+reached, or `'everything'` when the reporter cannot say. A change carries no
+content and is never a capture; read through the folder to learn what the
+files hold. Nothing records changes, so a missed one costs a delay, never
+data. Subscribe before the first read so nothing falls between them. Closing
+stops all listeners at once, including the ones still waiting in a dispatch
+that a listener closed the folder from.
 
-A listener runs inside the save that caused the hint. What it throws is
-logged and goes no further: the save still returns its capture, still
-requests its commit, and the other listeners still hear. The same holds for a
-`git.subscribe` subscriber.
+Each host has exactly one detector of changes made outside the handle:
 
-| Folder | Announces |
-| --- | --- |
-| Browser | This handle's saves and incoming updates, and those of other tabs on the same origin. |
-| Directory (Bun or desktop) | This handle's saves and incoming updates. Other programs are not watched. |
+| Host | Detector | Reports |
+| --- | --- | --- |
+| Browser | Other pages of this origin, which post the paths each write landed on a `BroadcastChannel`; and resuming from being frozen or from the back-forward cache (`pageshow` with `persisted`, the Page Lifecycle `resume`) | The paths; `'everything'` on resume. Returning to a window reports nothing. |
+| Desktop | The shell's watcher of the granted directory: the folder plugin's `epicenter-folder://changed` event, `{ scope, paths }`, sent to each permitted window and filtered by this folder's scope | The paths; `null` paths as `'everything'`; `.git` when history moved |
+| Bun | None; a script that needs one watches with `fs.watch` | Nothing from outside |
+
+A handle's own saves are not reported to it: whoever saved holds the result.
+What its own Sync writes is reported on every host, since the page did not
+make those changes. Every report marks the history's observations stale.
+
+A listener runs inside the folder's work. What it throws is logged and goes
+no further: the save still returns its capture, and the other listeners
+still hear. The same holds for a `git.subscribe` subscriber.
+
+### Queries
+
+`@epicenter/folder/query` gives TanStack Query option factories over a
+folder, as tRPC's `queryOptions` and `mutationOptions` do. `folderOptions`
+holds no query client and no subscription:
+
+```ts
+import { folderOptions } from '@epicenter/folder/query';
+
+const folder$ = folderOptions(folder);
+createQuery(() => folder$.todos.list.queryOptions());
+createQuery(() => folder$.todos.get.queryOptions('milk')); // StoredRow | null
+const save = createMutation(() => folder$.todos.save.mutationOptions());
+save.mutate({ base: draft.base, row: draft.row });
+
+// The app root, once: changes the page did not make mark what they name stale.
+folder.onFilesChanged((change) =>
+  queryClient.invalidateQueries(folder$.pathFilter(change)),
+);
+```
+
+| Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
+| --- | --- | --- |
+| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `create`, `save`, `rename`, `delete` |
+| `kv` | `get` (the reading, or `null`) | `set({ key, value })` |
+| `files` | `list`, `read(path)` | `write({ path, content, over? })`, `move({ file, to })`, `delete(file)` |
+| `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
+
+A mutation updates the cache from its own result: `save` and `create` set the
+row's query and its entry in the listing, `delete` drops the entry, and the
+others mark what they touched stale. `pathFilter(change)` matches each row
+at a changed path, the listing of each table whose directory a path is in,
+the settings for `kv.json`, the file listing and each changed file, and the
+history's status; a path in `.git` also matches the log, and `'everything'`
+matches every query of the folder. Since the channel is the folder's one
+detector, apps turn TanStack's own focus refetch off
+(`refetchOnWindowFocus: false`). A table named like a member (`kv`, `files`,
+`history`, `tables`, `pathFilter`, `key`) is under `folder$.tables` only.
 
 ## History
 
@@ -957,7 +1062,7 @@ format list, and no LFS.
 
 ### Closing
 
-`close()` fences new file work, stops hints, refuses new Git requests, and
+`close()` fences new file work, stops change reports, refuses new Git requests, and
 cancels pushes and fetches. It does not await file helpers or publication
 replies. Await a save that must finish before closing:
 
@@ -970,8 +1075,8 @@ await folder.close();
 A helper still reading or hashing can be refused at its next storage call. An
 already-started application returns its actual Result, including `Partial` or
 `Unconfirmed`. Closing never relabels that outcome. A browser write that
-already holds the files lock can finish after close returns, although its
-cross-tab hint can be lost once the notification channel closes.
+already holds the files lock can finish after close returns, although the
+paths it posts to other pages can be lost once the channel closes.
 
 A Git request still waiting for admission is refused; work that already
 entered its protection
@@ -1202,7 +1307,9 @@ dangle.
 | `src/contract.ts` | Everything an application names besides the opener. Every entry exports it unchanged. Loads no storage, Git implementation, or runtime module. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-git.ts`, and the directory folder only then. |
-| `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. |
+| `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds `save` and its merge. |
+| `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
+| `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions`, `createDraft`, and `createSaveBases`. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | Svelte boundary tests and the sync review's mounted tests. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
@@ -1249,11 +1356,11 @@ what the Web Locks can see.
 
 Files, tables, and KV use one storage API. Its `apply`
 accounts for content changes, so a domain method cannot accidentally choose a
-write that skips history or change hints.
+write that skips marking history stale.
 
 ```ts
 createFiles({ storage })
-createTable({ storage, onFilesChanged }, name, definition.tables[name].fields)
+createTable({ storage }, name, definition.tables[name])
 createKv({ storage }, definition.kv)
 createTerminal({ storage, git }, options)
 ```

@@ -44,6 +44,7 @@ import {
 	defineFolder,
 	defineTable,
 	type FileCapture,
+	type FilesChanged,
 	type Folder,
 	field,
 } from './contract.js';
@@ -124,10 +125,10 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		);
 		const capture = { path: entry.path, sha256: entry.sha256 };
 		const row = { fields: { title: 'Mine' }, body: '' };
-		const saving = table.replace(capture, row);
+		const saving = table.save(capture, row);
 		capture.sha256 = 'f'.repeat(64);
 		row.fields.title = 'Changed after the call';
-		const saved = expectOk(await saving);
+		const { stored: saved } = expectOk(await saving);
 		expect(saved.path).toBe(entry.path);
 		expect(saved.row).toEqual({ fields: { title: 'Mine' }, body: '' });
 		const landed = expectOk(await folder.files.read(entry.path));
@@ -346,18 +347,19 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		expect(await text(folder, 'a.txt')).toBe('kept');
 	});
 
-	test('the handle says where it is, and hints name the paths its saves reached', async () => {
+	test('the handle says where it is, and its own saves are not reported to it', async () => {
 		const folder = await open();
 		if (kind === 'browser')
 			expect(folder.location).toEqual(locationOf('so.epicenter.filestest'));
 		else expect(folder.location.kind).toBe('directory');
 
-		// Subscribed before the first read, so nothing falls between them.
-		const heard: string[] = [];
-		const stop = folder.onFilesChanged((paths) => heard.push(...paths));
+		// Whoever saved holds the result (ADR-0548): a handle's listeners
+		// hear changes it did not make.
+		const heard: FilesChanged[] = [];
+		const stop = folder.onFilesChanged((change) => heard.push(change));
 		expectOk(await folder.files.list());
 		const made = expectOk(await folder.files.create('a.txt', 'a'));
-		const moved = expectOk(await folder.files.move(made, 'b.txt'));
+		expectOk(await folder.files.move(made, 'b.txt'));
 		expectErr(await folder.files.create('b.txt', 'refused'));
 		expectOk(
 			await folder.tables.todos.create(
@@ -365,27 +367,14 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 				{ stem: 'row' },
 			),
 		);
-		// The first save publishes the declaration before its own file.
-		expect(heard).toEqual([
-			'epicenter.json',
-			'a.txt',
-			'a.txt',
-			'b.txt',
-			'todos/row.md',
-		]);
-
+		expect(heard).toEqual([]);
 		stop();
-		expectOk(await folder.files.remove(moved));
-		expect(heard).toHaveLength(5);
 
-		// Closing fences callbacks: a listener hears nothing more, however
-		// the close and the last save interleave.
-		const late: string[] = [];
-		folder.onFilesChanged((paths) => late.push(...paths));
+		// Closing fences callbacks: stopping and closing leave nothing to call.
 		const saving = folder.files.create('last.txt', 'last');
 		const closing = folder.close();
 		await Promise.all([saving, closing]);
-		expect(late).toEqual([]);
+		expect(heard).toEqual([]);
 		expect(folder.onFilesChanged(() => {})).toBeInstanceOf(Function);
 	});
 });
@@ -496,11 +485,11 @@ describe('a save never reads its bytes back', () => {
 			),
 		);
 		const saved = expectOk(
-			await folder.tables.todos.replace(row, {
+			await folder.tables.todos.save(row, {
 				fields: { title: 'S' },
 				body: '',
 			}),
-		);
+		).stored;
 		const renamed = expectOk(await folder.tables.todos.rename(saved, 's'));
 		expectOk(await folder.tables.todos.delete(renamed));
 		// The one read is the declaration's, before the first save (ADR-0508).
@@ -530,7 +519,7 @@ describe('a save never reads its bytes back', () => {
 			actualSha256: observed.sha256,
 		});
 
-		// The same holds for a moved file and for a table row.
+		// The same holds for a moved file. A table row merges instead.
 		raceNextSave('moved.md', 'raced the move');
 		const moved = expectOk(await folder.files.move(observed, 'moved.md'));
 		expect(moved.sha256).toEqual(observed.sha256);
@@ -550,13 +539,16 @@ describe('a save never reads its bytes back', () => {
 		// An explicit get is the new observation; it never acknowledges the draft.
 		const current = expectOk(await folder.tables.todos.get('r'));
 		expect(current!.row.fields).toEqual({ title: 'Theirs' });
-		expect(
-			expectErr(
-				await folder.tables.todos.replace(row, {
-					fields: { title: 'Again' },
-					body: '',
-				}),
-			).name,
-		).toBe('Conflict');
+		// A save merges with what is there instead, from the bytes it named,
+		// and says what of theirs it replaced.
+		const again = expectOk(
+			await folder.tables.todos.save(row, {
+				fields: { title: 'Again' },
+				body: '',
+			}),
+		);
+		expect(again.replaced).toEqual([
+			{ kind: 'field', field: 'title', kept: 'Again', theirs: 'Theirs' },
+		]);
 	});
 });
