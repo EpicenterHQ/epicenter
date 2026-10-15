@@ -21,9 +21,10 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { type Replaced, type Row, wellFormed } from '@epicenter/folder';
+	import { restoreTheirs, type Row, type SavedRow, wellFormed } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { createDraftState } from '@epicenter/folder/svelte';
+	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 	import { createMutation, createQuery, useIsMutating } from '@tanstack/svelte-query';
 	import type { TodoFields } from '$lib/definition.js';
 	import { describeError } from '$lib/describe-error.js';
@@ -51,11 +52,18 @@
 	const save = createMutation(() => todos.rows.save);
 	const draft = createDraftState<TodoFields>({
 		save: (sent) => save.mutateAsync(sent),
-		onSaved: ({ replaced }) => {
-			if (replaced.length > 0)
-				toast.info('Saved over a change made elsewhere', { description: `Your edit replaced theirs in ${describeReplaced(replaced)}.` });
-		},
+		onSaved: report,
 	});
+
+	/** Name what a save replaced of another writer's change, and offer it back. */
+	function report(saved: SavedRow<TodoFields>) {
+		void toastReplaced({
+			replaced: saved.replaced,
+			subject: saved.stored.row.fields.title,
+			// A failed restore is the mutation's to report, like any save.
+			restore: () => void save.mutateAsync(restoreTheirs(saved)).then(report, () => {}),
+		});
+	}
 	/** The row as the cache holds it, when the file reads as a todo. */
 	const stored = $derived(todo.data?.result.error === null ? todo.data.result.data : undefined);
 	/**
@@ -72,12 +80,6 @@
 		if (stored === undefined || locked) return;
 		draft.change(stored, edit);
 		void draft.save();
-	}
-
-	/** The parts of the todo where a save replaced another writer's change. */
-	function describeReplaced(replaced: readonly Replaced[]) {
-		const parts = new Set(replaced.map((part) => (part.kind === 'body' ? 'the notes' : `the ${part.field}`)));
-		return [...parts].join(' and ');
 	}
 
 	/** Textareas report LF, so views show LF; the setters restore the file's convention. */

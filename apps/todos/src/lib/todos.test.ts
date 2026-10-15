@@ -149,9 +149,13 @@ async function sha(todos: Todos, path: string) {
 	return expectOk(await todos.folder.files.read(path)).sha256;
 }
 
-/** Another program writes the file. */
+/** Another program writes the file over whatever is there. */
 async function writeElsewhere(todos: Todos, path: string, content: string) {
-	expectOk(await todos.folder.files.overwrite(path, content));
+	const { files } = todos.folder;
+	const current = await files.read(path);
+	if (current.error?.name === 'NotFound')
+		return void expectOk(await files.create(path, content));
+	expectOk(await files.save(expectOk(current), content, { merge: false }));
 }
 
 /** Add a todo through the app; answers its stem and path. */
