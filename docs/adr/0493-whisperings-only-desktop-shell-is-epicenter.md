@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-15
 - **Relates:** [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), whose exclusion of a separately shipped Whispering desktop runtime this keeps; [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md), whose Settings opens Whispering once local transcription is ready.
-- **Unbuilt:** all of it: the `so.epicenter.whispering` entry in `APPLICATION_FOLDERS`, Whispering's host functions in Epicenter's Bun host, the page reaching them without `__WHISPERING_BRIDGE__`, and deleting `apps/whispering/src-tauri/`.
+- **Unbuilt:** all of it: Whispering installed as an app opening `so.epicenter.whispering` ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)), Whispering's host functions in Epicenter's Bun host, the page reaching them without `__WHISPERING_BRIDGE__`, and deleting `apps/whispering/src-tauri/`.
 
 ## Context
 
@@ -33,13 +33,12 @@ and permission identities, and parity work for every service.
 **Epicenter owns Whispering on the desktop, and `apps/whispering/src-tauri/` is
 deleted**, with its installer and its injection of `__WHISPERING_BRIDGE__`.
 
-**Whispering's folder is `~/Epicenter/so.epicenter.whispering`, registered as
-Todos's is.** `APPLICATION_FOLDERS` gains one `ApplicationFolder` with scope
-`so.epicenter.whispering` and app `BuiltInApp::Whispering`, so the shell grants
-that directory to the `whispering` window.
+**Whispering's folder is `~/Epicenter/so.epicenter.whispering`.** Whispering
+is an installed app ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)), and the shell grants that directory to its window
+as it grants any installed app the folder it opens.
 
 **Epicenter's Bun host serves Whispering's host functions.** The functions
-`createHost` provides run in Epicenter's host for the `whispering` window, and
+`createHost` provides run in Epicenter's host for Whispering's window, and
 the page reaches them without `__WHISPERING_BRIDGE__`. The recorder is
 `tauri-plugin-epicenter-recorder`, registered by Epicenter
 ([ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
@@ -73,7 +72,7 @@ it**, since its window opens to `HostMissing`.
 - **Three deployment forms, with Rust services both desktop shells compile.**
   Two shells to keep at parity for every service, two installers, and two
   operating-system permission identities.
-- **The standalone shell wins and Epicenter drops `BuiltInApp::Whispering`.**
+- **The standalone shell wins and Epicenter does not host Whispering.**
   Epicenter's local transcription model and its global shortcuts would have no
   Whispering window, and Settings could not open it.
 - **One shared native daemon both shells call.** Installation, discovery,

@@ -776,3 +776,4 @@ When you add an ADR, add its row here.
 | [0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) | Every Epicenter resource accepts only opaque access tokens from one OAuth 2.1 authorization server | Proposed (supersedes 0071 and 0076; amends 0075, 0326, and 0331) |
 | [0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md) | Epicenter's MCP server reaches hosted folders through grants that target namespaces | Proposed |
 | [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Proposed |
+| [0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) | Every app is installed, from a folder in any Git repository | Proposed |

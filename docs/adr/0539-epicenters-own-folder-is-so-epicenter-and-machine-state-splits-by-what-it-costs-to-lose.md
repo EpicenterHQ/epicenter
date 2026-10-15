@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-15
 - **Built:** the `so.epicenter` folder, registered for the Folders window and Settings, with its `apps` table (title, source, commit; written by the Folders window, `apps/epicenter/src/folders/epicenter-folder.ts`) and the `defaultApp` setting; `~/Epicenter/Apps/`; `approvals.json` in app data, written only by the shell; built bundles in Caches (`cache_dir` in `apps/epicenter/src-tauri/src/app_data.rs`, `EPICENTER_CACHE_DIR`).
-- **Unbuilt:** reading `defaultApp` anywhere; model choices in `kv.json`; Settings opening `so.epicenter` (its scope is registered for the `home` window, which holds no folder plugin grant yet); installing an app from a row synced from another machine; downloaded models under `models/<provider>/<model-id>/` in app data (they are in the shared Hugging Face cache today).
+- **Unbuilt:** reading `defaultApp` anywhere; the row's `folder` ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)); model choices in `kv.json`; Settings opening `so.epicenter` (its scope is registered for the `home` window, which holds no folder plugin grant yet); installing an app from a row synced from another machine; downloaded models under `models/<provider>/<model-id>/` in app data (they are in the shared Hugging Face cache today).
 
 ## Context
 
@@ -32,7 +32,7 @@ editable while Epicenter runs, synced only if it is connected.
     epicenter.json                            declares the apps table and the settings
     kv.json                                   settings: default app per folder, model choices
     apps/<app-id>.md                          one row per installed app: title, the shape it
-                                              opens, its source, the commit it runs
+                                              opens, its source, its folder, the commit it runs
   so.epicenter.todos/                         an app's folder
   Apps/<app-id>/                              an app's source; each its own repository
 
@@ -44,9 +44,9 @@ editable while Epicenter runs, synced only if it is connected.
 Keychain                                      tokens and keys
 ```
 
-**Built-in apps are not rows.** Epicenter ships their manifests read-only; the
-`apps` table adds apps and overrides defaults. A fresh machine works before
-anything syncs, and deleting a row cannot remove Todos.
+**Every app is a row.** Epicenter compiles in no app ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)). The shell
+lists apps from their clones in `Apps/`, so deleting a row does not remove an
+app.
 
 **App source never sits inside `so.epicenter`.** A repository inside another is
 what [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) refuses

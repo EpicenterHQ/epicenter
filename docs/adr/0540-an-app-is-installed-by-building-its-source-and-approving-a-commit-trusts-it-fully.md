@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-15
 - **Built:** `epicenter.app.json`; installing from a Git URL or a local path, building, approving, and updating (`apps/epicenter/src-tauri/src/installed_apps.rs`); `approvals.json`; serving installed apps at `/apps/<app-id>/` and opening each in its own window on the folder it is offered on; the Folders window's install, approval, and Update (`apps/epicenter/src/folders/App.svelte`).
-- **Unbuilt:** moving Todos and Capture into their own repositories; customizing a built-in app by cloning it (installing a built-in app's id is refused today); a full diff view in the approval (it shows `git log` and `git diff --stat`); removing an installed app from the window; sandboxed builds; an `opens` shape written as TypeScript.
+- **Unbuilt:** installing an app from a folder within its repository, and Todos and Capture installed that way from the Epicenter monorepo ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)); installing the ids of the apps Epicenter compiles in today, which are refused; a full diff view in the approval (it shows `git log` and `git diff --stat`); removing an installed app from the window; sandboxed builds; an `opens` shape written as TypeScript.
 
 ## Context
 
@@ -14,7 +14,8 @@ nobody can change one without building Epicenter.
 
 ## Decision
 
-**An app is a Git repository with `epicenter.app.json` at its root.**
+**An app is a folder holding `epicenter.app.json` in a Git repository**, the
+repository root unless installing names another folder ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)).
 
 ```json
 {
@@ -26,7 +27,7 @@ nobody can change one without building Epicenter.
 }
 ```
 
-`opens` is the repository path of the shape of [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md),
+`opens` is the path, within the app's folder, of the shape of [ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md),
 committed as a declaration (`formatDeclaration` of the app's definition), so
 Epicenter can match it to folders without building or running the app.
 Every app is a Vite single-page app built with a relative `base`; `build` and
@@ -58,8 +59,8 @@ however trusted the app opening it is. The shell's path rule, link refusal,
 ([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
 
 **Customizing an app is committing in its clone.** Updating is fetching
-upstream and rebasing. A built-in app is customized by cloning its repository
-into `~/Epicenter/Apps/<app-id>/`; the row overrides the built-in.
+upstream and rebasing. Todos and Capture are customized the same way, since
+Epicenter compiles in no app.
 
 ## Consequences
 
@@ -67,8 +68,8 @@ into `~/Epicenter/Apps/<app-id>/`; the row overrides the built-in.
 - One origin means installed apps share Web Locks, `BroadcastChannel`, and
   storage with Todos. A malicious approved app can read another app's browser
   storage; it could already read every file during its build.
-- Todos and Capture each move into a standalone repository before they can be
-  forked.
+- Todos and Capture install from their folders in the Epicenter monorepo
+  ([ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)), and are forked by committing in their clones.
 - **Revisit when** Epicenter runs code it did not build: prebuilt downloads,
   apps opened from a URL, or sandboxed builds. Isolation then protects
   something, and each app needs its own origin.
