@@ -7,8 +7,10 @@ const gitOrigin =
 	process.env.TODOS_GIT_ORIGIN ??
 	`http://127.0.0.1:${process.env.TODOS_GIT_PORT ?? '5187'}`;
 
-/** The build the Epicenter desktop host serves below `/apps/todos/`. */
+/** A build the Epicenter desktop host serves: built in, or installed. */
 const isEpicenterHost = process.env.EPICENTER_HOST === '1';
+/** The installed build (ADR-0552); `src/routes/+layout.ts` prerenders it. */
+const isInstalled = process.env.EPICENTER_INSTALLED === '1';
 
 export default defineConfig(
 	mergeConfig(workspaceAppViteConfig({ port: TODOS_UI_PORT }), {
@@ -42,6 +44,11 @@ export default defineConfig(
 			// The loopback Git backend is same-origin through this proxy, so the
 			// browser needs no CORS or credentials for smart HTTP.
 			proxy: { '/git': { target: gitOrigin, changeOrigin: false } },
+		},
+		define: {
+			'import.meta.env.EPICENTER_INSTALLED': JSON.stringify(
+				isInstalled ? '1' : '',
+			),
 		},
 		optimizeDeps: { include: ['buffer'] },
 	}),

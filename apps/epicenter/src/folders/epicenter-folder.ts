@@ -5,7 +5,8 @@
  *
  * Epicenter creates this folder, so it owns the schema and opens it with
  * `openFolder`, which publishes `epicenter.json`. Each installed app is a row,
- * `apps/<app-id>.md`, holding where it came from and the commit it runs. The
+ * `apps/<app-id>.md`, holding where it came from, the folder within that
+ * repository it is in (ADR-0552), and the commit it runs. The
  * row is a fact the shell established: what may run on this machine is
  * `approvals.json` in app data, which only the shell writes, so a row synced
  * from another machine runs nothing here until it is approved here. Built-in
@@ -39,6 +40,12 @@ export const epicenterDefinition = defineFolder({
 				title: field.string(),
 				/** The Git URL or path it was installed from. */
 				source: field.string(),
+				/**
+				 * The folder within that repository holding its
+				 * `epicenter.app.json`, empty for the root. Optional because rows
+				 * written before ADR-0552 have none.
+				 */
+				folder: field.optional(field.string()),
 				/** The commit it runs. */
 				commit: field.string(),
 			},
@@ -50,7 +57,12 @@ type AppRow = CreateRowOf<typeof epicenterDefinition.tables.apps>;
 
 /** The row an installed app that runs should have. */
 export function appRow(app: InstalledApp): AppRow {
-	return { title: app.title, source: app.source, commit: app.commit };
+	return {
+		title: app.title,
+		source: app.source,
+		folder: app.folder,
+		commit: app.commit,
+	};
 }
 
 /**
@@ -101,6 +113,7 @@ export async function writeAppRows(
 		if (
 			current.title === fields.title &&
 			current.source === fields.source &&
+			current.folder === fields.folder &&
 			current.commit === fields.commit
 		)
 			continue;

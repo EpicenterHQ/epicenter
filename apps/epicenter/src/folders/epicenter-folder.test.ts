@@ -3,7 +3,7 @@
  *
  * Key behaviors:
  * - Each installed app that runs is a row `apps/<app-id>.md` with its title,
- *   source, and commit
+ *   source, folder, and commit
  * - An app waiting for approval, or broken, gets no row
  * - A row that already says the same is left as it is; a changed one keeps
  *   the body and any field a person added
@@ -52,6 +52,7 @@ function app(overrides: Partial<InstalledApp> = {}): InstalledApp {
 		id: 'com.example.board',
 		title: 'Board',
 		source: 'https://example.com/board.git',
+		folder: 'apps/board',
 		commit: 'a'.repeat(40),
 		opens: null,
 		state: { kind: 'ready' },
@@ -84,6 +85,7 @@ test('an installed app that runs is a row named by its id', async () => {
 		);
 		expect(text).toContain('title: Board');
 		expect(text).toContain('source: "https://example.com/board.git"');
+		expect(text).toContain('folder: apps/board');
 		expect(text).toContain(`commit: ${'a'.repeat(40)}`);
 	} finally {
 		await folder.close();

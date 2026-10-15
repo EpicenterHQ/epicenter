@@ -332,7 +332,9 @@ the history's `status` query. The window never writes `epicenter.json`.
 
 ## Installed apps
 
-An app is a Git repository with `epicenter.app.json` at its root (ADR-0540):
+An app is a folder holding `epicenter.app.json` in a Git repository, the
+repository's root unless installing names another folder (ADR-0540,
+ADR-0552):
 
 ```json
 {
@@ -344,25 +346,40 @@ An app is a Git repository with `epicenter.app.json` at its root (ADR-0540):
 }
 ```
 
-- `id` is a lowercase reverse-domain name. `so.epicenter` and the built-in
-  apps' ids are refused.
-- `opens` is the repository path of the shape the app reads (ADR-0538): a
-  JSON declaration, the output of `formatDeclaration(definition)` from
-  `@epicenter/folder`, committed in the repository.
-- `build` and `output` default to the values shown. The output is a
-  single-page app built with a relative `base`, holding `index.html`.
+- `id` is a lowercase reverse-domain name. `so.epicenter` is refused, and so
+  are the built-in apps' ids except `so.epicenter.todos`, which installs from
+  `apps/todos` while the built-in Todos is still compiled in.
+- `opens` is the path, within the app's folder, of the shape the app reads
+  (ADR-0538): a JSON declaration, the output of
+  `formatDeclaration(definition)` from `@epicenter/folder`, committed beside
+  the manifest.
+- `build` and `output` default to the values shown, and are relative to the
+  app's folder. The output is a single-page app built with a relative `base`,
+  holding `index.html`.
 
-The Folders window's Apps list has "Install from Git URL…". It takes a Git URL
-(`https`, `http`, `ssh`, `git`, `file`, or `user@host:path`) or an absolute
-local path, and calls `install_app`. The shell clones it into
-`~/Epicenter/Apps/<app-id>/` and builds nothing. The page shows the title, the
-source, the commit, its log, and that building runs the app's code on this
-computer. "Approve and build" calls `approve_app`, which records the commit in
-`approvals.json`, runs `bun install --frozen-lockfile --ignore-scripts` (when
-the repository has a `package.json`) and the build command in the clone, and
-copies the output to `builds/<app-id>/<commit>/`. The page then writes the
-app's row, `so.epicenter/apps/<app-id>.md`, with its title, source, and
-commit, through the folder engine (`src/folders/epicenter-folder.ts`).
+The Folders window's Apps list has "Install from a repository…"
+(`src/folders/InstallApps.svelte`). It takes a Git URL (`https`, `http`,
+`ssh`, `git`, `file`, or `user@host:path`) or an absolute local path and calls
+`list_repository_apps`, which clones the repository shallowly into a dot
+directory of `Apps/`, reads each tracked `epicenter.app.json` up to four
+directories deep outside `node_modules`, and removes the clone. It lists each
+app's title and folder; choosing one calls `install_app` with the source and
+that folder. With no app installed yet, the list offers "Install Todos": the
+same `install_app` with `https://github.com/EpicenterHQ/epicenter.git` and
+`apps/todos`.
+
+`install_app` clones the whole repository into `~/Epicenter/Apps/<app-id>/`,
+records the folder in the clone's `.git/config` as `epicenter.folder` (absent
+for the root), and builds nothing. The shell reads the folder from there,
+never from a row. The page shows the title, the source, the commit, its log,
+and that building runs the app's code on this computer. "Approve and build"
+calls `approve_app`, which records the commit in `approvals.json`, runs
+`bun install --frozen-lockfile --ignore-scripts` at the repository's root
+(when it has a `package.json`), runs the build command in the app's folder,
+and copies the output to `builds/<app-id>/<commit>/`. Approval covers the
+whole repository's commit. The page then writes the app's row,
+`so.epicenter/apps/<app-id>.md`, with its title, source, folder, and commit,
+through the folder engine (`src/folders/epicenter-folder.ts`).
 
 What runs is decided per commit:
 
@@ -391,7 +408,10 @@ labelled `app:<id with _ for .>`, plus `:<folder scope in hex>` when it is
 opened on a folder; the `installed-app-windows-*` capability grants those
 windows `epicenter-folder:default` alone. Opened on a folder, the window is
 permitted into that folder's scope and the page gets `?folder=<scope>`, which
-the app opens with `openDataFolder({ id, lens })`.
+the app opens with `openDataFolder({ id, lens })`. Opened with no folder, an
+app whose id is a folder the shell registers for a built-in app is handed
+that folder: installed Todos opens `so.epicenter.todos`, as the built-in
+Todos does.
 
 ## Quitting Epicenter
 

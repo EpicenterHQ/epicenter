@@ -31,8 +31,20 @@ or with Git.
 
 Todos is one of Epicenter's compiled applications. Open it from the Folders
 window Epicenter opens to ("Open in Todos" beside its folder, or under Apps
-before that folder exists), or through the `epicenter://app/todos` link. There is no separate Todos app to
-install or run.
+before that folder exists), or through the `epicenter://app/todos` link.
+
+Todos also installs into Epicenter as an app, from this folder of the
+Epicenter repository (ADR-0552). `epicenter.app.json` names the id
+`so.epicenter.todos`, the shape it opens (`shape.json`), the build
+(`bun run build:installed`), and its output (`dist`). The Folders window's
+"Install Todos" clones the repository into `~/Epicenter/Apps/so.epicenter.todos/`;
+approving it runs `bun install` at the repository's root and the build here.
+Installed Todos opens the same `so.epicenter.todos` folder. Until the built-in
+Todos is removed, both are offered on that folder.
+
+`shape.json` is `formatDeclaration` of `src/lib/definition.ts`. After changing
+the definition, run `bun run --cwd apps/todos shape`; `apps/todos/scripts/shape.test.ts`
+fails until the two agree.
 
 ### Where the files are
 
@@ -420,6 +432,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |
 | `apps/todos/scripts/remote-edit.ts` | Demo fixture: a hand edit with undeclared frontmatter, committed and pushed from the native checkout with ordinary Git. |
+| `epicenter.app.json`, `shape.json` | The manifest Epicenter installs Todos from, and the shape it opens. `apps/todos/scripts/shape.ts` writes `shape.json`. |
 | `apps/todos/scripts/module-graph.ts` | Lists the modules a build of one entry pulls in, resolved with the conditions and aliases `vite.config.ts` declares and with Svelte compiled, for the seam test. |
 
 Reads and saves come from the folder's options (`folderOptions` in
@@ -466,9 +479,12 @@ side), `bun run --cwd apps/todos test` (it builds the Folder's file exchange
 addon that the native harness needs, runs the tests on Svelte's server
 runtime, then `test:mounted`: the real views mounted in jsdom under
 `--conditions=browser`), `bun run --cwd apps/todos build` for the browser
-demo, and `bun run --cwd apps/todos build:epicenter` for the build Epicenter
-serves. The two builds share SvelteKit's output directory, so run them one
-after the other.
+demo, `bun run --cwd apps/todos build:epicenter` for the build Epicenter
+compiles in, and `bun run --cwd apps/todos build:installed` for the installed
+build. The installed build writes `dist/` here and prerenders each page with
+relative asset paths, so it runs below whatever path the host serves it at;
+the other two serve a fallback page from a fixed base. The builds share
+SvelteKit's output directory, so run them one after the other.
 
 ## Changed promises
 

@@ -1,0 +1,27 @@
+{
+	"title": "Todos",
+	"kv": {
+		"type": "object",
+		"properties": {}
+	},
+	"tables": {
+		"todos": {
+			"type": "object",
+			"properties": {
+				"title": {
+					"type": "string",
+					"x-field": {
+						"kind": "string"
+					}
+				},
+				"done": {
+					"type": "boolean",
+					"x-field": {
+						"kind": "boolean"
+					}
+				}
+			},
+			"required": ["title", "done"]
+		}
+	}
+}

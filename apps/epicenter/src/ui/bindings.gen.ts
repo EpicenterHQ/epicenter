@@ -168,10 +168,16 @@ export const commands = {
 	/**  Every app installed under `Apps/`, with whether it can run. */
 	listInstalledApps: () => typedError<InstalledApp[], string>(__TAURI_INVOKE("list_installed_apps")),
 	/**
-	 *  Clone the app at `source`, a Git URL or a local path, into `Apps/`. It
-	 *  builds and runs nothing until approved.
+	 *  The apps in the repository at `source`, a Git URL or a local path, each
+	 *  with the folder to install it from.
 	 */
-	installApp: (source: string) => typedError<InstalledApp, string>(__TAURI_INVOKE("install_app", { source })),
+	listRepositoryApps: (source: string) => typedError<RepositoryApp[], string>(__TAURI_INVOKE("list_repository_apps", { source })),
+	/**
+	 *  Clone the repository at `source`, a Git URL or a local path, into `Apps/`,
+	 *  with the app at `folder` within it, or at its root when `folder` is
+	 *  empty. It builds and runs nothing until approved.
+	 */
+	installApp: (source: string, folder: string) => typedError<InstalledApp, string>(__TAURI_INVOKE("install_app", { source, folder })),
 	/**  Approve `commit` of app `id` and build it. */
 	approveApp: (id: string, commit: string) => typedError<InstalledApp, string>(__TAURI_INVOKE("approve_app", { id, commit })),
 	/**
@@ -182,7 +188,9 @@ export const commands = {
 	/**
 	 *  Open app `id` in its own window, building a commit made here first. With
 	 *  `folder`, a scope the Folders window listed, the window is let into that
-	 *  folder and the app is handed it as `?folder=`.
+	 *  folder and the app is handed it as `?folder=`. Without one, an app whose
+	 *  id names a folder the shell registers for a built-in app, as Todos', is
+	 *  handed that folder, since it opens it by id.
 	 */
 	openInstalledApp: (id: string, folder: string | null) => typedError<InstalledApp, string>(__TAURI_INVOKE("open_installed_app", { id, folder })),
 	/**  When the host drops the resident model. */
@@ -479,6 +487,11 @@ export type InstalledApp = {
 	 *  it has none.
 	 */
 	source: string,
+	/**
+	 *  The folder within the repository holding `epicenter.app.json`, or
+	 *  empty for the repository's root.
+	 */
+	folder: string,
 	/**  The commit checked out, `HEAD`. Empty when the app is `Broken`. */
 	commit: string,
 	/**
@@ -550,6 +563,23 @@ export type ModelInfo = {
 	supportsLanguage: boolean,
 	recommended: boolean,
 	downloaded: boolean,
+};
+
+/**  One app found in a repository, as listing it shows it. */
+export type RepositoryApp = {
+	/**  The folder holding `epicenter.app.json`, or empty for the root. */
+	folder: string,
+	/**  The manifest's id, or empty when the manifest could not be read. */
+	id: string,
+	/**  The manifest's title, or empty when the manifest could not be read. */
+	title: string,
+	/**
+	 *  Why this app cannot be installed, if it cannot: its manifest is not
+	 *  valid.
+	 */
+	problem: string | null,
+	/**  Whether an app with this id is already installed in `Apps/`. */
+	installed: boolean,
 };
 
 /**  What a person is shown before approving a commit. */
