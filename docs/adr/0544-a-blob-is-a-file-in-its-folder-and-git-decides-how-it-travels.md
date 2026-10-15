@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** Git LFS for hosted folders; the hosted LFS endpoint; allowing `git-lfs` in the shell's `run_git`; Whispering's `.gitattributes`.
+- **Unbuilt:** all of it, in this order: the Worker's LFS routes; the desktop's bundled `git-lfs` and the engine's LFS checkpoint, push, and fetch; browser download; browser upload. Until both clients handle LFS, the engine keeps refusing `filter` attributes.
 
 ## Context
 
@@ -32,6 +32,29 @@ An app writes the default policy for its folder; a person or an agent changes
 it by editing those files.
 
 **Epicenter's hosted blob storage is the LFS server for hosted folders.**
+Cloudflare Artifacts has no LFS (its documentation and changelog through
+2026-10-01 name none), and caps a file at 32 MB and a repository at 1 GB, so
+audio needs LFS there. The Worker serves `POST /git/<name>.git/info/lfs/objects/batch`
+and `.../info/lfs/verify` beside the Git routes in `mountGitApp`, accepts the
+same credential Git sends by checking it against Artifacts, and answers with
+presigned URLs on its S3-compatible blob storage under `lfs/<repo>/<oid>`, so
+the bytes never pass through the Worker. `.../info/lfs/locks/verify` answers
+501.
+
+**The desktop ships `git-lfs` and fixes its configuration on every run.**
+`run_git` passes `filter.lfs.process`, `filter.lfs.clean`, `filter.lfs.smudge`,
+and `filter.lfs.required=true` naming the bundled binary by absolute path, and
+`lfs.url`, so neither a missing `git lfs install` nor another program's
+configuration changes what runs. LFS objects upload with
+`git lfs push --object-id` before the refs that name them are pushed; no
+pre-push hook runs. Incoming pointers are fetched with `git lfs fetch` and
+materialized by the shell into data paths under the same checked publish as
+every save.
+
+**The browser has its own LFS client**, since isomorphic-git has none: pointer
+parsing, the batch API over `fetch`, and objects in its private storage.
+Download comes first; until upload exists, the browser refuses to change an
+LFS path.
 
 ## Consequences
 
@@ -39,12 +62,14 @@ it by editing those files.
   objects in each folder's `.git/lfs`.
 - A file not yet downloaded is its pointer: a reference until it is fetched.
 - Desktop, CLI, and an agent's plain `git` all move blobs the same way.
-- Users need `git-lfs`, or Epicenter ships it.
+- Epicenter ships `git-lfs` as a sidecar (MIT, about 13 MB per architecture);
+  a Finder-launched app cannot rely on a Homebrew install being on its `PATH`.
 
-Open before this is built: whether Cloudflare Artifacts speaks the LFS protocol
-(if not, the Worker implements the LFS batch API over its blob storage), and
-allowing LFS's clean and smudge filters and its pre-push step in a `run_git`
-that disables hooks.
+Open before this is built: whether a read-only Artifacts token is refused for
+`git-receive-pack` (the upload check relies on it), and whether R2 enforces a
+signed checksum on a presigned PUT (if not, `verify` hashes the stored object).
+A pointer whose object cannot be downloaded needs a stated policy. Measured in
+a feasibility spike on 2026-10-15 with git 2.50.1 and git-lfs 3.8.0.
 
 ## Considered alternatives
 
