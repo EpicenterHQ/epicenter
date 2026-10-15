@@ -10,8 +10,15 @@
  * const folder$ = folderOptions(folder);
  * createQuery(() => folder$.todos.list.queryOptions());
  * createQuery(() => folder$.todos.get.queryOptions('abc'));
- * createMutation(() => folder$.todos.save.mutationOptions());
+ * createMutation(() => folder$.todos.update.mutationOptions());
  * ```
+ *
+ * Writes to one file run one at a time, in the order they were made,
+ * whichever control or mutation made them (ADR-0554), so an update reads
+ * the file the one before it wrote. The folder's options keep that order
+ * themselves rather than in a TanStack mutation scope: a scoped mutation
+ * waiting its turn resumes only while the window has focus, and a save must
+ * not wait for the person to come back.
  *
  * Reads go through the engine, which parses and validates each file. A
  * write keeps the cache in step itself, inside its `mutationFn`, so a
@@ -71,6 +78,7 @@ import type {
 	TableEnumerationError,
 	TableRenameError,
 	TableSaveError,
+	TableUpdateError,
 } from './errors.js';
 import { type OpenedFile, openedFile, readTextFile } from './file-browser.js';
 import type { FilesChanged, Folder, FolderAccess } from './folder.js';
@@ -86,14 +94,22 @@ import type { FileKv, KvReading } from './kv.js';
 import { rowPath, rowStemOf } from './paths.js';
 import type { Row } from './row-text.js';
 import type { SavedFile } from './save-file.js';
-import type { FileTable, SavedRow, StoredRow, TableListing } from './table.js';
+import type {
+	FileTable,
+	RowUpdate,
+	SavedRow,
+	StoredRow,
+	TableListing,
+} from './table.js';
 
 export {
-	createDraft,
 	createTextDraft,
-	type Draft,
 	type SaveTextVariables,
+	type SentText,
 	type TextDraft,
+	type WrittenText,
+	writtenBody,
+	writtenFile,
 } from './draft.js';
 
 /** `kv.json`, whose reading the `kv` query holds. */
@@ -133,6 +149,11 @@ type MutationFactory<TVariables, TData, TError> = {
 	mutationOptions(): MutationObserverOptions<TData, TError, TVariables>;
 };
 
+/** What a row update sends: the row's stem, and the fields to set and unset. */
+export type UpdateRowVariables<TFields> = {
+	readonly stem: string;
+} & RowUpdate<TFields>;
+
 /** What a row save sends: the version the edit started from, and the edited row. */
 export type SaveRowVariables<TFields> = {
 	/** The version the edit started from, with its content (see `table.save`). */
@@ -153,10 +174,17 @@ export type TableOptions<TFields> = {
 		StoredRow<TFields>,
 		TableCreateError
 	>;
+	/** Save an edit of the whole row over the version it started from (`table.save`). */
 	readonly save: MutationFactory<
 		SaveRowVariables<TFields>,
 		SavedRow<TFields>,
 		TableSaveError
+	>;
+	/** Set and unset a row's fields as its file holds them now (`table.update`). */
+	readonly update: MutationFactory<
+		UpdateRowVariables<TFields>,
+		SavedRow<TFields>,
+		TableUpdateError
 	>;
 	readonly rename: MutationFactory<
 		{ readonly file: FileCapture; readonly stem: string },
@@ -329,6 +357,36 @@ export function whenIdle(
 	});
 }
 
+/**
+ * Each opened folder's last write to each file, by path: a write to a file
+ * starts once the one before it settled, landed or not, whichever options
+ * object made it.
+ */
+const turns = new WeakMap<object, Map<string, Promise<unknown>>>();
+
+/** Run `write` to `path` of `folder` once the writes to it made before have settled. */
+function inTurn<T>(
+	folder: object,
+	path: string,
+	write: () => Promise<T>,
+): Promise<T> {
+	let files = turns.get(folder);
+	if (files === undefined) {
+		files = new Map();
+		turns.set(folder, files);
+	}
+	const mine = (files.get(path) ?? Promise.resolve()).then(write, write);
+	const done = mine.then(
+		() => {},
+		() => {},
+	);
+	files.set(path, done);
+	void done.then(() => {
+		if (files.get(path) === done) files.delete(path);
+	});
+	return mine;
+}
+
 /** The key prefix for one opened folder: where its files are. */
 function folderKey(folder: Pick<Folder<FolderDefinition>, 'location'>) {
 	const { location } = folder;
@@ -479,29 +537,35 @@ export function folderOptions<TTables, TValues>(
 	 */
 	function writeOptions<TVariables, TData, TError>({
 		mutationKey,
+		file,
 		run,
 		wrote,
 		touched,
 	}: {
 		mutationKey: readonly unknown[];
+		/** The file the write is to; writes to one file run one at a time, in order. */
+		file?: (variables: TVariables) => string;
 		run: (variables: TVariables) => Promise<Result<TData, TError>>;
 		wrote: (client: QueryClient, data: TData, variables: TVariables) => unknown;
 		touched: (variables: TVariables) => readonly string[];
 	}): MutationObserverOptions<TData, TError, TVariables> {
+		async function write(variables: TVariables, client: QueryClient) {
+			const result = await run(variables);
+			if (isErr(result)) {
+				const paths = touched(variables);
+				if (paths.length > 0) void client.invalidateQueries(pathFilter(paths));
+				throw result.error;
+			}
+			await wrote(client, result.data, variables);
+			return result.data;
+		}
 		return {
 			mutationKey,
 			networkMode: 'always',
-			mutationFn: async (variables, { client }) => {
-				const result = await run(variables);
-				if (isErr(result)) {
-					const paths = touched(variables);
-					if (paths.length > 0)
-						void client.invalidateQueries(pathFilter(paths));
-					throw result.error;
-				}
-				await wrote(client, result.data, variables);
-				return result.data;
-			},
+			mutationFn: (variables, { client }) =>
+				file === undefined
+					? write(variables, client)
+					: inTurn(folder, file(variables), () => write(variables, client)),
 		};
 	}
 
@@ -553,10 +617,22 @@ export function folderOptions<TTables, TValues>(
 				mutationOptions: () =>
 					writeOptions({
 						mutationKey: [...keys.table(name), 'save'],
+						file: ({ base }: SaveRowVariables<Fields>) => base.path,
 						run: ({ base, row }: SaveRowVariables<Fields>) =>
 							table.save(base, row),
 						wrote: (client, saved) => wroteRow(client, saved.stored),
 						touched: ({ base }) => [base.path],
+					}),
+			},
+			update: {
+				mutationOptions: () =>
+					writeOptions({
+						mutationKey: [...keys.table(name), 'update'],
+						file: ({ stem }: UpdateRowVariables<Fields>) => rowPath(name, stem),
+						run: ({ stem, ...update }: UpdateRowVariables<Fields>) =>
+							table.update(stem, update),
+						wrote: (client, saved) => wroteRow(client, saved.stored),
+						touched: ({ stem }) => [rowPath(name, stem)],
 					}),
 			},
 			rename: {

@@ -137,8 +137,8 @@ folder ID.
 | `@epicenter/folder/browser` | This browser's origin private file system (OPFS) only. Refuses inside the desktop app. | A web-only build, or a test that injects an OPFS stand-in with `browser.opfs`. |
 | `@epicenter/folder/tauri` | The desktop shell's folder only: this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
-| `@epicenter/folder/query` | Nothing: TanStack Query option factories and the draft helper over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
-| `@epicenter/folder/svelte` | Nothing: `createDraftState`, the draft a Svelte component reads reactively, with its save loop ([Editing a row](#editing-a-row)). Loads `svelte/reactivity`, an optional peer. | A Svelte editor of one row. |
+| `@epicenter/folder/query` | Nothing: TanStack Query option factories and the text draft over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
+| `@epicenter/folder/svelte` | Nothing: `createTextDraftState` and `createBodyDraftState`, a document's draft a Svelte component reads reactively, with its save loop ([Editing a row](#editing-a-row)). Loads `svelte/reactivity`, an optional peer. | A Svelte editor of a note body or a file's text. |
 
 The first three export the same `openFolder` and `openDataFolder` signatures
 and the same contract, so one application source builds against any of them.
@@ -786,6 +786,7 @@ it started from with a capture, `{ path, sha256 }`: a `StoredRow`, an
 ```ts
 const created = await todos.create({ fields, body: '' }, { stem: 'milk' }); // Exists if taken
 const saved = await todos.save(stored, edited); // { stored, merged, replaced }
+const updated = await todos.update('milk', { set: { done: true } }); // over the row as it is now
 const moved = await todos.rename(stored, 'groceries'); // the capture at the new path
 await todos.delete(stored);
 ```
@@ -822,58 +823,76 @@ have landed. Present it as uncertainty, never as a definite failure.
 
 ### Editing a row
 
-The folder keeps no draft and no save queue. An edit holds its own starting
-version (ADR-0548): it captures the row and its version at the first change,
-keeps the edited row outside any cache, and saves with that version as the
-base.
-A read in between updates the cache, never the edit. "Changed elsewhere" is
-the cache's version differing from the edit's, derived, with no state of its
-own. `createDraft()` in `@epicenter/folder/query` is this, in plain
-TypeScript:
+The folder keeps no draft and no save queue (ADR-0554). A person editing a
+field means "the title is Milk", not "here is the row as I last saw it", so
+a field edit is an update of the file as it is now:
 
 ```ts
-const draft = createDraft<Todo>();
-draft.change(cachedRow, (row) => { row.fields.title = 'Oat milk'; }); // base captured here, once
-draft.changedElsewhere(cachedRowNow);  // the cache moved past the base
-const sent = draft.toSave();           // { base, row, revision } for the save mutation
-// after the save lands:
-await draft.saved(sent, saved);        // done, or later changes continue from it
+await todos.update('milk', { set: { title: 'Oat milk' }, unset: ['due'] });
 ```
 
-After a save, the version written is the base. When the save merged another
-writer's change, changes made while it ran are merged onto that version, so
-the next save does not undo what the merge took. `createTextDraft()` is the
-same for one file's exact text, saved with `files.save`.
+`update(stem, { set, unset })` reads the row, puts `set` over its fields,
+removes each field in `unset`, and saves that over what it read with the
+body unchanged and no merge. When another writer saved in between, the save
+is `Conflict`, and the update tries again from their row, up to
+`UPDATE_ATTEMPTS` times, then answers `KeptChanging`. So every field it did
+not name keeps their value, and a field it set wins; `replaced` is always
+empty. `unset` takes only optional fields, since `null` may be a field's
+real value. An update of a missing row is `NotFound`; a value a field does
+not admit is `InvalidValues`. A relative change (`count + 1`) is not an
+update: a script reads the row and `save`s it.
 
-A Svelte component holds one with `createDraftState({ save })` from
-`@epicenter/folder/svelte`: the same draft, read reactively, and a `save()`
-that runs one save at a time and sends changes made meanwhile from the
-version the last save wrote. A failed save keeps the draft; the error is the
-save mutation's. `onSaved(saved, restore)` hears each save that landed:
-`restore` is one more save of `restoreTheirs(saved)` through the same
-`save`, for a notice's "Restore theirs", and its result is heard the same
-way. `createTextDraftState({ save, definition? })` is the same over
-`createTextDraft()`, sending `{ base, content }` as the files' write
-mutation takes them; restoring a file at a row path or `kv.json` needs the
-folder's `definition`.
+A component holds what a person typed in its own state until it is sent,
+and sends it through the `update` mutation of `folderOptions` after a pause
+and when the person leaves the field (see [Queries](#queries)). A checkbox
+or a select sends its update at once.
+
+A document cannot be a field change: a note body, a transcript, or a file's
+text is a whole text, and setting it would replace another writer's lines.
+Its edit holds its own starting version: `createTextDraft()` in
+`@epicenter/folder/query` captures the version at the first change, keeps
+the typed text outside any cache, and saves with that version as the base,
+so the save merges by line with whatever changed since.
+
+```ts
+const draft = createTextDraft();
+draft.change(openedFile, 'one\ntwo\n'); // base captured here, once
+const sent = draft.toSave();              // { base, content, revision }
+// after files.save(sent.base, sent.content) lands as `saved`:
+await draft.saved(sent, writtenFile(saved)); // done, or later typing continues from it
+```
+
+When the save merged another writer's lines, text typed while it ran is
+merged onto the written text, so the next save does not undo them. A row's
+body drafts the same way over a `StoredRow`, saved with `table.save` and
+read back with `writtenBody`.
+
+A Svelte component holds one with `createTextDraftState({ save, definition? })`
+or `createBodyDraftState({ save })` from `@epicenter/folder/svelte`: the same
+draft, read reactively, and a `save()` that runs one save at a time and
+sends text typed meanwhile from the version the last save wrote. A failed
+save keeps the draft; the error is the save mutation's. `onSaved(saved,
+restore)` hears each save that landed: `restore` is one more save of what
+`restoreTheirs(saved)` builds through the same `save`, for a notice's
+"Restore theirs", and its result is heard the same way. Restoring a file at
+a row path or `kv.json` needs the folder's `definition`.
 
 ```svelte
 <script lang="ts">
-  const save = createMutation(() => folder$.todos.save.mutationOptions());
-  const draft = createDraftState<Todo>({
-    save: (sent) => save.mutateAsync(sent),
+  const save = createMutation(() => folder$.notes.save.mutationOptions());
+  const body = createBodyDraftState<Note>({
+    save: ({ base, content }) =>
+      save.mutateAsync({ base, row: { fields: base.row.fields, body: content } }),
     onSaved: ({ replaced }, restore) => toastReplaced({ replaced, restore }),
   });
-  const todo = createQuery(() => folder$.todos.get.queryOptions(stem));
-  const row = $derived(draft.row ?? todo.data?.row);
-
-  function setTitle(title: string) {
-    if (!todo.data) return;
-    draft.change(todo.data, (row) => { row.fields.title = title; });
-    void draft.save();
-  }
+  const note = createQuery(() => folder$.notes.get.queryOptions(stem));
+  const send = useDebounce(() => body.save(), 1000);
 </script>
-{#if todo.data && draft.changedElsewhere(todo.data)}Changed elsewhere; your edit will be merged.{/if}
+<textarea
+  value={body.text ?? note.data?.row.body}
+  oninput={(e) => { body.change(note.data!, e.currentTarget.value); void send(); }}
+  onblur={() => void send.runScheduledNow()}
+></textarea>
 ```
 
 A row that is not valid is repaired as text: `files.save(invalidRow, text)`
@@ -1060,8 +1079,8 @@ import { folderOptions } from '@epicenter/folder/query';
 const folder$ = folderOptions(folder);
 createQuery(() => folder$.todos.list.queryOptions());
 createQuery(() => folder$.todos.get.queryOptions('milk')); // StoredRow | null
-const save = createMutation(() => folder$.todos.save.mutationOptions());
-save.mutate({ base: draft.base, row: draft.row });
+const done = createMutation(() => folder$.todos.update.mutationOptions());
+done.mutate({ stem: 'milk', set: { done: true } });
 
 // The app root, once: changes the page did not make mark what they name stale.
 folder.onFilesChanged((change) =>
@@ -1071,7 +1090,7 @@ folder.onFilesChanged((change) =>
 
 | Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
 | --- | --- | --- |
-| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `create`, `save`, `rename`, `delete` |
+| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `create`, `save({ base, row })`, `update({ stem, set?, unset? })`, `rename`, `delete` |
 | `kv` | `get` (the reading, or `null`) | `set({ key, value })` |
 | `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
 | `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
@@ -1081,9 +1100,16 @@ the files at `paths`, each a file or a directory: cached like the reads
 above, and stale whenever a change reaches one of `paths`. A list derived
 from two tables names both directories.
 
+Writes to one file run one at a time, in the order made, whichever
+control or options object made them, so a checkbox's update reads the row
+a title's update wrote. The options keep that order themselves, not in a
+TanStack mutation scope: a scoped mutation waiting its turn resumes only
+while the window has focus, and a save must not wait for the person to come
+back.
+
 A write keeps the cache in step inside its own `mutationFn`, so a caller's
 `onSuccess`, `onError`, or `onSettled` adds to it and replaces nothing. It
-puts its result where it can: `save` and `create` set the row's query and
+puts its result where it can: `save`, `update`, and `create` set the row's query and
 its entry in the listing, `delete` drops them, `kv.set` sets the reading,
 and `files.write` sets the file's `read` and `text`. The folder does not
 report a page's own writes to it, so the write marks stale the rest of what
@@ -1408,7 +1434,7 @@ dangle.
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-git.ts`, and the directory folder only then. |
 | `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds `save` and its merge. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
-| `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions` and `createDraft`. |
+| `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions` and `createTextDraft`. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | `@epicenter/folder/svelte` (`draft.svelte.ts`), its tests, and the Svelte boundary tests. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |

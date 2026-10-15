@@ -1,104 +1,88 @@
 /**
- * `@epicenter/folder/svelte`: a draft a component reads reactively
- * (ADR-0548, ADR-0551).
+ * `@epicenter/folder/svelte`: a document's text draft a component reads
+ * reactively (ADR-0548, ADR-0551, ADR-0554).
  *
- * `createDraftState({ save })` is `createDraft()` whose `base`, `row`, and
- * `changedElsewhere` are tracked, plus the one-save-at-a-time loop every
- * editor needs: `save()` sends what the draft holds, and when changes were
- * made while that save ran, it sends again from the version it wrote. A
- * failed save ends the loop and keeps the draft, so nothing typed is lost;
- * the next `save()` tries again. The failure itself is the mutation's to
- * show.
+ * A field is not drafted: a component holds what was typed in its own
+ * `$state` and sends it with `table.update`. A document's text is drafted,
+ * because its save needs the version the edit started from.
  *
- * `save` is the table's save mutation, as a promise that rejects on failure.
- * `onSaved` hears each save that landed, with `restore`: one more save, of
- * `restoreTheirs(saved)` through the same `save`, that puts back what it
- * replaced of another writer's change; its own result is heard the same way.
+ * `createTextDraftState({ save })` is `createTextDraft()` whose `base` and
+ * `text` are tracked, plus the one-save-at-a-time loop every editor needs:
+ * `save()` sends what the draft holds, and when the text changed while that
+ * save ran, it sends again from the version it wrote. A failed save ends the
+ * loop and keeps the draft, so nothing typed is lost; the next `save()` tries
+ * again. The failure itself is the mutation's to show. The component decides
+ * when to call `save()`: after a pause in typing, and when the person leaves
+ * the editor or it goes away.
+ *
+ * `save` is the files' write mutation, sent `{ base, content }`, as a
+ * promise that rejects on failure. `onSaved` hears each save that landed,
+ * with `restore`: one more save, of `restoreTheirs(saved)` through the same
+ * `save`, that puts back what it replaced of another writer's change; its
+ * own result is heard the same way. Restoring a file at a row path or
+ * `kv.json` needs the folder's `definition`.
+ *
+ * `createBodyDraftState({ save })` is the same for one row's body: `save`
+ * writes the body over the row the draft started from, as `table.save`
+ * does, and the app decides which fields go with it.
  *
  * ```ts
- * const save = createMutation(() => folder$.todos.save.mutationOptions());
- * const draft = createDraftState<TodoFields>({
- *   save: (sent) => save.mutateAsync(sent),
- *   onSaved: ({ replaced }, restore) => toastReplaced({ replaced, restore }),
+ * const save = createMutation(() => folder$.notes.save.mutationOptions());
+ * const body = createBodyDraftState<NoteFields>({
+ *   save: ({ base, content }) =>
+ *     save.mutateAsync({ base, row: { fields: base.row.fields, body: content } }),
  * });
- * const shown = $derived(draft.row ?? todo.data?.row);
- * draft.change(todo.data, (row) => { row.fields.title = title; });
- * void draft.save();
+ * const shown = $derived(body.text ?? note.data?.row.body);
+ * body.change(note.data, typed);
  * ```
- *
- * `createTextDraftState({ save })` is the same for one file's exact text,
- * over `createTextDraft()`; `save` is the files' write mutation, sent
- * `{ base, content }`. Restoring a file at a row path or `kv.json` needs
- * the folder's `definition`.
  */
 import { createSubscriber } from 'svelte/reactivity';
+import type { ContentCapture } from '../capture.js';
 import type { FolderDefinition } from '../definition.js';
 import {
-	createDraft,
 	createTextDraft,
-	type Draft,
 	type SaveTextVariables,
 	type TextDraft,
+	type WrittenText,
+	writtenBody,
+	writtenFile,
 } from '../draft.js';
-import type { SaveRowVariables } from '../query.js';
 import { restoreTheirs, type SavedFile } from '../save-file.js';
-import type { SavedRow } from '../table.js';
+import type { SavedRow, StoredRow } from '../table.js';
 
-/** The reactive half every draft state shares: a save loop and change tracking. */
-type Loop = {
-	/** Whether a save of this draft is running. */
-	readonly saving: boolean;
-	/**
-	 * Save the draft, one save at a time, until no change is left unsent.
-	 * Called while a save runs, it resolves when that loop ends. A failed
-	 * save ends the loop and keeps the draft; its error is the mutation's.
-	 */
-	save(): Promise<void>;
-};
-
-export type DraftState<TFields> = Pick<
-	Draft<TFields>,
-	'base' | 'row' | 'change' | 'changedElsewhere' | 'discard'
-> &
-	Loop;
-
-export type TextDraftState = Pick<
-	TextDraft,
-	'base' | 'text' | 'change' | 'changedElsewhere' | 'discard'
-> &
-	Loop;
+export type TextDraftState<TBase extends ContentCapture = ContentCapture> =
+	Pick<TextDraft<TBase>, 'base' | 'text' | 'change' | 'discard'> & {
+		/** Whether a save of this draft is running. */
+		readonly saving: boolean;
+		/**
+		 * Save the draft, one save at a time, until no change is left unsent.
+		 * Called while a save runs, it resolves when that loop ends. A failed
+		 * save ends the loop and keeps the draft; its error is the mutation's.
+		 */
+		save(): Promise<void>;
+	};
 
 /** What a draft state hears of each save that landed, with the save that restores theirs. */
 type OnSaved<TSaved> = (saved: TSaved, restore: () => void) => void;
 
 /**
- * `onSaved` with each save's `restore`: one more `save` of what `theirs`
- * builds from it, heard the same way. A failed restore is the save's to
- * report.
+ * The reactive draft over `save`. `written` reads what a save wrote, and
+ * `theirs` builds the save that restores what it replaced.
  */
-function heard<TSent, TSaved>(
-	save: (sent: TSent) => Promise<TSaved>,
-	theirs: (saved: TSaved) => TSent,
-	onSaved: OnSaved<TSaved> | undefined,
-) {
-	if (onSaved === undefined) return undefined;
-	const hear = (saved: TSaved) =>
-		onSaved(saved, () => void save(theirs(saved)).then(hear, () => {}));
-	return hear;
-}
-
-/**
- * The save loop over `draft`: `track` subscribes a read, `changed` wakes
- * every read. Sends what the draft holds until nothing is left.
- */
-function saveLoop<TSent extends { readonly revision: number }, TSaved>(
-	draft: {
-		toSave(): TSent | undefined;
-		saved(sent: TSent, saved: TSaved): Promise<void>;
-	},
-	save: (sent: TSent) => Promise<TSaved>,
-	onSaved: ((saved: TSaved) => void) | undefined,
-) {
+function draftState<TBase extends ContentCapture, TSent, TSaved>({
+	save,
+	written,
+	theirs,
+	onSaved,
+}: {
+	save: (
+		sent: TSent | { readonly base: TBase; readonly content: string },
+	) => Promise<TSaved>;
+	written: (saved: TSaved) => WrittenText<TBase>;
+	theirs: (saved: TSaved) => TSent;
+	onSaved: OnSaved<TSaved> | undefined;
+}): TextDraftState<TBase> {
+	const draft = createTextDraft<TBase>();
 	/** Reads of the draft subscribe; every change to it wakes them. */
 	let wake: (() => void) | undefined;
 	const track = createSubscriber((update) => {
@@ -109,16 +93,23 @@ function saveLoop<TSent extends { readonly revision: number }, TSaved>(
 	});
 	let running: Promise<void> | undefined = $state();
 
+	const hear =
+		onSaved === undefined
+			? undefined
+			: (saved: TSaved) =>
+					onSaved(saved, () => void save(theirs(saved)).then(hear, () => {}));
+
 	/** Started only with something to send, so it awaits before it ends. */
 	async function loop() {
 		try {
 			for (let sent = draft.toSave(); sent; sent = draft.toSave()) {
-				const saved = await save(sent).catch(() => undefined);
+				const { base, content } = sent;
+				const saved = await save({ base, content }).catch(() => undefined);
 				// The mutation holds the error; the draft keeps the edit.
 				if (saved === undefined) return;
-				await draft.saved(sent, saved);
+				await draft.saved(sent, written(saved));
 				wake?.();
-				onSaved?.(saved);
+				hear?.(saved);
 			}
 		} finally {
 			running = undefined;
@@ -126,10 +117,24 @@ function saveLoop<TSent extends { readonly revision: number }, TSaved>(
 	}
 
 	return {
-		track,
-		changed: () => wake?.(),
+		get base() {
+			track();
+			return draft.base;
+		},
+		get text() {
+			track();
+			return draft.text;
+		},
 		get saving() {
 			return running !== undefined;
+		},
+		change(current, text) {
+			draft.change(current, text);
+			wake?.();
+		},
+		discard() {
+			draft.discard();
+			wake?.();
 		},
 		save() {
 			if (running !== undefined) return running;
@@ -137,49 +142,6 @@ function saveLoop<TSent extends { readonly revision: number }, TSaved>(
 			running = loop();
 			return running;
 		},
-	};
-}
-
-export function createDraftState<TFields>({
-	save,
-	onSaved,
-}: {
-	/** Write one save: the table's save mutation, rejecting on failure. */
-	save: (sent: SaveRowVariables<TFields>) => Promise<SavedRow<TFields>>;
-	/** Each save that landed, as for a notice of what it replaced, and the save that restores it. */
-	onSaved?: OnSaved<SavedRow<TFields>>;
-}): DraftState<TFields> {
-	const draft = createDraft<TFields>();
-	const reactive = saveLoop(
-		draft,
-		({ base, row }) => save({ base, row }),
-		heard(save, restoreTheirs, onSaved),
-	);
-	return {
-		get base() {
-			reactive.track();
-			return draft.base;
-		},
-		get row() {
-			reactive.track();
-			return draft.row;
-		},
-		get saving() {
-			return reactive.saving;
-		},
-		change(current, edit) {
-			draft.change(current, edit);
-			reactive.changed();
-		},
-		changedElsewhere(current) {
-			reactive.track();
-			return draft.changedElsewhere(current);
-		},
-		discard() {
-			draft.discard();
-			reactive.changed();
-		},
-		save: reactive.save,
 	};
 }
 
@@ -195,36 +157,36 @@ export function createTextDraftState({
 	/** The folder's definition, which restoring a row file or `kv.json` by field or key needs. */
 	definition?: FolderDefinition;
 }): TextDraftState {
-	const draft = createTextDraft();
-	const reactive = saveLoop(
-		draft,
-		({ base, content }) => save({ base, content }),
-		heard(save, (saved) => restoreTheirs(saved, definition), onSaved),
-	);
-	return {
-		get base() {
-			reactive.track();
-			return draft.base;
-		},
-		get text() {
-			reactive.track();
-			return draft.text;
-		},
-		get saving() {
-			return reactive.saving;
-		},
-		change(current, text) {
-			draft.change(current, text);
-			reactive.changed();
-		},
-		changedElsewhere(current) {
-			reactive.track();
-			return draft.changedElsewhere(current);
-		},
-		discard() {
-			draft.discard();
-			reactive.changed();
-		},
-		save: reactive.save,
-	};
+	return draftState({
+		save,
+		written: writtenFile,
+		theirs: (saved) => restoreTheirs(saved, definition),
+		onSaved,
+	});
+}
+
+export function createBodyDraftState<TFields>({
+	save,
+	onSaved,
+}: {
+	/**
+	 * Write the body `content` over `base`, the row the draft started from:
+	 * the table's save mutation, rejecting on failure.
+	 */
+	save: (sent: {
+		readonly base: StoredRow<TFields>;
+		readonly content: string;
+	}) => Promise<SavedRow<TFields>>;
+	/** Each save that landed, as for a notice of what it replaced, and the save that restores it. */
+	onSaved?: OnSaved<SavedRow<TFields>>;
+}): TextDraftState<StoredRow<TFields>> {
+	return draftState({
+		save,
+		written: writtenBody<TFields>,
+		theirs: (saved) => ({
+			base: saved.stored,
+			content: restoreTheirs(saved).row.body,
+		}),
+		onSaved,
+	});
 }

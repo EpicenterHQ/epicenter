@@ -19,6 +19,8 @@
  *   over the save
  * - A file write puts what it wrote in the file's read and text queries
  * - A failed save reads its path again
+ * - Two controls' updates of one row run one at a time, in the order made,
+ *   each over the row the one before wrote, and keep the cache
  * - `runMutation` runs a write through the cache; `whenIdle` waits for it
  * - A change another page made, wired from `onFilesChanged` to
  *   `invalidateQueries`, marks exactly the affected queries stale
@@ -315,6 +317,45 @@ test('a failed save reads its path again', async () => {
 	expect(invalidatedIn(queryClient)).toEqual([
 		folder$.todos.get.queryKey('milk'),
 	]);
+});
+
+test("two controls' updates of one row run in the order made, each over the last one's write", async () => {
+	const folder = await open();
+	const folder$ = folderOptions(folder);
+	const queryClient = client();
+	expectOk(
+		await folder.tables.todos.create(
+			{ fields: { title: 'Milk', done: false }, body: '' },
+			{ stem: 'milk' },
+		),
+	);
+	// Two controls of one row, each with its own mutation.
+	const title = new MutationObserver(
+		queryClient,
+		folder$.todos.update.mutationOptions(),
+	);
+	const done = new MutationObserver(
+		queryClient,
+		folder$.todos.update.mutationOptions(),
+	);
+	const read = folder.tables.todos.get;
+	const titlesRead: string[] = [];
+	folder.tables.todos.get = async (stem) => {
+		const result = await read(stem);
+		if (result.data) titlesRead.push(result.data.row.fields.title);
+		return result;
+	};
+
+	const first = title.mutate({ stem: 'milk', set: { title: 'Oat milk' } });
+	const second = done.mutate({ stem: 'milk', set: { done: true } });
+	await Promise.all([first, second]);
+
+	// The second update waited for the first: it read the title it wrote.
+	expect(titlesRead).toEqual(['Milk', 'Oat milk']);
+	const cached = queryClient.getQueryData<{ row: { fields: unknown } }>(
+		folder$.todos.get.queryKey('milk'),
+	);
+	expect(cached?.row.fields).toEqual({ title: 'Oat milk', done: true });
 });
 
 test("another page's change, wired from onFilesChanged, invalidates exactly what it names", async () => {

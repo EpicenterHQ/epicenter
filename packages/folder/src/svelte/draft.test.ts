@@ -1,163 +1,168 @@
 /**
- * Draft State Tests
+ * Text Draft State Tests
  *
- * `createDraftState` is `createDraft` read reactively, with the one save
- * loop every editor needs (ADR-0548).
+ * `createTextDraftState` and `createBodyDraftState` are a text draft read
+ * reactively, with the one save loop every document editor needs
+ * (ADR-0548, ADR-0554).
  *
  * Key behaviors:
- * - A component re-reads the draft's row and "changed elsewhere" on each change
- * - Changes made while a save runs are sent next, from the version it wrote
+ * - A component re-reads the draft's text on each change
+ * - Text typed while a save runs is sent next, from the version it wrote
  * - A failed save keeps the draft, and the next save sends it again
- * - `restore` sends theirs back through the same save, heard like any save
+ * - `restore` sends theirs back through the same save, heard like any save;
+ *   a body's restore sends the body with theirs
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import type { SaveRowVariables } from '../query.js';
+import type { CapturedFile } from '../capture.js';
+import type { SaveTextVariables } from '../draft.js';
+import type { SavedFile } from '../save-file.js';
 import type { SavedRow, StoredRow } from '../table.js';
 
 const { flushSync } = await import('svelte');
-const { createDraftState } = await import('./draft.svelte.js');
+const { createBodyDraftState, createTextDraftState } = await import(
+	'./draft.svelte.js'
+);
 const { track } = await import('./fixtures/track.svelte.js');
 
-type Todo = { title: string; done: boolean };
-
-const stored = (sha: string, title: string, done = false): StoredRow<Todo> =>
+const file = (sha: string, text: string): CapturedFile =>
 	Object.freeze({
-		path: 'todos/a.md',
+		path: 'notes.txt',
 		sha256: sha.repeat(64),
-		text: `---\ntitle: ${title}\ndone: ${done}\n---\n`,
-		row: { fields: { title, done }, body: '' },
+		bytes: new TextEncoder().encode(text),
 	});
 
-const landed = (row: StoredRow<Todo>): SavedRow<Todo> => ({
-	stored: row,
+const landed = (stored: CapturedFile): SavedFile => ({
+	stored,
 	merged: false,
 	replaced: [],
 });
 
 /** A save whose results the test hands out, one call at a time. */
-function heldSaves() {
+function heldSaves<TSent, TSaved>() {
 	const calls: {
-		sent: SaveRowVariables<Todo>;
-		land(saved: SavedRow<Todo>): void;
+		sent: TSent;
+		land(saved: TSaved): void;
 		fail(error: Error): void;
 	}[] = [];
-	const save = (sent: SaveRowVariables<Todo>) =>
-		new Promise<SavedRow<Todo>>((land, fail) => {
+	const save = (sent: TSent) =>
+		new Promise<TSaved>((land, fail) => {
 			calls.push({ sent, land, fail });
 		});
 	return { calls, save };
 }
 
-test('a component re-reads the row and "changed elsewhere" on each change', () => {
-	const draft = createDraftState<Todo>({ save: heldSaves().save });
-	const first = stored('a', 'One');
-	const rows = track(() => draft.row?.fields.title);
-	const elsewhere = track(() => draft.changedElsewhere(stored('b', 'Theirs')));
+test("a component re-reads the draft's text on each change", () => {
+	const draft = createTextDraftState({
+		save: heldSaves<SaveTextVariables, SavedFile>().save,
+	});
+	const texts = track(() => draft.text);
 	flushSync();
 
-	draft.change(first, (row) => {
-		row.fields.title = 'Mine';
-	});
+	draft.change(file('a', 'one\n'), 'mine\n');
 	flushSync();
 	draft.discard();
 	flushSync();
 
-	expect(rows.seen).toEqual([undefined, 'Mine', undefined]);
-	expect(elsewhere.seen).toEqual([false, true, false]);
-	rows.stop();
-	elsewhere.stop();
+	expect(texts.seen).toEqual([undefined, 'mine\n', undefined]);
+	texts.stop();
 });
 
-test('changes made while a save runs are sent next, from the version it wrote', async () => {
-	const { calls, save } = heldSaves();
-	const heard: SavedRow<Todo>[] = [];
-	const draft = createDraftState<Todo>({
+test('text typed while a save runs is sent next, from the version it wrote', async () => {
+	const { calls, save } = heldSaves<SaveTextVariables, SavedFile>();
+	const heard: SavedFile[] = [];
+	const draft = createTextDraftState({
 		save,
 		onSaved: (saved) => heard.push(saved),
 	});
-	const first = stored('a', 'One');
+	const first = file('a', 'one\n');
 
 	await draft.save();
 	expect(calls).toHaveLength(0);
 
-	draft.change(first, (row) => {
-		row.fields.title = 'Mine';
-	});
+	draft.change(first, 'ONE\n');
 	const done = draft.save();
 	expect(draft.saving).toBe(true);
-	draft.change(first, (row) => {
-		row.fields.done = true;
-	});
+	draft.change(first, 'ONE\ntwo\n');
 	// A second call joins the running loop.
 	expect(draft.save()).toBe(done);
 	expect(calls).toHaveLength(1);
-	expect(calls[0]?.sent.base).toBe(first);
-	expect(calls[0]?.sent.row.fields).toEqual({ title: 'Mine', done: false });
+	expect(calls[0]?.sent).toEqual({ base: first, content: 'ONE\n' });
 
-	const written = stored('c', 'Mine');
+	const written = file('b', 'ONE\n');
 	calls[0]?.land(landed(written));
 	await Bun.sleep(0);
 	expect(calls).toHaveLength(2);
-	expect(calls[1]?.sent.base).toBe(written);
-	expect(calls[1]?.sent.row.fields).toEqual({ title: 'Mine', done: true });
+	expect(calls[1]?.sent).toEqual({ base: written, content: 'ONE\ntwo\n' });
 
-	const last = stored('d', 'Mine', true);
+	const last = file('c', 'ONE\ntwo\n');
 	calls[1]?.land(landed(last));
 	await done;
 	expect(draft.saving).toBe(false);
-	expect(draft.row).toBeUndefined();
+	expect(draft.text).toBeUndefined();
 	expect(heard.map((saved) => saved.stored)).toEqual([written, last]);
 });
 
 test('a failed save keeps the draft, and the next save sends it again', async () => {
-	const { calls, save } = heldSaves();
-	const draft = createDraftState<Todo>({ save });
-	const first = stored('a', 'One');
-	draft.change(first, (row) => {
-		row.fields.title = 'Mine';
-	});
+	const { calls, save } = heldSaves<SaveTextVariables, SavedFile>();
+	const draft = createTextDraftState({ save });
+	const first = file('a', 'one\n');
+	draft.change(first, 'mine\n');
 
 	const failing = draft.save();
 	calls[0]?.fail(new Error('disk full'));
 	await failing;
 	expect(draft.saving).toBe(false);
-	expect(draft.row?.fields.title).toBe('Mine');
+	expect(draft.text).toBe('mine\n');
 	expect(draft.base).toBe(first);
 
 	const retry = draft.save();
 	expect(calls[1]?.sent.base).toBe(first);
-	calls[1]?.land(landed(stored('b', 'Mine')));
+	calls[1]?.land(landed(file('b', 'mine\n')));
 	await retry;
-	expect(draft.row).toBeUndefined();
+	expect(draft.text).toBeUndefined();
 });
 
-test('restore sends theirs back through the same save, and its result is heard', async () => {
-	const { calls, save } = heldSaves();
-	const heard: { saved: SavedRow<Todo>; restore: () => void }[] = [];
-	const draft = createDraftState<Todo>({
+test("a body's restore sends the body with theirs back through the same save, heard like any save", async () => {
+	type Note = { title: string };
+	const row = (sha: string, body: string): StoredRow<Note> =>
+		Object.freeze({
+			path: 'notes/a.md',
+			sha256: sha.repeat(64),
+			text: `---\ntitle: One\n---\n${body}`,
+			row: { fields: { title: 'One' }, body },
+		});
+	const { calls, save } = heldSaves<
+		{ base: StoredRow<Note>; content: string },
+		SavedRow<Note>
+	>();
+	const heard: { saved: SavedRow<Note>; restore: () => void }[] = [];
+	const draft = createBodyDraftState<Note>({
 		save,
 		onSaved: (saved, restore) => heard.push({ saved, restore }),
 	});
-	draft.change(stored('a', 'One'), (row) => {
-		row.fields.title = 'Mine';
-	});
+	draft.change(row('a', 'one\n'), 'mine\n');
 	const done = draft.save();
-	const written = stored('b', 'Mine');
+	const written = row('b', 'mine\n');
 	calls[0]?.land({
 		stored: written,
 		merged: true,
 		replaced: [
-			{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Theirs' },
+			{
+				kind: 'text',
+				part: 'body',
+				kept: 'mine\n',
+				theirs: 'theirs\n',
+				regions: [],
+			},
 		],
 	});
 	await done;
 
 	heard[0]?.restore();
-	expect(calls[1]?.sent.base).toBe(written);
-	expect(calls[1]?.sent.row.fields.title).toBe('Theirs');
-	const restored = stored('c', 'Theirs');
-	calls[1]?.land(landed(restored));
+	expect(calls[1]?.sent).toEqual({ base: written, content: 'theirs\n' });
+	const restored = row('c', 'theirs\n');
+	calls[1]?.land({ stored: restored, merged: false, replaced: [] });
 	await Bun.sleep(0);
 	expect(heard.map(({ saved }) => saved.stored)).toEqual([written, restored]);
 });
