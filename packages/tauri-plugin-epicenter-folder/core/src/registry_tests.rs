@@ -19,6 +19,9 @@
 //! - Saves racing on one root with the same expected hash, from two windows,
 //!   publish one at a time: exactly one lands, and the others are
 //!   `Conflict`, even when each pauses between its check and its rename.
+//! - A shell save waits while a Bun process holds the folder's save lock,
+//!   then checks against what that process saved: `Conflict`, and the other
+//!   save is kept.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -354,7 +357,7 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
                 let window = if save % 2 == 0 { "main" } else { "side" };
                 let (root, work) = registry.admit_page_work("notes", window).unwrap();
                 start.wait();
-                let _held = work.publishing();
+                let _held = work.publishing().unwrap();
                 let landed = page_files::rename(&root, &staged, &target, &expected);
                 if landed.is_err() {
                     page_files::remove(&root, &staged, false, &Expectation::Any).unwrap();
@@ -456,4 +459,94 @@ fn another_process_is_excluded_and_a_killed_holder_leaves_the_folder_free() {
     );
     std::io::stdout().flush().unwrap();
     std::thread::sleep(Duration::from_millis(10));
+}
+
+/// Another process, in Bun, that takes the folder's save lock as the Bun host
+/// does (`@epicenter/folder/bun`), says `locked`, and on a line from stdin
+/// lands its own save of `theirs` at `target`, then lets go and says
+/// `released`.
+fn bun_saver(root: &Path, target: &Path, theirs: &str) -> Child {
+    let script = r#"
+        import { Database } from 'bun:sqlite';
+        import { writeFileSync } from 'node:fs';
+        import { basename, dirname, join } from 'node:path';
+        const [root, target, theirs] = process.argv.slice(-3);
+        const database = new Database(join(dirname(root), `.${basename(root)}.epicenter-save-lock`), { create: true });
+        database.run('PRAGMA busy_timeout = 0');
+        database.run('BEGIN EXCLUSIVE');
+        console.log('locked');
+        for await (const _ of console) {
+            writeFileSync(target, theirs);
+            database.run('ROLLBACK');
+            database.close();
+            console.log('released');
+            process.exit(0);
+        }
+    "#;
+    Command::new("bun")
+        .args(["-e", script, "--"])
+        .arg(root)
+        .arg(target)
+        .arg(theirs)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("bun is required to save from another process")
+}
+
+/// A save from another process holds the folder's save lock across its own
+/// check and rename. A shell save that read the same version waits for it,
+/// then checks against what that save left, so it is `Conflict` and the
+/// other process's save is kept, not overwritten.
+#[test]
+fn a_shell_save_waits_for_another_process_save_and_then_conflicts() {
+    let temp = TempDir::new("save-lock-process");
+    let root = temp.folder("notes");
+    let registry = Arc::new(registry(&root, "main"));
+    registry.grant("notes", "main").unwrap();
+    std::fs::create_dir_all(root.join(".git/epicenter/scratch")).unwrap();
+    let target = root.join("a.md");
+    std::fs::write(&target, b"old").unwrap();
+    let staged = root.join(".git/epicenter/scratch/ours");
+    page_files::write_file(&root, &staged, b"ours", true).unwrap();
+
+    let mut other = bun_saver(&root, &target, "theirs");
+    let mut said = BufReader::new(other.stdout.take().unwrap());
+    let mut line = String::new();
+    said.read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "locked");
+
+    let ours = {
+        let registry = Arc::clone(&registry);
+        let (target, staged) = (target.clone(), staged.clone());
+        std::thread::spawn(move || {
+            let (root, work) = registry.admit_page_work("notes", "main").unwrap();
+            let _held = work.publishing()?;
+            page_files::rename(
+                &root,
+                &staged,
+                &target,
+                &Expectation::Sha256(hex_sha256(b"old")),
+            )
+        })
+    };
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!ours.is_finished(), "the shell's save waits for the other process");
+    assert_eq!(std::fs::read(&target).unwrap(), b"old");
+
+    writeln!(other.stdin.as_mut().unwrap(), "go").unwrap();
+    line.clear();
+    said.read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "released");
+    other.wait().unwrap();
+
+    assert_eq!(
+        ours.join().unwrap(),
+        Err(ChangeError::Conflict {
+            actual_sha256: Some(hex_sha256(b"theirs"))
+        })
+    );
+    assert_eq!(std::fs::read(&target).unwrap(), b"theirs");
+    registry.shutdown();
 }

@@ -2,7 +2,8 @@
  * A folder asks its `credentials` for each push and fetch and sends what it
  * gets as one `Authorization` header to exactly that remote: in the browser
  * through isomorphic-git, and in Bun through the system `git`, whose
- * configuration comes from its environment, not its arguments.
+ * configuration comes from its environment, not its arguments. The Bun runner
+ * sends one only to an `https` remote, as the desktop shell does.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
@@ -52,6 +53,34 @@ afterAll(() => {
 		if (originalEnv[key] === undefined) delete process.env[key];
 		else process.env[key] = originalEnv[key];
 });
+
+/** A throwaway certificate for `127.0.0.1`, made in `root`. */
+async function selfSignedTls(root: string) {
+	const key = join(root, 'key.pem');
+	const cert = join(root, 'cert.pem');
+	const child = Bun.spawnSync(
+		[
+			'openssl',
+			'req',
+			'-x509',
+			'-newkey',
+			'rsa:2048',
+			'-nodes',
+			'-days',
+			'1',
+			'-subj',
+			'/CN=127.0.0.1',
+			'-keyout',
+			key,
+			'-out',
+			cert,
+		],
+		{ stdout: 'ignore', stderr: 'pipe' },
+	);
+	if (child.exitCode !== 0)
+		throw new Error(`openssl could not make a certificate: ${child.stderr}`);
+	return { key: Bun.file(key), cert: Bun.file(cert) };
+}
 
 /** Smart HTTP over `root` that answers 401 without the expected header. */
 async function guardedGit(root: string) {
@@ -154,15 +183,19 @@ test('a Bun folder passes its credential to `git` through configuration, scoped 
 	const root = await scratch('folder-credentials-bun-');
 	const bare = await createBareRemote(root);
 	const { serve, seen } = await guardedGit(root);
+	// A token goes only to an `https` remote, so the server speaks TLS with a
+	// certificate the repository is told not to verify.
 	const server = Bun.serve({
 		hostname: '127.0.0.1',
 		port: 0,
+		tls: await selfSignedTls(root),
 		fetch: (request) => serve(request),
 	});
-	const remote = `http://127.0.0.1:${server.port}/remote.git`;
+	const remote = `https://127.0.0.1:${server.port}/remote.git`;
 	const directory = join(root, 'folder');
 	await mkdir(directory);
 	await initWithOrigin(directory, remote);
+	await git(directory, 'config', 'http.sslVerify', 'false');
 	const asked: string[] = [];
 	const folder = expectOk(
 		await openBunFolder({
@@ -265,6 +298,27 @@ test('a credential refuses redirects even where the repository allows them for t
 			credential: { url: remote, authorization: AUTHORIZATION },
 		});
 		expect(new TextDecoder().decode(scoped.stdout).trim()).toBe('false');
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('a credential is never sent to a remote that is not https', async () => {
+	const root = await scratch('folder-credentials-plain-');
+	try {
+		await git(root, 'init', '--quiet');
+		const run = createGitRunner(root);
+		for (const url of [
+			'http://127.0.0.1:9/remote.git',
+			'http://git.example.test/remote.git',
+			'ssh://git@git.example.test/remote.git',
+			'git@git.example.test:remote.git',
+		])
+			await expect(
+				run(['ls-remote', url], {
+					credential: { url, authorization: AUTHORIZATION },
+				}),
+			).rejects.toThrow('a token is sent only to an https remote');
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}

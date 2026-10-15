@@ -14,7 +14,7 @@ author.
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the registry, the cross-process lock, the shared path rule, and the checked reads, file changes, and `git` runs. No Tauri; its tests need only `git` and `bun`. |
+| `core/` | `epicenter-folder-core`: the registry, the cross-process folder and save locks, the shared path rule, and the checked reads, file changes, and `git` runs. No Tauri; its tests need only `git` and `bun`. |
 | `src/` | The Tauri plugin: the commands, the `git` runs each window's page started, and the watcher that tells a scope's windows what changed (`watcher.rs`). |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `write_folder_file` are not in them (see Reads and File changes). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
@@ -182,8 +182,16 @@ the folder's declaration, a staged file). An incoming Sync write carries the
 hash of the file it replaces, or `"absent"`. The plugin checks the path and
 then renames or removes it while holding one mutex per canonical root, kept
 in the registry and shared by every window of the folder (a second scope on
-one root is refused `Busy`), so no other change through the plugin lands
-between the check and the change. The cost is a read and hash of the destination when `expected`
+one root is refused `Busy`), and the folder's save lock, an exclusive SQLite
+transaction on `.<directory>.epicenter-save-lock` beside it (`lock.rs`). A
+Bun process opening the same directory (`@epicenter/folder/bun`, and so the
+`epicenter` CLI) takes the same save lock around each of its own checks and
+renames, so no other change through the plugin or the Bun host lands between
+the check and the change
+([ADR-0556](../../docs/adr/0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md)).
+The save lock is held for nothing else. A change waits up to ten seconds for
+another process's; past that it changes nothing and is `Failed`, naming the
+lock file. The cost is a read and hash of the destination when `expected`
 names a hash. A path that holds something else changes nothing and is
 refused as a `ChangeError` the page tells apart: `Conflict` with
 `actualSha256` (the hash of the file there, or `null` when none is),
@@ -298,17 +306,19 @@ names. A late change is refused as `ShuttingDown` and writes nothing.
   that follows is not defended against; a page cannot make one.
 - The cross-process lock is an exclusive SQLite transaction on
   `.<directory>.epicenter-lock` beside the directory. A Bun script opening
-  the same directory (`@epicenter/folder/bun`) does not take it. The system
-  releases it when the process ends, however it ends. It is unreliable on
-  some network filesystems.
+  the same directory (`@epicenter/folder/bun`) does not take it; it takes
+  the save lock instead. The system releases both when the process ends,
+  however it ends (`fcntl` on Unix, `LockFileEx` on Windows, both through
+  SQLite). Both are unreliable on some network filesystems.
 - A change made in the moment between a grant and its watch starting is
   reported only by the `null` that watching begins with, which a page that
   subscribes after its grant does not hear; it already reads after the grant.
   Conditional saves turn a stale write, another window's included, into a
   conflict either way.
-- The expectation is checked under the root's mutex in this process only. A
-  Bun script or another program that changes a path between that check and
-  the rename is not seen.
+- The expectation is checked under the root's mutex and the folder's save
+  lock. A program that takes neither, anything but this shell and
+  `@epicenter/folder/bun`, and changes a path between that check and the
+  rename is not seen.
 - A compromised page keeps the powers the engine needs: it can move the
   branch, reset the index, and change or delete any data path. Each is
   visible and repairable from the reflog and the remote.

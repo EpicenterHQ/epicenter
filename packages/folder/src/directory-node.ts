@@ -3,11 +3,11 @@
  * any host that can reach the disk itself.
  *
  * A rename or removal checks what it expects at its path and then changes
- * it: two steps, with nothing holding the path between them. The desktop
- * shell makes both under one lock per folder, so every window's saves are
- * serialized; a Bun script is the one writer it does not serialize, and a
- * script's save can still overtake a window's between the check and the
- * rename, or the other way round.
+ * it: two steps, with nothing here holding the path between them. The caller
+ * holds what keeps other saves out: `@epicenter/folder/bun` wraps each one in
+ * the folder's save lock, the lock the desktop shell takes around its own
+ * checked renames, so a Bun process's save and a window's never interleave.
+ * A program that takes no save lock can still change the path in between.
  */
 import {
 	lstat,

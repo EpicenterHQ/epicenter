@@ -187,10 +187,12 @@ pub async fn write_folder_file<R: Runtime>(
 
 /// Rename within a granted folder, if `to` holds what `expected` says
 /// (`page_files::rename`). The check and the rename hold the root's
-/// publishing lock, which every window's changes on that root share, so a
-/// save is never overtaken between them by another save through the shell.
-/// A refusal names what is there, `Conflict`, `Exists`, or `NotFound`, and
-/// changes nothing.
+/// publishing lock, which every window's changes on that root share, and its
+/// save lock, which a Bun process's saves take too (`PageWork::publishing`),
+/// so a save is never overtaken between them by another save through the
+/// shell or the Bun host. A refusal names what is there, `Conflict`,
+/// `Exists`, or `NotFound`, and changes nothing; so does a save lock another
+/// process holds too long, as `Failed`.
 #[tauri::command]
 #[specta::specta]
 pub async fn rename_folder_path<R: Runtime>(
@@ -203,7 +205,7 @@ pub async fn rename_folder_path<R: Runtime>(
     let (root, work) = changing_root(&webview, &scope)?;
     blocking(
         move || {
-            let _held = work.publishing();
+            let _held = work.publishing()?;
             page_files::rename(
                 &root,
                 std::path::Path::new(&from),
@@ -217,7 +219,8 @@ pub async fn rename_folder_path<R: Runtime>(
 }
 
 /// Remove within a granted folder, if the path holds what `expected` says
-/// (`page_files::remove`), under the same publishing lock as a rename.
+/// (`page_files::remove`), under the same publishing and save locks as a
+/// rename.
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_folder_path<R: Runtime>(
@@ -230,7 +233,7 @@ pub async fn remove_folder_path<R: Runtime>(
     let (root, work) = changing_root(&webview, &scope)?;
     blocking(
         move || {
-            let _held = work.publishing();
+            let _held = work.publishing()?;
             page_files::remove(&root, std::path::Path::new(&path), recursive, &expected)
         },
         |message| Err(ChangeError::Failed { message }),

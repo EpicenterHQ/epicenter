@@ -48,15 +48,18 @@ export const commands = {
 	/**
 	 *  Rename within a granted folder, if `to` holds what `expected` says
 	 *  (`page_files::rename`). The check and the rename hold the root's
-	 *  publishing lock, which every window's changes on that root share, so a
-	 *  save is never overtaken between them by another save through the shell.
-	 *  A refusal names what is there, `Conflict`, `Exists`, or `NotFound`, and
-	 *  changes nothing.
+	 *  publishing lock, which every window's changes on that root share, and its
+	 *  save lock, which a Bun process's saves take too (`PageWork::publishing`),
+	 *  so a save is never overtaken between them by another save through the
+	 *  shell or the Bun host. A refusal names what is there, `Conflict`,
+	 *  `Exists`, or `NotFound`, and changes nothing; so does a save lock another
+	 *  process holds too long, as `Failed`.
 	 */
 	renameFolderPath: (scope: string, from: string, to: string, expected: Expectation) => typedError<null, ChangeError>(__TAURI_INVOKE("plugin:epicenter-folder|rename_folder_path", { scope, from, to, expected })),
 	/**
 	 *  Remove within a granted folder, if the path holds what `expected` says
-	 *  (`page_files::remove`), under the same publishing lock as a rename.
+	 *  (`page_files::remove`), under the same publishing and save locks as a
+	 *  rename.
 	 */
 	removeFolderPath: (scope: string, path: string, recursive: boolean, expected: Expectation) => typedError<null, ChangeError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_path", { scope, path, recursive, expected })),
 	/**  Make a directory in a granted folder (`page_files::mkdir`). */
