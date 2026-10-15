@@ -1,14 +1,22 @@
-//! Installed apps: an app is a Git repository with `epicenter.app.json` at its
-//! root, cloned into `<folder_dir>/Apps/<app-id>/` and built on this machine
-//! (ADR-0540).
+//! Installed apps: an app is a folder holding `epicenter.app.json` in a Git
+//! repository, the repository's root unless installing names another folder.
+//! The repository is cloned into `<folder_dir>/Apps/<app-id>/` and the app is
+//! built there on this machine (ADR-0540, ADR-0552).
 //!
 //! ```txt
-//! <folder_dir>/Apps/<app-id>/                 the app's source, its own repository
+//! <folder_dir>/Apps/<app-id>/                 a full clone of the repository
+//! <folder_dir>/Apps/<app-id>/.git/config      epicenter.folder = apps/todos (absent: the root)
 //! <data_dir>/approvals.json                   { [appId]: { commit, approvedAt } }
 //! <cache_dir>/builds/<app-id>/<commit>/       the built bundle the host serves
 //! <cache_dir>/builds/<app-id>/<commit>.log    what the install and build printed
 //! <cache_dir>/builds/<app-id>/current         the commit the host serves
 //! ```
+//!
+//! The shell reads everything about an installed app from its clone: the
+//! folder from `epicenter.folder`, the source from `origin`, and the commit
+//! from `HEAD`. `opens`, `build`, and `output` are relative to the folder.
+//! `bun install` runs at the repository's root, where the lockfile is, so
+//! workspace packages resolve; `build` runs in the folder.
 //!
 //! Approval guards code that arrived from elsewhere. Installing clones and
 //! builds nothing: the page shows what it would run and the person approves
@@ -45,8 +53,14 @@ use crate::app_data::DesktopPaths;
 use crate::data_folders::{APPLICATION_FOLDERS, EPICENTER_FOLDER};
 use crate::{BuiltInApp, DesktopAppHandle};
 
-/// The file at an app repository's root that makes it an app.
+/// The file that makes the folder holding it an app.
 pub const MANIFEST: &str = "epicenter.app.json";
+/// The key in a clone's `.git/config` naming the folder the app is in.
+const FOLDER_KEY: &str = "epicenter.folder";
+/// How many directories deep a repository's apps are looked for.
+const MAX_FOLDER_DEPTH: usize = 4;
+/// Folder names never searched for apps.
+const SKIPPED_FOLDERS: [&str; 2] = ["node_modules", ".git"];
 const DEFAULT_BUILD: &str = "bun run build";
 const DEFAULT_OUTPUT: &str = "dist";
 /// The file in an app's build directory naming the commit the host serves.
@@ -66,11 +80,12 @@ pub const APPROVAL_STATEMENT: &str = "Approving builds this app on this computer
 pub struct Manifest {
     pub id: String,
     pub title: String,
-    /// The repository path of the JSON declaration of the shape the app
-    /// opens (ADR-0538), such as `shape.json`.
+    /// The path, within the app's folder, of the JSON declaration of the
+    /// shape the app opens (ADR-0538), such as `shape.json`.
     pub opens: String,
+    /// The command line run in the app's folder.
     pub build: String,
-    /// The repository path of the built single-page app.
+    /// The path, within the app's folder, of the built single-page app.
     pub output: String,
 }
 
@@ -120,9 +135,15 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
     })
 }
 
+/// The built-in apps' ids that may be installed while the built-in app is
+/// still compiled in (ADR-0552). Todos installs from its folder in the
+/// Epicenter monorepo; the refusal of the other built-in ids goes when the
+/// built-in apps do.
+const INSTALLABLE_BUILT_IN_IDS: [&str; 1] = ["so.epicenter.todos"];
+
 /// Why `id` cannot name an installed app, if it cannot: it must be a
 /// lowercase reverse-domain name, such as `com.example.board`, and must not
-/// be Epicenter's own or a built-in app's.
+/// be Epicenter's own or a built-in app's that is not yet installable.
 pub fn app_id_problem(id: &str) -> Option<&'static str> {
     let labels: Vec<&str> = id.split('.').collect();
     let well_formed = id.len() <= 128
@@ -140,11 +161,14 @@ pub fn app_id_problem(id: &str) -> Option<&'static str> {
     if !well_formed {
         return Some("is not a lowercase reverse-domain name such as com.example.board");
     }
-    let built_in = id == EPICENTER_FOLDER
-        || APPLICATION_FOLDERS.iter().any(|folder| folder.scope == id)
-        || BuiltInApp::ALL
-            .iter()
-            .any(|app| id.strip_prefix("so.epicenter.") == Some(app.id()));
+    if id == EPICENTER_FOLDER {
+        return Some("belongs to Epicenter itself");
+    }
+    let built_in = !INSTALLABLE_BUILT_IN_IDS.contains(&id)
+        && (APPLICATION_FOLDERS.iter().any(|folder| folder.scope == id)
+            || BuiltInApp::ALL
+                .iter()
+                .any(|app| id.strip_prefix("so.epicenter.") == Some(app.id())));
     built_in.then_some("belongs to an app built into Epicenter")
 }
 
@@ -160,6 +184,31 @@ fn repository_path_problem(path: &str) -> Option<&'static str> {
         _ => false,
     });
     (!inside).then_some("must be a path inside the repository, not in .git")
+}
+
+/// `folder`, a folder within a repository, as the clone records it: its
+/// names joined by `/`, or empty for the repository's root.
+pub fn normalize_folder(folder: &str) -> Result<String, String> {
+    let trimmed = folder.trim().trim_matches('/');
+    if trimmed.is_empty() || trimmed == "." {
+        return Ok(String::new());
+    }
+    if let Some(problem) = repository_path_problem(trimmed) {
+        return Err(format!("The folder '{trimmed}' {problem}."));
+    }
+    let names: Vec<&str> = Path::new(trimmed)
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect();
+    if names.iter().any(|name| SKIPPED_FOLDERS.contains(name)) {
+        return Err(format!(
+            "The folder '{trimmed}' is inside node_modules or .git."
+        ));
+    }
+    Ok(names.join("/"))
 }
 
 /// One app approval, as `approvals.json` keeps it.
@@ -247,6 +296,9 @@ pub struct InstalledApp {
     /// Where it was installed from: the repository's `origin`, or empty when
     /// it has none.
     pub source: String,
+    /// The folder within the repository holding `epicenter.app.json`, or
+    /// empty for the repository's root.
+    pub folder: String,
     /// The commit checked out, `HEAD`. Empty when the app is `Broken`.
     pub commit: String,
     /// The text of the declaration `opens` names, or `None` when it could not
@@ -549,8 +601,9 @@ fn empty_hooks_directory(path: &Path) -> Result<PathBuf, String> {
 // ---------------------------------------------------------------------------
 // Reading an installed app
 
-fn read_manifest(source: &Path) -> Result<Manifest, String> {
-    let path = source.join(MANIFEST);
+/// The manifest in `dir`, an app's folder.
+fn read_manifest(dir: &Path) -> Result<Manifest, String> {
+    let path = dir.join(MANIFEST);
     let text = read_regular_file(&path, MAX_MANIFEST_BYTES)
         .map_err(|problem| format!("{MANIFEST} {problem}"))?;
     parse_manifest(&text)
@@ -574,6 +627,35 @@ fn head(paths: &AppPaths, source: &Path) -> Result<String, String> {
 
 fn origin(paths: &AppPaths, source: &Path) -> String {
     git(paths, source, &["config", "--get", "remote.origin.url"]).unwrap_or_default()
+}
+
+/// The folder the clone at `source` records as the app's, empty for the
+/// repository's root.
+fn recorded_folder(paths: &AppPaths, source: &Path) -> Result<String, String> {
+    let recorded = git(
+        paths,
+        source,
+        &["config", "--local", "--default", "", "--get", FOLDER_KEY],
+    )?;
+    normalize_folder(&recorded)
+        .map_err(|problem| format!("{FOLDER_KEY} in this app's .git/config is wrong: {problem}"))
+}
+
+/// The directory of the app at `folder` in the repository at `root`, refused
+/// when a link takes it outside the repository.
+fn app_dir(root: &Path, folder: &str) -> Result<PathBuf, String> {
+    if folder.is_empty() {
+        return Ok(root.to_path_buf());
+    }
+    let dir = root.join(folder);
+    let real_root =
+        fs::canonicalize(root).map_err(|error| format!("The app could not be read: {error}"))?;
+    let real_dir =
+        fs::canonicalize(&dir).map_err(|_| format!("The repository has no folder {folder}."))?;
+    if !real_dir.starts_with(&real_root) || !real_dir.is_dir() {
+        return Err(format!("The folder {folder} is not inside the repository."));
+    }
+    Ok(dir)
 }
 
 /// The commit `builds/<id>/current` names, when its build is there.
@@ -676,16 +758,22 @@ fn review(paths: &AppPaths, source: &Path, approved: Option<&str>, head: &str) -
 /// The installed app under `Apps/<id>/`, as it is now.
 pub fn inspect(paths: &AppPaths, id: &str) -> InstalledApp {
     let source = paths.source(id);
+    let folder = recorded_folder(paths, &source);
     let broken = |title: String, problem: String| InstalledApp {
         id: id.to_string(),
         title,
         source: String::new(),
+        folder: folder.clone().unwrap_or_default(),
         commit: String::new(),
         opens: None,
         state: AppState::Broken { problem },
     };
-    let manifest = match read_manifest(&source) {
-        Ok(manifest) => manifest,
+    let read = folder
+        .clone()
+        .and_then(|folder| app_dir(&source, &folder))
+        .and_then(|dir| Ok((read_manifest(&dir)?, dir)));
+    let (manifest, dir) = match read {
+        Ok(read) => read,
         Err(problem) => return broken(id.to_string(), problem),
     };
     if manifest.id != id {
@@ -701,7 +789,7 @@ pub fn inspect(paths: &AppPaths, id: &str) -> InstalledApp {
         Ok(commit) => commit,
         Err(problem) => return broken(manifest.title, problem),
     };
-    let opens = read_regular_file(&source.join(&manifest.opens), MAX_SHAPE_BYTES).ok();
+    let opens = read_regular_file(&dir.join(&manifest.opens), MAX_SHAPE_BYTES).ok();
     let state = if current_build(&paths.builds(id)).as_deref() == Some(commit.as_str()) {
         AppState::Ready
     } else {
@@ -719,6 +807,7 @@ pub fn inspect(paths: &AppPaths, id: &str) -> InstalledApp {
         id: id.to_string(),
         title: manifest.title,
         source: origin(paths, &source),
+        folder: folder.unwrap_or_default(),
         commit,
         opens,
         state,
@@ -767,36 +856,135 @@ fn source_problem(source: &str) -> Option<&'static str> {
     (!scp_like).then_some("is not a Git URL or an absolute local path")
 }
 
-/// Clone `source` into `Apps/<id>/`, the id read from its manifest. Builds
-/// nothing: the app needs approval before it runs.
-pub fn install(paths: &AppPaths, source: &str) -> Result<InstalledApp, String> {
-    let source = source.trim();
+/// One app found in a repository, as listing it shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryApp {
+    /// The folder holding `epicenter.app.json`, or empty for the root.
+    pub folder: String,
+    /// The manifest's id, or empty when the manifest could not be read.
+    pub id: String,
+    /// The manifest's title, or empty when the manifest could not be read.
+    pub title: String,
+    /// Why this app cannot be installed, if it cannot: its manifest is not
+    /// valid.
+    pub problem: Option<String>,
+    /// Whether an app with this id is already installed in `Apps/`.
+    pub installed: bool,
+}
+
+/// Clone `source` into a dot directory of `Apps/`, which no listing reads,
+/// and run `work` on the clone. The clone is removed unless `work` returns
+/// where it went.
+fn with_staged_clone<T>(
+    paths: &AppPaths,
+    source: &str,
+    clone_args: &[&str],
+    work: impl FnOnce(&Path) -> Result<T, String>,
+) -> Result<T, String> {
     if let Some(problem) = source_problem(source) {
         return Err(format!("'{source}' {problem}."));
     }
     fs::create_dir_all(&paths.apps_dir)
         .map_err(|error| format!("The Apps folder could not be made: {error}"))?;
-    // A dot directory, which neither listing reads.
     let staging = paths
         .apps_dir
         .join(format!(".installing-{}", random_suffix()));
-    let staged = (|| {
-        let staging_name = staging
-            .to_str()
-            .ok_or("The Apps folder is not UTF-8 text")?;
-        git(
-            paths,
-            &paths.apps_dir,
-            &[
-                "clone",
-                "--no-recurse-submodules",
-                "--template=",
-                "--",
-                source,
-                staging_name,
-            ],
-        )?;
-        let manifest = read_manifest(&staging)?;
+    let staging_name = staging
+        .to_str()
+        .ok_or("The Apps folder is not UTF-8 text")?
+        .to_string();
+    let mut args = vec!["clone", "--no-recurse-submodules", "--template="];
+    args.extend_from_slice(clone_args);
+    args.extend_from_slice(&["--", source, &staging_name]);
+    let result = git(paths, &paths.apps_dir, &args).and_then(|_| work(&staging));
+    // A rename moved it into place; otherwise nothing of it is kept.
+    let _ = fs::remove_dir_all(&staging);
+    result
+}
+
+/// The apps in the repository at `source`: each folder, within
+/// `MAX_FOLDER_DEPTH` directories and outside `node_modules`, holding a
+/// tracked `epicenter.app.json`. The clone it reads is shallow, fetches only
+/// the manifests' contents, and is removed after.
+pub fn list_repository(paths: &AppPaths, source: &str) -> Result<Vec<RepositoryApp>, String> {
+    let source = source.trim();
+    with_staged_clone(
+        paths,
+        source,
+        &["--no-checkout", "--depth=1", "--filter=blob:none"],
+        |clone| {
+            let tracked = git(
+                paths,
+                clone,
+                &["ls-tree", "-r", "-z", "--name-only", "HEAD"],
+            )?;
+            let mut apps = Vec::new();
+            for path in tracked.split('\0') {
+                let Some(folder) = manifest_folder(path) else {
+                    continue;
+                };
+                let found = git(paths, clone, &["cat-file", "blob", &format!("HEAD:{path}")])
+                    .and_then(|text| {
+                        if text.len() as u64 > MAX_MANIFEST_BYTES {
+                            return Err(format!("is larger than {MAX_MANIFEST_BYTES} bytes"));
+                        }
+                        parse_manifest(&text)
+                    });
+                apps.push(match found {
+                    Ok(manifest) => RepositoryApp {
+                        installed: fs::symlink_metadata(paths.source(&manifest.id)).is_ok(),
+                        folder,
+                        id: manifest.id,
+                        title: manifest.title,
+                        problem: None,
+                    },
+                    Err(problem) => RepositoryApp {
+                        folder,
+                        id: String::new(),
+                        title: String::new(),
+                        problem: Some(problem),
+                        installed: false,
+                    },
+                });
+            }
+            apps.sort_by(|a, b| a.folder.cmp(&b.folder));
+            Ok(apps)
+        },
+    )
+}
+
+/// The app folder of a tracked `path`, when `path` is an `epicenter.app.json`
+/// searched for: within `MAX_FOLDER_DEPTH` directories, outside
+/// `node_modules` and `.git`.
+fn manifest_folder(path: &str) -> Option<String> {
+    let mut names: Vec<&str> = path.split('/').collect();
+    if names.pop()? != MANIFEST || names.len() > MAX_FOLDER_DEPTH {
+        return None;
+    }
+    if names.iter().any(|name| SKIPPED_FOLDERS.contains(name)) {
+        return None;
+    }
+    Some(names.join("/"))
+}
+
+/// Clone `source` into `Apps/<id>/`, the id read from the manifest in
+/// `folder` (empty for the root), and record `folder` in the clone's
+/// `.git/config`. Builds nothing: the app needs approval before it runs.
+pub fn install(paths: &AppPaths, source: &str, folder: &str) -> Result<InstalledApp, String> {
+    let source = source.trim();
+    let folder = normalize_folder(folder)?;
+    let id = with_staged_clone(paths, source, &[], |staging| {
+        let manifest = read_manifest(&app_dir(staging, &folder)?).map_err(|problem| {
+            if folder.is_empty() {
+                problem
+            } else {
+                format!("{folder}/{problem}")
+            }
+        })?;
+        if !folder.is_empty() {
+            git(paths, staging, &["config", "--local", FOLDER_KEY, &folder])?;
+        }
         let destination = paths.source(&manifest.id);
         if fs::symlink_metadata(&destination).is_ok() {
             return Err(format!(
@@ -804,24 +992,19 @@ pub fn install(paths: &AppPaths, source: &str) -> Result<InstalledApp, String> {
                 manifest.id, manifest.id
             ));
         }
-        fs::rename(&staging, &destination)
+        fs::rename(staging, &destination)
             .map_err(|error| format!("The app could not be moved into place: {error}"))?;
         Ok(manifest.id)
-    })();
-    match staged {
-        Ok(id) => Ok(inspect(paths, &id)),
-        Err(problem) => {
-            let _ = fs::remove_dir_all(&staging);
-            Err(problem)
-        }
-    }
+    })?;
+    Ok(inspect(paths, &id))
 }
 
 /// Approve `commit` of app `id`, which must still be its `HEAD`, then build
 /// it.
 pub fn approve(paths: &AppPaths, id: &str, commit: &str) -> Result<InstalledApp, String> {
     let source = installed_source(paths, id)?;
-    let manifest = read_manifest(&source)?;
+    let dir = app_dir(&source, &recorded_folder(paths, &source)?)?;
+    let manifest = read_manifest(&dir)?;
     let head = head(paths, &source)?;
     if head != commit {
         return Err(format!(
@@ -831,7 +1014,7 @@ pub fn approve(paths: &AppPaths, id: &str, commit: &str) -> Result<InstalledApp,
     }
     require_clean(paths, &source)?;
     record_approval(&paths.approvals_file, id, &head)?;
-    build(paths, &source, &manifest, &head)?;
+    build(paths, &source, &dir, &manifest, &head)?;
     Ok(inspect(paths, id))
 }
 
@@ -843,8 +1026,9 @@ pub fn prepare(paths: &AppPaths, id: &str) -> Result<InstalledApp, String> {
         AppState::Ready => Ok(installed),
         AppState::Unbuilt => {
             let source = installed_source(paths, id)?;
-            let manifest = read_manifest(&source)?;
-            build(paths, &source, &manifest, &installed.commit)?;
+            let dir = app_dir(&source, &installed.folder)?;
+            let manifest = read_manifest(&dir)?;
+            build(paths, &source, &dir, &manifest, &installed.commit)?;
             let approvals = read_approvals(&paths.approvals_file);
             if approvals.get(id).map(|approval| approval.commit.as_str())
                 != Some(installed.commit.as_str())
@@ -924,9 +1108,17 @@ fn require_clean(paths: &AppPaths, source: &Path) -> Result<(), String> {
 }
 
 /// Build `commit`, checked out in `source`, into `builds/<id>/<commit>/`, and
-/// make it the build the host serves. What the install and the build print
-/// goes to `builds/<id>/<commit>.log`.
-fn build(paths: &AppPaths, source: &Path, manifest: &Manifest, commit: &str) -> Result<(), String> {
+/// make it the build the host serves: `bun install` at the repository's
+/// root, then the manifest's build in the app's folder, `dir`, whose
+/// `output` is kept. What the install and the build print goes to
+/// `builds/<id>/<commit>.log`.
+fn build(
+    paths: &AppPaths,
+    source: &Path,
+    dir: &Path,
+    manifest: &Manifest,
+    commit: &str,
+) -> Result<(), String> {
     require_clean(paths, source)?;
     let builds = paths.builds(&manifest.id);
     fs::create_dir_all(&builds)
@@ -941,11 +1133,11 @@ fn build(paths: &AppPaths, source: &Path, manifest: &Manifest, commit: &str) -> 
             log_path.display()
         )
     };
-    let step = |mut command: Command, what: &str| -> Result<(), String> {
+    let step = |mut command: Command, cwd: &Path, what: &str| -> Result<(), String> {
         let out = log.try_clone().map_err(|error| error.to_string())?;
         let err = log.try_clone().map_err(|error| error.to_string())?;
         command
-            .current_dir(source)
+            .current_dir(cwd)
             .envs(paths.build_env.iter().map(|(name, value)| (name, value)))
             .env("CI", "1")
             .stdout(out)
@@ -959,16 +1151,16 @@ fn build(paths: &AppPaths, source: &Path, manifest: &Manifest, commit: &str) -> 
     if source.join("package.json").is_file() {
         let mut install = Command::new("bun");
         install.args(["install", "--frozen-lockfile", "--ignore-scripts"]);
-        step(install, "bun install").map_err(failed)?;
+        step(install, source, "bun install").map_err(failed)?;
     }
-    step(shell(&manifest.build), &manifest.build).map_err(failed)?;
+    step(shell(&manifest.build), dir, &manifest.build).map_err(failed)?;
 
-    let root = fs::canonicalize(source).map_err(|error| failed(error.to_string()))?;
-    let output = fs::canonicalize(source.join(&manifest.output))
+    let root = fs::canonicalize(dir).map_err(|error| failed(error.to_string()))?;
+    let output = fs::canonicalize(dir.join(&manifest.output))
         .map_err(|_| failed(format!("it wrote no {}", manifest.output)))?;
     if !output.starts_with(&root) || !output.join("index.html").is_file() {
         return Err(failed(format!(
-            "{} must be a folder in the repository holding index.html",
+            "{} must be a folder in the app's folder holding index.html",
             manifest.output
         )));
     }
@@ -1034,13 +1226,30 @@ pub fn list_installed_apps(app: DesktopAppHandle) -> Result<Vec<InstalledApp>, S
     list(&app_paths(&app))
 }
 
-/// Clone the app at `source`, a Git URL or a local path, into `Apps/`. It
-/// builds and runs nothing until approved.
+/// The apps in the repository at `source`, a Git URL or a local path, each
+/// with the folder to install it from.
 #[tauri::command(async)]
 #[specta::specta]
-pub fn install_app(app: DesktopAppHandle, source: String) -> Result<InstalledApp, String> {
+pub fn list_repository_apps(
+    app: DesktopAppHandle,
+    source: String,
+) -> Result<Vec<RepositoryApp>, String> {
     app.state::<AppWork>()
-        .run(|| install(&app_paths(&app), &source))
+        .run(|| list_repository(&app_paths(&app), &source))
+}
+
+/// Clone the repository at `source`, a Git URL or a local path, into `Apps/`,
+/// with the app at `folder` within it, or at its root when `folder` is
+/// empty. It builds and runs nothing until approved.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn install_app(
+    app: DesktopAppHandle,
+    source: String,
+    folder: String,
+) -> Result<InstalledApp, String> {
+    app.state::<AppWork>()
+        .run(|| install(&app_paths(&app), &source, &folder))
 }
 
 /// Approve `commit` of app `id` and build it.
@@ -1065,7 +1274,9 @@ pub fn update_app(app: DesktopAppHandle, id: String) -> Result<InstalledApp, Str
 
 /// Open app `id` in its own window, building a commit made here first. With
 /// `folder`, a scope the Folders window listed, the window is let into that
-/// folder and the app is handed it as `?folder=`.
+/// folder and the app is handed it as `?folder=`. Without one, an app whose
+/// id names a folder the shell registers for a built-in app, as Todos', is
+/// handed that folder, since it opens it by id.
 #[tauri::command(async)]
 #[specta::specta]
 pub fn open_installed_app(
@@ -1076,9 +1287,19 @@ pub fn open_installed_app(
     let installed = app
         .state::<AppWork>()
         .run(|| prepare(&app_paths(&app), &id))?;
+    let folder = folder.or_else(|| own_folder(&installed.id));
     crate::open_installed_window(&app, &installed.id, &installed.title, folder.as_deref())
         .map_err(|error| format!("{error:#}"))?;
     Ok(installed)
+}
+
+/// The folder registered under app `id`'s own name, when the shell registers
+/// one: Todos' folder, which installed Todos opens by its id.
+fn own_folder(id: &str) -> Option<String> {
+    APPLICATION_FOLDERS
+        .iter()
+        .any(|folder| folder.scope == id)
+        .then(|| id.to_string())
 }
 
 #[cfg(test)]
@@ -1206,12 +1427,12 @@ mod tests {
                 "reverse-domain",
             ),
             (
-                r#"{ "id": "so.epicenter.todos", "title": "Todos", "opens": "s.json" }"#,
+                r#"{ "id": "so.epicenter.capture", "title": "Capture", "opens": "s.json" }"#,
                 "built into",
             ),
             (
                 r#"{ "id": "so.epicenter", "title": "Epicenter", "opens": "s.json" }"#,
-                "built into",
+                "Epicenter itself",
             ),
             (
                 r#"{ "id": "so.epicenter.folders", "title": "F", "opens": "s.json" }"#,
@@ -1273,7 +1494,7 @@ mod tests {
         let upstream = app_repository(&fixture, "board", &board_manifest());
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
 
-        let pending = install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         assert_eq!(pending.id, "com.example.board");
         assert_eq!(pending.title, "Board");
         assert_eq!(pending.source, upstream.to_str().unwrap());
@@ -1326,7 +1547,7 @@ mod tests {
     fn approval_names_the_commit_it_was_shown() {
         let fixture = fixture("stale");
         let upstream = app_repository(&fixture, "board", &board_manifest());
-        let pending = install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         let other = "0".repeat(40);
         assert!(approve(&fixture.paths, &pending.id, &other)
             .unwrap_err()
@@ -1339,7 +1560,7 @@ mod tests {
         let fixture = fixture("local");
         let upstream = app_repository(&fixture, "board", &board_manifest());
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
-        install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         approve(&fixture.paths, "com.example.board", &first).unwrap();
 
         let clone = fixture.paths.apps_dir.join("com.example.board");
@@ -1367,7 +1588,7 @@ mod tests {
         let fixture = fixture("fetched");
         let upstream = app_repository(&fixture, "board", &board_manifest());
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
-        install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         approve(&fixture.paths, "com.example.board", &first).unwrap();
 
         let theirs = commit_page(&upstream, "<!doctype html><title>theirs</title>", "theirs");
@@ -1402,7 +1623,7 @@ mod tests {
         let fixture = fixture("merged");
         let upstream = app_repository(&fixture, "board", &board_manifest());
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
-        install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         approve(&fixture.paths, "com.example.board", &first).unwrap();
 
         commit_page(&upstream, "<!doctype html><title>theirs</title>", "theirs");
@@ -1426,7 +1647,7 @@ mod tests {
         let fixture = fixture("rebase");
         let upstream = app_repository(&fixture, "board", &board_manifest());
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
-        install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         approve(&fixture.paths, "com.example.board", &first).unwrap();
         let clone = fixture.paths.apps_dir.join("com.example.board");
         sh_git(&clone, &["config", "user.name", "Test"]);
@@ -1466,7 +1687,7 @@ mod tests {
             "board",
             r#"{ "id": "board", "title": "Board", "opens": "shape.json" }"#,
         );
-        let problem = install(&fixture.paths, upstream.to_str().unwrap()).unwrap_err();
+        let problem = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap_err();
         assert!(problem.contains("reverse-domain"), "{problem}");
         assert_eq!(fs::read_dir(&fixture.paths.apps_dir).unwrap().count(), 0);
     }
@@ -1474,18 +1695,20 @@ mod tests {
     #[test]
     fn a_built_in_id_and_a_second_install_are_refused() {
         let fixture = fixture("collision");
-        let todos = app_repository(
+        let capture = app_repository(
             &fixture,
-            "todos",
-            r#"{ "id": "so.epicenter.todos", "title": "Todos", "opens": "shape.json" }"#,
+            "capture",
+            r#"{ "id": "so.epicenter.capture", "title": "Capture", "opens": "shape.json" }"#,
         );
-        assert!(install(&fixture.paths, todos.to_str().unwrap())
+        assert!(install(&fixture.paths, capture.to_str().unwrap(), "")
             .unwrap_err()
             .contains("built into Epicenter"));
+        // Todos is installable while its built-in app is still compiled in.
+        assert_eq!(app_id_problem("so.epicenter.todos"), None);
 
         let board = app_repository(&fixture, "board", &board_manifest());
-        install(&fixture.paths, board.to_str().unwrap()).unwrap();
-        assert!(install(&fixture.paths, board.to_str().unwrap())
+        install(&fixture.paths, board.to_str().unwrap(), "").unwrap();
+        assert!(install(&fixture.paths, board.to_str().unwrap(), "")
             .unwrap_err()
             .contains("already installed"));
         assert_eq!(fs::read_dir(&fixture.paths.apps_dir).unwrap().count(), 1);
@@ -1499,7 +1722,7 @@ mod tests {
             "board",
             r#"{ "id": "com.example.board", "title": "Board", "opens": "shape.json", "build": "echo broken >&2; exit 3" }"#,
         );
-        let pending = install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         let problem = approve(&fixture.paths, &pending.id, &pending.commit).unwrap_err();
         assert!(problem.contains("did not build"), "{problem}");
         assert!(read_approvals(&fixture.paths.approvals_file).contains_key(&pending.id));
@@ -1522,7 +1745,7 @@ mod tests {
     fn uncommitted_changes_do_not_build() {
         let fixture = fixture("dirty");
         let upstream = app_repository(&fixture, "board", &board_manifest());
-        let pending = install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         let clone = fixture.paths.apps_dir.join(&pending.id);
         fs::write(clone.join("page.html"), "edited").unwrap();
         assert!(approve(&fixture.paths, &pending.id, &pending.commit)
@@ -1536,7 +1759,7 @@ mod tests {
         let fixture = fixture("list");
         assert_eq!(list(&fixture.paths).unwrap(), []);
         let upstream = app_repository(&fixture, "board", &board_manifest());
-        install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         fs::create_dir_all(fixture.paths.apps_dir.join("com.example.empty")).unwrap();
         fs::create_dir_all(fixture.paths.apps_dir.join(".installing-left")).unwrap();
 
@@ -1565,7 +1788,7 @@ mod tests {
     fn git_here_runs_no_hook() {
         let fixture = fixture("hooks");
         let upstream = app_repository(&fixture, "board", &board_manifest());
-        let pending = install(&fixture.paths, upstream.to_str().unwrap()).unwrap();
+        let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         let clone = fixture.paths.apps_dir.join(&pending.id);
         let hooks = clone.join(".git/hooks");
         fs::create_dir_all(&hooks).unwrap();
@@ -1580,5 +1803,223 @@ mod tests {
         commit_page(&upstream, "<!doctype html><title>theirs</title>", "theirs");
         update(&fixture.paths, &pending.id).unwrap();
         assert!(!marker.exists(), "a hook ran");
+    }
+
+    /// A monorepo: a root workspace whose `bun install` step is skipped (no
+    /// root package.json), and two apps in folders, with a manifest under
+    /// `node_modules` and one too deep that listing skips.
+    fn monorepo(fixture: &Fixture) -> PathBuf {
+        let repo = fixture.root.join("upstream").join("mono");
+        let write = |path: &str, text: &str| {
+            let file = repo.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, text).unwrap();
+        };
+        fs::create_dir_all(&repo).unwrap();
+        sh_git(&repo, &["init", "-q", "-b", "main"]);
+        write(".gitignore", "dist/\n");
+        write(
+            "apps/board/epicenter.app.json",
+            &format!(
+                r#"{{ "id": "com.example.board", "title": "Board", "opens": "shape.json", "build": "{BUILD}" }}"#
+            ),
+        );
+        write("apps/board/shape.json", r#"{ "kv": {}, "tables": {} }"#);
+        write(
+            "apps/board/page.html",
+            "<!doctype html><title>board</title>",
+        );
+        write(
+            "apps/notes/epicenter.app.json",
+            r#"{ "id": "com.example.notes", "title": "Notes", "opens": "shape.json" }"#,
+        );
+        write("apps/broken/epicenter.app.json", "not json");
+        write(
+            "node_modules/dep/epicenter.app.json",
+            r#"{ "id": "com.example.dep", "title": "Dep", "opens": "s.json" }"#,
+        );
+        write(
+            "a/b/c/d/e/epicenter.app.json",
+            r#"{ "id": "com.example.deep", "title": "Deep", "opens": "s.json" }"#,
+        );
+        sh_git(&repo, &["add", "-A", "-f"]);
+        sh_git(&repo, &["commit", "-q", "-m", "first"]);
+        repo
+    }
+
+    #[test]
+    fn folders_are_normalized_and_kept_inside_the_repository() {
+        assert_eq!(normalize_folder("").unwrap(), "");
+        assert_eq!(normalize_folder(" / ").unwrap(), "");
+        assert_eq!(normalize_folder(".").unwrap(), "");
+        assert_eq!(normalize_folder("apps/todos/").unwrap(), "apps/todos");
+        assert_eq!(normalize_folder("./apps/todos").unwrap(), "apps/todos");
+        for folder in ["../x", "apps/../../x", ".git", "node_modules/x", "a\0b"] {
+            assert!(normalize_folder(folder).is_err(), "{folder}");
+        }
+    }
+
+    #[test]
+    fn listing_a_repository_finds_each_app_folder_and_keeps_nothing() {
+        let fixture = fixture("repository");
+        let mono = monorepo(&fixture);
+        let found = list_repository(&fixture.paths, mono.to_str().unwrap()).unwrap();
+        let folders: Vec<&str> = found.iter().map(|app| app.folder.as_str()).collect();
+        assert_eq!(folders, ["apps/board", "apps/broken", "apps/notes"]);
+        assert_eq!(found[0].id, "com.example.board");
+        assert_eq!(found[0].title, "Board");
+        assert_eq!(found[0].problem, None);
+        assert!(!found[0].installed);
+        assert!(found[1].problem.as_deref().unwrap().contains("not a valid"));
+        assert_eq!(fs::read_dir(&fixture.paths.apps_dir).unwrap().count(), 0);
+
+        install(&fixture.paths, mono.to_str().unwrap(), "apps/board").unwrap();
+        let found = list_repository(&fixture.paths, mono.to_str().unwrap()).unwrap();
+        assert!(found[0].installed);
+    }
+
+    #[test]
+    fn an_app_in_a_folder_installs_records_its_folder_and_builds_there() {
+        let fixture = fixture("folder");
+        let mono = monorepo(&fixture);
+        let first = sh_git(&mono, &["rev-parse", "HEAD"]);
+
+        let pending = install(&fixture.paths, mono.to_str().unwrap(), "/apps/board/").unwrap();
+        assert_eq!(pending.id, "com.example.board");
+        assert_eq!(pending.folder, "apps/board");
+        assert_eq!(pending.commit, first);
+        assert_eq!(
+            pending.opens.as_deref(),
+            Some(r#"{ "kv": {}, "tables": {} }"#)
+        );
+        let clone = fixture.paths.apps_dir.join("com.example.board");
+        assert_eq!(
+            sh_git(&clone, &["config", "--local", "--get", FOLDER_KEY]),
+            "apps/board"
+        );
+        // The whole repository is cloned.
+        assert!(clone.join("apps/notes/epicenter.app.json").is_file());
+
+        let ready = approve(&fixture.paths, &pending.id, &first).unwrap();
+        assert_eq!(ready.state, AppState::Ready);
+        assert_eq!(ready.folder, "apps/board");
+        assert_eq!(
+            served_page(&fixture, "com.example.board"),
+            "<!doctype html><title>board</title>"
+        );
+        // The build ran in the app's folder.
+        assert!(clone.join("apps/board/dist/index.html").is_file());
+        assert!(!clone.join("dist").exists());
+        assert_eq!(list(&fixture.paths).unwrap()[0].folder, "apps/board");
+    }
+
+    #[test]
+    fn a_folder_without_an_app_or_outside_the_repository_is_refused() {
+        let fixture = fixture("no-app");
+        let mono = monorepo(&fixture);
+        for (folder, expected) in [
+            ("apps", "epicenter.app.json is missing"),
+            ("apps/missing", "no folder"),
+            ("../elsewhere", "inside the repository"),
+        ] {
+            let problem = install(&fixture.paths, mono.to_str().unwrap(), folder).unwrap_err();
+            assert!(problem.contains(expected), "{folder}: {problem}");
+        }
+        assert_eq!(fs::read_dir(&fixture.paths.apps_dir).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_damaged_folder_record_breaks_the_app_instead_of_reading_elsewhere() {
+        let fixture = fixture("bad-record");
+        let mono = monorepo(&fixture);
+        let pending = install(&fixture.paths, mono.to_str().unwrap(), "apps/board").unwrap();
+        let clone = fixture.paths.apps_dir.join(&pending.id);
+        sh_git(
+            &clone,
+            &["config", "--local", FOLDER_KEY, "../../elsewhere"],
+        );
+        let AppState::Broken { problem } = inspect(&fixture.paths, &pending.id).state else {
+            panic!("a folder outside the repository breaks the app");
+        };
+        assert!(problem.contains(FOLDER_KEY), "{problem}");
+    }
+
+    #[test]
+    fn todos_opens_its_own_folder() {
+        assert_eq!(
+            own_folder("so.epicenter.todos").as_deref(),
+            Some("so.epicenter.todos")
+        );
+        assert_eq!(own_folder("com.example.board"), None);
+    }
+
+    /// Todos installed from its folder in a clone of the Epicenter monorepo,
+    /// as "Install Todos" does: the clone, the folder record, `bun install`
+    /// at the root, and Todos' installed build. Needs the network for `bun
+    /// install` and a minute or more, so it runs only when asked:
+    ///
+    /// ```sh
+    /// EPICENTER_MONOREPO=/path/to/epicenter cargo test --lib installs_todos -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "builds Todos from the monorepo named by EPICENTER_MONOREPO"]
+    fn installs_todos_from_its_folder_in_the_monorepo() {
+        let monorepo = std::env::var("EPICENTER_MONOREPO").expect("EPICENTER_MONOREPO");
+        let fixture = fixture("todos");
+        let started = Instant::now();
+
+        let found = list_repository(&fixture.paths, &monorepo).unwrap();
+        let todos = found
+            .iter()
+            .find(|app| app.folder == "apps/todos")
+            .expect("apps/todos is listed");
+        assert_eq!(todos.id, "so.epicenter.todos");
+        assert_eq!(todos.problem, None);
+        println!("listed {} apps in {:?}", found.len(), started.elapsed());
+
+        let pending = install(&fixture.paths, &monorepo, "apps/todos").unwrap();
+        assert_eq!(pending.folder, "apps/todos");
+        let clone = fixture.paths.apps_dir.join("so.epicenter.todos");
+        assert_eq!(
+            sh_git(&clone, &["config", "--local", "--get", FOLDER_KEY]),
+            "apps/todos"
+        );
+        let shape: serde_json::Value =
+            serde_json::from_str(pending.opens.as_deref().expect("opens is read")).unwrap();
+        assert_eq!(shape["title"], "Todos");
+        assert!(shape["tables"]["todos"]["properties"]["done"].is_object());
+        println!("cloned in {:?}", started.elapsed());
+
+        let ready =
+            approve(&fixture.paths, &pending.id, &pending.commit).unwrap_or_else(|problem| {
+                let log = fixture
+                    .paths
+                    .builds(&pending.id)
+                    .join(format!("{}.log", pending.commit));
+                panic!("{problem}\n{}", fs::read_to_string(log).unwrap_or_default())
+            });
+        assert_eq!(ready.state, AppState::Ready);
+        assert!(
+            clone.join("node_modules").is_dir(),
+            "bun install ran at the root"
+        );
+        println!("installed and built in {:?}", started.elapsed());
+
+        let page = served_page(&fixture, &pending.id);
+        assert!(!page.contains("/apps/todos"), "{page}");
+        assert!(page.contains(r#"href="./_app/"#), "{page}");
+        assert!(
+            !page.contains(r#"href="/"#) && !page.contains(r#"src="/"#),
+            "{page}"
+        );
+
+        let size = |path: &Path| {
+            let out = Command::new("du").arg("-sh").arg(path).output().unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        println!("clone: {}", size(&clone));
+        println!("clone .git: {}", size(&clone.join(".git")));
+        println!("clone node_modules: {}", size(&clone.join("node_modules")));
+        println!("build: {}", size(&fixture.paths.builds(&pending.id)));
     }
 }

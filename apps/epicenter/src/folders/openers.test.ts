@@ -102,6 +102,7 @@ function board(overrides: Partial<InstalledApp> = {}): InstalledApp {
 		id: 'com.example.board',
 		title: 'Board',
 		source: 'https://example.com/board.git',
+		folder: '',
 		commit: 'a'.repeat(40),
 		opens: formatDeclaration(
 			defineFolder({

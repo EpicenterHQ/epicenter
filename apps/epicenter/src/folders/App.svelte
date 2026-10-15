@@ -22,8 +22,8 @@
 	 * the Settings button; `openers.ts` decides which apps a folder offers.
 	 *
 	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
-	 * an app installed from a Git URL or a path is shown for approval before
-	 * anything builds, and an update fetched from upstream is shown again with
+	 * an app installed from a folder in a Git repository (`InstallApps`,
+	 * ADR-0552) is shown for approval before anything builds, and an update fetched from upstream is shown again with
 	 * its log and diff stat. Each app that runs is recorded as a row of
 	 * Epicenter's own folder (`epicenter-folder.ts`).
 	 */
@@ -33,7 +33,6 @@
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
-	import { Input } from '@epicenter/ui/input';
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { onMount } from 'svelte';
@@ -47,6 +46,7 @@
 	import { createLaunch } from '../ui/launch.svelte.ts';
 	import { recordInstalledApps } from './epicenter-folder.ts';
 	import FolderView from './FolderView.svelte';
+	import InstallApps from './InstallApps.svelte';
 	import {
 		appsWithoutFolder,
 		FOLDER_OPENERS,
@@ -92,8 +92,6 @@
 
 	let installed = $state<InstalledApp[]>([]);
 	let appsProblem = $state<string | undefined>(undefined);
-	/** The URL or path typed into the install form, when it is shown. */
-	let installSource = $state<string | undefined>(undefined);
 	/** The app whose approval is shown in place of a folder. */
 	let reviewing = $state<{ app: InstalledApp; review: Review } | undefined>(
 		undefined,
@@ -177,12 +175,9 @@
 		}
 	}
 
-	async function install() {
-		const source = installSource?.trim();
-		if (!source) return;
-		const app = await act('Cloning…', () => commands.installApp(source));
-		if (app === undefined) return;
-		installSource = undefined;
+	/** Show the approval of an app `InstallApps` just cloned. */
+	async function showInstalled(app: InstalledApp) {
+		await listInstalled();
 		review(app);
 	}
 
@@ -409,37 +404,8 @@
 		<div class="px-3 pb-3">
 			{#if busy !== undefined}
 				<p class="px-1 py-1.5 text-sm text-muted-foreground">{busy}</p>
-			{:else if installSource === undefined}
-				<Button variant="ghost" size="sm" onclick={() => (installSource = '')}>
-					Install from Git URL…
-				</Button>
 			{:else}
-				<form
-					class="flex flex-col gap-2"
-					onsubmit={(event) => {
-						event.preventDefault();
-						void install();
-					}}
-				>
-					<Input
-						bind:value={installSource}
-						placeholder="https://github.com/you/app.git or a folder path"
-						aria-label="Git URL or folder path"
-					/>
-					<div class="flex gap-2">
-						<Button type="submit" size="sm" disabled={!installSource.trim()}>
-							Install
-						</Button>
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							onclick={() => (installSource = undefined)}
-						>
-							Cancel
-						</Button>
-					</div>
-				</form>
+				<InstallApps offerTodos={installed.length === 0} oninstalled={showInstalled} />
 			{/if}
 		</div>
 	</nav>
