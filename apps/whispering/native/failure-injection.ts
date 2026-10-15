@@ -102,7 +102,7 @@ export function createFailureInjection({
 			head = await readFile(join(root, '.git', 'HEAD'), 'utf8');
 		} catch {
 			throw new Error(
-				'The folder has no Git history yet, so there is no branch to lock. Lock it once the folder\'s first commit has created it.',
+				"The folder has no Git history yet, so there is no branch to lock. Lock it once the folder's first commit has created it.",
 			);
 		}
 		const branch = /^ref: refs\/heads\/(.+)$/.exec(head.trim())?.[1];

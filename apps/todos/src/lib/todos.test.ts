@@ -325,9 +325,7 @@ test('after a merge, the write waiting behind it keeps what the merge took from 
 	expect(failures).toEqual([]);
 	// The first write merged in `done`; the second, made over the cache that
 	// had not seen it yet, does not undo it.
-	expect(await text(todos, path)).toBe(
-		'---\ntitle: Second\ndone: true\n---\n',
-	);
+	expect(await text(todos, path)).toBe('---\ntitle: Second\ndone: true\n---\n');
 });
 
 test('the folder refuses a value it cannot hold, and the cache rolls back', async () => {

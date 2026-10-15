@@ -99,7 +99,9 @@ test('a save another writer overtook is merged, and names what it replaced', asy
 
 	expect(outcome).toMatchObject({
 		kind: 'merged',
-		replaced: [{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Theirs' }],
+		replaced: [
+			{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Theirs' },
+		],
 	});
 	expect((await read()).row.fields).toEqual({
 		title: 'Mine',
@@ -136,7 +138,8 @@ test('a value the field does not admit is not saved, and says why', async () => 
 	const outcome = await saveRow({ table, captured, edited });
 
 	expect(outcome.kind).toBe('failed');
-	if (outcome.kind === 'failed') expect(outcome.message).toStartWith('Not saved: ');
+	if (outcome.kind === 'failed')
+		expect(outcome.message).toStartWith('Not saved: ');
 	expect((await read()).row.fields.done).toBe(false);
 	await folder.close();
 });
