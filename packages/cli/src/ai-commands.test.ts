@@ -3,8 +3,9 @@
  * local fake OpenAI-compatible server: a streamed response arrives line by
  * line while the server is still sending, a large body crosses both ways in
  * bounded lines, the key is added and nothing ambient is carried, and a
- * request prepared for another endpoint, an Epicenter connection, or a
- * missing key sends nothing.
+ * request prepared for another endpoint, an Epicenter connection or account
+ * request with no sign-in, an account path outside `/api/`, or a missing key
+ * sends nothing.
  *
  * The keychain is never touched: `EPICENTER_TEST_SECRETS` seeds a store held
  * in the process's memory (`secrets.ts`). Like `epicenter.test.ts`, these run
@@ -153,8 +154,12 @@ const request = (path: string, body?: Uint8Array): SendRequest => ({
 });
 
 /** Run `send` to the end: its exit code and every event it printed. */
-async function send(input: Uint8Array, secrets?: Record<string, KeyEntry>) {
-	const child = spawn(['send', '--json'], input, secrets);
+async function send(
+	input: Uint8Array,
+	secrets?: Record<string, KeyEntry>,
+	flags: string[] = [],
+) {
+	const child = spawn(['send', '--json', ...flags], input, secrets);
 	const events: SendEvent[] = [];
 	let longest = 0;
 	for await (const line of lines(child.stdout)) {
@@ -242,7 +247,7 @@ test('a request prepared for another endpoint is refused and sends nothing', asy
 	expect(seen.length).toBe(before);
 });
 
-test('a missing key, an Epicenter connection, a redirect, and bad input each fail typed', async () => {
+test('a missing key, an Epicenter connection, a signed-out account, a redirect, and bad input each fail typed', async () => {
 	const before = seen.length;
 	const missing = await send(
 		encodeSendInput(target({ connection: 'other' }), request('big')),
@@ -261,6 +266,43 @@ test('a missing key, an Epicenter connection, a redirect, and bad input each fai
 		expect.objectContaining({ type: 'error', name: 'NoAccessToken' }),
 	]);
 	expect(JSON.stringify(account.events[0])).toContain('epicenter auth login');
+
+	const signedOut = await send(
+		encodeSendInput(
+			{ kind: 'account', audience: 'git' },
+			request('api/git/connect'),
+		),
+	);
+	expect(signedOut.code).toBe(2);
+	expect(signedOut.events).toEqual([
+		expect.objectContaining({ type: 'error', name: 'NoAccountToken' }),
+	]);
+	expect(JSON.stringify(signedOut.events[0])).toContain('epicenter auth login');
+
+	const desktop = await send(
+		encodeSendInput(
+			{ kind: 'account', audience: 'api' },
+			request('api/session'),
+		),
+		undefined,
+		['--desktop'],
+	);
+	expect(desktop.events[0]).toMatchObject({
+		type: 'error',
+		name: 'NoAccountToken',
+	});
+	expect(JSON.stringify(desktop.events[0])).toContain("Epicenter's Settings");
+
+	const outsideApi = await send(
+		encodeSendInput(
+			{ kind: 'account', audience: 'api' },
+			request('auth/oauth2/revoke'),
+		),
+	);
+	expect(outsideApi.events[0]).toMatchObject({
+		type: 'error',
+		name: 'InvalidRequest',
+	});
 
 	const escaping = await send(
 		encodeSendInput(target(), request('../elsewhere')),

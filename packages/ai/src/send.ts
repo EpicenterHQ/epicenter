@@ -7,6 +7,11 @@
  * under the connection's id, written and read only by the `epicenter` CLI,
  * so a synced edit of a row can never send a key somewhere new.
  *
+ * The same command carries a page's account requests on the desktop: an
+ * `account` target names one of the deployment's resources (ADR-0549), and
+ * `epicenter send` adds the signed-in account's access token for it, so no
+ * page holds one (ADR-0556).
+ *
  * Everything here is shared by the two ways a request leaves:
  *
  * - `epicenter send` reads its stdin with {@link decodeSendInput}, sends
@@ -74,9 +79,22 @@ export function canonicalEndpoint(text: string): Result<string, string> {
 }
 
 /**
+ * The deployment's resources an account request may carry a token for, by
+ * role: `api` for profile and usage reads, `git` for Git and the folder
+ * connect call (ADR-0549). The deployment maps each to its audience.
+ */
+export const ACCOUNT_AUDIENCES = ['api', 'git'] as const;
+export type AccountAudience = (typeof ACCOUNT_AUDIENCES)[number];
+
+/** The only paths an account request may reach: below `/api/`, so `/auth/*` and token revocation stay out of reach. */
+const ACCOUNT_PATH_PREFIX = '/api/';
+
+/**
  * Where a request goes. An `openai-compatible` target names the endpoint
  * the request was prepared for; it is sent only while the keychain entry
- * still holds that endpoint, and always to the entry's own.
+ * still holds that endpoint, and always to the entry's own. An `account`
+ * target is one of the deployment's resources (ADR-0549), named by role,
+ * and sends with the signed-in account's access token for it.
  */
 export type SendTarget =
 	| {
@@ -85,7 +103,8 @@ export type SendTarget =
 			readonly endpoint: string;
 	  }
 	| { readonly kind: 'epicenter'; readonly connection: string }
-	| { readonly kind: 'local'; readonly connection: string };
+	| { readonly kind: 'local'; readonly connection: string }
+	| { readonly kind: 'account'; readonly audience: AccountAudience };
 
 /** An OpenAI-compatible request, relative to its connection's endpoint. */
 export type SendRequest = {
@@ -148,6 +167,22 @@ export const SendError = defineErrors({
 	}) => ({
 		message: `The Epicenter connection '${connection}' cannot send requests: ${reason}`,
 		connection,
+		reason,
+	}),
+	/**
+	 * An account request sends with the account's access token for its
+	 * resource, and none could be had: no sign-in, a sign-in that ended, or a
+	 * server that could not be reached. Nothing was sent.
+	 */
+	NoAccountToken: ({
+		audience,
+		reason,
+	}: {
+		audience: AccountAudience;
+		reason: string;
+	}) => ({
+		message: `The Epicenter account cannot send requests to its ${audience} resource: ${reason}`,
+		audience,
 		reason,
 	}),
 	/** A local connection runs this computer's model and sends no request. */
@@ -402,17 +437,65 @@ export async function sendToEndpoint(
 export type EpicenterAccess = () => Promise<Result<KeyEntry, string>>;
 
 /**
+ * Where an account request sends: the deployment's origin, and an access
+ * token for `audience` that `epicenter send` reads, or why there is none.
+ */
+export type AccountAccess = (
+	audience: AccountAudience,
+) => Promise<Result<KeyEntry, string>>;
+
+/**
+ * Send an account request to the deployment's origin with `access`'s token.
+ * Only a path below `/api/` is sent, checked after the URL is resolved, so
+ * an encoded dot segment cannot climb out of it.
+ */
+async function sendToAccount(
+	audience: AccountAudience,
+	request: SendRequest,
+	access: AccountAccess | undefined,
+	options: { fetch?: typeof globalThis.fetch; signal?: AbortSignal },
+): Promise<Result<Response, SendError>> {
+	const refusePath = SendError.InvalidRequest({
+		reason: `'${request.path}' is not an account path below ${ACCOUNT_PATH_PREFIX}`,
+	});
+	// Checked before any token is minted, against a stand-in origin.
+	const { data: probe, error: probeError } = requestUrl(
+		'https://deployment.invalid',
+		request.path,
+	);
+	if (probeError !== null) return Err(probeError);
+	if (!new URL(probe).pathname.startsWith(ACCOUNT_PATH_PREFIX))
+		return refusePath;
+	if (!access)
+		return SendError.NoAccountToken({
+			audience,
+			reason: 'nothing here signs in to Epicenter',
+		});
+	const { data: entry, error } = await access(audience);
+	if (error !== null)
+		return SendError.NoAccountToken({ audience, reason: error });
+	const { data: url, error: urlError } = requestUrl(
+		entry.endpoint,
+		request.path,
+	);
+	if (urlError !== null) return Err(urlError);
+	if (!new URL(url).pathname.startsWith(ACCOUNT_PATH_PREFIX)) return refusePath;
+	return sendToEndpoint(entry, request, options);
+}
+
+/**
  * Send `request` over `target` with the key saved on this computer: the
  * CLI's `send`. An Epicenter connection sends with what `epicenter` gives,
- * a local one sends nothing, and an `openai-compatible` one is sent only
- * while its keychain entry still holds the endpoint the request was
- * prepared for.
+ * an account request with what `account` gives, a local connection sends
+ * nothing, and an `openai-compatible` one is sent only while its keychain
+ * entry still holds the endpoint the request was prepared for.
  */
 export async function sendRequest({
 	target,
 	request,
 	secrets,
 	epicenter,
+	account,
 	fetch,
 	signal,
 }: {
@@ -421,9 +504,13 @@ export async function sendRequest({
 	secrets: SecretStore;
 	/** Absent where nothing signs in, which refuses an Epicenter connection. */
 	epicenter?: EpicenterAccess;
+	/** Absent where nothing signs in, which refuses an account request. */
+	account?: AccountAccess;
 	fetch?: typeof globalThis.fetch;
 	signal?: AbortSignal;
 }): Promise<Result<Response, SendError>> {
+	if (target.kind === 'account')
+		return sendToAccount(target.audience, request, account, { fetch, signal });
 	if (!isConnectionId(target.connection)) return refuseId(target.connection);
 	switch (target.kind) {
 		case 'epicenter': {
@@ -521,7 +608,14 @@ const isPair = (value: unknown): value is [string, string] =>
 
 function readTarget(value: unknown): SendTarget | undefined {
 	if (typeof value !== 'object' || value === null) return undefined;
-	const { kind, connection, endpoint } = value as Record<string, unknown>;
+	const { kind, connection, endpoint, audience } = value as Record<
+		string,
+		unknown
+	>;
+	if (kind === 'account')
+		return ACCOUNT_AUDIENCES.includes(audience as AccountAudience)
+			? { kind, audience: audience as AccountAudience }
+			: undefined;
 	if (typeof connection !== 'string') return undefined;
 	if (kind === 'openai-compatible')
 		return typeof endpoint === 'string'

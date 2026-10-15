@@ -61,15 +61,21 @@ const HANDLERS: Record<string, Run> = {
 		return authKey(action as string, connection as string, json, keychain());
 	},
 	send: async ({ desktop }) => {
-		const [{ send }, { keychain }, { authContext, epicenterAccess }] =
-			await Promise.all([
-				import('./ai-commands.ts'),
-				import('./secrets.ts'),
-				import('./auth.ts'),
-			]);
+		const [
+			{ send },
+			{ keychain },
+			{ accountAccess, authContext, epicenterAccess },
+		] = await Promise.all([
+			import('./ai-commands.ts'),
+			import('./secrets.ts'),
+			import('./auth.ts'),
+		]);
+		const ctx = authContext();
+		const grant = desktop ? 'desktop' : 'device';
 		return send(
 			keychain(),
-			epicenterAccess(authContext(), desktop ? 'desktop' : 'device'),
+			epicenterAccess(ctx, grant),
+			accountAccess(ctx, grant),
 		);
 	},
 	'auth login': async ({ options, json, desktop }) =>

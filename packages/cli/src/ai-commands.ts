@@ -7,6 +7,7 @@
  */
 
 import {
+	type AccountAccess,
 	decodeSendInput,
 	type EpicenterAccess,
 	keyState,
@@ -85,9 +86,10 @@ export async function authKey(
 }
 
 /**
- * `epicenter send`: stdin is one JSON line naming the target connection and
- * the request, then the body's bytes. An Epicenter connection sends with
- * `epicenter`'s access token: the desktop grant's under `--desktop`, the
+ * `epicenter send`: stdin is one JSON line naming the target and the
+ * request, then the body's bytes. An Epicenter connection sends with
+ * `epicenter`'s access token and an account request with `account`'s token
+ * for its resource (ADR-0549): the desktop grant's under `--desktop`, the
  * device grant's otherwise (ADR-0558). Stdout is NDJSON, one `SendEvent` per
  * line: the response's head, its body in bounded base64 chunks, and `end`,
  * or an `error`. Each line is flushed before the next, so a large response
@@ -98,6 +100,7 @@ export async function authKey(
 export async function send(
 	secrets: SecretStore,
 	epicenter: EpicenterAccess,
+	account: AccountAccess,
 	stdin: () => Promise<Uint8Array> = readStdin,
 ): Promise<number> {
 	const out = Bun.stdout.writer();
@@ -116,6 +119,7 @@ export async function send(
 		...input,
 		secrets,
 		epicenter,
+		account,
 	});
 	if (error !== null) return refuse(error);
 	let ended = false;

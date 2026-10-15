@@ -24,7 +24,11 @@
  */
 
 import { join } from 'node:path';
-import type { EpicenterAccess, SecretStore } from '@epicenter/ai/send';
+import type {
+	AccountAccess,
+	EpicenterAccess,
+	SecretStore,
+} from '@epicenter/ai/send';
 import {
 	EPICENTER_API_URL,
 	resolveOAuthAudiences,
@@ -428,6 +432,28 @@ export function epicenterAccess(
 		);
 		return error === null
 			? Ok({ endpoint: `${ctx.deployment.origin}/v1`, key: data.token })
+			: Err(error.message);
+	};
+}
+
+/**
+ * What an account request's `send` sends with: the deployment's origin and
+ * an access token from `grant` for the resource the request names, or why
+ * there is none. The resource is one of the deployment's by role, never an
+ * audience the request spells out (ADR-0549).
+ */
+export function accountAccess(
+	ctx: AuthContext,
+	grant: GrantKind,
+): AccountAccess {
+	return async (audience) => {
+		const { data, error } = await accessToken(
+			ctx,
+			grant,
+			ctx.deployment.audiences[audience],
+		);
+		return error === null
+			? Ok({ endpoint: ctx.deployment.origin, key: data.token })
 			: Err(error.message);
 	};
 }

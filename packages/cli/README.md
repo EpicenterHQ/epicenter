@@ -101,8 +101,13 @@ endpoint and whether a key is saved, never the key. `send` reads one JSON
 line, `{"target", "request"}`, then the request body's raw bytes on stdin;
 it sends an Epicenter connection to the deployment's `/v1` with an access
 token from `auth` (the desktop grant's under `--desktop`, otherwise the
-device grant's), and refuses a local connection, a missing key, and a
-request prepared for another endpoint than the keychain holds, and otherwise prints the response as NDJSON: a `head`, the
+device grant's). An account target, `{"kind": "account", "audience": "api"
+| "git"}`, names one of the deployment's resources by role (ADR-0549): `send`
+sends a path below the deployment's `/api/` with that grant's token for the
+resource's audience and refuses any other path, such as `/auth/*`, before
+asking for a token. It refuses a local connection, a missing key or
+sign-in, and a request prepared for another endpoint than the keychain
+holds, and otherwise prints the response as NDJSON: a `head`, the
 body in base64 `chunk` lines of at most 64 KiB, and `end`, or an `error`.
 It exits 0 when a response arrived, whatever its status, and 2 otherwise.
 Without `Bun.secrets` in the binary, every keychain command fails and says
@@ -159,9 +164,9 @@ grant's refresh token, which ends every token the grant issued, and deletes
 its entry even when the server cannot be reached. Without `--desktop` it
 signs out the device grant.
 
-The resources do not accept these tokens yet (ADR-0549's Unbuilt line), so
-an Epicenter connection's `send` reaches `/v1` with a token the API still
-refuses.
+Every built resource accepts only these tokens (ADR-0549): an Epicenter
+connection's `send` reaches `/v1` with an API token, and an account target
+reaches `/api/*` with a token for the audience it names.
 
 ## Installing apps
 

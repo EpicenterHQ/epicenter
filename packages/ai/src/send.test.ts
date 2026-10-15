@@ -143,6 +143,95 @@ test('the keychain endpoint, not the page, decides where a request goes', async 
 	expect(sent[0]!.redirect).toBe('error');
 });
 
+test('an account request goes below /api/ on the deployment, with the token for its audience', async () => {
+	const secrets = createMemorySecrets();
+	const sent: Request[] = [];
+	const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		sent.push(new Request(input, init));
+		return new Response('{}');
+	}) as typeof globalThis.fetch;
+	const minted: string[] = [];
+	const account = async (audience: 'api' | 'git') => {
+		minted.push(audience);
+		return Ok({ endpoint: 'https://api.example.test', key: `at_${audience}` });
+	};
+	const request = (path: string) => ({
+		method: 'POST',
+		path,
+		headers: [
+			['authorization', 'Bearer page'] as const,
+			['cookie', 'a=b'] as const,
+		],
+	});
+
+	const connected = await sendRequest({
+		target: { kind: 'account', audience: 'git' },
+		request: request('api/git/connect'),
+		secrets,
+		account,
+		fetch,
+	});
+	expect(connected.error).toBeNull();
+	expect(sent[0]?.url).toBe('https://api.example.test/api/git/connect');
+	expect(sent[0]?.headers.get('authorization')).toBe('Bearer at_git');
+	expect(sent[0]?.headers.get('cookie')).toBeNull();
+	expect(sent[0]?.redirect).toBe('error');
+
+	for (const path of [
+		'auth/oauth2/revoke',
+		'api',
+		'v1/chat/completions',
+		'api/../auth/sign-out',
+		'api/%2e%2e/auth/sign-out',
+		'/api%2fx',
+	]) {
+		const refused = await sendRequest({
+			target: { kind: 'account', audience: 'api' },
+			request: request(path),
+			secrets,
+			account,
+			fetch,
+		});
+		expect(refused.error?.name).toBe('InvalidRequest');
+	}
+	expect(minted).toEqual(['git']);
+
+	const absent = await sendRequest({
+		target: { kind: 'account', audience: 'api' },
+		request: request('api/session'),
+		secrets,
+		fetch,
+	});
+	expect(absent.error?.name).toBe('NoAccountToken');
+	const signedOut = await sendRequest({
+		target: { kind: 'account', audience: 'api' },
+		request: request('api/session'),
+		secrets,
+		account: async () => Err('run epicenter auth login --loopback'),
+		fetch,
+	});
+	expect(signedOut.error).toMatchObject({
+		name: 'NoAccountToken',
+		audience: 'api',
+		reason: 'run epicenter auth login --loopback',
+	});
+	expect(sent.length).toBe(1);
+});
+
+test('an account target reads back only with a known audience', () => {
+	const head = (target: unknown) =>
+		new TextEncoder().encode(
+			`${JSON.stringify({ target, request: { method: 'GET', path: 'api/session', headers: [] } })}\n`,
+		);
+	expect(
+		decodeSendInput(head({ kind: 'account', audience: 'git' })).data?.target,
+	).toEqual({ kind: 'account', audience: 'git' });
+	for (const audience of ['mcp', 'https://git.epicenter.so', undefined])
+		expect(
+			decodeSendInput(head({ kind: 'account', audience })).error?.name,
+		).toBe('InvalidRequest');
+});
+
 test('stdin carries one JSON line and the raw body, and reads back the same', async () => {
 	const { data: request } = await toSendRequest(
 		endpoint,
