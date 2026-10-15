@@ -24,11 +24,13 @@ This package is part of the Epicenter monorepo and is used internally. To use it
 
 The modal review for one `folder.sync` attempt that needs choices
 (ADR-0514, ADR-0516). It shows each conflicting setting, field, body, or
-whole file with the two captured versions and a result, and holds that
-attempt's `SyncChoices` only while it is shown. `Use this` takes a side
-exactly, and `Use all from` takes one side for every part; typing
-replaces, as text for text values and as JSON, once it parses, for any other
-value; `Leave out` removes. Apply calls `onApply(attempt, choices)` only when
+whole file with each side's version and a result, and holds that attempt's
+`SyncChoices` only while it is shown. `Use this` takes that side's version:
+for a body or a text file, the line merge with that side winning where both
+changed the same lines, so the other side's other lines stay (ADR-0551).
+`Use all from` takes one side for every part; typing replaces, as text for
+text values and as JSON, once it parses, for any other value; a file that is
+not text is taken or left out, never typed; `Leave out` removes. Apply calls `onApply(attempt, choices)` only when
 every conflict has a choice. Cancel calls `onCancel`, which discards the
 attempt; nothing is lost by not syncing.
 
@@ -50,6 +52,27 @@ Show it in place of the page while the attempt waits, keyed on
 `attempt.id`. Pass the `problems` of an `InvalidChoices` refusal back in;
 each shows beside its row until the person changes that row's choice. The
 sides read "This device" and "Remote".
+
+### `ReplacedNotice` (`@epicenter/svelte/replaced-notice`)
+
+The one notice for a save that replaced another writer's change (ADR-0551).
+It names each value in `saved.replaced`: a field or setting with what was
+kept and what was theirs, each competing span of text by its lines, or the
+whole file. **Restore theirs** calls `onRestore`, which the app runs as one
+more save of `restoreTheirs(saved)` from `@epicenter/folder`; **Dismiss**
+calls `onDismiss`. Render it inline, or show it in the app's `Toaster` until
+it is dismissed with `toastReplaced`:
+
+```ts
+import { restoreTheirs } from '@epicenter/folder';
+import { toastReplaced } from '@epicenter/svelte/replaced-notice';
+
+void toastReplaced({
+	replaced: saved.replaced,
+	subject: saved.stored.path,
+	restore: () => void save.mutateAsync(restoreTheirs(saved)),
+});
+```
 
 ### Running a sync from a page
 

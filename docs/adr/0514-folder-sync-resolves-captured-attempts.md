@@ -59,10 +59,11 @@ merge splits a path both sides changed into units:
   not clone.
 - Any other text file merges by line, so a README both sides edited is one
   `file` unit only when their lines compete.
-- A binary file, a link, executable, or submodule, and a file against a
-  directory are `SyncError.Unreviewable`, listing every conflict. Nothing is
-  written or sent; the person repairs them with Git outside the app, since
-  `git merge` in the folder terminal needs manual history.
+- A link, executable, or submodule, and a file against a directory are
+  `SyncError.Unreviewable`, listing every conflict. Nothing is written or
+  sent; the person repairs them with Git outside the app, since `git merge`
+  in the folder terminal needs manual history. A binary file is a `file`
+  unit taken or removed, never replaced (amended by ADR-0551).
 
 A conflict is reported as `SyncAttempt`:
 
@@ -76,8 +77,11 @@ type SyncChoice = { kind: 'take'; side: 'local' | 'incoming' } | { kind: 'replac
 type SyncChoices = Partial<Record<string, SyncChoice>>; // keyed by conflict id
 ```
 
-- `take` selects what the owner captured, so a setting keeps its exact JSON
-  text. Taking an absent side removes the unit. `replace` is a JSON value
+- `take` selects that side's version, so a setting keeps its exact JSON
+  text. For a `body`, or a `file` both sides changed by line, that version
+  is the line merge with that side winning every competing region, so the
+  other side's lines that did not compete stay (amended by ADR-0551; it was
+  the captured text exactly). Taking an absent side removes the unit. `replace` is a JSON value
   for `setting` and `field`, and a string for `body` and `file`. `remove`
   applies to every kind except `body`.
 - `resolve` reads the choices once, before its first await. Every problem is
@@ -140,7 +144,7 @@ type SyncChoices = Partial<Record<string, SyncChoice>>; // keyed by conflict id
 
 ## Verification
 
-`packages/folder/src/row-merge.test.ts` covers independent field and body
+`packages/folder/src/merge-file.test.ts` covers independent field and body
 changes, spelling that is not a change, two edits of one field, a removed
 field against a changed one, competing body lines, added rows with no base,
 and deleted or unreadable versions. `packages/folder/src/sync.test.ts` runs a
@@ -148,7 +152,8 @@ browser folder against `git http-backend` and covers merges without
 choices in the standard form, captured units with nothing written or sent,
 settled units with the captured commits as parents, a deleted row and an
 invalid row as whole files, every kind of invalid choice, stale attempts,
-a text file outside a table merged by line or held whole, and an
-unreviewable binary conflict. `packages/folder/src/git/merge-lines.test.ts`
+a text file outside a table merged by line or held as one unit, taking a
+side that keeps the other side's lines that did not compete, and a binary
+file taken or removed. `packages/folder/src/git/merge-lines.test.ts`
 pins that a line merge keeps lone carriage returns, U+2028, and U+2029. `apps/todos/src/lib/sync.test.ts` covers
 the open item afterwards.

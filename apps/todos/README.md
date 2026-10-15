@@ -303,7 +303,7 @@ time, and switching never waits or asks.
 - When the file changed elsewhere since your edit started, the save merges
   with it (ADR-0548): what only the other writer changed stays, and where
   you both changed the same field or lines, your edit wins and a message
-  names what of theirs it replaced. While your edit waits to be saved, the
+  names what of theirs it replaced, with **Restore theirs**. While your edit waits to be saved, the
   editor says when the file changed elsewhere.
 - A save that fails, or whose reply is lost, keeps your edit in the editor,
   which says it is not saved and offers **Try again**; a message offers

@@ -318,8 +318,9 @@ engine merges with whatever changed since (ADR-0548): a field or body lines
 only one side changed keep that side's change. Where both changed a field, or
 the same body lines, this edit wins, and a notice names each value it replaced,
 by field or by notes line, with what was kept and what was theirs. The notice
-stays until dismissed. "Restore theirs" is one more save, over the version the
-first save wrote, that puts their values back in those fields and lines. A row
+stays until dismissed. "Restore theirs" is one more save of
+`restoreTheirs(saved)`, over the version the first save wrote, that puts their
+values back in those fields and their side of those lines (ADR-0551). A row
 another window deleted, or saved in a form that does not read as a row, is not
 overwritten. When a save fails, the view says why and the editors show the
 stored values again.

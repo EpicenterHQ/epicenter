@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-15
 - **Amends:** [ADR-0514](0514-folder-sync-resolves-captured-attempts.md): taking a side of a text unit no longer takes the captured version exactly.
-- **Unbuilt:** all of it: `mergeFile`, `saveFile`, content-carrying captures, `files.save`, `table.save` and `kv.set` over `saveFile`, Sync's held paths and binary paths over `mergeFile`, and the callers listed below.
+- **Built:** `mergeFile` and `fileKindOf` (`merge-file.ts`), the one-pass line merge (`git/merge-lines.ts`), `saveFile`, `Replaced`, and `restoreTheirs` (`save-file.ts`); content-carrying captures (`files.read`, `files.create`, `files.save`, and `StoredRow.text`); `files.save` with `files.replace` and `files.overwrite` deleted; `table.save` and `kv.set` over `saveFile`; Sync's held paths and binary paths over `mergeFile`; `publishDefinition` over create and `{ merge: false }`; drafts that carry changes made during a merged save onto the version it wrote, for rows and, in `createTextDraft`, for text; `ReplacedNotice` in `@epicenter/svelte`; and every caller listed below. The storage boundary keeps its `overwrite` change kind, which no folder verb sends.
 
 ## Context
 
@@ -94,7 +94,10 @@ today, is refused. Because the check needs no registry, a base survives what
 object identity does not: a draft persisted across a reload or a host
 restart, and a capture passed between windows by structured clone. The cost
 is one SHA-256 of the base per save. `table.ts`'s `issuedText` map,
-`createSaveBases`, and the `draft.ts` workaround go.
+`createSaveBases`, and the `draft.ts` workaround go. After a save, a draft's
+base is the version it wrote; when that save merged, changes made while it
+ran are merged onto that version, so the next save does not undo what the
+merge took.
 
 **`{ merge: false }` is the same loop stopping at step 1.** It answers
 `Conflict` instead of merging. Two callers need it:
@@ -135,7 +138,10 @@ with theirs winning every competing region. Restoring it is putting it back,
 with no splicing by line. `regions` name each competing span for the notice.
 A row with competing fields and a competing body reports one entry per field
 and one body entry. `restoreTheirs(saved)` lives next to `Replaced` in
-`@epicenter/folder` and is one save over `saved.stored`.
+`@epicenter/folder` and builds the one save over `saved.stored`: the base and
+the row or content, which the caller sends through the save it already uses,
+so its cache sees the result. A file saved at a row path or `kv.json` is
+restored by field or key, which needs the folder's definition.
 
 **Every caller that saves a file renders `replaced`.** One shared notice in
 `@epicenter/svelte` names what a save replaced and offers "Restore theirs".
