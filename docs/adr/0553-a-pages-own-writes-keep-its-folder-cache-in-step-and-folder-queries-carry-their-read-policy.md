@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
+- **Amended by:** [ADR-0554](0554-a-field-edit-is-a-patch-the-engine-applies-to-the-file-as-it-is-now.md): a field edit is a patch applied to the file as it is now; only document editors keep a starting version.
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) at "a page's own save updates its cache directly" and at TanStack's focus refetch.
 - **Built:** all of it, in `@epicenter/folder/query` and `@epicenter/folder/svelte`, with Todos, Capture, Honeycrisp, Whispering, Vocab, the Git lab, and the Folders window on it.
 
