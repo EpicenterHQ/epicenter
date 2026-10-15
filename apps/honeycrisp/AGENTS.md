@@ -1,8 +1,8 @@
 # Honeycrisp App
 
-File-authoritative Markdown notes. Read [the README](README.md) for how the
-page, the desktop shell, and the folder plugin fit together, and verify it
-against the code. The constraints below apply to every edit here.
+File-authoritative Markdown notes, an installed app in Epicenter and a
+browser build. Read [the README](README.md) for how the page, Epicenter's
+shell, and the folder plugin fit together, and verify it against the code. The constraints below apply to every edit here.
 
 ## The files are the data
 
@@ -11,7 +11,7 @@ against the code. The constraints below apply to every edit here.
   on the desktop, no mirrored checkout, no import step, no cache that can
   disagree with a file.
 - Do not add Yjs, a CRDT, an account, or sync to this app. Nothing in
-  `src/` or `src-tauri/` may import `@y/*`, `yjs`, `@epicenter/auth`, or
+  `src/` may import `@y/*`, `yjs`, `@epicenter/auth`, or
   `@epicenter/sync`. `src/lib/platform-selection.test.ts` checks the
   bundles.
 - Do not add a migration, a legacy reader, or a compatibility path for the
@@ -20,12 +20,14 @@ against the code. The constraints below apply to every edit here.
 - Opening an initialized folder changes no saved file, commit, or ref,
   even when its repository has no commit yet. Only missing layout/defaults
   are initialized. Do not request a commit because a folder has no head.
-- The shell writes nothing inside the notes directory. A missing layout is
-  created by the page through the granted folder, after the shell's grant
-  takes the folder's lock, in `src/lib/platform/first-open.ts`: look first, write `kv.json`
-  only when a read confirmed it absent and only if it is still absent, and
-  never retry an outcome that is unknown. Table directories come from the
-  declaration; do not list them a second time in Rust.
+- Epicenter's shell writes nothing inside the notes directory. A missing
+  layout of Honeycrisp's own folder is created by the page through the
+  granted folder, after the shell's grant takes the folder's lock, in
+  `src/lib/platform/first-open.ts`: look first, write `kv.json` only when a
+  read confirmed it absent and only if it is still absent, and never retry an
+  outcome that is unknown. Table directories come from the declaration. A
+  folder Epicenter hands the window that is not Honeycrisp's own is opened
+  through Honeycrisp's shape and never set up.
 - The query cache holds what the files held when they were read (ADR-0528,
   ADR-0548). The note and folder listings, the file listing, each file
   opened as text, and Git status are queries from the folder's options
@@ -101,10 +103,10 @@ against the code. The constraints below apply to every edit here.
 
 ## Closing
 
-- Closing the window or quitting quits at once (ADR-0542). Do not add a
-  close gate, a page vote, a wait for writes, an exit hold, or a quit
-  dialog; do not replace the standard Quit item. A save cut off by a quit
-  leaves the old file or the new one, because each save renames into place.
+- Closing the window, or quitting Epicenter, does not wait for the page
+  (ADR-0542). Do not add a close gate, a page vote, a wait for writes, an
+  exit hold, or a quit dialog. A save cut off by a quit leaves the old file
+  or the new one, because each save renames into place.
 - `notes.close()` releases the folder when the page itself goes away. Once it
   begins, `notes.fenced` is set for good: edits are refused, notes actions
   and the terminal refuse to run, and `NotesView` is `inert`. A new way to
@@ -119,42 +121,39 @@ against the code. The constraints below apply to every edit here.
 - The page reaches its folder only through `#platform/notes-host`. Do not
   detect the platform at runtime, and do not import a Node or Bun module
   under `src/`.
-- The desktop folder is the shell's: the page opens it with `openFolder`
-  from `@epicenter/folder/tauri` and names its ID only. Shared code imports
+- The installed build's folder is the one Epicenter hands the window as
+  `?folder=`, or Honeycrisp's own when none is handed. The page opens its own
+  with `openFolder` and any other with `openDataFolder` and Honeycrisp's
+  definition as the lens, both from `@epicenter/folder/tauri`, and names the
+  scope only. Never publish Honeycrisp's declaration over another folder's. Shared code imports
   the folder contract from the bare `@epicenter/folder`, which each build
   aliases to its one adapter entry in `vite.config.ts`; keep
   `apps/honeycrisp/scripts/module-graph.ts` doing the same. Do not add another folder
   engine, a Git implementation, or a history scheduler to the desktop page,
   and do not fall back to browser storage when the grant fails.
-- The root, the commit author, and the window allowed to use them are decided
-  in `src-tauri`. No command accepts a root or a working directory from the
-  page.
+- The root, the commit author, and the windows allowed to use them are
+  decided by Epicenter's shell. Nothing the page calls accepts a root or a
+  working directory.
 - History stays in the directory. The shell registers only the root and the
-  fallback author (`folder_config` in `lib.rs`); the remote and the person's
-  `user.name` and `user.email` are the repository's Git configuration, which
-  the page's engine reads. Do not give the shell a remote.
-- The notes window loads the bundled page's exact origin only. Keep the port
-  and credentials checks in `is_app_page`.
-- A shell command exists in three places that change together:
-  `src-tauri/src/command_names.rs`, the handler list in `lib.rs`, and
-  `src-tauri/capabilities/main.json`. `src-tauri/src/tests.rs` checks them
-  against each other. Update the README's command table with them.
-- The terminal is the desktop shell's own `/bin/sh`, an outside writer; the
-  browser build has none. Do not route it through the folder's publication,
-  and do not make it request a commit.
-- A path from the page is checked with the folder plugin's `path_problem`
-  before `git` sees it, and a commit must be a hexadecimal id. Keep both
-  checks in `history.rs`.
+  fallback author; the remote and the person's `user.name` and `user.email`
+  are the repository's Git configuration, which the page's engine reads. Do
+  not give the shell a remote.
+- Honeycrisp has no desktop shell and no native commands of its own (ADR-0552).
+  A native need is a host function Epicenter grants by app id (ADR-0555); do
+  not add a Tauri shell back to this app. Neither leaf gives `NotesHost` a
+  `terminal`, `reveal`, or `history` today.
 - Do not describe the native conditional save as atomic. It compares, then
   replaces; another program can write in between.
-- Do not add fault injection to the shell or wrap the folder's writes to
+- Do not add fault injection to Epicenter's shell or wrap the folder's writes to
   simulate failures. The README lists how to produce a real failure in a
   disposable directory; never test against the default one. Tests fault the
   folder's storage stand-in, never a wrapper around the notes state.
 - A commit failure is a Git fact. Do not turn one into a save error, and do
   not make a save request or wait for a commit.
-- `bun run test` must not need Rust. Tests that need the shell live in
-  `src-tauri` and run with `bun run test:native`.
+- `bun run test` must not need Rust. Installing Honeycrisp from this folder
+  is tested by Epicenter's ignored
+  `installs_honeycrisp_from_its_folder_in_the_monorepo` in
+  `apps/epicenter/src-tauri/src/installed_apps.rs`.
 
 ## Words a person reads
 

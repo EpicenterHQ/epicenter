@@ -1,0 +1,103 @@
+{
+	"title": "Honeycrisp",
+	"kv": {
+		"type": "object",
+		"properties": {}
+	},
+	"tables": {
+		"folders": {
+			"type": "object",
+			"properties": {
+				"name": {
+					"type": "string",
+					"x-field": {
+						"kind": "string"
+					}
+				},
+				"icon": {
+					"anyOf": [
+						{
+							"type": "string",
+							"x-field": {
+								"kind": "string"
+							}
+						},
+						{
+							"type": "null"
+						}
+					]
+				}
+			},
+			"required": ["name", "icon"]
+		},
+		"notes": {
+			"type": "object",
+			"properties": {
+				"folderId": {
+					"anyOf": [
+						{
+							"type": "string",
+							"x-field": {
+								"kind": "string"
+							}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"title": {
+					"type": "string",
+					"x-field": {
+						"kind": "string"
+					}
+				},
+				"pinned": {
+					"type": "boolean",
+					"x-field": {
+						"kind": "boolean"
+					}
+				},
+				"createdAt": {
+					"type": "string",
+					"format": "date-time",
+					"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+					"x-field": {
+						"kind": "instant"
+					}
+				},
+				"updatedAt": {
+					"type": "string",
+					"format": "date-time",
+					"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+					"x-field": {
+						"kind": "instant"
+					}
+				},
+				"deletedAt": {
+					"anyOf": [
+						{
+							"type": "string",
+							"format": "date-time",
+							"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+							"x-field": {
+								"kind": "instant"
+							}
+						},
+						{
+							"type": "null"
+						}
+					]
+				}
+			},
+			"required": [
+				"folderId",
+				"title",
+				"pinned",
+				"createdAt",
+				"updatedAt",
+				"deletedAt"
+			]
+		}
+	}
+}

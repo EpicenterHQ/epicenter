@@ -5,17 +5,23 @@ import { build } from 'vite';
 
 const appDir = join(import.meta.dir, '..');
 const [entry, platform] = process.argv.slice(2);
-if (entry === undefined || (platform !== 'browser' && platform !== 'tauri'))
-	throw new Error('Usage: bun scripts/module-graph.ts <entry> <browser|tauri>');
+if (
+	entry === undefined ||
+	(platform !== 'browser' && platform !== 'epicenter-host')
+)
+	throw new Error(
+		'Usage: bun scripts/module-graph.ts <entry> <browser|epicenter-host>',
+	);
 
-if (platform === 'tauri') process.env.HONEYCRISP_DESKTOP = '1';
-else delete process.env.HONEYCRISP_DESKTOP;
+if (platform === 'epicenter-host') process.env.EPICENTER_HOST = '1';
+else delete process.env.EPICENTER_HOST;
 const { default: config } = await import('../vite.config.js');
 const result = await build({
 	root: appDir,
 	configFile: false,
 	logLevel: 'silent',
 	resolve: config.resolve,
+	define: config.define,
 	build: {
 		write: false,
 		minify: false,

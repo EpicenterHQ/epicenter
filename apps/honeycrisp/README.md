@@ -4,8 +4,11 @@ Honeycrisp is a Markdown notes app with a rich-text editor. Every note is one
 Markdown file in a folder you own, and that folder's files are the saved data.
 There is no account, no sync, and no database behind it.
 
-Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo.
-Licensed under AGPL-3.0-or-later.
+On the desktop, Honeycrisp is an app you install in Epicenter
+([ADR-0552](../../docs/adr/0552-every-app-is-installed-from-a-folder-in-any-git-repository.md));
+it also runs in a browser tab. Part of the
+[Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. Licensed under
+AGPL-3.0-or-later.
 
 ## Run it
 
@@ -13,29 +16,37 @@ From the repository root:
 
 | Command | What it does |
 | --- | --- |
-| `bun dev:honeycrisp` | Builds the desktop page, then starts the desktop app (`tauri dev`). |
-| `bun build:honeycrisp` | Builds the desktop app bundle (`tauri build`). |
-| `bun dev:honeycrisp:ui` | Starts the browser build on port 5175. Notes live in this browser's origin private file system (OPFS), not in a directory on disk. |
+| `bun dev:honeycrisp` | Starts the browser build on port 5175. Notes live in this browser's origin private file system (OPFS), not in a directory on disk. `bun dev:honeycrisp:ui` is the same. |
 | `bun build:honeycrisp:ui` | Builds the browser page into `apps/honeycrisp/build`. |
 
-Development and builds need Bun, Rust, Git, and the Tauri prerequisites for your
-platform. The packaged app is one program and needs Git available on the
-machine. It starts signed out and stays that way; it does not need the
-Epicenter desktop app or the hosted API.
+On the desktop, run Epicenter (`bun dev:epicenter`) and install Honeycrisp
+from its Folders window: **Install from a repository…**, this repository, and
+the app in `apps/honeycrisp`. Epicenter reads `epicenter.app.json`, runs
+`bun run build:installed` here, which writes the prerendered page with relative
+paths into `dist/`, and serves it at `/apps/so.epicenter.honeycrisp/`. The
+browser build needs Bun only; the installed one needs Epicenter and Git. Neither
+needs an account or the hosted API.
+
+`shape.json` is the shape Honeycrisp opens (ADR-0538), which Epicenter matches
+folders against. Run `bun run shape` after changing `src/lib/data.ts`;
+`apps/honeycrisp/scripts/shape.test.ts` fails until then.
 
 Checks, from `apps/honeycrisp`:
 
 | Command | What it checks |
 | --- | --- |
 | `bun run typecheck` | Both page builds and the scripts. |
-| `bun run test` | The page: the editor, the notes state over the browser folder, first open over a real directory, bundle contents, then `test:dom`. Needs no Rust or C compiler. |
+| `bun run test` | The page: the editor, the notes state over the browser folder, first open over a real directory, which folder the installed build opens, bundle contents, `shape.json`, then `test:dom`. Needs no Rust or C compiler. |
 | `bun run test:dom` | The note view, mounted with its UI library over jsdom, in its own process. |
-| `bun run test:native` | The shell: builds the desktop page, then runs its Rust tests. Needs Rust. |
+
+Epicenter's ignored test `installs_honeycrisp_from_its_folder_in_the_monorepo`
+installs and builds Honeycrisp from a clone of this repository named by
+`EPICENTER_MONOREPO`.
 
 ## Where notes live
 
 ```text
-~/Epicenter/local/so.epicenter.honeycrisp/
+~/Epicenter/so.epicenter.honeycrisp/
 ├── epicenter.json
 ├── kv.json
 ├── notes/
@@ -45,14 +56,22 @@ Checks, from `apps/honeycrisp`:
 └── .git/
 ```
 
-Set `HONEYCRISP_ROOT` to use another directory, for example a disposable one
-for testing:
+This is Honeycrisp's own folder in Epicenter's folder root: `~/Epicenter` in
+production, `~/Epicenter Dev` in development, or `EPICENTER_FOLDER_DIR`. Set
+that to use another root, for example a disposable one for testing:
 
 ```sh
-HONEYCRISP_ROOT=/tmp/honeycrisp-test bun dev:honeycrisp
+EPICENTER_FOLDER_DIR=/tmp/epicenter-test bun dev:epicenter
 ```
 
-A missing directory gets this layout and a Git repository. Opening publishes
+Opened from the Folders window's Apps list, Honeycrisp gets its own folder.
+Opened beside another folder whose `epicenter.json` declares Honeycrisp's
+`notes` and `folders` tables, possibly with more fields or tables, it opens
+that folder instead: it reads and writes its notes, never writes its
+`epicenter.json`, and sets nothing up in it. A folder that does not declare
+them is refused with what it lacks.
+
+A missing own folder gets this layout and a Git repository. Opening publishes
 `epicenter.json` from Honeycrisp's declaration, replacing any previous
 description, and creates a default `kv.json` when there is none. Saved notes
 and settings stay intact, and opening records no commit. The definition file
@@ -87,7 +106,7 @@ its text, which saves as you type, with the problems named from the text on
 screen. Once it reads as a note, **Open as note** shows its fields again. A
 file in `notes/` that is not text at all, and a file in `folders/` that does
 not read as a folder, are listed apart and open nothing here; Files, rename,
-delete, and the terminal still work on them.
+and delete still work on them.
 
 A file name may start with a dot: `notes/.hidden.md` and `notes/.md` itself
 are notes like any other, and `.gitignore` is an ordinary file. A folder's id
@@ -100,8 +119,8 @@ Windows short name (`NOTES~1`, `PROGRA~1.TXT`; `Notes ~2.md` is fine), and
 or renaming to such a name in **Files** writes nothing and shows why, for
 example "A name cannot end with a dot or a space." A note's own stem may still
 end in a space, since its file name ends in `.md`. A file another program
-gave such a name cannot be changed from Honeycrisp; rename it from the
-terminal.
+gave such a name cannot be changed from Honeycrisp; rename it with another
+program.
 
 Deleting a folder first moves its notes out, each as a list action above. It
 is refused while any note cannot say which folder it is in (a note that needs
@@ -159,9 +178,9 @@ dividers, and line breaks. There is no underline and there are no images.
 
 Honeycrisp reads the folder when it opens. After that, a change made outside
 the window reaches it through the folder's change reports
-(`folder.onFilesChanged`): on the desktop, the shell watches the directory and
+(`folder.onFilesChanged`): in Epicenter, the shell watches the directory and
 reports each changed file, whoever wrote it (another window, another program,
-`git`, or the terminal); in a browser, each tab reports its writes to the
+or `git`); in a browser, each tab reports its writes to the
 other tabs of the same folder. Only what a report names is read again.
 Returning to the window reads nothing. Honeycrisp's own saves update what it
 shows directly.
@@ -182,8 +201,8 @@ What a failed save held stays on screen until it saves; what a failed text
 save held is offered to copy. Opening another note never asks. Reloading the
 page and in-page navigation wait while a save or action is running.
 
-Closing the desktop window or quitting the app (including Cmd+Q) quits at
-once. Nothing asks the page, nothing waits, and no dialog appears
+Closing Honeycrisp's window, or quitting Epicenter (including Cmd+Q), happens
+at once. Nothing asks the page, nothing waits, and no dialog appears
 ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
 Each save writes its new text beside the file and renames it into place, so a
 quit in the middle of a save leaves the file's old text or its new text, never
@@ -196,15 +215,9 @@ last moment of typing. In a browser tab, the leave prompt is the browser's.
 | --- | --- |
 | Status | The most important current fact, usually **Saved**. Open it for three separate lines: **Saves** (whether a save is running, or an edit is not saved), **Changes** (files changed since the last version), and **Versions** (the last **Save version** this session), plus recent versions. |
 | Save version | Records every saved file as one version in Git history. Nothing else does: saves never make a version. |
-| Files (Ctrl+B) | The file browser for the same directory: open, create, rename, and delete any file. **Reveal folder** opens the directory in the system file manager. |
-| Terminal (Ctrl+`) | Desktop only. A shell in the same directory. Its output, history, typed command, and working directory stay while it is hidden. |
+| Files (Ctrl+B) | The file browser for the same directory: open, create, rename, and delete any file. |
 
-On the desktop the terminal runs each command in `/bin/sh` with the real
-`git`, so it is exactly an outside program editing the same files. It is a
-command runner, not a terminal emulator: a command gets no keyboard input, and
-its output appears when it ends. `cd` carries to the next command; environment
-changes do not. A command is stopped after two minutes, along with anything it
-started, and output past 1 MB is cut off. The browser build has no terminal.
+Neither build has a terminal or **Reveal folder**; see [Changed promises](#changed-promises).
 
 ## Git
 
@@ -213,32 +226,32 @@ Honeycrisp makes one only when you choose **Save version** (ADR-0529). Saves
 never commit, and nothing commits on its own, so files changed since the last
 version are normal; the status shows how many, without warning. A commit that
 fails is reported under **Versions** and leaves the saved files saved; it is
-never shown as a save error. Terminal commands, including `git add` and
-`git commit`, and other programs edit disk directly; their changes are in the
-next version.
+never shown as a save error. Other programs, including `git add` and
+`git commit` in your own terminal, edit disk directly; their changes are in
+the next version.
 
 A version's author is the repository's Git identity: `user.name` and
 `user.email` from its own configuration or your global one, as for any Git
-program. Whichever of the two is not configured is `Honeycrisp` or
-`honeycrisp@localhost`. Honeycrisp reads an `origin` the repository already
+program. Whichever of the two is not configured is `Epicenter` or
+`epicenter@localhost` in Epicenter, and `Honeycrisp` or `honeycrisp@localhost`
+in a browser. Honeycrisp reads an `origin` the repository already
 names, but it has no Sync: it never pushes or fetches, and history goes
-nowhere but the directory unless you push it yourself from the terminal.
+nowhere but the directory unless you push it yourself from a terminal.
 
 Deleting a file says whether its latest changes are in no saved version, so
 you can save one first.
 
-Each note has a **History** button listing the versions that include it.
-Since only **Save version** and your own commits make versions, a note's
-history has an entry for each of those, not one per save. Choosing a version
-replaces the note's text and fields with it and saves at once. A version
-that is not text, or is larger than 16 MB, is refused instead of shown.
+A note has no **History** button in either build: listing one file's
+versions was a command of the standalone desktop app, which is gone. Use
+`git log -- notes/<id>.md` in a terminal.
 
-## How the desktop app is built
+## How the installed app is built
 
 ```text
-Tauri shell (src-tauri)          one program and one window. It registers the
-        │                        notes directory with the shared folder plugin.
-        │                        Closing the window quits at once.
+Epicenter's shell                registers Honeycrisp's own folder, or a folder
+        │                        the Folders window lists, with the shared
+        │                        folder plugin, and opens the app's window on
+        │                        it. Quitting Epicenter quits at once.
         ▼
 Folder plugin                    grants the window the directory and holds its
         │                        lock. The page reads, makes every change, and
@@ -246,26 +259,29 @@ Folder plugin                    grants the window the directory and holds its
         │                        checks each path. The Rust crate is in
         │                        packages/tauri-plugin-epicenter-folder.
         ▼
-Page (build-desktop, bundled)    runs @epicenter/folder's own engine over the
-                                 granted directory and calls the shell's own
-                                 commands. It keeps what it read in a TanStack
-                                 Query cache and saves each edit at once.
+Page (dist, served by Epicenter) runs @epicenter/folder's own engine over the
+                                 granted directory. It keeps what it read in a
+                                 TanStack Query cache and saves each edit.
 ```
 
 The page chooses where its folder lives at build time through
-`#platform/notes-host`. The desktop leaf opens the shell's folder with
-`openFolder` from `@epicenter/folder/tauri`, which asks the shell for the
-directory and runs the engine over it; the browser leaf opens one OPFS
-directory, `Epicenter/local/so.epicenter.honeycrisp`, holding the notes and
-their `.git`, with `openFolder` from `@epicenter/folder/browser`. A browser
-folder an earlier version kept in IndexedDB is not read, copied, or deleted;
-the browser opens the OPFS directory alone. Shared code
-imports the folder contract from the bare `@epicenter/folder`, which
-`vite.config.ts` aliases to the build's one entry. A desktop folder that
-cannot be opened is an error on screen, never a fallback to browser storage.
-`src/lib/platform-selection.test.ts` checks that the desktop bundle holds no
-browser store and no Git implementation, that neither bundle holds a Yjs or
-Node module, and that the browser bundle holds no desktop adapter.
+`#platform/notes-host`. The Epicenter host leaf
+(`notes-host.epicenter-host.ts`) opens the folder Epicenter handed the window
+as `?folder=<scope>`, or Honeycrisp's own, `so.epicenter.honeycrisp`, when
+none was handed. Its own folder opens with `openFolder` from
+`@epicenter/folder/tauri`, which publishes Honeycrisp's declaration; any other
+opens with `openDataFolder` and that declaration as the lens (ADR-0538). The
+browser leaf opens one OPFS directory, `Epicenter/local/so.epicenter.honeycrisp`,
+holding the notes and their `.git`, with `openFolder` from
+`@epicenter/folder/browser`. A browser folder an earlier version kept in
+IndexedDB is not read, copied, or deleted; the browser opens the OPFS
+directory alone. Shared code imports the folder contract from the bare
+`@epicenter/folder`, which `vite.config.ts` aliases to the build's one entry.
+A folder Epicenter hands that cannot be opened is an error on screen, never a
+fallback to browser storage. `src/lib/platform-selection.test.ts` checks that
+the installed bundle holds no browser store and no Git implementation, that
+neither bundle holds a Yjs or Node module, and that the browser bundle holds
+no desktop adapter.
 
 The page reads files through its query cache with `folderOptions(folder)`
 from `@epicenter/folder/query` (ADR-0548). The note and folder listings, the
@@ -290,85 +306,63 @@ After its own actions the page makes what they changed stale, and after its
 saves it reads Git status again, since the folder does not report a page's
 own writes to it.
 
-### What the shell decides
+### What Epicenter decides
 
-The page names one thing, the scope `so.epicenter.honeycrisp`. The shell
-decides the rest in Rust, before any page exists:
+The page names one thing, the folder's scope. Epicenter's shell decides the
+rest in Rust (`apps/epicenter/src-tauri`):
 
-- The root: `HONEYCRISP_ROOT`, else the default directory above. The shell
-  makes the directory itself if it is missing and writes nothing inside it.
-- That the one window `main` opens it, with the page's own engine. On the
-  page's first `grant_directory` the folder plugin takes the
-  directory's cross-process lock and refuses a linked `.git`. The window
-  then reads the directory and everything in it, `.git` and dot files
-  included, through the folder plugin's read commands, never through a link.
+- The root: Honeycrisp's own folder, `<folder root>/so.epicenter.honeycrisp`,
+  or the folder the Folders window opened Honeycrisp beside. The first grant
+  of its own folder creates the directory; nothing else is written inside it.
+- That the app's windows open it, each with the page's own engine. On the
+  page's first `grant_directory` the folder plugin takes the directory's
+  cross-process lock and refuses a linked `.git`. The window then reads the
+  directory and everything in it, `.git` and dot files included, through the
+  folder plugin's read commands, never through a link.
 - What the page may change: any path in the directory that the folder's path
   rule allows (see the file names above), plus the engine's own staging files
   in `.git`. The folder plugin checks each path on disk and makes the change;
   the page never writes a file itself. `git` runs in Rust as the exact
   operations the engine uses.
-- The fallback commit author, `Honeycrisp <honeycrisp@localhost>`. The
-  engine reads the identity and any `origin` from Git's configuration
-  (see Git, above).
-- Which window may use the folder and the commands: `main`, through
-  `src-tauri/capabilities/main.json`. The window loads the bundled page and
-  refuses to navigate anywhere else, including the same host on another port
-  or an address carrying credentials. Tauri treats the bundled page as local
-  (`tauri://localhost`, or `http://tauri.localhost` on Windows), so the
-  capability lists no remote origin.
+- The fallback commit author, `Epicenter <epicenter@localhost>`. The engine
+  reads the identity and any `origin` from Git's configuration (see Git,
+  above).
 
-The layout is set up by the page, through the folder, after the folder plugin
-holds the directory's lock (`src/lib/platform/first-open.ts`). It looks first:
-a missing table directory is made, and `kv.json` is written only when a read
-confirmed it is absent, on the condition that it still is. Existing settings
-are kept. Folder acquisition separately publishes `epicenter.json`. Neither
-records a commit. A directory another Epicenter holds is reported as in use
-and gains no file.
+The layout of Honeycrisp's own folder is set up by the page, through the
+folder, after the folder plugin holds the directory's lock
+(`src/lib/platform/first-open.ts`). It looks first: a missing table directory
+is made, and `kv.json` is written only when a read confirmed it is absent, on
+the condition that it still is. Existing settings are kept. Folder acquisition
+separately publishes `epicenter.json`. Neither records a commit. Another
+folder is not set up. A directory another Epicenter holds is reported as in
+use and gains no file.
 
-### Shell commands
-
-Besides the folder plugin's commands, the page calls these. None takes a root
-or a working directory.
-
-| Command | Purpose |
-| --- | --- |
-| `shell_info` | The root, and where the terminal's next command starts. |
-| `terminal_run` | One command in `/bin/sh`. The shell keeps the working directory between commands, so hiding the terminal or reloading the page loses nothing. |
-| `file_log`, `file_show` | One file's commits, and its text at one of them. The path must be a literal path inside the folder and the commit a hexadecimal id. |
-| `reveal_folder` | Open the root in the system file manager. |
-
-The terminal is an outside writer, exactly as another program is. The shell's
-watcher reports what each command changed, and the page reads only that.
-
-### Closing and quitting
-
-Closing the window, Cmd+Q, and a quit from the Dock, a logout, or an Apple
-Event all quit at once. The shell holds nothing back and asks the page
-nothing; on macOS the Quit item is Tauri's standard one. The operating system
-releases the folder's lock when the process ends. A save cut off by the quit
-leaves the old file or the new one, and a Git command cut off by it leaves at
-most a ref lock that Git names, which a person or an agent deletes.
+Quitting Epicenter, with Cmd+Q, the Dock, a logout, or an Apple Event, quits
+at once and asks this window nothing. The operating system releases the
+folder's lock when the process ends. A save cut off by the quit leaves the
+old file or the new one, and a Git command cut off by it leaves at most a ref
+lock that Git names, which a person or an agent deletes.
 
 ## Testing failures by hand
 
 There is no fault panel. The earlier one lived in the Bun folder host, which
 is gone, and the shell does not wrap the folder's writes to bring it back.
-Use a disposable directory, never the default one:
+Use a disposable folder root, never the default one:
 
 ```sh
-HONEYCRISP_ROOT=/tmp/honeycrisp-test bun dev:honeycrisp
+EPICENTER_FOLDER_DIR=/tmp/epicenter-test bun dev:epicenter
 ```
 
-The failures below are real, made from the app's terminal or any other one.
-`src-tauri/src/tests.rs` runs the first through the folder plugin; the
-folder engine's own tests cover a commit that fails.
+The failures below are real, made from a terminal in
+`/tmp/epicenter-test/so.epicenter.honeycrisp`. The folder engine's own tests
+cover a commit that fails.
 
 | To see | Do this in the notes directory | Undo |
 | --- | --- | --- |
 | A save that fails: the edit stays on screen as **Not saved**, with **Copy your text** | `chmod a-w notes`, then edit a note | `chmod u+w notes`, then **Save again** |
 | A commit that fails while the files stay saved | `touch .git/refs/heads/main.lock`, then **Save version** | `rm .git/refs/heads/main.lock`, then **Save version** |
-| An outside edit reaches the open note | With a note open, edit `notes/<id>.md` in the terminal | The note shows the new text |
-| A change made elsewhere merges with a save | With a note open, run `sleep 5; echo changed >> notes/<id>.md` in a terminal outside the app, and keep typing in the note until it lands | The file keeps the added line and your typing |
+| An outside edit reaches the open note | With a note open, edit `notes/<id>.md` in a terminal | The note shows the new text |
+| A change made elsewhere merges with a save | With a note open, run `sleep 5; echo changed >> notes/<id>.md` in a terminal, and keep typing in the note until it lands | The file keeps the added line and your typing |
 | A note file deleted under you | With a note open, `rm notes/<id>.md`, then type in it | The note leaves the list; nothing writes it back |
 
 What cannot be produced by hand in the running app is a save held open or
@@ -392,30 +386,46 @@ view and delivers events to it.
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's body draft before it is shown, and semantic state replacement when the note's body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
 | `src/lib/note-source.ts` | The body replacement Rich and Source share (`withBody`), and list previews. |
 | `src/lib/notes.svelte.ts` | The query cache and its change wiring, the updates fields are set with, the body and text drafts and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
-| `src/lib/platform/` | The `#platform/notes-host` seam, its two leaves, and `shell.tauri.ts`, the page side of the shell's commands. |
-| `src/routes/components/` | Header, folder list, note list, the note view, files, terminal. |
-| `src-tauri/src/lib.rs` | The desktop shell: the folder plugin, the notes scope, and the window. |
-| `src-tauri/src/root.rs` | Choosing and resolving the root directory. |
-| `src/lib/platform/first-open.ts` | Setting up a folder that has no layout yet, through the granted folder. |
-| `src-tauri/src/commands.rs` | The shell's commands, each a thin call into a module below. |
-| `src-tauri/src/terminal.rs`, `history.rs`, `reveal.rs` | The terminal, per-file history, and reveal. |
-| `src-tauri/capabilities/main.json` | What the notes window may call. |
+| `src/lib/platform/` | The `#platform/notes-host` seam and its two leaves: `notes-host.epicenter-host.ts`, the folder Epicenter hands the window, and `notes-host.browser.ts`, the OPFS folder. |
+| `src/lib/platform/first-open.ts` | Setting up Honeycrisp's own folder when it has no layout yet, through the granted folder. |
+| `src/routes/components/` | Header, folder list, note list, the note view, files. |
+| `epicenter.app.json` | What Epicenter installs: the app id, `shape.json`, the build, and its output, `dist`. |
+| `shape.json`, `apps/honeycrisp/scripts/shape.ts` | The declaration Epicenter matches folders against, and the script that writes it. |
 
 ## Tech stack
 
 The [desktop acceptance report](evidence/desktop/README.md) includes native
 screenshots, saved Markdown and Git versions, checks, and verified limits. It
-was made with the earlier Bun folder host. The
-[native migration record](evidence/native-migration/README.md) says what
-replaced the host and which native checks are still to be run.
+was made with the earlier Bun folder host and the standalone desktop app, both
+since deleted; its terminal, reveal, and per-note history no longer exist.
 
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
 - `@epicenter/folder` for the folder, its note and folder listings, updates, merging saves, change reports, query options, and text drafts; [TanStack Query](https://tanstack.com/query) for the cache the page reads; and `@epicenter/definition` for the declaration
-- [Tauri](https://tauri.app) for the desktop shell, with the `tauri-plugin-epicenter-folder` crate granting the directory, reading it, making changes, and running `git`
+- Epicenter's [Tauri](https://tauri.app) shell on the desktop, with the `tauri-plugin-epicenter-folder` crate granting the directory, reading it, making changes, and running `git`
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises
+
+Honeycrisp is now an app installed in Epicenter (ADR-0552), and its
+standalone desktop app is deleted. It drops these promises of the standalone
+app:
+
+- There is no Honeycrisp program, Dock icon, or `bun build:honeycrisp`
+  bundle. Honeycrisp's window is one of Epicenter's.
+- Notes live in `~/Epicenter/so.epicenter.honeycrisp`, not
+  `~/Epicenter/local/so.epicenter.honeycrisp`, which is not read. Move that
+  directory to keep its notes and history. `HONEYCRISP_ROOT` is gone;
+  `EPICENTER_FOLDER_DIR` sets the folder root.
+- There is no terminal. Run commands in your own terminal in the notes
+  directory; Epicenter's proposed **Open in Terminal** opens one there
+  ([ADR-0555](../../docs/adr/0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md)).
+- There is no **Reveal folder**. ADR-0555 proposes **Reveal in Finder** as an
+  action on every folder.
+- A note has no **History** button. Use `git log` in a terminal.
+- The fallback commit author is `Epicenter <epicenter@localhost>`.
+- Honeycrisp also opens a folder it is handed whose declaration contains its
+  shape, without writing that folder's declaration.
 
 This version saves a field as a change to the file as it is now
 (ADR-0554). A title and the note's text are saved a second after you stop

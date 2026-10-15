@@ -216,7 +216,6 @@
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
         "@tanstack/query-core": "catalog:",
-        "@tauri-apps/cli": "catalog:",
         "@types/bun": "catalog:",
         "@types/jsdom": "21.1.7",
         "@types/markdown-it": "^14.0.0",

@@ -106,17 +106,21 @@ lives in app data; built bundles live in Caches
 
 ## Built-in and installed apps
 
-Built-in apps are compiled into Epicenter and served below `/apps/<id>/`:
-Todos, Capture, and Whispering, beside the Folders window. Honeycrisp and the
-Git lab ship their own desktop shells over the same engine. Vocab runs in the
-browser.
+Epicenter compiles in only its Folders window, served below `/apps/<id>/`.
+Todos, Capture, Whispering, and Honeycrisp are installed apps
+([ADR-0552](adr/0552-every-app-is-installed-from-a-folder-in-any-git-repository.md)).
+The Git lab ships its own desktop shell over the same engine. Vocab runs in
+the browser.
 
-An installed app is a Git repository with `epicenter.app.json` at its root.
-Epicenter clones it into `~/Epicenter/Apps/<app-id>/`, builds it, and runs a
+An installed app is a folder holding `epicenter.app.json` in a Git
+repository, the repository's root unless installing names another folder.
+Epicenter clones the repository into `~/Epicenter/Apps/<app-id>/`, builds the
+app, and runs a
 commit fetched from elsewhere only after a person approves it. Approval trusts
 the app's code fully; it never makes a synced folder trusted
 ([ADR-0540](adr/0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md)).
-Moving Todos and Capture into their own repositories is unbuilt.
+The first-party apps install from their folders in Epicenter's own
+repository, such as `apps/todos`.
 
 ## Sync is Git
 
