@@ -19,6 +19,7 @@ the authority's URL come from in the first place?
 
 Today it is a runtime setting. The auth package's instance-setting module (since deleted by this record) keeps a
 `{ baseURL, token }` override in `localStorage`, and
+<!-- doc-path-check: ignore-next-line -->
 `apps/self-host/README.md` documents pasting one as *the* self-host flow. A
 setting is the wrong shape for a fact that, after ADR-0325, can never change.
 
