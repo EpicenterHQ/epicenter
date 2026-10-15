@@ -27,6 +27,7 @@ and holds AI connections (`apps/epicenter/src/server.ts`).
 Rust does the rest. It runs `git` for every page through `run_git`
 ([ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)
 moves it), keeps OS credentials with the `keyring` crate
+<!-- doc-path-check: ignore-next-line -->
 (`apps/epicenter/src-tauri/src/keyring_storage.rs`), downloads transcription
 models ([ADR-0022](0022-rust-owns-the-models-folder-the-webview-owns-the-catalog.md),
 `apps/epicenter/src-tauri/src/download.rs`), and installs apps
@@ -90,7 +91,7 @@ OAuth client, lives in the CLI's own modules (`packages/cli/src`).
 | Watching | `@epicenter/folder` | the shell's watcher (`packages/folder/src/changes-tauri.ts`) | `packages/folder/src/changes-browser.ts` |
 | Git and sync | `@epicenter/folder` | the CLI over system `git` (`packages/folder/src/git/native-backend.ts`, ADR-0559) | isomorphic-git over OPFS (`packages/folder/src/git/browser-backend.ts`) |
 | Inference and account calls | `@epicenter/ai`, `@epicenter/auth` | `epicenter send` | the page's own `fetch` (ADR-0557) |
-| Sign-in | `@epicenter/auth` | `epicenter auth login --loopback` | redirect (`packages/auth/src/browser-redirect-auth.ts`) |
+| Sign-in | `@epicenter/auth` | `epicenter auth login --loopback` | redirect (`packages/auth/src/browser-oauth.ts`) |
 
 The browser's `send` uses no CLI and no Rust pipe because a browser has
 nothing outside the page, so it calls `fetch` directly. On the desktop the
@@ -160,8 +161,11 @@ needs and the package manager; npm or pnpm would need Node as well.
 <!-- doc-path-check: ignore-next-line -->
 - The Bun host: `apps/epicenter/src/sidecar-runtime.ts` (670) and test (664), `apps/epicenter/src/server.ts` (586) and test (1,699), `apps/epicenter/src/desktop-auth-authority.ts` (300) and test (954), `apps/epicenter/src/account-transport.test.ts` (483), `apps/epicenter/src/static-assets.ts` (316, ported) and test (36), `apps/epicenter/src/main.ts` (203), `apps/epicenter/src/app-secrets.ts` (82), `apps/epicenter/src/routes.ts` (44), `apps/epicenter/src/test-apps-dist.ts` (36), `apps/epicenter/src/test-home-host.ts` (22), and the `__host` mode of `apps/epicenter/src/epicenter-binary.ts`.
 - About 1,030 lines of Rust in `lib.rs` and about 250 of its tests: frames and `HostState` (`:138-353`), `request_start` through `send_native_frame` (`:758-1257`), child stop (`:1355-1417`), and `OnHostStop`, `invalidate_windows`, `refuses_exit`, host logs, `launch_token`, `boot_frame_json`, `read_ready_frame`, `initialization_script`, the loopback navigation check, and port selection (`:1583-1873`). The auth-server descriptor (`:1258-1354`) moves to the CLI's configuration.
+<!-- doc-path-check: ignore-next-line -->
 - Rust's keychain: `apps/epicenter/src-tauri/src/keyring_storage.rs` (131, and 43 of tests) and the `keyring` dependency.
+<!-- doc-path-check: ignore-next-line -->
 - The page-side broker: `packages/auth/src/desktop-broker-auth.ts` (223) and test (428), its `./desktop` export, and the stamped boot snapshot.
+<!-- doc-path-check: ignore-next-line -->
 - The API's desktop callbacks: `epicenter://auth/callback` and `http://127.0.0.1:<port>/_epicenter/sign-in/callback` (`apps/api/worker/session-callbacks.ts:18-20`), the `desktopPort` parameter, and `EPICENTER_DEV_PORT` (`apps/api/scripts/dev.ts:13`, `:81`; `apps/api/worker/index.ts:100`). ADR-0549's loopback redirect replaces both.
 - `build_environment` and its `bun` link (`installed_apps.rs:355-389`), since the CLI runs itself as `bun`.
 - Dependencies of `apps/epicenter` nothing imports afterward: `hono`, `mime`, `@modelcontextprotocol/sdk`, `openai`, `@epicenter/client`, `@epicenter/agent`, `@epicenter/principal`, and, unused already, `@epicenter/server` and `@epicenter/constants`.

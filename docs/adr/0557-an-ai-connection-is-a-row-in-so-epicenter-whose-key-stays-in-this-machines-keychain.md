@@ -16,6 +16,7 @@ Epicenter's AI connections live in its Bun host. `createAiCatalog`
 `baseUrl`, `models`, `hasApiKey`, `accessVersion`) in
 `ai/<owner>/connections.json` under app data (`:147`), and each key in the
 keychain under the secret app id `so.epicenter.ai-catalog` (`:39`), reached
+<!-- doc-path-check: ignore-next-line -->
 through Rust over the sidecar pipe (`apps/epicenter/src-tauri/src/keyring_storage.rs`).
 Pages read and edit the catalog at `/_epicenter/ai/<owner>/connections`, follow
 it over server-sent events, and send requests to
