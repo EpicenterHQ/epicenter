@@ -53,11 +53,14 @@ are not UTF-8 text are listed apart and not opened.
 
 ## Editing
 
-- An edit holds the version of the file it started from, taken at your
-  first change, and its own copy of the capture (ADR-0548). What the window
-  reads from the folder never replaces it. Each change is saved at once,
-  one save at a time; changes you make while a save runs go in the next
-  one, so fast typing saves your latest text, not every keystroke.
+- A capture's text and thoughts are its document, so an edit holds the
+  version of the file it started from, taken at your first change, and the
+  body you typed (ADR-0548, ADR-0554). What the window reads from the
+  folder never replaces it. A thought you add, edit, delete, or move is
+  saved at once. The capture text, and a file edited as text, is saved a
+  second after you stop typing, when you leave the text box, and when you
+  open something else; quitting loses at most that last second. Saves run
+  one at a time, and what you typed while one ran goes in the next.
 - The capture view edits text and thoughts; each change is checked to read
   back as written before it is saved. A change Markdown would not keep
   (text that opens a code fence and would absorb the Thoughts section, say)
@@ -272,7 +275,7 @@ write runs.
 | --- | --- |
 | `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` opens the directory the shell grants. |
 | `src/lib/captures.svelte.ts` | The store, over a TanStack Query cache keyed by `folderOptions`: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` holding a file's typed text over its version and writing it, each action (create, delete, Save version) as a mutation, which capture is open, and close. |
-| `src/lib/capture-form.svelte.ts` | One capture's edit, a draft (`createDraftState` from `@epicenter/folder/svelte`) saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
+| `src/lib/capture-form.svelte.ts` | One capture's edit, a body draft (`createBodyDraftState` from `@epicenter/folder/svelte`) saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
 | `src/lib/components/` | `CaptureApp.svelte` shows the timeline or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
 
@@ -299,7 +302,7 @@ them.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved at once keeping undeclared metadata, rapid edits with one save running and the rest in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere and what it replaced, a failed save kept and sent again, a deleted file, changes the body or the folder cannot hold, repair as text, a text write merged with a change made elsewhere and one to a deleted file, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, and close. |
+| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved keeping undeclared metadata, saves one at a time with text typed meanwhile in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere and what it replaced, a failed save kept and sent again, a deleted file, a change the body cannot hold, repair as text, a text write merged with a change made elsewhere and one to a deleted file, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, and close. |
 | `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, a window handed no folder opens Capture's own, a window handed another folder opens it through Capture's shape and keeps its declaration, one without the shape is refused by name, a write saves the row, an outside edit merges with the window's, closing waits for a save already sent, and Save version commits and rewrites nothing. It does not run the shell's path or Git checks. |
 | `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, nothing of the host package, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter or generated bindings. |
 | `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a save merged with a change made elsewhere, a reported change shown, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |

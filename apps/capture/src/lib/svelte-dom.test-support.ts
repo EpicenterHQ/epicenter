@@ -152,6 +152,12 @@ export function type(element: Element | null | undefined, value: string) {
 	element.dispatchEvent(new window.Event('input', { bubbles: true }));
 }
 
+/** Move focus out of a field, as the person leaving it does. */
+export function blur(element: Element | null | undefined) {
+	if (!element) throw new Error('Expected an element to leave');
+	element.dispatchEvent(new window.FocusEvent('blur'));
+}
+
 /** The button whose text is `text`, anywhere in the document (dialogs render in a portal). */
 export function button(text: string): HTMLButtonElement {
 	const found = [...document.querySelectorAll('button')].find(
