@@ -48,9 +48,27 @@ import { createMutex } from './git/mutex.js';
 import { createGitRunner } from './git/native-host.js';
 import type { OpfsLocks } from './opfs-store.js';
 
+export {
+	type CheckedTable,
+	checkFolder,
+	DECLARATION_SOURCE_PATH,
+	excludedFiles,
+	type Finding,
+	type FolderCheck,
+	hasDeclarationSource,
+} from './check-folder.js';
 export * from './contract.js';
+export {
+	GenerateDeclarationError,
+	generateDeclaration,
+} from './generate-declaration.js';
 export { GitCommandError, type GitRun } from './git/native-backend.js';
 export { createGitRunner } from './git/native-host.js';
+export {
+	type QueryAnswer,
+	QueryFolderError,
+	queryFolder,
+} from './query-folder.js';
 export {
 	type FolderReading,
 	ReadFolderError,

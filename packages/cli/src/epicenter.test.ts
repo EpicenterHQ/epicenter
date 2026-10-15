@@ -1,8 +1,14 @@
 /**
- * `epicenter check` and `epicenter query` against real directories, through
+ * `epicenter check`, `query`, and `generate` against real directories, through
  * fresh CLI processes: exit codes, compiler-style diagnostics, the projection's
  * columns and values, the one-statement read-only rule, and that nothing in the
  * folder is executed or changed.
+ *
+ * They run `src/bin.ts` under Bun, or the compiled binary that
+ * `EPICENTER_BIN` names, so the binary the desktop app ships passes the same
+ * suite:
+ *
+ *   EPICENTER_BIN=apps/epicenter/src-tauri/binaries/epicenter-cli-<triple> bun test src/epicenter.test.ts
  */
 import { afterEach, expect, test } from 'bun:test';
 import {
@@ -17,7 +23,10 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-const cli = resolve(import.meta.dir, 'epicenter.ts');
+const binary = process.env.EPICENTER_BIN;
+const command = binary
+	? [resolve(binary)]
+	: [process.execPath, '--no-install', resolve(import.meta.dir, 'bin.ts')];
 const temporaryFolders: string[] = [];
 
 /** A table as `epicenter.json` holds it, every field required. */
@@ -72,10 +81,11 @@ async function setup() {
 		'---\ntitle: Reel\nstatus: drafting\ndue: 2026-10-11\norder: 1\npinned: true\ntags: [a, b]\naccount: instagram\n---\nCut done.\n',
 	);
 	function run(...args: string[]) {
-		const result = Bun.spawnSync(
-			[process.execPath, '--no-install', cli, ...args],
-			{ cwd: folder, stdout: 'pipe', stderr: 'pipe' },
-		);
+		const result = Bun.spawnSync([...command, ...args], {
+			cwd: folder,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
 		return {
 			exitCode: result.exitCode,
 			stdout: result.stdout.toString(),
@@ -436,6 +446,86 @@ test('the CLI rejects missing or extra arguments', async () => {
 });
 
 // ============================================================================
+// The command surface (ADR-0558)
+// ============================================================================
+
+test('every command ADR-0558 names parses, and one not built exits 2 naming its record', async () => {
+	const { folder, run } = await setup();
+	for (const args of [
+		['status', folder],
+		['sync', folder, '--to', 'braden/notes'],
+		['clone', 'braden/notes'],
+		['repos'],
+		['open', folder, '--app', 'so.epicenter.todos'],
+		['app', 'list'],
+		['app', 'install', 'https://example.com/r.git', '--approve'],
+		['app', 'update', 'so.epicenter.todos'],
+		['app', 'remove', 'so.epicenter.todos'],
+		['auth', 'login', '--loopback'],
+		['auth', 'logout'],
+		['auth', 'status'],
+		['auth', 'token', '--resource', 'https://git.epicenter.so'],
+		['auth', 'git-credential', 'get'],
+		['send'],
+	]) {
+		const text = run(...args);
+		expect(text.exitCode).toBe(2);
+		expect(text.stdout).toBe('');
+		expect(text.stderr).toContain(`epicenter ${args[0]}`);
+		expect(text.stderr).toMatch(/is not built yet; see ADR-055[68]/);
+		const json = run(...args, '--json');
+		expect(json.exitCode).toBe(2);
+		expect(JSON.parse(json.stdout).error).toContain('is not built yet');
+	}
+	expect(run('sync', folder, '--onto', 'x').stderr).toContain(
+		'epicenter sync does not take --onto',
+	);
+	expect(run('sync', folder, '--to').stderr).toContain('--to needs');
+	expect(run('app').exitCode).toBe(2);
+	expect(run('app', 'approve', 'x').stderr).toContain(
+		"Unknown command 'epicenter app approve'",
+	);
+});
+
+test('--help lists every command but send and install-command, and --json describes them', async () => {
+	const { run } = await setup();
+	const help = run('--help');
+	expect(help.exitCode).toBe(0);
+	for (const usage of [
+		'epicenter query <dir> [<sql>]',
+		'epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]',
+		'epicenter app install <url> [--folder <path>] [--approve]',
+		'epicenter auth git-credential get | store | erase',
+	])
+		expect(help.stdout).toContain(usage);
+	expect(help.stdout).not.toContain('epicenter send');
+	expect(help.stdout).not.toContain('install-command');
+	expect(help.stdout).not.toContain('--loopback');
+	const described = JSON.parse(run('--help', '--json').stdout).commands;
+	expect(
+		described
+			.filter((c: { built: boolean }) => c.built)
+			.map((c: { command: string }) => c.command),
+	).toEqual(['check', 'query', 'generate']);
+	expect(
+		described.find((c: { command: string }) => c.command === 'sync').output,
+	).toBe('ndjson');
+	expect(run('auth', '--help').stdout).toContain('epicenter auth login');
+	expect(run('check', '--help').stdout).toContain('compiler style');
+	expect(JSON.parse(run('--version', '--json').stdout).version).toMatch(
+		/^\d+\.\d+\.\d+/,
+	);
+});
+
+test('install-command refuses to link a CLI that runs from source', async () => {
+	if (binary) return;
+	const { run } = await setup();
+	const result = run('install-command', '--dry-run', '--json');
+	expect(result.exitCode).toBe(2);
+	expect(JSON.parse(result.stdout).error).toContain('runs from source');
+});
+
+// ============================================================================
 // generate
 // ============================================================================
 
@@ -485,15 +575,23 @@ test('generate writes the epicenter.json that epicenter.ts declares, and check r
 
 	const checked = run('check', folder);
 	expect(checked.exitCode).toBe(0);
-	expect(checked.stdout).toContain(
+	expect(checked.stdout).toBe(
+		'1 row conforms; 0 files invalid; 0 unreadable.\n',
+	);
+	expect(checked.stderr).toContain(
 		'epicenter.json is generated from epicenter.ts',
 	);
 	expect(JSON.parse(run('check', folder, '--json').stdout).source).toBe(
 		'epicenter.ts',
 	);
 	expect(run('generate', folder, '--check').stderr).toContain(
-		'generate takes only a directory',
+		'epicenter generate does not take --check',
 	);
+	expect(JSON.parse(run('generate', folder, '--json').stdout)).toEqual({
+		written: false,
+		path: 'epicenter.json',
+		source: 'epicenter.ts',
+	});
 	await rm(join(folder, 'epicenter.json'));
 	expect(run('check', folder).stderr).toContain('run `epicenter generate');
 });

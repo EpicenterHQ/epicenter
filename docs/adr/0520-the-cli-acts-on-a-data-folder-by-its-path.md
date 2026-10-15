@@ -101,6 +101,7 @@ agents use Git and the host's own tools for cloning, history, and transfer.
 - A statement that writes is refused, so no agent can believe an in-memory
   `UPDATE` changed a row, and no statement can create a file.
 - Until the CLI is distributed, a caller outside the monorepo runs
+  <!-- doc-path-check: ignore-next-line -->
   `scripts/epicenter.ts` from an Epicenter checkout.
 - A declaration's `pattern` can backtrack catastrophically, so `check` or
   `query` on a repository someone else wrote can stall. When such repositories

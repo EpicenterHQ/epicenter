@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
-- **Built:** the save lock in the shell and the Bun host, and the Bun Git runner's hook rule (ADR-0559).
+- **Built:** the save lock in the shell and the Bun host, and the Bun Git runner's hook rule (ADR-0559). The one binary: `packages/cli` compiled by `apps/epicenter/scripts/build-sidecar.ts` from `apps/epicenter/src/epicenter-binary.ts`, which is the `externalBin`, runs the Bun host as its hidden `__host` mode, and is `bun` under `BUN_BE_BUN=1`; the bundle names it `epicenter-cli`, because Tauri refuses a sidecar named like the Cargo package `epicenter`. `epicenter install-command`, which links it onto `PATH` as `/usr/local/bin/epicenter` (no Settings button yet). The narrow CLI runner (`apps/epicenter/src-tauri/src/cli.rs`) with one page command, `folder_check`, granted to the Folders window.
 - **Unbuilt:** the rest, including `epicenter sync <dir>` started by Rust with no window open; when it runs is not decided here. Six checks come first. (1) A probe page on the scheme, on macOS, Windows, and Linux, records `isSecureContext`, `getUserMedia({ audio: true })` then `enumerateDevices()` with labels, `crypto.randomUUID()`, `crypto.subtle.digest`, and a `localStorage` value across a relaunch; the loopback server is deleted only after it passes. (2) ADR-0555's push-to-talk test on a window hidden for 30 minutes. (3) `Bun.secrets` `set` and `get` from the signed release binary on macOS, Windows, and Linux, and again after an update. (4) Todos installed from a release build on a clean Windows machine. (5) `epicenter sync` and a page saving one file in the same folder at once, with neither save lost. (6) A 30 MB response through `send` into a page's `Channel`; only the child pipe was measured.
 - **Supersedes:** [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md), whose background work runs in a long-lived Bun host. Background TypeScript is an `epicenter` command Rust starts and waits for. 0323's measurement stands: a hidden WebView's timers stop after about seven minutes.
 - **Supersedes:** [ADR-0112](0112-the-cli-watcher-is-not-a-callable-action-server.md), whose CLI resident watcher remains. No `epicenter` process outlives its command. Its refusal of a local action server stands.
@@ -34,6 +34,7 @@ installs apps (`apps/epicenter/src-tauri/src/installed_apps.rs`, 2,017 lines),
 running `bun` as the compiled host with `BUN_BE_BUN=1` on Unix (`:355-382`)
 and nothing on Windows (`:385-388`).
 
+<!-- doc-path-check: ignore-next-line -->
 The `epicenter` CLI is `scripts/epicenter.ts` (404 lines: `check`, `query`,
 `generate`), run by `bun` from a checkout. It ships to nobody.
 

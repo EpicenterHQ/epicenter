@@ -119,6 +119,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/auth": "workspace:*",
+        "@epicenter/cli": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/principal": "workspace:*",
@@ -513,6 +514,20 @@
         "typescript": "catalog:",
       },
     },
+    "packages/cli": {
+      "name": "@epicenter/cli",
+      "version": "0.0.1",
+      "bin": {
+        "epicenter": "./src/bin.ts",
+      },
+      "dependencies": {
+        "@epicenter/folder": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/client": {
       "name": "@epicenter/client",
       "version": "0.1.1",
@@ -567,6 +582,7 @@
         "isomorphic-git": "1.38.5",
         "jsonc-parser": "^3.3.1",
         "nanoid": "catalog:",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
         "yaml": "catalog:",
       },
@@ -961,6 +977,8 @@
     "@epicenter/capture": ["@epicenter/capture@workspace:packages/capture"],
 
     "@epicenter/capture-app": ["@epicenter/capture-app@workspace:apps/capture"],
+
+    "@epicenter/cli": ["@epicenter/cli@workspace:packages/cli"],
 
     "@epicenter/client": ["@epicenter/client@workspace:packages/client"],
 

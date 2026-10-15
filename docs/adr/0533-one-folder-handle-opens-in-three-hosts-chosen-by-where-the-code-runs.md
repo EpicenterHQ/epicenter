@@ -8,6 +8,7 @@
 
 `@epicenter/folder` runs in three places. A web app runs in a browser tab. A
 desktop app runs in a Tauri webview. Tests and scripts such as
+<!-- doc-path-check: ignore-next-line -->
 `scripts/epicenter.ts` run as Bun processes. They differ in who may touch the disk: a browser tab
 reaches only its origin private file system, a desktop page reaches a
 directory only through the shell, and a Bun process reaches the disk itself.

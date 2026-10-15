@@ -98,6 +98,7 @@ epicenter generate <dir>          write epicenter.json from epicenter.ts
 
 ## Verification
 
+<!-- doc-path-check: ignore-next-line -->
 `scripts/epicenter.test.ts` covers writing the JSON from `epicenter.ts` and
 reporting it unchanged, the `check` line, refusal of a missing source, a
 missing default export, a misspelled key, and a declaration preparation

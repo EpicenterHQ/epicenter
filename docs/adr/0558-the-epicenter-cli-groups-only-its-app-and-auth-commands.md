@@ -6,10 +6,12 @@
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) and [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at the command names `epicenter login` and `epicenter git-credential`, which are `epicenter auth login` and `epicenter auth git-credential`. Their grants and clients are unchanged.
 - **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at its refusal of "Loopback login for the CLI", narrowed to its scope: the CLI client `so.epicenter.cli` still has only the device grant. `epicenter auth login --loopback` is the desktop client `so.epicenter` signing in from the binary Epicenter bundles, which Settings runs; it is not a terminal flow.
 - **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the CLI is Epicenter's only TypeScript outside a WebView, run by Rust with `--json`), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge `sync` uses), [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) (installing from a folder in a repository).
-- **Unbuilt:** every command except `check`, `query`, and `generate` (`scripts/epicenter.ts`); `--json` on `generate`, which refuses it today (`scripts/epicenter.ts:392-396`); the `epicenter://open` deep link `open` uses.
+- **Built:** the parser, `--help`, and `--json` for every command below, in `packages/cli`; `check`, `query`, and `generate`, `generate --json` included, over `@epicenter/folder/bun`. `send` and `auth login --loopback` are left out of `--help`.
+- **Unbuilt:** every other command, each of which parses and exits 2 naming this record; the `epicenter://open` deep link `open` uses. `epicenter install-command` (ADR-0556) is built as a hidden command this record does not name yet.
 
 ## Context
 
+<!-- doc-path-check: ignore-next-line -->
 `scripts/epicenter.ts` (404 lines) has three commands, `check <dir>`,
 `query <dir> [<sql>]`, and `generate <dir>`, each taking a folder's path
 (ADR-0520), with exit codes 0, 1 for a finding, and 2 for input the tool

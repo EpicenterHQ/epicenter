@@ -125,10 +125,10 @@
 		"yaml": "^2.9.0"
 	},
 	"bin": {
-		"epicenter": "./scripts/epicenter.ts"
+		"epicenter": "./packages/cli/src/bin.ts"
 	},
 	"scripts": {
-		"epicenter": "bun --no-install scripts/epicenter.ts",
+		"epicenter": "bun --no-install packages/cli/src/bin.ts",
 		"build": "bun run --filter '*' build",
 		"check": "bun run lint:ci && bun run typecheck && bun run test && bun run check:structure",
 		"dev": "bun run dev:honeycrisp",

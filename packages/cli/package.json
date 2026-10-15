@@ -1,0 +1,25 @@
+{
+	"name": "@epicenter/cli",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The epicenter command: thin wrappers over shared packages, compiled into the binary the desktop app ships.",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"bin": {
+		"epicenter": "./src/bin.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@epicenter/folder": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

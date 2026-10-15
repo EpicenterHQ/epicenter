@@ -546,6 +546,31 @@ It checks files, not the root's Git layout. A folder whose `.git` is a
 `gitdir:` file (a submodule) reads, though `openFolder` refuses it, so a
 successful reading does not mean an application can open the folder.
 
+### Checking, querying, and generating a data folder
+
+`@epicenter/folder/bun` holds what the `epicenter` CLI's `check`, `query`,
+and `generate` do (`packages/cli`); the CLI only prints it (ADR-0556).
+
+```ts
+import { checkFolder, generateDeclaration, queryFolder } from '@epicenter/folder/bun';
+
+const { data: checked, error } = await checkFolder(dir); // readFolder's errors
+checked.invalid; // files to fix, compiler-style findings
+checked.unreadable; // files that could not be read
+const { data: answer } = queryFolder(checked, 'SELECT stem FROM posts'); // { columns, rows, excluded }
+await generateDeclaration(dir); // runs dir/epicenter.ts and writes epicenter.json
+```
+
+`checkFolder` sorts what `readFolder` reports: a row or `kv.json` that does
+not conform, bytes that are not UTF-8, or a path the folder cannot hold is
+`invalid`; anything else that could not be read is `unreadable`. `queryFolder`
+projects only the rows that conform into an in-memory `bun:sqlite` database,
+runs exactly one statement that reads, and names in `excluded` every file it
+left out. `generateDeclaration` is the one reading that runs a folder's code:
+it imports `epicenter.ts`, resolving `@epicenter/folder`, `@epicenter/definition`,
+and `typebox` to this process's own modules, and writes the `epicenter.json`
+its default export declares (ADR-0527).
+
 ## The handle
 
 | Member | Contract |
@@ -753,9 +778,9 @@ and header CRLF in source are normalized away by the first save.
 ### Rows as SQL
 
 `projectTables(db, tables)` builds the projection `epicenter query` reads
-(ADR-0520) in any `SqlTarget` (`run` and `transaction`; `scripts/epicenter.ts`
-adapts a `bun:sqlite` database in six lines), so Bun and a browser's SQLite
-build the same tables. Each table has `stem`, one quoted column per declared
+(ADR-0520) in any `SqlTarget` (`run` and `transaction`; `queryFolder` in
+`@epicenter/folder/bun` adapts a `bun:sqlite` database in six lines), so Bun
+and a browser's SQLite build the same tables. Each table has `stem`, one quoted column per declared
 field, and `body`; a list or object is JSON text and a boolean is `0` or `1`.
 Pass only rows that conform and name the files you left out. The database is
 read-only afterwards. `projectionProblem` names a table that cannot be one
@@ -1451,6 +1476,7 @@ dangle.
 | `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds `save` and its merge. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
 | `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions` and `createTextDraft`. |
+| `src/check-folder.ts`, `query-folder.ts`, `generate-declaration.ts` | What the CLI's `check`, `query`, and `generate` do, exported from the Bun entry. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | `@epicenter/folder/svelte` (`draft.svelte.ts`), its tests, and the Svelte boundary tests. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
