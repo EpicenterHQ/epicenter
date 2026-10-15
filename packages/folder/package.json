@@ -10,7 +10,8 @@
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
 		"./file-browser": "./src/file-browser.ts",
-		"./query": "./src/query.ts"
+		"./query": "./src/query.ts",
+		"./svelte": "./src/svelte/draft.svelte.ts"
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
