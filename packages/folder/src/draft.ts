@@ -38,9 +38,14 @@ export type Draft<TFields> = {
 		| undefined;
 	/**
 	 * A save of `sent` landed as `saved`. With no change since, the draft is
-	 * done. Otherwise the later changes continue from the saved version.
+	 * done. Otherwise the later changes continue from the row `sent`: what
+	 * the saved version holds beyond it was merged in from another writer,
+	 * and is not this edit's to undo.
 	 */
-	saved(sent: { readonly revision: number }, saved: SavedRow<TFields>): void;
+	saved(
+		sent: SaveRowVariables<TFields> & { readonly revision: number },
+		saved: SavedRow<TFields>,
+	): void;
 	/** Drop the edit. */
 	discard(): void;
 };
@@ -83,9 +88,19 @@ export function createDraft<TFields>(): Draft<TFields> {
 				row = undefined;
 				return;
 			}
-			// Changes made while the save ran are still unsaved; they started
-			// from what it wrote.
-			base = result.stored;
+			// Changes made while the save ran are still unsaved, and their base
+			// row is the one sent. Unmerged, the file holds exactly that row, so
+			// the next save writes over the version written. Merged, the file
+			// also holds another writer's changes, which a save over the version
+			// written would undo, since `table.save` writes a current capture's
+			// row as given. So the base keeps naming the version the sent save
+			// started from: the next save finds the file moved and merges the
+			// draft with it over the row sent.
+			base = {
+				path: result.stored.path,
+				sha256: result.merged ? sent.base.sha256 : result.stored.sha256,
+				row: sent.row,
+			};
 		},
 		discard() {
 			base = undefined;
