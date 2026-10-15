@@ -11,7 +11,7 @@
  *
  * - `todos.rows` (`rows.ts`): the todo listing and its views, edits, writes,
  *   adding, and delete
- * - `todos.git`  (`git.ts`): history state and status, Save version, recovery
+ * - `todos.git`  (`git.ts`): history state and status, Save version
  * - `todos.sync` (`sync.ts`): Sync and its review's Apply
  *
  * Every query and mutation is a wellcrafted definition: a view passes
@@ -21,7 +21,7 @@
  * `rows.write`); an async method is a one-shot action a
  * handler awaits (`rows.remove`). Whether something runs
  * is TanStack's: a view asks `useIsMutating` with a key from `todosKeys`
- * (`writes`, `remove(path)`, `recoverIncoming`). Which todo is open is the
+ * (`writes`, `remove(path)`). Which todo is open is the
  * page URL's (`?todo=<stem>`), not the store's. Saves never commit
  * (ADR-0529); a version is recorded by Sync or by Save version.
  */

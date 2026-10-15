@@ -16,11 +16,9 @@
  * reload starts a full run. `?reload=2` reached any other way says the check
  * was not run.
  *
- * The recovery checks build a pending incoming update the way a tab that
- * closed mid-publication leaves one: the record, the branch at the admitted
- * commit, and files partly written; or an empty record, as a tab leaves one
- * that closed before its admission finished. They write those raw entries
- * with the browser's own OPFS API, then use only `git.recoverIncoming()` and
+ * The interrupted-update check builds what a tab that closed mid-publication
+ * leaves: the branch at the commit before, and files partly written. It
+ * writes those raw entries with the browser's own OPFS API, then uses only
  * the folder's public methods. No remote is reached.
  *
  * The address check opens a folder and finds nothing written, then writes
@@ -56,8 +54,6 @@ const definition = defineFolder({
 	tables: { rows: defineTable({ fields: { title: field.string() } }) },
 });
 const author = { name: 'Evidence', email: 'evidence@example.test' };
-/** Never reached: merges and pulls are refused before any transfer here. */
-const REMOTE_URL = 'http://127.0.0.1:9/unreachable.git';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const used = new Set<string>();
@@ -103,24 +99,9 @@ function ok<T>(result: Result<T, { name: string; message: string }>): T {
 
 async function open(
 	id: string,
-	options: {
-		remote?: boolean;
-		definition?: typeof definition;
-	} = {},
+	options: { definition?: typeof definition } = {},
 ) {
 	used.add(id);
-	// The remote is Git configuration, as Connect leaves it.
-	if (options.remote) {
-		const config = decoder.decode(await rawRead(id, '.git/config'));
-		if (!config.includes('[remote "origin"]'))
-			await rawWrite(
-				id,
-				'.git/config',
-				encoder.encode(
-					`${config}[remote "origin"]\n\turl = ${REMOTE_URL}\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`,
-				),
-			);
-	}
 	const { data: folder, error: openError } = await openFolder({
 		id,
 		definition: options.definition ?? definition,
@@ -698,207 +679,41 @@ async function history(id: string) {
 
 /**
  * A folder whose last commit's publication stopped partway, as a closed tab
- * leaves it: the record names the commit before and the commit published,
- * the branch is still at the commit before, the index already matches the
- * published commit, `a.md` already holds its new bytes, and `c.md`, new in
- * the published commit, was never written.
+ * leaves it: the branch is still at the commit before, the index already
+ * matches the published commit, `a.md` already holds its new bytes, and
+ * `c.md`, new in the published commit, was never written. Nothing records
+ * the update (ADR-0545).
  */
 async function interrupted(id: string) {
-	const folder = await open(id);
-	ok(await folder.files.create('a.md', '1'));
-	ok(await folder.files.create('b.md', '1'));
-	const before = await folder.git.commit();
-	assert(before.status === 'committed', `first commit ${before.status}`);
-	ok(await folder.files.overwrite('a.md', '2'));
-	ok(await folder.files.create('c.md', 'new'));
-	const after = await folder.git.commit();
-	assert(after.status === 'committed', `second commit ${after.status}`);
-	await closeAll();
-	const pending = {
-		operationId: `evidence-${crypto.randomUUID()}`,
-		branch: 'main',
-		expectedHead: before.oid,
-		nextHead: after.oid,
-	};
-	await rawWrite(id, '.git/refs/heads/main', encoder.encode(`${before.oid}\n`));
-	await rawRemove(id, 'c.md');
-	await rawWrite(
-		id,
-		'.git/epicenter-incoming.json',
-		encoder.encode(JSON.stringify(pending)),
-	);
-	return pending;
-}
-
-async function waitForPending(folder: Folder<typeof definition>) {
-	for (let wait = 0; wait < 100; wait++) {
-		if (folder.git.snapshot.pendingIncoming !== undefined)
-			return folder.git.snapshot.pendingIncoming;
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
-	return undefined;
-}
-
-async function recovery(id: string) {
 	await check(
-		'a pending update is shown, resumes nothing, and lets saves land',
+		'an update a closed tab cut off is changed files, and a commit goes ahead',
 		async () => {
-			const pending = await interrupted(`${id}-pending`);
-			const folder = await open(`${id}-pending`, { remote: true });
-			const shown = await waitForPending(folder);
-			assert(
-				shown?.state === 'recorded' &&
-					shown.operationId === pending.operationId,
-				`snapshot shows ${JSON.stringify(shown)}`,
-			);
-			const commit = await folder.git.commit();
-			assert(commit.status === 'blocked', `commit ${commit.status}`);
-			const { error: mergeError } = await folder.git.mergeIncoming();
-			assert(
-				mergeError?.name === 'IncomingPending',
-				`merge ${mergeError?.name ?? 'ok'}`,
-			);
-			ok(await folder.files.create('notes.md', 'saved while pending'));
-			assert(
-				!(await rawExists(`${id}-pending`, 'c.md')),
-				'c.md was written without recovery',
-			);
-			assert(
-				await rawExists(`${id}-pending`, '.git/epicenter-incoming.json'),
-				'the record went away',
-			);
-			return `operation ${pending.operationId.slice(0, 18)}…; commit blocked; merge IncomingPending; notes.md saved`;
-		},
-	);
-
-	await check(
-		'recoverIncoming() completes it from the files it finds',
-		async () => {
-			const folder = await open(`${id}-pending`, { remote: true });
-			await waitForPending(folder);
-			const recovered = ok(await folder.git.recoverIncoming());
-			assert(recovered.status === 'completed', `recovery ${recovered.status}`);
-			const changed =
-				recovered.status === 'completed'
-					? recovered.changedPaths.join(', ')
-					: '';
-			assert(changed === 'a.md, c.md', `changed ${changed}`);
-			assert(
-				decoder.decode(await rawRead(`${id}-pending`, 'c.md')) === 'new',
-				'c.md',
-			);
-			assert(
-				!(await rawExists(`${id}-pending`, '.git/epicenter-incoming.json')),
-				'the record remains',
-			);
-			assert(
-				folder.git.snapshot.pendingIncoming === undefined,
-				'the snapshot still shows it',
-			);
-			const changes = ok(await folder.git.status()).changes.map(
-				(change) => change.path,
-			);
-			assert(changes.join() === 'notes.md', `status ${changes}`);
-			await showLayout(folder, `${id}-pending`);
-			return `completed ${changed}; status shows only notes.md`;
-		},
-	);
-
-	await check(
-		'a third value is refused and named; once restored, recovery completes',
-		async () => {
-			await interrupted(`${id}-third`);
-			const folder = await open(`${id}-third`);
-			await waitForPending(folder);
-			const current = ok(await folder.files.read('a.md'));
-			const third = ok(await folder.files.replace(current, 'third'));
-			const { error: refusal } = await folder.git.recoverIncoming();
-			assert(
-				refusal?.name === 'RecoveryRefused' && refusal.paths.join() === 'a.md',
-				`recovery ${refusal?.name ?? 'ok'}`,
-			);
-			assert(
-				!(await rawExists(`${id}-third`, 'c.md')),
-				'a refused recovery wrote c.md',
-			);
-			ok(await folder.files.replace(third, '1'));
-			const recovered = ok(await folder.git.recoverIncoming());
-			assert(recovered.status === 'completed', `recovery ${recovered.status}`);
-			return `refused naming a.md (${refusal.message}); completed after a.md returned to its before bytes`;
-		},
-	);
-
-	await check(
-		'a branch already at the published commit is cleared without writing files',
-		async () => {
-			const pending = await interrupted(`${id}-cleared`);
-			await rawWrite(
-				`${id}-cleared`,
-				'.git/refs/heads/main',
-				encoder.encode(`${pending.nextHead}\n`),
-			);
-			const folder = await open(`${id}-cleared`);
-			await waitForPending(folder);
-			const cleared = ok(await folder.git.recoverIncoming());
-			assert(cleared.status === 'cleared', `recovery ${cleared.status}`);
-			assert(
-				!(await rawExists(`${id}-cleared`, 'c.md')),
-				'clearing wrote c.md',
-			);
-			const changes = ok(await folder.git.status()).changes;
-			assert(
-				changes.length === 1 &&
-					changes[0]?.path === 'c.md' &&
-					changes[0].kind === 'delete',
-				`status ${JSON.stringify(changes)}`,
-			);
-			return 'cleared; status reports c.md deleted instead of assuming clean';
-		},
-	);
-
-	await check(
-		'an empty record is an admission that never finished: Git waits until recoverIncoming() removes it',
-		async () => {
-			const unadmitted = `${id}-unadmitted`;
-			let folder = await open(unadmitted);
+			const folder = await open(id);
 			ok(await folder.files.create('a.md', '1'));
-			const first = await folder.git.commit();
-			assert(first.status === 'committed', `first commit ${first.status}`);
+			ok(await folder.files.create('b.md', '1'));
+			const before = await folder.git.commit();
+			assert(before.status === 'committed', `first commit ${before.status}`);
+			ok(await folder.files.overwrite('a.md', '2'));
+			ok(await folder.files.create('c.md', 'new'));
+			const after = await folder.git.commit();
+			assert(after.status === 'committed', `second commit ${after.status}`);
 			await closeAll();
 			await rawWrite(
-				unadmitted,
-				'.git/epicenter-incoming.json',
-				new Uint8Array(),
+				id,
+				'.git/refs/heads/main',
+				encoder.encode(`${before.oid}\n`),
 			);
-			folder = await open(unadmitted);
-			const shown = await waitForPending(folder);
-			assert(
-				shown?.state === 'unadmitted',
-				`snapshot shows ${JSON.stringify(shown)}`,
-			);
-			ok(await folder.files.create('notes.md', 'saved while pending'));
-			const blocked = await folder.git.commit();
-			assert(blocked.status === 'blocked', `commit ${blocked.status}`);
-			const recovered = ok(await folder.git.recoverIncoming());
-			assert(
-				recovered.status === 'admissionCleared',
-				`recovery ${recovered.status}`,
-			);
-			assert(
-				!(await rawExists(unadmitted, '.git/epicenter-incoming.json')),
-				'the empty record remains',
-			);
-			assert(
-				folder.git.snapshot.pendingIncoming === undefined,
-				'the snapshot still shows it',
-			);
-			const changes = ok(await folder.git.status()).changes.map(
+			await rawRemove(id, 'c.md');
+
+			const reopened = await open(id);
+			const changes = ok(await reopened.git.status()).changes.map(
 				(change) => change.path,
 			);
-			assert(changes.join() === 'notes.md', `status ${changes}`);
-			const committed = await folder.git.commit();
-			assert(committed.status === 'committed', `commit ${committed.status}`);
-			return `pending state "${shown.state}"; commit blocked; recovery "${recovered.status}"; status then shows notes.md and a commit lands`;
+			assert(changes.join() === 'a.md', `status ${changes}`);
+			const commit = await reopened.git.commit();
+			assert(commit.status === 'committed', `commit ${commit.status}`);
+			await showLayout(reopened, id);
+			return 'status shows a.md; the commit records it';
 		},
 	);
 }
@@ -1157,7 +972,7 @@ async function main() {
 			await filesAndLayout(runId);
 			await twoContexts(runId);
 			await history(runId);
-			await recovery(runId);
+			await interrupted(`${runId}-interrupted`);
 			await address(runId);
 			await rowRepair(`${runId}-rows`);
 			await streams(`${runId}-streams`);

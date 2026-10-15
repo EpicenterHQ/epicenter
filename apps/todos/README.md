@@ -155,8 +155,8 @@ alone: it stays while the window is open, and quitting or reloading drops it.
   all (its bytes are renamed into place), but a Save version or Sync the
   page was running stops where it was. An incoming update that stops
   partway leaves the files it wrote as changes, and the next Sync records
-  and merges them; the browser's recovery button does not appear on the
-  desktop. Other Todos windows keep working.
+  and merges them, in the browser and on the desktop. Other Todos windows
+  keep working.
 - Git hashing and network traffic do not block writes.
 
 ### How it is wired
@@ -287,7 +287,6 @@ list and its editor fill the window. The header holds the rest:
 | Save version | Records the written files as a version in history (`folder.git.commit()`). Writes still running land first. Nothing is sent. |
 | Sync | Waits for writes still running, records a version, fetches, merges, and pushes (`folder.sync`, ADR-0514). Edits to different fields, or to different lines of the notes, merge on their own; a merged todo is rewritten in the standard form. When both sides changed the same title, done, notes, or a whole todo (one side deleted it, or a version is not a valid todo), the review replaces the workspace and nothing is written until you apply your choices. The review is modal: the workspace and the Git buttons wait until you apply or cancel, and Cancel forgets the attempt and your choices. A choice the folder refuses shows beside its row and keeps the review. Afterwards the list and Git status are read again. |
 | Connect | Shown instead of Sync while the folder has no remote; opens Connect. |
-| Recover incoming update | Shown only while an incoming update has not finished; see below. Sync and Save version are off until then, and say why. |
 
 The open todo is part of the address, `?todo=<stem>`, so a reload or a
 change of window width keeps it open. On narrow screens the list and the
@@ -332,29 +331,12 @@ time, and switching never waits or asks.
 
 ### When an incoming update stops partway
 
-This section is the browser's. On the desktop, an update that stops partway
-leaves its written files as changes, and the next Sync finishes it.
-
-A sync in the browser writes the incoming files one at a time. If it stops
-partway (the tab closed, or a file could not be written), the folder keeps a
-record of the update. Todos reports it under the header as "Incoming update
-not finished" (or "never started", or "record unreadable"), and as the first
-line of the status details. It never resumes the update on its own: opening
-the folder, "Check again", and returning to the window only read the record.
-
-- Sync and Save version wait while the update is pending; their buttons are
-  off and say why. Editing, writing, and deleting keep working.
-- **Recover incoming update** runs only when you press it. Writes still
-  running land first. Afterward the list is read again and shows what the
-  update wrote.
-- Recovery finishes the update from the files as they are: each file still at
-  its version from before the update gets the incoming version, and each file
-  already at the incoming version is left alone. A file that holds neither,
-  such as one you edited after the update stopped, is named with the reason,
-  nothing is written, and the update stays pending with its record. Make each
-  named file hold one of its two versions (for example with `git show` in
-  your own terminal), then press the button again.
-- Nothing is discarded, rolled back, or retried for you.
+A sync writes the incoming files one at a time. If it stops partway (the tab
+closed, or a file could not be written), the files it wrote show as changes
+since the last version, and nothing is pending (ADR-0545). Editing, Save
+version, and Sync keep working. The next Sync records those changes and
+merges with the remote, which finishes the update. It can add one version of
+the half-written state before its merge.
 
 ## What to try
 
@@ -439,7 +421,7 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/todos.svelte.ts` | The store over one folder (ADR-0528): its own TanStack `QueryClient` with every rule (never stale, no retry, the quit fence), leaving, and closing. It composes the namespaces below over one `Session`. |
 | `src/lib/session.ts` | What the namespaces share: the cache keys (`todosKeys`), `TodosError` and `DEPARTING`, the `WriteFailure` type, and the `Session` type. |
 | `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), `edit`, the scoped `write(stem)` each view creates its mutation from, `create`, and `remove`. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
-| `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, Save version, and incoming recovery. |
+| `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
 | `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL, and the review's `apply`. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
 | `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), the sync review, and Connect (`ConnectDialog`). `TodosView` sets the store and its query client as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |

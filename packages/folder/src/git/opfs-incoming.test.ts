@@ -1,40 +1,40 @@
 /**
  * Incoming updates of a browser folder in the origin private file system
- * (ADR-0474): one record from admission until the update is verified, and
- * recovery only when asked.
+ * (ADR-0545): files, then the index, then the branch, with nothing recorded,
+ * so an update cut off partway is ordinary changed files that the next Sync
+ * finishes.
  *
  * An update is interrupted by an injected failure: a write that throws before
- * its stream closed (nothing published), or a close that throws (the outcome
- * is unknown, and the file may hold either version). Those leave the stored
- * state a closed tab would. The folder is then reopened through the
- * production opener. These run over the in-memory OPFS stand-in.
+ * its stream closed (nothing published), a close that throws (a created file
+ * stays empty), or a close whose reply was lost (the bytes landed). These run over the in-memory OPFS stand-in; the remote is a
+ * bare repository served by `git http-backend`.
  *
  * Key behaviors:
- * - The record holds an operation ID, the branch, the admitted head, and the
- *   published commit; refs pin both commits while it exists
- * - A close whose outcome is unknown halts the update with its record, before
- *   the index or the branch, and requests no commit; nothing calls it a success
- * - A record whose creation never published is `unadmitted`: no authored file
- *   changed, and only an explicit recovery removes it
- * - Reopening, committing, and status resume nothing. Saves continue;
- *   staging, commits, and new incoming updates wait, across openings
- * - Recovery removes, then writes, then sets the index and the branch; a
- *   branch already at the published commit clears the record without writing
- * - Paths, the index, the branch, or the record in neither state are refused
- *   and named: an empty file where nothing was, a file above a new path, a
- *   staged or corrupt index, unreadable record bytes
- * - Directories turn into files and files into directories in both
- *   publication and recovery; directories the removals emptied are pruned,
- *   and a directory something else keeps stays
+ * - A fast-forward or a merge cut off at a file, at the index, or at the
+ *   branch leaves changed files that status shows; commits are not refused,
+ *   and the next Sync lands on the remote's tree with local work kept
+ * - Directories turn into files and files into directories; directories the
+ *   removals emptied are pruned, and a directory something else keeps stays
+ * - A directory, or a file no path names, where an update writes a file
+ *   refuses the update before anything changes
  * - A first import into an empty history, an empty first-commit ref, and a
  *   repository whose creation stopped before `HEAD` keep working
  */
 import { afterEach, expect, test } from 'bun:test';
+import { rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import * as isogit from 'isomorphic-git';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineFolder, type Folder, openFolder } from '../browser.js';
 import { hashBytes } from '../capture.js';
 import { formatDeclaration } from '../declaration.js';
+import {
+	createBareRemote,
+	GIT_ENV,
+	git,
+	gitHttpFetch,
+	scratch,
+} from '../git-http.test-support.js';
 import {
 	type MemoryOpfs,
 	memoryOpfs,
@@ -42,31 +42,31 @@ import {
 } from '../opfs.test-support.js';
 import { createOpfsFileBoundary, ensureDirectory } from '../opfs-store.js';
 import { useWebLocks } from '../web-locks.test-support.js';
-import { createStoredGitBackend, GITDIR, WORKDIR } from './browser-backend.js';
+import { createStoredGitBackend } from './browser-backend.js';
 import { createHistory } from './history.js';
 import { writeCommitObject, writeFilesTree } from './objects.js';
-import { createOpfsGitSession, createOpfsGitStore } from './opfs-git.js';
+import { createOpfsGitStore } from './opfs-git.js';
 
 useWebLocks();
 
 const author = { name: 'Merger', email: 'merger@example.test' };
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const remote = { url: 'http://unused.test/remote.git', branch: 'main' };
 const ROOT = 'merge';
-const RECORD = '.git/epicenter-incoming.json';
-const PIN_NEXT = '.git/refs/epicenter/incoming/next';
-const PIN_EXPECTED = '.git/refs/epicenter/incoming/expected';
 const FILES_LOCK = 'epicenter-folder:merge:files';
 const GIT_LOCK = 'epicenter-folder:merge:git';
+const REMOTE_URL = 'http://git.test/remote.git';
 const definition = defineFolder({ kv: {}, tables: {} });
 const discovery = formatDeclaration(definition);
 
 type Tree = Record<string, string>;
 
 const opened: { close(): Promise<void> }[] = [];
+const scratches: string[] = [];
 afterEach(async () => {
 	for (const item of opened.splice(0)) await item.close();
+	for (const root of scratches.splice(0))
+		await rm(root, { recursive: true, force: true });
 });
 
 /** A raw folder where the opener looks for it, with history over it. */
@@ -87,18 +87,14 @@ async function folderAt(opfs = memoryOpfs()) {
 		lockName: GIT_LOCK,
 		branch: 'main',
 	});
-	await backend.setRemote(remote.url);
+	await backend.setRemote('http://unused.test/remote.git');
 	const boundary = createOpfsFileBoundary({
 		root,
 		locks: environment.locks,
 		filesLock: FILES_LOCK,
 		landed: () => {},
 	});
-	const history = createHistory({
-		backend,
-		boundary,
-		author,
-	});
+	const history = createHistory({ backend, boundary, author });
 	opened.push(history);
 
 	async function write(path: string, value: string) {
@@ -145,23 +141,6 @@ async function folderAt(opfs = memoryOpfs()) {
 	return { opfs, root, history, boundary, backend, write, commit, fetched };
 }
 
-/** A folder with a diverged fetched head: merged, a=2 b=2 c=new. */
-async function setup() {
-	const made = await folderAt();
-	await made.write('epicenter.json', discovery);
-	// base a=1 b=1; theirs a=2 b=1 c=new; ours a=1 b=2.
-	await made.write('a.md', '1');
-	await made.write('b.md', '1');
-	const base = await made.commit();
-	const theirs = await made.fetched(
-		{ 'epicenter.json': discovery, 'a.md': '2', 'b.md': '1', 'c.md': 'new' },
-		base,
-	);
-	await made.write('b.md', '2');
-	const ours = await made.commit();
-	return { ...made, ours, theirs };
-}
-
 /** Make the first write to a path ending with `suffix` throw before it publishes. */
 function failWrite(opfs: MemoryOpfs, suffix: string) {
 	let failed = false;
@@ -172,18 +151,13 @@ function failWrite(opfs: MemoryOpfs, suffix: string) {
 	};
 }
 
-/** Make the `nth` close at a path ending with `suffix` throw: its outcome is unknown. */
-function failClose(
-	opfs: MemoryOpfs,
-	suffix: string,
-	fault: 'fail' | 'lost' = 'fail',
-	nth = 1,
-) {
-	let seen = 0;
+/** Make the first close at a path ending with `suffix` lose its reply: the bytes landed. */
+function loseClose(opfs: MemoryOpfs, suffix: string) {
+	let lost = false;
 	opfs.faults.close = (path) => {
-		if (!path.endsWith(suffix)) return undefined;
-		seen++;
-		return seen === nth ? fault : undefined;
+		if (lost || !path.endsWith(suffix)) return undefined;
+		lost = true;
+		return 'lost';
 	};
 }
 
@@ -192,13 +166,6 @@ function clearFaults(opfs: MemoryOpfs) {
 	opfs.faults.close = undefined;
 	opfs.faults.remove = undefined;
 }
-
-const MERGED = {
-	'epicenter.json': discovery,
-	'a.md': '2',
-	'b.md': '2',
-	'c.md': 'new',
-};
 
 function folderFiles(opfs: MemoryOpfs) {
 	return Object.fromEntries(
@@ -211,400 +178,218 @@ function folderFiles(opfs: MemoryOpfs) {
 
 const stored = (opfs: MemoryOpfs, path: string) => opfs.files(ROOT).get(path);
 
-async function reopen(opfs: MemoryOpfs) {
+/**
+ * A bare remote over HTTP holding `tree`, another clone that commits to it
+ * as a second device would, and a browser folder that adopted it by Sync.
+ */
+async function synced(tree: Tree) {
+	const root = await scratch('opfs-incoming-');
+	scratches.push(root);
+	const bare = await createBareRemote(root);
+	const other = join(root, 'other');
+	await git(root, 'clone', '--quiet', bare, other);
+	/** Commit `changes` on the other clone and push; `null` removes a file. */
+	async function push(changes: Record<string, string | null>) {
+		await git(other, 'pull', '--quiet', '--ff-only', 'origin', 'main');
+		for (const [path, text] of Object.entries(changes))
+			if (text === null) await git(other, 'rm', '--quiet', path);
+			else {
+				await writeFile(join(other, path), text);
+				await git(other, 'add', path);
+			}
+		await git(other, 'commit', '--quiet', '-m', 'Other device');
+		await git(other, 'push', '--quiet', 'origin', 'HEAD:main');
+	}
+	await git(other, 'checkout', '--quiet', '-b', 'main');
+	for (const [path, text] of Object.entries({
+		'epicenter.json': discovery,
+		...tree,
+	})) {
+		await writeFile(join(other, path), text);
+		await git(other, 'add', path);
+	}
+	await git(other, 'commit', '--quiet', '-m', 'First');
+	await git(other, 'push', '--quiet', 'origin', 'main');
+
+	const opfs = memoryOpfs();
 	const folder = expectOk(
 		await openFolder({
-			id: 'merge',
+			id: ROOT,
 			definition,
 			browser: {
 				author,
+				httpFetch: await gitHttpFetch(root),
 				opfs: opfsEnvironment(opfs),
 			},
 		}),
 	);
 	opened.push(folder);
-	// The pending record is read when history starts.
-	for (let index = 0; index < 50; index++) {
-		if (folder.git.snapshot.pendingIncoming !== undefined) break;
-		await Bun.sleep(2);
-	}
-	return folder;
+	expectOk(await folder.sync.connect(REMOTE_URL));
+	return { opfs, folder, bare, push };
 }
 
-/** Interrupt the merge with `fault`, then reopen the folder. */
-async function interrupted(fault: (opfs: MemoryOpfs) => void) {
-	const made = await setup();
-	fault(made.opfs);
-	const stopped = expectErr(await made.history.mergeIncoming());
-	clearFaults(made.opfs);
-	await made.history.close();
-	opened.length = 0;
-	return { ...made, stopped, folder: await reopen(made.opfs) };
+async function changedPaths(folder: Folder<typeof definition>) {
+	return expectOk(await folder.git.status()).changes.map(({ path }) => path);
 }
 
-async function expectMerged(
-	folder: Folder<typeof definition>,
-	opfs: MemoryOpfs,
-	ours: string,
-	theirs: string,
-) {
-	expect(folderFiles(opfs)).toEqual(MERGED);
-	expect(stored(opfs, RECORD)).toBeUndefined();
-	expect(stored(opfs, PIN_NEXT)).toBeUndefined();
-	expect(folder.git.snapshot.pendingIncoming).toBeUndefined();
-	const [head] = expectOk(await folder.git.log(1));
-	expect(head?.parents).toEqual([ours, theirs]);
-	expect(expectOk(await folder.git.status()).changes).toEqual([]);
-	expect(expectOk(await folder.git.paths())).toEqual([]);
+/** The remote branch's files, as another clone would check them out. */
+async function remoteFiles(bare: string) {
+	const paths = (await git(bare, 'ls-tree', '-r', '--name-only', 'main'))
+		.split('\n')
+		.filter((path) => path !== '');
+	return Object.fromEntries(
+		await Promise.all(
+			paths.map(async (path) => {
+				const show = Bun.spawn(['git', 'show', `main:${path}`], {
+					cwd: bare,
+					env: GIT_ENV,
+					stdout: 'pipe',
+				});
+				return [path, await new Response(show.stdout).text()];
+			}),
+		),
+	);
 }
 
-test('an uninterrupted merge publishes and leaves no record or pin', async () => {
-	const { opfs, history } = await setup();
-	expect(expectOk(await history.mergeIncoming()).status).toBe('merged');
-	expect(folderFiles(opfs)).toEqual(MERGED);
-	expect(stored(opfs, RECORD)).toBeUndefined();
-	expect(stored(opfs, PIN_NEXT)).toBeUndefined();
-	expect(stored(opfs, PIN_EXPECTED)).toBeUndefined();
-});
+/** Where an update is cut off, and whether its branch write landed anyway. */
+const faults: [string, (opfs: MemoryOpfs) => void, boolean][] = [
+	['a file write', (opfs) => failWrite(opfs, `${ROOT}/z.md`), false],
+	[
+		'a file whose reply was lost',
+		(opfs) => loseClose(opfs, `${ROOT}/z.md`),
+		false,
+	],
+	[
+		'a created file left empty',
+		(opfs) => {
+			opfs.faults.close = (path) =>
+				path.endsWith(`${ROOT}/z.md`) ? 'fail' : undefined;
+		},
+		false,
+	],
+	['the index', (opfs) => failWrite(opfs, `${ROOT}/.git/index`), false],
+	[
+		'the branch',
+		(opfs) => failWrite(opfs, `${ROOT}/.git/refs/heads/main`),
+		false,
+	],
+	[
+		'the branch whose reply was lost',
+		(opfs) => loseClose(opfs, `${ROOT}/.git/refs/heads/main`),
+		true,
+	],
+];
 
-test('the record names the operation, branch, admitted head, and published commit; pins keep both commits', async () => {
-	const { opfs, ours, stopped, folder } = await interrupted((opfs) =>
-		failWrite(opfs, `${ROOT}/c.md`),
-	);
-	expect(stopped).toMatchObject({
-		name: 'Partial',
-		applied: [{ kind: 'write', path: 'a.md' }],
-	});
-	const record = JSON.parse(decoder.decode(stored(opfs, RECORD)));
-	expect(Object.keys(record).sort()).toEqual([
-		'branch',
-		'expectedHead',
-		'nextHead',
-		'operationId',
-	]);
-	expect(record).toMatchObject({ branch: 'main', expectedHead: ours });
-	expect(folder.git.snapshot.pendingIncoming).toEqual({
-		state: 'recorded',
-		operationId: record.operationId,
-		branch: 'main',
-		expectedHead: ours,
-		nextHead: record.nextHead,
-	});
-	expect(decoder.decode(stored(opfs, PIN_NEXT)).trim()).toBe(record.nextHead);
-	expect(decoder.decode(stored(opfs, PIN_EXPECTED)).trim()).toBe(ours);
-});
-
-test('while pending, saves land; staging, commits, and new incoming updates wait; nothing resumes it', async () => {
-	const { opfs, folder, ours } = await interrupted((opfs) =>
-		failWrite(opfs, `${ROOT}/c.md`),
-	);
-	const pending = folder.git.snapshot.pendingIncoming!;
-	expect(pending.state).toBe('recorded');
-	expect(expectOk(await folder.git.status()).changes.length).toBeGreaterThan(0);
-	const commit = await folder.git.commit();
-	expect(commit.status).toBe('blocked');
-	expect(stored(opfs, RECORD)).toBeDefined();
-	expect(folderFiles(opfs)).toEqual({
-		'epicenter.json': discovery,
-		'a.md': '2',
-		'b.md': '2',
-	});
-	expect(expectOk(await folder.git.log(1))[0]?.oid).toBe(ours);
-	expectOk(await folder.files.create('notes.md', 'mine'));
-	expectOk(await folder.files.mkdir('drafts'));
-	expect(expectErr(await folder.git.mergeIncoming())).toMatchObject({
-		name: 'IncomingPending',
-		pending,
-	});
-	expect(expectErr(await folder.git.pullFastForward())).toMatchObject({
-		name: 'IncomingPending',
-	});
-	expect(expectErr(await folder.git.stage(['notes.md']))).toMatchObject({
-		name: 'IncomingPending',
-	});
-	expect(expectErr(await folder.git.commitStaged('Notes'))).toMatchObject({
-		name: 'IncomingPending',
-	});
-	await folder.close();
-	opened.length = 0;
-	const again = await reopen(opfs);
-	expect(again.git.snapshot.pendingIncoming).toEqual(pending);
-	expect(stored(opfs, RECORD)).toBeDefined();
-});
-
-test('a close whose outcome is unknown halts the update with its record before the index and branch', async () => {
-	// The bytes landed, but the reply was lost: still not a success.
-	const lost = await setup();
-	failClose(lost.opfs, `${ROOT}/c.md`, 'lost');
-	const halted = expectErr(await lost.history.mergeIncoming());
-	clearFaults(lost.opfs);
-	expect(halted).toMatchObject({ name: 'Unconfirmed', uncertain: ['c.md'] });
-	expect(folderFiles(lost.opfs)).toEqual(MERGED);
-	expect(await lost.backend.readBranch()).toBe(lost.ours);
-	expect(stored(lost.opfs, RECORD)).toBeDefined();
-	expect(lost.history.snapshot.lastCommit?.status).toBe('committed');
-	expect((await lost.history.commit()).status).toBe('blocked');
-	// Recovery finds c.md already at its after state and finishes.
-	expect(expectOk(await lost.history.recoverIncoming()).status).toBe(
-		'completed',
-	);
-	expect(await lost.backend.readBranch()).not.toBe(lost.ours);
-
-	// Nothing published: the created file is empty, a third state to review.
-	const { opfs, folder, ours, theirs } = await interrupted((opfs) =>
-		failClose(opfs, `${ROOT}/c.md`),
-	);
-	expect(stored(opfs, 'c.md')).toEqual(new Uint8Array());
-	const refused = expectErr(await folder.git.recoverIncoming());
-	expect(refused).toMatchObject({ name: 'RecoveryRefused', paths: ['c.md'] });
-	// Removing what nobody can vouch for lets recovery finish.
-	expectOk(
-		await folder.files.remove(expectOk(await folder.files.read('c.md'))),
-	);
-	expect(expectOk(await folder.git.recoverIncoming()).status).toBe('completed');
-	await expectMerged(folder, opfs, ours, theirs);
-});
-
-test('recovery finishes an update stopped at a file, at the index, or at the branch, and keeps edits beside it', async () => {
-	for (const fault of [
-		(opfs: MemoryOpfs) => failWrite(opfs, `${ROOT}/c.md`),
-		(opfs: MemoryOpfs) => failWrite(opfs, `${ROOT}/.git/index`),
-		(opfs: MemoryOpfs) => failClose(opfs, `${ROOT}/.git/index`),
-		(opfs: MemoryOpfs) => failWrite(opfs, `${ROOT}/.git/refs/heads/main`),
-		(opfs: MemoryOpfs) => failClose(opfs, `${ROOT}/.git/refs/heads/main`),
-	]) {
-		const { opfs, folder, ours, theirs } = await interrupted(fault);
-		expect(folder.git.snapshot.pendingIncoming?.state).toBe('recorded');
-		expectOk(await folder.files.create('notes.md', 'kept'));
-		const heard: string[] = [];
-		folder.onFilesChanged((paths) => heard.push(...paths));
-		const recovered = expectOk(await folder.git.recoverIncoming());
-		expect(recovered).toMatchObject({
-			status: 'completed',
-			changedPaths: ['a.md', 'c.md'],
+for (const [stage, fault, reached] of faults)
+	test(`a fast-forward cut off at ${stage} is changed files, and the next Sync lands on the remote's tree with local work kept`, async () => {
+		const { opfs, folder, bare, push } = await synced({
+			'a.md': '1',
+			'gone.md': 'gone',
 		});
-		expect(heard).toEqual(['a.md', 'c.md']);
-		expect(decoder.decode(stored(opfs, 'notes.md'))).toBe('kept');
-		opfs.drop(`${ROOT}/notes.md`);
-		await expectMerged(folder, opfs, ours, theirs);
-		expect(expectOk(await folder.git.recoverIncoming())).toEqual({
-			status: 'none',
+		await push({ 'a.md': '2', 'gone.md': null, 'z.md': 'new' });
+		expectOk(await folder.git.fetch());
+
+		fault(opfs);
+		const stopped = expectErr(await folder.git.mergeIncoming());
+		clearFaults(opfs);
+		expect(stopped.name).toBe('Interrupted');
+		// Removals, then writes: the removal and a.md landed before z.md.
+		expect(stored(opfs, 'gone.md')).toBeUndefined();
+		expect(decoder.decode(stored(opfs, 'a.md'))).toBe('2');
+		expect(await changedPaths(folder)).toEqual(
+			reached ? [] : expect.arrayContaining(['a.md', 'gone.md']),
+		);
+
+		// Nothing is pending: a save and a commit go ahead.
+		expectOk(await folder.files.create('notes.md', 'mine'));
+		expect((await folder.git.commit()).status).toBe('committed');
+
+		const outcome = expectOk(await folder.sync.run());
+		expect(outcome.kind).toBe('synced');
+		const expected = {
+			'epicenter.json': discovery,
+			'a.md': '2',
+			'notes.md': 'mine',
+			'z.md': 'new',
+		};
+		expect(folderFiles(opfs)).toEqual(expected);
+		expect(await changedPaths(folder)).toEqual([]);
+		expect(expectOk(await folder.git.paths())).toEqual([]);
+		expect(await remoteFiles(bare)).toEqual(expected);
+	});
+
+for (const [stage, fault, reached] of faults)
+	test(`a merge cut off at ${stage} is changed files, and the next Sync lands on both sides' changes`, async () => {
+		const { opfs, folder, bare, push } = await synced({
+			'a.md': '1',
+			'b.md': '1',
+			'gone.md': 'gone',
+			'shared.md': 'one\ntwo\nthree\n',
 		});
-		for (const item of opened.splice(0)) await item.close();
-	}
-});
+		await push({
+			'a.md': '2',
+			'gone.md': null,
+			'shared.md': 'ONE\ntwo\nthree\n',
+			'z.md': 'new',
+		});
+		// A local commit the remote does not have makes the update a merge.
+		const b = expectOk(await folder.files.read('b.md'));
+		expectOk(await folder.files.replace(b, '2'));
+		const shared = expectOk(await folder.files.read('shared.md'));
+		expectOk(await folder.files.replace(shared, 'one\ntwo\nTHREE\n'));
+		expect((await folder.git.commit()).status).toBe('committed');
+		expectOk(await folder.git.fetch());
 
-test('a branch whose write landed but whose reply was lost is reported unknown, then cleared without replaying files', async () => {
-	const made = await setup();
-	failClose(made.opfs, `${ROOT}/.git/refs/heads/main`, 'lost');
-	const halted = expectErr(await made.history.mergeIncoming());
-	clearFaults(made.opfs);
-	expect(halted).toMatchObject({
-		name: 'Unconfirmed',
-		uncertain: ['.git/refs/heads/main'],
-	});
-	expect(halted.message).not.toContain('did not move');
-	const pending = made.history.snapshot.pendingIncoming;
-	if (pending?.state !== 'recorded') throw new Error(String(pending?.state));
-	// A save after the halt is not replayed over.
-	const a = expectOk(await made.boundary.read('a.md'));
-	const edited = encoder.encode('edited');
-	expectOk(
-		await made.boundary.apply([
-			{
-				kind: 'replace',
-				path: 'a.md',
-				bytes: edited,
-				sha256: await hashBytes(edited),
-				expectedSha256: a.sha256,
-			},
-		]),
-	);
-	expect(expectOk(await made.history.recoverIncoming())).toEqual({
-		status: 'cleared',
-		pending,
-	});
-	expect(decoder.decode(stored(made.opfs, 'a.md'))).toBe('edited');
-	expect(stored(made.opfs, RECORD)).toBeUndefined();
-	expect(expectOk(await made.history.status()).changes).toEqual([
-		{ path: 'a.md', kind: 'modify' },
-	]);
-});
+		fault(opfs);
+		const stopped = expectErr(await folder.git.mergeIncoming());
+		clearFaults(opfs);
+		expect(stopped.name).toBe('Interrupted');
+		// The merged text landed before z.md stopped the update.
+		expect(decoder.decode(stored(opfs, 'shared.md'))).toBe('ONE\ntwo\nTHREE\n');
+		expect(await changedPaths(folder)).toEqual(
+			reached ? [] : expect.arrayContaining(['a.md', 'gone.md', 'shared.md']),
+		);
 
-test('a branch already at the published commit clears the record without writing any file, and status is observed again', async () => {
-	const { opfs, folder, theirs } = await interrupted((opfs) =>
-		failWrite(opfs, `${ROOT}/c.md`),
-	);
-	const pending = folder.git.snapshot.pendingIncoming!;
-	if (pending.state !== 'recorded') throw new Error(pending.state);
-	opfs.put(
-		`${ROOT}/.git/refs/heads/main`,
-		encoder.encode(`${pending.nextHead}\n`),
-	);
-	expect(expectOk(await folder.git.recoverIncoming())).toEqual({
-		status: 'cleared',
-		pending,
+		const outcome = expectOk(await folder.sync.run());
+		expect(outcome.kind).toBe('synced');
+		const expected = {
+			'epicenter.json': discovery,
+			'a.md': '2',
+			'b.md': '2',
+			'shared.md': 'ONE\ntwo\nTHREE\n',
+			'z.md': 'new',
+		};
+		expect(folderFiles(opfs)).toEqual(expected);
+		expect(await changedPaths(folder)).toEqual([]);
+		expect(await remoteFiles(bare)).toEqual(expected);
 	});
-	expect(stored(opfs, RECORD)).toBeUndefined();
-	expect(folderFiles(opfs)).toEqual({
-		'epicenter.json': discovery,
-		'a.md': '2',
-		'b.md': '2',
-	});
-	expect(expectOk(await folder.git.status()).changes).toEqual([
-		{ path: 'c.md', kind: 'delete' },
-	]);
-	const [head] = expectOk(await folder.git.log(1));
-	expect(head?.parents[1]).toBe(theirs);
-});
 
-test('a branch at neither commit leaves the update pending', async () => {
-	const { opfs, folder, backend } = await interrupted((opfs) =>
-		failWrite(opfs, `${ROOT}/c.md`),
-	);
-	const elsewhere = await backend.withObjects((access) =>
-		writeCommitObject(access, {
-			tree: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
-			parents: [],
-			message: 'Elsewhere',
-			author,
-		}),
-	);
-	opfs.put(`${ROOT}/.git/refs/heads/main`, encoder.encode(`${elsewhere}\n`));
-	expect(expectErr(await folder.git.recoverIncoming())).toMatchObject({
-		name: 'RecoveryRefused',
-		paths: ['.git/refs/heads/main'],
-	});
-	expect(stored(opfs, RECORD)).toBeDefined();
-});
-
-test('a path holding a third value refuses recovery and is named; restoring it lets recovery finish', async () => {
-	const { opfs, folder, ours, theirs } = await interrupted((opfs) =>
-		failWrite(opfs, `${ROOT}/c.md`),
-	);
-	const current = expectOk(await folder.files.read('a.md'));
-	expectOk(await folder.files.replace(current, 'third'));
-	const refused = expectErr(await folder.git.recoverIncoming());
-	expect(refused).toMatchObject({ name: 'RecoveryRefused', paths: ['a.md'] });
-	expect(refused.message).toContain(
-		"a.md holds neither the update's before nor its after state",
-	);
-	expect(folderFiles(opfs)['c.md']).toBeUndefined();
-	const third = expectOk(await folder.files.read('a.md'));
-	expectOk(await folder.files.replace(third, '1'));
-	expect(expectOk(await folder.git.recoverIncoming()).status).toBe('completed');
-	await expectMerged(folder, opfs, ours, theirs);
-});
-
-test('a formerly absent path that is now empty, or under a file, is a third state', async () => {
-	const empty = await interrupted((opfs) => failWrite(opfs, `${ROOT}/c.md`));
-	empty.opfs.put(`${ROOT}/c.md`, new Uint8Array());
-	expect(expectErr(await empty.folder.git.recoverIncoming())).toMatchObject({
-		name: 'RecoveryRefused',
-		paths: ['c.md'],
-	});
-	for (const item of opened.splice(0)) await item.close();
-
-	// The update adds n.md and p/q; a save puts a file at p meanwhile.
+test('an uninterrupted merge publishes files, index, and branch', async () => {
 	const made = await folderAt();
+	await made.write('epicenter.json', discovery);
 	await made.write('a.md', '1');
+	await made.write('b.md', '1');
 	const base = await made.commit();
-	await made.fetched({ 'a.md': '1', 'n.md': 'n', 'p/q': 'q' }, base);
-	failWrite(made.opfs, `${ROOT}/p/q`);
-	expect(expectErr(await made.history.pullFastForward()).name).toBe('Partial');
-	clearFaults(made.opfs);
-	// The failed write left its parent directory; a save takes its place.
-	expectOk(await made.boundary.rmdir('p'));
-	await made.write('p', 'a file above p/q');
-	const refused = expectErr(await made.history.recoverIncoming());
-	expect(refused).toMatchObject({ name: 'RecoveryRefused', paths: ['p/q'] });
-	expect(decoder.decode(stored(made.opfs, 'p'))).toBe('a file above p/q');
-});
-
-test('a staged or corrupt index refuses recovery and is named', async () => {
-	const staged = await interrupted((opfs) => failWrite(opfs, `${ROOT}/c.md`));
-	staged.opfs.put(`${ROOT}/extra.md`, encoder.encode('extra'));
-	const session = createOpfsGitSession(staged.root);
-	await isogit.add({
-		fs: session.fs,
-		dir: WORKDIR,
-		gitdir: GITDIR,
-		filepath: 'extra.md',
-	});
-	await session.flush();
-	expect(expectErr(await staged.folder.git.recoverIncoming())).toMatchObject({
-		name: 'RecoveryRefused',
-		paths: ['.git/index'],
-	});
-	for (const item of opened.splice(0)) await item.close();
-
-	for (const corrupt of [new Uint8Array(), encoder.encode('not an index')]) {
-		const made = await interrupted((opfs) => failWrite(opfs, `${ROOT}/c.md`));
-		made.opfs.put(`${ROOT}/.git/index`, corrupt);
-		const refused = expectErr(await made.folder.git.recoverIncoming());
-		expect(refused).toMatchObject({
-			name: 'RecoveryRefused',
-			paths: ['.git/index'],
-		});
-		expect(stored(made.opfs, RECORD)).toBeDefined();
-		for (const item of opened.splice(0)) await item.close();
-	}
-});
-
-test('a record whose creation never published is unadmitted: no authored file changed, and only recovery clears it', async () => {
-	const { opfs, history, ours } = await setup();
-	failClose(opfs, `${ROOT}/${RECORD}`);
-	const halted = expectErr(await history.mergeIncoming());
-	clearFaults(opfs);
-	expect(halted).toMatchObject({ name: 'Unconfirmed', uncertain: [RECORD] });
-	expect(stored(opfs, RECORD)).toEqual(new Uint8Array());
-	expect(folderFiles(opfs)).toEqual({
-		'epicenter.json': discovery,
-		'a.md': '1',
-		'b.md': '2',
-	});
-	expect(history.snapshot.pendingIncoming).toEqual({ state: 'unadmitted' });
-	await history.close();
-	opened.length = 0;
-	const folder = await reopen(opfs);
-	expect(folder.git.snapshot.pendingIncoming).toEqual({ state: 'unadmitted' });
-	expect((await folder.git.commit()).status).toBe('blocked');
-	expect(expectErr(await folder.git.mergeIncoming()).name).toBe(
-		'IncomingPending',
+	const theirs = await made.fetched(
+		{ 'epicenter.json': discovery, 'a.md': '2', 'b.md': '1', 'c.md': 'new' },
+		base,
 	);
-	expect(stored(opfs, RECORD)).toEqual(new Uint8Array());
-	expect(expectOk(await folder.git.recoverIncoming())).toEqual({
-		status: 'admissionCleared',
+	await made.write('b.md', '2');
+	const ours = await made.commit();
+	expect(expectOk(await made.history.mergeIncoming()).status).toBe('merged');
+	expect(folderFiles(made.opfs)).toEqual({
+		'epicenter.json': discovery,
+		'a.md': '2',
+		'b.md': '2',
+		'c.md': 'new',
 	});
-	expect(stored(opfs, RECORD)).toBeUndefined();
-	expect(expectOk(await folder.git.log(1))[0]?.oid).toBe(ours);
-	expect(expectOk(await folder.git.mergeIncoming()).status).toBe('merged');
-	expect(folderFiles(opfs)).toEqual(MERGED);
+	const [head] = expectOk(await made.history.log(1));
+	expect(head?.parents).toEqual([ours, theirs]);
+	expect(expectOk(await made.history.status()).changes).toEqual([]);
+	expect(expectOk(await made.history.paths())).toEqual([]);
 });
 
-test('a record write that throws before its stream closed leaves nothing, and the update is refused', async () => {
-	const { opfs, history, ours } = await setup();
-	failWrite(opfs, `${ROOT}/${RECORD}`);
-	expect(expectErr(await history.mergeIncoming()).name).toBe('Refused');
-	clearFaults(opfs);
-	expect(stored(opfs, RECORD)).toBeUndefined();
-	expect(history.snapshot.pendingIncoming).toBeUndefined();
-	expect(await history.commit()).toMatchObject({ status: 'unchanged' });
-	expect(expectOk(await history.log(1))[0]?.oid).toBe(ours);
-});
-
-test('record bytes that are not a record are refused, named, and kept', async () => {
-	const { opfs, history } = await setup();
-	opfs.put(`${ROOT}/${RECORD}`, encoder.encode('{"half":'));
-	const folder = await reopen(opfs);
-	expect(folder.git.snapshot.pendingIncoming?.state).toBe('unreadable');
-	const refused = expectErr(await folder.git.recoverIncoming());
-	expect(refused).toMatchObject({ name: 'RecoveryRefused', paths: [RECORD] });
-	expect(decoder.decode(stored(opfs, RECORD))).toBe('{"half":');
-	expect((await history.commit()).status).toBe('blocked');
-});
-
-test('a first import into an empty history publishes, and recovers when its index step stops', async () => {
+test('a first import into an empty history publishes', async () => {
 	const made = await folderAt();
 	const target = await made.fetched({ 'a.md': 'a', 'd/e.md': 'e' }, undefined);
 	expect(expectOk(await made.history.pullFastForward())).toMatchObject({
@@ -614,25 +399,9 @@ test('a first import into an empty history publishes, and recovers when its inde
 	});
 	expect(folderFiles(made.opfs)).toEqual({ 'a.md': 'a', 'd/e.md': 'e' });
 	expect(expectOk(await made.history.paths())).toEqual([]);
-	for (const item of opened.splice(0)) await item.close();
-
-	const stopped = await folderAt();
-	const next = await stopped.fetched({ 'a.md': 'a' }, undefined);
-	// The first index write is the valid empty index admission gives a
-	// history that has none; the second is the update's.
-	failClose(stopped.opfs, `${ROOT}/.git/index`, 'fail', 2);
-	expect(expectErr(await stopped.history.pullFastForward()).name).toBe(
-		'Unconfirmed',
-	);
-	clearFaults(stopped.opfs);
-	// A valid empty index was there before the update replaced it.
-	const recovered = expectOk(await stopped.history.recoverIncoming());
-	expect(recovered.status).toBe('completed');
-	expect(await stopped.backend.readBranch()).toBe(next);
-	expect(expectOk(await stopped.history.paths())).toEqual([]);
 });
 
-test('a tree turning a directory into a file, or a file into a directory, publishes and recovers', async () => {
+test('a tree turning a directory into a file, or a file into a directory, publishes', async () => {
 	for (const [before, after] of [
 		[
 			{ 'a/b': 'child', keep: 'k' },
@@ -654,24 +423,6 @@ test('a tree turning a directory into a file, or a file into a directory, publis
 		expect(folderFiles(made.opfs)).toEqual(after);
 		expect(expectOk(await made.history.paths())).toEqual([]);
 		for (const item of opened.splice(0)) await item.close();
-
-		// Stopped at the write after the removal: recovery removes first too.
-		const stopped = await folderAt();
-		for (const [path, text] of Object.entries(before))
-			await stopped.write(path, text);
-		const stoppedBase = await stopped.commit();
-		await stopped.fetched(after, stoppedBase);
-		const written = Object.keys(after).find((path) => !(path in before))!;
-		failWrite(stopped.opfs, `${ROOT}/${written}`);
-		expect(expectErr(await stopped.history.pullFastForward()).name).toBe(
-			'Partial',
-		);
-		clearFaults(stopped.opfs);
-		expect(expectOk(await stopped.history.recoverIncoming()).status).toBe(
-			'completed',
-		);
-		expect(folderFiles(stopped.opfs)).toEqual(after);
-		for (const item of opened.splice(0)) await item.close();
 	}
 });
 
@@ -691,91 +442,7 @@ test('directories the removals emptied are pruned; one something else keeps stay
 	expect(directories).toEqual(['x', 'x/keep']);
 });
 
-test('a directory where an update writes a file, which the update does not empty, refuses recovery before anything changes', async () => {
-	const made = await folderAt();
-	await made.write('a', 'old');
-	await made.write('c', 'delete me');
-	const base = await made.commit();
-	const target = await made.fetched({ a: 'new', z: 'new z' }, base);
-	failClose(made.opfs, `${ROOT}/a`, 'lost');
-	expect(expectErr(await made.history.pullFastForward()).name).toBe(
-		'Unconfirmed',
-	);
-	clearFaults(made.opfs);
-	// The before state comes back, and someone makes a directory at z.
-	await made.write('a', 'old');
-	await made.write('c', 'delete me');
-	expectOk(await made.boundary.mkdir('z'));
-	const refused = expectErr(await made.history.recoverIncoming());
-	expect(refused).toMatchObject({ name: 'RecoveryRefused', paths: ['z'] });
-	// Nothing was removed or written, z included.
-	expect(folderFiles(made.opfs)).toEqual({ a: 'old', c: 'delete me' });
-	expect(made.opfs.directories(ROOT)).toContain('z');
-	expect(stored(made.opfs, RECORD)).toBeDefined();
-	// A file in a directory nobody can name refuses as well.
-	expectOk(await made.boundary.rmdir('z'));
-	made.opfs.put(`${ROOT}/z/.DS_Store`, encoder.encode('finder'));
-	expect(expectErr(await made.history.recoverIncoming())).toMatchObject({
-		name: 'RecoveryRefused',
-		paths: ['z'],
-	});
-	expect(folderFiles(made.opfs)).toEqual({
-		a: 'old',
-		c: 'delete me',
-		'z/.DS_Store': 'finder',
-	});
-	await (await made.root.getDirectoryHandle('z')).removeEntry('.DS_Store');
-	expectOk(await made.boundary.rmdir('z'));
-	expect(expectOk(await made.history.recoverIncoming()).status).toBe(
-		'completed',
-	);
-	expect(folderFiles(made.opfs)).toEqual({ a: 'new', z: 'new z' });
-	expect(await made.backend.readBranch()).toBe(target);
-});
-
-test('a directory turning into a file that stopped before its directory was pruned recovers by pruning only what the update emptied', async () => {
-	async function stoppedBeforePruning() {
-		const made = await folderAt();
-		await made.write('a/b', 'child');
-		await made.write('keep', 'k');
-		const base = await made.commit();
-		await made.fetched({ a: 'file', keep: 'k' }, base);
-		// Every removal of the directory a fails: a/b is gone, a stays.
-		made.opfs.faults.remove = (path) =>
-			path === `${ROOT}/a` ? 'fail' : undefined;
-		expect(expectErr(await made.history.pullFastForward()).name).toBe(
-			'Partial',
-		);
-		clearFaults(made.opfs);
-		expect(folderFiles(made.opfs)).toEqual({ keep: 'k' });
-		expect(made.opfs.directories(ROOT)).toContain('a');
-		return made;
-	}
-
-	const made = await stoppedBeforePruning();
-	expect(expectOk(await made.history.recoverIncoming()).status).toBe(
-		'completed',
-	);
-	expect(folderFiles(made.opfs)).toEqual({ a: 'file', keep: 'k' });
-	expect(expectOk(await made.history.paths())).toEqual([]);
-	for (const item of opened.splice(0)) await item.close();
-
-	// A directory inside it that no removed file lived in is someone else's.
-	const kept = await stoppedBeforePruning();
-	expectOk(await kept.boundary.mkdir('a/mine'));
-	expect(expectErr(await kept.history.recoverIncoming())).toMatchObject({
-		name: 'RecoveryRefused',
-		paths: ['a'],
-	});
-	expect(kept.opfs.directories(ROOT)).toContain('a/mine');
-	expectOk(await kept.boundary.rmdir('a/mine'));
-	expect(expectOk(await kept.history.recoverIncoming()).status).toBe(
-		'completed',
-	);
-	expect(folderFiles(kept.opfs)).toEqual({ a: 'file', keep: 'k' });
-});
-
-test('a directory, or an unnameable file, where an update writes a file refuses the update before anything is recorded', async () => {
+test('a directory, or an unnameable file, where an update writes a file refuses the update before anything changes', async () => {
 	for (const blocker of [
 		(made: Awaited<ReturnType<typeof folderAt>>) =>
 			made.boundary.mkdir('a/mine').then(expectOk),
@@ -790,11 +457,8 @@ test('a directory, or an unnameable file, where an update writes a file refuses 
 		const refused = expectErr(await made.history.pullFastForward());
 		expect(refused.name).toBe('Refused');
 		expect(refused.message).toContain("'a' is a directory");
-		expect(stored(made.opfs, RECORD)).toBeUndefined();
-		expect(stored(made.opfs, PIN_NEXT)).toBeUndefined();
 		expect(decoder.decode(stored(made.opfs, 'a/b'))).toBe('child');
 		expect(await made.backend.readBranch()).toBe(base);
-		expect(made.history.snapshot.pendingIncoming).toBeUndefined();
 		for (const item of opened.splice(0)) await item.close();
 	}
 });
@@ -830,7 +494,7 @@ test('an empty first-commit ref, and a repository whose creation stopped before 
 test('a commit whose branch write landed but whose reply was lost is unconfirmed, not failed', async () => {
 	const made = await folderAt();
 	await made.write('a.md', 'a');
-	failClose(made.opfs, `${ROOT}/.git/refs/heads/main`, 'lost');
+	loseClose(made.opfs, `${ROOT}/.git/refs/heads/main`);
 	const outcome = await made.history.commit();
 	clearFaults(made.opfs);
 	expect(outcome.status).toBe('unconfirmed');

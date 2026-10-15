@@ -375,18 +375,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			});
 			await this.select(path);
 		},
-		/**
-		 * Finish or clear an incoming update whose publication stopped
-		 * partway. Only a browser copy records one; a desktop copy has no
-		 * pending update to recover, and its next Sync reconciles.
-		 */
-		async recover() {
-			await execute('Recover incoming update', async () => {
-				const result = await folder.git.recoverIncoming();
-				if (result.error !== null) throw new Error(result.error.message);
-				return `Incoming recovery: ${result.data.status}\n`;
-			});
-		},
 		async close() {
 			await flush();
 			closed = true;

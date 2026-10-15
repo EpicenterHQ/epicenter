@@ -8,25 +8,16 @@
  * - Observed divergence gives fixed guidance, never the push transport's text
  * - Changes since the last version are neutral detail: saves never make
  *   versions, so the header does not warn about them
- * - A pending incoming update leads the header in each record state; a sync
- *   it refuses says Sync waits, and a refused recovery names its paths and
- *   says nothing was written
  * - Observation times are absolute
  */
 import { expect, test } from 'bun:test';
-import { type GitSnapshot, PullError, SyncError } from '@epicenter/folder';
-import { Ok } from 'wellcrafted/result';
-import { TodosError } from './session.js';
+import type { GitSnapshot } from '@epicenter/folder';
 import {
 	DIVERGED,
 	filesLine,
-	INCOMING_WAITS,
-	incomingLine,
 	lastVersionLine,
 	pushLine,
-	recoveryLine,
 	summaryLine,
-	syncOutcomeLine,
 	versionLine,
 	versionOutcomeLine,
 } from './status.js';
@@ -149,100 +140,6 @@ test('the header leads with current state; changes since the last version are ne
 			indexWarning: undefined,
 		}),
 	).toMatchObject({ label: 'Saved version ccccccc', tone: 'good' });
-});
-
-test('a pending incoming update leads the header for every record state, and a sync it refuses says Sync waits', () => {
-	const recorded = snapshot({
-		pendingIncoming: {
-			state: 'recorded',
-			operationId: 'op-1',
-			branch: 'main',
-			expectedHead: 'a'.repeat(40),
-			nextHead: 'b'.repeat(40),
-		},
-	});
-	const line = incomingLine(recorded)!;
-	expect(line).toMatchObject({
-		label: 'Incoming update not finished',
-		tone: 'error',
-	});
-	expect(line.detail).toContain('aaaaaaa → bbbbbbb on main');
-	expect(line.detail).toContain('You can still edit and save files');
-	expect(
-		incomingLine(snapshot({ pendingIncoming: { state: 'unadmitted' } })),
-	).toMatchObject({ label: 'Incoming update never started' });
-	expect(
-		incomingLine(
-			snapshot({
-				pendingIncoming: { state: 'unreadable', reason: 'not JSON' },
-			}),
-		)?.detail,
-	).toContain('not JSON');
-	expect(incomingLine(snapshot())).toBeUndefined();
-
-	const lines = {
-		files: filesLine({ saving: false }),
-		versions: versionLine(recorded),
-		lastVersion: lastVersionLine(recorded),
-		remote: pushLine(recorded),
-	};
-	expect(summaryLine({ ...lines, incoming: line }).short).toBe(
-		'Update pending',
-	);
-
-	const waits = SyncError.Merge({
-		error: PullError.IncomingPending({ pending: { state: 'unadmitted' } })
-			.error,
-	});
-	expect(syncOutcomeLine(waits, recorded)).toEqual({
-		label: 'Sync waits',
-		detail: INCOMING_WAITS,
-		tone: 'warning',
-	});
-	const blocked = SyncError.Checkpoint({
-		outcome: {
-			status: 'blocked',
-			reason: 'Incoming update op-1 has not finished',
-		},
-	});
-	expect(syncOutcomeLine(blocked, recorded).label).toBe('Sync waits');
-	expect(syncOutcomeLine(blocked, snapshot()).label).toBe('Sync stopped');
-});
-
-test('a refused recovery names its paths and says nothing was written; a fenced page and success say so plainly', () => {
-	const pending = { state: 'unadmitted' } as const;
-	const refused = recoveryLine(
-		PullError.RecoveryRefused({
-			pending,
-			paths: ['todos/milk.md', '.git/index'],
-			reason:
-				"todos/milk.md holds neither the update's before nor its after state",
-		}),
-	);
-	expect(refused.label).toBe('Incoming update not recovered');
-	expect(refused.detail).toContain('todos/milk.md\n.git/index');
-	expect(refused.detail).toContain('Nothing was written');
-	expect(
-		recoveryLine(TodosError.NotStarted({ reason: 'Epicenter is quitting.' })),
-	).toMatchObject({ label: 'Recovery waits', tone: 'neutral' });
-	expect(
-		recoveryLine(
-			Ok({
-				status: 'completed',
-				pending: {
-					state: 'recorded',
-					operationId: 'op-1',
-					branch: 'main',
-					expectedHead: undefined,
-					nextHead: 'b'.repeat(40),
-				},
-				changedPaths: ['todos/milk.md'],
-			}),
-		),
-	).toMatchObject({ label: 'Incoming update finished: 1 file', tone: 'good' });
-	expect(recoveryLine(Ok({ status: 'admissionCleared' })).detail).toContain(
-		'never changed a file',
-	);
 });
 
 test('observation times are absolute', () => {

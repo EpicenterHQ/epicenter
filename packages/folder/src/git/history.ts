@@ -25,10 +25,10 @@
  * `pullFastForward` publishes a clean fast-forward, and `mergeIncoming`
  * publishes a clean fast-forward or a two-parent merge. Both go through one
  * publication owner, which in the browser requires every captured file and
- * the index unchanged before it writes. A browser update that stops partway
- * stays pending: staging, commits, and new incoming updates wait until
- * `recoverIncoming` is asked for, and nothing else resumes it. File saves
- * are not held back.
+ * the index unchanged before it writes. An update that stops partway is
+ * not recorded on any host (ADR-0545): the files it wrote differ from the
+ * branch head, status shows them as changed, and the next sync records them
+ * and merges with the tracking ref.
  *
  * A merge with conflicts is never left in the files: `mergeIncoming`
  * refuses it and writes nothing, and sync captures it for a person to
@@ -62,9 +62,6 @@ import type {
 	GitRemote,
 	IncomingPlan,
 	PathStatus,
-	PendingIncoming,
-	RecordedIncoming,
-	RecoverIncomingResult,
 } from './backend.js';
 import {
 	type ConflictVersion,
@@ -202,27 +199,6 @@ export type StagedCommit = {
 	readonly parent: string | undefined;
 };
 
-/** What `recoverIncoming` did with a pending incoming update. */
-export type RecoverOutcome =
-	/** Nothing was pending. */
-	| { readonly status: 'none' }
-	/**
-	 * The record was empty: its admission never finished, so no authored
-	 * file was changed by it. It was removed, and status is observed again.
-	 */
-	| { readonly status: 'admissionCleared' }
-	/**
-	 * The branch already named the published commit, so the record was
-	 * cleared. No file was written; status is observed again, not assumed.
-	 */
-	| { readonly status: 'cleared'; readonly pending: RecordedIncoming }
-	/** Changed paths at their before state were written, then the index and branch. */
-	| {
-			readonly status: 'completed';
-			readonly pending: RecordedIncoming;
-			readonly changedPaths: readonly string[];
-	  };
-
 export type Observation<T> =
 	| { readonly state: 'unknown'; readonly error: string | undefined }
 	| {
@@ -282,13 +258,6 @@ export type GitSnapshot = {
 				>;
 		  }>
 		| undefined;
-	/**
-	 * An incoming update whose publication began and has not been recovered,
-	 * as last read. While there is one, staging, commits, and new incoming
-	 * updates wait for `recoverIncoming()`; file saves continue. Absent where
-	 * none is pending, and on folders that never keep one.
-	 */
-	readonly pendingIncoming?: PendingIncoming;
 	readonly closed: boolean;
 };
 
@@ -342,7 +311,6 @@ export function createHistory({
 	let lastFetch: GitSnapshot['lastFetch'];
 	let lastPull: GitSnapshot['lastPull'];
 	let lastMerge: GitSnapshot['lastMerge'];
-	let pendingIncoming: PendingIncoming | undefined;
 	let remoteSeq = 0;
 	/** Git work of this handle, other than runner passes, that close waits for. */
 	const admittedWork = new Set<Promise<unknown>>();
@@ -369,7 +337,6 @@ export function createHistory({
 			lastFetch,
 			lastPull,
 			lastMerge,
-			pendingIncoming,
 			closed: closing.signal.aborted,
 		});
 		// A snapshot is published from inside saves and passes. A subscriber
@@ -408,17 +375,7 @@ export function createHistory({
 		);
 	}
 
-	/** Read the pending incoming record again. Reading resumes nothing. */
-	async function refreshPending() {
-		try {
-			pendingIncoming = await backend.pendingIncoming?.();
-		} catch {
-			// An unreadable record keeps the last observation; `blocked` names it.
-		}
-	}
-
 	async function refreshSync() {
-		await refreshPending();
 		try {
 			// Another page or program may have set the remote.
 			await backend.refreshRemote();
@@ -782,10 +739,8 @@ export function createHistory({
 				readonly fetched: string;
 		  };
 
-	/** Why no incoming update can start now: one is pending, or commits are blocked. */
+	/** Why no incoming update can start now: commits are blocked. */
 	async function incomingRefused() {
-		const pending = await backend.pendingIncoming?.();
-		if (pending !== undefined) return PullError.IncomingPending({ pending });
 		const blocked = await wholeFolderProblem();
 		if (blocked !== undefined) return PullError.Blocked({ reason: blocked });
 		return undefined;
@@ -980,43 +935,15 @@ export function createHistory({
 				return PullError.Refused({ error: published.error });
 			case 'indexChanged':
 				return PullError.StagedChanges();
-			case 'partial':
-				markLanded();
-				landed(
-					published.applied.flatMap((step) =>
-						step.kind === 'move' ? [step.from, step.to] : [step.path],
-					),
-				);
-				return PullError.Partial({
-					applied: published.applied,
-					error: published.error,
-				});
 			case 'branchMoved':
-				if (published.filesApplied) {
-					markLanded();
-					landed(changedPaths);
-				}
-				return PullError.BranchMoved({
-					actual: published.actual,
-					filesApplied: published.filesApplied,
-				});
-			case 'indexFailed':
+				return PullError.BranchMoved({ actual: published.actual });
+			case 'interrupted':
+				// Nothing records the update: what landed is changed files,
+				// which the next sync records and merges (ADR-0545).
 				markLanded();
-				landed(changedPaths);
-				return PullError.IndexFailed({ error: published.error });
-			case 'unconfirmed':
-				// No commit is requested: whether the files, the index, or the
-				// branch changed is for an explicit recovery to find out.
-				markLanded();
-				landed([
-					...published.applied.flatMap((step) =>
-						step.kind === 'move' ? [step.from, step.to] : [step.path],
-					),
-					...published.uncertain.filter((path) => !path.startsWith('.git/')),
-				]);
-				return PullError.Unconfirmed({
-					applied: published.applied,
-					uncertain: published.uncertain,
+				landed(published.landed);
+				return PullError.Interrupted({
+					paths: published.landed,
 					error: published.error,
 				});
 		}
@@ -1112,7 +1039,7 @@ export function createHistory({
 					if (refused !== undefined) return refused;
 					const actual = await backend.readBranch();
 					if (actual !== sync.captured.head)
-						return PullError.BranchMoved({ actual, filesApplied: false });
+						return PullError.BranchMoved({ actual });
 					({ head, fetched, base } = sync.captured);
 				} else {
 					const { data: incoming, error: pinError } = await pinIncoming();
@@ -1256,7 +1183,6 @@ export function createHistory({
 			const { error: incomingError } = result;
 			if (incomingError === null || incomingError.name !== 'Failed')
 				await refreshSync();
-			else await refreshPending();
 			record({ result, at: Date.now() });
 			emit();
 			return result;
@@ -1280,89 +1206,6 @@ export function createHistory({
 				lastMerge = attempt;
 			},
 		);
-	}
-
-	/**
-	 * Recover the pending incoming update, only because someone asked. It
-	 * waits for the backend's protection, and the store holds the files lock
-	 * while it checks and writes. Nothing retries it; a refusal leaves the
-	 * update pending and names what is in neither state.
-	 */
-	function recoverNow(): Promise<Result<RecoverOutcome, PullError | GitError>> {
-		return manual<RecoverOutcome, PullError>('recover', async () => {
-			if (backend.recoverIncoming === undefined) return Ok({ status: 'none' });
-			let result: RecoverIncomingResult;
-			try {
-				result = await exclusive(() => backend.recoverIncoming!());
-			} catch (cause) {
-				if (refusedByClose(cause)) return GitError.Closed();
-				markLanded();
-				await refreshPending();
-				emit();
-				return thrown('recover', cause);
-			}
-			let outcome: Result<RecoverOutcome, PullError>;
-			switch (result.status) {
-				case 'none':
-					outcome = Ok({ status: 'none' });
-					break;
-				case 'admissionCleared':
-					// No authored file was written; status is observed again.
-					markLanded();
-					outcome = Ok({ status: 'admissionCleared' });
-					break;
-				case 'cleared':
-					// No file was written, and the files are not assumed clean.
-					markLanded();
-					outcome = Ok({ status: 'cleared', pending: result.pending });
-					break;
-				case 'completed':
-					markLanded();
-					landed(result.changedPaths);
-					outcome = Ok({
-						status: 'completed',
-						pending: result.pending,
-						changedPaths: result.changedPaths,
-					});
-					break;
-				case 'refused':
-					outcome = PullError.RecoveryRefused({
-						pending: result.pending,
-						paths: result.paths,
-						reason: result.reason,
-					});
-					break;
-				case 'partial':
-					markLanded();
-					landed(
-						result.applied.flatMap((step) =>
-							step.kind === 'move' ? [step.from, step.to] : [step.path],
-						),
-					);
-					outcome = PullError.Partial({
-						applied: result.applied,
-						error: result.error,
-					});
-					break;
-				case 'unconfirmed':
-					markLanded();
-					landed([
-						...result.applied.flatMap((step) =>
-							step.kind === 'move' ? [step.from, step.to] : [step.path],
-						),
-						...result.uncertain.filter((path) => !path.startsWith('.git/')),
-					]);
-					outcome = PullError.Unconfirmed({
-						applied: result.applied,
-						uncertain: result.uncertain,
-						error: result.error,
-					});
-					break;
-			}
-			await refreshSync();
-			emit();
-			return outcome;
-		});
 	}
 
 	/**
@@ -1434,8 +1277,8 @@ export function createHistory({
 
 	/**
 	 * Commit the index onto the branch head. Refused, writing nothing, while
-	 * an incoming update is pending or the repository is blocked, including a
-	 * merge another Git program began.
+	 * the repository is blocked, including by a merge another Git program
+	 * began.
 	 */
 	async function commitStaged(
 		message: string,
@@ -1443,21 +1286,15 @@ export function createHistory({
 		const problem = messageProblem(message);
 		if (problem !== undefined)
 			return GitError.InvalidMessage({ reason: problem });
-		const pending = await backend.pendingIncoming?.();
-		if (pending !== undefined) return GitError.IncomingPending({ pending });
 		const blocked = await backend.blocked();
 		if (blocked !== undefined)
 			return GitError.Failed({ operation: 'commit', cause: blocked });
 		let changedPaths = 0;
 		let result:
 			| Awaited<ReturnType<GitBackend['commitIndex']>>
-			| { readonly status: 'pending'; readonly pending: PendingIncoming }
 			| { readonly status: 'blocked'; readonly reason: string };
 		try {
 			result = await exclusive(async () => {
-				const pending = await backend.pendingIncoming?.();
-				if (pending !== undefined)
-					return { status: 'pending', pending } as const;
 				const blocked = await backend.blocked();
 				if (blocked !== undefined)
 					return { status: 'blocked', reason: blocked } as const;
@@ -1483,8 +1320,6 @@ export function createHistory({
 		if (files.state === 'observed') files = { ...files, stale: true };
 		emit();
 		switch (result.status) {
-			case 'pending':
-				return GitError.IncomingPending({ pending: result.pending });
 			case 'blocked':
 				return GitError.Failed({ operation: 'commit', cause: result.reason });
 			case 'nothing':
@@ -1676,11 +1511,8 @@ export function createHistory({
 						return SyncError.Closed();
 					case 'Dirty':
 					case 'StagedChanges':
-						return SyncError.Stale({ reason: 'changed' });
 					case 'BranchMoved':
-						if ('filesApplied' in mergeError && !mergeError.filesApplied)
-							return SyncError.Stale({ reason: 'changed' });
-						return SyncError.Merge({ error: mergeError });
+						return SyncError.Stale({ reason: 'changed' });
 					default:
 						return SyncError.Merge({ error: mergeError });
 				}
@@ -1708,15 +1540,6 @@ export function createHistory({
 	}
 
 	emit();
-	// A record or a merge another tab or an earlier opening left is read,
-	// never resumed or cleared.
-	{
-		const read = refreshPending().then(() => {
-			if (pendingIncoming !== undefined) emit();
-		});
-		admittedWork.add(read);
-		void read.then(() => admittedWork.delete(read));
-	}
 
 	return {
 		get snapshot() {
@@ -1774,7 +1597,6 @@ export function createHistory({
 			),
 		pullFastForward: pullNow,
 		mergeIncoming: mergeNow,
-		recoverIncoming: recoverNow,
 		sync: Object.freeze({
 			run: runSync,
 			resolve: resolveSync,
@@ -1797,9 +1619,6 @@ export function createHistory({
 			return manual('add', async () => {
 				const staged = await exclusive(
 					async (): Promise<Result<undefined, GitError>> => {
-						const pending = await backend.pendingIncoming?.();
-						if (pending !== undefined)
-							return GitError.IncomingPending({ pending });
 						await backend.stage(paths);
 						return Ok(undefined);
 					},

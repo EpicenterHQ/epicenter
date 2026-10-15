@@ -7,8 +7,6 @@ import type {
 	CommitOutcome,
 	FilesObservation,
 	GitError,
-	PullError,
-	RecoverOutcome,
 } from '@epicenter/folder';
 import { createSubscriber } from 'svelte/reactivity';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -47,21 +45,6 @@ export function createGit({
 				return Ok(await folder.git.commit());
 			},
 			onSettled: () => invalidate(todosKeys.status),
-		}),
-		/**
-		 * Recover the incoming update in `snapshot.pendingIncoming`, only because
-		 * the person asked. Writes still running land first; afterward the
-		 * listing and Git status are read again.
-		 */
-		recoverIncoming: defineMutation({
-			mutationKey: todosKeys.recoverIncoming,
-			mutationFn: async (): Promise<
-				Result<RecoverOutcome, PullError | GitError | TodosError>
-			> => {
-				await writesSettled();
-				return folder.git.recoverIncoming();
-			},
-			onSettled: () => invalidate(),
 		}),
 	};
 }

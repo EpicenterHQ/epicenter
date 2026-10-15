@@ -617,7 +617,6 @@ describe('publication baseline', () => {
 		expect(refused).toMatchObject({
 			name: 'BranchMoved',
 			actual: moved,
-			filesApplied: false,
 		});
 		expect(decoder.decode(await made.read('kv.json'))).toBe(
 			SIDES.ours['kv.json'],

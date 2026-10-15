@@ -263,7 +263,6 @@ test('while fenced, every edit, action, and Git command is refused; resuming giv
 		expectErr(await todos.rows.remove(stem, shown(todos, stem))),
 	).toMatchObject(refusal);
 	expect(expectErr(await todos.git.saveVersion())).toMatchObject(refusal);
-	expect(expectErr(await todos.git.recoverIncoming())).toMatchObject(refusal);
 	expect(expectErr(await todos.sync.run()).message).toContain(DEPARTING);
 	await settle();
 	expect(await text(path)).toBe(saved);

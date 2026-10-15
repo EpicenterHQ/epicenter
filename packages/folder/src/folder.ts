@@ -37,7 +37,6 @@ import type {
 	PullError,
 	PullOutcome,
 	PushOutcome,
-	RecoverOutcome,
 	StagedCommit,
 } from './git/history.js';
 import type { GitCredentials } from './git/http.js';
@@ -94,29 +93,14 @@ export type FolderGit = {
 	 * possible, otherwise one commit with the branch head and the fetched head
 	 * as parents. Root `kv.json` merges by key; other files by Git's rules.
 	 * A refusal or a conflict changes no file, index entry, or ref; `sync`
-	 * is how a person settles a conflict. Never pushes. Browser, directory,
-	 * and desktop folders all merge.
+	 * is how a person settles a conflict. An update cut off partway is
+	 * `Interrupted`: the files it wrote show as changes, and the next sync
+	 * records them and merges again. Never pushes. Browser, directory, and
+	 * desktop folders all merge.
 	 */
 	mergeIncoming(
 		options?: MergeConflictPolicy,
 	): Promise<Result<MergeOutcome, MergeError | PullError | GitError>>;
-	/**
-	 * Finish or clear the incoming update in `snapshot.pendingIncoming`, only
-	 * because it is asked for. An `unadmitted` (empty) record is removed:
-	 * `admissionCleared`. A branch already at the published commit is cleared
-	 * without writing a file: `cleared`. Over the admitted head, each changed
-	 * path at its before state is written and each at its after state is left,
-	 * removals first, then the index and the branch: `completed`. A path, the
-	 * index, the branch, or an unreadable record in neither state is
-	 * `RecoveryRefused`, names it, and writes nothing; the update stays
-	 * pending. A step whose outcome is unknown is `Unconfirmed` and leaves it
-	 * pending too. Status is observed again afterward, never assumed clean.
-	 * Nothing retries. A browser folder retains its incoming record and
-	 * evaluates current paths again on each explicit recovery. A directory
-	 * folder, in Bun or on the desktop, keeps no record: an update that
-	 * stopped partway leaves its files as changes, and this answers `none`.
-	 */
-	recoverIncoming(): Promise<Result<RecoverOutcome, PullError | GitError>>;
 	/** Per-path staged and unstaged state, as `git status` reports it. */
 	paths(): Promise<Result<PathStatus[], GitError>>;
 	/** Stage paths for a commit authored with `commitStaged`. */
@@ -326,7 +310,6 @@ function createFolderGit(history: FolderHistory): FolderGit {
 		fetch: (options) => history.fetch(options),
 		pullFastForward: () => history.pullFastForward(),
 		mergeIncoming: (options) => history.mergeIncoming(options),
-		recoverIncoming: () => history.recoverIncoming(),
 		paths: () => history.paths(),
 		stage: (paths) => history.stage(paths),
 		commitStaged: (message) => history.commitStaged(message),

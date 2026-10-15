@@ -21,7 +21,6 @@ export const todosKeys = defineKeys({
 	write: (path: string) => ['todos', 'write', path] as const,
 	/** The delete of the file at `path`, which pauses its edits. */
 	remove: (path: string) => ['todos', 'remove', path] as const,
-	recoverIncoming: ['todos', 'recover-incoming'],
 });
 
 /** Why an action did not start: Epicenter asks to leave, or a name refuses it. */

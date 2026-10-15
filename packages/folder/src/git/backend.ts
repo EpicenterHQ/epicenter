@@ -10,7 +10,7 @@
  * reported outcomes.
  */
 import type { FileChange } from '../boundary.js';
-import type { FileError, FileStep } from '../errors.js';
+import type { ApplyError, FileError, FileStep } from '../errors.js';
 import type { DeclaredAttribute } from './attributes.js';
 import type { CapturedIndex } from './captured-index.js';
 import type {
@@ -70,101 +70,53 @@ export type PublishResult =
 	| { readonly status: 'refused'; readonly error: FileError }
 	/** Browser only: the index changed after it was observed. Nothing was written. */
 	| { readonly status: 'indexChanged' }
-	/** Nothing was written, or files and index were applied first: `filesApplied` says which. */
-	| {
-			readonly status: 'branchMoved';
-			readonly actual: string | undefined;
-			readonly filesApplied: boolean;
-	  }
+	/** The branch moved after it was pinned. Nothing was written. */
+	| { readonly status: 'branchMoved'; readonly actual: string | undefined }
 	/**
-	 * The update stopped after some of it landed, and the step that failed
-	 * certainly wrote nothing; the branch did not move. `applied` names the
-	 * file steps that reached the folder. A browser keeps its incoming record
-	 * until `recoverIncoming` is asked for.
+	 * The update stopped after it wrote, or may have written, the folder
+	 * paths in `landed`; the branch did not reach `nextHead`. No host records
+	 * the update (ADR-0545): those paths differ from `HEAD`, status shows them
+	 * as changed, and the next Sync records them and merges with the tracking
+	 * ref.
 	 */
 	| {
-			readonly status: 'partial';
-			readonly applied: readonly FileStep[];
-			readonly error: FileError;
-	  }
-	/** Files were applied; the index was not written; the branch did not move. */
-	| { readonly status: 'indexFailed'; readonly error: string }
-	/**
-	 * A step's outcome is unknown: `uncertain` names the file, the index, or
-	 * the branch that may or may not have been written. The browser's record
-	 * remains, and only an explicit recovery decides what happened.
-	 */
-	| {
-			readonly status: 'unconfirmed';
-			readonly applied: readonly FileStep[];
-			readonly uncertain: readonly string[];
+			readonly status: 'interrupted';
+			readonly landed: readonly string[];
 			readonly error: string;
 	  };
 
-/**
- * An incoming update whose authored changes may have begun. Everything else
- * (changed paths, target bytes, target index) is derived from the trees of
- * `expectedHead` and `nextHead`.
- */
-export type RecordedIncoming = {
-	readonly state: 'recorded';
-	readonly operationId: string;
-	readonly branch: string;
-	/** The branch head the update was admitted over; `undefined` for an empty history. */
-	readonly expectedHead: string | undefined;
-	/** The fetched commit, or the prepared merge commit. */
-	readonly nextHead: string;
-};
+const stepPaths = (step: FileStep | FileChange) =>
+	step.kind === 'move' ? [step.from, step.to] : [step.path];
 
 /**
- * What a browser folder's incoming record says. While there is one, staging,
- * commits, and new incoming updates wait for an explicit recovery.
+ * What an incoming update's file steps failing with `error` leaves, after
+ * the paths in `landed` already landed: `refused` when nothing landed and the
+ * failed step certainly wrote nothing, `interrupted` otherwise.
  */
-export type PendingIncoming =
-	| RecordedIncoming
-	/**
-	 * The record file exists and is empty: its write never finished, so the
-	 * update was never admitted and changed no authored file.
-	 */
-	| { readonly state: 'unadmitted' }
-	/** The record holds bytes that are not a record. Nothing reads past it or removes it. */
-	| { readonly state: 'unreadable'; readonly reason: string };
-
-/** What an explicit recovery of a pending incoming update did. */
-export type RecoverIncomingResult =
-	| { readonly status: 'none' }
-	/** An `unadmitted` record was removed; no authored file was written. */
-	| { readonly status: 'admissionCleared' }
-	/** The branch already named `nextHead`: the record was cleared and no file was written. */
-	| { readonly status: 'cleared'; readonly pending: RecordedIncoming }
-	/** Paths at their before state were written; the index and branch followed. */
-	| {
-			readonly status: 'completed';
-			readonly pending: RecordedIncoming;
-			readonly changedPaths: readonly string[];
-	  }
-	/** A path, the index, the branch, or the record is in neither state. Nothing was written. */
-	| {
-			readonly status: 'refused';
-			readonly pending: PendingIncoming;
-			readonly paths: readonly string[];
-			readonly reason: string;
-	  }
-	/** Recovery stopped partway; the record remains. */
-	| {
-			readonly status: 'partial';
-			readonly pending: RecordedIncoming;
-			readonly applied: readonly FileStep[];
-			readonly error: FileError;
-	  }
-	/** A step's outcome is unknown; the record remains. */
-	| {
-			readonly status: 'unconfirmed';
-			readonly pending: RecordedIncoming;
-			readonly applied: readonly FileStep[];
-			readonly uncertain: readonly string[];
-			readonly error: string;
-	  };
+export function stoppedApplying(
+	changes: readonly FileChange[],
+	error: FileError | ApplyError,
+	landed: readonly string[] = [],
+): PublishResult {
+	const reached =
+		error.name === 'Partial'
+			? [
+					...landed,
+					...error.applied.flatMap(stepPaths),
+					...(error.error.name === 'Unconfirmed'
+						? stepPaths(error.failed)
+						: []),
+				]
+			: error.name === 'Unconfirmed'
+				? [...landed, ...changes.flatMap(stepPaths)]
+				: landed;
+	if (reached.length === 0)
+		return {
+			status: 'refused',
+			error: error.name === 'Partial' ? error.error : error,
+		};
+	return { status: 'interrupted', landed: reached, error: error.message };
+}
 
 export type GitBackend = {
 	/**
@@ -275,7 +227,7 @@ export type GitBackend = {
 	push(oid: string, signal: AbortSignal): Promise<void>;
 	/** Fetch the configured remote branch; returns its commit, or undefined if absent. */
 	fetch(signal: AbortSignal): Promise<string | undefined>;
-	/** Publish files, index, and branch for an incoming fast-forward or merge. */
+	/** Publish an incoming fast-forward or merge: files, then the index, then the branch. */
 	publishIncoming(plan: IncomingPlan): Promise<PublishResult>;
 	/**
 	 * Whether incoming publication removes the directories its removals
@@ -284,14 +236,4 @@ export type GitBackend = {
 	 * such an update as a collision.
 	 */
 	readonly replacesDirectories?: boolean;
-	/**
-	 * The recorded incoming update that has not finished. Only a backend that
-	 * publishes incoming updates in steps keeps one; the others omit this.
-	 */
-	pendingIncoming?(): Promise<PendingIncoming | undefined>;
-	/**
-	 * Finish or clear the pending incoming update. Runs only when asked, inside
-	 * `exclusive`; nothing resumes an update implicitly.
-	 */
-	recoverIncoming?(): Promise<RecoverIncomingResult>;
 };

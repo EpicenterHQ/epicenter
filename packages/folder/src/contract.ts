@@ -67,8 +67,6 @@ export type {
 export type {
 	GitRemote,
 	PathStatus,
-	PendingIncoming,
-	RecordedIncoming,
 	StatusCode,
 } from './git/backend.js';
 export {
@@ -94,7 +92,6 @@ export type {
 	Observation,
 	PullOutcome,
 	PushOutcome,
-	RecoverOutcome,
 	StagedCommit,
 	SyncObservation,
 } from './git/history.js';

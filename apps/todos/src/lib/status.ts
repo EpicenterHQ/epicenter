@@ -1,8 +1,7 @@
 /**
  * Plain-language status lines for the header, its status details, and the
  * outcome toasts. Saved files, changes since the last version, versions,
- * pushes, and an incoming update that has not finished are separate facts;
- * each line reports one of them, including unknown and out-of-date
+ * and pushes are separate facts; each line reports one of them, including unknown and out-of-date
  * observations. A save is never a version (ADR-0529), so the count of
  * changes since the last version is neutral detail. Times are the absolute
  * times an observation or attempt happened, so they never go stale on
@@ -10,11 +9,8 @@
  */
 import type {
 	CommitOutcome,
-	GitError,
 	GitSnapshot,
-	PullError,
 	PushOutcome,
-	RecoverOutcome,
 	SyncError,
 	SyncOutcome,
 } from '@epicenter/folder';
@@ -34,10 +30,6 @@ export type StatusLine = {
 /** Guidance when local and remote each have versions the other lacks. */
 export const DIVERGED =
 	'Local and remote history have diverged; local versions are kept. Sync combines them.';
-
-/** Why Sync and Save version wait while an incoming update is pending. */
-export const INCOMING_WAITS =
-	'An incoming update from the remote has not finished. Sync and Save version wait until you recover it; nothing was changed. You can still edit and save files.';
 
 const short = (oid: string | undefined) => oid?.slice(0, 7) ?? 'none';
 
@@ -352,108 +344,9 @@ export function pushLine(git: GitSnapshot): StatusLine {
 }
 
 /**
- * The incoming update that began and has not been recovered, as the folder
- * last read it; undefined when there is none. It is reported, never resumed:
- * only the person's Recover incoming update request does that.
- */
-export function incomingLine(git: GitSnapshot): StatusLine | undefined {
-	const pending = git.pendingIncoming;
-	if (pending === undefined) return undefined;
-	switch (pending.state) {
-		case 'recorded':
-			return {
-				label: 'Incoming update not finished',
-				short: 'Update pending',
-				detail: `An update from the remote (${short(pending.expectedHead)} → ${short(pending.nextHead)} on ${pending.branch}) stopped partway, and some files may already hold its changes. Sync and Save version wait until you recover it. You can still edit and save files.`,
-				tone: 'error',
-			};
-		case 'unadmitted':
-			return {
-				label: 'Incoming update never started',
-				short: 'Update pending',
-				detail:
-					'An update from the remote was interrupted before it changed any file. Recovering clears its record. Sync and Save version wait until then.',
-				tone: 'error',
-			};
-		case 'unreadable':
-			return {
-				label: 'Incoming update record unreadable',
-				short: 'Update pending',
-				detail: `The record of an incoming update cannot be read: ${pending.reason}. Recovery reports what it finds and writes nothing it cannot verify. Sync and Save version wait until it is recovered.`,
-				tone: 'error',
-			};
-	}
-}
-
-/** What one Recover incoming update request did, for its toast and the pending report. */
-export function recoveryLine({
-	data: outcome,
-	error,
-}: Result<RecoverOutcome, PullError | GitError | TodosError>): StatusLine {
-	if (error === null)
-		switch (outcome.status) {
-			case 'none':
-				return { label: 'No incoming update was pending', tone: 'neutral' };
-			case 'admissionCleared':
-				return {
-					label: 'Incoming update cleared',
-					detail:
-						'It never changed a file. Sync and Save version can continue.',
-					tone: 'good',
-				};
-			case 'cleared':
-				return {
-					label: 'Incoming update cleared',
-					detail:
-						'History already had it, so no file was written. Check the changes before saving a version.',
-					tone: 'good',
-				};
-			case 'completed':
-				return {
-					label: `Incoming update finished: ${outcome.changedPaths.length} ${outcome.changedPaths.length === 1 ? 'file' : 'files'}`,
-					detail: outcome.changedPaths.join('\n') || undefined,
-					tone: 'good',
-				};
-		}
-	switch (error.name) {
-		case 'NotStarted':
-			return {
-				label: 'Recovery waits',
-				detail: `${error.reason} Nothing was changed.`,
-				tone: 'neutral',
-			};
-		case 'RecoveryRefused':
-			return {
-				label: 'Incoming update not recovered',
-				short: 'Not recovered',
-				detail: `${error.reason}\nThese hold neither the version before the update nor after it:\n${error.paths.join('\n')}\nNothing was written, and the update is still pending. Change each to one of those versions, then recover again.`,
-				tone: 'error',
-			};
-		case 'Partial':
-			return {
-				label: 'Recovery stopped partway',
-				detail: `${error.message}\nThe update is still pending; recover again.`,
-				tone: 'error',
-			};
-		case 'Unconfirmed':
-			return {
-				label: 'Recovery not confirmed',
-				detail: `${error.message}\nIt may or may not have finished; the folder reports which. Recover again if it is still pending.`,
-				tone: 'warning',
-			};
-		default:
-			return {
-				label: 'Recovery stopped',
-				detail: `${error.message}\nThe update is still pending.`,
-				tone: 'error',
-			};
-	}
-}
-
-/**
  * One Sync or one Apply in the sync review, in the shared wording
- * (`describeSync`), with Todos' own words for a pending incoming update and
- * for the push of a merge that is not synced yet.
+ * (`describeSync`), with Todos' own words for the push of a merge that is
+ * not synced yet.
  */
 export function syncOutcomeLine(
 	result: Result<SyncOutcome, SyncError | TodosError>,
@@ -466,14 +359,6 @@ export function syncOutcomeLine(
 			detail: error.reason,
 			tone: 'warning',
 		};
-	// A pending incoming update refuses the checkpoint first, or the merge.
-	const waits =
-		(error?.name === 'Merge' && error.error.name === 'IncomingPending') ||
-		(error?.name === 'Checkpoint' &&
-			error.outcome.status === 'blocked' &&
-			git.pendingIncoming !== undefined);
-	if (waits)
-		return { label: 'Sync waits', detail: INCOMING_WAITS, tone: 'warning' };
 	return describeSync(error === null ? Ok(data) : Err(error), (push) => {
 		const line = pushOutcomeLine(push, git);
 		return [line.label, line.detail].filter(Boolean).join('\n');
@@ -489,15 +374,12 @@ export function syncOutcomeLine(
  */
 export function summaryLine(lines: {
 	files: StatusLine;
-	/** A pending incoming update; it outranks every other fact it ties with. */
-	incoming?: StatusLine;
 	versions: StatusLine;
 	lastVersion: StatusLine;
 	remote: StatusLine;
 }): StatusLine {
 	let chosen: StatusLine | undefined;
 	for (const line of [
-		lines.incoming,
 		lines.files,
 		lines.versions,
 		lines.lastVersion,
