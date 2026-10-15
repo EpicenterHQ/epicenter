@@ -34,10 +34,6 @@ export { createEnvTokenResolver } from './auth/instance-token.js';
 export { OAuthError } from './auth/oauth-errors.js';
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 export { createDb } from './db/create-db.js';
-export {
-	listStorageObservations,
-	type StorageObservation,
-} from './db/storage-data.js';
 export { openLocalBlobStore } from './local-blob-store.js';
 // An opt-in burn-rate cap for the inference `policies` seam (ADR-0076).
 export { rateLimit } from './middleware/rate-limit.js';

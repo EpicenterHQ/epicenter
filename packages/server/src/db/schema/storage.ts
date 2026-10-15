@@ -9,20 +9,16 @@ import {
 /**
  * One absolute physical-size observation per storage source (ADR-0137).
  *
+ * No code reads or writes this table today. It stays in the schema because
+ * migration `0000_direct_sessions.sql` created it and deployed Postgres holds
+ * rows; removing it here would make the next generated migration drop that
+ * data. Dropping it is a separate migration decision.
+ *
  * `sourceKind` reads `'workspace'` where the rest of the codebase now says
- * store. It stays: this is a value in a `text` column with rows in a deployed
- * Postgres, so renaming it is a data migration bought with a vocabulary
- * change. The token is a stored fact from before the rename, not a word
- * anybody should copy.
- * This is the account's source registry and last-observed cache. Zero-byte
- * `workspace` rows register logical data ids, `structured` records the
- * account authority's one absolute `databaseSize`, and `blobs` records the
- * account's absolute listed object bytes. No synchronization exchange reads or
- * writes these rows.
- * Writes always overwrite with the newest absolute value; nothing accumulates
- * deltas. A store enters the storage principal's registry before its first
- * replica is minted and leaves only when its authority is deleted, never when a
- * grant changes or time elapses.
+ * store. That value is a stored fact from before the rename, not a word
+ * anybody should copy. Historically, zero-byte `workspace` rows registered
+ * logical data ids, `structured` recorded the account authority's absolute
+ * `databaseSize`, and `blobs` recorded the account's listed object bytes.
  */
 export const storageObservation = pgTable(
 	'storage_observation',
