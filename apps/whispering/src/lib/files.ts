@@ -1,16 +1,11 @@
-/** App-owned file messages and the maximum size of editable text. */
+/** App-owned file messages. */
 import {
 	type FileError,
-	type FolderFiles,
 	type MoveError,
 	pathProblem,
 	type TableError,
 } from '@epicenter/folder';
-import {
-	basename,
-	joinPath,
-	readTextFile as readFolderTextFile,
-} from '@epicenter/folder/file-browser';
+import { basename, joinPath } from '@epicenter/folder/file-browser';
 
 export function nameProblem(
 	directory: string,
@@ -22,14 +17,6 @@ export function nameProblem(
 	return problem === undefined
 		? undefined
 		: `This name is not usable: ${problem}.`;
-}
-
-/** Text larger than this opens as file details instead of in the editor. */
-export const EDITABLE_TEXT_LIMIT = 1024 * 1024;
-
-/** Read editable text using this app's size limit. */
-export function readTextFile(files: Pick<FolderFiles, 'read'>, path: string) {
-	return readFolderTextFile(files, path, EDITABLE_TEXT_LIMIT);
 }
 
 /**
