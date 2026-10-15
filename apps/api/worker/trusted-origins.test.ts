@@ -25,12 +25,16 @@ describe('buildEpicenterTrustedOrigins', () => {
 		expect(PROD.filter((o) => o.startsWith('chrome-extension://'))).toEqual([]);
 	});
 
+	test('trusts no desktop webview origin', () => {
+		// No `tauri://` page calls the API; the desktop host relays account
+		// traffic with its own bearer token.
+		expect(PROD.filter((o) => o.startsWith('tauri://'))).toEqual([]);
+	});
+
 	test('a production deployment does not trust localhost dev origins', () => {
 		expect(PROD).not.toContain(localUrl(APPS.HONEYCRISP));
 		expect(PROD).not.toContain(localUrl(APPS.API));
 		expect(PROD).not.toContain(`http://${new URL(APPS.API.url).host}`);
-		// `tauri://localhost` is a legitimate production origin, so the check is
-		// scoped to http(s) localhost dev servers rather than the substring.
 		expect(PROD.some((o) => o.startsWith('http://localhost'))).toBe(false);
 	});
 

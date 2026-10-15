@@ -8,9 +8,13 @@ import { APPS, localUrl, prodOrigins } from '@epicenter/constants/apps';
 
 /**
  * Production origins trusted on every Epicenter cloud deployment: each app's
- * canonical origin (and aliases), plus the Tauri webview origin.
+ * canonical origin (and aliases).
  *
  * Adding an app to `APPS` auto-extends this.
+ *
+ * No desktop webview origin is trusted. Epicenter's windows never call this
+ * API themselves: the desktop host relays their account traffic with its own
+ * bearer token, and no `tauri://localhost` page calls the API.
  *
  * No browser extension is trusted. Tab Manager's pinned
  * `chrome-extension://` origin used to sit here and outlived the extension:
@@ -22,10 +26,8 @@ import { APPS, localUrl, prodOrigins } from '@epicenter/constants/apps';
  * exceptions; self-distributed XPIs get a random per-install UUID) rather than
  * a wildcard, which is what defeated CSRF protection the first time.
  */
-const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = [
-	'tauri://localhost',
-	...Object.values(APPS).flatMap(prodOrigins),
-];
+const PRODUCTION_TRUSTED_ORIGINS: readonly string[] =
+	Object.values(APPS).flatMap(prodOrigins);
 
 /**
  * Development-only origins: each app's `localhost:<port>` dev server plus the
