@@ -7,7 +7,8 @@
 - **Amends:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) at "`run_git` allowlist with hooks disabled": the same rules live in the `epicenter` CLI's Git runner.
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "The desktop shell registers the same helper for its runs": the shell runs no `git`, and the `epicenter` CLI's Git uses the helper.
 - **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at "The desktop shell registers the same helper for its `git` runs": the shell runs no `git`, and the `epicenter` CLI's Git uses the helper.
-- **Unbuilt:** the CLI's Git operations and the Rust commands that run them; the runner's allowlist, layout check, origin rule, and process-group abort; finding `git`; `GitMissing`; ending a window's children when it reloads or closes; MinGit; and the deletions. Checks: the probe shows no dialog on a Mac without the Command Line Tools; and, before the first Windows release, the licenses of every component in the MinGit zip and the GPL-2.0 source offer reviewed, and a `!`-prefixed credential helper confirmed to run under MinGit.
+- **Built:** `epicenter status`, `history`, `save-version`, and `sync` over `runHistory` (`packages/folder/src/history-command.ts`), and the Rust commands `status`, `history`, `save_version`, `sync`, `settle_sync`, and `install_git` (`apps/epicenter/src-tauri/src/history.rs`), granted to the Folders window and to every installed app's windows for a folder the window holds; a sync's attempt recorded as `.git/epicenter/sync-attempt.json` (its ID and commits) and settled by a second child; the folder's history lock, `.<name>.epicenter-history-lock`, an exclusive SQLite transaction like ADR-0562's save lock, because Bun has no `flock` and SQLite's `fcntl` or `LockFileEx` lock is released by the system when its process dies; the runner's layout check before each operation, origin rule for a page's connect, and process-group abort; finding `git` (`locateGit`, running the developer directory's own `git` rather than the xcrun shim); `GitMissing` and the Folders window's install button; ending a window's children and their process groups on reload or close; and the deletions.
+- **Unbuilt:** the runner's operation allowlist (`createGitRunner` also runs `epicenter app`'s clones); the origin rule for a remote a person configured outside the app; MinGit; ending children by process tree on Windows, which is untested; Git lab's standalone shell, which runs no CLI, so its desktop history answers `Failed`. Checks: the probe shows no dialog on a Mac without the Command Line Tools; and, before the first Windows release, the licenses of every component in the MinGit zip and the GPL-2.0 source offer reviewed, and a `!`-prefixed credential helper confirmed to run under MinGit.
 - **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the CLI owns Git, the network, and credentials), [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) (`status`, `history`, `save-version`, `sync`, `clone`, `auth git-credential`), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (sync checkpoints first), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge), [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) (Git's lock files and `casBranch` referee commits), [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) (LFS in TypeScript, `filter.lfs` off).
 
 ## Context
@@ -30,12 +31,8 @@ and isomorphic-git's merge assembles the tree and merges any unclaimed path by
 Git's ordinary rules (`packages/folder/src/git/merge.ts:1-24`). There is no
 `git merge` and no `git commit`.
 
-That system `git` runs in two places. A desktop page sends each command to the
-shell's `run_git` (`packages/folder/src/tauri-git.ts`), which checks it against
-an allowlist, pins `core.hooksPath` to an empty directory, scrubs the
-environment, and allows push and fetch only to `origin`
-(`packages/tauri-plugin-epicenter-folder/core/src/page_git.rs`, with
-cancellation in `packages/tauri-plugin-epicenter-folder/src/git_runs.rs`). A
+<!-- doc-path-check: ignore-next-line (deleted by this record) -->
+That system `git` runs in two places. A desktop page sends each command to the shell's `run_git` (`packages/folder/src/tauri-git.ts`), which checks it against an allowlist, pins `core.hooksPath` to an empty directory, scrubs the environment, and allows push and fetch only to `origin` (`packages/tauri-plugin-epicenter-folder/core/src/page_git.rs`, with cancellation in `packages/tauri-plugin-epicenter-folder/src/git_runs.rs`). A
 Bun process spawns `git` through `createGitRunner`
 (`packages/folder/src/git/native-host.ts`), which scrubs the environment and,
 like `run_git`, sets `core.hooksPath` to an empty checked directory and
@@ -114,8 +111,11 @@ no localized messages, interactive commands, help, Perl, or Tcl/Tk.
 **Deleted:**
 
 - `run_git` and `cancel_git` (`packages/tauri-plugin-epicenter-folder/src/commands.rs:262-330`).
+<!-- doc-path-check: ignore-next-line (deleted) -->
 - `packages/tauri-plugin-epicenter-folder/core/src/page_git.rs` (572 lines, and 591 of tests).
+<!-- doc-path-check: ignore-next-line (deleted) -->
 - `packages/tauri-plugin-epicenter-folder/src/git_runs.rs` (128).
+<!-- doc-path-check: ignore-next-line (deleted) -->
 - The page's `packages/folder/src/tauri-git.ts` (68).
 
 ## Consequences
