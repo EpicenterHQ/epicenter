@@ -7,7 +7,7 @@
  * never writes a folder file through it. Each session buffers its private
  * writes and flushes objects before anything else, so a ref or index never
  * names an object that is not stored. These writes are Git's own: they are
- * not content saves and send no file hints.
+ * not content saves and are told to no other page.
  *
  * OPFS creates a file empty and fills it when its stream closes, while it
  * replaces an existing file whole. So an empty index, ref, or loose object

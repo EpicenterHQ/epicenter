@@ -134,8 +134,8 @@ describe('browser folder tables', () => {
 
 		created.row.fields.done = true;
 		const completed = expectOk(
-			await folder.tables.todos.replace(created, created.row),
-		);
+			await folder.tables.todos.save(created, created.row),
+		).stored;
 		expect(completed.row).toEqual({
 			fields: { title: 'Buy milk', done: true },
 			body: 'Two liters.\n',
@@ -201,7 +201,7 @@ describe('browser folder tables', () => {
 		).toBe('InvalidValues');
 	});
 
-	test('text that is not a valid row is InvalidRow with its exact text, and is repaired by a guarded replace', async () => {
+	test('text that is not a valid row is InvalidRow with its exact text, and is repaired by a save', async () => {
 		const folder = await open();
 		const source =
 			'﻿---\r\ntitle: Kept # comment\r\ndone: maybe\r\nextra: unknown\r\n---\r\nBody\r\n';
@@ -222,32 +222,38 @@ describe('browser folder tables', () => {
 		expect(odd.text).toBe(source);
 		expect(odd.issues.map((issue) => issue.field)).toEqual(['done']);
 		const fixed = expectOk(
-			await folder.tables.todos.replace(odd, {
+			await folder.tables.todos.save(odd, {
 				fields: { title: 'Kept', done: true },
 				body: 'Body\n',
 			}),
-		);
+		).stored;
 		expect(expectOk(await folder.tables.todos.get('odd'))).toEqual(fixed);
-		// The capture named bytes that are gone: a second write conflicts.
-		expect(
-			expectErr(
-				await folder.tables.todos.replace(odd, {
-					fields: { title: 'Again', done: false },
-					body: '',
-				}),
-			).name,
-		).toBe('Conflict');
+		// The capture named bytes that are gone and holds no row as read, so
+		// a second save merges with no base: it wins wherever the two differ,
+		// and says what it replaced.
+		const again = expectOk(
+			await folder.tables.todos.save(odd, {
+				fields: { title: 'Again', done: false },
+				body: '',
+			}),
+		);
+		expect(again.replaced).toEqual(
+			expect.arrayContaining([
+				{ kind: 'field', field: 'title', kept: 'Again', theirs: 'Kept' },
+				{ kind: 'field', field: 'done', kept: false, theirs: true },
+			]),
+		);
 
 		const broken = expectErr(item('broken'));
 		if (broken.name !== 'InvalidRow') throw new Error(broken.message);
 		// Text with no canonical form has exactly one issue.
 		expect(broken.issues).toHaveLength(1);
 		const repaired = expectOk(
-			await folder.tables.todos.replace(broken, {
+			await folder.tables.todos.save(broken, {
 				fields: { title: 'Repaired', done: false },
 				body: '',
 			}),
-		);
+		).stored;
 		expect(repaired.row).toEqual({
 			fields: { title: 'Repaired', done: false },
 			body: '',
@@ -420,11 +426,11 @@ describe('browser folder tables', () => {
 		expect(invalid.issues[0].message).toContain('alias');
 
 		const repaired = expectOk(
-			await folder.tables.todos.replace(invalid, {
+			await folder.tables.todos.save(invalid, {
 				fields: { title: 'Fixed', done: false },
 				body: 'Notes stay.\n',
 			}),
-		);
+		).stored;
 		expect(expectOk(await folder.tables.todos.get('alias'))).toEqual(repaired);
 		expect(repaired.row).toEqual({
 			fields: { title: 'Fixed', done: false },

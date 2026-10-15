@@ -98,8 +98,9 @@ export async function openDesktopWorkspace(
 		await folder.close();
 		return WorkspaceError.FolderMismatch({ folder: root, host: info.root });
 	}
-	// The folder is open, so Git exists: a debug host may now take the branch
-	// lock its launch asked for. The host reports a refusal itself.
+	// The folder is open: a debug host may now take the branch lock its
+	// launch asked for, once the folder's first commit has created Git. The
+	// host reports a refusal itself.
 	if (info.debug) await bridge.app('injection-launch').catch(() => {});
 
 	// The folder-relative directory the next command starts in.

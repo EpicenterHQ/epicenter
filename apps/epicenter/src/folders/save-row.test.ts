@@ -1,27 +1,22 @@
 /**
  * Save Row Tests
  *
- * `saveRow` saves an edit of the Folders window at once, and merges it with
- * another writer's newer file when the save is overtaken.
+ * `saveRow` saves an edit of the Folders window through the engine's
+ * `table.save`, which merges with another writer's newer file
+ * (`packages/folder/src/save.test.ts` covers the merge itself). These pin
+ * what the view is told.
  *
  * Key behaviors:
- * - A save over the bytes the row was read from lands as it is
- * - Over a row another writer changed in a different field, both changes land
- * - Where both changed one field, this edit wins, the other writer's other
- *   fields survive, and the outcome names the value it replaced
- * - Body edits merge by line; where both changed the same lines this edit
- *   wins there, their other lines survive, and the outcome names only their
- *   replaced lines
- * - A row another writer deleted is not recreated
- * - A row that keeps changing gives up after the bounded number of merges
- * - A value the field does not admit is refused with a reason
+ * - A save over the bytes the row was read from is `saved`
+ * - A save another writer overtook is `merged`, naming what it replaced
+ * - A row another writer deleted, and a value the field does not admit,
+ *   are `failed` with words for a person, and nothing is written
  * - `epicenter.json` keeps its bytes throughout
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { PreparedFolderTable } from '@epicenter/folder';
 import { openDataFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
 import { type AnyTable, type StoredAnyRow, saveRow } from './save-row';
@@ -58,7 +53,6 @@ async function setup() {
 	await writeFile(join(root, 'notes/one.md'), ROW);
 	const folder = expectOk(await openDataFolder({ root, git: { author } }));
 	const table = folder.tables.notes as AnyTable;
-	const prepared = folder.definition.tables.notes as PreparedFolderTable;
 	const read = async () => {
 		const stored = expectOk(await table.get('one'));
 		if (stored === undefined) throw new Error('the row is gone');
@@ -71,43 +65,42 @@ async function setup() {
 	) => {
 		const row = structuredClone(captured.row);
 		change(row);
-		return expectOk(await table.replace(captured, row));
+		return expectOk(await table.save(captured, row)).stored;
 	};
 	const declaration = () => readFile(join(root, 'epicenter.json'), 'utf8');
-	return { folder, table, prepared, read, otherWriter, declaration };
+	return { folder, table, read, otherWriter, declaration };
 }
 
-test('a save over the row as read lands', async () => {
-	const { folder, table, prepared, read, declaration } = await setup();
+test('a save over the row as read is saved', async () => {
+	const { folder, table, read, declaration } = await setup();
 	const captured = await read();
 	const edited = structuredClone(captured.row);
 	edited.fields.title = 'Renamed';
 
-	const outcome = await saveRow({ table, prepared, captured, edited });
+	const outcome = await saveRow({ table, captured, edited });
 
 	expect(outcome.kind).toBe('saved');
-	expect((await read()).row.fields).toEqual({
-		title: 'Renamed',
-		done: false,
-		tags: ['a'],
-	});
+	expect((await read()).row.fields.title).toBe('Renamed');
 	expect(await declaration()).toBe(DECLARED);
 	await folder.close();
 });
 
-test('another writer changed a different field: both changes land', async () => {
-	const { folder, table, prepared, read, otherWriter, declaration } =
-		await setup();
+test('a save another writer overtook is merged, and names what it replaced', async () => {
+	const { folder, table, read, otherWriter, declaration } = await setup();
 	const captured = await read();
 	await otherWriter(captured, (row) => {
+		row.fields.title = 'Theirs';
 		row.fields.done = true;
 	});
 	const edited = structuredClone(captured.row);
 	edited.fields.title = 'Mine';
 
-	const outcome = await saveRow({ table, prepared, captured, edited });
+	const outcome = await saveRow({ table, captured, edited });
 
-	expect(outcome).toMatchObject({ kind: 'merged', replaced: [] });
+	expect(outcome).toMatchObject({
+		kind: 'merged',
+		replaced: [{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Theirs' }],
+	});
 	expect((await read()).row.fields).toEqual({
 		title: 'Mine',
 		done: true,
@@ -117,182 +110,33 @@ test('another writer changed a different field: both changes land', async () => 
 	await folder.close();
 });
 
-test('both changed one field: this edit wins and their other fields survive', async () => {
-	const { folder, table, prepared, read, otherWriter, declaration } =
-		await setup();
-	const captured = await read();
-	await otherWriter(captured, (row) => {
-		row.fields.title = 'Theirs';
-		row.fields.tags = ['a', 'b'];
-	});
-	const edited = structuredClone(captured.row);
-	edited.fields.title = 'Mine';
-
-	const outcome = await saveRow({ table, prepared, captured, edited });
-
-	expect(outcome).toMatchObject({
-		kind: 'merged',
-		replaced: [{ kind: 'field', field: 'title', theirs: 'Theirs' }],
-	});
-	expect((await read()).row.fields).toEqual({
-		title: 'Mine',
-		done: false,
-		tags: ['a', 'b'],
-	});
-	expect(await declaration()).toBe(DECLARED);
-	await folder.close();
-});
-
-test('body edits to different lines merge by line', async () => {
-	const { folder, table, prepared, read, otherWriter, declaration } =
-		await setup();
-	const captured = await read();
-	await otherWriter(captured, (row) => {
-		row.body = 'first\nsecond\nTHIRD\n';
-	});
-	const edited = structuredClone(captured.row);
-	edited.body = 'FIRST\nsecond\nthird\n';
-
-	const outcome = await saveRow({ table, prepared, captured, edited });
-
-	expect(outcome).toMatchObject({ kind: 'merged', replaced: [] });
-	expect((await read()).row.body).toBe('FIRST\nsecond\nTHIRD\n');
-	expect(await declaration()).toBe(DECLARED);
-	await folder.close();
-});
-
-test('body edits to the same line: this edit wins and says what it replaced', async () => {
-	const { folder, table, prepared, read, otherWriter } = await setup();
-	const captured = await read();
-	await otherWriter(captured, (row) => {
-		row.body = 'first\ntheirs\nthird\n';
-		row.fields.done = true;
-	});
-	const edited = structuredClone(captured.row);
-	edited.body = 'first\nmine\nthird\n';
-
-	const outcome = await saveRow({ table, prepared, captured, edited });
-
-	expect(outcome).toMatchObject({
-		kind: 'merged',
-		replaced: [{ kind: 'body', theirs: ['theirs\n'] }],
-	});
-	const stored = await read();
-	expect(stored.row.body).toBe('first\nmine\nthird\n');
-	expect(stored.row.fields.done).toBe(true);
-	await folder.close();
-});
-
-/** A row whose body is five lines, read back. */
-async function fiveLines({ table, read }: Awaited<ReturnType<typeof setup>>) {
-	const start = await read();
-	const row = structuredClone(start.row);
-	row.body = 'one\ntwo\nthree\nfour\nfive\n';
-	expectOk(await table.replace(start, row));
-	return read();
-}
-
-test('their change on line 1 and this edit on line 5 both survive', async () => {
-	const opened = await setup();
-	const { folder, table, prepared, read, otherWriter } = opened;
-	const captured = await fiveLines(opened);
-	await otherWriter(captured, (row) => {
-		row.body = 'ONE (theirs)\ntwo\nthree\nfour\nfive\n';
-	});
-	const edited = structuredClone(captured.row);
-	edited.body = 'one\ntwo\nthree\nfour\nFIVE (mine)\n';
-
-	const outcome = await saveRow({ table, prepared, captured, edited });
-
-	expect(outcome).toMatchObject({ kind: 'merged', replaced: [] });
-	expect((await read()).row.body).toBe(
-		'ONE (theirs)\ntwo\nthree\nfour\nFIVE (mine)\n',
-	);
-	await folder.close();
-});
-
-test('both changed line 3: this edit wins there and their other lines survive', async () => {
-	const opened = await setup();
-	const { folder, table, prepared, read, otherWriter } = opened;
-	const captured = await fiveLines(opened);
-	await otherWriter(captured, (row) => {
-		row.body = 'ONE (theirs)\ntwo\nTHREE (theirs)\nfour\nfive\n';
-	});
-	const edited = structuredClone(captured.row);
-	edited.body = 'one\ntwo\nTHREE (mine)\nfour\nfive\n';
-
-	const outcome = await saveRow({ table, prepared, captured, edited });
-
-	expect(outcome).toMatchObject({
-		kind: 'merged',
-		replaced: [{ kind: 'body', theirs: ['THREE (theirs)\n'] }],
-	});
-	expect((await read()).row.body).toBe(
-		'ONE (theirs)\ntwo\nTHREE (mine)\nfour\nfive\n',
-	);
-	await folder.close();
-});
-
-test('a row another writer deleted is not recreated', async () => {
-	const { folder, table, prepared, read } = await setup();
+test('a row another writer deleted is not recreated, and says so', async () => {
+	const { folder, table, read } = await setup();
 	const captured = await read();
 	expectOk(await table.delete(captured));
 	const edited = structuredClone(captured.row);
 	edited.fields.title = 'Mine';
 
-	const outcome = await saveRow({ table, prepared, captured, edited });
+	const outcome = await saveRow({ table, captured, edited });
 
-	expect(outcome.kind).toBe('failed');
+	expect(outcome).toEqual({
+		kind: 'failed',
+		message: 'Another window deleted this row, so your edit was not saved.',
+	});
 	expect(expectOk(await table.get('one'))).toBeUndefined();
 	await folder.close();
 });
 
-test('a row that keeps changing gives up after the bounded merges', async () => {
-	const { folder, table, prepared, read, declaration } = await setup();
-	const captured = await read();
-	// A writer that saves again before every attempt, so each merge is overtaken.
-	let saves = 0;
-	const busy: AnyTable = {
-		...table,
-		async replace(file, row) {
-			const current = expectOk(await table.get('one'));
-			if (current !== undefined) {
-				const theirs = structuredClone(current.row);
-				theirs.fields.tags = [
-					...(theirs.fields.tags as string[]),
-					`t${saves++}`,
-				];
-				expectOk(await table.replace(current, theirs));
-			}
-			return table.replace(file, row);
-		},
-	};
-	const edited = structuredClone(captured.row);
-	edited.fields.title = 'Mine';
-
-	const outcome = await saveRow({
-		table: busy,
-		prepared,
-		captured,
-		edited,
-		attempts: 2,
-	});
-
-	expect(outcome.kind).toBe('failed');
-	expect((await read()).row.fields.title).toBe('One');
-	expect(await declaration()).toBe(DECLARED);
-	await folder.close();
-});
-
 test('a value the field does not admit is not saved, and says why', async () => {
-	const { folder, table, prepared, read } = await setup();
+	const { folder, table, read } = await setup();
 	const captured = await read();
 	const edited = structuredClone(captured.row);
 	edited.fields.done = 'yes';
 
-	const outcome = await saveRow({ table, prepared, captured, edited });
+	const outcome = await saveRow({ table, captured, edited });
 
-	expect(outcome).toMatchObject({ kind: 'failed' });
+	expect(outcome.kind).toBe('failed');
+	if (outcome.kind === 'failed') expect(outcome.message).toStartWith('Not saved: ');
 	expect((await read()).row.fields.done).toBe(false);
 	await folder.close();
 });

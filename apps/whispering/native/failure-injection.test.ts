@@ -9,8 +9,8 @@
  * directories.
  *
  * The repository is opened here with the Bun directory opener, standing in
- * for the page: something has to initialize Git and commit. The
- * injection is never given that folder.
+ * for the page, and its first commit creates Git. The injection is never
+ * given that folder.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -41,6 +41,16 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
+/**
+ * The folder opened as the page opens it, with the repository its first
+ * commit creates: opening alone creates none.
+ */
+async function openWithHistory(root: string) {
+	const folder = await openTestFolder(root);
+	await folder.git.commit();
+	return folder;
+}
+
 /** An empty directory: what the host is given before the page has opened it. */
 async function directory() {
 	const root = await realpath(
@@ -53,7 +63,7 @@ async function directory() {
 /** A directory the page has opened, so Git exists in it. */
 async function open() {
 	const root = await directory();
-	const folder = await openTestFolder(root);
+	const folder = await openWithHistory(root);
 	cleanups.push(() => folder.close());
 	return {
 		root,
@@ -95,7 +105,7 @@ test('the lock is taken on the branch HEAD names, and is refused before Git exis
 	expect(injection.state.commitsBlocked).toBe(false);
 	expect(await readdir(root)).toEqual([]);
 
-	const folder = await openTestFolder(root);
+	const folder = await openWithHistory(root);
 	cleanups.push(() => folder.close());
 	execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/drafts/one'], {
 		cwd: root,
@@ -158,7 +168,7 @@ test('a lock asked for at launch waits for the folder to be opened, and is taken
 	// Asked before the page opened the folder: refused, and still owed.
 	await expect(injection.armLaunch()).rejects.toThrow('no Git history yet');
 
-	const folder = await openTestFolder(root);
+	const folder = await openWithHistory(root);
 	cleanups.push(() => folder.close());
 	const lock = join(root, '.git', 'refs', 'heads', 'main.lock');
 	expect((await injection.armLaunch()).commitsBlocked).toBe(true);

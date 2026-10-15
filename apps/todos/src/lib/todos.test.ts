@@ -13,6 +13,9 @@
  *   waiting write saves the newest row, guarded by the hash the previous
  *   write confirmed, so typing never conflicts with itself
  * - A read may land while a write runs; the write's settling reads again
+ * - A write over a file changed elsewhere merges with it: the edit wins
+ *   only where both changed, and a write waiting behind keeps what the
+ *   merge took from the other side
  * - A write that fails rolls the cache back to the file, reports the text
  *   that was lost, and a write still waiting saves the file as it was
  * - The folder refuses a value it cannot hold, and the cache rolls back
@@ -255,7 +258,7 @@ test('a read while a write runs lands, and the cache shows the written row once 
 	expect(await text(todos, path)).toContain('title: Oat milk, two');
 });
 
-test('a write that meets a change made elsewhere rolls back to the file and reports the lost text', async () => {
+test('a write that meets a change made elsewhere merges with it: the edit wins only where both changed', async () => {
 	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
 	const elsewhere = '---\ntitle: Milk from the shop\ndone: true\n---\n';
@@ -263,22 +266,23 @@ test('a write that meets a change made elsewhere rolls back to the file and repo
 
 	rowEditor(todos, stem)(titled('Oat milk'));
 	await quiet(todos);
-	expect(failures).toHaveLength(1);
-	expect(failures[0]).toMatchObject({ path, error: { name: 'Conflict' } });
-	expect(failures[0]?.lost).toContain('title: Oat milk');
-	// The cache shows the file again; nothing was written over it.
-	expect(await text(todos, path)).toBe(elsewhere);
+	expect(failures).toEqual([]);
+	// Both changed the title: the edit wins. Only the other side marked it
+	// done, so that stays.
+	expect(await text(todos, path)).toBe(
+		'---\ntitle: Oat milk\ndone: true\n---\n',
+	);
 	expect(cached(todos, stem).row.fields).toEqual({
-		title: 'Milk from the shop',
+		title: 'Oat milk',
 		done: true,
 	});
 
 	// The next edit writes on top of what is there now.
-	rowEditor(todos, stem)(titled('Oat milk'));
+	rowEditor(todos, stem)(titled('Oat milk, two'));
 	await quiet(todos);
-	expect(failures).toHaveLength(1);
+	expect(failures).toEqual([]);
 	expect(await text(todos, path)).toBe(
-		'---\ntitle: Oat milk\ndone: true\n---\n',
+		'---\ntitle: Oat milk, two\ndone: true\n---\n',
 	);
 });
 
@@ -305,13 +309,11 @@ test('a write that fails rolls back, and the write waiting behind it leaves the 
 	expect(cached(todos, stem).row.fields.title).toBe('Milk');
 });
 
-test('after a conflict, the write waiting behind it writes nothing over the file found', async () => {
-	const { todos, counter, failures } = await open();
+test('after a merge, the write waiting behind it keeps what the merge took from the other side', async () => {
+	const { todos, failures } = await open();
 	const { stem, path } = await addTodo(todos, 'Milk');
-	// Hand-written: a write of the same row would reformat it.
-	const elsewhere = "---\ntitle:   'Milk from the shop'\ndone: true\n---\n";
+	const elsewhere = '---\ntitle: Milk\ndone: true\n---\n';
 	await writeElsewhere(todos, path, elsewhere);
-	const writes = counter.mdWrites;
 	const set = rowEditor(todos, stem);
 
 	set(titled('First'));
@@ -320,15 +322,12 @@ test('after a conflict, the write waiting behind it writes nothing over the file
 		todos.queryClient.isMutating({ mutationKey: todosKeys.write(path) }),
 	).toBe(2);
 	await quiet(todos);
-	expect(failures).toMatchObject([{ path, error: { name: 'Conflict' } }]);
-	expect(counter.mdWrites - writes).toBe(0);
-	expect(await text(todos, path)).toBe(elsewhere);
-	expect(cached(todos, stem).row.fields.title).toBe('Milk from the shop');
-
-	// The next edit writes again, over the file it now holds.
-	set(titled('Third'));
-	await quiet(todos);
-	expect(await text(todos, path)).toContain('title: Third');
+	expect(failures).toEqual([]);
+	// The first write merged in `done`; the second, made over the cache that
+	// had not seen it yet, does not undo it.
+	expect(await text(todos, path)).toBe(
+		'---\ntitle: Second\ndone: true\n---\n',
+	);
 });
 
 test('the folder refuses a value it cannot hold, and the cache rolls back', async () => {

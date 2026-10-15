@@ -691,6 +691,7 @@
         "yaml": "catalog:",
       },
       "devDependencies": {
+        "@tanstack/query-core": "catalog:",
         "@types/bun": "catalog:",
         "@types/jsdom": "21.1.7",
         "jsdom": "26.1.0",
@@ -700,9 +701,11 @@
         "vite": "catalog:",
       },
       "peerDependencies": {
+        "@tanstack/query-core": "^5.82.0",
         "svelte": "^5.9.0",
       },
       "optionalPeers": [
+        "@tanstack/query-core",
         "svelte",
       ],
     },

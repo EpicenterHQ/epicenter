@@ -31,6 +31,7 @@ import {
 	createTestStorage,
 	locationOf,
 } from './browser-storage.test-support.js';
+import type { FilesChanged } from './contract.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 let inShell = false;
@@ -249,16 +250,17 @@ test('handles sharing browser storage hear each other, when the storage carries 
 	expectOk(await first.files.create('first.md', 'x'));
 	expectOk(await second.files.create('second.md', 'x'));
 	await Bun.sleep(20);
-	const heardByFirst: string[] = [];
-	const heardBySecond: string[] = [];
-	first.onFilesChanged((paths) => heardByFirst.push(...paths));
-	second.onFilesChanged((paths) => heardBySecond.push(...paths));
+	const heardByFirst: FilesChanged[] = [];
+	const heardBySecond: FilesChanged[] = [];
+	first.onFilesChanged((change) => heardByFirst.push(change));
+	second.onFilesChanged((change) => heardBySecond.push(change));
 
 	expectOk(await first.files.create('from-first.md', 'x'));
 	for (let waited = 0; waited < 200 && heardBySecond.length === 0; waited++)
 		await Bun.sleep(5);
-	expect(heardByFirst).toEqual(['from-first.md']);
-	expect(heardBySecond).toEqual(['from-first.md']);
+	// A handle's own write is not reported to it; the other page hears it.
+	expect(heardByFirst).toEqual([]);
+	expect(heardBySecond).toEqual([['from-first.md']]);
 	// The second handle reads what the hint asked it to look at.
 	expectOk(await second.files.read('from-first.md'));
 
@@ -266,7 +268,7 @@ test('handles sharing browser storage hear each other, when the storage carries 
 	await second.close();
 	expectOk(await first.files.create('after-close.md', 'x'));
 	await Bun.sleep(20);
-	expect(heardBySecond).toEqual(['from-first.md']);
+	expect(heardBySecond).toEqual([['from-first.md']]);
 	await first.close();
 });
 

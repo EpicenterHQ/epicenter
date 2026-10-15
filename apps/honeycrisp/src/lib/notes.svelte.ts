@@ -45,10 +45,12 @@ import {
 	type RowReadError,
 	rowPath,
 	rowStemOf,
+	type SavedRow,
 	type StoredRow,
 	type TableCreateError,
 	type TableError,
 	type TableListing,
+	type TableSaveError,
 } from '@epicenter/folder';
 import {
 	ancestorsOf,
@@ -57,6 +59,7 @@ import {
 	joinPath,
 	type OpenedFile,
 } from '@epicenter/folder/file-browser';
+import { createSaveBases } from '@epicenter/folder/query';
 import type {
 	MutationFilters,
 	MutationOptions,
@@ -409,6 +412,8 @@ export function createNotes(
 		const key = notesKeys.rows(name);
 		const declared = honeycrispDefinition.tables[name];
 		const data = () => queryClient.getQueryData<TableListing<TFields>>(key);
+		/** The row each cached version held, which a save merges from. */
+		const bases = createSaveBases<TFields>();
 
 		/** The row the cache holds for `stem`, if it reads as one. */
 		function rowOf(stem: string): StoredRow<TFields> | undefined {
@@ -456,7 +461,8 @@ export function createNotes(
 
 		/**
 		 * The write of one row. It saves the row the cache holds when it
-		 * runs, guarded by the hash the cache last confirmed.
+		 * runs over the version the cache last confirmed, from the row that
+		 * version held; a file changed elsewhere since is merged with it.
 		 */
 		function write(stem: string) {
 			const path = rowPath(name, stem);
@@ -465,19 +471,24 @@ export function createNotes(
 				// Row and text writes, renames, and deletes of one file share its queue.
 				scope: { id: path },
 				mutationFn: async (): Promise<
-					Result<StoredRow<TFields> | undefined, TableError | FileError>
+					Result<SavedRow<TFields> | undefined, TableSaveError>
 				> => {
 					const stored = rowOf(stem);
 					if (stored === undefined) return Ok(undefined);
-					return table.replace(stored, stored.row);
+					const saved = await table.save(
+						bases.baseOf(stem, stored),
+						stored.row,
+					);
+					if (saved.error === null) bases.saved(stem, stored.row, saved.data);
+					return saved;
 				},
 				onSuccess: (saved) => {
 					if (saved === undefined) return;
 					// TanStack awaits this before the next write in the scope runs.
 					map(stem, (stored) => ({
 						...stored,
-						path: saved.path,
-						sha256: saved.sha256,
+						path: saved.stored.path,
+						sha256: saved.stored.sha256,
 					}));
 					// The same file's text, if a view read it, is read again.
 					void invalidate(notesKeys.text(path));
@@ -520,6 +531,7 @@ export function createNotes(
 				const row = change(stored.row);
 				if (row === stored.row) return stored;
 				changed = true;
+				bases.editing(stem, stored);
 				return { ...stored, row };
 			});
 			if (changed && writesOf(path) < 2) run(write(stem));

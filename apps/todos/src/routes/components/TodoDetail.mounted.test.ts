@@ -16,8 +16,8 @@
  * - Typing a title or notes changes the cache at once, so the list shows it
  *   while the view's own write mutation saves it. Each todo gets its own
  *   view, and each input saves at its own path
- * - A write that meets a change made elsewhere rolls the input back to the
- *   file and reports what was lost
+ * - A write that meets a change made elsewhere merges with it; the edit
+ *   wins where both changed
  * - Returning to the window shows another writer's change
  * - A malformed todo shows under "Needs repair"; shown, its issues and text
  *   are read-only, and it reads as a todo once another editor fixes it
@@ -240,26 +240,16 @@ test('typing changes the cache at once, so the list shows it, and each todo save
 	});
 });
 
-test('a write that meets a change made elsewhere rolls the input back to the file and reports what was lost', async () => {
+test('a write that meets a change made elsewhere merges with it, and the edit wins where both changed', async () => {
 	const { todos, target, get, list, failures, overwrite, text } = await setup();
 	const path = await addTodo(todos, target, 'Milk');
-	const theirs = ROW('Milk from the shop');
-	await overwrite(path, theirs);
+	await overwrite(path, ROW('Milk from the shop'));
 
 	type(get<HTMLInputElement>(TITLE), 'Oat milk');
 	await settle(todos);
-	await eventually(() => failures.length > 0);
-	await settle(todos);
-	expect(failures).toMatchObject([{ path, error: { name: 'Conflict' } }]);
-	expect(failures[0]!.lost).toContain('title: Oat milk');
-	expect(get<HTMLInputElement>(TITLE).value).toBe('Milk from the shop');
-	expect(listed(list())).toEqual(['Milk from the shop']);
-	expect(await text(path)).toBe(theirs);
-
-	// Typing again writes on top of what is there now.
-	type(get<HTMLInputElement>(TITLE), 'Oat milk');
-	await settle(todos);
-	expect(failures).toHaveLength(1);
+	expect(failures).toEqual([]);
+	expect(get<HTMLInputElement>(TITLE).value).toBe('Oat milk');
+	expect(listed(list())).toEqual(['Oat milk']);
 	expect(await text(path)).toBe(ROW('Oat milk'));
 });
 

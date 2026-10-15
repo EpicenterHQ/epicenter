@@ -18,7 +18,6 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { PreparedFolderTable } from '@epicenter/folder';
 import { openDataFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
 import { createRowEdits, editedRow, type RowEdit } from './row-edits';
@@ -53,7 +52,6 @@ async function setup() {
 	await writeFile(join(root, 'notes/one.md'), ROW);
 	const folder = expectOk(await openDataFolder({ root, git: { author } }));
 	const table = folder.tables.notes as AnyTable;
-	const prepared = folder.definition.tables.notes as PreparedFolderTable;
 	/** What the grid shows after a read: the row as it is now. */
 	const refresh = async () => {
 		const stored = expectOk(await table.get('one'));
@@ -65,7 +63,7 @@ async function setup() {
 		const theirs = await refresh();
 		const row = structuredClone(theirs.row);
 		change(row);
-		expectOk(await table.replace(theirs, row));
+		expectOk(await table.save(theirs, row));
 	};
 	const edits = createRowEdits();
 	/** Save `edit` as the Folders window does: from its begin, over this window's latest save. */
@@ -73,7 +71,6 @@ async function setup() {
 		const base = edits.latest(start);
 		const outcome = await saveRow({
 			table,
-			prepared,
 			captured: base,
 			edited: await editedRow(start, base, edit),
 		});

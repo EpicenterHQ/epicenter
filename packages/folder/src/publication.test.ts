@@ -1,10 +1,11 @@
 /**
  * Publication accounting over partially completed file operations.
  *
- * Local observers hear confirmed paths and uncertain failed-step paths,
- * never unattempted paths. Accounting preserves the storage receipt and
- * notes one edit for any outcome that may have changed a path; it asks for
- * no commit (ADR-0529).
+ * Any outcome that may have changed a path notes one edit, so the history's
+ * observations go stale, and the storage receipt passes through unchanged.
+ * A refusal that changed nothing notes none. Accounting asks for no commit
+ * (ADR-0529) and tells no change listener: a handle's own saves are not
+ * reported to it (ADR-0548).
  */
 import { expect, test } from 'bun:test';
 import { expectErr } from 'wellcrafted/testing';
@@ -12,12 +13,20 @@ import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { ApplyError, FileError, type FileStep } from './errors.js';
 import { withPublication } from './storage.js';
 
+const overwrite = (path: string) =>
+	({
+		kind: 'overwrite',
+		path,
+		bytes: new Uint8Array(),
+		sha256: path,
+	}) as const;
+
 for (const failed of [
 	{ kind: 'move', from: 'source/b.md', to: 'destination/b.md' },
 	{ kind: 'remove', path: 'source/b.md' },
 ] satisfies FileStep[])
 	for (const unknown of [true, false])
-		test(`a partial ${failed.kind} ${unknown ? 'hints uncertain paths' : 'hints only its confirmed prefix'} without changing its receipt`, async () => {
+		test(`a partial ${failed.kind} ${unknown ? 'with an uncertain step' : 'with a refused step'} notes one edit without changing its receipt`, async () => {
 			const { boundary } = await rawBrowserFolder({
 				id: 'publication-receipt',
 			});
@@ -35,7 +44,6 @@ for (const failed of [
 					: expectErr(FileError.Io(cause)),
 				notAttempted: [{ kind: 'write', path: 'unattempted.md' }],
 			});
-			const heard: string[] = [];
 			let edits = 0;
 			const storage = withPublication({
 				storage: { ...boundary, apply: async () => receipt },
@@ -44,32 +52,33 @@ for (const failed of [
 						edits++;
 					},
 				},
-				landed: (paths) => heard.push(...paths),
 			});
 			expect(
 				await storage.apply([
-					{
-						kind: 'overwrite',
-						path: 'confirmed.md',
-						bytes: new Uint8Array(),
-						sha256: 'confirmed',
-					},
+					overwrite('confirmed.md'),
 					failed,
-					{
-						kind: 'overwrite',
-						path: 'unattempted.md',
-						bytes: new Uint8Array(),
-						sha256: 'unattempted',
-					},
+					overwrite('unattempted.md'),
 				]),
 			).toBe(receipt);
 			expect(edits).toBe(1);
-			expect(heard).toEqual([
-				'confirmed.md',
-				...(unknown
-					? failed.kind === 'move'
-						? [failed.from, failed.to]
-						: [failed.path]
-					: []),
-			]);
 		});
+
+test('a refusal that changed nothing notes no edit', async () => {
+	const { boundary } = await rawBrowserFolder({ id: 'publication-refusal' });
+	const refusal = FileError.Conflict({
+		path: 'a.md',
+		expectedSha256: 'a'.repeat(64),
+		actualSha256: undefined,
+	});
+	let edits = 0;
+	const storage = withPublication({
+		storage: { ...boundary, apply: async () => refusal },
+		history: {
+			noteEdit: () => {
+				edits++;
+			},
+		},
+	});
+	expect(await storage.apply([overwrite('a.md')])).toBe(refusal);
+	expect(edits).toBe(0);
+});

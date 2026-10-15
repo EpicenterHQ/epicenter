@@ -302,7 +302,9 @@ test('the page names the folder by its ID and nothing else, and opens the direct
 	expect(workspace.kind).toBe('native');
 	expect(workspace.location).toBe(root);
 	expect(workspace.folder.git.snapshot.branch).toBe('main');
-	// The page's engine made the repository.
+	// Opening made no repository; the first commit does.
+	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(false);
+	expect((await workspace.folder.git.commit()).status).toBe('unchanged');
 	expect(existsSync(join(root, '.git', 'HEAD'))).toBe(true);
 	await workspace.close();
 });
@@ -438,8 +440,8 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 	// The shell writes, and its reply never reaches the page. The page reads
 	// the file back, finds exactly what it wrote, and the write is confirmed.
 	granting.control.loseReplies = 1;
-	const confirmed = expectOk(
-		await table.replace(stored, { ...stored.row, body: 'Tidy it.\n' }),
+	const { stored: confirmed } = expectOk(
+		await table.save(stored, { ...stored.row, body: 'Tidy it.\n' }),
 	);
 	expect(confirmed.row.body).toBe('Tidy it.\n');
 	expect(granting.kinds).toEqual(['write']);
@@ -451,7 +453,7 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 		granting.control.beforeChange = undefined;
 		granting.control.failReads.add(PATH);
 	};
-	const lost = await table.replace(confirmed, {
+	const lost = await table.save(confirmed, {
 		...confirmed.row,
 		body: 'Tidy it again.\n',
 	});
@@ -468,7 +470,7 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 	if (landed === undefined) throw new Error('Expected the row to be there');
 	expect(landed.row.body).toBe('Tidy it again.\n');
 	expectOk(
-		await table.replace(landed, { ...landed.row, body: 'Tidy it more.\n' }),
+		await table.save(landed, { ...landed.row, body: 'Tidy it more.\n' }),
 	);
 	expect(granting.kinds).toEqual(['write', 'write', 'write']);
 	expect(await granting.text(PATH)).toContain('Tidy it more.');
@@ -708,7 +710,7 @@ test('a release shell offers no failure injection, and asks the host for none', 
 	await workspace.close();
 });
 
-test('a debug shell tells the host the folder is open only once Git exists in it, and wraps each recording write in its own obstacle', async () => {
+test('a debug shell tells the host once the folder is open, and wraps each recording write in its own obstacle', async () => {
 	setup();
 	const { root } = await granted();
 	const order: string[] = [];
@@ -734,8 +736,9 @@ test('a debug shell tells the host the folder is open only once Git exists in it
 	const workspace = expectOk(
 		await openDesktopWorkspace({ ...CONNECTION, fetch: served.fetch }),
 	);
-	// Git exists once the folder is open, and the host is told only then.
-	expect(order).toEqual(['git', 'injection-launch']);
+	// The host is told once the folder is open. Opening made no repository:
+	// a lock asked for at launch waits for the first commit to create Git.
+	expect(order).toEqual(['injection-launch']);
 
 	const around = workspace.injection!.aroundRecordingWrite;
 	const audio = await around(
@@ -755,7 +758,7 @@ test('a debug shell tells the host the folder is open only once Git exists in it
 		'the folder’s own answer',
 	]);
 	// Each write is its own: obstructed, made, and cleared before the next.
-	expect(order.slice(2)).toEqual([
+	expect(order.slice(1)).toEqual([
 		'obstruct',
 		'audio',
 		'unobstruct',

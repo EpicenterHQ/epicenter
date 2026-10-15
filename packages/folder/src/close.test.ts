@@ -10,6 +10,9 @@
  * - Git work and reentrant close retain their resource lifetime guarantees
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { existsSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { FileBoundary } from './boundary.js';
 import { openFolder as openBrowserFolder } from './browser.js';
@@ -29,7 +32,7 @@ import { openNativeFolder } from './directory.test-support.js';
 import { assembleFolder, createFileHints } from './folder.js';
 import type { GitBackend } from './git/backend.js';
 import { createHistory } from './git/history.js';
-import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import { GIT_ENV, scratch } from './git-http.test-support.js';
 import { withPublication } from './storage.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
@@ -91,7 +94,7 @@ test('a directory helper still hashing at close is refused; the caller must awai
 	await folder.close();
 	expect(expectErr(await preparing).name).toBe('Closed');
 	// Opening wrote nothing, and the refused save wrote nothing either.
-	expect(await git(root, 'status', '--porcelain')).toBe('');
+	expect(await readdir(root)).toEqual([]);
 	const reopened = await openNativeFolder({
 		root,
 		definition,
@@ -99,9 +102,13 @@ test('a directory helper still hashing at close is refused; the caller must awai
 	});
 	expectOk(await reopened.files.create('saved.md', 'awaited by caller'));
 	await reopened.close();
-	expect(await git(root, 'status', '--porcelain')).toBe(
-		'?? epicenter.json\n?? saved.md',
-	);
+	// Saves stage their bytes inside `.git`; no repository is made there.
+	expect((await readdir(root)).sort()).toEqual([
+		'.git',
+		'epicenter.json',
+		'saved.md',
+	]);
+	expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 });
 
 /** A real browser history over a boundary whose next publication the test holds. */
@@ -158,11 +165,7 @@ async function held() {
 	const folder = assembleFolder<typeof definition>({
 		prepared: definition,
 		publishes: true,
-		storage: withPublication({
-			storage: boundary,
-			history,
-			landed: (paths) => hints.emit(paths),
-		}),
+		storage: withPublication({ storage: boundary, history }),
 		history,
 		location: locationOf('close'),
 		hints,

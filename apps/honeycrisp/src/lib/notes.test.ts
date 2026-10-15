@@ -14,9 +14,11 @@
  *   saves the newest note, guarded by the hash the previous write confirmed
  * - No read starts while a write runs: not on returning to the window, not
  *   when a view mounts
- * - A write that meets a change made elsewhere, that fails, or that holds a
- *   value a file cannot, rolls the cache back to the file and reports the
- *   text that was lost
+ * - A write that meets a change made elsewhere merges with it, and the edit
+ *   wins only where both changed
+ * - A write that fails, that holds a value a file cannot, or whose note was
+ *   deleted elsewhere rolls the cache back to the file and reports the text
+ *   that was lost
  * - Returning to the window shows a change made elsewhere
  * - A note whose text is not a valid note is named for repair, opens as
  *   text, is written as typed, and opens as a note once repaired; while it
@@ -202,27 +204,19 @@ test('no read starts while a write runs: not on returning to the window, not whe
 	expect(disk.text(A)).toContain('title: Typed again');
 });
 
-test('a write that meets a change made elsewhere rolls back to the file and reports the lost text', async () => {
+test('a write that meets a change made elsewhere merges with it: the edit wins only where both changed', async () => {
 	const { notes, disk, failures } = await open();
 	const elsewhere = noteText({ title: 'Theirs', body: 'Their body.\n' });
 	disk.put(A, elsewhere);
 
 	notes.editNote(A, titled('Mine'));
 	await quiet(notes);
-	expect(failures).toHaveLength(1);
-	expect(failures[0]).toMatchObject({ path: A, error: { name: 'Conflict' } });
-	expect(failures[0]?.lost).toContain('title: Mine');
-	// The cache shows the file again; nothing was written over it.
-	expect(disk.text(A)).toBe(elsewhere);
-	expect(cached(notes, 'a').row.fields.title).toBe('Theirs');
-	expect(cached(notes, 'a').row.body).toBe('Their body.\n');
-
-	// The next edit writes on top of what is there now.
-	notes.editNote(A, titled('Mine'));
-	await quiet(notes);
-	expect(failures).toHaveLength(1);
+	expect(failures).toEqual([]);
+	// Both changed the title, so the edit's stands; only they changed the body.
 	expect(disk.text(A)).toContain('title: Mine');
 	expect(disk.text(A)).toContain('Their body.\n');
+	expect(cached(notes, 'a').row.fields.title).toBe('Mine');
+	expect(cached(notes, 'a').row.body).toBe('Their body.\n');
 });
 
 test('a note deleted elsewhere rolls back out of the list, and nothing writes it again', async () => {
@@ -231,7 +225,7 @@ test('a note deleted elsewhere rolls back out of the list, and nothing writes it
 	disk.drop(A);
 	notes.editNote(A, bodied('Mine.\n'));
 	await quiet(notes);
-	expect(failures).toMatchObject([{ path: A, error: { name: 'Conflict' } }]);
+	expect(failures).toMatchObject([{ path: A, error: { name: 'NotFound' } }]);
 	expect(failures[0]?.lost).toContain('Mine.');
 	expect(disk.text(A)).toBeUndefined();
 	expect(listing(notes).some((entry) => entry.stem === 'a')).toBe(false);

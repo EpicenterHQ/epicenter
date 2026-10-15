@@ -191,18 +191,15 @@ test('a refused write rolls back and is reported; the next edit writes', async (
 	expect(await shell.text(PATH)).toContain('Mine.\n');
 });
 
-test('another writer’s change is never written over: the write fails, writes nothing, and the cache shows theirs', async () => {
+test('another writer’s change merges with the typing: where both changed, the typing wins', async () => {
 	const { library, failures, session } = await open({ [PATH]: SEED });
-	const theirs = SEED.replace('Tidy.', 'Theirs.');
-	await shell.write(PATH, theirs);
+	await shell.write(PATH, SEED.replace('Tidy.', 'Theirs.'));
 
 	type(session, 'Mine.\n');
 	await settle(library);
-	expect(failures).toEqual([
-		{ name: 'Conflict', lost: expect.stringContaining('Mine.') },
-	]);
-	expect(shell.changes).toEqual([]);
-	expect(session.draft.body).toBe('Theirs.\n');
+	expect(failures).toEqual([]);
+	expect(await shell.text(PATH)).toContain('Mine.\n');
+	expect(await shell.text(PATH)).not.toContain('Theirs.');
 });
 
 test('a deletion waits for the save of the row, then removes what it saved', async () => {

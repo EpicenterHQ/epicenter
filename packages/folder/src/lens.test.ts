@@ -100,7 +100,7 @@ test('a lens over a bigger folder opens with its own tables, and the folder keep
 	const milk = expectOk(await todos.get('milk'))!;
 	expect(milk.row.fields.title).toBe('Milk');
 	milk.row.fields.status = 'done';
-	expectOk(await todos.replace(milk, milk.row));
+	expectOk(await todos.save(milk, milk.row)).stored;
 	expect(await readFile(join(root, 'todos/milk.md'), 'utf8')).toBe(
 		'---\ntitle: Milk\nstatus: done\npriority: 2\nnote: Oat\nsource: phone\n---\nBuy it.\n',
 	);
@@ -121,12 +121,12 @@ test("every write is checked against the folder's declaration, not the lens's", 
 	const milk = expectOk(await todos.get('milk'))!;
 	// The lens admits 'later'; the folder does not.
 	milk.row.fields.status = 'later';
-	const refused = expectErr(await todos.replace(milk, milk.row));
+	const refused = expectErr(await todos.save(milk, milk.row));
 	expect(refused.name).toBe('InvalidValues');
 	// A field the lens does not name is checked too.
 	const again = expectOk(await todos.get('milk'))!;
 	(again.row.fields as Record<string, unknown>).priority = 9;
-	expect(expectErr(await todos.replace(again, again.row)).name).toBe(
+	expect(expectErr(await todos.save(again, again.row)).name).toBe(
 		'InvalidValues',
 	);
 	// The lens's string theme is checked against the folder's options.
@@ -254,7 +254,7 @@ test('a closed folder table opens through a lens that reads a subset of it', asy
 	expect(pages.canCreate).toBe(true);
 	const a = expectOk(await pages.get('a'))!;
 	a.row.fields.title = 'Renamed';
-	expectOk(await pages.replace(a, a.row));
+	expectOk(await pages.save(a, a.row));
 	expect(await readFile(join(root, 'pages/a.md'), 'utf8')).toBe(
 		'---\ntitle: Renamed\ntags:\n  - x\n---\n',
 	);
@@ -287,7 +287,7 @@ test('a browser folder opened through a lens reads, writes, and refuses alike', 
 	expect(folder.tables.todos.canCreate).toBe(false);
 	const milk = expectOk(await folder.tables.todos.get('milk'))!;
 	milk.row.fields.status = 'done';
-	expectOk(await folder.tables.todos.replace(milk, milk.row));
+	expectOk(await folder.tables.todos.save(milk, milk.row)).stored;
 	expect(
 		new TextDecoder().decode(
 			expectOk(await folder.files.read('todos/milk.md')).bytes,

@@ -439,7 +439,9 @@ test('a locked branch fails the commit and never the save; unlocking lets it com
 	expect(await readdir(root)).toEqual([]);
 
 	const folder = await opened(root);
-	// The page says it has opened the folder; the lock is taken now.
+	// The folder's first commit creates Git, and the page says it has opened
+	// the folder; the lock is taken now.
+	await folder.git.commit();
 	expect(
 		(await bridge.app<{ commitsBlocked: boolean }>('injection-launch'))
 			.commitsBlocked,
@@ -520,18 +522,26 @@ test('a terminal edit is an outside write: the folder’s next read sees it, and
 
 	const reread = expectOk(await folder.tables.recordings.get(pending.id));
 	expect(reread!.row.fields.title).toBe('Renamed in the shell');
-	// The page's older observation no longer matches: its save is refused, not applied.
-	const { error: replaceError } = await folder.tables.recordings.replace(
-		entry!,
-		{
+	// The page's older observation no longer matches: its save merges with
+	// the shell's change. Both changed the title, so the save wins there and
+	// says what it replaced.
+	const saved = expectOk(
+		await folder.tables.recordings.save(entry!, {
 			...entry!.row,
-			fields: { ...entry!.row.fields, title: 'Lost update' },
-		},
+			fields: { ...entry!.row.fields, title: 'Mine' },
+		}),
 	);
-	expect(replaceError?.name).toBe('Conflict');
+	expect(saved.replaced).toEqual([
+		{
+			kind: 'field',
+			field: 'title',
+			kept: 'Mine',
+			theirs: 'Renamed in the shell',
+		},
+	]);
 	expect(
 		await readFile(join(root, 'recordings', `${pending.id}.md`), 'utf8'),
-	).toContain('title: Renamed in the shell');
+	).toContain('title: Mine');
 });
 
 test('transcription reads the saved audio and sends it to the configured endpoint', async () => {

@@ -41,6 +41,7 @@ test('no core or platform entry loads Svelte or the adapter', async () => {
 		'./tauri',
 		'./bun',
 		'./file-browser',
+		'./query',
 	]);
 	for (const [, entry] of platformEntries) {
 		const { files, outside } = await reached(entry);

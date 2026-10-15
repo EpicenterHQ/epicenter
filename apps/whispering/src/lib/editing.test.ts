@@ -286,35 +286,23 @@ test('no read starts while a write runs: not on returning to the window, not on 
 	expect(await text(library, editor.path)).toContain('title: Typed after');
 });
 
-test('a write that meets a change made elsewhere rolls back to the file and reports the lost text', async () => {
+test('a write that meets a change made elsewhere merges with it: the edit wins where both changed', async () => {
 	const { library, failures } = await open();
 	const editor = await record(library);
 	const audioPath = editor.draft.fields.audioPath;
-	const theirs = recordingText('Theirs', audioPath);
-	await writeElsewhere(library, editor.path, theirs);
+	await writeElsewhere(
+		library,
+		editor.path,
+		recordingText('Theirs', audioPath),
+	);
 
 	editor.edit((row) => {
 		row.fields.title = 'Mine';
 	});
 	await quiet(library.queryClient);
-	expect(failures).toHaveLength(1);
-	expect(failures[0]).toMatchObject({
-		path: editor.path,
-		error: { name: 'Conflict' },
-	});
-	expect(failures[0]?.lost).toContain('title: Mine');
-	// Nothing was written over theirs, and the cache shows the file again.
-	expect(await text(library, editor.path)).toBe(theirs);
-	expect(editor.draft.fields.title).toBe('Theirs');
-	expect(library.saving).toBe(false);
-
-	// The next edit writes on top of what is there now.
-	editor.edit((row) => {
-		row.fields.title = 'Mine';
-	});
-	await quiet(library.queryClient);
-	expect(failures).toHaveLength(1);
+	expect(failures).toEqual([]);
 	expect(await text(library, editor.path)).toContain('title: Mine');
+	expect(library.saving).toBe(false);
 });
 
 test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {
@@ -366,7 +354,7 @@ test('a recording deleted elsewhere stays deleted: its write fails, nothing crea
 	await settle(library);
 
 	expect(failures).toHaveLength(1);
-	expect(failures[0]).toMatchObject({ path, error: { name: 'Conflict' } });
+	expect(failures[0]).toMatchObject({ path, error: { name: 'NotFound' } });
 	expect(failures[0]?.lost).toContain('title: Typed after it was deleted');
 	expect(await text(library, path)).toBeUndefined();
 	// The cache let it go: the table and the detail show it gone.

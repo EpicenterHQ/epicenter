@@ -13,8 +13,8 @@
  * - Rich-text typing reaches the cache through ProseMirror's own DOM reading,
  *   is written, and stays undoable after the write lands
  * - Different Source text replaces the rich-text document
- * - A write that meets a change made elsewhere rolls the view back to the
- *   file, in the same rich-text view, and reports what was lost
+ * - A write that meets a change made elsewhere merges with it; the edit
+ *   wins where both changed
  * - Returning to the window shows a change made elsewhere
  * - Once the notes are closing, the controls take no input, and the
  *   rich-text view stays mounted
@@ -177,22 +177,16 @@ test('different Source text replaces the rich-text document, and typing goes on 
 	expect(notes.noteBody(PATH).row?.body).toBe('Different again\n');
 });
 
-test('a write that meets a change made elsewhere rolls the view back to the file and reports what was lost', async () => {
+test('a write that meets a change made elsewhere merges with it: the edit wins where both changed', async () => {
 	const { target, put, text, failures, settle } = await view();
-	const rich = richOf(target);
-	const theirs = noteText({ title: 'Theirs', body: 'Their body.\n' });
-	put(PATH, theirs);
+	put(PATH, noteText({ title: 'Theirs', body: 'Their body.\n' }));
 	type(titleOf(target), 'Mine');
 	await tick();
 	await settle();
-	expect(failures).toMatchObject([{ path: PATH, error: { name: 'Conflict' } }]);
-	expect(failures[0]?.lost).toContain('title: Mine');
-	expect(text(PATH)).toBe(theirs);
-	expect(titleOf(target).value).toBe('Theirs');
-	// The same rich-text view shows their text, with a new undo history.
-	expect(richOf(target)).toBe(rich);
-	expect(rich.textContent).toBe('Their body.');
-	expect(undoButton(target).disabled).toBe(true);
+	expect(failures).toEqual([]);
+	expect(text(PATH)).toContain('title: Mine');
+	expect(text(PATH)).toContain('Their body.\n');
+	expect(titleOf(target).value).toBe('Mine');
 });
 
 test('returning to the window shows a change made elsewhere', async () => {

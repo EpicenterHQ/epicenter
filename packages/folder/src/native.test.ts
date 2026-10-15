@@ -3,6 +3,7 @@
  * a real bare repository served by `git http-backend`.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DataSchema } from '@epicenter/definition';
@@ -119,9 +120,8 @@ describe('native folder', () => {
 			body: 'Around the block.\n',
 		});
 		expect(folder.git.snapshot.lastCommit).toBeUndefined();
-		expect(await git(root, 'status', '--porcelain')).toBe(
-			'?? epicenter.json\n?? todos/',
-		);
+		// Opening and saving create no repository; the first commit does.
+		expect(existsSync(join(root, '.git/HEAD'))).toBe(false);
 		expect(await folder.git.commit()).toMatchObject({
 			status: 'committed',
 			message: 'Update 2 files',
@@ -138,8 +138,8 @@ describe('native folder', () => {
 		expect(current.row.fields.title).toBe('Run');
 		current.row.fields.done = true;
 		const done = expectOk(
-			await folder.tables.todos.replace(current, current.row),
-		);
+			await folder.tables.todos.save(current, current.row),
+		).stored;
 
 		expect(done.row.fields).toEqual({ title: 'Run', done: true });
 		// The helper trims the leading space of the unstaged column.
@@ -313,8 +313,8 @@ describe('native folder', () => {
 			expect(expectOk(await folder.tables.todos.get(stem))).toEqual(created);
 			created.row.fields.done = true;
 			const updated = expectOk(
-				await folder.tables.todos.replace(created, created.row),
-			);
+				await folder.tables.todos.save(created, created.row),
+			).stored;
 			expect(expectOk(await folder.tables.todos.get(stem))).toEqual(updated);
 		}
 		// An uppercase extension is an ordinary file, not a row.
@@ -425,7 +425,7 @@ describe('native folder', () => {
 		await history.close();
 	});
 
-	test('saves within one process take turns: one of two replaces from one capture is Conflict, and different rows both land', async () => {
+	test('saves within one process take turns: of two saves from one capture the second merges over the first, and different rows both land', async () => {
 		const root = await scratch('native-turns-');
 		const folder = await openNativeFolder({
 			root,
@@ -443,24 +443,34 @@ describe('native folder', () => {
 			const a = expectOk(await folder.tables.todos.get('a'))!;
 			const results = await Promise.all(
 				['First', 'Second'].map((title) =>
-					folder.tables.todos.replace(a, {
+					folder.tables.todos.save(a, {
 						...a.row,
 						fields: { ...a.row.fields, title },
 					}),
 				),
 			);
-			const landed = results.filter((result) => result.error === null);
-			expect(landed).toHaveLength(1);
-			expect(
-				results.filter((result) => result.error?.name === 'Conflict'),
-			).toHaveLength(1);
+			const saved = results.map((result) => expectOk(result));
+			// Both changed the title: the one that merged wins, and says whose
+			// title it replaced.
+			const merged = saved.filter((outcome) => outcome.merged);
+			expect(merged).toHaveLength(1);
+			const [last] = merged;
+			const first = saved.find((outcome) => !outcome.merged)!;
+			expect(last!.replaced).toEqual([
+				{
+					kind: 'field',
+					field: 'title',
+					kept: last!.stored.row.fields.title,
+					theirs: first.stored.row.fields.title,
+				},
+			]);
 			const kept = expectOk(await folder.tables.todos.get('a'))!;
-			expect(kept.row.fields.title).toBe(landed[0]!.data!.row.fields.title);
+			expect(kept.row.fields.title).toBe(last!.stored.row.fields.title);
 
 			const [one, two] = await Promise.all(
 				(['a', 'b'] as const).map(async (stem) => {
 					const current = expectOk(await folder.tables.todos.get(stem))!;
-					return folder.tables.todos.replace(current, {
+					return folder.tables.todos.save(current, {
 						...current.row,
 						fields: { ...current.row.fields, done: true },
 					});
@@ -556,8 +566,8 @@ describe('browser and native exchange through a real bare repository', () => {
 
 		nativeEntry.row.fields.done = true;
 		const nativeDone = expectOk(
-			await native.tables.todos.replace(nativeEntry, nativeEntry.row),
-		);
+			await native.tables.todos.save(nativeEntry, nativeEntry.row),
+		).stored;
 		expect((await native.git.commit()).status).toBe('committed');
 		expect(native.git.snapshot.lastPush).toBeUndefined();
 		expect((await native.git.push()).status).toBe('pushed');
@@ -576,7 +586,7 @@ describe('browser and native exchange through a real bare repository', () => {
 
 		// A dirty folder refuses the next fast-forward before writing anything.
 		nativeDone.row.fields.title = 'Native edit';
-		expectOk(await native.tables.todos.replace(nativeDone, nativeDone.row));
+		expectOk(await native.tables.todos.save(nativeDone, nativeDone.row)).stored;
 		expect((await native.git.commit()).status).toBe('committed');
 		expect((await native.git.push()).status).toBe('pushed');
 		// Another writer publishes without a save request on this handle.

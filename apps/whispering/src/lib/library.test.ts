@@ -236,13 +236,9 @@ test('the first launch creates no files or history, and saving a connection writ
 	const { library, root, device } = await open({
 		connections: { connections: {} },
 	});
-	expect(await readdir(root)).not.toContain('kv.json');
-	expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('main');
-	expect(await Bun.file(join(root, '.git/refs/heads/main')).exists()).toBe(
-		false,
-	);
-	// Opening writes nothing: not even the definition, which waits for a write.
-	expect(git(root, 'status', '--porcelain').trim()).toBe('');
+	// Opening writes nothing: not the definition, which waits for a write,
+	// and no repository, which the first commit creates.
+	expect(await readdir(root)).toEqual([]);
 	expect(library.connections).toEqual({
 		transcription: undefined,
 		text: undefined,
@@ -265,8 +261,7 @@ test('the first launch creates no files or history, and saving a connection writ
 		readOnlyReason: undefined,
 	});
 	expect(device.stored.transcription?.apiKey).toBe('typed-key');
-	expect(await readdir(root)).not.toContain('kv.json');
-	expect(git(root, 'status', '--porcelain').trim()).toBe('');
+	expect(await readdir(root)).toEqual([]);
 });
 
 test('kv.json from an earlier build is offered, never written, and never where a request goes', async () => {

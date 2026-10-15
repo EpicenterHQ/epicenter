@@ -130,11 +130,11 @@ describe('row files', () => {
 			),
 		);
 		expectOk(
-			await folder.tables.todos.replace(row, {
+			await folder.tables.todos.save(row, {
 				fields: { title: 'Row', done: true },
 				body: '',
 			}),
-		);
+		).stored;
 		expect(expectErr(await folder.tables.todos.rename(row, 'next')).name).toBe(
 			'Conflict',
 		);
@@ -167,7 +167,7 @@ describe('row files', () => {
 		);
 		expect(
 			expectErr(
-				await folder.tables.todos.replace(nested, {
+				await folder.tables.todos.save(nested, {
 					fields: { title: 'X', done: true },
 					body: '',
 				}),

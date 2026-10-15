@@ -120,11 +120,11 @@ export function stoppedApplying(
 
 export type GitBackend = {
 	/**
-	 * Create the repository if there is none yet. Only a backend whose
-	 * repository the first commit creates has this (a folder opened with
-	 * `openDataFolder` on disk); history calls it inside `exclusive` before a
-	 * whole-folder commit, and staging or setting a remote creates it too.
-	 * The others create theirs when opened or with their first write.
+	 * Create the repository if there is none yet. A directory backend has
+	 * this; history calls it inside `exclusive` before a whole-folder commit,
+	 * and staging or setting a remote creates it too. The browser backend
+	 * creates its own with its first Git write. No backend creates one when
+	 * the folder opens.
 	 * Answers why no repository may be created here, having created nothing.
 	 */
 	createRepository?(): Promise<string | undefined>;

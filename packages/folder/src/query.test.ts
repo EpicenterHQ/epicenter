@@ -1,0 +1,239 @@
+/**
+ * Folder Query Option Tests
+ *
+ * `folderOptions(folder)` gives TanStack options for every read and write of
+ * a folder, and `pathFilter` names the queries a change can have made stale.
+ * These run the options through a real `QueryClient` over a browser folder
+ * in the in-memory stand-in.
+ *
+ * Key behaviors:
+ * - Keys are stable for one folder and differ between folders
+ * - `pathFilter` covers a changed row, its table's listing, `kv.json`, a
+ *   changed file and the file listing, and the history's status; a change
+ *   inside `.git` also covers the log; `'everything'` covers every query of
+ *   the folder and none of another's
+ * - A save updates its row and the listing from its own result
+ * - A change another page made, wired from `onFilesChanged` to
+ *   `invalidateQueries`, marks exactly the affected queries stale
+ */
+import { afterEach, expect, test } from 'bun:test';
+import { MutationObserver, QueryClient } from '@tanstack/query-core';
+import { expectOk } from 'wellcrafted/testing';
+import { openFolder } from './browser.js';
+import {
+	browserStorage,
+	createTestStorage,
+	type TestStorage,
+} from './browser-storage.test-support.js';
+import { defineFolder, defineTable, type Folder, field } from './contract.js';
+import { folderOptions } from './query.js';
+import { useWebLocks } from './web-locks.test-support.js';
+
+const definition = defineFolder({
+	kv: { theme: field.string() },
+	tables: {
+		todos: defineTable({
+			fields: { title: field.string(), done: field.boolean() },
+		}),
+	},
+});
+type Todos = Folder<typeof definition>;
+const author = { name: 'Query', email: 'query@example.test' };
+
+const opened: Todos[] = [];
+const clients: QueryClient[] = [];
+afterEach(async () => {
+	for (const client of clients.splice(0)) client.clear();
+	for (const folder of opened.splice(0)) await folder.close();
+});
+
+async function open(id = 'so.epicenter.querytest', storage?: TestStorage) {
+	const folder = expectOk(
+		await openFolder({
+			id,
+			definition,
+			browser: {
+				author,
+				...browserStorage(storage ?? createTestStorage()),
+			},
+		}),
+	);
+	opened.push(folder);
+	return folder;
+}
+
+function client() {
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+	});
+	clients.push(queryClient);
+	return queryClient;
+}
+
+/** The keys of the cached queries `filters` matches. */
+function matched(
+	queryClient: QueryClient,
+	filters: Parameters<QueryClient['invalidateQueries']>[0],
+) {
+	return queryClient
+		.getQueryCache()
+		.findAll(filters)
+		.map((query) => query.queryKey);
+}
+
+test('keys are stable for one folder and differ between folders', async () => {
+	const folder = await open();
+	const other = await open('so.epicenter.querytest.other');
+	expect(folderOptions(folder).todos.get.queryKey('a')).toEqual(
+		folderOptions(folder).todos.get.queryKey('a'),
+	);
+	expect(folderOptions(folder).todos.list.queryOptions().queryKey).toEqual(
+		folderOptions(folder).todos.list.queryKey(),
+	);
+	expect(folderOptions(folder).todos.get.queryKey('a')).not.toEqual(
+		folderOptions(other).todos.get.queryKey('a'),
+	);
+	// Every table is also under `tables`.
+	expect(folderOptions(folder).tables.todos.list.queryKey()).toEqual(
+		folderOptions(folder).todos.list.queryKey(),
+	);
+});
+
+test('pathFilter covers the row, its listing, kv.json, the files, and history', async () => {
+	const folder = await open();
+	const other = await open('so.epicenter.querytest.other');
+	const folder$ = folderOptions(folder);
+	const other$ = folderOptions(other);
+	const queryClient = client();
+	const keys = {
+		a: folder$.todos.get.queryKey('a'),
+		b: folder$.todos.get.queryKey('b'),
+		list: folder$.todos.list.queryKey(),
+		kv: folder$.kv.get.queryKey(),
+		files: folder$.files.list.queryKey(),
+		note: folder$.files.read.queryKey('note.txt'),
+		status: folder$.history.status.queryKey(),
+		log: folder$.history.log.queryKey(),
+		elsewhere: other$.todos.get.queryKey('a'),
+	};
+	for (const key of Object.values(keys)) queryClient.setQueryData(key, 1);
+
+	expect(matched(queryClient, folder$.pathFilter(['todos/a.md']))).toEqual([
+		keys.a,
+		keys.list,
+		keys.files,
+		keys.status,
+	]);
+	expect(matched(queryClient, folder$.pathFilter(['kv.json']))).toEqual([
+		keys.kv,
+		keys.files,
+		keys.status,
+	]);
+	expect(matched(queryClient, folder$.pathFilter(['note.txt']))).toEqual([
+		keys.files,
+		keys.note,
+		keys.status,
+	]);
+	// History moved: status and log, and no file.
+	expect(
+		matched(queryClient, folder$.pathFilter(['.git/refs/heads/main'])),
+	).toEqual([keys.status, keys.log]);
+	expect(
+		new Set(matched(queryClient, folder$.pathFilter('everything'))),
+	).toEqual(
+		new Set(
+			Object.entries(keys)
+				.filter(([name]) => name !== 'elsewhere')
+				.map(([, key]) => key),
+		),
+	);
+});
+
+test('a save sets its row and the listing from its own result', async () => {
+	const folder = await open();
+	const folder$ = folderOptions(folder);
+	const queryClient = client();
+	const created = expectOk(
+		await folder.tables.todos.create(
+			{ fields: { title: 'Milk', done: false }, body: '' },
+			{ stem: 'milk' },
+		),
+	);
+	await queryClient.fetchQuery(folder$.todos.list.queryOptions());
+	await queryClient.fetchQuery(folder$.todos.get.queryOptions('milk'));
+
+	const save = new MutationObserver(
+		queryClient,
+		folder$.todos.save.mutationOptions(),
+	);
+	const saved = await save.mutate({
+		base: created,
+		row: { fields: { title: 'Milk', done: true }, body: '' },
+	});
+
+	expect<unknown>(
+		queryClient.getQueryData(folder$.todos.get.queryKey('milk')),
+	).toEqual(saved.stored);
+	const listing = queryClient.getQueryData<
+		Awaited<ReturnType<typeof folder.tables.todos.list>>['data']
+	>(folder$.todos.list.queryKey());
+	expect(listing?.map((item) => item.result.data)).toEqual([saved.stored]);
+	// Nothing was marked stale: the cache holds what was written.
+	expect(
+		queryClient
+			.getQueryCache()
+			.findAll({ queryKey: folder$.key })
+			.some((query) => query.isStale() && query.state.isInvalidated),
+	).toBe(false);
+});
+
+test("another page's change, wired from onFilesChanged, invalidates exactly what it names", async () => {
+	const storage = createTestStorage({ BroadcastChannel });
+	const writer = await open('so.epicenter.querytest', storage);
+	const reader = await open('so.epicenter.querytest', storage);
+	const reader$ = folderOptions(reader);
+	const queryClient = client();
+	expectOk(
+		await writer.tables.todos.create(
+			{ fields: { title: 'A', done: false }, body: '' },
+			{ stem: 'a' },
+		),
+	);
+	expectOk(
+		await writer.tables.todos.create(
+			{ fields: { title: 'B', done: false }, body: '' },
+			{ stem: 'b' },
+		),
+	);
+	await Bun.sleep(20);
+	await queryClient.fetchQuery(reader$.todos.get.queryOptions('a'));
+	await queryClient.fetchQuery(reader$.todos.get.queryOptions('b'));
+	await queryClient.fetchQuery(reader$.kv.get.queryOptions());
+
+	// The app root's one line.
+	reader.onFilesChanged((change) =>
+		queryClient.invalidateQueries(reader$.pathFilter(change)),
+	);
+	const a = expectOk(await writer.tables.todos.get('a'))!;
+	expectOk(
+		await writer.tables.todos.save(a, {
+			fields: { title: 'A, edited', done: false },
+			body: '',
+		}),
+	);
+	const invalidated = () =>
+		queryClient
+			.getQueryCache()
+			.findAll({ queryKey: reader$.key })
+			.filter((query) => query.state.isInvalidated)
+			.map((query) => query.queryKey);
+	for (let tries = 0; tries < 50 && invalidated().length === 0; tries++)
+		await Bun.sleep(5);
+	expect(invalidated()).toEqual([reader$.todos.get.queryKey('a')]);
+	// Reading again goes through the engine and finds the other page's row.
+	const row = await queryClient.fetchQuery(reader$.todos.get.queryOptions('a'));
+	expect(row?.row.fields.title).toBe('A, edited');
+});
+
+// Commits need the shared lock; this runtime has none of its own.
+useWebLocks();

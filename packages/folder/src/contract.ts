@@ -52,11 +52,12 @@ export {
 	TableError,
 	type TableReadError,
 	type TableRenameError,
-	type TableReplaceError,
+	type TableSaveError,
 	type TableWriteError,
 } from './errors.js';
 export type { FolderFiles } from './files.js';
 export type {
+	FilesChanged,
 	Folder,
 	FolderAccess,
 	FolderGit,
@@ -104,6 +105,7 @@ export {
 	type LineVersions,
 	mergeLinesPreferring,
 	type PreferredMerge,
+	type SettledRegion,
 } from './git/merge-lines.js';
 export { commitSubject, escapePath, type PathChange } from './git/messages.js';
 export type { Author, CommitSummary } from './git/objects.js';
@@ -156,7 +158,13 @@ export {
 	type Row,
 	wellFormed,
 } from './row-text.js';
-export type { FileTable, StoredRow, TableListing } from './table.js';
+export type {
+	FileTable,
+	Replaced,
+	SavedRow,
+	StoredRow,
+	TableListing,
+} from './table.js';
 
 /**
  * Settings for a folder kept in this browser's own storage. They apply to a
@@ -179,8 +187,8 @@ export type BrowserFolderOptions = {
 	 */
 	readonly httpFetch?: HttpFetch;
 	/**
-	 * Injected origin private file system, Web Locks, and hint channel; for
-	 * tests. Defaults to the browser globals.
+	 * Injected origin private file system, Web Locks, change channel, and
+	 * page events; for tests. Defaults to the browser globals.
 	 */
 	readonly opfs?: OpfsEnvironment;
 };
