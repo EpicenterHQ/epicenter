@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-07
-- **Revised:** 2026-10-14: publication moved from opening to a handle's first write ([ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)), which also settles the Todos browser bootstrap this record left open. The real-OPFS harness (`packages/folder/evidence/opfs`) checks the new rule in Chromium. The 2026-10-08 [computer-use evidence](../../packages/folder/evidence/definition-publication/computer-use-20261008/README.md) checked publication at opening.
+<!-- doc-path-check: ignore-next-line -->
+- **Revised:** 2026-10-14: publication moved from opening to a handle's first write ([ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md)), which also settles the Todos browser bootstrap this record left open. The real-OPFS harness (`packages/folder/evidence/opfs`) checks the new rule in Chromium. The 2026-10-08 computer-use evidence (`packages/folder/evidence/definition-publication/computer-use-20261008/README.md`, deleted; recover via `git log --all --full-history`) checked publication at opening.
 - **Amended:** 2026-10-14: the first write reads `epicenter.json` and leaves it unwritten when it already holds the declaration's bytes.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) renamed the published file to `epicenter.json` (`DECLARATION_PATH`). Where this record says root `definition.json`, read `epicenter.json`; an old `definition.json` is now an ordinary file.
 

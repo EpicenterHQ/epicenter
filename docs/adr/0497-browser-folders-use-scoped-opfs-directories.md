@@ -130,7 +130,8 @@ package typecheck and OPFS evidence build pass.
 These are stand-in and build checks. The earlier cutover also exercised saves
 and reload in Chrome over previously migrated OPFS data. Final app browser
 observations are recorded separately from the automated clean-break checks in
-[the coordinator review](../../packages/folder/evidence/opfs/coordinator-clean-break-review.md).
+<!-- doc-path-check: ignore-next-line -->
+the coordinator review (`packages/folder/evidence/opfs/coordinator-clean-break-review.md`, deleted; recover via `git log --all --full-history`).
 
 Still to verify: quota failure in a real browser, and release/development and
 Local/two-account isolation once applications select those scopes.
