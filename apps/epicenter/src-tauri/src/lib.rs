@@ -133,10 +133,25 @@ impl BuiltInApp {
     /// Books are release-bundled placeholder documents with nothing behind them
     /// to open. Honeycrisp now ships its own desktop shell, outside this host.
     const fn is_launchable(self) -> bool {
-        matches!(
-            self,
-            Self::Home | Self::Whispering | Self::Capture | Self::Todos | Self::Folders
-        )
+        self.is_hosted()
+            && matches!(
+                self,
+                Self::Home | Self::Whispering | Self::Capture | Self::Todos | Self::Folders
+            )
+    }
+
+    /// Whether the shell opens this app's window at all, from startup, a
+    /// launch, the tray, or a deep link.
+    ///
+    /// Whispering is built and served but not hosted for now: inside Epicenter
+    /// no folder or host of its own is registered for it, so its page can only
+    /// report that the desktop app did not start Whispering's host. While it is
+    /// not, the shell opens neither its hidden window nor its recording overlay
+    /// at startup and offers no tray item for it. Returning `true` for it here,
+    /// and listing it in `LAUNCHABLE_APPLICATIONS` in `applications.ts`, offers
+    /// it again.
+    const fn is_hosted(self) -> bool {
+        !matches!(self, Self::Whispering)
     }
 
     const fn id(self) -> &'static str {
@@ -740,12 +755,9 @@ pub fn run() {
         .expect("failed to build Epicenter")
         .run(|app, event| match event {
             RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Folders),
-            // Every window was destroyed, which only a host restart does:
-            // Epicenter stays in the tray while the windows come back. A quit
-            // or a restart carries a code and passes.
-            RunEvent::ExitRequested {
-                api, code: None, ..
-            } => api.prevent_exit(),
+            // A host restart destroys every window; Epicenter stays in the
+            // tray while they come back (`refuses_exit`).
+            RunEvent::ExitRequested { api, code, .. } if refuses_exit(code) => api.prevent_exit(),
             RunEvent::Exit => shutdown_host(app),
             _ => {}
         });
@@ -843,6 +855,9 @@ fn queue_or_send_auth_callback(app: &DesktopAppHandle, url: String) {
 /// wrong for `launch_application`, where a person clicked and is owed an
 /// outcome, so that command waits on the main thread instead.
 fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
+    if !built_in.is_hosted() {
+        return;
+    }
     let state = app.state::<HostState>();
     let Some(token) = state.active_token() else {
         state.queue_app(built_in);
@@ -1603,10 +1618,14 @@ fn create_windows_on_main_thread(
     let token = token.to_string();
     app.clone().run_on_main_thread(move || {
         let result = (|| {
-            #[cfg(target_os = "macos")]
-            create_recording_overlay(&app, port, &token)?;
+            // Whispering's hidden window and its recording overlay, while
+            // Epicenter hosts it.
+            if BuiltInApp::Whispering.is_hosted() {
+                #[cfg(target_os = "macos")]
+                create_recording_overlay(&app, port, &token)?;
 
-            ensure_window(&app, BuiltInApp::Whispering, port, &token, false)?;
+                ensure_window(&app, BuiltInApp::Whispering, port, &token, false)?;
+            }
 
             built_ins
                 .into_iter()
@@ -1770,8 +1789,54 @@ fn focus<R: Runtime>(window: WebviewWindow<R>) {
     let _ = window.set_focus();
 }
 
+/// What a host restart does to one window, by its label.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OnHostStop {
+    /// A built-in app's window: destroyed, and opened again once the next
+    /// host is ready if a person could see it.
+    Reopen(BuiltInApp),
+    /// An installed app's window: destroyed. Its app is opened again from the
+    /// Folders window.
+    Close,
+    /// The recording overlay: hidden, never destroyed. It is an `NSPanel`
+    /// (`overlay.rs`), and destroying it aborts the process: as wry removes
+    /// the panel's `WKWebView`, WebKit's window-visibility observer removes a
+    /// key-value observer the panel no longer has registered, AppKit throws an
+    /// `NSException`, and the exception unwinds into tao's event loop, which
+    /// Rust cannot catch. Converting it back with `Panel::to_window` first does
+    /// not prevent it. Its page keeps the stopped host's token until Epicenter
+    /// restarts, so hosting Whispering again must hand it the next one.
+    Hide,
+    /// Not a window of the host's session.
+    Keep,
+}
+
+fn on_host_stop(label: &str) -> OnHostStop {
+    if let Some(built_in) = BuiltInApp::from_id(label) {
+        return OnHostStop::Reopen(built_in);
+    }
+    if label.starts_with(INSTALLED_WINDOW_PREFIX) {
+        return OnHostStop::Close;
+    }
+    #[cfg(target_os = "macos")]
+    if label == overlay::WINDOW_LABEL {
+        return OnHostStop::Hide;
+    }
+    OnHostStop::Keep
+}
+
+/// Whether Epicenter refuses to exit when asked with `code`. Only a request
+/// with no code is refused: Tauri raises one when the last window is
+/// destroyed, which a host restart does, and Epicenter stays in the tray while
+/// its windows come back (ADR-0542). A quit or a restart carries a code and
+/// passes.
+fn refuses_exit(code: Option<i32>) -> bool {
+    code.is_none()
+}
+
 /// Tear down every window of a Bun host that stopped, and queue the ones a
-/// person could see to open again once the next host is ready.
+/// person could see to open again once the next host is ready
+/// (`on_host_stop`).
 ///
 /// Each window's initialization script carries the stopped host's token, so a
 /// reload is not enough: the window is created again, and its page reopens its
@@ -1782,26 +1847,32 @@ fn invalidate_windows(app: &DesktopAppHandle) {
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         let state = app.state::<HostState>();
-        for built_in in BuiltInApp::ALL {
-            if let Some(window) = app.get_webview_window(built_in.id()) {
-                if window.is_visible().unwrap_or(false) {
-                    state.queue_app(built_in);
+        let mut windows: Vec<_> = app.webview_windows().into_iter().collect();
+        // Built-in apps reopen in their table's order.
+        windows.sort_by_key(|(label, _)| {
+            BuiltInApp::ALL
+                .iter()
+                .position(|built_in| built_in.id() == label)
+        });
+        for (label, window) in windows {
+            match on_host_stop(&label) {
+                OnHostStop::Reopen(built_in) => {
+                    if window.is_visible().unwrap_or(false) {
+                        state.queue_app(built_in);
+                    }
+                    if window.destroy().is_err() {
+                        let _ = window.hide();
+                    }
                 }
-                if window.destroy().is_err() {
+                OnHostStop::Close => {
+                    if window.destroy().is_err() {
+                        let _ = window.hide();
+                    }
+                }
+                OnHostStop::Hide => {
                     let _ = window.hide();
                 }
-            }
-        }
-        // Installed apps' windows hold the old host's session.
-        for (label, window) in app.webview_windows() {
-            if label.starts_with(INSTALLED_WINDOW_PREFIX) && window.destroy().is_err() {
-                let _ = window.hide();
-            }
-        }
-        #[cfg(target_os = "macos")]
-        if let Some(window) = app.get_webview_window(overlay::WINDOW_LABEL) {
-            if window.destroy().is_err() {
-                let _ = window.hide();
+                OnHostStop::Keep => {}
             }
         }
         let _ = sender.send(());
@@ -2191,19 +2262,51 @@ mod tests {
             .filter(|window| window.is_launchable())
             .map(BuiltInApp::id)
             .collect();
-        assert_eq!(launchable, ["home", "whispering", "capture", "todos", "folders"]);
+        assert_eq!(launchable, ["home", "capture", "todos", "folders"]);
+        let unhosted: Vec<&str> = BuiltInApp::ALL
+            .into_iter()
+            .filter(|window| !window.is_hosted())
+            .map(BuiltInApp::id)
+            .collect();
+        assert_eq!(unhosted, ["whispering"], "only Whispering is not hosted for now");
+    }
+
+    /// A Bun host that ends after readiness destroys and reopens the windows
+    /// on its session, and Epicenter stays up meanwhile. The recording
+    /// overlay is hidden rather than destroyed: destroying its `NSPanel`
+    /// aborted the process on 2026-10-15 before the Retry dialog could show.
+    #[test]
+    fn a_host_restart_reopens_built_in_windows_and_never_destroys_the_overlay() {
+        for built_in in BuiltInApp::ALL {
+            assert_eq!(on_host_stop(built_in.id()), OnHostStop::Reopen(built_in));
+        }
+        assert_eq!(
+            on_host_stop(&installed_window_label("so.example.board", Some("data:x"))),
+            OnHostStop::Close
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(on_host_stop(overlay::WINDOW_LABEL), OnHostStop::Hide);
+        assert_eq!(on_host_stop("unknown"), OnHostStop::Keep);
+
+        // The last window's destruction asks to exit with no code; a quit or
+        // a restart names one.
+        assert!(refuses_exit(None));
+        assert!(!refuses_exit(Some(0)));
+        assert!(!refuses_exit(Some(1)));
+        assert!(!refuses_exit(Some(tauri::RESTART_EXIT_CODE)));
     }
 
     #[test]
     fn launch_opens_only_what_a_window_offers() {
         assert_eq!(parse_application_id("home"), Some(BuiltInApp::Home));
-        assert_eq!(parse_application_id("whispering"), Some(BuiltInApp::Whispering));
         assert_eq!(parse_application_id("capture"), Some(BuiltInApp::Capture));
         assert_eq!(parse_application_id("todos"), Some(BuiltInApp::Todos));
         assert_eq!(parse_application_id("folders"), Some(BuiltInApp::Folders));
 
         for denied in [
             "",
+            // Not hosted inside Epicenter for now (`is_hosted`).
+            "whispering",
             "Whispering",
             "whispering/",
             "../whispering",
@@ -2637,7 +2740,8 @@ mod tests {
     }
 
     /// The Folders window lists what can be launched, and Settings offers
-    /// Whispering once local transcription is ready, so those two windows are
+    /// Whispering once local transcription is ready while Whispering is
+    /// hosted, so those two windows are
     /// the ones that launch (ADR-0189, ADR-0537). Granting the verb more widely
     /// would let an application open another application without the user ever
     /// choosing it, which is a product decision nobody made.
@@ -2660,9 +2764,18 @@ mod tests {
         }
     }
 
-    /// Todos' and Capture's windows hold the folder plugin alone: it reads
-    /// and changes only the directory a grant names. They hold no fs or HTTP
-    /// grant; Git transfers run in the `git` the shell starts.
+    /// What every window that opens a folder holds: the folder plugin, and
+    /// listening for its change event, `epicenter-folder://changed`.
+    const FOLDER_WINDOW: [&str; 3] = [
+        "epicenter-folder:default",
+        "core:event:allow-listen",
+        "core:event:allow-unlisten",
+    ];
+
+    /// Todos' and Capture's windows hold the folder plugin alone, and hear
+    /// its change event: it reads and changes only the directory a grant
+    /// names. They hold no fs or HTTP grant; Git transfers run in the `git`
+    /// the shell starts.
     #[test]
     fn folder_windows_hold_only_the_folder_plugin() {
         for encoded in [
@@ -2674,7 +2787,7 @@ mod tests {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             assert_eq!(
                 capability["permissions"],
-                serde_json::json!(["epicenter-folder:default"]),
+                serde_json::json!(FOLDER_WINDOW),
                 "{encoded}"
             );
         }
@@ -2699,6 +2812,8 @@ mod tests {
                 capability["permissions"],
                 serde_json::json!([
                     "epicenter-folder:default",
+                    "core:event:allow-listen",
+                    "core:event:allow-unlisten",
                     "allow-list-data-folders",
                     "allow-list-installed-apps",
                     "allow-install-app",
@@ -2736,9 +2851,9 @@ mod tests {
         }
     }
 
-    /// An installed app's window holds the folder plugin alone, under every
-    /// label `open_installed_window` makes, and nothing that installs,
-    /// approves, or launches.
+    /// An installed app's window holds the folder plugin alone, and hears its
+    /// change event, under every label `open_installed_window` makes, and
+    /// nothing that installs, approves, or launches.
     #[test]
     fn installed_app_windows_hold_only_the_folder_plugin() {
         for encoded in [
@@ -2747,10 +2862,7 @@ mod tests {
         ] {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             assert_eq!(capability["windows"], serde_json::json!(["app:*"]));
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!(["epicenter-folder:default"])
-            );
+            assert_eq!(capability["permissions"], serde_json::json!(FOLDER_WINDOW));
         }
         for (id, folder, label) in [
             ("com.example.board", None, "app:com_example_board"),

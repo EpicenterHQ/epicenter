@@ -169,9 +169,8 @@ describe('installed apps', () => {
 });
 
 describe('appsWithoutFolder', () => {
-	test('lists every compiled app but the Folders window when no folder offers one', () => {
+	test('lists every launchable app but the Folders window when no folder offers one', () => {
 		expect(appsWithoutFolder([])).toEqual([
-			WHISPERING_APPLICATION,
 			CAPTURE_APPLICATION,
 			TODOS_APPLICATION,
 		]);
@@ -179,8 +178,11 @@ describe('appsWithoutFolder', () => {
 
 	test('leaves out an app offered on a folder', () => {
 		expect(appsWithoutFolder([TODOS_APPLICATION])).toEqual([
-			WHISPERING_APPLICATION,
 			CAPTURE_APPLICATION,
 		]);
+	});
+
+	test('does not list Whispering, which Epicenter does not host yet', () => {
+		expect(appsWithoutFolder([])).not.toContainEqual(WHISPERING_APPLICATION);
 	});
 });

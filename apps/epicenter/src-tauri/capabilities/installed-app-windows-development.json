@@ -1,11 +1,15 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "installed-app-windows-development",
-	"description": "An installed app's window opens the folder it is handed at launch with the page's own engine (ADR-0540). Launching permits the window into that folder's scope; the folder plugin then grants it the directory, reads and changes it, and runs the folder's Git itself. Approving an app trusts it fully, so this is wiring, not a sandbox.",
+	"description": "An installed app's window opens the folder it is handed at launch with the page's own engine (ADR-0540). Launching permits the window into that folder's scope; the folder plugin then grants it the directory, reads and changes it, and runs the folder's Git itself. Approving an app trusts it fully, so this is wiring, not a sandbox. The window listens for the folder plugin's change event, epicenter-folder://changed.",
 	"local": false,
 	"windows": ["app:*"],
 	"remote": {
 		"urls": ["http://127.0.0.1:*"]
 	},
-	"permissions": ["epicenter-folder:default"]
+	"permissions": [
+		"epicenter-folder:default",
+		"core:event:allow-listen",
+		"core:event:allow-unlisten"
+	]
 }
