@@ -15,7 +15,7 @@
 import { openFolder } from '@epicenter/folder/tauri';
 import { honeycrispDefinition } from '../data.js';
 import { setUpFolder } from './first-open.js';
-import { openGuarded, openShellServices } from './shell.tauri.js';
+import { openShellServices } from './shell.tauri.js';
 import {
 	HONEYCRISP_FOLDER_ID,
 	type NotesHost,
@@ -43,5 +43,13 @@ async function acquire(): Promise<NotesHost> {
 	}
 }
 
-export const openNotes: OpenNotes = (options) =>
-	openGuarded({ ...options, acquire });
+// Closing the window quits at once: every save is already in its file.
+export const openNotes: OpenNotes = async ({ create }) => {
+	const host = await acquire();
+	try {
+		return await create(host);
+	} catch (cause) {
+		await host.close();
+		throw cause;
+	}
+};

@@ -20,9 +20,8 @@
 
 	// Writes and actions run in this window. A reload or in-page navigation
 	// waits while one runs: it is cancelled here, and the webview asks first.
-	// Closing the window or quitting the app asks the page, which answers once
-	// they land (`+page.svelte`); while it answers, `notes.fenced` holds back
-	// every input and action here.
+	// Closing the desktop window quits at once (ADR-0542). Once the notes are
+	// closing, `notes.fenced` holds back every input and action here.
 	beforeNavigate(({ cancel }) => {
 		if (notes.busy) cancel();
 	});
@@ -65,8 +64,8 @@
 	}}
 />
 
-<!-- While a close is being answered nothing here takes input. The editors stay
-     mounted, so a refused approval returns to the same text and undo history. -->
+<!-- Once the notes are closing nothing here takes input. The editors stay
+     mounted while the last writes land. -->
 <div class="flex h-dvh flex-col overflow-hidden" inert={notes.fenced}>
 	<AppHeader
 		{notes}

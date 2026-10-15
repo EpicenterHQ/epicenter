@@ -1,16 +1,10 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "main",
-	"description": "The notes window: its folder through the page's own engine, and Honeycrisp's own close consent, terminal, per-file history, and reveal commands. The window loads only the bundled page, which Tauri treats as local on every platform, so no remote origin is listed. The folder plugin grants the window the notes directory, then reads and changes it and runs the folder's Git itself.",
+	"description": "The notes window: its folder through the page's own engine, and Honeycrisp's own terminal, per-file history, and reveal commands. The window loads only the bundled page, which Tauri treats as local on every platform, so no remote origin is listed. The folder plugin grants the window the notes directory, then reads and changes it and runs the folder's Git itself.",
 	"windows": ["main"],
 	"permissions": [
-		"core:event:allow-listen",
-		"core:event:allow-unlisten",
 		"epicenter-folder:default",
-		"allow-close-register",
-		"allow-close-opened",
-		"allow-close-approve",
-		"allow-close-decline",
 		"allow-shell-info",
 		"allow-terminal-run",
 		"allow-file-log",

@@ -26,18 +26,14 @@
 	}
 
 	// The mounted page acquires the folder; importing modules opens nothing.
-	// On the desktop, closing the window or quitting asks this page first, and
-	// the page approves once every write has landed.
+	// On the desktop, closing the window quits at once: every save is an
+	// atomic rename into the folder, so nothing waits here (ADR-0542).
 	const opening = openNotes({
 		async create(host) {
 			const notes = createNotes(host, queryClient, { onWriteFailed: writeFailed });
 			await notes.load();
 			return notes;
 		},
-		report: (cause) =>
-			toast.error('Could not finish closing', {
-				description: cause instanceof Error ? cause.message : String(cause),
-			}),
 	});
 
 	onDestroy(() => {

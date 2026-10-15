@@ -34,16 +34,6 @@ specta-serde = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7
 specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-util = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 
-# Drives the close gate from the page client's tests. Not part of the app.
-[[example]]
-name = "harness"
-
-# Quits the real app through AppKit's terminate: on a fixture page, in a fresh
-# folder. macOS only; opens a window. Not part of the app.
-[[example]]
-name = "quit"
-path = "examples/quit/main.rs"
-
 [profile.release]
 panic = "abort"
 strip = true

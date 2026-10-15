@@ -29,8 +29,8 @@
  *   the last one saved; a file changed elsewhere since is refused
  * - Saves never commit; Save version records one, and delete says when a
  *   file has changes in no saved version
- * - The close fence stops input and actions; close waits for every write
- *   and action, a whole folder delete included, and every call shares it
+ * - Closing stops input and actions, waits for every write and action, a
+ *   whole folder delete included, and every call shares it
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -592,23 +592,6 @@ test('Save version waits for writes still running, and records what they saved',
 // Closing
 // ============================================================================
 
-test('the close fence stops edits and actions until it is released', async () => {
-	const { notes, disk } = await open();
-	const before = disk.text(A);
-	const release = notes.fenceInput();
-	expect(notes.editNote(A, titled('Typed while closing'))).toContain('closing');
-	expect(cached(notes, 'a').row.fields.title).toBe('Alpha');
-	expect(await notes.createNote()).toContain('closing');
-	expect(notes.noteBody(A).locked).toBe(true);
-	await notes.settle();
-	expect(disk.text(A)).toBe(before);
-	release();
-	expect(notes.noteBody(A).locked).toBe(false);
-	expect(notes.editNote(A, titled('After'))).toBeUndefined();
-	await quiet(notes);
-	expect(disk.text(A)).toContain('title: After');
-});
-
 test('close waits for a running write, every call shares one completion, and nothing starts after', async () => {
 	const { notes, disk, closing } = await open();
 	closing();
@@ -625,6 +608,8 @@ test('close waits for a running write, every call shares one completion, and not
 	await Bun.sleep(10);
 	expect(closed).toBe(false);
 	expect(notes.editNote(A, bodied('Too late.\n'))).toContain('closing');
+	expect(await notes.createNote()).toContain('closing');
+	expect(notes.noteBody(A).locked).toBe(true);
 	disk.release({ all: true });
 	await first;
 	expect(disk.text(A)).toContain('Last words.\n');

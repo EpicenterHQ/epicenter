@@ -43,7 +43,7 @@
 	const folders = createQuery(() => notes.foldersQuery(foldersOf));
 	/** The note as the rich-text view reads and edits it. */
 	const body = $derived(notes.noteBody(path));
-	/** Edits wait while the app answers a close, and while this file is renamed or deleted. */
+	/** Edits wait once the notes are closing, and while this file is renamed or deleted. */
 	const locked = $derived(notes.isLocked(path));
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */

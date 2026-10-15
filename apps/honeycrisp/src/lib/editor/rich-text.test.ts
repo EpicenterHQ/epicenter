@@ -81,7 +81,6 @@ async function noteOver(text: string) {
 	notes.open(PATH);
 	await quiet(notes);
 	const note = notes.noteBody(PATH);
-	let release: (() => void) | undefined;
 	const attempts = () => folder.writes().filter((at) => at === PATH).length;
 	const opened = attempts();
 	return {
@@ -99,14 +98,8 @@ async function noteOver(text: string) {
 		settled: () => quiet(notes),
 		/** Write attempts at the note since it opened. */
 		writes: () => attempts() - opened,
-		/** Hold back input, as while a close is answered. */
-		lock: (on = true) => {
-			if (on) release ??= notes.fenceInput();
-			else {
-				release?.();
-				release = undefined;
-			}
-		},
+		/** Close the notes: from now on the note takes no edit. */
+		closeNotes: () => notes.close(),
 	};
 }
 
@@ -329,10 +322,11 @@ describe('every displayed edit is in the note', () => {
 	});
 
 	test('moving the cursor is shown while the note takes no edit, and writes nothing', async () => {
-		const { end, lock, settled, writes, ...view } = await open('one\n');
-		lock();
+		const { end, closeNotes, settled, writes, ...view } = await open('one\n');
+		const closed = closeNotes();
 		expect(end()).toBe(true);
 		expect(view.shown().selection.head).toBe(4);
+		await closed;
 		await settled();
 		expect(writes()).toBe(0);
 	});
@@ -394,34 +388,26 @@ describe('an edit that cannot be written', () => {
 		expectNoteHoldsScreen();
 	});
 
-	test('one made while the note takes no edit is not displayed, and editing goes on from the same history', async () => {
-		const { type, run, lock, body, end, ...view } = await open('one\n');
+	test('one made while the note takes no edit is not displayed', async () => {
+		const { type, closeNotes, body, end, ...view } = await open('one\n');
 		end();
 		type('!');
 		const state = view.shown();
-		const depth = undoDepth(state);
-		lock();
+		const closed = closeNotes();
 		expect(type('late')).toBe(false);
 		expect(view.shown()).toBe(state);
 		expect(body()).toBe('one!\n');
-		lock(false);
-		expect(type('?')).toBe(true);
-		expect(body()).toBe('one!?\n');
-		expect(undoDepth(view.shown())).toBeGreaterThanOrEqual(depth);
-		while (undoDepth(view.shown()) > 0) run(undo);
-		expect(body()).toBe('one\n');
+		await closed;
 	});
 
 	test('Enter is not displayed while the note takes no edit, and writes nothing', async () => {
-		const { press, end, lock, settled, writes, ...view } = await open('one\n');
+		const { press, end, closeNotes, settled, writes, ...view } = await open('one\n');
 		end();
-		lock();
+		const closed = closeNotes();
 		const state = view.shown();
 		press('Enter');
 		expect(view.shown()).toBe(state);
-		lock(false);
-		press('Enter');
-		expect(view.shown().doc.childCount).toBe(2);
+		await closed;
 		await settled();
 		expect(writes()).toBe(0);
 	});

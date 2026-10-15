@@ -16,7 +16,7 @@
  * - A write that meets a change made elsewhere rolls the view back to the
  *   file, in the same rich-text view, and reports what was lost
  * - Returning to the window shows a change made elsewhere
- * - While the app answers a close, the controls take no input, and the
+ * - Once the notes are closing, the controls take no input, and the
  *   rich-text view stays mounted
  */
 import '../../lib/dom.test-support.ts';
@@ -209,20 +209,17 @@ test('returning to the window shows a change made elsewhere', async () => {
 	expect(rich.textContent).toBe('Their body.');
 });
 
-test('while the app answers a close, the controls take no input', async () => {
+test('once the notes are closing, the controls take no input', async () => {
 	const { notes, target } = await view();
 	const rich = richOf(target);
-	const release = notes.fenceInput();
+	const closed = notes.close();
 	flushSync();
 	expect(titleOf(target).disabled).toBe(true);
 	expect(rich.getAttribute('contenteditable')).toBe('false');
 	type(titleOf(target), 'Typed while closing');
 	await tick();
 	expect(notes.noteBody(PATH).row?.fields.title).toBe('Alpha');
-	release();
-	flushSync();
-	expect(titleOf(target).disabled).toBe(false);
-	// The editor was never unmounted, so its undo history is still there.
+	// The editor stays mounted while the last writes land.
 	expect(richOf(target)).toBe(rich);
-	expect(rich.getAttribute('contenteditable')).toBe('true');
+	await closed;
 });

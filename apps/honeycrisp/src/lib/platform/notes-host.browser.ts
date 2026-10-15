@@ -29,7 +29,7 @@ async function acquire(): Promise<NotesHost> {
 	};
 }
 
-// A tab has no shell to ask before it closes; the page's leave guards apply.
+// A tab's leave guards are the page's own, in `NotesView`.
 export const openNotes: OpenNotes = async ({ create }) => {
 	const host = await acquire();
 	try {

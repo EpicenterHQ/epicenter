@@ -50,7 +50,7 @@
 		const { error } = parseRow(table, text);
 		return error ?? undefined;
 	});
-	/** Edits wait while the app answers a close, and while this file is renamed or deleted. */
+	/** Edits wait once the notes are closing, and while this file is renamed or deleted. */
 	const locked = $derived(notes.isLocked(path));
 
 	/** A file shown as details: its extension names the type, then its size. */

@@ -13,7 +13,7 @@
 	}: {
 		history: NonNullable<NotesHost['history']>;
 		path: string;
-		/** Whether input is being taken; false while the app answers a close. */
+		/** Whether input is being taken; false once the notes are closing. */
 		admitting: boolean;
 		/** Put this version in the note, which writes it. Answers why it was not taken, or undefined. */
 		onUse: (source: string) => string | undefined;

@@ -17,7 +17,7 @@ export type TerminalSession = ReturnType<typeof createTerminalSession>;
 export function createTerminalSession(
 	/** Runs each command; the notes state reads the folder again after one. */
 	terminal: NotesTerminal,
-	/** Whether a command may start. False while a close is being answered. */
+	/** Whether a command may start. False once the notes are closing. */
 	admits: () => boolean = () => true,
 ) {
 	let runs = $state<TerminalEntry[]>([]);
