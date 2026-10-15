@@ -142,6 +142,7 @@ beforeAll(async () => {
 					'refresh_token',
 				],
 				scopes: [
+					'openid',
 					'offline_access',
 					'profile',
 					'ai',
@@ -334,6 +335,57 @@ test('a client identified by its metadata document reaches only MCP, after conse
 	}
 	// The metadata cache outlives the per-request Better Auth instance.
 	expect(cimdFetches).toBe(1);
+}, 60_000);
+
+test('a refresh for one audience narrows that access token, not the grant', async () => {
+	const { client } = harness;
+	const person = await client.person('audiences');
+	const grant = await client.deviceGrant({
+		clientId: cli.clientId,
+		cookie: person.cookie,
+		target: '*',
+		scope: 'openid offline_access profile ai folders:read folders:write',
+		resource: [audiences.api, audiences.git],
+	});
+	let refresh = grant.tokens!.refresh_token!;
+	// Each audience allows a different set, so the first token carries only
+	// what both allow; the grant keeps all of it.
+	expect(grant.tokens!.scope?.split(' ').sort()).toEqual([
+		'folders:read',
+		'offline_access',
+		'openid',
+	]);
+	for (const [resource, scope] of [
+		[audiences.git, 'folders:read folders:write offline_access openid'],
+		[audiences.api, 'ai folders:read offline_access openid profile'],
+		[audiences.git, 'folders:read folders:write offline_access openid'],
+	] as const) {
+		const rotated = await client.token({
+			grant_type: 'refresh_token',
+			client_id: cli.clientId,
+			refresh_token: refresh,
+			resource,
+		});
+		expect(rotated.status).toBe(200);
+		expect(rotated.body.scope?.split(' ').sort().join(' ')).toBe(scope);
+		refresh = rotated.body.refresh_token!;
+	}
+	const write = await harness.resource(
+		(
+			await client.token({
+				grant_type: 'refresh_token',
+				client_id: cli.clientId,
+				refresh_token: refresh,
+				resource: audiences.git,
+			})
+		).body.access_token,
+		{
+			audience: audiences.git,
+			scope: 'folders:write',
+			namespace: person.personal,
+		},
+	);
+	expect(write.status).toBe(200);
 }, 60_000);
 
 describe('the resource check', () => {

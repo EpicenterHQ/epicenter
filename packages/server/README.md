@@ -112,8 +112,13 @@ The refresh family is one grant's lineage, the refresh row's
 `authorizationCodeId` (`device:<id>` for a device grant). A Bun patch of
 `@better-auth/oauth-provider` 1.7.9, `patches/@better-auth%2Foauth-provider@1.7.9.patch`
 in the root `package.json` `patchedDependencies`, makes reuse detection and
-revocation key on it, and refuses a row without one. It is written for
-upstream; re-verify it on every Better Auth upgrade.
+revocation key on it, and refuses a row without one. Revoking a live refresh
+token ends its whole lineage, so the access tokens earlier rotations issued
+stop too (RFC 7009). A refresh that names one audience narrows that access
+token to the audience's scopes and leaves the refresh token's scopes whole,
+so one grant serves several audiences (RFC 8707); unpatched, the first such
+refresh narrowed the grant for good. It is written for upstream; re-verify it
+on every Better Auth upgrade.
 
 Every resource calls `authorizeResourceRequest` with its own audience, the
 scope the operation needs, and the namespace in its path, then decides the

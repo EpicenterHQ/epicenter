@@ -2,10 +2,15 @@ Upstream candidate for better-auth/better-auth (packages/oauth-provider).
 Keys refresh-token reuse detection and revocation on grant lineage
 (oauthRefreshToken.authorizationCodeId) instead of (clientId, userId), stamps
 device grants with lineage device:<deviceCode.id>, and refuses a refresh row
-without a lineage. ADR-0549. Re-verify on every Better Auth upgrade.
+without a lineage. Revoking a live refresh token ends its lineage, including
+access tokens earlier rotations issued (RFC 7009 section 2.1). A refresh token
+keeps the grant's scopes rather than the scopes left after intersecting with
+the requested resources, so a refresh for one audience does not narrow the
+grant for the others (RFC 8707: only the access token is audience-restricted).
+ADR-0549. Re-verify on every Better Auth upgrade.
 
 diff --git a/dist/authorize-D8r6mvZx.mjs b/dist/authorize-D8r6mvZx.mjs
-index ea14e5ce532b3c46b3cd364f8a910ae6ffa523a2..bf72e82babd43181426d03fdbd156ef4e4874bef 100644
+index ea14e5ce532b3c46b3cd364f8a910ae6ffa523a2..ae5913956259c076443e29aca7ae502c948dcc9b 100644
 --- a/dist/authorize-D8r6mvZx.mjs
 +++ b/dist/authorize-D8r6mvZx.mjs
 @@ -3548,7 +3548,7 @@ async function revokeRefreshToken(ctx, opts, token, clientId) {
@@ -17,7 +22,7 @@ index ea14e5ce532b3c46b3cd364f8a910ae6ffa523a2..bf72e82babd43181426d03fdbd156ef4
  		throw new APIError$1("BAD_REQUEST", {
  			error_description: "refresh token revoked",
  			error: "invalid_request"
-@@ -3569,7 +3569,7 @@ async function revokeRefreshToken(ctx, opts, token, clientId) {
+@@ -3569,19 +3569,15 @@ async function revokeRefreshToken(ctx, opts, token, clientId) {
  		increment: {},
  		set: { revoked: /* @__PURE__ */ new Date(iat * 1e3) }
  	})) {
@@ -26,6 +31,21 @@ index ea14e5ce532b3c46b3cd364f8a910ae6ffa523a2..bf72e82babd43181426d03fdbd156ef4
  		throw new APIError$1("BAD_REQUEST", {
  			error_description: "refresh token revoked",
  			error: "invalid_request"
+ 		});
+ 	}
+-	await ctx.context.adapter.deleteMany({
+-		model: "oauthAccessToken",
+-		where: [{
+-			field: "refreshId",
+-			value: refreshToken.id
+-		}]
+-	});
++	// RFC 7009 2.1: revoking a refresh token ends its grant, including the
++	// access tokens earlier rotations issued.
++	await invalidateRefreshFamily(ctx, clientId, refreshToken.userId, refreshToken.authorizationCodeId);
+ }
+ /**
+ * We don't know the access token format so we try to validate it
 diff --git a/dist/index.mjs b/dist/index.mjs
 index 5eb2438ed8cc037f88d08c74b4939d29e149a028..525faec963dfb9fa147454583f19a52c639f65d1 100644
 --- a/dist/index.mjs
@@ -50,7 +70,7 @@ index 5eb2438ed8cc037f88d08c74b4939d29e149a028..525faec963dfb9fa147454583f19a52c
  }
  function buildOAuthDeviceGrant() {
 diff --git a/dist/introspect-7WCMPe5Z.mjs b/dist/introspect-7WCMPe5Z.mjs
-index 0a09873c05477915c82cd0f4ee10127987e41838..59440cdf81e47d3431c0dc126a0f8dee6dda4c9b 100644
+index 0a09873c05477915c82cd0f4ee10127987e41838..a7ef63489182caa9208482c7709f0f15983dddb1 100644
 --- a/dist/introspect-7WCMPe5Z.mjs
 +++ b/dist/introspect-7WCMPe5Z.mjs
 @@ -1495,16 +1495,18 @@ async function createOpaqueAccessToken(ctx, opts, user, client, scopes, payload,
@@ -95,7 +115,27 @@ index 0a09873c05477915c82cd0f4ee10127987e41838..59440cdf81e47d3431c0dc126a0f8dee
  	});
  }
  async function revokeTokensIssuedForAuthorizationCode(ctx, authorizationCodeId) {
-@@ -2157,7 +2153,7 @@ async function handleRefreshTokenGrant(ctx, opts) {
+@@ -1830,7 +1826,9 @@ async function createUserTokens(ctx, opts, params) {
+ 		refreshToken: existingRefreshToken
+ 	});
+ 	const requestedUserInfoClaims = params.requestedUserInfoClaims ?? existingRefreshToken?.requestedUserInfoClaims ?? [];
+-	const earlyRefreshToken = isRefreshToken && user && !isJwtAccessToken ? await createRefreshToken(ctx, opts, user, referenceId, params.authorizationCodeId, client, effectiveScopes, {
++	// The refresh token keeps the grant's scopes; only the access token is
++	// narrowed to the requested resources, so one grant serves each of them.
++	const earlyRefreshToken = isRefreshToken && user && !isJwtAccessToken ? await createRefreshToken(ctx, opts, user, referenceId, params.authorizationCodeId, client, scopes, {
+ 		iat,
+ 		exp: refreshTokenExp,
+ 		sid: sessionId
+@@ -1861,7 +1859,7 @@ async function createUserTokens(ctx, opts, params) {
+ 		iat,
+ 		exp,
+ 		sid: sessionId
+-	}, params?.resources, referenceId, params.authorizationCodeId, earlyRefreshToken?.id, confirmation, requestedUserInfoClaims), earlyRefreshToken ? earlyRefreshToken : isRefreshToken && user ? createRefreshToken(ctx, opts, user, referenceId, params.authorizationCodeId, client, effectiveScopes, {
++	}, params?.resources, referenceId, params.authorizationCodeId, earlyRefreshToken?.id, confirmation, requestedUserInfoClaims), earlyRefreshToken ? earlyRefreshToken : isRefreshToken && user ? createRefreshToken(ctx, opts, user, referenceId, params.authorizationCodeId, client, scopes, {
+ 		iat,
+ 		exp: refreshTokenExp,
+ 		sid: sessionId
+@@ -2157,7 +2155,7 @@ async function handleRefreshTokenGrant(ctx, opts) {
  				error: "invalid_grant"
  			});
  		}
