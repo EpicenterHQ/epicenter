@@ -139,6 +139,7 @@
         "hono": "catalog:",
         "mime": "catalog:",
         "openai": "^7.12.1",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

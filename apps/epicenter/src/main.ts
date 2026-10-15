@@ -32,7 +32,10 @@ import {
 	superviseSidecar,
 	watchParentPipe,
 } from './sidecar-runtime.ts';
-import { loadStaticAssets } from './static-assets.ts';
+import {
+	createInstalledApplications,
+	loadStaticAssets,
+} from './static-assets.ts';
 
 // 1.3.1 and 1.3.3 report false stdin EOF during native sign-in, leaving
 // a live sidecar without its HTTP listener. 1.3.14 passes the native flow.
@@ -116,6 +119,9 @@ async function main(): Promise<void> {
 			origin,
 			launchToken: boot.token,
 			staticAssets,
+			installedApplications: createInstalledApplications(
+				join(boot.cacheDir, 'builds'),
+			),
 			blobs,
 			desktopAuth: auth,
 			device,

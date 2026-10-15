@@ -19,6 +19,12 @@ import { BUILT_IN_ROUTES } from './routes.ts';
 export type Application = {
 	id: string;
 	title: string;
+	/**
+	 * An app installed from its source (ADR-0540), opened with
+	 * `open_installed_app` on the folder it is offered on, rather than a
+	 * compiled one opened with `launch_application`.
+	 */
+	installed?: true;
 };
 
 /**

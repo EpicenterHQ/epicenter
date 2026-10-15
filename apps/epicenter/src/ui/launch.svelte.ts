@@ -8,11 +8,16 @@
  * from (ADR-0189); an application is launched because a person clicked, and
  * that is the whole state.
  *
+ * An installed app (ADR-0540) is opened with `open_installed_app` instead,
+ * on the folder it was offered on, which builds a commit made on this machine
+ * first.
+ *
  * Each caller gets its own instance, so a failure is reported where the click
  * happened rather than following the user into another pane.
  */
 
 import type { Application } from '../applications.ts';
+import { commands } from './bindings.gen';
 import { launchApplication } from './runtime.ts';
 
 export function createLaunch() {
@@ -23,10 +28,19 @@ export function createLaunch() {
 		get failure() {
 			return failure;
 		},
-		async launch(application: Application) {
+		/** `folder` is the scope an installed app is handed; a compiled app ignores it. */
+		async launch(application: Application, folder?: string) {
 			failure = null;
 			try {
-				await launchApplication(application.id);
+				if (application.installed) {
+					const { error } = await commands.openInstalledApp(
+						application.id,
+						folder ?? null,
+					);
+					if (error !== null) throw new Error(error);
+				} else {
+					await launchApplication(application.id);
+				}
 			} catch (error) {
 				failure = `${application.title} did not open. ${
 					error instanceof Error ? error.message : String(error)

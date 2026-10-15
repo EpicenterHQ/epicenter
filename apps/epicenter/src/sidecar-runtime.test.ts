@@ -47,6 +47,7 @@ function bootFrame(overrides: Record<string, unknown> = {}): string {
 		accountManagement: true,
 		dataDir: join(tmpdir(), 'so.epicenter.dev'),
 		folderDir: join(tmpdir(), 'Epicenter Dev'),
+		cacheDir: join(tmpdir(), 'so.epicenter.dev-cache'),
 		...overrides,
 	});
 }
@@ -219,7 +220,7 @@ describe('boot protocol', () => {
 	});
 
 	test('native directories are required, absolute, and preserved exactly', () => {
-		for (const key of ['dataDir', 'folderDir']) {
+		for (const key of ['dataDir', 'folderDir', 'cacheDir']) {
 			for (const value of [null, 123, '', 'relative/directory', '/bad\0path']) {
 				expect(() =>
 					parseBootFrame(bootFrame({ [key]: value }), 'development'),
@@ -228,9 +229,13 @@ describe('boot protocol', () => {
 		}
 		const dataDir = join(tmpdir(), 'custom data');
 		const folderDir = join(tmpdir(), 'custom checkout');
+		const cacheDir = join(tmpdir(), 'custom cache');
 		expect(
-			parseBootFrame(bootFrame({ dataDir, folderDir }), 'development'),
-		).toMatchObject({ dataDir, folderDir });
+			parseBootFrame(
+				bootFrame({ dataDir, folderDir, cacheDir }),
+				'development',
+			),
+		).toMatchObject({ dataDir, folderDir, cacheDir });
 	});
 
 	test('invalid token types and non-base64url tokens are rejected', () => {
@@ -270,7 +275,7 @@ describe('boot protocol', () => {
 	test('ready frames contain exactly the versioned readiness contract', () => {
 		expect(createReadyFrame(PRODUCTION_PORT)).toEqual({
 			type: 'ready',
-			protocolVersion: 12,
+			protocolVersion: 13,
 			port: PRODUCTION_PORT,
 		});
 	});

@@ -5,19 +5,34 @@
  * - An app is offered on its own folder when the declaration contains its shape
  * - A declaration may declare more tables and fields than the shape
  * - A missing or mistyped field, or unreadable text, offers nothing
- * - Another folder of the same shape is not offered the app yet
+ * - Another folder of the same shape is not offered a built-in app yet
+ * - An installed app that runs is offered on every folder its shape fits
+ * - An installed app waiting for approval, or without a readable shape, is
+ *   offered on no folder
  * - Every app not offered on a folder is listed under Apps
  */
 import { describe, expect, test } from 'bun:test';
 import { captureDefinition } from '@epicenter/capture/definition';
-import { formatDeclaration } from '@epicenter/folder';
+import {
+	defineFolder,
+	defineTable,
+	field,
+	formatDeclaration,
+} from '@epicenter/folder';
 import { todosDefinition } from '@epicenter/todos/definition';
 import {
+	type Application,
 	CAPTURE_APPLICATION,
 	TODOS_APPLICATION,
 	WHISPERING_APPLICATION,
 } from '../applications.ts';
-import { appsWithoutFolder, openersOf } from './openers.ts';
+import type { InstalledApp } from '../ui/bindings.gen';
+import {
+	appsWithoutFolder,
+	FOLDER_OPENERS,
+	installedOpeners,
+	openersOf,
+} from './openers.ts';
 
 const TODOS = formatDeclaration(todosDefinition);
 
@@ -78,6 +93,78 @@ describe('openersOf', () => {
 		// Launching Todos opens its own folder, not this one.
 		expect(openersOf({ app: null, declaration: TODOS })).toEqual([]);
 		expect(openersOf({ app: 'capture', declaration: TODOS })).toEqual([]);
+	});
+});
+
+/** An installed app that reads `title` from a `todos` table. */
+function board(overrides: Partial<InstalledApp> = {}): InstalledApp {
+	return {
+		id: 'com.example.board',
+		title: 'Board',
+		source: 'https://example.com/board.git',
+		commit: 'a'.repeat(40),
+		opens: formatDeclaration(
+			defineFolder({
+				kv: {},
+				tables: {
+					todos: defineTable({ fields: { title: field.string() } }),
+				},
+			}),
+		),
+		state: { kind: 'ready' },
+		...overrides,
+	};
+}
+
+const BOARD: Application = {
+	id: 'com.example.board',
+	title: 'Board',
+	installed: true,
+};
+
+describe('installed apps', () => {
+	test('an installed app is offered on any folder whose declaration contains its shape', () => {
+		const openers = [...FOLDER_OPENERS, ...installedOpeners([board()])];
+		expect(openersOf({ app: 'todos', declaration: TODOS }, openers)).toEqual([
+			TODOS_APPLICATION,
+			BOARD,
+		]);
+		// Not Todos's own folder, and not named for any app.
+		expect(openersOf({ app: null, declaration: TODOS }, openers)).toEqual([
+			BOARD,
+		]);
+		const untitled = todosWith((declared) => {
+			delete declared.tables.todos!.properties.title;
+		});
+		expect(openersOf({ app: null, declaration: untitled }, openers)).toEqual(
+			[],
+		);
+	});
+
+	test('an app built only when opened is offered; one waiting for approval is not', () => {
+		const review = {
+			from: null,
+			log: '',
+			diffStat: '',
+			statement: 'Building runs code.',
+		};
+		expect(
+			installedOpeners([board({ state: { kind: 'unbuilt' } })]).map(
+				({ application }) => application,
+			),
+		).toEqual([BOARD]);
+		for (const state of [
+			{ kind: 'needsApproval', review },
+			{ kind: 'broken', problem: 'no manifest' },
+		] as const) {
+			expect(installedOpeners([board({ state })])).toEqual([]);
+		}
+	});
+
+	test('an app whose shape cannot be read opens no folder', () => {
+		for (const opens of [null, 'not json', '[]']) {
+			expect(installedOpeners([board({ opens })])).toEqual([]);
+		}
 	});
 });
 

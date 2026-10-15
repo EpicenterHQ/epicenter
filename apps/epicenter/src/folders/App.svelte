@@ -11,18 +11,36 @@
 	 *
 	 * "Open in" launches an app through the same verb as the Apps list and
 	 * the Settings button; `openers.ts` decides which apps a folder offers.
+	 *
+	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
+	 * an app installed from a Git URL or a path is shown for approval before
+	 * anything builds, and an update fetched from upstream is shown again with
+	 * its log and diff stat. Each app that runs is recorded as a row of
+	 * Epicenter's own folder (`epicenter-folder.ts`).
 	 */
 	import type { Folder, FolderDefinition } from '@epicenter/folder';
 	import { openDataFolder } from '@epicenter/folder/tauri';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
+	import { Input } from '@epicenter/ui/input';
 	import { onMount } from 'svelte';
-	import { SETTINGS_APPLICATION } from '../applications.ts';
-	import { commands, type DataFolder } from '../ui/bindings.gen';
+	import { type Application, SETTINGS_APPLICATION } from '../applications.ts';
+	import {
+		commands,
+		type DataFolder,
+		type InstalledApp,
+		type Review,
+	} from '../ui/bindings.gen';
 	import { createLaunch } from '../ui/launch.svelte.ts';
+	import { recordInstalledApps } from './epicenter-folder.ts';
 	import FolderView from './FolderView.svelte';
-	import { appsWithoutFolder, openersOf } from './openers.ts';
+	import {
+		appsWithoutFolder,
+		FOLDER_OPENERS,
+		installedOpeners,
+		openersOf,
+	} from './openers.ts';
 
 	let folders = $state<DataFolder[] | undefined>(undefined);
 	let listProblem = $state<string | undefined>(undefined);
@@ -36,9 +54,27 @@
 
 	const launcher = createLaunch();
 
+	let installed = $state<InstalledApp[]>([]);
+	let appsProblem = $state<string | undefined>(undefined);
+	/** The URL or path typed into the install form, when it is shown. */
+	let installSource = $state<string | undefined>(undefined);
+	/** The app whose approval is shown in place of a folder. */
+	let reviewing = $state<{ app: InstalledApp; review: Review } | undefined>(
+		undefined,
+	);
+	/** What the shell is doing for an app, said while it does it. */
+	let busy = $state<string | undefined>(undefined);
+
+	const openers = $derived([
+		...FOLDER_OPENERS,
+		...installedOpeners(installed),
+	]);
 	/** Each listed folder with the apps it offers. */
 	const listed = $derived(
-		(folders ?? []).map((folder) => ({ folder, openers: openersOf(folder) })),
+		(folders ?? []).map((folder) => ({
+			folder,
+			openers: openersOf(folder, openers),
+		})),
 	);
 	/** Known once the listing has settled, so an app does not move after it. */
 	const apps = $derived(
@@ -57,8 +93,83 @@
 		}
 	}
 
+	/**
+	 * Read the installed apps, then record each one that runs in Epicenter's
+	 * own folder.
+	 */
+	async function listInstalled() {
+		const { data, error } = await commands.listInstalledApps();
+		if (error !== null) {
+			appsProblem = error;
+			return;
+		}
+		installed = data;
+		appsProblem = await recordInstalledApps(data).catch((cause: unknown) =>
+			cause instanceof Error ? cause.message : String(cause),
+		);
+	}
+
+	/** Show `app`'s approval when it needs one. */
+	function review(app: InstalledApp) {
+		if (app.state.kind !== 'needsApproval') return;
+		reviewing = { app, review: app.state.review };
+	}
+
+	/** Run one shell action for an app, saying what it is doing meanwhile. */
+	async function act(
+		doing: string,
+		action: () => Promise<{ data: InstalledApp | null; error: string | null }>,
+	): Promise<InstalledApp | undefined> {
+		busy = doing;
+		appsProblem = undefined;
+		try {
+			const { data, error } = await action();
+			if (error !== null) appsProblem = error;
+			return data ?? undefined;
+		} catch (cause) {
+			appsProblem = cause instanceof Error ? cause.message : String(cause);
+			return undefined;
+		} finally {
+			busy = undefined;
+			await listInstalled();
+		}
+	}
+
+	async function install() {
+		const source = installSource?.trim();
+		if (!source) return;
+		const app = await act('Cloning…', () => commands.installApp(source));
+		if (app === undefined) return;
+		installSource = undefined;
+		review(app);
+	}
+
+	async function approve(app: InstalledApp) {
+		const approved = await act(`Building ${app.title}…`, () =>
+			commands.approveApp(app.id, app.commit),
+		);
+		if (approved !== undefined) reviewing = undefined;
+	}
+
+	async function update(app: InstalledApp) {
+		const updated = await act(`Updating ${app.title}…`, () =>
+			commands.updateApp(app.id),
+		);
+		if (updated !== undefined) review(updated);
+	}
+
+	/** Open `application` on `folder`, then read what building it changed. */
+	async function launch(application: Application, folder?: string) {
+		if (!application.installed) return launcher.launch(application);
+		busy = `Opening ${application.title}…`;
+		await launcher.launch(application, folder);
+		busy = undefined;
+		await listInstalled();
+	}
+
 	/** Open folder `id`; `again` reopens the one already open. */
 	async function open(id: string, again = false) {
+		reviewing = undefined;
 		if (!again && id === openId && (opened !== undefined || opening)) return;
 		const seq = ++openSeq;
 		openId = id;
@@ -83,6 +194,7 @@
 
 	onMount(() => {
 		void list();
+		void listInstalled();
 		return () => void opened?.close();
 	});
 </script>
@@ -139,7 +251,7 @@
 							<Button
 								variant="ghost"
 								size="xs"
-								onclick={() => void launcher.launch(application)}
+								onclick={() => void launch(application, folder.id)}
 							>
 								Open in {application.title}
 							</Button>
@@ -152,7 +264,7 @@
 								</DropdownMenu.Trigger>
 								<DropdownMenu.Content align="end">
 									{#each openers as application (application.id)}
-										<DropdownMenu.Item onclick={() => void launcher.launch(application)}>
+										<DropdownMenu.Item onclick={() => void launch(application, folder.id)}>
 											{application.title}
 										</DropdownMenu.Item>
 									{/each}
@@ -164,27 +276,150 @@
 			</ul>
 		{/if}
 
-		{#if apps !== undefined && apps.length > 0}
-			<h2 class="px-4 pt-2 pb-1 text-sm font-semibold">Apps</h2>
-			<ul class="flex flex-col gap-0.5 px-2 pb-3" aria-label="Apps">
-				{#each apps as application (application.id)}
-					<li class="flex items-center gap-1">
-						<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm">{application.title}</span>
+		<h2 class="px-4 pt-2 pb-1 text-sm font-semibold">Apps</h2>
+		{#if appsProblem !== undefined}
+			<div class="px-3 pb-2">
+				<Alert.Root variant="destructive">
+					<Alert.Description>{appsProblem}</Alert.Description>
+				</Alert.Root>
+			</div>
+		{/if}
+		<ul class="flex flex-col gap-0.5 px-2 pb-1" aria-label="Apps">
+			{#each apps ?? [] as application (application.id)}
+				<li class="flex items-center gap-1">
+					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm">{application.title}</span>
+					<Button
+						variant="ghost"
+						size="xs"
+						onclick={() => void launcher.launch(application)}
+					>
+						Open
+					</Button>
+				</li>
+			{/each}
+			{#each installed as app (app.id)}
+				<li class="flex items-center gap-1">
+					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm" title={app.source}>
+						{app.title}
+						{#if app.state.kind === 'broken'}
+							<span class="block truncate text-xs text-destructive" title={app.state.problem}>
+								{app.state.problem}
+							</span>
+						{:else if app.state.kind === 'needsApproval'}
+							<span class="block text-xs text-muted-foreground">Waiting for approval</span>
+						{/if}
+					</span>
+					{#if app.state.kind === 'needsApproval'}
 						<Button
 							variant="ghost"
 							size="xs"
-							onclick={() => void launcher.launch(application)}
+							disabled={busy !== undefined}
+							onclick={() => review(app)}
+						>
+							Review
+						</Button>
+					{:else if app.state.kind !== 'broken'}
+						<Button
+							variant="ghost"
+							size="xs"
+							disabled={busy !== undefined}
+							onclick={() =>
+								void launch({ id: app.id, title: app.title, installed: true })}
 						>
 							Open
 						</Button>
-					</li>
-				{/each}
-			</ul>
-		{/if}
+					{/if}
+					{#if app.source !== '' && app.state.kind !== 'broken'}
+						<Button
+							variant="ghost"
+							size="xs"
+							disabled={busy !== undefined}
+							onclick={() => void update(app)}
+						>
+							Update
+						</Button>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+		<div class="px-3 pb-3">
+			{#if busy !== undefined}
+				<p class="px-1 py-1.5 text-sm text-muted-foreground">{busy}</p>
+			{:else if installSource === undefined}
+				<Button variant="ghost" size="sm" onclick={() => (installSource = '')}>
+					Install from Git URL…
+				</Button>
+			{:else}
+				<form
+					class="flex flex-col gap-2"
+					onsubmit={(event) => {
+						event.preventDefault();
+						void install();
+					}}
+				>
+					<Input
+						bind:value={installSource}
+						placeholder="https://github.com/you/app.git or a folder path"
+						aria-label="Git URL or folder path"
+					/>
+					<div class="flex gap-2">
+						<Button type="submit" size="sm" disabled={!installSource.trim()}>
+							Install
+						</Button>
+						<Button
+							type="button"
+							variant="ghost"
+							size="sm"
+							onclick={() => (installSource = undefined)}
+						>
+							Cancel
+						</Button>
+					</div>
+				</form>
+			{/if}
+		</div>
 	</nav>
 
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col">
-		{#if openProblem !== undefined}
+		{#if reviewing !== undefined}
+			{@const { app, review: shown } = reviewing}
+			<section class="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-6" aria-label="Approve {app.title}">
+				<header class="flex flex-col gap-1">
+					<h2 class="text-lg font-semibold">Approve {app.title}?</h2>
+					<p class="text-sm text-muted-foreground">
+						From {app.source || `Apps/${app.id}`}, at commit
+						<code class="font-mono">{app.commit.slice(0, 12)}</code>
+					</p>
+				</header>
+				<Alert.Root>
+					<Alert.Description>{shown.statement}</Alert.Description>
+				</Alert.Root>
+				<div class="flex flex-col gap-1">
+					<h3 class="text-sm font-semibold">
+						{shown.from === null ? 'Commits' : 'New commits since you last approved it'}
+					</h3>
+					<pre class="overflow-auto rounded-md bg-muted p-3 font-mono text-xs">{shown.log || 'None'}</pre>
+				</div>
+				{#if shown.from !== null}
+					<div class="flex flex-col gap-1">
+						<h3 class="text-sm font-semibold">Changed files</h3>
+						<pre class="overflow-auto rounded-md bg-muted p-3 font-mono text-xs">{shown.diffStat || 'None'}</pre>
+					</div>
+				{/if}
+				<div class="flex gap-2">
+					<Button disabled={busy !== undefined} onclick={() => void approve(app)}>
+						{busy ?? 'Approve and build'}
+					</Button>
+					<Button
+						variant="ghost"
+						disabled={busy !== undefined}
+						onclick={() => (reviewing = undefined)}
+					>
+						Not now
+					</Button>
+				</div>
+			</section>
+		{:else if openProblem !== undefined}
 			<div class="p-4">
 				<Alert.Root variant="destructive">
 					<Alert.Description>Could not open this folder: {openProblem}</Alert.Description>

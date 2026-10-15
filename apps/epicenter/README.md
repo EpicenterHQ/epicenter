@@ -22,7 +22,9 @@ apps/epicenter/src/folders ------> dist/folders
 
 The host serves Settings (the `home` document) and four compiled applications:
 Whispering, Capture, Todos, and its own Folders window. Application routes live below `/apps/<id>/`; the Mail and Books routes
-serve placeholder pages (`src/placeholder-pages.ts`). The `epicenter-host` build
+serve placeholder pages (`src/placeholder-pages.ts`). Apps a person installs
+from a Git repository are served below `/apps/<app-id>/` too (see
+[Installed apps](#installed-apps)). The `epicenter-host` build
 condition selects each product's host integrations. Honeycrisp has a separate
 desktop shell.
 
@@ -64,11 +66,31 @@ path and must be absolute.
 Development uses `so.epicenter.dev` for data, settings, and keyring entries.
 Production's authored folder root is `~/Epicenter`; development's is `~/Epicenter Dev`.
 `EPICENTER_FOLDER_DIR` overrides the authored folder root and must be absolute.
+Built installed apps go to the platform cache directory, `so.epicenter` (or
+`so.epicenter.dev`) under `~/Library/Caches` on macOS; `EPICENTER_CACHE_DIR`
+overrides it and must be absolute.
+
+Files split by what they cost to lose (ADR-0539):
+
+```txt
+~/Epicenter/                                  read, edited, and versioned as files
+  so.epicenter/                               Epicenter's own folder
+    epicenter.json                            declares the apps table and settings
+    kv.json                                   settings: defaultApp, by folder id
+    apps/<app-id>.md                          one row per installed app
+  Apps/<app-id>/                              an installed app's source repository
+~/Library/Application Support/so.epicenter/   written only by Epicenter
+  approvals.json                              which app commits may run here
+~/Library/Caches/so.epicenter/                disposable
+  builds/<app-id>/<commit>/                   built app bundles
+  builds/<app-id>/<commit>.log                what the install and build printed
+  builds/<app-id>/current                     the commit the host serves
+```
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development starts signed out after
 credential isolation; production credentials are unchanged.
 
-Rust resolves both directories once at startup, stores them for the
+Rust resolves the three directories once at startup, stores them for the
 desktop lifetime, and sends them through the versioned startup message. Bun
 consumes those paths. The recorder writes into a folder a window was granted,
 not into application data (`tauri-plugin-epicenter-recorder`, ADR-0543). Bun never derives a desktop root from its
@@ -209,6 +231,9 @@ folder's root from the plugin's grant, as Todos and Capture do.
   refused `Busy`; listing permits the `folders` window into the existing scope
   instead (`Folders::permit`), and both windows' saves are checked and
   published under the plugin's one mutex per root (ADR-0535).
+- **Epicenter's own folder**, `so.epicenter`, is registered at setup for the
+  `folders` and `home` windows and listed under that scope. `Apps/` is not
+  listed: it holds no `epicenter.json`.
 - **Any other data folder** gets the scope `data:<directory name>` the first
   time it is listed, registered for the `folders` window alone. Listing again
   in the same run returns the same scope. Registrations last until the
@@ -226,7 +251,9 @@ shape is the app's own folder definition (`todosDefinition`,
 `captureDefinition`). One match shows "Open in Todos"; several show "Open
 with…". A built-in app opens only its own folder today, so it is offered only
 on that folder; another folder of the same shape is not offered it until an
-app can open the folder it is handed. Every compiled application not offered
+app can open the folder it is handed. An installed app that can run is offered
+on every folder whose declaration contains its shape, and is handed that
+folder at launch. Every compiled application not offered
 on a listed folder is listed under Apps with an Open button, so Todos stays
 reachable before its folder exists. Every button launches through
 `launch_application`, which this window shares with Settings
@@ -274,6 +301,69 @@ as Todos's. "Save version" calls `folder.git.commit()` (ADR-0529) and reports
 a version saved, nothing new to save, or why none was saved; the header shows
 how many files changed since the last version. The window never writes
 `epicenter.json`.
+
+## Installed apps
+
+An app is a Git repository with `epicenter.app.json` at its root (ADR-0540):
+
+```json
+{
+  "id": "com.example.board",
+  "title": "Board",
+  "opens": "shape.json",
+  "build": "bun run build",
+  "output": "dist"
+}
+```
+
+- `id` is a lowercase reverse-domain name. `so.epicenter` and the built-in
+  apps' ids are refused.
+- `opens` is the repository path of the shape the app reads (ADR-0538): a
+  JSON declaration, the output of `formatDeclaration(definition)` from
+  `@epicenter/folder`, committed in the repository.
+- `build` and `output` default to the values shown. The output is a
+  single-page app built with a relative `base`, holding `index.html`.
+
+The Folders window's Apps list has "Install from Git URL…". It takes a Git URL
+(`https`, `http`, `ssh`, `git`, `file`, or `user@host:path`) or an absolute
+local path, and calls `install_app`. The shell clones it into
+`~/Epicenter/Apps/<app-id>/` and builds nothing. The page shows the title, the
+source, the commit, its log, and that building runs the app's code on this
+computer. "Approve and build" calls `approve_app`, which records the commit in
+`approvals.json`, runs `bun install --frozen-lockfile --ignore-scripts` (when
+the repository has a `package.json`) and the build command in the clone, and
+copies the output to `builds/<app-id>/<commit>/`. The page then writes the
+app's row, `so.epicenter/apps/<app-id>.md`, with its title, source, and
+commit, through the folder engine (`src/folders/epicenter-folder.ts`).
+
+What runs is decided per commit:
+
+- A commit made on this machine, by a person or an agent committing in
+  `Apps/<app-id>/`, runs without asking: every commit since the approved one
+  is unreachable from every remote-tracking ref and from `FETCH_HEAD`.
+  Opening the app builds it and records it as approved, so pushing it later
+  does not ask again.
+- Anything else, such as "Update" (fetch, then a fast-forward or a rebase of
+  the commits made here onto upstream), waits for approval with `git log` and
+  `git diff --stat` since the approved commit. A rebase that conflicts is
+  undone and reported.
+- Uncommitted changes do not build: what runs is always a commit.
+
+The shell runs every Git command for an app as the folder plugin runs a
+page's: no hooks, no fsmonitor, no terminal prompt, and no inherited variable
+pointing Git at another repository. Builds stop after 15 minutes. In a
+release, `bun` is the bundled host itself (`BUN_BE_BUN=1`, linked as `bun`
+first on the build's `PATH`); development uses the `bun` on `PATH`.
+
+The Bun host serves an installed app's current build at `/apps/<app-id>/` on
+Epicenter's origin, behind the same session gate and auth bootstrap as a
+compiled app, with its document's inline scripts hashed into its own
+Content-Security-Policy. `open_installed_app` opens it in its own window,
+labelled `app:<id with _ for .>`, plus `:<folder scope in hex>` when it is
+opened on a folder; the `installed-app-windows-*` capability grants those
+windows `epicenter-folder:default` alone. Opened on a folder, the window is
+permitted into that folder's scope and the page gets `?folder=<scope>`, which
+the app opens with `openDataFolder({ id, lens })`.
 
 ## Leaving Epicenter
 

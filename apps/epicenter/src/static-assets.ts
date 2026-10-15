@@ -2,11 +2,13 @@
  * Built SPA assets exposed by the Bun-owned Epicenter origin.
  *
  * The release layout is explicit: `home/index.html` plus one directory per
- * compiled application.
+ * compiled application. An installed app (ADR-0540) is served from the build
+ * the shell made current, `<cacheDir>/builds/<app-id>/<commit>/`, named by
+ * `<cacheDir>/builds/<app-id>/current`.
  */
 
 import { realpath, stat } from 'node:fs/promises';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import mime from 'mime';
 
 export type StaticAsset = {
@@ -79,6 +81,59 @@ export async function loadStaticAssets(
 	return {
 		homePage: await Bun.file(homeIndex).text(),
 		applications: compiled,
+	};
+}
+
+/** Installed apps' builds, found when a page asks for one. */
+export type InstalledApplications = {
+	/**
+	 * The current build of installed app `id`, or `undefined` when there is
+	 * none. `id` is a lowercase reverse-domain name, as the shell requires
+	 * before it builds one.
+	 */
+	find(id: string): Promise<ServedApplicationAssets | undefined>;
+};
+
+const INSTALLED_APP_ID = /^[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+$/;
+const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * Installed apps under `buildsDir`. A build is read once per commit; a new
+ * current commit is read when it is first asked for.
+ */
+export function createInstalledApplications(
+	buildsDir: string,
+): InstalledApplications {
+	const loaded = new Map<string, ServedApplicationAssets>();
+	return {
+		async find(id) {
+			if (id.length > 128 || !INSTALLED_APP_ID.test(id)) return undefined;
+			const builds = join(buildsDir, id);
+			let commit: string;
+			try {
+				commit = (await Bun.file(join(builds, 'current')).text()).trim();
+			} catch {
+				return undefined;
+			}
+			if (!COMMIT.test(commit)) return undefined;
+			const key = `${id}/${commit}`;
+			const cached = loaded.get(key);
+			if (cached !== undefined) return cached;
+			let assets: ServedApplicationAssets;
+			try {
+				assets = await loadApplicationAssets({
+					id,
+					title: id,
+					root: join(builds, commit),
+				});
+			} catch {
+				return undefined;
+			}
+			for (const other of loaded.keys())
+				if (other.startsWith(`${id}/`)) loaded.delete(other);
+			loaded.set(key, assets);
+			return assets;
+		},
 	};
 }
 
