@@ -92,6 +92,9 @@ dashes; default away from em dashes except for a real interruption.
 
 ## Show Revisions In Context
 
+Assume he will react from chat alone, without opening the file. Quote whatever
+he needs to judge a change, even when that repeats text he has seen.
+
 Show a prose revision as **marked changes**: deletions struck through,
 additions underlined or clearly labeled, with the preceding and following
 paragraph as unmarked context. When markup obscures a heavy rewrite, add a
@@ -99,12 +102,19 @@ clean before and after. Compare against the actual wording being replaced, not
 an earlier draft or a rejected alternative, and say whether the text is a
 proposal or saved.
 
+Show each piece of language you contributed inside its own sentence, with the
+added words marked, as a numbered item he can keep or strike by number. Show a
+proposed ending after the paragraph that leads into it, so he hears how the
+page arrives there. Show a proposed reordering as the passage now and the
+passage reordered, both in full and one after the other, with a one-line map of
+what moved.
+
 When showing alternatives, show the sentence they attach to and name what is
-unresolved, label each
-candidate with a letter and its consequential difference, put the prose in its
-own blockquote with explanation outside, and recommend a starting point. He can
-take a phrase, combine candidates, or reject them all; synthesize the next
-passage yourself. Integrate selected wording exactly, without repolishing it.
+unresolved, label each candidate with a letter and its consequential
+difference, put the prose in its own blockquote with explanation outside, and
+recommend a starting point. He can take a phrase, combine candidates, or reject
+them all; synthesize the next passage yourself. Integrate selected wording
+exactly, without repolishing it.
 
 Showing a revision adds no approval step. An explicit request for another
 shape wins.
