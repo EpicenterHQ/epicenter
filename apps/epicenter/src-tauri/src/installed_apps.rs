@@ -328,16 +328,16 @@ impl AppPaths {
     }
 }
 
-/// In a release, `bun` is the bundled host itself: `BUN_BE_BUN` makes a
-/// compiled Bun executable run as the Bun CLI, and a `bun` link to it heads
-/// `PATH` so the build command's own `bun` finds it too. A development run
-/// uses the `bun` on `PATH`.
+/// In a release, `bun` is the bundled `epicenter` binary itself (`epicenter-cli`
+/// in the bundle): `BUN_BE_BUN` makes a compiled Bun executable run as the
+/// Bun CLI, and a `bun` link to it heads `PATH` so the build command's own
+/// `bun` finds it too. A development run uses the `bun` on `PATH`.
 #[cfg(all(unix, not(debug_assertions)))]
 fn build_environment(cache_dir: &Path) -> Vec<(OsString, OsString)> {
     let shim = cache_dir.join("bin");
     let Some(host) = std::env::current_exe()
         .ok()
-        .and_then(|exe| Some(exe.parent()?.join("epicenter-host")))
+        .and_then(|exe| Some(exe.parent()?.join("epicenter-cli")))
     else {
         return Vec::new();
     };

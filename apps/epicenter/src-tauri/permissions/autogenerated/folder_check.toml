@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-folder-check"
+description = "Enables the folder_check command without any pre-configured scope."
+commands.allow = ["folder_check"]
+
+[[permission]]
+identifier = "deny-folder-check"
+description = "Denies the folder_check command without any pre-configured scope."
+commands.deny = ["folder_check"]

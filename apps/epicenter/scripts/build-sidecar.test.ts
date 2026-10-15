@@ -1,7 +1,8 @@
 /**
- * Epicenter Bun Host Packaging Tests
+ * Epicenter Binary Packaging Tests
  *
- * Verifies the compiled Bun child runs without a system Bun on PATH, refuses a
+ * Verifies the compiled `epicenter` binary's hidden host mode runs without a
+ * system Bun on PATH, refuses a
  * production boot on any port but the fixed one, finds packaged Home and
  * Folders assets through the Rust-supplied resource path, and exits when the
  * parent pipe closes. Apps that are installed now, Todos and Whispering, are
@@ -97,14 +98,14 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 		appDir,
 		'src-tauri',
 		'binaries',
-		`epicenter-host-${triple}`,
+		`epicenter-cli-${triple}`,
 	);
 	const dataDir = mkdtempSync(join(tmpdir(), 'epicenter-compiled-host-'));
 
 	// The production boot contract, proven against the compiled binary rather
 	// than only against `parseBootFrame`: production is pinned to one port, and
 	// a parent offering another gets a refusal instead of a stray listener.
-	const misbound = Bun.spawn([binary, '--runtime-mode=production'], {
+	const misbound = Bun.spawn([binary, '__host', '--runtime-mode=production'], {
 		env: { PATH: '' },
 		stdin: 'pipe',
 		stdout: 'pipe',
@@ -142,7 +143,7 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 	symlinkSync(git, join(gitOnly, 'git'));
 
 	const port = freePort();
-	const sidecar = Bun.spawn([binary, '--runtime-mode=development'], {
+	const sidecar = Bun.spawn([binary, '__host', '--runtime-mode=development'], {
 		env: {
 			EPICENTER_APPS_DIST: join(appDir, 'dist'),
 			PATH: gitOnly,

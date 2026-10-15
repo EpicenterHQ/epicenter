@@ -30,6 +30,7 @@ use tauri_specta::Event as _;
 mod command_names;
 
 pub mod app_data;
+mod cli;
 mod data_folders;
 mod device_owner;
 mod installed_apps;
@@ -369,6 +370,7 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             open_home,
             take_pending_home_section,
             data_folders::list_data_folders,
+            cli::folder_check::<tauri::Wry>,
             installed_apps::list_installed_apps,
             installed_apps::list_repository_apps,
             installed_apps::install_app,
@@ -973,7 +975,8 @@ fn host_command(_app: &DesktopAppHandle) -> Result<Command> {
     command
         .current_dir(app_dir)
         .arg("run")
-        .arg("src/main.ts")
+        .arg("src/epicenter-binary.ts")
+        .arg("__host")
         .arg("--runtime-mode=development");
     Ok(command)
 }
@@ -984,13 +987,15 @@ fn host_command(_app: &DesktopAppHandle) -> Result<Command> {
     let directory = executable
         .parent()
         .context("the Epicenter executable has no parent directory")?;
+    // The `epicenter` binary, whose hidden `__host` mode is the Bun host
+    // until the shell serves apps itself (ADR-0556).
     let filename = if cfg!(windows) {
-        "epicenter-host.exe"
+        "epicenter-cli.exe"
     } else {
-        "epicenter-host"
+        "epicenter-cli"
     };
     let mut command = Command::new(directory.join(filename));
-    command.arg("--runtime-mode=production");
+    command.arg("__host").arg("--runtime-mode=production");
     Ok(command)
 }
 
@@ -2242,6 +2247,25 @@ mod tests {
         }
     }
 
+    /// The CLI runner's one page command reaches the Folders window alone, so
+    /// no app window can run the CLI (ADR-0556).
+    #[test]
+    fn folder_check_is_granted_to_the_folders_window_alone() {
+        for encoded in ALL_CAPABILITIES {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            let grants = capability["permissions"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("allow-folder-check"));
+            assert_eq!(
+                grants,
+                capability["windows"] == serde_json::json!(["folders"]),
+                "{}",
+                capability["identifier"]
+            );
+        }
+    }
+
     /// Every capability file, for checks that hold for all of them.
     const ALL_CAPABILITIES: &[&str] = &[
         include_str!("../capabilities/home-model-administration-development.json"),
@@ -2389,10 +2413,11 @@ mod tests {
         "core:event:allow-unlisten",
     ];
 
-    /// The Folders window holds the folder plugin, its own listing, installing
-    /// and opening apps, and opening Settings (ADR-0537, ADR-0552), and nothing
-    /// else: it reaches folders only through scopes the listing registered or
-    /// permitted it into, and it administers no model.
+    /// The Folders window holds the folder plugin, its own listing, `epicenter
+    /// check` on a granted folder (ADR-0556), installing and opening apps, and
+    /// opening Settings (ADR-0537, ADR-0552), and nothing else: it reaches
+    /// folders only through scopes the listing registered or permitted it
+    /// into, and it administers no model.
     #[test]
     fn the_folders_window_holds_the_folder_plugin_and_its_listing() {
         for encoded in [
@@ -2408,6 +2433,7 @@ mod tests {
                     "core:event:allow-listen",
                     "core:event:allow-unlisten",
                     "allow-list-data-folders",
+                    "allow-folder-check",
                     "allow-list-installed-apps",
                     "allow-list-repository-apps",
                     "allow-install-app",

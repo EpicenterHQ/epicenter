@@ -23,6 +23,7 @@ pub const COMMANDS: &[&str] = &[
     "open_home",
     "take_pending_home_section",
     "list_data_folders",
+    "folder_check",
     "list_installed_apps",
     "list_repository_apps",
     "install_app",

@@ -31,7 +31,7 @@
 		"publisher": "Epicenter",
 		"copyright": "Copyright © 2026 Epicenter",
 		"shortDescription": "One trusted desktop host for Epicenter apps",
-		"externalBin": ["binaries/epicenter-host"],
+		"externalBin": ["binaries/epicenter-cli"],
 		"resources": {
 			"../dist": "apps-dist",
 			"recorder-state-icons/studio_microphone.png": "recorder-state-icons/studio_microphone.png",

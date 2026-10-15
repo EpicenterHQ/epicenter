@@ -1,5 +1,11 @@
 #!/usr/bin/env bun
-/** Compile the Bun application host where Tauri expects its external binary. */
+/**
+ * Compile the `epicenter` binary where Tauri expects its external binary: the
+ * CLI, with the Bun host as its hidden `__host` mode (ADR-0556). The bundle
+ * names it `epicenter-cli` because Tauri refuses a sidecar named like the
+ * Cargo package, `epicenter`; `epicenter install-command` links it onto
+ * `PATH` as `epicenter`.
+ */
 
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -30,10 +36,12 @@ const outfile = join(
 	appDir,
 	'src-tauri',
 	'binaries',
-	`epicenter-host-${targetTriple}`,
+	`epicenter-cli-${targetTriple}`,
 );
 await mkdir(dirname(outfile), { recursive: true });
 
-console.error(`Compiling Epicenter Bun host -> ${outfile}`);
-await $`bun build --compile --outfile ${outfile} ${join(appDir, 'src', 'main.ts')}`;
-console.error('Epicenter Bun host compiled.');
+console.error(`Compiling the epicenter binary -> ${outfile}`);
+// --bytecode needs an entry graph without top-level await; the entry wraps
+// its work in main() for that.
+await $`bun build --compile --minify --bytecode --outfile ${outfile} ${join(appDir, 'src', 'epicenter-binary.ts')}`;
+console.error('The epicenter binary compiled.');

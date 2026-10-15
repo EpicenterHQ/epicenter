@@ -198,6 +198,15 @@ export const commands = {
 	 */
 	listDataFolders: () =>
 		typedError<DataFolder[], string>(__TAURI_INVOKE('list_data_folders')),
+	/**
+	 *  `epicenter check <folder> --json` on a folder this window was granted
+	 *  (ADR-0520), its one JSON line sent to `on_line`. Granted to the Folders
+	 *  window alone.
+	 */
+	folderCheck: (scope: string, onLine: Channel<string>) =>
+		typedError<CliExit, CliError>(
+			__TAURI_INVOKE('folder_check', { scope, onLine }),
+		),
 	/**  Every app installed under `Apps/`, with whether it can run. */
 	listInstalledApps: () =>
 		typedError<InstalledApp[], string>(__TAURI_INVOKE('list_installed_apps')),
@@ -438,6 +447,26 @@ export type CatalogError =
 	| { name: 'DownloadFailed'; message: string }
 	| { name: 'DeleteFailed'; message: string };
 
+/**  Why a command did not run the CLI, or the CLI did not finish. */
+export type CliError =
+	/**  This window holds no grant for the folder. */
+	| { name: 'NotGranted'; grant: GrantError }
+	/**
+	 *  The binary could not be started or read, stopped without an exit
+	 *  code, or the page stopped listening.
+	 */
+	| { name: 'Failed'; message: string };
+
+/**
+ *  How a run ended. `code` is the CLI's exit code (ADR-0520): 0 done, 1 a
+ *  finding a person acts on, 2 input it cannot use.
+ */
+export type CliExit = {
+	code: number;
+	/**  The end of what the CLI wrote for people, at most 64 KiB. */
+	stderr: string;
+};
+
 /**  One data folder the Folders window can open. */
 export type DataFolder = {
 	/**  The scope to pass to `openDataFolder({ id })`. */
@@ -529,6 +558,27 @@ export type GlobalShortcutTriggered = {
 	commandId: string;
 	state: GlobalShortcutState;
 };
+
+/**
+ *  Why a window was not given a folder, or a change or `git` run for it was
+ *  not admitted.
+ */
+export type GrantError =
+	/**  The shell registered no folder under this scope. */
+	| { name: 'UnknownScope'; scope: string }
+	/**  The scope exists, but is not registered for this window. */
+	| { name: 'WindowNotPermitted'; scope: string; window: string }
+	/**  Another process holds the folder. */
+	| { name: 'Busy'; root: string }
+	/**
+	 *  A data folder's directory is not there. The shell creates only an
+	 *  application's own folder.
+	 */
+	| { name: 'Missing'; root: string }
+	/**  The folder could not be prepared, locked, or reached. */
+	| { name: 'Unavailable'; message: string }
+	/**  The shell is shutting its folders down. */
+	| { name: 'ShuttingDown' };
 
 /**
  *  A section of Epicenter Home an application can ask the shell to open.

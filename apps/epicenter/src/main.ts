@@ -1,7 +1,10 @@
 /**
- * The Bun sidecar entrypoint: accept one versioned boot frame from Rust, bind
- * its validated loopback port, announce readiness once, and remain tied to the
- * parent stdin pipe for the lifetime of the desktop application.
+ * The Bun host: accept one versioned boot frame from Rust, bind its validated
+ * loopback port, announce readiness once, and remain tied to the parent stdin
+ * pipe for the lifetime of the desktop application.
+ *
+ * It is the hidden `__host` mode of the `epicenter` binary
+ * (`epicenter-binary.ts`) until Rust serves the apps (ADR-0556).
  */
 
 import { join } from 'node:path';
@@ -127,13 +130,16 @@ async function main(): Promise<void> {
 	}
 }
 
-try {
-	await main();
-} catch (error) {
-	// Opening the store is part of boot, and it reports its refusals by throwing
-	// what a `defineErrors` factory produced. Those are plain objects, so an
-	// `instanceof Error` test would print `[object Object]` for exactly the
-	// failure an operator most needs spelled out.
-	console.error(extractErrorMessage(error));
-	process.exitCode = 1;
+/** Run the host until the parent pipe closes; a failure sets exit code 1. */
+export async function runHost(): Promise<void> {
+	try {
+		await main();
+	} catch (error) {
+		// Opening the store is part of boot, and it reports its refusals by
+		// throwing what a `defineErrors` factory produced. Those are plain
+		// objects, so an `instanceof Error` test would print `[object Object]`
+		// for exactly the failure an operator most needs spelled out.
+		console.error(extractErrorMessage(error));
+		process.exitCode = 1;
+	}
 }

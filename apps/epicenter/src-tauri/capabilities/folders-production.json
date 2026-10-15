@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "folders-production",
-	"description": "The Folders window lists the data folders under the Epicenter folder root and opens each with the page's own engine. Listing permits the window into each folder's scope; the folder plugin then grants it the directory, reads and changes it, and runs the folder's Git itself. It also lists the apps in a repository, and installs, approves, updates, and opens installed apps (ADR-0540, ADR-0552), and opens Settings (ADR-0537). The window listens for the folder plugin's change event, epicenter-folder://changed, and for the shell's epicenter://data-folders-changed, sent when the list of data folders may have changed.",
+	"description": "The Folders window lists the data folders under the Epicenter folder root and opens each with the page's own engine. Listing permits the window into each folder's scope; the folder plugin then grants it the directory, reads and changes it, and runs the folder's Git itself. It runs `epicenter check` on a folder it was granted through folder_check, the narrow CLI runner's one command (ADR-0556). It also lists the apps in a repository, and installs, approves, updates, and opens installed apps (ADR-0540, ADR-0552), and opens Settings (ADR-0537). The window listens for the folder plugin's change event, epicenter-folder://changed, and for the shell's epicenter://data-folders-changed, sent when the list of data folders may have changed.",
 	"local": false,
 	"windows": ["folders"],
 	"remote": {
@@ -12,6 +12,7 @@
 		"core:event:allow-listen",
 		"core:event:allow-unlisten",
 		"allow-list-data-folders",
+		"allow-folder-check",
 		"allow-list-installed-apps",
 		"allow-list-repository-apps",
 		"allow-install-app",
