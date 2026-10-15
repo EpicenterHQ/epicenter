@@ -6,15 +6,13 @@
 	import type { CommitOutcome } from '@epicenter/folder';
 	import { type Captures, describeError } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
-	import Recovery from './Recovery.svelte';
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
 	let { captures }: { captures: Captures } = $props();
 
-	// One page: the timeline, the recovery screen, or the one open capture.
+	// One page: the timeline or the one open capture.
 	const item = $derived(captures.opened);
-	let recovering = $state(false);
 	/** The capture just added from the timeline, so its view starts at Add a thought. */
 	let created = $state<string>();
 
@@ -80,10 +78,7 @@
 			variant="ghost"
 			size="sm"
 			class="-ml-2.5"
-			onclick={() => {
-				recovering = false;
-				captures.leave();
-			}}>Capture</Button
+			onclick={() => captures.leave()}>Capture</Button
 		>
 		<div class="flex items-center gap-3">
 			<span role="status" class="text-xs text-muted-foreground"
@@ -102,21 +97,7 @@
 <main class="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-16 pt-6 sm:px-6">
 	<div>
 		{#if item === undefined}
-			{#if recovering}
-				<Recovery
-					{captures}
-					onOpen={(stem, mode) => {
-						recovering = false;
-						captures.open(stem, mode);
-					}}
-				/>
-			{:else}
-				<Timeline
-					{captures}
-					onCreated={() => (created = captures.opened?.stem)}
-					onRecover={() => (recovering = true)}
-				/>
-			{/if}
+			<Timeline {captures} onCreated={() => (created = captures.opened?.stem)} />
 		{:else if item.mode === 'capture'}
 			{#key item}
 				<CaptureDetail {captures} stem={item.stem} focusNewThought={created === item.stem} />

@@ -17,8 +17,7 @@ export const CAPTURE_FOLDER_ID = 'so.epicenter.capture';
 
 /**
  * The folder both leaves open: its captures table, its files (a capture's
- * exact text, and the legacy import), its Git history, and its channel of
- * outside changes.
+ * exact text), its Git history, and its channel of outside changes.
  */
 export type CaptureFolder = Folder<typeof captureDefinition>;
 

@@ -14,12 +14,10 @@
 	let {
 		captures,
 		onCreated,
-		onRecover,
 	}: {
 		captures: Captures;
 		/** The new capture is open; the next thing to type is a thought. */
 		onCreated: () => void;
-		onRecover: () => void;
 	} = $props();
 
 	const listing = createQuery(() => captures.rowsQuery(timelineOf));
@@ -197,5 +195,4 @@
 			Files are kept in this browser.
 		{/if}
 	</p>
-	<Button variant="link" size="xs" class="h-auto p-0 whitespace-normal text-left" onclick={onRecover}>Bring in captures from before this version…</Button>
 </footer>

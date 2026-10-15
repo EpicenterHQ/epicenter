@@ -17,8 +17,6 @@
  * - An edit made elsewhere merges with this one: both survive
  * - Closing waits for a save already sent and the latest edit after it
  * - Save version commits and rewrites no file
- * - An import whose export landed but lost its reply is finished by a
- *   retry, and repeats create nothing
  *
  * See also:
  * - `packages/folder/src/tauri-directory.test.ts` for the granted opener
@@ -26,11 +24,9 @@
  */
 import '../svelte-modules.test-support.js';
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { readLegacyBundle } from '@epicenter/capture/legacy';
-import { expectErr, expectOk } from 'wellcrafted/testing';
-import fixture from '../../../fixtures/legacy-bundle.json';
+import { expectOk } from 'wellcrafted/testing';
 import {
 	git,
 	scratch,
@@ -295,49 +291,6 @@ test('Save version commits and rewrites no file', async () => {
 		'Capture <capture@localhost>',
 	);
 	expect(await git(root, 'status', '--porcelain')).toBe('');
-	await captures.close();
-	await host.close();
-});
-
-test('an import whose export landed but lost its reply is finished by a retry, and repeats create nothing', async () => {
-	const read = readLegacyBundle(fixture);
-	if (!read.ok) throw new Error('the fixture is not a bundle');
-	const { host, captures } = await opened();
-	const exported = () =>
-		readdir(join(root, 'recovery')).then(
-			(names) => names.filter((name) => name.startsWith('legacy-export-')),
-			() => [],
-		);
-	let lost = 0;
-	// The export lands in the folder, and its reply never comes back.
-	before.rename_folder_path = async (call) => {
-		if (!String(call.args.to).includes('/recovery/legacy-export-')) return;
-		await shellCommand(root, call.cmd, call.args);
-		lost++;
-		throw new Error(LOST);
-	};
-
-	expect(expectErr(await captures.importLegacy(read.bundle)).message).toContain(
-		'Nothing was imported',
-	);
-	expect(lost).toBe(1);
-	const exports = await exported();
-	expect(exports).toHaveLength(1);
-	const original = await text(`recovery/${exports[0]}`);
-
-	delete before.rename_folder_path;
-	const retry = expectOk(await captures.importLegacy(read.bundle));
-	expect(retry.complete).toBe(true);
-	expect(retry.documents.map((document) => document.status)).toEqual(
-		Array.from({ length: 6 }, () => 'created'),
-	);
-	expect(await exported()).toEqual(exports);
-	expect(await text(`recovery/${exports[0]}`)).toBe(original);
-
-	const again = expectOk(await captures.importLegacy(read.bundle));
-	expect(again.documents).toEqual([]);
-	expect(again.alreadyImported).toHaveLength(6);
-	expect(await readdir(join(root, 'captures'))).toHaveLength(6);
 	await captures.close();
 	await host.close();
 });

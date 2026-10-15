@@ -111,8 +111,8 @@ current before it encodes. The codec needs no thought IDs.
 `fromTextarea(original, value, newline)` carries a textarea's value (always
 LF) back into source that may use CRLF, rewriting only the changed middle.
 `composeBody(text, thoughts?)` builds a new capture's body: the text exactly
-as given, then the `## Thoughts` section. The app and the legacy import both
-use it. A capture is the same when reopened as when created:
+as given, then the `## Thoughts` section. A capture is the same when reopened
+as when created:
 
 | Text | Body | Reads as |
 | --- | --- | --- |
@@ -125,84 +125,6 @@ The last row is the only case that writes anything before the text. Without
 it the fence would absorb the second heading and the text's own list would
 read as thoughts. The text's bytes are whole and in order in every row.
 
-## Importing the old store
-
-`@epicenter/capture/legacy` is for migration only. Nothing in the running app
-imports it except the recovery screen, on request. It reads an export a person
-saved from the old Personal store earlier; the store itself is no longer
-opened.
-
-```ts
-import { readLegacyBundle, runLegacyImport } from '@epicenter/capture/legacy';
-
-const read = readLegacyBundle(JSON.parse(text));
-if (read.ok) await runLegacyImport(folder.files, read.bundle);
-```
-
-`runLegacyImport` takes the folder's `read`, `create`, and `replace`. Every
-document is formatted as the captures table writes a row (`formatRow`), so
-an imported file is in the form a save of it would write. Every document,
-the bundle, and the report are saved with `create`, which refuses an
-occupied path. Only the receipt is ever saved with `replace`, and only over
-the exact receipt the import read.
-
-**The bundle** is one snapshot of what one device held. It is plain JSON
-(`readLegacyBundle` checks a parsed file and refuses one that is not a bundle,
-naming each problem). Exporting only reads the store.
-
-- It is bounded: a device that has not finished syncing holds less than the
-  account does, and the export cannot tell. `source.scope` is
-  `local-replica`.
-- A row whose body could not be read has `text: null`. An empty body has
-  `text: ''`. They are reported separately.
-- A row whose stored values could not be read is in `unreadable`, with its
-  raw values and its body text when that was readable.
-
-**The import** writes new files and never replaces a capture, a bundle, or a
-report:
-
-| File | Holds |
-| --- | --- |
-| `captures/legacy-<account>-c-<hash>.md` | One old capture: its exact text, then its thoughts in position order. Its own `capturedAt`. |
-| `captures/legacy-<account>-e-<hash>.md` | One old entry, with its own `capturedAt` and `legacyParentId`. |
-| `captures/legacy-<account>-o-<hash>.md` | Thoughts whose capture was not in the export. `capturedAt` is the export time, labelled `capturedAtIs`, and the text names the missing capture and the thought IDs. |
-| `captures/legacy-<account>-l-<hash>.md` | Thoughts that arrived after their capture was imported. The imported capture is not patched. |
-| `recovery/legacy-export-<account>-<bundle>.json` | The bundle. |
-| `recovery/legacy-report-<account>-<bundle>.md` | What no document carries: unreadable rows with their raw values, unreadable bodies, held and empty thoughts. |
-| `recovery/legacy-import-receipt-<account>.json` | Which old rows have been imported, and where. |
-
-`<account>` is a hash of the authority and principal, so two accounts
-importing into one folder share no file name and no receipt. Every imported
-file names its source in `importedFrom`.
-
-**Retrying** an import, with the same bundle or a later one, is safe. For
-each document the import would write:
-
-| Situation | Result |
-| --- | --- |
-| The receipt names its source | Skipped, even if the file was since edited or deleted. |
-| The destination is absent | Created, then recorded. |
-| The destination holds the same capture | Recorded. This is an earlier run that wrote the file and stopped before the receipt. The same capture is text that reads as the same row, so a file an earlier version wrote in another frontmatter style counts; text that is not a valid row counts only byte for byte. |
-| The destination holds another capture | Reported as `differs`, left alone, and not recorded. |
-
-Files are written first and the receipt last, so a run that stops partway is
-finished by running it again. A row whose body could not be read is neither
-imported nor recorded, so a later export that has the body imports it whole;
-its thoughts are held with it and their text is kept in the report.
-
-**Bounds.** There are no hidden tombstones:
-
-- Deleting an imported capture does not bring it back, because the receipt
-  still names it. Deleting the receipt makes the next import treat every row
-  as new; files still in place are then found identical and recorded, and
-  deleted ones are created again.
-- A file written by a run whose receipt failed, and then edited before the
-  retry, is reported as `differs` on every retry until it is renamed or the
-  receipt is edited by hand. It is never overwritten.
-- Thoughts imported as orphans are imported again inside their capture if a
-  later export has that capture. Both documents are kept.
-- An unreadable receipt stops the import before anything is written.
-
 ## Checks
 
 ```sh
@@ -211,6 +133,4 @@ bun run --cwd packages/capture typecheck
 ```
 
 The document tests compare every operation's output with literal expected
-bytes. The legacy tests export from a real in-memory store and import into a
-real directory, including a destination an earlier version wrote in another
-frontmatter style.
+bytes.

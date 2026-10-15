@@ -122,28 +122,6 @@ Any typed character counts, spaces included, until you add it or clear it.
 
 Nothing persists text not added across a reload or a quit you confirm.
 
-## Captures from before this version
-
-Earlier versions kept captures in your Epicenter account, not in files. The
-timeline's "Bring in captures from before this version…" link opens a screen
-that copies an export of them in. Nothing on it runs unless you press a
-button.
-
-1. **Choose an export.** An export file (JSON) saved from that screen in an
-   earlier version.
-2. **Import.** Each old capture becomes one Markdown file with its thoughts
-   in order and its original date. Earlier entries become their own files.
-   Thoughts whose capture is missing are kept in a recovery file that says so.
-   Anything that could not be read is listed in a report in `recovery/`.
-
-Importing the same export twice adds nothing twice, and nothing is
-overwritten. The exact rules, including what happens after you delete an
-imported capture, are in the
-[package README](../../packages/capture/README.md#importing-the-old-store).
-
-`fixtures/legacy-bundle.json` is an export file for trying this without
-signing in.
-
 ## Desktop, inside Epicenter
 
 The captures are files in `so.epicenter.capture/captures` under Epicenter's
@@ -164,12 +142,11 @@ whose README states what a grant allows. What that means for Capture:
   it, `.so.epicenter.capture.epicenter-lock`, which the shell takes at the
   first grant and keeps until it shuts down. A second Epicenter is refused
   with a message naming the directory.
-- Other programs are not asked to take the lock. Every write, delete, and
-  import names the version of the file this window last wrote or read. A
-  row write merges with another program's edit, keeping what only they
-  changed; a text write or an import is refused if the file is no longer that
-  version. A new capture and an
-  imported file are created only where no file is. An edit in the instant
+- Other programs are not asked to take the lock. Every write and delete
+  names the version of the file this window last wrote or read. A row write
+  merges with another program's edit, keeping what only they changed; a text
+  write is refused if the file is no longer that version. A new capture is
+  created only where no file is. An edit in the instant
   between the folder's last check and its change can still be overwritten:
   none of these is an operating-system compare-and-swap.
 - The shell watches the directory and tells the window which paths
@@ -222,8 +199,8 @@ emits one adapter.
 
 Capture uses the folder's captures table (`list`, `create`, `save`, and
 `delete`, each write guarded by the version it replaces, `save` merging
-with a newer one), its files for editing a capture as text and for the
-legacy import (`read`, `create`, and `replace`), the Git snapshot, `status`,
+with a newer one), its files for editing a capture as text (`read`
+and `write`), the Git snapshot, `status`,
 and `commit`, and `onFilesChanged`. Reads and saves go through the folder's
 query options (`folderOptions` from `@epicenter/folder/query`), so every
 read is keyed under the folder. The folder is the `CaptureFolder` type in
@@ -266,11 +243,11 @@ write runs.
 
 | Path | Role |
 | --- | --- |
-| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` opens the directory the shell grants. `auth.*.ts` is used only by the old-data export. |
-| `src/lib/captures.svelte.ts` | The store, over a TanStack Query cache keyed by `folderOptions`: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` holding a file's typed text over its version and writing it, each action (create, delete, Save version, import) as a mutation, which capture is open, and close. |
+| `src/lib/platform/` | The `#platform/folder` seam: `types.ts` is its contract, `folder.browser.ts` opens the OPFS folder, `folder.epicenter-host.ts` opens the directory the shell grants. |
+| `src/lib/captures.svelte.ts` | The store, over a TanStack Query cache keyed by `folderOptions`: the capture listing and a capture's text as queries, each capture's form (`formOf`), `editText` holding a file's typed text over its version and writing it, each action (create, delete, Save version) as a mutation, which capture is open, and close. |
 | `src/lib/capture-form.svelte.ts` | One capture's edit, a draft (`createDraftState` from `@epicenter/folder/svelte`) saved one save at a time, its input not added yet (a new thought, a thought edit), and the commands that turn a change of text or thoughts into a new body. |
 | `src/lib/item-actions.ts` | Deleting a capture with its confirmation. |
-| `src/lib/components/` | `CaptureApp.svelte` shows the timeline, the recovery screen, or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
+| `src/lib/components/` | `CaptureApp.svelte` shows the timeline or the open capture, and the header's Save version; `CaptureDetail.svelte` and `TextDetail.svelte` are the open capture as text and thoughts or as Markdown, each showing the edit not saved yet over the cache. Each is keyed by the open capture. |
 
 The package exports nothing. No host imports a part of this app.
 
@@ -293,8 +270,8 @@ them.
 
 | Test | What it checks |
 | --- | --- |
-| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved at once keeping undeclared metadata, rapid edits with one save running and the rest in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere and what it replaced, a failed save kept and sent again, a deleted file, changes the body or the folder cannot hold, repair as text and a refused text write, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, close, and import. |
-| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, a write saves the row, an outside edit merges with the window's, closing waits for a save already sent, Save version commits and rewrites nothing, and an import whose export reply was lost is finished by a retry. It does not run the shell's path or Git checks. |
+| `src/lib/captures.test.ts` | The store and its query cache over a real browser folder: creating and listing, an edit saved at once keeping undeclared metadata, rapid edits with one save running and the rest in one more, a reported change read again without replacing an edit not saved, a save merged with a change made elsewhere and what it replaced, a failed save kept and sent again, a deleted file, changes the body or the folder cannot hold, repair as text and a refused text write, thought text kept per capture, stale thought commands, delete after the edit is saved, Save version and no commit on its own, and close. |
+| `src/lib/platform/folder.epicenter-host.test.ts` | The desktop leaf over the real `@epicenter/folder/tauri` page engine and the real store, on a temporary directory with the system `git`; the shell's `invoke` is scripted to grant that directory and carry out its commands there (`granted-directory.test-support.ts`). Refused grants fail the open, a write saves the row, an outside edit merges with the window's, closing waits for a save already sent, and Save version commits and rewrites nothing. It does not run the shell's path or Git checks. |
 | `src/lib/platform-selection.test.ts` | Which leaf each build bundles: the desktop bundle has the desktop adapter, nothing of the host package, and no browser adapter, browser storage, Git implementation, or Node module; the browser bundle has the browser adapter and no desktop adapter or generated bindings. |
 | `src/lib/components/capture-detail.mounted.test.ts`, `timeline.mounted.test.ts` | The real views mounted in jsdom inside the query client over the real store: text and thoughts written, a save merged with a change made elsewhere, a reported change shown, a thought not added kept to copy, repair as text with live issues and Open as capture, input refused while quitting, the New capture text box and Add capture, and the repair list's Edit as text. jsdom has no layout, focus, selection, or IME. |
 
@@ -306,8 +283,7 @@ desktop window itself is checked by hand in the Epicenter shell.
 
 | Script | What it checks |
 | --- | --- |
-| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, a write merged with another page's change, Save version, leave warnings, deletion, and an import. Needs a free local port and `bun x playwright install chromium`. |
-| `bun apps/capture/scripts/recovery-harness.ts [dir] [bundle.json]` | A standalone tool, not the desktop backend: imports a bundle into a real directory twice, through `@epicenter/folder/bun` with an explicit author and no remote, and prints both reports. Exits nonzero if the retry creates anything. `bun run harness:recovery` runs it from here. |
+| `bun run --cwd apps/capture smoke:browser` | The browser build in Chromium, with two pages sharing one folder: exact saved Markdown, thought edits, keyboard submit, Edit as text, a write merged with another page's change, Save version, leave warnings, and deletion. Needs a free local port and `bun x playwright install chromium`. |
 
 ## Changed promises
 
@@ -352,11 +328,7 @@ The version before that one dropped these:
 - The first write of a hand-written file rewrites its frontmatter as plain
   YAML. Comments in the frontmatter are lost. The previous standard form was
   JSON-style quoted keys.
-- Imported captures are written in the same plain YAML form, and a retry
-  counts a file an earlier import wrote in another form as the same capture.
-- Import reports can no longer be viewed in the app. The recovery screen
-  prints the paths of the report, the saved export, and the receipt under
-  `recovery/`; on the desktop they are files in the folder, and in the
-  browser build nothing shows them.
+- Captures from before the file version can no longer be imported. The
+  recovery screen and the export format it read are gone.
 - A commit is refused while Capture closes or Epicenter quits or restarts,
   and says so, as every other action does.

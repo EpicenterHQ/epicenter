@@ -1,5 +1,5 @@
 {
-	// Bun entrypoints: the smoke, harness, and module graph scripts.
+	// Bun entrypoints: the smoke and module graph scripts.
 	"extends": "../../tsconfig.dom.json",
 	"compilerOptions": {
 		"types": ["bun"],

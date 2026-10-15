@@ -34,9 +34,7 @@
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { readLegacyBundle } from '@epicenter/capture/legacy';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import fixture from '../../fixtures/legacy-bundle.json';
 import { openCaptures } from './browser-folder.test-support.js';
 import {
 	cached,
@@ -550,18 +548,4 @@ test('close waits for a write already sent and the newest edit after it, and eve
 	form.inputText('After close');
 	expect(form.draft).toBeUndefined();
 	expect(await harness.text(PATH)).toContain('\nTyped later\n');
-});
-
-test('importing an export twice adds nothing the second time', async () => {
-	const read = readLegacyBundle(fixture);
-	if (!read.ok) throw new Error('the fixture is not a bundle');
-	const { captures } = await open();
-	const first = expectOk(await captures.importLegacy(read.bundle));
-	expect(first.complete).toBe(true);
-	await quiet(captures);
-	expect(listing(captures)).toHaveLength(first.documents.length);
-	const again = expectOk(await captures.importLegacy(read.bundle));
-	expect(again.documents).toEqual([]);
-	await quiet(captures);
-	expect(listing(captures)).toHaveLength(first.documents.length);
 });

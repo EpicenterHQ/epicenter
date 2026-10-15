@@ -18,7 +18,7 @@
 <QueryClientProvider client={captures.queryClient}>
 	<Tooltip.Provider>
 		{#if item === undefined}
-			<Timeline {captures} onCreated={() => {}} onRecover={() => {}} />
+			<Timeline {captures} onCreated={() => {}} />
 		{:else if item.mode === 'capture'}
 			{#key item}<CaptureDetail {captures} stem={item.stem} />{/key}
 		{:else}

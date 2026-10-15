@@ -37,11 +37,6 @@ import {
 	excerpt,
 } from '@epicenter/capture';
 import {
-	type ImportReport,
-	type LegacyBundle,
-	runLegacyImport,
-} from '@epicenter/capture/legacy';
-import {
 	type CommitOutcome,
 	type FileCapture,
 	type FileError,
@@ -135,13 +130,9 @@ export type ReplacedChange = {
 	readonly replaced: readonly Replaced[];
 };
 
-/** Why an action did not start, or why an import failed. */
+/** Why an action did not start. */
 export const CapturesError = defineErrors({
 	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
-	ImportFailed: ({ cause }: { cause: unknown }) => ({
-		message: cause instanceof Error ? cause.message : String(cause),
-		cause,
-	}),
 });
 export type CapturesError = InferErrors<typeof CapturesError>;
 
@@ -159,7 +150,6 @@ export const capturesKeys = defineKeys({
 	create: ['captures', 'create'],
 	remove: (path: string) => ['captures', 'remove', path] as const,
 	saveVersion: ['captures', 'save-version'],
-	import: ['captures', 'import'],
 });
 
 /**
@@ -754,22 +744,6 @@ export function createCaptures(
 				await editsSettled();
 				return Ok(await folder.git.commit());
 			},
-		}),
-		/** Import a whole export, including its report and receipt, then read the folder again. */
-		importLegacy: defineMutation({
-			mutationKey: capturesKeys.import,
-			mutationFn: async (
-				bundle: LegacyBundle,
-			): Promise<Result<ImportReport, CapturesError>> => {
-				const why = refused();
-				if (why !== undefined) return CapturesError.NotStarted({ reason: why });
-				try {
-					return Ok(await runLegacyImport(folder.files, bundle));
-				} catch (cause) {
-					return CapturesError.ImportFailed({ cause });
-				}
-			},
-			onSettled: () => queryClient.invalidateQueries({ queryKey: folder$.key }),
 		}),
 
 		// ------------------------------------------------------------------

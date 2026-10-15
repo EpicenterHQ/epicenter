@@ -19,7 +19,6 @@ import { dirname, join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 
 const root = join(import.meta.dir, '../../..');
-const fixture = join(import.meta.dir, '../fixtures/legacy-bundle.json');
 const artifacts = process.env.CAPTURE_SMOKE_ARTIFACT_DIR;
 if (artifacts) mkdirSync(artifacts, { recursive: true });
 
@@ -303,33 +302,7 @@ try {
 		1,
 	);
 
-	// 11. Old captures come in from a bundle file, and a second import adds nothing.
-	await second
-		.getByRole('button', {
-			name: 'Bring in captures from before this version…',
-		})
-		.click();
-	await second.getByLabel('From an export file').setInputFiles(fixture);
-	await second
-		.getByRole('button', { name: 'Import as Markdown files' })
-		.click();
-	const result = second.getByRole('region', { name: 'Import result' });
-	await result.getByText('Import finished').waitFor();
-	await result.getByText('6 files created').waitFor();
-	await second
-		.getByRole('button', { name: 'Import as Markdown files' })
-		.click();
-	await result.getByText('0 files created').waitFor();
-	await result.getByText('6 imported before and left as they are').waitFor();
-	await second.getByRole('button', { name: 'Capture', exact: true }).click();
-	await second
-		.getByLabel('Timeline captures')
-		.getByRole('button')
-		.filter({ hasText: 'Dinner with Sebastian' })
-		.getByText('2 thoughts')
-		.waitFor();
-
-	// 12. A narrow screen does not scroll sideways.
+	// 11. A narrow screen does not scroll sideways.
 	await second.setViewportSize({ width: 390, height: 844 });
 	assert(
 		await second.evaluate(
@@ -345,7 +318,7 @@ try {
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a write merged with a change from another page, Save version, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an idempotent import from a bundle file.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, a write merged with a change from another page, Save version, a leave warning for unadded text, an ambiguous capture opened as text, and deletion.',
 	);
 } catch (cause) {
 	console.error(cause);

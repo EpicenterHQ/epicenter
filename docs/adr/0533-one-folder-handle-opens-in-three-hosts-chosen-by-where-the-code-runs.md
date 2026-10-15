@@ -7,9 +7,8 @@
 ## Context
 
 `@epicenter/folder` runs in three places. A web app runs in a browser tab. A
-desktop app runs in a Tauri webview. Tests, recovery harnesses, and scripts
-such as `scripts/epicenter.ts` and `apps/capture/scripts/recovery-harness.ts`
-run as Bun processes. They differ in who may touch the disk: a browser tab
+desktop app runs in a Tauri webview. Tests and scripts such as
+`scripts/epicenter.ts` run as Bun processes. They differ in who may touch the disk: a browser tab
 reaches only its origin private file system, a desktop page reaches a
 directory only through the shell, and a Bun process reaches the disk itself.
 A Bun process has no webview, so it cannot call the shell's `invoke()`
