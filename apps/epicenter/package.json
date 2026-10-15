@@ -32,7 +32,9 @@
 	"dependencies": {
 		"openai": "^7.12.1",
 		"@epicenter/agent": "workspace:*",
+		"@epicenter/definition": "workspace:*",
 		"@epicenter/device": "workspace:*",
+		"@epicenter/folder": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",
 		"@epicenter/client": "workspace:*",

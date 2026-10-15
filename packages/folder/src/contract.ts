@@ -131,6 +131,14 @@ export {
 	rowStemOf,
 } from './paths.js';
 export {
+	type AnyRow,
+	type BodyConflict,
+	type FieldConflict,
+	mergeRow,
+	type RowMerge,
+	type RowVersions,
+} from './row-merge.js';
+export {
 	formatRow,
 	type Issue,
 	type Issues,
