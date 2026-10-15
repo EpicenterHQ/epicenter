@@ -22,13 +22,16 @@ execute from top to bottom.
 
 | Export | Disposition | Current grounding and surviving value |
 | --- | --- | --- |
-| `codex-session-01a0af68-0807-7501-b307-bb518be8a6ec.md` | Deleted: superseded startup assessment | Historical browser generation helpers and the production `_initial_generation` experiment are gone. Skills now calls `openApp`. The inert declaration and current opener are implemented. Its Vocab boot failure no longer reproduces. The [startup report](reports/20260917-startup-and-unfinished-work.md) preserves the checkpoint; its next-step ordering is historical. Skills' product purpose and physical acceptance remain separate questions. |
+<!-- doc-path-check: ignore-next-line -->
+| `codex-session-01a0af68-0807-7501-b307-bb518be8a6ec.md` | Deleted: superseded startup assessment | Historical browser generation helpers and the production `_initial_generation` experiment are gone. Skills now calls `openApp`. The inert declaration and current opener are implemented. Its Vocab boot failure no longer reproduces. The startup report (`docs/reports/20260917-startup-and-unfinished-work.md`, deleted; recover via `git log --all --full-history`) preserves the checkpoint; its next-step ordering is historical. Skills' product purpose and physical acceptance remain separate questions. |
 | `codex-session-01a0b345-aae0-7a41-89f3-c6fb70ce1877.md` | Deleted: repairs and package collapse completed | App, app-shell, and Whispering package test scripts use `--isolate`. `packages/data` is gone; the App root exports `defineApp`, `defineTable`, and `field`, with the engine under `src/data`. The late proposal is now implemented by [ADR-0407](adr/0407-app-owns-the-declaration-and-data-engine.md) and later opener amendments. Do not restore its earlier claim that the separate data package is necessary. |
 | `codex-session-01a0b36b-572c-7560-92a6-7ca714680133.md` | Deleted: completed SQLite explanation | [SQLite ownership](../packages/device/src/owner.ts) and its tests preserve connection closure, drain, pool release, and failure retention. Later App admission owns cross-context exclusion. The old explanation is not another unfinished redesign. The unused returned `drain` method is separately covered by the retained audit. |
 | `codex-session-01a0b46e-1f3e-72e2-ac68-7cabf6278cda.md` | Deleted: completed runtime verification | [The opener](../packages/app/src/open.ts), [memory runtime tests](../packages/app/src/runtime.test.ts), and [browser admission evidence](../packages/app/evidence/data/app-ownership/browser.ts) preserve the result. `await openApp` returns a ready App; there is no public `app.ready` phase. Its final WebKit rerun supersedes its earlier failed observation. Browser checks were not rerun in this review. |
 | `codex-session-01a0b1dd-1af1-70e0-addd-6299bf4830b4.md` | Deleted after extracting takeaways | Its framework direction is represented by current code and ADRs. Its claims that scopes and platform selection are unbuilt are stale. Preserve the Mail credential race, the “Zhongwen should be personal GitHub” correction later settled as an independent repository, and hardware acceptance below. Its graceful-departure recommendation is superseded by process/document replacement. |
-| `codex-session-01a0b345-8c37-7fe0-82d4-8fc0b9c77f07.md` | Deleted after extracting product direction | The [integration review](reports/20260918-integration-review.md) already records the merge work. The user selected local Gmail reading/search/triage and a broader Chinese study app with saved words and review. Preserve those outcomes below. Its startup blocker is now resolved; its PR counts, mergeability, and clean-checkout claims are historical, not current status. |
-| `codex-session-01a0b531-b6c6-7e21-a89c-0db3c3d88683.md` | Retained: test/API work | Most final deletion candidates still exist. `StoreBacking` still allows replication without `discard`; signed-in opening still waits for Personal. Vocab still truncates candidate phrases. The duplicate Whispering owner lookup is already removed in the dirty checkout. Use the corrections below alongside the [dated test audit](reports/20260918-test-direction-audit.md). |
+<!-- doc-path-check: ignore-next-line -->
+| `codex-session-01a0b345-8c37-7fe0-82d4-8fc0b9c77f07.md` | Deleted after extracting product direction | The integration review (`docs/reports/20260918-integration-review.md`, deleted; recover via `git log --all --full-history`) already records the merge work. The user selected local Gmail reading/search/triage and a broader Chinese study app with saved words and review. Preserve those outcomes below. Its startup blocker is now resolved; its PR counts, mergeability, and clean-checkout claims are historical, not current status. |
+<!-- doc-path-check: ignore-next-line -->
+| `codex-session-01a0b531-b6c6-7e21-a89c-0db3c3d88683.md` | Retained: test/API work | Most final deletion candidates still exist. `StoreBacking` still allows replication without `discard`; signed-in opening still waits for Personal. Vocab still truncates candidate phrases. The duplicate Whispering owner lookup is already removed in the dirty checkout. Use the corrections below alongside the dated test audit (`docs/reports/20260918-test-direction-audit.md`, deleted; recover via `git log --all --full-history`). |
 | `codex-session-01a0b74a-1b65-7023-a484-f68c0587d625.md` | Retained: Mail execution work | Bounded storage writes exist in the dirty checkout. Account-wide pacing, shared cooldown, page-sized reconciliation, and request cancellation do not. Preserve the user's refusal to remove pending changes or formatted mail. Its early description of runtime replacement as unbuilt is obsolete. |
 
 ### Current architecture, not another migration request
@@ -147,7 +150,8 @@ Explicit shared collections were discussed, not implemented or adopted as a
 new mandatory architecture.
 
 Physical microphone interruption/reacquisition still has an unchecked gate in
-the [runtime lifetime plan](../specs/20260919T090341-runtime-lifetime-collapse.md).
+<!-- doc-path-check: ignore-next-line -->
+the runtime lifetime plan (`specs/20260919T090341-runtime-lifetime-collapse.md`, deleted; recover via `git log --all --full-history`).
 Its previous attempt failed before capture because macOS exposed no input
 device. Do not infer that hardware acceptance passed from synthetic browser
 recording or SQLite tests. Skills/chat product purpose remains open in root
@@ -181,11 +185,13 @@ retention is temporary, not a competing architecture reference.
   independent blobs, working-copy recovery, and optional application copying.
   Decisions preserved in ADRs 0392 through 0395, 0399, and 0401; execution in
   the [completed backup cleanup](adr/0379-reconstruction-is-an-explicit-destructive-library-operation.md)
-  and [App scopes plan](../specs/20260912T112824-app-hub-and-whispering-transcription-collapse.md).
+  <!-- doc-path-check: ignore-next-line -->
+  and App scopes plan (`specs/20260912T112824-app-hub-and-whispering-transcription-collapse.md`, deleted; recover via `git log --all --full-history`).
 - [x] `codex-session-01a09819-f0c2-7a93-a621-aa33f2c21de2.md`:
   runtime platform selection and full-trust host permissions. Proposals and
   remaining download choice preserved in ADRs 0402/0403 and the
-  [platform plan](../specs/20260912T120000-app-composition-greenfield.md).
+  <!-- doc-path-check: ignore-next-line -->
+  platform plan (`specs/20260912T120000-app-composition-greenfield.md`, deleted; recover via `git log --all --full-history`).
 - [x] `2026-09-15-101019-look-at-the-current-adrs-and-then-based-off-them.txt`:
   broad ADR-versus-code audit. Reviewed 2026-09-15; disposition and surviving
   findings below. The duplicate supplied path was reviewed once.
@@ -193,14 +199,17 @@ retention is temporary, not a competing architecture reference.
 - [x] `codex-session-01a0842d-5563-7d62-adc0-4e0c387bd239.md` (export deleted at the user's request on 2026-09-15):
   explicit core reads survive under ADR-0371. The public nullable blob API is
   overridden by ADR-0393; recorder getter removal remains conditional on
-  notification/session-cleanup evidence in the [core-read plan](../specs/20260908T204224-explicit-core-reads-and-blob-capabilities.md).
+  <!-- doc-path-check: ignore-next-line -->
+  notification/session-cleanup evidence in the core-read plan (`specs/20260908T204224-explicit-core-reads-and-blob-capabilities.md`, deleted; recover via `git log --all --full-history`).
 - [x] `codex-session-01a08726-8dd2-7ae3-887e-0310510e68ab.md` (export deleted at the user's request on 2026-09-15):
   development sign-in repairs are committed. The uncompleted real
   browser-to-desktop success check is preserved below and belongs to the
-  [one-account plan](../specs/20260908T214916-one-active-account.md).
+  <!-- doc-path-check: ignore-next-line -->
+  one-account plan (`specs/20260908T214916-one-active-account.md`, deleted; recover via `git log --all --full-history`).
 - [x] `codex-session-01a0872e-a566-76e3-9b84-ba18e0cb6390.md` (export deleted at the user's request on 2026-09-15):
   session ownership and per-input native capture survive in ADR-0366 and the
-  [concurrent capture plan](../specs/20260912T122859-concurrent-native-capture.md).
+  <!-- doc-path-check: ignore-next-line -->
+  concurrent capture plan (`specs/20260912T122859-concurrent-native-capture.md`, deleted; recover via `git log --all --full-history`).
   Its single-library App, public blob API, shared dictation, and durable restore
   attempt proposals are overridden as described below.
 
@@ -265,7 +274,8 @@ current-library startup instead.
 Before integrating the existing generation edits, reconcile this caller and
 its evidence with current-library startup. Do not blindly discard another
 session's diff or delete the caller. This belongs with the
-[library-ownership execution work](../specs/20260909T004225-library-ownership-execution.md).
+<!-- doc-path-check: ignore-next-line -->
+library-ownership execution work (`specs/20260909T004225-library-ownership-execution.md`, deleted; recover via `git log --all --full-history`).
 The failures were reproduced here; no clean-baseline comparison was run to
 attribute each failure to a particular edit.
 
@@ -274,7 +284,8 @@ attribute each failure to a particular edit.
 Both `apps/self-host/worker/index.ts` and `apps/self-host/server.ts` resolve
 named-user sessions. ADR-0375 reflects that implementation. ADR-0361 (deleted;
 see ADR-0549) and parts
-of the [one-account plan](../specs/20260908T214916-one-active-account.md)
+<!-- doc-path-check: ignore-next-line -->
+of the one-account plan (`specs/20260908T214916-one-active-account.md`, deleted; recover via `git log --all --full-history`)
 still describe static operator-token entry. Reconcile the intended client
 sign-in flow with the deployed server contract before implementing those
 steps. The recording decision does not settle or repair this mismatch.

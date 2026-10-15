@@ -133,4 +133,5 @@ without `@types/bun` installed would then fail with `Cannot find type definition
 ## Background
 
 The full rationale, the migration that established this layout, and the baseline
-typecheck state are in `specs/20260522T190000-modernize-monorepo-tsconfig.md`.
+typecheck state were in a spec, now deleted; recover it with
+`git log --all --full-history -- specs/20260522T190000-modernize-monorepo-tsconfig.md`.
