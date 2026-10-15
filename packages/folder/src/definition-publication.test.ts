@@ -18,6 +18,7 @@ import {
 } from './contract.js';
 import { formatDeclaration } from './declaration.js';
 import { events } from './publication-log.test-support.js';
+import { put } from './put.test-support.js';
 
 afterEach(() => {
 	events.length = 0;
@@ -121,7 +122,8 @@ for (const adapter of ['browser', 'bun'] as const) {
 			const row = expectOk(await folder.files.read('notes/kept.md'));
 			const kv = expectOk(await folder.files.read('kv.json'));
 			expectOk(
-				await folder.files.overwrite(
+				await put(
+					folder.files,
 					'epicenter.json',
 					'malformed manual description',
 				),

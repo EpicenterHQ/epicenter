@@ -18,8 +18,8 @@
  * - A change reported on the folder's channel reads the view again, and
  *   never replaces an edit not saved yet
  * - A save that meets a change made elsewhere merges with it, and the edit
- *   wins where both changed; a raw text write still refuses a file changed
- *   elsewhere and drops the typed text for the file
+ *   wins where both changed; a raw text write merges by line the same way,
+ *   and one to a file deleted elsewhere drops the typed text and reports it
  * - A save that fails keeps the edit and reports it, and the next change
  *   sends it again; a save to a file deleted elsewhere drops the edit and
  *   reports its text; a change the body cannot hold is refused
@@ -244,8 +244,18 @@ test('a save that meets a change made elsewhere merges with it: the edit wins wh
 	expect(merged).not.toContain('- first');
 	// The save names what of theirs it replaced.
 	expect(harness.replaced).toMatchObject([
-		{ path: PATH, replaced: [expect.objectContaining({ kind: 'body' })] },
+		{
+			path: PATH,
+			replaced: [expect.objectContaining({ kind: 'text', part: 'body' })],
+		},
 	]);
+
+	// Restoring theirs is one more save, over the version this one wrote.
+	harness.replaced[0]?.restore();
+	await quiet(captures);
+	expect(harness.failures).toEqual([]);
+	expect(await harness.text(PATH)).toContain('\nTheirs\n');
+	expect(await harness.text(PATH)).not.toContain('\nMine\n');
 });
 
 test('a save that fails keeps the edit and reports it, and the next change sends it again', async () => {
@@ -361,7 +371,7 @@ test('a valid row whose Thoughts layout is ambiguous opens as text too', async (
 	expect(captures.opened).toEqual({ stem: 'one', mode: 'text' });
 });
 
-test('a write of the text that meets a change made elsewhere drops the typed text for the file, and reports it', async () => {
+test('a write of the text that meets a change made elsewhere merges with it by line', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	captures.open('one', 'text');
@@ -372,12 +382,31 @@ test('a write of the text that meets a change made elsewhere drops the typed tex
 	captures.editText(PATH, `${HAND}- mine\n`);
 	await quiet(captures);
 	stop();
+	// Their changes and the added line do not compete, so both stand, and
+	// nothing of theirs was replaced. A row is written in its standard form.
+	const merged = `---\ncapturedAt: "${AT}"\n---\n\nTheirs\n- mine\n`;
+	expect(harness.failures).toEqual([]);
+	expect(harness.replaced).toEqual([]);
+	expect(captures.typedText(PATH)).toBeUndefined();
+	expect(cachedText(captures, PATH)).toBe(merged);
+	expect(await harness.text(PATH)).toBe(merged);
+});
+
+test('a write of the text to a file deleted elsewhere drops the typed text, and reports it', async () => {
+	const harness = await open({ [PATH]: HAND });
+	const { captures } = harness;
+	captures.open('one', 'text');
+	const stop = observe(captures, PATH);
+	await quiet(captures);
+	await harness.deleteElsewhere(PATH);
+	captures.editText(PATH, `${HAND}- mine\n`);
+	await quiet(captures);
+	stop();
 	expect(harness.failures).toMatchObject([
-		{ path: PATH, error: { name: 'Conflict' }, text: `${HAND}- mine\n` },
+		{ path: PATH, error: { name: 'NotFound' }, text: `${HAND}- mine\n` },
 	]);
 	expect(captures.typedText(PATH)).toBeUndefined();
-	expect(cachedText(captures, PATH)).toBe(theirs);
-	expect(await harness.text(PATH)).toBe(theirs);
+	expect(await harness.text(PATH)).toBeUndefined();
 });
 
 // ============================================================================

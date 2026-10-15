@@ -464,11 +464,10 @@ the table shows the row once it is saved.
 - A save merges with a change made elsewhere since your edit started: fields
   and lines only one side changed are both kept. Where both changed the same
   field or the same lines, your edit wins and a notice names what of theirs it
-  replaced. Reading the folder again never touches what you are typing.
-- Text edited as a whole file (Source, or any text file from Files) has no
-  merge. When another program changed the file since, your text is not
-  written; a notice offers **Copy what was lost**, and the window shows the
-  file as it is now.
+  replaced, with **Restore theirs**. Reading the folder again never touches
+  what you are typing.
+- Text edited as a whole file (Source, or any text file from Files) merges the
+  same way, by line (ADR-0551).
 - A file deleted elsewhere stays deleted. A change to it is reported with
   **Copy what was lost**, and the recording, transcript, or transformation
   closes. Nothing creates it again.

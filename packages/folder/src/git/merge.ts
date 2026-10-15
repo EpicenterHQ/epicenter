@@ -13,11 +13,14 @@
  * stay unreachable. A nested `kv.json` is an ordinary file.
  *
  * Sync adds its own rules (`mergePath`). Each path both sides changed
- * differently, whose versions are all plain UTF-8 text files without a NUL
- * byte, is offered to it first, root `kv.json` included. Its merged text, or
- * our file while it holds the path, goes into both children the way merged
- * `kv.json` does; a held path makes the merge `conflicted`. A path it does
- * not claim merges as below. `mergeIncoming` passes no `mergePath`.
+ * differently, whose versions are all plain files, is offered to it first,
+ * root `kv.json` included: a version that is UTF-8 text without a NUL byte as
+ * its text, any other as its bytes. Its merged content, or our file while it
+ * holds the path, goes into both children the way merged `kv.json` does; a
+ * held path makes the merge `conflicted`. A path it does not claim merges as
+ * below. `mergeIncoming` passes no `mergePath`. A claimed path with a version
+ * that is not text is never merged by content, only taken or removed, so a
+ * Git `merge` attribute on it is not checked.
  *
  * isomorphic-git 1.38.5 decodes both sides of a two-sided text merge as UTF-8
  * with replacement, and its line split drops a lone carriage return, U+2028,
@@ -32,6 +35,7 @@
  */
 import * as git from 'isomorphic-git';
 import { mergeKv } from '../kv-merge.js';
+import type { FileContent, FileVersions } from '../merge-file.js';
 import { ancestors } from '../paths.js';
 import { byCodePoint, isAttributesPath, mergeAttribute } from './attributes.js';
 import type { MergeConflict } from './errors.js';
@@ -51,23 +55,16 @@ export const ROOT_KV = 'kv.json';
 
 const PLAIN = '100644';
 
-/** A file's text at the merge base and on each side, `null` for no file. */
-export type TextVersions = {
-	readonly base: string | null;
-	readonly ours: string | null;
-	readonly theirs: string | null;
-};
-
 /**
- * Rules for one path both sides changed: its merged text (`null` for no
+ * Rules for one path both sides changed: its merged content (`null` for no
  * file), `held` for a conflict the caller records, or `undefined` to leave
  * the path to Git's rules.
  */
 export type MergePath = (
 	path: string,
-	versions: TextVersions,
+	versions: FileVersions,
 ) => Promise<
-	| { readonly kind: 'merged'; readonly text: string | null }
+	| { readonly kind: 'merged'; readonly content: FileContent | null }
 	| { readonly kind: 'held' }
 	| undefined
 >;
@@ -185,8 +182,11 @@ export async function prepareMerge(
 	const conflicts: MergeConflict[] = [];
 
 	// Paths sync's rules claimed: what both sides' children hold there, the
-	// merged bytes or, while held, our file; `null` for no file.
+	// merged bytes or, while held, our file; `null` for no file. A path whose
+	// versions are all text is merged as text, so a `merge` attribute on it
+	// is refused below.
 	const claimed = new Map<string, Uint8Array | null>();
+	const claimedText: string[] = [];
 	const held: string[] = [];
 	if (mergePath !== undefined)
 		for (const path of new Set([...b.keys(), ...o.keys(), ...t.keys()])) {
@@ -195,29 +195,31 @@ export async function prepareMerge(
 			if (same(eo, et) || same(eo, eb) || same(et, eb)) continue;
 			if (sides.some((entry) => entry !== undefined && entry.mode !== PLAIN))
 				continue;
-			const texts: (string | null)[] = [];
+			const contents: (FileContent | null)[] = [];
 			for (const entry of sides) {
 				if (entry === undefined) {
-					texts.push(null);
+					contents.push(null);
 					continue;
 				}
 				const read = await bytes(entry);
 				const text = read.includes(0) ? undefined : strictText(read);
-				if (text === undefined) break;
-				texts.push(text);
+				contents.push(text ?? read);
 			}
-			if (texts.length !== 3) continue;
-			const [base, ours, theirs] = texts as [
-				string | null,
-				string | null,
-				string | null,
+			const [base, ours, theirs] = contents as [
+				FileContent | null,
+				FileContent | null,
+				FileContent | null,
 			];
 			const merged = await mergePath(path, { base, ours, theirs });
 			if (merged === undefined) continue;
+			if (contents.every((content) => !(content instanceof Uint8Array)))
+				claimedText.push(path);
 			if (merged.kind === 'merged')
 				claimed.set(
 					path,
-					merged.text === null ? null : encoder.encode(merged.text),
+					typeof merged.content === 'string'
+						? encoder.encode(merged.content)
+						: merged.content,
 				);
 			else {
 				held.push(path);
@@ -352,9 +354,9 @@ export async function prepareMerge(
 		if (text) asText.push(path);
 		else conflicts.push({ reason: 'binary', path });
 	}
-	// A path sync merged by its own rules is merged as text too, so a `merge`
-	// attribute on it is refused the same way.
-	const textual = [...asText, ...claimed.keys()];
+	// A path sync merged by its own rules as text is merged as text too, so a
+	// `merge` attribute on it is refused the same way.
+	const textual = [...asText, ...claimedText];
 	if (textual.length > 0)
 		for (const files of [b, o, t]) {
 			const attributeFiles = new Map<string, Uint8Array>();

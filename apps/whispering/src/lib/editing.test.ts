@@ -128,9 +128,13 @@ async function sha(library: Library, path: string) {
 	return expectOk(await library.folder.files.read(path)).sha256;
 }
 
-/** Another program writes the file. */
+/** Another program writes the file over whatever is there. */
 async function writeElsewhere(library: Library, path: string, content: string) {
-	expectOk(await library.folder.files.overwrite(path, content));
+	const { files } = library.folder;
+	const current = await files.read(path);
+	if (current.error?.name === 'NotFound')
+		return void expectOk(await files.create(path, content));
+	expectOk(await files.save(expectOk(current), content, { merge: false }));
 }
 
 /** Another program deletes the file as it is now. */
@@ -404,7 +408,7 @@ test('a row that is not valid is named for repair, is written as typed text, and
 	expect(recordingEditor(library).draft.fields.title).toBe('Repaired');
 });
 
-test('text typed over a file changed elsewhere is not written, and is reported', async () => {
+test('text typed over a file changed elsewhere merges with it, says what it replaced, and restores theirs', async () => {
 	const { library, notices } = await open();
 	const editor = await record(library);
 	const { path } = editor;
@@ -416,15 +420,24 @@ test('text typed over a file changed elsewhere is not written, and is reported',
 
 	source.input(recordingText('Mine', audioPath));
 	await settle(library);
+	// Both changed the title: the typing's stands, and theirs is named.
 	expect(notices).toMatchObject([
-		{ kind: 'failed', path, error: { name: 'Conflict' } },
+		{
+			kind: 'replaced',
+			path,
+			replaced: [{ kind: 'field', kept: 'Mine', theirs: 'Theirs' }],
+		},
 	]);
-	expect(notices[0]?.kind === 'failed' && notices[0].lost).toBe(
-		recordingText('Mine', audioPath),
-	);
-	expect(await text(library, path)).toBe(theirs);
-	// The view shows the file as it is.
-	expect(source.draft).toBe(theirs);
+	// A merged row is written in its standard form.
+	const merged = (await text(library, path)) ?? '';
+	expect(merged).toContain('title: Mine\n');
+	expect(source.draft).toBe(merged);
+
+	const notice = notices[0];
+	if (notice?.kind !== 'replaced') throw new Error('nothing was replaced');
+	notice.restore();
+	await settle(library);
+	expect(await text(library, path)).toBe(merged.replace('Mine', 'Theirs'));
 });
 
 test('Source edits a valid row as its exact text, after the fields it was typed in are written', async () => {

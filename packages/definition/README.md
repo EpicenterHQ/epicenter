@@ -34,8 +34,9 @@ check(schema.kv, { theme: 'dark' }, 'patch');        // no issues
 
 A schema is a `DataSchema`: `{ title?, kv, tables }`. It names no dataset; the
 storage that opens it does. `kv` is a record
-of native schemas by field name, and each table is `{ fields, body? }`, where
-`fields` is the same kind of record. `prepareSchema` returns that same shape with
+of native schemas by field name, and each table is `{ fields }`, where
+`fields` is the same kind of record, plus `additionalProperties: false` when
+the table is closed. `prepareSchema` returns that same shape with
 the same literal type, so `RowOf`, `KvOf`, and every field's `Static<>` read a
 prepared schema exactly as they read the declaration. There is no second,
 compiled representation: no field wrapper, no table object with methods, no
@@ -43,8 +44,7 @@ compiled representation: no field wrapper, no table object with methods, no
 
 What preparation adds is ownership and a validator:
 
-- It checks the title, the table and field names, each body
-  conversion, that every schema is plain JSON (see
+- It checks the title, the table and field names, that every schema is plain JSON (see
   [A field is plain JSON](#a-field-is-plain-json)), and that TypeBox can
   compile it.
 - Each field becomes the declared schema's JSON, deeply frozen, `x-field` hint
@@ -71,7 +71,7 @@ silent `false`.
 
 | Package | What it adds |
 | --- | --- |
-| `@epicenter/folder` | `defineFolder`, which prepares a `DataSchema` and refuses a body conversion, because a folder's row body is the file's Markdown text. The opener names the folder. |
+| `@epicenter/folder` | `defineFolder`, which prepares a `DataSchema`. A folder's row body is the file's Markdown text. The opener names the folder. |
 
 It gets the `defineTable` brand, the `RowOf`, `CreateRowOf`, and `KvOf`
 lenses, and `check` over the prepared fields. It does not copy a validator.
@@ -249,9 +249,6 @@ TypeBox's hidden `~` keywords are dropped, except that an optional field keeps
 keyword such as `maxLenght` is inert, as JSON Schema treats any unknown
 keyword.
 
-A body conversion is not a field. It stays in code, carried by reference on the
-prepared table, and a storage that cannot keep one refuses it.
-
 ### Every field holds JSON
 
 A schema can be structural about what it admits: `Type.Any()` admits a
@@ -381,25 +378,6 @@ conditional, or `$ref`, is refused.
 `requiredOutsideShape(declaredTable, shapeTable)` lists the fields the
 declaration requires that the shape does not declare: a row added through the
 shape could not supply them.
-
-## The body conversion
-
-A table may declare how its separately edited body becomes file text. What a
-body is belongs to the storage that keeps one, so this package types the
-conversion as opaque (`TableBody`) and takes the storage's own type as a
-parameter:
-
-```ts
-import type { DataSchema, DefineTable } from '@epicenter/definition';
-
-type MySchema = DataSchema<MyBodyCodec>;
-const defineMyTable: DefineTable<MyBodyCodec> = defineTable;
-```
-
-`prepareSchema` checks that a declared conversion has both verbs and carries it
-through unread, by reference, on the prepared table. It returns the type it
-was given, so a storage's own body type survives preparation with no adapter.
-A storage that keeps no live body refuses a definition that declares one.
 
 ## Commands
 

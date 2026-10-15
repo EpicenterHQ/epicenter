@@ -1,29 +1,30 @@
 /** Ordinary file methods over the folder's accounted storage. */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type {
-	FileListing,
-	FileWriteIntent,
-	FolderStorage,
-} from './boundary.js';
+import type { FileListing, FolderStorage } from './boundary.js';
 import {
 	type CapturedFile,
+	type ContentCapture,
 	type FileCapture,
 	fileCapture,
 	hashBytes,
 	ownBytes,
 	ownCapture,
 } from './capture.js';
-import type { FileError, MoveError } from './errors.js';
+import type { FolderDefinition } from './definition.js';
+import type { FileError, FileSaveError, MoveError } from './errors.js';
+import { fileKindOf } from './merge-file.js';
+import { type SavedFile, type SaveOptions, saveFile } from './save-file.js';
 import { applyOne } from './storage.js';
 
 /**
  * Ordinary files at literal folder-relative paths (ADR-0479).
  *
- * The verb states the condition a save publishes under. Strings are saved as
- * UTF-8 with nothing added or normalized; byte arrays are copied when the
- * method is called and saved exactly. A successful save returns a new
- * capture of the bytes it was given: nothing is read back, and the capture
- * that was passed in never changes.
+ * The verb states the condition a write publishes under. Strings are saved
+ * as UTF-8 with nothing added or normalized; byte arrays are copied when the
+ * method is called and saved exactly. A read, a create, and a save return a
+ * capture that carries its bytes, the base the next save merges from
+ * (ADR-0551). Nothing is read back, and the capture that was passed in never
+ * changes.
  */
 export type FolderFiles = {
 	list(): Promise<Result<FileListing, FileError>>;
@@ -38,12 +39,25 @@ export type FolderFiles = {
 	create(
 		path: string,
 		content: string | Uint8Array,
-	): Promise<Result<FileCapture, FileError>>;
-	/** Save over the captured file. Refused when its bytes are no longer the captured ones. */
-	replace(
-		file: FileCapture,
+	): Promise<Result<CapturedFile, FileError>>;
+	/**
+	 * Save an edit of the file `base` captured (ADR-0551). When the file
+	 * still holds the captured bytes, `content` is written over them.
+	 * Otherwise another writer changed it, and the edit is merged with their
+	 * file by its kind (`kv.json` by key, a row by field and body line, other
+	 * text by line), the edit winning only where both changed the same unit;
+	 * `replaced` names what of theirs that replaced. With `{ merge: false }`
+	 * a moved file is `Conflict` instead.
+	 *
+	 * `base` must carry the content it names, as every capture the folder
+	 * returns does; otherwise the save is `UnknownBase`. A deleted file is
+	 * `NotFound`: a save never recreates one.
+	 */
+	save(
+		base: ContentCapture,
 		content: string | Uint8Array,
-	): Promise<Result<FileCapture, FileError>>;
+		options?: SaveOptions,
+	): Promise<Result<SavedFile, FileSaveError>>;
 	/** Remove the captured file. Refused when its bytes are no longer the captured ones. */
 	remove(file: FileCapture): Promise<Result<undefined, FileError>>;
 	/**
@@ -57,35 +71,21 @@ export type FolderFiles = {
 		file: FileCapture,
 		destination: string,
 	): Promise<Result<FileCapture, FileError | MoveError>>;
-	/**
-	 * Save at the path whatever is there, as a shell redirection does: the last
-	 * save to land wins, another window's included. A save of bytes that were
-	 * read uses `replace`, which carries what was read.
-	 */
-	overwrite(
-		path: string,
-		content: string | Uint8Array,
-	): Promise<Result<FileCapture, FileError>>;
 	mkdir(path: string): Promise<Result<undefined, FileError>>;
 	rmdir(path: string): Promise<Result<undefined, FileError>>;
 };
 
+/**
+ * The file methods over `storage`. `definition` decides how a save merges
+ * each path (`fileKindOf`); without one, every path merges as a plain file.
+ */
 export function createFiles({
 	storage,
+	definition,
 }: {
 	storage: FolderStorage;
+	definition?: FolderDefinition;
 }): FolderFiles {
-	/** Publish one write and return the capture of the bytes that were given. */
-	async function save(
-		intent: FileWriteIntent,
-	): Promise<Result<FileCapture, FileError>> {
-		const sha256 = await hashBytes(intent.bytes);
-		const applied = await applyOne(storage, { ...intent, sha256 });
-		return applied.error !== null
-			? applied
-			: Ok(fileCapture(intent.path, sha256));
-	}
-
 	return Object.freeze({
 		list: () => storage.list(),
 		children: (directory) => storage.children(directory),
@@ -100,19 +100,38 @@ export function createFiles({
 			);
 		},
 		open: (path) => storage.open(path),
-		create: (path, content) =>
-			save({ kind: 'create', path, bytes: ownBytes(content) }),
-		replace: (file, content) => {
-			const { data: captured, error: captureError } = ownCapture(file);
-			if (captureError !== null) return Promise.resolve(Err(captureError));
-			// The baseline is fixed here: the capture's own hash, copied.
-			const { path, sha256 } = captured;
-			return save({
-				kind: 'replace',
+		async create(path, content) {
+			const bytes = ownBytes(content);
+			const sha256 = await hashBytes(bytes);
+			const applied = await applyOne(storage, {
+				kind: 'create',
 				path,
-				bytes: ownBytes(content),
-				expectedSha256: sha256,
+				bytes,
+				sha256,
 			});
+			if (applied.error !== null) return applied;
+			return Ok(Object.freeze({ ...fileCapture(path, sha256), bytes }));
+		},
+		async save(base, content, options) {
+			const path = (base as Partial<FileCapture> | null | undefined)?.path;
+			const { data: written, error } = await saveFile(
+				storage,
+				fileKindOf(definition, typeof path === 'string' ? path : ''),
+				base,
+				ownBytes(content),
+				options,
+			);
+			if (error !== null) return Err(error);
+			return Ok(
+				Object.freeze({
+					stored: Object.freeze({
+						...fileCapture(written.path, written.sha256),
+						bytes: written.bytes,
+					}),
+					merged: written.merged,
+					replaced: written.replaced,
+				}),
+			);
 		},
 		remove: (file) => {
 			const { data: captured, error: captureError } = ownCapture(file);
@@ -140,8 +159,6 @@ export function createFiles({
 				? applied
 				: Ok(fileCapture(destination, sha256));
 		},
-		overwrite: (path, content) =>
-			save({ kind: 'overwrite', path, bytes: ownBytes(content) }),
 		mkdir: (path) => storage.mkdir(path),
 		rmdir: (path) => storage.rmdir(path),
 	} satisfies FolderFiles);

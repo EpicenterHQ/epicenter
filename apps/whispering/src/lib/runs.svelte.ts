@@ -18,7 +18,6 @@
  */
 import {
 	type FileTable,
-	formatRow,
 	type Row,
 	rowPath,
 	rowStemOf,
@@ -230,32 +229,25 @@ export function createRuns({
 	 * Fill the row's empty body, and only an empty one. A row that is gone or
 	 * already has a body is left as it is.
 	 *
-	 * Not `table.save`: a save merges with a file changed since it was read,
-	 * and when another writer filled the body meanwhile, both changed the
-	 * body and the save's edit would win. This writes the row's text over
-	 * the exact version it read empty, so a file changed since refuses the
-	 * write; it is read again, and filled only while its body is still empty.
+	 * The save does not merge (`{ merge: false }`): when another writer filled
+	 * the body meanwhile, both changed the body and a merging save's edit
+	 * would win. A file changed since it was read refuses the save; it is
+	 * read again, and filled only while its body is still empty.
 	 */
 	async function fill(target: Target, body: string) {
 		const table = tableOf(target.table);
-		const definition = folder.definition.tables[target.table];
 		try {
 			for (let reads = 0; reads < FILL_READS; reads++) {
 				const { data: stored, error } = await table.get(target.stem);
 				if (error !== null) return describeError(error);
 				if (stored === undefined || stored.row.body !== '') return undefined;
-				const { data: text, error: formatError } = formatRow(definition, {
-					fields: stored.row.fields as never,
-					body,
-				});
-				if (formatError !== null) return formatError.message;
-				const { error: replaceError } = await folder.files.replace(
+				const { error: saveError } = await table.save(
 					stored,
-					text,
+					{ fields: stored.row.fields, body },
+					{ merge: false },
 				);
-				if (replaceError === null) return undefined;
-				if (replaceError.name !== 'Conflict')
-					return describeError(replaceError);
+				if (saveError === null) return undefined;
+				if (saveError.name !== 'Conflict') return describeError(saveError);
 			}
 			return 'The file kept changing while its answer was written.';
 		} catch (cause) {

@@ -1,16 +1,18 @@
 /**
- * The line merge sync uses for a row body and a text file both sides changed.
+ * The line merge save and Sync use for a row body and a text file both sides
+ * changed (ADR-0551).
  *
  * Each side's changes against the base are diffed by line; changes that
  * overlap on the base, or insert at the same place, are one region. Changes
  * to neighboring lines do not overlap, so both are kept: lines compete only
  * where both sides changed the same lines. A region only one side changed
  * takes that side's lines, a region both sides changed identically takes
- * those lines, and any other region competes. `mergeLines` makes the
- * whole merge `undefined` when one competes, so the caller holds the unit
- * for a person. `mergeLinesPreferring` settles each competing region with
- * one side's lines and keeps every other region, for a save that decided
- * ahead of time which side wins where both changed the same lines.
+ * those lines, and any other region competes.
+ *
+ * One pass answers both sides of the merge: `ours` is the merged text with
+ * ours winning every competing region, `theirs` the merged text with theirs
+ * winning them. Either keeps every line the other side changed outside a
+ * competing region. The two are equal exactly when nothing competed.
  */
 
 /**
@@ -38,63 +40,35 @@ export type LineVersions = {
 };
 
 /**
- * The line merge of three texts, or `undefined` when both sides changed the
- * same lines differently. Every input byte of a kept line lands in the
- * output, so a body with no line break at its end keeps that.
- */
-export async function mergeLines(
-	versions: LineVersions,
-): Promise<string | undefined> {
-	return mergeBy(versions, () => undefined);
-}
-
-/**
- * One competing region a preferred merge settled: `kept` is the preferred
- * side's lines, which stand in the merged text from the 0-based `line`, and
- * `lost` the other side's lines they replaced.
+ * One region both sides changed differently: `kept` is our lines, which
+ * stand in the ours-winning text from the 0-based `line`, and `theirs` the
+ * lines theirs had there. Lines end with their line feeds.
  */
 export type SettledRegion = {
 	readonly line: number;
 	readonly kept: string;
-	readonly lost: string;
+	readonly theirs: string;
 };
 
-/** A line merge whose competing regions took one side's lines. */
-export type PreferredMerge = {
-	readonly text: string;
-	/** Each competing region, in order. Empty when no region competed. */
-	readonly replaced: readonly SettledRegion[];
+/** Both sides of one line merge, and each region that competed. */
+export type LineMerge = {
+	/** The merge with ours winning every competing region. */
+	readonly ours: string;
+	/** The merge with theirs winning every competing region. */
+	readonly theirs: string;
+	/** Each competing region, in order. Empty when nothing competed. */
+	readonly regions: readonly SettledRegion[];
 };
 
 /**
- * The line merge of three texts where `prefer`'s lines win each region both
- * sides changed differently. Every region only one side changed keeps that
- * side's lines, so nothing outside a competing region is lost from either.
+ * The line merge of three texts. Every input byte of a kept line lands in
+ * the output, so a text with no line break at its end keeps that.
  */
-export async function mergeLinesPreferring(
-	versions: LineVersions,
-	prefer: 'ours' | 'theirs',
-): Promise<PreferredMerge> {
-	const replaced: SettledRegion[] = [];
-	const text = await mergeBy(versions, (mine, yours, line) => {
-		const [kept, lost] = prefer === 'ours' ? [mine, yours] : [yours, mine];
-		replaced.push({ line, kept, lost });
-		return kept;
-	});
-	// A competing region always resolves, so the merge always has text.
-	return { text: text as string, replaced };
-}
-
-/**
- * The line merge, where `compete` answers the lines of each region both
- * sides changed differently, given ours and theirs there and the 0-based
- * line of the merged text the region starts at; `undefined` from it makes
- * the whole merge `undefined`.
- */
-async function mergeBy(
-	{ base, ours, theirs }: LineVersions,
-	compete: (mine: string, yours: string, line: number) => string | undefined,
-): Promise<string | undefined> {
+export async function mergeLines({
+	base,
+	ours,
+	theirs,
+}: LineVersions): Promise<LineMerge> {
 	// Loaded when a merge needs it: the shell's diff uses the same library,
 	// and a static import would put it in this module's chunk.
 	const { diffArrays } = await import('diff');
@@ -131,7 +105,9 @@ async function mergeBy(
 		(left, right) =>
 			left.baseStart - right.baseStart || left.baseEnd - right.baseEnd,
 	);
-	let merged = '';
+	let mine = '';
+	let yours = '';
+	const regions: SettledRegion[] = [];
 	let cursor = 0;
 	for (let index = 0; index < all.length; ) {
 		const start = all[index]!.baseStart;
@@ -146,7 +122,9 @@ async function mergeBy(
 			end = Math.max(end, all[index]!.baseEnd);
 			group.push(all[index++]!);
 		}
-		merged += b.slice(cursor, start).join('');
+		const unchanged = b.slice(cursor, start).join('');
+		mine += unchanged;
+		yours += unchanged;
 		cursor = end;
 		/** The side's lines standing where the base has `start` to `end`. */
 		const across = (side: Hunk['side']) => {
@@ -161,15 +139,20 @@ async function mergeBy(
 				)
 				.join('');
 		};
-		const [mine, yours] = [across('ours'), across('theirs')];
-		if (mine === yours || group.every((hunk) => hunk.side === 'ours'))
-			merged += mine;
-		else if (group.every((hunk) => hunk.side === 'theirs')) merged += yours;
-		else {
-			const settled = compete(mine, yours, lines(merged).length);
-			if (settled === undefined) return undefined;
-			merged += settled;
+		const [left, right] = [across('ours'), across('theirs')];
+		let settled: string | undefined;
+		if (left === right || group.every((hunk) => hunk.side === 'ours'))
+			settled = left;
+		else if (group.every((hunk) => hunk.side === 'theirs')) settled = right;
+		if (settled !== undefined) {
+			mine += settled;
+			yours += settled;
+			continue;
 		}
+		regions.push({ line: lines(mine).length, kept: left, theirs: right });
+		mine += left;
+		yours += right;
 	}
-	return merged + b.slice(cursor).join('');
+	const rest = b.slice(cursor).join('');
+	return { ours: mine + rest, theirs: yours + rest, regions };
 }

@@ -13,10 +13,12 @@
  * An edit of a capture is a draft its form holds (`formOf`): the version it
  * started from and the edited row, outside the cache, saved one save at a
  * time and merged by the folder with whatever changed since. A failed save
- * keeps the draft and is reported. An edit of a file's text is held the same
- * way, and written whole over the version it started from; that write
- * refuses a file changed since, so a failure drops the typed text, reads the
- * file again, and reports the text that was not written.
+ * keeps the draft and is reported. An edit of a file's text is a text draft
+ * held the same way, saved over the version it started from and merged by
+ * line with whatever changed since (ADR-0551). A save that replaced another
+ * writer's change names it, with a way to put theirs back. A text save that
+ * fails drops the typed text, reads the file again, and reports the text
+ * that was not written.
  *
  * Every other action is a mutation too: create, delete, Save version, and
  * the import of old captures. Closing fences new input, then waits for the
@@ -40,12 +42,16 @@ import {
 	type CommitOutcome,
 	type FileCapture,
 	type FileError,
+	type FileSaveError,
 	formatRow,
 	type Replaced,
 	type Row,
 	type RowReadError,
+	restoreTheirs,
 	rowPath,
 	rowStemOf,
+	type SavedFile,
+	type SavedRow,
 	type StoredRow,
 	type TableCreateError,
 	type TableError,
@@ -54,6 +60,10 @@ import {
 } from '@epicenter/folder';
 import { type OpenedFile, readTextFile } from '@epicenter/folder/file-browser';
 import { folderOptions } from '@epicenter/folder/query';
+import {
+	createTextDraftState,
+	type TextDraftState,
+} from '@epicenter/folder/svelte';
 import type {
 	MutationFilters,
 	MutationOptions,
@@ -119,15 +129,19 @@ export type Deletion = {
  */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: TableError | FileError;
+	readonly error: TableError | FileError | FileSaveError;
 	/** The text that was on screen and is not in the file. */
 	readonly text: string;
 };
 
-/** A save that landed over a change made elsewhere, and what of it the edit replaced. */
+/**
+ * A save that landed over a change made elsewhere: what of it the edit
+ * replaced, and the one more save that puts theirs back.
+ */
 export type ReplacedChange = {
 	readonly path: string;
 	readonly replaced: readonly Replaced[];
+	readonly restore: () => void;
 };
 
 /** Why an action did not start. */
@@ -260,9 +274,6 @@ export function timelineOf(listing: CaptureListing) {
 	};
 }
 
-/** A file's text typed and not written yet, and the version it replaces. */
-type TextDraft = { readonly over: FileCapture; readonly text: string };
-
 /**
  * Resolves once nothing matching `filters` is mutating. It watches the
  * mutation cache, so a mutation that starts meanwhile is waited for too.
@@ -311,10 +322,8 @@ export function createCaptures(
 	let newCapture = $state('');
 	/** Each capture's edit and input not committed yet, kept while the person moves between captures. */
 	const forms = new SvelteMap<string, CaptureForm>();
-	/** Each file's text typed and not written yet, and the version it replaces. */
-	const texts = new SvelteMap<string, TextDraft>();
-	/** The write of each file's text that is running. */
-	const textWrites = new Map<string, Promise<void>>();
+	/** Each file's text edit: the version it started from, and the text typed. */
+	const texts = new SvelteMap<string, TextDraftState>();
 	let closing: Promise<void> | undefined;
 	let closed = $state(false);
 
@@ -399,55 +408,95 @@ export function createCaptures(
 						throw error;
 					},
 				),
-			onSaved: (saved) => {
-				// A view of this file's text reads it again.
-				void queryClient.invalidateQueries({
-					queryKey: folder$.files.read.queryKey(path),
-					exact: true,
-				});
-				if (saved.replaced.length > 0)
-					onReplaced({ path, replaced: saved.replaced });
-			},
+			onSaved: (saved) => savedRow(path, saved),
 			locked: () => refused() !== undefined || removing(path),
 		});
 		forms.set(stem, form);
 		return form;
 	}
 
-	/** Write the text held for `path` until none is left, one write at a time. */
-	function writeText(path: string): Promise<void> {
-		const running = textWrites.get(path);
-		if (running !== undefined) return running;
-		const loop = (async () => {
-			for (let sent = texts.get(path); sent; sent = texts.get(path)) {
-				const written = await mutate(folder$.files.write.mutationOptions(), {
+	/** A capture's save landed: a view of its text reads it again, and what it replaced is named. */
+	function savedRow(path: string, saved: SavedRow<CaptureFields>) {
+		void queryClient.invalidateQueries({
+			queryKey: folder$.files.read.queryKey(path),
+			exact: true,
+		});
+		if (saved.replaced.length === 0) return;
+		onReplaced({
+			path,
+			replaced: saved.replaced,
+			restore: () =>
+				void mutate(
+					folder$.captures.save.mutationOptions(),
+					restoreTheirs(saved),
+				)
+					.then((restored) => savedRow(path, restored))
+					.catch(() => {}),
+		});
+	}
+
+	/** A text save landed: the view shows what it wrote, and what it replaced is named. */
+	function savedText(path: string, saved: SavedFile) {
+		queryClient.setQueryData<OpenedFile>(folder$.files.read.queryKey(path), {
+			kind: 'text',
+			file: {
+				path,
+				sha256: saved.stored.sha256,
+				text: new TextDecoder().decode(saved.stored.bytes),
+			},
+		});
+		// A capture file's text decides whether it reads as a capture.
+		void queryClient.invalidateQueries({ queryKey: listKey, exact: true });
+		if (saved.replaced.length === 0) return;
+		onReplaced({
+			path,
+			replaced: saved.replaced,
+			restore: () => {
+				const { base, content } = restoreTheirs(saved);
+				void mutate(folder$.files.write.mutationOptions(), {
 					path,
-					content: sent.text,
-					over: sent.over,
-				}).catch(async (error: FileError) => {
-					// A whole-file write does not merge: the typed text gives
-					// way to the file as it is now, and the notice offers it.
-					const lost = texts.get(path)?.text ?? sent.text;
+					content,
+					base,
+				})
+					.then((restored) => savedText(path, restored))
+					.catch(() => {});
+			},
+		});
+	}
+
+	/** The text edit of `path`, made at its first change. */
+	function textDraftOf(path: string): TextDraftState {
+		const known = texts.get(path);
+		if (known !== undefined) return known;
+		const draft = createTextDraftState({
+			save: ({ base, text }) =>
+				mutate(folder$.files.write.mutationOptions(), {
+					path,
+					content: text,
+					base,
+				}).catch(async (error: FileSaveError) => {
+					// The save neither landed nor merged: the typed text gives way
+					// to the file as it is now, and the notice offers it.
+					const lost = draft.text ?? text;
+					draft.discard();
 					texts.delete(path);
 					await queryClient.invalidateQueries(folder$.pathFilter([path]));
 					onWriteFailed({ path, error, text: lost });
-					return undefined;
-				});
-				if (written === undefined) return;
-				queryClient.setQueryData<OpenedFile>(
-					folder$.files.read.queryKey(path),
-					{ kind: 'text', file: { ...written, text: sent.text } },
-				);
-				const now = texts.get(path);
-				if (now === sent) texts.delete(path);
-				else if (now !== undefined)
-					texts.set(path, { over: written, text: now.text });
-				// A capture file's text decides whether it reads as a capture.
-				void queryClient.invalidateQueries({ queryKey: listKey, exact: true });
-			}
-		})().finally(() => textWrites.delete(path));
-		textWrites.set(path, loop);
-		return loop;
+					throw error;
+				}),
+			onSaved: (saved) => savedText(path, saved),
+		});
+		texts.set(path, draft);
+		return draft;
+	}
+
+	/** Save the text edit of `path` until none is left; then it is done. */
+	async function writeText(path: string): Promise<void> {
+		const draft = texts.get(path);
+		if (draft === undefined) return;
+		await draft.save();
+		if (draft.text === undefined && texts.get(path) === draft)
+			texts.delete(path);
 	}
 
 	/**
@@ -457,15 +506,12 @@ export function createCaptures(
 	 */
 	function editText(path: string, text: string): boolean {
 		if (refused() !== undefined || removing(path)) return false;
-		const held = texts.get(path);
 		const file = textData(path);
-		const over =
-			held?.over ??
-			(file?.kind === 'text'
-				? { path: file.file.path, sha256: file.file.sha256 }
-				: undefined);
-		if (over === undefined) return false;
-		texts.set(path, { over, text });
+		// The first change starts from the file shown; later ones keep their base.
+		const base =
+			texts.get(path)?.base ?? (file?.kind === 'text' ? file.file : undefined);
+		if (base === undefined) return false;
+		textDraftOf(path).change(base, text);
 		void writeText(path);
 		return true;
 	}
@@ -474,7 +520,7 @@ export function createCaptures(
 	const editsSettled = () =>
 		Promise.all([
 			...[...forms.values()].map((form) => form.flush()),
-			...textWrites.values(),
+			...[...texts.keys()].map(writeText),
 		]);
 
 	/** How many captures hold a thought typed and not added, a changed thought edit, or an edit not saved. */
@@ -512,7 +558,7 @@ export function createCaptures(
 			opened.mode === 'text' &&
 			refused() === undefined
 		) {
-			await textWrites.get(path);
+			await writeText(path);
 			await queryClient.refetchQueries({ queryKey: listKey, exact: true });
 		}
 		let as = mode;
@@ -564,7 +610,7 @@ export function createCaptures(
 			return (
 				queryClient.isMutating() > 0 ||
 				newCapture !== '' ||
-				texts.size > 0 ||
+				[...texts.values()].some((draft) => draft.text !== undefined) ||
 				unsentForms() > 0
 			);
 		},
@@ -713,7 +759,7 @@ export function createCaptures(
 						return CapturesError.NotStarted({ reason: why });
 					await Promise.all([
 						forms.get(deletion.stem)?.flush(),
-						textWrites.get(deletion.path),
+						writeText(deletion.path),
 					]);
 					return table.delete(heldCapture(deletion.stem) ?? deletion.capture);
 				},

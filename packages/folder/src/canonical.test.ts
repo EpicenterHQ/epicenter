@@ -439,7 +439,7 @@ test('an invalid row keeps unknown and invalid fields through a guarded raw save
 			expectErr(await folder.tables.todos.save(invalid, edited as never)).name,
 		).toBe('InvalidValues');
 		// The file verbs save the repair, guarded by the bytes that were read.
-		expectOk(await folder.files.replace(invalid, text));
+		expectOk(await folder.files.save(invalid, text));
 		const repaired = expectErr(await folder.tables.todos.get('milk'));
 		if (repaired.name !== 'InvalidRow') throw new Error(repaired.message);
 		expect(repaired.text).toBe(text);
@@ -451,8 +451,8 @@ test('an invalid row keeps unknown and invalid fields through a guarded raw save
 		expect(repaired.issues[0].field).toBe('done');
 
 		expectOk(await folder.tables.todos.delete(repaired));
-		expect(expectErr(await folder.files.replace(repaired, text)).name).toBe(
-			'Conflict',
+		expect(expectErr(await folder.files.save(repaired, text)).name).toBe(
+			'NotFound',
 		);
 		expect(expectOk(await folder.tables.todos.get('milk'))).toBeUndefined();
 		expectOk(await folder.files.create('todos/milk.md', text));

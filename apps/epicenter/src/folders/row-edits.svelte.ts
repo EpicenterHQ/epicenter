@@ -12,27 +12,26 @@
  * Every commit saves at once; the grid holds no edit past it. When a save
  * replaced another writer's values, because both changed the same field or
  * the same body lines, a notice names each one until it is dismissed.
- * "Restore theirs" is one more save, over the version that save wrote,
- * putting their values back where the edit's stand.
+ * "Restore theirs" is one more save of `restoreTheirs(saved)`, over the
+ * version that save wrote, putting their values back (ADR-0551).
  *
  * The page supplies the cache's row and the table's save mutation, so this
  * module holds no query client and runs under `bun test` with a folder
  * opened by `@epicenter/folder/bun`.
  */
 
-import type {
-	AnyRow,
-	Replaced,
-	SavedRow,
-	StoredRow,
-	TableSaveError,
+import {
+	type AnyRow,
+	restoreTheirs,
+	type SavedRow,
+	type StoredRow,
+	type TableSaveError,
 } from '@epicenter/folder';
 import {
 	createDraft,
 	type Draft,
 	type SaveRowVariables,
 } from '@epicenter/folder/query';
-import { applyFieldChange } from './field-input';
 
 type Fields = Record<string, unknown>;
 
@@ -187,10 +186,7 @@ export function createRowEdits(
 			notices = notices.filter((shown) => shown !== notice);
 			const { table, stem, saved } = notice;
 			enqueue(table, stem, async () => {
-				const restored = await save(table, {
-					base: saved.stored,
-					row: restoreTheirs(saved),
-				});
+				const restored = await save(table, restoreTheirs(saved));
 				report(table, stem, restored);
 			});
 		},
@@ -213,59 +209,6 @@ export function createRowEdits(
 	};
 }
 
-/** Lines with their line feeds, as `Replaced` counts them. */
-const linesOf = (text: string) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-
-/**
- * `saved`'s row with each value it replaced put back: their value in each
- * field, and their lines where the edit's kept lines stand in the body.
- */
-export function restoreTheirs(saved: SavedAnyRow): AnyRow {
-	const fields = { ...saved.stored.row.fields };
-	const lines = linesOf(saved.stored.row.body);
-	const regions: Extract<Replaced, { kind: 'body' }>[] = [];
-	for (const item of saved.replaced) {
-		if (item.kind === 'body') {
-			regions.push(item);
-			continue;
-		}
-		applyFieldChange(
-			fields,
-			item.field,
-			item.theirs === undefined
-				? { kind: 'remove' }
-				: { kind: 'set', value: item.theirs },
-		);
-	}
-	// From the last region up, so each splice leaves the earlier lines in place.
-	regions.sort((a, b) => b.line - a.line);
-	for (const region of regions)
-		lines.splice(
-			region.line,
-			linesOf(region.kept).length,
-			...linesOf(region.theirs),
-		);
-	return { fields, body: lines.join('') };
-}
-
-/** One replaced value, for a person: what was kept, and what was theirs. */
-export function replacedText(item: Replaced): string {
-	if (item.kind === 'field')
-		return `${item.field}: kept ${valueText(item.kept)}; theirs was ${valueText(item.theirs)}`;
-	const lines = linesOf(item.kept).length;
-	const at =
-		lines > 1
-			? `Notes, lines ${item.line + 1}-${item.line + lines}`
-			: `Notes, line ${item.line + 1}`;
-	return `${at}: kept ${linesText(item.kept)}; theirs was ${linesText(item.theirs)}`;
-}
-
-const valueText = (value: unknown) =>
-	value === undefined ? 'nothing' : JSON.stringify(value);
-
-const linesText = (text: string) =>
-	text === '' ? 'no lines' : JSON.stringify(text.replace(/\n$/, ''));
-
 /**
  * Why a save wrote nothing, for a person. A save mutation rejects with the
  * table's error; anything else that threw is said as its message.
@@ -279,7 +222,6 @@ export function failureText(error: unknown): string {
 		case 'NotFound':
 			return 'Another window deleted this row, so your edit was not saved.';
 		case 'InvalidRow':
-		case 'InvalidUtf8':
 			return 'Another window saved this row in a form that does not read as a row, so your edit was not saved.';
 		case 'KeptChanging':
 			return 'This row kept changing in another window, so your edit was not saved.';

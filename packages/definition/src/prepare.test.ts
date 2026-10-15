@@ -3,15 +3,10 @@
  *
  * `prepareSchema` checks a declaration and returns an owned schema of the
  * same shape, without knowing which storage will use it. `check` reads values
- * through its fields, as a read, a whole-row input, or a patch. A storage with
- * live bodies declares a body conversion; preparation carries it through
- * unread, and a storage without one sees that it is there and decides what to
- * do.
+ * through its fields, as a read, a whole-row input, or a patch.
  *
  * Key behaviors:
  * - A table goes through `defineTable`, which leaves its fields exact
- * - A declared body conversion needs both verbs and is carried through as
- *   declared; a table without one is prepared with none
  * - A prepared schema has the declared shape: records of native schemas,
  *   named by their keys, frozen and without a prototype
  * - Preparation is memoized on the declaration and on the schema it
@@ -122,12 +117,10 @@ const editorsOf = (fields: FieldMap) =>
 		Object.keys(fields).map((name) => [name, editorOf(fields, name)]),
 	);
 
-const body = { encode: () => 'text', decode: (text: string) => text };
-
 const declaration: DataSchema = {
 	kv: { theme: field.string() },
 	tables: {
-		notes: defineTable({ fields: { title: field.string() }, body }),
+		notes: defineTable({ fields: { title: field.string() } }),
 		queries: defineTable({
 			fields: { name: field.string(), limit: field.nullable(field.integer()) },
 		}),
@@ -148,11 +141,8 @@ const Node = Type.Cyclic(
 // Declarations
 // ============================================================================
 
-test('a declared body conversion is carried through unread, and a table without one has none', () => {
+test('a table is prepared as its fields', () => {
 	const prepared = expectOk(prepareSchema(declaration));
-	expect(prepared.tables.notes?.body).toBe(body);
-	expect(Object.isFrozen(body)).toBe(false);
-	expect(Object.hasOwn(prepared.tables.queries ?? {}, 'body')).toBe(false);
 	const queries = prepared.tables.queries?.fields ?? {};
 	expect(Object.keys(queries)).toEqual(['name', 'limit']);
 	expect(editorOf(queries, 'limit')).toEqual({
@@ -171,8 +161,8 @@ test('a prepared schema has the declared shape and nothing else', () => {
 	expect(prepared.title).toBe('Shared');
 	expect(Object.keys(prepared.kv)).toEqual(['theme']);
 	expect(Object.keys(prepared.tables)).toEqual(['notes', 'queries']);
-	// A table is its fields and its optional body. Its key is its only name.
-	expect(Object.keys(prepared.tables.notes ?? {})).toEqual(['fields', 'body']);
+	// A table is its fields. Its key is its only name.
+	expect(Object.keys(prepared.tables.notes ?? {})).toEqual(['fields']);
 	expect(Object.keys(prepared.tables.queries ?? {})).toEqual(['fields']);
 	// A field is the native schema, hint and all, not a wrapper around one.
 	expect(prepared.kv.theme).toEqual(field.string());
@@ -214,25 +204,12 @@ test('a declaration that is not an object is malformed', () => {
 		expect(expectErr(prepareSchema(value as never)).name).toBe('Malformed');
 });
 
-test('a body conversion missing a verb, and an unknown table option, are malformed', () => {
-	const half = expectErr(
-		prepareSchema({
-			...declaration,
-			tables: {
-				notes: defineTable({
-					fields: {},
-					// @ts-expect-error A conversion declares both verbs.
-					body: { encode: body.encode },
-				}),
-			},
-		}),
-	);
-	expect(half.message).toContain('invalid body codec');
+test('an unknown table option is malformed', () => {
 	const extra = expectErr(
 		prepareSchema({
 			...declaration,
 			tables: {
-				// @ts-expect-error A table declares fields and a body only.
+				// @ts-expect-error A table declares fields and whether it is closed.
 				notes: defineTable({ fields: {}, attachments: true }),
 			},
 		}),
@@ -1539,7 +1516,7 @@ test('a prepared definition and its records cannot be changed', () => {
 		() => Object.assign(prepared.kv, { added: field.string() }),
 		() => Object.assign(prepared.kv, { theme: field.integer() }),
 		() => Object.assign(prepared.tables, { added: notes }),
-		() => Object.assign(notes ?? {}, { body: undefined }),
+		() => Object.assign(notes ?? {}, { additionalProperties: false }),
 		() => Object.assign(notes?.fields ?? {}, { title: field.integer() }),
 		() => Object.assign(notes?.fields.title ?? {}, { minLength: 9 }),
 		() => {

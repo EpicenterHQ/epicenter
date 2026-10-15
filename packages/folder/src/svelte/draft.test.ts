@@ -24,6 +24,7 @@ const stored = (sha: string, title: string, done = false): StoredRow<Todo> =>
 	Object.freeze({
 		path: 'todos/a.md',
 		sha256: sha.repeat(64),
+		text: `---\ntitle: ${title}\ndone: ${done}\n---\n`,
 		row: { fields: { title, done }, body: '' },
 	});
 
@@ -97,11 +98,7 @@ test('changes made while a save runs are sent next, from the version it wrote', 
 	calls[0]?.land(landed(written));
 	await Bun.sleep(0);
 	expect(calls).toHaveLength(2);
-	expect(calls[1]?.sent.base).toEqual({
-		path: written.path,
-		sha256: written.sha256,
-		row: calls[0]?.sent.row,
-	});
+	expect(calls[1]?.sent.base).toBe(written);
 	expect(calls[1]?.sent.row.fields).toEqual({ title: 'Mine', done: true });
 
 	const last = stored('d', 'Mine', true);

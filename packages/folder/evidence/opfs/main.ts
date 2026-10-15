@@ -112,6 +112,20 @@ async function open(
 	return folder;
 }
 
+/** Save `content` at `path` over whatever is there now, without merging. */
+async function put(
+	folder: Folder<typeof definition>,
+	path: string,
+	content: string | Uint8Array,
+): Promise<Result<unknown, { name: string; message: string }>> {
+	const { data: current, error } = await folder.files.read(path);
+	if (error !== null)
+		return error.name === 'NotFound'
+			? folder.files.create(path, content)
+			: { data: null, error };
+	return folder.files.save(current, content, { merge: false });
+}
+
 async function closeAll() {
 	for (const folder of opened.splice(0)) await folder.close();
 }
@@ -339,12 +353,7 @@ async function publication(id: string) {
 				),
 			);
 			const before = await rawRead(id, 'rows/kept.md');
-			ok(
-				await folder.files.overwrite(
-					DECLARATION_PATH,
-					'manual malformed description',
-				),
-			);
+			ok(await put(folder, DECLARATION_PATH, 'manual malformed description'));
 			await folder.close();
 			const reopened = await open(id);
 			assert(
@@ -395,7 +404,7 @@ async function publication(id: string) {
 			assert(commits.length === 1, `initial commits ${commits.length}`);
 			await first.close();
 			const second = await open(historyId);
-			ok(await second.files.overwrite('rows/a.md', '---\ntitle: A\n---\n'));
+			ok(await put(second, 'rows/a.md', '---\ntitle: A\n---\n'));
 			const reopened = await second.git.commit();
 			assert(reopened.status === 'unchanged', `reopening ${reopened.status}`);
 			const after = ok(await second.git.log(10));
@@ -508,7 +517,7 @@ async function filesAndLayout(id: string) {
 			const blob = ok(await folder.files.open('take.bin'));
 			const { directory, name } = await rawParent(id, 'take.bin');
 			const snapshot = await (await directory.getFileHandle(name)).getFile();
-			ok(await folder.files.replace(saved, 'replaced'));
+			ok(await folder.files.save(saved, 'replaced'));
 			assert(
 				sameBytes(new Uint8Array(await blob.arrayBuffer()), large),
 				'the Blob changed',
@@ -573,18 +582,19 @@ async function twoContexts(id: string) {
 		);
 
 		await check(
-			'across contexts, exactly one of two replacements wins',
+			'across contexts, exactly one of two unmerged saves wins',
 			async () => {
 				const folder = await open(id);
 				for (let round = 0; round < 10; round++) {
 					const path = `race/replace-${round}.md`;
 					const base = ok(await folder.files.create(path, 'base'));
 					const [{ error: mineError }, theirs] = await Promise.all([
-						folder.files.replace(base, 'main'),
+						folder.files.save(base, 'main', { merge: false }),
 						other.ask({
-							kind: 'replace',
+							kind: 'save',
 							path,
 							sha256: base.sha256,
+							base: 'base',
 							content: 'peer',
 						}),
 					]);
@@ -627,12 +637,7 @@ async function twoContexts(id: string) {
 					ms: 2000,
 				});
 				for (let round = 0; round < 6; round++)
-					ok(
-						await folder.files.overwrite(
-							'big.bin',
-							round % 2 === 0 ? second : first,
-						),
-					);
+					ok(await put(folder, 'big.bin', round % 2 === 0 ? second : first));
 				const reply = await reading;
 				assert(reply.ok, `the peer reader failed: ${reply.error}`);
 				const { seen = [], failures = 0 } = reply;
@@ -693,7 +698,7 @@ async function interrupted(id: string) {
 			ok(await folder.files.create('b.md', '1'));
 			const before = await folder.git.commit();
 			assert(before.status === 'committed', `first commit ${before.status}`);
-			ok(await folder.files.overwrite('a.md', '2'));
+			ok(await put(folder, 'a.md', '2'));
 			ok(await folder.files.create('c.md', 'new'));
 			const after = await folder.git.commit();
 			assert(after.status === 'committed', `second commit ${after.status}`);

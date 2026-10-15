@@ -61,7 +61,7 @@ afterEach(async () => {
 });
 
 describe('byte ownership', () => {
-	test('create, replace, and overwrite each own their bytes before the caller can mutate them', async () => {
+	test('create and save each own their bytes before the caller can mutate them', async () => {
 		const folder = await open();
 		const first = await hashBytes(encoder.encode('AAAA'));
 
@@ -69,25 +69,34 @@ describe('byte ownership', () => {
 		const creating = folder.files.create('bytes.txt', content);
 		content.set(encoder.encode('BBBB'));
 		const created = expectOk(await creating);
-		expect(created).toEqual({ path: 'bytes.txt', sha256: first });
+		expect(created).toEqual({
+			path: 'bytes.txt',
+			sha256: first,
+			bytes: encoder.encode('AAAA'),
+		});
 		const read = expectOk(await folder.files.read('bytes.txt'));
 		expect(new TextDecoder().decode(read.bytes)).toBe('AAAA');
 		expect(read.sha256).toEqual(first);
 
 		const next = encoder.encode('CCCC');
-		const replacing = folder.files.replace(created, next);
+		const saving = folder.files.save(created, next);
 		next.set(encoder.encode('DDDD'));
-		const replaced = expectOk(await replacing);
+		const replaced = expectOk(await saving).stored;
 		expect(replaced.sha256).toEqual(await hashBytes(encoder.encode('CCCC')));
 		expect(expectOk(await folder.files.read('bytes.txt')).bytes).toEqual(
 			encoder.encode('CCCC'),
 		);
 
+		// The base is owned too: a caller changing the bytes it passed as the
+		// base changes nothing about the save.
+		const base = expectOk(await folder.files.read('bytes.txt'));
 		const last = encoder.encode('EEEE');
-		const overwriting = folder.files.overwrite('bytes.txt', last);
+		const again = folder.files.save(base, last);
+		base.bytes.set(encoder.encode('XXXX'));
 		last.set(encoder.encode('FFFF'));
-		const overwritten = expectOk(await overwriting);
-		expect(overwritten.sha256).toEqual(await hashBytes(encoder.encode('EEEE')));
+		expect(expectOk(await again).stored.sha256).toEqual(
+			await hashBytes(encoder.encode('EEEE')),
+		);
 		expect(
 			new TextDecoder().decode(
 				expectOk(await folder.files.read('bytes.txt')).bytes,

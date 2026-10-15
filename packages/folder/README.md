@@ -28,7 +28,7 @@ else {
   const edited = { ...created.row, fields: { ...created.row.fields, done: true } };
   const { data: saved, error: saveError } = await folder.tables.todos.save(created, edited);
   if (saveError !== null) show(saveError.message);     // deleted, invalid, or kept changing
-  else if (saved.replaced.length > 0) say(saved.replaced); // another writer's change it overrode
+  else if (saved.replaced.length > 0) say(saved.replaced); // another writer's change it replaced
 }
 await folder.close();                                  // closed either way
 ```
@@ -103,8 +103,10 @@ folder remains usable. A failed attempt can leave discovery missing, stale, or
 uncertain.
 
 Publication reads `epicenter.json` and, when its bytes differ from the
-declaration, writes through `files.overwrite`, once per handle, before that
-handle's first save. It never commits or pushes, so the published
+declaration, writes it once per handle, before that handle's first save: a
+missing file is created, and a present one is saved over as read with
+`{ merge: false }`, so `epicenter.json` is never line-merged. Another
+writer getting there first is read once more (ADR-0551). It never commits or pushes, so the published
 `epicenter.json` is recorded with the next version. A folder opened only to
 read, or to take a remote's history, is never written by opening.
 
@@ -333,7 +335,7 @@ IndexedDB is not required and is never read or written. A folder an earlier
 version kept in IndexedDB is not opened, copied, or removed.
 
 Every file mutation holds the folder's files Web Lock, so the conditions of
-`create`, `replace`, `remove`, and `move` are checked and published without
+`create`, `save`, `remove`, and `move` are checked and published without
 interleaving across tabs. Reads take no lock. New bytes publish when a file's
 stream closes, so a reader sees the old bytes or the new ones; a new file is
 visible, empty, from its creation until its stream closes.
@@ -346,9 +348,10 @@ visible, empty, from its creation until its stream closes.
 
 Saves are ordered by the lock alone, not by when their methods were called.
 A save that hashes or waits longer can land after one asked for later, from
-the same page or another, and whichever lands last on a path stays. A write
-that must not overwrite bytes its caller did not review names them with a
-capture: a file write is refused as `Conflict`, and a row save merges.
+the same page or another. Every write after a create names the bytes it
+started from, so none overwrites bytes its caller did not review: a save
+merges with them, and `remove`, `move`, and a save with `{ merge: false }`
+are refused as `Conflict`.
 
 ### A directory the desktop shell grants
 
@@ -532,8 +535,8 @@ successful reading does not mean an application can open the folder.
 
 | Member | Contract |
 | --- | --- |
-| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `save(capture, row)` writes an edit over the version it started from, merging with another writer's newer file. `rename` and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
-| `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` merges one key into the current file, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and re-applies itself when another writer got there first. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
+| `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, the exact `text`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `save(base, row, options?)` writes an edit over the version it started from, merging with another writer's newer file. `rename` and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
+| `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` changes one key of the file as read at the set, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and saves with the one save loop, merging by key with another writer's save. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `files` | Ordinary files at literal paths. See below. |
 | `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, and `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |
 | `sync` | `run()` commits saved files, fetches, merges, and pushes; competing settings, row fields, row bodies, and whole row files come back as a `SyncAttempt` that `resolve(attempt, choices)` settles. See [Sync](#sync). |
@@ -545,34 +548,40 @@ successful reading does not mean an application can open the folder.
 ### Files
 
 ```ts
-const { error: createError } = await folder.files.create('audio/take.webm', bytes);
+const { data: take, error: createError } = await folder.files.create('audio/take.webm', bytes);
 if (createError !== null) return show(createError.message);         // refused if anything is there
 const { data: file, error: readError } = await folder.files.read('notes/a.md');
 if (readError !== null) return show(readError.message);             // file is { path, sha256, bytes }
-const { data: next, error: replaceError } = await folder.files.replace(file, 'new text');
-if (replaceError !== null) return show(replaceError.message);       // refused if it changed since
-const { data: moved, error: moveError } = await folder.files.move(next, 'notes/b.md');
+const { data: saved, error: saveError } = await folder.files.save(file, 'new text');
+if (saveError !== null) return show(saveError.message);             // deleted, or kept changing
+if (saved.replaced.length > 0) say(saved.replaced);                 // another writer's lines it replaced
+const { data: moved, error: moveError } = await folder.files.move(saved.stored, 'notes/b.md');
 if (moveError !== null) return show(moveError.message);             // refused if either end changed
 const { error: removeError } = await folder.files.remove(moved);
 if (removeError !== null) return show(removeError.message);         // refused if it changed since
-const { error: overwriteError } = await folder.files.overwrite('settings.txt', 'on');
-if (overwriteError !== null) return show(overwriteError.message);   // whatever is there
 ```
 
-The verb states the condition. `replace`, `remove`, and `move` act on a
+The verb states the condition. `save`, `remove`, and `move` act on a
 **capture**: a plain, frozen `{ path, sha256 }`. The hash identifies the exact
 bytes captured; byte length remains inventory metadata. A capture holds nothing
-open, can be serialized, and never changes. A successful save returns a new
+open, can be serialized, and never changes. A successful write returns a new
 capture; the one passed in stays what it was. A stored row and an
 `InvalidRow` are captures of their row file, a KV snapshot is a capture of
 `kv.json`, and so is a `read` result.
 
+A save's base must also carry the content it names (ADR-0551): `read`,
+`create`, and `save` return the bytes with the capture, a `StoredRow` and an
+`InvalidRow` carry the text, and `{ path, sha256, text }` that crossed JSON
+works too. A base without content, or whose content no longer hashes to its
+`sha256` (bytes edited in place, say), is `UnknownBase`, and nothing is
+written. An editor keeps its base and its edited text apart.
+
 - Strings are saved as UTF-8 with nothing added or normalized. Byte arrays are
   copied when the method is called, so reusing the array afterward changes
   nothing.
-- A save's capture is computed from the bytes it was given. Nothing is read
-  back. If another writer lands right behind the save, the capture still names
-  what this save wrote, and the next `replace` with it is a `Conflict`. Read
+- A save's capture is computed from the bytes it wrote. Nothing is read back.
+  If another writer lands right behind the save, the capture still names what
+  this save wrote, and the next save from it merges with their change. Read
   the file to observe what is there now.
 - A moved file's capture is the captured hash at the new path. It is a
   receipt conditioned on that baseline, never a read of the destination:
@@ -580,16 +589,19 @@ capture; the one passed in stays what it was. A stored row and an
   is best effort against outside programs. Read the file to know what it
   holds now.
 - `create` reports `Exists` for an occupied path even when the bytes are identical.
-- A stale capture is a `Conflict`. Nothing is merged, replayed, or retried.
+- A stale capture is a `Conflict` for `remove` and `move`. A save merges
+  instead (see [One save](#one-save)), unless it is given `{ merge: false }`.
 
 Internally, the same intention reaches each backend as `create`, `replace`,
 `overwrite`, `remove`, or `move`. `replace`, `remove`, and `move` carry an
 optional `expectedSha256`; `files` and tables always send one, and only
-`create` and `overwrite` publish unconditionally. Without the guard, each still requires a
-file at its path or source: a `replace` never creates a file and is never sent
-as an `overwrite`, and a move's destination must be empty. Browser OPFS, the
-Bun directory, and a desktop page's directory enforce this where they publish. There
-is no sentinel union mixing hashes with `'absent'` or `'any'`.
+`create` publishes unconditionally. No folder verb sends an `overwrite`, which
+stays in the boundary for tests that play another writer. Without the guard,
+each still requires a file at its path or source: a `replace` never creates a
+file and is never sent as an `overwrite`, and a move's destination must be
+empty. Browser OPFS, the Bun directory, and a desktop page's directory enforce
+this where they publish. There is no sentinel union mixing hashes with
+`'absent'` or `'any'`.
 
 A directory folder, in Bun or a desktop page, checks that a `replace`'s file
 is there, or holds the expected bytes, where it renames a staged copy over
@@ -778,34 +790,24 @@ const moved = await todos.rename(stored, 'groceries'); // the capture at the new
 await todos.delete(stored);
 ```
 
-`save(capture, row)` is the one way an app, a script, or an agent writes an
-edit (ADR-0548). When the file still holds the captured bytes, it writes
-`row` over them. When another writer changed the file since, it reads the
-current file, merges the edit with it, and writes the merge over the current
-bytes:
+`save(base, row, options?)` is the one way an app, a script, or an agent
+writes an edit of a row: one save over the row's kind (see
+[One save](#one-save)). A field only one side changed keeps that side's value;
+body lines only one side changed keep that side's lines, and edits to
+neighboring lines both stay. Where both changed one field, or the same body
+lines, the edit wins, and `replaced` names what of theirs it replaced. A
+merged row is written in the standard form.
 
-- A field only one side changed keeps that side's value. Body lines only one
-  side changed keep that side's lines; edits to neighboring lines both stay.
-- Where both changed one field, or the same body lines, the edit wins, and
-  `replaced` names what of theirs it overrode: `{ kind: 'field', field,
-  kept, theirs }`, or `{ kind: 'body', line, kept, theirs }` with the edit's
-  lines standing in the saved body from the 0-based `line`. That is enough to
-  put theirs back with another save.
-- The merge is checked against the definition the handle reads with, as any
-  save is, and written in the standard form. If the file changed again, it
-  merges again, at most `SAVE_MERGES` times.
+The merge base is the row the base's text holds, never its `row`, which is the
+caller's to edit. A base whose text is not a row, such as an `InvalidRow`
+being repaired, merges by line.
 
-The merge base is the row the captured bytes held. A `StoredRow` this table
-returned knows it even after its `row` was edited in place; any other capture
-with a `row` is taken to carry the row as those bytes held it. A capture
-without one, such as an `InvalidRow` being repaired, has no base: wherever
-the two sides differ, the edit wins and says so.
-
-A save fails, writing nothing, only when the row does not conform or cannot
-be written (`InvalidValues`), the file was deleted (`NotFound`: a save never
-recreates a row), another writer left text that is not a row (`InvalidRow`,
-`InvalidUtf8`), or the file kept changing (`KeptChanging`). Its
-compare-and-swap is internal.
+A save fails, writing nothing, only when its base carries no content
+(`UnknownBase`), the row does not conform or cannot be written
+(`InvalidValues`), the file was deleted (`NotFound`: a save never recreates a
+row), another writer left text that is not a row and does not merge into one
+(`InvalidRow`), or the file kept changing (`KeptChanging`). With
+`{ merge: false }`, a file another writer changed is `Conflict` instead.
 
 `rename` and `delete` are refused as `Conflict` when the file no longer holds
 the captured bytes, and nothing retries. A rename to the stem it already has
@@ -822,7 +824,8 @@ have landed. Present it as uncertainty, never as a definite failure.
 
 The folder keeps no draft and no save queue. An edit holds its own starting
 version (ADR-0548): it captures the row and its version at the first change,
-keeps the edited row outside any cache, and saves with that row as the base.
+keeps the edited row outside any cache, and saves with that version as the
+base.
 A read in between updates the cache, never the edit. "Changed elsewhere" is
 the cache's version differing from the edit's, derived, with no state of its
 own. `createDraft()` in `@epicenter/folder/query` is this, in plain
@@ -834,14 +837,20 @@ draft.change(cachedRow, (row) => { row.fields.title = 'Oat milk'; }); // base ca
 draft.changedElsewhere(cachedRowNow);  // the cache moved past the base
 const sent = draft.toSave();           // { base, row, revision } for the save mutation
 // after the save lands:
-draft.saved(sent, saved);              // done, or later changes continue from it
+await draft.saved(sent, saved);        // done, or later changes continue from it
 ```
+
+After a save, the version written is the base. When the save merged another
+writer's change, changes made while it ran are merged onto that version, so
+the next save does not undo what the merge took. `createTextDraft()` is the
+same for one file's exact text, saved with `files.save`.
 
 A Svelte component holds one with `createDraftState({ save })` from
 `@epicenter/folder/svelte`: the same draft, read reactively, and a `save()`
 that runs one save at a time and sends changes made meanwhile from the
 version the last save wrote. A failed save keeps the draft; the error is the
-save mutation's.
+save mutation's. `createTextDraftState({ save })` is the same over
+`createTextDraft()`, with the files' write mutation as `save`.
 
 ```svelte
 <script lang="ts">
@@ -859,8 +868,57 @@ save mutation's.
 {#if todo.data && draft.changedElsewhere(todo.data)}Changed elsewhere; your edit will be merged.{/if}
 ```
 
-A row that is not valid is repaired as text: `files.replace(invalidRow, text)`
-saves over the `InvalidRow` the read returned, guarded by its bytes.
+A row that is not valid is repaired as text: `files.save(invalidRow, text)`
+saves over the `InvalidRow` the read returned, which carries its text.
+
+### One save
+
+Every write to an existing file is one save loop, `saveFile` (ADR-0551):
+`table.save`, `kv.set`, and `files.save` are thin calls over it.
+
+1. The base's content must hash to its `sha256`; otherwise `UnknownBase`.
+   The save swaps on that hash.
+2. On `Conflict` it reads the current file. A missing file is `NotFound`: a
+   save never recreates a deleted file.
+3. It merges the base and the edit with the current file by the file's kind,
+   and settles every unit both changed with the edit's side.
+4. The result must read as its kind whenever the edit does; then it swaps on
+   the current hash. That repeats at most `SAVE_MERGES` times, then
+   `KeptChanging`. A reply lost as `Unconfirmed` is read back once: our bytes
+   mean done.
+
+Every round merges from the edit's own base, so `replaced` names what the
+last round replaced. `{ merge: false }` stops at the first swap and answers
+`Conflict`: for a write that must land only over what it read, such as
+filling a body only while it is empty.
+
+| Kind | Merges by | A competing unit |
+| --- | --- | --- |
+| `kv.json` | key | one setting |
+| a row of a declared table | field, and the body by line | one field; the body |
+| other UTF-8 text | line | the file's text |
+| binary, or a side absent | none | the whole file |
+
+A row or `kv.json` version that does not read as its kind merges as text. A
+saved JSON, YAML, or CSV file merges by line, so the result may not parse. Sync
+merges with the same rules (see [Sync](#sync)).
+
+`replaced` names each value with its content, so theirs can be put back when
+their version exists nowhere else:
+
+- `{ kind: 'field', field, kept, theirs }` and `{ kind: 'setting', key, kept, theirs }`
+- `{ kind: 'text', part: 'body' | 'file', kept, theirs, regions }`: `theirs`
+  is the same merge with theirs winning every competing span, so it keeps the
+  edit's other lines, and each region names a span standing in `kept` from
+  its 0-based line
+- `{ kind: 'whole', theirs }`: their whole file, bytes included
+
+`restoreTheirs(saved)` is the one save that puts theirs back, over the
+version the save wrote: `{ base, row }` for a row save, `{ base, content }`
+for a file save. A file saved at a row path or `kv.json` is restored by field
+or key, which takes the folder's definition: `restoreTheirs(saved,
+folder.definition)`. `ReplacedNotice` in `@epicenter/svelte` is the one view
+of it.
 
 ### Reading and saving kv.json
 
@@ -896,17 +954,18 @@ text and its hash, so the file is repaired as text, guarded by those bytes.
 - A value that is undeclared, does not conform, is over the nesting or width
   budget, holds an unsafe integer, or has no exact JSON form is
   `InvalidValues` before anything is read. The value is owned at the call.
-- It reads the current file, merges the key into it, and publishes guarded by
-  that read. Every other key keeps its raw text, so number spellings and
-  unknown keys survive. The text is written in the merge format below, so a
-  local save and a Git merge produce the same file.
+- It reads the current file, changes the key in it, and saves over that read
+  ([One save](#one-save)). Every other key keeps its raw text, so number
+  spellings and unknown keys survive. The text is written in the merge format
+  below, so a local save and a Git merge produce the same file.
 - A missing file is created. `undefined` removes the key.
 - Sets from one handle apply in the order they were called; a later set of a
   key waiting behind a running one replaces it.
-- When another writer published first, or the reply was lost as
-  `Unconfirmed`, the set re-reads and re-applies itself, so two windows
-  setting different keys both keep their changes. After three attempts it
-  reports the last refusal.
+- When another writer published first, the save merges with them by key, so
+  two windows setting different keys both keep their changes; where both set
+  the same key, the set wins. A file that keeps changing past the merges is
+  `KeptChanging`. A create that loses to another writer, or whose reply was
+  lost, reads once more and saves over what is there.
 
 One top-level key is one fact. Settings that must change together belong in
 one key with an object value, which is set and merged as a whole.
@@ -937,30 +996,14 @@ nesting beyond 64 containers return `kind: 'invalid'` and the first invalid
 `side` in base, ours, theirs order. A leading BOM is accepted and removed from
 output. Callers must decode bytes without replacing invalid UTF-8.
 
-Sync settles competing keys through the same merge (`reconcileKv` in
-`kv-merge.ts`): each settled key is its raw value text, or `null` to leave
-it out, and applies only where the key competes.
+A save and Sync settle competing keys through the same merge (`reconcileKv`
+in `kv-merge.ts`, through `mergeFile`): each settled key is its raw value
+text, or `null` to leave it out, and applies only where the key competes.
 
 The function does not apply field schemas, write files, or choose a winner for
 competing edits. Its module owns `kv.json` text: `kv.set` writes through the same
 formatter, so a local save and a merge produce the same file. Every folder's `git.mergeIncoming()` uses it for root
 `kv.json`; see [Merging incoming changes](#merging-incoming-changes).
-
-### Merging a row
-
-`mergeRow(table, { base, ours, theirs })` merges three texts of one row file
-of a prepared table, each `null` for no file, by field and body. Sync and
-`table.save` both use it, so a row merges the same way wherever two writers
-meet. Every version is read through `parseRow`, so spelling never
-conflicts. For each field, equal values agree and a side unchanged from the
-base yields; values compare as JSON. The body merges by line: lines compete
-only where both sides changed the same lines, or inserted at the same place.
-
-The result is `merged` with the row; `conflict` with a row of every field that
-merged, beside the competing fields and body (that row leaves competing fields
-out, and its body is ours while the body competes); or `whole` when a side has no file or a version does
-not read as a row. It writes nothing and picks no winner; the caller formats
-the row it saves.
 
 ### One file per save
 
@@ -1022,7 +1065,7 @@ folder.onFilesChanged((change) =>
 | --- | --- | --- |
 | each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `create`, `save`, `rename`, `delete` |
 | `kv` | `get` (the reading, or `null`) | `set({ key, value })` |
-| `files` | `list`, `read(path)` | `write({ path, content, over? })`, `move({ file, to })`, `delete(file)` |
+| `files` | `list`, `read(path)` | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
 | `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
 
 A mutation updates the cache from its own result: `save` and `create` set the
@@ -1126,21 +1169,26 @@ with a history of its own meets an unrelated remote as `Unrelated`, writing
 nothing; `run({ allowUnrelatedHistories: true })` combines them. `connect(url)`
 sets the remote, then runs ([above](#the-folder-opened-lazily-and-its-remote)).
 
-Its merge is `mergeIncoming`'s with two additions for paths both sides
-changed:
+Its merge is `mergeIncoming`'s, with every plain file both sides changed
+merged by `mergeFile`, the same merge a save makes ([One save](#one-save),
+ADR-0551):
 
 | Path | Merged by | A conflict is |
 | --- | --- | --- |
 | root `kv.json` | key (`reconcileKv`) | `setting`: one key, with JSON values |
-| `<table>/<stem>.md` of a declared table | field and body, through `parseRow` (`mergeRow`) | `field`: one field, with JSON values; `body`: the notes, as text |
-| any other UTF-8 text file | line | `file`: the whole text, when lines compete |
-| any of these, when one side deleted it or a version does not read | nothing | `file`: the whole text |
+| `<table>/<stem>.md` of a declared table | field and body, through `parseRow` | `field`: one field, with JSON values; `body`: the notes, as text |
+| any other UTF-8 text file, or a row or `kv.json` version that does not read as its kind | line | `file`: the text, when lines compete |
+| any file one side deleted, or a version that is not text | nothing | `file`: the whole file; `binary` when a version is not text |
 
 Field values compare as JSON, so quoting, key order, and frontmatter
 comments never conflict; the body merges by line. A merged row is written by
-`formatRow`, in the standard form. A binary file, a link, executable, or
-submodule, and a file against a directory are `Unreviewable` and nothing is
-written; repair them with Git outside the folder.
+`formatRow`, in the standard form. For a `body`, and a `file` both sides
+changed by line, `local` and `incoming` are the line merge with that side
+winning every competing span, so taking a side keeps the other side's lines
+that did not compete. A binary `file` is taken or removed, never replaced;
+its versions are bytes. A link, executable, or submodule, and a file against
+a directory are `Unreviewable` and nothing is written; repair them with Git
+outside the folder.
 
 A `SyncAttempt`, carried by `SyncError.NeedsChoices`, is `{ id, local, incoming, conflicts }`.
 Each conflict has an opaque `id`, its `kind`, `path`, `key` or `field`, and
@@ -1149,7 +1197,7 @@ Each conflict has an opaque `id`, its `kind`, `path`, `key` or `field`, and
 
 ```ts
 const choices = {
-	[title.id]: { kind: 'take', side: 'incoming' }, // the captured version; an absent side removes
+	[title.id]: { kind: 'take', side: 'incoming' }, // that side's version; an absent side removes
 	[theme.id]: { kind: 'replace', value: 'dark' }, // JSON for a setting or field, text for a body or file
 	[tags.id]: { kind: 'remove' },                  // not for a body; replace it with ''
 };
@@ -1163,7 +1211,8 @@ const { data: done, error } = await folder.sync.resolve(attempt, choices);
   a resolved row must read back through `parseRow`, so removing a required
   field is refused. `InvalidChoices` writes nothing and keeps the attempt.
 - A `file` choice is written exactly as chosen, or removes the file. Text that is not a valid row
-  then reads as `InvalidRow` and is repaired as text, like any other.
+  then reads as `InvalidRow` and is repaired as text, like any other. A
+  binary `file` choice that replaces is `disallowed`.
 - Otherwise the attempt is spent. `resolve` merges the captured commits
   again, never fetching, publishes the merge like `mergeIncoming`, and pushes.
   An attempt replaced by another `run()`, or a folder whose branch moved or
@@ -1376,17 +1425,20 @@ accounts for content changes, so a domain method cannot accidentally choose a
 write that skips marking history stale.
 
 ```ts
-createFiles({ storage })
+createFiles({ storage, definition })
 createTable({ storage }, name, definition.tables[name])
 createKv({ storage }, definition.kv)
-createTerminal({ storage, git }, options)
 ```
+
+`files.save`, `table.save`, and `kv.set` each call `saveFile` (`save-file.ts`)
+with the file's kind, which merges through `mergeFile` (`merge-file.ts`), the
+merge Sync uses too.
 
 Every opener wraps raw storage with publication accounting. Assembly fences
 the resulting storage with the handle's close signal. These wrappers retain
 no file-operation collection.
 
 Git keeps raw storage because incoming fast-forwards update files and history
-under their own policy, and are not recorded as local saves. Saves are not ordered by when their methods were called: the last
-to land on a path wins. Terminal writes apply separately; a
-recursive removal or directory move applies its captured file steps together.
+under their own policy, and are not recorded as local saves. Saves are not
+ordered by when their methods were called; each names the bytes it started
+from, so a later one merges with or is refused by what landed first.

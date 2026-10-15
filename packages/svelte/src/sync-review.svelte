@@ -1,6 +1,6 @@
 <!--
-	The review for one `folder.sync` attempt (ADR-0514, ADR-0516): a row per
-	conflict, grouped by file, with the two captured versions and the result.
+	The review for one `folder.sync` attempt (ADR-0514, ADR-0516, ADR-0551): a
+	row per conflict, grouped by file, with each side's version and the result.
 
 	The review is modal: the page shows it in place of everything else while
 	the attempt waits. It holds that attempt's choices and nothing else, only
@@ -8,11 +8,14 @@
 	starts with no choices. Cancel calls `onCancel`, which discards the
 	attempt; nothing is remembered.
 
-	`Use all from` takes one side for every part. `Use this` takes a captured
-	version exactly. Typing writes a replacement:
-	a body, a whole file, or a field or setting whose versions are all text is
-	edited as text; any other value is edited as JSON and is not applied until
-	it parses. `Leave out` removes a setting, a field, or a file that both sides still have. Apply calls
+	`Use all from` takes one side for every part. `Use this` takes that side's
+	version: for a body or a text file, the line merge with that side winning
+	where both changed the same lines, so the other side's other lines stay.
+	Typing writes a replacement: a body, a text file, or a field or setting
+	whose versions are all text is edited as text; any other value is edited
+	as JSON and is not applied until it parses. A file that is not text is
+	taken or left out, never typed. `Leave out` removes a setting, a field, or
+	a file that both sides still have. Apply calls
 	`onApply(attempt, choices)` once per press, only when every conflict has a
 	choice; the app calls `folder.sync.resolve` and passes back the problems an
 	`InvalidChoices` refusal names, which show beside their rows until the
@@ -200,8 +203,9 @@
 			return 'Not a value yet. Write JSON, such as "text", 42, or true, or use a side.';
 		if (result(conflict).removed)
 			return conflict.kind === 'file' ? 'The file will be removed.' : `${partName(conflict)} will be left out.`;
-		if (conflict.kind === 'file')
-			return 'One version was deleted or is not valid. The text you choose is saved as it is.';
+		if (conflict.kind === 'file' && conflict.binary)
+			return 'This file is not text. Use one side, or leave it out.';
+		if (conflict.kind === 'file') return 'The text you choose is saved as it is.';
 		return undefined;
 	}
 
@@ -281,6 +285,7 @@
 						<span class="text-muted-foreground text-xs">Result</span>
 						<Textarea
 							class="max-h-64"
+							readonly={conflict.kind === 'file' && conflict.binary}
 							value={shown.text}
 							placeholder={shown.removed ? 'Left out' : 'Choose a side or type'}
 							aria-label="Result for {name}"

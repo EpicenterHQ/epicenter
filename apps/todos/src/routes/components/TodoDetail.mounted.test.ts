@@ -37,7 +37,7 @@
  */
 import '../../lib/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { parseRow } from '@epicenter/folder';
+import { type Folder, parseRow } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
 import {
@@ -132,7 +132,7 @@ async function setup() {
 		},
 		/** Another writer replaces the file. */
 		async overwrite(path: string, content: string) {
-			expectOk(await folder.files.overwrite(path, content));
+			await put(folder, path, content);
 		},
 		/** Another page of this origin replaces the file; the folder reports it. */
 		async overwriteElsewhere(path: string, content: string) {
@@ -146,10 +146,24 @@ async function setup() {
 					},
 				}),
 			);
-			expectOk(await other.files.overwrite(path, content));
+			await put(other, path, content);
 			await other.close();
 		},
 	};
+}
+
+/** Save `content` at `path` over whatever is there, without merging. */
+async function put(
+	folder: Pick<Folder<typeof todosDefinition>, 'files'>,
+	path: string,
+	content: string,
+) {
+	const current = await folder.files.read(path);
+	if (current.error?.name === 'NotFound')
+		return void expectOk(await folder.files.create(path, content));
+	expectOk(
+		await folder.files.save(expectOk(current), content, { merge: false }),
+	);
 }
 
 const TITLE = `${DETAIL} input[aria-label="Title"]`;

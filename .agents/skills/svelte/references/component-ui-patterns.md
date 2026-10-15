@@ -159,7 +159,7 @@ again, which rolls the row back, and a toast says what happened. Do not keep a
 draft, an edit session, an open-item slot, or a save bar beside the cache.
 `$state` holds only input that is not committed yet: a new-item box, a search,
 or a typed field that does not parse yet. A row whose text is not valid opens as
-text with its issues and is repaired through `files.replace`. A rich widget
+text with its issues and is repaired through `files.save`. A rich widget
 keeps its document, selection, and history; an unfinished Add, Send, or Save
 form owns a separate explicit-submission draft.
 

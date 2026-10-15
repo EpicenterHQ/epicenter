@@ -26,6 +26,7 @@ export {
 export type { FileListing } from './boundary.js';
 export {
 	type CapturedFile,
+	type ContentCapture,
 	type FileCapture,
 	hashBytes,
 	submittedText,
@@ -40,6 +41,7 @@ export {
 } from './definition.js';
 export {
 	FileError,
+	type FileSaveError,
 	type FileStep,
 	type KvReadError,
 	type KvWriteError,
@@ -101,12 +103,7 @@ export type {
 	GitCredentials,
 	HttpFetch,
 } from './git/http.js';
-export {
-	type LineVersions,
-	mergeLinesPreferring,
-	type PreferredMerge,
-	type SettledRegion,
-} from './git/merge-lines.js';
+export type { SettledRegion } from './git/merge-lines.js';
 export { commitSubject, escapePath, type PathChange } from './git/messages.js';
 export type { Author, CommitSummary } from './git/objects.js';
 export type {
@@ -142,14 +139,7 @@ export {
 	readingStatementProblem,
 	type SqlTarget,
 } from './projection.js';
-export {
-	type AnyRow,
-	type BodyConflict,
-	type FieldConflict,
-	mergeRow,
-	type RowMerge,
-	type RowVersions,
-} from './row-merge.js';
+export type { AnyRow } from './row-merge.js';
 export {
 	formatRow,
 	type Issue,
@@ -158,9 +148,14 @@ export {
 	type Row,
 	wellFormed,
 } from './row-text.js';
+export {
+	type Replaced,
+	restoreTheirs,
+	type SavedFile,
+	type SaveOptions,
+} from './save-file.js';
 export type {
 	FileTable,
-	Replaced,
 	SavedRow,
 	StoredRow,
 	TableListing,

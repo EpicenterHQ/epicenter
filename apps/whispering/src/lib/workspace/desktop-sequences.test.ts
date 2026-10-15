@@ -155,7 +155,10 @@ test('a save whose reply was lost is reported and keeps the edit, which saves ag
 	// Whether the lost save landed was unknown, so the edit saves again from
 	// where it started, over what did land, and says what it replaced.
 	expect(notices.slice(1)).toMatchObject([
-		{ kind: 'replaced', replaced: [{ kind: 'body', theirs: 'Tidy it.\n' }] },
+		{
+			kind: 'replaced',
+			replaced: [{ kind: 'text', part: 'body', theirs: 'Tidy it.\n' }],
+		},
 	]);
 	expect(library.unsaved).toBe(false);
 	expect(session.draft.body).toBe('Tidy it all.\n');
@@ -208,7 +211,9 @@ test('another writer’s change merges with the typing: where both changed, the 
 		{
 			kind: 'replaced',
 			path: PATH,
-			replaced: [{ kind: 'body', kept: 'Mine.\n', theirs: 'Theirs.\n' }],
+			replaced: [
+				{ kind: 'text', part: 'body', kept: 'Mine.\n', theirs: 'Theirs.\n' },
+			],
 		},
 	]);
 	expect(await shell.text(PATH)).toContain('Mine.\n');

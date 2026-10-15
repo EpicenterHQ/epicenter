@@ -6,7 +6,7 @@
  * attempt waits and drops it on Cancel, as an app does. Buttons are clicked and results typed through the DOM.
  *
  * Key behaviors:
- * - Each conflict shows both captured versions; Apply waits for a choice
+ * - Each conflict shows both sides' versions; Apply waits for a choice
  *   for every conflict
  * - `Use this` takes a side; typing replaces with text, or with JSON once
  *   it parses; `Leave out` removes; a body cannot be left out

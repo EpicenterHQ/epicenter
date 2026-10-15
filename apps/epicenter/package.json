@@ -37,6 +37,7 @@
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/server": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
 		"@epicenter/todos": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@epicenter/whispering": "workspace:*",

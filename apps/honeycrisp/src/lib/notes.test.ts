@@ -47,7 +47,7 @@ import {
 	openNotesFolder,
 	until,
 } from './folder.test-support.js';
-import type { Notes, WriteFailure } from './notes.svelte.js';
+import type { Notes, ReplacedChange, WriteFailure } from './notes.svelte.js';
 import {
 	cached,
 	createQueryClient,
@@ -72,8 +72,10 @@ async function open() {
 	await disk.write(A, noteText({ title: 'Alpha', body: 'One.\n' }));
 	await disk.write(B, noteText({ title: 'Beta', body: 'Two.\n' }));
 	const failures: WriteFailure[] = [];
+	const replaced: ReplacedChange[] = [];
 	const notes = createNotes(disk.host, createQueryClient(), {
 		onWriteFailed: (failure) => failures.push(failure),
+		onReplaced: (change) => replaced.push(change),
 	});
 	let closed = false;
 	cleanup.push(() => (closed ? undefined : notes.close()));
@@ -86,6 +88,7 @@ async function open() {
 		notes,
 		disk,
 		failures,
+		replaced,
 		/** The test closes the notes itself. */
 		closing() {
 			closed = true;
@@ -359,23 +362,36 @@ test('a note open as its file is a text edit, and the list shows it after the wr
 	expect(cached(notes, 'a').row.fields.title).toBe('By hand');
 });
 
-test('a text edit over a file changed elsewhere is refused, shows the file, and offers the text', async () => {
-	const { notes, disk, failures } = await open();
+test('a text edit over a file changed elsewhere merges by line, names what it replaced, and restores theirs', async () => {
+	const { notes, disk, failures, replaced } = await open();
 	notes.open(A, 'text');
 	cleanup.push(observe(notes, A));
 	await quiet(notes);
-	disk.put(A, noteText({ title: 'Theirs' }));
+	const theirs = noteText({ title: 'Theirs' });
+	disk.put(A, theirs);
 	expect(notes.editText(A, 'Mine\n')).toBe(true);
 	await quiet(notes);
-	expect(failures).toMatchObject([
-		{ path: A, error: { name: 'Conflict' }, unsaved: 'Mine\n', kept: false },
-	]);
-	expect(disk.text(A)).toBe(noteText({ title: 'Theirs' }));
+	// Both changed the same lines: the edit's stand, and theirs are named.
+	expect(failures).toEqual([]);
+	expect(disk.text(A)).toBe('Mine\n');
 	expect(notes.typedText(A)).toBeUndefined();
-	const opened = notes.queryClient.getQueryData<{ file: { text: string } }>(
-		notes.textQuery(A).queryKey,
-	);
-	expect(opened?.file.text).toBe(noteText({ title: 'Theirs' }));
+	const opened = () =>
+		notes.queryClient.getQueryData<{ file: { text: string } }>(
+			notes.textQuery(A).queryKey,
+		)?.file.text;
+	expect(opened()).toBe('Mine\n');
+	expect(replaced).toMatchObject([
+		{
+			path: A,
+			replaced: [{ kind: 'text', part: 'file', kept: 'Mine\n', theirs }],
+		},
+	]);
+
+	replaced[0]?.restore();
+	await quiet(notes);
+	expect(failures).toEqual([]);
+	expect(disk.text(A)).toBe(theirs);
+	expect(opened()).toBe(theirs);
 });
 
 test('a note opened as its file while its save runs is read once the save lands', async () => {

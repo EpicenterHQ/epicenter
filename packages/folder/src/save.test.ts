@@ -2,7 +2,7 @@
  * Save Tests
  *
  * `table.save` writes an edit over the bytes it started from, and merges it
- * with another writer's newer file when the file changed (ADR-0548). The
+ * with another writer's newer file when the file changed (ADR-0551). The
  * folder here is opened by its own declaration, so every row is checked
  * against `epicenter.json`.
  *
@@ -14,11 +14,14 @@
  *   it kept
  * - Body edits merge by line: neighboring lines both survive; where both
  *   changed the same lines the edit wins there, their other lines survive,
- *   and the result names their replaced lines and where the kept ones stand
- * - A capture with no row as read has no base: the edit wins wherever the
- *   two differ, and says so
+ *   and the result names the body with theirs winning there, which
+ *   `restoreTheirs` saves back
+ * - A capture without the content it names is `UnknownBase`, and nothing is
+ *   written
  * - A row another writer deleted is `NotFound`, and not recreated
- * - Another writer's text that is not a row is `InvalidRow`, and kept
+ * - Another writer's text that is not a row merges by line; a merge that
+ *   does not read as a row is `InvalidRow`, and their text stays
+ * - `{ merge: false }` answers `Conflict` instead of merging
  * - A value the field does not admit is `InvalidValues`, and nothing is
  *   written
  * - `epicenter.json` keeps its bytes throughout
@@ -29,7 +32,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openDataFolder } from './bun.js';
-import type { AnyRow, FileTable, StoredRow } from './contract.js';
+import {
+	type AnyRow,
+	type FileTable,
+	restoreTheirs,
+	type StoredRow,
+} from './contract.js';
 
 type AnyTable = FileTable<Record<string, unknown>>;
 type StoredAnyRow = StoredRow<Record<string, unknown>>;
@@ -194,7 +202,7 @@ test('body edits to neighboring lines both survive', async () => {
 	await folder.close();
 });
 
-test('body edits to the same line: the edit wins there, and says where and what it replaced', async () => {
+test('body edits to the same line: the edit wins there, says what it replaced, and theirs can be restored', async () => {
 	const { folder, table, read, otherWriter } = await setup();
 	const captured = await read();
 	await otherWriter(captured, (row) => {
@@ -213,53 +221,69 @@ test('body edits to the same line: the edit wins there, and says where and what 
 
 	expect(saved.replaced).toEqual([
 		{
-			kind: 'body',
-			line: 2,
-			kept: 'THREE (mine)\n',
-			theirs: 'THREE (theirs)\n',
+			kind: 'text',
+			part: 'body',
+			kept: 'ONE (theirs)\nsecond\nTHREE (mine)\n',
+			// Theirs winning where both changed, with the edit's other lines.
+			theirs: 'ONE (theirs)\nsecond\nTHREE (theirs)\n',
+			regions: [
+				{ line: 2, kept: 'THREE (mine)\n', theirs: 'THREE (theirs)\n' },
+			],
 		},
 	]);
 	const stored = await read();
 	expect(stored.row.body).toBe('ONE (theirs)\nsecond\nTHREE (mine)\n');
 	expect(stored.row.fields.done).toBe(true);
-	// What the result names is enough to put theirs back.
-	const { line, kept, theirs } = saved.replaced[0] as Extract<
-		(typeof saved.replaced)[number],
-		{ kind: 'body' }
-	>;
-	const lines = stored.row.body.split(/(?<=\n)/);
-	expect(lines.slice(line, line + 1).join('')).toBe(kept);
-	lines.splice(line, 1, theirs);
-	expect(lines.join('')).toBe('ONE (theirs)\nsecond\nTHREE (theirs)\n');
+	// What the result names is enough to put theirs back, in one save.
+	const restore = restoreTheirs(saved);
+	expect(restore.base).toBe(saved.stored);
+	const restored = expectOk(await table.save(restore.base, restore.row));
+	expect(restored).toMatchObject({ merged: false, replaced: [] });
+	expect((await read()).row.body).toBe(
+		'ONE (theirs)\nsecond\nTHREE (theirs)\n',
+	);
 	await folder.close();
 });
 
-test('a capture with no row as read has no base: the edit wins where the two differ, and says so', async () => {
+test('a capture without the content it names is UnknownBase, and nothing is written', async () => {
+	const { folder, table, read } = await setup();
+	const captured = await read();
+	const row = edit(captured, (row) => {
+		row.fields.title = 'Mine';
+	});
+
+	for (const base of [
+		{ path: captured.path, sha256: captured.sha256 },
+		{ ...captured, text: `${captured.text}edited in place` },
+	])
+		expect(
+			expectErr(await table.save(base as StoredAnyRow, row)),
+		).toMatchObject({ name: 'UnknownBase', path: captured.path });
+	expect((await read()).sha256).toBe(captured.sha256);
+	await folder.close();
+});
+
+test('an unmerged save of a row another writer changed is Conflict', async () => {
 	const { folder, table, read, otherWriter } = await setup();
 	const captured = await read();
-	await otherWriter(captured, (row) => {
+	const theirs = await otherWriter(captured, (row) => {
 		row.fields.done = true;
 	});
 
-	const saved = expectOk(
+	const refused = expectErr(
 		await table.save(
-			{ path: captured.path, sha256: captured.sha256 },
+			captured,
 			edit(captured, (row) => {
 				row.fields.title = 'Mine';
 			}),
+			{ merge: false },
 		),
 	);
 
-	expect(saved.replaced).toEqual(
-		expect.arrayContaining([
-			{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'One' },
-			{ kind: 'field', field: 'done', kept: false, theirs: true },
-		]),
-	);
-	expect((await read()).row.fields).toEqual({
-		title: 'Mine',
-		done: false,
-		tags: ['a'],
+	expect(refused).toMatchObject({
+		name: 'Conflict',
+		expectedSha256: captured.sha256,
+		actualSha256: theirs.sha256,
 	});
 	await folder.close();
 });
@@ -283,10 +307,40 @@ test('a row another writer deleted is NotFound, and not recreated', async () => 
 	await folder.close();
 });
 
-test('another writer left text that is not a row: InvalidRow, and their text stays', async () => {
+test('another writer left text that is not a row: it merges by line', async () => {
 	const { root, folder, table, read } = await setup();
 	const captured = await read();
-	const broken = '---\ntitle: [unfinished\n---\n';
+	// Their lines compete with the edit's title, which wins there.
+	await writeFile(
+		join(root, 'notes/one.md'),
+		'---\ntitle: [unfinished\n---\nfirst\nsecond\nthird\n',
+	);
+
+	const saved = expectOk(
+		await table.save(
+			captured,
+			edit(captured, (row) => {
+				row.fields.title = 'Mine';
+			}),
+		),
+	);
+
+	expect(saved.merged).toBe(true);
+	expect(saved.replaced).toMatchObject([{ kind: 'text', part: 'file' }]);
+	expect(saved.stored.row.fields).toEqual({
+		title: 'Mine',
+		done: false,
+		tags: ['a'],
+	});
+	await folder.close();
+});
+
+test('a merge with text that is not a row that does not read as one: InvalidRow, and their text stays', async () => {
+	const { root, folder, table, read } = await setup();
+	const captured = await read();
+	// Their broken opening fence does not compete with the edit's title.
+	const broken =
+		'--- broken\ntitle: One\ndone: false\ntags: [a]\n---\nfirst\nsecond\nthird\n';
 	await writeFile(join(root, 'notes/one.md'), broken);
 
 	const refused = expectErr(

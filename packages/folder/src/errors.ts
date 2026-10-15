@@ -270,13 +270,22 @@ export const TableError = defineErrors({
 		sha256,
 	}),
 	/**
-	 * A save found the row changed by another writer, merged with it, and
+	 * A save found the file changed by another writer, merged with it, and
 	 * found it changed again, `attempts` times. Nothing of this save landed.
 	 */
 	KeptChanging: ({ path, attempts }: { path: string; attempts: number }) => ({
 		message: `'${path}' kept changing while it was saved; gave up after ${attempts} merges`,
 		path,
 		attempts,
+	}),
+	/**
+	 * A save's base carries no content, or content that does not hash to its
+	 * own SHA-256, so nothing can tell which side changed what (ADR-0551).
+	 * Nothing was written.
+	 */
+	UnknownBase: ({ path }: { path: string }) => ({
+		message: `Unknown base: the version of '${path}' this save started from does not carry the content it names`,
+		path,
 	}),
 });
 export type TableError = InferErrors<typeof TableError>;
@@ -304,15 +313,33 @@ export type TableCreateError =
 	| TableErrorOf<'InvalidValues' | 'CannotCreate'>;
 
 /**
- * Why a save wrote nothing: the row cannot be written as a valid row
- * (`InvalidValues`), the row file was deleted (`NotFound`), another writer
- * left it unreadable as a row (`InvalidUtf8`, `InvalidRow`), it kept
- * changing past the merges (`KeptChanging`), or storage failed.
+ * Why a save wrote nothing (ADR-0551): its base does not carry the content
+ * it names (`UnknownBase`), the file was deleted (`NotFound`; a save never
+ * recreates a file), it moved on and the save was asked not to merge
+ * (`Conflict`), the edit merged with another writer's file does not read as
+ * its kind (`InvalidValues`, `InvalidRow`, `InvalidKv`), it kept changing
+ * past the merges (`KeptChanging`), or storage failed.
+ */
+export type FileSaveError =
+	| FileError
+	| TableErrorOf<
+			| 'UnknownBase'
+			| 'KeptChanging'
+			| 'InvalidValues'
+			| 'InvalidRow'
+			| 'InvalidKv'
+	  >;
+
+/**
+ * Why a row save wrote nothing: the row cannot be written as a valid row
+ * (`InvalidValues`), or any reason a file save fails, where `InvalidRow` is
+ * another writer's text that does not read as a row and does not merge
+ * into one.
  */
 export type TableSaveError =
 	| FileError
 	| TableErrorOf<
-			'InvalidValues' | 'InvalidUtf8' | 'InvalidRow' | 'KeptChanging'
+			'UnknownBase' | 'KeptChanging' | 'InvalidValues' | 'InvalidRow'
 	  >;
 
 /** A guarded row move preserves the file move's failures, its landed capture included. */
@@ -333,10 +360,12 @@ export type KvReadError = FileError | TableErrorOf<'InvalidUtf8' | 'InvalidKv'>;
 
 /**
  * Why a `kv.set` saved nothing: the value cannot be stored, the current file
- * cannot be read as settings, or publication failed. `Conflict` means the
- * set lost its race on every attempt.
+ * cannot be read as settings, publication failed, or the file kept changing
+ * past the merges (`KeptChanging`).
  */
-export type KvWriteError = KvReadError | TableErrorOf<'InvalidValues'>;
+export type KvWriteError =
+	| KvReadError
+	| TableErrorOf<'InvalidValues' | 'KeptChanging'>;
 
 /**
  * Why a folder could not be opened. Every opener returns these; none throws

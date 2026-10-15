@@ -261,7 +261,7 @@ test('starting and stopping a debug host leaves an existing branch lock in place
 
 test('the real lock blocks a real Git ref update, and releasing it unblocks it', async () => {
 	const { root, folder } = await open();
-	expectOk(await folder.files.create('note.md', 'one\n'));
+	const first = expectOk(await folder.files.create('note.md', 'one\n'));
 	expect((await folder.git.commit()).status).toBe('committed');
 	const head = execFileSync('git', ['rev-parse', 'HEAD'], {
 		cwd: root,
@@ -276,7 +276,7 @@ test('the real lock blocks a real Git ref update, and releasing it unblocks it',
 			stdio: 'pipe',
 		}),
 	).toThrow();
-	expectOk(await folder.files.overwrite('note.md', 'two\n'));
+	expectOk(await folder.files.save(first, 'two\n'));
 	expect((await folder.git.commit()).status).not.toBe('committed');
 	expect(await readFile(join(root, 'note.md'), 'utf8')).toBe('two\n');
 

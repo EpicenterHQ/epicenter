@@ -138,9 +138,14 @@ export async function openCaptures(files: Record<string, string> = {}) {
 			const read = await folder.files.read(path);
 			return read.error ? undefined : new TextDecoder().decode(read.data.bytes);
 		},
-		/** Another program writes the file. */
+		/** Another program writes the file over whatever is there. */
 		async writeElsewhere(path: string, text: string) {
-			expectOk(await folder.files.overwrite(path, text));
+			const current = await folder.files.read(path);
+			if (current.error?.name === 'NotFound')
+				return void expectOk(await folder.files.create(path, text));
+			expectOk(
+				await folder.files.save(expectOk(current), text, { merge: false }),
+			);
 		},
 		/** The folder's change channel reports `paths`, as for another page's writes. */
 		async reportChange(...paths: string[]) {

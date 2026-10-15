@@ -62,6 +62,7 @@ import {
 	initWithOrigin,
 	scratch,
 } from './git-http.test-support.js';
+import { put } from './put.test-support.js';
 
 const author = { name: 'Merger', email: 'merger@example.test' };
 const encoder = new TextEncoder();
@@ -751,7 +752,7 @@ test('a directory folder refuses a conflict by default and changes nothing', asy
 		await writeFile(join(upstream, 'a.md'), 'theirs\n');
 		await git(upstream, 'commit', '--quiet', '-am', 'Theirs');
 		await git(upstream, 'push', '--quiet', 'origin', 'main');
-		expectOk(await directory.files.overwrite('a.md', 'ours\n'));
+		expectOk(await put(directory.files, 'a.md', 'ours\n'));
 		const ours = await directory.git.commit();
 		if (ours.status !== 'committed') throw new Error(ours.status);
 		expectOk(await directory.git.fetch());
@@ -801,7 +802,7 @@ async function directoryWithUpstream() {
 test('a directory folder merges independent changes in one commit with both parents', async () => {
 	const { directory, local, push } = await directoryWithUpstream();
 	await push('a.md', 'one\ntwo\nTHREE\n');
-	expectOk(await directory.files.overwrite('a.md', 'ONE\ntwo\nthree\n'));
+	expectOk(await put(directory.files, 'a.md', 'ONE\ntwo\nthree\n'));
 	const ours = await directory.git.commit();
 	if (ours.status !== 'committed') throw new Error(ours.status);
 	expectOk(await directory.git.fetch());
@@ -821,7 +822,7 @@ test('a merge another Git program began blocks commits and updates until Git fin
 	expectOk(await directory.git.fetch());
 	const head = await git(local, 'rev-parse', 'main');
 	await writeFile(join(local, '.git/MERGE_HEAD'), `${head}\n`);
-	expectOk(await directory.files.overwrite('a.md', 'ONE\ntwo\nthree\n'));
+	expectOk(await put(directory.files, 'a.md', 'ONE\ntwo\nthree\n'));
 
 	const commit = await directory.git.commit();
 	expect(commit).toMatchObject({ status: 'blocked' });

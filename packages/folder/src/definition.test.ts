@@ -26,7 +26,6 @@
  *
  * See also:
  * - `packages/definition/src/prepare.test.ts` for preparation itself
- * - `browser.test.ts` and `native.test.ts` for a refused body conversion
  */
 import { afterAll, afterEach, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';

@@ -7,8 +7,8 @@
  * a caller holds after each operation and which bytes the folder holds.
  *
  * Key behaviors:
- * - `get` is a `StoredRow`: the path and hash of the bytes read and the
- *   complete row, unknown keys included; only absence is `undefined`
+ * - `get` is a `StoredRow`: the path and hash of the bytes read, their text,
+ *   and the complete row, unknown keys included; only absence is `undefined`
  * - Text that is not a valid row is `InvalidRow` with the exact text, the
  *   hash of its bytes, and located issues; bytes that are not UTF-8 are
  *   `InvalidUtf8` with their hash
@@ -38,7 +38,8 @@ import { rawBrowserFolder } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field, parseRow } from './contract.js';
 import type { Row } from './row-text.js';
-import { createTable, SAVE_MERGES } from './table.js';
+import { SAVE_MERGES } from './save-file.js';
+import { createTable } from './table.js';
 
 const definition = defineFolder({
 	kv: {},
@@ -142,6 +143,7 @@ test('a stored row is the bytes it was read from and the complete row they hold'
 	expect<unknown>(expectOk(await s.table.get('a'))).toEqual({
 		path: 'todos/a.md',
 		sha256: file.sha256,
+		text: VALID,
 		row: {
 			fields: { title: 'External', done: false, tags: [], priority: 'high' },
 			body: 'Body\n',
@@ -375,7 +377,7 @@ test('an invalid row is repaired with its own capture', async () => {
 	expect(expectOk(await s.table.get('m'))?.row.fields.title).toBe('Repaired');
 });
 
-test('replace refuses an invalid row before anything touches storage', async () => {
+test('save refuses an invalid row before anything touches storage', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
@@ -471,6 +473,23 @@ test('a save that races a competing write merges over it once, and says what it 
 		kept: 'Mine',
 		theirs: 'Newer',
 	});
+	expect(saved.stored.row.fields.title).toBe('Mine');
+});
+
+test("every merge round starts from the edit's own base, so a save names what the last round replaced", async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	const stored = await s.row('a');
+	let writes = 0;
+	// Two other writers land, one before each of the first two attempts.
+	s.beforeApply(async () => {
+		if (writes === 2) return s.beforeApply(undefined);
+		await s.put('todos/a.md', NEWER.replace('Newer', `Newer ${writes++}`));
+	});
+	const saved = expectOk(await s.table.save(stored, todo('Mine')));
+	expect(saved.replaced).toEqual([
+		{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Newer 1' },
+	]);
 	expect(saved.stored.row.fields.title).toBe('Mine');
 });
 

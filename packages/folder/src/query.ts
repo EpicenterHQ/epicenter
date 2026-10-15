@@ -41,10 +41,11 @@ import type {
 import { resultMutationOptions, resultQueryOptions } from 'wellcrafted/query';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing } from './boundary.js';
-import type { CapturedFile, FileCapture } from './capture.js';
+import type { CapturedFile, ContentCapture, FileCapture } from './capture.js';
 import type { FolderDefinition } from './definition.js';
 import type {
 	FileError,
+	FileSaveError,
 	KvReadError,
 	KvWriteError,
 	MoveError,
@@ -67,9 +68,16 @@ import type { SyncOptions, SyncOutcome } from './git/sync.js';
 import type { FileKv, KvReading } from './kv.js';
 import { rowPath, rowStemOf } from './paths.js';
 import type { Row } from './row-text.js';
+import type { SavedFile } from './save-file.js';
 import type { FileTable, SavedRow, StoredRow, TableListing } from './table.js';
 
-export { createDraft, type Draft } from './draft.js';
+export {
+	createDraft,
+	createTextDraft,
+	type Draft,
+	type SaveTextVariables,
+	type TextDraft,
+} from './draft.js';
 
 /** `kv.json`, whose reading the `kv` query holds. */
 const KV_PATH = 'kv.json';
@@ -93,10 +101,10 @@ type MutationFactory<TVariables, TData, TError> = {
 	>;
 };
 
-/** What a row save sends: the row the edit started from, and the edited row. */
+/** What a row save sends: the version the edit started from, and the edited row. */
 export type SaveRowVariables<TFields> = {
-	/** The row and version the edit started from (see `table.save`). */
-	readonly base: FileCapture & { readonly row?: Row<TFields> };
+	/** The version the edit started from, with its content (see `table.save`). */
+	readonly base: ContentCapture;
 	readonly row: Row<TFields>;
 };
 
@@ -145,17 +153,18 @@ export type FilesOptions = {
 	readonly list: QueryFactory<[], FileListing, FileError>;
 	readonly read: QueryFactory<[path: string], CapturedFile, FileError>;
 	/**
-	 * Write `content` at `path`: guarded by `over`, the version it replaces,
-	 * or as a new file that refuses an occupied path.
+	 * Write `content` at `path`: saved over `base`, the version the edit
+	 * started from, merging with any change made since (`files.save`), or
+	 * created as a new file that refuses an occupied path.
 	 */
 	readonly write: MutationFactory<
 		{
 			readonly path: string;
 			readonly content: string | Uint8Array;
-			readonly over?: FileCapture;
+			readonly base?: ContentCapture;
 		},
-		FileCapture,
-		FileError
+		SavedFile,
+		FileSaveError
 	>;
 	readonly move: MutationFactory<
 		{ readonly file: FileCapture; readonly to: string },
@@ -399,12 +408,17 @@ export function folderOptions<TDefinition extends FolderDefinition>(
 			mutationOptions: () =>
 				resultMutationOptions({
 					mutationKey: [...keys.files(), 'write'] as const,
-					mutationFn: ({ path, content, over }) =>
-						over === undefined
-							? folder.files.create(path, content)
-							: folder.files.replace(over, content),
-					onSuccess: (written, _variables, _result, { client }) =>
-						refreshFiles(client, [written.path]),
+					mutationFn: async ({ path, content, base }) => {
+						if (base !== undefined) return folder.files.save(base, content);
+						const { data: stored, error } = await folder.files.create(
+							path,
+							content,
+						);
+						if (error !== null) return Err(error);
+						return Ok({ stored, merged: false, replaced: [] });
+					},
+					onSuccess: (saved, _variables, _result, { client }) =>
+						refreshFiles(client, [saved.stored.path]),
 				}),
 		},
 		move: {

@@ -1,8 +1,8 @@
 /**
  * Working-copy editor regressions over a real browser folder and held OPFS writes.
  * Concurrent save waiters share writes, file switches wait for saves, and another
- * page's change rereads a clean editor but cannot replace typed input or silently
- * resolve a failed conditional save.
+ * page's change rereads a clean editor but never replaces typed input: the save
+ * merges with it, names what it replaced, and can put theirs back.
  * Two copies on one remote sync: a competing line waits for a modal review that
  * locks the editor, Cancel forgets it, and an applied choice reaches the remote.
  */
@@ -189,77 +189,64 @@ test('switching files waits through the active save and newer input', async () =
 	expect(workspace.buffer).toBe('other\n');
 });
 
-test('a change from another page rereads a clean editor and preserves typed text', async () => {
+/** Save `content` at `path` of `folder` over whatever is there, without merging. */
+async function put(
+	folder: Awaited<ReturnType<typeof elsewhere>>,
+	path: string,
+	content: string,
+) {
+	const current = await folder.files.read(path);
+	if (current.error?.name === 'NotFound')
+		return expectOk(await folder.files.create(path, content));
+	return expectOk(
+		await folder.files.save(expectOk(current), content, { merge: false }),
+	).stored;
+}
+
+const fileText = async (workspace: (typeof opened)[number], path: string) =>
+	new TextDecoder().decode(
+		expectOk(await workspace.folder.files.read(path)).bytes,
+	);
+
+test('a change from another page rereads a clean editor; typed text merges with it, and theirs can be restored', async () => {
 	const { workspace } = await setup();
 	const other = await elsewhere(workspace);
-	expectOk(await other.files.overwrite('a.txt', 'first outside\n'));
+	await put(other, 'a.txt', 'first outside\n');
 	await until(() => workspace.buffer === 'first outside\n');
 	expect(workspace.dirty).toBe(false);
 
 	workspace.input('my unsaved text\n');
-	expectOk(await other.files.overwrite('a.txt', 'outside\n'));
+	await put(other, 'a.txt', 'outside\n');
 	expectOk(await other.files.create('c.txt', ''));
 	await until(() =>
 		workspace.listing.files.some((file) => file.path === 'c.txt'),
 	);
 	expect(workspace.buffer).toBe('my unsaved text\n');
-	await expect(workspace.select('b.txt')).rejects.toThrow();
-	expect(workspace.selected).toBe('a.txt');
-	expect(workspace.dirty).toBe(true);
-	expect(workspace.saveMessage).toContain('captured SHA-256');
-	expect(
-		new TextDecoder().decode(
-			expectOk(await workspace.folder.files.read('a.txt')).bytes,
-		),
-	).toBe('outside\n');
-	await workspace.keepMyText();
-	expect(
-		new TextDecoder().decode(
-			expectOk(await workspace.folder.files.read('a.txt')).bytes,
-		),
-	).toBe('my unsaved text\n');
+	// Both changed the one line: the typed text stands, and theirs is named.
+	await workspace.flush();
 	expect(workspace.dirty).toBe(false);
+	expect(await fileText(workspace, 'a.txt')).toBe('my unsaved text\n');
+	expect(workspace.replaced).toMatchObject([
+		{ kind: 'text', kept: 'my unsaved text\n', theirs: 'outside\n' },
+	]);
+
+	await workspace.restoreTheirs();
+	expect(workspace.replaced).toEqual([]);
+	expect(workspace.buffer).toBe('outside\n');
+	expect(await fileText(workspace, 'a.txt')).toBe('outside\n');
 });
 
-test('discarding failed input reloads the current saved text and clean deletion closes editing', async () => {
+test('a save of a file deleted elsewhere fails and keeps the text; discarding it closes editing', async () => {
 	const { workspace } = await setup();
 	workspace.input('my text\n');
 	const other = await elsewhere(workspace);
-	const external = expectOk(await other.files.overwrite('a.txt', 'outside\n'));
+	expectOk(await other.files.remove(expectOk(await other.files.read('a.txt'))));
 	await expect(workspace.flush()).rejects.toThrow();
+	expect(workspace.buffer).toBe('my text\n');
+	expect(workspace.dirty).toBe(true);
 	await workspace.useSavedText();
-	expect(workspace.buffer).toBe('outside\n');
-	expect(workspace.dirty).toBe(false);
-	expectOk(await other.files.remove(external));
-	await until(() => !workspace.editable);
+	expect(workspace.editable).toBe(false);
 	expect(workspace.saveMessage).toContain('No file');
-});
-
-test('switching during explicit replacement keeps its receipt on the original file', async () => {
-	const { workspace, opfs } = await setup();
-	workspace.input('my repair\n');
-	expectOk(await workspace.folder.files.overwrite('a.txt', 'outside\n'));
-	await expect(workspace.flush()).rejects.toThrow();
-	const hold = holdNextWrite(opfs);
-	const replacing = workspace.keepMyText();
-	await hold.started;
-	const selecting = workspace.select('b.txt');
-	hold.release();
-	await Promise.all([replacing, selecting]);
-	expect(workspace.selected).toBe('b.txt');
-	expect(workspace.buffer).toBe('other\n');
-	workspace.input('edit b\n');
-	await workspace.flush();
-	expect(
-		new TextDecoder().decode(
-			expectOk(await workspace.folder.files.read('a.txt')).bytes,
-		),
-	).toBe('my repair\n');
-	expect(
-		new TextDecoder().decode(
-			expectOk(await workspace.folder.files.read('b.txt')).bytes,
-		),
-	).toBe('edit b\n');
 });
 
 test('two copies sync; a competing line waits for a modal review that Cancel forgets', async () => {

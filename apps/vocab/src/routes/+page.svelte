@@ -5,6 +5,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
+	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 	import { describeError, type ReplacedNotice } from '$lib/entries.svelte.js';
 	import { openVocabFolder } from '$lib/folder.js';
 	import type { WriteFailure } from '$lib/query.js';
@@ -33,8 +34,8 @@
 	}
 
 	/** A save merged with a change made elsewhere and kept the learner's value where both changed. */
-	function replaced({ path, fields }: ReplacedNotice) {
-		toast.info(`Saved; replaced a change made elsewhere to ${fields.join(' and ')}`, { description: path });
+	function replaced({ path, replaced, restore }: ReplacedNotice) {
+		void toastReplaced({ replaced, subject: path, restore });
 	}
 
 	// The mounted page opens the folder; importing modules opens nothing. There

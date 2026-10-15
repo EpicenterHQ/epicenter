@@ -18,8 +18,9 @@
  * - A value that is not declared, does not conform, or cannot be stored is
  *   refused before anything is read, and the value is owned at the call
  * - Sets from one handle land in the order they were called
- * - A set that loses a race to another writer re-reads and re-applies itself,
- *   so both writers' keys stick; a race lost on every attempt is `Conflict`
+ * - A set that loses a race to another writer merges with it by key, so
+ *   both writers' keys stick; a file that keeps changing past the merges is
+ *   `KeptChanging`
  *
  * See also:
  * - `kv-merge.test.ts` for the Git merge that shares this file format
@@ -35,6 +36,8 @@ import { FileError } from './errors.js';
 import { createFiles } from './files.js';
 import { createKv } from './kv.js';
 import { mergeKv } from './kv-merge.js';
+import { put } from './put.test-support.js';
+import { SAVE_MERGES } from './save-file.js';
 
 const definition = defineFolder({
 	kv: {
@@ -81,7 +84,7 @@ async function setup(initial?: string | Uint8Array) {
 		},
 		/** Write kv.json as another program would, with no guard. */
 		async elsewhere(text: string) {
-			expectOk(await files.overwrite('kv.json', text));
+			expectOk(await put(files, 'kv.json', text));
 		},
 	};
 }
@@ -227,7 +230,7 @@ test('sets from one handle land in the order they were called', async () => {
 	});
 });
 
-test('a set that loses a race re-applies itself, so both writers keep their keys', async () => {
+test('a set that loses a race merges by key, so both writers keep their keys', async () => {
 	const s = await setup('{"theme": "light"}');
 	s.afterNextReads(() => s.elsewhere('{"theme": "light", "size": 9}'));
 	const reading = expectOk(await s.kv.set('theme', 'dark'));
@@ -235,13 +238,17 @@ test('a set that loses a race re-applies itself, so both writers keep their keys
 	expect(await s.source()).toBe('{\n  "size": 9,\n  "theme": "dark"\n}\n');
 });
 
-test('a race lost on every attempt is Conflict, and the other writer stays', async () => {
+test('a file that keeps changing past the merges is KeptChanging, and the other writer stays', async () => {
 	const s = await setup('{"size": 0}');
 	let n = 0;
 	const write = () => s.elsewhere(`{"size": ${++n}}`);
-	s.afterNextReads(write, write, write);
-	expect(expectErr(await s.kv.set('theme', 'dark')).name).toBe('Conflict');
-	expect(await s.source()).toBe('{"size": 3}');
+	// Before the set's first save, and before each of its merges' saves.
+	s.afterNextReads(write, write, write, write);
+	expect(expectErr(await s.kv.set('theme', 'dark'))).toMatchObject({
+		name: 'KeptChanging',
+		attempts: SAVE_MERGES,
+	});
+	expect(await s.source()).toBe('{"size": 4}');
 });
 
 test('two creators of a missing file both keep their keys', async () => {

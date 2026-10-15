@@ -15,9 +15,11 @@
  * keeps the draft on screen, and the learner is told.
  *
  * A word file that is not a valid word is repaired as its exact text, read
- * as its own query and written the same way: a draft of the text, written
- * one write at a time over the version the last write left. Adding and
- * deleting a word are mutations too, so closing waits for them.
+ * as its own query and written the same way: a text draft over the version
+ * read, saved one write at a time and merged with a change made elsewhere
+ * (ADR-0551). A save that replaced another writer's change names it, with
+ * a way to put theirs back. Adding and deleting a word are mutations too, so
+ * closing waits for them.
  *
  * A new word's file is named by the SHA-256 of its exact text, and creation
  * is exclusive, so two adds of one text reach the same file.
@@ -25,19 +27,28 @@
 
 import { InstantString } from '@epicenter/definition/field';
 import {
+	type ContentCapture,
 	type FileCapture,
 	type FileError,
 	hashBytes,
 	type Replaced,
 	type Row,
+	restoreTheirs,
 	rowPath,
+	type SavedFile,
+	type SavedRow,
 	type StoredRow,
 	type TableError,
 	type TableListing,
 	wellFormed,
 } from '@epicenter/folder';
 import { type OpenedFile, readTextFile } from '@epicenter/folder/file-browser';
-import { createDraftState, type DraftState } from '@epicenter/folder/svelte';
+import {
+	createDraftState,
+	createTextDraftState,
+	type DraftState,
+	type TextDraftState,
+} from '@epicenter/folder/svelte';
 import type { MutationOptions, QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber, SvelteMap } from 'svelte/reactivity';
 import {
@@ -80,10 +91,14 @@ export type EntryError = InferErrors<typeof EntryError>;
 /** Every word file, as the table lists it: a word, or why it is not one. */
 export type EntryListing = TableListing<EntryFields>;
 
-/** A save that replaced a value another writer changed: the word's path, and which fields. */
+/**
+ * A save that replaced a value another writer changed: the word's path,
+ * what it replaced, and the one more save that puts theirs back.
+ */
 export type ReplacedNotice = {
 	readonly path: string;
-	readonly fields: string[];
+	readonly replaced: readonly Replaced[];
+	readonly restore: () => void;
 };
 
 /** The directory, and table, that holds the words. */
@@ -127,63 +142,6 @@ export function repairsOf(listing: EntryListing): UnreadableFile[] {
 		.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
-/** The fields a save's replaced values belong to, as the learner reads them. */
-const replacedFields = (replaced: readonly Replaced[]) =>
-	replaced.map((value) => (value.kind === 'field' ? value.field : 'text'));
-
-/**
- * The typed text of a file open for repair: held outside the cache from its
- * first change, and written one write at a time over the version the last
- * write left. A failed write keeps the text; the next `save` sends it again.
- */
-function createTextDraft(
-	write: (over: FileCapture, text: string) => Promise<FileCapture>,
-) {
-	let base: FileCapture | undefined;
-	let text = $state<string | undefined>();
-	/** Counts changes, so a write knows whether the text moved on while it ran. */
-	let revision = 0;
-	let running = $state<Promise<void> | undefined>();
-
-	async function loop() {
-		try {
-			while (base !== undefined && text !== undefined) {
-				const sent = { base, text, revision };
-				const written = await write(sent.base, sent.text).catch(
-					() => undefined,
-				);
-				// The mutation holds the error; the draft keeps the text.
-				if (written === undefined) return;
-				if (sent.revision === revision) {
-					base = undefined;
-					text = undefined;
-				} else base = written;
-			}
-		} finally {
-			running = undefined;
-		}
-	}
-
-	return {
-		/** The typed text not yet written; `undefined` with no change. */
-		get text() {
-			return text;
-		},
-		/** Type `next` over `current`, the file as the cache holds it now. */
-		change(current: FileCapture, next: string) {
-			base ??= { path: current.path, sha256: current.sha256 };
-			text = next;
-			revision++;
-		},
-		save(): Promise<void> {
-			if (running !== undefined) return running;
-			if (text === undefined) return Promise.resolve();
-			running = loop();
-			return running;
-		},
-	};
-}
-
 export function createEntries(
 	folder: Pick<VocabFolder, 'tables' | 'files'>,
 	folder$: Pick<VocabOptions, 'entries' | 'files' | 'pathFilter'>,
@@ -215,9 +173,7 @@ export function createEntries(
 	/** Each word's edit, by ID; one draft whichever view edits it. */
 	const drafts = new SvelteMap<string, DraftState<EntryFields>>();
 	/** The word file open as text for repair, if one is, and its typed text. */
-	let repair = $state<
-		{ path: string; draft: ReturnType<typeof createTextDraft> } | undefined
-	>();
+	let repair = $state<{ path: string; draft: TextDraftState } | undefined>();
 
 	const pathOf = (id: string) => rowPath(table.name, id);
 	const listingData = () => queryClient.getQueryData<EntryListing>(listKey);
@@ -274,13 +230,70 @@ export function createEntries(
 					},
 					sent,
 				),
-			onSaved: ({ replaced }) => {
-				if (replaced.length > 0)
-					onReplaced({ path, fields: replacedFields(replaced) });
-			},
+			onSaved: (saved) => reportRow(id, saved),
 		});
 		drafts.set(id, draft);
 		return draft;
+	}
+
+	/** Name what a word's save replaced, and offer theirs back as one more save. */
+	function reportRow(id: string, saved: SavedRow<EntryFields>) {
+		if (saved.replaced.length === 0) return;
+		onReplaced({
+			path: pathOf(id),
+			replaced: saved.replaced,
+			restore: () =>
+				void run(folder$.entries.save.mutationOptions(), restoreTheirs(saved))
+					.then((restored) => {
+						received(id, restored.stored);
+						reportRow(id, restored);
+					})
+					.catch(() => {}),
+		});
+	}
+
+	/** Save repair text of `path` over `base`: one run of the files' write mutation. */
+	function writeText(
+		path: string,
+		base: ContentCapture,
+		content: string | Uint8Array,
+	) {
+		return run(
+			{
+				...folder$.files.write.mutationOptions(),
+				onError: (error) =>
+					onWriteFailed({
+						path,
+						error,
+						lost: '',
+						retry: () => void repair?.draft.save(),
+					}),
+			},
+			{ path, content, base },
+		);
+	}
+
+	/** The repair text a save wrote is what the file holds; name what it replaced. */
+	function wroteText(path: string, saved: SavedFile) {
+		queryClient.setQueryData<OpenedFile>(textKey(path), {
+			kind: 'text',
+			file: {
+				path,
+				sha256: saved.stored.sha256,
+				text: new TextDecoder().decode(saved.stored.bytes),
+			},
+		});
+		if (saved.replaced.length === 0) return;
+		onReplaced({
+			path,
+			replaced: saved.replaced,
+			restore: () => {
+				const { base, content } = restoreTheirs(saved);
+				void writeText(path, base, content)
+					.then((restored) => wroteText(path, restored))
+					.catch(() => {});
+			},
+		});
 	}
 
 	/**
@@ -484,21 +497,10 @@ export function createEntries(
 		openRepair(path: string) {
 			repair = {
 				path,
-				draft: createTextDraft((over, text) =>
-					run(
-						{
-							...folder$.files.write.mutationOptions(),
-							onError: (error) =>
-								onWriteFailed({
-									path,
-									error,
-									lost: '',
-									retry: () => void repair?.draft.save(),
-								}),
-						},
-						{ path, content: text, over },
-					),
-				),
+				draft: createTextDraftState({
+					save: ({ base, text }) => writeText(path, base, text),
+					onSaved: (saved) => wroteText(path, saved),
+				}),
 			};
 		},
 		/**

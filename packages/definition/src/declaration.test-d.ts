@@ -266,7 +266,7 @@ if (prepared !== null) {
 	field.nullable(prepared.tables.mixed.fields.title);
 	// @ts-expect-error the prepared schema declares no such table
 	prepared.tables.absent;
-	// @ts-expect-error a prepared table has fields and a body, and no name
+	// @ts-expect-error a prepared table has fields, and no name
 	prepared.tables.mixed.name;
 }
 export type _PreparedKv = Expect<

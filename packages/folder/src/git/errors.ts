@@ -311,9 +311,8 @@ export const SyncError = defineErrors({
 		error,
 	}),
 	/**
-	 * Competing changes sync cannot offer for review: a binary file, a file
-	 * that is a link, executable, or submodule in a version, or a file
-	 * against a directory. Nothing was written or sent; repair them with Git
+	 * Competing changes sync cannot offer for review: a file that is a link,
+	 * executable, or submodule in a version, or a file against a directory. Nothing was written or sent; repair them with Git
 	 * outside the folder, then sync again.
 	 */
 	Unreviewable: ({ conflicts }: { conflicts: readonly MergeConflict[] }) => ({

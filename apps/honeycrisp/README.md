@@ -166,17 +166,17 @@ shows directly.
 | What happened | What Honeycrisp does |
 | --- | --- |
 | Another program or window changed a file | The lists and the open note show the new version. If you were not typing, the rich-text view starts over on the new text, so its undo history restarts. |
-| Another program changed the file while you were typing | What you typed stays on screen: the edit holds the version it started from, and a read never replaces it. The save merges with their change (ADR-0548): what only they changed stays, and where you both changed the same field or lines, your edit wins. A message says what of theirs your edit replaced. |
+| Another program changed the file while you were typing | What you typed stays on screen: the edit holds the version it started from, and a read never replaces it. The save merges with their change (ADR-0548): what only they changed stays, and where you both changed the same field or lines, your edit wins. A message says what of theirs your edit replaced, with **Restore theirs**. |
 | Another program deleted the file, and you edit it | The save is refused, and the note leaves the list. A message offers **Copy your text**, which copies the whole note as you had it. |
 | You typed while a save was running | The newer typing saves next, on top of the save before it. |
 | A save failed, for example on a full disk | Your edit stays on screen, the note shows **Not saved**, and the message offers your text to copy. It saves again with your next change, or with **Save again**. |
 | A save got no reply | The same as a failed save: the message says the save may or may not have happened, and the next save merges with whatever the file holds. |
 | A value is not valid for a note | Inputs only change notes to valid values. A value the folder still refuses is reported the same way. |
-| You typed in a file open as text, and it changed elsewhere | Text is written whole, without a merge, so the write is refused. The view shows the file as it is now, and the message offers your text to copy. |
+| You typed in a file open as text, and it changed elsewhere | The save merges by line (ADR-0551): what only they changed stays, and where you both changed the same lines, yours win. A message says what of theirs your edit replaced, with **Restore theirs**. |
 | You rename or delete the open item | Its saves finish first, and the rename or delete acts on what it saved last. Typing is paused while a rename or delete runs. A file changed elsewhere since is refused. |
 
-What a failed save held stays on screen until it saves; what a refused text
-write held is offered to copy. Opening another note never asks. Reloading the
+What a failed save held stays on screen until it saves; what a failed text
+save held is offered to copy. Opening another note never asks. Reloading the
 page and in-page navigation wait while a save or action is running.
 
 Closing the desktop window or quitting the app (including Cmd+Q) quits at
@@ -277,7 +277,8 @@ lists. The draft captures the cached row and its version at the first change
 and keeps the edited row outside the cache. Each change saves with
 `tables.<name>.save`, which merges with whatever changed since; one save runs
 at a time per row, and its result goes into the cache. A text edit is a text
-draft written whole with `files.replace`, guarded by its version. A new note
+draft (`createTextDraftState`) saved with `files.save`, which merges by line
+with whatever changed since. A new note
 or folder is `tables.<name>.create`; a new file is `files.create`; rename and
 delete wait for the file's saves and act on the version the last one wrote.
 After its own actions the page makes what they changed stale, and after its

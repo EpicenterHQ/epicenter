@@ -1,20 +1,23 @@
 /**
  * File Verb and Capture Tests
  *
- * `folder.files` names the condition a save publishes under through its verb,
- * and identifies the file a conditional verb acts on with a capture: a plain
- * `{ path, sha256 }` value. The same cases run against a browser folder and
- * a directory folder, which is what the desktop app opens.
+ * `folder.files` names the condition a write publishes under through its
+ * verb, and identifies the file a conditional verb acts on with a capture: a
+ * plain `{ path, sha256 }` value, which a read, a create, and a save return
+ * with the bytes it names. The same cases run against a browser folder and a
+ * directory folder, which is what the desktop app opens.
  *
  * Key behaviors:
- * - `create` is exclusive, even over identical bytes; `overwrite` is not
- * - `replace`, `remove`, and `move` refuse a stale capture and change nothing
+ * - `create` is exclusive, even over identical bytes
+ * - `remove` and `move` refuse a stale capture and change nothing; `save`
+ *   with `{ merge: false }` does too, and a save never recreates a file
+ * - A save's base must carry the content it names, or it is `UnknownBase`
  * - A save's capture is computed from the bytes it was given and is never
  *   read back: a writer that lands right behind the save does not change it
  * - A moved file's capture is the captured hash at the new path
  * - Captures are frozen, serializable, and never follow the file
  * - Read bytes are detached from storage
- * - Table `replace`, `rename`, and `delete` own their capture and row before
+ * - Table `save`, `rename`, and `delete` own their capture and row before
  *   awaiting, and a table save is never read back either
  * - Several changes are several calls: one that landed stays when a later
  *   one is refused
@@ -123,10 +126,15 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		const entry = expectOk(
 			await table.create({ fields: { title: 'A' }, body: '' }, { stem: 'a' }),
 		);
-		const capture = { path: entry.path, sha256: entry.sha256 };
+		const capture = {
+			path: entry.path,
+			sha256: entry.sha256,
+			text: entry.text,
+		};
 		const row = { fields: { title: 'Mine' }, body: '' };
 		const saving = table.save(capture, row);
 		capture.sha256 = 'f'.repeat(64);
+		capture.text = 'changed after the call';
 		row.fields.title = 'Changed after the call';
 		const { stored: saved } = expectOk(await saving);
 		expect(saved.path).toBe(entry.path);
@@ -158,12 +166,13 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		expect(expectOk(await table.get('b'))).toBeUndefined();
 	});
 
-	test('create is exclusive even over identical bytes; overwrite is unconditional', async () => {
+	test('create is exclusive even over identical bytes, and returns the bytes it saved', async () => {
 		const folder = await open();
 		const created = expectOk(await folder.files.create('a.txt', 'same'));
 		expect(created).toEqual({
 			path: 'a.txt',
 			sha256: await versionOf('same'),
+			bytes: encoder.encode('same'),
 		});
 
 		// Identical content does not prove who wrote it: still refused.
@@ -174,12 +183,15 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		);
 		expect(await text(folder, 'a.txt')).toBe('same');
 
-		const over = expectOk(await folder.files.overwrite('a.txt', 'replaced'));
-		expect(over.sha256).toEqual(await versionOf('replaced'));
-		const fresh = expectOk(await folder.files.overwrite('new.txt', 'made'));
-		expect(fresh).toEqual({
-			path: 'new.txt',
-			sha256: await versionOf('made'),
+		const over = expectOk(await folder.files.save(created, 'replaced'));
+		expect(over).toEqual({
+			stored: {
+				path: 'a.txt',
+				sha256: await versionOf('replaced'),
+				bytes: encoder.encode('replaced'),
+			},
+			merged: false,
+			replaced: [],
 		});
 		// Strings are saved exactly: no newline, BOM, or normalization is added.
 		expect(expectOk(await folder.files.read('a.txt')).bytes).toEqual(
@@ -187,12 +199,14 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		);
 	});
 
-	test('replace, remove, and move refuse a stale capture and leave every byte alone', async () => {
+	test('remove, move, and an unmerged save refuse a stale capture and leave every byte alone', async () => {
 		const folder = await open();
 		const first = expectOk(await folder.files.create('note.md', 'first'));
-		const second = expectOk(await folder.files.replace(first, 'second'));
+		const second = expectOk(await folder.files.save(first, 'second')).stored;
 
-		const stale = expectErr(await folder.files.replace(first, 'from stale'));
+		const stale = expectErr(
+			await folder.files.save(first, 'from stale', { merge: false }),
+		);
 		expect(stale).toMatchObject({
 			name: 'Conflict',
 			path: 'note.md',
@@ -210,9 +224,12 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 
 		// A capture of a file that is gone is refused, never recreated.
 		expectOk(await folder.files.remove(second));
-		expect(expectErr(await folder.files.replace(second, 'back')).name).toBe(
-			'Conflict',
+		expect(expectErr(await folder.files.save(second, 'back')).name).toBe(
+			'NotFound',
 		);
+		expect(
+			expectErr(await folder.files.save(second, 'back', { merge: false })).name,
+		).toBe('Conflict');
 		expect(expectErr(await folder.files.remove(second)).name).toBe('NotFound');
 		expect(expectErr(await folder.files.move(second, 'x.md')).name).toBe(
 			'NotFound',
@@ -235,11 +252,16 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		const moved = expectOk(await folder.files.move(source, 'b/to.txt'));
 		expect(moved).toEqual({ path: 'b/to.txt', sha256: source.sha256 });
 		expect(await text(folder, 'b/to.txt')).toBe('carried');
-		// The moved capture is the working baseline for the next edit.
-		expectOk(await folder.files.replace(moved, 'edited after the move'));
+		// The moved capture, with the bytes it moved, is the base of the next edit.
+		expectOk(
+			await folder.files.save(
+				{ ...moved, bytes: source.bytes },
+				'edited after the move',
+			),
+		);
 		// The old capture names a path that no longer holds the file.
-		expect(expectErr(await folder.files.replace(source, 'x')).name).toBe(
-			'Conflict',
+		expect(expectErr(await folder.files.save(source, 'x')).name).toBe(
+			'NotFound',
 		);
 	});
 
@@ -274,35 +296,44 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		const folder = await open();
 		const saved = expectOk(await folder.files.create('draft.md', 'one'));
 		expect(Object.isFrozen(saved)).toBe(true);
-		expect(Object.keys(saved)).toEqual(['path', 'sha256']);
+		expect(Object.keys(saved)).toEqual(['path', 'sha256', 'bytes']);
 		const snapshot = structuredClone(saved);
 
-		const next = expectOk(await folder.files.replace(saved, 'two'));
-		expectOk(await folder.files.replace(next, 'three'));
+		const next = expectOk(await folder.files.save(saved, 'two')).stored;
+		expectOk(await folder.files.save(next, 'three'));
 		// Later saves returned new captures; the first one is what it was.
 		expect(saved).toEqual(snapshot);
 		expect(saved.sha256).toEqual(await versionOf('one'));
 		expect(next.sha256).toEqual(await versionOf('two'));
 
-		// A capture that crossed JSON, as it would a bridge, still identifies bytes.
+		// A capture that crossed JSON, as it would a bridge, still identifies
+		// bytes: its content travels as text.
 		const read = expectOk(await folder.files.read('draft.md'));
-		const { bytes: _bytes, ...readCapture } = read;
-		const wired = JSON.parse(JSON.stringify(readCapture)) as FileCapture;
+		const wired = JSON.parse(
+			JSON.stringify({
+				path: read.path,
+				sha256: read.sha256,
+				text: decoder.decode(read.bytes),
+			}),
+		) as FileCapture & { text: string };
 		expect(wired).toEqual({
 			path: 'draft.md',
 			sha256: await versionOf('three'),
+			text: 'three',
 		});
-		const viaWire = expectOk(await folder.files.replace(wired, 'four'));
+		const viaWire = expectOk(await folder.files.save(wired, 'four')).stored;
 		expect(viaWire.sha256).toEqual(await versionOf('four'));
 
 		// A caller mutating the object it passed cannot move the baseline.
-		const loose = { path: 'draft.md', sha256: viaWire.sha256 };
-		const replacing = folder.files.replace(loose, 'five');
+		const loose = { path: 'draft.md', sha256: viaWire.sha256, text: 'four' };
+		const saving = folder.files.save(loose, 'five');
 		loose.path = 'elsewhere.md';
 		loose.sha256 = '0'.repeat(64);
-		expect(expectOk(await replacing)).toEqual({
+		loose.text = 'not the base';
+		expect(expectOk(await saving).stored).toEqual({
 			path: 'draft.md',
 			sha256: await versionOf('five'),
+			bytes: encoder.encode('five'),
 		});
 	});
 
@@ -321,8 +352,11 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 		expect(again.bytes).not.toBe(read.bytes);
 		// The capture did not change with the array it came with.
 		expect(read.sha256).toEqual(again.sha256);
-		// The whole read value is a usable target: only its path and sha256 count.
-		expectOk(await folder.files.replace(read, 'text now'));
+		// But its content no longer hashes to it, so it is no base for a save.
+		expect(expectErr(await folder.files.save(read, 'text now')).name).toBe(
+			'UnknownBase',
+		);
+		expectOk(await folder.files.save(again, 'text now'));
 	});
 
 	test('invalid paths and captures are refused before anything is published', async () => {
@@ -335,12 +369,21 @@ describe.each(Object.keys(openers))('%s folder file verbs', (kind) => {
 			'InvalidPath',
 		);
 		const pathOnly = { path: 'a.txt' } as unknown as FileCapture;
+		// A capture without its content names bytes nothing can merge from.
+		const contentless = {
+			path: 'a.txt',
+			sha256: await versionOf('kept'),
+		} as unknown as FileCapture & { text: string };
+		expect(expectErr(await folder.files.save(contentless, 'x'))).toMatchObject({
+			name: 'UnknownBase',
+			path: 'a.txt',
+		});
 		for (const refused of [
-			await folder.files.replace(pathOnly, 'x'),
-			await folder.files.remove(pathOnly),
-			await folder.files.move(pathOnly, 'b.txt'),
+			(await folder.files.save(pathOnly as typeof contentless, 'x')).error,
+			(await folder.files.remove(pathOnly)).error,
+			(await folder.files.move(pathOnly, 'b.txt')).error,
 		])
-			expect(expectErr(refused)).toMatchObject({
+			expect(refused).toMatchObject({
 				name: 'InvalidPath',
 				reason: 'the capture has no valid SHA-256',
 			});
@@ -466,31 +509,25 @@ describe('a save never reads its bytes back', () => {
 		throw new Error('this test uses no Git');
 	}
 
-	test('create, replace, overwrite, move, and a table save read nothing after publishing', async () => {
+	test('create, save, move, and a table save read nothing after publishing', async () => {
 		const { folder, reads } = await instrumented();
 		const created = expectOk(await folder.files.create('a.md', 'one'));
-		const replaced = expectOk(await folder.files.replace(created, 'two'));
-		const moved = expectOk(await folder.files.move(replaced, 'b.md'));
-		expectOk(await folder.files.overwrite('b.md', 'three'));
-		expectOk(
-			await folder.files.remove({
-				...moved,
-				sha256: await versionOf('three'),
-			}),
-		);
+		const saved = expectOk(await folder.files.save(created, 'two')).stored;
+		const moved = expectOk(await folder.files.move(saved, 'b.md'));
+		expectOk(await folder.files.remove(moved));
 		const row = expectOk(
 			await folder.tables.todos.create(
 				{ fields: { title: 'R' }, body: '' },
 				{ stem: 'r' },
 			),
 		);
-		const saved = expectOk(
+		const savedRow = expectOk(
 			await folder.tables.todos.save(row, {
 				fields: { title: 'S' },
 				body: '',
 			}),
 		).stored;
-		const renamed = expectOk(await folder.tables.todos.rename(saved, 's'));
+		const renamed = expectOk(await folder.tables.todos.rename(savedRow, 's'));
 		expectOk(await folder.tables.todos.delete(renamed));
 		// The one read is the declaration's, before the first save (ADR-0508).
 		expect(reads).toEqual(['epicenter.json']);
@@ -500,29 +537,45 @@ describe('a save never reads its bytes back', () => {
 		const { folder, raceNextSave } = await instrumented();
 		const base = expectOk(await folder.files.create('note.md', 'base'));
 
-		raceNextSave('note.md', 'raced in behind');
-		const mine = expectOk(await folder.files.replace(base, 'mine'));
+		raceNextSave('note.md', 'raced in behind\n');
+		const mine = expectOk(await folder.files.save(base, 'mine')).stored;
 		// The capture is the bytes this save was given. It is not what a reread
 		// would have found, which by now is the other writer's bytes.
 		expect(mine.sha256).toEqual(await versionOf('mine'));
 		const observed = expectOk(await folder.files.read('note.md'));
-		expect(decoder.decode(observed.bytes)).toBe('raced in behind');
+		expect(decoder.decode(observed.bytes)).toBe('raced in behind\n');
 		expect(observed.sha256).not.toEqual(mine.sha256);
 
-		// So the next save built on `mine` is refused, instead of silently
-		// overwriting bytes this editor never saw.
+		// So the next save built on `mine` does not silently overwrite bytes
+		// this editor never saw: unmerged it is refused, and merged it names
+		// what of theirs it replaced.
 		expect(
-			expectErr(await folder.files.replace(mine, 'next draft')),
+			expectErr(
+				await folder.files.save(mine, 'next draft\n', { merge: false }),
+			),
 		).toMatchObject({
 			name: 'Conflict',
 			expectedSha256: mine.sha256,
 			actualSha256: observed.sha256,
 		});
+		const merged = expectOk(await folder.files.save(mine, 'next draft\n'));
+		expect(merged.merged).toBe(true);
+		expect(merged.replaced).toEqual([
+			{
+				kind: 'text',
+				part: 'file',
+				kept: 'next draft\n',
+				theirs: 'raced in behind\n',
+				regions: [
+					{ line: 0, kept: 'next draft\n', theirs: 'raced in behind\n' },
+				],
+			},
+		]);
 
 		// The same holds for a moved file. A table row merges instead.
 		raceNextSave('moved.md', 'raced the move');
-		const moved = expectOk(await folder.files.move(observed, 'moved.md'));
-		expect(moved.sha256).toEqual(observed.sha256);
+		const moved = expectOk(await folder.files.move(merged.stored, 'moved.md'));
+		expect(moved.sha256).toEqual(merged.stored.sha256);
 		expect(expectErr(await folder.files.remove(moved)).name).toBe('Conflict');
 
 		raceNextSave('todos/r.md', '---\ntitle: Theirs\n---\n');

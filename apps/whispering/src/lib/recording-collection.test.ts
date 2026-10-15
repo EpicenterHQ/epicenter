@@ -677,7 +677,11 @@ test('typing over a transcript changed outside, before the window read it again,
 			kind: 'replaced',
 			path: TRANSCRIPT,
 			replaced: [
-				{ kind: 'body', theirs: expect.stringContaining('migration') },
+				{
+					kind: 'text',
+					part: 'body',
+					theirs: expect.stringContaining('migration'),
+				},
 			],
 		},
 	]);

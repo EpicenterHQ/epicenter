@@ -25,45 +25,45 @@ const PublicationError = defineErrors({
 });
 
 /**
- * Await one create-or-replace attempt, skipped when the file already holds
- * the declaration's bytes. A failed read falls through to the write. A
- * discovery failure never refuses the write it precedes.
+ * Await one publication, skipped when the file already holds the
+ * declaration's bytes. `epicenter.json` is never merged (ADR-0551): a
+ * missing file is created, reading once more when another writer created it
+ * first, and a present one is saved over as read with `{ merge: false }`,
+ * reading once more when another writer saved first. A failure is logged and
+ * never refuses the write it precedes.
  */
 export async function publishDefinition(
 	prepared: FolderDefinition,
-	files: Pick<FolderFiles, 'read' | 'overwrite'>,
+	files: Pick<FolderFiles, 'read' | 'create' | 'save'>,
 ): Promise<void> {
 	const declaration = ownBytes(formatDeclaration(prepared));
-	if (await holds(files, declaration)) return;
+	const sha256 = await hashBytes(declaration);
+	let failure: unknown;
 	try {
-		const { error: writeError } = await files.overwrite(
-			DECLARATION_PATH,
-			declaration,
-		);
-		if (writeError !== null)
-			log.error(
-				PublicationError.DefinitionPublicationUnconfirmed({
-					cause: writeError,
-				}),
-			);
+		for (let reads = 0; reads < 2; reads++) {
+			const { data: current, error: readError } =
+				await files.read(DECLARATION_PATH);
+			if (readError !== null && readError.name !== 'NotFound') {
+				failure = readError;
+				break;
+			}
+			if (readError === null && current.sha256 === sha256) return;
+			const { error } =
+				readError === null
+					? await files.save(current, declaration, { merge: false })
+					: await files.create(DECLARATION_PATH, declaration);
+			if (error === null) return;
+			failure = error;
+			if (error.name !== 'Conflict' && error.name !== 'Exists') break;
+		}
 	} catch (cause) {
 		// A thrown write can also have landed. Retain the cause without claiming
 		// the destination is missing, unchanged, or successfully published.
-		log.error(PublicationError.DefinitionPublicationUnconfirmed({ cause }));
+		failure = cause;
 	}
-}
-
-/** Whether `epicenter.json` holds exactly `declaration`. A failed read is no. */
-async function holds(
-	files: Pick<FolderFiles, 'read'>,
-	declaration: Uint8Array,
-): Promise<boolean> {
-	try {
-		const { data: current, error } = await files.read(DECLARATION_PATH);
-		return error === null && current.sha256 === (await hashBytes(declaration));
-	} catch {
-		return false;
-	}
+	log.error(
+		PublicationError.DefinitionPublicationUnconfirmed({ cause: failure }),
+	);
 }
 
 /**
