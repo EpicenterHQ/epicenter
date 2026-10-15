@@ -17,24 +17,8 @@ import { searchForWorkspaceRoot, type UserConfig } from 'vite';
  * `new URL('./x.worker.ts', import.meta.url)` resolves to a `/@fs/` URL under
  * the monorepo root, which SvelteKit's list answers 403 to.
  *
- * **The last three are what `@epicenter/device`'s browser leaf costs.**
- * Only `apps/local-mail/ui` composes it, so they belong in that app's config
- * rather than here; they stay until that move is made. Its SQLite owner is a
- * dedicated worker over `@sqlite.org/sqlite-wasm`, because OPFS synchronous
- * access handles exist only in a worker context, so:
- *
- * - `optimizeDeps.exclude` keeps the package unbundled. It resolves
- *   `sqlite3.wasm` relative to its own module URL, and pre-bundling rewrites
- *   that URL into `.vite/deps/`, where no `.wasm` was copied. The fetch then
- *   falls through to the SPA fallback and the module aborts on a `text/html`
- *   response.
- * - `worker.format` makes the worker chunk ES output, which it has to be to
- *   carry that package at all.
- * - `build.target` admits the syntax that chunk uses, top-level `await`
- *   included.
- *
- * An app that needs more exclusions adds them; `mergeConfig` concatenates the
- * arrays rather than replacing them.
+ * An app that needs more settings adds them with `mergeConfig`, which
+ * concatenates arrays rather than replacing them.
  */
 export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 	return {
@@ -55,8 +39,5 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 			strictPort: true,
 			fs: { allow: [searchForWorkspaceRoot(process.cwd())] },
 		},
-		optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
-		worker: { format: 'es' },
-		build: { target: 'esnext' },
 	};
 }

@@ -1,14 +1,14 @@
 /**
  * What an application declares, and what that declaration reads as.
  *
- * All vocabulary and no behaviour. A definition separates each table's value fields
+ * All vocabulary and no behaviour. A schema separates each table's value fields
  * from its optional body conversion; the lens at the
  * bottom turns that declaration into the types an application writes.
  *
  * Every type here is a LOOKUP. None asks whether its argument is a
  * declaration, because the parameter says so, and none can answer `never` for
- * "I could not tell". A definition that arrived as JSON never comes through
- * here: it reaches `prepareData` from a trusted TypeScript module and is
+ * "I could not tell". A schema that arrived as JSON never comes through
+ * here: it reaches `prepareSchema` from a trusted TypeScript module and is
  * checked in `prepare.ts`.
  */
 
@@ -67,9 +67,9 @@ export type TableDeclaration<TBody extends TableBody = TableBody> = {
  * The mark `defineTable` leaves, and the only way to get one.
  *
  * A table declaration is a plain object, so any literal of the right shape used
- * to satisfy `DataDefinition`. That made two authoring paths for one thing:
+ * to satisfy a schema. That made two authoring paths for one thing:
  * `defineTable`, which checks its parameter, and a bare literal handed to
- * `defineStore`, which needed a second set of conditional types to re-check the
+ * a storage's definer, which needed a second set of conditional types to re-check the
  * same rules and could not report them as well. Every rule was written twice
  * and one of the copies silently stopped applying for a day.
  *
@@ -94,8 +94,11 @@ export type DeclaredTable<TBody extends TableBody = TableBody> =
  * How stored data reads, naming no dataset: the optional title, the KV fields,
  * and the tables.
  *
- * A storage that selects its dataset when it opens, such as a file folder,
- * declares this shape alone. `prepareSchema` prepares it and refuses an `id`.
+ * A declaration and the prepared schema `prepareSchema` returns for it have
+ * this one shape. The prepared one is an owned, frozen snapshot whose fields
+ * `check` reads; a field of a declaration that was never prepared is refused
+ * by it. A storage selects its dataset when it opens, so `prepareSchema`
+ * refuses an `id`.
  */
 export type DataSchema<TBody extends TableBody = TableBody> = {
 	readonly title?: string;
@@ -104,18 +107,6 @@ export type DataSchema<TBody extends TableBody = TableBody> = {
 		readonly [table: string]: DeclaredTable<TBody>;
 	};
 };
-
-/**
- * One durable data domain's complete, inert definition: a schema and the ID
- * of the data it describes.
- *
- * A declaration and the prepared definition `prepareData` returns for it have
- * this one shape. The prepared one is an owned, frozen snapshot whose fields
- * `check` reads; a field of a declaration that was never prepared is refused
- * by it.
- */
-export type DataDefinition<TBody extends TableBody = TableBody> =
-	DataSchema<TBody> & { readonly id: string };
 
 /** A field diagnostic. Messages and diagnostic counts are not machine contracts. */
 export type ConformanceIssue = {

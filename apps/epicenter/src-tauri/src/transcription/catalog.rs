@@ -6,8 +6,8 @@
 //! Face coordinate as `"{repo_id}@{revision}/{filename}"`. That id is an opaque
 //! catalog key. Epicenter Home names it when it administers models, and the host
 //! stores the active dictation choice. Explicit file inference lists cached IDs
-//! and passes the selected ID to `transcribe_audio_bytes`; the older
-//! `transcribe_recording` path resolves the active choice. An unknown ID is refused
+//! and passes the selected ID to `transcribe_audio_bytes`; `prewarm_model` and
+//! `ModelCache::transcribe` resolve the active choice. An unknown ID is refused
 //! rather than parsed. (Custom drop-in GGUF is a later earned feature, not a
 //! compatibility path.)
 //!
@@ -144,7 +144,7 @@ fn find_or_unknown(model_id: &str) -> Result<&'static CatalogEntry, CatalogError
 /// The on-disk GGUF path for a model that is both in this build's catalog and
 /// present on this machine; `None` otherwise.
 ///
-/// The one place `transcribe_recording`/`prewarm_model` turn the active model
+/// The one place `ModelCache::transcribe`/`prewarm_model` turn the active model
 /// into a path. Deliberately a plain `Option`: an id outside the catalog and a
 /// model that is not downloaded are the same public answer ("the active model
 /// cannot run"), and the caller composes the user-facing message so that message

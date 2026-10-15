@@ -17,7 +17,6 @@
 				{ "url": "https://*:*" }
 			]
 		},
-		"allow-transcribe-recording",
 		"allow-transcribe-audio-bytes",
 		"allow-list-inference-models",
 		"allow-prewarm-model",

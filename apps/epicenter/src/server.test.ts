@@ -23,7 +23,7 @@
  *   the fake inference endpoint below reuses
  */
 
-import { describe, expect, spyOn, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
 	mkdirSync,
@@ -37,15 +37,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentEngine, EngineChunk } from '@epicenter/agent';
 import { epicenterCloud } from '@epicenter/auth';
-import { generateBlobId } from '@epicenter/blobs';
-import { type BunBlobStore, createBunBlobStore } from '@epicenter/blobs/bun';
-import { createDesktopSqliteOwner } from '@epicenter/device/desktop';
-import { DEVICE_PATH } from '@epicenter/device/protocol';
 import { expectOk } from 'wellcrafted/testing';
-import {
-	type AppSecretOwner,
-	createProcessMemoryAppSecrets,
-} from './app-secrets.ts';
 import { COMPILED_APPLICATIONS } from './applications.ts';
 import { createDesktopAuthAuthority } from './desktop-auth-authority.js';
 import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
@@ -67,7 +59,6 @@ import {
 import {
 	createHomeServer,
 	type HomeServerEvent,
-	type HomeServerOptions,
 	type HomeSessionResponse,
 } from './server.ts';
 import {
@@ -81,7 +72,6 @@ import {
 } from './static-assets.ts';
 import { writeAppsDist } from './test-apps-dist.ts';
 import { createTestDesktopAuth } from './test-home-host.ts';
-import { type BunDevice, createBunDevice } from './test-sqlite.ts';
 
 test('development browser callback completes the pending sign-in without a Home cookie', async () => {
 	await using host = await createHomeHost({
@@ -121,7 +111,6 @@ test('development browser callback completes the pending sign-in without a Home 
 		origin,
 		launchToken: 'launch',
 		staticAssets: await createAppsDistFixture(PAGE),
-		blobs: createTestBlobs(),
 
 		desktopAuth,
 	};
@@ -199,7 +188,6 @@ test.each([
 		origin,
 		launchToken: 'launch',
 		staticAssets: await createAppsDistFixture(PAGE),
-		blobs: createTestBlobs(),
 		desktopAuth,
 	});
 	const bootstrap = await app.request(origin + '/_epicenter/bootstrap', {
@@ -304,28 +292,6 @@ function testDataDir(): string {
 	return mkdtempSync(join(tmpdir(), 'query-server-test-'));
 }
 
-function createTestBlobs(): HomeServerOptions['blobs'] {
-	const directory = testDataDir();
-	const stores = new Map<string, BunBlobStore>();
-	return (appId, owner) => {
-		const key = JSON.stringify([appId, owner]);
-		let store = stores.get(key);
-		if (store === undefined) {
-			store = createBunBlobStore({
-				directory: join(directory, String(stores.size)),
-			});
-			stores.set(key, store);
-		}
-		return store;
-	};
-}
-
-const TEST_APP_ID = 'so.epicenter.whispering';
-
-function testBlobUrl(id: string, appId = TEST_APP_ID) {
-	return `/api/apps/${appId}/blobs/${id}`;
-}
-
 function boundPort(server: { port?: number }): number {
 	if (server.port === undefined) throw new Error('server did not bind a port');
 	return server.port;
@@ -344,15 +310,7 @@ function createTestHost(
 	});
 }
 
-async function serveHost(
-	host: HomeHost,
-	page: string = PAGE,
-	owners: {
-		device?: BunDevice;
-		appSecrets?: AppSecretOwner;
-		blobs?: HomeServerOptions['blobs'];
-	} = {},
-) {
+async function serveHost(host: HomeHost, page: string = PAGE) {
 	const portProbe = Bun.serve({
 		hostname: '127.0.0.1',
 		port: 0,
@@ -366,9 +324,7 @@ async function serveHost(
 		origin,
 		launchToken: TOKEN,
 		staticAssets: await createAppsDistFixture(page),
-		blobs: owners.blobs ?? createTestBlobs(),
 		desktopAuth: createTestDesktopAuth(),
-		...owners,
 	});
 	const server = Bun.serve({
 		hostname: '127.0.0.1',
@@ -502,9 +458,6 @@ const settledWith =
 		);
 	};
 
-/** Any admitted application ID serves the device SQLite tests. */
-const SQLITE_TEST_APP_ID = 'so.epicenter.local-mail';
-
 describe('loadStaticAssets', () => {
 	test('every declared compiled application must have built, and so must Home', async () => {
 		// One omission at a time, so the message names the application that is
@@ -598,7 +551,6 @@ describe('createHomeServer', () => {
 				origin: 'http://127.0.0.1:39130',
 				launchToken: '',
 				staticAssets,
-				blobs: createTestBlobs(),
 				desktopAuth,
 			}),
 		).toThrow(/launch token/);
@@ -614,7 +566,6 @@ describe('createHomeServer', () => {
 					origin,
 					launchToken: TOKEN,
 					staticAssets,
-					blobs: createTestBlobs(),
 					desktopAuth,
 				}),
 			).toThrow(/exact http:\/\/127\.0\.0\.1/);
@@ -707,7 +658,6 @@ describe('createHomeServer', () => {
 			origin,
 			launchToken: TOKEN,
 			staticAssets: await createAppsDistFixture(),
-			blobs: createTestBlobs(),
 			desktopAuth: createTestDesktopAuth(),
 		});
 		let calls = 0;
@@ -770,7 +720,6 @@ describe('createHomeServer', () => {
 			launchToken: TOKEN,
 			staticAssets: await createAppsDistFixture(),
 			installedApplications: createInstalledApplications(buildsDir),
-			blobs: createTestBlobs(),
 			desktopAuth: createTestDesktopAuth(),
 		});
 		const headers = { host: '127.0.0.1:43128' };
@@ -1391,325 +1340,6 @@ describe('createHomeServer', () => {
 	});
 });
 
-describe('local blob routes', () => {
-	test('the same blob ID reads different bytes for each device owner', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const blobs = createTestBlobs();
-		const id = generateBlobId('txt');
-		const owners = ['no-account', 'accounts/61/61', 'accounts/61/62'];
-		for (const owner of owners) {
-			expectOk(await blobs(TEST_APP_ID, owner).put(id, new Blob([owner])));
-		}
-		const server = await serveHost(host, PAGE, { blobs });
-		try {
-			for (const owner of owners) {
-				const response = await fetch(
-					`${server.url.origin}${testBlobUrl(id)}?owner=${encodeURIComponent(owner)}`,
-					{ headers: authenticatedHeaders(server) },
-				);
-				expect(response.status).toBe(200);
-				expect(await response.text()).toBe(owner);
-			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('GET, range, cancellation and 416 release borrowed files while HEAD opens none', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const directory = testDataDir();
-		const store = createBunBlobStore({ directory });
-		const id = generateBlobId('bin');
-		expectOk(await store.put(id, new Blob([new Uint8Array(8 * 1024 * 1024)])));
-		let acquired = 0;
-		let closed = 0;
-		const openFile = store.openFile;
-		spyOn(store, 'openFile').mockImplementation(async (key) => {
-			const result = await openFile(key);
-			if (!result.error) {
-				acquired++;
-				const close = result.data.close;
-				result.data.close = async () => {
-					closed++;
-					await close();
-				};
-			}
-			return result;
-		});
-		const server = await serveHost(host, PAGE, { blobs: () => store });
-		const { cookie, origin } = authenticationFor(server);
-		const url = `${origin}${testBlobUrl(id)}`;
-		try {
-			expect(
-				(await fetch(url, { method: 'HEAD', headers: { cookie } })).status,
-			).toBe(200);
-			expect(acquired).toBe(0);
-			for (const range of [undefined, 'bytes=0-7', 'bytes=99999999-']) {
-				const response = await fetch(url, {
-					headers: { cookie, ...(range ? { range } : {}) },
-				});
-				await response.arrayBuffer();
-				expect(closed).toBe(acquired);
-			}
-			const cancelled = await fetch(url, { headers: { cookie } });
-			await cancelled.body!.cancel();
-			const deadline = Date.now() + 2000;
-			while (closed !== acquired && Date.now() < deadline) await Bun.sleep(5);
-			expect(acquired).toBe(4);
-			expect(closed).toBe(4);
-		} finally {
-			await server.stop(true);
-			rmSync(directory, { recursive: true, force: true });
-		}
-	});
-
-	test('session authentication protects every local blob operation', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		const id = generateBlobId('bin');
-		try {
-			for (const method of ['GET', 'HEAD', 'PUT', 'DELETE']) {
-				const response = await fetch(`${server.url.origin}${testBlobUrl(id)}`, {
-					method,
-				});
-				expect(response.status).toBe(401);
-			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('committed local files list in pages and remain isolated by app', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
-		const { cookie, origin } = authenticationFor(server);
-		const ids = [generateBlobId('wav'), generateBlobId('wav')].sort();
-		try {
-			for (const id of ids)
-				expect(
-					(
-						await fetch(`${origin}${testBlobUrl(id)}`, {
-							method: 'PUT',
-							headers: { cookie, origin, 'content-type': 'audio/wav' },
-							body: 'audio',
-						})
-					).status,
-				).toBe(201);
-			const first = await fetch(
-				`${origin}/api/apps/${TEST_APP_ID}/blobs?limit=1`,
-				{ headers: { cookie } },
-			);
-			expect(first.status).toBe(200);
-			expect(await first.json()).toEqual({
-				items: [{ id: ids[0], size: 5, contentType: 'audio/wav' }],
-				nextCursor: ids[0],
-			});
-			const second = await fetch(
-				`${origin}/api/apps/${TEST_APP_ID}/blobs?limit=1&cursor=${ids[0]}`,
-				{ headers: { cookie } },
-			);
-			expect(await second.json()).toEqual({
-				items: [{ id: ids[1], size: 5, contentType: 'audio/wav' }],
-			});
-			expect(
-				(
-					await fetch(
-						`${origin}${testBlobUrl(ids[0]!, 'so.epicenter.other')}`,
-						{ headers: { cookie } },
-					)
-				).status,
-			).toBe(404);
-			for (const suffix of ['?limit=0', '?cursor=invalid', '?owner=alice'])
-				expect(
-					(
-						await fetch(`${origin}/api/apps/${TEST_APP_ID}/blobs${suffix}`, {
-							headers: { cookie },
-						})
-					).status,
-				).toBe(400);
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('put, head, byte-range forms, collision, and idempotent delete share one id', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		const id = generateBlobId('bin');
-		const url = `${server.url.origin}${testBlobUrl(id)}`;
-		const { cookie, origin } = authenticationFor(server);
-		try {
-			const put = await fetch(url, {
-				method: 'PUT',
-				headers: {
-					cookie,
-					'content-type': 'audio/test',
-					origin,
-				},
-				body: '0123456789',
-			});
-			expect(put.status).toBe(201);
-
-			const head = await fetch(url, {
-				method: 'HEAD',
-				headers: { cookie },
-			});
-			expect(head.status).toBe(200);
-			expect(head.headers.get('content-length')).toBe('10');
-			expect(head.headers.get('content-type')).toBe('application/octet-stream');
-			expect(await head.text()).toBe('');
-
-			const range = await fetch(url, {
-				headers: { cookie, range: 'bytes=2-5' },
-			});
-			expect(range.status).toBe(206);
-			expect(range.headers.get('content-range')).toBe('bytes 2-5/10');
-			expect(await range.text()).toBe('2345');
-			const suffix = await fetch(url, {
-				headers: { cookie, range: 'bytes=-3' },
-			});
-			expect(suffix.status).toBe(206);
-			expect(suffix.headers.get('content-range')).toBe('bytes 7-9/10');
-			expect(await suffix.text()).toBe('789');
-			const oversizedSuffix = await fetch(url, {
-				headers: { cookie, range: 'bytes=-99' },
-			});
-			expect(oversizedSuffix.status).toBe(206);
-			expect(oversizedSuffix.headers.get('content-range')).toBe('bytes 0-9/10');
-			expect(await oversizedSuffix.text()).toBe('0123456789');
-			const openEnded = await fetch(url, {
-				headers: { cookie, range: 'bytes=6-' },
-			});
-			expect(openEnded.status).toBe(206);
-			expect(openEnded.headers.get('content-range')).toBe('bytes 6-9/10');
-			expect(await openEnded.text()).toBe('6789');
-			const clamped = await fetch(url, {
-				headers: { cookie, range: 'bytes=7-99' },
-			});
-			expect(clamped.status).toBe(206);
-			expect(clamped.headers.get('content-range')).toBe('bytes 7-9/10');
-			expect(await clamped.text()).toBe('789');
-			const unsatisfiable = await fetch(url, {
-				headers: { cookie, range: 'bytes=99-' },
-			});
-			expect(unsatisfiable.status).toBe(416);
-			expect(unsatisfiable.headers.get('content-range')).toBe('bytes */10');
-			for (const refusedRange of [
-				'bytes=',
-				'bytes=-',
-				'bytes=5-2',
-				'bytes=0-1,3-4',
-				'bytes = 0-1',
-				'items=0-1',
-			]) {
-				const refused = await fetch(url, {
-					headers: { cookie, range: refusedRange },
-				});
-				expect(refused.status).toBe(416);
-				expect(refused.headers.get('content-range')).toBe('bytes */10');
-			}
-
-			const emptyId = generateBlobId('txt');
-			const emptyUrl = `${server.url.origin}${testBlobUrl(emptyId)}`;
-			expect(
-				(
-					await fetch(emptyUrl, {
-						method: 'PUT',
-						headers: { cookie, origin },
-						body: '',
-					})
-				).status,
-			).toBe(201);
-			const emptyRange = await fetch(emptyUrl, {
-				headers: { cookie, range: 'bytes=0-' },
-			});
-			expect(emptyRange.status).toBe(416);
-			expect(emptyRange.headers.get('content-range')).toBe('bytes */0');
-
-			const collision = await fetch(url, {
-				method: 'PUT',
-				headers: { cookie, 'content-type': 'audio/test', origin },
-				body: 'replacement',
-			});
-			expect(collision.status).toBe(409);
-
-			for (const expectedGetStatus of [404, 404]) {
-				const deleted = await fetch(url, {
-					method: 'DELETE',
-					headers: { cookie, origin },
-				});
-				expect(deleted.status).toBe(204);
-				const missing = await fetch(url, { headers: { cookie } });
-				expect(missing.status).toBe(expectedGetStatus);
-			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('hostile blob content is downloadable but cannot become same-origin code', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		const id = generateBlobId('bin');
-		const url = `${server.url.origin}${testBlobUrl(id)}`;
-		const { cookie, origin } = authenticationFor(server);
-		try {
-			expect(
-				(
-					await fetch(url, {
-						method: 'PUT',
-						headers: { cookie, 'content-type': 'text/html', origin },
-						body: '<script>globalThis.compromised = true</script>',
-					})
-				).status,
-			).toBe(201);
-
-			const response = await fetch(url, { headers: { cookie } });
-			expect(response.headers.get('content-disposition')).toBe('attachment');
-			expect(response.headers.get('content-security-policy')).toBe(
-				"sandbox; default-src 'none'",
-			);
-			expect(response.headers.get('x-content-type-options')).toBe('nosniff');
-			expect(response.headers.get('cache-control')).toBe('no-store');
-			expect(response.headers.get('cross-origin-resource-policy')).toBe(
-				'same-origin',
-			);
-			expect(await response.text()).toContain('<script>');
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('malformed and former blob ids are rejected before filesystem access', async () => {
-		await using host = await createTestHost({
-			engine: scriptedEngine([[]]),
-		});
-		const server = await serveHost(host);
-		try {
-			for (const id of [
-				'not-a-blob-id',
-				'blob_abcdefghijklmnopqrstu',
-				'take.wav',
-				'blob_abcdefghijklmnopqrstu.wav%00',
-			]) {
-				const response = await fetch(
-					`${server.url.origin}/api/apps/so.epicenter.whispering/blobs/${id}`,
-					{ headers: authenticatedHeaders(server) },
-				);
-				expect(response.status).toBe(400);
-			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-});
-
 // ============================================================================
 // Built SPA Tests (the real vite build)
 // ============================================================================
@@ -1888,14 +1518,14 @@ async function exitWithin(
 }
 
 describe('sidecar end-to-end smoke', () => {
-	test('the spawned entrypoint serves a compiled app and blobs, then drives a turn', async () => {
+	test('the spawned entrypoint serves a compiled app, then drives a turn', async () => {
 		const page = await buildSpaOnce();
 		const appsDist = writeAppsDistFixture(page);
 		const dataDir = testDataDir();
 
 		// The fake OpenAI-compatible backend. One request and one text answer:
 		// the spawned host has no tool catalog to call into, so what this proves
-		// end to end is the sidecar, a compiled SPA, blobs, session, and socket.
+		// end to end is the sidecar, a compiled SPA, session, and socket.
 		let inferenceRequests = 0;
 		const inference = Bun.serve({
 			hostname: '127.0.0.1',
@@ -1971,30 +1601,6 @@ describe('sidecar end-to-end smoke', () => {
 			expect(withoutAuthBootstrap(await whispering.text())).toBe(
 				WHISPERING_PAGE,
 			);
-
-			const blobId = generateBlobId('txt');
-			const put = await fetch(`${origin}${testBlobUrl(blobId)}`, {
-				method: 'PUT',
-				headers,
-				body: 'native-selected bytes',
-			});
-			expect(put.status).toBe(201);
-			expect(
-				await Bun.file(
-					join(
-						dataDir,
-						'apps',
-						'so.epicenter.whispering',
-						'device',
-						'no-account',
-						'blobs',
-						blobId,
-					),
-				).text(),
-			).toBe('native-selected bytes');
-			expect(
-				await Bun.file(join(ignoredDirectory, 'blobs', blobId)).exists(),
-			).toBe(false);
 
 			const served = await fetch(HOME_ROUTE.url(origin), {
 				headers: { cookie: cookie ?? '' },
@@ -2144,336 +1750,6 @@ describe('retired store checkout routes', () => {
 				});
 				expect(response.status).toBe(404);
 			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-});
-
-describe('the application storage owner', () => {
-	test('desktop SQLite carries binary parameters and results through the actual server socket', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const root = testDataDir();
-		const server = await serveHost(host, PAGE, {
-			device: createBunDevice(root),
-		});
-		const { cookie, origin } = authenticationFor(server);
-		class AuthenticatedSocket extends BunWebSocket {
-			constructor(url: string) {
-				super(url, { headers: { cookie, origin } });
-			}
-		}
-		const owner = createDesktopSqliteOwner({
-			baseURL: origin,
-			webSocket: AuthenticatedSocket as unknown as typeof WebSocket,
-		});
-		try {
-			const lifetime = await owner.acquire(SQLITE_TEST_APP_ID);
-			try {
-				const database = await lifetime.open('binary');
-				expectOk(
-					await database.run('CREATE TABLE values_test(bytes BLOB, text TEXT)'),
-				);
-				expectOk(
-					await database.run('INSERT INTO values_test VALUES (?, ?)', [
-						new Uint8Array([0, 1, 255]),
-						'a\0b',
-					]),
-				);
-				expect(
-					expectOk(await database.all('SELECT bytes, text FROM values_test')),
-				).toEqual([{ bytes: new Uint8Array([0, 1, 255]), text: 'a\0b' }]);
-				expect(
-					(await database.run('SELECT ?', [Infinity])).error,
-				).not.toBeNull();
-				expect(
-					expectOk(
-						await database.all('SELECT count(*) AS count FROM values_test'),
-					),
-				).toEqual([{ count: 1 }]);
-			} finally {
-				await lifetime.close();
-			}
-		} finally {
-			await server.stop(true);
-			rmSync(root, { recursive: true, force: true });
-		}
-	});
-
-	async function post(server: TestServer, body: unknown) {
-		const { cookie, origin } = authenticationFor(server);
-		return fetch(`${server.url.origin}${DEVICE_PATH}`, {
-			method: 'POST',
-			headers: { cookie, origin, 'content-type': 'application/json' },
-			body: JSON.stringify(body),
-		});
-	}
-
-	test('SQL sockets retire connections on delete and release their lifetime on reload without deleting files', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const root = testDataDir();
-		const server = await serveHost(host, PAGE, {
-			device: createBunDevice(root),
-		});
-		const { cookie, origin } = authenticationFor(server);
-		const url = `${server.url.origin}${DEVICE_PATH}/sqlite`;
-		const address = { appId: SQLITE_TEST_APP_ID };
-		const sockets: WebSocket[] = [];
-		async function connect() {
-			const socket = new BunWebSocket(url.replace('http:', 'ws:'), {
-				headers: { cookie, origin },
-			});
-			sockets.push(socket);
-			await new Promise<void>((resolve, reject) => {
-				socket.addEventListener('open', () => resolve(), { once: true });
-				socket.addEventListener('error', reject, { once: true });
-			});
-			return socket;
-		}
-		let id = 0;
-		async function request(socket: WebSocket, body: unknown) {
-			const requestId = ++id;
-			const reply = new Promise<{
-				response?: Record<string, unknown>;
-				failure?: string;
-			}>((resolve, reject) => {
-				const timer = setTimeout(
-					() => reject(new Error('SQLite reply timed out')),
-					3000,
-				);
-				socket.addEventListener(
-					'message',
-					(event) => {
-						clearTimeout(timer);
-						const frame = JSON.parse(String(event.data));
-						expect(frame.id).toBe(requestId);
-						resolve(frame);
-					},
-					{ once: true },
-				);
-			});
-			socket.send(JSON.stringify({ id: requestId, request: body }));
-			return reply;
-		}
-		async function disconnect(socket: WebSocket) {
-			const closed = new Promise<void>((resolve) =>
-				socket.addEventListener('close', () => resolve(), { once: true }),
-			);
-			socket.close();
-			await closed;
-		}
-		try {
-			expect((await fetch(url)).status).toBe(401);
-			expect((await fetch(url, { headers: { cookie } })).status).toBe(403);
-			expect(
-				(await post(server, { kind: 'sqlite-acquire', ...address })).status,
-			).toBe(400);
-			const socket = await connect();
-			for (const body of [
-				{ kind: 'sqlite-acquire', appId: '../escape' },
-				{
-					kind: 'sqlite-run',
-					...address,
-					name: 'mail',
-					statement: { sql: 'SELECT 1' },
-				},
-				{ kind: 'secret-get', appId: SQLITE_TEST_APP_ID, label: 'secret' },
-			])
-				expect((await request(socket, body)).failure).toBeDefined();
-			const acquired = await request(socket, {
-				kind: 'sqlite-acquire',
-				...address,
-			});
-			const session = { ...address, lifetimeId: acquired.response?.lifetimeId };
-			expect(typeof session.lifetimeId).toBe('string');
-			expect(
-				(await request(socket, { kind: 'sqlite-acquire', ...address })).failure,
-			).toBeDefined();
-			const opened = await request(socket, {
-				kind: 'sqlite-open',
-				...session,
-				name: 'mail',
-			});
-			const connectionId = opened.response?.connectionId;
-			expect(typeof connectionId).toBe('string');
-			expect(
-				(
-					await request(socket, {
-						kind: 'sqlite-delete',
-						...session,
-						name: 'mail',
-					})
-				).response,
-			).toEqual({ kind: 'sqlite-delete' });
-			const reopened = await request(socket, {
-				kind: 'sqlite-open',
-				...session,
-				name: 'mail',
-			});
-			const freshId = reopened.response?.connectionId;
-			expect(freshId).not.toBe(connectionId);
-			const statement = { sql: 'SELECT name FROM sqlite_master' };
-			expect(
-				(
-					await request(socket, {
-						kind: 'sqlite-all',
-						...session,
-						connectionId,
-						statement,
-					})
-				).failure,
-			).toBeDefined();
-			expect(
-				(
-					await request(socket, {
-						kind: 'sqlite-run',
-						...session,
-						connectionId: freshId,
-						statement: { sql: 'CREATE TABLE kept (value TEXT)' },
-					})
-				).failure,
-			).toBeUndefined();
-			expect(
-				(
-					await request(socket, {
-						kind: 'sqlite-run',
-						...session,
-						connectionId: freshId,
-						statement: { sql: "INSERT INTO kept VALUES ('survives reload')" },
-					})
-				).failure,
-			).toBeUndefined();
-			// Reload loses the document socket without sending sqlite-close.
-			await disconnect(socket);
-			const next = await connect();
-			const reacquired = await request(next, {
-				kind: 'sqlite-acquire',
-				...address,
-			});
-			expect(reacquired.failure).toBeUndefined();
-			const nextSession = {
-				...address,
-				lifetimeId: reacquired.response?.lifetimeId,
-			};
-			expect(
-				(
-					await request(next, {
-						kind: 'sqlite-all',
-						...session,
-						connectionId: freshId,
-						statement,
-					})
-				).failure,
-			).toBeDefined();
-			const nextOpen = await request(next, {
-				kind: 'sqlite-open',
-				...nextSession,
-				name: 'mail',
-			});
-			const rows = await request(next, {
-				kind: 'sqlite-all',
-				...nextSession,
-				connectionId: nextOpen.response?.connectionId,
-				statement: { sql: 'SELECT value FROM kept' },
-			});
-			expect(rows.response).toEqual({
-				kind: 'sqlite-all',
-				rows: [{ value: 'survives reload' }],
-			});
-			expect(
-				(await request(next, { kind: 'sqlite-close', ...nextSession }))
-					.response,
-			).toEqual({ kind: 'sqlite-close' });
-			await disconnect(next);
-		} finally {
-			for (const socket of sockets)
-				if (socket.readyState === 1) await disconnect(socket);
-			await server.stop(true);
-			rmSync(root, { recursive: true, force: true });
-		}
-	});
-
-	test('holds one labeled secret per application', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host, PAGE, {
-			appSecrets: createProcessMemoryAppSecrets(),
-		});
-		try {
-			const stored = await post(server, {
-				kind: 'secret-put',
-				appId: SQLITE_TEST_APP_ID,
-				label: 'account-one',
-				value: 'refresh-token',
-			});
-			expect(stored.status).toBe(200);
-
-			const read = await post(server, {
-				kind: 'secret-get',
-				appId: SQLITE_TEST_APP_ID,
-				label: 'account-one',
-			});
-			expect(await read.json()).toEqual({
-				kind: 'secret-get',
-				value: 'refresh-token',
-			});
-
-			// Namespaced per application, so the same label under another
-			// application is a different secret rather than the same one.
-			const neighbour = await post(server, {
-				kind: 'secret-get',
-				appId: 'so.epicenter.other',
-				label: 'account-one',
-			});
-			expect(await neighbour.json()).toEqual({
-				kind: 'secret-get',
-				value: null,
-			});
-
-			await post(server, {
-				kind: 'secret-delete',
-				appId: SQLITE_TEST_APP_ID,
-				label: 'account-one',
-			});
-			const gone = await post(server, {
-				kind: 'secret-get',
-				appId: SQLITE_TEST_APP_ID,
-				label: 'account-one',
-			});
-			expect(await gone.json()).toEqual({ kind: 'secret-get', value: null });
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('refuses a label that could name something other than one label', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host, PAGE, {
-			appSecrets: createProcessMemoryAppSecrets(),
-		});
-		try {
-			for (const label of ['../other', 'a/b', 'a:b', '']) {
-				const refused = await post(server, {
-					kind: 'secret-get',
-					appId: SQLITE_TEST_APP_ID,
-					label,
-				});
-				expect(refused.status).toBe(400);
-			}
-		} finally {
-			await server.stop(true);
-		}
-	});
-
-	test('reports an absent secret owner rather than pretending to hold one', async () => {
-		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
-		const server = await serveHost(host);
-		try {
-			const unavailable = await post(server, {
-				kind: 'secret-get',
-				appId: SQLITE_TEST_APP_ID,
-				label: 'account-one',
-			});
-			expect(unavailable.status).toBe(503);
 		} finally {
 			await server.stop(true);
 		}

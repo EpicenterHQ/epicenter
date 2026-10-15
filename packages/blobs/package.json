@@ -1,34 +1,18 @@
 {
 	"name": "@epicenter/blobs",
-	"description": "Immutable app-local bytes, display sources, and explicit remote blob contracts",
+	"description": "The Personal hosted blob URL grammar shared by the hosted authority and its clients",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./browser": "./src/browser.ts",
-		"./bun": "./src/bun.ts",
-		"./webview": "./src/webview.ts",
-		"./native": "./src/native.ts",
-		"./owner": "./src/owner.ts"
+		".": "./src/index.ts"
 	},
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
-		"test": "bun test",
-		"smoke:webkit": "bun scripts/browser-smoke.ts",
 		"typecheck": "tsc --noEmit"
-	},
-	"dependencies": {
-		"@epicenter/constants": "workspace:*",
-		"@epicenter/principal": "workspace:*",
-		"arktype": "catalog:",
-		"nanoid": "catalog:",
-		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
-		"fake-indexeddb": "^6.2.5",
-		"playwright": "^1.61.1",
 		"typescript": "catalog:"
 	}
 }

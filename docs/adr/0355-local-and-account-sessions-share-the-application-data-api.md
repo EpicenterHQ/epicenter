@@ -21,6 +21,7 @@ but a fresh installation cannot create a durable recording library without an
 account. The product must let a person install an app, record, quit, and reopen
 the recording without configuring an account or server.
 
+<!-- doc-path-check: ignore-next-line -->
 `packages/blobs/src/browser.ts` stores account bytes in IndexedDB at
 `epicenter/v5/<app-id>/<principal-id>/blobs`. Its portable `BlobStore`,
 `BlobRemote`, and `BlobSources` contracts already separate local persistence,

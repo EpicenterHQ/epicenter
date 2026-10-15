@@ -119,8 +119,6 @@ const under = (file: string, prefix: string) =>
 	prefix.endsWith('/') ? file.startsWith(prefix) : file === prefix;
 
 const isFrozen = (file: string) =>
-	file === 'CHANGELOG.md' ||
-	file.endsWith('/CHANGELOG.md') ||
 	file.endsWith('.d.ts') ||
 	FROZEN.some((dir) => file.startsWith(dir) || file.includes(`/${dir}`));
 

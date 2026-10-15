@@ -1,15 +1,15 @@
 # @epicenter/definition
 
 The declaration vocabulary every Epicenter storage reads: the field helpers,
-table and KV declarations, the durable name grammars, the preparation that
+table and KV declarations, the table name grammar, the preparation that
 checks a declaration and owns its schemas, and the one read over a prepared
-definition.
+schema.
 
 It is inert. Importing it acquires nothing, and it knows no storage. Its only
 dependencies are `typebox` and `wellcrafted`.
 
 ```ts
-import { check, defineTable, field, prepareData } from '@epicenter/definition';
+import { check, defineTable, field, prepareSchema } from '@epicenter/definition';
 import { Type } from 'typebox';
 
 const todos = defineTable({
@@ -21,52 +21,45 @@ const todos = defineTable({
   },
 });
 
-const { data: definition } = prepareData({
-  id: 'so.epicenter.todos',
+const { data: schema } = prepareSchema({
   kv: { theme: field.select(['light', 'dark']) },
   tables: { todos },
 });
 
-check(definition.tables.todos.fields, stored, 'read');  // { conforming, issues }
-check(definition.kv, { theme: 'dark' }, 'patch');        // no issues
+check(schema.tables.todos.fields, stored, 'read');  // { conforming, issues }
+check(schema.kv, { theme: 'dark' }, 'patch');        // no issues
 ```
 
 ## One shape, declared and prepared
 
-A definition is `{ id, title?, kv, tables }`: a `DataSchema`, which is
-`{ title?, kv, tables }`, and the ID of the data it describes. `kv` is a record
+A schema is a `DataSchema`: `{ title?, kv, tables }`. It names no dataset; the
+storage that opens it does. `kv` is a record
 of native schemas by field name, and each table is `{ fields, body? }`, where
-`fields` is the same kind of record. `prepareData` returns that same shape with
+`fields` is the same kind of record. `prepareSchema` returns that same shape with
 the same literal type, so `RowOf`, `KvOf`, and every field's `Static<>` read a
-prepared definition exactly as they read the declaration. There is no second,
+prepared schema exactly as they read the declaration. There is no second,
 compiled representation: no field wrapper, no table object with methods, no
 `Map`, and no name stored anywhere but the record key.
 
 What preparation adds is ownership and a validator:
 
-- It checks the id, the title, the table and field names, each body
+- It checks the title, the table and field names, each body
   conversion, that every schema is plain JSON (see
   [A field is plain JSON](#a-field-is-plain-json)), and that TypeBox can
   compile it.
 - Each field becomes the declared schema's JSON, deeply frozen, `x-field` hint
   included. `kv`, `tables`, and each `fields` are frozen records with no
   prototype, so a table or field named `constructor` or `toString` is an
-  ordinary entry and a name the definition lacks reads as `undefined`.
+  ordinary entry and a name the schema lacks reads as `undefined`.
 - Every KV field becomes optional: an unset setting means the application's
   default.
 - TypeBox's compiled validator for each field is held privately beside it.
   `check` looks it up by the field's identity.
 
-`prepareData` is memoized on the declaration object and on the definition it
-returns, so preparing a prepared definition returns it. `defineStore` and
-`defineFolder` return the prepared definition, and the stores and folders
+`prepareSchema` is memoized on the declaration object and on the schema it
+returns, so preparing a prepared schema returns it. A declaration with an `id`
+is malformed. `defineFolder` returns the prepared schema, and the folders
 opened from it read through that snapshot.
-
-A storage that selects its dataset when it opens, as a file folder does,
-declares the schema alone. `prepareSchema` prepares it exactly as above, minus
-the ID: it requires none and refuses one. The two preparations keep separate
-memos, so neither returns the other's result, and a store definition is never
-accepted as a schema.
 
 The one read is `check(fields, values, mode)`; see
 [Checking values](#checking-values). A schema that was never prepared has no
@@ -78,27 +71,23 @@ silent `false`.
 
 | Package | What it adds |
 | --- | --- |
-| `@epicenter/app` | `defineStore`, and a table body bound to a Yjs node (`BodyCodec`, `plainText()`). It re-exports this vocabulary from its root, `/field`, and `/definition`. |
 | `@epicenter/folder` | `defineFolder`, which prepares a `DataSchema` and refuses a body conversion, because a folder's row body is the file's Markdown text. The opener names the folder. |
 
-Both get the same `defineTable` brand, the same `RowOf`, `CreateRowOf`, and
-`KvOf` lenses, and the same `check` over the same prepared fields. Neither
-copies a validator.
+It gets the `defineTable` brand, the `RowOf`, `CreateRowOf`, and `KvOf`
+lenses, and `check` over the prepared fields. It does not copy a validator.
 
 ## Why this name
 
-The package holds what App already exported as `@epicenter/app/definition` and
-`@epicenter/app/field`: the things a `DataDefinition` is made of and the
-function that prepares one. Its import closure is those modules and nothing
-else:
+The package holds the things a `DataSchema` is made of and the function that
+prepares one. Its import closure is those modules and nothing else:
 
 ```text
 src/field/        the field.* helpers, the editor hint, and fieldEditorOf (./field)
-src/declaration   FieldMap, TableDeclaration, DataSchema, DataDefinition, row lenses
+src/declaration   FieldMap, TableDeclaration, DataSchema, row lenses
 src/define        defineTable and the declared-table brand
-src/prepare       prepareData, prepareSchema, check, isOptional
+src/prepare       prepareSchema, check, isOptional
 src/shape         shapeProblems, schemaContainment, requiredOutsideShape
-src/addresses     data ID, table name, and row ID grammars
+src/table-name    the table name grammar
 src/json          JsonValue and its guards
 ```
 
@@ -289,10 +278,10 @@ a wrapped schema after the call changes nothing, and nothing the caller passed
 in is frozen. An author who edits a schema before preparation owns that edit,
 and the editor follows the schema.
 
-`prepareData` takes ownership. Every field of every preparation gets its own
-frozen copy and validator, so one declared schema used in two definitions, or
-under two names, is prepared twice: edit it between two `defineStore` calls
-and the first store keeps the checks it was defined with while the second
+`prepareSchema` takes ownership. Every field of every preparation gets its own
+frozen copy and validator, so one declared schema used in two declarations, or
+under two names, is prepared twice: edit it between two `defineFolder` calls
+and the first folder keeps the checks it was defined with while the second
 reads the edit. The author's own schema object is not a prepared field, and
 `check` refuses it.
 
@@ -401,13 +390,13 @@ conversion as opaque (`TableBody`) and takes the storage's own type as a
 parameter:
 
 ```ts
-import type { DataDefinition, DefineTable } from '@epicenter/definition';
+import type { DataSchema, DefineTable } from '@epicenter/definition';
 
-type MyDefinition = DataDefinition<MyBodyCodec>;
+type MySchema = DataSchema<MyBodyCodec>;
 const defineMyTable: DefineTable<MyBodyCodec> = defineTable;
 ```
 
-`prepareData` checks that a declared conversion has both verbs and carries it
+`prepareSchema` checks that a declared conversion has both verbs and carries it
 through unread, by reference, on the prepared table. It returns the type it
 was given, so a storage's own body type survives preparation with no adapter.
 A storage that keeps no live body refuses a definition that declares one.
@@ -415,6 +404,6 @@ A storage that keeps no live body refuses a definition that declares one.
 ## Commands
 
 ```sh
-bun test          # field helpers, name grammars, preparation and check
+bun test          # field helpers, table name grammar, preparation and check
 bun run typecheck
 ```

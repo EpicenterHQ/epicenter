@@ -33,19 +33,14 @@ pub mod app_data;
 mod data_folders;
 mod device_owner;
 mod installed_apps;
-mod sqlite;
 
 pub mod audio;
-use audio::encode_recording_for_upload;
-
-pub mod blobs;
 
 pub mod transcription;
 use transcription::{
     delete_model, download_model, get_active_model, get_local_transcription_readiness,
     get_unload_policy, list_inference_models, list_models, prewarm_model, set_active_model,
-    set_unload_policy, transcribe_audio_bytes, transcribe_recording, LocalTranscriptionSettings,
-    ModelCache,
+    set_unload_policy, transcribe_audio_bytes, LocalTranscriptionSettings, ModelCache,
 };
 
 pub mod command;
@@ -200,6 +195,10 @@ impl BuiltInApp {
 
 type DesktopAppHandle = AppHandle<Wry>;
 
+/// The largest line either side writes on the private native pipe, newline
+/// included. Bun holds the same limit (`MAX_NATIVE_FRAME_BYTES`).
+const MAX_NATIVE_FRAME_BYTES: usize = 8 * 1024 * 1024;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BootFrame<'a> {
@@ -225,15 +224,6 @@ struct ReadyFrame {
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 enum BunToRustNativeFrame {
-    Sqlite {
-        #[serde(rename = "requestId")]
-        request_id: String,
-        request: sqlite::Request,
-    },
-    SqliteCancel {
-        #[serde(rename = "requestId")]
-        request_id: String,
-    },
     StoreAuth {
         #[serde(rename = "requestId")]
         request_id: String,
@@ -303,7 +293,8 @@ struct ManagedChild {
     generation: u64,
     child: Child,
     stdin: Option<mpsc::SyncSender<String>>,
-    sqlite: sqlite::Worker,
+    /// Set when the command pipe to Bun fails; the generation is then terminal.
+    writer_failed: Arc<AtomicBool>,
     writer: Option<thread::JoinHandle<()>>,
 }
 
@@ -420,16 +411,14 @@ enum FailureChoice {
     Quit,
 }
 
-/// The typed Whispering command and event contract. The raw audio response,
-/// Epicenter host-status command, and host-owned `launch_application` remain on Tauri's
-/// handwritten handler because they are outside this generated Whispering
-/// binding API.
+/// The typed Whispering command and event contract. The host-owned
+/// `launch_application` remains on Tauri's handwritten handler because it is
+/// outside this generated Whispering binding API.
 fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
             write_text,
             simulate_enter_keystroke,
-            transcribe_recording,
             transcribe_audio_bytes,
             list_inference_models,
             prewarm_model,
@@ -641,10 +630,8 @@ pub fn run() {
     let port = configured_port();
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
-    let native_handler = tauri::generate_handler![
-        encode_recording_for_upload,
-        launch_application
-    ] as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
+    let native_handler =
+        tauri::generate_handler![launch_application] as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
         .level_for("epicenter::transcription", log::LevelFilter::Debug)
@@ -691,10 +678,7 @@ pub fn run() {
 
     builder
         .invoke_handler(move |invoke| {
-            if matches!(
-                invoke.message.command(),
-                "encode_recording_for_upload" | "launch_application"
-            ) {
+            if invoke.message.command() == "launch_application" {
                 native_handler(invoke)
             } else {
                 specta_handler(invoke)
@@ -1004,17 +988,11 @@ fn start_once(app: &DesktopAppHandle) -> Result<()> {
                 }
             }
         });
-        let sqlite = sqlite::Worker::new(
-            app.state::<app_data::DesktopPaths>().data_dir.clone(),
-            generation,
-            sender.clone(),
-            failed,
-        );
         *process = Some(ManagedChild {
             generation,
             child,
             stdin: Some(sender),
-            sqlite,
+            writer_failed: failed,
             writer: Some(writer),
         });
     }
@@ -1174,11 +1152,11 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
     thread::spawn(move || loop {
         let mut line = String::new();
         let event = match (&mut stdout)
-            .take((sqlite::MAX_FRAME_BYTES + 1) as u64)
+            .take((MAX_NATIVE_FRAME_BYTES + 1) as u64)
             .read_line(&mut line)
         {
             Ok(0) => Err("Bun closed stdout after readiness".to_string()),
-            Ok(_) if line.len() > sqlite::MAX_FRAME_BYTES || !line.ends_with('\n') => {
+            Ok(_) if line.len() > MAX_NATIVE_FRAME_BYTES || !line.ends_with('\n') => {
                 Err("Bun closed stdout during an native frame".to_string())
             }
             Ok(_) => {
@@ -1230,7 +1208,7 @@ fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<Ch
             if process.generation != generation {
                 return;
             }
-            if process.sqlite.failed.load(Ordering::Acquire) {
+            if process.writer_failed.load(Ordering::Acquire) {
                 // A failed/bounded response pipe is terminal; never strand a request.
                 let _ = process.child.kill();
             }
@@ -1280,31 +1258,6 @@ fn handle_native_frame(
     // Dispatch without the process lock: restart delivers Exit, whose cleanup
     // takes this lock before waiting for the Bun child.
     match frame {
-        BunToRustNativeFrame::Sqlite {
-            request_id,
-            request,
-        } => {
-            let state = app.state::<HostState>();
-            let process = state.process.lock().expect("host state lock poisoned");
-            let process = process
-                .as_ref()
-                .filter(|process| process.generation == generation)
-                .context("SQLite generation retired")?;
-            process
-                .sqlite
-                .submit(request_id, request)
-                .map_err(|error| anyhow!(error))
-        }
-        BunToRustNativeFrame::SqliteCancel { request_id } => {
-            let state = app.state::<HostState>();
-            let process = state.process.lock().expect("host state lock poisoned");
-            let process = process
-                .as_ref()
-                .filter(|process| process.generation == generation)
-                .context("SQLite generation retired")?;
-            process.sqlite.cancel(&request_id);
-            Ok(())
-        }
         BunToRustNativeFrame::StoreAuth {
             request_id,
             serialized,
@@ -1441,7 +1394,7 @@ fn send_native_frame(
         .stdin
         .as_mut()
         .context("the target Bun generation has no command pipe")?;
-    if line.len() > sqlite::MAX_FRAME_BYTES {
+    if line.len() > MAX_NATIVE_FRAME_BYTES {
         bail!("Native response exceeds frame limit");
     }
     stdin
@@ -1582,7 +1535,6 @@ fn stop_starting_child(mut child: Child, stdin: ChildStdin) {
 }
 
 fn stop_child(mut process: ManagedChild) {
-    process.sqlite.stop();
     drop(process.stdin.take());
     let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
     loop {
@@ -2512,15 +2464,12 @@ mod tests {
     /// The generated bindings are a committed artifact, so they can go stale
     /// against the command list without anything failing to compile.
     ///
-    /// Two commands are deliberately outside the generated API: they ride
-    /// Tauri's handwritten handler because their shapes are not `specta::Type`
-    /// (raw bytes) or are host-owned rather than part of the app contract.
+    /// `launch_application` is deliberately outside the generated API: it rides
+    /// Tauri's handwritten handler because it is host-owned rather than part of
+    /// the app contract.
     #[test]
     fn generated_bindings_cover_every_declared_command() {
-        const HANDWRITTEN: &[&str] = &[
-            "encode_recording_for_upload",
-            "launch_application",
-        ];
+        const HANDWRITTEN: &[&str] = &["launch_application"];
         for bindings in [
             include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
             include_str!("../../src/ui/bindings.gen.ts"),
@@ -2593,10 +2542,9 @@ mod tests {
                     "an application must not administer models: {permission}"
                 );
             }
-            // It still transcribes, still reads advisory readiness so it can warn
+            // It still prewarms, still reads advisory readiness so it can warn
             // before capture, and can still send the user to Home to fix it.
             for permission in [
-                "allow-transcribe-recording",
                 "allow-prewarm-model",
                 "allow-get-local-transcription-readiness",
                 "allow-open-home",
@@ -2633,7 +2581,6 @@ mod tests {
     /// The operations `@epicenter/app` exposes, and therefore the complete set
     /// of this crate's commands an app window is granted.
     const PUBLIC_CLIENT_COMMANDS: &[&str] = &[
-        "transcribe_recording",
         "transcribe_audio_bytes",
         "list_inference_models",
         "prewarm_model",

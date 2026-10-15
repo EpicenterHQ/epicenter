@@ -16,12 +16,6 @@ export const commands = {
 	/**  Simulates pressing the Enter/Return key. */
 	simulateEnterKeystroke: () => typedError<null, string>(__TAURI_INVOKE("simulate_enter_keystroke")),
 	/**
-	 *  Canonical transcribe-by-id path. Resolves the canonical local blob, decodes
-	 *  it, then runs inference on the **active** model with the caller's advisory
-	 *  hints. The caller names audio and hints; it does not name a model.
-	 */
-	transcribeRecording: (audioBlobId: string, hints: TranscriptionHints, destination: BlobDestination) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("transcribe_recording", { audioBlobId, hints, destination })),
-	/**
 	 *  Decode uploaded bytes in memory and run the exact requested catalog model.
 	 *  The blocking job owns its input until inference finishes, including after caller abort.
 	 */
@@ -35,7 +29,7 @@ export const commands = {
 	 *  speech instead of paying it after they stop.
 	 *
 	 *  Idempotent and cheap: a no-op when the active model is already resident.
-	 *  Shares the one load path with `transcribe_recording` (`ModelCache::prewarm`
+	 *  Shares the one load path with active-model transcription (`ModelCache::prewarm`
 	 *  and `transcribe` both resolve through `ensure_loaded`), so the model warmed
 	 *  here is exactly the one transcribe will use, because there is only one. A
 	 *  failure here is non-fatal: transcribe will load normally and surface any real
@@ -283,11 +277,6 @@ export const events = {
 };
 
 /* Types */
-export type AccountIdentity = {
-	authorityId: string,
-	principalId: string,
-};
-
 /**
  *  The one active local model as **Home** sees it: its exact identity and
  *  whether its file is on this machine right now.
@@ -357,12 +346,6 @@ export type AppliedHints = {
 	 *  the Parakeet family does not).
 	 */
 	initialPrompt: boolean,
-};
-
-/**  Which application's blobs, and whose: the directory a read resolves to. */
-export type BlobDestination = {
-	appId: string,
-	account: AccountIdentity | null,
 };
 
 export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "DeleteFailed"; message: string };
@@ -512,7 +495,7 @@ export type InstalledApp = {
  *  This route preserves ADR-0180's identity-free readiness response. It is advisory
  *  UI state, not a preflight gate: a caller uses it to warn before capture and to
  *  decide whether to offer a prompt or language field, never to decide whether
- *  `transcribe_recording` may be called. Transcription resolves the active model
+ *  a transcription may be requested. Transcription resolves the active model
  *  independently at the point of use, so a stale read here can only produce a
  *  stale hint, never a wrong transcription.
  *

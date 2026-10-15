@@ -30,11 +30,19 @@ import {
 	projectTables,
 	readFolder,
 	readingStatementProblem,
+	type SqlTarget,
 } from '../packages/folder/src/bun.js';
-import { createBunSqliteAdapter } from '../packages/sqlite/src/bun.js';
 
 /** The authored TypeScript declaration `generate` reads (ADR-0527). */
 const SOURCE_PATH = 'epicenter.ts';
+
+/** The two calls the projection asks of a database, over `bun:sqlite`. */
+function sqlTarget(db: Database): SqlTarget {
+	return {
+		run: (sql, parameters = []) => db.run(sql, [...parameters]),
+		transaction: (run) => db.transaction(run).immediate(),
+	};
+}
 
 /** Whether `path` is a file; only that is ever asked of `epicenter.ts` outside `generate`. */
 function isFile(path: string) {
@@ -272,7 +280,7 @@ async function query(dir: string, sql: string | undefined, json: boolean) {
 	];
 	const db = new Database(':memory:');
 	try {
-		projectTables(createBunSqliteAdapter(db), tables);
+		projectTables(sqlTarget(db), tables);
 		const statement = prepareRead(db, sql);
 		const rows = statement.all() as Record<string, unknown>[];
 		const columns = statement.columnNames;

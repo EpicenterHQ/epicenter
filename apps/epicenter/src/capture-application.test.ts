@@ -9,7 +9,6 @@ import { mkdtempSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { CAPTURE_APPLICATION, COMPILED_APPLICATIONS } from './applications.ts';
 import { createHomeHost } from './host.ts';
 import { BOOTSTRAP_ROUTE, CAPTURE_ROUTE } from './routes.ts';
@@ -40,7 +39,6 @@ async function serve() {
 	cleanups.push(() => host[Symbol.asyncDispose]());
 	const desktopAuth = createTestDesktopAuth();
 	cleanups.push(() => desktopAuth[Symbol.dispose]());
-	const blobs = scratch('epicenter-capture-blobs-');
 	const { app } = createHomeServer({
 		host,
 		origin: ORIGIN,
@@ -54,8 +52,6 @@ async function serve() {
 			}),
 			COMPILED_APPLICATIONS,
 		),
-		blobs: (appId, owner) =>
-			createBunBlobStore({ directory: join(blobs, appId, owner ?? 'none') }),
 		desktopAuth,
 	});
 	const bootstrap = await app.request(BOOTSTRAP_ROUTE.url(ORIGIN), {

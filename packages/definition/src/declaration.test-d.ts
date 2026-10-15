@@ -8,8 +8,8 @@
  * and in the values that create one; every KV field is `name?:`, since an
  * unset key means the application's default. The reserved-name rule holds for
  * both, a primitive is not a schema, and a native `default` annotation is
- * admitted without making a field optional. `prepareData` returns the type it
- * was given.
+ * admitted without making a field optional. `prepareSchema` returns the type
+ * it was given.
  *
  * A refinement or codec declared as a field is refused by its type here, and
  * one nested inside another schema by preparation at run time (see
@@ -22,7 +22,7 @@ import { type Static, Type } from 'typebox';
 import type { Brand } from 'wellcrafted/brand';
 import {
 	type CreateRowOf,
-	type DataDefinition,
+	type DataSchema,
 	defineTable,
 	type FieldMap,
 	field,
@@ -30,7 +30,7 @@ import {
 	type JsonValue,
 	jsonValue,
 	type KvOf,
-	prepareData,
+	prepareSchema,
 	type RowOf,
 } from './index.js';
 
@@ -114,14 +114,13 @@ export type _CreateHasNoId = Expect<
 
 // KV takes the same schemas, and every setting may be unset.
 const definition = {
-	id: 'so.epicenter.raw',
 	kv: {
 		theme: Type.Enum(['light', 'dark']),
 		window: Type.Object({ width: Type.Integer(), height: Type.Integer() }),
 		name: field.string(),
 	},
 	tables: { mixed },
-} satisfies DataDefinition;
+} satisfies DataSchema;
 export type _KvRaw = Expect<
 	Equal<
 		KvOf<typeof definition>,
@@ -174,10 +173,9 @@ export const _withoutRequired: CreateRowOf<typeof optionalFields> = {
 };
 // A KV field declared optional reads the same as any other setting.
 const optionalKv = {
-	id: 'so.epicenter.optional',
 	kv: { note: field.optional(field.string()), width: Type.Integer() },
 	tables: {},
-} satisfies DataDefinition;
+} satisfies DataSchema;
 export type _OptionalKv = Expect<
 	Equal<KvOf<typeof optionalKv>, { note?: string; width?: number }>
 >;
@@ -221,11 +219,10 @@ defineTable({
 	},
 });
 export const _primitiveKv = {
-	id: 'so.epicenter.primitive',
 	// @ts-expect-error a string is not a schema
 	kv: { theme: 'string' },
 	tables: {},
-} satisfies DataDefinition;
+} satisfies DataSchema;
 // @ts-expect-error a string is not a schema
 export const _primitiveField: FieldMap = { title: 'string' };
 // @ts-expect-error a string is not a schema
@@ -259,15 +256,15 @@ export const _stillRequired: Pick<
 	'withDefault'
 > = {};
 
-// A prepared definition has the declared type: the same literal keys and the
+// A prepared schema has the declared type: the same literal keys and the
 // same native schemas, so the lenses read it like the declaration.
-const prepared = prepareData(definition).data;
+const prepared = prepareSchema(definition).data;
 if (prepared !== null) {
 	prepared satisfies typeof definition;
 	// A prepared native snapshot can be composed again without a cast.
 	field.json(prepared.kv.theme);
 	field.nullable(prepared.tables.mixed.fields.title);
-	// @ts-expect-error the prepared definition declares no such table
+	// @ts-expect-error the prepared schema declares no such table
 	prepared.tables.absent;
 	// @ts-expect-error a prepared table has fields and a body, and no name
 	prepared.tables.mixed.name;

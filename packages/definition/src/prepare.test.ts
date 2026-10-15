@@ -1,7 +1,7 @@
 /**
  * Definition Preparation Tests
  *
- * `prepareData` checks a declaration and returns an owned definition of the
+ * `prepareSchema` checks a declaration and returns an owned schema of the
  * same shape, without knowing which storage will use it. `check` reads values
  * through its fields, as a read, a whole-row input, or a patch. A storage with
  * live bodies declares a body conversion; preparation carries it through
@@ -12,14 +12,13 @@
  * - A table goes through `defineTable`, which leaves its fields exact
  * - A declared body conversion needs both verbs and is carried through as
  *   declared; a table without one is prepared with none
- * - A prepared definition has the declared shape: records of native schemas,
+ * - A prepared schema has the declared shape: records of native schemas,
  *   named by their keys, frozen and without a prototype
- * - Preparation is memoized on the declaration and on the definition it
+ * - Preparation is memoized on the declaration and on the schema it
  *   returned
- * - `prepareSchema` prepares the same shape without an ID and refuses one;
- *   its memo never answers for `prepareData`'s
+ * - A schema names no dataset, so a declaration with an ID is malformed
  * - A validator belongs to a prepared snapshot, never to the author's schema:
- *   a schema reused in two definitions is prepared twice, and a schema that
+ *   a schema reused in two declarations is prepared twice, and a schema that
  *   was never prepared is refused with an error
  * - A field is any native TypeBox schema that is plain JSON: raw,
  *   helper-built, or read back from JSON. A prepared field is a deeply frozen
@@ -49,8 +48,6 @@
  *
  * See also:
  * - `field/field.test.ts` for the helpers and the editor resolver on their own
- * - `packages/app/src/data/definition/prepare.test.ts` for the same
- *   preparation bound to a Yjs body codec
  */
 import { expect, test } from 'bun:test';
 import { type TSchema, Type } from 'typebox';
@@ -59,7 +56,7 @@ import { Settings } from 'typebox/system';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	check,
-	type DataDefinition,
+	type DataSchema,
 	defineTable,
 	FIELD_KEYWORD,
 	type FieldMap,
@@ -67,7 +64,6 @@ import {
 	fieldEditorOf,
 	isOptional,
 	jsonValue,
-	prepareData,
 	prepareSchema,
 } from './index.js';
 
@@ -75,14 +71,12 @@ import {
  * Prepare one bucket of fields as a definition's kv. Every KV field is
  * optional once prepared, so a test about absence uses {@link rowFields}.
  */
-const prepareKv = (kv: FieldMap) =>
-	prepareData({ id: 'so.epicenter.fields', kv, tables: {} });
+const prepareKv = (kv: FieldMap) => prepareSchema({ kv, tables: {} });
 
 /** Prepare one bucket of fields as a table's, where a field may be required. */
 const rowFields = (fields: FieldMap) =>
 	expectOk(
-		prepareData({
-			id: 'so.epicenter.rows',
+		prepareSchema({
 			kv: {},
 			tables: { rows: defineTable({ fields }) },
 		}),
@@ -130,8 +124,7 @@ const editorsOf = (fields: FieldMap) =>
 
 const body = { encode: () => 'text', decode: (text: string) => text };
 
-const definition: DataDefinition = {
-	id: 'so.epicenter.shared',
+const declaration: DataSchema = {
 	kv: { theme: field.string() },
 	tables: {
 		notes: defineTable({ fields: { title: field.string() }, body }),
@@ -156,7 +149,7 @@ const Node = Type.Cyclic(
 // ============================================================================
 
 test('a declared body conversion is carried through unread, and a table without one has none', () => {
-	const prepared = expectOk(prepareData(definition));
+	const prepared = expectOk(prepareSchema(declaration));
 	expect(prepared.tables.notes?.body).toBe(body);
 	expect(Object.isFrozen(body)).toBe(false);
 	expect(Object.hasOwn(prepared.tables.queries ?? {}, 'body')).toBe(false);
@@ -170,12 +163,11 @@ test('a declared body conversion is carried through unread, and a table without 
 	expect(admits(queries, 'limit', '3')).toBe(false);
 });
 
-test('a prepared definition has the declared shape and nothing else', () => {
+test('a prepared schema has the declared shape and nothing else', () => {
 	const prepared = expectOk(
-		prepareData({ ...definition, title: 'Shared', extra: true } as never),
-	) as DataDefinition;
-	expect(Object.keys(prepared)).toEqual(['id', 'title', 'kv', 'tables']);
-	expect(prepared.id).toBe('so.epicenter.shared');
+		prepareSchema({ ...declaration, title: 'Shared', extra: true } as never),
+	) as DataSchema;
+	expect(Object.keys(prepared)).toEqual(['title', 'kv', 'tables']);
 	expect(prepared.title).toBe('Shared');
 	expect(Object.keys(prepared.kv)).toEqual(['theme']);
 	expect(Object.keys(prepared.tables)).toEqual(['notes', 'queries']);
@@ -187,60 +179,45 @@ test('a prepared definition has the declared shape and nothing else', () => {
 	expect(prepared.tables.queries?.fields.limit).toEqual(
 		field.nullable(field.integer()),
 	);
-	expect(Object.keys(expectOk(prepareData(definition)))).toEqual([
-		'id',
+	expect(Object.keys(expectOk(prepareSchema(declaration)))).toEqual([
 		'kv',
 		'tables',
 	]);
 });
 
-test('preparation is memoized on the declaration and on the definition it returned', () => {
-	const first = prepareData(definition);
-	expect(prepareData(definition)).toBe(first);
-	expect(prepareData({ ...definition })).not.toBe(first);
-	// Preparing a prepared definition returns it, and prepares nothing again.
+test('preparation is memoized on the declaration and on the schema it returned', () => {
+	const first = prepareSchema(declaration);
+	expect(prepareSchema(declaration)).toBe(first);
+	expect(prepareSchema({ ...declaration })).not.toBe(first);
+	// Preparing a prepared schema returns it, and prepares nothing again.
 	const prepared = expectOk(first);
-	expect(prepared).not.toBe(definition);
-	expect(prepareData(prepared)).toBe(first);
-	expect(expectOk(prepareData(prepared))).toBe(prepared);
+	expect(prepared).not.toBe(declaration);
+	expect(prepareSchema(prepared)).toBe(first);
+	expect(expectOk(prepareSchema(prepared))).toBe(prepared);
 	// A refusal is memoized the same way.
-	const malformed = { ...definition, kv: { id: field.string() } };
-	expect(prepareData(malformed)).toBe(prepareData(malformed));
-	expectErr(prepareData(malformed));
+	const malformed = { ...declaration, kv: { id: field.string() } };
+	expect(prepareSchema(malformed)).toBe(prepareSchema(malformed));
+	expectErr(prepareSchema(malformed));
 });
 
-test('a schema names no dataset, and its preparation answers apart from a definition', () => {
-	const { id: _, ...declared } = definition;
-	const schema = expectOk(prepareSchema(declared));
-	expect(Object.keys(schema)).toEqual(['kv', 'tables']);
-	expect(Object.isFrozen(schema)).toBe(true);
-	expect(prepareSchema(schema)).toBe(prepareSchema(declared));
-	expect(admits(schema.kv, 'theme', 'dark')).toBe(true);
-	// An ID names the data, so a schema refuses one, even untyped.
-	// @ts-expect-error A Store definition names a dataset; a schema cannot.
-	const named = prepareSchema(definition);
+test('a schema names no dataset, so a declaration with an id is malformed', () => {
+	// @ts-expect-error A schema names no dataset.
+	const named = prepareSchema({ ...declaration, id: 'so.epicenter.shared' });
 	expect(expectErr(named).message).toContain('declares an id');
 	expect(
-		expectErr(prepareSchema({ ...declared, id: undefined } as never)).name,
-	).toBe('Malformed');
-	// Neither preparation answers for the other's result.
-	expect(expectErr(prepareData(schema as never)).message).toContain(
-		'invalid id',
-	);
-	expect(
-		expectErr(prepareSchema(expectOk(prepareData(definition)) as never)).name,
+		expectErr(prepareSchema({ ...declaration, id: undefined } as never)).name,
 	).toBe('Malformed');
 });
 
 test('a declaration that is not an object is malformed', () => {
 	for (const value of [undefined, null, 7, 'definition', []])
-		expect(expectErr(prepareData(value as never)).name).toBe('Malformed');
+		expect(expectErr(prepareSchema(value as never)).name).toBe('Malformed');
 });
 
 test('a body conversion missing a verb, and an unknown table option, are malformed', () => {
 	const half = expectErr(
-		prepareData({
-			...definition,
+		prepareSchema({
+			...declaration,
 			tables: {
 				notes: defineTable({
 					fields: {},
@@ -252,8 +229,8 @@ test('a body conversion missing a verb, and an unknown table option, are malform
 	);
 	expect(half.message).toContain('invalid body codec');
 	const extra = expectErr(
-		prepareData({
-			...definition,
+		prepareSchema({
+			...declaration,
 			tables: {
 				// @ts-expect-error A table declares fields and a body only.
 				notes: defineTable({ fields: {}, attachments: true }),
@@ -263,7 +240,7 @@ test('a body conversion missing a verb, and an unknown table option, are malform
 	expect(extra.message).toContain('unknown option');
 });
 
-test('a table closes with additionalProperties false, only where no newer release adds keys', () => {
+test('a table closes with additionalProperties false', () => {
 	const closed = {
 		fields: { title: Type.String() },
 		additionalProperties: false,
@@ -272,15 +249,6 @@ test('a table closes with additionalProperties false, only where no newer releas
 		prepareSchema({ kv: {}, tables: { notes: defineTable(closed) } }),
 	);
 	expect(prepared.tables.notes.additionalProperties).toBe(false);
-	expect(
-		expectErr(
-			prepareData({
-				id: 'so.epicenter.notes',
-				kv: {},
-				tables: { notes: defineTable(closed) },
-			}),
-		).message,
-	).toContain('a dataset must read the keys a newer release adds');
 	expect(
 		expectErr(
 			prepareSchema({
@@ -304,8 +272,7 @@ test('field and table names keep their grammar for raw schemas', () => {
 		);
 	expect(
 		expectErr(
-			prepareData({
-				id: 'so.epicenter.names',
+			prepareSchema({
 				kv: {},
 				tables: { kv: defineTable({ fields: { a: Type.String() } }) },
 			}),
@@ -318,8 +285,7 @@ test('a name that is also an Object.prototype member is an ordinary name, and __
 		fields: { constructor: field.string(), toString: field.integer() },
 	});
 	const prepared = expectOk(
-		prepareData({
-			id: 'so.epicenter.prototype',
+		prepareSchema({
 			kv: { constructor: field.boolean(), valueOf: field.string() },
 			tables: { constructor: row, toString: row },
 		}),
@@ -366,8 +332,7 @@ test('a name that is also an Object.prototype member is an ordinary name, and __
 	for (const section of ['kv', 'tables'] as const)
 		expect(
 			expectErr(
-				prepareData({
-					id: 'so.epicenter.prototype',
+				prepareSchema({
 					kv: {},
 					tables: {},
 					[section]: JSON.parse('{"__proto__": {"type": "string"}}'),
@@ -381,8 +346,7 @@ test('one declared table under two names is prepared once per name', () => {
 		fields: { title: field.string(), status: field.select(['open', 'done']) },
 	});
 	const prepared = expectOk(
-		prepareData({
-			id: 'so.epicenter.reused',
+		prepareSchema({
 			kv: {},
 			tables: { tasks: shared, archive: shared },
 		}),
@@ -1076,15 +1040,13 @@ test('a prepared field is the JSON of its declaration, so the field in memory is
 		written: { type: 'string', maxLength: 4 },
 	};
 	const prepared = expectOk(
-		prepareData({
-			id: 'so.epicenter.file',
+		prepareSchema({
 			kv: declared,
 			tables: { rows: defineTable({ fields: declared }) },
 		}),
 	);
 	const restored = expectOk(
-		prepareData({
-			id: 'so.epicenter.file',
+		prepareSchema({
 			kv: JSON.parse(JSON.stringify(declared)) as FieldMap,
 			tables: {
 				rows: defineTable({
@@ -1561,7 +1523,7 @@ test('a prepared field is a frozen snapshot, so later edits change nothing', () 
 });
 
 test('a prepared definition and its records cannot be changed', () => {
-	const prepared = expectOk(prepareData(definition));
+	const prepared = expectOk(prepareSchema(declaration));
 	const notes = prepared.tables.notes;
 	for (const owned of [
 		prepared,
@@ -1589,8 +1551,8 @@ test('a prepared definition and its records cannot be changed', () => {
 	expect(admits(prepared.kv, 'theme', 'dark')).toBe(true);
 	expect(admits(notes?.fields ?? {}, 'title', 'short')).toBe(true);
 	// The declaration the author holds is theirs, and is not frozen.
-	expect(Object.isFrozen(definition.kv)).toBe(false);
-	expect(Object.isFrozen(definition.kv.theme)).toBe(false);
+	expect(Object.isFrozen(declaration.kv)).toBe(false);
+	expect(Object.isFrozen(declaration.kv.theme)).toBe(false);
 });
 
 test('a schema reused in a second definition after an edit is prepared again, apart from the first', () => {
@@ -1683,8 +1645,7 @@ test('undefined annotations do not stop freezing a prepared snapshot', () => {
 // ============================================================================
 
 const checked: FieldMap = expectOk(
-	prepareData({
-		id: 'so.epicenter.checked',
+	prepareSchema({
 		kv: {},
 		tables: {
 			rows: defineTable({

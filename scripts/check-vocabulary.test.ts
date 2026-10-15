@@ -192,10 +192,9 @@ test('a whole file can opt out', () => {
 	});
 });
 
-test('generated declarations and changelogs are skipped', () => {
+test('generated declarations are skipped', () => {
 	withRepo((dir) => {
 		write(dir, 'apps/api/worker-configuration.d.ts', '// prose explanation\n');
-		write(dir, 'packages/app/src/data/CHANGELOG.md', '- scalars removed\n');
 		commitAll(dir);
 		expect(run(dir).code).toBe(0);
 	});

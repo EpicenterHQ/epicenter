@@ -74,6 +74,19 @@ the cache at any time.
   same pointers through its own `git-lfs`.
 - A plain `git` without `git-lfs` checks out pointers, not bytes.
 
+Deleted:
+
+- Already, before LFS: the device blob store (`@epicenter/blobs`'s browser,
+  Bun, webview, and native entries, the desktop host's
+  `/api/apps/:appId/blobs` routes, and Rust `blobs.rs`) and Rust
+  transcription and Opus encoding by blob id (`transcribe_recording`,
+  `encode_recording_for_upload`). None had a caller.
+- With the LFS wave: `@epicenter/blobs`, which by then holds only the Personal
+  hosted URL grammar; the public Personal blob routes
+  (`mountPersonalAuthorityBlobs`, `packages/server/src/routes/authority-blobs.ts`);
+  and `createPersonalHostedBlobs` in `@epicenter/client`. `s3-blob-store.ts`
+  stays only if it presigns `lfs/<repo>/<oid>`.
+
 Open before this is built: whether a read-only Artifacts token is refused for
 `git-receive-pack` (the upload check relies on it), and whether R2 enforces a
 signed checksum on a presigned PUT (if not, `verify` hashes the stored object).

@@ -127,7 +127,7 @@ The convention in one line: `:local` works on a fresh clone, `:remote` wraps wit
 
 ### Changelog Entries
 
-Every PR with a `feat:` or `fix:` prefix should include a `## Changelog` section in the PR description. These entries get aggregated into GitHub Releases automatically.
+Every PR with a `feat:` or `fix:` prefix should include a `## Changelog` section in the PR description. Release notes are written from these entries.
 
 Write one line per user-visible change, in imperative mood, for end users, not developers. The person who wrote the code is always best positioned to describe what it does.
 
@@ -175,51 +175,9 @@ git rebase upstream/main
 
 ## Releasing
 
-This section is for maintainers with npm publish access to the `@epicenter` scope.
-
-### Prerequisites
-
-- Bun installed (see above)
-- An npm account with publish access to the `@epicenter` scope
-- `npm login` completed in your terminal
-
-### How versioning works
-
-The published packages share a single version number and move together.
-
-**Apps are completely separate from changesets.** Changesets only touches packages that are (a) not marked `"private": true` and (b) listed under `packages/`. Every app in `apps/` is `"private": true` and has its own deploy mechanism. Changesets will never version or publish them. Web apps deploy on push to `main`; native packaging belongs to each Tauri host. See [App deployments](#app-deployments) below.
-
-We use [changesets](https://github.com/changesets/changesets) to track changes and publish. Never edit `version` fields in `package.json` by hand.
-
-### Adding a changeset
-
-After making changes to any package, run this before committing:
-
-```bash
-bunx changeset
-```
-
-Select the affected packages, pick the semver bump (patch for fixes, minor for new features), and write a short summary. Commit the generated `.changeset/*.md` file with your code.
-
-### Publishing a release
-
-```bash
-# 1. Consume all pending changesets, bump versions, write CHANGELOGs
-bunx changeset version
-
-# 2. Commit
-git add . && git commit -m "chore: release vX.Y.Z"
-
-# 3. Publish to npm and create git tags
-bunx changeset publish
-
-# 4. Push
-git push && git push --tags
-```
+No package is published to npm: every package and app is `private: true`.
 
 ### App deployments
-
-Apps deploy separately from npm packages:
 
 - **Whispering (desktop)**: A standalone Tauri app. `bun build:whispering` produces a local bundle; there is no release workflow for it yet.
 - **Epicenter (desktop)**: Epicenter owns native packaging for the trusted desktop apps it hosts.
