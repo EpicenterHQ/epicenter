@@ -779,3 +779,7 @@ When you add an ADR, add its row here.
 | [0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) | Every app is installed, from a folder in any Git repository | Accepted |
 | [0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) | A page's own writes keep its folder cache in step, and folder queries carry their read policy | Proposed |
 | [0554](0554-a-field-edit-is-a-patch-the-engine-applies-to-the-file-as-it-is-now.md) | A field edit is a patch the engine applies to the file as it is now | Proposed |
+| [0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) | Apps reach native code through official Tauri plugins first, granted by app id | Proposed |
+| [0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) | Outside a WebView, TypeScript runs only as the epicenter CLI | Proposed |
+| [0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) | An AI connection is a row in so.epicenter whose key stays in this machine's keychain | Proposed |
+| [0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) | The epicenter CLI groups only its app and auth commands | Proposed |
