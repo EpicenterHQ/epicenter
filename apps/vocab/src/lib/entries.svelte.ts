@@ -7,17 +7,16 @@
  * change to `entries/`. This page's own saves are not reported: each puts
  * what it wrote in the listing itself.
  *
- * An edit is a draft held outside the cache, one per word. The draft keeps
- * the version the edit started from, so a read that lands meanwhile changes
- * the listing and never the edit. Each change sends a save, one at a time;
- * changes made while a save runs are sent next, from the version it wrote.
- * A file changed elsewhere since is merged with the edit. A failed save
- * keeps the draft on screen, and the learner is told.
+ * A note or a stage is an update of the word's file as it is now
+ * (ADR-0554): it sets that field and keeps every other field another writer
+ * changed. The card holds a note typed and not yet sent; a stage press
+ * sends at once. One word's writes run one at a time, in the order made. A
+ * failed update is reported, and the card keeps what was typed.
  *
  * A word file that is not a valid word is repaired as its exact text, read
  * as its own query and written the same way: a text draft over the version
- * read, saved one write at a time and merged with a change made elsewhere
- * (ADR-0551). A save that replaced another writer's change names it, with
+ * read, saved after a pause in typing, one write at a time, and merged with
+ * a change made elsewhere (ADR-0551). A save that replaced another writer's change names it, with
  * a way to put theirs back. Adding and deleting a word are mutations too, so
  * closing waits for them.
  *
@@ -31,7 +30,6 @@ import {
 	type FileError,
 	hashBytes,
 	type Replaced,
-	type Row,
 	rowPath,
 	type StoredRow,
 	type TableError,
@@ -39,15 +37,17 @@ import {
 	wellFormed,
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
-import { runMutation, type SaveTextVariables } from '@epicenter/folder/query';
 import {
-	createDraftState,
+	runMutation,
+	type SaveTextVariables,
+	whenIdle,
+} from '@epicenter/folder/query';
+import {
 	createTextDraftState,
-	type DraftState,
 	type TextDraftState,
 } from '@epicenter/folder/svelte';
 import type { QueryClient } from '@tanstack/svelte-query';
-import { createSubscriber, SvelteMap } from 'svelte/reactivity';
+import { createSubscriber } from 'svelte/reactivity';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -160,8 +160,6 @@ export function createEntries(
 	);
 	const listKey = folder$.entries.list.queryKey();
 	const textKey = (path: string) => folder$.files.text.queryKey(path);
-	/** Each word's edit, by ID; one draft whichever view edits it. */
-	const drafts = new SvelteMap<string, DraftState<EntryFields>>();
 	/** The word file open as text for repair, if one is, and its typed text. */
 	let repair = $state<{ path: string; draft: TextDraftState } | undefined>();
 
@@ -183,39 +181,25 @@ export function createEntries(
 			exact: true,
 		}) > 0;
 
-	/** The draft of the word at `id`, made at its first edit. */
-	function draftOf(id: string): DraftState<EntryFields> {
-		const known = drafts.get(id);
-		if (known !== undefined) return known;
-		const path = pathOf(id);
-		const draft: DraftState<EntryFields> = createDraftState<EntryFields>({
-			save: (sent) =>
-				runMutation(
-					queryClient,
-					{
-						...folder$.entries.save.mutationOptions(),
-						onError: (error) => {
-							// A word deleted elsewhere is gone with its edit.
-							if (error.name === 'NotFound') {
-								draft.discard();
-								onWriteFailed({ path, error, lost: '' });
-								return;
-							}
-							onWriteFailed({
-								path,
-								error,
-								lost: '',
-								retry: () => void draft.save(),
-							});
-						},
-					},
-					sent,
-				),
-			onSaved: tell(path),
+	/**
+	 * Set fields of a word as its file is now. A failure is reported; the
+	 * card keeps what was typed, and a word deleted elsewhere is gone.
+	 */
+	const update = {
+		...folder$.entries.update.mutationOptions(),
+		onError: (error, { stem }) =>
+			onWriteFailed({ path: pathOf(stem), error, lost: '' }),
+	} satisfies ReturnType<typeof folder$.entries.update.mutationOptions>;
+	const updateKey = update.mutationKey ?? [];
+
+	/** Resolves once no update of the word at `id` runs or waits. */
+	const updatesSettled = (id: string) =>
+		whenIdle(queryClient, {
+			mutationKey: updateKey,
+			predicate: (mutation) =>
+				(mutation.state.variables as { stem?: string } | undefined)?.stem ===
+				id,
 		});
-		drafts.set(id, draft);
-		return draft;
-	}
 
 	/** What a save of `path` replaced, named with the save that restores it. */
 	const tell =
@@ -332,15 +316,18 @@ export function createEntries(
 		onSuccess: ({ id, stored }) => received(id, stored),
 	});
 
-	/** Change the draft of the word at `id` and save it. */
-	function edit(id: string, change: (row: Row<EntryFields>) => void): boolean {
-		if (refused() !== undefined || repair?.path === pathOf(id)) return false;
-		if (removing(pathOf(id))) return false;
-		const current = rowOf(id);
-		if (current === undefined) return false;
-		const draft = draftOf(id);
-		draft.change(current, change);
-		void draft.save();
+	/** Whether the word at `id` takes an edit now: not closing, deleted, or open as text. */
+	function canEdit(id: string) {
+		const path = pathOf(id);
+		return refused() === undefined && repair?.path !== path && !removing(path);
+	}
+
+	/** Send an update of the word at `id`; answers whether it was sent. */
+	function set(id: string, fields: Partial<EntryFields>): boolean {
+		if (!canEdit(id) || rowOf(id) === undefined) return false;
+		void runMutation(queryClient, update, { stem: id, set: fields }).catch(
+			() => {},
+		);
 		return true;
 	}
 
@@ -353,17 +340,9 @@ export function createEntries(
 		},
 		/** One word file's exact text, or its type and size when it is not editable text. */
 		textQuery: (path: string) => folder$.files.text.queryOptions(path),
-		/** `entry` as the learner sees it: with its edit, while one is unsaved. Read reactively. */
-		shown(entry: Entry): Entry {
-			const row = drafts.get(entry.id)?.row;
-			return row === undefined
-				? entry
-				: { ...entry, note: row.fields.note, stage: row.fields.stage };
-		},
-		/** Whether a save of the word at `id` runs; read reactively. */
-		isSaving(id: string) {
-			return drafts.get(id)?.saving ?? false;
-		},
+		/** The update a card sends a note it holds with: `{ stem, set }`. */
+		update,
+		canEdit,
 		/** Whether the word at `id` takes no edit now: it is being deleted, or is open as text. */
 		isLocked(id: string) {
 			trackMutations();
@@ -381,22 +360,14 @@ export function createEntries(
 			const { data, error } = await addWord(text);
 			return error === null ? Ok(data.outcome) : Err(error);
 		},
-		/** Type the note of the word at `id`; it is kept well formed, so what is shown is what is saved. */
-		inputNote(id: string, note: string) {
-			return edit(id, (row) => {
-				row.fields.note = wellFormed(note);
-			});
-		},
-		/** Press a stage of the word at `id`. */
-		setStage(id: string, stage: EntryFields['stage']) {
-			return edit(id, (row) => {
-				row.fields.stage = stage;
-			});
-		},
+		/** Send the note of the word at `id`, kept well formed, so what is shown is what is saved. */
+		setNote: (id: string, note: string) => set(id, { note: wellFormed(note) }),
+		/** Press a stage of the word at `id`; it is sent at once. */
+		setStage: (id: string, stage: EntryFields['stage']) => set(id, { stage }),
 		/**
-		 * Delete `entry`. It waits for the word's save under way, so it removes
-		 * what this page saved last; a file changed elsewhere since is refused,
-		 * and the list reads it again.
+		 * Delete `entry`. It waits for the word's updates under way, so it
+		 * removes what this page saved last; a file changed elsewhere since is
+		 * refused, and the list reads it again.
 		 */
 		remove(entry: Entry) {
 			const path = pathOf(entry.id);
@@ -407,7 +378,7 @@ export function createEntries(
 				> => {
 					const why = refused();
 					if (why !== undefined) return EntryError.NotStarted({ reason: why });
-					await drafts.get(entry.id)?.save();
+					await updatesSettled(entry.id);
 					if (repair?.path === path) await repair.draft.save();
 					return table.delete(heldCapture(entry.id) ?? entry.stored);
 				},
@@ -416,7 +387,6 @@ export function createEntries(
 						listing?.filter((listed) => listed.stem !== entry.id),
 					);
 					queryClient.removeQueries({ queryKey: textKey(path), exact: true });
-					drafts.delete(entry.id);
 					if (repair?.path === path) repair = undefined;
 				},
 				onError: (error) => {
@@ -459,15 +429,16 @@ export function createEntries(
 			queryClient.removeQueries({ queryKey: textKey(open.path), exact: true });
 			return true;
 		},
-		/** Type the text of the word file open for repair; each change is written as typed. */
+		/** Type the text of the word file open for repair; the card writes it after a pause (`saveRepair`). */
 		inputText(path: string, text: string) {
 			if (refused() !== undefined || removing(path)) return false;
 			const opened = textData(path);
 			if (repair?.path !== path || opened?.kind !== 'text') return false;
 			repair.draft.change(opened.file, text);
-			void repair.draft.save();
 			return true;
 		},
+		/** Write the repair text typed, if any; resolves once no write of it runs. */
+		saveRepair: () => repair?.draft.save() ?? Promise.resolve(),
 	};
 }
 
