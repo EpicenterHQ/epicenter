@@ -26,27 +26,26 @@ against the code. The constraints below apply to every edit here.
   only when a read confirmed it absent and only if it is still absent, and
   never retry an outcome that is unknown. Table directories come from the
   declaration; do not list them a second time in Rust.
-- The query cache holds the files (ADR-0528). The note and folder
-  listings, the file listing, each file opened as text, and Git status are
-  queries in `src/lib/notes.svelte.ts`. Do not add a draft, an edit session,
-  an autosave, a save merge, a review, a retained editor per path, or any
-  other copy beside the cache. `$state` holds only input that is not
-  committed yet: the search, a folder name being typed.
-- An edit is one immutable change to the cached row or text, then a write
-  mutation keyed and scoped by the file's path. It reads the cache when it
-  runs and is guarded by the hash the cache last confirmed. A file has at
-  most one write running and one waiting. Success moves the guard forward
-  and keeps the cached row; failure rereads that one file, which rolls the
-  edit back, and reports the lost text through `onWriteFailed`. Title,
-  folder, pin, rich text, Source, list actions, and folder names are all
-  such edits. While a file is open as text, its text is what saves, and row
-  edits of it are refused.
-- No read starts while a write runs: an edit cancels reads in flight,
-  nothing goes stale on its own (`staleTime: Infinity`), focus does not
-  refetch while writing, a text read waits for the file's row write, and
-  everything is read again once the last write settles. The race tests in
-  `notes.test.ts` fail when the focus, staleness, or text-read guard is
-  removed; keep them.
+- The query cache holds what the files held when they were read (ADR-0528,
+  ADR-0548). The note and folder listings, the file listing, each file
+  opened as text, and Git status are queries from the folder's options
+  (`folderOptions`) in `src/lib/notes.svelte.ts`. Do not add a second
+  store, a review, or a retained editor per path. `$state` holds only input
+  that is not saved yet: drafts, the search, a folder name being typed.
+- An edit is a draft (`createDraftState` from `@epicenter/folder/svelte`),
+  one per row, shared by every view of that note. It takes the row and its
+  version at the first change, keeps the edited row outside the cache, and
+  saves through the folder's save options one save at a time; `table.save`
+  merges a file changed elsewhere since. A read never replaces a draft. A
+  failed save keeps the draft and reports it through `onWriteFailed`.
+  Title, folder, pin, rich text, Source, list actions, and folder names are
+  all such edits. While a file is open as text, its text is a draft of its
+  own, written whole over the version it started from, and row edits of it
+  are refused.
+- Nothing goes stale on its own (`staleTime: Infinity`) and focus never
+  refetches. The tests in `notes.test.ts` that hold a save while a read
+  lands, and that save while another tab changed the file, guard the
+  draft; keep them.
 - Every action is a mutation (create, rename, delete, delete folder, Save
   version, terminal commands), so `notes.close()` can wait for the mutation
   cache to be idle before it releases the folder. Do not add a manual `refresh()` after an action; its mutation
@@ -56,27 +55,29 @@ against the code. The constraints below apply to every edit here.
 - A note whose text does not read as one is listed for repair and opens as
   text, with its issues read live from the text on screen (`parseRow`).
   There is no structured partial-row repair.
-- The page reads the folder when it opens, on window focus, and after its
-  own actions and terminal commands. Do not follow `folder.onFilesChanged`
-  hints. A reread that changes the open note's body replaces the rich-text
-  state, so its undo history restarts.
+- The page reads the folder when it opens, after its own actions, and when
+  `folder.onFilesChanged` reports a change, wired to the cache in one line
+  in `createNotes`. Do not add a focus reread or a per-view refresh. A
+  reread that changes the open note's body while it has no draft replaces
+  the rich-text state, so its undo history restarts.
 - A destructive action that must find every related file refuses when any
   file's relation did not read (`deleteFolder`).
 
 ## Editor ownership
 
-- The cache owns the note's body. ProseMirror's `EditorState` owns only what
-  the cache has no place for: the cursor, pending formatting, undo history,
-  and an empty paragraph Markdown cannot spell yet. Its document is never a
-  draft beside the cache.
+- The note's draft, or the cache when there is none, owns the note's body.
+  ProseMirror's `EditorState` owns only what neither has a place for: the
+  cursor, pending formatting, undo history, and an empty paragraph Markdown
+  cannot spell yet. Its document is never a third copy of the body.
 - Every ProseMirror transaction that changes the document goes through
-  `stateAfter`: reconciliation with the body the cache holds now, checked
-  Markdown serialization, then `NoteBody.edit` with the body made
-  `wellFormed`, before it is shown. An edit the cache refuses is not shown.
+  `stateAfter`: reconciliation with the body shown now (the draft's, or the
+  cache's), checked Markdown serialization, then `NoteBody.edit` with the
+  body made `wellFormed`, before it is shown. An edit that is refused is not
+  shown.
   Do not refuse an edit only because a file cannot hold it (a lone
-  surrogate): sanitize it, or ProseMirror and the cache diverge.
-- `stateShowing` follows the cached body by content: the same content keeps
-  the state; different content (Source, a version, a reread, a rollback)
+  surrogate): sanitize it, or ProseMirror and the body shown diverge.
+- `stateShowing` follows the body shown by content: the same content keeps
+  the state; different content (Source, a version, another writer's change)
   replaces it.
 - Do not weaken `checkNoteDoc` to let an edit through. If Markdown cannot
   spell it, the edit is refused. If it should be spellable, fix the

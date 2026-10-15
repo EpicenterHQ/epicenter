@@ -10,16 +10,19 @@
  * the two shares every class and manager. Change the two pins together.
  *
  * The helpers stand in for what the views do: a screen that shows a query
- * observes it, so invalidation reads it again as it does in the app.
+ * observes it, so a change that makes it stale reads it again as it does in
+ * the app.
  */
-import { focusManager, QueryClient, QueryObserver } from '@tanstack/query-core';
+import { QueryClient, QueryObserver } from '@tanstack/query-core';
 import type { NoteListing, Notes } from './notes.svelte.js';
 
-export { focusManager, QueryClient, QueryObserver };
+export { QueryClient, QueryObserver };
 
-/** A fresh cache, mounted as the layout's provider mounts it, so it hears focus. */
+/** A fresh cache, configured and mounted as the layout's provider makes it. */
 export function createQueryClient() {
-	const client = new QueryClient();
+	const client = new QueryClient({
+		defaultOptions: { queries: { refetchOnWindowFocus: false } },
+	});
 	client.mount();
 	return client;
 }
@@ -30,13 +33,14 @@ export function createQueryClient() {
  * function that stops observing.
  */
 export function observe(notes: Notes, ...paths: string[]) {
+	const { folder$, queryClient } = notes;
 	const observers = [
-		new QueryObserver(notes.queryClient, notes.notesQuery()),
-		new QueryObserver(notes.queryClient, notes.foldersQuery()),
-		new QueryObserver(notes.queryClient, notes.filesQuery()),
-		new QueryObserver(notes.queryClient, notes.statusQuery()),
+		new QueryObserver(queryClient, folder$.notes.list.queryOptions()),
+		new QueryObserver(queryClient, folder$.folders.list.queryOptions()),
+		new QueryObserver(queryClient, folder$.files.list.queryOptions()),
+		new QueryObserver(queryClient, folder$.history.status.queryOptions()),
 		...paths.map(
-			(path) => new QueryObserver(notes.queryClient, notes.textQuery(path)),
+			(path) => new QueryObserver(queryClient, notes.textQuery(path)),
 		),
 	];
 	const stops = observers.map((observer) => observer.subscribe(() => {}));
@@ -45,13 +49,15 @@ export function observe(notes: Notes, ...paths: string[]) {
 	};
 }
 
-/** Wait until nothing is mutating or fetching. */
+/** Wait until nothing is saving, mutating, or fetching. */
 export async function quiet(notes: Notes) {
 	const client = notes.queryClient;
+	const idle = () =>
+		!notes.saving && client.isMutating() === 0 && client.isFetching() === 0;
 	for (let tries = 0; tries < 1000; tries++) {
-		if (client.isMutating() === 0 && client.isFetching() === 0) {
+		if (idle()) {
 			await Bun.sleep(0);
-			if (client.isMutating() === 0 && client.isFetching() === 0) return;
+			if (idle()) return;
 		}
 		await Bun.sleep(2);
 	}
@@ -60,11 +66,9 @@ export async function quiet(notes: Notes) {
 
 /** The note listing the cache holds now. */
 export function listing(notes: Notes): NoteListing {
-	const data = notes.queryClient.getQueryData<NoteListing>([
-		'honeycrisp',
-		'rows',
-		'notes',
-	]);
+	const data = notes.queryClient.getQueryData<NoteListing>(
+		notes.folder$.notes.list.queryKey(),
+	);
 	if (data === undefined) throw new Error('The note listing is not loaded');
 	return data;
 }

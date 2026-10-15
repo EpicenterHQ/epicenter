@@ -8,14 +8,14 @@
  * what a delivered event does, not that a person can type there.
  *
  * Key behaviors:
- * - Typing a title writes it, and switching between rich text and Source or
+ * - Typing a title saves it, and switching between rich text and Source or
  *   typing a title keeps the one rich-text view
- * - Rich-text typing reaches the cache through ProseMirror's own DOM reading,
- *   is written, and stays undoable after the write lands
+ * - Rich-text typing reaches the note's draft through ProseMirror's own DOM
+ *   reading, is saved, and stays undoable after the save lands
  * - Different Source text replaces the rich-text document
- * - A write that meets a change made elsewhere merges with it; the edit
+ * - A save that meets a change made elsewhere merges with it; the edit
  *   wins where both changed
- * - Returning to the window shows a change made elsewhere
+ * - A change another tab saved shows in the open note
  * - Once the notes are closing, the controls take no input, and the
  *   rich-text view stays mounted
  */
@@ -28,11 +28,7 @@ import {
 	until,
 } from '../../lib/folder.test-support.js';
 import type { WriteFailure } from '../../lib/notes.svelte.js';
-import {
-	createQueryClient,
-	focusManager,
-	quiet,
-} from '../../lib/query.test-support.js';
+import { createQueryClient, quiet } from '../../lib/query.test-support.js';
 
 // jsdom has no layout, and its ranges cannot be measured. ProseMirror
 // measures the cursor to scroll it into view after typing; it gets no boxes.
@@ -79,7 +75,7 @@ async function view() {
 		target.remove();
 	});
 	await settle();
-	/** Let every write and the reads after them land, then render. */
+	/** Let every save and the reads after them land, then render. */
 	async function settle() {
 		await quiet(notes);
 		flushSync();
@@ -118,7 +114,7 @@ const titleOf = (target: ParentNode) =>
 const undoButton = (target: ParentNode) =>
 	only<HTMLButtonElement>(target, 'button[aria-label="Undo"]');
 
-test('typing a title writes it, and switching tabs or typing keeps the one rich-text view', async () => {
+test('typing a title saves it, and switching tabs or typing keeps the one rich-text view', async () => {
 	const { target, text, settle } = await view();
 	const rich = richOf(target);
 	click(target, 'Source');
@@ -135,14 +131,14 @@ test('typing a title writes it, and switching tabs or typing keeps the one rich-
 	expect(rich.isConnected).toBe(true);
 });
 
-test('rich-text typing is written, and stays undoable after the write lands', async () => {
+test('rich-text typing is saved, and stays undoable after the save lands', async () => {
 	const { notes, target, text, settle } = await view();
 	const rich = richOf(target);
 	await typeRich(rich, ' Typed');
 	expect(notes.noteBody(PATH).row?.body).toBe('Body. Typed\n');
 	await settle();
 	expect(text(PATH)).toContain('Body. Typed\n');
-	// A write never changes what is on screen: the same view and its history stay.
+	// A save never changes what is on screen: the same view and its history stay.
 	expect(richOf(target)).toBe(rich);
 	expect(undoButton(target).disabled).toBe(false);
 	while (!undoButton(target).disabled) {
@@ -177,7 +173,7 @@ test('different Source text replaces the rich-text document, and typing goes on 
 	expect(notes.noteBody(PATH).row?.body).toBe('Different again\n');
 });
 
-test('a write that meets a change made elsewhere merges with it: the edit wins where both changed', async () => {
+test('a save that meets a change made elsewhere merges with it: the edit wins where both changed', async () => {
 	const { target, put, text, failures, settle } = await view();
 	put(PATH, noteText({ title: 'Theirs', body: 'Their body.\n' }));
 	type(titleOf(target), 'Mine');
@@ -189,16 +185,20 @@ test('a write that meets a change made elsewhere merges with it: the edit wins w
 	expect(titleOf(target).value).toBe('Mine');
 });
 
-test('returning to the window shows a change made elsewhere', async () => {
-	const { target, put, settle } = await view();
+test('a change another tab saved shows in the open note', async () => {
+	const { target, otherTab, settle } = await view();
 	const rich = richOf(target);
-	put(PATH, noteText({ title: 'Theirs', body: 'Their body.\n' }));
-	focusManager.setFocused(false);
-	focusManager.setFocused(true);
+	const tab = await otherTab();
+	const { data: theirs } = await tab.tables.notes.get('a');
+	if (theirs == null) throw new Error('No note a');
+	await tab.tables.notes.save(theirs, {
+		fields: { ...theirs.row.fields, title: 'Theirs' },
+		body: 'Their body.\n',
+	});
 	await until(() => {
 		flushSync();
 		return titleOf(target).value === 'Theirs';
-	}, 'the reread');
+	}, 'the reported change to be read');
 	await settle();
 	expect(rich.textContent).toBe('Their body.');
 });

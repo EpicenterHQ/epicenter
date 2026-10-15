@@ -20,11 +20,14 @@ The printed temporary root contains the bare remote and seed checkout.
 remote URLs, so their browser working copies start separately.
 
 Select a file to edit raw text, including Markdown. Autosaves replace the
-captured file conditionally. Nothing watches the files: the page reads them
-again when its window gains focus and after each of its own actions. An
-outside change cannot discard typed input: a failed save offers explicit
-replacement or discard. **New file** creates an
-empty file at a path and opens it. The Git panel below the editor keeps its
+captured file conditionally. Changes made outside the page arrive through
+`folder.onFilesChanged`: on the desktop from the shell's watcher of the copy,
+in a browser from other tabs open on the same copy. Each one reads the file
+list and status again, and the open file when the change names it. The page
+also reads again after each of its own actions. An outside change cannot
+discard typed input: an edited buffer keeps the version it started from, and
+a save that finds the file changed offers explicit replacement or discard.
+**New file** creates an empty file at a path and opens it. The Git panel below the editor keeps its
 output while hidden. Binary files stay visible with an explanation. Text editing is limited to UTF-8 files of at most 2 MiB.
 
 **Sync** brings a working copy and the remote together: it commits what

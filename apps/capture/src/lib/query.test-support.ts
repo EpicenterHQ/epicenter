@@ -11,21 +11,23 @@
  */
 import type { CaptureFields } from '@epicenter/capture';
 import type { StoredRow } from '@epicenter/folder';
-import { focusManager, QueryClient, QueryObserver } from '@tanstack/query-core';
+import { QueryClient, QueryObserver } from '@tanstack/query-core';
 import type { CaptureListing, Captures } from './captures.svelte.js';
 
-export { focusManager, QueryClient, QueryObserver };
+export { QueryClient, QueryObserver };
 
-/** A fresh cache, mounted as the layout's provider mounts it, so it hears focus. */
+/** A fresh cache, configured and mounted as the layout's. */
 export function createQueryClient() {
-	const client = new QueryClient();
+	const client = new QueryClient({
+		defaultOptions: { queries: { refetchOnWindowFocus: false } },
+	});
 	client.mount();
 	return client;
 }
 
 /**
- * Observe the queries the open screens show, so invalidation and focus read
- * them again as they do in the app. Returns the function that stops observing.
+ * Observe the queries the open screens show, so invalidation reads them
+ * again as it does in the app. Returns the function that stops observing.
  */
 export function observe(captures: Captures, ...paths: string[]) {
 	const observers = [
@@ -56,10 +58,9 @@ export async function quiet(captures: Captures) {
 
 /** The capture listing the cache holds now. */
 export function listing(captures: Captures): CaptureListing {
-	const data = captures.queryClient.getQueryData<CaptureListing>([
-		'captures',
-		'rows',
-	]);
+	const data = captures.queryClient.getQueryData<CaptureListing>(
+		captures.folder$.captures.list.queryKey(),
+	);
 	if (data === undefined) throw new Error('The capture listing is not loaded');
 	return data;
 }
@@ -80,7 +81,7 @@ export function cachedText(captures: Captures, path: string): string {
 	const file = captures.queryClient.getQueryData<{
 		kind: string;
 		file?: { text: string };
-	}>(['captures', 'text', path]);
+	}>(captures.folder$.files.read.queryKey(path));
 	if (file?.kind !== 'text' || file.file === undefined)
 		throw new Error(`No text for ${path} in the cache`);
 	return file.file.text;

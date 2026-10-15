@@ -3,9 +3,9 @@
  * history and no remote. It opens through the browser entry only, which
  * refuses inside the desktop app instead of opening storage there.
  *
- * Another tab of this app writes the same folder. The page reads the
- * folder again when the person returns to it; every save is guarded, so a
- * change another tab made is a conflict, never overwritten.
+ * Another tab of this app writes the same folder. The folder reports the
+ * paths each tab writes to the others on its change channel, and every save
+ * merges with what another tab changed since the edit started.
  */
 import { captureDefinition } from '@epicenter/capture';
 import { openFolder } from '@epicenter/folder/browser';

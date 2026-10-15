@@ -69,12 +69,7 @@ import { rowPath, rowStemOf } from './paths.js';
 import type { Row } from './row-text.js';
 import type { FileTable, SavedRow, StoredRow, TableListing } from './table.js';
 
-export {
-	createDraft,
-	createSaveBases,
-	type Draft,
-	type SaveBases,
-} from './draft.js';
+export { createDraft, type Draft } from './draft.js';
 
 /** `kv.json`, whose reading the `kv` query holds. */
 const KV_PATH = 'kv.json';

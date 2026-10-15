@@ -55,8 +55,11 @@ export const entriesOf = (folder: VocabFolder) => ({
  * `put` and `drop` change a file the way another program would, with no
  * change hint.
  */
-export function createBrowser() {
-	const tree = createTestStorage();
+export function createBrowser(
+	/** The channel the folder handles relay their changes on, as tabs of one origin do. */
+	options: { BroadcastChannel?: typeof BroadcastChannel } = {},
+) {
+	const tree = createTestStorage(options);
 	const storage = browserStorage(tree);
 	const opened: VocabFolder[] = [];
 	const opfs = opfsOf(tree);

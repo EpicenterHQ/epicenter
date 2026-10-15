@@ -136,6 +136,7 @@ folder ID.
 | `@epicenter/folder/tauri` | The desktop shell's folder only: this package's own engine over a directory the shell grants ([below](#a-directory-the-desktop-shell-grants)). Refuses outside the shell. | A desktop-only build. |
 | `@epicenter/folder/bun` | An existing directory, in Bun. | Command-line tools, recovery scripts, and tests that are given a directory. |
 | `@epicenter/folder/query` | Nothing: TanStack Query option factories and the draft helper over a folder already open ([Queries](#queries)). | A page that reads a folder through TanStack Query. |
+| `@epicenter/folder/svelte` | Nothing: `createDraftState`, the draft a Svelte component reads reactively, with its save loop ([Editing a row](#editing-a-row)). Loads `svelte/reactivity`, an optional peer. | A Svelte editor of one row. |
 
 The first three export the same `openFolder` and `openDataFolder` signatures
 and the same contract, so one application source builds against any of them.
@@ -836,10 +837,27 @@ const sent = draft.toSave();           // { base, row, revision } for the save m
 draft.saved(sent, saved);              // done, or later changes continue from it
 ```
 
-An application whose cache holds edited rows in place (each entry the
-confirmed version's capture with the edited row) records each version's row
-with `createSaveBases()` instead: `editing` before the first change at a
-version, `baseOf` for the save, `saved` after it lands.
+A Svelte component holds one with `createDraftState({ save })` from
+`@epicenter/folder/svelte`: the same draft, read reactively, and a `save()`
+that runs one save at a time and sends changes made meanwhile from the
+version the last save wrote. A failed save keeps the draft; the error is the
+save mutation's.
+
+```svelte
+<script lang="ts">
+  const save = createMutation(() => folder$.todos.save.mutationOptions());
+  const draft = createDraftState<Todo>({ save: (sent) => save.mutateAsync(sent) });
+  const todo = createQuery(() => folder$.todos.get.queryOptions(stem));
+  const row = $derived(draft.row ?? todo.data?.row);
+
+  function setTitle(title: string) {
+    if (!todo.data) return;
+    draft.change(todo.data, (row) => { row.fields.title = title; });
+    void draft.save();
+  }
+</script>
+{#if todo.data && draft.changedElsewhere(todo.data)}Changed elsewhere; your edit will be merged.{/if}
+```
 
 A row that is not valid is repaired as text: `files.replace(invalidRow, text)`
 saves over the `InvalidRow` the read returned, guarded by its bytes.
@@ -1309,9 +1327,9 @@ dangle.
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-git.ts`, and the directory folder only then. |
 | `src/folder.ts`, `table.ts`, `kv.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds `save` and its merge. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
-| `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions`, `createDraft`, and `createSaveBases`. |
+| `src/query.ts`, `draft.ts` | `@epicenter/folder/query`: `folderOptions` and `createDraft`. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
-| `src/svelte/` | Svelte boundary tests and the sync review's mounted tests. |
+| `src/svelte/` | `@epicenter/folder/svelte` (`draft.svelte.ts`), its tests, and the Svelte boundary tests. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
 | `git/native-*.ts` | The `git` program a directory folder records history with. |

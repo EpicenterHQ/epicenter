@@ -47,7 +47,7 @@
 		onOpenSource,
 		onRefuse,
 	}: {
-		/** The note in the cache, which holds the body. */
+		/** The note as shown: its draft while an edit is held, else the cache's. */
 		note: NoteBody;
 		focusRequest: number;
 		onOpenSource: () => void;
@@ -65,8 +65,8 @@
 	let element = $state<HTMLDivElement>();
 
 	/**
-	 * The body the cache holds now. A change elsewhere in the note, such as its
-	 * title, or a write landing, gives the same string, so nothing below runs
+	 * The body shown now. A change elsewhere in the note, such as its title,
+	 * or a save landing, gives the same string, so nothing below runs
 	 * again.
 	 */
 	const body = $derived(note.row?.body);
@@ -170,7 +170,7 @@
 		/** Cleared with this view: a transaction it is handed afterwards changes nothing. */
 		let alive = true;
 		// Untracked: the view asks `editable` while it is built, and `locked`
-		// changes with every write, which must not recreate the view.
+		// changes with every rename or delete, which must not recreate the view.
 		const mountOn = element;
 		const created = untrack(() => new EditorView(mountOn, {
 			state: EditorState.create({
@@ -184,7 +184,7 @@
 				// dispatch after it was destroyed. Its document is not the note's.
 				if (!alive || this.isDestroyed) return;
 				// A refused or stale transaction changes nothing on screen; a
-				// taken one is already in the cache, and its write is queued.
+				// taken one is already in the note's draft, and its save started.
 				const next = stateAfter(this.state, transaction, note, onRefuse);
 				if (next !== undefined) show(this, next);
 			},
@@ -198,11 +198,12 @@
 		};
 	});
 
-	// Follow the body in the cache. A body this view wrote, a write landing, or
-	// the same content respelled keeps the state; different content (Source, a
-	// version, the file read again, a failed write rolled back) replaces it
-	// with a new history. No read lands while a write runs, so this never
-	// replaces typing in flight.
+	// Follow the body shown. A body this view wrote, a save landing, or the
+	// same content respelled keeps the state; different content (Source, a
+	// version, the file read again after a change elsewhere, a save that merged
+	// one in) replaces it with a new history. While an edit is held the body is
+	// the draft's, which a read never changes, so this never replaces typing in
+	// flight.
 	$effect(() => {
 		const current = rich;
 		const mounted = untrack(() => view);

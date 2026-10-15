@@ -2,9 +2,11 @@
  * Test helper: a real browser folder over the folder package's in-memory OPFS
  * stand-in, with the controls a test of the Capture store needs: hold a
  * Markdown save while it runs, count Markdown saves, fail the next write of
- * a path, and change files as another program would. The store gets its own
- * mounted query client, with the capture listing observed as the timeline
- * observes it, and records every write that failed.
+ * a path, change files as another program would, and report a change as the
+ * folder's change channel does. The store gets its own mounted query client,
+ * wired to that channel as the page wires it, with the capture listing
+ * observed as the timeline observes it, and records every write that failed
+ * and every save that replaced a change made elsewhere.
  *
  * Import a runes-module loader first (`svelte-modules.test-support.js` or
  * `svelte-dom.test-support.js`); this module loads `captures.svelte.ts`.
@@ -21,7 +23,11 @@ import type {
 	OpfsDirectoryHandle,
 	OpfsFileHandle,
 } from '../../../../packages/folder/src/opfs-store.js';
-import type { Captures, WriteFailure } from './captures.svelte.js';
+import type {
+	Captures,
+	ReplacedChange,
+	WriteFailure,
+} from './captures.svelte.js';
 import { createQueryClient, observe, quiet } from './query.test-support.js';
 
 /**
@@ -103,10 +109,20 @@ export async function openCaptures(files: Record<string, string> = {}) {
 	// Loaded on use, after the test file registered its runes-module loader.
 	const { createCaptures } = await import('./captures.svelte.ts');
 	const failures: WriteFailure[] = [];
+	const replaced: ReplacedChange[] = [];
+	const queryClient = createQueryClient();
 	const captures: Captures = createCaptures(
 		{ folder, location: folder.location },
-		createQueryClient(),
-		{ onWriteFailed: (failure) => failures.push(failure) },
+		queryClient,
+		{
+			onWriteFailed: (failure) => failures.push(failure),
+			onReplaced: (change) => replaced.push(change),
+		},
+	);
+	// As the page wires it. One page per folder here, so it reports nothing;
+	// `reportChange` stands in for another page's report.
+	const stopChanges = folder.onFilesChanged((change) =>
+		queryClient.invalidateQueries(captures.folder$.pathFilter(change)),
 	);
 	const stopObserving = observe(captures);
 	await quiet(captures);
@@ -116,6 +132,7 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		captures,
 		counter,
 		failures,
+		replaced,
 		/** The file's text now, or `undefined` when it is gone. */
 		async text(path: string) {
 			const read = await folder.files.read(path);
@@ -124,6 +141,11 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		/** Another program writes the file. */
 		async writeElsewhere(path: string, text: string) {
 			expectOk(await folder.files.overwrite(path, text));
+		},
+		/** The folder's change channel reports `paths`, as for another page's writes. */
+		async reportChange(...paths: string[]) {
+			await queryClient.invalidateQueries(captures.folder$.pathFilter(paths));
+			await quiet(captures);
 		},
 		/** Another program deletes the file as it is now. */
 		async deleteElsewhere(path: string) {
@@ -146,6 +168,7 @@ export async function openCaptures(files: Record<string, string> = {}) {
 			};
 		},
 		async close() {
+			stopChanges();
 			stopObserving();
 			await captures.close();
 			await folder.close();

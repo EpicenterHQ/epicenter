@@ -11,8 +11,8 @@
  * Key behaviors:
  * - The note is editable at once, and each keystroke is written
  * - A stage press is written
- * - A write that fails rolls the note back to the file and reports the
- *   text that was lost
+ * - A save that fails keeps the note on screen and is reported, and saving
+ *   again writes it
  * - Delete asks first; Cancel changes nothing, and confirming deletes it
  *
  * The confirmation is the shared dialog's state, answered as its buttons
@@ -24,7 +24,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { readEntry, readRows } from '../../lib/data.js';
 import type { EntryListing } from '../../lib/entries.svelte.js';
 import { createBrowser, fileText } from '../../lib/folder.test-support.js';
-import { vocabKeys, type WriteFailure } from '../../lib/query.js';
+import type { WriteFailure } from '../../lib/query.js';
 import {
 	cached,
 	createQueryClient,
@@ -67,7 +67,7 @@ async function setup(text: string) {
 	// The words list passes each card its word as the cache now holds it.
 	const unsubscribe = vocab.queryClient.getQueryCache().subscribe(() => {
 		const listed = vocab.queryClient.getQueryData<EntryListing>(
-			vocabKeys.entries,
+			vocab.folder$.entries.list.queryKey(),
 		);
 		const entry =
 			listed &&
@@ -136,16 +136,25 @@ test('a stage press is written', async () => {
 	expect(pressed?.textContent?.trim()).toBe('Understand');
 });
 
-test('a write that fails rolls the note back to the file and reports the text that was lost', async () => {
+test('a save that fails keeps the note on screen and is reported, and saving again writes it', async () => {
 	await using context = await setup('lucid');
 	context.failWrite();
-	type(context.note(), 'lost');
+	type(context.note(), 'kept');
 	await quiet(context.vocab);
-	await until(() => context.note()?.value === '', 'the rollback');
-	expect(context.failures).toMatchObject([
-		{ path: context.path, lost: expect.stringContaining('note: lost') },
+	flushSync();
+	expect(context.note()?.value).toBe('kept');
+	expect(context.failures.map((failure) => failure.path)).toEqual([
+		context.path,
 	]);
-	expect(await context.file()).not.toContain('lost');
+	expect(await context.file()).not.toContain('kept');
+
+	context.failures[0]?.retry?.();
+	await quiet(context.vocab);
+	await until(
+		() => context.note()?.value === 'kept',
+		'the saved note in the list',
+	);
+	expect(await context.file()).toContain('note: kept');
 });
 
 test('Delete asks first; Cancel changes nothing, and confirming deletes the word', async () => {

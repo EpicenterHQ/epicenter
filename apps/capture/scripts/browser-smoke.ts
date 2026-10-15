@@ -238,9 +238,9 @@ try {
 	await openFromTimeline(first, 'Dinner with Sebastian');
 	assert.equal(await source(first), edited);
 
-	// 6. Another page edits the file. The first page has not read it since, so
-	// its next write meets the change and merges with it: both changed the
-	// text, so the first page's text wins there (ADR-0548).
+	// 6. Another page edits the file. Its save is reported to the first page,
+	// and the first page's next save merges with whatever it has not read
+	// yet: where both changed the text, the first page's text wins (ADR-0548).
 	const second = await context.newPage();
 	second.on('pageerror', (error) => errors.push(`second: ${error.message}`));
 	await second.goto(app);

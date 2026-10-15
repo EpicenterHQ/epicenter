@@ -1,11 +1,12 @@
 <!--
 	One todo: one entry of the listing, read through `todos.rows.entry`, so it
-	never disagrees with the list. Each edit goes into that cache, and this
-	view's own write mutation saves it: one write at a time for this file,
-	each saving whatever the cache holds when it runs. A file that does not
-	read as a todo shows its text and what to fix, read-only: another editor
-	fixes it, and Todos reads it again when the person returns. Delete carries
-	the version this view shows when the person asks. Todos does not rename
+	never disagrees with the list. An edit is this view's draft: it starts
+	from the row shown at the first change, and a read that lands meanwhile
+	updates the list, never the draft. Saves run one at a time, and a file
+	changed elsewhere is merged with the edit. A file that does not read as a
+	todo shows its text and what to fix, read-only: another editor fixes it,
+	and the folder's change report shows the result. Delete carries the
+	version this view shows when the person asks. Todos does not rename
 	files; the file system, Git, or another program does.
 -->
 <script lang="ts">
@@ -20,8 +21,9 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { type Row, wellFormed } from '@epicenter/folder';
+	import { type Replaced, type Row, wellFormed } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
+	import { createDraftState } from '@epicenter/folder/svelte';
 	import { createMutation, createQuery, useIsMutating } from '@tanstack/svelte-query';
 	import type { TodoFields } from '$lib/definition.js';
 	import { describeError } from '$lib/describe-error.js';
@@ -45,8 +47,17 @@
 	} = $props();
 
 	const path = $derived(todoPath(stem));
-	const todo = createQuery(() => todos.rows.entry(stem).options);
-	const write = createMutation(() => todos.rows.write(stem).options);
+	const todo = createQuery(() => todos.rows.entry(stem));
+	const save = createMutation(() => todos.rows.save);
+	const draft = createDraftState<TodoFields>({
+		save: (sent) => save.mutateAsync(sent),
+		onSaved: ({ replaced }) => {
+			if (replaced.length > 0)
+				toast.info('Saved over a change made elsewhere', { description: `Your edit replaced theirs in ${describeReplaced(replaced)}.` });
+		},
+	});
+	/** The row as the cache holds it, when the file reads as a todo. */
+	const stored = $derived(todo.data?.result.error === null ? todo.data.result.data : undefined);
 	/**
 	 * Edits and delete wait while this file is deleted. While Epicenter asks
 	 * to leave, the page is inert and the store refuses them; this does not
@@ -56,9 +67,17 @@
 	const deleting = useIsMutating({ mutationKey: todosKeys.remove(todoPath(stem)) });
 	const locked = $derived(deleting.current > 0);
 
-	/** Change the row in the cache, and queue a write when one is needed. */
-	function set(change: (row: Row<TodoFields>) => Row<TodoFields>) {
-		if (todos.rows.edit(stem, change)) write.mutate();
+	/** Change the draft, starting it from the row shown, and save. */
+	function set(edit: (row: Row<TodoFields>) => void) {
+		if (stored === undefined || locked) return;
+		draft.change(stored, edit);
+		void draft.save();
+	}
+
+	/** The parts of the todo where a save replaced another writer's change. */
+	function describeReplaced(replaced: readonly Replaced[]) {
+		const parts = new Set(replaced.map((part) => (part.kind === 'body' ? 'the notes' : `the ${part.field}`)));
+		return [...parts].join(' and ');
 	}
 
 	/** Textareas report LF, so views show LF; the setters restore the file's convention. */
@@ -76,10 +95,11 @@
 
 	/**
 	 * Ask before deleting this file, named by its title when it has one. The
-	 * dialog opens once the file's queued writes have landed, on the version
-	 * they left, and the delete runs only on that version.
+	 * dialog opens once this view's draft and every running save have landed,
+	 * on the version they left, and the delete runs only on that version.
 	 */
 	async function confirmDelete(title: string | undefined) {
+		await draft.save();
 		const version = await todos.rows.shown(stem);
 		const lost = await history();
 		if (version === undefined) return;
@@ -112,14 +132,14 @@
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
-	{#if todo.data?.result.error === null}
-		{@const row = todo.data.result.data.row}
+	{#if stored}
+		{@const row = draft.row ?? stored.row}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<Checkbox
 				aria-label="Done"
 				disabled={locked}
-				bind:checked={() => row.fields.done, (done) => set((r) => ({ ...r, fields: { ...r.fields, done } }))}
+				bind:checked={() => row.fields.done, (done) => set((r) => { r.fields.done = done; })}
 			/>
 			<Input
 				class="flex-1 text-base font-medium"
@@ -128,13 +148,23 @@
 				disabled={locked}
 				bind:value={
 					() => row.fields.title,
-					(title) => set((r) => ({ ...r, fields: { ...r.fields, title: wellFormed(title) } }))
+					(title) => set((r) => { r.fields.title = wellFormed(title); })
 				}
 			/>
 		</div>
 
 		<p class="shrink-0 border-b px-4 py-1 text-xs text-muted-foreground" role="status" data-testid="write-status">
-			{write.isPending ? 'Saving…' : `Saved to ${path}`}
+			{#if draft.saving}
+				Saving…
+			{:else if draft.row && save.error}
+				Not saved: {describeError(save.error)}
+				<Button variant="link" size="xs" class="h-auto p-0" onclick={() => void draft.save()}>Try again</Button>
+			{:else}
+				Saved to {path}
+			{/if}
+			{#if draft.changedElsewhere(stored)}
+				Changed elsewhere; your edit will be merged.
+			{/if}
 		</p>
 
 		<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">
@@ -145,7 +175,7 @@
 				disabled={locked}
 				bind:value={
 					() => lf(row.body),
-					(notes) => set((r) => ({ ...r, body: withFileNewlines(wellFormed(notes), r.body) }))
+					(notes) => set((r) => { r.body = withFileNewlines(wellFormed(notes), r.body); })
 				}
 			/>
 		</div>
@@ -160,7 +190,7 @@
 		<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
-				This file does not read as a todo. Fix it in a text editor; Todos reads it again when you return.
+				This file does not read as a todo. Fix it in a text editor; Todos shows the fixed file.
 			</p>
 			<ul class="space-y-0.5 text-muted-foreground">
 				{#each error.issues as issue, index (index)}

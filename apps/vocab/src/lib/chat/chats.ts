@@ -5,7 +5,9 @@
  * The list is one query over the folder's `chats` table and the message
  * files an earlier version saved. Messages saved now are named by their
  * chat, so the list never reads them; the open conversation reads its own.
- * The list is read on open, on window focus, and after a chat starts.
+ * The list is keyed under the `chats` table's listing, so it is read on open
+ * and again when the folder reports a change to `chats/`. A chat this page
+ * starts is put in the list by the start itself.
  *
  * Starting a chat and saving each message are mutations. A message's save is
  * scoped to its chat's file, so one chat's messages are written in order,
@@ -24,7 +26,7 @@ import {
 	type UnreadableFile,
 	type VocabFolder,
 } from '../data.js';
-import { vocabKeys, type WriteFailure } from '../query.js';
+import { type VocabOptions, vocabKeys, type WriteFailure } from '../query.js';
 import {
 	byRecency,
 	ChatHistoryError,
@@ -49,6 +51,7 @@ export type ChatListing = {
 
 export function createChats(
 	{ tables, files }: Pick<VocabFolder, 'tables' | 'files'>,
+	folder$: Pick<VocabOptions, 'chats'>,
 	queryClient: QueryClient,
 	{
 		refused,
@@ -61,6 +64,8 @@ export function createChats(
 	},
 ) {
 	const { defineMutation } = createQueryFactories(queryClient);
+	/** Under the `chats` listing's key, so a change to `chats/` reaches it. */
+	const listKey = [...folder$.chats.list.queryKey(), 'summaries'];
 
 	async function readChats(): Promise<Result<ChatListing, FileError>> {
 		const [
@@ -84,7 +89,7 @@ export function createChats(
 		/** The chat list, narrowed by `select` for one view. */
 		chatsQuery<TData = ChatListing>(select?: (listing: ChatListing) => TData) {
 			return resultQueryOptions({
-				queryKey: vocabKeys.chats,
+				queryKey: listKey,
 				queryFn: readChats,
 				select,
 			});
@@ -100,13 +105,14 @@ export function createChats(
 				if (why !== undefined) return ChatHistoryError.NotSaved({ cause: why });
 				return startChat(tables.chats, focus);
 			},
-			onSuccess: async (chat) => {
-				// A read still running may not hold it.
-				await queryClient.cancelQueries({
-					queryKey: vocabKeys.chats,
-					exact: true,
-				});
-				queryClient.setQueryData<ChatListing>(vocabKeys.chats, (listing) =>
+			onSuccess: (chat) => {
+				// A read still running may not hold it: read once more instead.
+				if (queryClient.isFetching({ queryKey: listKey, exact: true }) > 0)
+					return queryClient.invalidateQueries({
+						queryKey: listKey,
+						exact: true,
+					});
+				queryClient.setQueryData<ChatListing>(listKey, (listing) =>
 					listing === undefined
 						? undefined
 						: {
@@ -118,8 +124,6 @@ export function createChats(
 							},
 				);
 			},
-			onSettled: () =>
-				queryClient.invalidateQueries({ queryKey: vocabKeys.chats }),
 		}),
 		/**
 		 * How the open chat saves each message: a mutation scoped to the chat's

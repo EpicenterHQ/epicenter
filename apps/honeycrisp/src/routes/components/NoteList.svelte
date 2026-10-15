@@ -14,15 +14,15 @@
 
 	let { notes }: { notes: Notes } = $props();
 
-	const noteRows = createQuery(() => notes.notesQuery());
-	const folderRows = createQuery(() => notes.foldersQuery());
+	const noteRows = createQuery(() => notes.folder$.notes.list.queryOptions());
+	const folderRows = createQuery(() => notes.folder$.folders.list.queryOptions());
 	const all = $derived(noteRows.data ? notesOf(noteRows.data) : []);
 	const folders = $derived(folderRows.data ? foldersOf(folderRows.data) : []);
 	const repairs = $derived(noteRows.data ? repairsOf(noteRows.data) : []);
 	const unreadable = $derived(unreadableOf(noteRows.data, folderRows.data));
 	const selectedPath = $derived(notes.selected?.path);
 
-	/** What a row shows. A note's edits are in the cache, so the list shows them as they are typed. */
+	/** What a row shows: the note as last saved, so an edit shows here once its save lands. */
 	function shown(note: NoteEntry) {
 		const row = note.row;
 		return {

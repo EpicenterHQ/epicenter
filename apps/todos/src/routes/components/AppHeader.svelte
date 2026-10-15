@@ -30,7 +30,7 @@
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
 	import { gitAccess } from '$lib/remote.js';
-	import { type TodosError, todosKeys } from '$lib/session.js';
+	import type { TodosError } from '$lib/session.js';
 	import type { ConnectTo } from '$lib/sync.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 
@@ -49,10 +49,11 @@
 		onconnect: () => void;
 	} = $props();
 
-	// Git status is a read like any other: on open, on focus, and after actions.
+	// Git status is a read like any other: on open, when the folder reports a
+	// change, and after the app's own saves and actions.
 	const status = createQuery(() => todos.git.status.options);
 	const saveVersion = createMutation(() => todos.git.saveVersion.options);
-	const writing = useIsMutating({ mutationKey: todosKeys.writes });
+	const writing = useIsMutating({ mutationKey: todos.rows.save.mutationKey });
 	const files = $derived(filesLine({ saving: writing.current > 0 }));
 	const versions = $derived(versionLine(todos.git.snapshot));
 	const lastVersion = $derived(lastVersionLine(todos.git.snapshot));
@@ -178,7 +179,7 @@
 						{#if directory !== undefined}
 							<span class="block font-mono text-xs break-all select-all" data-testid="status-folder">{directory}</span>
 							<span class="mt-0.5 block text-xs text-muted-foreground">
-								Each todo is a file in <code>todos/</code> here. Edits made by other programs show up when you return to this window.
+								Each todo is a file in <code>todos/</code> here. Edits made by other programs show up here as they happen.
 							</span>
 							<Button class="mt-1.5" variant="outline" size="sm" onclick={() => void copyPath(directory)}>Copy path</Button>
 						{:else}

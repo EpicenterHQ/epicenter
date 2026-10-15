@@ -14,7 +14,6 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
 	import { openVocabInference } from '$lib/inference.js';
-	import { vocabKeys } from '$lib/query.js';
 	import type { Vocab } from '$lib/vocab.svelte.js';
 	import AccountMenu from './AccountMenu.svelte';
 	import ConversationView from './ConversationView.svelte';
@@ -24,7 +23,7 @@
 	let { vocab }: { vocab: Vocab } = $props();
 	/* svelte-ignore state_referenced_locally */
 	const { folder, entries, chats } = vocab;
-	// Observed here, so returning to the window reads both lists again.
+	// Observed here, so a change the folder reports reads both lists again.
 	const words = createQuery(() => entries.entriesQuery());
 	const chatList = createQuery(() => chats.chatsQuery());
 
@@ -100,7 +99,7 @@
 
 	/** Read both lists again, after a read that failed. */
 	function readAgain() {
-		void vocab.queryClient.invalidateQueries({ queryKey: vocabKeys.all });
+		void vocab.queryClient.invalidateQueries({ queryKey: vocab.folder$.key });
 	}
 </script>
 

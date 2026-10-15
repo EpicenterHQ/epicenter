@@ -1,9 +1,11 @@
 <!--
 	One open note. The view reads the note listing narrowed to this note, so it
 	never disagrees with the list. Its title, folder, pin, rich text, and Source
-	are edits to that cache, and each writes at once. The rich-text view stays
-	mounted while the note is open, a rename included, so its undo history
-	survives writes; it starts over only when the note's text changes under it.
+	are edits of the note's draft, which the lists share, and each saves at
+	once; while an edit is held, the view shows the draft. The rich-text view
+	stays mounted while the note is open, a rename included, so its undo
+	history survives saves; it starts over only when the note's text changes
+	under it.
 -->
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
@@ -22,7 +24,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { folderLabel, type NoteFields, noteIdOf } from '$lib/data.js';
 	import { withBody } from '$lib/note-source.js';
-	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
+	import { foldersOf, type NoteListing, type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete } from './file-actions.js';
 	import NoteHistory from './NoteHistory.svelte';
 	import RichEditor from './RichEditor.svelte';
@@ -37,11 +39,15 @@
 	} = $props();
 
 	const stem = $derived(noteIdOf(path));
-	const note = createQuery(() =>
-		notes.notesQuery((listing) => listing.find((entry) => entry.stem === stem)),
-	);
-	const folders = createQuery(() => notes.foldersQuery(foldersOf));
-	/** The note as the rich-text view reads and edits it. */
+	const note = createQuery(() => ({
+		...notes.folder$.notes.list.queryOptions(),
+		select: (listing: NoteListing) => listing.find((entry) => entry.stem === stem),
+	}));
+	const folders = createQuery(() => ({
+		...notes.folder$.folders.list.queryOptions(),
+		select: foldersOf,
+	}));
+	/** The note as the views read and edit it: its draft while one is held. */
 	const body = $derived(notes.noteBody(path));
 	/** Edits wait once the notes are closing, and while this file is renamed or deleted. */
 	const locked = $derived(notes.isLocked(path));
@@ -50,7 +56,7 @@
 	let tab = $state<'rich' | 'source'>('rich');
 	let historyOpen = $state(false);
 
-	/** Change the note in the cache, which writes it; say so when it was refused. */
+	/** Change the note, which saves it; say so when it was refused. */
 	function set(change: (row: Row<NoteFields>) => Row<NoteFields>) {
 		const problem = notes.editNote(path, change);
 		if (problem) toast.warning('That change was not made', { description: problem });
@@ -74,7 +80,7 @@
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
 	{#if note.data?.result.error === null}
-		{@const row = note.data.result.data.row}
+		{@const row = body.row ?? note.data.result.data.row}
 		{@const folderId = row.fields.folderId}
 		{@const pinned = row.fields.pinned}
 		{@const deleted = typeof row.fields.deletedAt === 'string'}
@@ -161,9 +167,14 @@
 
 		<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 			<span role="status" data-testid="write-status">
-				{notes.isWriting(path) ? 'Saving…' : 'Saved to'}
+				{notes.isWriting(path) ? 'Saving…' : notes.isUnsaved(path) ? 'Not saved to' : 'Saved to'}
 				<code class="font-mono">{path}</code>
 			</span>
+			{#if notes.isUnsaved(path)}
+				<Button size="sm" variant="outline" disabled={locked} onclick={() => notes.saveAgain(path)}>
+					Save again
+				</Button>
+			{/if}
 			<Button
 				size="sm"
 				variant="ghost"
@@ -210,14 +221,13 @@
 			{:else}
 				<Empty.Title>Could not read this note</Empty.Title>
 				<Empty.Description>{error.message}</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => void notes.refresh()}>Try again</Button>
+				<Button variant="outline" size="sm" onclick={() => void note.refetch()}>Try again</Button>
 			{/if}
 		</Empty.Root>
 	{:else if note.isSuccess}
 		<Empty.Root class="flex-1">
 			<Empty.Title>This note is no longer in the folder</Empty.Title>
 			<Empty.Description>It was renamed or deleted, here or by another program.</Empty.Description>
-			<Button variant="outline" size="sm" onclick={() => void notes.refresh()}>Check again</Button>
 		</Empty.Root>
 	{:else if note.isError}
 		<Empty.Root class="flex-1">

@@ -30,9 +30,10 @@
  * Commit failures are real: a lock file is created on the branch ref, where an
  * interrupted Git process leaves one, so Git refuses to move the branch and
  * the commit fails while file saves keep working. The branch is the one
- * `HEAD` names when the lock is taken, so the lock can only be taken once the
- * page has opened the folder, which initializes Git. A lock asked for at launch waits
- * for the page to say the folder is open.
+ * `HEAD` names when the lock is taken. A folder with no repository yet has
+ * no `HEAD`; its first commit creates the folder's own branch, `main`, so
+ * that branch's lock is taken, and the first commit fails on it as any later
+ * one does. A lock asked for at launch is taken when the host starts.
  *
  * That lock path belongs to Git. The injected lock is created exclusively, so
  * it never replaces a lock another process holds, and it carries a marker
@@ -54,6 +55,12 @@ import {
 import { dirname, join } from 'node:path';
 import { pathProblem, rowPath } from '@epicenter/folder';
 import { RECORDINGS } from '../src/lib/definition.js';
+
+/**
+ * The branch a folder's first commit creates: the folder's own, which the
+ * shell grants every page with the folder.
+ */
+const FOLDER_BRANCH = 'main';
 
 type InjectionState = {
 	/** How many upcoming recording row writes fail. The audio written before each stays. */
@@ -78,32 +85,36 @@ export function createFailureInjection({
 	launch = {},
 }: {
 	root: string;
-	/** What the launch environment armed. The branch lock waits for `armLaunch`. */
-	launch?: Partial<InjectionState>;
+	/** The counters the launch environment armed. */
+	launch?: Partial<Pick<InjectionState, 'rowWrites' | 'audioWrites'>>;
 }) {
 	const state: InjectionState = {
 		rowWrites: count(launch.rowWrites) ?? 0,
 		audioWrites: count(launch.audioWrites) ?? 0,
 		commitsBlocked: false,
 	};
-	let lockAtLaunch = launch.commitsBlocked === true;
-	/** The lock this host created, at the path it was created at. */
-	let heldLock: string | undefined;
+	/**
+	 * The lock this host created, at the path it was created at, and the
+	 * outermost directory it made for it, if it made any.
+	 */
+	let heldLock: { path: string; made: string | undefined } | undefined;
 	/** Obstacles in place now, by the name the page was given. */
 	const obstacles = new Map<string, () => Promise<void>>();
 
 	/** What this host writes into a lock it creates. Git never writes this. */
 	const marker = `${LOCK_MARKER_PREFIX} ${randomUUID()}\n`;
 
-	/** The lock path of the branch `HEAD` names. Refuses a folder with no Git yet. */
+	/**
+	 * The lock path of the branch `HEAD` names, or of the folder's own branch
+	 * when there is no repository yet to name one.
+	 */
 	async function branchLock(): Promise<string> {
 		let head: string;
 		try {
 			head = await readFile(join(root, '.git', 'HEAD'), 'utf8');
-		} catch {
-			throw new Error(
-				"The folder has no Git history yet, so there is no branch to lock. Lock it once the folder's first commit has created it.",
-			);
+		} catch (cause) {
+			if (codeOf(cause) !== 'ENOENT') throw cause;
+			head = `ref: refs/heads/${FOLDER_BRANCH}`;
 		}
 		const branch = /^ref: refs\/heads\/(.+)$/.exec(head.trim())?.[1];
 		// The name is joined onto a path, so it is held to the folder's path rule.
@@ -116,10 +127,11 @@ export function createFailureInjection({
 
 	/** Create the lock, or refuse because one is already there. */
 	async function lockBranch(lock: string) {
-		await mkdir(dirname(lock), { recursive: true });
+		const made = await mkdir(dirname(lock), { recursive: true });
 		try {
 			await writeFile(lock, marker, { flag: 'wx' });
 		} catch (cause) {
+			await removeMade(lock, made);
 			if (codeOf(cause) !== 'EEXIST') throw cause;
 			const found = await readFile(lock, 'utf8').catch(() => '');
 			throw new Error(
@@ -128,23 +140,47 @@ export function createFailureInjection({
 					: `${lock} is held by another Git process. It was not replaced.`,
 			);
 		}
-		heldLock = lock;
+		heldLock = { path: lock, made };
+	}
+
+	/**
+	 * Remove the directories made for `lock`, deepest first, up to `made`,
+	 * while each is still empty. Once a repository exists they are Git's,
+	 * and are left.
+	 */
+	async function removeMade(lock: string, made: string | undefined) {
+		if (made === undefined) return;
+		const repository = await lstat(join(root, '.git', 'HEAD')).then(
+			() => true,
+			() => false,
+		);
+		if (repository) return;
+		for (let directory = dirname(lock); ; directory = dirname(directory)) {
+			const removed = await rmdir(directory).then(
+				() => true,
+				() => false,
+			);
+			if (!removed || directory === made) return;
+		}
 	}
 
 	/** Remove the lock only when it is the one this host created. */
 	async function unlockBranch(): Promise<void> {
-		const lock = heldLock;
-		if (lock === undefined) return;
+		const held = heldLock;
+		if (held === undefined) return;
 		let found: string;
 		try {
-			found = await readFile(lock, 'utf8');
+			found = await readFile(held.path, 'utf8');
 		} catch (cause) {
 			if (codeOf(cause) !== 'ENOENT') throw cause;
 			heldLock = undefined;
 			return;
 		}
 		// Someone removed ours and took the lock: it is theirs now.
-		if (found === marker) await unlink(lock);
+		if (found === marker) {
+			await unlink(held.path);
+			await removeMade(held.path, held.made);
+		}
 		heldLock = undefined;
 	}
 
@@ -285,21 +321,6 @@ export function createFailureInjection({
 			return { ...state };
 		},
 		arm,
-		/**
-		 * Take the branch lock the launch environment asked for. The page calls
-		 * this once it has opened the folder; Git exists from the folder's
-		 * first commit. A folder with no Git yet keeps the request for the
-		 * next call; a lock someone else holds is theirs, and the request is
-		 * dropped.
-		 */
-		async armLaunch(): Promise<InjectionState> {
-			if (!lockAtLaunch) return { ...state };
-			const lock = await branchLock();
-			lockAtLaunch = false;
-			await lockBranch(lock);
-			state.commitsBlocked = true;
-			return { ...state };
-		},
 		obstruct,
 		clear,
 		/** Remove what this host put in the folder when it stops. Nothing else is touched. */

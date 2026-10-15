@@ -13,7 +13,7 @@
  *   another Epicenter holds, a missing plugin, a call that never reaches the
  *   shell) fails the open with its reason
  * - The page names the Capture scope and is told the directory
- * - A write saves the row and keeps undeclared metadata
+ * - A save writes the row and keeps undeclared metadata
  * - An edit made elsewhere merges with this one: both survive
  * - Closing waits for a save already sent and the latest edit after it
  * - Save version commits and rewrites no file
@@ -80,7 +80,7 @@ mock.module('@tauri-apps/api/core', () => ({
 
 const { openCaptureHost } = await import('./folder.epicenter-host.js');
 const { createCaptures } = await import('../captures.svelte.ts');
-const { cached, createQueryClient, observe, quiet } = await import(
+const { createQueryClient, observe, quiet } = await import(
 	'../query.test-support.js'
 );
 type WriteFailure = import('../captures.svelte.js').WriteFailure;

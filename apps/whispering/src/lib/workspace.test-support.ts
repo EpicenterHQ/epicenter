@@ -15,7 +15,12 @@ import { mkdirSync, rmdirSync } from 'node:fs';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FileError, type FileTable, openFolder } from '@epicenter/folder/bun';
+import {
+	FileError,
+	type FileTable,
+	type FolderFiles,
+	openFolder,
+} from '@epicenter/folder/bun';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { createFixtureDevice, toneWav } from './capture.js';
@@ -224,31 +229,53 @@ export type TestWorkspaceOptions = {
 /** Result row writes still to fail: rows written when a run starts, and answers written into them. */
 export type ResultFailures = { starts: number; answers: number };
 
+const refusedResult = (path: string, operation: 'create' | 'write') =>
+	FileError.Io({
+		path,
+		operation,
+		cause: new Error('disk refused the result'),
+	});
+
 /**
- * A result table whose next creates, or next replaces, fail before writing,
- * as many times as `failures` says. A test may arm more after opening.
+ * A result table whose next creates fail before writing, as many times as
+ * `failures.starts` says. A test may arm more after opening.
  */
 export function withResultFailures<TFields>(
 	table: FileTable<TFields>,
 	failures: ResultFailures,
 ): FileTable<TFields> {
-	const refused = (path: string, operation: 'create' | 'write') =>
-		FileError.Io({
-			path,
-			operation,
-			cause: new Error('disk refused the result'),
-		});
 	return {
 		...table,
 		async create(row, options) {
 			if (failures.starts === 0) return table.create(row, options);
 			failures.starts -= 1;
-			return refused(`${table.name}/${options?.stem}.md`, 'create');
+			return refusedResult(`${table.name}/${options?.stem}.md`, 'create');
 		},
-		async save(file, row) {
-			if (failures.answers === 0) return table.save(file, row);
+	};
+}
+
+/** The directories of the tables an answer is written into. */
+const RESULT_TABLES = ['transcriptions', 'transformation_runs', 'text_runs'];
+
+/**
+ * Files whose next writes of an answer into a result row fail before
+ * writing, as many times as `failures.answers` says. An answer fills its
+ * row through `files.replace`.
+ */
+export function withAnswerFailures(
+	files: FolderFiles,
+	failures: ResultFailures,
+): FolderFiles {
+	return {
+		...files,
+		async replace(file, content) {
+			const answer = RESULT_TABLES.some((table) =>
+				file.path.startsWith(`${table}/`),
+			);
+			if (!answer || failures.answers === 0)
+				return files.replace(file, content);
 			failures.answers -= 1;
-			return refused(file.path, 'write');
+			return refusedResult(file.path, 'write');
 		},
 	};
 }
@@ -292,7 +319,11 @@ export async function openTestWorkspace({
 
 	const workspace: Workspace = {
 		kind: 'native',
-		folder: { ...folder, tables } as Workspace['folder'],
+		folder: {
+			...folder,
+			tables,
+			files: withAnswerFailures(folder.files, failures),
+		} as Workspace['folder'],
 		location: root,
 		terminal: {
 			get cwd() {

@@ -93,20 +93,34 @@ test('the injected lock is created and removed by the host that owns it', async 
 	expect(await exists(lock)).toBe(false);
 });
 
-test('the lock is taken on the branch HEAD names, and is refused before Git exists', async () => {
+test('before Git exists, the lock is on the branch the first commit creates, and released leaves nothing', async () => {
 	const root = await directory();
 	const injection = createFailureInjection({ root });
+	const lock = join(root, '.git', 'refs', 'heads', 'main.lock');
 
-	// The page has not opened the folder: there is no branch, and the host
-	// does not make a repository to have one.
-	await expect(injection.arm({ commitsBlocked: true })).rejects.toThrow(
-		'no Git history yet',
-	);
-	expect(injection.state.commitsBlocked).toBe(false);
+	// No repository is made to have a branch: only the lock's own path.
+	await injection.arm({ commitsBlocked: true });
+	expect(await readFile(lock, 'utf8')).toMatch(LOCK_MARKER_PREFIX);
+	expect(await exists(join(root, '.git', 'HEAD'))).toBe(false);
+	await injection.release();
 	expect(await readdir(root)).toEqual([]);
 
-	const folder = await openWithHistory(root);
+	// The first commit creates the repository and fails on the lock.
+	await injection.arm({ commitsBlocked: true });
+	const folder = await openTestFolder(root);
 	cleanups.push(() => folder.close());
+	expectOk(await folder.files.create('note.md', 'one\n'));
+	expect((await folder.git.commit()).status).not.toBe('committed');
+	expect(await readFile(join(root, 'note.md'), 'utf8')).toBe('one\n');
+
+	await injection.arm({ commitsBlocked: false });
+	expect(await exists(lock)).toBe(false);
+	expect((await folder.git.commit()).status).toBe('committed');
+});
+
+test('the lock is taken on the branch HEAD names', async () => {
+	const { root } = await open();
+	const injection = createFailureInjection({ root });
 	execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/drafts/one'], {
 		cwd: root,
 	});
@@ -152,52 +166,16 @@ test('a HEAD that names no branch inside the repository locks nothing', async ()
 	expect(await exists(join(root, '..', 'escaped.lock'))).toBe(false);
 });
 
-test('a lock asked for at launch waits for the folder to be opened, and is taken once', async () => {
-	const root = await directory();
-	const injection = createFailureInjection({
-		root,
-		launch: { rowWrites: 2, commitsBlocked: true },
-	});
-	// Launch arms the counters and touches nothing.
-	expect(injection.state).toEqual({
-		rowWrites: 2,
-		audioWrites: 0,
-		commitsBlocked: false,
-	});
-	expect(await readdir(root)).toEqual([]);
-	// Asked before the page opened the folder: refused, and still owed.
-	await expect(injection.armLaunch()).rejects.toThrow('no Git history yet');
-
-	const folder = await openWithHistory(root);
-	cleanups.push(() => folder.close());
-	const lock = join(root, '.git', 'refs', 'heads', 'main.lock');
-	expect((await injection.armLaunch()).commitsBlocked).toBe(true);
-	expect(await readFile(lock, 'utf8')).toMatch(LOCK_MARKER_PREFIX);
-
-	// A page that reloads asks again; a lock the person released stays released.
-	await injection.arm({ commitsBlocked: false });
-	expect((await injection.armLaunch()).commitsBlocked).toBe(false);
-	expect(await exists(lock)).toBe(false);
-});
-
 test('a lock another Git process holds is never replaced or removed', async () => {
 	const { root, lock } = await open();
 	// What `git update-ref` writes while it holds the branch: the new value.
 	const theirs = '4b825dc642cb6eb9a060e54bf8d69288fbee4904\n';
 	await writeFile(lock, theirs, { flag: 'wx' });
-	const injection = createFailureInjection({
-		root,
-		launch: { commitsBlocked: true },
-	});
+	const injection = createFailureInjection({ root });
 
 	await expect(injection.arm({ commitsBlocked: true })).rejects.toThrow(
 		'held by another Git process',
 	);
-	// Asking at launch does not take it from its holder either, and is not repeated.
-	await expect(injection.armLaunch()).rejects.toThrow(
-		'held by another Git process',
-	);
-	expect((await injection.armLaunch()).commitsBlocked).toBe(false);
 	expect(injection.state.commitsBlocked).toBe(false);
 	expect(await readFile(lock, 'utf8')).toBe(theirs);
 
@@ -272,9 +250,11 @@ test('starting and stopping a debug host leaves an existing branch lock in place
 
 	// Asking for the injected lock at launch does not take it from its holder.
 	const armed = await start({ WHISPERING_DEBUG_BLOCK_COMMITS: '1' });
-	const refused = await ask(armed, 'injection-launch');
-	expect(refused.status).toBe(500);
 	expect(logged.join('\n')).toContain('held by another Git process');
+	const state = (await (await ask(armed, 'injection')).json()) as {
+		ok: { commitsBlocked: boolean };
+	};
+	expect(state.ok.commitsBlocked).toBe(false);
 	await armed.close();
 	expect(await readFile(lock, 'utf8')).toBe(theirs);
 });

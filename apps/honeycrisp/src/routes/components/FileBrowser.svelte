@@ -25,7 +25,7 @@
 
 	let { notes }: { notes: Notes } = $props();
 
-	const listing = createQuery(() => notes.filesQuery());
+	const listing = createQuery(() => notes.folder$.files.list.queryOptions());
 	const rows = $derived(listing.data ? visibleRows(listing.data, notes.expanded) : []);
 
 	/** The inline name field: renaming a file, or creating one in a folder. */

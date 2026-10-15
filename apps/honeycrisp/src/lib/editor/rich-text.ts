@@ -2,26 +2,27 @@
  * The rich-text view's editing: its commands and plugins, and the two rules
  * that keep its ProseMirror state the note's body.
  *
- * The note's body lives in one place, the notes query cache (ADR-0528). The
- * view's `EditorState` adds only what the cache has no place for: the
+ * The note's body is the one `NoteBody.row` shows: the note's draft while an
+ * edit is held, otherwise the row the query cache holds (ADR-0548). The
+ * view's `EditorState` adds only what the note has no place for: the
  * cursor, pending formatting, undo history, and an empty paragraph Markdown
- * cannot spell yet. Its document is never a draft beside the cache. Nothing
- * records which body the state last read or wrote; the body is compared by
- * content:
+ * cannot spell yet. Its document is never a second draft. Nothing records
+ * which body the state last read or wrote; the body is compared by content:
  *
  * - `stateAfter` decides every transaction before it is shown. One that
- *   changes the document is checked against the body the cache holds now,
- *   then its Markdown goes into the cache in the same step, which writes it.
+ *   changes the document is checked against the body shown now, then its
+ *   Markdown goes into the note's draft in the same step, which saves it.
  *   If the Markdown would not open as the same document, or the note takes
  *   no edit, the screen does not change. There is never text on screen that
- *   the cache does not hold.
+ *   the note does not hold.
  * - `stateShowing` follows the body. The same content keeps the state, so a
- *   body this view wrote, a write landing, or a respelling in Source changes
+ *   body this view wrote, a save landing, or a respelling in Source changes
  *   nothing on screen. Different content (Source, a chosen version, the file
- *   read again after it changed elsewhere, or a failed write rolled back)
- *   starts a new state and a new undo history, because the old history
- *   describes text that is gone. A read never lands while a write runs, so
- *   typing in flight is never replaced.
+ *   read again after it changed elsewhere, or a save that merged a change
+ *   made elsewhere) starts a new state and a new undo history, because the
+ *   old history describes text that is gone. The draft holds the version
+ *   its edit started from and a read never changes it, so typing in flight
+ *   is never replaced.
  *
  * Neither needs a DOM. The view calls both; tests drive them the same way.
  */
@@ -174,13 +175,16 @@ export function stateShowing(state: EditorState, doc: Node): EditorState {
 	return EditorState.create({ doc, plugins: state.plugins });
 }
 
-/** What the rich-text view needs of one note in the cache. */
+/** What the rich-text view needs of one note. */
 export type NoteBody = {
-	/** The note as the cache holds it now; `undefined` once it is gone. */
+	/**
+	 * The note as shown now: its draft while an edit is held, else as the
+	 * cache holds it; `undefined` once it is gone.
+	 */
 	readonly row: Row<NoteFields> | undefined;
 	/** Whether the note takes no edit now. */
 	readonly locked: boolean;
-	/** Change the note in the cache, which writes it. Answers whether it was taken. */
+	/** Change the note's draft, which saves it. Answers whether it was taken. */
 	edit(change: (row: Row<NoteFields>) => Row<NoteFields>): boolean;
 };
 
@@ -190,12 +194,12 @@ export type NoteBody = {
  *
  * A transaction built on a document `state` no longer has is dropped: its
  * steps describe text that was replaced. One that changes the document is
- * refused while the note takes no edit. It then meets the body the cache
- * holds now: a body that changed since `state` showed it is shown instead
- * and the transaction is dropped, and a body that is no longer rich text
- * takes nothing. Markdown that cannot spell the new document is refused with
- * its reason through `refuse`. Otherwise the new body goes into the cache,
- * which writes it; an edit the cache refuses is not shown. A lone surrogate
+ * refused while the note takes no edit. It then meets the body shown now: a
+ * body that changed since `state` showed it is shown instead and the
+ * transaction is dropped, and a body that is no longer rich text takes
+ * nothing. Markdown that cannot spell the new document is refused with its
+ * reason through `refuse`. Otherwise the new body goes into the note's
+ * draft, which saves it; an edit the note refuses is not shown. A lone surrogate
  * a file cannot hold becomes U+FFFD within the same transaction, so the undo
  * history keeps it.
  */

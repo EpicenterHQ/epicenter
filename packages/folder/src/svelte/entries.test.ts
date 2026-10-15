@@ -1,7 +1,7 @@
 /**
  * Svelte Entry Boundary Tests
  *
- * Svelte is an optional peer: no package entry may reach it.
+ * Svelte is an optional peer: only `@epicenter/folder/svelte` may reach it.
  * These tests follow every runtime import from each package export through
  * the package's own modules, so a re-export or a stray helper import that
  * would make core or platform code load Svelte fails here.
@@ -34,7 +34,7 @@ async function reached(entry: string) {
 const entries = Object.entries(manifest.exports);
 
 test('no core or platform entry loads Svelte or the adapter', async () => {
-	const platformEntries = entries;
+	const platformEntries = entries.filter(([name]) => name !== './svelte');
 	expect(platformEntries.map(([name]) => name)).toEqual([
 		'.',
 		'./browser',
@@ -48,4 +48,13 @@ test('no core or platform entry loads Svelte or the adapter', async () => {
 		expect(outside.filter((path) => /^svelte(\/|$)/.test(path))).toEqual([]);
 		expect(files.filter((file) => file.includes('/src/svelte/'))).toEqual([]);
 	}
+});
+
+test('the Svelte entry loads only svelte/reactivity and the draft at runtime', async () => {
+	const { files, outside } = await reached(manifest.exports['./svelte']);
+	expect(files).toEqual([
+		join(packageRoot, 'src/svelte/draft.svelte.ts'),
+		join(packageRoot, 'src/draft.ts'),
+	]);
+	expect(outside).toEqual(['svelte/reactivity']);
 });

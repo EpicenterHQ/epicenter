@@ -19,7 +19,7 @@
 	/**
 	 * One transcript of the recording that is open, edited where it is read,
 	 * beside the player. Its text is the body of the transcript's own file,
-	 * edited in the transcriptions listing in the cache and written at once.
+	 * edited from the version it started at and saved at once.
 	 * A transcript whose answer has not reached its file says why instead, and
 	 * is not edited while its answer is on its way. Nothing here selects the
 	 * transcript's file, so the recording stays open.
@@ -28,8 +28,8 @@
 
 	/** Edited here unless the person opened its file as text in Files. */
 	const asText = $derived(library.showsText(result.path));
-	const row = $derived(asText ? undefined : library.rowAt(TRANSCRIPTIONS, result.path)?.row);
-	/** The text now, as the cache holds it. */
+	const row = $derived(asText ? undefined : library.rowAt(TRANSCRIPTIONS, result.path));
+	/** The text now: as typed while an edit is unsaved, else as the file holds it. */
 	const text = $derived(row?.body ?? result.row.body);
 	const locked = $derived(library.locked(result.path));
 	const progress = $derived(library.resultState(result.path, text));
@@ -62,10 +62,9 @@
 			bind:value={
 				() => lf(row?.body ?? ''),
 				(value) =>
-					library.editRow(TRANSCRIPTIONS, result.stem, (r) => ({
-						...r,
-						body: withFileNewlines(wellFormed(value), r.body),
-					}))
+					library.editRow(TRANSCRIPTIONS, result.stem, (r) => {
+						r.body = withFileNewlines(wellFormed(value), r.body);
+					})
 			}
 			disabled={locked}
 			placeholder="This transcript has no text."

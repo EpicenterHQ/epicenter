@@ -38,9 +38,14 @@ export type Draft<TFields> = {
 		| undefined;
 	/**
 	 * A save of `sent` landed as `saved`. With no change since, the draft is
-	 * done. Otherwise the later changes continue from the saved version.
+	 * done. Otherwise the later changes continue from the row `sent`: what
+	 * the saved version holds beyond it was merged in from another writer,
+	 * and is not this edit's to undo.
 	 */
-	saved(sent: { readonly revision: number }, saved: SavedRow<TFields>): void;
+	saved(
+		sent: SaveRowVariables<TFields> & { readonly revision: number },
+		saved: SavedRow<TFields>,
+	): void;
 	/** Drop the edit. */
 	discard(): void;
 };
@@ -83,9 +88,19 @@ export function createDraft<TFields>(): Draft<TFields> {
 				row = undefined;
 				return;
 			}
-			// Changes made while the save ran are still unsaved; they started
-			// from what it wrote.
-			base = result.stored;
+			// Changes made while the save ran are still unsaved, and their base
+			// row is the one sent. Unmerged, the file holds exactly that row, so
+			// the next save writes over the version written. Merged, the file
+			// also holds another writer's changes, which a save over the version
+			// written would undo, since `table.save` writes a current capture's
+			// row as given. So the base keeps naming the version the sent save
+			// started from: the next save finds the file moved and merges the
+			// draft with it over the row sent.
+			base = {
+				path: result.stored.path,
+				sha256: result.merged ? sent.base.sha256 : result.stored.sha256,
+				row: sent.row,
+			};
 		},
 		discard() {
 			base = undefined;
@@ -93,64 +108,3 @@ export function createDraft<TFields>(): Draft<TFields> {
 		},
 	};
 }
-
-/** A version of a row file, and the row an edit of it started from. */
-type Base<TFields> = FileCapture & { readonly row: Row<TFields> };
-
-/**
- * The base each save needs, for a cache that holds edited rows in place:
- * each entry keeps the confirmed version's capture with the edited row, so
- * the row that version held is gone by the time the save runs. Keyed by
- * whatever names a row in the cache (its stem, or its path).
- *
- * Record a row with `editing` just before the cache first changes it, save
- * with `baseOf`, and report each landed save with `saved`. A save whose
- * cached version has no record has no base (see `table.save`).
- */
-export function createSaveBases<TFields>() {
-	const bases = new Map<string, Base<TFields>>();
-	const same = (left: FileCapture, right: FileCapture) =>
-		left.path === right.path && left.sha256 === right.sha256;
-	return {
-		/**
-		 * The cache is about to change `stored`, its row as it holds it now.
-		 * The first change at a version records that version's row.
-		 */
-		editing(key: string, stored: Base<TFields>) {
-			const known = bases.get(key);
-			if (known !== undefined && same(known, stored)) return;
-			bases.set(key, {
-				path: stored.path,
-				sha256: stored.sha256,
-				row: structuredClone(stored.row),
-			});
-		},
-		/** What to save `stored`, the cache's edited row, over. */
-		baseOf(
-			key: string,
-			stored: FileCapture,
-		): FileCapture & { readonly row?: Row<TFields> } {
-			const known = bases.get(key);
-			if (known !== undefined && same(known, stored)) return known;
-			return { path: stored.path, sha256: stored.sha256 };
-		},
-		/**
-		 * A save of `sent` landed as `saved`. Edits made since continue from
-		 * `sent`, at the version written: what the file holds beyond it, merged
-		 * in from another writer, is theirs, not this cache's to undo.
-		 */
-		saved(key: string, sent: Row<TFields>, saved: SavedRow<TFields>) {
-			bases.set(key, {
-				path: saved.stored.path,
-				sha256: saved.stored.sha256,
-				row: structuredClone(sent),
-			});
-		},
-		/** Forget `key`, as when its row was read again or removed. */
-		forget(key: string) {
-			bases.delete(key);
-		},
-	};
-}
-
-export type SaveBases<TFields> = ReturnType<typeof createSaveBases<TFields>>;

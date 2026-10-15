@@ -34,12 +34,17 @@ import {
 	prepareGitSession,
 } from '../../../server/git-server.js';
 import { todosDefinition } from '../../lib/definition.js';
-import { quiet, rowEditor } from '../../lib/query.test-support.js';
+import {
+	editorsReady,
+	quiet,
+	rowEditor,
+} from '../../lib/query.test-support.js';
 import { click } from '../../lib/svelte-dom.test-support.js';
 import type { Todos } from '../../lib/todos.svelte.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { createTodos } = await import('../../lib/todos.svelte.ts');
+await editorsReady;
 const { default: TodosViewHost } = await import(
 	'./fixtures/TodosViewHost.svelte'
 );

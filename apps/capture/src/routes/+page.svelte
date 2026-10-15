@@ -6,7 +6,13 @@
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { openCaptureHost } from '#platform/folder';
-	import { createCaptures, describeError, type WriteFailure } from '$lib/captures.svelte.js';
+	import type { Replaced } from '@epicenter/folder';
+	import {
+		createCaptures,
+		describeError,
+		type ReplacedChange,
+		type WriteFailure,
+	} from '$lib/captures.svelte.js';
 	import CaptureApp from '$lib/components/CaptureApp.svelte';
 
 	// The mounted page acquires the folder; importing modules opens nothing.
@@ -15,32 +21,47 @@
 	// asks this page nothing (ADR-0542).
 	const queryClient = useQueryClient();
 
-	/** A write that failed was rolled back to the file; say so, and offer the text it held. */
-	function writeFailed({ path, error, lost }: WriteFailure) {
+	/** A write failed; say so, and offer the text that is not in the file. */
+	function writeFailed({ path, error, text }: WriteFailure) {
 		toast.error(`Could not save ${path}`, {
 			description: describeError(error),
 			duration: Number.POSITIVE_INFINITY,
 			action:
-				lost === ''
+				text === ''
 					? undefined
 					: {
 							label: 'Copy your text',
-							onClick: () => void navigator.clipboard.writeText(lost).catch(() => {}),
+							onClick: () => void navigator.clipboard.writeText(text).catch(() => {}),
 						},
+		});
+	}
+
+	/** What a save's edit replaced of a change made elsewhere, in words. */
+	const describeReplaced = (replaced: Replaced) =>
+		replaced.kind === 'field' ? replaced.field : 'the text';
+
+	function replacedChange({ path, replaced }: ReplacedChange) {
+		const what = [...new Set(replaced.map(describeReplaced))].join(', ');
+		toast.info(`Saved ${path}`, {
+			description: `Your edit replaced a change made elsewhere to ${what}.`,
 		});
 	}
 
 	const opening = (async () => {
 		const host = await openCaptureHost();
-		return {
-			host,
-			captures: createCaptures(host, queryClient, { onWriteFailed: writeFailed }),
-		};
+		const captures = createCaptures(host, queryClient, {
+			onWriteFailed: writeFailed,
+			onReplaced: replacedChange,
+		});
+		// Files changed outside this page mark what the views show as stale.
+		const stopChanges = host.folder.onFilesChanged((change) => queryClient.invalidateQueries(captures.folder$.pathFilter(change)));
+		return { host, captures, stopChanges };
 	})();
 
 	onDestroy(() => {
 		void opening
-			.then(async ({ host, captures }) => {
+			.then(async ({ host, captures, stopChanges }) => {
+				stopChanges();
 				await captures.close();
 				return host.close();
 			})

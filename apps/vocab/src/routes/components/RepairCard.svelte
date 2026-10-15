@@ -1,8 +1,8 @@
 <!--
 	A word file that is not a valid word, open as its exact text. Each change
-	goes into the cached text and is written as typed, and the issues are read
-	live from what is typed. Once the text is a valid word, "Show note and
-	stage" closes the repair and the list shows it as a word.
+	goes into the repair's draft and is written as typed, and the issues are
+	read live from what is typed. Once the text is a valid word, "Show note
+	and stage" closes the repair and the list shows it as a word.
 -->
 <script lang="ts">
 	import { parseRow } from '@epicenter/folder';
@@ -15,7 +15,8 @@
 	let { entries, path }: { entries: Entries; path: string } = $props();
 
 	const opened = createQuery(() => entries.textQuery(path));
-	const text = $derived(opened.data?.kind === 'text' ? opened.data.file.text : undefined);
+	/** The typed text not yet written, or the file's text as last read. */
+	const text = $derived(opened.data?.kind === 'text' ? (entries.repairText ?? opened.data.file.text) : undefined);
 	/** Why the text is not a word yet, read live from what is typed. */
 	const issues = $derived(text === undefined ? undefined : (parseRow(vocabFolder.tables.entries, text).error ?? undefined));
 </script>
@@ -38,14 +39,14 @@
 				{/each}
 			</ul>
 		{:else}
-			<Button size="sm" variant="outline" onclick={() => entries.closeRepair()}>Show note and stage</Button>
+			<Button size="sm" variant="outline" onclick={() => void entries.closeRepair()}>Show note and stage</Button>
 		{/if}
 	{:else if opened.isError}
 		<p role="alert" class="text-destructive"><code>{path}</code> could not be read: {opened.error.message}</p>
-		<Button size="sm" variant="outline" onclick={() => entries.closeRepair()}>Close</Button>
+		<Button size="sm" variant="outline" onclick={() => void entries.closeRepair()}>Close</Button>
 	{:else if opened.data}
 		<p role="alert" class="text-destructive"><code>{path}</code> is no longer text, so it cannot be shown here.</p>
-		<Button size="sm" variant="outline" onclick={() => entries.closeRepair()}>Close</Button>
+		<Button size="sm" variant="outline" onclick={() => void entries.closeRepair()}>Close</Button>
 	{:else}
 		<p>Reading <code>{path}</code>…</p>
 	{/if}

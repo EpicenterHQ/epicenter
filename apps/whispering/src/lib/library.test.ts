@@ -70,6 +70,7 @@ import {
 	TEST_BASE_URL,
 	testConnections,
 	testInjection,
+	withAnswerFailures,
 	withResultFailures,
 } from './workspace.test-support.js';
 
@@ -132,7 +133,7 @@ async function open({
 			tables,
 			kv: kv?.(folder.kv) ?? folder.kv,
 			files: {
-				...folder.files,
+				...withAnswerFailures(folder.files, failures),
 				async create(path, content) {
 					await beforeFileCreate?.();
 					return folder.files.create(path, content);

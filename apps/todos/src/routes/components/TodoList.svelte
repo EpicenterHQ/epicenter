@@ -23,9 +23,9 @@
 		onOpen?: (stem: string) => void;
 	} = $props();
 
-	const listing = createQuery(() => todos.rows.todos.options);
-	const repairQuery = createQuery(() => todos.rows.repairs.options);
-	const unreadableQuery = createQuery(() => todos.rows.unreadable.options);
+	const listing = createQuery(() => todos.rows.todos);
+	const repairQuery = createQuery(() => todos.rows.repairs);
+	const unreadableQuery = createQuery(() => todos.rows.unreadable);
 	const repairs = $derived(repairQuery.data ?? []);
 	const unreadable = $derived(unreadableQuery.data ?? []);
 	/** The title typed for a new todo. It goes with the list: leaving with it half-typed drops it. */
@@ -97,7 +97,7 @@
 			<section class="max-h-[40%] shrink-0 overflow-y-auto border-t bg-destructive/5 px-3 py-2 text-xs" aria-label="Needs repair">
 				<p class="flex items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					{repairs.length === 1 ? 'This file does' : 'These files do'} not read as a todo. Fix {repairs.length === 1 ? 'it' : 'them'} in a text editor; Todos reads {repairs.length === 1 ? 'it' : 'them'} again when you return.
+					{repairs.length === 1 ? 'This file does' : 'These files do'} not read as a todo. Fix {repairs.length === 1 ? 'it' : 'them'} in a text editor, and Todos shows the result.
 				</p>
 				<ul class="mt-1 space-y-1.5">
 					{#each repairs as repair (repair.stem)}

@@ -10,10 +10,11 @@ import type {
 } from '@epicenter/folder';
 import { createSubscriber } from 'svelte/reactivity';
 import { Ok, type Result } from 'wellcrafted/result';
-import { type Session, type TodosError, todosKeys } from './session.js';
+import type { Session, TodosError } from './session.js';
 
 export function createGit({
 	folder,
+	folder$,
 	defineQuery,
 	defineMutation,
 	writesSettled,
@@ -28,9 +29,13 @@ export function createGit({
 			trackSnapshot();
 			return folder.git.snapshot;
 		},
-		/** Git status: changes since the last version, and local and remote heads. */
+		/**
+		 * Git status: changes since the last version, and local and remote
+		 * heads. Keyed as the folder's own status query, so every change the
+		 * folder reports marks it stale.
+		 */
 		status: defineQuery({
-			queryKey: todosKeys.status,
+			queryKey: folder$.history.status.queryKey(),
 			queryFn: (): Promise<Result<FilesObservation, GitError>> =>
 				folder.git.status(),
 		}),
@@ -44,7 +49,7 @@ export function createGit({
 				await writesSettled();
 				return Ok(await folder.git.commit());
 			},
-			onSettled: () => invalidate(todosKeys.status),
+			onSettled: () => invalidate(folder$.history.status.queryKey()),
 		}),
 	};
 }

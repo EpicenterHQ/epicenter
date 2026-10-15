@@ -4,7 +4,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
-	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+	import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { ModeWatcher } from 'mode-watcher';
 	import { onDestroy } from 'svelte';
@@ -20,7 +20,15 @@
 	// it: a route change renders another page inside the same session. Importing
 	// modules opens nothing, and no page opens a folder of its own.
 	// One cache for the session: the files it shows, and every write and action.
-	const queryClient = new QueryClient();
+	// The folder's change reports are the one detector of outside changes, so
+	// returning to the window reads nothing.
+	const queryClient = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false } } });
+	// A scoped mutation waiting its turn pauses while TanStack thinks the page
+	// is unfocused; a recording's steps must run in a hidden window too.
+	focusManager.setEventListener((setFocused) => {
+		setFocused(true);
+		return undefined;
+	});
 	const { opening, release } = mountSession(queryClient);
 
 	onDestroy(release);

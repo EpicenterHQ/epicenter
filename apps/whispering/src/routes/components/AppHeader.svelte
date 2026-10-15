@@ -169,7 +169,6 @@
 				</div>
 			</dl>
 			<div class="flex items-center gap-2 border-t px-3 py-2">
-				<Button variant="outline" size="sm" onclick={() => void library.check()}>Check again</Button>
 				<Button size="sm" disabled={committing || library.git.activity.commit.active} onclick={saveVersion} data-testid="save-version">
 					{#if committing}<Spinner class="size-3.5" />{/if}
 					Save version

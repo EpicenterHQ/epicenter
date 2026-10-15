@@ -1,7 +1,7 @@
 <!--
 	An open item other than a note: a file's exact text, or its type and size
-	when it is not editable text. Typing goes into the file's cached text and
-	writes at once, the same way a note's fields do. A note or folder file
+	when it is not editable text. Typing is held as the file's text draft and
+	written whole at once, guarded by the version it started from. A note or folder file
 	whose text is not a valid row shows its issues, read live from what is
 	typed, and is repaired here; a note that reads opens as a note again.
 -->
@@ -43,7 +43,10 @@
 				? honeycrispDefinition.tables.folders
 				: undefined,
 	);
-	const text = $derived(file.data?.kind === 'text' ? file.data.file.text : undefined);
+	/** The text shown: what was typed and not yet written, else the file's. */
+	const text = $derived(
+		notes.typedText(path) ?? (file.data?.kind === 'text' ? file.data.file.text : undefined),
+	);
 	/** Why the text is not a row yet, read live from what is typed. */
 	const issues = $derived.by(() => {
 		if (table === undefined || text === undefined) return undefined;
@@ -87,7 +90,7 @@
 	</div>
 
 	{#if file.data?.kind === 'text'}
-		{@const shown = file.data.file.text}
+		{@const shown = text ?? file.data.file.text}
 		{#if issues}
 			<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">

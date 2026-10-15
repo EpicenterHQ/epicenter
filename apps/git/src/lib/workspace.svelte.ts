@@ -64,6 +64,8 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	let saving: Promise<void> | undefined;
 	let reading: Promise<void> | undefined;
 	let readAgain = false;
+	let readFileAgain = false;
+	let readError = $state('');
 	let closed = false;
 	let selectGeneration = 0;
 	let running = $state(false);
@@ -134,7 +136,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		saveMessage = 'Saved';
 	}
 
-	async function refreshOnce() {
+	async function refreshOnce(readFile: boolean) {
 		const [files, statuses] = await Promise.all([
 			folder.files.list(),
 			folder.git.paths(),
@@ -145,9 +147,15 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		listing = files.data;
 		paths = statuses.data;
 		await folder.git.status();
-		await readSelected();
+		if (readFile) await readSelected();
 	}
-	async function refresh(): Promise<void> {
+	/**
+	 * Read the listing and status again, and the open file when `readFile`.
+	 * Calls during a read join it and run once more after; the open file is
+	 * read in that run if any of them asked for it.
+	 */
+	async function refresh(readFile = true): Promise<void> {
+		readFileAgain ||= readFile;
 		if (reading) {
 			readAgain = true;
 			return reading;
@@ -155,11 +163,14 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		reading = (async () => {
 			do {
 				readAgain = false;
-				await refreshOnce();
+				const file = readFileAgain;
+				readFileAgain = false;
+				await refreshOnce(file);
 			} while (readAgain && !closed);
 		})();
 		try {
 			await reading;
+			readError = '';
 		} finally {
 			reading = undefined;
 		}
@@ -219,6 +230,19 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	const stopGit = folder.git.subscribe((next) => {
 		snapshot = next;
 	});
+	// Changes made outside this handle, and the files its own Sync wrote. The
+	// open file is read again only when the change names it, and never over
+	// typed input: an edited buffer keeps the capture it started from, and
+	// its save stays conditional on that capture.
+	const stopChanges = folder.onFilesChanged((change) => {
+		if (closed) return;
+		const readFile =
+			change === 'everything' || (selected !== '' && change.includes(selected));
+		void refresh(readFile).catch((error) => {
+			if (!closed)
+				readError = error instanceof Error ? error.message : String(error);
+		});
+	});
 	try {
 		await refresh();
 		// A copy with no origin yet connects, once, to the remote it was
@@ -230,6 +254,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			report(await syncStep(() => folder.sync.connect(remote)));
 		}
 	} catch (error) {
+		stopChanges();
 		stopGit();
 		await folder.close();
 		throw error;
@@ -262,6 +287,10 @@ export async function openWorkingCopy(copy: string, remote: string) {
 		},
 		get running() {
 			return running;
+		},
+		/** Why the last read after an outside change failed, until a read succeeds. */
+		get readError() {
+			return readError;
 		},
 		/** The attempt whose review shows, while one waits for choices. */
 		get syncAttempt() {
@@ -357,7 +386,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			await readSelected();
 		},
 		flush,
-		refresh,
 		status: action('Status', () => folder.git.status()),
 		commit: action('Save version', () => folder.git.commit()),
 		fetch: action('Fetch', () => folder.git.fetch()),
@@ -379,6 +407,7 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			await flush();
 			closed = true;
 			clearTimeout(timer);
+			stopChanges();
 			stopGit();
 			await folder.close();
 		},

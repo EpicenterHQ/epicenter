@@ -6,22 +6,53 @@
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { openNotes } from '#platform/notes-host';
 	import { onDestroy } from 'svelte';
-	import { createNotes, describeError, type WriteFailure } from '$lib/notes.svelte.js';
+	import {
+		createNotes,
+		describeError,
+		type ReplacedChange,
+		type WriteFailure,
+	} from '$lib/notes.svelte.js';
 	import NotesView from './components/NotesView.svelte';
 
 	const queryClient = useQueryClient();
 
-	/** A write that failed was rolled back to the file; say so, and offer the text it held. */
-	function writeFailed({ path, error, lost }: WriteFailure) {
+	/** A save failed; say so, and offer the text it held. */
+	function writeFailed({ path, error, unsaved, kept }: WriteFailure) {
 		toast.error(`Could not save ${path}`, {
-			description: describeError(error),
+			description: kept
+				? `${describeError(error)} Your edit is still on screen; it saves again with your next change.`
+				: describeError(error),
 			action:
-				lost === ''
+				unsaved === ''
 					? undefined
 					: {
 							label: 'Copy your text',
-							onClick: () => void navigator.clipboard.writeText(lost).catch(() => {}),
+							onClick: () => void navigator.clipboard.writeText(unsaved).catch(() => {}),
 						},
+		});
+	}
+
+	/** What a value is called where a person changes it. */
+	const valueNames: Record<string, string> = {
+		title: 'the title',
+		folderId: 'the folder',
+		pinned: 'the pin',
+		deletedAt: 'Recently Deleted',
+		name: 'the name',
+		icon: 'the icon',
+	};
+
+	/** A save replaced a change made elsewhere to the same values; name them. */
+	function replacedChange({ path, replaced }: ReplacedChange) {
+		const names = [
+			...new Set(
+				replaced.map((entry) =>
+					entry.kind === 'body' ? 'the text' : (valueNames[entry.field] ?? entry.field),
+				),
+			),
+		];
+		toast.info(`Saved ${path}`, {
+			description: `Your edit replaced a change made elsewhere to ${names.join(', ')}.`,
 		});
 	}
 
@@ -30,7 +61,10 @@
 	// atomic rename into the folder, so nothing waits here (ADR-0542).
 	const opening = openNotes({
 		async create(host) {
-			const notes = createNotes(host, queryClient, { onWriteFailed: writeFailed });
+			const notes = createNotes(host, queryClient, {
+				onWriteFailed: writeFailed,
+				onReplaced: replacedChange,
+			});
 			await notes.load();
 			return notes;
 		},

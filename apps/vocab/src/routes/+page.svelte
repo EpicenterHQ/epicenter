@@ -5,7 +5,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
-	import { describeError } from '$lib/entries.svelte.js';
+	import { describeError, type ReplacedNotice } from '$lib/entries.svelte.js';
 	import { openVocabFolder } from '$lib/folder.js';
 	import type { WriteFailure } from '$lib/query.js';
 	import { createVocab } from '$lib/vocab.svelte.js';
@@ -13,25 +13,35 @@
 
 	const queryClient = useQueryClient();
 
-	/** A write that failed was rolled back to the file; say so, and offer the text it held. */
-	function writeFailed({ path, error, lost }: WriteFailure) {
+	/**
+	 * A write failed; say so. An edit still on screen can be saved again; a
+	 * message that is not, offers the text it held.
+	 */
+	function writeFailed({ path, error, lost, retry }: WriteFailure) {
 		toast.error(`Could not save ${path}`, {
 			description: describeError(error),
 			action:
-				lost === ''
-					? undefined
-					: {
-							label: 'Copy your text',
-							onClick: () => void navigator.clipboard.writeText(lost).catch(() => {}),
-						},
+				retry !== undefined
+					? { label: 'Save again', onClick: retry }
+					: lost === ''
+						? undefined
+						: {
+								label: 'Copy your text',
+								onClick: () => void navigator.clipboard.writeText(lost).catch(() => {}),
+							},
 		});
+	}
+
+	/** A save merged with a change made elsewhere and kept the learner's value where both changed. */
+	function replaced({ path, fields }: ReplacedNotice) {
+		toast.info(`Saved; replaced a change made elsewhere to ${fields.join(' and ')}`, { description: path });
 	}
 
 	// The mounted page opens the folder; importing modules opens nothing. There
 	// is no sign-in on this path: words and chats are in this browser's folder
 	// whether or not an account is signed in.
 	const opening = openVocabFolder().then((folder) =>
-		createVocab(folder, queryClient, { onWriteFailed: writeFailed }),
+		createVocab(folder, queryClient, { onWriteFailed: writeFailed, onReplaced: replaced }),
 	);
 
 	// Every write and action under way lands before the folder closes.

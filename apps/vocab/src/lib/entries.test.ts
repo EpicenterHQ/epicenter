@@ -8,17 +8,17 @@
  * Key behaviors:
  * - A word is listed once its file exists, with a blank note and the New
  *   stage; one exact text is one file, whoever adds it and however often
- * - An edit changes the cache at once and is written to the file
- * - Rapid edits run one write at a time with one waiting; the waiting write
- *   saves the newest word, guarded by the hash the previous write confirmed
- * - No read starts while a write runs
- * - A write that meets a change made elsewhere merges with it, and the edit
- *   wins only where both changed
- * - A write that fails rolls the cache back to the file and reports the
- *   text that was lost
+ * - An edit shows at once from the word's draft and is written to the file
+ * - Rapid edits run one save at a time; the changes made meanwhile are sent
+ *   next, from the version the save wrote
+ * - A read that lands while an edit is saving never replaces the edit
+ * - Another tab's change reaches the list through the folder's change channel
+ * - A save that meets a change made elsewhere merges with it, the edit wins
+ *   only where both changed, and the learner is told what it replaced
+ * - A save that fails keeps the edit on screen, and saving again writes it
  * - A file that is not a valid word is named for repair, written as typed
  *   text, and reads as a word once repaired
- * - Delete runs after the word's queued writes and removes what they saved;
+ * - Delete waits for the word's save under way and removes what it saved;
  *   a file changed elsewhere since is refused
  * - Nothing commits on its own after edits
  * - Close waits for every write and action, and afterwards nothing changes
@@ -27,17 +27,18 @@ import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { VocabFolder } from './data.js';
+import type { ReplacedNotice } from './entries.svelte.js';
 import {
 	createBrowser,
 	fileText,
 	gated,
 	tableFiles,
+	until,
 } from './folder.test-support.js';
 import type { WriteFailure } from './query.js';
 import {
 	cached,
 	createQueryClient,
-	focusManager,
 	listing,
 	observe,
 	quiet,
@@ -46,7 +47,6 @@ import type { Vocab } from './vocab.svelte.js';
 
 const { createVocab } = await import('./vocab.svelte.ts');
 const { repairsOf, wordsOf } = await import('./entries.svelte.ts');
-const { vocabKeys } = await import('./query.ts');
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
@@ -56,13 +56,15 @@ afterEach(async () => {
 /** Vocab over `folder`, with its screens observing, read once. */
 async function openVocab(folder: VocabFolder) {
 	const failures: WriteFailure[] = [];
+	const replaced: ReplacedNotice[] = [];
 	const vocab = createVocab(folder, createQueryClient(), {
 		onWriteFailed: (failure) => failures.push(failure),
+		onReplaced: (notice) => replaced.push(notice),
 	});
 	cleanup.push(() => vocab.close());
 	cleanup.push(observe(vocab));
 	await quiet(vocab);
-	return { vocab, failures };
+	return { vocab, failures, replaced };
 }
 
 /**
@@ -73,7 +75,7 @@ async function setup() {
 	const browser = createBrowser();
 	cleanup.push(() => browser[Symbol.asyncDispose]());
 	const folder = await browser.open();
-	const { vocab, failures } = await openVocab(folder);
+	const { vocab, failures, replaced } = await openVocab(folder);
 	const { faults } = browser.opfs;
 	const counter = { wordWrites: 0 };
 	let hold: PromiseWithResolvers<void> | undefined;
@@ -94,6 +96,7 @@ async function setup() {
 		vocab,
 		entries: vocab.entries,
 		failures,
+		replaced,
 		counter,
 		holdNextWrite() {
 			hold = Promise.withResolvers<void>();
@@ -112,6 +115,8 @@ async function setup() {
 		async sha(path: string) {
 			return expectOk(await folder.files.read(path)).sha256;
 		},
+		/** The word with `text` as the learner sees it, with any unsaved edit. */
+		shown: (text: string) => vocab.entries.shown(cached(vocab, text)),
 		/** Another program writes the file. */
 		async writeElsewhere(path: string, content: string) {
 			expectOk(await folder.files.overwrite(path, content));
@@ -273,24 +278,25 @@ test('a word another tab removed is saved again instead of being called present'
 });
 
 // ============================================================================
-// Edits and writes
+// Edits and saves
 // ============================================================================
 
-test('an edit changes the cache at once and is written to the file', async () => {
+test('an edit shows at once and is written to the file; the list takes the saved version', async () => {
 	const context = await setup();
 	const { vocab, entries, failures } = context;
 	const entry = await context.add('lucid');
 	expect(entries.inputNote(entry.id, 'clear')).toBe(true);
-	expect(cached(vocab, 'lucid').note).toBe('clear');
+	expect(context.shown('lucid').note).toBe('clear');
 	await quiet(vocab);
 	expect(failures).toEqual([]);
 	expect(await context.text(entry.stored.path)).toContain('note: clear');
+	expect(cached(vocab, 'lucid')).toMatchObject({ note: 'clear' });
 	expect(cached(vocab, 'lucid').stored.sha256).toBe(
 		await context.sha(entry.stored.path),
 	);
 });
 
-test('rapid edits run one write at a time with one waiting, which saves the newest word with no conflict', async () => {
+test('rapid edits run one save at a time, and the changes made meanwhile are sent next from the version it wrote', async () => {
 	const context = await setup();
 	const { vocab, entries, failures, counter } = context;
 	const entry = await context.add('lucid');
@@ -303,11 +309,8 @@ test('rapid edits run one write at a time with one waiting, which saves the newe
 	for (const note of ['cl', 'cle', 'clea', 'clear'])
 		entries.inputNote(entry.id, note);
 	entries.setStage(entry.id, 'understood');
-	// One write runs and one waits; no more were queued.
-	expect(
-		vocab.queryClient.isMutating({ mutationKey: vocabKeys.write(path) }),
-	).toBe(2);
-	expect(cached(vocab, 'lucid')).toMatchObject({
+	expect(entries.isSaving(entry.id)).toBe(true);
+	expect(context.shown('lucid')).toMatchObject({
 		note: 'clear',
 		stage: 'understood',
 	});
@@ -315,20 +318,16 @@ test('rapid edits run one write at a time with one waiting, which saves the newe
 	release();
 	await quiet(vocab);
 	expect(failures).toEqual([]);
+	expect(context.replaced).toEqual([]);
 	expect(counter.wordWrites - before).toBe(2);
 	const saved = await context.text(path);
 	expect(saved).toContain('note: clear');
 	expect(saved).toContain('stage: understood');
 	expect(cached(vocab, 'lucid').stored.sha256).toBe(await context.sha(path));
-
-	// The guard moved forward: the next edit writes on top.
-	entries.inputNote(entry.id, 'clear, two');
-	await quiet(vocab);
-	expect(failures).toEqual([]);
-	expect(await context.text(path)).toContain('note: clear, two');
+	expect(entries.isSaving(entry.id)).toBe(false);
 });
 
-test('no read starts while a write runs: not on returning to the window, not when a view mounts', async () => {
+test('a read that lands while an edit is saving never replaces the edit', async () => {
 	const context = await setup();
 	const { vocab, entries, failures } = context;
 	const entry = await context.add('lucid');
@@ -337,28 +336,41 @@ test('no read starts while a write runs: not on returning to the window, not whe
 	const { held, release } = context.holdNextWrite();
 	entries.inputNote(entry.id, 'clear');
 	await held;
-	// Returning to the window while the write is held reads nothing.
-	focusManager.setFocused(false);
-	focusManager.setFocused(true);
-	// The client refetches on focus a tick later, after resuming paused writes.
-	await Bun.sleep(0);
-	// Neither does a view that mounts now.
-	const mounted = observe(vocab);
-	expect(vocab.queryClient.isFetching({ queryKey: vocabKeys.entries })).toBe(0);
-	expect(cached(vocab, 'lucid').note).toBe('clear');
+	// A change reported meanwhile reads the list, which still holds the old note.
+	await vocab.queryClient.invalidateQueries(vocab.folder$.pathFilter([path]));
+	expect(cached(vocab, 'lucid').note).toBe('');
+	expect(context.shown('lucid').note).toBe('clear');
+
 	release();
 	await quiet(vocab);
-	mounted();
-	expect(cached(vocab, 'lucid').note).toBe('clear');
-	expect(cached(vocab, 'lucid').stored.sha256).toBe(await context.sha(path));
-
-	entries.inputNote(entry.id, 'clear, two');
-	await quiet(vocab);
 	expect(failures).toEqual([]);
-	expect(await context.text(path)).toContain('note: clear, two');
+	expect(context.shown('lucid').note).toBe('clear');
+	expect(await context.text(path)).toContain('note: clear');
 });
 
-test('a write that meets a change made elsewhere merges with it: the edit wins only where both changed', async () => {
+test("another tab's edit reaches this page's list through the folder's change channel", async () => {
+	const browser = createBrowser({ BroadcastChannel });
+	cleanup.push(() => browser[Symbol.asyncDispose]());
+	const here = await openVocab(await browser.open());
+	const there = await openVocab(await browser.open());
+	expectOk(await there.vocab.entries.add('lucid'));
+	await until(() => {
+		try {
+			return cached(here.vocab, 'lucid') !== undefined;
+		} catch {
+			return false;
+		}
+	}, 'the added word');
+
+	there.vocab.entries.inputNote(cached(there.vocab, 'lucid').id, 'theirs');
+	await quiet(there.vocab);
+	await until(
+		() => cached(here.vocab, 'lucid').note === 'theirs',
+		"the other tab's note",
+	);
+});
+
+test('a save that meets a change made elsewhere merges with it: the edit wins only where both changed, and says so', async () => {
 	const context = await setup();
 	const { vocab, entries, failures } = context;
 	const entry = await context.add('lucid');
@@ -371,9 +383,14 @@ test('a write that meets a change made elsewhere merges with it: the edit wins o
 	// Both changed the note, so the edit's stands; only they changed the stage.
 	expect(await context.text(path)).toContain('note: mine');
 	expect(await context.text(path)).toContain('stage: usable');
+	expect(context.replaced).toEqual([{ path, fields: ['note'] }]);
+	expect(cached(vocab, 'lucid')).toMatchObject({
+		note: 'mine',
+		stage: 'usable',
+	});
 });
 
-test('a write that fails rolls back, and the write waiting behind it leaves the file as it was', async () => {
+test('a save that fails keeps the edit on screen, and saving again writes it', async () => {
 	const context = await setup();
 	const { vocab, entries, failures } = context;
 	const entry = await context.add('lucid');
@@ -381,22 +398,22 @@ test('a write that fails rolls back, and the write waiting behind it leaves the 
 	const saved = await context.text(path);
 
 	context.failNextWrite(path);
-	entries.inputNote(entry.id, 'first');
-	entries.inputNote(entry.id, 'second');
-	expect(
-		vocab.queryClient.isMutating({ mutationKey: vocabKeys.write(path) }),
-	).toBe(2);
+	entries.inputNote(entry.id, 'kept');
 	await quiet(vocab);
-	// The rollback lands before the waiting write runs, so it saves the
-	// file's own word and fails nothing.
-	expect(failures.map((failure) => failure.lost)).toEqual([
-		expect.stringContaining('note: second'),
-	]);
+	expect(failures.map((failure) => failure.path)).toEqual([path]);
 	expect(await context.text(path)).toBe(saved);
-	expect(cached(vocab, 'lucid').note).toBe('');
+	expect(context.shown('lucid').note).toBe('kept');
+
+	const retry = failures[0]?.retry;
+	expect(retry).toBeFunction();
+	retry?.();
+	await quiet(vocab);
+	expect(failures).toHaveLength(1);
+	expect(await context.text(path)).toContain('note: kept');
+	expect(cached(vocab, 'lucid').note).toBe('kept');
 });
 
-test('the folder refuses a value it cannot hold, and the cache rolls back', async () => {
+test('the folder refuses a value it cannot hold, and the file is left as it was', async () => {
 	const context = await setup();
 	const { vocab, entries, failures } = context;
 	const entry = await context.add('lucid');
@@ -416,7 +433,7 @@ test('a note is kept well formed, so what saves is what is shown', async () => {
 	const { vocab, entries } = context;
 	const entry = await context.add('lucid');
 	entries.inputNote(entry.id, 'a\uD800b');
-	expect(cached(vocab, 'lucid').note).toBe('a�b');
+	expect(context.shown('lucid').note).toBe('a�b');
 	await quiet(vocab);
 	expect((await context.reopened())[0]?.note).toBe('a�b');
 });
@@ -445,7 +462,8 @@ test('a file that is not a valid word is named for repair, is written as typed t
 	const { vocab, entries, failures } = context;
 	const path = (await context.add('lucid')).stored.path;
 	await context.writeElsewhere(path, '---\ntext: lucid\nnote: *bad\n---\n');
-	await vocab.queryClient.invalidateQueries({ queryKey: vocabKeys.all });
+	// As the folder reports a change another program made.
+	await vocab.queryClient.invalidateQueries(vocab.folder$.pathFilter([path]));
 	await quiet(vocab);
 	expect(wordsOf(listing(vocab))).toEqual([]);
 	expect(repairsOf(listing(vocab))).toEqual([
@@ -459,16 +477,18 @@ test('a file that is not a valid word is named for repair, is written as typed t
 	// Text that still does not parse is written as typed.
 	const half = '---\ntext: lucid\nnote: fixed\nstage: soon\n---\n';
 	expect(entries.inputText(path, half)).toBe(true);
+	expect(entries.repairText).toBe(half);
 	await quiet(vocab);
 	expect(await context.text(path)).toBe(half);
 	expect(repairsOf(listing(vocab))).toHaveLength(1);
 
 	const whole = wordText('lucid', 'fixed', 'new');
 	entries.inputText(path, whole);
-	await quiet(vocab);
-	entries.closeRepair();
+	expect(await entries.closeRepair()).toBe(true);
 	await quiet(vocab);
 	expect(failures).toEqual([]);
+	expect(await context.text(path)).toBe(whole);
+	expect(entries.repairing).toBeUndefined();
 	expect(repairsOf(listing(vocab))).toEqual([]);
 	expect(cached(vocab, 'lucid')).toMatchObject({ note: 'fixed', stage: 'new' });
 });
@@ -477,7 +497,7 @@ test('a file that is not a valid word is named for repair, is written as typed t
 // Delete
 // ============================================================================
 
-test('a delete runs after the queued writes and removes what they saved; edits wait while it runs', async () => {
+test('a delete waits for the save under way and removes what it saved; edits wait while it runs', async () => {
 	const context = await setup();
 	const { vocab, entries, failures } = context;
 	const entry = await context.add('lucid');
@@ -513,7 +533,7 @@ test('a delete is refused when the word changed elsewhere, and the list reads it
 // Closing
 // ============================================================================
 
-test('close waits for running writes, and every close call shares one completion', async () => {
+test('close waits for running saves, and every close call shares one completion', async () => {
 	const context = await setup();
 	const { folder, vocab, entries } = context;
 	const entry = await context.add('lucid');
@@ -531,10 +551,10 @@ test('close waits for running writes, and every close call shares one completion
 	release();
 	await first;
 	expect(folder.signal.aborted).toBe(true);
-	const writes = vocab.queryClient
-		.getMutationCache()
-		.findAll({ mutationKey: vocabKeys.write(entry.stored.path) });
-	expect(writes.map((write) => write.state.status)).toEqual(['success']);
+	const saves = vocab.queryClient.getMutationCache().findAll({
+		mutationKey: vocab.folder$.entries.save.mutationOptions().mutationKey,
+	});
+	expect(saves.map((save) => save.state.status)).toEqual(['success']);
 });
 
 test('after close begins, edits and actions change nothing', async () => {
@@ -544,7 +564,7 @@ test('after close begins, edits and actions change nothing', async () => {
 	const saved = await context.text(entry.stored.path);
 	void vocab.close();
 	expect(entries.inputNote(entry.id, 'late')).toBe(false);
-	expect(cached(vocab, 'lucid').note).toBe('');
+	expect(context.shown('lucid').note).toBe('');
 	expect(expectErr(await entries.add('another')).name).toBe('NotStarted');
 	expect(expectErr(await entries.remove(entry)).name).toBe('NotStarted');
 	expect(saved).toContain('note: ""');

@@ -22,8 +22,8 @@
  * - Deleting several captures each deletion first, leaves out what the
  *   library refuses, removes only what was captured, and keeps the audio
  * - A transcript is edited in its own draft beside its recording, which stays
- *   selected, and saves as it is typed; an outside change is a conflict on
- *   the next save; closing the details or changing page discards nothing
+ *   selected, and saves as it is typed; an outside change merges with the
+ *   next save; closing the details or changing page discards nothing
  * - A recording that left the folder is unticked when a listing confirms it,
  *   so a file made later at its path is not ticked; a search and a failed
  *   listing untick nothing
@@ -39,6 +39,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import type { RecordingFields, TranscriptionFields } from './definition.js';
 import { settle, transcriptEditor } from './edits.test-support.js';
+import type { WriteNotice } from './library.svelte.js';
 import { createQueryClient } from './query.test-support.js';
 import {
 	captureDeletions,
@@ -619,7 +620,7 @@ test('while a result cannot be told apart from a recording’s own, none is capt
 
 const TRANSCRIPT = 'transcriptions/standup-t1.md';
 
-test('a transcript is edited in the cache beside its recording, which stays selected, and is written at once', async () => {
+test('a transcript is edited beside its recording, which stays selected, and is written at once', async () => {
 	const { library, root } = await history();
 	await library.open(path('standup'));
 	const before = await readFile(join(root, TRANSCRIPT), 'utf8');
@@ -631,11 +632,11 @@ test('a transcript is edited in the cache beside its recording, which stays sele
 	// Written from the moment it is typed.
 	expect(library.isSaving(TRANSCRIPT)).toBe(true);
 	expect(library.saving).toBe(true);
-	// The list shows it at once: it reads the same cache.
+	await settle(library);
+	// The list shows the saved text: the save put it in the listing.
 	expect(transcriptExcerpt(rowOf(library, 'standup'), '')).toBe(
 		'Yesterday I finished the importer. Today: the exporter.',
 	);
-	await settle(library);
 
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	// The fields as they were, the new text.
@@ -648,7 +649,7 @@ test('a transcript is edited in the cache beside its recording, which stays sele
 	// Opening the file from Files edits the same row.
 	expect(await library.open(TRANSCRIPT)).toBeUndefined();
 	expect(library.selection).toMatchObject({ kind: 'file', path: TRANSCRIPT });
-	expect(library.rowAt('transcriptions', TRANSCRIPT)?.row.body).toBe(
+	expect(library.rowAt('transcriptions', TRANSCRIPT)?.body).toBe(
 		'Yesterday I finished the importer. Today: the exporter.\n',
 	);
 });
@@ -656,8 +657,8 @@ test('a transcript is edited in the cache beside its recording, which stays sele
 test('typing over a transcript changed outside, before the window read it again, merges with the change', async () => {
 	const { library, root } = await history();
 	await library.open(path('standup'));
-	const failures: string[] = [];
-	library.onWriteFailed((failure) => failures.push(failure.lost));
+	const notices: WriteNotice[] = [];
+	library.onWriteNotice((notice) => notices.push(notice));
 	const editor = transcriptEditor(library, TRANSCRIPT);
 	const outside = (await readFile(join(root, TRANSCRIPT), 'utf8')).replace(
 		'importer',
@@ -666,12 +667,20 @@ test('typing over a transcript changed outside, before the window read it again,
 	await writeFile(join(root, TRANSCRIPT), outside);
 
 	// Typing before the window read it again: both replaced the same line,
-	// so the typing wins there, and the save says nothing failed.
+	// so the typing wins there, and the save names what it replaced.
 	editor.edit((row) => {
 		row.body = 'What I typed.\n';
 	});
 	await settle(library);
-	expect(failures).toEqual([]);
+	expect(notices).toMatchObject([
+		{
+			kind: 'replaced',
+			path: TRANSCRIPT,
+			replaced: [
+				{ kind: 'body', theirs: expect.stringContaining('migration') },
+			],
+		},
+	]);
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	expect(saved).toContain('What I typed.');
 	expect(saved).not.toContain('migration');

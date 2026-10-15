@@ -154,7 +154,7 @@ Settings, Reveal folder, Files, and Terminal.
 | Copy transcripts | Copies the newest transcript of each selected row shown, in table order, with titles when copying several. |
 | Delete selected | Captures the selected rows shown and their results before confirmation. Audio stays in the folder. |
 | Transform | On a transcript. Applies one of your transformations and saves the answer as a new file under the transcript. |
-| Status | Saved files, changes since the last version, the last version saved, and the folder path as separate lines, with Check again and Save version. |
+| Status | Saved files, changes since the last version, the last version saved, and the folder path as separate lines, with Save version. |
 | Save version | In the status details. Records the saved files as a version in the folder's Git history. Nothing else records one. |
 | Settings | The two connections, transcription and text: each an endpoint, a default model, and an optional key, kept on this device and outside history. See [Connections](#connections). |
 | Reveal folder | Opens the data folder in Finder. |
@@ -390,10 +390,11 @@ are separate outcomes and the status reports them separately.
   that way until the next one.
 - Terminal commands and other programs edit the files directly. Their changes
   enter the next version you save.
-- The app does not watch the folder. It reads it again after each terminal
-  command, when you return to the window, and when you press **Check again**,
-  so a change another program makes appears then. A save over a file that
-  changed since it was read is refused, never written over.
+- The folder reports what changes in it: on the desktop the shell watches the
+  data folder, so a change another program or the terminal makes appears
+  within a moment; in a browser tab, another tab's writes are reported the
+  same way. A save over a file that changed since your edit started merges
+  with the change (see [Editing](#editing)).
 
 ### Where a recording is while it runs
 
@@ -447,36 +448,40 @@ Force Quit, a crash, and power loss leave the folder the same way.
 
 Moving between Home, Recordings, and Transformations never asks either. In a
 browser tab (`bun dev:whispering:ui`) the browser's own leave warning appears
-while a change is still being written, and reloading or closing the tab loses
+while a change is not in its file yet, and reloading or closing the tab loses
 a recording in progress.
 
 ### Editing
 
 Every change is written to its file as you type: a recording's title and
 notes, a transcript, a transformation's fields, and any text file opened from
-Files. There is no save button and no draft beside the file. The table and the
-detail show the same row, so they never disagree.
+Files. There is no save button. An edit starts from the version of the file it
+was typed over, and the window holds what you typed until it is in the file;
+the table shows the row once it is saved.
 
-- Each file is written one change at a time. While one write runs, the newest
-  change waits behind it, so fast typing writes what you typed last.
-- Every write is guarded by the version this window last read or wrote. When
-  another program changed the file since, the write is refused and nothing in
-  the file changes. The window shows the file as it is now, and a notice says
-  your change was not saved, with **Copy what was lost** to keep your text.
-  Typing again writes on top of the file as it is now.
-- A file deleted elsewhere stays deleted. A change to it is refused and
-  reported the same way, and the recording, transcript, or transformation
+- Each file is written one change at a time. Changes typed while one write
+  runs are written next, so fast typing writes what you typed last.
+- A save merges with a change made elsewhere since your edit started: fields
+  and lines only one side changed are both kept. Where both changed the same
+  field or the same lines, your edit wins and a notice names what of theirs it
+  replaced. Reading the folder again never touches what you are typing.
+- Text edited as a whole file (Source, or any text file from Files) has no
+  merge. When another program changed the file since, your text is not
+  written; a notice offers **Copy what was lost**, and the window shows the
+  file as it is now.
+- A file deleted elsewhere stays deleted. A change to it is reported with
+  **Copy what was lost**, and the recording, transcript, or transformation
   closes. Nothing creates it again.
-- A write that fails for another reason, or whose reply never arrived, is
-  reported the same way and the window shows the file as it reads now.
+- A save that fails for another reason, or whose reply never arrived, is
+  reported and your edit is kept in the window; it is saved again with your
+  next change, and before anything that reads the file, such as a run or a
+  deletion. The status says an edit is not saved yet.
 - A value that a file cannot hold, such as a field with the wrong kind of
-  value, is refused and rolled back.
+  value, is refused and nothing in the file changes.
 - Text typed or pasted into a field that a file cannot hold exactly (a lone
   surrogate) is saved with U+FFFD in its place.
 - The lists are read when the page opens, after this window's own actions and
-  terminal commands, and when you return to the window or its tab. While a
-  change is being written nothing is read; the folder is read once the last
-  write lands.
+  terminal commands, and when the folder reports that files changed.
 
 A recording, transcript, or transformation file whose text does not read as a
 row is listed under "Needs repair" with why, and opens as its text with its
@@ -556,8 +561,9 @@ fails that step and reports it. The directory is removed afterward.
 The same failures can be armed at launch with
 `WHISPERING_DEBUG_FAIL_ROW_WRITES=<n>`, `WHISPERING_DEBUG_FAIL_AUDIO_WRITES=<n>`,
 and `WHISPERING_DEBUG_BLOCK_COMMITS=1`. The branch lock is taken when the
-window has opened the folder, since there is no branch before that. To cause the commit failure by hand in
-any build:
+host starts. A folder with no repository yet is locked on `main`, the branch
+its first commit creates, so that commit fails too. To cause the commit
+failure by hand in any build:
 
 ```sh
 touch "$WHISPERING_DATA_ROOT/.git/refs/heads/main.lock"   # commits now fail
@@ -576,24 +582,24 @@ afplay /tmp/whispering-restore/recordings/<recording-id>.wav
 
 ## Changed promises
 
-This build writes each change to its file at once and keeps no draft beside
-it. These promises of the earlier build changed:
+This build writes each change to its file at once, holding only what is not
+in the file yet. These promises of the earlier build changed:
 
 - A change made elsewhere merges on save without asking. The earlier build
   asked about parts you both changed; now your edit wins there, and what
   only they changed stays (ADR-0548).
 - A file deleted elsewhere stays deleted, transcripts included. The earlier
   build could create one again from your edit.
-- No save bar, **Try again**, or **Discard unsaved changes?**. A failed write
-  is rolled back and reported once; there is nothing held to retry or discard.
-  Closing and opening another item never ask about edits.
+- No save bar, **Try again**, or **Discard unsaved changes?**. A failed save
+  is reported once and saved again with your next change. Closing and opening
+  another item never ask about edits.
 - No commit after a save. Each save used to try one commit; now a version is
   recorded only by **Save version**, which replaces **Commit now**. Changes
   since the last version are a neutral count in the status, not a warning.
 - A row that does not read is repaired as text, and a lone surrogate is saved
   as U+FFFD, as before.
-- The lists do not follow change hints. They are read when you return to the
-  window, act, or press Check again.
+- The lists follow the folder's reports of what changed. Returning to the
+  window reads nothing on its own.
 - A version is recorded as you. The earlier build recorded every version as
   `Whispering <whispering@localhost>` and ignored Git's configuration; now
   `user.name` and `user.email` decide, with Whispering only as the fallback.

@@ -9,38 +9,49 @@
  * together.
  *
  * The helpers stand in for what the views do: a screen that shows a query
- * observes it, and a view that edits a todo creates its own write mutation
- * and queues a write only when the store's `edit` says one is needed.
+ * observes it, and a view that edits a todo holds a draft and saves it with
+ * its own save mutation. Load this after `svelte-modules.test-support.js`,
+ * which compiles the draft's runes module.
  */
 import type { FileCapture, Row, StoredRow } from '@epicenter/folder';
-import {
-	focusManager,
-	MutationObserver,
-	type MutationOptions,
-	QueryObserver,
-} from '@tanstack/query-core';
+import { MutationObserver, QueryObserver } from '@tanstack/query-core';
 import type { TodoFields } from './definition.js';
 import type { TodoListing } from './todo-listing.js';
 import type { Todos } from './todos.svelte.js';
 
-export { focusManager, QueryObserver };
+export { QueryObserver };
 
-/** Run one mutation from `options`, as `createMutation`'s `mutate` does. */
-export function mutate<TData, TError>(
-	todos: Todos,
-	options: MutationOptions<TData, TError, void, unknown>,
-): Promise<unknown> {
-	return new MutationObserver(todos.queryClient, options)
-		.mutate()
-		.catch(() => undefined);
-}
+let createDraftState: typeof import('@epicenter/folder/svelte').createDraftState;
+/**
+ * Resolves once the draft's runes module is loaded. A test file awaits it at
+ * its top level before using `rowEditor`; Bun does not hold this module's
+ * importers for a top-level await of a plugin-compiled module.
+ */
+export const editorsReady = import('@epicenter/folder/svelte').then(
+	(module) => {
+		createDraftState = module.createDraftState;
+	},
+);
 
-/** What a view that edits the todo at `stem` does with each change: edit the cache, then queue a write if needed. */
+/**
+ * What a view that edits the todo at `stem` does with each change: start or
+ * continue its draft from the row the cache holds, then save. Answers the
+ * editor, with its draft.
+ */
 export function rowEditor(todos: Todos, stem: string) {
-	const options = todos.rows.write(stem).options;
-	return (change: (row: Row<TodoFields>) => Row<TodoFields>) => {
-		if (todos.rows.edit(stem, change)) void mutate(todos, options);
+	const save = new MutationObserver(todos.queryClient, todos.rows.save);
+	const draft = createDraftState<TodoFields>({
+		save: (sent) => save.mutate(sent),
+	});
+	const edit = (change: (row: Row<TodoFields>) => Row<TodoFields>) => {
+		draft.change(cached(todos, stem), (row) => {
+			const next = change(row);
+			row.fields = next.fields;
+			row.body = next.body;
+		});
+		void draft.save();
 	};
+	return Object.assign(edit, { draft });
 }
 
 /**
@@ -48,10 +59,9 @@ export function rowEditor(todos: Todos, stem: string) {
  * again as it does in the app. Returns the function that stops observing.
  */
 export function observe(todos: Todos) {
-	return new QueryObserver(
-		todos.queryClient,
-		todos.rows.todos.options,
-	).subscribe(() => {});
+	return new QueryObserver(todos.queryClient, todos.rows.todos).subscribe(
+		() => {},
+	);
 }
 
 /** Wait until nothing is mutating or fetching. */
@@ -69,7 +79,9 @@ export async function quiet(todos: Todos) {
 
 /** The todo listing the cache holds now. */
 export function listing(todos: Todos): TodoListing {
-	const data = todos.queryClient.getQueryData<TodoListing>(['todos', 'rows']);
+	const data = todos.queryClient.getQueryData<TodoListing>(
+		todos.rows.todos.queryKey,
+	);
 	if (data === undefined) throw new Error('The todo listing is not loaded');
 	return data;
 }

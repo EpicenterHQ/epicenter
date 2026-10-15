@@ -7,10 +7,11 @@
  * transformations pages do, under the library's query client.
  *
  * Key behaviors:
- * - typing in a view edits the cache of the path it shows, and writes it
+ * - typing in a view edits the path it shows, and writes it
+ * - a change made elsewhere shows once the folder reports it
  * - typing over a change made elsewhere merges with it, and the typing wins
- *   where both changed; a recording deleted elsewhere stays deleted, the
- *   lost text is reported, and its view closes
+ *   where both changed and says so; a recording deleted elsewhere stays
+ *   deleted, the lost text is reported, and its view closes
  * - a row file whose text is not a valid row opens as its text with its
  *   issues, and its fields open once the text reads
  * - bodies show in LF and save in the file's line endings; a title and a
@@ -22,7 +23,8 @@
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Library, WriteFailure } from '../../lib/library.svelte.js';
+import { folderOptions } from '@epicenter/folder/query';
+import type { Library, WriteNotice } from '../../lib/library.svelte.js';
 import { createQueryClient, quiet } from '../../lib/query.test-support.js';
 import { type } from '../svelte-dom.test-support.js';
 
@@ -59,8 +61,8 @@ async function open(
 		await Bun.write(join(stubs.root, path), text);
 	const library = createLibrary(stubs.workspace, createQueryClient());
 	await library.start();
-	const failures: WriteFailure[] = [];
-	library.onWriteFailed((failure) => failures.push(failure));
+	const notices: WriteNotice[] = [];
+	library.onWriteNotice((notice) => notices.push(notice));
 	const page = pageState({ shown: true, tab });
 	const target = document.createElement('main');
 	document.body.append(target);
@@ -70,7 +72,7 @@ async function open(
 		await library.close();
 		await stubs.remove();
 	});
-	return { library, page, target, failures, root: stubs.root };
+	return { library, page, target, notices, root: stubs.root };
 }
 
 /** Select a file and let the views render it, with any text they read. */
@@ -81,12 +83,18 @@ async function show(library: Library, path: string) {
 	flushSync();
 }
 
-/** Let writes, the reads after them, and the views settle. */
+/** Let writes and the views settle. */
 async function settle(library: Library) {
 	await quiet(library.queryClient);
-	await library.check();
-	await quiet(library.queryClient);
 	flushSync();
+}
+
+/** Report that `path` changed, as the folder's change channel does, and let the views read it. */
+async function reportChanged(library: Library, path: string) {
+	await library.queryClient.invalidateQueries(
+		folderOptions(library.folder).pathFilter([path]),
+	);
+	await settle(library);
 }
 
 const field = <T extends Element>(target: ParentNode, selector: string) =>
@@ -96,8 +104,8 @@ const field = <T extends Element>(target: ParentNode, selector: string) =>
 const writeStatus = (target: ParentNode) =>
 	target.querySelector('[data-testid="write-status"]')?.textContent?.trim();
 
-test('typing in a transcript’s view edits the cache of the path it shows, and writes it', async () => {
-	const { library, target, failures, root } = await open({
+test('typing in a transcript’s view edits the path it shows, and writes it', async () => {
+	const { library, target, notices, root } = await open({
 		[A]: transcript('Alpha.\n'),
 	});
 	await show(library, A);
@@ -112,15 +120,34 @@ test('typing in a transcript’s view edits the cache of the path it shows, and 
 	expect(writeStatus(target)).toBe('Saving…');
 	await settle(library);
 
-	expect(failures).toEqual([]);
+	expect(notices).toEqual([]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith(
 		'---\nAlpha, typed.\n',
 	);
 	expect(writeStatus(target)).toBe('Saved');
 });
 
+test('a change made elsewhere shows once the folder reports it', async () => {
+	const { library, target, root } = await open({
+		[A]: transcript('Alpha.\n'),
+	});
+	await show(library, A);
+	const body = () =>
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of a.md"]',
+		);
+
+	await writeFile(join(root, A), transcript('Theirs.\n'));
+	// Nothing reads it until the folder says it changed.
+	await settle(library);
+	expect(body()?.value).toBe('Alpha.\n');
+	await reportChanged(library, A);
+	expect(body()?.value).toBe('Theirs.\n');
+});
+
 test('typing over a change made elsewhere merges with it, and the typing wins where both changed', async () => {
-	const { library, target, failures, root } = await open({
+	const { library, target, notices, root } = await open({
 		[A]: transcript('Alpha.\n'),
 	});
 	await show(library, A);
@@ -133,13 +160,15 @@ test('typing over a change made elsewhere merges with it, and the typing wins wh
 	await writeFile(join(root, A), transcript('Theirs.\n'));
 	type(body(), 'Mine.\n');
 	await settle(library);
-	expect(failures).toEqual([]);
+	expect(notices).toMatchObject([
+		{ kind: 'replaced', path: A, replaced: [{ theirs: 'Theirs.\n' }] },
+	]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
 	expect(body()?.value).toBe('Mine.\n');
 });
 
 test('a recording deleted elsewhere stays deleted: typing in it is refused, reported, and its view closes', async () => {
-	const { library, target, failures, root } = await open({
+	const { library, target, notices, root } = await open({
 		[RECORDING]: recording('Take', 'Notes.\n'),
 	});
 	await show(library, RECORDING);
@@ -147,8 +176,10 @@ test('a recording deleted elsewhere stays deleted: typing in it is refused, repo
 	type(field(target, 'input[aria-label="Recording title"]'), 'Mine');
 	await settle(library);
 
-	expect(failures).toHaveLength(1);
-	expect(failures[0]?.lost).toContain('title: Mine');
+	expect(notices).toHaveLength(1);
+	expect(notices[0]?.kind === 'failed' && notices[0].lost).toContain(
+		'title: Mine',
+	);
 	expect(library.selection).toBeUndefined();
 	expect(target.querySelector('[data-testid="recording-detail"]')).toBeNull();
 	expect(await Bun.file(join(root, RECORDING)).exists()).toBe(false);

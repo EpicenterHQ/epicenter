@@ -148,11 +148,11 @@ export async function createSession(
 		/**
 		 * Whether a navigation must be held back. A navigation between this app's
 		 * routes unloads nothing and is never held. One that unloads the document
-		 * is held while a write is still running; in a browser tab that raises
-		 * the browser's own leave warning.
+		 * is held while an edit is not in its file yet; in a browser tab that
+		 * raises the browser's own leave warning.
 		 */
 		blocksNavigation(navigation: { readonly willUnload: boolean }): boolean {
-			return navigation.willUnload && library.saving;
+			return navigation.willUnload && library.unsaved;
 		},
 		/** Wait for what is being written, and release the folder. Runs once. */
 		close(): Promise<void> {

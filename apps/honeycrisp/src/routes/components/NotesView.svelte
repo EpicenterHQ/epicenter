@@ -18,7 +18,7 @@
 	let filesOpen = $state(false);
 	let terminalOpen = $state(false);
 
-	// Writes and actions run in this window. A reload or in-page navigation
+	// Saves and actions run in this window. A reload or in-page navigation
 	// waits while one runs: it is cancelled here, and the webview asks first.
 	// Closing the desktop window quits at once (ADR-0542). Once the notes are
 	// closing, `notes.fenced` holds back every input and action here.
@@ -35,8 +35,6 @@
 	}
 </script>
 
-<!-- Returning to the window reads the lists, the open file, and Git status
-     again, through the query cache; nothing is read while a write runs. -->
 <svelte:window
 	onbeforeunload={(event) => {
 		if (notes.busy) event.preventDefault();
@@ -65,7 +63,7 @@
 />
 
 <!-- Once the notes are closing nothing here takes input. The editors stay
-     mounted while the last writes land. -->
+     mounted while the last saves land. -->
 <div class="flex h-dvh flex-col overflow-hidden" inert={notes.fenced}>
 	<AppHeader
 		{notes}

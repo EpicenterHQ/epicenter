@@ -27,6 +27,7 @@ import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { folderOptions } from '@epicenter/folder/query';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { ConnectionChange } from './connections.js';
@@ -194,7 +195,10 @@ test('the folder being read is reported while it is read, and not after', async 
 	const { library } = await open();
 	expect(library.refreshing).toBe(false);
 
-	const reading = library.check();
+	// A change the folder reports, as its change channel reports one.
+	const reading = library.queryClient.invalidateQueries(
+		folderOptions(library.folder).pathFilter(['recordings/elsewhere.md']),
+	);
 	expect(library.refreshing).toBe(true);
 	await reading;
 

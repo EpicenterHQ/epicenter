@@ -1,22 +1,23 @@
 /**
- * The learner's saved words, kept in the TanStack Query cache (ADR-0528).
+ * The learner's saved words (ADR-0548).
  *
- * The `entries` table's listing is one query: the files that read as words,
- * and the ones that do not, each with why, for repair as text. It is read on
- * open, on window focus while nothing is being written, and after the app's
- * own actions.
+ * The `entries` table's listing is one query under the folder's keys: the
+ * files that read as words, and the ones that do not, each with why, for
+ * repair as text. It is read on open and again when the folder reports a
+ * change to `entries/`. This page's own saves are not reported: each puts
+ * what it wrote in the listing itself.
  *
- * An edit goes straight into the cache: one immutable `map` over the listing
- * changes one word. Each edit is written by a mutation scoped to the word's
- * file, so a file has at most one write running and one waiting, and the
- * waiting one saves whatever the cache holds when it runs, guarded by the
- * newest confirmed `sha256`. A write that succeeds moves the guard forward. A
- * write that fails reads that one file again, which rolls the edit back, and
- * reports the text that was lost.
+ * An edit is a draft held outside the cache, one per word. The draft keeps
+ * the version the edit started from, so a read that lands meanwhile changes
+ * the listing and never the edit. Each change sends a save, one at a time;
+ * changes made while a save runs are sent next, from the version it wrote.
+ * A file changed elsewhere since is merged with the edit. A failed save
+ * keeps the draft on screen, and the learner is told.
  *
  * A word file that is not a valid word is repaired as its exact text, read
- * as its own query and written the same way. Adding and deleting a word are
- * mutations too, so closing waits for them.
+ * as its own query and written the same way: a draft of the text, written
+ * one write at a time over the version the last write left. Adding and
+ * deleting a word are mutations too, so closing waits for them.
  *
  * A new word's file is named by the SHA-256 of its exact text, and creation
  * is exclusive, so two adds of one text reach the same file.
@@ -26,21 +27,19 @@ import { InstantString } from '@epicenter/definition/field';
 import {
 	type FileCapture,
 	type FileError,
-	formatRow,
 	hashBytes,
+	type Replaced,
 	type Row,
 	rowPath,
-	type SavedRow,
 	type StoredRow,
 	type TableError,
 	type TableListing,
-	type TableSaveError,
 	wellFormed,
 } from '@epicenter/folder';
 import { type OpenedFile, readTextFile } from '@epicenter/folder/file-browser';
-import { createSaveBases } from '@epicenter/folder/query';
-import type { QueryClient } from '@tanstack/svelte-query';
-import { createSubscriber } from 'svelte/reactivity';
+import { createDraftState, type DraftState } from '@epicenter/folder/svelte';
+import type { MutationOptions, QueryClient } from '@tanstack/svelte-query';
+import { createSubscriber, SvelteMap } from 'svelte/reactivity';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -55,9 +54,8 @@ import {
 	readRows,
 	type UnreadableFile,
 	type VocabFolder,
-	vocabFolder,
 } from './data.js';
-import { vocabKeys, type WriteFailure, writing } from './query.js';
+import { type VocabOptions, vocabKeys, type WriteFailure } from './query.js';
 
 export const EntryError = defineErrors({
 	Empty: () => ({ message: 'There is no text to save.' }),
@@ -82,6 +80,12 @@ export type EntryError = InferErrors<typeof EntryError>;
 /** Every word file, as the table lists it: a word, or why it is not one. */
 export type EntryListing = TableListing<EntryFields>;
 
+/** A save that replaced a value another writer changed: the word's path, and which fields. */
+export type ReplacedNotice = {
+	readonly path: string;
+	readonly fields: string[];
+};
+
 /** The directory, and table, that holds the words. */
 const ENTRIES = 'entries';
 
@@ -93,6 +97,8 @@ export function describeError(error: {
 	readonly name: string;
 	readonly message: string;
 }): string {
+	if (error.name === 'NotFound')
+		return 'The file is no longer here, so nothing was changed.';
 	if (error.name === 'Conflict')
 		return 'actualSha256' in error && error.actualSha256 === undefined
 			? 'The file is no longer here, so nothing was changed.'
@@ -121,17 +127,78 @@ export function repairsOf(listing: EntryListing): UnreadableFile[] {
 		.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
+/** The fields a save's replaced values belong to, as the learner reads them. */
+const replacedFields = (replaced: readonly Replaced[]) =>
+	replaced.map((value) => (value.kind === 'field' ? value.field : 'text'));
+
+/**
+ * The typed text of a file open for repair: held outside the cache from its
+ * first change, and written one write at a time over the version the last
+ * write left. A failed write keeps the text; the next `save` sends it again.
+ */
+function createTextDraft(
+	write: (over: FileCapture, text: string) => Promise<FileCapture>,
+) {
+	let base: FileCapture | undefined;
+	let text = $state<string | undefined>();
+	/** Counts changes, so a write knows whether the text moved on while it ran. */
+	let revision = 0;
+	let running = $state<Promise<void> | undefined>();
+
+	async function loop() {
+		try {
+			while (base !== undefined && text !== undefined) {
+				const sent = { base, text, revision };
+				const written = await write(sent.base, sent.text).catch(
+					() => undefined,
+				);
+				// The mutation holds the error; the draft keeps the text.
+				if (written === undefined) return;
+				if (sent.revision === revision) {
+					base = undefined;
+					text = undefined;
+				} else base = written;
+			}
+		} finally {
+			running = undefined;
+		}
+	}
+
+	return {
+		/** The typed text not yet written; `undefined` with no change. */
+		get text() {
+			return text;
+		},
+		/** Type `next` over `current`, the file as the cache holds it now. */
+		change(current: FileCapture, next: string) {
+			base ??= { path: current.path, sha256: current.sha256 };
+			text = next;
+			revision++;
+		},
+		save(): Promise<void> {
+			if (running !== undefined) return running;
+			if (text === undefined) return Promise.resolve();
+			running = loop();
+			return running;
+		},
+	};
+}
+
 export function createEntries(
 	folder: Pick<VocabFolder, 'tables' | 'files'>,
+	folder$: Pick<VocabOptions, 'entries' | 'files' | 'pathFilter'>,
 	queryClient: QueryClient,
 	{
 		refused,
 		onWriteFailed,
+		onReplaced,
 	}: {
 		/** Why no change starts now, if one does not. */
 		refused: () => string | undefined;
-		/** A write failed and was rolled back; the app tells the learner. */
+		/** A write failed; the app tells the learner. */
 		onWriteFailed: (failure: WriteFailure) => void;
+		/** A save replaced a value changed elsewhere; the app tells the learner. */
+		onReplaced: (notice: ReplacedNotice) => void;
 	},
 ) {
 	const table = folder.tables.entries;
@@ -139,56 +206,38 @@ export function createEntries(
 	const trackMutations = createSubscriber((update) =>
 		queryClient.getMutationCache().subscribe(update),
 	);
-	/** The word file open as text for repair, if one is. */
-	let repairing = $state<string | undefined>();
+	const listKey = folder$.entries.list.queryKey();
+	/** The text of a word file open for repair, under the folder's read of that file. */
+	const textKey = (path: string) => [
+		...folder$.files.read.queryKey(path),
+		'text',
+	];
+	/** Each word's edit, by ID; one draft whichever view edits it. */
+	const drafts = new SvelteMap<string, DraftState<EntryFields>>();
+	/** The word file open as text for repair, if one is, and its typed text. */
+	let repair = $state<
+		{ path: string; draft: ReturnType<typeof createTextDraft> } | undefined
+	>();
 
 	const pathOf = (id: string) => rowPath(table.name, id);
-	const listingData = () =>
-		queryClient.getQueryData<EntryListing>(vocabKeys.entries);
+	const listingData = () => queryClient.getQueryData<EntryListing>(listKey);
 	const textData = (path: string) =>
-		queryClient.getQueryData<OpenedFile>(vocabKeys.text(path));
+		queryClient.getQueryData<OpenedFile>(textKey(path));
 
-	/** The row each cached version held, which a save merges from. */
-	const bases = createSaveBases<EntryFields>();
+	/** Run a write's TanStack options once, through the cache, so closing waits for it. */
+	const run = <TData, TError, TVariables>(
+		options: MutationOptions<TData, TError, TVariables>,
+		variables: TVariables,
+	) =>
+		queryClient
+			.getMutationCache()
+			.build(queryClient, options)
+			.execute(variables) as Promise<TData>;
 
 	/** The word the cache holds at `id`, if it reads as one. */
 	function rowOf(id: string): StoredRow<EntryFields> | undefined {
 		const result = listingData()?.find((entry) => entry.stem === id)?.result;
 		return result?.error === null ? result.data : undefined;
-	}
-
-	/** Change the word at `id` in the cache: one immutable `map` over the listing. */
-	function mapRow(
-		id: string,
-		change: (stored: StoredRow<EntryFields>) => StoredRow<EntryFields>,
-	): boolean {
-		let changed = false;
-		queryClient.setQueryData<EntryListing>(vocabKeys.entries, (listing) =>
-			listing?.map((entry) => {
-				if (entry.stem !== id || entry.result.error !== null) return entry;
-				changed = true;
-				return { ...entry, result: Ok(change(entry.result.data)) };
-			}),
-		);
-		return changed;
-	}
-
-	/** Change the text of `path` in the cache, if it holds text. */
-	function mapText(
-		path: string,
-		change: (file: { path: string; sha256: string; text: string }) => {
-			path: string;
-			sha256: string;
-			text: string;
-		},
-	): boolean {
-		let changed = false;
-		queryClient.setQueryData<OpenedFile>(vocabKeys.text(path), (opened) => {
-			if (opened?.kind !== 'text') return opened;
-			changed = true;
-			return { kind: 'text', file: change(opened.file) };
-		});
-		return changed;
 	}
 
 	/** Whether a delete of `path` is running or waiting, which pauses its edits. */
@@ -198,161 +247,63 @@ export function createEntries(
 			exact: true,
 		}) > 0;
 
-	/** Whether fewer than two writes under `key` run or wait, so an edit should queue one. */
-	const needsWrite = (key: readonly unknown[]) =>
-		queryClient.isMutating({ mutationKey: key, exact: true }) < 2;
-
-	/**
-	 * Read again what an action may have changed. While a write runs nothing
-	 * is read: the last write to settle reads everything again.
-	 */
-	const invalidate = (queryKey: readonly unknown[]) =>
-		writing(queryClient)
-			? Promise.resolve()
-			: queryClient.invalidateQueries({ queryKey });
-
-	/** After a write settles: once it is the last one, the words and any repair are read again. */
-	const afterWrite = () =>
-		queryClient.isMutating({ mutationKey: vocabKeys.writes }) <= 1
-			? Promise.all([
-					queryClient.invalidateQueries({ queryKey: vocabKeys.entries }),
-					queryClient.invalidateQueries({ queryKey: ['vocab', 'text'] }),
-				])
-			: undefined;
-
-	/**
-	 * After a failed write, the cache takes the word as the file holds it
-	 * now. TanStack awaits this before the next write of the file runs, so
-	 * that write saves the file's own bytes instead of the failed edit.
-	 */
-	async function reloadRow(id: string) {
-		await queryClient.cancelQueries({
-			queryKey: vocabKeys.entries,
-			exact: true,
+	/** The draft of the word at `id`, made at its first edit. */
+	function draftOf(id: string): DraftState<EntryFields> {
+		const known = drafts.get(id);
+		if (known !== undefined) return known;
+		const path = pathOf(id);
+		const draft: DraftState<EntryFields> = createDraftState<EntryFields>({
+			save: (sent) =>
+				run(
+					{
+						...folder$.entries.save.mutationOptions(),
+						onError: (error) => {
+							// A word deleted elsewhere is gone with its edit.
+							if (error.name === 'NotFound') {
+								draft.discard();
+								onWriteFailed({ path, error, lost: '' });
+								return;
+							}
+							onWriteFailed({
+								path,
+								error,
+								lost: '',
+								retry: () => void draft.save(),
+							});
+						},
+					},
+					sent,
+				),
+			onSaved: ({ replaced }) => {
+				if (replaced.length > 0)
+					onReplaced({ path, fields: replacedFields(replaced) });
+			},
 		});
-		const { data: stored, error } = await table.get(id);
-		queryClient.setQueryData<EntryListing>(vocabKeys.entries, (listing) =>
-			listing?.flatMap((entry) => {
-				if (entry.stem !== id) return [entry];
-				if (error !== null) return [{ stem: id, result: Err(error) }];
-				return stored === undefined ? [] : [{ stem: id, result: Ok(stored) }];
-			}),
-		);
-	}
-
-	/** After a failed write of a file's text, the cache takes the file as it is now. */
-	async function reloadText(path: string) {
-		const key = vocabKeys.text(path);
-		await queryClient.cancelQueries({ queryKey: key, exact: true });
-		const read = await readTextFile(folder.files, path, EDITABLE_TEXT_LIMIT);
-		if (read.error === null) queryClient.setQueryData(key, read.data);
-		else await queryClient.invalidateQueries({ queryKey: key, exact: true });
+		drafts.set(id, draft);
+		return draft;
 	}
 
 	/**
 	 * The capture a delete of `id` acts on, read when it runs: the newest
-	 * hash the cache confirmed, if it holds one. A file open as text, or one
-	 * that is not a valid word, is a capture of its bytes too.
+	 * hash the cache holds. A file open as text, or one that is not a valid
+	 * word, is a capture of its bytes too.
 	 */
 	function heldCapture(id: string): FileCapture | undefined {
 		const path = pathOf(id);
 		const opened = textData(path);
-		if (repairing === path && opened?.kind === 'text') return opened.file;
+		if (repair?.path === path && opened?.kind === 'text') return opened.file;
 		const result = listingData()?.find((entry) => entry.stem === id)?.result;
 		if (result?.error === null) return result.data;
 		if (result?.error.name === 'InvalidRow') return result.error;
 		return undefined;
 	}
 
-	/**
-	 * The write of one word: the row the cache holds when it runs, over the
-	 * version it last confirmed, from the row that version held; a file
-	 * changed elsewhere since is merged with it.
-	 */
-	function rowWrite(id: string) {
-		const path = pathOf(id);
-		return {
-			mutationKey: vocabKeys.write(path),
-			// Row and text writes of one file share its queue.
-			scope: { id: path },
-			mutationFn: async (): Promise<
-				Result<SavedRow<EntryFields> | undefined, TableSaveError>
-			> => {
-				const stored = rowOf(id);
-				if (stored === undefined) return Ok(undefined);
-				const saved = await table.save(bases.baseOf(id, stored), stored.row);
-				if (saved.error === null) bases.saved(id, stored.row, saved.data);
-				return saved;
-			},
-			onSuccess: (saved: SavedRow<EntryFields> | undefined) => {
-				if (saved === undefined) return;
-				// TanStack awaits this before the next write in the scope runs.
-				mapRow(id, (stored) => ({
-					...stored,
-					path: saved.stored.path,
-					sha256: saved.stored.sha256,
-				}));
-			},
-			onError: async (error: TableSaveError) => {
-				const lost = rowOf(id);
-				await reloadRow(id);
-				onWriteFailed({
-					path,
-					error,
-					lost: lost === undefined ? '' : rowText(lost.row),
-				});
-			},
-			onSettled: afterWrite,
-		};
-	}
-
-	/** The write of a word file's text, as `rowWrite` is for a word. */
-	function textWrite(path: string) {
-		return {
-			mutationKey: vocabKeys.writeText(path),
-			scope: { id: path },
-			mutationFn: async (): Promise<
-				Result<FileCapture | undefined, FileError>
-			> => {
-				const opened = textData(path);
-				if (opened?.kind !== 'text') return Ok(undefined);
-				return folder.files.replace(opened.file, opened.file.text);
-			},
-			onSuccess: (saved: FileCapture | undefined) => {
-				if (saved === undefined) return;
-				mapText(path, (file) => ({ ...file, sha256: saved.sha256 }));
-			},
-			onError: async (error: FileError) => {
-				const lost = textData(path);
-				await reloadText(path);
-				onWriteFailed({
-					path,
-					error,
-					lost: lost?.kind === 'text' ? lost.file.text : '',
-				});
-			},
-			onSettled: afterWrite,
-		};
-	}
-
-	/** After a delete: the cache and the repair let the file go. */
-	function deleted(id: string) {
-		const path = pathOf(id);
-		queryClient.setQueryData<EntryListing>(vocabKeys.entries, (listing) =>
-			listing?.filter((entry) => entry.stem !== id),
-		);
-		queryClient.removeQueries({ queryKey: vocabKeys.text(path), exact: true });
-		if (repairing === path) repairing = undefined;
-	}
-
 	/** Put a word this page just saved into the listing. */
-	async function received(id: string, stored: StoredRow<EntryFields>) {
-		// A read still running may not hold it.
-		await queryClient.cancelQueries({
-			queryKey: vocabKeys.entries,
-			exact: true,
-		});
-		queryClient.setQueryData<EntryListing>(vocabKeys.entries, (listing) =>
+	function received(id: string, stored: StoredRow<EntryFields>) {
+		// A read still running may not hold it: read once more instead.
+		if (queryClient.isFetching({ queryKey: listKey, exact: true }) > 0)
+			return queryClient.invalidateQueries({ queryKey: listKey, exact: true });
+		queryClient.setQueryData<EntryListing>(listKey, (listing) =>
 			listing === undefined
 				? undefined
 				: [
@@ -420,28 +371,17 @@ export function createEntries(
 			return Ok({ outcome: 'present', id: stem, stored: current });
 		},
 		onSuccess: ({ id, stored }) => received(id, stored),
-		onSettled: () => invalidate(vocabKeys.entries),
 	});
 
-	/** Change the word at `id` in the cache, and queue its write when one is needed. */
-	function update(
-		id: string,
-		change: (row: Row<EntryFields>) => Row<EntryFields>,
-	): boolean {
-		const path = pathOf(id);
-		if (refused() !== undefined || repairing === path || removing(path))
-			return false;
-		// A read still running could replace this edit when it lands.
-		void queryClient.cancelQueries({
-			queryKey: vocabKeys.entries,
-			exact: true,
-		});
-		const changed = mapRow(id, (stored) => {
-			bases.editing(id, stored);
-			return { ...stored, row: change(stored.row) };
-		});
-		if (!changed) return false;
-		if (needsWrite(vocabKeys.write(path))) void defineMutation(rowWrite(id))();
+	/** Change the draft of the word at `id` and save it. */
+	function edit(id: string, change: (row: Row<EntryFields>) => void): boolean {
+		if (refused() !== undefined || repair?.path === pathOf(id)) return false;
+		if (removing(pathOf(id))) return false;
+		const current = rowOf(id);
+		if (current === undefined) return false;
+		const draft = draftOf(id);
+		draft.change(current, change);
+		void draft.save();
 		return true;
 	}
 
@@ -450,34 +390,31 @@ export function createEntries(
 		entriesQuery<TData = EntryListing>(
 			select?: (listing: EntryListing) => TData,
 		) {
-			return resultQueryOptions({
-				queryKey: vocabKeys.entries,
-				queryFn: () => table.list(),
-				select,
-			});
+			return { ...folder$.entries.list.queryOptions(), select };
 		},
 		/** One word file's exact text, or its type and size when it is not editable text. */
 		textQuery(path: string) {
 			return resultQueryOptions({
-				queryKey: vocabKeys.text(path),
+				queryKey: textKey(path),
 				queryFn: () => readTextFile(folder.files, path, EDITABLE_TEXT_LIMIT),
 			});
 		},
-		/** Whether a write of the word at `id` runs or waits; read reactively. */
+		/** `entry` as the learner sees it: with its edit, while one is unsaved. Read reactively. */
+		shown(entry: Entry): Entry {
+			const row = drafts.get(entry.id)?.row;
+			return row === undefined
+				? entry
+				: { ...entry, note: row.fields.note, stage: row.fields.stage };
+		},
+		/** Whether a save of the word at `id` runs; read reactively. */
 		isSaving(id: string) {
-			trackMutations();
-			const path = pathOf(id);
-			return (
-				queryClient.isMutating({ mutationKey: vocabKeys.write(path) }) +
-					queryClient.isMutating({ mutationKey: vocabKeys.writeText(path) }) >
-				0
-			);
+			return drafts.get(id)?.saving ?? false;
 		},
 		/** Whether the word at `id` takes no edit now: it is being deleted, or is open as text. */
 		isLocked(id: string) {
 			trackMutations();
 			const path = pathOf(id);
-			return repairing === path || removing(path);
+			return repair?.path === path || removing(path);
 		},
 
 		/**
@@ -492,20 +429,18 @@ export function createEntries(
 		},
 		/** Type the note of the word at `id`; it is kept well formed, so what is shown is what is saved. */
 		inputNote(id: string, note: string) {
-			return update(id, (row) => ({
-				...row,
-				fields: { ...row.fields, note: wellFormed(note) },
-			}));
+			return edit(id, (row) => {
+				row.fields.note = wellFormed(note);
+			});
 		},
 		/** Press a stage of the word at `id`. */
 		setStage(id: string, stage: EntryFields['stage']) {
-			return update(id, (row) => ({
-				...row,
-				fields: { ...row.fields, stage },
-			}));
+			return edit(id, (row) => {
+				row.fields.stage = stage;
+			});
 		},
 		/**
-		 * Delete `entry`. It runs after the word's queued writes, so it removes
+		 * Delete `entry`. It waits for the word's save under way, so it removes
 		 * what this page saved last; a file changed elsewhere since is refused,
 		 * and the list reads it again.
 		 */
@@ -513,54 +448,85 @@ export function createEntries(
 			const path = pathOf(entry.id);
 			return defineMutation({
 				mutationKey: vocabKeys.remove(path),
-				scope: { id: path },
 				mutationFn: async (): Promise<
 					Result<undefined, TableError | FileError | EntryError>
 				> => {
 					const why = refused();
 					if (why !== undefined) return EntryError.NotStarted({ reason: why });
+					await drafts.get(entry.id)?.save();
+					if (repair?.path === path) await repair.draft.save();
 					return table.delete(heldCapture(entry.id) ?? entry.stored);
 				},
-				onSuccess: () => deleted(entry.id),
-				onSettled: () => invalidate(vocabKeys.entries),
+				onSuccess: () => {
+					queryClient.setQueryData<EntryListing>(listKey, (listing) =>
+						listing?.filter((listed) => listed.stem !== entry.id),
+					);
+					queryClient.removeQueries({ queryKey: textKey(path), exact: true });
+					drafts.delete(entry.id);
+					if (repair?.path === path) repair = undefined;
+				},
+				onError: (error) => {
+					if (error.name === 'Conflict')
+						return queryClient.invalidateQueries(folder$.pathFilter([path]));
+				},
 			})();
 		},
 
 		/** The word file open as text for repair, if one is. */
 		get repairing() {
-			return repairing;
+			return repair?.path;
 		},
-		/** Open a word file as its exact text, read now. */
+		/** The text typed for the repair and not yet written, if any; read reactively. */
+		get repairText() {
+			return repair?.draft.text;
+		},
+		/** Open a word file as its exact text. */
 		openRepair(path: string) {
-			repairing = path;
-			void queryClient.invalidateQueries({
-				queryKey: vocabKeys.text(path),
-				exact: true,
-			});
+			repair = {
+				path,
+				draft: createTextDraft((over, text) =>
+					run(
+						{
+							...folder$.files.write.mutationOptions(),
+							onError: (error) =>
+								onWriteFailed({
+									path,
+									error,
+									lost: '',
+									retry: () => void repair?.draft.save(),
+								}),
+						},
+						{ path, content: text, over },
+					),
+				),
+			};
 		},
-		/** Close the repair and read the words again, so a repaired file shows as a word. */
-		closeRepair() {
-			repairing = undefined;
-			void invalidate(vocabKeys.entries);
+		/**
+		 * Close the repair once its text is written, and read the file again,
+		 * so a repaired file shows as a word. Answers whether it closed: a
+		 * text that could not be written keeps the repair open.
+		 */
+		async closeRepair(): Promise<boolean> {
+			const open = repair;
+			if (open === undefined) return true;
+			await open.draft.save();
+			if (open.draft.text !== undefined) return false;
+			if (repair === open) repair = undefined;
+			queryClient.removeQueries({ queryKey: textKey(open.path), exact: true });
+			// This page's own write is not reported back to it.
+			await queryClient.invalidateQueries(folder$.pathFilter([open.path]));
+			return true;
 		},
 		/** Type the text of the word file open for repair; each change is written as typed. */
 		inputText(path: string, text: string) {
 			if (refused() !== undefined || removing(path)) return false;
-			void queryClient.cancelQueries({
-				queryKey: vocabKeys.text(path),
-				exact: true,
-			});
-			if (!mapText(path, (file) => ({ ...file, text }))) return false;
-			if (needsWrite(vocabKeys.writeText(path)))
-				void defineMutation(textWrite(path))();
+			const opened = textData(path);
+			if (repair?.path !== path || opened?.kind !== 'text') return false;
+			repair.draft.change(opened.file, text);
+			void repair.draft.save();
 			return true;
 		},
 	};
-}
-
-/** The text a learner loses with a word that could not be written. */
-function rowText(row: Row<EntryFields>) {
-	return formatRow(vocabFolder.tables.entries, row).data ?? row.fields.note;
 }
 
 export type Entries = ReturnType<typeof createEntries>;

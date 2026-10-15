@@ -12,9 +12,9 @@
  * The host that serves this page does the rest: the terminal is the person's
  * shell in that directory, transcription and text requests leave from the
  * host over the device's two connections, the microphone chosen on this
- * device is kept beside them. The host holds no folder. Nothing reports what its terminal
- * or any other program writes: the library reads again after each terminal
- * command and when the person returns to the window.
+ * device is kept beside them. The host holds no folder. What its terminal or
+ * any other program writes, the shell's file watcher reports on the folder's
+ * change channel (`folder.onFilesChanged`).
  *
  * Both are required to open. A host that does not answer, a shell that
  * refuses the folder, and the two naming different directories are each
@@ -98,11 +98,6 @@ export async function openDesktopWorkspace(
 		await folder.close();
 		return WorkspaceError.FolderMismatch({ folder: root, host: info.root });
 	}
-	// The folder is open: a debug host may now take the branch lock its
-	// launch asked for, once the folder's first commit has created Git. The
-	// host reports a refusal itself.
-	if (info.debug) await bridge.app('injection-launch').catch(() => {});
-
 	// The folder-relative directory the next command starts in.
 	let cwd = '';
 	const shown = (relative: string) => (relative === '' ? '/' : `/${relative}`);

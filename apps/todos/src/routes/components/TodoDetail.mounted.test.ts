@@ -10,15 +10,16 @@
  * until a test crosses the breakpoint, so the view lays out as on a narrow
  * screen: the list stays mounted, hidden, behind the open todo. Typing goes
  * through the DOM, into the shared `Input` and `Textarea` and their function
- * bindings; another writer changes the file through `folder.files`.
+ * bindings; another writer changes the file through `folder.files`, or
+ * through a second page of the same origin, whose change the folder reports.
  *
  * Key behaviors:
- * - Typing a title or notes changes the cache at once, so the list shows it
- *   while the view's own write mutation saves it. Each todo gets its own
- *   view, and each input saves at its own path
- * - A write that meets a change made elsewhere merges with it; the edit
+ * - Typing a title or notes goes into the view's draft and is saved; the
+ *   list shows what the save wrote. Each todo gets its own view, and each
+ *   input saves at its own path
+ * - A save that meets a change made elsewhere merges with it; the edit
  *   wins where both changed
- * - Returning to the window shows another writer's change
+ * - Another page's change shows without the person returning to the window
  * - A malformed todo shows under "Needs repair"; shown, its issues and text
  *   are read-only, and it reads as a todo once another editor fixes it
  * - A file that cannot be read as text is labelled "Could not read", not
@@ -76,10 +77,11 @@ const LIST = '[aria-label="Todo list"]';
 
 /** The real store over a fresh browser folder, with the whole view mounted over it. */
 async function setup() {
-	const storage = createTestStorage();
+	const storage = createTestStorage({ BroadcastChannel });
+	const id = `todo-detail-mounted-${count++}`;
 	const folder = expectOk(
 		await openFolder({
-			id: `todo-detail-mounted-${count++}`,
+			id,
 			definition: todosDefinition,
 			browser: {
 				author: { name: 'Test', email: 'test@example.test' },
@@ -131,6 +133,21 @@ async function setup() {
 		/** Another writer replaces the file. */
 		async overwrite(path: string, content: string) {
 			expectOk(await folder.files.overwrite(path, content));
+		},
+		/** Another page of this origin replaces the file; the folder reports it. */
+		async overwriteElsewhere(path: string, content: string) {
+			const other = expectOk(
+				await openFolder({
+					id,
+					definition: todosDefinition,
+					browser: {
+						author: { name: 'Other', email: 'other@example.test' },
+						...browserStorage(storage),
+					},
+				}),
+			);
+			expectOk(await other.files.overwrite(path, content));
+			await other.close();
 		},
 	};
 }
@@ -202,7 +219,7 @@ async function reread(todos: Todos) {
 	await settle(todos);
 }
 
-test('typing changes the cache at once, so the list shows it, and each todo saves at its own path', async () => {
+test('typing is saved, the list shows what was saved, and each todo saves at its own path', async () => {
 	const { todos, target, get, list, reading } = await setup();
 	const pathA = await addTodo(todos, target, 'A');
 	const pathB = await addTodo(todos, target, 'B');
@@ -211,10 +228,9 @@ test('typing changes the cache at once, so the list shows it, and each todo save
 	const title = get<HTMLInputElement>(TITLE);
 	expect(title.value).toBe('A');
 	type(title, 'A typed');
-	flushSync();
-	// The list reads the same cache: it shows the typing before the write lands.
-	expect(listed(list())).toContain('A typed');
 	await settle(todos);
+	// The save put the row it wrote in the cache the list reads.
+	expect(listed(list())).toContain('A typed');
 	expect(get('[data-testid="write-status"]').textContent).toContain(
 		`Saved to ${pathA}`,
 	);
@@ -240,7 +256,7 @@ test('typing changes the cache at once, so the list shows it, and each todo save
 	});
 });
 
-test('a write that meets a change made elsewhere merges with it, and the edit wins where both changed', async () => {
+test('a save that meets a change made elsewhere merges with it, and the edit wins where both changed', async () => {
 	const { todos, target, get, list, failures, overwrite, text } = await setup();
 	const path = await addTodo(todos, target, 'Milk');
 	await overwrite(path, ROW('Milk from the shop'));
@@ -253,16 +269,10 @@ test('a write that meets a change made elsewhere merges with it, and the edit wi
 	expect(await text(path)).toBe(ROW('Oat milk'));
 });
 
-test("returning to the window shows another writer's change", async () => {
-	const { todos, target, get, list, overwrite } = await setup();
+test("another page's change shows without returning to the window", async () => {
+	const { todos, target, get, list, overwriteElsewhere } = await setup();
 	const path = await addTodo(todos, target, 'Milk');
-	await overwrite(path, ROW('Milk, edited elsewhere'));
-	await settle(todos);
-	// Nothing follows the folder's change reports while the window has focus.
-	expect(get<HTMLInputElement>(TITLE).value).toBe('Milk');
-
-	// The person comes back to the page.
-	document.dispatchEvent(new Event('visibilitychange'));
+	await overwriteElsewhere(path, ROW('Milk, edited elsewhere'));
 	await eventually(
 		() => get<HTMLInputElement>(TITLE).value === 'Milk, edited elsewhere',
 	);
@@ -288,7 +298,7 @@ test('a malformed todo shows under "Needs repair"; shown, its issues and text ar
 	expect(get(BROKEN).textContent).toBe(broken.replace(/\r\n/g, '\n'));
 	expect(leave()).toBe(false);
 
-	// Another editor fixes it; returning to the window reads it again.
+	// Another editor fixes it; reading again shows it.
 	await overwrite('todos/bad.md', ROW('Fixed'));
 	await reread(todos);
 	expect(repairs()).toBeNull();
@@ -344,11 +354,12 @@ test('completion from the list and from the detail keeps notes and undeclared ke
 
 	press(completion());
 	flushSync();
+	// The list's own draft shows it at once; the detail, once it is saved.
 	expect(completion().getAttribute('aria-checked')).toBe('true');
+	await settle(todos);
 	expect(get<HTMLButtonElement>(DONE).getAttribute('aria-checked')).toBe(
 		'true',
 	);
-	await settle(todos);
 	expect(await reading(path)).toEqual({
 		fields: { title: 'Milk', done: true, owner: 'keep-me' },
 		body: 'Current notes.',

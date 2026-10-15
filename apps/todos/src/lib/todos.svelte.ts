@@ -1,49 +1,47 @@
 /**
  * The Todos store over one opened folder, kept in its own TanStack Query
- * cache (ADR-0528). Todos shows one folder table: the list is the table, the
- * detail is one row, and a field change is a write of that row's file.
- * Every write carries the hash of the version the person acted on, taken
- * when they acted. The cache holds the listing.
+ * cache (ADR-0528, ADR-0548). Todos shows one folder table: the list is the
+ * table, the detail is one row, and an edit is a save of that row's file.
+ * Every query comes from the folder's options (`folderOptions`), and the
+ * one channel of outside change, `folder.onFilesChanged`, marks what it
+ * names stale; nothing rereads on focus.
  *
  * This file builds the session every part shares: the query client and its
- * rules, leaving, and closing. The parts are namespaces over that session,
- * each in its file:
+ * rules, the change wiring, leaving, and closing. The parts are namespaces
+ * over that session, each in its file:
  *
- * - `todos.rows` (`rows.ts`): the todo listing and its views, edits, writes,
+ * - `todos.rows` (`rows.ts`): the todo listing and its views, saving,
  *   adding, and delete
  * - `todos.git`  (`git.ts`): history state and status, Save version
  * - `todos.sync` (`sync.ts`): Sync and its review's Apply
  *
- * Every query and mutation is a wellcrafted definition: a view passes
- * `.options` to `createQuery` or `createMutation`; code and tests call a
- * mutation or `.fetch()` a query and get a `Result`. A member that takes a
- * stem and returns a definition is one a view holds (`rows.entry`,
- * `rows.write`); an async method is a one-shot action a
- * handler awaits (`rows.remove`). Whether something runs
- * is TanStack's: a view asks `useIsMutating` with a key from `todosKeys`
- * (`writes`, `remove(path)`). Which todo is open is the
+ * A view passes query and mutation options to `createQuery` or
+ * `createMutation`. An edit is a draft the editing view holds
+ * (`createDraftState`): it keeps the version the edit started from, and
+ * `table.save` merges with whatever changed since. Which todo is open is the
  * page URL's (`?todo=<stem>`), not the store's. Saves never commit
  * (ADR-0529); a version is recorded by Sync or by Save version.
  */
+import { folderOptions } from '@epicenter/folder/query';
 import {
-	focusManager,
 	MutationCache,
 	type MutationFilters,
 	QueryClient,
 } from '@tanstack/query-core';
 import { createContext } from 'svelte';
 import { createQueryFactories } from 'wellcrafted/query';
+import type { todosDefinition } from './definition.js';
 import { createGit } from './git.js';
 import type { TodosFolder } from './platform/types.js';
 import { createRows } from './rows.js';
-import { type Session, todosKeys, type WriteFailure } from './session.js';
+import type { Session, WriteFailure } from './session.js';
 import { createSync } from './sync.js';
 
 export type Todos = ReturnType<typeof createTodos>;
 
 /** How the store reports to the page. */
 type TodosOptions = {
-	/** A write failed; the app tells the person. */
+	/** A save failed; the app tells the person. */
 	onWriteFailed?: (failure: WriteFailure) => void;
 };
 
@@ -62,8 +60,8 @@ export function createTodos(
 	let closing: Promise<void> | undefined;
 
 	// The cache for this folder: the todo listing, Git status, and every
-	// write and action. Its rules read the mutation cache, which exists first, so the
-	// client never refers to itself.
+	// save and action. Its rules read the mutation cache, which exists first,
+	// so the client never refers to itself.
 	const mutationCache = new MutationCache();
 
 	const queryClient = new QueryClient({
@@ -71,15 +69,15 @@ export function createTodos(
 		defaultOptions: {
 			// Every read is local: nothing waits for a network, and a file that
 			// does not read will not read on a retry either, so a failure shows
-			// at once. The app reads when it opens, when the page is shown
-			// again, and after its own actions, so nothing goes stale on its
-			// own. A read lands whenever it finishes, even while a write runs
-			// (ADR-0528 accepts what that can cost).
+			// at once. Nothing goes stale on its own or on focus: the folder's
+			// change channel, wired below, is the one detector of outside
+			// changes. A read lands whenever it finishes, even while a save
+			// runs; it updates the cache, never an edit's draft.
 			queries: {
 				networkMode: 'always',
 				retry: false,
 				staleTime: Number.POSITIVE_INFINITY,
-				refetchOnWindowFocus: 'always',
+				refetchOnWindowFocus: false,
 			},
 			mutations: {
 				networkMode: 'always',
@@ -88,20 +86,10 @@ export function createTodos(
 	});
 	queryClient.mount();
 	const { defineQuery, defineMutation } = createQueryFactories(queryClient);
-
-	// TanStack holds a waiting write until the page is visible, which would
-	// stall quitting and lose the write when a background tab closes. So the
-	// page counts as always focused, and becoming visible is the focus event
-	// that reads again. `focusManager` is one per page.
-	focusManager.setEventListener((setFocused) => {
-		setFocused(true);
-		if (typeof document === 'undefined') return undefined;
-		const returned = () => {
-			if (document.visibilityState === 'visible') focusManager.onFocus();
-		};
-		document.addEventListener('visibilitychange', returned);
-		return () => document.removeEventListener('visibilitychange', returned);
-	});
+	const folder$ = folderOptions<typeof todosDefinition>(folder);
+	const stopChanges = folder.onFilesChanged((change) =>
+		queryClient.invalidateQueries(folder$.pathFilter(change)),
+	);
 
 	/**
 	 * Resolves once nothing matching `filters` is mutating. It watches the
@@ -109,41 +97,39 @@ export function createTodos(
 	 */
 	function whenIdle(filters?: MutationFilters): Promise<void> {
 		return new Promise((resolve) => {
+			const idle = () => queryClient.isMutating(filters) === 0;
 			const unsubscribe = mutationCache.subscribe(check);
 			function check() {
-				if (queryClient.isMutating(filters) > 0) return;
-				unsubscribe();
-				resolve();
+				if (!idle()) return;
+				// A draft sends its next save just after the last one settles, so
+				// idle counts only once the tasks queued meanwhile have run.
+				setTimeout(() => {
+					if (!idle()) return;
+					unsubscribe();
+					resolve();
+				});
 			}
 			check();
 		});
 	}
 
-	/** Resolves once no write of a todo's file is running or waiting. */
-	const writesSettled = () => whenIdle({ mutationKey: todosKeys.writes });
+	/** Resolves once no save of a todo's file is running. */
+	const writesSettled = () =>
+		whenIdle({ mutationKey: folder$.todos.save.mutationOptions().mutationKey });
 
-	/** Read again what an action may have changed. */
-	const invalidate = (queryKey: readonly unknown[] = todosKeys.all) =>
+	/** Read again what an action may have changed: every query of the folder by default. */
+	const invalidate = (queryKey: readonly unknown[] = folder$.key) =>
 		queryClient.invalidateQueries({ queryKey });
-
-	/**
-	 * After a write settles: once it is the last one, everything is read
-	 * again. Not after each write, since Git status reads the whole folder.
-	 */
-	const afterWrite = () =>
-		queryClient.isMutating({ mutationKey: todosKeys.writes }) <= 1
-			? queryClient.invalidateQueries({ queryKey: todosKeys.all })
-			: undefined;
 
 	const session: Session = {
 		folder,
+		folder$,
 		queryClient,
 		defineQuery,
 		defineMutation,
 		writesSettled,
 		invalidate,
 		whenIdle,
-		afterWrite,
 		onWriteFailed,
 	};
 
@@ -152,7 +138,7 @@ export function createTodos(
 		folder,
 		/**
 		 * This folder's cache, set as svelte-query's client by `TodosView` only.
-		 * Views read and write through the store's definitions.
+		 * Views read and write through the store's options.
 		 */
 		queryClient,
 		rows: createRows(session),
@@ -161,7 +147,7 @@ export function createTodos(
 		/** Read the listing and Git status again. */
 		refresh: () => invalidate(),
 		/**
-		 * Whether a browser reload now could lose anything: a write or another
+		 * Whether a browser reload now could lose anything: a save or another
 		 * action still running. Quitting Epicenter does not ask (ADR-0542).
 		 */
 		get holdsUnsaved() {
@@ -177,7 +163,8 @@ export function createTodos(
 			if (closing !== undefined) return closing;
 			closing = (async () => {
 				await whenIdle();
-				await queryClient.cancelQueries({ queryKey: todosKeys.all });
+				stopChanges();
+				await queryClient.cancelQueries({ queryKey: folder$.key });
 				await folder.close();
 				queryClient.unmount();
 				queryClient.clear();
