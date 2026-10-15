@@ -4,7 +4,7 @@
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "AI settings live in `kv.json` in `so.epicenter`": AI connections are rows of a `connections` table in `so.epicenter`, so two machines' edits merge per connection. They are still read by every app and kept in no app.
 - **Relates:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md), whose Decision keeps keys in the keychain and settings in `so.epicenter`; its Unbuilt line names AI connections in `kv.json`, which this record replaces with a table. [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (trust covers code, never data). [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) (the Epicenter account's access tokens). [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (a row merges per field). [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) (native code through `invoke`, granted by app id). [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the shared `send` command).
-- **Unbuilt:** all of it: the `connections` table, the keychain entry per connection, the AI target of `send` and the key commands, the fetch-shaped shim, Settings opening `so.epicenter`, and the deletions below. Before Whispering's transcription moves to `send`, a 30 MB WAV must go through it to a local echo endpoint and be timed against today's `/_epicenter/ai/*/inference` path.
+- **Unbuilt:** all of it: the `connections` table, the browser build's sending path and key warning, the keychain entry per connection, the AI target of `send` and the key commands, the fetch-shaped shim, Settings opening `so.epicenter`, and the deletions below. Before Whispering's transcription moves to `send`, a 30 MB WAV must go through it to a local echo endpoint and be timed against today's `/_epicenter/ai/*/inference` path.
 
 ## Context
 
@@ -46,7 +46,7 @@ machine's keychain, bound to the endpoint it was saved for.**
   endpoint: https://api.groq.com/openai/v1      only for kind endpoint
   model: whisper-large-v3
 
-Keychain (this machine only)                    written and read only by Rust
+Keychain (this machine only)                    written and read only by the epicenter CLI
   connection <id> → { endpoint, key }            key may be empty for a keyless endpoint
 ```
 
@@ -63,13 +63,14 @@ versioned, and synced when `so.epicenter` is connected.
 | `epicenter` | `https://api.epicenter.so/v1` | the account's access token, which the shell gets from `epicenter auth token` (ADR-0556) | "Sign in to Epicenter" |
 | `local` | no request; `transcribe_audio_bytes` with the active local model ([ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md)) | none | "Download the model on this computer" |
 
-**Rust sends every AI request; the page never holds a key.** The page calls
-ADR-0556's `send` command with an AI target, `{ connection: id, endpoint }`,
-plus the method, path, headers, body, and a `Channel`. Rust reads the
-keychain entry for `id`, refuses unless the entry's endpoint equals the
-`endpoint` the page read from the row, sends with `reqwest` to that endpoint
-plus the path, adds the key, refuses redirects, and streams the response body
-over the `Channel`. Multipart audio crosses as raw bytes. The fetch-shaped
+**The CLI sends every AI request; the page never holds a key.** The page
+calls ADR-0556's `send` command with an AI target, `{ connection: id, endpoint }`,
+plus the method, path, headers, body, and a `Channel`. Rust runs
+`epicenter send`, writes the body to its stdin, and pipes its NDJSON to the
+`Channel`. The CLI reads the keychain entry for `id` with `Bun.secrets`,
+refuses unless the entry's endpoint equals the `endpoint` the page read from
+the row, sends to that endpoint plus the path with the key, refuses
+redirects, and streams the response. Multipart audio crosses as raw bytes. The fetch-shaped
 shim ADR-0556 names wraps it, so the OpenAI SDK and Whispering's transcription
 keep calling `fetch`.
 
@@ -82,7 +83,9 @@ with an empty key, so a synced edit cannot send recordings somewhere new.
 
 **Three commands manage keys:** `set_ai_key(id, endpoint, key)`,
 `remove_ai_key(id)`, and `ai_key_state(id, endpoint)`, which answers
-`missing`, `saved`, or `savedForAnotherAddress` and never the key.
+`missing`, `saved`, or `savedForAnotherAddress` and never the key. Each is a
+fixed Rust command that runs one fixed CLI invocation (ADR-0556); a key
+crosses to the CLI on stdin, never in arguments.
 
 **Pickers read the table with `folderOptions` on `so.epicenter`.** Settings
 opens `so.epicenter` and edits connections. An app granted `send` and the key
@@ -91,6 +94,27 @@ its window opens, lists `connections`, and may add or edit rows. Which
 connection an app uses for each of its operations is the app's own setting, in
 its own folder: Whispering's `transcriptionConnection` and `textConnection`
 are connection ids in `so.epicenter.whispering/kv.json`.
+
+**One implementation builds every request.** `@epicenter/ai` builds the
+request for a connection and reads its response; `epicenter send` and the
+browser page both call it, and differ only in how the request leaves.
+
+**In the browser build, the page sends the request itself.** A browser has no
+keychain and nothing outside the page, and no `so.epicenter` folder is open
+there, so an app keeps its connections in its origin's storage, with the same
+fields as a row:
+
+| Kind | In a browser |
+| --- | --- |
+| `endpoint` with a key | the key is kept in the page's storage for its origin, and the form says so: "This key is saved in this browser. Code running on this site can read it." |
+| `endpoint` without a key | works when the server allows browser requests, such as a local server with CORS enabled |
+| `epicenter` | the page's own access token ([ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)'s browser row) |
+| `local` | not offered |
+
+A provider that refuses browser requests (no CORS headers) does not work in
+the browser, and the picker says so after the first refused request. The
+endpoint-with-key rule holds there too: a key is kept only for the endpoint it
+was saved for.
 
 **Whispering's two connections become rows.** Nothing is migrated from
 `ai/<owner>/connections.json`; Whispering finds no row and offers setup.
@@ -110,11 +134,16 @@ are connection ids in `so.epicenter.whispering/kv.json`.
 - Two machines that edit different connections between syncs merge cleanly;
   two that edit one field of one connection conflict on that field, and a
   person settles it in the merge review.
-- Keys never cross a process boundary and never enter a WebView. Pages lose
+- A key is set once through the CLI's stdin and then read only by the CLI;
+  it never enters a WebView or Rust's memory beyond that pipe. Pages lose
   plain `fetch` and server-sent events for AI and use the shim; changes to
   the list reach them as folder changes.
 - Whispering's window and Settings now hold `so.epicenter`; under ADR-0540
   this widens what an app can write, not what it could reach during its build.
+- In a browser a key sits in page storage, readable by any script on that
+  origin; a person is told before they save one.
+- Some providers work on the desktop and not in a browser, because only the
+  desktop request leaves the page.
 - A machine with a connection it cannot use shows why in the picker, in one of
   the three phrases above, rather than hiding the connection.
 
