@@ -28,7 +28,6 @@ import {
 import { createKv, type KvReading } from './kv.js';
 import { createOpfsFileBoundary } from './opfs-store.js';
 import { DECLARATION_PATH } from './paths.js';
-import { createProcessLocks } from './process-locks.js';
 import { createTable, type TableListing } from './table.js';
 
 export const ReadFolderError = defineErrors({
@@ -91,12 +90,8 @@ export async function readFolder(
 			? FileError.NotFound({ path: root })
 			: FileError.Io({ path: root, operation: 'open', cause });
 	}
-	// Reads take no lock; the boundary's lock guards only writes, which a
-	// reading never makes.
 	const storage = createOpfsFileBoundary({
 		root: directoryHandle(nodeDirectoryPrimitives, resolved),
-		locks: createProcessLocks(),
-		filesLock: `epicenter-folder-read:${resolved}`,
 		landed: () => {},
 	});
 

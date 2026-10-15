@@ -27,7 +27,6 @@ import {
 	git,
 	scratch,
 } from './git-http.test-support.js';
-import { createWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
 	kv: {},
@@ -181,8 +180,9 @@ afterAll(() => {
 function open(
 	root: string,
 	options: {
-		locks?: ReturnType<typeof createWebLocks>;
 		primitives?: DirectoryPrimitives;
+		/** Runs before each `git` command this handle runs. */
+		beforeGit?: (args: readonly string[]) => Promise<void>;
 	} = {},
 ) {
 	const files = recording(root, options.primitives ?? nodeDirectoryPrimitives);
@@ -204,6 +204,7 @@ function open(
 			indexFile: runOptions?.env?.GIT_INDEX_FILE ?? null,
 			origin: url ?? null,
 		});
+		await options.beforeGit?.(args);
 		return system(args, runOptions);
 	};
 	return openDirectoryFolder({
@@ -211,7 +212,6 @@ function open(
 		root: directoryHandle(files, root),
 		rootPath: root,
 		git: { run, files },
-		locks: options.locks ?? createWebLocks(),
 		author,
 	});
 }
@@ -538,17 +538,85 @@ describe('a folder over an ordinary directory', () => {
 
 	test('two windows opening a new folder at once share one repository', async () => {
 		const root = await scratch('directory-folder-race-');
-		const locks = createWebLocks();
-		const [first, second] = await Promise.all([
-			open(root, { locks }),
-			open(root, { locks }),
-		]);
+		const [first, second] = await Promise.all([open(root), open(root)]);
 		const a = expectOk(first);
 		const b = expectOk(second);
 		await addTodo(a, 'From one window');
 		expect((await b.git.commit()).status).toBe('committed');
 		expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('1');
 		expect(await git(root, 'status', '--porcelain')).toBe('');
+		await git(root, 'fsck', '--strict');
+		await a.close();
+		await b.close();
+	});
+
+	test('a commit whose branch another window moved retries from a fresh capture', async () => {
+		const root = await scratch('directory-folder-commit-race-');
+		const a = expectOk(await open(root));
+		await addTodo(a, 'First');
+		expect((await a.git.commit()).status).toBe('committed');
+		// Window A commits after B captured and before B moves the branch,
+		// then saves once more: B's retry must record that save.
+		let interleave = true;
+		const b = expectOk(
+			await open(root, {
+				async beforeGit(args) {
+					if (!interleave || args[0] !== 'update-ref') return;
+					interleave = false;
+					await addTodo(a, 'Committed by A');
+					expect((await a.git.commit()).status).toBe('committed');
+					await addTodo(a, 'Saved after A committed');
+				},
+			}),
+		);
+		await addTodo(b, 'Saved by B');
+		const before = await git(root, 'rev-parse', 'HEAD');
+		const outcome = await b.git.commit();
+		const fromA = await git(root, 'rev-parse', 'HEAD^');
+		expect(outcome).toMatchObject({ status: 'committed', parent: fromA });
+		expect(await git(root, 'rev-parse', 'HEAD^^')).toBe(before);
+		expect(await git(root, 'rev-list', '--count', 'HEAD')).toBe('3');
+		expect(await git(root, 'rev-list', '--merges', '--count', 'HEAD')).toBe(
+			'0',
+		);
+		expect(await git(root, 'status', '--porcelain')).toBe('');
+		const titles = await git(
+			root,
+			'grep',
+			'-h',
+			'^title:',
+			'HEAD',
+			'--',
+			'todos',
+		);
+		for (const title of [
+			'First',
+			'Committed by A',
+			'Saved after A committed',
+			'Saved by B',
+		])
+			expect(titles).toContain(`title: ${title}`);
+		await git(root, 'fsck', '--strict');
+		await a.close();
+		await b.close();
+	});
+
+	test('two windows that commit at once both land on one linear history', async () => {
+		const root = await scratch('directory-folder-commits-');
+		const a = expectOk(await open(root));
+		const b = expectOk(await open(root));
+		for (let round = 0; round < 5; round++) {
+			await Promise.all([addTodo(a, `A ${round}`), addTodo(b, `B ${round}`)]);
+			const outcomes = await Promise.all([a.git.commit(), b.git.commit()]);
+			for (const outcome of outcomes)
+				expect(['committed', 'unchanged']).toContain(outcome.status);
+		}
+		expect(await git(root, 'rev-list', '--merges', '--count', 'HEAD')).toBe(
+			'0',
+		);
+		expect(
+			await git(root, 'status', '--porcelain', '--untracked-files=all'),
+		).toBe('');
 		await git(root, 'fsck', '--strict');
 		await a.close();
 		await b.close();

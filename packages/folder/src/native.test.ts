@@ -36,7 +36,6 @@ import {
 	scratch,
 } from './git-http.test-support.js';
 import { createOpfsFileBoundary } from './opfs-store.js';
-import { createProcessLocks } from './process-locks.js';
 import { parseRow } from './row-text.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
@@ -378,13 +377,11 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
-	test('a competing native commit refuses the checkpoint; the branch is never forced', async () => {
+	test('a branch that moves again under the retry refuses the checkpoint; the branch is never forced', async () => {
 		const root = await scratch('native-cas-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
 		const boundary = createOpfsFileBoundary({
 			root: directoryHandle(nodeDirectoryPrimitives, root),
-			locks: createProcessLocks(),
-			filesLock: 'native-cas',
 			landed: () => {},
 		});
 		const backend = await createNativeGitBackend({
@@ -414,7 +411,10 @@ describe('native folder', () => {
 		await writeFile(join(root, 'a.txt'), 'a');
 		const outcome = await history.commit();
 		expect(outcome.status).toBe('branchMoved');
-		expect(await git(root, 'log', '--format=%s')).toBe('Competitor');
+		// The first move was retried once; the second is reported.
+		expect(await git(root, 'log', '--format=%s')).toBe(
+			'Competitor\nCompetitor',
+		);
 		if (outcome.status === 'branchMoved') {
 			// The candidate exists as an unreachable object; it was not published.
 			expect(await git(root, 'cat-file', '-t', outcome.candidate)).toBe(
@@ -423,6 +423,58 @@ describe('native folder', () => {
 			expect(outcome.actual).toBe(await git(root, 'rev-parse', 'HEAD'));
 		}
 		await history.close();
+	});
+
+	test('saves within one process take turns: one of two replaces from one capture is Conflict, and different rows both land', async () => {
+		const root = await scratch('native-turns-');
+		const folder = await openNativeFolder({
+			root,
+			definition,
+			git: { author },
+		});
+		try {
+			for (const stem of ['a', 'b'])
+				expectOk(
+					await folder.tables.todos.create(
+						{ fields: { title: stem, done: false }, body: '' },
+						{ stem },
+					),
+				);
+			const a = expectOk(await folder.tables.todos.get('a'))!;
+			const results = await Promise.all(
+				['First', 'Second'].map((title) =>
+					folder.tables.todos.replace(a, {
+						...a.row,
+						fields: { ...a.row.fields, title },
+					}),
+				),
+			);
+			const landed = results.filter((result) => result.error === null);
+			expect(landed).toHaveLength(1);
+			expect(
+				results.filter((result) => result.error?.name === 'Conflict'),
+			).toHaveLength(1);
+			const kept = expectOk(await folder.tables.todos.get('a'))!;
+			expect(kept.row.fields.title).toBe(landed[0]!.data!.row.fields.title);
+
+			const [one, two] = await Promise.all(
+				(['a', 'b'] as const).map(async (stem) => {
+					const current = expectOk(await folder.tables.todos.get(stem))!;
+					return folder.tables.todos.replace(current, {
+						...current.row,
+						fields: { ...current.row.fields, done: true },
+					});
+				}),
+			);
+			expectOk(one!);
+			expectOk(two!);
+			for (const stem of ['a', 'b'])
+				expect(
+					expectOk(await folder.tables.todos.get(stem))!.row.fields.done,
+				).toBe(true);
+		} finally {
+			await folder.close();
+		}
 	});
 
 	test('explicit staging uses real Git commands', async () => {

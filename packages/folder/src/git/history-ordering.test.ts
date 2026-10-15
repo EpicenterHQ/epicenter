@@ -169,7 +169,7 @@ test('a checkpoint waiting for the Git lock cannot revert files and a head that 
 	await history.close();
 });
 
-test('an external branch move after the parent is pinned is refused, not overwritten', async () => {
+test('an external branch move after the parent is pinned is retried onto it, not overwritten', async () => {
 	let arm = false;
 	let competitor: string | undefined;
 	const { real, history, write, commitOf } = await setup(() => ({}), {
@@ -192,8 +192,10 @@ test('an external branch move after the parent is pinned is refused, not overwri
 	await write('b.txt', 'local');
 	arm = true;
 	const outcome = await history.commit();
-	expect(outcome.status).toBe('branchMoved');
-	expect(await real.readBranch()).toBe(competitor);
+	// The retry captured the folder again and committed it on the competitor.
+	expect(outcome).toMatchObject({ status: 'committed', parent: competitor });
+	if (outcome.status === 'committed')
+		expect(await real.readBranch()).toBe(outcome.oid);
 	await history.close();
 });
 

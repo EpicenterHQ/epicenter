@@ -616,7 +616,7 @@ describe('browser folder persistence and history', () => {
 		}
 	});
 
-	test('a competing branch update refuses the checkpoint without a forced update', async () => {
+	test('a checkpoint whose branch a competitor moved retries onto it, never forcing the branch', async () => {
 		const raw = await rawBrowserFolder({ id: 'cas' });
 		const boundary = raw.boundary;
 		const backend = await raw.backend();
@@ -625,6 +625,8 @@ describe('browser folder persistence and history', () => {
 			backend: {
 				...backend,
 				async casBranch(expected, next) {
+					if (competitor !== undefined)
+						return backend.casBranch(expected, next);
 					// Another writer moves the branch between capture and publication.
 					competitor = await backend.withObjects((access) =>
 						isogit.writeCommit({
@@ -658,12 +660,10 @@ describe('browser folder persistence and history', () => {
 			},
 		]);
 		const outcome = await history.commit();
-		expect(outcome.status).toBe('branchMoved');
-		if (outcome.status === 'branchMoved') {
-			expect(outcome.actual).toBe(competitor);
-			expect(outcome.candidate).not.toBe(competitor);
-		}
-		expect(await backend.readBranch()).toBe(competitor);
+		// The retry captured again and committed on top of the competitor.
+		expect(outcome).toMatchObject({ status: 'committed', parent: competitor });
+		if (outcome.status === 'committed')
+			expect(await backend.readBranch()).toBe(outcome.oid);
 		await history.close();
 	});
 });

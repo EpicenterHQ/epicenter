@@ -33,7 +33,6 @@ import {
 	scratch,
 } from './git-http.test-support.js';
 import type { Expectation } from './native/bindings.gen.js';
-import { installWebLocks } from './web-locks.test-support.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 let grantedRoot: string | undefined;
@@ -231,17 +230,14 @@ const definition = defineFolder({
 	},
 });
 
-let restoreLocks: () => void;
 const originalEnv = { ...process.env };
 beforeAll(() => {
-	restoreLocks = installWebLocks();
 	Object.assign(process.env, {
 		GIT_CONFIG_GLOBAL: GIT_ENV.GIT_CONFIG_GLOBAL,
 		GIT_CONFIG_NOSYSTEM: '1',
 	});
 });
 afterAll(() => {
-	restoreLocks();
 	for (const key of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'])
 		if (originalEnv[key] === undefined) delete process.env[key];
 		else process.env[key] = originalEnv[key];

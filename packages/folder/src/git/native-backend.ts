@@ -132,7 +132,6 @@ export async function createNativeGitBackend({
 	branch,
 	boundary,
 	host,
-	exclusive,
 	credentials,
 	initialize = 'open',
 	initialized,
@@ -161,12 +160,6 @@ export async function createNativeGitBackend({
 	initProblem?: () => Promise<string | undefined>;
 	/** Asked before each push and fetch; see `GitCredentials`. */
 	credentials?: GitCredentials;
-	/**
-	 * Serializes this folder's index and branch work across every handle that
-	 * shares it, such as the windows of one app. Omitted, each handle orders
-	 * only its own work, and other processes are met at Git's lock files.
-	 */
-	exclusive?: GitBackend['exclusive'];
 }): Promise<GitBackend> {
 	const { run, files } = host;
 	const gitdir = `${root}/.git`;
@@ -202,7 +195,17 @@ export async function createNativeGitBackend({
 	// Only `git init` writes `HEAD`. Writes stage their bytes under
 	// `.git/epicenter`, so `.git` alone does not mean a repository.
 	const head = `${gitdir}/HEAD`;
-	const init = () => run(['init', '--quiet', `--initial-branch=${branch}`]);
+	// Two openers that create one repository at once race Git's copy of its
+	// templates, and the one that loses fails on a file the other just made.
+	// Running `git init` again finds the repository and skips what exists.
+	const init = async () => {
+		const args = ['init', '--quiet', `--initial-branch=${branch}`];
+		try {
+			await run(args);
+		} catch {
+			await run(args);
+		}
+	};
 	let present = (await files.lstat(head)) !== undefined;
 	if (!present && initialize === 'open') {
 		await init();
@@ -244,10 +247,10 @@ export async function createNativeGitBackend({
 	}
 	let remote = await configuredRemote();
 
-	// This handle's own work only. Another process is met at Git's lock
-	// files, where a held lock fails the command instead of delaying it.
-	const queue = createMutex();
-	const serialized: GitBackend['exclusive'] = exclusive ?? queue.run;
+	// This handle's own work only. Another handle or process is met at Git's
+	// lock files, where a held lock fails the command instead of delaying it,
+	// and at the branch's compare-and-swap (ADR-0541).
+	const serialized: GitBackend['exclusive'] = createMutex().run;
 
 	async function resolve(ref: string): Promise<string | undefined> {
 		if (!(await exists())) return undefined;

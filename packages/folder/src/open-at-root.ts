@@ -4,8 +4,10 @@
  * (a real directory the desktop shell granted).
  *
  * Pages of one origin that open the same folder share it: each landed step is
- * told to the others over a `BroadcastChannel`, and their Web Locks order
- * every change. The opener supplies the file storage and the history.
+ * told to the others over a `BroadcastChannel`, best effort. The opener
+ * supplies the file storage and the history, and whatever orders their
+ * changes: Web Locks in the browser, the host's checks and Git's on a
+ * directory (ADR-0541).
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FileBoundary } from './boundary.js';
@@ -72,7 +74,7 @@ export async function openAtRoot<TDefinition extends FolderDefinition>(
 	schema: FolderSchema,
 	environment: Pick<OpfsEnvironment, 'BroadcastChannel'>,
 	captured: {
-		readonly at: FolderAddress;
+		readonly at: Pick<FolderAddress, 'hintChannel'>;
 		readonly location: FolderLocation;
 		readonly start: StartFolder;
 	},

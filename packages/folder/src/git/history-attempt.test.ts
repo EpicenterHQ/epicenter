@@ -1054,10 +1054,9 @@ test('many callers in one handle and across two each take a commit and leave a l
 		for (const outcome of outcomes) {
 			tally[outcome.status] = (tally[outcome.status] ?? 0) + 1;
 			if (outcome.status === 'committed') committedOids.push(outcome.oid);
-			// Every caller is told what its own commit did.
-			expect(['committed', 'unchanged', 'branchMoved', 'failed']).toContain(
-				outcome.status,
-			);
+			// Every caller is told what its own commit did. The two handles
+			// share no lock: a commit whose branch the other moved retries.
+			expect(['committed', 'unchanged']).toContain(outcome.status);
 		}
 		expect(await readFile(join(root, `note-${round % 3}.md`), 'utf8')).toBe(
 			`round ${round}`,

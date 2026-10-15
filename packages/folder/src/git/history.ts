@@ -5,11 +5,14 @@
  * writes blobs and trees, writes a commit on the pinned branch head, and
  * moves the branch with a compare-and-swap. It never reads or writes the
  * shared index to build that commit. A moved branch leaves the candidate
- * unreachable and is reported; there is no retry loop.
+ * unreachable and is retried once from a fresh capture; a second move is
+ * reported (ADR-0541). A staged commit is not retried: its index was staged
+ * against the head that moved.
  *
  * The backend's exclusive protection is the only thing that orders commits,
- * pulls, and staging, in this handle and across tabs. This module adds no
- * queue of its own for them. A commit happens only when asked, by `commit`
+ * pulls, and staging: in this handle, and in the browser across tabs. Handles
+ * of a directory folder meet at Git's lock files and the branch's
+ * compare-and-swap. This module adds no queue of its own for them. A commit happens only when asked, by `commit`
  * or by sync's checkpoint (ADR-0529); a save never asks for one. A commit
  * waits for the protection and then reads the folder, so it sees every save
  * that landed while it waited. Closing refuses one still waiting.
@@ -541,86 +544,102 @@ export function createHistory({
 		return (await backend.blocked()) ?? (await backend.checkpointProblem());
 	}
 
-	/** One whole-folder commit, after waiting for the backend's protection. */
+	/**
+	 * One whole-folder commit, after waiting for the backend's protection. A
+	 * branch that moved under the first attempt is met by one more, from a
+	 * fresh capture over the new head (ADR-0541): the files are still on
+	 * disk, so it records everything the lost attempt held. A second move is
+	 * reported.
+	 */
 	function commitCurrentFiles(
 		onCapture?: (capturedAt: number) => void,
 	): Promise<CommitOutcome> {
 		return exclusive(async (): Promise<CommitOutcome> => {
-			// A folder whose repository its first commit creates gets it here.
-			const unborn = await backend.createRepository?.();
-			if (unborn !== undefined) return { status: 'blocked', reason: unborn };
-			const blocked = await wholeFolderProblem();
-			if (blocked !== undefined) return { status: 'blocked', reason: blocked };
-			// Pin the parent, then capture, both inside the Git lock. A pull or
-			// staged commit that changed files and the branch while this pass
-			// waited is part of the capture, so an older capture can never be
-			// committed on top of a newer parent. An external branch move after
-			// this point still fails the compare-and-swap below.
-			const parent = await backend.readBranch();
-			const capturedAt = ++clock;
-			onCapture?.(capturedAt);
-			const current = await capture();
-			const committed = await headFiles(parent);
-			const included = await source(current, committed);
-			// An empty folder with no history has nothing to record, and writes
-			// nothing: not even an empty tree.
-			const built =
-				parent === undefined && included.size === 0
-					? undefined
-					: await backend.withObjects(async (access) => {
-							const tree = await writeFilesTree(access, included);
-							const parentTree =
-								parent === undefined
-									? EMPTY_TREE
-									: await commitTree(access, parent);
-							if (tree === parentTree) return undefined;
-							const changes = diffFileMaps(
-								committed,
-								await readTreeFiles(access, tree),
-							);
-							const message = commitSubject(changes);
-							if (message === undefined) return undefined;
-							const oid = await writeCommitObject(access, {
-								tree,
-								parents: parent === undefined ? [] : [parent],
-								message,
-								author,
-							});
-							return { oid, message, changes };
-						});
-			if (built !== undefined) {
-				const moved = await backend.casBranch(parent, built.oid);
-				if (!moved.ok)
-					return {
-						status: 'branchMoved',
-						candidate: built.oid,
-						expected: parent,
-						actual: moved.actual,
-					};
-			}
-			const head = built?.oid ?? parent;
-			// A whole-folder checkpoint supersedes staged-only intent: every index
-			// entry, including staged-only additions and deletions, is reset to
-			// the head. This also repairs staging when nothing new was committed.
-			let indexWarning: string | undefined;
-			if (head !== undefined)
-				try {
-					await backend.reconcileIndex(head);
-				} catch (cause) {
-					indexWarning = describe(cause);
-				}
-			await observeCommitted(capturedAt, head);
-			if (built === undefined)
-				return { status: 'unchanged', head: parent, indexWarning };
-			return {
-				status: 'committed',
-				oid: built.oid,
-				parent,
-				message: built.message,
-				changedPaths: built.changes.length,
-				indexWarning,
-			};
+			const first = await attemptCommit(onCapture);
+			if (first.status !== 'branchMoved') return first;
+			return attemptCommit(onCapture);
 		});
+	}
+
+	/** One attempt at a whole-folder commit, inside the backend's protection. */
+	async function attemptCommit(
+		onCapture?: (capturedAt: number) => void,
+	): Promise<CommitOutcome> {
+		// A folder whose repository its first commit creates gets it here.
+		const unborn = await backend.createRepository?.();
+		if (unborn !== undefined) return { status: 'blocked', reason: unborn };
+		const blocked = await wholeFolderProblem();
+		if (blocked !== undefined) return { status: 'blocked', reason: blocked };
+		// Pin the parent, then capture, both inside the backend's
+		// protection. A pull or staged commit of this handle that changed
+		// files and the branch while this pass waited is part of the
+		// capture, so an older capture can never be committed on top of a
+		// newer parent. A branch move from outside the protection after
+		// this point fails the compare-and-swap below.
+		const parent = await backend.readBranch();
+		const capturedAt = ++clock;
+		onCapture?.(capturedAt);
+		const current = await capture();
+		const committed = await headFiles(parent);
+		const included = await source(current, committed);
+		// An empty folder with no history has nothing to record, and writes
+		// nothing: not even an empty tree.
+		const built =
+			parent === undefined && included.size === 0
+				? undefined
+				: await backend.withObjects(async (access) => {
+						const tree = await writeFilesTree(access, included);
+						const parentTree =
+							parent === undefined
+								? EMPTY_TREE
+								: await commitTree(access, parent);
+						if (tree === parentTree) return undefined;
+						const changes = diffFileMaps(
+							committed,
+							await readTreeFiles(access, tree),
+						);
+						const message = commitSubject(changes);
+						if (message === undefined) return undefined;
+						const oid = await writeCommitObject(access, {
+							tree,
+							parents: parent === undefined ? [] : [parent],
+							message,
+							author,
+						});
+						return { oid, message, changes };
+					});
+		if (built !== undefined) {
+			const moved = await backend.casBranch(parent, built.oid);
+			if (!moved.ok)
+				return {
+					status: 'branchMoved',
+					candidate: built.oid,
+					expected: parent,
+					actual: moved.actual,
+				};
+		}
+		const head = built?.oid ?? parent;
+		// A whole-folder checkpoint supersedes staged-only intent: every index
+		// entry, including staged-only additions and deletions, is reset to
+		// the head. This also repairs staging when nothing new was committed.
+		let indexWarning: string | undefined;
+		if (head !== undefined)
+			try {
+				await backend.reconcileIndex(head);
+			} catch (cause) {
+				indexWarning = describe(cause);
+			}
+		await observeCommitted(capturedAt, head);
+		if (built === undefined)
+			return { status: 'unchanged', head: parent, indexWarning };
+		return {
+			status: 'committed',
+			oid: built.oid,
+			parent,
+			message: built.message,
+			changedPaths: built.changes.length,
+			indexWarning,
+		};
 	}
 
 	/**

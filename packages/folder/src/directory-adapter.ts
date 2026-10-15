@@ -21,12 +21,7 @@ import {
 	type NativeGitHost,
 } from './git/native-backend.js';
 import type { Author } from './git/objects.js';
-import { webLockExclusive } from './git/web-lock-exclusive.js';
-import {
-	type FolderAddress,
-	type FolderSchema,
-	openAtRoot,
-} from './open-at-root.js';
+import { type FolderSchema, openAtRoot } from './open-at-root.js';
 import {
 	createOpfsFileBoundary,
 	type OpfsDirectoryHandle,
@@ -50,9 +45,15 @@ import {
  * honors Git's lock files, packed refs, and configuration, and another Git
  * program can share the repository. Git's own configuration decides the rest:
  * `remote.origin.url` is the remote, on `branch`, and `user.name` and
- * `user.email` the author, with `author` for whichever is missing. Pages of
- * the same origin coordinate through `locks` and `BroadcastChannel`, as
- * browser tabs do.
+ * `user.email` the author, with `author` for whichever is missing.
+ *
+ * No handle waits for another across processes (ADR-0541). A save is checked
+ * where it lands: the desktop shell checks each rename against what the page
+ * expects, and in Bun the check runs just before the rename, under `locks`
+ * so saves within one process take turns. A commit moves the branch only by
+ * compare-and-swap, and Git's own lock files keep its index whole. Each
+ * handle orders its own Git work. `BroadcastChannel` hints between pages of
+ * one origin are best effort.
  */
 export async function openDirectoryFolder<
 	const TDefinition extends FolderDefinition,
@@ -77,11 +78,16 @@ export async function openDirectoryFolder<
 	readonly initProblem?: () => Promise<string | undefined>;
 	/** The directory, as a handle over the host's file system. */
 	readonly root: OpfsDirectoryHandle;
-	/** The directory's absolute path, for showing to a person and naming locks. */
+	/** The directory's absolute path, for showing to a person and naming hints. */
 	readonly rootPath: string;
 	/** The system `git` in `rootPath`, and the host's file system. */
 	readonly git: NativeGitHost;
-	readonly locks: OpfsLocks;
+	/**
+	 * Saves to the directory take turns under these, for a host that checks
+	 * and renames in this process (Bun). Without them saves do not wait: the
+	 * desktop shell checks each one where it lands.
+	 */
+	readonly locks?: OpfsLocks;
 	readonly BroadcastChannel?: typeof globalThis.BroadcastChannel;
 	/** Who commits, where Git's configuration does not say. */
 	readonly author: Author;
@@ -105,22 +111,14 @@ export async function openDirectoryFolder<
 		const value = new TextDecoder().decode(stdout).trim();
 		return code === 0 && value !== '' ? value : undefined;
 	};
-	// The names come from the directory alone, so every opener in this
-	// process or origin coordinates, whatever ID it opened the folder by.
+	// The name comes from the directory alone, so every opener in this
+	// origin hears the others, whatever ID it opened the folder by.
 	const address = JSON.stringify(['directory', rootPath]);
-	const at: FolderAddress = {
-		address,
-		directory: rootPath,
-		openLock: `epicenter-folder-directory-open:${address}`,
-		filesLock: `epicenter-folder-directory-files:${address}`,
-		gitLock: `epicenter-folder-directory-git:${address}`,
-		hintChannel: `epicenter-folder-directory-hints:${address}`,
-	};
+	const at = { hintChannel: `epicenter-folder-directory-hints:${address}` };
 	// A write that stopped before its rename (a crash, a quit) leaves its
-	// staged bytes behind. The files lock orders only this process's or this
-	// origin's writes, and another process may be writing the directory, so
-	// only files staged long enough ago to be abandoned are removed. What
-	// cannot be removed stays; it is inert.
+	// staged bytes behind. Another handle or process may be writing the
+	// directory now, so only files staged long enough ago to be abandoned are
+	// removed. What cannot be removed stays; it is inert.
 	const scratch = `${rootPath}/${SCRATCH_DIRECTORY}`;
 	try {
 		if ((await host.files.lstat(scratch))?.kind === 'directory') {
@@ -139,12 +137,15 @@ export async function openDirectoryFolder<
 			at,
 			location: { kind: 'directory', root: rootPath },
 			async start({ relay, landed }) {
-				const boundary = createOpfsFileBoundary({
-					root,
-					locks,
-					filesLock: at.filesLock,
-					landed: relay,
-				});
+				const boundary =
+					locks === undefined
+						? createOpfsFileBoundary({ root, landed: relay })
+						: createOpfsFileBoundary({
+								root,
+								locks,
+								filesLock: `epicenter-folder-directory-files:${address}`,
+								landed: relay,
+							});
 				// The person's own Git identity, read once the repository exists:
 				// the desktop shell answers `config --get` only inside one.
 				let identity = author;
@@ -154,25 +155,21 @@ export async function openDirectoryFolder<
 						email: (await configured('user.email')) ?? author.email,
 					};
 				};
-				// Creating the repository on open runs under the open lock: two
-				// windows that open a new folder at once would both run
-				// `git init`. A deferred one runs inside the Git lock, with the
-				// first commit. Every window of the app orders the folder's
-				// index and branch work through that one Web Lock; other
-				// processes meet Git's own lock files.
-				const backend = await locks.request(at.openLock, {}, () =>
-					createNativeGitBackend({
-						root: rootPath,
-						branch,
-						boundary,
-						host,
-						exclusive: webLockExclusive(locks, at.gitLock),
-						credentials,
-						initialize: definition === 'declared' ? 'commit' : 'open',
-						initialized: readIdentity,
-						initProblem,
-					}),
-				);
+				// Two handles that open a new folder at once may both run
+				// `git init`; the backend runs it again when the race fails it.
+				// Each handle orders its own index and branch work; other
+				// handles and processes meet Git's own lock files and the
+				// branch's compare-and-swap.
+				const backend = await createNativeGitBackend({
+					root: rootPath,
+					branch,
+					boundary,
+					host,
+					credentials,
+					initialize: definition === 'declared' ? 'commit' : 'open',
+					initialized: readIdentity,
+					initProblem,
+				});
 				if ((await host.files.lstat(`${rootPath}/.git/HEAD`)) !== undefined)
 					await readIdentity();
 				return {

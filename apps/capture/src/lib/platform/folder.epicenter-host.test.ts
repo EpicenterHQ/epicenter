@@ -28,15 +28,7 @@
  * - `departure.test.ts` for the departure wire
  */
 import '../svelte-modules.test-support.js';
-import {
-	afterAll,
-	afterEach,
-	beforeAll,
-	beforeEach,
-	expect,
-	mock,
-	test,
-} from 'bun:test';
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { readLegacyBundle } from '@epicenter/capture/legacy';
@@ -49,7 +41,6 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import fixture from '../../../fixtures/legacy-bundle.json';
 import {
 	git,
-	installWebLocks,
 	scratch,
 	shellArguments,
 	shellCommand,
@@ -168,11 +159,6 @@ async function openOne(
 	return { form: captures.formOf('one') };
 }
 
-let removeLocks: () => void;
-beforeAll(() => {
-	removeLocks = installWebLocks();
-});
-afterAll(() => removeLocks());
 beforeEach(async () => {
 	root = await scratch('capture-host-');
 });

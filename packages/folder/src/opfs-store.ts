@@ -894,14 +894,23 @@ export function createOpfsFileBoundary({
 }: {
 	/** The folder's directory. */
 	root: OpfsDirectoryHandle;
-	locks: OpfsLocks;
-	/** The Web Lock every mutation of this folder holds. */
-	filesLock: string;
 	/** Paths one landed step reached, as soon as it lands. */
 	landed: (paths: readonly string[]) => void;
-}): FileBoundary {
-	/** Every mutation runs under the files lock. */
-	const mutate = <T>(work: () => Promise<T>) => holding(locks, filesLock, work);
+} & (
+	| {
+			locks: OpfsLocks;
+			/** The Web Lock every mutation of this folder holds. */
+			filesLock: string;
+	  }
+	/**
+	 * No lock: a directory's host checks each change where it lands
+	 * (ADR-0541), and a reading makes none.
+	 */
+	| { locks?: undefined; filesLock?: undefined }
+)): FileBoundary {
+	/** Every mutation runs under the files lock, when there is one. */
+	const mutate = <T>(work: () => Promise<T>) =>
+		locks === undefined ? work() : holding(locks, filesLock, work);
 
 	async function readOne(path: string): Promise<Result<FileRead, FileError>> {
 		try {

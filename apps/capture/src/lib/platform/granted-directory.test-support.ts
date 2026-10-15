@@ -6,8 +6,7 @@
  * folder plugin's read and change commands with `node:fs`, failing with the
  * operating system's message as text (a rename or removal as the plugin's
  * `ChangeError`, landing only if its path holds what the page expected), and
- * `run_git` with the system `git` in the granted root. `installWebLocks` stands in for Web Locks, which Bun
- * lacks.
+ * `run_git` with the system `git` in the granted root.
  *
  * Neither checks paths the way the shell does; the folder package's own
  * tests and the shell's cover that. Git reads no global or system
@@ -245,58 +244,4 @@ function kindOf(entry: {
 			: entry.isDirectory()
 				? 'directory'
 				: 'other';
-}
-
-/**
- * Give this process `navigator.locks`: each request waits behind the last for
- * its name. Returns the function that removes it.
- */
-export function installWebLocks(): () => void {
-	const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-	Object.defineProperty(globalThis, 'navigator', {
-		configurable: true,
-		value: { locks: processLocks() },
-	});
-	return () => {
-		if (original === undefined)
-			delete (globalThis as { navigator?: unknown }).navigator;
-		else Object.defineProperty(globalThis, 'navigator', original);
-	};
-}
-
-function processLocks() {
-	const tails = new Map<string, Promise<unknown>>();
-	return {
-		request<T>(
-			name: string,
-			optionsOrWork:
-				| { signal?: AbortSignal }
-				| ((lock: { name: string }) => Promise<T> | T),
-			maybeWork?: (lock: { name: string }) => Promise<T> | T,
-		): Promise<T> {
-			const work =
-				typeof optionsOrWork === 'function'
-					? optionsOrWork
-					: (maybeWork as (lock: { name: string }) => Promise<T> | T);
-			const signal =
-				typeof optionsOrWork === 'function' ? undefined : optionsOrWork.signal;
-			if (signal?.aborted) return Promise.reject(signal.reason);
-			let granted = false;
-			const turn = async () => {
-				if (signal?.aborted) throw signal.reason;
-				granted = true;
-				return work({ name });
-			};
-			const result = (tails.get(name) ?? Promise.resolve()).then(turn, turn);
-			tails.set(name, result);
-			if (signal === undefined) return result;
-			return new Promise<T>((resolve, reject) => {
-				signal.addEventListener('abort', () => {
-					if (!granted)
-						reject(new DOMException('Lock wait aborted', 'AbortError'));
-				});
-				result.then(resolve, reject);
-			});
-		},
-	};
 }

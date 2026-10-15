@@ -14,11 +14,10 @@ import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { directoryHandle } from './directory-handle.js';
 import { tauriDirectoryPrimitives } from './directory-tauri.js';
-import { OpenFolderError } from './errors.js';
+import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
 import type { GitCredentials } from './git/http.js';
 import type { Granted } from './native/bindings.gen.js';
-import type { OpfsLocks } from './opfs-store.js';
 import { tauriGitRun } from './tauri-git.js';
 
 export async function openGrantedFolder<
@@ -35,17 +34,12 @@ export async function openGrantedFolder<
 	readonly granted: Granted;
 	readonly credentials?: GitCredentials;
 }): Promise<Result<Folder<TDefinition>, OpenFolderError>> {
-	const locks = (globalThis as { navigator?: { locks?: unknown } }).navigator
-		?.locks;
-	if (locks === undefined)
-		return OpenFolderError.NoFileSystem({ missing: 'navigator.locks' });
 	const files = tauriDirectoryPrimitives(id);
 	return openDirectoryFolder({
 		definition,
 		root: directoryHandle(files, granted.root),
 		rootPath: granted.root,
 		git: { run: tauriGitRun(id), files },
-		locks: locks as OpfsLocks,
 		BroadcastChannel: globalThis.BroadcastChannel,
 		author: { name: granted.authorName, email: granted.authorEmail },
 		branch: granted.branch,

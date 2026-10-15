@@ -17,10 +17,12 @@
  * configuration does not attribute. The remote is `remote.origin.url` in the
  * directory's Git configuration.
  *
- * Locks are this process's own (`createProcessLocks`): a script and a desktop
- * window on one directory are two writers, kept apart only by Git's lock
- * files and the engine's checks of the observed version (ADR-0533). Nothing
- * watches the directory, so `onFilesChanged` reports this handle's own saves
+ * Saves to one directory take turns within this process, across every handle
+ * it opens, so the check of the observed version just before each rename
+ * holds. Across processes nothing waits (ADR-0541): a script and a desktop
+ * window on one directory are writers kept apart only by Git's lock files,
+ * the branch's compare-and-swap, and those checks. Nothing watches the
+ * directory, so `onFilesChanged` reports this handle's own saves
  * and incoming updates, not other programs' edits.
  */
 
@@ -33,8 +35,9 @@ import { directoryHandle } from './directory-handle.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder, FolderGitOptions } from './folder.js';
+import { createMutex } from './git/mutex.js';
 import { createGitRunner } from './git/native-host.js';
-import { createProcessLocks } from './process-locks.js';
+import type { OpfsLocks } from './opfs-store.js';
 
 export * from './contract.js';
 export { GitCommandError, type GitRun } from './git/native-backend.js';
@@ -58,8 +61,18 @@ export type DataFolderOptions = {
 	readonly git: FolderGitOptions;
 };
 
-/** One lock manager for every folder this process opens. */
-const locks = createProcessLocks();
+/** One mutex per lock name, shared by every folder this process opens. */
+const mutexes = new Map<string, ReturnType<typeof createMutex>>();
+const locks: OpfsLocks = {
+	request(name, { signal }, work) {
+		let mutex = mutexes.get(name);
+		if (mutex === undefined) {
+			mutex = createMutex();
+			mutexes.set(name, mutex);
+		}
+		return mutex.run(async () => work(undefined), signal);
+	},
+};
 
 /**
  * Open the directory at `root`. Refusals are returned, not thrown: a

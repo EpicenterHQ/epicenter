@@ -7,7 +7,7 @@
  * the signal changes nothing.
  */
 import { afterAll } from 'bun:test';
-import { createProcessLocks } from './process-locks.js';
+import type { OpfsLocks } from './opfs-store.js';
 
 function setNavigator(value: unknown) {
 	const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -27,8 +27,46 @@ export function installWebLocks(): () => void {
 	return setNavigator({ locks: createWebLocks() });
 }
 
+type Lock = { name: string };
+type Work<T> = (lock: Lock) => Promise<T> | T;
+type Options = { signal?: AbortSignal };
+
 /** A stand-in lock manager of its own, shared by whoever is handed it. */
-export const createWebLocks = createProcessLocks;
+export function createWebLocks(): OpfsLocks & {
+	request<T>(name: string, work: Work<T>): Promise<T>;
+} {
+	const tails = new Map<string, Promise<unknown>>();
+	return {
+		request<T>(
+			name: string,
+			optionsOrWork: Options | Work<T>,
+			maybeWork?: Work<T>,
+		): Promise<T> {
+			const work = (
+				typeof optionsOrWork === 'function' ? optionsOrWork : maybeWork
+			) as Work<T>;
+			const options = typeof optionsOrWork === 'function' ? {} : optionsOrWork;
+			const { signal } = options;
+			if (signal?.aborted) return Promise.reject(signal.reason);
+			let granted = false;
+			const turn = async () => {
+				if (signal?.aborted) throw signal.reason;
+				granted = true;
+				return work({ name });
+			};
+			const result = (tails.get(name) ?? Promise.resolve()).then(turn, turn);
+			tails.set(name, result);
+			if (signal === undefined) return result;
+			return new Promise<T>((resolve, reject) => {
+				signal.addEventListener('abort', () => {
+					if (!granted)
+						reject(new DOMException('Lock wait aborted', 'AbortError'));
+				});
+				result.then(resolve, reject);
+			});
+		},
+	};
+}
 
 /**
  * Give every test in the calling file `navigator.locks`. A browser folder

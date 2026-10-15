@@ -30,7 +30,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
-import { installWebLocks } from '../../../../../packages/folder/src/web-locks.test-support.js';
 import { createHost, type HostOptions } from '../../../native/host.js';
 import { encode } from '../bridge/codec.js';
 import { toneWav } from '../capture.js';
@@ -77,15 +76,12 @@ const gitConfig = {
 	GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
 	GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
 };
-let restoreLocks: () => void;
 beforeAll(() => {
-	restoreLocks = installWebLocks();
 	// No Git identity of this machine's user: the shell's author is the fallback.
 	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 	process.env.GIT_CONFIG_NOSYSTEM = '1';
 });
 afterAll(() => {
-	restoreLocks();
 	for (const [key, value] of Object.entries(gitConfig))
 		if (value === undefined) delete process.env[key];
 		else process.env[key] = value;

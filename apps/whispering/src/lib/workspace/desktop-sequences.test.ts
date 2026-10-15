@@ -24,7 +24,6 @@ import '../svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { expectOk } from 'wellcrafted/testing';
-import { installWebLocks } from '../../../../../packages/folder/src/web-locks.test-support.js';
 import { whisperingDefinition } from '../definition.js';
 import { settle, transformationEditor } from '../edits.test-support.js';
 import { createQueryClient } from '../query.test-support.js';
@@ -54,14 +53,11 @@ const gitConfig = {
 	GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
 	GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
 };
-let restoreLocks: () => void;
 beforeAll(() => {
-	restoreLocks = installWebLocks();
 	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 	process.env.GIT_CONFIG_NOSYSTEM = '1';
 });
 afterAll(() => {
-	restoreLocks();
 	for (const [key, value] of Object.entries(gitConfig))
 		if (value === undefined) delete process.env[key];
 		else process.env[key] = value;
