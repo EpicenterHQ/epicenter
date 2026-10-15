@@ -35,7 +35,6 @@ import { createBunWebSocket } from 'hono/bun';
 import { getCookie, setCookie } from 'hono/cookie';
 import { createLogger } from 'wellcrafted/logger';
 import type { AppSecretOwner } from './app-secrets.ts';
-import type { Application } from './applications.ts';
 import type { DesktopAuthAuthority } from './desktop-auth-authority.ts';
 import {
 	type HomeHost,
@@ -47,7 +46,6 @@ import {
 	ACCOUNT_CANCEL_CONNECTION_ROUTE,
 	ACCOUNT_SIGN_IN_ROUTE,
 	ACCOUNT_SIGN_OUT_ROUTE,
-	APPLICATIONS_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
 	SESSION_ROUTE,
@@ -64,10 +62,6 @@ export type HomeServerEvent = {
 export type HomeSessionResponse = {
 	tools: AgentToolDefinition[];
 	snapshot: HomeSessionSnapshot;
-};
-
-export type ApplicationsResponse = {
-	apps: Application[];
 };
 
 export type HomeServerOptions = {
@@ -417,10 +411,9 @@ export function createHomeServer({
 	}
 	app.get('/apps/*', (c) => c.text('Not Found', 404));
 
-	app.use(APPLICATIONS_ROUTE.pattern, requireBrowserSession);
-	// Application-scoped blob routes are host APIs over private local files. The
-	// generic application listing is already guarded above; this wildcard keeps
-	// newly added app routes behind the same browser session by default.
+	// Application-scoped blob routes are host APIs over private local files.
+	// This wildcard keeps newly added app routes behind the same browser
+	// session by default.
 	app.use('/api/apps/*', requireBrowserSession);
 	app.use('/api/home/*', requireBrowserSession);
 	app.use(`${DEVICE_PATH}/*`, requirePrivateBroker);
@@ -547,15 +540,6 @@ export function createHomeServer({
 			tools: host.toolDefinitions(),
 			snapshot: host.snapshot(),
 		} satisfies HomeSessionResponse),
-	);
-
-	// What Home lists as launchable: every compiled application this release serves.
-	app.get(APPLICATIONS_ROUTE.pattern, (c) =>
-		c.json({
-			apps: staticAssets.applications.map(
-				({ id, title }) => ({ id, title }) satisfies Application,
-			),
-		} satisfies ApplicationsResponse),
 	);
 
 	type BlobEnv = { Variables: { appId: string; id: BlobId; owner: string } };

@@ -341,6 +341,11 @@ export type DataFolder = {
 	title: string,
 	/**  The application whose window edits this folder too, if any. */
 	app: string | null,
+	/**
+	 *  The text of `epicenter.json`, or `None` when it is not UTF-8 text the
+	 *  shell could read. The page parses it; the shell does not judge it.
+	 */
+	declaration: string | null,
 };
 
 /**

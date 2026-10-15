@@ -1,6 +1,5 @@
 <script lang="ts">
 	import * as Tabs from '@epicenter/ui/tabs';
-	import Applications from './Applications.svelte';
 	import { commands, events } from './bindings.gen';
 	import Chat from './Chat.svelte';
 	import { isDesktopHost } from './runtime.ts';
@@ -8,20 +7,17 @@
 	import Settings from './Settings.svelte';
 
 	/**
-	 * Epicenter: an application beside the others, not a shell above them
-	 * (ADR-0209).
+	 * Settings: the window labelled `home`, beside the applications rather than
+	 * a shell above them (ADR-0209).
 	 *
-	 * Three panes and nothing else. Apps launches the crafted views, which the
-	 * OS then switches between. The session is owned here, above the visual
-	 * contents, and `Tabs.Content forceMount` hides an inactive pane rather than unmounting
+	 * Two panes and nothing else. Epicenter opens to the Folders window, which
+	 * lists the folders, the apps that open them, and every other app; this
+	 * window holds what the Folders window does not: the conversation and
+	 * host administration, including the local transcription model (ADR-0180,
+	 * ADR-0537). The session is owned here, above the visual contents, and
+	 * `Tabs.Content forceMount` hides an inactive pane rather than unmounting
 	 * it, so switching panes never disturbs the live socket, the transcript, or
 	 * an unsent draft.
-	 *
-	 * There is no Data pane. It was the raw view over a replica the host owned,
-	 * and ADR-0226 withdrew what it read: an application on the store writes to
-	 * its own client-owned store, so a reader that wants an application's rows
-	 * has to become a replica of that application's authority. That is a real
-	 * app somebody may build; it is not this one reimported.
 	 */
 
 	const { sessionReady }: { sessionReady: Promise<void> } = $props();
@@ -30,10 +26,11 @@
 	const session = createSession({ ready: sessionReady });
 
 	const isDesktop = isDesktopHost();
-	// Native Home opens on the applications it can launch; a browser or remote
-	// Home cannot open a window, so it opens on the conversation it can hold.
-	// The host answers this synchronously, so the first paint is already right.
-	let pane = $state(isDesktop ? 'apps' : 'chat');
+	// The desktop opens this window as Settings, from the Folders window or the
+	// tray, so it lands there; a browser or remote session cannot administer
+	// this device, so it opens on the conversation it can hold. The host
+	// answers this synchronously, so the first paint is already right.
+	let pane = $state(isDesktop ? 'settings' : 'chat');
 
 	// An application whose local transcription is unavailable can send the user
 	// here. The intent lives in the host, so this window claims it rather than
@@ -60,7 +57,6 @@
 <Tabs.Root bind:value={pane} class="h-full text-sm">
 	<header class="flex flex-none items-center gap-3 border-b px-3 py-2">
 		<Tabs.List variant="line">
-			<Tabs.Trigger value="apps">Apps</Tabs.Trigger>
 			<Tabs.Trigger value="chat">Chat</Tabs.Trigger>
 			<Tabs.Trigger value="settings">Settings</Tabs.Trigger>
 		</Tabs.List>
@@ -77,10 +73,6 @@
 
 	<!-- Each pane owns its own padding so a full-height empty or loading state
 	     can center against the whole pane instead of a padded box. -->
-	<Tabs.Content forceMount value="apps" class="min-h-0 overflow-y-auto">
-		<Applications ready={sessionReady} />
-	</Tabs.Content>
-
 	<Tabs.Content forceMount value="chat" class="min-h-0">
 		<Chat {session} />
 	</Tabs.Content>

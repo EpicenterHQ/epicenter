@@ -192,7 +192,7 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 
 		const home = await fetch(`${origin}/apps/home/`, session);
 		expect(home.status).toBe(200);
-		expect(await home.text()).toContain('<title>Home</title>');
+		expect(await home.text()).toContain('<title>Settings</title>');
 		const whispering = await fetch(`${origin}/apps/whispering/`, session);
 		expect(whispering.status).toBe(200);
 		const whisperingPage = await whispering.text();

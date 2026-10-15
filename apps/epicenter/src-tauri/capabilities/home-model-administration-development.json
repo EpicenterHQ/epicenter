@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "home-model-administration-development",
-	"description": "Epicenter Home administers the one active local transcription model: which model is active, downloading and deleting model files, and the unload policy (ADR-0180). Model identity is administration data, so `get_active_model` is granted here and nowhere else. Wiring, not a sandbox: it routes the administration commands to the Home window that owns them.",
+	"description": "Epicenter Settings (the `home` window) administers the one active local transcription model: which model is active, downloading and deleting model files, and the unload policy (ADR-0180). Model identity is administration data, so `get_active_model` is granted here and nowhere else. Wiring, not a sandbox: it routes the administration commands to the Settings window that owns them.",
 	"local": false,
 	"windows": ["home"],
 	"remote": {

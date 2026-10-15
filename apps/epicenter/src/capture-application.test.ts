@@ -2,7 +2,7 @@
  * Capture's compiled application contract through the composed Home server.
  *
  * Key behaviors:
- * - Home lists and serves Capture at its declared route with native IPC access
+ * - The host serves Capture at its declared route with native IPC access
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, realpathSync } from 'node:fs';
@@ -12,12 +12,8 @@ import { join } from 'node:path';
 import { createBunBlobStore } from '@epicenter/blobs/bun';
 import { CAPTURE_APPLICATION, COMPILED_APPLICATIONS } from './applications.ts';
 import { createHomeHost } from './host.ts';
-import {
-	APPLICATIONS_ROUTE,
-	BOOTSTRAP_ROUTE,
-	CAPTURE_ROUTE,
-} from './routes.ts';
-import { type ApplicationsResponse, createHomeServer } from './server.ts';
+import { BOOTSTRAP_ROUTE, CAPTURE_ROUTE } from './routes.ts';
+import { createHomeServer } from './server.ts';
 import { loadStaticAssets } from './static-assets.ts';
 import { writeAppsDist } from './test-apps-dist.ts';
 import { createTestDesktopAuth } from './test-home-host.ts';
@@ -75,19 +71,12 @@ async function serve() {
 }
 
 describe('Capture as a compiled application', () => {
-	test('is declared, listed for Home, and served below its id', async () => {
+	test('is declared and served below its id', async () => {
 		const { app, cookie } = await serve();
 
 		expect(CAPTURE_APPLICATION).toEqual({ id: 'capture', title: 'Capture' });
 		expect(COMPILED_APPLICATIONS).toContainEqual(CAPTURE_APPLICATION);
 		expect(CAPTURE_ROUTE.pattern).toBe('/apps/capture/');
-
-		const listed = (await (
-			await app.request(APPLICATIONS_ROUTE.url(ORIGIN), {
-				headers: { host: HOST, cookie },
-			})
-		).json()) as ApplicationsResponse;
-		expect(listed.apps).toContainEqual({ id: 'capture', title: 'Capture' });
 
 		const page = await app.request(CAPTURE_ROUTE.url(ORIGIN), {
 			headers: { host: HOST, cookie },

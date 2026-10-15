@@ -120,8 +120,8 @@
 
 		{#if isLocalTranscriptionReady}
 			<!-- The ordinary launch action, not a return path: it states what is
-			     true of the host, and the user chooses. Same row shape as the Apps
-			     pane, because it is the same act. -->
+			     true of the host, and the user chooses. The same verb as the
+			     Folders window's Apps list, because it is the same act. -->
 			<Item.Root variant="outline">
 				<Item.Content>
 					<Item.Description>

@@ -27,7 +27,7 @@ function builtInRoute<const TId extends string>(id: TId, title: string) {
 }
 
 export const BUILT_IN_ROUTES = {
-	home: builtInRoute('home', 'Home'),
+	home: builtInRoute('home', 'Settings'),
 	whispering: builtInRoute('whispering', 'Whispering'),
 	honeycrisp: builtInRoute('honeycrisp', 'Honeycrisp'),
 	capture: builtInRoute('capture', 'Capture'),
@@ -54,7 +54,5 @@ export const MAIL_ROUTE = BUILT_IN_ROUTES.mail;
 export const TODOS_ROUTE = BUILT_IN_ROUTES.todos;
 export const BOOKS_ROUTE = BUILT_IN_ROUTES.books;
 export const FOLDERS_ROUTE = BUILT_IN_ROUTES.folders;
-/** What Home lists as launchable (ADR-0189). */
-export const APPLICATIONS_ROUTE = route('/api/apps');
 export const SESSION_ROUTE = route('/api/home/session');
 export const SESSION_STREAM_ROUTE = route('/api/home/session/stream');

@@ -17,7 +17,7 @@
 		"security": {
 			"capabilities": [
 				"home-model-administration-production",
-				"home-launch-application-production",
+				"launch-application-production",
 				"trusted-app-windows-production",
 				"trusted-whispering-native-production",
 				"trusted-whispering-overlay-production",

@@ -1,14 +1,16 @@
 /**
- * What a person can launch from Epicenter Home (ADR-0189).
+ * What a person can launch from the Folders window (ADR-0189, ADR-0537).
  *
  * A compiled application ships in the release and is served from its own
- * built-in route behind the host's session gate. Home needs only an ID the host
- * can resolve to a window and a title to show; the window label, capability
- * file, and served document are decided by the host when Home launches one.
+ * built-in route behind the host's session gate. The Folders window needs only
+ * an ID the host can resolve to a window and a title to show; the window label,
+ * capability file, and served document are decided by the host when it
+ * launches one.
  *
- * Home is not in the list: you are already looking at it, so launching it is a
- * no-op rather than a window (ADR-0209). Neither is a release-bundled
- * placeholder document, because there is nothing behind it to open.
+ * Settings (the `home` window) is not in the list: it is the host's own
+ * document, not a compiled application, and the Folders window opens it from
+ * its own button. Neither is a release-bundled placeholder document, because
+ * there is nothing behind it to open.
  */
 
 import { BUILT_IN_ROUTES } from './routes.ts';
@@ -48,7 +50,16 @@ export const FOLDERS_APPLICATION: Application = {
 };
 
 /**
- * Compiled applications, in the order Home lists them.
+ * Settings, which the Folders window opens beside its folders. Its window
+ * keeps the label `home`.
+ */
+export const SETTINGS_APPLICATION: Application = {
+	id: BUILT_IN_ROUTES.home.id,
+	title: BUILT_IN_ROUTES.home.title,
+};
+
+/**
+ * Compiled applications, in the order the Folders window lists them.
  *
  * This is also the list the host loads asset trees for at boot: a compiled
  * application is exactly a `dist/<id>` build the release ships, so declaring
