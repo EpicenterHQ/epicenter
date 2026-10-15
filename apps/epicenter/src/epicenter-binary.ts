@@ -2,7 +2,8 @@
  * The one `epicenter` binary the desktop app ships (ADR-0556): the
  * `epicenter` CLI, plus the Bun host as a hidden `__host` mode until Rust
  * serves the apps. Run with `BUN_BE_BUN=1`, the same binary is `bun`, which
- * installs and builds apps (`src-tauri/src/installed_apps.rs`).
+ * `epicenter app` runs to install and build apps
+ * (`packages/cli/src/installed-apps.ts`).
  *
  * The shell starts the host as `epicenter-cli __host --runtime-mode=…`. Each
  * mode loads its code only when chosen, so a CLI command never evaluates the

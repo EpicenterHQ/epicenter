@@ -3,8 +3,9 @@
 	 * Installing an app from a folder in a Git repository (ADR-0552).
 	 *
 	 * "Install from a repository…" takes a Git URL or an absolute path, lists
-	 * the apps the shell finds in it (`list_repository_apps`), each with the
-	 * folder it is in, and installs the one chosen (`install_app`). With no
+	 * the apps the `epicenter` CLI finds in it (`epicenter app list
+	 * --repository`), each with the folder it is in, and installs the one
+	 * chosen (`epicenter app install`), saying each step it reports. With no
 	 * app installed yet, "Install Todos" is the same install with Epicenter's
 	 * own repository and Todos' folder filled in. Installing clones and builds
 	 * nothing; the caller shows the approval, as for any install.
@@ -13,10 +14,11 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import {
-		commands,
 		type InstalledApp,
+		installApp,
+		listRepositoryApps,
 		type RepositoryApp,
-	} from '../ui/bindings.gen';
+	} from './app-commands.ts';
 
 	/** Epicenter's repository, as the root `package.json` names it. */
 	const EPICENTER_REPOSITORY = 'https://github.com/EpicenterHQ/epicenter.git';
@@ -47,7 +49,7 @@
 		problem = undefined;
 		found = undefined;
 		try {
-			const { data, error } = await commands.listRepositoryApps(typed);
+			const { data, error } = await listRepositoryApps(typed);
 			if (error !== null) problem = error;
 			else if (data.length === 0)
 				problem = 'This repository has no folder with an epicenter.app.json.';
@@ -63,7 +65,11 @@
 		doing = `Cloning ${title}…`;
 		problem = undefined;
 		try {
-			const { data, error } = await commands.installApp(from, folder);
+			const { data, error } = await installApp(
+				from,
+				folder,
+				(message) => (doing = message),
+			);
 			if (error !== null) {
 				problem = error;
 				return;

@@ -13,9 +13,9 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { InstalledApp } from '@epicenter/cli';
 import { openFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
-import type { InstalledApp } from '../ui/bindings.gen';
 import { epicenterDefinition, writeAppRows } from './epicenter-folder';
 
 const author = { name: 'Epicenter', email: 'epicenter@localhost' };

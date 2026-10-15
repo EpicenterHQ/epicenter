@@ -37,7 +37,7 @@ pub struct Program {
 /// `epicenter-cli` because Tauri refuses a sidecar named like the Cargo
 /// package.
 #[cfg(not(debug_assertions))]
-fn bundled_program() -> Result<Program, String> {
+pub(crate) fn bundled_program() -> Result<Program, String> {
     let executable = std::env::current_exe()
         .map_err(|error| format!("the Epicenter executable could not be found: {error}"))?;
     let directory = executable
@@ -57,7 +57,7 @@ fn bundled_program() -> Result<Program, String> {
 /// A development run uses the CLI's source under the `bun` on `PATH`, as the
 /// development host does, so a change needs no rebuild.
 #[cfg(debug_assertions)]
-fn bundled_program() -> Result<Program, String> {
+pub(crate) fn bundled_program() -> Result<Program, String> {
     let entry =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../packages/cli/src/bin.ts");
     Ok(Program {
@@ -100,12 +100,25 @@ pub async fn run(
     program: &Program,
     args: &[OsString],
     stdin: Option<Vec<u8>>,
+    on_line: impl FnMut(String) -> Result<(), String>,
+) -> Result<CliExit, CliError> {
+    run_with_env(program, args, &[], stdin, on_line).await
+}
+
+/// [`run`], with `env` set in the child's environment, such as the shell's
+/// directories for `epicenter app` (`installed_apps.rs`).
+pub async fn run_with_env(
+    program: &Program,
+    args: &[OsString],
+    env: &[(OsString, OsString)],
+    stdin: Option<Vec<u8>>,
     mut on_line: impl FnMut(String) -> Result<(), String>,
 ) -> Result<CliExit, CliError> {
     let mut command = Command::new(&program.program);
     command
         .args(&program.prefix)
         .args(args)
+        .envs(env.iter().map(|(name, value)| (name, value)))
         .stdin(if stdin.is_some() {
             Stdio::piped()
         } else {

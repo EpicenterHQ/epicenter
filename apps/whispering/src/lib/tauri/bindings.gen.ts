@@ -207,47 +207,64 @@ export const commands = {
 		typedError<CliExit, CliError>(
 			__TAURI_INVOKE('folder_check', { scope, onLine }),
 		),
-	/**  Every app installed under `Apps/`, with whether it can run. */
-	listInstalledApps: () =>
-		typedError<InstalledApp[], string>(__TAURI_INVOKE('list_installed_apps')),
+	/**
+	 *  `epicenter app list --json`: every app installed under `Apps/`, with
+	 *  whether it can run.
+	 */
+	listInstalledApps: (onLine: Channel<string>) =>
+		typedError<CliExit, CliError>(
+			__TAURI_INVOKE('list_installed_apps', { onLine }),
+		),
 	/**
 	 *  The apps in the repository at `source`, a Git URL or a local path, each
 	 *  with the folder to install it from.
 	 */
-	listRepositoryApps: (source: string) =>
-		typedError<RepositoryApp[], string>(
-			__TAURI_INVOKE('list_repository_apps', { source }),
+	listRepositoryApps: (source: string, onLine: Channel<string>) =>
+		typedError<CliExit, CliError>(
+			__TAURI_INVOKE('list_repository_apps', { source, onLine }),
 		),
 	/**
-	 *  Clone the repository at `source`, a Git URL or a local path, into `Apps/`,
-	 *  with the app at `folder` within it, or at its root when `folder` is
-	 *  empty. It builds and runs nothing until approved.
+	 *  Clone the repository at `source` into `Apps/`, with the app at `folder`
+	 *  within it, or at its root when `folder` is empty. A commit nobody approved
+	 *  here waits for approval; the CLI exits 1 with its review.
 	 */
-	installApp: (source: string, folder: string) =>
-		typedError<InstalledApp, string>(
-			__TAURI_INVOKE('install_app', { source, folder }),
-		),
-	/**  Approve `commit` of app `id` and build it. */
-	approveApp: (id: string, commit: string) =>
-		typedError<InstalledApp, string>(
-			__TAURI_INVOKE('approve_app', { id, commit }),
+	installApp: (source: string, folder: string, onLine: Channel<string>) =>
+		typedError<CliExit, CliError>(
+			__TAURI_INVOKE('install_app', { source, folder, onLine }),
 		),
 	/**
-	 *  Fetch app `id`'s upstream and bring it up to date. What arrives needs
-	 *  approval before it runs.
+	 *  Approve `commit` of app `id`, the commit the person was shown, and build
+	 *  it.
 	 */
-	updateApp: (id: string) =>
-		typedError<InstalledApp, string>(__TAURI_INVOKE('update_app', { id })),
+	approveApp: (id: string, commit: string, onLine: Channel<string>) =>
+		typedError<CliExit, CliError>(
+			__TAURI_INVOKE('approve_app', { id, commit, onLine }),
+		),
 	/**
-	 *  Open app `id` in its own window, building a commit made here first. With
-	 *  `folder`, a scope the Folders window listed, the window is let into that
-	 *  folder and the app is handed it as `?folder=`. Without one, the app is
-	 *  handed its own folder, `<folder_dir>/<id>`, whose scope is its id
-	 *  (ADR-0552).
+	 *  Fetch app `id`'s upstream and bring it up to date. What arrives from
+	 *  elsewhere waits for approval.
 	 */
-	openInstalledApp: (id: string, folder: string | null) =>
-		typedError<InstalledApp, string>(
-			__TAURI_INVOKE('open_installed_app', { id, folder }),
+	updateApp: (id: string, onLine: Channel<string>) =>
+		typedError<CliExit, CliError>(
+			__TAURI_INVOKE('update_app', { id, onLine }),
+		),
+	/**
+	 *  Open app `id` at `commit`, the commit the Folders window listed, in its own
+	 *  window titled `title`. When that commit is not the build its window
+	 *  loads, the CLI builds it first, which it does only for a commit that may
+	 *  run (one made here, or approved). With `folder`, a scope the Folders
+	 *  window listed, the window is let into that folder and the app is handed
+	 *  it as `?folder=`. Without one, the app is handed its own folder,
+	 *  `<folder_dir>/<id>`, whose scope is its id (ADR-0552).
+	 */
+	openInstalledApp: (
+		id: string,
+		title: string,
+		commit: string,
+		folder: string | null,
+	) =>
+		typedError<null, string>(
+			__TAURI_INVOKE('open_installed_app', { id, title, commit, folder }),
 		),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>('get_unload_policy'),
@@ -403,20 +420,6 @@ export type ActiveModel = {
 	/**  Whether this model takes a spoken-language hint. */
 	supportsLanguage: boolean;
 };
-
-/**  Whether an installed app can run. */
-export type AppState =
-	/**  Built at its commit; it opens at once. */
-	| { kind: 'ready' }
-	/**
-	 *  Its commit may run but has not been built, as after a commit made on
-	 *  this machine; opening builds it first.
-	 */
-	| { kind: 'unbuilt' }
-	/**  Its commit arrived from elsewhere and runs only once approved. */
-	| { kind: 'needsApproval'; review: Review }
-	/**  It cannot run as it is. */
-	| { kind: 'broken'; problem: string };
 
 /**
  *  Which advisory hints the run actually applied.
@@ -605,26 +608,6 @@ export type InferenceModel = {
 	active: boolean;
 };
 
-/**  An installed app as the Folders window shows it. */
-export type InstalledApp = {
-	/**  The app's id, which is also its directory under `Apps/`. */
-	id: string;
-	title: string;
-	/**
-	 *  Where it was installed from: the repository's `origin`, or empty when
-	 *  it has none.
-	 */
-	source: string;
-	/**
-	 *  The folder within the repository holding `epicenter.app.json`, or
-	 *  empty for the repository's root.
-	 */
-	folder: string;
-	/**  The commit checked out, `HEAD`. Empty when the app is `Broken`. */
-	commit: string;
-	state: AppState;
-};
-
 /**
  *  Whether the active-model transcription route is ready and which hints it accepts.
  *
@@ -697,34 +680,6 @@ export type ModelInfo = {
 	supportsLanguage: boolean;
 	recommended: boolean;
 	downloaded: boolean;
-};
-
-/**  One app found in a repository, as listing it shows it. */
-export type RepositoryApp = {
-	/**  The folder holding `epicenter.app.json`, or empty for the root. */
-	folder: string;
-	/**  The manifest's id, or empty when the manifest could not be read. */
-	id: string;
-	/**  The manifest's title, or empty when the manifest could not be read. */
-	title: string;
-	/**
-	 *  Why this app cannot be installed, if it cannot: its manifest is not
-	 *  valid.
-	 */
-	problem: string | null;
-	/**  Whether an app with this id is already installed in `Apps/`. */
-	installed: boolean;
-};
-
-/**  What a person is shown before approving a commit. */
-export type Review = {
-	/**  The commit approved before, when there is one this repository has. */
-	from: string | null;
-	/**  `git log --oneline` of what would newly run. */
-	log: string;
-	/**  `git diff --stat` from the approved commit, empty on a first install. */
-	diffStat: string;
-	statement: string;
 };
 
 /**

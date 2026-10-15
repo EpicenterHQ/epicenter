@@ -13,6 +13,7 @@
  * apps are not rows.
  */
 
+import type { InstalledApp } from '@epicenter/cli';
 import {
 	type CreateRowOf,
 	defineFolder,
@@ -22,7 +23,6 @@ import {
 } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/tauri';
 import { Type } from 'typebox';
-import type { InstalledApp } from '../ui/bindings.gen';
 
 /** The folder's scope, which the shell registered for this window and Settings. */
 export const EPICENTER_FOLDER_ID = 'so.epicenter';

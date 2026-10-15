@@ -7,7 +7,7 @@
  * - An installed app waiting for approval, or broken, is offered on no folder
  */
 import { expect, test } from 'bun:test';
-import type { InstalledApp } from '../ui/bindings.gen';
+import type { InstalledApp } from '@epicenter/cli';
 import { installedOpeners } from './openers.ts';
 
 function app(overrides: Partial<InstalledApp> = {}): InstalledApp {
@@ -29,8 +29,8 @@ test('every app that can run is offered, by title', () => {
 			app({ state: { kind: 'unbuilt' } }),
 		]),
 	).toEqual([
-		{ id: 'com.example.board', title: 'Board' },
-		{ id: 'com.example.notes', title: 'Notes' },
+		{ id: 'com.example.board', title: 'Board', commit: 'a'.repeat(40) },
+		{ id: 'com.example.notes', title: 'Notes', commit: 'a'.repeat(40) },
 	]);
 });
 

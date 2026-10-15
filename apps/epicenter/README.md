@@ -45,15 +45,15 @@ The one binary has three uses:
 - The shell starts the host as `epicenter-cli __host --runtime-mode=production`
   (`host_command` in `src-tauri/src/lib.rs`). Development runs
   `bun run src/epicenter-binary.ts __host --runtime-mode=development`.
-- Run with `BUN_BE_BUN=1`, it is `bun`, which installs and builds apps
-  ([Installed apps](#installed-apps)).
+- `epicenter app …` installs and builds apps, running the same binary as
+  `bun` with `BUN_BE_BUN=1` ([Installed apps](#installed-apps)).
 - The shell's narrow CLI runner (`src-tauri/src/cli.rs`) runs it for a page's
   fixed commands. A page has no generic exec: each command maps to one
   `epicenter` invocation, writes stdin on its own task, and streams each
-  stdout line to the page's `Channel`. The one command so far is
-  `folder_check(scope, onLine)`, granted to the Folders window alone: it runs
-  `epicenter check <root> --json` on a folder that window was granted and
-  answers `{ code, stderr }`, or `NotGranted` with the grant error.
+  stdout line to the page's `Channel`. `folder_check(scope, onLine)`, granted
+  to the Folders window alone, runs `epicenter check <root> --json` on a
+  folder that window was granted and answers `{ code, stderr }`, or
+  `NotGranted` with the grant error. The installed-app commands are below.
   Development runs the CLI's source under `bun` instead of the binary.
 
 `epicenter install-command`, run from the bundled binary, links it onto `PATH`
@@ -89,7 +89,12 @@ Production's authored folder root is `~/Epicenter`; development's is `~/Epicente
 `EPICENTER_FOLDER_DIR` overrides the authored folder root and must be absolute.
 Built installed apps go to the platform cache directory, `so.epicenter` (or
 `so.epicenter.dev`) under `~/Library/Caches` on macOS; `EPICENTER_CACHE_DIR`
-overrides it and must be absolute.
+overrides it and must be absolute. The shell resolves all three directories
+once and sets `EPICENTER_DATA_DIR`, `EPICENTER_FOLDER_DIR`, and
+`EPICENTER_CACHE_DIR` on every `epicenter app` command it runs, so the CLI
+writes where the shell reads. A terminal's `epicenter app` uses the same
+variables, or the release app's directories when they are unset
+(`packages/cli/src/app-paths.ts`).
 
 Files split by what they cost to lose (ADR-0539):
 
@@ -101,11 +106,12 @@ Files split by what they cost to lose (ADR-0539):
     apps/<app-id>.md                          one row per installed app
   Apps/<app-id>/                              an installed app's source repository
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
-  approvals.json                              which app commits may run here
+  approvals.json                              which app commits may run here (the CLI writes it)
 ~/Library/Caches/so.epicenter/                disposable
   builds/<app-id>/<commit>/                   built app bundles
   builds/<app-id>/<commit>.log                what the install and build printed
   builds/<app-id>/current                     the commit the host serves
+  apps.lock                                   one install or build at a time
 ```
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development starts signed out after
@@ -340,6 +346,23 @@ ADR-0552):
   output is always `dist/`: a single-page app built with relative asset paths,
   holding `index.html`.
 
+Installing lives in the `epicenter` CLI
+(`packages/cli/src/installed-apps.ts`, ADR-0556, ADR-0558); a terminal or an
+agent runs the same commands the Folders window does. The shell's commands
+in `src-tauri/src/installed_apps.rs` are each one fixed invocation, whose
+NDJSON lines (`{"progress"}`, then `{"app"}` or `{"error"}`) go to the page's
+`Channel`; `src/folders/app-commands.ts` reads them and the page says each
+step while it runs:
+
+```txt
+list_installed_apps    epicenter app list --json
+list_repository_apps   epicenter app list --repository=<source> --json
+install_app            epicenter app install [--folder=<folder>] --json -- <source>
+update_app             epicenter app update --json -- <id>
+approve_app            epicenter app update --commit=<commit> --approve --json -- <id>
+open_installed_app     epicenter app update --commit=<commit> --json -- <id>, when that commit is not built
+```
+
 The Folders window's Apps list has "Install from a repository…"
 (`src/folders/InstallApps.svelte`). It takes a Git URL (`https`, `http`,
 `ssh`, `git`, `file`, or `user@host:path`) or an absolute local path and calls
@@ -353,16 +376,22 @@ same `install_app` with `https://github.com/EpicenterHQ/epicenter.git` and
 
 `install_app` clones the whole repository into `~/Epicenter/Apps/<app-id>/`,
 records the folder in the clone's `.git/config` as `epicenter.folder` (absent
-for the root), and builds nothing. The shell reads the folder from there,
-never from a row. The page shows the title, the source, the commit, its log,
-and that building runs the app's code on this computer. "Approve and build"
-calls `approve_app`, which records the commit in `approvals.json`, runs
-`bun install --frozen-lockfile --ignore-scripts` at the repository's root
-(when it has a `package.json`), runs `bun run build:installed` in the app's
-folder, and copies its `dist/` to `builds/<app-id>/<commit>/`. Approval covers the
-whole repository's commit. The page then writes the app's row,
-`so.epicenter/apps/<app-id>.md`, with its title, source, folder, and commit,
-through the folder engine (`src/folders/epicenter-folder.ts`).
+for the root), and builds nothing that waits for approval: the CLI exits 1
+with the app and its review. Everything about an installed app is read from
+its clone, never from a row. The page shows the title, the source, the
+commit, its log, and that building runs the app's code on this computer.
+"Approve and build" calls `approve_app` with the commit shown; the CLI
+refuses if the clone moved since, then records the commit in
+`approvals.json`, runs `bun install --frozen-lockfile --ignore-scripts` at the
+repository's root (when it has a `package.json`), runs
+`bun run build:installed` in the app's folder, and copies its `dist/` to
+`builds/<app-id>/<commit>/`. Approval covers the whole repository's commit.
+The page then writes the app's row, `so.epicenter/apps/<app-id>.md`, with its
+title, source, folder, and commit, through the folder engine
+(`src/folders/epicenter-folder.ts`). `epicenter app remove <id>` deletes the
+clone, its builds, and its approval, refusing while the clone holds
+uncommitted changes or commits no remote has; the window has no Remove yet,
+and the row stays.
 
 What runs is decided per commit:
 
@@ -377,17 +406,21 @@ What runs is decided per commit:
   undone and reported.
 - Uncommitted changes do not build: what runs is always a commit.
 
-The shell runs every Git command for an app as the folder plugin runs a
-page's: no hooks, no fsmonitor, no terminal prompt, and no inherited variable
-pointing Git at another repository. Builds stop after 15 minutes. In a
-release, `bun` is the bundled [`epicenter` binary](#the-epicenter-binary)
-itself (`BUN_BE_BUN=1`, linked as `bun` first on the build's `PATH`);
-development uses the `bun` on `PATH`.
+The CLI runs every Git command for an app through `@epicenter/folder`'s
+runner (`createGitRunner`): no hooks, no fsmonitor, no terminal prompt, and
+no inherited variable pointing Git at another repository, with the `ext` and
+`fd` transports refused. One install, update, or build runs at a time on a
+machine (`apps.lock`). Builds stop after 15 minutes. `bun` is the binary
+running the command: in a release the bundled
+[`epicenter` binary](#the-epicenter-binary) itself (`BUN_BE_BUN=1`, linked as
+`bun` first on the build's `PATH`); in development the CLI's source runs under
+the `bun` on `PATH`.
 
 The Bun host serves an installed app's current build at `/apps/<app-id>/` on
 Epicenter's origin, behind the same session gate and auth bootstrap as a
 compiled app, with its document's inline scripts hashed into its own
 Content-Security-Policy. `open_installed_app` opens it in its own window,
+after the CLI builds the listed commit when it is not the current build,
 labelled `app:<id with _ for .>`, plus `:<folder scope in hex>` when it is
 opened on a folder; the `installed-app-windows-*` capability grants those
 windows `epicenter-folder:default` alone. Opened on a folder, the window is

@@ -27,7 +27,9 @@
 	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
 	 * an app installed from a folder in a Git repository (`InstallApps`,
 	 * ADR-0552) is shown for approval before anything builds, and an update fetched from upstream is shown again with
-	 * its log and diff stat. Each app that runs is recorded as a row of
+	 * its log and diff stat. The `epicenter` CLI installs, updates, approves,
+	 * and builds (`app-commands.ts`, ADR-0556), and each step it reports is
+	 * said while it runs. Each app that runs is recorded as a row of
 	 * Epicenter's own folder (`epicenter-folder.ts`).
 	 */
 	import type { Folder, FolderDefinition } from '@epicenter/folder';
@@ -39,18 +41,19 @@
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { onMount } from 'svelte';
-	import type { Application } from '../applications.ts';
-	import {
-		commands,
-		type DataFolder,
-		type InstalledApp,
-		type Review,
-	} from '../ui/bindings.gen';
+	import { commands, type DataFolder } from '../ui/bindings.gen';
 	import { createLaunch } from '../ui/launch.svelte.ts';
+	import {
+		approveApp,
+		type InstalledApp,
+		listInstalledApps,
+		type Review,
+		updateApp,
+	} from './app-commands.ts';
 	import { recordInstalledApps } from './epicenter-folder.ts';
 	import FolderView from './FolderView.svelte';
 	import InstallApps from './InstallApps.svelte';
-	import { installedOpeners } from './openers.ts';
+	import { installedOpeners, type Opener } from './openers.ts';
 
 	let folders = $state<DataFolder[] | undefined>(undefined);
 	let listProblem = $state<string | undefined>(undefined);
@@ -124,7 +127,7 @@
 	 * own folder.
 	 */
 	async function listInstalled() {
-		const { data, error } = await commands.listInstalledApps();
+		const { data, error } = await listInstalledApps();
 		if (error !== null) {
 			appsProblem = error;
 			return;
@@ -141,15 +144,20 @@
 		reviewing = { app, review: app.state.review };
 	}
 
-	/** Run one shell action for an app, saying what it is doing meanwhile. */
+	/**
+	 * Run one CLI action for an app, saying what it is doing meanwhile: first
+	 * `doing`, then each step the CLI reports.
+	 */
 	async function act(
 		doing: string,
-		action: () => Promise<{ data: InstalledApp | null; error: string | null }>,
+		action: (
+			onProgress: (message: string) => void,
+		) => Promise<{ data: InstalledApp | null; error: string | null }>,
 	): Promise<InstalledApp | undefined> {
 		busy = doing;
 		appsProblem = undefined;
 		try {
-			const { data, error } = await action();
+			const { data, error } = await action((message) => (busy = message));
 			if (error !== null) appsProblem = error;
 			return data ?? undefined;
 		} catch (cause) {
@@ -168,21 +176,21 @@
 	}
 
 	async function approve(app: InstalledApp) {
-		const approved = await act(`Building ${app.title}…`, () =>
-			commands.approveApp(app.id, app.commit),
+		const approved = await act(`Building ${app.title}…`, (onProgress) =>
+			approveApp(app.id, app.commit, onProgress),
 		);
 		if (approved !== undefined) reviewing = undefined;
 	}
 
 	async function update(app: InstalledApp) {
-		const updated = await act(`Updating ${app.title}…`, () =>
-			commands.updateApp(app.id),
+		const updated = await act(`Updating ${app.title}…`, (onProgress) =>
+			updateApp(app.id, onProgress),
 		);
 		if (updated !== undefined) review(updated);
 	}
 
 	/** Open `application` on `folder`, then read what building it changed. */
-	async function launch(application: Application, folder?: string) {
+	async function launch(application: Opener, folder?: string) {
 		busy = `Opening ${application.title}…`;
 		await launcher.launch(application, folder);
 		busy = undefined;
@@ -360,7 +368,7 @@
 							variant="ghost"
 							size="xs"
 							disabled={busy !== undefined}
-							onclick={() => void launch({ id: app.id, title: app.title })}
+							onclick={() => void launch(app)}
 						>
 							Open
 						</Button>

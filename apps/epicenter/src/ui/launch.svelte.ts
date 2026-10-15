@@ -13,7 +13,7 @@
  * happened rather than following the user into another pane.
  */
 
-import type { Application } from '../applications.ts';
+import type { Opener } from '../folders/openers.ts';
 import { commands } from './bindings.gen';
 
 export function createLaunch() {
@@ -25,11 +25,13 @@ export function createLaunch() {
 			return failure;
 		},
 		/** Open installed app `application` on the scope `folder`, or on its own folder. */
-		async launch(application: Application, folder?: string) {
+		async launch(application: Opener, folder?: string) {
 			failure = null;
 			try {
 				const { error } = await commands.openInstalledApp(
 					application.id,
+					application.title,
+					application.commit,
 					folder ?? null,
 				);
 				if (error !== null) throw new Error(error);

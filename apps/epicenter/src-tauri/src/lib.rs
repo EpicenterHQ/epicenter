@@ -527,7 +527,6 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(HostState::new(port))
         .manage(data_folders::DataFolderScopes::default())
-        .manage(installed_apps::AppWork::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(DownloadManager::default());
 

@@ -152,9 +152,9 @@ shell, and the folder plugin fit together, and verify it against the code. The c
 - A commit failure is a Git fact. Do not turn one into a save error, and do
   not make a save request or wait for a commit.
 - `bun run test` must not need Rust. Installing Honeycrisp from this folder
-  is tested by Epicenter's ignored
-  `installs_honeycrisp_from_its_folder_in_the_monorepo` in
-  `apps/epicenter/src-tauri/src/installed_apps.rs`.
+  is tested by the CLI's `installs Honeycrisp from its folder` in
+  `packages/cli/src/installed-apps.test.ts`, run when `EPICENTER_MONOREPO`
+  names a clone of this repository.
 
 ## Words a person reads
 

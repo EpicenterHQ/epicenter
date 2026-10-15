@@ -12,16 +12,18 @@
  * own folder.
  */
 
-import type { Application } from '../applications.ts';
-import type { InstalledApp } from '../ui/bindings.gen';
+import type { InstalledApp } from '@epicenter/cli';
+
+/** An app to open: its id, its title, and the commit listed for it. */
+export type Opener = Pick<InstalledApp, 'id' | 'title' | 'commit'>;
 
 /**
  * The installed apps that can run, by title: those built at their commit,
  * and those whose commit may run and builds when opened.
  */
-export function installedOpeners(apps: readonly InstalledApp[]): Application[] {
+export function installedOpeners(apps: readonly InstalledApp[]): Opener[] {
 	return apps
 		.filter(({ state }) => state.kind === 'ready' || state.kind === 'unbuilt')
-		.map(({ id, title }) => ({ id, title }))
+		.map(({ id, title, commit }) => ({ id, title, commit }))
 		.sort((a, b) => a.title.localeCompare(b.title));
 }

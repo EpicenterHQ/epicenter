@@ -71,12 +71,9 @@ impl DesktopPaths {
         })
     }
 
-    /// Which app commits may run on this machine. Written only by the shell.
-    pub fn approvals_file(&self) -> PathBuf {
-        self.data_dir.join("approvals.json")
-    }
-
-    /// Built app bundles, at `<app-id>/<commit>/`.
+    /// Built app bundles, at `<app-id>/<commit>/`. The `epicenter` CLI
+    /// writes them, and `approvals.json` in `data_dir`, from the same
+    /// directories, which the shell hands it (`installed_apps.rs`).
     pub fn builds_dir(&self) -> PathBuf {
         self.cache_dir.join("builds")
     }
@@ -193,10 +190,6 @@ mod tests {
             folder_dir: PathBuf::from("/home/Epicenter"),
             cache_dir: PathBuf::from("/caches/so.epicenter"),
         };
-        assert_eq!(
-            paths.approvals_file(),
-            Path::new("/support/so.epicenter/approvals.json")
-        );
         assert_eq!(paths.builds_dir(), Path::new("/caches/so.epicenter/builds"));
         assert_eq!(paths.apps_dir(), Path::new("/home/Epicenter/Apps"));
     }
