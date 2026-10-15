@@ -6,7 +6,7 @@ import type { Entry } from '$lib/data.js';
 import { describeError, type Entries } from '$lib/entries.svelte.js';
 
 /**
- * Ask before deleting `entry`. The delete runs after the word's writes still
+ * Ask before deleting `entry`. The delete waits for the word's save still
  * under way, so it removes what this page saved last.
  */
 export function confirmDelete(entries: Entries, entry: Entry) {

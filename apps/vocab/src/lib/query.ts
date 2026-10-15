@@ -1,22 +1,22 @@
 /**
  * Cache identity and shared rules for every query and mutation Vocab runs
- * (ADR-0528). The words, the chat list, and the text of a word being
- * repaired are queries; every write and action is a mutation.
+ * (ADR-0528, ADR-0548). Every folder read is a query under the folder's own
+ * keys (`folderOptions`), so a change the folder reports reaches it; every
+ * write and action is a mutation.
  */
 import type { FileError, TableError } from '@epicenter/folder';
+import type { FolderOptions } from '@epicenter/folder/query';
 import type { MutationFilters, QueryClient } from '@tanstack/svelte-query';
 import { defineKeys } from 'wellcrafted/query';
+import type { vocabFolder } from './data.js';
 
+/** The query option factories over Vocab's opened folder. */
+export type VocabOptions = FolderOptions<typeof vocabFolder>;
+
+/** Keys of Vocab's own actions; reads and row saves use the folder's keys. */
 export const vocabKeys = defineKeys({
-	/** Every query the app keeps. */
+	/** Every action Vocab defines itself. */
 	all: ['vocab'],
-	entries: ['vocab', 'entries'],
-	chats: ['vocab', 'chats'],
-	text: (path: string) => ['vocab', 'text', path] as const,
-	/** Every write of a word or a word file's text. */
-	writes: ['vocab', 'write'],
-	write: (path: string) => ['vocab', 'write', 'row', path] as const,
-	writeText: (path: string) => ['vocab', 'write', 'text', path] as const,
 	add: ['vocab', 'add'],
 	remove: (path: string) => ['vocab', 'remove', path] as const,
 	startChat: ['vocab', 'start-chat'],
@@ -24,12 +24,14 @@ export const vocabKeys = defineKeys({
 	message: (chatId: string) => ['vocab', 'message', chatId] as const,
 });
 
-/** A write that failed: what the learner is told, and the text it held. */
+/** A write that failed: what the learner is told, and how to recover. */
 export type WriteFailure = {
 	readonly path: string;
 	readonly error: TableError | FileError | { name: string; message: string };
-	/** The text that was on screen and is not in the file. */
+	/** The text that was on screen and is not in the file; `''` when none is lost. */
 	readonly lost: string;
+	/** Send the edit again; set when the edit is still held on screen. */
+	readonly retry?: () => void;
 };
 
 /** Why a change did not start: the page is closing. */
@@ -54,25 +56,25 @@ export function whenIdle(
 	});
 }
 
-/** Whether a word or a word file's text is being written. */
-export const writing = (queryClient: QueryClient) =>
-	queryClient.isMutating({ mutationKey: vocabKeys.writes }) > 0;
-
 /**
  * Every query and mutation reads or writes this browser's folder, so none
  * waits for a network, and a failure is shown rather than retried. Nothing
- * goes stale on its own: reads happen on open, on window focus while nothing
- * is being written, and after the app's own actions.
+ * goes stale on its own and returning to the window reads nothing: a query
+ * is read again when the folder reports a change to what it holds.
  */
-export function setVocabDefaults(queryClient: QueryClient) {
-	queryClient.setQueryDefaults(vocabKeys.all, {
+export function setVocabDefaults(
+	queryClient: QueryClient,
+	folder$: Pick<VocabOptions, 'key'>,
+) {
+	queryClient.setQueryDefaults(folder$.key, {
 		networkMode: 'always',
 		retry: false,
 		staleTime: Number.POSITIVE_INFINITY,
-		refetchOnWindowFocus: () => (writing(queryClient) ? false : 'always'),
+		refetchOnWindowFocus: false,
 	});
-	queryClient.setMutationDefaults(vocabKeys.all, {
-		networkMode: 'always',
-		retry: false,
-	});
+	for (const mutationKey of [vocabKeys.all, folder$.key])
+		queryClient.setMutationDefaults(mutationKey, {
+			networkMode: 'always',
+			retry: false,
+		});
 }

@@ -1,8 +1,7 @@
 <!--
 	One saved word: its text, the learner's note, and the stage. Each note
-	keystroke and stage press changes the cached word, and its write saves it
-	at once: one write at a time per word, each saving whatever the cache
-	holds when it runs.
+	keystroke and stage press changes the word's draft, which is saved at
+	once, one save at a time; a read that lands meanwhile never replaces it.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -22,6 +21,8 @@
 		onToggle: () => void;
 	} = $props();
 
+	/** The word with its unsaved edit, if it has one. */
+	const word = $derived(entries.shown(entry));
 	/** Edits wait while the word is deleted or open as text. */
 	const locked = $derived(entries.isLocked(entry.id));
 </script>
@@ -36,10 +37,10 @@
 		aria-label="Your note for {entry.text}"
 		placeholder="Your note"
 		readonly={locked}
-		bind:value={() => entry.note, (note) => entries.inputNote(entry.id, note)}
+		bind:value={() => word.note, (note) => entries.inputNote(entry.id, note)}
 	/>
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
-		{#each STAGES as option}<Button size="sm" variant={entry.stage === option ? 'default' : 'outline'} aria-pressed={entry.stage === option} disabled={locked} onclick={() => entries.setStage(entry.id, option)}>{STAGE_LABELS[option]}</Button>{/each}
+		{#each STAGES as option}<Button size="sm" variant={word.stage === option ? 'default' : 'outline'} aria-pressed={word.stage === option} disabled={locked} onclick={() => entries.setStage(entry.id, option)}>{STAGE_LABELS[option]}</Button>{/each}
 		<span class="ml-auto text-xs text-muted-foreground" role="status">{entries.isSaving(entry.id) ? 'Saving…' : ''}</span>
 	</div>
 </article>

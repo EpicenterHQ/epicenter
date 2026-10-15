@@ -140,8 +140,8 @@ type MessageFields = FieldsOf<VocabTables['messages']>;
 
 /**
  * One saved word as the list last read it. `id` is the file stem; `stored`
- * is that read, the capture a stage press or a delete of a closed word is
- * guarded by.
+ * is that read: the version an edit starts from, and the capture a delete
+ * is guarded by.
  */
 export type Entry = {
 	id: string;

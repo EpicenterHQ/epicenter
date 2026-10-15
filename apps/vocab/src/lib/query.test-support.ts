@@ -10,17 +10,16 @@
  * the two shares every class and manager. Change the two pins together.
  *
  * A screen that shows a query observes it; `observe` stands in for that, so
- * invalidation and window focus read it again as they do in the app.
+ * a change the folder reports reads it again as it does in the app.
  */
-import { focusManager, QueryClient, QueryObserver } from '@tanstack/query-core';
+import { QueryClient, QueryObserver } from '@tanstack/query-core';
 import { type Entry, readEntry, readRows } from './data.js';
 import type { EntryListing } from './entries.svelte.js';
-import { vocabKeys } from './query.js';
 import type { Vocab } from './vocab.svelte.js';
 
-export { focusManager, QueryClient, QueryObserver };
+export { QueryClient, QueryObserver };
 
-/** A fresh cache, mounted as the layout's provider mounts it, so it hears focus. */
+/** A fresh cache, mounted as the layout's provider mounts it. */
 export function createQueryClient() {
 	const client = new QueryClient();
 	client.mount();
@@ -61,7 +60,9 @@ export async function quiet(vocab: Vocab) {
 
 /** The word listing the cache holds now. */
 export function listing(vocab: Vocab): EntryListing {
-	const data = vocab.queryClient.getQueryData<EntryListing>(vocabKeys.entries);
+	const data = vocab.queryClient.getQueryData<EntryListing>(
+		vocab.folder$.entries.list.queryKey(),
+	);
 	if (data === undefined) throw new Error('The word listing is not loaded');
 	return data;
 }

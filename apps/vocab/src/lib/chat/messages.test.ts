@@ -25,8 +25,9 @@ import {
 	type AgentMessage,
 	createConversation,
 } from '@epicenter/agent';
+import { folderOptions } from '@epicenter/folder/query';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { VocabFolder } from '../data.js';
+import type { VocabFolder, vocabFolder } from '../data.js';
 import {
 	createBrowser,
 	fileText,
@@ -79,22 +80,27 @@ async function transcript(folder: VocabFolder, chatId: string) {
 		.sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/** The chat list over `folder`, in a cache of its own. */
-function chatsOver(folder: Pick<VocabFolder, 'tables' | 'files'>) {
+/** The chat list over `folder`, or over `over` in its place, in a cache of its own. */
+function chatsOver(
+	folder: VocabFolder,
+	over: Partial<Pick<VocabFolder, 'tables' | 'files'>> = {},
+) {
 	const queryClient = createQueryClient();
-	setVocabDefaults(queryClient);
+	const folder$ = folderOptions<typeof vocabFolder>(folder);
+	setVocabDefaults(queryClient, folder$);
 	const failures: WriteFailure[] = [];
-	const chats = createChats(folder, queryClient, {
+	const chats = createChats({ ...folder, ...over }, folder$, queryClient, {
 		refused: () => undefined,
 		onWriteFailed: (failure) => failures.push(failure),
 	});
 	return {
 		chats,
 		failures,
-		/** Read the list, as opening the page does. */
-		list: () => queryClient.fetchQuery(chats.chatsQuery()),
+		/** Read the list from the folder now, as opening the page does. */
+		list: () => queryClient.fetchQuery({ ...chats.chatsQuery(), staleTime: 0 }),
 		/** The list the cache holds now. */
-		cachedList: () => queryClient.getQueryData<ChatListing>(vocabKeys.chats),
+		cachedList: () =>
+			queryClient.getQueryData<ChatListing>(chats.chatsQuery().queryKey),
 	};
 }
 
@@ -236,9 +242,8 @@ test('a chat the folder refuses is not listed, and a closed folder reports that 
 	await using context = await setup();
 	const { folder } = context;
 	const { gate, table } = gated(folder.tables.chats);
-	const { chats, list, cachedList } = chatsOver({
+	const { chats, list, cachedList } = chatsOver(folder, {
 		tables: { ...folder.tables, chats: table },
-		files: folder.files,
 	});
 	await list();
 
@@ -595,7 +600,7 @@ test('a message write the folder refuses is reported with its text', async () =>
 	await using context = await setup();
 	const { folder } = context;
 	const { gate, folder: gatedFolder } = gatedMessages(folder);
-	const { chats, failures } = chatsOver(gatedFolder);
+	const { chats, failures } = chatsOver(folder, gatedFolder);
 	const store = createChatMessageStore(
 		gatedFolder,
 		'chat-a',
