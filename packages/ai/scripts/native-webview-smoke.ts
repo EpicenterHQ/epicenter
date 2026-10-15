@@ -151,7 +151,6 @@ fn main() {
  let result_path = directory.join("result.json");
  tauri::Builder::default()
   .enable_macos_default_menu(false)
-  .plugin(tauri_plugin_http::init())
   .manage(cache)
   .invoke_handler(tauri::generate_handler![epicenter_lib::transcription::list_inference_models,epicenter_lib::transcription::transcribe_audio_bytes,epicenter_lib::transcription::get_active_model])
   .setup(move |app| {

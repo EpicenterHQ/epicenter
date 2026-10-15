@@ -51,11 +51,10 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-http = "2"
 tauri-plugin-log = "2"
+# Unregistered: ADR-0555 grants it to apps; register it with that grant.
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2.5"
-tauri-plugin-os = "2"
 tempfile = "3.8"
 thiserror = "2.0.12"
 tokio = { version = "1", features = ["full"] }
