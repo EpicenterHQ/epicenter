@@ -11,6 +11,9 @@
 //!   lock per folder, so a second scope on the same root would be refused
 //!   `Busy`; the Folders window is permitted into the application's scope
 //!   instead, and both windows publish under the plugin's one mutex per root.
+//! - Epicenter's own folder, `so.epicenter` (ADR-0539), is registered at
+//!   setup for the Folders window and Settings, which hold its `apps` table
+//!   and settings, and is listed under that scope.
 //! - Any other folder gets a scope of its own, `data:<directory name>`, the
 //!   first time it is listed in a run, registered for the Folders window
 //!   alone as a data folder (`FolderConfig::data`): the shell never creates
@@ -63,13 +66,21 @@ pub const APPLICATION_FOLDERS: [ApplicationFolder; 2] = [
     },
 ];
 
+/// Epicenter's own folder: its `apps` table and its settings (ADR-0539). It is
+/// named by Epicenter's id, as each app's folder is named by its id.
+pub const EPICENTER_FOLDER: &str = "so.epicenter";
+
+/// The windows that hold Epicenter's own folder.
+const EPICENTER_FOLDER_WINDOWS: [BuiltInApp; 2] = [BuiltInApp::Folders, BuiltInApp::Home];
+
 /// The fallback author of a folder no application owns.
 const DATA_FOLDER_AUTHOR: (&str, &str) = ("Epicenter", "epicenter@localhost");
 
 /// The file that makes a directory a data folder (ADR-0517).
 const DECLARATION: &str = "epicenter.json";
 
-/// Register each application's folder for its own window. Each page runs
+/// Register each application's folder for its own window, and Epicenter's own
+/// folder for the Folders window and Settings. Each page runs
 /// `@epicenter/folder`'s own engine over its directory; the shell locks it
 /// and grants it to the windows registered for it, and owns nothing else.
 /// The repository's own author and origin are read there; these authors are
@@ -89,6 +100,21 @@ pub fn register_application_folders(folders: &Folders, folder_dir: &Path) -> Res
             windows: vec![folder.app.id().into()],
         })?;
     }
+    let (name, email) = DATA_FOLDER_AUTHOR;
+    folders.register(ScopeConfig {
+        scope: EPICENTER_FOLDER.into(),
+        folder: FolderConfig::new(
+            folder_dir.join(EPICENTER_FOLDER),
+            Author {
+                name: name.into(),
+                email: email.into(),
+            },
+        ),
+        windows: EPICENTER_FOLDER_WINDOWS
+            .iter()
+            .map(|window| window.id().into())
+            .collect(),
+    })?;
     Ok(())
 }
 
@@ -161,6 +187,17 @@ fn list_in(
             .as_deref()
             .and_then(declared_title)
             .unwrap_or_else(|| name.clone());
+
+        if name == EPICENTER_FOLDER {
+            // Registered at setup for this window already.
+            listed.push(DataFolder {
+                id: EPICENTER_FOLDER.to_string(),
+                title,
+                app: None,
+                declaration,
+            });
+            continue;
+        }
 
         if let Some(owned) = APPLICATION_FOLDERS
             .iter()
@@ -425,6 +462,48 @@ mod tests {
         );
         // Listing again permits again, which changes nothing.
         assert_eq!(fixture.list()[0].id, "so.epicenter.todos");
+    }
+
+    #[test]
+    fn epicenters_own_folder_is_listed_under_its_scope_for_both_windows() {
+        let fixture = fixture("epicenter");
+        data_folder(&fixture, EPICENTER_FOLDER, r#"{ "title": "Epicenter" }"#);
+        fs::write(fixture.folder_dir.join("so.epicenter/kv.json"), "{}").unwrap();
+
+        assert_eq!(
+            fixture.list(),
+            [DataFolder {
+                id: EPICENTER_FOLDER.into(),
+                title: "Epicenter".into(),
+                app: None,
+                declaration: Some(r#"{ "title": "Epicenter" }"#.into()),
+            }]
+        );
+        for label in ["folders", "home"] {
+            assert_eq!(
+                granted_names(&fixture.window(label), EPICENTER_FOLDER),
+                ["epicenter.json", "kv.json"]
+            );
+        }
+        assert!(invoke(
+            &fixture.window("todos"),
+            "grant_directory",
+            json!({ "scope": EPICENTER_FOLDER })
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn installed_app_sources_are_not_listed() {
+        let fixture = fixture("apps");
+        // An app's source is a repository under `Apps/`, which holds no
+        // declaration of its own, even when the app's repository does.
+        let source = fixture.folder_dir.join("Apps").join("com.example.board");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join(DECLARATION), "{}").unwrap();
+        fs::write(source.join("epicenter.app.json"), "{}").unwrap();
+
+        assert_eq!(fixture.list(), []);
     }
 
     #[test]

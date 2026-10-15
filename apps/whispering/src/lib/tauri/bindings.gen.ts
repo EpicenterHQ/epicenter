@@ -212,6 +212,35 @@ export const commands = {
 	 */
 	listDataFolders: () =>
 		typedError<DataFolder[], string>(__TAURI_INVOKE('list_data_folders')),
+	/**  Every app installed under `Apps/`, with whether it can run. */
+	listInstalledApps: () =>
+		typedError<InstalledApp[], string>(__TAURI_INVOKE('list_installed_apps')),
+	/**
+	 *  Clone the app at `source`, a Git URL or a local path, into `Apps/`. It
+	 *  builds and runs nothing until approved.
+	 */
+	installApp: (source: string) =>
+		typedError<InstalledApp, string>(__TAURI_INVOKE('install_app', { source })),
+	/**  Approve `commit` of app `id` and build it. */
+	approveApp: (id: string, commit: string) =>
+		typedError<InstalledApp, string>(
+			__TAURI_INVOKE('approve_app', { id, commit }),
+		),
+	/**
+	 *  Fetch app `id`'s upstream and bring it up to date. What arrives needs
+	 *  approval before it runs.
+	 */
+	updateApp: (id: string) =>
+		typedError<InstalledApp, string>(__TAURI_INVOKE('update_app', { id })),
+	/**
+	 *  Open app `id` in its own window, building a commit made here first. With
+	 *  `folder`, a scope the Folders window listed, the window is let into that
+	 *  folder and the app is handed it as `?folder=`.
+	 */
+	openInstalledApp: (id: string, folder: string | null) =>
+		typedError<InstalledApp, string>(
+			__TAURI_INVOKE('open_installed_app', { id, folder }),
+		),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>('get_unload_policy'),
 	/**
@@ -372,6 +401,20 @@ export type ActiveModel = {
 	supportsLanguage: boolean;
 };
 
+/**  Whether an installed app can run. */
+export type AppState =
+	/**  Built at its commit; it opens at once. */
+	| { kind: 'ready' }
+	/**
+	 *  Its commit may run but has not been built, as after a commit made on
+	 *  this machine; opening builds it first.
+	 */
+	| { kind: 'unbuilt' }
+	/**  Its commit arrived from elsewhere and runs only once approved. */
+	| { kind: 'needsApproval'; review: Review }
+	/**  It cannot run as it is. */
+	| { kind: 'broken'; problem: string };
+
 /**
  *  Which advisory hints the run actually applied.
  *
@@ -526,6 +569,26 @@ export type InferenceModel = {
 	active: boolean;
 };
 
+/**  An installed app as the Folders window shows it. */
+export type InstalledApp = {
+	/**  The app's id, which is also its directory under `Apps/`. */
+	id: string;
+	title: string;
+	/**
+	 *  Where it was installed from: the repository's `origin`, or empty when
+	 *  it has none.
+	 */
+	source: string;
+	/**  The commit checked out, `HEAD`. Empty when the app is `Broken`. */
+	commit: string;
+	/**
+	 *  The text of the declaration `opens` names, or `None` when it could not
+	 *  be read. The page parses it; the shell does not judge it.
+	 */
+	opens: string | null;
+	state: AppState;
+};
+
 /**
  *  Whether the active-model transcription route is ready and which hints it accepts.
  *
@@ -598,6 +661,17 @@ export type ModelInfo = {
 	supportsLanguage: boolean;
 	recommended: boolean;
 	downloaded: boolean;
+};
+
+/**  What a person is shown before approving a commit. */
+export type Review = {
+	/**  The commit approved before, when there is one this repository has. */
+	from: string | null;
+	/**  `git log --oneline` of what would newly run. */
+	log: string;
+	/**  `git diff --stat` from the approved commit, empty on a first install. */
+	diffStat: string;
+	statement: string;
 };
 
 /**

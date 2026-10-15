@@ -33,6 +33,7 @@ pub mod app_data;
 mod data_folders;
 mod departure;
 mod device_owner;
+mod installed_apps;
 mod sqlite;
 
 pub mod audio;
@@ -89,7 +90,7 @@ pub mod clipboard;
 const PRODUCTION_PORT: u16 = 39_130;
 #[cfg(any(debug_assertions, test))]
 const DEVELOPMENT_PORT: u16 = 39_131;
-const PROTOCOL_VERSION: u8 = 12;
+const PROTOCOL_VERSION: u8 = 13;
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long Bun gets to shut down after its stdin closes before it is killed.
@@ -447,6 +448,11 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             open_home,
             take_pending_home_section,
             data_folders::list_data_folders,
+            installed_apps::list_installed_apps,
+            installed_apps::install_app,
+            installed_apps::approve_app,
+            installed_apps::update_app,
+            installed_apps::open_installed_app,
             get_unload_policy,
             set_unload_policy,
             list_models,
@@ -715,6 +721,7 @@ pub fn run() {
         .manage(HostState::new(port))
         .manage(departure::Departure::default())
         .manage(data_folders::DataFolderScopes::default())
+        .manage(installed_apps::AppWork::default())
         .manage(GlobalShortcutRegistry::default())
         .manage(DownloadManager::default());
 
@@ -1778,18 +1785,15 @@ fn ensure_window(
 
     let origin = origin(port);
     let url: tauri::Url = format!("{origin}{}", built_in.path()).parse()?;
-    let initialization_script = initialization_script(&origin, token)?;
-    let account_opener = app.clone();
-    let window = WebviewWindowBuilder::new(app, built_in.id(), WebviewUrl::External(url))
-        .title(built_in.title())
-        .inner_size(1100.0, 760.0)
-        .min_inner_size(680.0, 480.0)
-        .visible(reveal)
-        .initialization_script(initialization_script)
-        .on_navigation(move |url| is_allowed_navigation(url, port))
-        .on_new_window(move |url, _| open_account_website(&account_opener, &url))
-        .build()
-        .with_context(|| format!("create the {} WebView", built_in.title()))?;
+    let window = create_app_window(
+        app,
+        built_in.id(),
+        built_in.title(),
+        url,
+        port,
+        token,
+        reveal,
+    )?;
     departure::adopt_window(&window);
 
     let close_window = window.clone();
@@ -1799,11 +1803,103 @@ fn ensure_window(
             let _ = close_window.hide();
         }
     });
-    release_host_resources_on_destroy(&window);
     if reveal {
         focus(window);
     }
     Ok(())
+}
+
+/// One app window on the active origin: the session bootstrap runs before
+/// the page, and navigation stays on the origin.
+fn create_app_window(
+    app: &DesktopAppHandle,
+    label: &str,
+    title: &str,
+    url: tauri::Url,
+    port: u16,
+    token: &str,
+    visible: bool,
+) -> Result<WebviewWindow<Wry>> {
+    let initialization_script = initialization_script(&origin(port), token)?;
+    let account_opener = app.clone();
+    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
+        .title(title)
+        .inner_size(1100.0, 760.0)
+        .min_inner_size(680.0, 480.0)
+        .visible(visible)
+        .initialization_script(initialization_script)
+        .on_navigation(move |url| is_allowed_navigation(url, port))
+        .on_new_window(move |url, _| open_account_website(&account_opener, &url))
+        .build()
+        .with_context(|| format!("create the {title} WebView"))?;
+    release_host_resources_on_destroy(&window);
+    Ok(window)
+}
+
+/// The window label of installed app `id` opened on `folder`: one window per
+/// app and folder. A label may hold only letters, digits, `-`, `/`, `:`, and
+/// `_`, so the id's dots become `_` (an id has no `_`) and the folder's scope
+/// is spelled in hex. The installed-app capability selects `app:*`.
+fn installed_window_label(id: &str, folder: Option<&str>) -> String {
+    let mut label = format!("{INSTALLED_WINDOW_PREFIX}{}", id.replace('.', "_"));
+    if let Some(folder) = folder {
+        label.push(':');
+        for byte in folder.bytes() {
+            label.push_str(&format!("{byte:02x}"));
+        }
+    }
+    label
+}
+
+const INSTALLED_WINDOW_PREFIX: &str = "app:";
+
+/// Open installed app `id`, served at `/apps/<id>/` like a compiled app, in
+/// its own window, or reveal the one already open on the same folder. With
+/// `folder`, a registered scope, the window is permitted into it and the app
+/// is handed it as `?folder=<scope>`; an app opens it with
+/// `openDataFolder({ id, lens })` (ADR-0538). Approving an app trusts it
+/// fully (ADR-0540), so the shell does not check its shape against the
+/// folder.
+pub(crate) fn open_installed_window(
+    app: &DesktopAppHandle,
+    id: &str,
+    title: &str,
+    folder: Option<&str>,
+) -> Result<()> {
+    let state = app.state::<HostState>();
+    let Some(token) = state.active_token() else {
+        bail!("the Epicenter host is not ready");
+    };
+    let port = state.port()?;
+    let label = installed_window_label(id, folder);
+    if let Some(folder) = folder {
+        app.folders()
+            .permit(folder, &label)
+            .map_err(|error| anyhow!("the app cannot open this folder: {error:?}"))?;
+    }
+    let mut url: tauri::Url = format!("{}/apps/{id}/", origin(port)).parse()?;
+    if let Some(folder) = folder {
+        url.query_pairs_mut().append_pair("folder", folder);
+    }
+    let title = format!("Epicenter: {title}");
+
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let window_app = app.clone();
+    app.run_on_main_thread(move || {
+        let result = if !window_app.state::<HostState>().token_is_active(&token) {
+            Err(anyhow!(HOST_RESTARTED))
+        } else if let Some(window) = window_app.get_webview_window(&label) {
+            focus(window);
+            Ok(())
+        } else {
+            create_app_window(&window_app, &label, &title, url, port, &token, true).map(focus)
+        };
+        let _ = sender.send(result);
+    })
+    .context("schedule the app window on the main thread")?;
+    receiver
+        .recv()
+        .context("the main thread stopped before opening the window")?
 }
 
 fn focus<R: Runtime>(window: WebviewWindow<R>) {
@@ -1827,6 +1923,12 @@ fn invalidate_windows(app: &DesktopAppHandle) {
                 if window.destroy().is_err() {
                     let _ = window.hide();
                 }
+            }
+        }
+        // Installed apps' windows hold the old host's session.
+        for (label, window) in app.webview_windows() {
+            if label.starts_with(INSTALLED_WINDOW_PREFIX) && window.destroy().is_err() {
+                let _ = window.hide();
             }
         }
         #[cfg(target_os = "macos")]
@@ -2140,21 +2242,23 @@ mod tests {
     }
 
     #[test]
-    fn parses_only_the_expected_v12_ready_frame() {
-        read_ready_frame(&mut Cursor::new(ready_line(12, PRODUCTION_PORT)), PRODUCTION_PORT)
+    fn parses_only_the_expected_v13_ready_frame() {
+        read_ready_frame(&mut Cursor::new(ready_line(13, PRODUCTION_PORT)), PRODUCTION_PORT)
             .unwrap();
 
         for invalid in [
             "preamble\n".to_string(),
             "".to_string(),
-            // The earlier protocol, which named installed applications.
+            // The earlier protocols: 11 named installed applications, and 12
+            // booted without the cache directory.
             ready_line(11, PRODUCTION_PORT),
             "{\"type\":\"ready\",\"protocolVersion\":11,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
-            ready_line(12, 39_131),
+            ready_line(12, PRODUCTION_PORT),
+            ready_line(13, 39_131),
             // A field this protocol does not define refuses the frame.
-            "{\"type\":\"ready\",\"protocolVersion\":12,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
-            "{\"type\":\"boot\",\"protocolVersion\":12,\"port\":39130}\n".to_string(),
-            ready_line(12, PRODUCTION_PORT).trim_end().to_string(),
+            "{\"type\":\"ready\",\"protocolVersion\":13,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
+            "{\"type\":\"boot\",\"protocolVersion\":13,\"port\":39130}\n".to_string(),
+            ready_line(13, PRODUCTION_PORT).trim_end().to_string(),
         ] {
             assert!(
                 read_ready_frame(&mut Cursor::new(invalid.as_bytes()), PRODUCTION_PORT).is_err(),
@@ -2405,6 +2509,8 @@ mod tests {
             include_str!("../capabilities/launch-application-production.json"),
             include_str!("../capabilities/folders-development.json"),
             include_str!("../capabilities/folders-production.json"),
+            include_str!("../capabilities/installed-app-windows-development.json"),
+            include_str!("../capabilities/installed-app-windows-production.json"),
         ] {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for permission in capability["permissions"].as_array().unwrap() {
@@ -2632,6 +2738,14 @@ mod tests {
             (include_str!("../tauri.conf.json"), "departure-production"),
             (include_str!("../tauri.dev.conf.json"), "folders-development"),
             (include_str!("../tauri.conf.json"), "folders-production"),
+            (
+                include_str!("../tauri.dev.conf.json"),
+                "installed-app-windows-development",
+            ),
+            (
+                include_str!("../tauri.conf.json"),
+                "installed-app-windows-production",
+            ),
         ] {
             let config: serde_json::Value = serde_json::from_str(encoded).unwrap();
             let selected = config["app"]["security"]["capabilities"]
@@ -2720,6 +2834,8 @@ mod tests {
             include_str!("../capabilities/todos-folder-production.json"),
             include_str!("../capabilities/folders-development.json"),
             include_str!("../capabilities/folders-production.json"),
+            include_str!("../capabilities/installed-app-windows-development.json"),
+            include_str!("../capabilities/installed-app-windows-production.json"),
         ] {
             assert!(
                 !encoded.contains("departure"),
@@ -2792,7 +2908,15 @@ mod tests {
             assert_eq!(capability["windows"], serde_json::json!(["folders"]));
             assert_eq!(
                 capability["permissions"],
-                serde_json::json!(["epicenter-folder:default", "allow-list-data-folders"]),
+                serde_json::json!([
+                    "epicenter-folder:default",
+                    "allow-list-data-folders",
+                    "allow-list-installed-apps",
+                    "allow-install-app",
+                    "allow-approve-app",
+                    "allow-update-app",
+                    "allow-open-installed-app"
+                ]),
                 "{encoded}"
             );
         }
@@ -2811,12 +2935,55 @@ mod tests {
             include_str!("../capabilities/todos-folder-production.json"),
             include_str!("../capabilities/departure-development.json"),
             include_str!("../capabilities/departure-production.json"),
+            include_str!("../capabilities/installed-app-windows-development.json"),
+            include_str!("../capabilities/installed-app-windows-production.json"),
         ] {
             assert!(
                 !encoded.contains("list-data-folders"),
                 "the listing belongs to the Folders window alone"
             );
+            assert!(
+                !encoded.contains("-app\""),
+                "installing and opening apps belong to the Folders window alone"
+            );
         }
+    }
+
+    /// An installed app's window holds the folder plugin alone, under every
+    /// label `open_installed_window` makes, and nothing that installs,
+    /// approves, or launches.
+    #[test]
+    fn installed_app_windows_hold_only_the_folder_plugin() {
+        for encoded in [
+            include_str!("../capabilities/installed-app-windows-development.json"),
+            include_str!("../capabilities/installed-app-windows-production.json"),
+        ] {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            assert_eq!(capability["windows"], serde_json::json!(["app:*"]));
+            assert_eq!(
+                capability["permissions"],
+                serde_json::json!(["epicenter-folder:default"])
+            );
+        }
+        for (id, folder, label) in [
+            ("com.example.board", None, "app:com_example_board"),
+            (
+                "com.example.board",
+                Some("data:My notes"),
+                "app:com_example_board:646174613a4d79206e6f746573",
+            ),
+        ] {
+            let made = installed_window_label(id, folder);
+            assert_eq!(made, label);
+            assert!(made.starts_with(INSTALLED_WINDOW_PREFIX));
+            assert!(made
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '/' | ':' | '_')));
+        }
+        assert_ne!(
+            installed_window_label("com.example.board", Some("a")),
+            installed_window_label("com.example.board", Some("b"))
+        );
     }
 
     /// The launch verb reveals any compiled window, which is exactly why no
@@ -3051,6 +3218,7 @@ mod tests {
         let paths = app_data::DesktopPaths {
             data_dir: std::env::temp_dir().join("so.epicenter.dev"),
             folder_dir: std::env::temp_dir().join("Epicenter Dev"),
+            cache_dir: std::env::temp_dir().join("so.epicenter.dev-cache"),
         };
         let json = boot_frame_json("safe_token", PRODUCTION_PORT, Some("opaque"), &paths).unwrap();
         let frame: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -3059,11 +3227,12 @@ mod tests {
         assert_eq!(
             frame,
             serde_json::json!({
-                "type": "boot", "protocolVersion": 12, "token": "safe_token",
+                "type": "boot", "protocolVersion": 13, "token": "safe_token",
                 "port": PRODUCTION_PORT, "authCell": "opaque",
                 "authServer": configured_auth_server().unwrap().server,
                 "accountManagement": configured_auth_server().unwrap().account_management,
                 "dataDir": paths.data_dir, "folderDir": paths.folder_dir,
+                "cacheDir": paths.cache_dir,
             })
         );
     }

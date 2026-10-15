@@ -124,6 +124,7 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 			accountManagement: true,
 			dataDir,
 			folderDir: join(dataDir, 'checkout'),
+			cacheDir: join(dataDir, 'cache'),
 		})}\n`,
 	);
 	await misbound.stdin.flush();
@@ -169,6 +170,7 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 				accountManagement: true,
 				dataDir,
 				folderDir: join(dataDir, 'checkout'),
+				cacheDir: join(dataDir, 'cache'),
 			})}\n`,
 		);
 		await sidecar.stdin.flush();

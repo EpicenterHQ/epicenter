@@ -9,10 +9,13 @@
  *
  * A built-in app opens only its own folder today: launching Todos opens
  * `so.epicenter.todos`, whatever folder the click came from. So the window
- * offers an app on a folder only when that folder is the app's own
- * (`DataFolder.app`) and its declaration contains the app's shape. Offering
- * Todos on another folder of the same shape waits on an app opening the
- * folder it is handed at launch.
+ * offers a built-in app on a folder only when that folder is the app's own
+ * (`DataFolder.app`) and its declaration contains the app's shape.
+ *
+ * An installed app (ADR-0540) opens the folder it is handed at launch, so it
+ * is offered on every folder whose declaration contains its shape: the
+ * declaration its `epicenter.app.json` names as `opens`. Only an installed
+ * app that can run is offered; one waiting for approval is not.
  *
  * Every compiled application not offered on a listed folder is listed under
  * Apps, so an app whose folder does not exist yet stays one click away.
@@ -33,19 +36,66 @@ import {
 	FOLDERS_APPLICATION,
 	TODOS_APPLICATION,
 } from '../applications.ts';
-import type { DataFolder } from '../ui/bindings.gen';
+import type { DataFolder, InstalledApp } from '../ui/bindings.gen';
 
-/** A built-in app that opens a folder, and the shape it reads. */
+/** An app that opens a folder, and the shape it reads. */
 export type FolderOpener = {
 	application: Application;
 	shape: DataSchema;
+	/**
+	 * Whether it opens any folder whose declaration contains its shape, as an
+	 * installed app does, or only its own, as a built-in app does today.
+	 */
+	opensAnyFolder: boolean;
 };
 
 /** The built-in apps that open a folder, in the order the window offers them. */
 export const FOLDER_OPENERS: readonly FolderOpener[] = [
-	{ application: TODOS_APPLICATION, shape: todosDefinition },
-	{ application: CAPTURE_APPLICATION, shape: captureDefinition },
+	{
+		application: TODOS_APPLICATION,
+		shape: todosDefinition,
+		opensAnyFolder: false,
+	},
+	{
+		application: CAPTURE_APPLICATION,
+		shape: captureDefinition,
+		opensAnyFolder: false,
+	},
 ];
+
+/** The shape a declaration's text states, or `undefined` when it states none. */
+function shapeOf(declaration: string | null): DataSchema | undefined {
+	if (declaration === null) return undefined;
+	const { data: parsed, error: parseError } = parseDeclaration(declaration);
+	if (parseError !== null) return undefined;
+	const { data: shape, error: prepareError } = prepareSchema(parsed);
+	if (prepareError !== null) return undefined;
+	return shape;
+}
+
+/**
+ * The installed apps that can run, as openers of any folder their shape fits,
+ * by title. An app whose `opens` declaration cannot be read opens no folder;
+ * it is still listed under Apps.
+ */
+export function installedOpeners(
+	apps: readonly InstalledApp[],
+): FolderOpener[] {
+	return apps
+		.filter(({ state }) => state.kind === 'ready' || state.kind === 'unbuilt')
+		.flatMap((app) => {
+			const shape = shapeOf(app.opens);
+			if (shape === undefined) return [];
+			return [
+				{
+					application: { id: app.id, title: app.title, installed: true },
+					shape,
+					opensAnyFolder: true,
+				} satisfies FolderOpener,
+			];
+		})
+		.sort((a, b) => a.application.title.localeCompare(b.application.title));
+}
 
 /**
  * Whether `declaration`, the text of a folder's `epicenter.json`, contains
@@ -56,11 +106,8 @@ export function declarationContains(
 	declaration: string | null,
 	shape: DataSchema,
 ): boolean {
-	if (declaration === null) return false;
-	const { data: parsed, error: parseError } = parseDeclaration(declaration);
-	if (parseError !== null) return false;
-	const { data: declared, error: prepareError } = prepareSchema(parsed);
-	if (prepareError !== null) return false;
+	const declared = shapeOf(declaration);
+	if (declared === undefined) return false;
 	return shapeProblems(declared, shape).length === 0;
 }
 
@@ -71,8 +118,8 @@ export function openersOf(
 ): Application[] {
 	return openers
 		.filter(
-			({ application, shape }) =>
-				folder.app === application.id &&
+			({ application, shape, opensAnyFolder }) =>
+				(opensAnyFolder || folder.app === application.id) &&
 				declarationContains(folder.declaration, shape),
 		)
 		.map(({ application }) => application);

@@ -23,7 +23,7 @@ const SHUTDOWN_GRACE_MS = 10_000;
 const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_NATIVE_PENDING = 64;
 
-export const SIDECAR_PROTOCOL_VERSION = 12;
+export const SIDECAR_PROTOCOL_VERSION = 13;
 export const PRODUCTION_PORT = 39_130;
 
 export type SidecarRuntimeMode = 'production' | 'development';
@@ -38,6 +38,8 @@ export type BootFrame = {
 	accountManagement: boolean;
 	dataDir: string;
 	folderDir: string;
+	/** Disposable: built installed apps, under `builds/<app-id>/<commit>/`. */
+	cacheDir: string;
 };
 
 /** Readiness: the sidecar is listening on the port Rust chose. */
@@ -101,6 +103,7 @@ const BOOT_FRAME_KEYS = [
 	'accountManagement',
 	'authCell',
 	'authServer',
+	'cacheDir',
 	'dataDir',
 	'folderDir',
 	'port',
@@ -160,7 +163,7 @@ export function parseBootFrame(
 		keys.some((key, index) => key !== BOOT_FRAME_KEYS[index])
 	) {
 		throw new Error(
-			'The boot frame must contain exactly type, protocolVersion, token, port, authCell, authServer, accountManagement, dataDir, and folderDir.',
+			'The boot frame must contain exactly type, protocolVersion, token, port, authCell, authServer, accountManagement, dataDir, folderDir, and cacheDir.',
 		);
 	}
 
@@ -229,7 +232,7 @@ export function parseBootFrame(
 		throw new Error('The boot accountManagement must be a boolean.');
 	}
 
-	for (const key of ['dataDir', 'folderDir'] as const) {
+	for (const key of ['dataDir', 'folderDir', 'cacheDir'] as const) {
 		const directory = frame[key];
 		if (
 			typeof directory !== 'string' ||

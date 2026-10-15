@@ -24,6 +24,7 @@
  */
 
 import { describe, expect, spyOn, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -74,6 +75,7 @@ import {
 	SIDECAR_PROTOCOL_VERSION,
 } from './sidecar-runtime.ts';
 import {
+	createInstalledApplications,
 	type EpicenterStaticAssets,
 	loadStaticAssets,
 } from './static-assets.ts';
@@ -750,6 +752,86 @@ describe('createHomeServer', () => {
 		});
 		expect(authorized.status).toBe(204);
 		expect(calls).toBe(1);
+	});
+
+	test('serves an installed app from its current build behind the session gate', async () => {
+		await using host = await createTestHost({ engine: scriptedEngine([[]]) });
+		const origin = 'http://127.0.0.1:43128';
+		const buildsDir = mkdtempSync(join(tmpdir(), 'epicenter-builds-'));
+		const id = 'com.example.board';
+		const first = 'a'.repeat(40);
+		const second = 'b'.repeat(40);
+		const build = (commit: string, title: string) => {
+			mkdirSync(join(buildsDir, id, commit, 'assets'), { recursive: true });
+			writeFileSync(
+				join(buildsDir, id, commit, 'index.html'),
+				`<!doctype html><html><head><title>${title}</title><script>boot()</script></head><body></body></html>`,
+			);
+			writeFileSync(
+				join(buildsDir, id, commit, 'assets', 'app.js'),
+				`// ${title}`,
+			);
+			writeFileSync(join(buildsDir, id, 'current'), `${commit}\n`);
+		};
+		build(first, 'one');
+		const { app } = createHomeServer({
+			host,
+			origin,
+			launchToken: TOKEN,
+			staticAssets: await createAppsDistFixture(),
+			installedApplications: createInstalledApplications(buildsDir),
+			blobs: createTestBlobs(),
+			desktopAuth: createTestDesktopAuth(),
+		});
+		const headers = { host: '127.0.0.1:43128' };
+		const get = (path: string, cookie?: string) =>
+			app.request(`${origin}${path}`, {
+				headers: cookie === undefined ? headers : { ...headers, cookie },
+			});
+
+		const shell = await get(`/apps/${id}/?folder=data%3Avault`);
+		expect(await shell.text()).toContain('__EPICENTER_SESSION_READY__');
+		expect((await get(`/apps/${id}/assets/app.js`)).status).toBe(401);
+
+		const bootstrap = await app.request(BOOTSTRAP_ROUTE.url(origin), {
+			method: 'POST',
+			headers: { ...headers, origin, authorization: `Bearer ${TOKEN}` },
+		});
+		const cookie = bootstrap.headers.get('set-cookie')?.split(';', 1)[0];
+		if (cookie === undefined) throw new Error('test bootstrap set no cookie');
+
+		const page = await get(`/apps/${id}/?folder=data%3Avault`, cookie);
+		const text = await page.text();
+		expect(text).toContain('<title>one</title>');
+		expect(text).toContain('epicenter-auth-bootstrap');
+		// The document's own inline script is admitted by its policy.
+		const hash = createHash('sha256').update('boot()').digest('base64');
+		expect(page.headers.get('content-security-policy')).toContain(
+			`'sha256-${hash}'`,
+		);
+		expect(await (await get(`/apps/${id}/assets/app.js`, cookie)).text()).toBe(
+			'// one',
+		);
+		expect(
+			await (await get(`/apps/${id}/some/route`, cookie)).text(),
+		).toContain('<title>one</title>');
+
+		// A new build is served once the shell makes it current.
+		build(second, 'two');
+		expect(await (await get(`/apps/${id}/`, cookie)).text()).toContain(
+			'<title>two</title>',
+		);
+
+		for (const path of [
+			'/apps/com.example.missing/',
+			'/apps/Board/',
+			`/apps/${id}/%2e%2e/%2e%2e/elsewhere`,
+			`/apps/${id}/%2e%2e/current`,
+		]) {
+			expect((await get(path, cookie)).status).toBe(404);
+		}
+		writeFileSync(join(buildsDir, id, 'current'), '../../elsewhere\n');
+		expect((await get(`/apps/${id}/`, cookie)).status).toBe(404);
 	});
 
 	test('serves Home and every compiled application plus honest placeholders', async () => {
@@ -1869,7 +1951,7 @@ describe('sidecar end-to-end smoke', () => {
 		try {
 			// The credential and Rust-resolved port travel in the boot frame.
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir, folderDir })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir, folderDir, cacheDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			const ready = await readReadyFrame(sidecar, 30_000);
@@ -1998,7 +2080,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port: occupiedPort, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port: occupiedPort, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir(), cacheDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			expect(await exitWithin(sidecar, 30_000)).not.toBe(0);
@@ -2038,7 +2120,7 @@ describe('sidecar end-to-end smoke', () => {
 		);
 		try {
 			sidecar.stdin.write(
-				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir() })}\n`,
+				`${JSON.stringify({ type: 'boot', protocolVersion: SIDECAR_PROTOCOL_VERSION, token: TOKEN, port, authCell: null, authServer: { baseURL: 'https://api.epicenter.so', authorityId: 'epicenter-api' }, accountManagement: true, dataDir: testDataDir(), folderDir: testDataDir(), cacheDir: testDataDir() })}\n`,
 			);
 			await sidecar.stdin.flush();
 			const ready = await readReadyFrame(sidecar, 30_000);

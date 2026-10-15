@@ -1,0 +1,125 @@
+/**
+ * Epicenter's own folder, `so.epicenter` (ADR-0539).
+ *
+ * Key behaviors:
+ * - Each installed app that runs is a row `apps/<app-id>.md` with its title,
+ *   source, and commit
+ * - An app waiting for approval, or broken, gets no row
+ * - A row that already says the same is left as it is; a changed one keeps
+ *   the body and any field a person added
+ * - `defaultApp` holds a folder id to app id record
+ */
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openFolder } from '@epicenter/folder/bun';
+import { expectOk } from 'wellcrafted/testing';
+import type { InstalledApp } from '../ui/bindings.gen';
+import { epicenterDefinition, writeAppRows } from './epicenter-folder';
+
+const author = { name: 'Epicenter', email: 'epicenter@localhost' };
+const originalEnv = { ...process.env };
+const roots: string[] = [];
+beforeAll(() => {
+	Object.assign(process.env, {
+		GIT_CONFIG_GLOBAL: '/dev/null',
+		GIT_CONFIG_NOSYSTEM: '1',
+	});
+});
+afterAll(async () => {
+	for (const key of ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'])
+		if (originalEnv[key] === undefined) delete process.env[key];
+		else process.env[key] = originalEnv[key];
+	await Promise.all(roots.map((root) => rm(root, { recursive: true })));
+});
+
+async function open() {
+	const root = await mkdtemp(join(tmpdir(), 'so-epicenter-'));
+	roots.push(root);
+	const folder = expectOk(
+		await openFolder({
+			root,
+			definition: epicenterDefinition,
+			git: { author },
+		}),
+	);
+	return { root, folder };
+}
+
+function app(overrides: Partial<InstalledApp> = {}): InstalledApp {
+	return {
+		id: 'com.example.board',
+		title: 'Board',
+		source: 'https://example.com/board.git',
+		commit: 'a'.repeat(40),
+		opens: null,
+		state: { kind: 'ready' },
+		...overrides,
+	};
+}
+
+test('an installed app that runs is a row named by its id', async () => {
+	const { root, folder } = await open();
+	try {
+		const review = { from: null, log: '', diffStat: '', statement: '' };
+		expect(
+			await writeAppRows(folder, [
+				app(),
+				app({
+					id: 'com.example.pending',
+					state: { kind: 'needsApproval', review },
+				}),
+				app({
+					id: 'com.example.broken',
+					state: { kind: 'broken', problem: 'x' },
+				}),
+			]),
+		).toBeUndefined();
+		const listed = expectOk(await folder.tables.apps.list());
+		expect(listed.map(({ stem }) => stem)).toEqual(['com.example.board']);
+		const text = await readFile(
+			join(root, 'apps/com.example.board.md'),
+			'utf8',
+		);
+		expect(text).toContain('title: Board');
+		expect(text).toContain('source: "https://example.com/board.git"');
+		expect(text).toContain(`commit: ${'a'.repeat(40)}`);
+	} finally {
+		await folder.close();
+	}
+});
+
+test('a changed app updates its row and keeps what a person added', async () => {
+	const { root, folder } = await open();
+	try {
+		await writeAppRows(folder, [app()]);
+		const path = join(root, 'apps/com.example.board.md');
+		const original = await readFile(path, 'utf8');
+		await writeFile(path, `${original}My board for planning.\n`);
+		// The same facts leave the file alone.
+		await writeAppRows(folder, [app()]);
+		expect(await readFile(path, 'utf8')).toContain('My board for planning.');
+
+		await writeAppRows(folder, [app({ commit: 'b'.repeat(40) })]);
+		const text = await readFile(path, 'utf8');
+		expect(text).toContain(`commit: ${'b'.repeat(40)}`);
+		expect(text).toContain('My board for planning.');
+	} finally {
+		await folder.close();
+	}
+});
+
+test('defaultApp records the app each folder opens in', async () => {
+	const { folder } = await open();
+	try {
+		expectOk(
+			await folder.kv.set('defaultApp', { 'data:notes': 'com.example.board' }),
+		);
+		expect(expectOk(await folder.kv.get())?.values.defaultApp).toEqual({
+			'data:notes': 'com.example.board',
+		});
+	} finally {
+		await folder.close();
+	}
+});

@@ -52,7 +52,11 @@ import {
 	SESSION_STREAM_ROUTE,
 	SIGN_IN_CALLBACK_ROUTE,
 } from './routes.ts';
-import type { EpicenterStaticAssets } from './static-assets.ts';
+import type {
+	EpicenterStaticAssets,
+	InstalledApplications,
+	ServedApplicationAssets,
+} from './static-assets.ts';
 
 export type HomeServerEvent = {
 	type: 'snapshot';
@@ -72,6 +76,8 @@ export type HomeServerOptions = {
 	launchToken: string;
 	/** Home's document and every compiled application's release build. */
 	staticAssets: EpicenterStaticAssets;
+	/** Installed apps' current builds (ADR-0540). */
+	installedApplications?: InstalledApplications;
 	/** Canonical device-local bytes shared by every trusted app window. */
 	blobs: (appId: string, owner?: string) => BunBlobStore;
 	/** One credential owner for every compiled desktop window. */
@@ -94,6 +100,7 @@ export function createHomeServer({
 	origin,
 	launchToken,
 	staticAssets,
+	installedApplications,
 	blobs,
 	desktopAuth,
 	device,
@@ -381,34 +388,64 @@ export function createHomeServer({
 			return c.html(hostPages[builtInRoute.id]);
 		});
 	}
-	// One contained asset tree each, with the document served from memory so
-	// every client route lands on the stamped page.
-	for (const application of servedApps) {
+	/**
+	 * One application's asset tree, with the document served from memory so
+	 * every client route lands on the stamped page. `csp` replaces the
+	 * origin's policy for a document whose inline scripts it does not hash.
+	 */
+	const serveApplication = async (
+		c: Context,
+		application: {
+			id: string;
+			page: string;
+			resolve: ServedApplicationAssets['resolve'];
+		},
+		csp?: string,
+	) => {
 		const prefix = `/apps/${application.id}/`;
-		const servePage = (c: Context) => c.html(application.page);
-		app.get(`${prefix}*`, async (c) => {
-			const pathname = new URL(c.req.url).pathname;
-			if (pathname === prefix || pathname === `${prefix}index.html`) {
-				c.header('cache-control', 'no-store');
-				if (desktopAuth.restartRequired) return c.html(RESTART_REQUIRED_PAGE);
-				if (!hasBrowserSession(c)) return c.html(SESSION_SHELL);
-				return servePage(c);
-			}
-			const asset = await application.resolve(pathname);
-			if (!asset) return c.text('Not Found', 404);
+		const servePage = (c: Context) => {
+			if (csp !== undefined) c.header('content-security-policy', csp);
+			return c.html(application.page);
+		};
+		const pathname = new URL(c.req.url).pathname;
+		if (pathname === prefix || pathname === `${prefix}index.html`) {
 			c.header('cache-control', 'no-store');
-			if (asset.isDocument && desktopAuth.restartRequired)
-				return c.html(RESTART_REQUIRED_PAGE);
-			if (!hasBrowserSession(c)) {
-				return asset.isDocument
-					? c.html(SESSION_SHELL)
-					: c.text('Unauthorized', 401);
-			}
-			if (asset.isDocument) return servePage(c);
-			c.header('content-type', asset.contentType);
-			return c.body(asset.file.stream());
-		});
+			if (desktopAuth.restartRequired) return c.html(RESTART_REQUIRED_PAGE);
+			if (!hasBrowserSession(c)) return c.html(SESSION_SHELL);
+			return servePage(c);
+		}
+		const asset = await application.resolve(pathname);
+		if (!asset) return c.text('Not Found', 404);
+		c.header('cache-control', 'no-store');
+		if (asset.isDocument && desktopAuth.restartRequired)
+			return c.html(RESTART_REQUIRED_PAGE);
+		if (!hasBrowserSession(c)) {
+			return asset.isDocument
+				? c.html(SESSION_SHELL)
+				: c.text('Unauthorized', 401);
+		}
+		if (asset.isDocument) return servePage(c);
+		c.header('content-type', asset.contentType);
+		return c.body(asset.file.stream());
+	};
+	for (const application of servedApps) {
+		app.get(`/apps/${application.id}/*`, (c) =>
+			serveApplication(c, application),
+		);
 	}
+	// An installed app, served exactly as a compiled one from the build the
+	// shell made current (ADR-0540). Its document is read after boot, so its
+	// inline scripts are hashed into its own policy.
+	app.get('/apps/:id/*', async (c) => {
+		const installed = await installedApplications?.find(c.req.param('id'));
+		if (installed === undefined) return c.text('Not Found', 404);
+		const page = injectAuthBootstrap(installed.page, desktopAuth.bootSnapshot);
+		return serveApplication(
+			c,
+			{ id: installed.id, page, resolve: installed.resolve },
+			contentSecurityPolicy(`${everyPage}\n${page}`),
+		);
+	});
 	app.get('/apps/*', (c) => c.text('Not Found', 404));
 
 	// Application-scoped blob routes are host APIs over private local files.
