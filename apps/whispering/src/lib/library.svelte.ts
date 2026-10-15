@@ -14,12 +14,13 @@
  * An edit holds its own starting version, outside the cache: a draft per row
  * file (`createDraftState`), and per file edited as its exact text. A read
  * never touches a draft. A row's draft saves with `table.save`, one save at a
- * time, which merges with whatever changed since the edit started; a save
- * that replaced another writer's change says so. Text has no merge: its
- * write is guarded by the version it started from, and a file changed
- * elsewhere refuses it, which is reported with the text that was not
- * written. A row deleted elsewhere stays deleted: its save fails, and
- * nothing creates it again.
+ * time, which merges with whatever changed since the edit started. A file's
+ * text is a text draft (`createTextDraftState`), saved over the version it
+ * started from and merged by line the same way (ADR-0551). A save that
+ * replaced another writer's change says so, with a way to put theirs back.
+ * A text save that fails is reported with the text that was not written. A
+ * row deleted elsewhere stays deleted: its save fails, and nothing creates
+ * it again.
  *
  * Every other action is a mutation: a recording's row and its length,
  * writing a transcript or a result (scoped by the recording's file, so they
@@ -42,19 +43,27 @@ import type {
 	FileCapture,
 	FileError,
 	FileListing,
+	FileSaveError,
 	FileTable,
 	KvReading,
 	MoveError,
 	Replaced,
 	Row,
 	RowReadError,
+	SavedFile,
 	SavedRow,
 	StoredRow,
 	TableError,
 	TableListing,
 	TableSaveError,
 } from '@epicenter/folder';
-import { formatRow, parseRow, rowPath, rowStemOf } from '@epicenter/folder';
+import {
+	formatRow,
+	parseRow,
+	restoreTheirs,
+	rowPath,
+	rowStemOf,
+} from '@epicenter/folder';
 import {
 	ancestorsOf,
 	dirname,
@@ -66,7 +75,12 @@ import {
 	type SaveRowVariables,
 	type TableOptions,
 } from '@epicenter/folder/query';
-import { createDraftState, type DraftState } from '@epicenter/folder/svelte';
+import {
+	createDraftState,
+	createTextDraftState,
+	type DraftState,
+	type TextDraftState,
+} from '@epicenter/folder/svelte';
 import { type RecordingFolder, recoverRecordings } from '@epicenter/recorder';
 import {
 	hashKey,
@@ -195,20 +209,24 @@ export type WriteNotice =
 	/**
 	 * The write failed. A row's edit is kept and is saved again with the
 	 * next change, or before anything that reads it. `lost` is the text that
-	 * was dropped instead: a row whose file is gone, or text whose file
-	 * changed elsewhere.
+	 * was dropped instead: a row whose file is gone, or text whose save
+	 * failed.
 	 */
 	| {
 			readonly kind: 'failed';
 			readonly path: string;
-			readonly error: TableError | FileError;
+			readonly error: TableError | FileError | FileSaveError;
 			readonly lost: string | undefined;
 	  }
-	/** The save landed, and replaced what another writer changed in the same places. */
+	/**
+	 * The save landed, and replaced what another writer changed in the same
+	 * places; `restore` is the one more save that puts theirs back.
+	 */
 	| {
 			readonly kind: 'replaced';
 			readonly path: string;
 			readonly replaced: readonly Replaced[];
+			readonly restore: () => void;
 	  };
 
 export type RecorderState =
@@ -624,14 +642,33 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 					rowSaveFailed(table, path, error);
 					throw error;
 				}),
-			onSaved: (saved) => {
-				statusMoved();
-				if (saved.replaced.length > 0)
-					notify({ kind: 'replaced', path, replaced: saved.replaced });
-			},
+			onSaved: (saved) => savedRow(save, path, saved),
 		});
 		rowDrafts.set(path, draft);
 		return draft;
+	}
+
+	/** A row's save landed: Git status moved, and what it replaced is named. */
+	function savedRow(
+		save: MutationObserverOptions<
+			SavedRow<Fields>,
+			TableSaveError,
+			SaveRowVariables<Fields>
+		>,
+		path: string,
+		saved: SavedRow<Fields>,
+	) {
+		statusMoved();
+		if (saved.replaced.length === 0) return;
+		notify({
+			kind: 'replaced',
+			path,
+			replaced: saved.replaced,
+			restore: () =>
+				void execute(save, restoreTheirs(saved))
+					.then((restored) => savedRow(save, path, restored))
+					.catch(() => {}),
+		});
 	}
 
 	/**
@@ -654,72 +691,70 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		void queryClient.invalidateQueries(folder$.pathFilter([path]));
 	}
 
-	/** A file's text as typed, over the version the edit started from. */
-	type TextEdit = {
-		readonly base: FileCapture;
-		readonly text: string;
-		/** Counts changes, so a write knows whether the text moved on while it ran. */
-		readonly revision: number;
-	};
-	const textEdits = new SvelteMap<string, TextEdit>();
-	/** The write of each file's text that is running, by path. */
-	const textWrites = new SvelteMap<string, Promise<void>>();
+	/** Each file's text edit, by path: the version it started from and the text typed. */
+	const textEdits = new SvelteMap<string, TextDraftState>();
 	const writeFile = folder$.files.write.mutationOptions();
 
 	/**
-	 * Write the text typed into `path`, one write at a time, until nothing is
-	 * left unwritten. Each write is guarded by the version the last one wrote.
-	 * Text has no merge: a file changed elsewhere refuses the write, and what
-	 * was typed is reported with the failure and dropped, so the view shows
-	 * the file as it is.
+	 * A text save landed. The page's own write is not reported to it: what
+	 * reads this file, a row of it included, is read again, and what it
+	 * replaced is named.
 	 */
-	function saveText(path: string): Promise<void> {
-		const running = textWrites.get(path);
-		if (running !== undefined) return running;
-		if (!textEdits.has(path)) return Promise.resolve();
-		const loop = (async () => {
-			try {
-				for (
-					let sent = textEdits.get(path);
-					sent !== undefined;
-					sent = textEdits.get(path)
-				) {
-					let written: FileCapture;
-					try {
-						written = await execute(writeFile, {
-							path,
-							content: sent.text,
-							over: sent.base,
-						});
-					} catch (error) {
-						const lost = textEdits.get(path)?.text;
+	function savedText(path: string, saved: SavedFile) {
+		queryClient.setQueryData<OpenedFile>(textKey(path), {
+			kind: 'text',
+			file: {
+				path,
+				sha256: saved.stored.sha256,
+				text: new TextDecoder().decode(saved.stored.bytes),
+			},
+		});
+		void queryClient.invalidateQueries(folder$.pathFilter([path]));
+		if (saved.replaced.length === 0) return;
+		notify({
+			kind: 'replaced',
+			path,
+			replaced: saved.replaced,
+			restore: () => {
+				const { base, content } = restoreTheirs(saved, folder.definition);
+				void execute(writeFile, { path, content, base })
+					.then((restored) => savedText(path, restored))
+					.catch(() => {});
+			},
+		});
+	}
+
+	/** The text edit of `path`, made at its first change. */
+	function textEdit(path: string): TextDraftState {
+		const held = textEdits.get(path);
+		if (held !== undefined) return held;
+		const draft = createTextDraftState({
+			save: ({ base, text }) =>
+				execute(writeFile, { path, content: text, base }).catch(
+					(error: FileSaveError) => {
+						// What was typed is reported with the failure and dropped, so
+						// the view shows the file as it is.
+						const lost = draft.text ?? text;
+						draft.discard();
 						textEdits.delete(path);
-						notify({ kind: 'failed', path, error: error as FileError, lost });
-						// The view shows the file as it is now.
+						notify({ kind: 'failed', path, error, lost });
 						void queryClient.invalidateQueries(folder$.pathFilter([path]));
-						return;
-					}
-					// The page's own write is not reported to it: what reads this
-					// file, a row of it included, is read again.
-					void queryClient.invalidateQueries(folder$.pathFilter([path]));
-					const latest = textEdits.get(path);
-					if (latest === undefined) return;
-					if (latest.revision !== sent.revision) {
-						textEdits.set(path, { ...latest, base: written });
-						continue;
-					}
-					queryClient.setQueryData<OpenedFile>(textKey(path), {
-						kind: 'text',
-						file: { ...written, text: sent.text },
-					});
-					textEdits.delete(path);
-				}
-			} finally {
-				textWrites.delete(path);
-			}
-		})();
-		textWrites.set(path, loop);
-		return loop;
+						throw error;
+					},
+				),
+			onSaved: (saved) => savedText(path, saved),
+		});
+		textEdits.set(path, draft);
+		return draft;
+	}
+
+	/** Save the text typed into `path` until nothing is left; then the edit is done. */
+	async function saveText(path: string): Promise<void> {
+		const draft = textEdits.get(path);
+		if (draft === undefined) return;
+		await draft.save();
+		if (draft.text === undefined && textEdits.get(path) === draft)
+			textEdits.delete(path);
 	}
 
 	/** Resolves once every edit has been written, or its write failed. */
@@ -1195,19 +1230,13 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		/** Replace the text of `path` and write it, over the version the edit started from. */
 		editText(path: string, text: string): void {
 			if (refused() !== undefined || moving(path)) return;
-			const held = textEdits.get(path);
 			const opened = textData(path);
+			// The first change starts from the file shown; later ones keep their base.
 			const base =
-				held?.base ??
-				(opened?.kind === 'text'
-					? { path: opened.file.path, sha256: opened.file.sha256 }
-					: undefined);
+				textEdits.get(path)?.base ??
+				(opened?.kind === 'text' ? opened.file : undefined);
 			if (base === undefined) return;
-			textEdits.set(path, {
-				base,
-				text,
-				revision: (held?.revision ?? 0) + 1,
-			});
+			textEdit(path).change(base, text);
 			void saveText(path);
 		},
 		/** Hear what an edit's write did that the person is told: it failed, or it replaced another writer's change. */
@@ -1217,20 +1246,23 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 		/** Whether a write of `path` is running, read reactively. */
 		isSaving(path: string) {
-			return (rowDrafts.get(path)?.saving ?? false) || textWrites.has(path);
+			return (
+				(rowDrafts.get(path)?.saving ?? false) ||
+				(textEdits.get(path)?.saving ?? false)
+			);
 		},
 		/** Whether a write of any file is running, read reactively. */
 		get saving() {
 			return (
 				[...rowDrafts.values()].some((draft) => draft.saving) ||
-				textWrites.size > 0
+				[...textEdits.values()].some((draft) => draft.saving)
 			);
 		},
 		/** Whether an edit is not in its file yet: being written, or kept after its write failed. */
 		get unsaved() {
 			return (
 				[...rowDrafts.values()].some((draft) => draft.row !== undefined) ||
-				textEdits.size > 0
+				[...textEdits.values()].some((draft) => draft.text !== undefined)
 			);
 		},
 		/** Whether input is refused now: while closing, or while `path` is renamed or deleted. */

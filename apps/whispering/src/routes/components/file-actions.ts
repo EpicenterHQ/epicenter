@@ -3,8 +3,8 @@
  * with a confirmation that names what will be removed, and textarea newlines.
  */
 
-import type { Replaced } from '@epicenter/folder';
 import { basename } from '@epicenter/folder/file-browser';
+import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeDeletion } from '$lib/deletion.js';
@@ -85,13 +85,6 @@ export async function openItem(
 	return !library.closing;
 }
 
-/** How a replaced value reads in a notice: a field by its name, body lines by where they start. */
-function replacedPlace(replaced: Replaced) {
-	return replaced.kind === 'field'
-		? replaced.field
-		: `the text from line ${replaced.line + 1}`;
-}
-
 /**
  * Tell the person what an edit's write did that they need to know: it
  * failed, offering to copy text that did not reach the file, or it replaced
@@ -100,10 +93,8 @@ function replacedPlace(replaced: Replaced) {
 export function reportWriteNotice(notice: WriteNotice) {
 	const name = basename(notice.path);
 	if (notice.kind === 'replaced') {
-		const places = [...new Set(notice.replaced.map(replacedPlace))].join(', ');
-		toast.info(`Saved ${name}`, {
-			description: `This replaced a change made elsewhere to ${places}.`,
-		});
+		const { replaced, restore } = notice;
+		void toastReplaced({ replaced, subject: name, restore });
 		return;
 	}
 	const { error, lost } = notice;
