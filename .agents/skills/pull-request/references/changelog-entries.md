@@ -4,7 +4,7 @@
 
 Read when preparing PR descriptions for `feat:` or `fix:` changes that require end-user changelog entries.
 
-PRs with `feat:` or `fix:` prefix MUST include a `## Changelog` section in the PR description body. These entries are automatically aggregated into GitHub Releases by `auto.release.yml`.
+PRs with `feat:` or `fix:` prefix MUST include a `## Changelog` section in the PR description body. Release notes are written from these entries.
 
 **Rules:**
 
