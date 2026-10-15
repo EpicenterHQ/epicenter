@@ -206,9 +206,11 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 		const entry = await fetch(`${origin}${entryPath ?? ''}`, session);
 		expect(entry.status).toBe(200);
 		expect(entry.headers.get('content-type')).toContain('text/javascript');
+		const folders = await fetch(`${origin}/apps/folders/`, session);
+		expect(folders.status).toBe(200);
+		// Todos is installed now, not compiled in (ADR-0552).
 		const todos = await fetch(`${origin}/apps/todos/`, session);
-		expect(todos.status).toBe(200);
-		expect(await todos.text()).toContain('/apps/todos/_app/');
+		expect(todos.status).toBe(404);
 		const removedBridge = await fetch(`${origin}/_epicenter/todos/call`, {
 			method: 'POST',
 			headers: {

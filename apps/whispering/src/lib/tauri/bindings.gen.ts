@@ -172,8 +172,11 @@ export const commands = {
 	 *  no listener existed yet, which is exactly the recovery path that matters.
 	 *
 	 *  It mutates no transcription state: it opens a window, and the user chooses.
+	 *
+	 *  Without a section it only opens Settings: the Folders window's Settings
+	 *  button (ADR-0537, ADR-0552).
 	 */
-	openHome: (section: HomeSection) =>
+	openHome: (section: HomeSection | null) =>
 		__TAURI_INVOKE<void>('open_home', { section }),
 	/**
 	 *  Claim the pending section intent, if any. Home calls this on mount and
@@ -229,9 +232,9 @@ export const commands = {
 	/**
 	 *  Open app `id` in its own window, building a commit made here first. With
 	 *  `folder`, a scope the Folders window listed, the window is let into that
-	 *  folder and the app is handed it as `?folder=`. Without one, an app whose
-	 *  id names a folder the shell registers for a built-in app, as Todos', is
-	 *  handed that folder, since it opens it by id.
+	 *  folder and the app is handed it as `?folder=`. Without one, the app is
+	 *  handed its own folder, `<folder_dir>/<id>`, whose scope is its id
+	 *  (ADR-0552).
 	 */
 	openInstalledApp: (id: string, folder: string | null) =>
 		typedError<InstalledApp, string>(
@@ -441,8 +444,6 @@ export type DataFolder = {
 	id: string;
 	/**  `epicenter.json`'s `title` when it is a string, else the directory name. */
 	title: string;
-	/**  The application whose window edits this folder too, if any. */
-	app: string | null;
 	/**
 	 *  The text of `epicenter.json`, or `None` when it is not UTF-8 text the
 	 *  shell could read. The page parses it; the shell does not judge it.

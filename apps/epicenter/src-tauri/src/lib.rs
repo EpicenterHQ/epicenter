@@ -13,7 +13,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tauri::webview::NewWindowResponse;
 use tauri::{
-    AppHandle, Manager, RunEvent, Runtime, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent, Wry,
 };
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -94,57 +94,27 @@ const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// exits by itself. The kill is the bound for a host that hangs anyway.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(12);
 
+/// Epicenter's own windows, and Whispering, the one app still compiled in
+/// until it installs like every other app (ADR-0552). Every other app is
+/// installed and opened with `open_installed_app`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BuiltInApp {
     Home,
     Whispering,
-    Honeycrisp,
-    Capture,
-    Mail,
-    Todos,
-    Books,
     Folders,
 }
 
 impl BuiltInApp {
-    const ALL: [Self; 8] = [
-        Self::Home,
-        Self::Whispering,
-        Self::Honeycrisp,
-        Self::Capture,
-        Self::Mail,
-        Self::Todos,
-        Self::Books,
-        Self::Folders,
-    ];
+    const ALL: [Self; 3] = [Self::Home, Self::Whispering, Self::Folders];
 
-    /// Whether `launch_application` opens this app's window (ADR-0189).
-    ///
-    /// Every variant here is an app in the product model; this says only which
-    /// ones a person can open from a window. The Folders window opens Todos and
-    /// Capture from their folders, every other app from its Apps list, and
-    /// Settings (the `home` window) from its Settings button (ADR-0537).
-    /// Settings opens Whispering once local transcription is ready. Mail and
-    /// Books are release-bundled placeholder documents with nothing behind them
-    /// to open. Honeycrisp now ships its own desktop shell, outside this host.
-    const fn is_launchable(self) -> bool {
-        self.is_hosted()
-            && matches!(
-                self,
-                Self::Home | Self::Whispering | Self::Capture | Self::Todos | Self::Folders
-            )
-    }
-
-    /// Whether the shell opens this app's window at all, from startup, a
-    /// launch, the tray, or a deep link.
+    /// Whether the shell opens this app's window at all, from startup, the
+    /// tray, or a deep link.
     ///
     /// Whispering is built and served but not hosted for now: inside Epicenter
     /// no folder or host of its own is registered for it, so its page can only
     /// report that the desktop app did not start Whispering's host. While it is
     /// not, the shell opens neither its hidden window nor its recording overlay
-    /// at startup and offers no tray item for it. Returning `true` for it here,
-    /// and listing it in `LAUNCHABLE_APPLICATIONS` in `applications.ts`, offers
-    /// it again.
+    /// at startup and offers no tray item for it.
     const fn is_hosted(self) -> bool {
         !matches!(self, Self::Whispering)
     }
@@ -153,11 +123,6 @@ impl BuiltInApp {
         match self {
             Self::Home => "home",
             Self::Whispering => "whispering",
-            Self::Honeycrisp => "honeycrisp",
-            Self::Capture => "capture",
-            Self::Mail => "mail",
-            Self::Todos => "todos",
-            Self::Books => "books",
             Self::Folders => "folders",
         }
     }
@@ -166,11 +131,6 @@ impl BuiltInApp {
         match self {
             Self::Home => "/apps/home/",
             Self::Whispering => "/apps/whispering/",
-            Self::Honeycrisp => "/apps/honeycrisp/",
-            Self::Capture => "/apps/capture/",
-            Self::Mail => "/apps/mail/",
-            Self::Todos => "/apps/todos/",
-            Self::Books => "/apps/books/",
             Self::Folders => "/apps/folders/",
         }
     }
@@ -179,11 +139,6 @@ impl BuiltInApp {
         match self {
             Self::Home => "Epicenter: Settings",
             Self::Whispering => "Epicenter: Whispering",
-            Self::Honeycrisp => "Epicenter: Honeycrisp",
-            Self::Capture => "Epicenter: Capture",
-            Self::Mail => "Epicenter: Mail",
-            Self::Todos => "Epicenter: Todos",
-            Self::Books => "Epicenter: Books",
             Self::Folders => "Epicenter: Folders",
         }
     }
@@ -411,9 +366,8 @@ enum FailureChoice {
     Quit,
 }
 
-/// The typed Whispering command and event contract. The host-owned
-/// `launch_application` remains on Tauri's handwritten handler because it is
-/// outside this generated Whispering binding API.
+/// The typed command and event contract every Epicenter window and Whispering
+/// share.
 fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
@@ -521,12 +475,19 @@ pub struct HomeSectionPending;
 /// no listener existed yet, which is exactly the recovery path that matters.
 ///
 /// It mutates no transcription state: it opens a window, and the user chooses.
+///
+/// Without a section it only opens Settings: the Folders window's Settings
+/// button (ADR-0537, ADR-0552).
 #[tauri::command]
 #[specta::specta]
-fn open_home(section: HomeSection, app: DesktopAppHandle) {
-    app.state::<HostState>().queue_home_section(section);
+fn open_home(section: Option<HomeSection>, app: DesktopAppHandle) {
+    if let Some(section) = section {
+        app.state::<HostState>().queue_home_section(section);
+    }
     request_window(&app, BuiltInApp::Home);
-    let _ = HomeSectionPending.emit_to(&app, BuiltInApp::Home.id());
+    if section.is_some() {
+        let _ = HomeSectionPending.emit_to(&app, BuiltInApp::Home.id());
+    }
 }
 
 /// Claim the pending section intent, if any. Home calls this on mount and
@@ -538,91 +499,7 @@ fn take_pending_home_section(app: DesktopAppHandle) -> Option<HomeSection> {
     app.state::<HostState>().take_home_section()
 }
 
-/// Launch one application the Folders window or Settings offers: reveal and
-/// focus its window, creating it the first time. Calling again focuses rather
-/// than duplicating, and the window that asked is never hidden to do it.
-///
-/// Windows are deliberate (ADR-0209). One window that switched between
-/// applications would union every capability file onto one label, because a
-/// label is what native authority is granted to; separate windows are what keep
-/// `home`, `whispering`, and `capture` meaning different things. From here the
-/// OS is the switcher.
-///
-/// This is the verb of the `folders` and `home` windows, not an app-facing
-/// one: no application may use it to reveal another.
-///
-/// # Who decides an ID is real
-///
-/// The compiled app table. `parse_application_id` resolves the ID against it
-/// and refuses anything no window offers, so a page cannot name a window the
-/// release does not ship.
-///
-/// # Why it waits
-///
-/// Window work happens on the main thread, so this command hands the attempt
-/// over and blocks on its outcome rather than reporting that it scheduled
-/// something. A caller that gets `Ok` has a window; a caller that gets `Err`
-/// has a sentence to show. `#[tauri::command(async)]` is what makes the wait
-/// safe: it moves this body off the main thread, which would otherwise be the
-/// thread the closure below is waiting for.
-#[tauri::command(async)]
-fn launch_application(
-    app: DesktopAppHandle,
-    state: State<'_, HostState>,
-    app_id: String,
-) -> std::result::Result<(), String> {
-    let Some(built_in) = parse_application_id(&app_id) else {
-        return Err(format!("app id must name an application Epicenter offers: {app_id}"));
-    };
-    // Unlike the tray, deep links, and startup, a user-invoked launch does not
-    // queue itself for a future host generation: the person is waiting, and a
-    // window that appears after the next restart is not what they asked for.
-    let Some(token) = state.active_token() else {
-        return Err("the Epicenter host is not ready".to_string());
-    };
-    let port = state.port().map_err(|error| format!("{error:#}"))?;
-
-    launch_on_main_thread(&app, built_in, port, &token, true).map_err(|error| format!("{error:#}"))
-}
-
-/// Create or reveal the window on the main thread and report what happened.
-///
-/// Mirrors `create_windows_on_main_thread`: hand the work over, wait for the
-/// one result. The sender lives in the closure, so an event loop that shuts
-/// down before running it drops the sender and this returns an error rather
-/// than waiting forever.
-fn launch_on_main_thread(
-    app: &DesktopAppHandle,
-    built_in: BuiltInApp,
-    port: u16,
-    token: &str,
-    reveal: bool,
-) -> Result<()> {
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let window_app = app.clone();
-    let token = token.to_string();
-    app.run_on_main_thread(move || {
-        let result = if window_app.state::<HostState>().token_is_active(&token) {
-            ensure_window(&window_app, built_in, port, &token, reveal)
-        } else {
-            Err(anyhow!(HOST_RESTARTED))
-        };
-        let _ = sender.send(result);
-    })
-    .context("schedule the application window on the main thread")?;
-    receiver
-        .recv()
-        .context("the main thread stopped before opening the window")?
-}
-
-/// Resolve an ID to a compiled application a window offers. A placeholder and
-/// an ID no compiled app has are the same refusal, because no window offers
-/// either.
-fn parse_application_id(id: &str) -> Option<BuiltInApp> {
-    BuiltInApp::from_id(id).filter(|built_in| built_in.is_launchable())
-}
-
-/// The host restarted between a launch and the main thread reaching it: every
+/// The host restarted between a request and the main thread reaching it: every
 /// window from the old generation is being torn down, so opening one now would
 /// create a window against a dead token.
 const HOST_RESTARTED: &str = "the Epicenter host restarted before the window opened";
@@ -631,8 +508,6 @@ pub fn run() {
     let port = configured_port();
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
-    let native_handler =
-        tauri::generate_handler![launch_application] as fn(tauri::ipc::Invoke<tauri::Wry>) -> bool;
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
         .level_for("epicenter::transcription", log::LevelFilter::Debug)
@@ -678,18 +553,12 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init());
 
     builder
-        .invoke_handler(move |invoke| {
-            if invoke.message.command() == "launch_application" {
-                native_handler(invoke)
-            } else {
-                specta_handler(invoke)
-            }
-        })
+        .invoke_handler(specta_handler)
         .setup(move |app| {
             specta_builder.mount_events(app);
 
             let desktop_paths = app_data::DesktopPaths::resolve(app.handle())?;
-            data_folders::register_application_folders(app.folders(), &desktop_paths.folder_dir)
+            data_folders::register_epicenter_folder(app.folders(), &desktop_paths.folder_dir)
                 .map_err(anyhow::Error::msg)?;
             match data_folders::watch_data_folders(app.handle(), &desktop_paths.folder_dir) {
                 Ok(watch) => {
@@ -842,9 +711,9 @@ fn queue_or_send_auth_callback(app: &DesktopAppHandle, url: String) {
 /// and log rather than report what the main thread makes of it.
 ///
 /// That is right for the callers that have nobody to answer to (startup, the
-/// tray, a deep link, macOS reopen, an app asking for a section of Settings). It is
-/// wrong for `launch_application`, where a person clicked and is owed an
-/// outcome, so that command waits on the main thread instead.
+/// tray, a deep link, macOS reopen, Settings asked for by the Folders window
+/// or an app). It is wrong for `open_installed_app`, where a person clicked
+/// and is owed an outcome, so that command waits on the main thread instead.
 fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
     if !built_in.is_hosted() {
         return;
@@ -2199,29 +2068,13 @@ mod tests {
             [
                 ("home", "/apps/home/", "Epicenter: Settings"),
                 ("whispering", "/apps/whispering/", "Epicenter: Whispering"),
-                ("honeycrisp", "/apps/honeycrisp/", "Epicenter: Honeycrisp"),
-                ("capture", "/apps/capture/", "Epicenter: Capture"),
-                ("mail", "/apps/mail/", "Epicenter: Mail"),
-                ("todos", "/apps/todos/", "Epicenter: Todos"),
-                ("books", "/apps/books/", "Epicenter: Books"),
                 ("folders", "/apps/folders/", "Epicenter: Folders"),
             ]
         );
     }
 
-    /// The Folders window lists exactly the compiled applications this table
-    /// calls launchable, plus Settings behind its own button, so the two must
-    /// not drift: an ID a window can show has to be one this verb opens, and an
-    /// ID it cannot show has to be one this verb refuses. The Bun side asserts
-    /// the same list against `applications.ts`.
     #[test]
-    fn compiled_applications_are_the_release_built_spas() {
-        let launchable: Vec<&str> = BuiltInApp::ALL
-            .into_iter()
-            .filter(|window| window.is_launchable())
-            .map(BuiltInApp::id)
-            .collect();
-        assert_eq!(launchable, ["home", "capture", "todos", "folders"]);
+    fn only_whispering_is_built_in_and_not_hosted() {
         let unhosted: Vec<&str> = BuiltInApp::ALL
             .into_iter()
             .filter(|window| !window.is_hosted())
@@ -2253,36 +2106,6 @@ mod tests {
         assert!(!refuses_exit(Some(0)));
         assert!(!refuses_exit(Some(1)));
         assert!(!refuses_exit(Some(tauri::RESTART_EXIT_CODE)));
-    }
-
-    #[test]
-    fn launch_opens_only_what_a_window_offers() {
-        assert_eq!(parse_application_id("home"), Some(BuiltInApp::Home));
-        assert_eq!(parse_application_id("capture"), Some(BuiltInApp::Capture));
-        assert_eq!(parse_application_id("todos"), Some(BuiltInApp::Todos));
-        assert_eq!(parse_application_id("folders"), Some(BuiltInApp::Folders));
-
-        for denied in [
-            "",
-            // Not hosted inside Epicenter for now (`is_hosted`).
-            "whispering",
-            "Whispering",
-            "whispering/",
-            "../whispering",
-            // Honeycrisp ships its own shell; its old host id stays unused.
-            "honeycrisp",
-            // Placeholder documents with nothing behind them to open.
-            "mail",
-            "books",
-            // No compiled app has this id.
-            "hello-http",
-            "so.epicenter.local-mail",
-        ] {
-            assert!(
-                parse_application_id(denied).is_none(),
-                "expected {denied:?} rejected"
-            );
-        }
     }
 
     #[test]
@@ -2433,8 +2256,6 @@ mod tests {
             include_str!("../capabilities/trusted-whispering-native-production.json"),
             include_str!("../capabilities/trusted-app-windows-development.json"),
             include_str!("../capabilities/trusted-app-windows-production.json"),
-            include_str!("../capabilities/launch-application-development.json"),
-            include_str!("../capabilities/launch-application-production.json"),
             include_str!("../capabilities/folders-development.json"),
             include_str!("../capabilities/folders-production.json"),
             include_str!("../capabilities/installed-app-windows-development.json"),
@@ -2464,21 +2285,13 @@ mod tests {
 
     /// The generated bindings are a committed artifact, so they can go stale
     /// against the command list without anything failing to compile.
-    ///
-    /// `launch_application` is deliberately outside the generated API: it rides
-    /// Tauri's handwritten handler because it is host-owned rather than part of
-    /// the app contract.
     #[test]
     fn generated_bindings_cover_every_declared_command() {
-        const HANDWRITTEN: &[&str] = &["launch_application"];
         for bindings in [
             include_str!("../../../whispering/src/lib/tauri/bindings.gen.ts"),
             include_str!("../../src/ui/bindings.gen.ts"),
         ] {
             for command in crate::command_names::COMMANDS {
-                if HANDWRITTEN.contains(command) {
-                    continue;
-                }
                 // Either quote style: specta emits double quotes and the repo
                 // formatter rewrites them to single, so both are "fresh".
                 assert!(
@@ -2693,31 +2506,6 @@ mod tests {
         assert_ne!(production["identifier"], development["identifier"]);
     }
 
-    /// The Folders window lists what can be launched, and Settings offers
-    /// Whispering once local transcription is ready while Whispering is
-    /// hosted, so those two windows are
-    /// the ones that launch (ADR-0189, ADR-0537). Granting the verb more widely
-    /// would let an application open another application without the user ever
-    /// choosing it, which is a product decision nobody made.
-    #[test]
-    fn only_the_folders_window_and_settings_can_launch_an_application() {
-        for encoded in [
-            include_str!("../capabilities/launch-application-development.json"),
-            include_str!("../capabilities/launch-application-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert_eq!(
-                capability["windows"],
-                serde_json::json!(["folders", "home"]),
-                "the launch verb belongs to the Folders window and Settings alone"
-            );
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!(["allow-launch-application"]),
-            );
-        }
-    }
-
     /// What every window that opens a folder holds: the folder plugin, and
     /// listening for its change event, `epicenter-folder://changed`.
     const FOLDER_WINDOW: [&str; 3] = [
@@ -2726,34 +2514,10 @@ mod tests {
         "core:event:allow-unlisten",
     ];
 
-    /// Todos' and Capture's windows hold the folder plugin alone, and hear
-    /// its change event: it reads and changes only the directory a grant
-    /// names. They hold no fs or HTTP grant; Git transfers run in the `git`
-    /// the shell starts.
-    #[test]
-    fn folder_windows_hold_only_the_folder_plugin() {
-        for encoded in [
-            include_str!("../capabilities/todos-folder-development.json"),
-            include_str!("../capabilities/todos-folder-production.json"),
-            include_str!("../capabilities/capture-folder-development.json"),
-            include_str!("../capabilities/capture-folder-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!(FOLDER_WINDOW),
-                "{encoded}"
-            );
-        }
-        let config: serde_json::Value =
-            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert!(config["plugins"].get("fs").is_none(), "no fs plugin is installed");
-    }
-
-    /// The Folders window holds the folder plugin and its own listing, beside
-    /// the launch verb it shares with Settings, and nothing else: it reaches
-    /// folders only through scopes the listing registered or permitted it into,
-    /// and it administers no model.
+    /// The Folders window holds the folder plugin, its own listing, installing
+    /// and opening apps, and opening Settings (ADR-0537, ADR-0552), and nothing
+    /// else: it reaches folders only through scopes the listing registered or
+    /// permitted it into, and it administers no model.
     #[test]
     fn the_folders_window_holds_the_folder_plugin_and_its_listing() {
         for encoded in [
@@ -2774,7 +2538,8 @@ mod tests {
                     "allow-install-app",
                     "allow-approve-app",
                     "allow-update-app",
-                    "allow-open-installed-app"
+                    "allow-open-installed-app",
+                    "allow-open-home"
                 ]),
                 "{encoded}"
             );
@@ -2786,12 +2551,6 @@ mod tests {
             include_str!("../capabilities/trusted-whispering-native-production.json"),
             include_str!("../capabilities/home-model-administration-development.json"),
             include_str!("../capabilities/home-model-administration-production.json"),
-            include_str!("../capabilities/launch-application-development.json"),
-            include_str!("../capabilities/launch-application-production.json"),
-            include_str!("../capabilities/capture-folder-development.json"),
-            include_str!("../capabilities/capture-folder-production.json"),
-            include_str!("../capabilities/todos-folder-development.json"),
-            include_str!("../capabilities/todos-folder-production.json"),
             include_str!("../capabilities/installed-app-windows-development.json"),
             include_str!("../capabilities/installed-app-windows-production.json"),
         ] {
@@ -2819,6 +2578,11 @@ mod tests {
             assert_eq!(capability["windows"], serde_json::json!(["app:*"]));
             assert_eq!(capability["permissions"], serde_json::json!(FOLDER_WINDOW));
         }
+        // It reads and changes only the directory a grant names: no fs plugin
+        // is installed, and Git transfers run in the `git` the shell starts.
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(config["plugins"].get("fs").is_none(), "no fs plugin is installed");
         for (id, folder, label) in [
             ("com.example.board", None, "app:com_example_board"),
             (
@@ -2840,29 +2604,11 @@ mod tests {
         );
     }
 
-    /// The launch verb reveals any compiled window, which is exactly why no
-    /// app window may hold it: one application must not be able to reveal
-    /// another.
-    #[test]
-    fn no_app_window_can_launch_an_application() {
-        for encoded in APP_WINDOW_CAPABILITIES {
-            assert!(
-                !granted_app_commands(encoded).contains("launch_application"),
-                "an app window must not be able to reveal another application"
-            );
-        }
-    }
-
     #[test]
     fn deep_links_accept_only_the_closed_built_in_app_table() {
         for (url, expected) in [
             ("epicenter://app/home", BuiltInApp::Home),
             ("epicenter://app/whispering", BuiltInApp::Whispering),
-            ("epicenter://app/honeycrisp", BuiltInApp::Honeycrisp),
-            ("epicenter://app/capture", BuiltInApp::Capture),
-            ("epicenter://app/mail", BuiltInApp::Mail),
-            ("epicenter://app/todos", BuiltInApp::Todos),
-            ("epicenter://app/books", BuiltInApp::Books),
             ("epicenter://app/folders", BuiltInApp::Folders),
             // A link without a path opens what launching Epicenter opens.
             ("epicenter://", BuiltInApp::Folders),
@@ -2876,6 +2622,9 @@ mod tests {
             "epicenter://surface/home",
             "epicenter://window/home",
             "epicenter://app/unknown",
+            // Installed apps are opened from the Folders window, not by link.
+            "epicenter://app/todos",
+            "epicenter://app/so.epicenter.todos",
             "epicenter://app/home/",
             "epicenter://app/home/extra",
             "epicenter://app/home?mode=other",
@@ -3025,16 +2774,17 @@ mod tests {
     fn forwarded_arguments_extract_valid_unique_app_links() {
         let arguments = [
             "/Applications/Epicenter.app/Contents/MacOS/Epicenter",
-            "epicenter://app/mail",
+            "epicenter://app/home",
             "epicenter://app/unknown",
-            "epicenter://app/mail",
-            "epicenter://app/books",
+            "epicenter://app/todos",
+            "epicenter://app/home",
+            "epicenter://app/whispering",
             "epicenter://",
         ]
         .map(String::from);
         assert_eq!(
             apps_from_arguments(&arguments),
-            vec![BuiltInApp::Mail, BuiltInApp::Books, BuiltInApp::Folders]
+            vec![BuiltInApp::Home, BuiltInApp::Whispering, BuiltInApp::Folders]
         );
     }
 

@@ -1,42 +1,39 @@
 /**
- * Which apps the Folders window offers on a folder.
+ * Which installed apps the Folders window offers on a folder.
  *
  * Key behaviors:
- * - An app is offered on its own folder when the declaration contains its shape
+ * - An installed app that runs is offered on every folder whose declaration
+ *   contains its shape
  * - A declaration may declare more tables and fields than the shape
  * - A missing or mistyped field, or unreadable text, offers nothing
- * - Another folder of the same shape is not offered a built-in app yet
- * - An installed app that runs is offered on every folder its shape fits
  * - An installed app waiting for approval, or without a readable shape, is
  *   offered on no folder
- * - Every app not offered on a folder is listed under Apps
  */
 import { describe, expect, test } from 'bun:test';
-import { captureDefinition } from '@epicenter/capture/definition';
 import {
 	defineFolder,
 	defineTable,
 	field,
 	formatDeclaration,
 } from '@epicenter/folder';
-import { todosDefinition } from '@epicenter/todos/definition';
-import {
-	type Application,
-	CAPTURE_APPLICATION,
-	TODOS_APPLICATION,
-	WHISPERING_APPLICATION,
-} from '../applications.ts';
+import type { Application } from '../applications.ts';
 import type { InstalledApp } from '../ui/bindings.gen';
-import {
-	appsWithoutFolder,
-	FOLDER_OPENERS,
-	installedOpeners,
-	openersOf,
-} from './openers.ts';
+import { installedOpeners, openersOf } from './openers.ts';
 
-const TODOS = formatDeclaration(todosDefinition);
+/** A declaration with a `todos` table of `title` and `done`. */
+const TODOS = formatDeclaration(
+	defineFolder({
+		title: 'Todos',
+		kv: {},
+		tables: {
+			todos: defineTable({
+				fields: { title: field.string(), done: field.boolean() },
+			}),
+		},
+	}),
+);
 
-/** A Todos-shaped declaration, edited as `edit` says. */
+/** `TODOS`, edited as `edit` says. */
 function todosWith(edit: (declared: TodosDeclaration) => void): string {
 	const declared = JSON.parse(TODOS) as TodosDeclaration;
 	edit(declared);
@@ -48,53 +45,6 @@ type TodosDeclaration = {
 		{ type: 'object'; properties: Record<string, unknown>; required?: string[] }
 	>;
 };
-
-describe('openersOf', () => {
-	test('offers Todos on its own folder when the declaration is its shape', () => {
-		expect(openersOf({ app: 'todos', declaration: TODOS })).toEqual([
-			TODOS_APPLICATION,
-		]);
-		expect(
-			openersOf({
-				app: 'capture',
-				declaration: formatDeclaration(captureDefinition),
-			}),
-		).toEqual([CAPTURE_APPLICATION]);
-	});
-
-	test('offers Todos on a folder that declares more than Todos reads', () => {
-		const wider = todosWith((declared) => {
-			declared.tables.todos!.properties.due = { type: 'string' };
-			declared.tables.notes = { type: 'object', properties: {} };
-		});
-		expect(openersOf({ app: 'todos', declaration: wider })).toEqual([
-			TODOS_APPLICATION,
-		]);
-	});
-
-	test('offers nothing when a field Todos reads is missing or another type', () => {
-		const missing = todosWith((declared) => {
-			delete declared.tables.todos!.properties.done;
-		});
-		const mistyped = todosWith((declared) => {
-			declared.tables.todos!.properties.done = { type: 'string' };
-		});
-		expect(openersOf({ app: 'todos', declaration: missing })).toEqual([]);
-		expect(openersOf({ app: 'todos', declaration: mistyped })).toEqual([]);
-	});
-
-	test('offers nothing for text that is not a declaration', () => {
-		for (const declaration of [null, '', 'not json', '{}', '[]']) {
-			expect(openersOf({ app: 'todos', declaration })).toEqual([]);
-		}
-	});
-
-	test('does not offer Todos on another folder of its shape', () => {
-		// Launching Todos opens its own folder, not this one.
-		expect(openersOf({ app: null, declaration: TODOS })).toEqual([]);
-		expect(openersOf({ app: 'capture', declaration: TODOS })).toEqual([]);
-	});
-});
 
 /** An installed app that reads `title` from a `todos` table. */
 function board(overrides: Partial<InstalledApp> = {}): InstalledApp {
@@ -117,29 +67,37 @@ function board(overrides: Partial<InstalledApp> = {}): InstalledApp {
 	};
 }
 
-const BOARD: Application = {
-	id: 'com.example.board',
-	title: 'Board',
-	installed: true,
-};
+const BOARD: Application = { id: 'com.example.board', title: 'Board' };
+const OPENERS = installedOpeners([board()]);
 
 describe('installed apps', () => {
 	test('an installed app is offered on any folder whose declaration contains its shape', () => {
-		const openers = [...FOLDER_OPENERS, ...installedOpeners([board()])];
-		expect(openersOf({ app: 'todos', declaration: TODOS }, openers)).toEqual([
-			TODOS_APPLICATION,
-			BOARD,
-		]);
-		// Not Todos's own folder, and not named for any app.
-		expect(openersOf({ app: null, declaration: TODOS }, openers)).toEqual([
-			BOARD,
-		]);
-		const untitled = todosWith((declared) => {
+		expect(openersOf({ declaration: TODOS }, OPENERS)).toEqual([BOARD]);
+	});
+
+	test('it is offered on a folder that declares more than it reads', () => {
+		const wider = todosWith((declared) => {
+			declared.tables.todos!.properties.due = { type: 'string' };
+			declared.tables.notes = { type: 'object', properties: {} };
+		});
+		expect(openersOf({ declaration: wider }, OPENERS)).toEqual([BOARD]);
+	});
+
+	test('nothing is offered when a field it reads is missing or another type', () => {
+		const missing = todosWith((declared) => {
 			delete declared.tables.todos!.properties.title;
 		});
-		expect(openersOf({ app: null, declaration: untitled }, openers)).toEqual(
-			[],
-		);
+		const mistyped = todosWith((declared) => {
+			declared.tables.todos!.properties.title = { type: 'boolean' };
+		});
+		expect(openersOf({ declaration: missing }, OPENERS)).toEqual([]);
+		expect(openersOf({ declaration: mistyped }, OPENERS)).toEqual([]);
+	});
+
+	test('nothing is offered for text that is not a declaration', () => {
+		for (const declaration of [null, '', 'not json', '{}', '[]']) {
+			expect(openersOf({ declaration }, OPENERS)).toEqual([]);
+		}
 	});
 
 	test('an app built only when opened is offered; one waiting for approval is not', () => {
@@ -166,24 +124,5 @@ describe('installed apps', () => {
 		for (const opens of [null, 'not json', '[]']) {
 			expect(installedOpeners([board({ opens })])).toEqual([]);
 		}
-	});
-});
-
-describe('appsWithoutFolder', () => {
-	test('lists every launchable app but the Folders window when no folder offers one', () => {
-		expect(appsWithoutFolder([])).toEqual([
-			CAPTURE_APPLICATION,
-			TODOS_APPLICATION,
-		]);
-	});
-
-	test('leaves out an app offered on a folder', () => {
-		expect(appsWithoutFolder([TODOS_APPLICATION])).toEqual([
-			CAPTURE_APPLICATION,
-		]);
-	});
-
-	test('does not list Whispering, which Epicenter does not host yet', () => {
-		expect(appsWithoutFolder([])).not.toContainEqual(WHISPERING_APPLICATION);
 	});
 });

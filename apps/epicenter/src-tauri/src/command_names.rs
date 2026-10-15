@@ -9,7 +9,6 @@
 // `build.rs` pulls this in with `include!`, so it cannot drift from the crate.
 
 pub const COMMANDS: &[&str] = &[
-    "launch_application",
     "write_text",
     "simulate_enter_keystroke",
     "transcribe_audio_bytes",

@@ -18,8 +18,10 @@
 	 * reports that one appeared, went, or changed its `epicenter.json`
 	 * (`DATA_FOLDERS_CHANGED`).
 	 *
-	 * "Open in" launches an app through the same verb as the Apps list and
-	 * the Settings button; `openers.ts` decides which apps a folder offers.
+	 * "Open in" opens an installed app on that folder through the same verb
+	 * as the Apps list, which opens it on its own folder (ADR-0552);
+	 * `openers.ts` decides which apps a folder offers. The Settings button
+	 * opens Settings with `open_home`.
 	 *
 	 * Installed apps (ADR-0540) are listed under Apps with what each needs:
 	 * an app installed from a folder in a Git repository (`InstallApps`,
@@ -36,7 +38,7 @@
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { onMount } from 'svelte';
-	import { type Application, SETTINGS_APPLICATION } from '../applications.ts';
+	import type { Application } from '../applications.ts';
 	import {
 		commands,
 		type DataFolder,
@@ -47,12 +49,7 @@
 	import { recordInstalledApps } from './epicenter-folder.ts';
 	import FolderView from './FolderView.svelte';
 	import InstallApps from './InstallApps.svelte';
-	import {
-		appsWithoutFolder,
-		FOLDER_OPENERS,
-		installedOpeners,
-		openersOf,
-	} from './openers.ts';
+	import { installedOpeners, openersOf } from './openers.ts';
 
 	let folders = $state<DataFolder[] | undefined>(undefined);
 	let listProblem = $state<string | undefined>(undefined);
@@ -87,6 +84,8 @@
 	let release: (() => void) | undefined;
 
 	const launcher = createLaunch();
+	/** Why Settings did not open, when it did not. */
+	let settingsProblem = $state<string | undefined>(undefined);
 
 	let installed = $state<InstalledApp[]>([]);
 	let appsProblem = $state<string | undefined>(undefined);
@@ -97,10 +96,7 @@
 	/** What the shell is doing for an app, said while it does it. */
 	let busy = $state<string | undefined>(undefined);
 
-	const openers = $derived([
-		...FOLDER_OPENERS,
-		...installedOpeners(installed),
-	]);
+	const openers = $derived(installedOpeners(installed));
 	/** Each listed folder with the apps it offers. */
 	const listed = $derived(
 		(folders ?? []).map((folder) => ({
@@ -108,13 +104,6 @@
 			openers: openersOf(folder, openers),
 		})),
 	);
-	/** Known once the listing has settled, so an app does not move after it. */
-	const apps = $derived(
-		folders === undefined && listProblem === undefined
-			? undefined
-			: appsWithoutFolder(listed.flatMap(({ openers }) => openers)),
-	);
-
 	/** Listings that resolve out of order keep only the newest. */
 	let listSeq = 0;
 
@@ -195,11 +184,21 @@
 
 	/** Open `application` on `folder`, then read what building it changed. */
 	async function launch(application: Application, folder?: string) {
-		if (!application.installed) return launcher.launch(application);
 		busy = `Opening ${application.title}…`;
 		await launcher.launch(application, folder);
 		busy = undefined;
 		await listInstalled();
+	}
+
+	async function openSettings() {
+		settingsProblem = undefined;
+		try {
+			await commands.openHome(null);
+		} catch (cause) {
+			settingsProblem = `Settings did not open. ${
+				cause instanceof Error ? cause.message : String(cause)
+			}`;
+		}
 	}
 
 	/** Open folder `id`; `again` reopens the one already open. */
@@ -260,19 +259,15 @@
 	<nav class="flex w-80 shrink-0 flex-col overflow-auto border-r" aria-label="Folders">
 		<header class="flex items-center justify-between gap-2 px-4 py-3">
 			<h1 class="text-lg font-semibold">Folders</h1>
-			<Button
-				variant="ghost"
-				size="sm"
-				onclick={() => void launcher.launch(SETTINGS_APPLICATION)}
-			>
-				{SETTINGS_APPLICATION.title}
+			<Button variant="ghost" size="sm" onclick={() => void openSettings()}>
+				Settings
 			</Button>
 		</header>
-		{#if launcher.failure}
+		{#if launcher.failure ?? settingsProblem}
 			<div class="px-3 pb-3">
 				<Alert.Root variant="destructive">
 					<Alert.Title>Could not open</Alert.Title>
-					<Alert.Description>{launcher.failure}</Alert.Description>
+					<Alert.Description>{launcher.failure ?? settingsProblem}</Alert.Description>
 				</Alert.Root>
 			</div>
 		{/if}
@@ -342,18 +337,6 @@
 			</div>
 		{/if}
 		<ul class="flex flex-col gap-0.5 px-2 pb-1" aria-label="Apps">
-			{#each apps ?? [] as application (application.id)}
-				<li class="flex items-center gap-1">
-					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm">{application.title}</span>
-					<Button
-						variant="ghost"
-						size="xs"
-						onclick={() => void launcher.launch(application)}
-					>
-						Open
-					</Button>
-				</li>
-			{/each}
 			{#each installed as app (app.id)}
 				<li class="flex items-center gap-1">
 					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm" title={app.source}>
@@ -380,8 +363,7 @@
 							variant="ghost"
 							size="xs"
 							disabled={busy !== undefined}
-							onclick={() =>
-								void launch({ id: app.id, title: app.title, installed: true })}
+							onclick={() => void launch({ id: app.id, title: app.title })}
 						>
 							Open
 						</Button>

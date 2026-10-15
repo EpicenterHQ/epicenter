@@ -1,6 +1,6 @@
 # Epicenter desktop host
 
-Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the list of compiled applications it serves. Product SPAs keep their source in their own `apps/*` folders; Epicenter builds and serves their desktop variants without copying that source into this folder.
+Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the short list of what it compiles in. Epicenter ships with no apps installed (ADR-0552): every app, Todos and Capture included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
 
 Honeycrisp ships its own desktop shell and is built from `apps/honeycrisp`.
 
@@ -8,8 +8,6 @@ Honeycrisp ships its own desktop shell and is built from `apps/honeycrisp`.
 trusted SPA source                 Epicenter build output
 
 apps/whispering/src  -----------> dist/whispering
-apps/capture/src     -----------> dist/capture
-apps/todos/src       -----------> dist/todos
 apps/epicenter/src/ui -----------> dist/home
 apps/epicenter/src/folders ------> dist/folders
                                           |
@@ -20,20 +18,18 @@ apps/epicenter/src/folders ------> dist/folders
                               apps/epicenter/src-tauri
 ```
 
-The host serves Settings (the `home` document) and four compiled applications:
-Whispering, Capture, Todos, and its own Folders window. Whispering is built and
-served but not offered for now, because inside Epicenter no folder or host of
-its own is registered for it: no window lists it, `launch_application` refuses
-it, neither the tray nor a deep link opens it, and the shell opens neither its
-hidden window nor its recording overlay at startup (`BuiltInApp::is_hosted`
-and `LAUNCHABLE_APPLICATIONS` in `src/applications.ts`). Application routes live below `/apps/<id>/`; the Mail and Books routes
-serve placeholder pages (`src/placeholder-pages.ts`). Apps a person installs
-from a Git repository are served below `/apps/<app-id>/` too (see
-[Installed apps](#installed-apps)). The `epicenter-host` build
+The host serves Settings (the `home` document) and two compiled applications:
+Whispering and its own Folders window. Whispering is built and served but not
+offered for now, because inside Epicenter no folder or host of its own is
+registered for it: neither the tray nor a deep link opens it, and the shell
+opens neither its hidden window nor its recording overlay at startup
+(`BuiltInApp::is_hosted`). It installs like every other app in a later change.
+Application routes live below `/apps/<id>/`. Apps a person installs from a Git
+repository are served below `/apps/<app-id>/` too. The `epicenter-host` build
 condition selects each product's host integrations. Honeycrisp has a separate
 desktop shell.
 
-Capture and Todos reach native file folders through the shared Folder plugin.
+Installed apps reach native file folders through the shared Folder plugin.
 Each page runs `@epicenter/folder`'s own engine over a directory the shell
 grants (ADR-0531). The shared-host Whispering bundle currently has no supported
 folder bridge and refuses before acquiring a folder; being served by the host
@@ -140,81 +136,55 @@ command so the API approves the same exact callback port the host binds.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
-it. It lists your data folders, offers "Open in Todos" or "Open in Capture" on
-the folder that app opens, lists every other app under Apps, and opens Settings
-from its Settings button. Launching an app opens its own window; the OS is the
-switcher from there, and closing the Folders window leaves everything it
-launched running.
+it. It lists your data folders, offers "Open in <app>" on each folder an
+installed app's shape fits, lists the installed apps under Apps, and opens
+Settings from its Settings button with `open_home`. Opening an app opens its own
+window; the OS is the switcher from there, and closing the Folders window
+leaves everything it opened running.
 
 Settings is the window labelled `home`, with two panes: Chat and Settings. It
-alone administers the local transcription model (ADR-0180). While Whispering is
-launchable, it hands transcription setup back to its Settings pane when the
-host has no usable local model, and Settings offers the ordinary launch action
-once there is one. The tray (Show Folders, Show Settings) and deep links remain
-shortcuts into the same windows:
+alone administers the local transcription model (ADR-0180). An app that needs
+a local model opens it with `open_home` and a section. The tray (Show Folders,
+Show Settings) and deep links remain shortcuts into the same windows; installed
+apps have no deep link:
 
 ```bash
 open 'epicenter://'
-open 'epicenter://app/todos'
 open 'epicenter://app/folders'
 open 'epicenter://app/home'
 ```
 
-## The Todos folder
+## An app's own folder
 
-Todos keeps each todo as a Markdown file in an ordinary Git repository:
-`so.epicenter.todos` under the authored folder root native startup resolved
-(`~/Epicenter` in production, `~/Epicenter Dev` in development, or
-`EPICENTER_FOLDER_DIR`). Other programs edit the same files and run `git` in
-the same repository.
+An installed app opened without a folder, from the Apps list, is handed its
+own folder: `<folderDir>/<app-id>`, under the authored folder root native
+startup resolved (`~/Epicenter` in production, `~/Epicenter Dev` in
+development, or `EPICENTER_FOLDER_DIR`), with the scope `<app-id>` (ADR-0552).
+Installed Todos opens `so.epicenter.todos`, and installed Capture
+`so.epicenter.capture`. The shell registers that scope the first time the app
+is opened that way or the Folders window lists a folder named by an installed
+app's id, whichever comes first (`own_folder` in `src-tauri/src/data_folders.rs`).
+The first grant creates the directory and takes the cross-process lock until
+shutdown. A folder the Folders window listed as `data:<app-id>` before its app
+was installed moves to the app's scope when the app is first opened; if the
+Folders window had already opened it in that run, the app's grant is refused
+`Busy` until Epicenter restarts.
 
-The Rust shell installs the shared `tauri-plugin-epicenter-folder` and registers
-`so.epicenter.todos` for the `todos` window alone (ADR-0531). The first grant
-creates the directory, takes the cross-process lock until shutdown, and lets
-the window read beneath it. The page opens the folder with
-`@epicenter/folder`'s own engine: reads, writes, and Git through the shell
-(`read_folder_file`, `write_folder_file`, `run_git`), which read only beneath
-the root, never through a link, change only data
-paths the shared path rule accepts, never Git's own state, and run only the
-Git operations the engine uses. History
-is real Git, so Save version is a commit and Sync pushes to and fetches from the
-repository's own `origin` with the person's own Git credentials. Todos has its
-own capability grant for the trusted production or development origin; its file
-operations have no HTTP route.
-
-A window close hides the loaded page and preserves its drafts. Quitting or
-restarting Epicenter is immediate and asks nothing (see
-[Quitting Epicenter](#quitting-epicenter)); saved files stay, and a save or Git
-run cut off at exit leaves the old file or a lock Git names. Reloading the page
-loses unsaved typing. Two native
-processes cannot open the same directory. See Todos' [README](../todos/README.md)
-for version checks, terminal interleaving, and external-edit limits.
-
-## The Capture folder
-
-Capture keeps one Markdown file per capture under
-`<folderDir>/so.epicenter.capture/captures`. Frontmatter holds `capturedAt`;
-the body holds the original text and an ordered list under `## Thoughts`.
-The page edits that source, and its full-source editor exposes the same bytes.
-It opens without an Epicenter account.
-
-The Rust shell registers `so.epicenter.capture` for the `capture` window alone
-(ADR-0531), as it does for Todos. The first grant creates the
-directory and takes the cross-process lock until shutdown; the page opens the
-folder with `@epicenter/folder`'s own engine, reading, writing, and running Git
-through the shell. There is no Capture HTTP file
-bridge. Browser Capture keeps a separate folder in its origin's private file
-system (OPFS).
-
-Closing the native window hides it with its drafts intact. Quitting or
-restarting Epicenter is immediate (see [Quitting Epicenter](#quitting-epicenter)):
-text typed and not added is lost, and a stopped sidecar reloads the window.
+The page opens the folder with `@epicenter/folder`'s own engine: reads,
+writes, and Git through the shell (`read_folder_file`, `write_folder_file`,
+`run_git`), which read only beneath the root, never through a link, change only
+data paths the shared path rule accepts, never Git's own state, and run only
+the Git operations the engine uses. A window close destroys an installed app's
+window; quitting or restarting Epicenter is immediate and asks nothing (see
+[Quitting Epicenter](#quitting-epicenter)). Two native processes cannot open the
+same directory. See Todos' [README](../todos/README.md) and Capture's
+[README](../capture/README.md) for each app's files.
 
 ## The Folders window
 
 The Folders window (`folders`, served at `/apps/folders/`) opens any data
-folder under the authored folder root, including Todos's and Capture's while
-those apps are open. Its page source is `src/folders`, built by
+folder under the authored folder root, including an installed app's own folder
+while the app is open. Its page source is `src/folders`, built by
 `build:folders` into `dist/folders` and served like any compiled application.
 It is the window Epicenter opens to, and `epicenter://app/folders` opens it.
 
@@ -222,18 +192,18 @@ The page asks the shell for `list_data_folders`, granted to this window alone
 (`folders-*` capabilities, beside `epicenter-folder:default`). The shell lists
 the direct children of the root that are real directories, not links or dot
 entries, holding a regular file `epicenter.json`, and answers each with
-`{ id, title, app, declaration }`: `title` is `epicenter.json`'s `title` when
-it is a string, else the directory name, `app` names the application that owns
-the folder, and `declaration` is the text of `epicenter.json`. The page passes `id` to `openDataFolder({ id })` from
+`{ id, title, declaration }`: `title` is `epicenter.json`'s `title` when it is
+a string, else the directory name, and `declaration` is the text of
+`epicenter.json`. The page passes `id` to `openDataFolder({ id })` from
 `@epicenter/folder/tauri`. The reply carries no paths; the page learns a
-folder's root from the plugin's grant, as Todos and Capture do.
+folder's root from the plugin's grant, as every app does.
 
-- **An application's folder** keeps its application's scope
-  (`so.epicenter.todos`, `so.epicenter.capture`). The plugin holds one
-  cross-process lock per folder, so a second scope on the same root would be
-  refused `Busy`; listing permits the `folders` window into the existing scope
-  instead (`Folders::permit`), and both windows' saves are checked and
-  published under the plugin's one mutex per root (ADR-0535).
+- **An installed app's own folder**, a directory named by the id of an app
+  under `Apps/`, is listed under the app's scope (`so.epicenter.todos`), as
+  [An app's own folder](#an-apps-own-folder) describes. The plugin holds one
+  cross-process lock per folder, so the `folders` window and the app's window
+  share that one scope, and both windows' saves are checked and published
+  under the plugin's one mutex per root (ADR-0535).
 - **Epicenter's own folder**, `so.epicenter`, is registered at setup for the
   `folders` and `home` windows and listed under that scope. `Apps/` is not
   listed: it holds no `epicenter.json`.
@@ -264,20 +234,16 @@ own, so another window's save, an agent's edit, or Sync landing a change
 appears within the watcher's debounce. A changed `epicenter.json` opens the
 folder again once queued saves settle, so the grid follows the new declaration.
 
-Beside a folder, the page offers the apps that open it (`src/folders/openers.ts`,
-ADR-0538). An app is offered when the folder's declaration contains the app's
-shape, `shapeProblems(declared, shape)` from `@epicenter/definition`, where the
-shape is the app's own folder definition (`todosDefinition`,
-`captureDefinition`). One match shows "Open in Todos"; several show "Open
-with…". A built-in app opens only its own folder today, so it is offered only
-on that folder; another folder of the same shape is not offered it until an
-app can open the folder it is handed. An installed app that can run is offered
-on every folder whose declaration contains its shape, and is handed that
-folder at launch. Every compiled application not offered
-on a listed folder is listed under Apps with an Open button, so Todos stays
-reachable before its folder exists. Every button launches through
-`launch_application`, which this window shares with Settings
-(`launch-application-*` capabilities); model administration stays in Settings. An opened folder shows the tables its `epicenter.json` declares
+Beside a folder, the page offers the installed apps that open it
+(`src/folders/openers.ts`, ADR-0538). An app is offered when the folder's
+declaration contains the app's shape, `shapeProblems(declared, shape)` from
+`@epicenter/definition`, where the shape is the declaration its
+`epicenter.app.json` names as `opens`. Only an app that can run is offered. One
+match shows "Open in <app>"; several show "Open with…". Opening it there hands
+the app that folder; the Apps list's Open hands it its own folder. Every button
+opens through `open_installed_app`, and the Settings button through
+`open_home`, both granted by the `folders-*` capabilities; model
+administration stays in Settings. An opened folder shows the tables its `epicenter.json` declares
 (`folder.definition.tables`). The selected table is a grid of its rows read
 with `table.list()`: one column per declared field, in declared order. A row's
 stem opens a side panel with every field, keys the table does not declare
@@ -346,9 +312,10 @@ ADR-0552):
 }
 ```
 
-- `id` is a lowercase reverse-domain name. `so.epicenter` is refused, and so
-  are the built-in apps' ids except `so.epicenter.todos`, which installs from
-  `apps/todos` while the built-in Todos is still compiled in.
+- `id` is a lowercase reverse-domain name. Only `so.epicenter`, Epicenter's
+  own folder, is refused. Todos (`so.epicenter.todos`) and Capture
+  (`so.epicenter.capture`) install from `apps/todos` and `apps/capture` of
+  Epicenter's repository.
 - `opens` is the path, within the app's folder, of the shape the app reads
   (ADR-0538): a JSON declaration, the output of
   `formatDeclaration(definition)` from `@epicenter/folder`, committed beside
@@ -408,10 +375,8 @@ labelled `app:<id with _ for .>`, plus `:<folder scope in hex>` when it is
 opened on a folder; the `installed-app-windows-*` capability grants those
 windows `epicenter-folder:default` alone. Opened on a folder, the window is
 permitted into that folder's scope and the page gets `?folder=<scope>`, which
-the app opens with `openDataFolder({ id, lens })`. Opened with no folder, an
-app whose id is a folder the shell registers for a built-in app is handed
-that folder: installed Todos opens `so.epicenter.todos`, as the built-in
-Todos does.
+the app opens with `openDataFolder({ id, lens })`. Opened with no folder, the
+app is handed its own folder, [`<app-id>`](#an-apps-own-folder).
 
 ## Quitting Epicenter
 
@@ -459,7 +424,7 @@ bun run --cwd apps/epicenter desktop:build
 # Typecheck the host, Settings, and the Folders window
 bun run --cwd apps/epicenter typecheck
 
-# Typecheck the host, Settings, Whispering, Capture, and Todos
+# Typecheck the host, Settings, and Whispering
 bun run --cwd apps/epicenter typecheck:desktop
 
 # Host, routing, sidecar, and window tests
@@ -471,7 +436,7 @@ cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 
 The root `bun typecheck` runs each workspace's checks, including the apps checked
 by `typecheck:desktop`. Use `typecheck:desktop` for standalone verification of
-the host with Whispering, Capture, and Todos.
+the host with Whispering.
 
 ## Ownership rules
 

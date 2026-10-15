@@ -41,19 +41,14 @@ import { expectOk } from 'wellcrafted/testing';
 import { COMPILED_APPLICATIONS } from './applications.ts';
 import { createDesktopAuthAuthority } from './desktop-auth-authority.js';
 import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
-import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
 	ACCOUNT_SIGN_OUT_ROUTE,
-	BOOKS_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
-	CAPTURE_ROUTE,
+	FOLDERS_ROUTE,
 	HOME_ROUTE,
-	HONEYCRISP_ROUTE,
-	MAIL_ROUTE,
 	SESSION_ROUTE,
 	SESSION_STREAM_ROUTE,
-	TODOS_ROUTE,
 	WHISPERING_ROUTE,
 } from './routes.ts';
 import {
@@ -216,7 +211,7 @@ test.each([
 	for (const route of [
 		HOME_ROUTE.url(origin),
 		WHISPERING_ROUTE.url(origin),
-		MAIL_ROUTE.url(origin),
+		FOLDERS_ROUTE.url(origin),
 	]) {
 		for (const credential of [cookie, '']) {
 			const response = await app.request(route, {
@@ -773,7 +768,7 @@ describe('createHomeServer', () => {
 		expect((await get(`/apps/${id}/`, cookie)).status).toBe(404);
 	});
 
-	test('serves Home and every compiled application plus honest placeholders', async () => {
+	test('serves Home and every compiled application', async () => {
 		await using host = await createTestHost({
 			engine: scriptedEngine([[]]),
 		});
@@ -787,11 +782,6 @@ describe('createHomeServer', () => {
 			).toEqual([
 				{ id: 'home', pattern: '/apps/home/' },
 				{ id: 'whispering', pattern: '/apps/whispering/' },
-				{ id: 'honeycrisp', pattern: '/apps/honeycrisp/' },
-				{ id: 'capture', pattern: '/apps/capture/' },
-				{ id: 'mail', pattern: '/apps/mail/' },
-				{ id: 'todos', pattern: '/apps/todos/' },
-				{ id: 'books', pattern: '/apps/books/' },
 				{ id: 'folders', pattern: '/apps/folders/' },
 			]);
 
@@ -828,50 +818,21 @@ describe('createHomeServer', () => {
 			expect(withoutAuthBootstrap(await clientRoute.text())).toBe(
 				WHISPERING_PAGE,
 			);
-			// Honeycrisp now ships its own desktop shell. The old host route
-			// remains reserved but has no compiled asset tree to serve.
-			const honeycrisp = await fetch(HONEYCRISP_ROUTE.url(server.url.origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(honeycrisp.status).toBe(404);
+			// Apps that used to be compiled in are installed now (ADR-0552): their
+			// old routes serve nothing.
+			for (const id of ['honeycrisp', 'capture', 'mail', 'todos', 'books']) {
+				const gone = await fetch(`${server.url.origin}/apps/${id}/`, {
+					headers: authenticatedHeaders(server),
+				});
+				expect(gone.status).toBe(404);
+			}
 
-			const capture = await fetch(CAPTURE_ROUTE.url(server.url.origin), {
+			const folders = await fetch(FOLDERS_ROUTE.url(server.url.origin), {
 				headers: authenticatedHeaders(server),
 			});
-			const capturePage = await capture.text();
-			expect(capturePage).toContain('id="epicenter-auth-bootstrap"');
-			expect(withoutAuthBootstrap(capturePage)).toBe(
-				applicationPage('Capture'),
+			expect(withoutAuthBootstrap(await folders.text())).toBe(
+				applicationPage('Folders'),
 			);
-			const captureRoute = await fetch(
-				`${server.url.origin}/apps/capture/?capture=example`,
-				{ headers: authenticatedHeaders(server) },
-			);
-			expect(withoutAuthBootstrap(await captureRoute.text())).toBe(
-				applicationPage('Capture'),
-			);
-
-			// Mail's place is reserved while it is away: a placeholder, not an app.
-			const mail = await fetch(MAIL_ROUTE.url(server.url.origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(await mail.text()).toBe(PLACEHOLDER_PAGES.mail);
-
-			const todos = await fetch(TODOS_ROUTE.url(server.url.origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(withoutAuthBootstrap(await todos.text())).toBe(
-				applicationPage('Todos'),
-			);
-
-			// The page itself, not a phrase inside it: what this route owes is the
-			// release-bundled placeholder rather than an app or a 404, and pinning
-			// a sentence here only means the copy cannot be improved without
-			// editing a test that was never about the copy.
-			const books = await fetch(BOOKS_ROUTE.url(server.url.origin), {
-				headers: authenticatedHeaders(server),
-			});
-			expect(await books.text()).toBe(PLACEHOLDER_PAGES.books);
 
 			for (const response of [
 				query,
@@ -879,11 +840,7 @@ describe('createHomeServer', () => {
 				whisperingAsset,
 				vadAsset,
 				clientRoute,
-				capture,
-				captureRoute,
-				mail,
-				todos,
-				books,
+				folders,
 			]) {
 				expect(response.status).toBe(200);
 				expect(response.headers.get('cache-control')).toBe('no-store');
@@ -924,14 +881,14 @@ describe('createHomeServer', () => {
 			expect(withoutAuthBootstrap(await queryState.text())).toBe(PAGE);
 
 			// URL fragments are browser state and are not sent in an HTTP request.
-			// The server therefore sees this as the one canonical Todos path.
+			// The server therefore sees this as the one canonical Folders path.
 			const browserFragment = await fetch(
-				`${TODOS_ROUTE.url(server.url.origin)}#compose`,
+				`${FOLDERS_ROUTE.url(server.url.origin)}#compose`,
 				{ headers: authenticatedHeaders(server) },
 			);
 			expect(browserFragment.status).toBe(200);
 			expect(withoutAuthBootstrap(await browserFragment.text())).toBe(
-				applicationPage('Todos'),
+				applicationPage('Folders'),
 			);
 		} finally {
 			await server.stop(true);
@@ -1039,8 +996,7 @@ describe('createHomeServer', () => {
 			const closed = ["'self'", 'ipc:', 'http://ipc.localhost'];
 			expect(await connectSrc(HOME_ROUTE.url(origin))).toEqual(closed);
 			expect(await connectSrc(WHISPERING_ROUTE.url(origin))).toEqual(closed);
-			expect(await connectSrc(HONEYCRISP_ROUTE.url(origin))).toEqual(closed);
-			expect(await connectSrc(TODOS_ROUTE.url(origin))).toEqual(closed);
+			expect(await connectSrc(FOLDERS_ROUTE.url(origin))).toEqual(closed);
 		} finally {
 			await server.stop(true);
 		}

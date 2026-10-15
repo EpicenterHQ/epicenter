@@ -19,7 +19,6 @@ import {
 	type HomeSessionSnapshot,
 	parseHomeCommand,
 } from './host.ts';
-import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
 	ACCOUNT_CANCEL_CONNECTION_ROUTE,
 	ACCOUNT_SIGN_IN_ROUTE,
@@ -84,10 +83,10 @@ export function createHomeServer({
 	const activeUrl = validateOrigin(origin);
 	const activeHost = activeUrl.host;
 	const sessionHashes = new Set<string>();
-	const hostPages = {
-		home: injectAuthBootstrap(staticAssets.homePage, desktopAuth.bootSnapshot),
-		...PLACEHOLDER_PAGES,
-	};
+	const homePage = injectAuthBootstrap(
+		staticAssets.homePage,
+		desktopAuth.bootSnapshot,
+	);
 	const servedApps = staticAssets.applications.map((application) => ({
 		id: application.id,
 		page: injectAuthBootstrap(application.page, desktopAuth.bootSnapshot),
@@ -97,7 +96,7 @@ export function createHomeServer({
 	// wherever that document may be served, and only the reachable origins
 	// differ between applications.
 	const everyPage = [
-		...Object.values(hostPages),
+		homePage,
 		...servedApps.map(({ page }) => page),
 		SESSION_SHELL,
 	].join('\n');
@@ -343,20 +342,13 @@ export function createHomeServer({
 		return c.body(null, 202);
 	});
 
-	// Home and the release-bundled placeholders: one document each, no asset
-	// tree behind them.
-	for (const builtInRoute of [
-		BUILT_IN_ROUTES.home,
-		BUILT_IN_ROUTES.mail,
-		BUILT_IN_ROUTES.books,
-	]) {
-		app.get(builtInRoute.pattern, (c) => {
-			c.header('cache-control', 'no-store');
-			if (desktopAuth.restartRequired) return c.html(RESTART_REQUIRED_PAGE);
-			if (!hasBrowserSession(c)) return c.html(SESSION_SHELL);
-			return c.html(hostPages[builtInRoute.id]);
-		});
-	}
+	// Home: one document, no asset tree behind it.
+	app.get(BUILT_IN_ROUTES.home.pattern, (c) => {
+		c.header('cache-control', 'no-store');
+		if (desktopAuth.restartRequired) return c.html(RESTART_REQUIRED_PAGE);
+		if (!hasBrowserSession(c)) return c.html(SESSION_SHELL);
+		return c.html(homePage);
+	});
 	/**
 	 * One application's asset tree, with the document served from memory so
 	 * every client route lands on the stamped page. `csp` replaces the

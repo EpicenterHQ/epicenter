@@ -29,15 +29,8 @@ function builtInRoute<const TId extends string>(id: TId, title: string) {
 export const BUILT_IN_ROUTES = {
 	home: builtInRoute('home', 'Settings'),
 	whispering: builtInRoute('whispering', 'Whispering'),
-	honeycrisp: builtInRoute('honeycrisp', 'Honeycrisp'),
-	capture: builtInRoute('capture', 'Capture'),
-	mail: builtInRoute('mail', 'Mail'),
-	todos: builtInRoute('todos', 'Todos'),
-	books: builtInRoute('books', 'Books'),
 	folders: builtInRoute('folders', 'Folders'),
 } as const;
-
-export type BuiltInRouteId = keyof typeof BUILT_IN_ROUTES;
 
 export const BOOTSTRAP_ROUTE = route('/_epicenter/bootstrap');
 export const ACCOUNT_SIGN_IN_ROUTE = route('/_epicenter/account/sign-in');
@@ -48,11 +41,6 @@ export const ACCOUNT_CANCEL_CONNECTION_ROUTE = route(
 export const ACCOUNT_SIGN_OUT_ROUTE = route('/_epicenter/account/sign-out');
 export const HOME_ROUTE = BUILT_IN_ROUTES.home;
 export const WHISPERING_ROUTE = BUILT_IN_ROUTES.whispering;
-export const HONEYCRISP_ROUTE = BUILT_IN_ROUTES.honeycrisp;
-export const CAPTURE_ROUTE = BUILT_IN_ROUTES.capture;
-export const MAIL_ROUTE = BUILT_IN_ROUTES.mail;
-export const TODOS_ROUTE = BUILT_IN_ROUTES.todos;
-export const BOOKS_ROUTE = BUILT_IN_ROUTES.books;
 export const FOLDERS_ROUTE = BUILT_IN_ROUTES.folders;
 export const SESSION_ROUTE = route('/api/home/session');
 export const SESSION_STREAM_ROUTE = route('/api/home/session/stream');

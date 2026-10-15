@@ -17,12 +17,9 @@
 		"security": {
 			"capabilities": [
 				"home-model-administration-production",
-				"launch-application-production",
 				"trusted-app-windows-production",
 				"trusted-whispering-native-production",
 				"trusted-whispering-overlay-production",
-				"todos-folder-production",
-				"capture-folder-production",
 				"folders-production",
 				"installed-app-windows-production"
 			],

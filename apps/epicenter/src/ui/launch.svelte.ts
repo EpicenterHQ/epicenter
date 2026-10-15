@@ -1,16 +1,13 @@
 /**
- * Launching one application, and the sentence shown when it fails.
+ * Opening one installed app (ADR-0540, ADR-0552), and the sentence shown
+ * when it fails.
  *
- * Every launch is this call: the Folders window's "Open in" buttons, its Apps
- * list and Settings button, and the Settings shortcut that appears once local
- * transcription is ready are the same act on the same verb, not paths that
- * happen to agree today. Nothing here remembers who asked or where they came
- * from (ADR-0189); an application is launched because a person clicked, and
- * that is the whole state.
- *
- * An installed app (ADR-0540) is opened with `open_installed_app` instead,
- * on the folder it was offered on, which builds a commit made on this machine
- * first.
+ * The Folders window's "Open in" buttons and its Apps list are the same act
+ * on the same verb, `open_installed_app`: on the folder it was offered on, or
+ * without one, on the app's own folder. It builds a commit made on this
+ * machine first. Nothing here remembers who asked or where they came from
+ * (ADR-0189); an app is opened because a person clicked, and that is the
+ * whole state.
  *
  * Each caller gets its own instance, so a failure is reported where the click
  * happened rather than following the user into another pane.
@@ -18,7 +15,6 @@
 
 import type { Application } from '../applications.ts';
 import { commands } from './bindings.gen';
-import { launchApplication } from './runtime.ts';
 
 export function createLaunch() {
 	let failure = $state<string | null>(null);
@@ -28,19 +24,15 @@ export function createLaunch() {
 		get failure() {
 			return failure;
 		},
-		/** `folder` is the scope an installed app is handed; a compiled app ignores it. */
+		/** Open installed app `application` on the scope `folder`, or on its own folder. */
 		async launch(application: Application, folder?: string) {
 			failure = null;
 			try {
-				if (application.installed) {
-					const { error } = await commands.openInstalledApp(
-						application.id,
-						folder ?? null,
-					);
-					if (error !== null) throw new Error(error);
-				} else {
-					await launchApplication(application.id);
-				}
+				const { error } = await commands.openInstalledApp(
+					application.id,
+					folder ?? null,
+				);
+				if (error !== null) throw new Error(error);
 			} catch (error) {
 				failure = `${application.title} did not open. ${
 					error instanceof Error ? error.message : String(error)

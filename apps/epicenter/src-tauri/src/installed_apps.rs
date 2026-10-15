@@ -50,8 +50,8 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 use crate::app_data::DesktopPaths;
-use crate::data_folders::{APPLICATION_FOLDERS, EPICENTER_FOLDER};
-use crate::{BuiltInApp, DesktopAppHandle};
+use crate::data_folders::{self, EPICENTER_FOLDER};
+use crate::DesktopAppHandle;
 
 /// The file that makes the folder holding it an app.
 pub const MANIFEST: &str = "epicenter.app.json";
@@ -135,15 +135,9 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
     })
 }
 
-/// The built-in apps' ids that may be installed while the built-in app is
-/// still compiled in (ADR-0552). Todos installs from its folder in the
-/// Epicenter monorepo; the refusal of the other built-in ids goes when the
-/// built-in apps do.
-const INSTALLABLE_BUILT_IN_IDS: [&str; 1] = ["so.epicenter.todos"];
-
 /// Why `id` cannot name an installed app, if it cannot: it must be a
 /// lowercase reverse-domain name, such as `com.example.board`, and must not
-/// be Epicenter's own or a built-in app's that is not yet installable.
+/// be Epicenter's own (ADR-0552).
 pub fn app_id_problem(id: &str) -> Option<&'static str> {
     let labels: Vec<&str> = id.split('.').collect();
     let well_formed = id.len() <= 128
@@ -161,15 +155,7 @@ pub fn app_id_problem(id: &str) -> Option<&'static str> {
     if !well_formed {
         return Some("is not a lowercase reverse-domain name such as com.example.board");
     }
-    if id == EPICENTER_FOLDER {
-        return Some("belongs to Epicenter itself");
-    }
-    let built_in = !INSTALLABLE_BUILT_IN_IDS.contains(&id)
-        && (APPLICATION_FOLDERS.iter().any(|folder| folder.scope == id)
-            || BuiltInApp::ALL
-                .iter()
-                .any(|app| id.strip_prefix("so.epicenter.") == Some(app.id())));
-    built_in.then_some("belongs to an app built into Epicenter")
+    (id == EPICENTER_FOLDER).then_some("belongs to Epicenter itself")
 }
 
 /// Why `path` cannot name a file in the repository, if it cannot.
@@ -1274,9 +1260,9 @@ pub fn update_app(app: DesktopAppHandle, id: String) -> Result<InstalledApp, Str
 
 /// Open app `id` in its own window, building a commit made here first. With
 /// `folder`, a scope the Folders window listed, the window is let into that
-/// folder and the app is handed it as `?folder=`. Without one, an app whose
-/// id names a folder the shell registers for a built-in app, as Todos', is
-/// handed that folder, since it opens it by id.
+/// folder and the app is handed it as `?folder=`. Without one, the app is
+/// handed its own folder, `<folder_dir>/<id>`, whose scope is its id
+/// (ADR-0552).
 #[tauri::command(async)]
 #[specta::specta]
 pub fn open_installed_app(
@@ -1287,19 +1273,13 @@ pub fn open_installed_app(
     let installed = app
         .state::<AppWork>()
         .run(|| prepare(&app_paths(&app), &id))?;
-    let folder = folder.or_else(|| own_folder(&installed.id));
-    crate::open_installed_window(&app, &installed.id, &installed.title, folder.as_deref())
+    let folder = match folder {
+        Some(folder) => folder,
+        None => data_folders::own_folder(&app, &installed.id)?,
+    };
+    crate::open_installed_window(&app, &installed.id, &installed.title, Some(&folder))
         .map_err(|error| format!("{error:#}"))?;
     Ok(installed)
-}
-
-/// The folder registered under app `id`'s own name, when the shell registers
-/// one: Todos' folder, which installed Todos opens by its id.
-fn own_folder(id: &str) -> Option<String> {
-    APPLICATION_FOLDERS
-        .iter()
-        .any(|folder| folder.scope == id)
-        .then(|| id.to_string())
 }
 
 #[cfg(test)]
@@ -1427,16 +1407,8 @@ mod tests {
                 "reverse-domain",
             ),
             (
-                r#"{ "id": "so.epicenter.capture", "title": "Capture", "opens": "s.json" }"#,
-                "built into",
-            ),
-            (
                 r#"{ "id": "so.epicenter", "title": "Epicenter", "opens": "s.json" }"#,
                 "Epicenter itself",
-            ),
-            (
-                r#"{ "id": "so.epicenter.folders", "title": "F", "opens": "s.json" }"#,
-                "built into",
             ),
             (
                 r#"{ "id": "com.example.board", "title": " ", "opens": "s.json" }"#,
@@ -1693,18 +1665,20 @@ mod tests {
     }
 
     #[test]
-    fn a_built_in_id_and_a_second_install_are_refused() {
+    fn epicenters_id_and_a_second_install_are_refused() {
         let fixture = fixture("collision");
-        let capture = app_repository(
+        let epicenter = app_repository(
             &fixture,
-            "capture",
-            r#"{ "id": "so.epicenter.capture", "title": "Capture", "opens": "shape.json" }"#,
+            "epicenter",
+            r#"{ "id": "so.epicenter", "title": "Epicenter", "opens": "shape.json" }"#,
         );
-        assert!(install(&fixture.paths, capture.to_str().unwrap(), "")
+        assert!(install(&fixture.paths, epicenter.to_str().unwrap(), "")
             .unwrap_err()
-            .contains("built into Epicenter"));
-        // Todos is installable while its built-in app is still compiled in.
-        assert_eq!(app_id_problem("so.epicenter.todos"), None);
+            .contains("Epicenter itself"));
+        // First-party apps install like any other (ADR-0552).
+        for id in ["so.epicenter.todos", "so.epicenter.capture"] {
+            assert_eq!(app_id_problem(id), None, "{id}");
+        }
 
         let board = app_repository(&fixture, "board", &board_manifest());
         install(&fixture.paths, board.to_str().unwrap(), "").unwrap();
@@ -1944,50 +1918,40 @@ mod tests {
         assert!(problem.contains(FOLDER_KEY), "{problem}");
     }
 
-    #[test]
-    fn todos_opens_its_own_folder() {
-        assert_eq!(
-            own_folder("so.epicenter.todos").as_deref(),
-            Some("so.epicenter.todos")
-        );
-        assert_eq!(own_folder("com.example.board"), None);
-    }
-
-    /// Todos installed from its folder in a clone of the Epicenter monorepo,
-    /// as "Install Todos" does: the clone, the folder record, `bun install`
-    /// at the root, and Todos' installed build. Needs the network for `bun
-    /// install` and a minute or more, so it runs only when asked:
+    /// A first-party app installed from its folder in a clone of the
+    /// Epicenter monorepo, as "Install Todos" does: the clone, the folder
+    /// record, `bun install` at the root, and the app's installed build, served
+    /// with relative asset paths. Needs the network for `bun install` and a
+    /// minute or more, so the tests below run only when asked:
     ///
     /// ```sh
-    /// EPICENTER_MONOREPO=/path/to/epicenter cargo test --lib installs_todos -- --ignored --nocapture
+    /// EPICENTER_MONOREPO=/path/to/epicenter cargo test --lib installs_ -- --ignored --nocapture
     /// ```
-    #[test]
-    #[ignore = "builds Todos from the monorepo named by EPICENTER_MONOREPO"]
-    fn installs_todos_from_its_folder_in_the_monorepo() {
+    fn installs_from_the_monorepo(folder: &str, id: &str, title: &str, table: &str) {
         let monorepo = std::env::var("EPICENTER_MONOREPO").expect("EPICENTER_MONOREPO");
-        let fixture = fixture("todos");
+        let fixture = fixture(title);
         let started = Instant::now();
 
         let found = list_repository(&fixture.paths, &monorepo).unwrap();
-        let todos = found
+        let listed = found
             .iter()
-            .find(|app| app.folder == "apps/todos")
-            .expect("apps/todos is listed");
-        assert_eq!(todos.id, "so.epicenter.todos");
-        assert_eq!(todos.problem, None);
+            .find(|app| app.folder == folder)
+            .unwrap_or_else(|| panic!("{folder} is listed"));
+        assert_eq!(listed.id, id);
+        assert_eq!(listed.problem, None);
         println!("listed {} apps in {:?}", found.len(), started.elapsed());
 
-        let pending = install(&fixture.paths, &monorepo, "apps/todos").unwrap();
-        assert_eq!(pending.folder, "apps/todos");
-        let clone = fixture.paths.apps_dir.join("so.epicenter.todos");
+        let pending = install(&fixture.paths, &monorepo, folder).unwrap();
+        assert_eq!(pending.folder, folder);
+        let clone = fixture.paths.apps_dir.join(id);
         assert_eq!(
             sh_git(&clone, &["config", "--local", "--get", FOLDER_KEY]),
-            "apps/todos"
+            folder
         );
         let shape: serde_json::Value =
             serde_json::from_str(pending.opens.as_deref().expect("opens is read")).unwrap();
-        assert_eq!(shape["title"], "Todos");
-        assert!(shape["tables"]["todos"]["properties"]["done"].is_object());
+        assert_eq!(shape["title"], title);
+        assert!(shape["tables"][table].is_object(), "{shape}");
         println!("cloned in {:?}", started.elapsed());
 
         let ready =
@@ -2006,7 +1970,7 @@ mod tests {
         println!("installed and built in {:?}", started.elapsed());
 
         let page = served_page(&fixture, &pending.id);
-        assert!(!page.contains("/apps/todos"), "{page}");
+        assert!(!page.contains("/apps/"), "{page}");
         assert!(page.contains(r#"href="./_app/"#), "{page}");
         assert!(
             !page.contains(r#"href="/"#) && !page.contains(r#"src="/"#),
@@ -2021,5 +1985,22 @@ mod tests {
         println!("clone .git: {}", size(&clone.join(".git")));
         println!("clone node_modules: {}", size(&clone.join("node_modules")));
         println!("build: {}", size(&fixture.paths.builds(&pending.id)));
+    }
+
+    #[test]
+    #[ignore = "builds Todos from the monorepo named by EPICENTER_MONOREPO"]
+    fn installs_todos_from_its_folder_in_the_monorepo() {
+        installs_from_the_monorepo("apps/todos", "so.epicenter.todos", "Todos", "todos");
+    }
+
+    #[test]
+    #[ignore = "builds Capture from the monorepo named by EPICENTER_MONOREPO"]
+    fn installs_capture_from_its_folder_in_the_monorepo() {
+        installs_from_the_monorepo(
+            "apps/capture",
+            "so.epicenter.capture",
+            "Capture",
+            "captures",
+        );
     }
 }

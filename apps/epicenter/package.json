@@ -9,13 +9,11 @@
 	},
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",
-		"build:apps": "bun run clean:dist && bun run build:home && bun run build:whispering && bun run build:capture && bun run build:todos && bun run build:folders",
+		"build:apps": "bun run clean:dist && bun run build:home && bun run build:whispering && bun run build:folders",
 		"build:desktop": "bun run build && bun run build:sidecar",
 		"build:folders": "vite build --config vite.folders.config.ts",
 		"build:home": "vite build",
-		"build:capture": "bun run --cwd ../capture build:epicenter",
 		"build:sidecar": "bun run scripts/build-sidecar.ts",
-		"build:todos": "bun run --cwd ../todos build:epicenter",
 		"build:whispering": "bun run --cwd ../whispering build:epicenter",
 		"clean:dist": "bun run scripts/clean-dist.ts",
 		"desktop:build": "tauri build",
@@ -24,7 +22,7 @@
 		"tauri": "tauri",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
-		"typecheck:desktop": "bun run typecheck && bun run --cwd ../whispering typecheck && bun run --cwd ../capture typecheck && bun run --cwd ../todos typecheck"
+		"typecheck:desktop": "bun run typecheck && bun run --cwd ../whispering typecheck"
 	},
 	"dependencies": {
 		"openai": "^7.12.1",
@@ -32,13 +30,11 @@
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/auth": "workspace:*",
-		"@epicenter/capture": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/principal": "workspace:*",
 		"@epicenter/server": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
-		"@epicenter/todos": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@epicenter/whispering": "workspace:*",
 		"@modelcontextprotocol/sdk": "catalog:",

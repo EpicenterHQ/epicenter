@@ -1,5 +1,4 @@
 <script lang="ts">
-	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { ConfirmationDialog, confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import {
@@ -10,12 +9,6 @@
 	import { auth, bootstrap } from './auth.js';
 	import { isDesktopHost } from './runtime.ts';
 	import * as Empty from '@epicenter/ui/empty';
-	import * as Item from '@epicenter/ui/item';
-	import {
-		LAUNCHABLE_APPLICATIONS,
-		WHISPERING_APPLICATION,
-	} from '../applications.ts';
-	import { createLaunch } from './launch.svelte.ts';
 	import LocalModelAdministration from './LocalModelAdministration.svelte';
 	import { localModels } from './local-models.svelte';
 
@@ -30,7 +23,6 @@
 	 * reach the wrong device.
 	 */
 
-	const launcher = createLaunch();
 	let connecting = $state(false);
 	let signingIn = $state(false);
 	let connectionError = $state('');
@@ -79,24 +71,6 @@
 			signingIn = false;
 		}
 	}
-
-	/**
-	 * Whether local transcription can actually run now: a model is chosen and its
-	 * files are on this device.
-	 *
-	 * This is the condition for the shortcut below, and it is deliberately a
-	 * statement about the host rather than about who is reading it. Nothing
-	 * records that the user arrived from Whispering (ADR-0189), so the shortcut
-	 * is offered on the same terms to someone who set a model up on their own.
-	 */
-	const isLocalTranscriptionReady = $derived(
-		localModels.active !== null && localModels.active.installed,
-	);
-
-	/** Whether Epicenter hosts Whispering yet (`LAUNCHABLE_APPLICATIONS`). */
-	const isWhisperingLaunchable = LAUNCHABLE_APPLICATIONS.some(
-		({ id }) => id === WHISPERING_APPLICATION.id,
-	);
 </script>
 
 {#if isDesktopHost()}
@@ -125,35 +99,6 @@
 {#if localModels.available}
 	<div class="grid gap-3 p-3">
 		<LocalModelAdministration />
-
-		{#if isWhisperingLaunchable && isLocalTranscriptionReady}
-			<!-- The ordinary launch action, not a return path: it states what is
-			     true of the host, and the user chooses. The same verb as the
-			     Folders window's Apps list, because it is the same act. -->
-			<Item.Root variant="outline">
-				<Item.Content>
-					<Item.Description>
-						Local transcription is ready on this device.
-					</Item.Description>
-				</Item.Content>
-				<Item.Actions>
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => void launcher.launch(WHISPERING_APPLICATION)}
-					>
-						Open {WHISPERING_APPLICATION.title}
-					</Button>
-				</Item.Actions>
-			</Item.Root>
-		{/if}
-
-		{#if launcher.failure}
-			<Alert.Root variant="destructive">
-				<Alert.Title>Could not open</Alert.Title>
-				<Alert.Description>{launcher.failure}</Alert.Description>
-			</Alert.Root>
-		{/if}
 	</div>
 {:else}
 	<Empty.Root class="h-full border-0">

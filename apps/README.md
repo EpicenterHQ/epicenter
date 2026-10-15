@@ -89,8 +89,9 @@ in-memory OPFS stand-in.
    the repo root.
 
 [Todos](todos/README.md) is the first app over this model. Inside Epicenter it
-is a compiled application over `so.epicenter.todos` under the host's folder
-root: the shell locks that directory and grants it to the window, and the page
+is an installed app (ADR-0552) over its own folder, `so.epicenter.todos`, under
+the host's folder root: the shell locks that directory and grants it to the
+window, and the page
 opens it with `@epicenter/folder`'s file storage through the folder plugin's
 commands and keeps its history with the system `git`, which the shell runs for it. Capture
 opens its folder the same way. `bun dev:todos` starts the browser build
