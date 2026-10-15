@@ -135,8 +135,7 @@ keeps its output, history, and directory. One folder is opened when the app
 starts and it stays open until the app closes.
 
 The header is the same on every page: the status line, a recorder control,
-Settings, Reveal folder, Files, and Terminal. Directly under it, also on every
-page, is anything that is not saved yet.
+Settings, Reveal folder, Files, and Terminal.
 
 | Control | What it does |
 | --- | --- |
@@ -144,12 +143,12 @@ page, is anything that is not saved yet.
 | Microphone input | On Home, under the recorder. Chooses the microphone the next recording uses: System default, or one by name. See [Under the recorder](#under-the-recorder). |
 | Transcription model | On Home, under the recorder. Shows the transcription connection in use and opens its part of Settings. |
 | Post-processing | On Home, under the recorder. Chooses one of your transformations, or None. Choosing sends nothing; **Run** on the latest transcript does. |
-| Transcribe | Sends the saved audio over the transcription connection in Settings and saves the answer as a row in `transcriptions/`. Nothing is transcribed until you press it. |
+| Transcribe | Writes a row in `transcriptions/`, sends the saved audio over the transcription connection in Settings, and writes the answer into that row. Nothing is transcribed until you press it. |
 | A recording | Opens an optional detail pane for playback, title, transcript editing, Copy, Transform, and notes. Close restores the full table. Narrow windows show the detail with Back. Source edits the recording's Markdown. |
 | Search recordings | Matches the title, notes, ID, and every transcript. Excerpts show the matching passage. Recording files that need repair are listed apart, under the table, and never searched out. |
 | Sort | Click Recording, Recorded, Length, or Status to sort; click again to reverse. |
 | Select recordings | Check individual rows or every row shown. Search keeps hidden selections; bulk actions use only selected rows shown. |
-| Transcribe selected | Sends recordings shown with no transcript, one at a time. Existing transcripts, missing audio, and pending or unsaved requests are skipped. Closing stops queued requests. |
+| Transcribe selected | Sends recordings shown with no transcript, one at a time. Existing transcripts, finished or not, missing audio, and running requests are skipped. Closing stops queued requests. |
 | Copy transcripts | Copies the newest transcript of each selected row shown, in table order, with titles when copying several. |
 | Delete selected | Captures the selected rows shown and their results before confirmation. Audio stays in the folder. |
 | Transform | On a transcript. Applies one of your transformations and saves the answer as a new file under the transcript. |
@@ -272,9 +271,10 @@ sent is the text connection in Settings, never the file.
 
 Running sends one request: `POST <text connection>/chat/completions` with the
 model, the instructions as the system message, and the transcript or pasted
-text as the user message. An answer on a transcript is saved as a new file in
-`transformation_runs/`. The transcript's own file is never written, so the
-original text is always there.
+text as the user message. A run on a transcript writes a new file in
+`transformation_runs/` before the request goes out, and the answer into it
+when it arrives. The transcript's own file is never written, so the original
+text is always there.
 
 Each result file records what it came from, when, the model and endpoint, and
 the exact instructions and text that were sent. A result therefore still reads
@@ -284,46 +284,42 @@ same way twice.
 
 **Pasted text.** Try it has **A transcript** and **Pasted text**. Paste any
 text and press **Run on pasted text**; no recording is needed. The pasted text
-stays while you move between pages and transformations, and is never written
-anywhere.
+stays while you move between pages and transformations, and is written only
+into the result of a run on it.
 
 - Running waits for edits being written to land first, then fixes the run
   before anything is sent: its file name and the exact instructions, text,
   model, and endpoint. Editing the text, the transformation, or Settings
   afterward changes nothing about that run.
-- The answer is shown beside the text that was sent, with **Copy**, **Save**,
-  and **Discard**. It is held in the window, not saved, until you press
-  **Save**, which writes it to `text_runs/`. A held answer keeps the app from
-  closing without asking, and the notice under the header points to it from
-  every page. Its **Open to save or discard** shows Try it, even when that
-  transformation is already open on Instructions or Source. The Try it tab shows
-  when a run is in progress, failed, or waiting to be saved. Reopening that
-  transformation starts on Try it.
-- One transformation holds one answer on pasted text at a time. While it runs,
-  or while its answer waits, Run on pasted text sends nothing.
-- Saved results on pasted text are listed with the transformation's results as
+- The run is saved as it starts, in `text_runs/`, and its answer is written
+  into that file when it arrives. There is no separate Save; **Delete** on a
+  result discards it.
+- While a transformation runs on pasted text, Run on pasted text sends
+  nothing more for it. Each later run is its own result.
+- Results on pasted text are listed with the transformation's results as
   "Pasted text", and open, copy, and delete like any other result. They name
   no recording, so they are never deleted with one, and a file in
   `text_runs/` that does not read never stops a recording from being deleted.
 Deleting a recording deletes its file, its transcripts, and the results made
 from them. Its audio file is kept, and the confirmation says so; delete it
-from Files when you no longer want it. A recording cannot be deleted while a transcription or transformation of it is
-running, or while an answer for it is waiting to be saved: finish it, save it
-again, or discard it in the notice under the header first.
+from Files when you no longer want it. A recording cannot be deleted while a
+transcription or transformation of it is running: wait for it to finish
+first.
 
 What is sent is always what the folder holds when you press the button. If the
 transcript's file was edited in Files, the terminal, or another program, the
 edited text is sent; if it or its recording is gone, or the file cannot be
 read, nothing is sent and the app says why.
 
-When a request fails, the notice under the header (for a transcript) or the
-transformation's page (for pasted text) says why and offers **Try again**,
-which sends the same request, under the same file name, only while the text
-connection is still the endpoint it was prepared for. If you changed the
-connection since, it is not sent: dismiss it and run again. When an answer
-cannot be written, the text is kept in the window and saving it again writes
-the same file. Saving again never calls the endpoint, recognizes a file an
-earlier save already wrote, and never overwrites another file of that name.
+A transcript or result with no answer in its file says why where it is
+shown: its request is running, its request failed, or it is unfinished
+because the window that sent it closed before the answer was written. Nothing
+in the file says which; the window knows what it is doing, and a file with no
+answer and nothing running is unfinished. **Run again** sends the same
+request, from what the file records, and writes the answer into the same
+file, only while the connection is still the endpoint the file names. If you
+changed the connection since, it is not sent: delete it and run anew.
+**Delete** discards it.
 
 ### Connections
 
@@ -420,14 +416,11 @@ A recording that is still recording cannot be transcribed; stop it first.
 
 ### When a save does not finish
 
-A transcript or a transformation result whose file could not be written is
-kept in the window: the status says it is not saved, and the notice shows the
-text with **Save it again** and **Copy**. A transformation result keeps the
-file name it was given when the run began, so saving again cannot produce a
-second result, and if another file has taken that name it is left alone.
-
-An unsaved transcript or result lives only in the open window. It is not
-written anywhere else.
+When an answer arrives but its file cannot be written, the window keeps the
+answer and writes it again while it is open, waiting longer each time. The
+status says how many answers are not written yet, and the result shows the
+text with **Copy**. If the window closes first, the file stays without its
+answer and shows as unfinished, to run again.
 
 If a recording's row cannot be written when it starts, the recording still
 runs and says so; its audio is saved without a row naming it, as an ordinary
@@ -443,13 +436,13 @@ shutdown) all ask the window first:
 - When nothing is held, changes still being written finish and the app closes
   with no prompt. It never asks about typing: every change is already in its
   file, or was refused and reported when it happened.
-- When something is held (a transcript or transformation result whose file
-  was not written, a result on pasted text not saved yet, or a running
-  transcription or transformation), the app stays open and shows what would
-  be lost. A recording in progress is not held: it is in the folder, and
-  closing finishes it. **Keep working** closes the
-  prompt and changes nothing. **Discard and quit** lets changes still being
-  written finish, then closes the app and drops what was held.
+- A recording in progress, and a transcription or transformation under way,
+  hold nothing: each is in the folder from its start. Closing finishes a
+  recording; an answer that has not arrived is lost, and its file stays
+  unfinished.
+- When the window cannot find out what would be lost, the app stays open and
+  asks. **Keep working** closes the prompt and changes nothing. **Discard and
+  quit** lets changes still being written finish, then closes the app.
 
 Only leaving the app asks. Moving between Home, Recordings, and
 Transformations never does, because nothing is lost by it.
@@ -467,8 +460,7 @@ If Whispering's host process stops while the window is open, the terminal,
 Reveal folder, and new transcription and transformation requests stop working
 until you restart the app. Saving does not stop: the shell granted the folder
 to the window, not to the host, so changes to recordings, transcripts, and other files can
-still be saved, a held result can still be saved again, and **Save
-version** still works. A save can still fail for its own reasons, such as a full
+still be saved, and **Save version** still works. A save can still fail for its own reasons, such as a full
 disk, exactly as it can at any other time.
 
 What the window can no longer do is be asked through the host whether it may
