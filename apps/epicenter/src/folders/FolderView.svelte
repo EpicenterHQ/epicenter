@@ -6,15 +6,10 @@
 		type PreparedFolderTable,
 	} from '@epicenter/folder';
 	import { visibleRows } from '@epicenter/folder/file-browser';
-	import type { FolderOptions, TableOptions } from '@epicenter/folder/query';
+	import { type FolderOptions, runMutation, type TableOptions } from '@epicenter/folder/query';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
-	import {
-		createMutation,
-		createQuery,
-		MutationObserver,
-		useQueryClient,
-	} from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
 	import ReplacedNotice from '@epicenter/svelte/replaced-notice';
 	import { createRowEdits } from './row-edits.svelte';
@@ -59,9 +54,7 @@
 		folder$.tables[name] as TableOptions<Record<string, unknown>>;
 
 	const edits = createRowEdits((name, variables) =>
-		new MutationObserver(client, optionsOf(name).save.mutationOptions()).mutate(
-			variables,
-		),
+		runMutation(client, optionsOf(name).save.mutationOptions(), variables),
 	);
 
 	const files = createQuery(() => ({

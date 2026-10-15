@@ -13,8 +13,8 @@
 	 * this root wires the folder's one channel of change to the cache
 	 * (ADR-0548): each `onFilesChanged` report invalidates exactly the
 	 * queries it names. The subscription lives exactly as long as the folder
-	 * is open. Focus refetch is off: the channel is the one detector of
-	 * outside changes. The list of folders is read again when the shell
+	 * is open. The folder's options turn focus refetch off: the channel is
+	 * the one detector of outside changes. The list of folders is read again when the shell
 	 * reports that one appeared, went, or changed its `epicenter.json`
 	 * (`DATA_FOLDERS_CHANGED`).
 	 *
@@ -77,9 +77,7 @@
 	 */
 	const DATA_FOLDERS_CHANGED = 'epicenter://data-folders-changed';
 
-	const queryClient = new QueryClient({
-		defaultOptions: { queries: { refetchOnWindowFocus: false } },
-	});
+	const queryClient = new QueryClient();
 	setQueryClientContext(queryClient);
 
 	/**
