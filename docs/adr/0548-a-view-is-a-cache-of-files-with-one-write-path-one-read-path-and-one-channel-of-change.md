@@ -44,7 +44,7 @@ events: the files are the record, so a missed event costs a delay, never data.
 | Host | Detector | Reports |
 | --- | --- | --- |
 | Desktop | The shell's file watcher on the granted root, debounced | Exact paths; "everything" when it starts, after the computer wakes, and when the operating system reports it dropped events; inside `.git`, only that history moved |
-| Browser | Returning to the window (focus or visibility) | "Everything" |
+| Browser | The `BroadcastChannel` posts of same-origin tabs, which are the only writers of a browser folder, its own Sync included | Exact paths after each write lands; "everything" when a tab resumes from being frozen or restored from the back-forward cache |
 | Bun | None by default; a script may watch with `fs.watch` | — |
 
 A page's own `save` updates its cache directly and is not evidence of an
@@ -86,7 +86,7 @@ version differs from the draft's, derived, with no state of its own.
   bookkeeping, now the engine's `save` and the shared draft helper.
 - An agent's edit, Sync landing a change, or another window's save appears in an
   open desktop window within the watcher's debounce.
-- A browser tab sees another tab's edits when it is returned to, not live.
+- A browser tab sees another tab's edits live. A tab that crashes after writing but before posting leaves other open tabs stale until they resume or reload; saves still merge, so nothing is lost.
 - The desktop shell holds one watcher per granted folder.
 - `save` cannot fail because another writer moved the file; it fails when the
   row was deleted, the merged values are invalid, or the file kept changing past
@@ -94,6 +94,7 @@ version differs from the draft's, derived, with no state of its own.
 
 ## Considered alternatives
 
+- **Returning to the window as the browser's detector.** Coarse and late; the tabs' own posts are complete, because only same-origin tabs can write a browser folder.
 - **Rereading on return only, on every host.** The window being looked at stays
   stale while an agent or Sync changes its files.
 - **The shell announcing its own writes.** Misses agents, editors, and `git`
