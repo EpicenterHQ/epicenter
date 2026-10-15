@@ -246,8 +246,8 @@ a capture and is refused as `Conflict` instead.
 
 ### A directory the desktop shell grants
 
-A desktop shell registers each folder's directory for one window, with the
-`tauri-plugin-epicenter-folder` crate. Opening it with
+A desktop shell registers each folder's directory for the windows that may
+edit it, with the `tauri-plugin-epicenter-folder` crate. Opening it with
 `@epicenter/folder/tauri` asks the shell to grant it (`grant_directory`): the
 shell creates the directory if it is missing, refuses a linked `.git`, and
 takes the folder's cross-process lock. The page then opens a directory

@@ -27,11 +27,14 @@ handle.
 directory the shell grants: files through the shell's own read and change
 commands, history through the system `git`, which the shell runs for it.**
 
-The shell registers each folder for exactly one window: one live editor per
-folder, so the engine never shares files with another window's engine. The
-first `grant_directory` creates the directory, refuses a directory that is a
-link and a linked `.git`, and takes the cross-process lock until shutdown.
-It adds nothing to the app's access control. Rust makes every read
+The shell registers each folder for the windows that may edit it, and may
+permit another window later. Each window's page runs its own engine over the
+same directory; several editors are safe because the shell checks every
+publish (below). The first `grant_directory`, from any of those windows,
+creates the directory, refuses a directory that is a link and a linked
+`.git`, and takes the folder's one cross-process lock until shutdown, which
+keeps out a second Epicenter process whose saves this shell would not
+serialize. It adds nothing to the app's access control. Rust makes every read
 (`read_folder_file`, `read_folder_directory`, `stat_folder_path`) and every
 change (`write_folder_file` and its siblings) itself, after checking the
 path on disk: the root or beneath it, and no link on the way. A read may
@@ -41,7 +44,8 @@ inside `.git`, only the engine's staging files and private index copies, each
 created as a new file. A rename that publishes a file, and a removal, carry
 what the page expects at the path (nothing, a file, a file with a given
 SHA-256, or anything); Rust checks it and makes the change under one lock
-per root, so no other change through the shell lands between them
+per root, so no other change through the shell, from any window, lands
+between them, and a save another window overtook is `Conflict`
 ([ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md)).
 The shell keeps no list of a
 folder's files: an app's definition, a Sync, or a file browser may write any
@@ -96,9 +100,10 @@ process and its helpers. The Git lab, a testbed, has no quit question.
   is cancelled; other programs' edits are not watched for, and pages read again on
   focus and after their own actions; an incoming update that stops partway
   keeps no record, and the next Sync records and merges what it wrote; two
-  windows no longer share one view of a folder, because a folder has one
-  window; and a page that approves a quit before its saves land loses what
-  the shell's ten-second wait does not cover.
+  windows of one folder do not share one view of it, and each sees the
+  other's saves when it reads again or as a `Conflict`; and a page that
+  approves a quit before its saves land loses what the shell's ten-second
+  wait does not cover.
 - The desktop bundle carries the directory folder and the folder plugin's
   commands in a chunk loaded only for a granted folder, and none of the browser
   folder's storage address, download, or private Git. It needs no HTTP
@@ -136,9 +141,13 @@ process and its helpers. The Git lab, a testbed, has no quit question.
   patterns). The shell cannot know an installed app's definition, a file
   browser writes anywhere, and a Sync bringing a file outside the list was
   refused halfway through publishing.
-- **Several windows on one folder**, coordinated by Web Locks and
-  `BroadcastChannel`. No app needs it, and it was unverified across Tauri
-  windows.
+- **Exactly one window per folder** (built first). It kept the engine from
+  sharing files with another window's, but a folder browser could not open
+  an application's folder while the application had it open. Once the shell
+  checked and published every save (ADR-0535), several windows became safe.
+- **Several windows on one folder coordinated by Web Locks and
+  `BroadcastChannel` alone.** Those cover one origin, so a check in one page
+  and a rename in another could still interleave across origins.
 - **Tauri's fs plugin for reads under a runtime capability** (built first).
   Before Tauri 2.12, a capability added at run time numbered its scopes from
   zero, so the grant's path scope collided with a scope the app already had,

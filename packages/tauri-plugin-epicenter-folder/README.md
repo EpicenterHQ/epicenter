@@ -1,13 +1,14 @@
 # tauri-plugin-epicenter-folder
 
-The desktop shell's side of an Epicenter folder: it grants one window a
-directory, and makes that window's reads and file changes and runs its `git`
-under checks the page cannot get around.
+The desktop shell's side of an Epicenter folder: it grants a directory to the
+windows registered for it, and makes each window's reads and file changes and
+runs its `git` under checks the page cannot get around.
 
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-A shell registers a directory under a scope ID for one window. The page names
-the scope and nothing else: it never supplies a root or an author.
+A shell registers a directory under a scope ID for the windows that may edit
+it. The page names the scope and nothing else: it never supplies a root or an
+author.
 
 ## Layout
 
@@ -41,11 +42,16 @@ tauri::Builder::default()
                 todos,
                 Author { name: "Todos".into(), email: "todos@localhost".into() },
             ),
-            window: "todos".into(),
+            windows: vec!["todos".into()],
         })?;
         Ok(())
     })
 ```
+
+`windows` must name at least one window. To let another window into a
+registered folder later, such as a browser window opening Todos's folder,
+call `app.folders().permit("so.epicenter.todos", "browser")`. A permitted
+window stays permitted until the app exits.
 
 `FolderConfig` fields:
 
@@ -58,21 +64,24 @@ tauri::Builder::default()
 Everything else, the remote included, is the repository's: the page's engine
 reads it from Git's configuration.
 
-A scope belongs to exactly one window: one live editor per folder. A scope's
-configuration cannot change once registered. Two scopes cannot hold one root
-at once, since the second cannot take its lock.
+Several windows may edit one scope at once. Each page runs its own engine over
+the directory, and the shell checks and publishes every save under one mutex
+per root (see File changes), so a save another window overtook is refused as
+`Conflict` instead of silently replacing it. Only a scope's windows change once
+it is registered. Two scopes cannot hold one root at once, since the second
+cannot take its lock.
 
 A shell must also give the window the plugin's commands in a capability:
 `{ "windows": ["todos"], "permissions": ["epicenter-folder:default"] }`. That
 is all the window needs; no fs plugin is installed. The capability only lets
-a window call the plugin. Which folder it reaches is decided by `window` in
-`ScopeConfig`.
+a window call the plugin. Which folders it reaches is decided by `windows` in
+`ScopeConfig` and by `permit`.
 
 ## The grant
 
-The page calls `grant_directory(scope)`. A window other than the scope's is
+The page calls `grant_directory(scope)`. A window the scope does not name is
 refused as `WindowNotPermitted`, an unregistered scope as `UnknownScope`. The
-first grant:
+first grant, from whichever of the scope's windows asks first:
 
 1. creates the root if it is missing (its parent may be a link a person
    chose; the root itself must be a real directory) and resolves it to its
@@ -86,7 +95,10 @@ first grant:
    directory.
 
 A grant returns `{ root, branch, authorName, authorEmail }`; a later grant,
-such as a reloaded page's, returns the same root. It adds nothing to the
+such as a reloaded page's or another window's, returns the same root under
+the same lock. The lock is per folder, not per window: it keeps out a second
+Epicenter process, whose saves this shell could not check and publish under
+its mutex. It adds nothing to the
 app's access control: the window reaches the folder only through this
 plugin's commands, each of which looks up the root the scope was granted.
 
@@ -210,8 +222,8 @@ Every file change and `git` run holds an admission while it runs. A read
 holds none: it changes nothing, so a quit need not wait for it, and one
 asked for after shutdown begins is refused. When the app exits, or the shell
 calls `app.folders().shutdown()`, the plugin refuses new grants and new
-work, waits up to ten seconds for work already admitted, then releases every
-folder's lock. Pages settle their own work before they
+work, waits up to ten seconds for work already admitted in every window, then
+releases every folder's lock. Pages settle their own work before they
 approve a quit; the wait covers a change or a `git` run still in flight when
 they did. A late change is refused as `ShuttingDown` and writes nothing.
 
@@ -224,8 +236,9 @@ they did. A late change is refused as `ShuttingDown` and writes nothing.
   the same directory (`@epicenter/folder/bun`) does not take it. The system
   releases it when the process ends, however it ends. It is unreliable on
   some network filesystems.
-- Nothing watches the directory. Pages read again on focus and after their
-  own commands; conditional saves turn a stale write into a conflict.
+- Nothing watches the directory, and the shell tells no window of another's
+  save. Pages read again on focus and after their own commands; conditional
+  saves turn a stale write, another window's included, into a conflict.
 - The expectation is checked under the root's mutex in this process only. A
   Bun script or another program that changes a path between that check and
   the rename is not seen.

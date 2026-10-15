@@ -2,10 +2,10 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-14
-- **Amends:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md), which overwrites `epicenter.json` from whatever definition opened the folder: only an application's own folder publishes, and only when the bytes differ. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), whose one window per folder and cross-process lock give way to any number of windows once the shell compares and publishes every save, under one mutex per root. [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md), whose script example imports `epicenter.json` as a definition, which its shape does not allow.
+- **Amends:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md), which overwrites `epicenter.json` from whatever definition opened the folder: only an application's own folder publishes, and only when the bytes differ. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), whose one window per folder gives way to any number of windows once the shell compares and publishes every save, under one mutex per root; its cross-process lock stays, one per folder. [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md), whose script example imports `epicenter.json` as a definition, which its shape does not allow.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (a data folder is a directory with `epicenter.json`), [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (`readFolder`), [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) (`epicenter.ts` is the authored source), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (no automatic commits), [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md).
-- **Built:** an unchanged declaration is not rewritten (b3bb9cacb2); scratch names carry their engine and coordination names derive from the root (a5870ca92e); the shell compares and publishes every save, prerequisite 1 below.
-- **Unbuilt:** `openDataFolder`, `definition` on every handle, granting one directory to many windows, and the persisted grant registry and its dialog.
+- **Built:** an unchanged declaration is not rewritten (b3bb9cacb2); scratch names carry their engine and coordination names derive from the root (a5870ca92e); the shell compares and publishes every save, prerequisite 1 below; a folder is registered for several windows and may permit more (`ScopeConfig.windows`, `Folders::permit`), under one cross-process lock per folder.
+- **Unbuilt:** `openDataFolder`, `definition` on every handle, and the persisted grant registry and its dialog.
 
 ## Context
 
@@ -29,9 +29,8 @@ A desktop browser over data folders, the Vault's scripts, and the Git lab all
 need to open a folder that already exists, with the schema it already has.
 `readFolder` reads one, but cannot write, and runs only in Bun.
 
-Separately, ADR-0531 grants each desktop folder to exactly one window and
-holds a cross-process lock, so a browser window cannot open Todos's folder
-while Todos is open. Yet `bun.ts` already accepts a script and a window
+Separately, ADR-0531 granted each desktop folder to exactly one window, so a
+browser window could not open Todos's folder while Todos was open. Yet `bun.ts` already accepts a script and a window
 writing one directory, "kept apart only by Git's lock files and the engine's
 checks of the observed version." History is safe between engines: Git's
 index is protected by `index.lock`, private index copies are uniquely named,
@@ -124,9 +123,12 @@ All three are built:
    another's staged bytes. Names stay one level deep, which the shell's
    write check (`page_files.rs`) already admits.
 
-Then the shell grants a directory to every window that asks for it, holds no
-writer lock, and counts admitted work per window for the quit wait. A Bun
-script remains the one writer the shell does not serialize, as today; a
+Then the shell grants a directory to every window registered or permitted
+for it, and the quit wait counts every window's admitted work. The shell
+keeps one cross-process lock per folder, taken at the first grant from any
+window and released at shutdown. It guards against a second Epicenter
+process: that process would publish under its own mutex, not this one, so
+its saves could replace a window's without `Conflict`. A Bun script remains the one writer the shell does not serialize, as today; a
 script that edits a folder a window has open can still overtake it. Windows
 of another origin, and other programs, do not receive hints; they read again
 on focus and after their own actions (ADR-0529).
@@ -145,7 +147,8 @@ The page never receives its path.
   through `epicenter generate`.
 - The Git lab's empty-declaration overwrite is gone by construction.
 - A desktop browser can open any data folder, including an application's
-  folder while the application has it open, once the shell publishes saves.
+  folder while the application has it open, once the shell permits the
+  browser's window into that folder (`Folders::permit`).
 - Two windows of one folder can overtake each other's saves. Each sees
   `Conflict` on a stale save and reads again. Views in another origin may be
   stale until focus. A Bun script beside a window is not serialized and can
@@ -153,9 +156,11 @@ The page never receives its path.
 - `openFolder`'s `definition` remains the only way to create a folder, so a
   folder is created only by the application that owns its schema, or by
   `epicenter generate` writing its declaration.
-- Losing the writer lock also lets two Epicenter processes, such as a
-  development and a production build, edit one folder. They are two more
-  editors under the same rules.
+- The cross-process lock stays, one per folder, so a second Epicenter
+  process, such as a development build beside a production one, is still
+  refused `Busy` while the first has the folder open. Its saves would be
+  published outside the first shell's mutex. Letting two processes edit one
+  folder would need the comparison under a lock both share.
 - The shell gains a persisted grant registry and its dialog; this is the
   largest new piece.
 
