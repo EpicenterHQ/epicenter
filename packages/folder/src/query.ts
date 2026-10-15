@@ -103,13 +103,15 @@ const LOG_DEPTH = 50;
 
 /**
  * How every read is cached. A read is local, so it waits for no network,
- * and a file that did not read will not read on a retry. Nothing goes stale
+ * and a file that did not read will not read on a retry, or because a view
+ * mounted: the failure is shown. Nothing goes stale
  * on its own or on focus: a query is read again only when a change the
  * folder reports, or the page's own write, makes it stale.
  */
 const READ = {
 	networkMode: 'always',
 	retry: false,
+	retryOnMount: false,
 	staleTime: Number.POSITIVE_INFINITY,
 	refetchOnWindowFocus: false,
 } as const;

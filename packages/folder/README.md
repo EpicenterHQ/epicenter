@@ -1096,7 +1096,7 @@ reads again only what a view or observer holds; a store that reads with
 
 Every read is local and changes only when the folder's channel or the
 page's own write says so, so the options set `networkMode: 'always'`, no
-retry, `staleTime: Infinity`, and no focus refetch; an app sets none of
+retry (on mount either), `staleTime: Infinity`, and no focus refetch; an app sets none of
 these for the folder's queries.
 
 `runMutation(client, options, variables)` runs a write from outside a
