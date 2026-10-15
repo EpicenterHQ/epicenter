@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-15
-- **Unbuilt:** all of it: `table.save` with the merge in the engine, `folder.onFilesChanged` fed by one detector per host, the desktop file watcher, `folderOptions` in `@epicenter/folder/query`, and moving every app onto them.
+- **Built:** `table.save` with the merge in the engine, its result naming each replaced value and where it stands; the line merge that keeps neighboring edits, for save and Sync alike; `folder.onFilesChanged` with the browser's relay and resume detector and the desktop page's listener for the shell's event; repository creation by the first commit, staging, or remote on every host; `folderOptions`, `createDraft`, and `createSaveBases` in `@epicenter/folder/query`.
+- **Unbuilt:** the shell's file watcher that sends `epicenter-folder://changed`; moving every app onto `folderOptions` and drafts, which removes their own focus rereads and `createSaveBases`; the Folders window's UI for what a save replaced.
 
 ## Context
 
@@ -26,9 +27,14 @@ bare `Conflict` from `table.replace`.
 version `capture` names, it writes; otherwise it reads the current file, merges
 by field and the body by line (`mergeRow`, with the edit winning only where both
 sides changed the same field or lines), writes the result against the current
-version, and reports what of the other side it replaced. Every app, script, and
-agent saves the same way. The strict compare-and-swap is the engine's internal
-step.
+version, and reports what of the other side it replaced, with where it stood,
+so a person can put it back. Every app, script, and agent saves the same way.
+The strict compare-and-swap is the engine's internal step. Changes that do not
+overlap always combine: lines compete only where both sides changed the same
+lines, for a save and for Sync. An overlap is decided by fresh intent when
+there is one (a save) and by a person when there is not (a Sync). A merged row
+is checked against the definition the handle reads with before it is
+written.
 
 **One read path.** Data reaches a view only through the engine's reads
 (`table.get`, `table.list`, and their `files` and `kv` counterparts), which
@@ -44,12 +50,14 @@ events: the files are the record, so a missed event costs a delay, never data.
 | Host | Detector | Reports |
 | --- | --- | --- |
 | Desktop | The shell's file watcher on the granted root, debounced | Exact paths; "everything" when it starts, after the computer wakes, and when the operating system reports it dropped events; inside `.git`, only that history moved |
-| Browser | Returning to the window (focus or visibility) | "Everything" |
+| Browser | Other pages of the origin, which post the paths each write landed on a `BroadcastChannel`, their own Sync's included; and resuming from being frozen or from the back-forward cache | The paths; "everything" on resume |
 | Bun | None by default; a script may watch with `fs.watch` | — |
 
 A page's own `save` updates its cache directly and is not evidence of an
-outside change. On the desktop the watcher also sees the page's own writes and
-Sync's; at most this rereads a file whose content did not change.
+outside change, so it is not reported to that page. The files the page's own
+Sync wrote are reported to it on every host. On the desktop the watcher also
+sees the page's own writes and Sync's; at most this rereads a file whose
+content did not change.
 
 **Pages read folders through TanStack Query, by option factories.**
 `folderOptions(folder)` in `@epicenter/folder/query` mirrors the folder, and each
@@ -69,9 +77,11 @@ createMutation(() => folder$.todos.save.mutationOptions());
 | `files` | `list`, `read`, `write`, `move`, `delete` |
 | `history` | `status`, `log`, `saveVersion`, `sync` |
 
-The factory subscribes to `onFilesChanged` once and invalidates exactly the
-queries the paths name. No page has its own refresh logic, and TanStack's own
-focus refetch is off.
+The factory holds no query client. The app root wires the channel once, so
+invalidation stays visible:
+`folder.onFilesChanged((change) => queryClient.invalidateQueries(folder$.pathFilter(change)))`,
+which marks stale exactly the queries the paths name. No page has its own
+refresh logic, and TanStack's own focus refetch is off.
 
 **An edit holds its own starting version.** An editor captures the row and its
 version at the first change, not on focus, and keeps its draft outside the
@@ -81,12 +91,16 @@ version differs from the draft's, derived, with no state of its own.
 
 ## Consequences
 
-- Deleted: the `BroadcastChannel` relay; each app's focus and visibility
-  rereads; `apps/epicenter/src/folders/save-row.ts` and its row-edit
-  bookkeeping, now the engine's `save` and the shared draft helper.
+- Deleted: each app's focus and visibility rereads; the merge in
+  `apps/epicenter/src/folders/save-row.ts`, now the engine's `save`, and its
+  row-edit bookkeeping, replaced by the shared draft helper. The
+  `BroadcastChannel` relay stays as the browser's detector; the desktop page
+  no longer opens one.
 - An agent's edit, Sync landing a change, or another window's save appears in an
   open desktop window within the watcher's debounce.
-- A browser tab sees another tab's edits when it is returned to, not live.
+- A browser tab sees another tab's edits as they land, and everything again
+  when it resumes from being frozen. A change from outside the browser's
+  pages cannot happen to its private storage.
 - The desktop shell holds one watcher per granted folder.
 - `save` cannot fail because another writer moved the file; it fails when the
   row was deleted, the merged values are invalid, or the file kept changing past
@@ -96,6 +110,11 @@ version differs from the draft's, derived, with no state of its own.
 
 - **Rereading on return only, on every host.** The window being looked at stays
   stale while an agent or Sync changes its files.
+- **Returning to the window as the browser's detector.** Two tabs on screen
+  side by side never hear each other, and every return rereads everything.
+  Same-origin pages are the only writers of a browser folder's private
+  storage, so their own reports of exact paths cover every change, and a
+  resume covers the time a frozen page could not hear.
 - **The shell announcing its own writes.** Misses agents, editors, and `git`
   in a terminal, which write without the shell.
 - **Events that carry content.** A second way for data to reach a view, with no

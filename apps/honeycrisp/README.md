@@ -162,7 +162,8 @@ overwritten.
 | What happened | What Honeycrisp does |
 | --- | --- |
 | Another program changed a file, and you return to the window | The lists and the open note show the new version. The rich-text view starts over on the new text, so its undo history restarts. Nothing is read while a save is running, so this never replaces what you are typing. |
-| Another program changed or deleted the file, and you edit it before returning | The save is refused, and the note goes back to the file as it is now (or leaves the list, if it was deleted). A message says the file changed elsewhere and offers **Copy your text**, which copies the whole note as you had it. |
+| Another program changed the file, and you edit it before returning | The save merges with their change (ADR-0548): what only they changed stays, and where you both changed the same field or lines, your edit wins. |
+| Another program deleted the file, and you edit it before returning | The save is refused, and the note leaves the list. A message offers **Copy your text**, which copies the whole note as you had it. |
 | You typed while a save was running | The newer typing saves next, on top of the save before it. |
 | A save failed, for example on a full disk | The same as a refused save: the note goes back to the file, and the message offers your text to copy. A failed save is not tried again for you. |
 | A save got no reply | The note goes back to the file as it reads now, and the message says the save may or may not have happened. |
@@ -350,7 +351,7 @@ folder engine's own tests cover a commit that fails.
 | A save that fails: the note goes back to the file, with **Copy your text** | `chmod a-w notes`, then edit a note | `chmod u+w notes`, then type again |
 | A commit that fails while the files stay saved | `touch .git/refs/heads/main.lock`, then **Save version** | `rm .git/refs/heads/main.lock`, then **Save version** |
 | An outside edit reaches the open note | With a note open, edit `notes/<id>.md` in the terminal | The note shows the new text |
-| A change made elsewhere refuses a save | With a note open, run `sleep 5; echo changed >> notes/<id>.md` in a terminal outside the app, and keep typing in the note until it lands | The note goes back to the changed file, with **Copy your text** |
+| A change made elsewhere merges with a save | With a note open, run `sleep 5; echo changed >> notes/<id>.md` in a terminal outside the app, and keep typing in the note until it lands | The file keeps the added line and your typing |
 | A note file deleted under you | With a note open, `rm notes/<id>.md`, then type in it | The note leaves the list; nothing writes it back |
 
 What cannot be produced by hand in the running app is a save held open or
@@ -405,9 +406,9 @@ when you ask (ADR-0529). It drops several promises of the version before it:
   is no save bar, no **Try again**, and no **Discard unsaved changes?**
   prompt. A save that is refused or fails puts the note back to the file and
   offers your text to copy, so at most the last moment of typing is lost.
-- A change made elsewhere is no longer merged with your edits, and there is
-  no review with **Apply**. The save is refused, and the note shows their
-  version.
+- There is no review with **Apply**. A save that meets a change made
+  elsewhere merges with it, and your edit wins where you both changed the
+  same field or lines.
 - A note deleted elsewhere is no longer offered back. Your next edit to it is
   refused, and it leaves the list.
 - Closing and quitting never ask and never wait. They quit at once; a save

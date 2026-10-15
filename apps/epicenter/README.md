@@ -279,21 +279,19 @@ focus, the body when its box loses focus, and every other editor on change.
 An edit the page has not yet sent when Epicenter quits is lost, such as body
 text still being typed (see [Quitting Epicenter](#quitting-epicenter)).
 
-Every save is `table.replace` over the bytes the row was read from
-(`src/folders/save-row.ts`), one save at a time. When another window saved the
-row first, the save is `Conflict`, and the view reads the current file and
-merges with `mergeRow`: base is the row as read, ours the edited row, theirs
-the current file. A field or body lines only one side changed keep that
+Every save is `table.save` over the row the edit began from
+(`src/folders/save-row.ts` turns its result into what the view says), one save
+at a time. When another window saved the row first, the engine merges with
+`mergeRow` (ADR-0548): a field or body lines only one side changed keep that
 side's change. Where both changed a field, or the same body lines, this edit
 wins, and the message names each value of theirs it replaced: "Changed in
-another window; merged." The merged row is saved over the current bytes, up
-to three times. A row another window deleted, or saved in a form that does
-not read as a row, is not overwritten. When a save fails, the view says why
-and reads the table again.
+another window; merged." A row another window deleted, or saved in a form
+that does not read as a row, is not overwritten. When a save fails, the view
+says why and reads the table again.
 
 The open table is read again when the window gains focus and on
-`folder.onFilesChanged`, which carries other same-origin windows' hints, such
-as Todos's. "Save version" calls `folder.git.commit()` (ADR-0529) and reports
+`folder.onFilesChanged`, which on the desktop carries the shell's watcher's
+reports of what changed in the directory. "Save version" calls `folder.git.commit()` (ADR-0529) and reports
 a version saved, nothing new to save, or why none was saved; the header shows
 how many files changed since the last version. The window never writes
 `epicenter.json`.
