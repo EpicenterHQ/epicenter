@@ -87,7 +87,10 @@ lists, and approve the build. Epicenter clones the
 repository, runs `bun install` at its root and `bun run build:installed` here,
 and serves `dist/` at `/apps/so.epicenter.whispering/`. Opening Whispering
 from the Apps list opens its own folder, `so.epicenter.whispering`, under
-Epicenter's folder root. To try a change, commit it in the installed clone,
+Epicenter's folder root. "Open in Whispering" beside another folder opens that
+folder through Whispering's definition as a lens, never rewriting its
+`epicenter.json`, and refuses one that lacks Whispering's tables, naming the
+folder. To try a change, commit it in the installed clone,
 `~/Epicenter/Apps/so.epicenter.whispering/`, and open the app again; a commit
 made there builds without asking.
 
@@ -102,16 +105,14 @@ adds the connection's key.
 Checks, from `apps/whispering`:
 
 ```sh
-bun run typecheck                 # the page, then the scripts
-bun run test                      # workspace, workflow, and shape tests, then the mounted row views
+bun run typecheck                 # the page
+bun run test                      # workspace and workflow tests, then the mounted row views
 bun run build                     # the browser build, into build/
 bun run build:installed           # Epicenter's build, into dist/
-bun run shape                     # rewrite shape.json after changing the definition
 ```
 
-`epicenter.app.json` names the app (`so.epicenter.whispering`), its build, and
-`shape.json`, the declaration of the folder Whispering opens, which Epicenter
-reads without building the app (ADR-0538). Epicenter's own checks cover what
+`epicenter.app.json` names the app (`so.epicenter.whispering`) and its title
+(ADR-0560). Epicenter's own checks cover what
 it grants Whispering: `cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml`.
 
 ## Using it

@@ -14,9 +14,9 @@
 //!
 //! The shell reads everything about an installed app from its clone: the
 //! folder from `epicenter.folder`, the source from `origin`, and the commit
-//! from `HEAD`. `opens`, `build`, and `output` are relative to the folder.
-//! `bun install` runs at the repository's root, where the lockfile is, so
-//! workspace packages resolve; `build` runs in the folder.
+//! from `HEAD`. `bun install` runs at the repository's root, where the
+//! lockfile is, so workspace packages resolve; `bun run build:installed` runs
+//! in the folder and writes `dist/`, which is kept (ADR-0560).
 //!
 //! Approval guards code that arrived from elsewhere. Installing clones and
 //! builds nothing: the page shows what it would run and the person approves
@@ -61,32 +61,28 @@ const FOLDER_KEY: &str = "epicenter.folder";
 const MAX_FOLDER_DEPTH: usize = 4;
 /// Folder names never searched for apps.
 const SKIPPED_FOLDERS: [&str; 2] = ["node_modules", ".git"];
-const DEFAULT_BUILD: &str = "bun run build";
-const DEFAULT_OUTPUT: &str = "dist";
+/// The `package.json` script that builds an app, run in its folder.
+const BUILD_SCRIPT: &str = "build:installed";
+/// The folder, within the app's folder, that the build writes and Epicenter
+/// keeps.
+const OUTPUT: &str = "dist";
 /// The file in an app's build directory naming the commit the host serves.
 pub const CURRENT_BUILD: &str = "current";
 
 const GIT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const BUILD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
-const MAX_SHAPE_BYTES: u64 = 1024 * 1024;
 const MAX_LOG_LINES: &str = "50";
 
 /// What a person is told before approving: approval runs the app's code.
 pub const APPROVAL_STATEMENT: &str = "Approving builds this app on this computer. Building runs the app's code with your permissions, so approve only code you trust.";
 
-/// `epicenter.app.json`.
+/// `epicenter.app.json`: what Epicenter reads before anything of the app
+/// runs (ADR-0560).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     pub id: String,
     pub title: String,
-    /// The path, within the app's folder, of the JSON declaration of the
-    /// shape the app opens (ADR-0538), such as `shape.json`.
-    pub opens: String,
-    /// The command line run in the app's folder.
-    pub build: String,
-    /// The path, within the app's folder, of the built single-page app.
-    pub output: String,
 }
 
 #[derive(Deserialize)]
@@ -94,9 +90,6 @@ pub struct Manifest {
 struct ManifestFile {
     id: String,
     title: String,
-    opens: String,
-    build: Option<String>,
-    output: Option<String>,
 }
 
 /// Read and check `epicenter.app.json`'s text.
@@ -115,23 +108,9 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
             "{MANIFEST} needs a title of 1 to 100 characters on one line"
         ));
     }
-    if let Some(problem) = repository_path_problem(&file.opens) {
-        return Err(format!("{MANIFEST}'s opens {problem}"));
-    }
-    let output = file.output.unwrap_or_else(|| DEFAULT_OUTPUT.to_string());
-    if let Some(problem) = repository_path_problem(&output) {
-        return Err(format!("{MANIFEST}'s output {problem}"));
-    }
-    let build = file.build.unwrap_or_else(|| DEFAULT_BUILD.to_string());
-    if build.trim().is_empty() || build.contains(['\n', '\r', '\0']) {
-        return Err(format!("{MANIFEST}'s build must be one command line"));
-    }
     Ok(Manifest {
         id: file.id,
         title: title.to_string(),
-        opens: file.opens,
-        build,
-        output,
     })
 }
 
@@ -287,9 +266,6 @@ pub struct InstalledApp {
     pub folder: String,
     /// The commit checked out, `HEAD`. Empty when the app is `Broken`.
     pub commit: String,
-    /// The text of the declaration `opens` names, or `None` when it could not
-    /// be read. The page parses it; the shell does not judge it.
-    pub opens: Option<String>,
     pub state: AppState,
 }
 
@@ -751,15 +727,14 @@ pub fn inspect(paths: &AppPaths, id: &str) -> InstalledApp {
         source: String::new(),
         folder: folder.clone().unwrap_or_default(),
         commit: String::new(),
-        opens: None,
         state: AppState::Broken { problem },
     };
     let read = folder
         .clone()
         .and_then(|folder| app_dir(&source, &folder))
-        .and_then(|dir| Ok((read_manifest(&dir)?, dir)));
-    let (manifest, dir) = match read {
-        Ok(read) => read,
+        .and_then(|dir| read_manifest(&dir));
+    let manifest = match read {
+        Ok(manifest) => manifest,
         Err(problem) => return broken(id.to_string(), problem),
     };
     if manifest.id != id {
@@ -775,7 +750,6 @@ pub fn inspect(paths: &AppPaths, id: &str) -> InstalledApp {
         Ok(commit) => commit,
         Err(problem) => return broken(manifest.title, problem),
     };
-    let opens = read_regular_file(&dir.join(&manifest.opens), MAX_SHAPE_BYTES).ok();
     let state = if current_build(&paths.builds(id)).as_deref() == Some(commit.as_str()) {
         AppState::Ready
     } else {
@@ -795,7 +769,6 @@ pub fn inspect(paths: &AppPaths, id: &str) -> InstalledApp {
         source: origin(paths, &source),
         folder: folder.unwrap_or_default(),
         commit,
-        opens,
         state,
     }
 }
@@ -1095,8 +1068,8 @@ fn require_clean(paths: &AppPaths, source: &Path) -> Result<(), String> {
 
 /// Build `commit`, checked out in `source`, into `builds/<id>/<commit>/`, and
 /// make it the build the host serves: `bun install` at the repository's
-/// root, then the manifest's build in the app's folder, `dir`, whose
-/// `output` is kept. What the install and the build print goes to
+/// root, then `bun run build:installed` in the app's folder, `dir`, whose
+/// `dist/` is kept. What the install and the build print goes to
 /// `builds/<id>/<commit>.log`.
 fn build(
     paths: &AppPaths,
@@ -1139,15 +1112,17 @@ fn build(
         install.args(["install", "--frozen-lockfile", "--ignore-scripts"]);
         step(install, source, "bun install").map_err(failed)?;
     }
-    step(shell(&manifest.build), dir, &manifest.build).map_err(failed)?;
+    let what = format!("bun run {BUILD_SCRIPT}");
+    let mut run = Command::new("bun");
+    run.args(["run", BUILD_SCRIPT]);
+    step(run, dir, &what).map_err(failed)?;
 
     let root = fs::canonicalize(dir).map_err(|error| failed(error.to_string()))?;
-    let output = fs::canonicalize(dir.join(&manifest.output))
-        .map_err(|_| failed(format!("it wrote no {}", manifest.output)))?;
+    let output =
+        fs::canonicalize(dir.join(OUTPUT)).map_err(|_| failed(format!("it wrote no {OUTPUT}")))?;
     if !output.starts_with(&root) || !output.join("index.html").is_file() {
         return Err(failed(format!(
-            "{} must be a folder in the app's folder holding index.html",
-            manifest.output
+            "{OUTPUT} must be a folder in the app's folder holding index.html"
         )));
     }
     let staged = builds.join(format!(".{commit}-{}", random_suffix()));
@@ -1167,18 +1142,6 @@ fn build(
         format!("{commit}\n").as_bytes(),
     )
     .map_err(|error| failed(format!("the build could not be made current: {error}")))
-}
-
-/// The manifest's build command, run by the system shell.
-fn shell(line: &str) -> Command {
-    let (program, flag) = if cfg!(windows) {
-        ("cmd", "/C")
-    } else {
-        ("/bin/sh", "-c")
-    };
-    let mut command = Command::new(program);
-    command.args([flag, line]);
-    command
 }
 
 /// Copy the regular files and directories under `from` to `to`. Links are
@@ -1350,26 +1313,33 @@ mod tests {
     }
 
     const BUILD: &str = "mkdir -p dist && cp page.html dist/index.html";
+    const BOARD_MANIFEST: &str = r#"{ "id": "com.example.board", "title": "Board" }"#;
 
-    /// An app repository at `upstream/<name>`: a manifest, its shape, and a
-    /// page its build copies into `dist/`.
-    fn app_repository(fixture: &Fixture, name: &str, manifest: &str) -> PathBuf {
+    /// A `package.json` whose `build:installed` script runs `script`.
+    fn package_json(script: &str) -> String {
+        format!(
+            r#"{{ "name": "board", "private": true, "scripts": {{ "build:installed": "{script}" }} }}"#
+        )
+    }
+
+    /// An app repository at `upstream/<name>`: a manifest, a `package.json`
+    /// whose `build:installed` runs `build`, and a page it copies into `dist/`.
+    fn app_repository(fixture: &Fixture, name: &str, manifest: &str, build: &str) -> PathBuf {
         let repo = fixture.root.join("upstream").join(name);
         fs::create_dir_all(&repo).unwrap();
         sh_git(&repo, &["init", "-q", "-b", "main"]);
         fs::write(repo.join(MANIFEST), manifest).unwrap();
-        fs::write(repo.join("shape.json"), r#"{ "kv": {}, "tables": {} }"#).unwrap();
+        fs::write(repo.join("package.json"), package_json(build)).unwrap();
         fs::write(repo.join("page.html"), "<!doctype html><title>one</title>").unwrap();
-        fs::write(repo.join(".gitignore"), "dist/\n").unwrap();
+        fs::write(repo.join(".gitignore"), "dist/\nnode_modules/\n").unwrap();
         sh_git(&repo, &["add", "-A"]);
         sh_git(&repo, &["commit", "-q", "-m", "first"]);
         repo
     }
 
-    fn board_manifest() -> String {
-        format!(
-            r#"{{ "id": "com.example.board", "title": "Board", "opens": "shape.json", "build": "{BUILD}" }}"#
-        )
+    /// The Board app, alone in its repository.
+    fn board_repository(fixture: &Fixture) -> PathBuf {
+        app_repository(fixture, "board", BOARD_MANIFEST, BUILD)
     }
 
     fn commit_page(repo: &Path, text: &str, message: &str) -> String {
@@ -1386,49 +1356,40 @@ mod tests {
 
     #[test]
     fn manifests_are_checked_before_anything_is_installed() {
-        let parsed = parse_manifest(
-            r#"{ "id": "com.example.board", "title": "Board", "opens": "shape.json" }"#,
-        )
-        .unwrap();
-        assert_eq!(parsed.build, "bun run build");
-        assert_eq!(parsed.output, "dist");
+        assert_eq!(
+            parse_manifest(BOARD_MANIFEST).unwrap(),
+            Manifest {
+                id: "com.example.board".into(),
+                title: "Board".into(),
+            }
+        );
 
         for (manifest, expected) in [
+            (r#"{ "id": "Board", "title": "Board" }"#, "reverse-domain"),
+            (r#"{ "id": "board", "title": "Board" }"#, "reverse-domain"),
             (
-                r#"{ "id": "Board", "title": "Board", "opens": "s.json" }"#,
+                r#"{ "id": "com..board", "title": "Board" }"#,
                 "reverse-domain",
             ),
             (
-                r#"{ "id": "board", "title": "Board", "opens": "s.json" }"#,
-                "reverse-domain",
-            ),
-            (
-                r#"{ "id": "com..board", "title": "Board", "opens": "s.json" }"#,
-                "reverse-domain",
-            ),
-            (
-                r#"{ "id": "so.epicenter", "title": "Epicenter", "opens": "s.json" }"#,
+                r#"{ "id": "so.epicenter", "title": "Epicenter" }"#,
                 "Epicenter itself",
             ),
+            (r#"{ "id": "com.example.board", "title": " " }"#, "title"),
+            (r#"{ "id": "com.example.board" }"#, "missing field `title`"),
+            (r#"{ "title": "Board" }"#, "missing field `id`"),
+            // The fields ADR-0560 removed are refused, not ignored.
             (
-                r#"{ "id": "com.example.board", "title": " ", "opens": "s.json" }"#,
-                "title",
+                r#"{ "id": "com.example.board", "title": "B", "opens": "shape.json" }"#,
+                "unknown field `opens`",
             ),
             (
-                r#"{ "id": "com.example.board", "title": "B", "opens": "../s.json" }"#,
-                "opens",
+                r#"{ "id": "com.example.board", "title": "B", "build": "make" }"#,
+                "unknown field `build`",
             ),
             (
-                r#"{ "id": "com.example.board", "title": "B", "opens": "/s.json" }"#,
-                "opens",
-            ),
-            (
-                r#"{ "id": "com.example.board", "title": "B", "opens": "s.json", "output": ".git" }"#,
-                "output",
-            ),
-            (
-                r#"{ "id": "com.example.board", "title": "B", "opens": "s.json", "extra": 1 }"#,
-                "not a valid",
+                r#"{ "id": "com.example.board", "title": "B", "output": "out" }"#,
+                "unknown field `output`",
             ),
             ("not json", "not a valid"),
         ] {
@@ -1463,7 +1424,7 @@ mod tests {
     #[test]
     fn install_clones_and_waits_for_approval_then_approval_builds() {
         let fixture = fixture("install");
-        let upstream = app_repository(&fixture, "board", &board_manifest());
+        let upstream = board_repository(&fixture);
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
 
         let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
@@ -1471,10 +1432,6 @@ mod tests {
         assert_eq!(pending.title, "Board");
         assert_eq!(pending.source, upstream.to_str().unwrap());
         assert_eq!(pending.commit, first);
-        assert_eq!(
-            pending.opens.as_deref(),
-            Some(r#"{ "kv": {}, "tables": {} }"#)
-        );
         let AppState::NeedsApproval { review } = &pending.state else {
             panic!("a fresh install needs approval: {pending:?}");
         };
@@ -1518,7 +1475,7 @@ mod tests {
     #[test]
     fn approval_names_the_commit_it_was_shown() {
         let fixture = fixture("stale");
-        let upstream = app_repository(&fixture, "board", &board_manifest());
+        let upstream = board_repository(&fixture);
         let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         let other = "0".repeat(40);
         assert!(approve(&fixture.paths, &pending.id, &other)
@@ -1530,7 +1487,7 @@ mod tests {
     #[test]
     fn a_commit_made_here_runs_without_asking_and_is_recorded() {
         let fixture = fixture("local");
-        let upstream = app_repository(&fixture, "board", &board_manifest());
+        let upstream = board_repository(&fixture);
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
         install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         approve(&fixture.paths, "com.example.board", &first).unwrap();
@@ -1558,7 +1515,7 @@ mod tests {
     #[test]
     fn a_fetched_commit_needs_approval_with_its_log_and_diff() {
         let fixture = fixture("fetched");
-        let upstream = app_repository(&fixture, "board", &board_manifest());
+        let upstream = board_repository(&fixture);
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
         install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         approve(&fixture.paths, "com.example.board", &first).unwrap();
@@ -1593,7 +1550,7 @@ mod tests {
     #[test]
     fn a_pull_merged_by_hand_still_needs_approval() {
         let fixture = fixture("merged");
-        let upstream = app_repository(&fixture, "board", &board_manifest());
+        let upstream = board_repository(&fixture);
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
         install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         approve(&fixture.paths, "com.example.board", &first).unwrap();
@@ -1617,7 +1574,7 @@ mod tests {
     #[test]
     fn update_rebases_commits_made_here_and_stops_on_a_conflict() {
         let fixture = fixture("rebase");
-        let upstream = app_repository(&fixture, "board", &board_manifest());
+        let upstream = board_repository(&fixture);
         let first = sh_git(&upstream, &["rev-parse", "HEAD"]);
         install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         approve(&fixture.paths, "com.example.board", &first).unwrap();
@@ -1657,7 +1614,8 @@ mod tests {
         let upstream = app_repository(
             &fixture,
             "board",
-            r#"{ "id": "board", "title": "Board", "opens": "shape.json" }"#,
+            r#"{ "id": "board", "title": "Board" }"#,
+            BUILD,
         );
         let problem = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap_err();
         assert!(problem.contains("reverse-domain"), "{problem}");
@@ -1670,7 +1628,8 @@ mod tests {
         let epicenter = app_repository(
             &fixture,
             "epicenter",
-            r#"{ "id": "so.epicenter", "title": "Epicenter", "opens": "shape.json" }"#,
+            r#"{ "id": "so.epicenter", "title": "Epicenter" }"#,
+            BUILD,
         );
         assert!(install(&fixture.paths, epicenter.to_str().unwrap(), "")
             .unwrap_err()
@@ -1680,7 +1639,7 @@ mod tests {
             assert_eq!(app_id_problem(id), None, "{id}");
         }
 
-        let board = app_repository(&fixture, "board", &board_manifest());
+        let board = board_repository(&fixture);
         install(&fixture.paths, board.to_str().unwrap(), "").unwrap();
         assert!(install(&fixture.paths, board.to_str().unwrap(), "")
             .unwrap_err()
@@ -1691,11 +1650,7 @@ mod tests {
     #[test]
     fn a_failed_build_keeps_the_approval_and_serves_nothing_new() {
         let fixture = fixture("failed");
-        let upstream = app_repository(
-            &fixture,
-            "board",
-            r#"{ "id": "com.example.board", "title": "Board", "opens": "shape.json", "build": "echo broken >&2; exit 3" }"#,
-        );
+        let upstream = app_repository(&fixture, "board", BOARD_MANIFEST, "echo broken >&2; exit 3");
         let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         let problem = approve(&fixture.paths, &pending.id, &pending.commit).unwrap_err();
         assert!(problem.contains("did not build"), "{problem}");
@@ -1718,7 +1673,7 @@ mod tests {
     #[test]
     fn uncommitted_changes_do_not_build() {
         let fixture = fixture("dirty");
-        let upstream = app_repository(&fixture, "board", &board_manifest());
+        let upstream = board_repository(&fixture);
         let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         let clone = fixture.paths.apps_dir.join(&pending.id);
         fs::write(clone.join("page.html"), "edited").unwrap();
@@ -1732,7 +1687,7 @@ mod tests {
     fn listing_reads_every_installed_app_and_reports_a_broken_one() {
         let fixture = fixture("list");
         assert_eq!(list(&fixture.paths).unwrap(), []);
-        let upstream = app_repository(&fixture, "board", &board_manifest());
+        let upstream = board_repository(&fixture);
         install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         fs::create_dir_all(fixture.paths.apps_dir.join("com.example.empty")).unwrap();
         fs::create_dir_all(fixture.paths.apps_dir.join(".installing-left")).unwrap();
@@ -1761,7 +1716,7 @@ mod tests {
     #[test]
     fn git_here_runs_no_hook() {
         let fixture = fixture("hooks");
-        let upstream = app_repository(&fixture, "board", &board_manifest());
+        let upstream = board_repository(&fixture);
         let pending = install(&fixture.paths, upstream.to_str().unwrap(), "").unwrap();
         let clone = fixture.paths.apps_dir.join(&pending.id);
         let hooks = clone.join(".git/hooks");
@@ -1781,7 +1736,7 @@ mod tests {
 
     /// A monorepo: a root workspace whose `bun install` step is skipped (no
     /// root package.json), and two apps in folders, with a manifest under
-    /// `node_modules` and one too deep that listing skips.
+    /// `node_modules` and one too deep that listing skips. Only Board builds.
     fn monorepo(fixture: &Fixture) -> PathBuf {
         let repo = fixture.root.join("upstream").join("mono");
         let write = |path: &str, text: &str| {
@@ -1791,30 +1746,25 @@ mod tests {
         };
         fs::create_dir_all(&repo).unwrap();
         sh_git(&repo, &["init", "-q", "-b", "main"]);
-        write(".gitignore", "dist/\n");
-        write(
-            "apps/board/epicenter.app.json",
-            &format!(
-                r#"{{ "id": "com.example.board", "title": "Board", "opens": "shape.json", "build": "{BUILD}" }}"#
-            ),
-        );
-        write("apps/board/shape.json", r#"{ "kv": {}, "tables": {} }"#);
+        write(".gitignore", "dist/\nnode_modules/\n");
+        write("apps/board/epicenter.app.json", BOARD_MANIFEST);
+        write("apps/board/package.json", &package_json(BUILD));
         write(
             "apps/board/page.html",
             "<!doctype html><title>board</title>",
         );
         write(
             "apps/notes/epicenter.app.json",
-            r#"{ "id": "com.example.notes", "title": "Notes", "opens": "shape.json" }"#,
+            r#"{ "id": "com.example.notes", "title": "Notes" }"#,
         );
         write("apps/broken/epicenter.app.json", "not json");
         write(
             "node_modules/dep/epicenter.app.json",
-            r#"{ "id": "com.example.dep", "title": "Dep", "opens": "s.json" }"#,
+            r#"{ "id": "com.example.dep", "title": "Dep" }"#,
         );
         write(
             "a/b/c/d/e/epicenter.app.json",
-            r#"{ "id": "com.example.deep", "title": "Deep", "opens": "s.json" }"#,
+            r#"{ "id": "com.example.deep", "title": "Deep" }"#,
         );
         sh_git(&repo, &["add", "-A", "-f"]);
         sh_git(&repo, &["commit", "-q", "-m", "first"]);
@@ -1862,10 +1812,6 @@ mod tests {
         assert_eq!(pending.id, "com.example.board");
         assert_eq!(pending.folder, "apps/board");
         assert_eq!(pending.commit, first);
-        assert_eq!(
-            pending.opens.as_deref(),
-            Some(r#"{ "kv": {}, "tables": {} }"#)
-        );
         let clone = fixture.paths.apps_dir.join("com.example.board");
         assert_eq!(
             sh_git(&clone, &["config", "--local", "--get", FOLDER_KEY]),
@@ -1927,7 +1873,7 @@ mod tests {
     /// ```sh
     /// EPICENTER_MONOREPO=/path/to/epicenter cargo test --lib installs_ -- --ignored --nocapture
     /// ```
-    fn installs_from_the_monorepo(folder: &str, id: &str, title: &str, table: &str) {
+    fn installs_from_the_monorepo(folder: &str, id: &str, title: &str) {
         let monorepo = std::env::var("EPICENTER_MONOREPO").expect("EPICENTER_MONOREPO");
         let fixture = fixture(title);
         let started = Instant::now();
@@ -1948,10 +1894,6 @@ mod tests {
             sh_git(&clone, &["config", "--local", "--get", FOLDER_KEY]),
             folder
         );
-        let shape: serde_json::Value =
-            serde_json::from_str(pending.opens.as_deref().expect("opens is read")).unwrap();
-        assert_eq!(shape["title"], title);
-        assert!(shape["tables"][table].is_object(), "{shape}");
         println!("cloned in {:?}", started.elapsed());
 
         let ready =
@@ -1967,6 +1909,7 @@ mod tests {
             clone.join("node_modules").is_dir(),
             "bun install ran at the root"
         );
+        assert_eq!(ready.title, title);
         println!("installed and built in {:?}", started.elapsed());
 
         let page = served_page(&fixture, &pending.id);
@@ -1990,39 +1933,24 @@ mod tests {
     #[test]
     #[ignore = "builds Todos from the monorepo named by EPICENTER_MONOREPO"]
     fn installs_todos_from_its_folder_in_the_monorepo() {
-        installs_from_the_monorepo("apps/todos", "so.epicenter.todos", "Todos", "todos");
+        installs_from_the_monorepo("apps/todos", "so.epicenter.todos", "Todos");
     }
 
     #[test]
     #[ignore = "builds Capture from the monorepo named by EPICENTER_MONOREPO"]
     fn installs_capture_from_its_folder_in_the_monorepo() {
-        installs_from_the_monorepo(
-            "apps/capture",
-            "so.epicenter.capture",
-            "Capture",
-            "captures",
-        );
+        installs_from_the_monorepo("apps/capture", "so.epicenter.capture", "Capture");
     }
 
     #[test]
     #[ignore = "builds Whispering from the monorepo named by EPICENTER_MONOREPO"]
     fn installs_whispering_from_its_folder_in_the_monorepo() {
-        installs_from_the_monorepo(
-            "apps/whispering",
-            "so.epicenter.whispering",
-            "Whispering",
-            "recordings",
-        );
+        installs_from_the_monorepo("apps/whispering", "so.epicenter.whispering", "Whispering");
     }
 
     #[test]
     #[ignore = "builds Honeycrisp from the monorepo named by EPICENTER_MONOREPO"]
     fn installs_honeycrisp_from_its_folder_in_the_monorepo() {
-        installs_from_the_monorepo(
-            "apps/honeycrisp",
-            "so.epicenter.honeycrisp",
-            "Honeycrisp",
-            "notes",
-        );
+        installs_from_the_monorepo("apps/honeycrisp", "so.epicenter.honeycrisp", "Honeycrisp");
     }
 }
