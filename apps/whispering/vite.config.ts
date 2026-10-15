@@ -30,6 +30,13 @@ export default defineConfig(
 				{ find: 'buffer', replacement: dirname(fromFolder.resolve('buffer/')) },
 			],
 		},
+		// Epicenter's installed build prerenders every page
+		// (`src/routes/+layout.ts`).
+		define: {
+			'import.meta.env.EPICENTER_HOST': JSON.stringify(
+				process.env.EPICENTER_HOST === '1' ? '1' : '',
+			),
+		},
 		server: { host: '127.0.0.1' },
 		optimizeDeps: { include: ['buffer'] },
 	}),

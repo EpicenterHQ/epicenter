@@ -357,6 +357,7 @@ export async function openTestWorkspace({
 			return Ok({ text: `Transformed: ${request.input.trim()}` });
 		},
 		transformNote: 'test',
+		localTranscription: undefined,
 		connections: device.member,
 		preferences: {
 			microphone: async () => undefined,

@@ -94,11 +94,11 @@ the host's folder root: the shell locks that directory and grants it to the
 window, and the page
 opens it with `@epicenter/folder`'s file storage through the folder plugin's
 commands and keeps its history with the system `git`, which the shell runs for it. Capture
-opens its folder the same way. `bun dev:todos` starts the browser build
+and Whispering open their folders the same way. `bun dev:todos` starts the browser build
 instead, with the folder in the browser's origin private file system.
 
-Whispering is a standalone desktop app over a folder; see its
-[README](whispering/README.md). Honeycrisp's [README](honeycrisp/README.md)
+Whispering is an installed app in Epicenter, and a browser build, over a
+folder; see its [README](whispering/README.md). Honeycrisp's [README](honeycrisp/README.md)
 explains its standalone Tauri shell, native Markdown folder, and local editing
 drafts. Vocab keeps words and chats in a browser folder and its inference in
 `@epicenter/ai`. Epicenter owns the desktop host and Home session for

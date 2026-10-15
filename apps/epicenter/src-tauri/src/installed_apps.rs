@@ -2003,4 +2003,15 @@ mod tests {
             "captures",
         );
     }
+
+    #[test]
+    #[ignore = "builds Whispering from the monorepo named by EPICENTER_MONOREPO"]
+    fn installs_whispering_from_its_folder_in_the_monorepo() {
+        installs_from_the_monorepo(
+            "apps/whispering",
+            "so.epicenter.whispering",
+            "Whispering",
+            "recordings",
+        );
+    }
 }

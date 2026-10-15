@@ -1,0 +1,7 @@
+{
+	"id": "so.epicenter.whispering",
+	"title": "Whispering",
+	"opens": "shape.json",
+	"build": "bun run build:installed",
+	"output": "dist"
+}

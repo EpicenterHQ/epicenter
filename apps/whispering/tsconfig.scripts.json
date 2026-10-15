@@ -1,0 +1,9 @@
+{
+	// Bun entrypoints: the script that writes `shape.json`.
+	"extends": "../../tsconfig.dom.json",
+	"compilerOptions": {
+		"types": ["bun"],
+		"noEmit": true
+	},
+	"include": ["scripts/**/*.ts"]
+}

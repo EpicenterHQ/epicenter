@@ -39,11 +39,11 @@ Epicenter is a monorepo containing multiple applications. The main application r
 3. **Start development from the repository root**
 
    ```bash
-   # Run the Whispering desktop app (needs Rust)
-   bun dev:whispering
+   # Run the Epicenter desktop app (needs Rust)
+   bun dev:epicenter
 
-   # Or run its page alone in a browser tab
-   bun dev:whispering:ui
+   # Or run Whispering's page alone in a browser tab
+   bun dev:whispering
    ```
 
 That's it! You're ready to start contributing.
@@ -179,8 +179,7 @@ No package is published to npm: every package and app is `private: true`.
 
 ### App deployments
 
-- **Whispering (desktop)**: A standalone Tauri app. `bun build:whispering` produces a local bundle; there is no release workflow for it yet.
-- **Epicenter (desktop)**: Epicenter owns native packaging for the trusted desktop apps it hosts.
+- **Epicenter (desktop)**: Epicenter owns native packaging. Apps, Whispering included, are installed into it from their folders (ADR-0552); there is no release workflow for it yet.
 - **Other web apps (Cloudflare Workers)**: Merge to `main`. `deploy.cloudflare.yml` deploys automatically.
 
 See [`.github/workflows/README.md`](.github/workflows/README.md) for the full workflow reference.

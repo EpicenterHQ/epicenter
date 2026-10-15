@@ -161,7 +161,8 @@ starting: a prior session may already have completed it.
   the restriction.
 - Manual inspection: Start from the repository root with
   `bun dev:whispering:ui` and open the printed URL yourself. For native
-  inspection, run `WHISPERING_DATA_ROOT=/tmp/whispering-ui-acceptance-20261002 bun dev:whispering`. Use disposable recording history and
+  inspection, install Whispering in `bun dev:epicenter` (`EPICENTER_FOLDER_DIR`
+  names a disposable folder root). Use disposable recording history and
   a test endpoint for bulk transcription.
 
   1. On Recordings, search words from an older transcript and check the
