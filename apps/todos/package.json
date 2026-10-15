@@ -4,6 +4,9 @@
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
+	"exports": {
+		"./definition": "./src/lib/definition.ts"
+	},
 	"imports": {
 		"#platform/auth": {
 			"epicenter-host": "./src/lib/platform/auth.epicenter-host.ts",

@@ -124,19 +124,19 @@ impl BuiltInApp {
         Self::Folders,
     ];
 
-    /// Whether Home lists this app as one a person can open (ADR-0189).
+    /// Whether `launch_application` opens this app's window (ADR-0189).
     ///
     /// Every variant here is an app in the product model; this says only which
-    /// ones Home offers. Folders is the host's own window over every data
-    /// folder under the folder root (`data_folders`). Home is absent because
-    /// you are already looking at it, not because it is above the others
-    /// (ADR-0209). Mail and Books are
-    /// release-bundled placeholder documents with nothing behind them to open.
-    /// Honeycrisp now ships its own desktop shell, outside this host.
+    /// ones a person can open from a window. The Folders window opens Todos and
+    /// Capture from their folders, every other app from its Apps list, and
+    /// Settings (the `home` window) from its Settings button (ADR-0537).
+    /// Settings opens Whispering once local transcription is ready. Mail and
+    /// Books are release-bundled placeholder documents with nothing behind them
+    /// to open. Honeycrisp now ships its own desktop shell, outside this host.
     const fn is_launchable(self) -> bool {
         matches!(
             self,
-            Self::Whispering | Self::Capture | Self::Todos | Self::Folders
+            Self::Home | Self::Whispering | Self::Capture | Self::Todos | Self::Folders
         )
     }
 
@@ -168,7 +168,7 @@ impl BuiltInApp {
 
     const fn title(self) -> &'static str {
         match self {
-            Self::Home => "Epicenter: Home",
+            Self::Home => "Epicenter: Settings",
             Self::Whispering => "Epicenter: Whispering",
             Self::Honeycrisp => "Epicenter: Honeycrisp",
             Self::Capture => "Epicenter: Capture",
@@ -547,9 +547,9 @@ fn take_pending_home_section(app: DesktopAppHandle) -> Option<HomeSection> {
     app.state::<HostState>().take_home_section()
 }
 
-/// Launch one application Home lists: reveal and focus its window, creating it
-/// the first time. Calling again focuses rather than duplicating, and Home is
-/// never hidden to do it.
+/// Launch one application the Folders window or Settings offers: reveal and
+/// focus its window, creating it the first time. Calling again focuses rather
+/// than duplicating, and the window that asked is never hidden to do it.
 ///
 /// Windows are deliberate (ADR-0209). One window that switched between
 /// applications would union every capability file onto one label, because a
@@ -557,14 +557,14 @@ fn take_pending_home_section(app: DesktopAppHandle) -> Option<HomeSection> {
 /// `home`, `whispering`, and `capture` meaning different things. From here the
 /// OS is the switcher.
 ///
-/// This is Home's verb, not an app-facing one: no application may use it to
-/// reveal another.
+/// This is the verb of the `folders` and `home` windows, not an app-facing
+/// one: no application may use it to reveal another.
 ///
 /// # Who decides an ID is real
 ///
 /// The compiled app table. `parse_application_id` resolves the ID against it
-/// and refuses anything Home does not offer, so a page cannot name a window
-/// the release does not ship.
+/// and refuses anything no window offers, so a page cannot name a window the
+/// release does not ship.
 ///
 /// # Why it waits
 ///
@@ -581,7 +581,7 @@ fn launch_application(
     app_id: String,
 ) -> std::result::Result<(), String> {
     let Some(built_in) = parse_application_id(&app_id) else {
-        return Err(format!("app id must name an application Home offers: {app_id}"));
+        return Err(format!("app id must name an application Epicenter offers: {app_id}"));
     };
     // Unlike the tray, deep links, and startup, a user-invoked launch does not
     // queue itself for a future host generation: the person is waiting, and a
@@ -624,9 +624,9 @@ fn launch_on_main_thread(
         .context("the main thread stopped before opening the window")?
 }
 
-/// Resolve an ID to a compiled application Home offers. A reserved built-in app
-/// Home does not offer (Home itself, a placeholder) and an ID no compiled app
-/// has are the same refusal, because Home offers neither.
+/// Resolve an ID to a compiled application a window offers. A placeholder and
+/// an ID no compiled app has are the same refusal, because no window offers
+/// either.
 fn parse_application_id(id: &str) -> Option<BuiltInApp> {
     BuiltInApp::from_id(id).filter(|built_in| built_in.is_launchable())
 }
@@ -786,8 +786,9 @@ pub fn run() {
                     }
                 }
             }
+            // Epicenter opens to the person's folders (ADR-0537).
             if !opened_window {
-                request_window(app.handle(), BuiltInApp::Home);
+                request_window(app.handle(), BuiltInApp::Folders);
             }
             request_start(app.handle().clone(), None);
             Ok(())
@@ -795,7 +796,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build Epicenter")
         .run(|app, event| match event {
-            RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Home),
+            RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Folders),
             RunEvent::ExitRequested { api, code, .. } if prevents_exit(app, code) => {
                 api.prevent_exit();
             }
@@ -815,7 +816,7 @@ fn open_forwarded_deep_links(app: &DesktopAppHandle, arguments: &[String]) {
         }
     }
     if built_ins.is_empty() {
-        request_window(app, BuiltInApp::Home);
+        request_window(app, BuiltInApp::Folders);
     } else {
         for built_in in built_ins {
             request_window(app, built_in);
@@ -892,7 +893,7 @@ fn queue_or_send_auth_callback(app: &DesktopAppHandle, url: String) {
 /// and log rather than report what the main thread makes of it.
 ///
 /// That is right for the callers that have nobody to answer to (startup, the
-/// tray, a deep link, macOS reopen, an app asking for a section of Home). It is
+/// tray, a deep link, macOS reopen, an app asking for a section of Settings). It is
 /// wrong for `launch_application`, where a person clicked and is owed an
 /// outcome, so that command waits on the main thread instead.
 fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
@@ -945,20 +946,27 @@ fn handle_menu_event(app: &DesktopAppHandle, id: &str) {
     }
 }
 
-/// Resolve `epicenter://app/<id>` to the built-in app it names.
+/// Resolve `epicenter://app/<id>` to the built-in app it names, and a bare
+/// `epicenter://` to the Folders window, which is what opening Epicenter shows
+/// (ADR-0537).
 ///
-/// The segment is `app` because it is the same ID space as `/apps/<id>/` and
-/// the list Home shows: a person pasting a link names the thing they want, not
-/// the frame it arrives in. `epicenter://auth/...` stays disjoint by segment.
+/// The segment is `app` because it is the same ID space as `/apps/<id>/`: a
+/// person pasting a link names the thing they want, not the frame it arrives
+/// in. `epicenter://auth/...` stays disjoint by segment.
 fn parse_app_deep_link(url: &tauri::Url) -> Option<BuiltInApp> {
     if url.scheme() != "epicenter"
-        || url.host_str() != Some("app")
         || !url.username().is_empty()
         || url.password().is_some()
         || url.port().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
     {
+        return None;
+    }
+    if url.host_str().unwrap_or_default().is_empty() && matches!(url.path(), "" | "/") {
+        return Some(BuiltInApp::Folders);
+    }
+    if url.host_str() != Some("app") {
         return None;
     }
 
@@ -1079,7 +1087,7 @@ fn start_once(app: &DesktopAppHandle) -> Result<()> {
     state.activate(&token);
     let mut built_ins = state.take_pending_apps();
     if built_ins.is_empty() {
-        built_ins.push(BuiltInApp::Home);
+        built_ins.push(BuiltInApp::Folders);
     }
     if let Err(error) = create_windows_on_main_thread(app, port, &token, built_ins) {
         state.deactivate();
@@ -2187,7 +2195,7 @@ mod tests {
         assert_eq!(
             actual,
             [
-                ("home", "/apps/home/", "Epicenter: Home"),
+                ("home", "/apps/home/", "Epicenter: Settings"),
                 ("whispering", "/apps/whispering/", "Epicenter: Whispering"),
                 ("honeycrisp", "/apps/honeycrisp/", "Epicenter: Honeycrisp"),
                 ("capture", "/apps/capture/", "Epicenter: Capture"),
@@ -2199,10 +2207,11 @@ mod tests {
         );
     }
 
-    /// Home lists exactly the applications this table calls launchable, so the
-    /// two must not drift: an ID Home can show has to be one this verb opens,
-    /// and an ID it cannot show has to be one this verb refuses. The Bun side
-    /// asserts the same list against `applications.ts`.
+    /// The Folders window lists exactly the compiled applications this table
+    /// calls launchable, plus Settings behind its own button, so the two must
+    /// not drift: an ID a window can show has to be one this verb opens, and an
+    /// ID it cannot show has to be one this verb refuses. The Bun side asserts
+    /// the same list against `applications.ts`.
     #[test]
     fn compiled_applications_are_the_release_built_spas() {
         let launchable: Vec<&str> = BuiltInApp::ALL
@@ -2210,11 +2219,12 @@ mod tests {
             .filter(|window| window.is_launchable())
             .map(BuiltInApp::id)
             .collect();
-        assert_eq!(launchable, ["whispering", "capture", "todos", "folders"]);
+        assert_eq!(launchable, ["home", "whispering", "capture", "todos", "folders"]);
     }
 
     #[test]
-    fn launch_opens_only_the_compiled_applications_home_offers() {
+    fn launch_opens_only_what_a_window_offers() {
+        assert_eq!(parse_application_id("home"), Some(BuiltInApp::Home));
         assert_eq!(parse_application_id("whispering"), Some(BuiltInApp::Whispering));
         assert_eq!(parse_application_id("capture"), Some(BuiltInApp::Capture));
         assert_eq!(parse_application_id("todos"), Some(BuiltInApp::Todos));
@@ -2227,9 +2237,7 @@ mod tests {
             "../whispering",
             // Honeycrisp ships its own shell; its old host id stays unused.
             "honeycrisp",
-            // Reserved windows Home does not list: the shell itself, and
-            // placeholder documents with nothing behind them to open.
-            "home",
+            // Placeholder documents with nothing behind them to open.
             "mail",
             "books",
             // No compiled app has this id.
@@ -2393,8 +2401,8 @@ mod tests {
             include_str!("../capabilities/trusted-app-windows-production.json"),
             include_str!("../capabilities/departure-development.json"),
             include_str!("../capabilities/departure-production.json"),
-            include_str!("../capabilities/home-launch-application-development.json"),
-            include_str!("../capabilities/home-launch-application-production.json"),
+            include_str!("../capabilities/launch-application-development.json"),
+            include_str!("../capabilities/launch-application-production.json"),
             include_str!("../capabilities/folders-development.json"),
             include_str!("../capabilities/folders-production.json"),
         ] {
@@ -2652,26 +2660,26 @@ mod tests {
         assert_ne!(production["identifier"], development["identifier"]);
     }
 
-    /// Home lists what can be launched, so Home is the window that launches it
-    /// (ADR-0189). Granting the verb more widely would let an application open
-    /// another application without the user ever choosing it, which is a
-    /// product decision nobody made.
+    /// The Folders window lists what can be launched, and Settings offers
+    /// Whispering once local transcription is ready, so those two windows are
+    /// the ones that launch (ADR-0189, ADR-0537). Granting the verb more widely
+    /// would let an application open another application without the user ever
+    /// choosing it, which is a product decision nobody made.
     #[test]
-    fn only_home_can_launch_an_application() {
+    fn only_the_folders_window_and_settings_can_launch_an_application() {
         for encoded in [
-            include_str!("../capabilities/home-launch-application-development.json"),
-            include_str!("../capabilities/home-launch-application-production.json"),
+            include_str!("../capabilities/launch-application-development.json"),
+            include_str!("../capabilities/launch-application-production.json"),
         ] {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             assert_eq!(
                 capability["windows"],
-                serde_json::json!(["home"]),
-                "the launch verb belongs to the Home window alone"
+                serde_json::json!(["folders", "home"]),
+                "the launch verb belongs to the Folders window and Settings alone"
             );
             assert_eq!(
                 capability["permissions"],
                 serde_json::json!(["allow-launch-application"]),
-                "Home's Apps pane launches"
             );
         }
     }
@@ -2704,8 +2712,8 @@ mod tests {
             include_str!("../capabilities/trusted-whispering-native-production.json"),
             include_str!("../capabilities/home-model-administration-development.json"),
             include_str!("../capabilities/home-model-administration-production.json"),
-            include_str!("../capabilities/home-launch-application-development.json"),
-            include_str!("../capabilities/home-launch-application-production.json"),
+            include_str!("../capabilities/launch-application-development.json"),
+            include_str!("../capabilities/launch-application-production.json"),
             include_str!("../capabilities/capture-folder-development.json"),
             include_str!("../capabilities/capture-folder-production.json"),
             include_str!("../capabilities/todos-folder-development.json"),
@@ -2770,9 +2778,10 @@ mod tests {
         assert!(config["plugins"].get("fs").is_none(), "no fs plugin is installed");
     }
 
-    /// The Folders window holds the folder plugin and its own listing, and
-    /// nothing else: it reaches folders only through scopes the listing
-    /// registered or permitted it into.
+    /// The Folders window holds the folder plugin and its own listing, beside
+    /// the launch verb it shares with Settings, and nothing else: it reaches
+    /// folders only through scopes the listing registered or permitted it into,
+    /// and it administers no model.
     #[test]
     fn the_folders_window_holds_the_folder_plugin_and_its_listing() {
         for encoded in [
@@ -2794,8 +2803,8 @@ mod tests {
             include_str!("../capabilities/trusted-whispering-native-production.json"),
             include_str!("../capabilities/home-model-administration-development.json"),
             include_str!("../capabilities/home-model-administration-production.json"),
-            include_str!("../capabilities/home-launch-application-development.json"),
-            include_str!("../capabilities/home-launch-application-production.json"),
+            include_str!("../capabilities/launch-application-development.json"),
+            include_str!("../capabilities/launch-application-production.json"),
             include_str!("../capabilities/capture-folder-development.json"),
             include_str!("../capabilities/capture-folder-production.json"),
             include_str!("../capabilities/todos-folder-development.json"),
@@ -2810,7 +2819,7 @@ mod tests {
         }
     }
 
-    /// Home's launch verb reveals any compiled window, which is exactly why no
+    /// The launch verb reveals any compiled window, which is exactly why no
     /// app window may hold it: one application must not be able to reveal
     /// another.
     #[test]
@@ -2834,6 +2843,9 @@ mod tests {
             ("epicenter://app/todos", BuiltInApp::Todos),
             ("epicenter://app/books", BuiltInApp::Books),
             ("epicenter://app/folders", BuiltInApp::Folders),
+            // A link without a path opens what launching Epicenter opens.
+            ("epicenter://", BuiltInApp::Folders),
+            ("epicenter:///", BuiltInApp::Folders),
         ] {
             assert_eq!(parse_app_deep_link(&url.parse().unwrap()), Some(expected));
         }
@@ -2850,6 +2862,8 @@ mod tests {
             "epicenter://user@app/home",
             "epicenter://user:secret@app/home",
             "epicenter://other/query",
+            "epicenter://?mode=other",
+            "epicenter:///home",
             "https://app/home",
         ] {
             assert_eq!(parse_app_deep_link(&denied.parse().unwrap()), None);
@@ -3023,11 +3037,12 @@ mod tests {
             "epicenter://app/unknown",
             "epicenter://app/mail",
             "epicenter://app/books",
+            "epicenter://",
         ]
         .map(String::from);
         assert_eq!(
             apps_from_arguments(&arguments),
-            vec![BuiltInApp::Mail, BuiltInApp::Books]
+            vec![BuiltInApp::Mail, BuiltInApp::Books, BuiltInApp::Folders]
         );
     }
 

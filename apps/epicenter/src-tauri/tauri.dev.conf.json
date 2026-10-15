@@ -6,7 +6,7 @@
 		"security": {
 			"capabilities": [
 				"home-model-administration-development",
-				"home-launch-application-development",
+				"launch-application-development",
 				"trusted-app-windows-development",
 				"trusted-whispering-native-development",
 				"trusted-whispering-overlay-development",

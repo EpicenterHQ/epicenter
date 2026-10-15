@@ -40,7 +40,8 @@ pub struct GlobalShortcutRegistry(Mutex<Vec<GlobalShortcutRegistration>>);
 
 pub fn create_tray(app: &DesktopAppHandle) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
-        .text("show-home", "Show Home")
+        .text("show-folders", "Show Folders")
+        .text("show-settings", "Show Settings")
         .text("show-whispering", "Show Whispering")
         .separator()
         .text("quit", "Quit Epicenter")
@@ -52,7 +53,8 @@ pub fn create_tray(app: &DesktopAppHandle) -> tauri::Result<()> {
         .tooltip("Epicenter")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "show-home" => request_window(app, BuiltInApp::Home),
+            "show-folders" => request_window(app, BuiltInApp::Folders),
+            "show-settings" => request_window(app, BuiltInApp::Home),
             "show-whispering" => request_window(app, BuiltInApp::Whispering),
             "quit" => app.exit(0),
             _ => {}

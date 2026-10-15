@@ -111,7 +111,7 @@ impl ModelCache {
             return Err(Unavailable {
                 reason: UnavailableReason::NoActiveModel,
                 message: "No local transcription model is active on this device. \
-                          Choose one in Epicenter Home."
+                          Choose one in Epicenter Settings."
                     .to_string(),
             });
         };
@@ -127,7 +127,7 @@ impl ModelCache {
             _ => Err(Unavailable {
                 reason: UnavailableReason::ActiveModelUnavailable,
                 message: "The active local transcription model is not available on this \
-                          device. Open Epicenter Home to download it or choose another."
+                          device. Open Epicenter Settings to download it or choose another."
                     .to_string(),
             }),
         }
@@ -664,7 +664,7 @@ mod tests {
         let (reason, message) = unavailable_of(&cache_with("none", None).readiness());
         assert_eq!(reason, UnavailableReason::NoActiveModel);
         assert!(
-            message.contains("Epicenter Home"),
+            message.contains("Epicenter Settings"),
             "the message must name the one place that can fix it: {message}"
         );
     }

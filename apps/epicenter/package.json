@@ -37,6 +37,7 @@
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/blobs": "workspace:*",
+		"@epicenter/capture": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/matter-core": "workspace:*",

@@ -3,7 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-10-15
 - **Amends:** [ADR-0209](0209-epicenter-is-the-raw-view-beside-its-applications-not-a-shell-above-them.md): its raw view, deleted when the host stopped owning application data ([ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md)), returns as the Folders window, and Epicenter opens to it instead of to Home's Apps pane.
-- **Unbuilt:** opening to the Folders window; the "Open in" buttons; renaming Home to Settings and removing its Apps pane.
+- **Built:** opening to the Folders window from launch, the Dock, the tray, and a bare `epicenter://`; "Open in" for the built-in apps on their own folders and the Apps list for every other app (`apps/epicenter/src/folders/openers.ts`); Settings as the person-facing name of the `home` window, without its Apps pane; `/api/apps` and `Applications.svelte` deleted.
+- **Unbuilt:** "Open in" on a folder other than the app's own, which waits on an app opening the folder it is handed at launch ([ADR-0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md)).
 
 ## Context
 
@@ -32,8 +33,10 @@ folder's name opens it in the grid in place.
 and loses its Apps pane. It is opened from the Folders window and the tray, and
 keeps model administration ([ADR-0180](0180-epicenter-has-one-host-owned-active-local-transcription-model.md)),
 which the Folders window does not hold. The two windows keep separate
-capabilities: `folders` holds folder access, `home` holds model administration
-and launching.
+capabilities: `folders` holds folder access, `home` holds model administration,
+and both hold launching (`launch_application`), the Folders window for its
+apps and Settings, Settings for the Whispering shortcut it shows once local
+transcription is ready.
 
 **An app without a folder is listed under "Apps" in the Folders window.**
 

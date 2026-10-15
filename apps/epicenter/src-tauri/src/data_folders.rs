@@ -21,8 +21,10 @@
 //! A folder whose scope cannot be permitted or registered is left out of the
 //! listing and logged; the others are still listed.
 //!
-//! The reply carries scope IDs and titles, never paths. The page still learns
-//! a folder's root from the plugin's grant, as every folder page does today.
+//! The reply carries scope IDs, titles, and each folder's declaration text,
+//! never paths. The page still learns a folder's root from the plugin's
+//! grant, as every folder page does today, and reads the declaration to offer
+//! the apps whose shape it contains (ADR-0538) without opening every folder.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -100,6 +102,9 @@ pub struct DataFolder {
     pub title: String,
     /// The application whose window edits this folder too, if any.
     pub app: Option<String>,
+    /// The text of `epicenter.json`, or `None` when it is not UTF-8 text the
+    /// shell could read. The page parses it; the shell does not judge it.
+    pub declaration: Option<String>,
 }
 
 /// The scopes this run registered for folders no application owns, by
@@ -151,7 +156,11 @@ fn list_in(
         if !fs::symlink_metadata(&declaration).is_ok_and(|stats| stats.is_file()) {
             continue;
         }
-        let title = declared_title(&declaration).unwrap_or_else(|| name.clone());
+        let declaration = fs::read_to_string(&declaration).ok();
+        let title = declaration
+            .as_deref()
+            .and_then(declared_title)
+            .unwrap_or_else(|| name.clone());
 
         if let Some(owned) = APPLICATION_FOLDERS
             .iter()
@@ -165,6 +174,7 @@ fn list_in(
                 id: owned.scope.to_string(),
                 title,
                 app: Some(owned.app.id().to_string()),
+                declaration,
             });
             continue;
         }
@@ -197,16 +207,16 @@ fn list_in(
             id,
             title,
             app: None,
+            declaration,
         });
     }
     listed.sort_by_cached_key(|folder| (folder.title.to_lowercase(), folder.id.clone()));
     Ok(listed)
 }
 
-/// `epicenter.json`'s `title`, when the file parses and it is a string.
-fn declared_title(declaration: &Path) -> Option<String> {
-    let text = fs::read_to_string(declaration).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+/// `epicenter.json`'s `title`, when the text parses and it is a string.
+fn declared_title(text: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
     value.get("title")?.as_str().map(str::to_string)
 }
 
@@ -361,6 +371,7 @@ mod tests {
                 id: "data:vault".into(),
                 title: "vault".into(),
                 app: None,
+                declaration: Some("{}".into()),
             }]
         );
     }
@@ -409,6 +420,7 @@ mod tests {
                 id: "so.epicenter.todos".into(),
                 title: "Todos".into(),
                 app: Some("todos".into()),
+                declaration: Some(r#"{ "title": "Todos" }"#.into()),
             }]
         );
         // Listing again permits again, which changes nothing.
@@ -509,6 +521,29 @@ mod tests {
         let id = fixture.list().remove(0).id;
         assert_eq!(granted_names(&folders, &id), ["epicenter.json"]);
         assert!(invoke(&todos, "grant_directory", json!({ "scope": id })).is_err());
+    }
+
+    #[test]
+    fn the_reply_carries_the_declaration_text_the_page_matches_against() {
+        let fixture = fixture("declaration");
+        let declared = r#"{ "kv": {}, "tables": { "todos": { "type": "object" } } }"#;
+        data_folder(&fixture, "list", declared);
+        let unreadable = fixture.folder_dir.join("binary");
+        fs::create_dir_all(&unreadable).unwrap();
+        fs::write(unreadable.join(DECLARATION), [0xff, 0xfe, 0x00]).unwrap();
+
+        let declarations: Vec<(String, Option<String>)> = fixture
+            .list()
+            .into_iter()
+            .map(|folder| (folder.title, folder.declaration))
+            .collect();
+        assert_eq!(
+            declarations,
+            [
+                ("binary".into(), None),
+                ("list".into(), Some(declared.into())),
+            ]
+        );
     }
 
     #[test]

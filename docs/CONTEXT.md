@@ -28,11 +28,13 @@ shapes, see `docs/adr/`.
 - **Replica**: one complete local or server copy of an Epicenter. A native
   installation, browser origin, OS profile, or server actor may impose its own
   physical replica, but that adapter boundary is not a product data owner.
-- **Epicenter Home**: an application beside the other typed surfaces, not a shell
-  above them (ADR-0209, amended by ADR-0226). It owns the launchable list,
-  assistant sessions, commands and approvals. The applications are the crafted
-  views over their own data, the OS is the launcher and switcher, and closing
-  Home leaves them running.
+- **Epicenter Home**: the window labelled `home`, shown to people as Settings
+  since ADR-0537: an application beside the other typed surfaces, not a shell
+  above them (ADR-0209, amended by ADR-0226). It owns assistant sessions,
+  commands, approvals, and local model administration. The launchable list
+  moved to the Folders window, which Epicenter opens to. The applications are
+  the crafted views over their own data, the OS is the launcher and switcher,
+  and closing either window leaves them running.
 - **Host**: the Bun process that serves an application's bundle and brokers
   credentials for it. It owns no application data and constructs no database
   (ADR-0226), so every build opens its own folder and there is no platform seam

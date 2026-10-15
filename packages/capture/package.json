@@ -5,6 +5,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./definition": "./src/definition.ts",
 		"./legacy": "./src/legacy/index.ts"
 	},
 	"license": "AGPL-3.0-or-later",

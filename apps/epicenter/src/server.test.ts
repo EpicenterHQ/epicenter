@@ -51,7 +51,6 @@ import { createHomeHost, type HomeHost, type HomeHostInputs } from './host.ts';
 import { PLACEHOLDER_PAGES } from './placeholder-pages.ts';
 import {
 	ACCOUNT_SIGN_OUT_ROUTE,
-	APPLICATIONS_ROUTE,
 	BOOKS_ROUTE,
 	BOOTSTRAP_ROUTE,
 	BUILT_IN_ROUTES,
@@ -1893,13 +1892,6 @@ describe('sidecar end-to-end smoke', () => {
 			expect(cookie).toBeDefined();
 			// Startup paths win even when the child environment names other roots.
 			const headers = { cookie: cookie ?? '', origin };
-			const applications = await fetch(APPLICATIONS_ROUTE.url(origin), {
-				headers,
-			});
-			expect(applications.status).toBe(200);
-			expect((await applications.json()).apps).toEqual(
-				COMPILED_APPLICATIONS.map(({ id, title }) => ({ id, title })),
-			);
 			const whispering = await fetch(WHISPERING_ROUTE.url(origin), {
 				headers,
 			});

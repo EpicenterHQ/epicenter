@@ -121,6 +121,7 @@
         "@epicenter/agent": "workspace:*",
         "@epicenter/auth": "workspace:*",
         "@epicenter/blobs": "workspace:*",
+        "@epicenter/capture": "workspace:*",
         "@epicenter/client": "workspace:*",
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
