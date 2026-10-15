@@ -11,8 +11,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { ClientMetadataResourceFetch } from '@better-auth/oauth-provider';
-import { every } from 'hono/combine';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { every } from 'hono/combine';
 import type { Client } from 'pg';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';

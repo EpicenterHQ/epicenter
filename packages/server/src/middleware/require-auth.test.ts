@@ -97,9 +97,9 @@ test('another origin is refused even when the browser sends the cookie', async (
 		(await request({ cookie: alice.cookie, origin: 'http://localhost:5173' }))
 			.status,
 	).toBe(403);
-	expect((await request({ cookie: alice.cookie, origin: baseURL })).status).toBe(
-		200,
-	);
+	expect(
+		(await request({ cookie: alice.cookie, origin: baseURL })).status,
+	).toBe(200);
 });
 
 test('a revoked session is refused while another stays usable', async () => {
@@ -122,8 +122,12 @@ test('a database read failure is a 503, not a refused credential', async () => {
 test('a page that names another account than the cookie is refused', async () => {
 	const { alice, bob, request } = await setup();
 	expect(
-		(await request({ cookie: alice.cookie, 'x-epicenter-principal': bob.user.id }))
-			.status,
+		(
+			await request({
+				cookie: alice.cookie,
+				'x-epicenter-principal': bob.user.id,
+			})
+		).status,
 	).toBe(403);
 	expect(
 		(

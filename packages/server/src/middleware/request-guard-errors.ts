@@ -33,8 +33,7 @@ export const RequestGuardError = defineErrors({
 		status: 403 as const,
 	}),
 	PrincipalMismatch: () => ({
-		message:
-			'The signed-in account is not the one this page was opened for.',
+		message: 'The signed-in account is not the one this page was opened for.',
 		status: 403 as const,
 	}),
 	MissingNodeId: () => ({

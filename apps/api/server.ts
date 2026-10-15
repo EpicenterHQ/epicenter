@@ -149,7 +149,6 @@ export async function startBunApiServer(
 		resolveTrustedOrigins: buildEpicenterTrustedOrigins,
 	});
 
-
 	const serveAuthUiShell = () =>
 		new Response(
 			'Hosted auth UI is served by the SvelteKit app in Bun dev. Use `bun run --cwd apps/api/ui dev` for browser auth surfaces, or `bun run --cwd apps/api dev` for the Worker asset shell.',

@@ -55,12 +55,7 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 	app.on(['GET', 'POST'], '/api/protected', setup, (c) => c.text('secret'));
 	// Registered after all relational routes, just like the Worker dashboard.
 	app.get('/dashboard', (c) => c.html('<html>Dashboard</html>'));
-	for (const path of [
-		'/sign-in',
-		'/consent',
-		'/device',
-		'/dashboard',
-	]) {
+	for (const path of ['/sign-in', '/consent', '/device', '/dashboard']) {
 		const response = await app.request(path, { headers: { origin } });
 		expect(response.status).toBe(200);
 		expect(response.headers.get('content-type')).toContain('text/html');
