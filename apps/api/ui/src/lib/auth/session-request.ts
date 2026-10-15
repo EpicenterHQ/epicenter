@@ -31,3 +31,17 @@ export function readSessionRequest(search: string) {
 		reauthenticate: params.get('reauth') === '1',
 	};
 }
+
+/**
+ * A same-origin page to return to after sign-in. Only the device approval
+ * page asks, so only its path is accepted: anything else could steer a
+ * signed-in browser to an arbitrary page.
+ */
+export function readReturnPath(search: string) {
+	const value = new URLSearchParams(search).get('return');
+	if (!value) return null;
+	const url = new URL(value, 'https://origin.invalid');
+	if (url.origin !== 'https://origin.invalid' || url.pathname !== '/device')
+		return null;
+	return url.pathname + url.search;
+}
