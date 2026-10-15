@@ -162,8 +162,9 @@ the header rides isomorphic-git's request with no cookies and no redirects. In
 Bun and on the desktop it reaches `git` through Git's environment, never its
 arguments: `http.<url>.extraHeader`, `http.followRedirects` and
 `http.<url>.followRedirects` false, so no repository or global setting turns
-redirects back on, and no credential helper. The desktop shell passes it only
-for a push or fetch to the folder's own `https` origin. Without one, `git`
+redirects back on, and no credential helper. Neither host sends it to a URL
+that is not `https`, and the desktop shell passes it only for a push or fetch
+to the folder's own `https` origin. Without one, `git`
 uses the person's own credential helper or SSH key.
 
 `browser` applies to a browser folder only. A browser folder uses a local
@@ -395,9 +396,10 @@ lock per root, which every window's changes share, so a save that carries
 what it read (a hash, or a create) and that another window landed after
 this page checked is `Conflict`, or `Exists` for a create, never
 `Unconfirmed`. An `overwrite` is last-writer-wins by contract: it replaces
-whatever is there. `directory-node.ts` checks it too, as a separate step
-before the change: a Bun script is the one writer the shell does not
-serialize. A change whose reply is lost may have happened: a
+whatever is there. In Bun, `directory-node.ts` makes the same check as a
+separate step before the change, and `bun.ts` holds the folder's save lock
+across both, the lock the shell takes around its own (below). A change whose
+reply is lost may have happened: a
 removal is done if the path is then gone and `Unconfirmed` if it is still
 there, and a write is `Unconfirmed`. Objects
 are stored with `git hash-object -w` through the host (`ObjectStore` in
@@ -407,7 +409,10 @@ written by hand.
 History is the native Git backend (`git/native-backend.ts`), the one a Bun
 directory folder uses. It reaches the machine only through a host: a `git`
 runner and the same directory primitives (`git/native-host.ts` in Bun,
-`tauri-git.ts` on desktop). So the folder shares the repository with every
+`tauri-git.ts` on desktop). Both runners run every command with no hook and
+no fsmonitor, whatever the repository configures: `core.hooksPath` names
+`.git/epicenter/no-hooks`, which must be a real, empty directory, and
+`core.fsmonitor` is off. So the folder shares the repository with every
 other Git program the way Git programs share one: index and ref changes go
 through `git`, a branch moves only by `update-ref` from the commit it was
 read at, and Git's configuration, packed refs, and garbage collection are
@@ -422,11 +427,12 @@ check it has instead:
 | Host | Save | Commit | First commit, staging, or remote |
 | --- | --- | --- | --- |
 | Desktop page | The shell's checked rename | Git's lock files and the branch's compare-and-swap | `git init`, run again if another opener raced it |
-| Bun | Checked just before the rename, not atomically; saves within one process take turns, saves from separate processes do not | Git's lock files and the branch's compare-and-swap | The same |
+| Bun | Checked just before the rename, under the folder's save lock, which saves from this process, other Bun processes, and the desktop shell take in turn | Git's lock files and the branch's compare-and-swap | The same |
 | Browser (OPFS) | The files Web Lock | The Git Web Lock, under which the branch is read, compared, and written | The open Web Lock |
 
 Each handle orders its own index and branch work. Two windows or scripts on
-one directory do not wait for each other: a save that another one overtook
+one directory wait for each other only across one save's check and rename: a
+save that another one overtook
 where its host checks it merges with theirs and writes again
 ([Saving a row](#saving-a-row)), and a commit whose branch the other moved
 retries ([History](#history)). How a page hears what changed is
@@ -486,10 +492,19 @@ process reaches the disk itself, with `node:fs` and its own `git`. It opens
 the same directory folder a desktop page does (`openDirectoryFolder`), so files
 are replaced the same way: a staged copy under `.git/epicenter/scratch` is
 renamed over the file. Saves to one directory take turns within the process,
-across every handle it opens, so two concurrent saves of one file from one
-script cannot both pass the check. Across processes nothing waits: a script
-and an open desktop window on one directory meet only at the checks above
-and Git's lock files. It does not watch the directory, so `onFilesChanged`
+across every handle it opens, and with other processes: each check and
+rename holds the folder's save lock, an exclusive SQLite transaction on
+`.<directory>.epicenter-save-lock` beside the directory, which the desktop
+shell takes around its own checked renames
+([ADR-0556](../../docs/adr/0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md)).
+So two concurrent saves of one file, from one script, two scripts, or a
+script and an open desktop window, cannot both pass the check; the second is
+`Conflict` and merges as any overtaken save does. A save waits up to ten
+seconds for another process's, then fails and changes nothing. The system
+releases the lock when its process ends, however it ends; it is unreliable on
+some network filesystems, and a directory with no parent, such as `/`, cannot
+be saved to. Commits meet Git's lock files. Its `git` runs no hook and no
+fsmonitor, as the desktop shell's does. It does not watch the directory, so `onFilesChanged`
 hears only what this handle's own Sync wrote; a script that needs other
 programs' changes watches with `fs.watch` itself.
 
@@ -606,10 +621,10 @@ this where they publish. There is no sentinel union mixing hashes with
 A directory folder, in Bun or a desktop page, checks that a `replace`'s file
 is there, or holds the expected bytes, where it renames a staged copy over
 it. On the desktop the shell makes that check and the rename under one lock
-per root, so no other window's change lands between them. A file a Bun
-script or another program removes between the check and the rename comes
-back with the new bytes; it shows as an ordinary file and can be removed
-again (ADR-0533).
+per root and the folder's save lock, and in Bun under the save lock, so no
+other window's or Bun process's change lands between them. A file another
+program removes between the check and the rename comes back with the new
+bytes; it shows as an ordinary file and can be removed again (ADR-0533).
 A directory folder reads names literally: on a case-insensitive file system,
 `plan.md` does not reach `Plan.md`, and creating or moving to `plan.md`
 there is `Exists`. Browser folders are unaffected. OPFS opens the file without creating it
