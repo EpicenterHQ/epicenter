@@ -4,8 +4,8 @@
 - **Date:** 2026-10-14
 - **Amends:** [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md), which overwrites `epicenter.json` from whatever definition opened the folder: only an application's own folder publishes, and only when the bytes differ. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), whose one window per folder gives way to any number of windows once the shell compares and publishes every save, under one mutex per root; its cross-process lock stays, one per folder. [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md), whose script example imports `epicenter.json` as a definition, which its shape does not allow.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (a data folder is a directory with `epicenter.json`), [ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) (`readFolder`), [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) (`epicenter.ts` is the authored source), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (no automatic commits), [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md).
-- **Built:** an unchanged declaration is not rewritten (b3bb9cacb2); scratch names carry their engine and coordination names derive from the root (a5870ca92e); the shell compares and publishes every save, prerequisite 1 below; a folder is registered for several windows and may permit more (`ScopeConfig.windows`, `Folders::permit`), under one cross-process lock per folder; the two openers and `definition` on every handle. `openDataFolder` takes `{ root, git }` in Bun and, until opaque grants exist, `{ id }` naming a registered scope in a desktop page; the browser form opens an origin-private folder by ID, whose first write creates its directory and repository as `openFolder`'s does. The Git lab opens its working copies with it.
-- **Unbuilt:** the shell's listing of data folders, the persisted grant registry, and its dialog; refusing a desktop data folder's first commit inside another repository (Bun refuses it).
+- **Built:** an unchanged declaration is not rewritten (b3bb9cacb2); scratch names carry their engine and coordination names derive from the root (a5870ca92e); the shell compares and publishes every save, prerequisite 1 below; a folder is registered for several windows and may permit more (`ScopeConfig.windows`, `Folders::permit`), under one cross-process lock per folder; the two openers and `definition` on every handle. `openDataFolder` takes `{ root, git }` in Bun and, until opaque grants exist, `{ id }` naming a registered scope in a desktop page; the browser form opens an origin-private folder by ID, whose first write creates its directory and repository as `openFolder`'s does. The Git lab opens its working copies with it. The shell lists the data folders under the Epicenter folder root for its Folders window (`list_data_folders`): an application's folder through the application's own scope, which the window is permitted into, and any other through a `data:<directory name>` scope registered for that window once per run. The listing returns scope IDs and titles, never paths, though the page still learns each root from the plugin's grant.
+- **Unbuilt:** opaque grants, so a page never receives a root; the persisted grant registry, and its dialog for a folder outside the Epicenter root; refusing a desktop data folder's first commit inside another repository (Bun refuses it).
 
 ## Context
 
@@ -135,6 +135,11 @@ on focus and after their own actions (ADR-0529).
 
 **The desktop shell grants directories by registry, not by window.** The
 folders under the Epicenter root are listed by finding `epicenter.json`.
+Each is named by a scope: an application's folder by the application's own,
+since one root takes one cross-process lock and a second scope on it would
+be refused `Busy`, and any other by `data:<directory name>`. Coordination
+names derive from the root, not the scope (a5870ca92e), so every opener of a
+root coordinates whatever scope reached it.
 A folder the person picks is opened by the shell's own dialog, recorded so
 the grant survives a restart, and returned to the page as an opaque grant.
 The page never receives its path.

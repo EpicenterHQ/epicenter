@@ -11,6 +11,7 @@ apps/whispering/src  -----------> dist/whispering
 apps/capture/src     -----------> dist/capture
 apps/todos/src       -----------> dist/todos
 apps/epicenter/src/ui -----------> dist/home
+apps/epicenter/src/folders ------> dist/folders
                                           |
                                           v
                               Bun loopback sidecar
@@ -19,8 +20,8 @@ apps/epicenter/src/ui -----------> dist/home
                               apps/epicenter/src-tauri
 ```
 
-The host serves Home and three compiled applications: Whispering, Capture, and
-Todos. Application routes live below `/apps/<id>/`; the Mail and Books routes
+The host serves Home and four compiled applications: Whispering, Capture,
+Todos, and its own Folders window. Application routes live below `/apps/<id>/`; the Mail and Books routes
 serve placeholder pages (`src/placeholder-pages.ts`). The `epicenter-host` build
 condition selects each product's host integrations. Honeycrisp has a separate
 desktop shell.
@@ -121,6 +122,7 @@ windows:
 ```bash
 open 'epicenter://app/whispering'
 open 'epicenter://app/todos'
+open 'epicenter://app/folders'
 open 'epicenter://app/home'
 ```
 
@@ -175,6 +177,42 @@ restarting Epicenter asks the page first (see [Leaving Epicenter](#leaving-epice
 A stopped sidecar leaves the page open for recovering its text. Forced
 termination does not wait.
 
+## The Folders window
+
+The Folders window (`folders`, served at `/apps/folders/`) opens any data
+folder under the authored folder root, including Todos's and Capture's while
+those apps are open. Its page source is `src/folders`, built by
+`build:folders` into `dist/folders` and served like any compiled application;
+Home lists it, and `epicenter://app/folders` opens it.
+
+The page asks the shell for `list_data_folders`, granted to this window alone
+(`folders-*` capabilities, beside `epicenter-folder:default`). The shell lists
+the direct children of the root that are real directories, not links or dot
+entries, holding a regular file `epicenter.json`, and answers each with
+`{ id, title, app }`: `title` is `epicenter.json`'s `title` when it is a
+string, else the directory name, and `app` names the application that owns
+the folder. The page passes `id` to `openDataFolder({ id })` from
+`@epicenter/folder/tauri`. The reply carries no paths; the page learns a
+folder's root from the plugin's grant, as Todos and Capture do.
+
+- **An application's folder** keeps its application's scope
+  (`so.epicenter.todos`, `so.epicenter.capture`). The plugin holds one
+  cross-process lock per folder, so a second scope on the same root would be
+  refused `Busy`; listing permits the `folders` window into the existing scope
+  instead (`Folders::permit`), and both windows' saves are checked and
+  published under the plugin's one mutex per root (ADR-0535).
+- **Any other data folder** gets the scope `data:<directory name>` the first
+  time it is listed, registered for the `folders` window alone. Listing again
+  in the same run returns the same scope. Registrations last until the
+  process exits; a folder removed from the root keeps an unused scope.
+
+The page is a placeholder until its view is built. That view must save each
+edit as soon as it is made and keep no drafts, because the Folders window is
+not a departure participant: the Folder plugin's exit drain waits for changes
+already sent, so a quit or restart does not ask it. An edit
+the page has not yet sent when the quit proceeds is lost. Unlike Capture and
+Todos, the window is also destroyed and reloaded when the Bun host restarts.
+
 ## Leaving Epicenter
 
 Capture and Todos keep unsaved text in their pages, and the Folder plugin's
@@ -183,8 +221,9 @@ the page. So before the process quits, or restarts for an account
 change, the native host runs one departure round
 (`src-tauri/src/departure.rs`) and asks both windows. The pages own their
 drafts; the host owns the round and a generation for each page. Nothing else
-takes part: Whispering's shared-host build has no folder root, and Home holds
-no file-backed drafts.
+takes part: Whispering's shared-host build has no folder root, Home holds
+no file-backed drafts, and the Folders window saves every edit as it is made
+(see [The Folders window](#the-folders-window)).
 
 - **Who is asked.** The `capture` and `todos` windows that exist when the round
   starts, hidden ones included. No window joins later: while a round runs, a
