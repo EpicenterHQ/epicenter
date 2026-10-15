@@ -88,7 +88,7 @@
 		error: 'bg-destructive',
 	};
 
-	/** Sync and Save version wait for each other, the review, and a departure. */
+	/** Sync and Save version wait for each other and the review. */
 	const busy = $derived(sync.isPending || saveVersion.isPending || reviewing);
 
 	/** Outcome toasts use the status lines' wording, so the toast and the details agree. */

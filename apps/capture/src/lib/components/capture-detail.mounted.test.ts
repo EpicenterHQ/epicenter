@@ -161,17 +161,3 @@ test('a file that is not a valid capture shows its issues as typed, and opens as
 	expect(harness.captures.opened).toEqual({ stem: 'one', mode: 'capture' });
 	expect(field('capture-text')?.value).toBe('Repaired');
 });
-
-test('while Epicenter asks to quit, the text boxes take nothing', async () => {
-	const harness = await setup({ [PATH]: FILE }, 'capture');
-	harness.captures.departure.fence();
-	flushSync();
-	expect(field('capture-text')?.readOnly).toBe(true);
-	type(field('capture-text'), 'refused');
-	type(field('new-thought'), 'refused');
-	expect(harness.captures.formOf('one').newThought).toBe('');
-	harness.captures.departure.resume();
-	await settle(harness);
-	expect(field('capture-text')?.value).toBe('Text');
-	expect(await harness.text(PATH)).toBe(FILE);
-});

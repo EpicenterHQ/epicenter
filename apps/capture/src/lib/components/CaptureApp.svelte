@@ -1,8 +1,5 @@
 <script lang="ts">
-	import type { Departure } from '@epicenter/epicenter/departure/page';
-	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
-	import * as Dialog from '@epicenter/ui/dialog';
 	import { toast } from '@epicenter/ui/sonner';
 	import { beforeNavigate } from '$app/navigation';
 	import { createMutation } from '@tanstack/svelte-query';
@@ -13,14 +10,7 @@
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
-	let {
-		captures,
-		departure,
-	}: {
-		captures: Captures;
-		/** The host's question before it quits or restarts; none in a browser. */
-		departure: Departure | undefined;
-	} = $props();
+	let { captures }: { captures: Captures } = $props();
 
 	// One page: the timeline, the recovery screen, or the one open capture.
 	const item = $derived(captures.opened);
@@ -32,19 +22,10 @@
 	const mustStay = $derived(captures.unsettled);
 
 	// Text not added lives only in this page. A reload, a tab close, or a navigation out
-	// of the app is held back here; quitting the desktop app asks below.
+	// of the app is held back here; quitting the desktop app asks nothing (ADR-0542).
 	beforeNavigate((navigation) => {
 		if (mustStay && navigation.willUnload) navigation.cancel();
 	});
-
-	$effect(() => departure?.onHostStopped(() => captures.markServiceStopped()));
-
-	/** Quitting or restarting, in the words the person chose. */
-	const leaving = $derived(departure?.notice?.intent === 'restart' ? 'restart' : 'quit');
-	/** The open question, while the person is asked. */
-	const prompt = $derived(
-		departure?.notice?.stage === 'choose' ? departure.notice : undefined,
-	);
 
 	/** Save version: commit the saved files. Capture has no remote, so nothing is pushed. */
 	const saveVersion = createMutation(() => captures.saveVersion.options);
@@ -120,30 +101,6 @@
 </header>
 
 <main class="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-16 pt-6 sm:px-6">
-	{#if departure?.notice && !prompt}
-		<Alert.Root aria-label={leaving === 'restart' ? 'Restarting' : 'Quitting'}>
-			<Alert.Title>{leaving === 'restart' ? 'Epicenter is restarting' : 'Epicenter is quitting'}</Alert.Title>
-			<Alert.Description>
-				{#if departure.notice.stage === 'keeping'}
-					You chose to keep working. Your text is kept; editing resumes once Epicenter confirms it is staying open.
-				{:else if departure.notice.stage === 'ready' || departure.notice.stage === 'leaving'}
-					Waiting for Epicenter to {leaving}. Nothing here is changed or discarded unless it does.
-				{:else}
-					Saving what saves on its own. Editing is paused until Epicenter {leaving === 'restart' ? 'restarts' : 'quits'} or stays open.
-				{/if}
-			</Alert.Description>
-			{#if departure.problem}
-				<p role="status" class="mt-2 text-foreground">Epicenter did not receive this window's answer, so editing stays paused: {departure.problem}</p>
-				<div class="mt-2"><Button variant="outline" size="sm" onclick={() => void departure.start()}>Check again</Button></div>
-			{/if}
-		</Alert.Root>
-	{/if}
-	{#if captures.serviceStopped}
-		<Alert.Root>
-			<Alert.Title>Epicenter's background service stopped</Alert.Title>
-			<Alert.Description>Captures still save to the folder from this window. Reloading it, or exporting captures from an account, may not work until Epicenter restarts.</Alert.Description>
-		</Alert.Root>
-	{/if}
 	<div>
 		{#if item === undefined}
 			{#if recovering}
@@ -172,22 +129,3 @@
 		{/if}
 	</div>
 </main>
-
-{#if departure}
-	<!-- One question per round. Closing it is Keep working. -->
-	<Dialog.Root open={prompt !== undefined} onOpenChange={(open) => { if (!open && prompt) departure.keepWorking(prompt.id); }}>
-		<Dialog.Content class="sm:max-w-md">
-			{@const held = prompt?.held ?? 0}
-			<Dialog.Header>
-				<Dialog.Title>{held} {held === 1 ? 'thing is' : 'things are'} not saved</Dialog.Title>
-				<Dialog.Description>
-					Some text was typed and not added yet. {leaving === 'restart' ? 'Restarting' : 'Quitting'} now discards it. Keep working to add or copy it.
-				</Dialog.Description>
-			</Dialog.Header>
-			<Dialog.Footer>
-				<Button variant="outline" onclick={() => prompt && departure.keepWorking(prompt.id)}>Keep working</Button>
-				<Button variant="destructive" onclick={() => prompt && departure.leaveAnyway(prompt.id)}>{leaving === 'restart' ? 'Discard and restart' : 'Discard and quit'}</Button>
-			</Dialog.Footer>
-		</Dialog.Content>
-	</Dialog.Root>
-{/if}

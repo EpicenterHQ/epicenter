@@ -270,7 +270,7 @@ describe('boot protocol', () => {
 	test('ready frames contain exactly the versioned readiness contract', () => {
 		expect(createReadyFrame(PRODUCTION_PORT)).toEqual({
 			type: 'ready',
-			protocolVersion: 12,
+			protocolVersion: 13,
 			port: PRODUCTION_PORT,
 		});
 	});
@@ -357,6 +357,8 @@ describe('native auth port', () => {
 			}),
 		);
 		await stored;
+		native.relaunch();
+		expect(JSON.parse(writes.at(-1) ?? '')).toEqual({ type: 'relaunch' });
 
 		controller.enqueue(
 			JSON.stringify({
@@ -419,170 +421,6 @@ describe('native auth port', () => {
 		const native = createNativePort({ parentPipe }, { writeLine() {} });
 		controller.enqueue(JSON.stringify({ type: 'execute', command: 'shell' }));
 		await expect(native.completed).rejects.toThrow('Unknown native frame');
-	});
-});
-
-describe('relaunch preparation', () => {
-	function scripted() {
-		let controller!: ReadableStreamDefaultController<string>;
-		const parentPipe: ParentPipe = {
-			bootLine: Promise.resolve(bootFrame()),
-			frames: new ReadableStream<string>({
-				start(next) {
-					controller = next;
-				},
-			}),
-			closed: new Promise(() => undefined),
-			async cancel() {},
-		};
-		const writes: Array<Record<string, unknown>> = [];
-		let next = 0;
-		const native = createNativePort(
-			{ parentPipe },
-			{
-				writeLine: (line) => writes.push(JSON.parse(line)),
-				createRequestId: () => `prepare-${++next}`,
-			},
-		);
-		return {
-			native,
-			writes,
-			reply(requestId: string, status: 'ok' | 'error' = 'ok') {
-				controller.enqueue(
-					JSON.stringify(
-						status === 'ok'
-							? { type: 'native-result', requestId, status }
-							: {
-									type: 'native-result',
-									requestId,
-									status,
-									message: 'kept open',
-								},
-					),
-				);
-			},
-			close() {
-				controller.close();
-			},
-		};
-	}
-
-	test('a grant finishes once with its own request id', async () => {
-		const port = scripted();
-		const preparing = port.native.prepareRelaunch();
-		expect(port.writes).toEqual([
-			{ type: 'prepare-relaunch', requestId: 'prepare-1' },
-		]);
-		port.reply('prepare-1');
-		const grant = await preparing;
-		grant.relaunch();
-		expect(port.writes.at(-1)).toEqual({
-			type: 'relaunch',
-			requestId: 'prepare-1',
-		});
-		expect(() => grant.relaunch()).toThrow('already used');
-		grant.abort();
-		expect(port.writes).toHaveLength(2);
-		port.close();
-		await port.native.completed;
-	});
-
-	test("a refusal rejects with Rust's reason and sends nothing more", async () => {
-		const port = scripted();
-		const preparing = port.native.prepareRelaunch();
-		port.reply('prepare-1', 'error');
-		await expect(preparing).rejects.toThrow('kept open');
-		expect(port.writes).toHaveLength(1);
-		port.close();
-		await port.native.completed;
-	});
-
-	test('withdrawing sends prepare-cancel and waits for the one terminal answer', async () => {
-		const port = scripted();
-		const abort = new AbortController();
-		let settled = false;
-		const preparing = port.native.prepareRelaunch(abort.signal).finally(() => {
-			settled = true;
-		});
-		void preparing.catch(() => undefined);
-		abort.abort();
-		expect(port.writes.at(-1)).toEqual({
-			type: 'prepare-cancel',
-			requestId: 'prepare-1',
-		});
-		expect(port.writes.some((frame) => frame.type === 'sqlite-cancel')).toBe(
-			false,
-		);
-		await Bun.sleep(0);
-		// The entry stays until Rust answers, so the answer is never unknown.
-		expect(settled).toBe(false);
-		port.reply('prepare-1', 'error');
-		await expect(preparing).rejects.toThrow('kept open');
-		port.close();
-		await port.native.completed;
-	});
-
-	test('a grant that crossed the withdrawal is given back before anyone sees it', async () => {
-		const port = scripted();
-		const abort = new AbortController();
-		const preparing = port.native.prepareRelaunch(abort.signal);
-		abort.abort();
-		// Rust granted before it read the cancel, and ignores the late cancel.
-		port.reply('prepare-1');
-		await expect(preparing).rejects.toThrow('cancelled');
-		expect(port.writes).toEqual([
-			{ type: 'prepare-relaunch', requestId: 'prepare-1' },
-			{ type: 'prepare-cancel', requestId: 'prepare-1' },
-			{ type: 'relaunch-abort', requestId: 'prepare-1' },
-		]);
-		port.close();
-		await port.native.completed;
-	});
-
-	test('aborting a held grant releases it once and forbids relaunching it', async () => {
-		const port = scripted();
-		const preparing = port.native.prepareRelaunch();
-		port.reply('prepare-1');
-		const grant = await preparing;
-		grant.abort();
-		grant.abort();
-		expect(port.writes.slice(1)).toEqual([
-			{ type: 'relaunch-abort', requestId: 'prepare-1' },
-		]);
-		expect(() => grant.relaunch()).toThrow('already used');
-		port.close();
-		await port.native.completed;
-	});
-
-	test('a signal aborted before asking sends nothing', async () => {
-		const port = scripted();
-		const abort = new AbortController();
-		abort.abort();
-		await expect(port.native.prepareRelaunch(abort.signal)).rejects.toThrow(
-			'cancelled',
-		);
-		expect(port.writes).toEqual([]);
-		port.close();
-		await port.native.completed;
-	});
-
-	test('a second answer for a settled preparation fails the protocol', async () => {
-		const port = scripted();
-		const preparing = port.native.prepareRelaunch();
-		port.reply('prepare-1');
-		await preparing;
-		port.reply('prepare-1');
-		await expect(port.native.completed).rejects.toThrow(
-			'unknown native request',
-		);
-	});
-
-	test('a pipe that closes while collecting rejects the preparation', async () => {
-		const port = scripted();
-		const preparing = port.native.prepareRelaunch();
-		port.close();
-		await expect(preparing).rejects.toThrow('closed');
-		await port.native.completed;
 	});
 });
 

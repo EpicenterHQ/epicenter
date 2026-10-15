@@ -25,7 +25,6 @@
  * page URL's (`?todo=<stem>`), not the store's. Saves never commit
  * (ADR-0529); a version is recorded by Sync or by Save version.
  */
-import type { DepartureParticipant } from '@epicenter/epicenter/departure/page';
 import {
 	focusManager,
 	MutationCache,
@@ -37,13 +36,7 @@ import { createQueryFactories } from 'wellcrafted/query';
 import { createGit } from './git.js';
 import type { TodosFolder } from './platform/types.js';
 import { createRows } from './rows.js';
-import {
-	DEPARTING,
-	type Session,
-	TodosError,
-	todosKeys,
-	type WriteFailure,
-} from './session.js';
+import { type Session, todosKeys, type WriteFailure } from './session.js';
 import { createSync } from './sync.js';
 
 export type Todos = ReturnType<typeof createTodos>;
@@ -66,17 +59,7 @@ export function createTodos(
 	folder: TodosFolder,
 	{ onWriteFailed = () => {} }: TodosOptions = {},
 ) {
-	/**
-	 * Epicenter asks to quit or restart. From `departure.fence` until
-	 * `departure.resume`, no edit or action starts; writes already queued go on.
-	 */
-	let departing = $state(false);
 	let closing: Promise<void> | undefined;
-
-	/** Why no edit or action starts now, if one does not. */
-	function refused(): string | undefined {
-		return departing ? DEPARTING : undefined;
-	}
 
 	// The cache for this folder: the todo listing, Git status, and every
 	// write and action. Its rules read the mutation cache, which exists first, so the
@@ -100,15 +83,6 @@ export function createTodos(
 			},
 			mutations: {
 				networkMode: 'always',
-				// While Epicenter asks to leave, no new action starts: TanStack
-				// runs `onMutate` when an action is asked for, before its
-				// `mutationFn`, and what it throws is the action's error. An
-				// action asked for before that runs to the end.
-				onMutate: () => {
-					const why = refused();
-					if (why !== undefined)
-						throw TodosError.NotStarted({ reason: why }).error;
-				},
 			},
 		},
 	});
@@ -169,7 +143,6 @@ export function createTodos(
 		writesSettled,
 		invalidate,
 		whenIdle,
-		refused,
 		afterWrite,
 		onWriteFailed,
 	};
@@ -187,34 +160,13 @@ export function createTodos(
 		sync: createSync(session),
 		/** Read the listing and Git status again. */
 		refresh: () => invalidate(),
-		/** Whether Epicenter is asking to quit or restart, which pauses all input. */
-		get departing() {
-			return departing;
-		},
 		/**
-		 * The page's part in leaving: Epicenter's quit or restart
-		 * (`@epicenter/epicenter/departure/page`), and the browser's leave
-		 * warning through the view's `beforeNavigate`. `fence` runs before
-		 * anything is awaited; `settle` waits until nothing is mutating, then
-		 * answers 0, so Epicenter never asks: Todos has no prompt to show.
-		 * `resume` gives everything back.
+		 * Whether a browser reload now could lose anything: a write or another
+		 * action still running. Quitting Epicenter does not ask (ADR-0542).
 		 */
-		departure: {
-			/** Whether leaving now could lose anything: a write or another action still running. */
-			get holdsUnsaved() {
-				return queryClient.isMutating() > 0;
-			},
-			fence() {
-				departing = true;
-			},
-			async settle(): Promise<number> {
-				await whenIdle();
-				return 0;
-			},
-			resume() {
-				departing = false;
-			},
-		} satisfies DepartureParticipant,
+		get holdsUnsaved() {
+			return queryClient.isMutating() > 0;
+		},
 		/**
 		 * Wait until nothing is mutating, then release the folder. Work that
 		 * starts meanwhile is waited for too, so it lands before the folder

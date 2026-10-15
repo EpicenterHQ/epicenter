@@ -10,8 +10,6 @@
 
 pub const COMMANDS: &[&str] = &[
     "launch_application",
-    "departure_status",
-    "departure_answer",
     "write_text",
     "simulate_enter_keystroke",
     "encode_recording_for_upload",

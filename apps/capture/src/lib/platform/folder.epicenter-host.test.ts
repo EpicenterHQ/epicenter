@@ -5,15 +5,14 @@
  * the real Capture store, on a real directory with the system `git`. The
  * shell's `invoke` is scripted: `grant_directory` grants a fresh temporary
  * directory, and the commands that follow a grant act on it (see
- * `granted-directory.test-support.ts`). Departure events are scripted too.
+ * `granted-directory.test-support.ts`).
  *
  * Key behaviors:
  * - Outside the shell, opening fails and invokes nothing
  * - A refused grant (an unregistered scope, a refused window, a folder
  *   another Epicenter holds, a missing plugin, a call that never reaches the
  *   shell) fails the open with its reason
- * - The page names the Capture scope and is told the directory; departure is
- *   heard on this window only
+ * - The page names the Capture scope and is told the directory
  * - A write saves the row and keeps undeclared metadata
  * - An edit made elsewhere is a conflict: it is not overwritten, and the
  *   capture shows it
@@ -25,18 +24,12 @@
  * See also:
  * - `packages/folder/src/tauri-directory.test.ts` for the granted opener
  * - `packages/folder/src/directory-folder.test.ts` for the directory engine
- * - `departure.test.ts` for the departure wire
  */
 import '../svelte-modules.test-support.js';
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { readLegacyBundle } from '@epicenter/capture/legacy';
-import {
-	DEPARTURE_CHANGED_EVENT,
-	DEPARTURE_STATUS_COMMAND,
-	HOST_STOPPED_EVENT,
-} from '@epicenter/epicenter/departure';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import fixture from '../../../fixtures/legacy-bundle.json';
 import {
@@ -58,13 +51,6 @@ let root = '';
 let grant: (() => unknown) | undefined;
 /** Runs before the shell answers a command; throw to fail it unanswered. */
 let before: Record<string, (call: Call) => Promise<void> | void> = {};
-/** This window's focus listeners, kept beside its events. */
-const FOCUS = 'focus-changed';
-/** Events heard through this window only, by event name. */
-const windowListeners = new Map<string, Set<() => void>>();
-
-/** The departure status the host reports; this file only reads it. */
-const IDLE = { version: 1, generation: 1, phase: 'idle' };
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
@@ -76,7 +62,6 @@ mock.module('@tauri-apps/api/core', () => ({
 		const args = shellArguments(body, options);
 		const call = { cmd: name.replace(PLUGIN, ''), args };
 		calls.push(call);
-		if (name === DEPARTURE_STATUS_COMMAND) return IDLE;
 		await before[call.cmd]?.(call);
 		if (call.cmd === 'grant_directory')
 			return grant
@@ -93,28 +78,8 @@ mock.module('@tauri-apps/api/core', () => ({
 		return answered.reply;
 	},
 }));
-mock.module('@tauri-apps/api/webviewWindow', () => ({
-	getCurrentWebviewWindow: () => ({
-		label: 'capture',
-		listen(name: string, callback: () => void) {
-			const set = windowListeners.get(name) ?? new Set();
-			windowListeners.set(name, set);
-			set.add(callback);
-			return Promise.resolve(() => set.delete(callback));
-		},
-		onFocusChanged(callback: (event: { payload: boolean }) => void) {
-			const set = windowListeners.get(FOCUS) ?? new Set();
-			windowListeners.set(FOCUS, set);
-			const listener = () => callback({ payload: true });
-			set.add(listener);
-			return Promise.resolve(() => set.delete(listener));
-		},
-	}),
-}));
 
-const { openCaptureHost, openDeparture } = await import(
-	'./folder.epicenter-host.js'
-);
+const { openCaptureHost } = await import('./folder.epicenter-host.js');
 const { createCaptures } = await import('../captures.svelte.ts');
 const { cached, createQueryClient, observe, quiet } = await import(
 	'../query.test-support.js'
@@ -168,7 +133,6 @@ afterEach(async () => {
 	calls = [];
 	grant = undefined;
 	before = {};
-	windowListeners.clear();
 });
 
 /** A Rust `Err` rejects with the error value itself, not an `Error`. */
@@ -239,29 +203,6 @@ test('the page names the Capture scope and is told the directory', async () => {
 		expect(call.args.scope).toBe(CAPTURE_FOLDER_ID);
 	expect(host.location).toEqual({ kind: 'directory', root });
 	await host.close();
-});
-
-test('departure is heard on this window only, registered before its first status read', async () => {
-	const departure = openDeparture();
-	if (!departure) throw new Error('the desktop leaf has a departure gate');
-	await departure.start();
-	// Targeted at this window: a global listener would invoke the shell.
-	expect([...windowListeners.keys()].sort()).toEqual(
-		[DEPARTURE_CHANGED_EVENT, FOCUS, HOST_STOPPED_EVENT].sort(),
-	);
-	expect(calls.map((call) => call.cmd)).toEqual([DEPARTURE_STATUS_COMMAND]);
-	expect(departure.known).toBe(true);
-	expect(departure.fenced).toBe(false);
-
-	let stopped = 0;
-	departure.onHostStopped(() => stopped++);
-	for (const listener of windowListeners.get(HOST_STOPPED_EVENT) ?? [])
-		listener();
-	expect(stopped).toBe(1);
-	departure.destroy();
-	expect(
-		[...windowListeners.values()].reduce((count, set) => count + set.size, 0),
-	).toBe(0);
 });
 
 test('a write saves the row on disk and keeps undeclared metadata', async () => {

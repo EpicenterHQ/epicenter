@@ -27,8 +27,7 @@
  * - Deleting runs after the queued writes and removes what they saved; a
  *   file changed elsewhere since is not deleted
  * - Saves never commit; Save version records one
- * - A departure fences input, settles writes, and counts text not added;
- *   close waits for every mutation
+ * - Close fences input and waits for every mutation
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -521,48 +520,15 @@ test('saves never commit; Save version records one, and delete says when changes
 	});
 });
 
-test('Save version is refused while departing or closing, as other actions are', async () => {
+test('Save version is refused while closing, as other actions are', async () => {
 	const { captures } = await open({ [PATH]: HAND });
-	captures.departure.fence();
-	expect(expectErr(await captures.saveVersion()).message).toContain(
-		'quit or restart',
-	);
-	captures.departure.resume();
 	void captures.close();
 	expect(expectErr(await captures.saveVersion()).message).toContain('closing');
 });
 
 // ============================================================================
-// Departure and closing
+// Closing
 // ============================================================================
-
-test('a departure refuses input, settles writes, counts text not added, and gives everything back', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	const form = captures.formOf('one');
-	form.inputText('Saves on its own');
-	form.inputNewThought('Held');
-	captures.inputNewCapture('A new capture, not added');
-
-	captures.departure.fence();
-	expect(captures.fenced).toBe(true);
-	form.inputText('refused');
-	form.inputNewThought('refused');
-	captures.inputNewCapture('refused');
-	expect(expectErr(await captures.create('x')).message).toContain(
-		'quit or restart',
-	);
-	// The new thought and the New capture text would be lost.
-	expect(await captures.departure.settle()).toBe(2);
-	expect(await harness.text(PATH)).toContain('\nSaves on its own\n');
-
-	captures.departure.resume();
-	expect(form.newThought).toBe('Held');
-	expect(captures.newCapture).toBe('A new capture, not added');
-	expect(form.addThought()).toBe(true);
-	await quiet(captures);
-	expect(await harness.text(PATH)).toContain('- Held\n');
-});
 
 test('close waits for a write already sent and the newest edit after it, and every call shares one completion', async () => {
 	const harness = await open({ [PATH]: HAND });

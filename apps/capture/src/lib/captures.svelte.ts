@@ -18,8 +18,8 @@
  * back, and reports the text that was lost.
  *
  * Every other action is a mutation too: create, delete, Save version, and
- * the import of old captures. Leaving and closing fence new input, then
- * wait until nothing is mutating. Saves never commit (ADR-0529); a version
+ * the import of old captures. Closing fences new input, then waits until
+ * nothing is mutating. Quitting Epicenter asks nothing (ADR-0542). Saves never commit (ADR-0529); a version
  * is recorded only by Save version.
  *
  * Input not committed yet is `$state`: the New capture text, and for each
@@ -40,7 +40,6 @@ import {
 	type LegacyBundle,
 	runLegacyImport,
 } from '@epicenter/capture/legacy';
-import type { DepartureParticipant } from '@epicenter/epicenter/departure/page';
 import {
 	type CommitOutcome,
 	type FileCapture,
@@ -134,9 +133,6 @@ export const CapturesError = defineErrors({
 });
 export type CapturesError = InferErrors<typeof CapturesError>;
 
-/** Why input or an action was refused while Epicenter asks to quit or restart. */
-export const DEPARTING =
-	'Epicenter is asking to quit or restart, so nothing is changed now. Your text is kept.';
 const CLOSING = 'Capture is closing, so nothing was changed.';
 
 /** Text larger than this opens as file details instead of in the editor. */
@@ -307,18 +303,12 @@ export function createCaptures(
 	let newCapture = $state('');
 	/** Each capture's input not committed yet, kept while the person moves between captures. */
 	const forms = new SvelteMap<string, CaptureForm>();
-	/** The Epicenter service that served this page has stopped. */
-	let serviceStopped = $state(false);
-	/** Epicenter asks to quit or restart: no edit or action starts. */
-	let departing = $state(false);
 	let closing: Promise<void> | undefined;
 	let closed = $state(false);
 
 	/** Why no edit or action starts now, if one does not. */
 	function refused(): string | undefined {
-		if (closed) return CLOSING;
-		if (departing) return DEPARTING;
-		return undefined;
+		return closed ? CLOSING : undefined;
 	}
 
 	// Every file write is local: nothing waits for a network, and nothing retries.
@@ -650,16 +640,9 @@ export function createCaptures(
 			trackGit();
 			return folder.git.snapshot;
 		},
-		get serviceStopped() {
-			return serviceStopped;
-		},
-		/** Saving is the folder's and carries on; the page can load nothing more. */
-		markServiceStopped() {
-			serviceStopped = true;
-		},
-		/** Leaving or closing refuses input and actions. */
+		/** Closing refuses input and actions. */
 		get fenced() {
-			return departing || closed;
+			return closed;
 		},
 		/** How many mutations match `filters`, read reactively. */
 		mutating(filters?: MutationFilters) {
@@ -676,7 +659,7 @@ export function createCaptures(
 			trackMutations();
 			return removing(path);
 		},
-		/** Whether leaving now could lose anything: an action running, or text not added. */
+		/** Whether a browser reload now could lose anything: an action running, or text not added. */
 		get unsettled() {
 			trackMutations();
 			return (
@@ -874,33 +857,8 @@ export function createCaptures(
 		}),
 
 		// ------------------------------------------------------------------
-		// Leaving and closing
+		// Closing
 		// ------------------------------------------------------------------
-
-		/**
-		 * The page's part in leaving Epicenter. `fence` runs before anything is
-		 * awaited; `settle` waits until nothing is mutating and answers how
-		 * many things would be lost: the New capture text, and each capture
-		 * with a thought typed and not added or a thought edit not saved.
-		 * `resume` gives everything back.
-		 */
-		departure: {
-			get holdsUnsaved() {
-				return (
-					queryClient.isMutating() > 0 || newCapture !== '' || unsentForms() > 0
-				);
-			},
-			fence() {
-				departing = true;
-			},
-			async settle(): Promise<number> {
-				await whenIdle(queryClient);
-				return (newCapture === '' ? 0 : 1) + unsentForms();
-			},
-			resume() {
-				departing = false;
-			},
-		} satisfies DepartureParticipant,
 
 		/**
 		 * Fence new input, then wait until nothing is mutating before the page

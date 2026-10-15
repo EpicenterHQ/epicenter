@@ -47,7 +47,6 @@ export function createRows({
 	defineMutation,
 	invalidate,
 	whenIdle,
-	refused,
 	afterWrite,
 	onWriteFailed,
 }: Session) {
@@ -162,11 +161,11 @@ export function createRows({
 		 * Change the todo at `stem` in the cache. Answers whether the caller
 		 * should queue a write: an edit queues one only when fewer than two are
 		 * running or waiting for that file, since the waiting one saves whatever
-		 * the cache holds when it runs. Refused, changing nothing, while
-		 * Epicenter asks to leave and while a delete of the file runs.
+		 * the cache holds when it runs. Refused, changing nothing, while a
+		 * delete of the file runs.
 		 */
 		edit(stem: string, change: (row: Row<TodoFields>) => Row<TodoFields>) {
-			if (refused() !== undefined || deleting(stem)) return false;
+			if (deleting(stem)) return false;
 			const changed = mapRow(stem, (stored) => ({
 				...stored,
 				row: change(stored.row),

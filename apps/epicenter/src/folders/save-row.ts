@@ -2,7 +2,7 @@
  * Save one edited row of a data folder's table at once, and settle a save
  * another writer overtook.
  *
- * The Folders window keeps no drafts: it is not a departure participant, so
+ * The Folders window keeps no drafts, so
  * every edit is saved as it is made (`table.replace`, guarded by the bytes
  * the row held when the edit began; `row-edits.ts` keeps that row). When
  * another window saved the row first, the save is `Conflict`. Then the

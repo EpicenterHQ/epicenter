@@ -16,18 +16,10 @@
 	import AppHeader from './AppHeader.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
-	import DepartureNotice from './DepartureNotice.svelte';
-	import type { Departure } from '@epicenter/epicenter/departure/page';
 	import ConnectDialog from './ConnectDialog.svelte';
 	import { takeConnectRequest } from '$lib/connect-request.js';
 
-	let {
-		todos,
-		departure,
-	}: {
-		todos: Todos;
-		departure?: Departure;
-	} = $props();
+	let { todos }: { todos: Todos } = $props();
 	/** Connect shows; it opens by itself when sign-in just returned to it. */
 	let connecting = $state(takeConnectRequest());
 
@@ -45,7 +37,7 @@
 	// browser's own leave confirmation. Opening another todo changes only the
 	// query, stays on this page, and loses nothing.
 	beforeNavigate(({ type, from, to, cancel }) => {
-		if (!todos.departure.holdsUnsaved) return;
+		if (!todos.holdsUnsaved) return;
 		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
 	});
 
@@ -127,17 +119,9 @@
 	{/if}
 {/snippet}
 
-<!--
-	While Epicenter asks to quit or restart, the whole page takes no input; the
-	store also refuses every action, which covers menus and dialogs that render
-	outside this element.
--->
-<div class="flex h-dvh flex-col overflow-hidden" inert={todos.departing}>
+<div class="flex h-dvh flex-col overflow-hidden">
 	<AppHeader {sync} reviewing={attempt !== undefined} onconnect={() => (connecting = true)} />
 	<ConnectDialog bind:open={connecting} {sync} />
-	{#if departure}
-		<DepartureNotice {departure} />
-	{/if}
 
 	{#if attempt !== undefined}
 		<!--

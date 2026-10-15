@@ -23,15 +23,11 @@ export const todosKeys = defineKeys({
 	remove: (path: string) => ['todos', 'remove', path] as const,
 });
 
-/** Why an action did not start: Epicenter asks to leave, or a name refuses it. */
+/** Why an action did not start: what it would change is not what the person saw. */
 export const TodosError = defineErrors({
 	NotStarted: ({ reason }: { reason: string }) => ({ message: reason, reason }),
 });
 export type TodosError = InferErrors<typeof TodosError>;
-
-/** Why input or a command was refused while Epicenter asks to quit or restart. */
-export const DEPARTING =
-	'Epicenter is asking to quit or restart, so nothing is changed now.';
 
 /** A write that failed and was rolled back to the file. */
 export type WriteFailure = {
@@ -55,8 +51,6 @@ export type Session = {
 	readonly invalidate: (queryKey?: readonly unknown[]) => Promise<void>;
 	/** Resolves once nothing matching `filters` is mutating, including what starts meanwhile. */
 	readonly whenIdle: (filters?: MutationFilters) => Promise<void>;
-	/** Why no edit starts now, if one does not: Epicenter is asking to leave. */
-	readonly refused: () => string | undefined;
 	/** After a write settles: once it is the last one, everything is read again. */
 	readonly afterWrite: () => Promise<void> | undefined;
 	/** A write failed; the page tells the person. */

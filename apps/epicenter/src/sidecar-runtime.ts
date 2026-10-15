@@ -23,7 +23,7 @@ const SHUTDOWN_GRACE_MS = 10_000;
 const MAX_NATIVE_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_NATIVE_PENDING = 64;
 
-export const SIDECAR_PROTOCOL_VERSION = 12;
+export const SIDECAR_PROTOCOL_VERSION = 13;
 export const PRODUCTION_PORT = 39_130;
 
 export type SidecarRuntimeMode = 'production' | 'development';
@@ -78,24 +78,8 @@ export type NativePort = ReturnType<typeof createNativePort>;
  */
 export type NativeAuthPort = Pick<
 	NativePort,
-	| 'completed'
-	| 'storeAuth'
-	| 'openAuthUrl'
-	| 'prepareRelaunch'
-	| 'onAuthCallback'
+	'completed' | 'storeAuth' | 'openAuthUrl' | 'relaunch' | 'onAuthCallback'
 >;
-
-/**
- * Native permission to restart, held after every Capture and Todos page agreed
- * to leave. Exactly one of its methods takes effect. Only Bun holds it: the
- * browser can neither finish nor abort a grant.
- */
-export type RelaunchGrant = {
-	/** Restart now. Throws when the request cannot reach Rust. */
-	relaunch(): void;
-	/** Give the grant back without restarting, so the pages resume. */
-	abort(): void;
-};
 
 const BOOT_FRAME_KEYS = [
 	'accountManagement',
@@ -332,8 +316,8 @@ export function watchParentPipe(
  * Bind the fixed native operations to the versioned Rust pipe.
  *
  * The port names no keyring entry and invokes no arbitrary native command. It
- * carries the desktop auth cell, an authorization URL to open, a prepared
- * relaunch, and one labeled application secret. The secret operations send an application id
+ * carries the desktop auth cell, an authorization URL to open, a relaunch, and
+ * one labeled application secret. The secret operations send an application id
  * and an account id, both validated before they reach here; Rust composes the
  * service and account strings it stores under, so what crosses this pipe stays
  * a pair of labels rather than an address in the credential store (ADR-0310).
@@ -450,91 +434,6 @@ export function createNativePort(
 		});
 	}
 
-	/**
-	 * Ask Rust to settle every Capture and Todos page before a restart.
-	 *
-	 * Settles once, on Rust's one terminal answer for this request: a grant, or
-	 * the reason there is none. Aborting `signal` withdraws a preparation that
-	 * is still collecting. The request stays pending until Rust answers it, so
-	 * that answer is never an unknown request, and a grant that crossed the
-	 * withdrawal is given back before anyone can act on it. This is not the
-	 * SQLite cancellation: a withdrawn preparation is not an interrupted query.
-	 */
-	function prepareRelaunch(signal?: AbortSignal): Promise<RelaunchGrant> {
-		if (signal?.aborted)
-			return Promise.reject(new Error('Relaunch preparation was cancelled.'));
-		if (failure) return Promise.reject(failure);
-		if (pending.size >= MAX_NATIVE_PENDING)
-			return Promise.reject(new Error('Native request queue is full.'));
-		const requestId = createRequestId();
-		if (!requestId || requestId.length > 128 || pending.has(requestId))
-			return Promise.reject(
-				new Error('Invalid or duplicate native request id.'),
-			);
-		return new Promise<RelaunchGrant>((resolve, reject) => {
-			const withdraw = () => {
-				try {
-					send({ type: 'prepare-cancel', requestId });
-				} catch (cause) {
-					fail(cause instanceof Error ? cause : new Error(String(cause)));
-				}
-			};
-			pending.set(requestId, {
-				type: 'native-result',
-				resolve() {
-					signal?.removeEventListener('abort', withdraw);
-					if (signal?.aborted) {
-						giveBack(requestId);
-						reject(new Error('Relaunch preparation was cancelled.'));
-						return;
-					}
-					resolve(createGrant(requestId));
-				},
-				reject(error) {
-					signal?.removeEventListener('abort', withdraw);
-					reject(error);
-				},
-			});
-			signal?.addEventListener('abort', withdraw, { once: true });
-			try {
-				send({ type: 'prepare-relaunch', requestId });
-			} catch (cause) {
-				pending
-					.get(requestId)
-					?.reject(cause instanceof Error ? cause : new Error(String(cause)));
-				pending.delete(requestId);
-			}
-		});
-	}
-
-	/**
-	 * Release a grant. A pipe too broken to carry this is ending, and Rust
-	 * releases every grant of a generation it retires.
-	 */
-	function giveBack(requestId: string) {
-		try {
-			send({ type: 'relaunch-abort', requestId });
-		} catch (cause) {
-			fail(cause instanceof Error ? cause : new Error(String(cause)));
-		}
-	}
-
-	function createGrant(requestId: string): RelaunchGrant {
-		let used = false;
-		return {
-			relaunch() {
-				if (used) throw new Error('This relaunch grant was already used.');
-				used = true;
-				send({ type: 'relaunch', requestId });
-			},
-			abort() {
-				if (used) return;
-				used = true;
-				giveBack(requestId);
-			},
-		};
-	}
-
 	function accept(line: string) {
 		const frame = parseNativeFrame(line);
 		if (frame.type === 'auth-callback') {
@@ -616,7 +515,10 @@ export function createNativePort(
 		) {
 			await request({ type: 'delete-app-secret', appId, label, account });
 		},
-		prepareRelaunch,
+		/** Restart Epicenter now. Nothing is asked first (ADR-0542). */
+		relaunch() {
+			send({ type: 'relaunch' });
+		},
 		onAuthCallback(listener: (url: string) => void) {
 			callbackListeners.add(listener);
 			if (queuedCallback !== null) {
