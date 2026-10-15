@@ -23,9 +23,9 @@ Folders window still needs to cover that work.
   `epicenter generate` (ADR-0527).
 - **The Folders window** lists the data folders under the Epicenter root and
   edits rows in a grid.
-- **One SQL projection** (`projectTables` in `@epicenter/folder`, over
-  `@epicenter/sqlite`'s handle): `epicenter query` and a page build the same
-  tables.
+- **One SQL projection** (`projectTables` in `@epicenter/folder`, over any
+  database that can run a statement and a transaction): `epicenter query`
+  builds it over `bun:sqlite`, and a page can build the same tables.
 - **Closed tables** report undeclared keys (ADR-0536).
 
 ## What is left

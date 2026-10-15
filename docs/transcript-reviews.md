@@ -14,6 +14,7 @@ and inspected relevant evidence selectively. Historical test totals and live
 mail observations are not fresh verification. No production source was changed.
 During review, HEAD advanced to `fd30a306b0` through an unrelated agent-guidance
 commit. It changed none of the application source supporting these findings.
+Device storage, which this review cites, has since been deleted.
 
 Four exports describe completed or superseded work. Two more can leave after
 preserving their product direction here. Keep the last two as temporary
@@ -24,7 +25,7 @@ execute from top to bottom.
 | --- | --- | --- |
 | `codex-session-01a0af68-0807-7501-b307-bb518be8a6ec.md` | Deleted: superseded startup assessment | Historical browser generation helpers and the production `_initial_generation` experiment are gone. Skills now calls `openApp`. The inert declaration and current opener are implemented. Its Vocab boot failure no longer reproduces. The [startup report](reports/20260917-startup-and-unfinished-work.md) preserves the checkpoint; its next-step ordering is historical. Skills' product purpose and physical acceptance remain separate questions. |
 | `codex-session-01a0b345-aae0-7a41-89f3-c6fb70ce1877.md` | Deleted: repairs and package collapse completed | App, app-shell, and Whispering package test scripts use `--isolate`. `packages/data` is gone; the App root exports `defineApp`, `defineTable`, and `field`, with the engine under `src/data`. The late proposal is now implemented by [ADR-0407](adr/0407-app-owns-the-declaration-and-data-engine.md) and later opener amendments. Do not restore its earlier claim that the separate data package is necessary. |
-| `codex-session-01a0b36b-572c-7560-92a6-7ca714680133.md` | Deleted: completed SQLite explanation | [SQLite ownership](../packages/device/src/owner.ts) and its tests preserve connection closure, drain, pool release, and failure retention. Later App admission owns cross-context exclusion. The old explanation is not another unfinished redesign. The unused returned `drain` method is separately covered by the retained audit. |
+| `codex-session-01a0b36b-572c-7560-92a6-7ca714680133.md` | Deleted: completed SQLite explanation | SQLite ownership in device storage and its tests preserved connection closure, drain, pool release, and failure retention. Later App admission owns cross-context exclusion. The old explanation is not another unfinished redesign. The unused returned `drain` method is separately covered by the retained audit. |
 | `codex-session-01a0b46e-1f3e-72e2-ac68-7cabf6278cda.md` | Deleted: completed runtime verification | [The opener](../packages/app/src/open.ts), [memory runtime tests](../packages/app/src/runtime.test.ts), and [browser admission evidence](../packages/app/evidence/data/app-ownership/browser.ts) preserve the result. `await openApp` returns a ready App; there is no public `app.ready` phase. Its final WebKit rerun supersedes its earlier failed observation. Browser checks were not rerun in this review. |
 | `codex-session-01a0b1dd-1af1-70e0-addd-6299bf4830b4.md` | Deleted after extracting takeaways | Its framework direction is represented by current code and ADRs. Its claims that scopes and platform selection are unbuilt are stale. Preserve the Mail credential race, the “Zhongwen should be personal GitHub” correction later settled as an independent repository, and hardware acceptance below. Its graceful-departure recommendation is superseded by process/document replacement. |
 | `codex-session-01a0b345-8c37-7fe0-82d4-8fc0b9c77f07.md` | Deleted after extracting product direction | The [integration review](reports/20260918-integration-review.md) already records the merge work. The user selected local Gmail reading/search/triage and a broader Chinese study app with saved words and review. Preserve those outcomes below. Its startup blocker is now resolved; its PR counts, mergeability, and clean-checkout claims are historical, not current status. |
@@ -35,7 +36,7 @@ execute from top to bottom.
 
 The [root declaration](../packages/app/src/index.ts) is inert. The separate
 [opener](../packages/app/src/open.ts) captures an Account, acquires one
-[App claim](../packages/device/src/app-claim.ts), and returns ready device and
+App claim from device storage, and returns ready device and
 optional Personal stores. [Platform selection](../packages/app/src/platform/default.ts)
 already chooses browser or host resources. No separate data package or Shared
 store remains. Separate signed-out and account-owned device storage remains;

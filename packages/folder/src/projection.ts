@@ -19,7 +19,8 @@ type SqlValue = string | number | null;
 
 /**
  * What the projection asks of a database: run one statement, and run several
- * as one transaction. An `@epicenter/sqlite` handle is one.
+ * as one transaction. `scripts/epicenter.ts` adapts a `bun:sqlite` database
+ * to it.
  */
 export type SqlTarget = {
 	run(sql: string, parameters?: readonly SqlValue[]): void;
