@@ -71,7 +71,13 @@ import type { Row } from './row-text.js';
 import type { SavedFile } from './save-file.js';
 import type { FileTable, SavedRow, StoredRow, TableListing } from './table.js';
 
-export { createDraft, type Draft } from './draft.js';
+export {
+	createDraft,
+	createTextDraft,
+	type Draft,
+	type SaveTextVariables,
+	type TextDraft,
+} from './draft.js';
 
 /** `kv.json`, whose reading the `kv` query holds. */
 const KV_PATH = 'kv.json';

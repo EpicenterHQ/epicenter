@@ -1,21 +1,41 @@
 /**
- * An edit of one row that holds its own starting version (ADR-0548).
+ * An edit of one row, or of one file's text, that holds its own starting
+ * version (ADR-0548, ADR-0551).
  *
- * The draft captures the row and its version at the first change, not when
- * an editor gains focus, and keeps the edited row outside the cache. A
- * refetch updates the cache, never the draft, and the save sends the
- * starting version, with its content, as its base, so `table.save` merges
- * with whatever changed since (ADR-0551). "Changed elsewhere" is derived by comparing the cache's
- * version with the base's; the draft holds no state for it.
+ * A draft captures the version at the first change, not when an editor
+ * gains focus, and keeps the edit outside the cache. A refetch updates the
+ * cache, never the draft, and the save sends the starting version, with its
+ * content, as its base, so the save merges with whatever changed since.
+ * "Changed elsewhere" is derived by comparing the cache's version with the
+ * base's; the draft holds no state for it.
+ *
+ * After a save, the version written is the new base. When the save merged
+ * another writer's change, edits made while it ran are merged onto that
+ * version, so the next save does not undo what the merge took.
  *
  * Plain TypeScript with no framework: a Svelte wrapper keeps a draft in
  * `$state` and calls these.
  */
-import type { FileCapture } from './capture.js';
+import type { ContentCapture, FileCapture } from './capture.js';
+import { mergeLines } from './git/merge-lines.js';
 import type { SaveRowVariables } from './query.js';
 import { type AnyRow, mergeRows, setField } from './row-merge.js';
 import type { Row } from './row-text.js';
+import type { SavedFile } from './save-file.js';
 import type { SavedRow, StoredRow } from './table.js';
+
+/** Whether the cache's `current` is not the version `base` names. */
+function movedFrom(
+	base: FileCapture | undefined,
+	current: FileCapture | undefined,
+): boolean {
+	if (base === undefined) return false;
+	return (
+		current === undefined ||
+		current.path !== base.path ||
+		current.sha256 !== base.sha256
+	);
+}
 
 export type Draft<TFields> = {
 	/** The row and version the edit started from; `undefined` before the first change. */
@@ -73,14 +93,7 @@ export function createDraft<TFields>(): Draft<TFields> {
 			edit(row);
 			revision++;
 		},
-		changedElsewhere(current) {
-			if (base === undefined) return false;
-			return (
-				current === undefined ||
-				current.path !== base.path ||
-				current.sha256 !== base.sha256
-			);
-		},
+		changedElsewhere: (current) => movedFrom(base, current),
 		toSave() {
 			if (base === undefined || row === undefined) return undefined;
 			return { base, row: structuredClone(row), revision };
@@ -122,6 +135,94 @@ export function createDraft<TFields>(): Draft<TFields> {
 		discard() {
 			base = undefined;
 			row = undefined;
+		},
+	};
+}
+
+/** What a text save sends: the version the edit started from, and the text. */
+export type SaveTextVariables = {
+	readonly base: ContentCapture;
+	readonly text: string;
+};
+
+/** An edit of one file's exact text; see `Draft`. */
+export type TextDraft = {
+	/** The version the edit started from; `undefined` before the first change. */
+	readonly base: ContentCapture | undefined;
+	/** The text typed; `undefined` before the first change. */
+	readonly text: string | undefined;
+	/**
+	 * Type `text`. The first change captures `current`, the file as the cache
+	 * holds it now, as the base; later ones ignore it.
+	 */
+	change(current: ContentCapture, text: string): void;
+	/** Whether the file changed since the edit started; false with no edit. */
+	changedElsewhere(current: FileCapture | undefined): boolean;
+	/** What the file save sends; `undefined` with no edit. */
+	toSave(): (SaveTextVariables & { readonly revision: number }) | undefined;
+	/** A save of `sent` landed as `saved`; as `Draft.saved`. */
+	saved(
+		sent: SaveTextVariables & { readonly revision: number },
+		saved: SavedFile,
+	): Promise<void>;
+	/** Drop the edit. */
+	discard(): void;
+};
+
+const utf8 = new TextDecoder('utf-8', { ignoreBOM: true });
+
+export function createTextDraft(): TextDraft {
+	let base: ContentCapture | undefined;
+	let text: string | undefined;
+	let revision = 0;
+	return {
+		get base() {
+			return base;
+		},
+		get text() {
+			return text;
+		},
+		change(current, next) {
+			base ??= current;
+			text = next;
+			revision++;
+		},
+		changedElsewhere: (current) => movedFrom(base, current),
+		toSave() {
+			if (base === undefined || text === undefined) return undefined;
+			return { base, text, revision };
+		},
+		async saved(sent, result) {
+			if (sent.revision === revision) {
+				base = undefined;
+				text = undefined;
+				return;
+			}
+			if (!result.merged) {
+				base = result.stored;
+				return;
+			}
+			const from = base;
+			const written = utf8.decode(result.stored.bytes);
+			for (;;) {
+				const at = revision;
+				const typed = text;
+				if (typed === undefined || base !== from) return;
+				// Lines typed since the save win where the merge changed them too.
+				const merged = await mergeLines({
+					base: sent.text,
+					ours: typed,
+					theirs: written,
+				});
+				if (at !== revision) continue;
+				text = merged.ours;
+				base = result.stored;
+				return;
+			}
+		},
+		discard() {
+			base = undefined;
+			text = undefined;
 		},
 	};
 }

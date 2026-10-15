@@ -55,8 +55,8 @@ test('the Svelte entry loads only svelte/reactivity, the draft, and the row merg
 	expect(files).toEqual([
 		join(packageRoot, 'src/svelte/draft.svelte.ts'),
 		join(packageRoot, 'src/draft.ts'),
-		join(packageRoot, 'src/row-merge.ts'),
 		join(packageRoot, 'src/git/merge-lines.ts'),
+		join(packageRoot, 'src/row-merge.ts'),
 	]);
 	// The line merge loads `diff` only when a merged save is carried over.
 	expect(outside).toEqual(['svelte/reactivity', 'diff']);

@@ -13,9 +13,10 @@
  *   continue from the version it wrote, which is the new base; after a
  *   merge they are merged onto it, so what the merge took from another
  *   writer is not undone
+ * - A text draft does the same for one file's text, merging by line
  */
 import { expect, test } from 'bun:test';
-import { createDraft } from './draft.js';
+import { createDraft, createTextDraft } from './draft.js';
 import type { SavedRow, StoredRow } from './table.js';
 
 type Todo = { title: string; done: boolean };
@@ -144,4 +145,37 @@ test('a change made while a merged save is merged onto its version is merged too
 	});
 	await rebasing;
 	expect(draft.row?.fields).toEqual({ title: 'Mine, most', done: true });
+});
+
+const file = (sha: string, text: string) =>
+	Object.freeze({
+		path: 'notes.txt',
+		sha256: sha.repeat(64),
+		bytes: new TextEncoder().encode(text),
+	});
+
+test('a text draft keeps its base apart from its text, and after a merged save carries later typing onto the version written', async () => {
+	const draft = createTextDraft();
+	const first = file('a', 'one\ntwo\n');
+	draft.change(first, 'ONE\ntwo\n');
+	expect(draft.base).toBe(first);
+	const sent = draft.toSave()!;
+	expect(sent).toMatchObject({ base: first, text: 'ONE\ntwo\n' });
+	draft.change(first, 'ONE\ntwo\nthree\n');
+	// Another writer changed the second line; the save merged it in.
+	const written = file('c', 'ONE\nTWO\n');
+	await draft.saved(sent, {
+		stored: written,
+		merged: true,
+		replaced: [],
+	});
+	expect(draft.base).toBe(written);
+	expect(draft.text).toBe('ONE\nTWO\nthree\n');
+	const again = draft.toSave()!;
+	await draft.saved(again, {
+		stored: file('d', again.text),
+		merged: false,
+		replaced: [],
+	});
+	expect(draft.text).toBeUndefined();
 });
