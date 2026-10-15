@@ -62,43 +62,12 @@
 		}
 	],
 	// --- Durable Objects ---
-	// The Worker has none. The migrations stay: Cloudflare applies each tag once,
-	// in order, and a deploy needs the full history.
-	//
-	// StoreAuthority and GenerationsLedger belonged to the Yjs store sync, removed
-	// with ADR-0534. v6 deletes both classes and every object they stored.
-	// GitHubConnection held the GitHub connector's encrypted grants and folder
-	// pairings, removed with ADR-0521. v7 deletes the class and every grant.
-	"migrations": [
-		{
-			"tag": "v1",
-			"new_sqlite_classes": ["StoreAuthority"]
-		},
-		{
-			"tag": "v2",
-			"new_sqlite_classes": ["GenerationsLedger"]
-		},
-		{
-			"tag": "v3",
-			"new_sqlite_classes": ["DemoGenerationBudget"]
-		},
-		{
-			"tag": "v4",
-			"deleted_classes": ["DemoGenerationBudget"]
-		},
-		{
-			"tag": "v5",
-			"new_sqlite_classes": ["GitHubConnection"]
-		},
-		{
-			"tag": "v6",
-			"deleted_classes": ["StoreAuthority", "GenerationsLedger"]
-		},
-		{
-			"tag": "v7",
-			"deleted_classes": ["GitHubConnection"]
-		}
-	],
+	// The Worker has none, and carries no migration history. The Worker that
+	// held StoreAuthority, GenerationsLedger, and GitHubConnection (migrations
+	// v1 to v7) is deleted and recreated rather than migrated: deploying this
+	// configuration starts by deleting the existing `api` Worker, which removes
+	// every Durable Object it stored (ADR-0534).
+
 	// --- Secrets (synced from Infisical prod /api, typed via `wrangler types`) ---
 	"secrets": {
 		"required": [

@@ -133,7 +133,6 @@ test('the fresh deployment baseline has direct session tables and no OAuth or JW
 			'account',
 			'passkey',
 			'session',
-			'storage_observation',
 			'user',
 			'verification',
 		]);
