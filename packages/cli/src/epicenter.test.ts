@@ -608,6 +608,7 @@ if (!isOptional(field.optional(field.string())))
 	throw new Error('imports did not resolve');
 
 export default defineFolder({
+	local: ['drafts/'],
 	kv: {},
 	tables: {
 		pages: defineTable({
@@ -621,7 +622,7 @@ export default defineFolder({
 });
 `;
 
-test('generate writes the epicenter.json that epicenter.ts declares, and check reads it', async () => {
+test('generate writes the epicenter.json that epicenter.ts declares, local included, and check reads it', async () => {
 	const { folder, write, run } = await setup();
 	await write('epicenter.ts', source);
 	await write('pages/a.md', '---\ntitle: A\n---\n');
@@ -637,6 +638,8 @@ test('generate writes the epicenter.json that epicenter.ts declares, and check r
 		required: ['title'],
 	});
 	expect(Object.keys(declaration.tables)).toEqual(['pages']);
+	// What stays on this machine is part of the declaration every host reads.
+	expect(declaration.local).toEqual(['drafts/']);
 	expect(run('generate', folder).stdout).toBe(
 		'unchanged epicenter.json from epicenter.ts\n',
 	);

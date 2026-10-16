@@ -66,9 +66,11 @@ type PreparedFolderDefinition<TDefinition extends FolderDefinition> = {
  *
  * Its `local` patterns name files that stay on the machine that wrote them.
  * Every commit leaves out a path they match, and untracks one already
- * committed, whatever `.gitignore` says (`git/local.ts`). Before its first
- * write a handle also adds each pattern the root `.gitignore` lacks, so plain
- * `git` agrees (`publish-definition.ts`). `epicenter.json` does not carry them.
+ * committed, whatever `.gitignore` says (`git/scope.ts`). `epicenter.json`
+ * carries them, so every host that reads the folder's own declaration, the
+ * `epicenter` CLI included, excludes the same paths. Before its first write
+ * a handle also adds each pattern the root `.gitignore` lacks, so plain `git`
+ * agrees (`publish-definition.ts`).
  */
 export type FolderDefinition = DataSchema & { readonly id?: never };
 

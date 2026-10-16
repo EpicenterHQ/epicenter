@@ -228,11 +228,13 @@ export type HistoryOptions = {
  * no `git` on this computer (`GitMissingError`).
  *
  * The folder is opened for its history alone: its file storage, its own
- * `epicenter.json` (rows merge as text when it has none, or one that does not
- * read), and history over this process's `git` (`systemHistory`). A save
- * version and a sync hold the folder's history lock (`holdingHistoryLock`),
- * so two processes never interleave them. Reading status or the log takes no
- * lock.
+ * `epicenter.json` (rows merge as text when it has none), and history over
+ * this process's `git` (`systemHistory`). An `epicenter.json` that is there
+ * but cannot be read or prepared refuses a save version and a sync, which
+ * could otherwise commit files its `local` keeps on this machine; status and
+ * the log still read. A save version and a sync hold the folder's history
+ * lock (`holdingHistoryLock`), so two processes never interleave them.
+ * Reading status or the log takes no lock.
  */
 export async function runHistory(
 	root: string,
@@ -264,7 +266,19 @@ export async function runHistory(
 		filesLock: directoryFilesLock(resolved),
 		landed: () => {},
 	});
-	const { data: declared } = await readDeclaration(boundary);
+	const { data: declared, error: declarationError } =
+		await readDeclaration(boundary);
+	// What stays local is read from `epicenter.json`, so a commit made without
+	// it could carry those files (ADR-0577). Reading status and the log
+	// commits nothing and proceeds; anything that commits is refused.
+	if (
+		declarationError !== null &&
+		request.op !== 'status' &&
+		request.op !== 'log'
+	)
+		throw new Error(
+			`${resolved}/epicenter.json cannot be used, so nothing was committed: ${declarationError.reason}. Fix the file, or open the folder in its app to write it again.`,
+		);
 	const definition: FolderDefinition | undefined = declared ?? undefined;
 	const landed: string[] = [];
 	const open = await systemHistory(

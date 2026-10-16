@@ -37,6 +37,7 @@ import {
 	scratch,
 } from './git-http.test-support.js';
 import type { Expectation } from './native/bindings.gen.js';
+import { mustRow } from './row-write.test-support.js';
 import {
 	answerShellHistory,
 	type ShellHistoryCommand,
@@ -250,12 +251,6 @@ const definition = defineFolder({
 
 const originalEnv = { ...process.env };
 
-/** The row a write left, which these writes always leave. */
-function must<T>(result: { data: T | null; error: unknown }): T {
-	const written = expectOk(result as never) as T | null;
-	if (written === null) throw new Error('the write left no row');
-	return written;
-}
 beforeAll(() => {
 	Object.assign(process.env, {
 		GIT_CONFIG_GLOBAL: GIT_ENV.GIT_CONFIG_GLOBAL,
@@ -318,7 +313,7 @@ test('a granted folder opens over its real directory', async () => {
 	expect(folder.location).toEqual({ kind: 'directory', root });
 	expect(folder.definition).toBe(definition);
 
-	const created = must(
+	const created = mustRow(
 		await folder.tables.todos.create({
 			fields: { title: 'From the desktop', done: false },
 			body: '',
@@ -433,7 +428,7 @@ test('a row write another window overtakes where it publishes merges with what i
 		overtaken.delete(path);
 		writeFileSync(path, theirs);
 	};
-	const created = must(
+	const created = mustRow(
 		await folder.tables.todos.create({
 			fields: { title: 'Mine', done: false },
 			body: '',

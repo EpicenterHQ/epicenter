@@ -29,7 +29,7 @@ ADR-0438, which proposed them, is withdrawn.
 ```txt
 so.epicenter.whispering/
   recordings/<id>.md       the row, with audioPath: audio/<id>.<extension>
-  audio/<id>.<extension>   the audio; never committed
+  audio/<id>.<extension>   the audio; left out of every commit Epicenter makes
   .gitignore               names audio/
 ```
 
@@ -38,11 +38,25 @@ so.epicenter.whispering/
 `recoverRecordings` runs with `under: 'audio'`.
 
 **A folder definition names the files that stay on the machine that wrote
-them, and the engine never commits one.** `defineFolder` takes `local`, a list
-of `.gitignore` patterns (`DataSchema['local']`, checked by `prepareSchema`):
+them, and the engine leaves them out of every commit it makes from a
+declaration that reads cleanly.** `defineFolder` takes `local`, a list of
+`.gitignore` patterns (`DataSchema['local']`, checked by `prepareSchema`):
 each is one line that ignores something, so an empty pattern, a comment, a
-negation, or surrounding whitespace is refused. Whispering declares
-`local: ['audio/']`. `epicenter.json` does not carry it.
+negation, or surrounding whitespace is refused. `prepareSchema` sorts the list
+and keeps each pattern once, so the declaration's bytes do not depend on the
+order it was written in. Whispering declares `local: ['audio/']`.
+
+**The folder's own `epicenter.json` carries `local`, so every host reads the
+same patterns.** `formatDeclaration` writes `"local": ["audio/"]` beside
+`kv` and `tables`, and `parseDeclaration` reads it back. The desktop's Sync and
+Save version run in the `epicenter` CLI (`runHistory`), which reads the
+definition from that file, so the CLI excludes exactly what the app does. A
+declaration without `local` keeps nothing local, and a folder with no
+`epicenter.json` has no definition. An `epicenter.json` that is there but
+cannot be read or prepared refuses a save version, a sync, and a settle, with
+the problem named, because a commit made without its `local` could carry
+those files; status and the log still read. A browser data folder with such a
+file does not open (`InvalidDeclaration`).
 
 The rule is the engine's, on both backends, whatever `.gitignore` says
 (`localMatcher` and `sourceFiles` in `packages/folder/src/git/scope.ts`):
@@ -54,14 +68,15 @@ The rule is the engine's, on both backends, whatever `.gitignore` says
 | named by a `!` exception in `.gitignore` | left out all the same: the declaration wins |
 | staged by hand (`git.stage`) | left out of the index; a tracked one is removed from it |
 
-**The handle also writes the patterns into the root `.gitignore`**, so plain
-`git` and the `epicenter` CLI agree. `publishLocalPatterns`
+**The handle also writes the patterns into the root `.gitignore`**, which
+mirrors them for plain `git`. `publishLocalPatterns`
 (`packages/folder/src/publish-definition.ts`) runs after `publishDefinition`,
 before a handle's first write: a missing `.gitignore` is created holding the
 patterns, a present one gains each missing pattern as a line at its end, and a
 person's own lines are never rewritten. A failed write is logged and never
-refuses the write it precedes; the engine's rule holds without it. Plain
-`git add -A` outside Epicenter honors only `.gitignore`.
+refuses the write it precedes; the engine's rule holds without it.
+`.gitignore` protects only untracked files: plain `git add -A` outside
+Epicenter honors it, and it does nothing for a file already committed.
 
 **A row whose `audioPath` the folder listing lacks says its audio isn't on
 this device.** `recordingAudio` (`apps/whispering/src/lib/recording-audio.ts`)
@@ -94,6 +109,16 @@ Whispering has no audio export, so there is nothing else to disable.
   leave it out.
 - A person who deletes the `audio/` line from `.gitignore` gets it back the
   next time the app opens the folder and writes.
+- If a Sync takes an `epicenter.json` written by an older app version, one
+  without `local`, the engine stops excluding `audio/` until the app
+  publishes its declaration again on its next write. `.gitignore` merges by
+  line and keeps its `audio/` line meanwhile, so an untracked recording is
+  still ignored there.
+- If two devices publish differing `local` lists, a Sync keeps only one
+  `epicenter.json`, so the other device's patterns lapse until merging
+  `epicenter.json` unions `local`, which is planned with Sync's rewrite
+  ([ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md)
+  wave C).
 - No server holds a person's audio unless they send it to a transcription
   service.
 - Objects already in the hosted `epicenter-blobs` bucket stay until the bucket

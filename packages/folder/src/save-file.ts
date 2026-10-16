@@ -30,7 +30,7 @@ import {
 	FileError,
 	type FileSaveError,
 	TableError,
-	type WriteError,
+	WriteError,
 } from './errors.js';
 import { kvRefusal } from './kv.js';
 import { readKvMembers } from './kv-merge.js';
@@ -145,8 +145,10 @@ export function writeFailure(path: string, error: FileError): WriteError {
  * overridden when another writer changed it since, and `null` names
  * nothing. An edit, from a version that existed, of a file deleted since
  * writes nothing and answers `file: null`: a delete beats an edit it never
- * saw, and only a write from no file creates one. Both are owned before
- * anything is awaited.
+ * saw, and only a write from no file creates one. A create, from `null`,
+ * places a file only where none is: a file already there is `InvalidPath`,
+ * unless it holds the same bytes, which is that create landed before. Both
+ * are owned before anything is awaited.
  *
  * Any `to` is written, whether or not it reads as its kind: a typed view
  * refuses a row it cannot write before it gets here (`InvalidValues`), and
@@ -171,6 +173,25 @@ export async function writeFile(
 			return Err(writeFailure(path, read.error));
 		const current = read.error === null ? read.data : null;
 		const theirs = current?.bytes ?? null;
+		// A create places a file only where none is. The same bytes already
+		// there are this create landed before, so a retried create is done.
+		if (base === null && ours !== null && current !== null) {
+			if (sameContent(toBytes(ours), current.bytes))
+				return Ok(
+					Object.freeze({
+						path,
+						file: Object.freeze({
+							...fileCapture(path, current.sha256),
+							bytes: current.bytes,
+						}),
+						overridden: [],
+					}),
+				);
+			return WriteError.InvalidPath({
+				path,
+				reason: 'a file is already at this path',
+			});
+		}
 		const merged =
 			ours === null
 				? {

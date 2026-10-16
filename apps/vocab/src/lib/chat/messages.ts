@@ -8,6 +8,7 @@ import { InstantString } from '@epicenter/definition/field';
 import {
 	type FileError,
 	type FolderFiles,
+	isStoredRow,
 	rowPath,
 	rowStemOf,
 } from '@epicenter/folder';
@@ -137,10 +138,9 @@ export type MessageWrite = (
  * resolves `Ok` only once the folder holds the file, so the loop asks the
  * tutor nothing before a learner message is a file.
  *
- * A create merges into a file already at its stem, so a save reads the
- * stem first and creates only when no file is there. Saving a message again
- * after an answer that never arrived finds its own file, compares it, and
- * adds no second one; a different message at that name is refused.
+ * A create is refused where a file is already at its stem. Saving a message
+ * again after an answer that never arrived finds its own file, compares it,
+ * and adds no second one; a different message at that name is refused.
  */
 export function createChatMessageStore(
 	{ tables, files }: Pick<VocabFolder, 'tables' | 'files'>,
@@ -174,16 +174,24 @@ export function createChatMessageStore(
 		value: AgentMessage,
 	): Promise<Result<undefined, AgentMessageStoreError>> {
 		const stem = messageStem(chatId, key);
-		// A create merges into a file already at its stem, so the stem is read
-		// first. An earlier attempt may have landed without its answer.
-		const { data: current, error: readError } = await table.get(stem);
-		if (
-			readError !== null &&
-			readError.name !== 'InvalidRow' &&
-			readError.name !== 'InvalidUtf8'
-		)
-			return AgentMessageStoreError.WriteFailed({ cause: readError });
-		if (readError !== null || current !== undefined) {
+		const { error: createError } = await table.create(
+			{ fields: { chat: chatId, message: value }, body: '' },
+			{ stem },
+		);
+		if (createError !== null) {
+			if (createError.name !== 'InvalidPath')
+				return AgentMessageStoreError.WriteFailed({ cause: createError });
+			// A file is already at the stem. An earlier attempt may have landed
+			// without its answer: it is this message only if it holds it.
+			const { data: current, error: readError } = await table.get(stem);
+			if (readError === null && current === undefined)
+				return AgentMessageStoreError.WriteFailed({ cause: createError });
+			if (
+				readError !== null &&
+				readError.name !== 'InvalidRow' &&
+				readError.name !== 'InvalidUtf8'
+			)
+				return AgentMessageStoreError.WriteFailed({ cause: readError });
 			if (
 				current?.row.fields.chat !== chatId ||
 				!sameJson(current.row.fields.message, value)
@@ -193,13 +201,6 @@ export function createChatMessageStore(
 				});
 				return AgentMessageStoreError.WriteFailed({ cause: taken });
 			}
-		} else {
-			const { error: createError } = await table.create(
-				{ fields: { chat: chatId, message: value }, body: '' },
-				{ stem },
-			);
-			if (createError !== null)
-				return AgentMessageStoreError.WriteFailed({ cause: createError });
 		}
 		created.set(key, value);
 		notify();
@@ -279,7 +280,7 @@ export async function startChat(
 	});
 	if (createError !== null)
 		return ChatHistoryError.NotSaved({ cause: createError });
-	if (created === null)
+	if (!isStoredRow(created))
 		return ChatHistoryError.NotSaved({
 			cause: 'The new file does not read as a chat',
 		});

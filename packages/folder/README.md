@@ -117,6 +117,16 @@ const definition = defineFolder({
 });
 ```
 
+`local` is part of the declaration: the handle publishes it in
+`epicenter.json` as `"local": ["audio/"]`, so every host that reads the
+folder's own file, the `epicenter` CLI's Sync and Save version included,
+leaves out the same paths. A declaration without `local` keeps nothing local.
+`local` is sorted and kept once each, so the file's bytes do not depend on the
+order it was declared in. When the folder's `epicenter.json` is there but
+cannot be read or prepared, the CLI's `runHistory` refuses a save version, a
+sync, and a settle, naming the problem, rather than commit without its
+`local`; status and the log still read.
+
 The engine decides this itself, on both backends, whatever `.gitignore` says.
 A path `local` matches is never history source (`git/scope.ts`): status does
 not offer it, a whole-folder commit leaves it out, and a file committed before
@@ -131,7 +141,16 @@ gains each missing pattern as a line at its end, saved over as read with
 `{ merge: false }`; its other lines are never reordered, rewritten, or
 removed, and a file that already names every pattern is not written. A failed
 write is logged, and the engine's rule still holds. The `.gitignore` is source
-like any other file, so it syncs, and `epicenter.json` does not carry `local`.
+like any other file, so it syncs.
+
+One limit follows from `epicenter.json` merging as a whole file: if a Sync
+takes an `epicenter.json` written by an older app version, one without
+`local`, the engine stops excluding those paths until the app publishes its
+declaration again on its next write. `.gitignore` merges by line and keeps the
+patterns meanwhile, so plain Git still ignores an untracked file there;
+`.gitignore` does nothing for a file already committed. Likewise, two devices
+that publish differing `local` lists keep only one after a Sync, until
+merging `epicenter.json` unions `local` (ADR-0576 wave C).
 A pattern must be one line that ignores something: `defineFolder` refuses an
 empty pattern, a comment, a negation, and surrounding whitespace. Plain
 `git add -A` outside Epicenter honors only `.gitignore`.
@@ -909,13 +928,14 @@ line, and written in the standard form. The helpers build the change:
 await todos.set('milk', { done: true });               // from: the row as it is now
 await todos.create({ fields, body: '' }, { stem: 'milk' }); // from: no file
 await todos.delete('milk');                            // no base: the deleter wins
-await todos.rename('milk', 'groceries');               // a create at the new stem, then a delete
+await todos.rename('milk', 'groceries');               // a move: refused if 'groceries' is taken
 await todos.write('milk', opened.row, { ...opened.row, body: 'New notes\n' }); // what a body editor sends
 ```
 
-Each resolves with the row the write left at the stem, or `null` when no
-row stands there: the write deleted it, or merged with a file that does not
-read as a row, which is left to repair. Every failure is one `WriteError`:
+Each resolves with what the write left at the stem: the row; the file as an
+`InvalidRow` or `InvalidUtf8` value, when the write merged into a file that
+does not read as a row and left it to repair; or `null` when no file is
+there. `isStoredRow(written)` tells the first apart. Every failure is one `WriteError`:
 `InvalidValues` for a row that cannot be written (nothing is written),
 `KeptChanging` when the file changed on every attempt, `Io`, `Closed`, or
 `InvalidPath`.
@@ -928,8 +948,9 @@ read as a row, which is left to repair. Every failure is one `WriteError`:
   not made: `null`, and nothing is written. A file that is not a row has no
   fields to set, and is `InvalidValues`.
 - `create(row, { stem? })` writes at `stem`, or a generated one, from no
-  file. A row already at the stem merges with it, the created row winning
-  each field both set; generated stems make that a non-event. A lens that
+  file, placed only where none is: a file already at the stem is
+  `InvalidPath`, unless it holds this row's exact text, which is the same
+  create landed before. A lens that
   cannot supply a field the folder requires is `InvalidValues`, and
   `canCreate` says so beforehand.
 - `delete(stem)` removes whatever is at the stem, row or not.
@@ -1224,7 +1245,7 @@ const stopChanges = folder$.invalidateOnChange(queryClient);
 
 | Area | Queries (`.queryOptions()`, `.queryKey()`) | Mutations (`.mutationOptions()`) |
 | --- | --- | --- |
-| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `set({ stem, fields })`, `create({ row, stem? })`, `write({ stem, from, to })`, `rename({ stem, next })`, `delete(stem)` |
+| each table (`folder$.<table>`, and `folder$.tables.<table>`) | `list`, `get(stem)` | `set({ stem, fields })`, `create({ row, stem? })`, `write({ stem, from, to })`, `delete(stem)`; a rename is `table.rename` |
 | `kv` | `get` (the reading, or `null`) | `set({ key, value })` |
 | `files` | `list`, `read(path)`, `text(path)` (the file as an editor opens it: its text, or its kind and size past 1 MiB or when binary) | `write({ path, content, base? })` (a save over `base`, or a create), `move({ file, to })`, `delete(file)` |
 | `history` | `status`, `log(depth?)` | `saveVersion` (`git.commit`), `sync` |
@@ -1249,7 +1270,7 @@ back.
 A write keeps the cache in step inside its own `mutationFn`, so a caller's
 `onSuccess`, `onError`, or `onSettled` adds to it and replaces nothing. It
 puts its result where it can: `set`, `create`, and `write` set the row's query and
-its entry in the listing, `delete` drops them, `rename` does both, `kv.set` sets the reading,
+its entry in the listing, `delete` drops them, `kv.set` sets the reading,
 and `files.write` sets the file's `read` and `text`. The folder does not
 report a page's own writes to it, so the write marks stale the rest of what
 a change to its paths would, the history's status included. A read still
@@ -1537,7 +1558,8 @@ conversion, because a row's body is the file's Markdown text. An opener given
 such a definition returns `InvalidDefinition` before it acquires anything.
 
 `epicenter.json` holds each table, and `kv`, as one JSON Schema object whose
-properties are the fields. A table declared with `additionalProperties: false`
+properties are the fields, and `local`, when the definition declares it, as
+the list of patterns. A table declared with `additionalProperties: false`
 beside `fields` is closed: the file holds the same keyword beside `properties`,
 and a row with a key the table does not declare does not conform (ADR-0536).
 Open is the default, and a closed table is for folders people write by hand;
@@ -1549,7 +1571,7 @@ table. Rename one definition, or give the field an `$id`. Definitions are not
 renamed when they are published, so the file holds exactly the fields a
 reader prepares.
 
-A definition is `{ title?, kv, tables }` and nothing else. `defineFolder`
+A definition is `{ title?, local?, kv, tables }` and nothing else. `defineFolder`
 throws on an `id`; an opener given an untyped definition with one returns
 `InvalidDefinition`. Its type is `FolderDefinition`, the identity-free
 `DataSchema` of `@epicenter/definition`, prepared with `prepareSchema`.

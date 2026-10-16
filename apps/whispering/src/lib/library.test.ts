@@ -384,8 +384,13 @@ test('record, stop, and save leave a row, real audio, and a commit that leaves t
 	expect(['committed', 'unchanged']).toContain(outcome.status);
 	const tree = git(root, 'ls-tree', '-r', '--name-only', 'HEAD');
 	expect(tree).toContain(entry.path);
-	// Audio stays on the machine that recorded it: the folder's .gitignore
-	// names it, so the commit, and every Sync, carries the row alone.
+	// Audio stays on the machine that recorded it: the folder's own
+	// epicenter.json declares audio/ local, which every host reads, and its
+	// .gitignore mirrors it, so the commit, and every Sync, carries the row
+	// alone.
+	expect(
+		JSON.parse(await readFile(join(root, 'epicenter.json'), 'utf8')).local,
+	).toEqual(['audio/']);
 	expect(tree).toContain('.gitignore');
 	expect(tree).not.toContain(fields.audioPath);
 	expect(tree).not.toContain('kv.json');

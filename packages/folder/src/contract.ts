@@ -124,11 +124,13 @@ export {
 	WRITE_ATTEMPTS,
 	type Written,
 } from './save-file.js';
-export type {
-	FileTable,
-	StoredRow,
-	TableListing,
-	WrittenRow,
+export {
+	type FileTable,
+	isStoredRow,
+	type StoredRow,
+	type TableListing,
+	type UnreadableRow,
+	type WrittenRow,
 } from './table.js';
 
 /**

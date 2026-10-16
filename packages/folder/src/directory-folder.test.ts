@@ -28,6 +28,7 @@ import {
 	git,
 	scratch,
 } from './git-http.test-support.js';
+import { mustRow } from './row-write.test-support.js';
 
 const definition = defineFolder({
 	kv: {},
@@ -170,14 +171,12 @@ const earlierStagedName = (offset: number) =>
 type OpenedFolder = NonNullable<Awaited<ReturnType<typeof open>>['data']>;
 
 async function addTodo(folder: OpenedFolder, title: string) {
-	const created = expectOk(
+	return mustRow(
 		await folder.tables.todos.create({
 			fields: { title, done: false },
 			body: '',
 		}),
 	);
-	if (created === null) throw new Error('the create left no row');
-	return created;
 }
 
 /** The stem of a row path in `todos`. */

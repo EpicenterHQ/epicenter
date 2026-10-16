@@ -14,6 +14,9 @@
  *   was is no change, so the other writer's spelling stands
  * - A delete and an edit are the whole file: the delete beats an edit it
  *   never saw, and only a write from no file creates one
+ * - A write from no file onto a file already there is `InvalidPath` and
+ *   changes nothing, unless the file holds the same bytes: a retried create
+ *   is done
  * - A version that does not read as a row merges as text
  * - `put` lands only while the path holds `ifMatch`, and is `'stale'`
  *   otherwise, changing nothing
@@ -23,7 +26,7 @@
  * - A delete needs no base; a closed folder is `Closed`; a path no file
  *   can be at is `InvalidPath`
  */
-import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -336,27 +339,23 @@ async function directory() {
 	return { root, folder, onDisk };
 }
 
-test('a create makes the file and its directory, and a second create merges by unit', async () => {
+test('a create makes the file and its directory; a second create is refused, and the same one sent again is done', async () => {
 	const { folder, onDisk } = await directory();
 	const created = expectOk(
 		await folder.write('notes/a.md', null, note('Walk', 'mine\n')),
 	);
 	expect(created.overridden).toEqual([]);
 	expect(await onDisk('notes/a.md')).toBe(note('Walk', 'mine\n'));
-	const logged = spyOn(console, 'info').mockImplementation(() => {});
-	try {
-		const again = expectOk(
-			await folder.write('notes/a.md', null, note('Run', 'yours\n')),
-		);
-		expect(again.overridden).toEqual([{ kind: 'field', field: 'title' }]);
-		expect(logged).toHaveBeenCalledTimes(1);
-	} finally {
-		logged.mockRestore();
-	}
-	expect(await onDisk('notes/a.md')).toBe(note('Run', 'mine\nyours\n'));
-	// The same insertion sent again is not doubled.
-	expectOk(await folder.write('notes/a.md', null, note('Run', 'yours\n')));
-	expect(await onDisk('notes/a.md')).toBe(note('Run', 'mine\nyours\n'));
+	expect(
+		expectErr(await folder.write('notes/a.md', null, note('Run', 'yours\n'))),
+	).toMatchObject({ name: 'InvalidPath', path: 'notes/a.md' });
+	expect(await onDisk('notes/a.md')).toBe(note('Walk', 'mine\n'));
+	// A retried create finds its own bytes there.
+	const again = expectOk(
+		await folder.write('notes/a.md', null, note('Walk', 'mine\n')),
+	);
+	expect(again).toEqual(created);
+	expect(await onDisk('notes/a.md')).toBe(note('Walk', 'mine\n'));
 	await folder.close();
 });
 
