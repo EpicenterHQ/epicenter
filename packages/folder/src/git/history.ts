@@ -444,11 +444,11 @@ export function createHistory({
 		if (localProblem !== null)
 			return { status: 'blocked', reason: localProblem };
 		// Pin the parent, then capture, both inside the backend's
-		// protection. A pull or staged commit of this handle that changed
-		// files and the branch while this pass waited is part of the
-		// capture, so an older capture can never be committed on top of a
-		// newer parent. A branch move from outside the protection after
-		// this point fails the compare-and-swap below.
+		// protection. A publish of this handle that changed files and the
+		// branch while this pass waited is part of the capture, so an older
+		// capture can never be committed on top of a newer parent. A branch
+		// move from outside the protection after this point fails the
+		// compare-and-swap below.
 		const parent = await backend.readBranch();
 		const capturedAt = ++clock;
 		onCapture?.(capturedAt);
@@ -1289,7 +1289,7 @@ export function createHistory({
 		},
 		/**
 		 * Resolve once nothing of this handle still uses storage: the commits,
-		 * pulls, and other Git operations already inside the backend's
+		 * publishes, and other Git operations already inside the backend's
 		 * protection finished, and the aborted network work returned. There is
 		 * no last commit: a save whose request was still waiting, or whose
 		 * checkpoint failed, is still uncommitted when this resolves.

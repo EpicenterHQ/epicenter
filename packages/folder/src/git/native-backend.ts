@@ -5,20 +5,17 @@
  * writes is stored by `git hash-object -w`, so nothing writes an object file
  * by hand. Everything that mutates shared state uses the real `git` CLI,
  * whose `index.lock` and ref locks other Git processes respect: `update-ref`
- * with an expected old value is the branch compare-and-swap, `reset` updates
- * index entries, and staging runs `git add`. A staged commit is written as
- * objects and moved onto the branch by compare-and-swap (below).
- * isomorphic-git never writes the native index.
+ * with an expected old value is the branch compare-and-swap, and `reset`
+ * updates index entries. isomorphic-git never writes the native index.
  *
  * A merge with conflicts is never left in the folder: the folder never
  * writes `MERGE_HEAD`, and one another Git program began blocks commits and
- * incoming updates until it is finished or abandoned with Git.
+ * Sync's publishing until it is finished or abandoned with Git.
  *
- * A staged commit pins its parent first, the branch head. It then writes, as
- * objects, the index's tree and a commit naming that parent, and moves the
- * branch from it by compare-and-swap. `git commit`
- * would take whatever `HEAD` names when it runs. Like a whole-folder commit,
- * a staged commit runs no commit hooks and is not signed.
+ * A commit pins its parent first, the branch head, writes its tree and
+ * itself as objects, and moves the branch from that parent by
+ * compare-and-swap; `git commit` would take whatever `HEAD` names when it
+ * runs. A commit runs no commit hooks and is not signed.
  *
  * The backend reaches the machine only through its host: a `git` runner and
  * directory primitives, which `native-host.ts` supplies in Bun and Node. A
@@ -126,8 +123,8 @@ export async function createNativeGitBackend({
 	host: NativeGitHost;
 	/**
 	 * Runs once `git init` has created the repository. A folder with no
-	 * repository gets one with its first commit or staging
-	 * (`createRepository`), or when a remote is set, never when it opens;
+	 * repository gets one with its first commit (`createRepository`), or
+	 * when a remote is set, never when it opens;
 	 * until then it reads as an empty history with every file uncommitted,
 	 * and no `git` runs.
 	 */
@@ -135,7 +132,7 @@ export async function createNativeGitBackend({
 	/**
 	 * Why `git init` must not run here, such as a root inside
 	 * another repository's working tree. `createRepository` answers it, and
-	 * staging or setting a remote throws it.
+	 * setting a remote throws it.
 	 */
 	initProblem?: () => Promise<string | undefined>;
 	/** Asked before each push and fetch; see `GitCredentials`. */

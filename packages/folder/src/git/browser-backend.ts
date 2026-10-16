@@ -1,8 +1,8 @@
 /**
  * Browser Git: isomorphic-git over a folder's private Git state.
  *
- * `createStoredGitBackend` is everything that is Git: status, staging,
- * commits, diffs, and transfers, through a filesystem view whose `/files` is
+ * `createStoredGitBackend` is everything that is Git: objects, refs, the
+ * index, the log, and transfers, through a filesystem view whose `/files` is
  * the folder's files, read-only, and whose `/git` is private Git state, the
  * `.git` of the folder's origin private file system directory
  * (`opfs-git.ts`).
@@ -47,7 +47,7 @@ function refValue(value: Uint8Array | undefined): string | undefined {
 
 /**
  * A backend over a private repository it creates when first needed: by the
- * first Git write (a commit, staging, or setting a remote), never by
+ * first Git write (a commit, a fetch, or setting a remote), never by
  * opening or a file save. Until then reads find no history.
  */
 export async function createStoredGitBackend({

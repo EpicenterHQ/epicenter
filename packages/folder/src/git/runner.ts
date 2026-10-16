@@ -1,9 +1,9 @@
 /**
  * One pass at a time, with three ways in.
  *
- * `attempt` is for work nobody is waiting on, such as a rescan after a
- * partly landed pull: it starts
- * a pass only when nothing is running or waiting, and otherwise does nothing.
+ * `attempt` is for work nobody is waiting on, such as a rescan after Sync
+ * wrote files: it starts a pass only when nothing is running or waiting, and
+ * otherwise does nothing.
  * The runner keeps no record that it was called, so a skipped attempt never
  * runs later.
  *

@@ -42,7 +42,7 @@ export type GitBackend = {
 	/**
 	 * Create the repository if there is none yet. A directory backend has
 	 * this; history calls it inside `exclusive` before a whole-folder commit,
-	 * and staging or setting a remote creates it too. The browser backend
+	 * and setting a remote creates it too. The browser backend
 	 * creates its own with its first Git write. No backend creates one when
 	 * the folder opens.
 	 * Answers why no repository may be created here, having created nothing.
