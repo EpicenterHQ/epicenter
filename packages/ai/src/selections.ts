@@ -1,4 +1,3 @@
-import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 
 import type { InferenceTarget } from './target.js';
 
@@ -119,11 +118,15 @@ export function createInferenceSelections({
 }
 export type InferenceSelections = ReturnType<typeof createInferenceSelections>;
 
-export function createBrowserInferenceSelections(
-	appId: string,
-	account?: AccountIdentity,
-) {
-	const storageKey = `${appId}/${deviceOwnerPath(account)}`;
+/**
+ * An app's choices in this browser live under `<appId>/no-account`.
+ * `no-account` is left from when keys were split by account; browsers already
+ * hold data under it, so the literal stays as written.
+ */
+const BROWSER_SELECTIONS_SEGMENT = 'no-account';
+
+export function createBrowserInferenceSelections(appId: string) {
+	const storageKey = `${appId}/${BROWSER_SELECTIONS_SEGMENT}`;
 	return createInferenceSelections({
 		storage: window.localStorage,
 		storageKey,

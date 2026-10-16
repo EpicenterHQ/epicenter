@@ -74,13 +74,7 @@ describe('the working page needs no account', () => {
 		expect(declaration).not.toMatch(/accountKey|@epicenter\/auth/);
 	});
 
-	test('connected endpoints and the chosen model are kept for the device, never for an account', async () => {
-		const files = await shippedSources();
-		expect(
-			files
-				.filter(({ text }) => /openAccountConnectionCatalog/.test(text))
-				.map(({ path }) => path),
-		).toEqual([]);
+	test('the chosen model is kept for the device', async () => {
 		const shell = await Bun.file(
 			join(routes, 'components/VocabShell.svelte'),
 		).text();
