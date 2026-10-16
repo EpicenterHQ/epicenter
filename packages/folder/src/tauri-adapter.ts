@@ -7,9 +7,9 @@
  * This opener asks the shell for that directory (`grant_directory`) and opens
  * it with the folder engine (`tauri-directory.ts`): files are read and
  * changed through the shell, which checks every path, and history is the
- * system `git`, which the shell runs. The page names the
- * folder's ID and nothing else; the root and the fallback author are the
- * shell's, and `browser` options do not apply here.
+ * `epicenter` CLI's, which the shell runs. The page names the folder's ID
+ * and nothing else; the root is the shell's, and `credentials` and
+ * `browser` options do not apply here.
  *
  * This module exports the opener alone. `tauri.ts` is the public entry; the
  * automatic entry loads this module directly. The engine is a chunk loaded
@@ -20,8 +20,8 @@
  * folders a person picks.
  *
  * Outside the desktop app these openers refuse. Inside it, a missing plugin, a
- * window without permission, an unknown folder, or a folder another process
- * holds is returned as the refusal it is. Nothing here opens browser storage.
+ * window without permission, or an unknown folder is returned as the refusal
+ * it is. Nothing here opens browser storage.
  */
 
 import { isTauri } from '@tauri-apps/api/core';
@@ -49,8 +49,6 @@ function grantRefusal(refusal: GrantError) {
 			return OpenFolderError.UnknownScope(refusal);
 		case 'WindowNotPermitted':
 			return OpenFolderError.WindowNotPermitted(refusal);
-		case 'Busy':
-			return OpenFolderError.Busy(refusal);
 		case 'Missing':
 			return OpenFolderError.Missing(refusal);
 		case 'Unavailable':
@@ -88,20 +86,16 @@ async function grant(id: string): Promise<Result<Granted, OpenFolderError>> {
 /**
  * Open the folder the shell registered under `id`. Refusals are returned, not
  * thrown: not running in the shell, a missing ID, a folder this window may
- * not use, a folder another process holds.
+ * not use.
  */
-export const openFolder: OpenFolder = async ({
-	definition,
-	id,
-	credentials,
-}) => {
+export const openFolder: OpenFolder = async ({ definition, id }) => {
 	const { error: definitionError } = prepareFolderDefinition(definition);
 	if (definitionError !== null)
 		return OpenFolderError.InvalidDefinition(definitionError);
 	const { data: granted, error } = await grant(id);
 	if (error !== null) return Err(error);
 	const { openGrantedFolder } = await import('./tauri-directory.js');
-	return openGrantedFolder({ definition, id, granted, credentials });
+	return openGrantedFolder({ definition, id, granted });
 };
 
 /**
@@ -115,7 +109,6 @@ export const openDataFolder: OpenDataFolder = async <
 	const TLens extends FolderDefinition = FolderDefinition,
 >({
 	id,
-	credentials,
 	lens,
 }: OpenDataFolderOptions<TLens>) => {
 	if (lens !== undefined) {
@@ -130,6 +123,5 @@ export const openDataFolder: OpenDataFolder = async <
 		lens,
 		id,
 		granted,
-		credentials,
 	});
 };

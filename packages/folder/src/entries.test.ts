@@ -90,7 +90,8 @@ test('every entry exports the same contract beside its openers', () => {
 	expect(shared).toContain('defineFolder');
 	expect(shared).toContain('FileError');
 	expect(names(root)).toEqual(shared);
-	expect(names(tauri)).toEqual(shared);
+	// The desktop entry adds the opener of the folder the shell handed a window.
+	expect(names(tauri)).toEqual([...shared, 'openHandedFolder'].sort());
 	expect(names(browser)).toEqual(shared);
 	// The directory entry adds its own tools to the same contract.
 	expect(names(bun)).toEqual(expect.arrayContaining(shared));

@@ -34,9 +34,9 @@ import {
 	prepareFolderDefinition,
 } from './definition.js';
 import { OpenFolderError } from './errors.js';
-import type { Folder } from './folder.js';
+import type { Folder, FolderGitSteps } from './folder.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
-import { createHistory } from './git/history.js';
+import { createHistory, type History } from './git/history.js';
 import type { Author } from './git/objects.js';
 import { createOpfsGitStore } from './git/opfs-git.js';
 import {
@@ -177,7 +177,10 @@ function lazyDirectory(
  * definition a folder cannot keep, a page inside the desktop app, an ID that
  * cannot name a directory, or missing browser storage. Nothing is written.
  */
-export const openFolder: OpenFolder = async ({ definition, ...options }) => {
+export const openFolder: OpenFolder<FolderGitSteps> = async ({
+	definition,
+	...options
+}) => {
 	const { data: prepared, error: definitionError } =
 		prepareFolderDefinition(definition);
 	if (definitionError !== null)
@@ -194,7 +197,7 @@ export const openFolder: OpenFolder = async ({ definition, ...options }) => {
  * An `epicenter.json` that cannot be used is `InvalidDeclaration`, and one
  * that does not contain the `lens` is `ShapeMismatch`.
  */
-export const openDataFolder: OpenDataFolder = async <
+export const openDataFolder: OpenDataFolder<FolderGitSteps> = async <
 	const TLens extends FolderDefinition = FolderDefinition,
 >({
 	lens,
@@ -216,7 +219,9 @@ async function openBrowserFolder<
 	schema: FolderSchema,
 	{ id, credentials, browser = {} }: OpenDataFolderOptions,
 	lens?: FolderDefinition,
-): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
+): Promise<
+	Result<Folder<TDefinition, TDeclared, FolderGitSteps>, OpenFolderError>
+> {
 	if (isTauri()) return OpenFolderError.InsideTauri();
 	if (!isFolderName(id)) return OpenFolderError.InvalidId({ id: String(id) });
 	const author = browser.author ?? LOCAL_AUTHOR;
@@ -237,7 +242,7 @@ async function openBrowserFolder<
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });
 	}
-	return openAtRoot<TDefinition, TDeclared>(schema, {
+	return openAtRoot<TDefinition, TDeclared, History>(schema, {
 		lens,
 		detector: browserChangeDetector(environment, at.hintChannel),
 		location: { kind: 'opfs', directory: at.directory },

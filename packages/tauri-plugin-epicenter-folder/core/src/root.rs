@@ -5,8 +5,9 @@
 //! folder's when it is missing (`prepare_directory`), resolves it once
 //! (`resolve_root`), and refuses a layout whose Git state would send writes
 //! elsewhere (`verify_layout`), which the `epicenter` CLI checks again
-//! before each history operation (`gitLayoutProblem` in `@epicenter/folder`). A data folder never gets a repository of its own inside another
-//! repository's working tree (`enclosing_repository`).
+//! before each history operation (`gitLayoutProblem` in `@epicenter/folder`).
+//! Whether a data folder may get a repository of its own is the CLI's
+//! question, asked when it would commit (`enclosingRepository`).
 
 use std::fs;
 use std::io::ErrorKind;
@@ -60,22 +61,6 @@ pub fn prepare_directory(root: &Path, create: bool) -> Result<(), PrepareError> 
         )));
     }
     Ok(())
-}
-
-/// Why `root` may not get a repository of its own: a directory above it
-/// holds `.git`, so it is inside that repository's working tree. The same
-/// answer, in the same words, as `enclosingRepository` in
-/// `@epicenter/folder`'s Bun opener.
-pub fn enclosing_repository(root: &Path) -> Option<String> {
-    root.ancestors().skip(1).find_map(|at| {
-        fs::symlink_metadata(at.join(".git")).is_ok().then(|| {
-            format!(
-                "{} is inside the repository at {}; commit it with that repository's Git",
-                root.display(),
-                at.display()
-            )
-        })
-    })
 }
 
 /// Resolve the folder root once, refusing a path that is not a directory.

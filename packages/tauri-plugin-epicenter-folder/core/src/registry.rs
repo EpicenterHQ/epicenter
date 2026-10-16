@@ -1,34 +1,31 @@
 //! Which window may use which folder.
 //!
-//! The shell registers scopes: a scope ID, the folder's directory and the
-//! fallbacks for what its repository does not configure, and the labels of
-//! the windows that may edit it. `permit` adds a window to a registered
+//! The shell registers scopes: a scope ID, the folder's directory, and the
+//! labels of the windows that may edit it. `permit` adds a window to a registered
 //! scope later. A page names only the scope ID. It never supplies a root or
 //! an author, so a compromised page cannot point the folder somewhere else.
 //!
 //! Each permitted window's page runs `@epicenter/folder`'s engine over the
-//! directory. The first `grant` takes the folder's cross-process lock and
+//! directory. The first `grant` prepares and resolves the directory, and
 //! every grant, from any permitted window, hands back the same canonical
-//! root; the lock is held until `shutdown` or the process ends, so no other
-//! process opens the folder meanwhile. Each file change a page asks for
+//! root. Each file change a page asks for
 //! holds a `PageWork` while it runs; `shutdown` refuses new ones and waits
 //! for none. Quitting is immediate (ADR-0542): every save is an atomic
 //! rename, so a quit leaves each file whole. The folder's Git runs in the
 //! `epicenter` CLI, which the shell starts for a page (ADR-0559), over the
-//! root `granted_folder` names.
+//! root `granted_root` names.
 //!
 //! Several windows may edit one folder because the shell, not the page,
 //! decides every publish. Each publishing rename and removal checks its path
 //! against the page's expectation and changes it under one mutex per
-//! canonical root, held here and shared by every window of the folder
-//! (`PageWork::publishing`); a second scope on the same root is refused
-//! `Busy` at its grant, so the folder's windows are the only ones that reach
-//! it. So a save through the shell is never overtaken between its check and
-//! its rename by another save through the shell, whichever window, engine,
-//! or origin made either. Another Epicenter shell is kept out by the root
-//! lock; a Bun process, such as the `epicenter` CLI, may still write the
-//! folder, and the two take turns under the folder's save lock
-//! (`lock::SaveLock`), held with the mutex across each check and change.
+//! canonical root, held here and shared by every window and every scope of
+//! the folder (`PageWork::publishing`). So a save through the shell is never
+//! overtaken between its check and its rename by another save through the
+//! shell, whichever window, scope, engine, or origin made either. Another
+//! process, a second Epicenter shell or a Bun process such as the
+//! `epicenter` CLI, takes turns with it under the folder's save lock
+//! (`lock::SaveLock`), held with the mutex across each check and change
+//! (ADR-0562, ADR-0568).
 //!
 //! A folder is an application's own (`FolderKind::Application`), whose
 //! directory the shell chose and creates, or a data folder a person made
@@ -42,15 +39,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::Serialize;
 use specta::Type;
 
-use crate::lock::{LockError, RootLock, SaveLock, SAVE_LOCK_WAIT};
-use crate::root::{enclosing_repository, prepare_directory, resolve_root, verify_layout, PrepareError};
-
-/// Who a version is recorded as when Git's configuration names no one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Author {
-    pub name: String,
-    pub email: String,
-}
+use crate::lock::{SaveLock, SAVE_LOCK_WAIT};
+use crate::root::{prepare_directory, resolve_root, verify_layout, PrepareError};
 
 /// Whose directory a folder is, which decides what the shell may do to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,53 +52,35 @@ pub enum FolderKind {
     Application,
     /// A data folder: a directory a person made, which the shell opens only
     /// as it finds it. A missing one is refused `Missing`, never created.
-    /// While a directory above it holds `.git`, its first `git init` is
-    /// refused (`Granted::init_problem`), as the Bun `openDataFolder` blocks
-    /// that first commit: its files are that repository's to commit.
     Data,
 }
 
 /// One folder as the shell registers it. Everything else (the remote, the
-/// author Git's configuration names, what is tracked) is the repository's,
-/// read by the page's engine.
+/// author, the branch, what is tracked) is the repository's, read by the
+/// page's engine and the `epicenter` CLI.
 #[derive(Debug, Clone)]
 pub struct FolderConfig {
     /// The folder's directory, chosen by the shell or found by it.
     pub root: PathBuf,
-    /// The fallback author for whichever of `user.name` and `user.email` Git's
-    /// configuration does not set.
-    pub author: Author,
-    /// The local branch history is recorded on.
-    pub branch: String,
     pub kind: FolderKind,
 }
 
 impl FolderConfig {
     /// An application's own folder, whose directory the first grant creates
     /// when it is missing.
-    pub fn new(root: impl Into<PathBuf>, author: Author) -> Self {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: root.into(),
-            author,
-            branch: "main".to_string(),
             kind: FolderKind::Application,
         }
     }
 
     /// A data folder a person made, granted only while its directory exists.
-    pub fn data(root: impl Into<PathBuf>, author: Author) -> Self {
+    pub fn data(root: impl Into<PathBuf>) -> Self {
         Self {
+            root: root.into(),
             kind: FolderKind::Data,
-            ..Self::new(root, author)
         }
-    }
-}
-
-/// Why `git init` may not run at the canonical `root` of a `kind` folder.
-fn init_problem(kind: FolderKind, root: &std::path::Path) -> Option<String> {
-    match kind {
-        FolderKind::Application => None,
-        FolderKind::Data => enclosing_repository(root),
     }
 }
 
@@ -131,12 +103,10 @@ pub enum GrantError {
     UnknownScope { scope: String },
     /// The scope exists, but is not registered for this window.
     WindowNotPermitted { scope: String, window: String },
-    /// Another process holds the folder.
-    Busy { root: String },
     /// A data folder's directory is not there. The shell creates only an
     /// application's own folder.
     Missing { root: String },
-    /// The folder could not be prepared, locked, or reached.
+    /// The folder could not be prepared or reached.
     Unavailable { message: String },
     /// The shell is shutting its folders down.
     ShuttingDown,
@@ -144,36 +114,16 @@ pub enum GrantError {
 
 struct Scope {
     config: ScopeConfig,
-    /// Once granted: the canonical root and the lock held for it.
-    granted: Option<(PathBuf, RootLock)>,
+    /// Once granted: the canonical root.
+    granted: Option<PathBuf>,
 }
 
-/// What a scope's window is given: where its folder is, and the shell's
-/// fallbacks for what the repository does not configure.
+/// What a scope's window is given: where its folder is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Granted {
     /// The canonical root, as an absolute path.
     pub root: String,
-    pub branch: String,
-    pub author_name: String,
-    pub author_email: String,
-    /// Why the page's first `git init` may not run here: a data folder
-    /// inside another repository's working tree, as the grant found it. The
-    /// `epicenter` CLI refuses that `init` too, whenever it is asked.
-    pub init_problem: Option<String>,
-}
-
-/// A granted folder as the shell registered it: what the `epicenter` CLI
-/// needs to run its Git for a window.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GrantedFolder {
-    /// The canonical root.
-    pub root: PathBuf,
-    /// The fallback author where Git's configuration names none.
-    pub author: Author,
-    pub branch: String,
-    pub kind: FolderKind,
 }
 
 /// One admitted page change; dropping it ends it.
@@ -182,7 +132,6 @@ pub struct PageWork {
     root: PathBuf,
     /// The publishing mutex of that root.
     publishing: Arc<Mutex<()>>,
-    kind: FolderKind,
 }
 
 /// A held turn to check and change a root's files: its publishing mutex,
@@ -195,13 +144,6 @@ pub struct Publishing<'a> {
 }
 
 impl PageWork {
-    /// Why `git init` may not run at `root`, the canonical root this work
-    /// was admitted for: a data folder inside another repository's working
-    /// tree. Asked each time, since a repository may appear above it later.
-    pub fn init_problem(&self, root: &std::path::Path) -> Option<String> {
-        init_problem(self.kind, root)
-    }
-
     /// Hold the root's publishing mutex, then its save lock (`SaveLock`): a
     /// rename or removal that checks its path and then changes it holds both
     /// across the two, so no other change through the shell on the same
@@ -225,8 +167,8 @@ impl PageWork {
 pub struct Registry {
     scopes: Mutex<BTreeMap<String, Scope>>,
     fenced: AtomicBool,
-    /// One publishing mutex per canonical root. Only one scope at a time
-    /// holds a root's lock, so its windows are the ones that share it.
+    /// One publishing mutex per canonical root, shared by every scope and
+    /// window of it.
     publishing: Mutex<BTreeMap<PathBuf, Arc<Mutex<()>>>>,
 }
 
@@ -326,10 +268,9 @@ impl Registry {
     /// Give `window` the directory of `scope`. The first grant, from whichever
     /// permitted window asks first, creates an application folder's directory
     /// if it is missing and refuses a missing data folder as `Missing`,
-    /// refuses a directory that is a link or Git state that would send writes
-    /// elsewhere (`verify_layout`), and takes the folder's cross-process lock;
-    /// every later grant, a reloaded page's or another window's, returns the
-    /// same root under the same lock.
+    /// and refuses a directory that is a link or Git state that would send
+    /// writes elsewhere (`verify_layout`); every later grant, a reloaded
+    /// page's or another window's, returns the same root.
     pub fn grant(&self, scope: &str, window: &str) -> Result<Granted, GrantError> {
         let mut scopes = self.scopes();
         if self.fenced.load(Ordering::SeqCst) {
@@ -348,22 +289,12 @@ impl Registry {
                 },
             )?;
             let root = resolve_root(&folder.root).map_err(unavailable)?;
-            let lock = RootLock::acquire(&root).map_err(|error| match error {
-                LockError::Busy { root } => GrantError::Busy {
-                    root: root.display().to_string(),
-                },
-                LockError::Failed { message } => unavailable(message),
-            })?;
             verify_layout(&root).map_err(unavailable)?;
-            entry.granted = Some((root, lock));
+            entry.granted = Some(root);
         }
-        let (root, _) = entry.granted.as_ref().expect("the scope was just granted");
+        let root = entry.granted.as_ref().expect("the scope was just granted");
         Ok(Granted {
             root: root.to_string_lossy().into_owned(),
-            branch: folder.branch.clone(),
-            author_name: folder.author.name.clone(),
-            author_email: folder.author.email.clone(),
-            init_problem: init_problem(folder.kind, root),
         })
     }
 
@@ -375,7 +306,7 @@ impl Registry {
         scope: &str,
         window: &str,
     ) -> Result<(PathBuf, PageWork), GrantError> {
-        let (root, kind) = self.granted(scope, window)?;
+        let root = self.granted_root(scope, window)?;
         let publishing = Arc::clone(
             self.publishing
                 .lock()
@@ -385,66 +316,27 @@ impl Registry {
         );
         Ok((
             root.clone(),
-            PageWork {
-                root,
-                publishing,
-                kind,
-            },
+            PageWork { root, publishing },
         ))
     }
 
     /// The canonical root of `scope`, already granted, if `window` is one of
     /// its windows: where that window's changes and Git commands run.
     pub fn granted_root(&self, scope: &str, window: &str) -> Result<PathBuf, GrantError> {
-        self.granted(scope, window).map(|(root, _)| root)
-    }
-
-    /// `scope` as `window` was granted it: its canonical root and what the
-    /// shell registered for it, for the `epicenter` CLI that runs the
-    /// folder's Git for that window (ADR-0559).
-    pub fn granted_folder(&self, scope: &str, window: &str) -> Result<GrantedFolder, GrantError> {
-        let (root, kind) = self.granted(scope, window)?;
-        let scopes = self.scopes();
-        let folder = &scopes
-            .get(scope)
-            .ok_or_else(|| GrantError::UnknownScope {
-                scope: scope.to_string(),
-            })?
-            .config
-            .folder;
-        Ok(GrantedFolder {
-            root,
-            author: folder.author.clone(),
-            branch: folder.branch.clone(),
-            kind,
-        })
-    }
-
-    /// `granted_root`, with the kind of folder it is.
-    fn granted(&self, scope: &str, window: &str) -> Result<(PathBuf, FolderKind), GrantError> {
         let mut scopes = self.scopes();
         if self.fenced.load(Ordering::SeqCst) {
             return Err(GrantError::ShuttingDown);
         }
         let entry = Self::permitted(&mut scopes, scope, window)?;
-        match &entry.granted {
-            Some((root, _)) => Ok((root.clone(), entry.config.folder.kind)),
-            None => Err(GrantError::Unavailable {
-                message: format!("the folder scope '{scope}' has not been granted yet"),
-            }),
-        }
+        entry.granted.clone().ok_or_else(|| GrantError::Unavailable {
+            message: format!("the folder scope '{scope}' has not been granted yet"),
+        })
     }
 
-    /// Fence new grants and page work, then release every folder's
-    /// cross-process lock. Work already running is not waited for: the
-    /// process is ending, and each save is an atomic rename (ADR-0542).
+    /// Fence new grants and page work. Work already running is not waited
+    /// for: the process is ending, and each save is an atomic rename
+    /// (ADR-0542).
     pub fn shutdown(&self) {
         self.fenced.store(true, Ordering::SeqCst);
-        let locks: Vec<RootLock> = self
-            .scopes()
-            .values_mut()
-            .filter_map(|scope| scope.granted.take().map(|(_, lock)| lock))
-            .collect();
-        drop(locks);
     }
 }

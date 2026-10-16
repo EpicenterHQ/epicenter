@@ -24,34 +24,25 @@
  * query layer rereads it only when the change channel or a write of the
  * page's own marks it stale (ADR-0553).
  *
- * The finer Git steps (`push`, `fetch`, `pullFastForward`, `mergeIncoming`,
- * staging, `diff`) have no desktop command: they answer `Failed`, and Sync
- * is how a desktop folder exchanges history. A reload or a closed window
- * ends the children it started.
+ * The history is `FolderGit`: status, the log, Save version, and Sync. The
+ * finer Git steps (`FolderGitSteps`) have no desktop command; Sync is how a
+ * desktop folder exchanges history. The CLI sends the deployment's Git its
+ * own token, so the page holds none. A reload or a closed window ends the
+ * children it started.
  */
 import { invoke } from '@tauri-apps/api/core';
 import { Err, type Result } from 'wellcrafted/result';
 import type { DirectoryHistory } from './directory-adapter.js';
 import { describe } from './errors.js';
-import type { PathStatus } from './git/backend.js';
+import type { FolderHistory } from './folder.js';
 import { GitError, SyncError } from './git/errors.js';
 import type {
-	CommitAndPushResult,
 	CommitOutcome,
-	FetchOutcome,
 	FilesObservation,
 	GitSnapshot,
-	History,
-	MergeError,
-	MergeOutcome,
 	Observation,
-	PullError,
-	PullOutcome,
-	PushOutcome,
-	StagedCommit,
 	SyncObservation,
 } from './git/history.js';
-import type { GitCredentials } from './git/http.js';
 import type { CommitSummary } from './git/objects.js';
 import { createPassRunner } from './git/runner.js';
 import type {
@@ -67,7 +58,6 @@ import {
 	type HistoryReply,
 	type HistoryResults,
 	type HistoryState,
-	type UrlCredential,
 } from './history-wire.js';
 
 /** What the shell's history commands answer: how the child ended, and its reply line. */
@@ -134,45 +124,33 @@ async function ask<T>(
 	return { kind: 'reply', reply: value as HistoryReply<T> };
 }
 
-const UNSUPPORTED =
-	'runs only as part of Sync in the desktop app; Sync fetches, merges, and pushes in one step';
-
 /**
  * The history of the folder this window was granted under `scope`, over
- * the shell's history commands. `credentials`, when the page holds a token,
- * is asked for the remote's URL before each sync, and the token crosses to
- * the child on its standard input, sent by Git only to an `https` remote.
+ * the shell's history commands.
  */
 export function cliHistory({
 	scope,
-	branch,
-	credentials,
 }: {
 	readonly scope: string;
-	readonly branch: string;
-	readonly credentials?: GitCredentials;
-}): DirectoryHistory {
+}): DirectoryHistory<FolderHistory> {
 	return async ({ landed }) =>
 		() =>
-			createCliHistory({ scope, branch, credentials, landed });
+			createCliHistory({ scope, landed });
 }
 
 function createCliHistory({
 	scope,
-	branch,
-	credentials,
 	landed,
 }: {
 	scope: string;
-	branch: string;
-	credentials?: GitCredentials;
 	landed: (paths: readonly string[]) => void;
-}): History {
+}): FolderHistory {
 	const closing = new AbortController();
 	let clock = 0;
 	let lastEdit = 0;
 	let state: HistoryState = {
-		branch,
+		// The CLI records history on `main`; the first reply says so.
+		branch: 'main',
 		remote: undefined,
 		files: undefined,
 		sync: undefined,
@@ -320,28 +298,9 @@ function createCliHistory({
 		});
 	}
 
-	/** The credential for the remote a sync reaches, crossing to the child. */
-	async function credentialFor(
-		connect: string | undefined,
-	): Promise<UrlCredential | null> {
-		if (credentials === undefined) return null;
-		let url = connect ?? state.remote?.url;
-		// The page learns its remote from a status reply.
-		if (url === undefined) {
-			await scanRunner.follow();
-			url = state.remote?.url;
-		}
-		if (url === undefined) return null;
-		const credential = await credentials(url, closing.signal);
-		return credential === undefined ? null : { url, ...credential };
-	}
-
-	/** One sync request: `sync` or `settle_sync`, with what both carry. */
+	/** One sync request: `sync` or `settle_sync`. */
 	function syncing(
-		run: (
-			credential: UrlCredential | null,
-		) => Promise<Answer<HistoryResults['sync']>>,
-		connect?: string,
+		run: () => Promise<Answer<HistoryResults['sync']>>,
 	): Promise<Result<SyncOutcome, SyncError>> {
 		if (closing.signal.aborted) return Promise.resolve(SyncError.Closed());
 		running.merge++;
@@ -349,15 +308,7 @@ function createCliHistory({
 		return admit(async () => {
 			try {
 				const capturedAt = ++clock;
-				let credential: UrlCredential | null;
-				try {
-					credential = await credentialFor(connect);
-				} catch (cause) {
-					return SyncError.Fetch({
-						error: GitError.Failed({ operation: 'fetch', cause }).error,
-					});
-				}
-				const answer = await run(credential);
+				const answer = await run();
 				if (answer.kind !== 'reply')
 					return SyncError.Failed({ cause: gitFailure('sync', answer).error });
 				observe(answer.reply, capturedAt);
@@ -375,15 +326,12 @@ function createCliHistory({
 	}
 
 	const runSync = (options: SyncOptions = {}, connect?: string) =>
-		syncing(
-			(credential) =>
-				ask('sync', {
-					scope,
-					remote: connect ?? null,
-					allowUnrelated: options.allowUnrelatedHistories === true,
-					credential,
-				}),
-			connect,
+		syncing(() =>
+			ask('sync', {
+				scope,
+				remote: connect ?? null,
+				allowUnrelated: options.allowUnrelatedHistories === true,
+			}),
 		);
 
 	function resolveSync(
@@ -401,17 +349,14 @@ function createCliHistory({
 		}
 		if (typeof id !== 'string')
 			return Promise.resolve(SyncError.Stale({ reason: 'replaced' }));
-		return syncing((credential) =>
-			ask('settle_sync', { scope, attempt: id, choices: picked, credential }),
+		return syncing(() =>
+			ask('settle_sync', { scope, attempt: id, choices: picked }),
 		);
 	}
 
-	const unsupported = (operation: string) =>
-		GitError.Failed({ operation, cause: `${operation} ${UNSUPPORTED}` });
-
 	let closed: Promise<void> | undefined;
 
-	const history: History = {
+	const history: FolderHistory = {
 		get snapshot() {
 			return snapshot;
 		},
@@ -429,36 +374,11 @@ function createCliHistory({
 		},
 		status: () => scanRunner.follow(),
 		commit,
-		async commitAndPush(): Promise<CommitAndPushResult> {
-			const outcome = await commit();
-			return {
-				commit: outcome,
-				push: { status: 'skipped', reason: `push ${UNSUPPORTED}` },
-			};
-		},
-		push: async (): Promise<PushOutcome> => ({
-			status: 'skipped',
-			reason: `push ${UNSUPPORTED}`,
-		}),
-		fetch: async (): Promise<Result<FetchOutcome, GitError>> =>
-			unsupported('fetch'),
-		pullFastForward: async (): Promise<
-			Result<PullOutcome, PullError | GitError>
-		> => unsupported('pull'),
-		mergeIncoming: async (): Promise<
-			Result<MergeOutcome, MergeError | PullError | GitError>
-		> => unsupported('merge'),
 		sync: Object.freeze({
 			run: (options?: SyncOptions) => runSync(options),
 			resolve: resolveSync,
 			connect: (url: string, options?: SyncOptions) => runSync(options, url),
 		}),
-		paths: async (): Promise<Result<PathStatus[], GitError>> =>
-			unsupported('status of each path'),
-		stage: async (): Promise<Result<undefined, GitError>> => unsupported('add'),
-		commitStaged: async (): Promise<Result<StagedCommit, GitError>> =>
-			unsupported('commit of staged changes'),
-		diff: async (): Promise<Result<string, GitError>> => unsupported('diff'),
 		async log(depth: number): Promise<Result<CommitSummary[], GitError>> {
 			if (closing.signal.aborted) return GitError.Closed();
 			return admit(async () => {

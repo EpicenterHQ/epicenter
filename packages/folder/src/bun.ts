@@ -51,7 +51,8 @@ import {
 } from './directory-handle.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { OpenFolderError } from './errors.js';
-import type { Folder, FolderGitOptions } from './folder.js';
+import type { Folder, FolderGitOptions, FolderGitSteps } from './folder.js';
+import type { History } from './git/history.js';
 import type { GitCredentials } from './git/http.js';
 import { createMutex } from './git/mutex.js';
 import { nativeHistory } from './git/native-history.js';
@@ -85,12 +86,9 @@ export {
 	runGit,
 } from './git/native-host.js';
 export {
-	answerShellHistory,
 	type HistoryOptions,
 	historyExitCode,
-	historyRequestOf,
 	runHistory,
-	type ShellHistoryCommand,
 } from './history-command.js';
 export {
 	decodeHistory,
@@ -100,7 +98,6 @@ export {
 	type HistoryRequest,
 	type HistoryResults,
 	type HistoryState,
-	type UrlCredential,
 } from './history-wire.js';
 export {
 	CONFLICT_LABELS,
@@ -163,11 +160,11 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 	definition,
 	git,
 }: DirectoryFolderOptions<TDefinition>): Promise<
-	Result<Folder<TDefinition>, OpenFolderError>
+	Result<Folder<TDefinition, TDefinition, FolderGitSteps>, OpenFolderError>
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
-	return openDirectoryFolder<TDefinition>({
+	return openDirectoryFolder({
 		definition,
 		...directory(resolved),
 		history: systemHistory(resolved, git),
@@ -195,11 +192,11 @@ export async function openDataFolder<
 	git,
 	lens,
 }: DataFolderOptions<TLens>): Promise<
-	Result<Folder<TLens, FolderDefinition>, OpenFolderError>
+	Result<Folder<TLens, FolderDefinition, FolderGitSteps>, OpenFolderError>
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
-	return openDirectoryFolder<TLens, FolderDefinition>({
+	return openDirectoryFolder<TLens, FolderDefinition, History>({
 		definition: 'declared',
 		lens,
 		...directory(resolved),
@@ -248,7 +245,6 @@ export function systemHistory(
 	git: {
 		readonly author: FolderGitOptions['author'];
 		readonly credentials?: GitCredentials;
-		readonly branch?: string;
 		/** Whether this history may commit; see `nativeHistory`. */
 		readonly commits?: boolean;
 	},
@@ -258,7 +254,6 @@ export function systemHistory(
 		rootPath: resolved,
 		host: { run: createGitRunner(resolved), files: savingPrimitives(resolved) },
 		author: git.author,
-		branch: git.branch,
 		credentials: git.credentials,
 		initProblem,
 		attempts: attemptFile(resolved),
@@ -345,79 +340,101 @@ function holdingSaveLock<T>(
 	resolved: string,
 	work: () => Promise<T>,
 ): Promise<T> {
-	return holdingFileLock(resolved, 'save', SAVE_LOCK_WAIT_MS, work);
+	return holdingFolderLock(resolved, 'save', SAVE_LOCK_WAIT_MS, work);
 }
 
-/** What each lock guards, for the message when it cannot be taken. */
+/** What each folder lock guards, for the message when it cannot be taken. */
 const LOCKED = {
 	save: (resolved: string) => `Nothing was saved to the folder at ${resolved}`,
 	history: (resolved: string) =>
 		`The history of the folder at ${resolved} was not changed`,
 } as const;
 
-/** One turn at a time per lock file within this process, before the file lock. */
-const lockTurns = new Map<string, ReturnType<typeof createMutex>>();
-
-/**
- * Run `work` holding `.<name>.epicenter-<kind>-lock` beside the directory at
- * `resolved`: an exclusive SQLite transaction, which writes nothing. SQLite
- * holds it with an operating-system file lock (`fcntl` on Unix,
- * `LockFileEx` on Windows), which the system releases when the process
- * ends, however it ends, so a killed holder leaves nothing to recover. Bun
- * has no `flock`, so this is the one cross-process lock it can take without
- * native code, and the shell takes the same kind (`lock.rs`).
- *
- * Work in this process takes turns first, so only one connection per lock
- * waits on the file lock, and it waits by polling with timers, never by
- * blocking the event loop. Past `waitMs` it throws before `work` runs.
- */
-function holdingFileLock<T>(
+/** `.<name>.epicenter-<kind>-lock` beside the directory at `resolved`. */
+function holdingFolderLock<T>(
 	resolved: string,
 	kind: keyof typeof LOCKED,
 	waitMs: number,
 	work: () => Promise<T>,
 ): Promise<T> {
-	const key = `${kind}:${resolved}`;
-	let turn = lockTurns.get(key);
+	const refused = LOCKED[kind](resolved);
+	const parent = dirname(resolved);
+	if (parent === resolved)
+		return Promise.reject(
+			new Error(
+				`${refused}: it has no parent directory to hold its ${kind} lock.`,
+			),
+		);
+	const path = join(parent, `.${basename(resolved)}.epicenter-${kind}-lock`);
+	return holdingFileLock(
+		path,
+		{
+			waitMs,
+			held: `${refused}: another program held its ${kind} lock (${path}) for more than ${waitMs / 1000} seconds. Try again; if it keeps happening, quit the other program.`,
+		},
+		work,
+	);
+}
+
+/** One turn at a time per lock file within this process, before the file lock. */
+const lockTurns = new Map<string, ReturnType<typeof createMutex>>();
+
+/**
+ * Run `work` holding the lock file at `path`, made with its directory when
+ * missing: an exclusive SQLite transaction, which writes nothing. SQLite
+ * holds it with an operating-system file lock (`fcntl`), which the system
+ * releases when the process ends, however it ends, so a killed holder
+ * leaves nothing to recover. Bun has no `flock`, so this is the one
+ * cross-process lock it can take without native code, and the desktop
+ * shell takes the same kind (`lock.rs`). The folder's save and history
+ * locks, the CLI's sign-in refresh, and its app installs all hold one.
+ *
+ * Work in this process takes turns first, so only one connection per lock
+ * waits on the file lock, and it waits by polling with timers, never by
+ * blocking the event loop. When another process still holds it after
+ * `waitMs` (at once, for `0`), it throws `held` before `work` runs. A path
+ * that is a link or not a regular file is refused, so the lock is never
+ * taken on a database somewhere else.
+ */
+export function holdingFileLock<T>(
+	path: string,
+	{ waitMs, held }: { readonly waitMs: number; readonly held: string },
+	work: () => Promise<T>,
+): Promise<T> {
+	let turn = lockTurns.get(path);
 	if (turn === undefined) {
 		turn = createMutex();
-		lockTurns.set(key, turn);
+		lockTurns.set(path, turn);
 	}
 	return turn.run(async () => {
-		const held = await takeFileLock(resolved, kind, waitMs);
+		const database = await takeFileLock(path, waitMs, held);
 		try {
 			return await work();
 		} finally {
 			try {
-				held.run('ROLLBACK');
+				database.run('ROLLBACK');
 			} finally {
-				held.close();
+				database.close();
 			}
 		}
 	});
 }
 
 async function takeFileLock(
-	resolved: string,
-	kind: keyof typeof LOCKED,
+	path: string,
 	waitMs: number,
+	held: string,
 ): Promise<Database> {
-	const refused = LOCKED[kind](resolved);
-	const parent = dirname(resolved);
-	if (parent === resolved)
-		throw new Error(
-			`${refused}: it has no parent directory to hold its ${kind} lock.`,
-		);
-	const path = join(parent, `.${basename(resolved)}.epicenter-${kind}-lock`);
-	// Never a database somewhere else. Checked once, as the shell checks it.
+	// Checked once, as the shell checks it.
 	const found = await lstat(path).catch((cause: { code?: string }) => {
 		if (cause.code === 'ENOENT') return undefined;
 		throw cause;
 	});
 	if (found !== undefined && !found.isFile())
 		throw new Error(
-			`${refused}: ${path} is ${found.isSymbolicLink() ? 'a symbolic link' : 'not a regular file'}. Remove it, then try again.`,
+			`${path} is ${found.isSymbolicLink() ? 'a symbolic link' : 'not a regular file'}, so it cannot be locked. Remove it, then try again.`,
 		);
+	if (found === undefined) await mkdir(dirname(path), { recursive: true });
 	const database = new Database(path, { create: true });
 	try {
 		database.run('PRAGMA busy_timeout = 0');
@@ -429,10 +446,7 @@ async function takeFileLock(
 			} catch (cause) {
 				const code = String((cause as { code?: unknown }).code);
 				if (!/^SQLITE_(BUSY|LOCKED)/.test(code)) throw cause;
-				if (Date.now() >= deadline)
-					throw new Error(
-						`${refused}: another program held its ${kind} lock (${path}) for more than ${waitMs / 1000} seconds. Try again; if it keeps happening, quit the other program.`,
-					);
+				if (Date.now() >= deadline) throw new Error(held);
 				await Bun.sleep(pause);
 			}
 		}
@@ -461,7 +475,7 @@ export function holdingHistoryLock<T>(
 	resolved: string,
 	work: () => Promise<T>,
 ): Promise<T> {
-	return holdingFileLock(resolved, 'history', HISTORY_LOCK_WAIT_MS, work);
+	return holdingFolderLock(resolved, 'history', HISTORY_LOCK_WAIT_MS, work);
 }
 
 /**

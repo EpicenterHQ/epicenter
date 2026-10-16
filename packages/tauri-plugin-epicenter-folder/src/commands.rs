@@ -27,7 +27,6 @@ async fn blocking<T: Send + 'static>(
 }
 
 /// Give this window the directory of a scope the shell registered for it.
-/// The folder is locked on its first grant and stays locked until shutdown.
 /// The window reads and changes it through this plugin's commands alone;
 /// nothing else on disk becomes reachable. From the first grant the folder
 /// is watched, and the scope's windows hear `epicenter-folder://changed`.

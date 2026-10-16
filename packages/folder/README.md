@@ -360,10 +360,10 @@ A desktop shell registers each folder's directory for the windows that may
 edit it, with the `tauri-plugin-epicenter-folder` crate. Opening it with
 `@epicenter/folder/tauri` asks the shell to grant it (`grant_directory`): the
 shell creates an application's directory if it is missing (a missing data
-folder is `OpenFolderError.Missing`), refuses a linked `.git`, and takes the
-folder's cross-process lock. A data folder inside another repository's
-working tree never gets a repository of its own there either: the shell
-names the host at the grant, and the first commit is `blocked`. The page then opens a directory
+folder is `OpenFolderError.Missing`) and refuses a linked `.git`. A data
+folder inside another repository's working tree never gets a repository of
+its own there either: the `epicenter` CLI refuses the first commit as
+`blocked`. The page then opens a directory
 folder (`directory-adapter.ts`) and reads and changes that directory alone
 through the shell's commands:
 
@@ -479,11 +479,11 @@ sync wrote comes back in the reply (`landed`) and is reported once on
 `onFilesChanged`; the shell's watcher reports the same files and the moved
 history, which at most rereads them.
 
-The finer steps (`push`, `fetch`, `pullFastForward`, `mergeIncoming`,
-`paths`, `stage`, `commitStaged`, `diff`) have no desktop command and answer
-`Failed`; `commitAndPush` saves a version and skips the push. A page's
-`credentials` are asked for the remote's URL before each sync and cross to
-the child on its standard input. A computer with no `git` answers
+A desktop folder's `git` is `FolderGit`: status, the log, and `commit`. The
+finer steps (`FolderGitSteps`) have no desktop command, so a desktop handle
+does not have them; Sync is how it exchanges history. The page holds no
+token: the CLI sends the deployment's Git its own, and `credentials` does not
+apply on the desktop. A computer with no `git` answers
 `GitError.GitMissing`, with how to get one (`install`); files still read and
 save.
 
@@ -633,7 +633,7 @@ its default export declares (ADR-0527).
 | `tables.<name>` | Rows at `<name>/<stem>.md`, read through `parseRow` and written through `formatRow`. `canCreate` is false only for a table opened through a lens that cannot supply a field the folder requires. `get(stem)` returns a `StoredRow` (`path`, `sha256`, the exact `text`, and a complete, caller-owned `row`), `InvalidRow` for readable text that is not a valid row, or `undefined` only for absence. `list()` returns one `{ stem, result }` per row file. `create(row, { stem? })` is exclusive. `save(base, row, options?)` writes an edit over the version it started from, merging with another writer's newer file. `rename` and `delete` take a capture and are refused as `Conflict` when its bytes are gone. Each changes exactly one Markdown file. See [Reading a row](#reading-a-row), [Saving a row](#saving-a-row), and [Editing a row](#editing-a-row). |
 | `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` changes one key of the file as read at the set, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and saves with the one save loop, merging by key with another writer's save. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `files` | Ordinary files at literal paths. See below. |
-| `git` | A status snapshot, `status()`, `commit()`, `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, and `paths()`, `stage()`, `commitStaged(message)`, `diff()`, `log()`. |
+| `git` | `FolderGit` on every host: a status snapshot, `subscribe()`, `status()`, `commit()`, and `log()`. A browser or Bun handle's is `FolderGitSteps`, which adds `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, `paths()`, `stage()`, `commitStaged(message)`, and `diff()`; the browser entry's openers are `OpenFolder<FolderGitSteps>` and `OpenDataFolder<FolderGitSteps>`. |
 | `sync` | `run()` commits saved files, fetches, merges, and pushes; competing settings, row fields, row bodies, and whole row files come back as a `SyncAttempt` that `resolve(attempt, choices)` settles. See [Sync](#sync). |
 | `definition` | The prepared definition the handle reads with: `openFolder`'s `definition`, or the folder's own `epicenter.json` as `openDataFolder` read it when it opened. Its tables are `tables`, its settings `kv`, and Sync merges rows by it. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |

@@ -10,7 +10,7 @@
 //!     .setup(|app| {
 //!         app.folders().register(ScopeConfig {
 //!             scope: "so.epicenter.todos".into(),
-//!             folder: FolderConfig::new(todos_directory, author),
+//!             folder: FolderConfig::new(todos_directory),
 //!             windows: vec!["todos".into()],
 //!         })?;
 //!         Ok(())
@@ -18,20 +18,18 @@
 //! ```
 //!
 //! `Folders::permit` lets another window into a registered folder later. A
-//! page names a scope and nothing else. The root and the fallback author
-//! come from `register`. The page runs `@epicenter/folder`'s engine over the
+//! page names a scope and nothing else. The root comes from `register`. The page runs `@epicenter/folder`'s engine over the
 //! directory `grant_directory` hands it: it reads and changes files through
 //! this plugin's checked commands. Its history runs in the `epicenter` CLI,
-//! which the shell starts for it over the root `Folders::granted_folder`
+//! which the shell starts for it over the root `Folders::granted_root`
 //! names (ADR-0559); this plugin runs no `git`.
 //!
-//! Several windows may edit one folder: the shell checks and publishes each
-//! of their saves under one mutex per root, so a save another window
-//! overtook is refused as `Conflict` rather than silently replaced. The
-//! folder is locked against other processes on its first grant, from
-//! whichever window, and stays locked until the app exits or the shell calls
-//! `Folders::shutdown`, which refuses new work and releases each folder's
-//! cross-process lock without waiting for work already running (ADR-0542).
+//! Several windows and scopes may edit one folder: the shell checks and
+//! publishes each of their saves under one mutex per root, and under the
+//! folder's save lock, which every other process that writes the folder
+//! takes too, so a save another writer overtook is refused as `Conflict`
+//! rather than silently replaced (ADR-0562, ADR-0568). `Folders::shutdown`
+//! refuses new work without waiting for work already running (ADR-0542).
 //!
 //! From a folder's first grant the plugin also watches its root and tells
 //! the scope's windows what changed outside them, as the Tauri event
@@ -45,7 +43,7 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime};
 use epicenter_folder_core::registry::Registry;
 pub use epicenter_folder_core::page_files::{ChangeError, Expectation};
 pub use epicenter_folder_core::registry::{
-    Author, FolderConfig, FolderKind, GrantError, Granted, GrantedFolder, ScopeConfig,
+    FolderConfig, FolderKind, GrantError, Granted, ScopeConfig,
 };
 
 mod command_names;
@@ -73,27 +71,22 @@ impl Folders {
     }
 
     /// Let `window` edit the registered folder `scope` beside the windows
-    /// already permitted. It is granted the same root, under the same lock.
+    /// already permitted. It is granted the same root.
     pub fn permit(&self, scope: &str, window: &str) -> Result<(), GrantError> {
         self.registry.permit(scope, window)
     }
 
-    /// The canonical root `window` was granted for `scope`, for another
-    /// plugin that writes into the folder on the page's behalf, such as the
-    /// recorder. Refused until the window's page has been granted the scope.
+    /// The canonical root `window` was granted for `scope`: where the
+    /// `epicenter` CLI the shell runs for that window works (ADR-0559), and
+    /// where another plugin that writes into the folder on the page's behalf,
+    /// such as the recorder, writes. Refused until the window's page has been
+    /// granted the scope.
     pub fn granted_root(&self, scope: &str, window: &str) -> Result<PathBuf, GrantError> {
         self.registry.granted_root(scope, window)
     }
 
-    /// `scope` as `window` was granted it: its root, fallback author,
-    /// branch, and kind, for the `epicenter` CLI the shell runs to record and
-    /// sync its history (ADR-0559). Refused as `granted_root` is.
-    pub fn granted_folder(&self, scope: &str, window: &str) -> Result<GrantedFolder, GrantError> {
-        self.registry.granted_folder(scope, window)
-    }
-
-    /// Refuse new work, stop watching, and release every lock, without
-    /// waiting for work already admitted. The plugin also does this when the
+    /// Refuse new work and stop watching, without waiting for work already
+    /// admitted. The plugin also does this when the
     /// app exits.
     pub fn shutdown(&self) {
         self.watchers.shutdown();

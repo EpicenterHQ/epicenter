@@ -446,10 +446,6 @@ export const OpenFolderError = defineErrors({
 		scope,
 		window,
 	}),
-	Busy: ({ root }: { root: string }) => ({
-		message: `Another Epicenter is already using the folder at ${root}. Quit the other Epicenter, then open this one again.`,
-		root,
-	}),
 	/**
 	 * A data folder's directory is not there, perhaps moved or removed since
 	 * it was listed. The desktop shell creates only an application's own

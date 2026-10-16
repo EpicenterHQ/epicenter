@@ -22,9 +22,10 @@ import {
 	createFileHints,
 	type FilesChanged,
 	type Folder,
+	type FolderHistory,
 	type FolderLocation,
+	type GitOf,
 } from './folder.js';
-import type { createHistory } from './git/history.js';
 import { withPublication } from './storage.js';
 
 /** One folder's captured address and every name derived from it. */
@@ -72,25 +73,25 @@ const UNDECLARED = (() => {
  * `relay` hears each landed step, for the detector; `landed` hears the
  * paths an incoming update wrote.
  */
-export type StartFolder = (wiring: {
-	readonly relay: (paths: readonly string[]) => void;
-	readonly landed: (paths: readonly string[]) => void;
-}) => Promise<{
-	readonly boundary: FileBoundary;
-	/** The history, whose Sync merges rows by `definition`. */
-	readonly history: (
-		definition: FolderDefinition,
-	) => ReturnType<typeof createHistory>;
-}>;
+export type StartFolder<THistory extends FolderHistory = FolderHistory> =
+	(wiring: {
+		readonly relay: (paths: readonly string[]) => void;
+		readonly landed: (paths: readonly string[]) => void;
+	}) => Promise<{
+		readonly boundary: FileBoundary;
+		/** The history, whose Sync merges rows by `definition`. */
+		readonly history: (definition: FolderDefinition) => THistory;
+	}>;
 
 export async function openAtRoot<
 	TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
+	THistory extends FolderHistory = FolderHistory,
 >(
 	schema: FolderSchema,
 	captured: {
 		readonly location: FolderLocation;
-		readonly start: StartFolder;
+		readonly start: StartFolder<THistory>;
 		/** The host's detector of outside changes; none in Bun. */
 		readonly detector?: ChangeDetector;
 		/**
@@ -99,9 +100,11 @@ export async function openAtRoot<
 		 */
 		readonly lens?: FolderDefinition;
 	},
-): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
+): Promise<
+	Result<Folder<TDefinition, TDeclared, GitOf<THistory>>, OpenFolderError>
+> {
 	const hints = createFileHints();
-	let history: ReturnType<typeof createHistory> | undefined;
+	let history: THistory | undefined;
 	let detected: ReturnType<ChangeDetector> | undefined;
 	const release = () => detected?.stop();
 	try {
@@ -143,7 +146,7 @@ export async function openAtRoot<
 		await detected?.ready;
 		const opened = started.history(prepared);
 		history = opened;
-		const folder = assembleFolder<TDefinition, TDeclared>({
+		const folder = assembleFolder<TDefinition, TDeclared, THistory>({
 			prepared,
 			lens: schema === 'declared' ? captured.lens : undefined,
 			publishes: schema !== 'declared',

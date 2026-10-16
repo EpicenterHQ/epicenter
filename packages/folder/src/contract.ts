@@ -12,7 +12,7 @@
 import type { Result } from 'wellcrafted/result';
 import type { FolderDefinition } from './definition.js';
 import type { OpenFolderError } from './errors.js';
-import type { Folder } from './folder.js';
+import type { Folder, FolderGit } from './folder.js';
 import type { GitCredentials, HttpFetch } from './git/http.js';
 import type { Author } from './git/objects.js';
 import type { OpfsEnvironment } from './opfs-store.js';
@@ -65,6 +65,7 @@ export type {
 	FolderAccess,
 	FolderGit,
 	FolderGitOptions,
+	FolderGitSteps,
 	FolderLocation,
 	FolderSync,
 } from './folder.js';
@@ -157,19 +158,19 @@ export {
 	type SaveOptions,
 	WRITE_ATTEMPTS,
 } from './save-file.js';
-export {
-	type FileTable,
-	type RowUpdate,
-	type SavedRow,
-	type StoredRow,
-	type TableListing,
+export type {
+	FileTable,
+	RowUpdate,
+	SavedRow,
+	StoredRow,
+	TableListing,
 } from './table.js';
 
 /**
  * Settings for a folder kept in this browser's own storage. They apply to a
- * browser folder only. A folder in the desktop app takes its directory and
- * fallback author from the shell that registered it, and its remote from its
- * own Git configuration.
+ * browser folder only. A folder in the desktop app takes its directory from
+ * the shell that registered it, and its remote and author from its own Git
+ * configuration.
  */
 export type BrowserFolderOptions = {
 	/**
@@ -203,21 +204,25 @@ export type OpenFolderOptions<TDefinition extends FolderDefinition> = {
 	readonly id: string;
 	/**
 	 * Asked right before each push and fetch with the exact URL Git is about
-	 * to reach, in the browser and on the desktop. Return `undefined` to send
-	 * no credential (a desktop `git` then uses the person's own credential
-	 * helper or SSH key).
+	 * to reach, in the browser. Return `undefined` to send no credential. The
+	 * desktop app ignores it: the `epicenter` CLI sends its own token to the
+	 * deployment's Git, and the person's own credential helper or SSH key
+	 * serves any other remote.
 	 */
 	readonly credentials?: GitCredentials;
 	readonly browser?: BrowserFolderOptions;
 };
 
 /**
- * The one opener signature. The automatic entry, the browser entry, and the
- * desktop entry each export an `openFolder` of exactly this type.
+ * The one opener signature. The automatic entry and the desktop entry each
+ * export an `openFolder` of exactly this type; the browser entry's is
+ * `OpenFolder<FolderGitSteps>`, whose handle has the finer Git steps too.
  */
-export type OpenFolder = <const TDefinition extends FolderDefinition>(
+export type OpenFolder<TGit extends FolderGit = FolderGit> = <
+	const TDefinition extends FolderDefinition,
+>(
 	options: OpenFolderOptions<TDefinition>,
-) => Promise<Result<Folder<TDefinition>, OpenFolderError>>;
+) => Promise<Result<Folder<TDefinition, TDefinition, TGit>, OpenFolderError>>;
 
 /**
  * Which existing folder `openDataFolder` opens: `openFolder`'s options
@@ -245,11 +250,12 @@ export type OpenDataFolderOptions<
  * Without a lens, rows are checked at run time, so tables are keyed by any
  * name. With one, a folder whose declaration does not contain it is
  * `ShapeMismatch`; otherwise the handle has the lens's tables, typed by it,
- * and `definition` stays the folder's own. The automatic, the browser, and
- * the desktop entry each export an `openDataFolder` of exactly this type.
+ * and `definition` stays the folder's own. The automatic and the desktop
+ * entry each export an `openDataFolder` of exactly this type; the browser
+ * entry's is `OpenDataFolder<FolderGitSteps>`.
  */
-export type OpenDataFolder = <
+export type OpenDataFolder<TGit extends FolderGit = FolderGit> = <
 	const TLens extends FolderDefinition = FolderDefinition,
 >(
 	options: OpenDataFolderOptions<TLens>,
-) => Promise<Result<Folder<TLens, FolderDefinition>, OpenFolderError>>;
+) => Promise<Result<Folder<TLens, FolderDefinition, TGit>, OpenFolderError>>;

@@ -16,3 +16,4 @@
  */
 export * from './contract.js';
 export { openDataFolder, openFolder } from './tauri-adapter.js';
+export { type HandedFolder, openHandedFolder } from './tauri-handed-folder.js';

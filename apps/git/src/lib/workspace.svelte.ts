@@ -1,7 +1,6 @@
 import {
 	type FileListing,
 	type GitSnapshot,
-	openDataFolder,
 	type PathStatus,
 	type Replaced,
 	restoreTheirs,
@@ -13,6 +12,8 @@ import {
 	type SyncOutcome,
 	type TextCapture,
 } from '@epicenter/folder';
+// The lab drives Git one step at a time, which only the browser folder offers.
+import { openDataFolder } from '@epicenter/folder/browser';
 import { readTextFile, withFileNewlines } from '@epicenter/folder/file-browser';
 import {
 	createTextDraft,

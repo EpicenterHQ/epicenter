@@ -10,14 +10,13 @@ the root this crate granted
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
 A shell registers a directory under a scope ID for the windows that may edit
-it. The page names the scope and nothing else: it never supplies a root or an
-author.
+it. The page names the scope and nothing else: it never supplies a root.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the registry, the cross-process folder and save locks, the shared path rule, and the checked reads and file changes. No Tauri; its tests need only `git` and `bun`. |
+| `core/` | `epicenter-folder-core`: the registry, the cross-process save lock, the shared path rule, and the checked reads and file changes. No Tauri; its tests need only `git` and `bun`. |
 | `src/` | The Tauri plugin: the commands, and the watcher that tells a scope's windows what changed (`watcher.rs`). |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `write_folder_file` are not in them (see Reads and File changes). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
@@ -32,7 +31,7 @@ Install the plugin once. Register each folder from trusted Rust code after the
 shell has resolved its paths, which is in `setup`, not before:
 
 ```rust
-use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig};
+use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, ScopeConfig};
 
 tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_folder::init())
@@ -40,10 +39,7 @@ tauri::Builder::default()
         let todos = resolve_todos_directory(app)?;
         app.folders().register(ScopeConfig {
             scope: "so.epicenter.todos".into(),
-            folder: FolderConfig::new(
-                todos,
-                Author { name: "Todos".into(), email: "todos@localhost".into() },
-            ),
+            folder: FolderConfig::new(todos),
             windows: vec!["todos".into()],
         })?;
         Ok(())
@@ -60,12 +56,11 @@ window stays permitted until the app exits.
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `root` | required | The folder's directory. The first grant of an application's folder creates it if it is missing. |
-| `author` | required | The fallback for whichever of `user.name` and `user.email` Git's configuration does not set. |
-| `branch` | `main` | The local branch history is recorded on. |
-| `kind` | `Application` | `FolderKind::Application` for an application's own folder, made by `FolderConfig::new`. `FolderKind::Data` for a data folder found under the Epicenter root, made by `FolderConfig::data`: its root is never created (a missing one is refused `Missing`), and it never gets a repository of its own inside another repository's working tree. |
+| `kind` | `Application` | `FolderKind::Application` for an application's own folder, made by `FolderConfig::new`. `FolderKind::Data` for a data folder found under the Epicenter root, made by `FolderConfig::data`: its root is never created (a missing one is refused `Missing`). |
 
-Everything else, the remote included, is the repository's: the page's engine
-reads it from Git's configuration.
+Everything else, the remote, the author, and the branch included, is the
+repository's: the page's engine and the `epicenter` CLI read it from Git's
+configuration, and the CLI supplies its own defaults.
 
 Several windows may edit one scope at once. Each page runs its own engine over
 the directory, and the shell checks and publishes every save under one mutex
@@ -73,8 +68,8 @@ per root (see File changes), so a save that carries the hash it read, or a
 create, that another window overtook is refused as `Conflict` (or `Exists`)
 instead of silently replacing it. An overwrite replaces whatever is there, by
 contract. Only a scope's windows change once
-it is registered. Two scopes cannot hold one root at once, since the second
-cannot take its lock.
+it is registered. Two scopes may hold one root, as the Folders window's
+`data:<name>` and an app's own scope do; they share the root's mutex.
 
 A shell must also give the window the plugin's commands in a capability:
 `{ "windows": ["todos"], "permissions": ["epicenter-folder:default"] }`. That
@@ -91,26 +86,21 @@ first grant, from whichever of the scope's windows asks first:
 1. creates the root if it is missing and the folder is an application's
    (a missing data folder's root is refused `Missing`); its parent may be a
    link a person chose, and the root itself must be a real directory. It
-   resolves the root to its canonical path, a plain drive path on Windows
-   rather than a `\\?\` one;
-2. takes the folder's cross-process lock (`lock.rs`), held until shutdown, or
-   answers `Busy` when another process holds it;
-3. refuses Git state that would send writes elsewhere (`root::verify_layout`):
+   resolves the root to its canonical path;
+2. refuses Git state that would send writes elsewhere (`root::verify_layout`):
    `.git` as a link or a file that points at another Git directory, a
    `.git/commondir` file, a link at or inside `.git/objects` (one level),
    `.git/refs`, or `.git/logs`, and a linked `.git/epicenter` or scratch
    directory.
 
-A grant returns `{ root, branch, authorName, authorEmail, initProblem }`.
-`initProblem` is `null`, or, for a data folder whose root is inside another
-repository's working tree, why it may not get a repository of its own; the
-page's first commit is then blocked with that reason, and the `epicenter`
-CLI refuses `init` there whatever the page asks. A later grant,
-such as a reloaded page's or another window's, returns the same root under
-the same lock. The lock is per folder, not per window: it keeps out a second
-Epicenter process, whose saves this shell could not check and publish under
-its mutex. It adds nothing to the
-app's access control: the window reaches the folder only through this
+A grant returns `{ root }`. A later grant, such as a reloaded page's or
+another window's, returns the same root. Nothing keeps out a second scope on
+the root or a second Epicenter process: each save takes the folder's save
+lock, which every writer shares
+([ADR-0568](../../docs/adr/0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md)).
+The `epicenter` CLI refuses a data folder's first `git init` inside another
+repository's working tree whatever the page asks. The grant adds nothing to
+the app's access control: the window reaches the folder only through this
 plugin's commands, each of which looks up the root the scope was granted.
 
 ## Reads
@@ -183,13 +173,13 @@ file whose bytes hash to that lowercase SHA-256), or `"any"` (an overwrite,
 the folder's declaration, a staged file). An incoming Sync write carries the
 hash of the file it replaces, or `"absent"`. The plugin checks the path and
 then renames or removes it while holding one mutex per canonical root, kept
-in the registry and shared by every window of the folder (a second scope on
-one root is refused `Busy`), and the folder's save lock, an exclusive SQLite
+in the registry and shared by every window and scope of the folder, and the
+folder's save lock, an exclusive SQLite
 transaction on `.<directory>.epicenter-save-lock` beside it (`lock.rs`). A
 Bun process opening the same directory (`@epicenter/folder/bun`, and so the
 `epicenter` CLI) takes the same save lock around each of its own checks and
-renames, so no other change through the plugin or the Bun host lands between
-the check and the change
+renames, as does any other Epicenter shell, so no other change through the
+plugin or the Bun host lands between the check and the change
 ([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
 The save lock is held for nothing else. A change waits up to ten seconds for
 another process's; past that it changes nothing and is `Failed`, naming the
@@ -216,9 +206,8 @@ Sync, and settling a Sync) runs in the `epicenter` CLI, one child per
 operation, which the shell starts with fixed arguments over the root a
 window was granted
 ([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
-`Folders::granted_folder(scope, window)` names that root with the
-registration's fallback author, branch, and kind, refused as `granted_root`
-is for a window without a grant; the Epicenter shell's `history.rs` reads it.
+`Folders::granted_root(scope, window)` names that root, refused for a window
+without a grant; the Epicenter shell's `history.rs` reads it.
 The Git rules (no hooks, no fsmonitor, a scrubbed environment, a remote that
 is a network URL, a credential only for an `https` origin, and Git state
 checked again before each operation) live in the CLI's runner,
@@ -271,7 +260,7 @@ opens; the failure is logged and its windows hear no outside change.
 Every file change holds an admission while it runs; a read
 holds none. When the app exits, or the shell calls
 `app.folders().shutdown()`, the plugin refuses new grants, reads, and work,
-and releases every folder's lock. It waits for nothing: quitting is
+and stops watching. It waits for nothing: quitting is
 immediate ([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
 Every save is an atomic rename, so a change cut off at exit leaves the old
 file or the new one. A late change is refused as `ShuttingDown` and writes nothing.
@@ -280,12 +269,10 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
 
 - A link another program swaps in between a check and the read or change
   that follows is not defended against; a page cannot make one.
-- The cross-process lock is an exclusive SQLite transaction on
-  `.<directory>.epicenter-lock` beside the directory. A Bun script opening
-  the same directory (`@epicenter/folder/bun`) does not take it; it takes
-  the save lock instead. The system releases both when the process ends,
-  however it ends (`fcntl` on Unix, `LockFileEx` on Windows, both through
-  SQLite). Both are unreliable on some network filesystems.
+- The save lock is an exclusive SQLite transaction on
+  `.<directory>.epicenter-save-lock` beside the directory. The system
+  releases it when the process ends, however it ends (`fcntl`, through
+  SQLite). It is unreliable on some network filesystems.
 - A change made in the moment between a grant and its watch starting is
   reported only by the `null` that watching begins with, which a page that
   subscribes after its grant does not hear; it already reads after the grant.
@@ -298,7 +285,8 @@ file or the new one. A late change is refused as `ShuttingDown` and writes nothi
 - A compromised page keeps the powers the engine needs: it can move the
   branch, reset the index, and change or delete any data path. Each is
   visible and repairable from the reflog and the remote.
-- Whether this crate builds or runs on Windows has not been checked.
+- Epicenter ships for macOS only
+  ([ADR-0567](../../docs/adr/0567-epicenter-ships-for-macos-only-for-now.md)).
 
 ## Commands
 

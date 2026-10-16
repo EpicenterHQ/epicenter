@@ -26,21 +26,17 @@ import {
 import { readDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
 import type { History } from './git/history.js';
-import type { GitCredential, GitCredentials } from './git/http.js';
+import type { GitCredentials } from './git/http.js';
 import {
-	GitMissingError,
 	gitLayoutProblem,
 	isNetworkUrl,
 	locateGit,
 } from './git/native-host.js';
 import type { Author } from './git/objects.js';
-import {
-	decodeHistory,
-	encodeHistory,
-	type HistoryReply,
-	type HistoryRequest,
-	type HistoryState,
-	type UrlCredential,
+import type {
+	HistoryReply,
+	HistoryRequest,
+	HistoryState,
 } from './history-wire.js';
 import { createOpfsFileBoundary } from './opfs-store.js';
 
@@ -54,12 +50,9 @@ export type HistoryOptions = {
 	 * repository's Git (ADR-0517).
 	 */
 	readonly application?: boolean;
-	/** The branch history is recorded on; `main` unless the shell names one. */
-	readonly branch?: string;
 	/**
 	 * The credential for the remote a fetch or push names, asked for each
-	 * transfer with the URL the folder's history reads, when the request
-	 * carries none for that URL.
+	 * transfer with the URL the folder's history reads.
 	 */
 	readonly credentials?: GitCredentials;
 };
@@ -79,20 +72,6 @@ function stateOf(history: History): HistoryState {
 }
 
 /**
- * The credential for `url`: the request's, only when it names that exact
- * URL, and otherwise what `credentials` answers.
- */
-const credentialFor =
-	(credential: UrlCredential | undefined, credentials?: GitCredentials) =>
-	async (
-		url: string,
-		signal: AbortSignal,
-	): Promise<GitCredential | undefined> =>
-		credential !== undefined && credential.url === url
-			? { username: credential.username, password: credential.password }
-			: credentials?.(url, signal);
-
-/**
  * Run `request` on the folder at `root` and answer its reply. Throws when
  * the folder cannot be used: not a directory, Git state that would write
  * elsewhere, a remote that is not a network URL, or no `git` on this
@@ -101,7 +80,7 @@ const credentialFor =
 export async function runHistory(
 	root: string,
 	request: HistoryRequest,
-	{ author, application = false, branch, credentials }: HistoryOptions,
+	{ author, application = false, credentials }: HistoryOptions,
 ): Promise<HistoryReply<unknown>> {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null)
@@ -131,16 +110,11 @@ export async function runHistory(
 	const { data: declared } = await readDeclaration(boundary);
 	const definition: FolderDefinition | undefined = declared ?? undefined;
 	const landed: string[] = [];
-	const credential =
-		request.op === 'sync' || request.op === 'settle'
-			? request.credential
-			: undefined;
 	const open = await systemHistory(
 		resolved,
 		{
 			author,
-			branch,
-			credentials: credentialFor(credential, credentials),
+			credentials,
 			// Status and the log record nothing, so they skip reading who
 			// commits.
 			commits: request.op !== 'status' && request.op !== 'log',
@@ -203,86 +177,4 @@ export function historyExitCode(reply: HistoryReply<unknown>): 0 | 1 {
 		return (result as { error: unknown }).error === null ? 0 : 1;
 	const status = (result as { status?: unknown } | null)?.status;
 	return status === 'committed' || status === 'unchanged' ? 0 : 1;
-}
-
-/** One history command of the Epicenter shell, with the arguments a page sends. */
-export type ShellHistoryCommand =
-	| { readonly command: 'status' }
-	| { readonly command: 'history'; readonly depth: number }
-	| { readonly command: 'save_version'; readonly message: string | null }
-	| {
-			readonly command: 'sync';
-			readonly remote: string | null;
-			readonly allowUnrelated: boolean;
-			readonly credential: UrlCredential | null;
-	  }
-	| {
-			readonly command: 'settle_sync';
-			readonly attempt: string;
-			/** The choices in the history encoding, as the page sends them. */
-			readonly choices: string;
-			readonly credential: UrlCredential | null;
-	  };
-
-/** The request a shell history command makes of the CLI. */
-export function historyRequestOf(shell: ShellHistoryCommand): HistoryRequest {
-	switch (shell.command) {
-		case 'status':
-			return { op: 'status' };
-		case 'history':
-			return { op: 'log', depth: shell.depth };
-		case 'save_version':
-			return { op: 'saveVersion', message: shell.message ?? undefined };
-		case 'sync':
-			return {
-				op: 'sync',
-				connect: shell.remote ?? undefined,
-				allowUnrelatedHistories: shell.allowUnrelated,
-				credential: shell.credential ?? undefined,
-			};
-		case 'settle_sync':
-			return {
-				op: 'settle',
-				attempt: shell.attempt,
-				choices: decodeHistory(shell.choices),
-				credential: shell.credential ?? undefined,
-			};
-	}
-}
-
-/**
- * What the shell answers a page for `shell`, run in this process: the
- * `epicenter` child's exit code and reply line, as the CLI prints it. For
- * tests and stand-ins that have no shell; the desktop app runs the CLI.
- */
-export async function answerShellHistory(
-	root: string,
-	shell: ShellHistoryCommand,
-	options: HistoryOptions,
-): Promise<{ code: number; reply: string | null; stderr: string }> {
-	try {
-		const reply = await runHistory(root, historyRequestOf(shell), options);
-		return {
-			code: historyExitCode(reply),
-			reply: encodeHistory(reply),
-			stderr: '',
-		};
-	} catch (cause) {
-		if (cause instanceof GitMissingError)
-			return {
-				code: 2,
-				reply: encodeHistory({
-					error: 'GitMissing',
-					message: cause.message,
-					install: cause.install,
-				}),
-				stderr: cause.message,
-			};
-		const message = cause instanceof Error ? cause.message : String(cause);
-		return {
-			code: 2,
-			reply: encodeHistory({ error: message }),
-			stderr: message,
-		};
-	}
 }

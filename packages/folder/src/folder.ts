@@ -61,6 +61,12 @@ export type FolderGitOptions = {
 	readonly credentials?: GitCredentials;
 };
 
+/**
+ * A folder's history on every host: what changed, the versions, and saving
+ * one. Sync (`folder.sync`) is how a folder exchanges history with its
+ * remote; the finer steps are `FolderGitSteps`, which only a browser or Bun
+ * folder has.
+ */
 export type FolderGit = {
 	readonly snapshot: GitSnapshot;
 	/** Delivers the current snapshot synchronously, then each change. */
@@ -73,6 +79,17 @@ export type FolderGit = {
 	 * the message names what changed.
 	 */
 	commit(options?: { message?: string }): Promise<CommitOutcome>;
+	log(depth: number): Promise<Result<CommitSummary[], GitError>>;
+};
+
+/**
+ * The Git steps a browser or Bun folder offers beside `FolderGit`, for a
+ * tool that drives Git one step at a time, such as the Git lab or Todos'
+ * `scripts/native.ts`. A desktop folder has none: its Git runs in the
+ * `epicenter` CLI one whole operation at a time (ADR-0559), and Sync is how
+ * it exchanges history.
+ */
+export type FolderGitSteps = FolderGit & {
 	/**
 	 * Commit, then push. `signal` only stops this caller waiting
 	 * (`stoppedWaiting`): a commit or transport that already started keeps
@@ -96,8 +113,7 @@ export type FolderGit = {
 	 * A refusal or a conflict changes no file, index entry, or ref; `sync`
 	 * is how a person settles a conflict. An update cut off partway is
 	 * `Interrupted`: the files it wrote show as changes, and the next sync
-	 * records them and merges again. Never pushes. Browser, directory, and
-	 * desktop folders all merge.
+	 * records them and merges again. Never pushes.
 	 */
 	mergeIncoming(
 		options?: MergeConflictPolicy,
@@ -117,7 +133,6 @@ export type FolderGit = {
 		staged: boolean;
 		paths: readonly string[];
 	}): Promise<Result<string, GitError>>;
-	log(depth: number): Promise<Result<CommitSummary[], GitError>>;
 };
 
 /**
@@ -209,7 +224,10 @@ export type FolderLocation =
 export type Folder<
 	TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
+	TGit extends FolderGit = FolderGit,
 > = FolderAccess<TDefinition> & {
+	/** The history: `FolderGit` on every host, `FolderGitSteps` in a browser or Bun. */
+	readonly git: TGit;
 	/**
 	 * The prepared definition this handle reads with: the one `openFolder`
 	 * was given, or the folder's own `epicenter.json` as `openDataFolder`
@@ -249,11 +267,17 @@ export type Folder<
 	close(): Promise<void>;
 };
 
-/** The history observations and requests the handle exposes. */
+/** The history a handle is assembled over, with or without the finer steps. */
 export type FolderHistory = FolderGit & {
 	readonly sync: FolderSync;
+	/** The files changed outside the history; its observations are stale. */
+	noteEdit(): void;
 	close(): Promise<void>;
 };
+
+/** The `git` a handle over `THistory` exposes: the steps only when it has them. */
+export type GitOf<THistory extends FolderHistory> =
+	THistory extends FolderGitSteps ? FolderGitSteps : FolderGit;
 
 /** Which files changed: their paths, or `'everything'` when a report cannot say. */
 export type FilesChanged = readonly string[] | 'everything';
@@ -299,25 +323,42 @@ export function createFileHints(): FileHints {
 	};
 }
 
-function createFolderGit(history: FolderHistory): FolderGit {
-	return Object.freeze({
+function hasSteps(
+	history: FolderHistory,
+): history is FolderHistory & FolderGitSteps {
+	return 'push' in history;
+}
+
+/** The handle's `git`, frozen, over `history`, with its steps when it has them. */
+function createFolderGit<THistory extends FolderHistory>(
+	history: THistory,
+): GitOf<THistory> {
+	const git: FolderGit = {
 		get snapshot() {
 			return history.snapshot;
 		},
 		subscribe: (listener) => history.subscribe(listener),
 		status: () => history.status(),
 		commit: (options) => history.commit(options),
-		commitAndPush: (options) => history.commitAndPush(options),
-		push: (options) => history.push(options),
-		fetch: (options) => history.fetch(options),
-		pullFastForward: () => history.pullFastForward(),
-		mergeIncoming: (options) => history.mergeIncoming(options),
-		paths: () => history.paths(),
-		stage: (paths) => history.stage(paths),
-		commitStaged: (message) => history.commitStaged(message),
-		diff: (options) => history.diff(options),
 		log: (depth) => history.log(depth),
-	} satisfies FolderGit);
+	};
+	if (!hasSteps(history)) return Object.freeze(git) as GitOf<THistory>;
+	return Object.freeze(
+		Object.defineProperties(
+			{
+				commitAndPush: (options) => history.commitAndPush(options),
+				push: (options) => history.push(options),
+				fetch: (options) => history.fetch(options),
+				pullFastForward: () => history.pullFastForward(),
+				mergeIncoming: (options) => history.mergeIncoming(options),
+				paths: () => history.paths(),
+				stage: (paths) => history.stage(paths),
+				commitStaged: (message) => history.commitStaged(message),
+				diff: (options) => history.diff(options),
+			} satisfies Omit<FolderGitSteps, keyof FolderGit>,
+			Object.getOwnPropertyDescriptors(git),
+		),
+	) as GitOf<THistory>;
 }
 
 /**
@@ -335,6 +376,7 @@ function createFolderGit(history: FolderHistory): FolderGit {
 export function assembleFolder<
 	TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
+	THistory extends FolderHistory = FolderHistory,
 >({
 	prepared,
 	lens,
@@ -355,12 +397,12 @@ export function assembleFolder<
 	 */
 	publishes: boolean;
 	storage: FolderStorage;
-	history: FolderHistory;
+	history: THistory;
 	location: FolderLocation;
 	hints: FileHints;
 	/** Releases this attachment after owned Git work settles. */
 	release: () => Promise<void>;
-}): Folder<TDefinition, TDeclared> {
+}): Folder<TDefinition, TDeclared, GitOf<THistory>> {
 	const controller = new AbortController();
 	let closing: Promise<void> | undefined;
 
@@ -412,5 +454,5 @@ export function assembleFolder<
 			})().then(completion.resolve, completion.reject);
 			return closing;
 		},
-	} satisfies Folder<TDefinition, TDeclared>);
+	} satisfies Folder<TDefinition, TDeclared, GitOf<THistory>>);
 }

@@ -21,13 +21,13 @@
 //! - A staged write takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw.
-//! - `granted_folder` names a granted scope's root, author, branch, and kind
-//!   to its windows alone, for the `epicenter` CLI the shell runs.
+//! - `granted_root` names a granted scope's root to its windows alone, for
+//!   the `epicenter` CLI the shell runs.
 //! - From its first grant a folder is watched: every window permitted into
 //!   its scope hears what changed outside it, as folder-relative paths, a
 //!   ref moving as `.git`, and everything when watching begins; Git's own
 //!   noise and other windows hear nothing.
-//! - After shutdown, a late change is refused and the folder is unlocked.
+//! - After shutdown, a late change is refused.
 //! - A window without the plugin's permission cannot call it.
 
 use std::path::PathBuf;
@@ -44,7 +44,7 @@ use tauri::utils::platform::Target;
 use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
-use crate::{init, Author, FolderConfig, FolderExt, ScopeConfig, COMMANDS};
+use crate::{init, FolderConfig, FolderExt, ScopeConfig, COMMANDS};
 
 const BINDINGS: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -151,13 +151,7 @@ fn fixture_in(label: &str, context: tauri::Context<MockRuntime>) -> Fixture {
     app.folders()
         .register(ScopeConfig {
             scope: "notes".to_string(),
-            folder: FolderConfig::new(
-                &root,
-                Author {
-                    name: "Test Author".to_string(),
-                    email: "test@example.com".to_string(),
-                },
-            ),
+            folder: FolderConfig::new(&root),
             windows: vec!["main".to_string()],
         })
         .unwrap();
@@ -378,13 +372,7 @@ fn a_scope_is_granted_to_its_windows_and_no_other() {
     let granted = grant(&main).unwrap();
     assert_eq!(
         granted,
-        json!({
-            "root": fixture.root.to_str().unwrap(),
-            "branch": "main",
-            "authorName": "Test Author",
-            "authorEmail": "test@example.com",
-            "initProblem": null,
-        })
+        json!({ "root": fixture.root.to_str().unwrap() })
     );
     // A reloaded page asks again and gets the same folder.
     assert_eq!(grant(&main).unwrap(), granted);
@@ -405,9 +393,8 @@ fn a_scope_is_granted_to_its_windows_and_no_other() {
 
 /// A data folder is opened only as a person left it: a missing one is
 /// `Missing` and is not created, and one inside another repository's working
-/// tree is granted with why it may not get a repository of its own.
-/// `granted_folder` names it to its window alone, as a data folder, for the
-/// `epicenter` CLI, which refuses that `git init` itself.
+/// tree is granted as it is. `granted_root` names it to its window alone,
+/// for the `epicenter` CLI, which refuses a nested `git init` itself.
 #[test]
 fn a_data_folder_is_never_created_or_given_a_nested_repository() {
     let directory = temp("data-folder");
@@ -420,13 +407,7 @@ fn a_data_folder_is_never_created_or_given_a_nested_repository() {
     app.folders()
         .register(ScopeConfig {
             scope: "notes".to_string(),
-            folder: FolderConfig::data(
-                &root,
-                Author {
-                    name: "Test Author".to_string(),
-                    email: "test@example.com".to_string(),
-                },
-            ),
+            folder: FolderConfig::data(&root),
             windows: vec!["main".to_string()],
         })
         .unwrap();
@@ -438,18 +419,12 @@ fn a_data_folder_is_never_created_or_given_a_nested_repository() {
     assert!(!root.exists());
 
     std::fs::create_dir(&root).unwrap();
-    let problem = format!(
-        "{} is inside the repository at {}; commit it with that repository's Git",
-        root.display(),
-        directory.0.display()
+    grant(&main).unwrap();
+    assert_eq!(
+        app.folders().granted_root("notes", "main").unwrap(),
+        std::fs::canonicalize(&root).unwrap()
     );
-    assert_eq!(grant(&main).unwrap()["initProblem"], json!(problem));
-    let granted = app.folders().granted_folder("notes", "main").unwrap();
-    assert_eq!(granted.root, std::fs::canonicalize(&root).unwrap());
-    assert_eq!(granted.kind, crate::FolderKind::Data);
-    assert_eq!(granted.branch, "main");
-    assert_eq!(granted.author.email, "test@example.com");
-    assert!(app.folders().granted_folder("notes", "other").is_err());
+    assert!(app.folders().granted_root("notes", "other").is_err());
     assert!(!root.join(".git").exists());
     app.folders().shutdown();
 }
@@ -796,13 +771,7 @@ fn two_windows_each_read_only_their_own_folder() {
         .folders()
         .register(ScopeConfig {
             scope: "other-notes".to_string(),
-            folder: FolderConfig::new(
-                &other_root,
-                Author {
-                    name: "Test Author".to_string(),
-                    email: "test@example.com".to_string(),
-                },
-            ),
+            folder: FolderConfig::new(&other_root),
             windows: vec!["other".to_string()],
         })
         .unwrap();
@@ -872,7 +841,7 @@ fn a_grant_in_an_app_that_already_scopes_a_permission_still_reads() {
 }
 
 #[test]
-fn after_shutdown_a_late_change_is_refused_and_the_folder_is_unlocked() {
+fn after_shutdown_a_late_change_is_refused() {
     let fixture = fixture("shutdown");
     let main = window(&fixture.app, "main");
     grant(&main).unwrap();
@@ -886,10 +855,6 @@ fn after_shutdown_a_late_change_is_refused_and_the_folder_is_unlocked() {
         "{}\n"
     );
     assert_eq!(grant(&main).unwrap_err(), json!({ "name": "ShuttingDown" }));
-    drop(
-        epicenter_folder_core::lock::RootLock::acquire(&fixture.root)
-            .unwrap_or_else(|_| panic!("the folder is unlocked after shutdown")),
-    );
 }
 
 #[test]

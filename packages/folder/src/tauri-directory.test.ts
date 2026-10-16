@@ -7,7 +7,7 @@
  * Key behaviors:
  * - A granted folder opens over its real directory, and its history runs
  *   through the shell's history commands: the `epicenter` CLI over `git`,
- *   which `answerShellHistory` runs in this process
+ *   which `answerShellHistory` runs in this process with the CLI's author
  * - Every refused or failed grant is an `OpenFolderError` and opens nothing
  * - A removal whose reply is lost is done if the path is gone, and
  *   `Unconfirmed` if it is still there
@@ -36,11 +36,11 @@ import {
 	git,
 	scratch,
 } from './git-http.test-support.js';
+import type { Expectation } from './native/bindings.gen.js';
 import {
 	answerShellHistory,
 	type ShellHistoryCommand,
-} from './history-command.js';
-import type { Expectation } from './native/bindings.gen.js';
+} from './shell-history.test-support.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 let grantedRoot: string | undefined;
@@ -53,8 +53,6 @@ const HISTORY_COMMANDS = new Set([
 	'sync',
 	'settle_sync',
 ]);
-/** Who the shell names as the author where Git names none. */
-let grantedAuthor = { name: 'Todos', email: 'todos@localhost' };
 let grant: (args: Record<string, unknown>) => unknown = () => {
 	throw new Error('no grant scripted');
 };
@@ -95,11 +93,10 @@ mock.module('@tauri-apps/api/core', () => ({
 			const root = grantedRoot;
 			if (root === undefined)
 				throw { name: 'NotGranted', grant: { name: 'Unavailable' } };
-			return answerShellHistory(
-				root,
-				{ command: name, ...args } as unknown as ShellHistoryCommand,
-				{ author: grantedAuthor },
-			);
+			return answerShellHistory(root, {
+				command: name,
+				...args,
+			} as unknown as ShellHistoryCommand);
 		}
 		// The shell's reads; here `node:fs` stands in.
 		if (name === 'read_folder_directory')
@@ -275,12 +272,7 @@ beforeEach(() => {
 async function granted() {
 	const root = await scratch('tauri-directory-');
 	grantedRoot = root;
-	grant = () => ({
-		root,
-		branch: 'main',
-		authorName: 'Todos',
-		authorEmail: 'todos@localhost',
-	});
+	grant = () => ({ root });
 	const folder = expectOk(
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
@@ -290,12 +282,7 @@ async function granted() {
 test('a granted folder opens over its real directory', async () => {
 	const root = await scratch('tauri-directory-');
 	grantedRoot = root;
-	grant = () => ({
-		root,
-		branch: 'main',
-		authorName: 'Todos',
-		authorEmail: 'todos@localhost',
-	});
+	grant = () => ({ root });
 	const folder = expectOk(
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
@@ -382,7 +369,6 @@ test('a refused grant is the refusal', async () => {
 
 test.each<[unknown, OpenFolderError['name']]>([
 	[{ name: 'UnknownScope', scope: 'so.epicenter.todos' }, 'UnknownScope'],
-	[{ name: 'Busy', root: '/elsewhere' }, 'Busy'],
 	[{ name: 'Missing', root: '/elsewhere' }, 'Missing'],
 	[{ name: 'Unavailable', message: 'locked out' }, 'Unavailable'],
 	[{ name: 'ShuttingDown' }, 'ShuttingDown'],
@@ -510,12 +496,7 @@ const DECLARED = `{"kv":{"type":"object","properties":{}},"tables":{"todos":{"ty
 /** The shell grants `root` as `so.epicenter.vault`. */
 function grantRoot(root: string) {
 	grantedRoot = root;
-	grant = () => ({
-		root,
-		branch: 'main',
-		authorName: 'Vault',
-		authorEmail: 'vault@localhost',
-	});
+	grant = () => ({ root });
 }
 
 /** Every path the page asked the shell to write, rename onto, or remove. */
@@ -615,13 +596,7 @@ test('a data folder inside another repository blocks its first commit', async ()
 	// The CLI names the folder and the repository by their real paths.
 	const initProblem = `${await nodeFs.realpath(root)} is inside the repository at ${await nodeFs.realpath(outer)}; commit it with that repository's Git`;
 	grantedRoot = root;
-	grant = () => ({
-		root,
-		branch: 'main',
-		authorName: 'Vault',
-		authorEmail: 'vault@localhost',
-		initProblem,
-	});
+	grant = () => ({ root });
 	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
 	expectOk(
 		await folder.tables.todos!.create({
@@ -813,7 +788,6 @@ test("a page's Sync runs in the CLI, reports what it wrote once, and settles a c
 	expect(Object.keys(settle.args).sort()).toEqual([
 		'attempt',
 		'choices',
-		'credential',
 		'scope',
 	]);
 	expect(settle.args.attempt).toBe(attempt.id);

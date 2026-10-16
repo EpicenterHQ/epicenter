@@ -22,6 +22,8 @@ import {
 	type FileTable,
 	type Folder,
 	type FolderDefinition,
+	type FolderGit,
+	type FolderGitSteps,
 	type FolderLocation,
 	field,
 	formatRow,
@@ -249,12 +251,15 @@ expectTypeOf<
 	CreateRowOf<typeof definition.tables.todos>['due']
 >().toEqualTypeOf<InstantString | null>();
 
-// One opener signature at the automatic entry and at both explicit entries.
+// One opener signature at the automatic entry and the desktop entry; the
+// browser entry's handle has the finer Git steps too, and is still one.
 expectTypeOf(root.openFolder).toEqualTypeOf<OpenFolder>();
-expectTypeOf(browser.openFolder).toEqualTypeOf<OpenFolder>();
+expectTypeOf(browser.openFolder).toEqualTypeOf<OpenFolder<FolderGitSteps>>();
 expectTypeOf(tauri.openFolder).toEqualTypeOf<OpenFolder>();
-expectTypeOf(browser.openFolder).toEqualTypeOf(root.openFolder);
 expectTypeOf(tauri.openFolder).toEqualTypeOf(root.openFolder);
+expectTypeOf(browser.openFolder).toExtend<OpenFolder>();
+// The desktop folder offers no Git step it cannot take.
+expectTypeOf<keyof Opened['git']>().toEqualTypeOf<keyof FolderGit>();
 expectTypeOf(root.openFolder<typeof definition>).returns.toEqualTypeOf<
 	Promise<Result<Opened, OpenFolderError>>
 >();
@@ -276,7 +281,9 @@ void root.openFolder({
 // One data-folder opener signature at the automatic entry and at both
 // explicit entries: an existing folder by ID, with its own schema.
 expectTypeOf(root.openDataFolder).toEqualTypeOf<OpenDataFolder>();
-expectTypeOf(browser.openDataFolder).toEqualTypeOf<OpenDataFolder>();
+expectTypeOf(browser.openDataFolder).toEqualTypeOf<
+	OpenDataFolder<FolderGitSteps>
+>();
 expectTypeOf(tauri.openDataFolder).toEqualTypeOf<OpenDataFolder>();
 expectTypeOf<keyof OpenDataFolderOptions>().toEqualTypeOf<
 	'id' | 'credentials' | 'browser' | 'lens'
@@ -306,11 +313,12 @@ type Lensed = Folder<typeof board, FolderDefinition>;
 expectTypeOf(root.openDataFolder<typeof board>).returns.toEqualTypeOf<
 	Promise<Result<Lensed, OpenFolderError>>
 >();
+type LensedSteps = Folder<typeof board, FolderDefinition, FolderGitSteps>;
 expectTypeOf(browser.openDataFolder<typeof board>).returns.toEqualTypeOf<
-	Promise<Result<Lensed, OpenFolderError>>
+	Promise<Result<LensedSteps, OpenFolderError>>
 >();
 expectTypeOf(bun.openDataFolder<typeof board>).returns.toEqualTypeOf<
-	Promise<Result<Lensed, OpenFolderError>>
+	Promise<Result<LensedSteps, OpenFolderError>>
 >();
 async function lensedRows() {
 	const { data: folder, error } = await root.openDataFolder({
@@ -359,7 +367,10 @@ expectTypeOf<keyof contract.BrowserFolderOptions>().toEqualTypeOf<
 
 // The browser entry is the contract and its opener, and nothing else.
 expectTypeOf<EntryPoint<typeof browser>>().toEqualTypeOf<Contract>();
-expectTypeOf<EntryPoint<typeof tauri>>().toEqualTypeOf<Contract>();
+// The desktop entry adds only the opener of the folder the shell handed a window.
+expectTypeOf<
+	Omit<EntryPoint<typeof tauri>, 'openHandedFolder'>
+>().toEqualTypeOf<Contract>();
 expectTypeOf<Pick<typeof bun, keyof Contract>>().toEqualTypeOf<Contract>();
 
 // The directory openers are their own contract: an explicit root and history.
@@ -367,13 +378,23 @@ expectTypeOf(bun.openDataFolder<FolderDefinition>)
 	.parameter(0)
 	.toEqualTypeOf<bun.DataFolderOptions>();
 expectTypeOf(bun.openDataFolder<FolderDefinition>).returns.toEqualTypeOf<
-	Promise<Result<Folder<FolderDefinition>, OpenFolderError>>
+	Promise<
+		Result<
+			Folder<FolderDefinition, FolderDefinition, FolderGitSteps>,
+			OpenFolderError
+		>
+	>
 >();
 expectTypeOf(bun.openFolder<typeof definition>)
 	.parameter(0)
 	.toEqualTypeOf<bun.DirectoryFolderOptions<typeof definition>>();
 expectTypeOf(bun.openFolder<typeof definition>).returns.toEqualTypeOf<
-	Promise<Result<Opened, OpenFolderError>>
+	Promise<
+		Result<
+			Folder<typeof definition, typeof definition, FolderGitSteps>,
+			OpenFolderError
+		>
+	>
 >();
 
 async function typedValues(

@@ -21,8 +21,7 @@ import {
 	SCRATCH_DIRECTORY,
 } from './directory-handle.js';
 import { OpenFolderError } from './errors.js';
-import type { Folder } from './folder.js';
-import type { History } from './git/history.js';
+import type { Folder, FolderHistory, GitOf } from './folder.js';
 import {
 	type ChangeDetector,
 	type FolderSchema,
@@ -40,10 +39,11 @@ import {
  * for the definition the handle reads with; without one, Sync merges rows
  * as text.
  */
-export type DirectoryHistory = (wiring: {
-	readonly boundary: FileBoundary;
-	readonly landed: (paths: readonly string[]) => void;
-}) => Promise<(definition?: FolderDefinition) => History>;
+export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
+	(wiring: {
+		readonly boundary: FileBoundary;
+		readonly landed: (paths: readonly string[]) => void;
+	}) => Promise<(definition?: FolderDefinition) => THistory>;
 
 /**
  * Open the folder in an ordinary directory a trusted host has already given
@@ -77,6 +77,7 @@ export type DirectoryHistory = (wiring: {
 export async function openDirectoryFolder<
 	const TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
+	THistory extends FolderHistory = FolderHistory,
 >({
 	definition,
 	lens,
@@ -98,7 +99,7 @@ export async function openDirectoryFolder<
 	/** The host's file system, with absolute paths. */
 	readonly files: DirectoryPrimitives;
 	/** The folder's history. */
-	readonly history: DirectoryHistory;
+	readonly history: DirectoryHistory<THistory>;
 	/**
 	 * Saves to the directory take turns under these, for a host that checks
 	 * and renames in this process (Bun). Without them saves do not wait: the
@@ -107,7 +108,9 @@ export async function openDirectoryFolder<
 	readonly locks?: OpfsLocks;
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
-}): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
+}): Promise<
+	Result<Folder<TDefinition, TDeclared, GitOf<THistory>>, OpenFolderError>
+> {
 	let schema: FolderSchema = 'declared';
 	if (definition !== 'declared') {
 		const { data: prepared, error: definitionError } =
@@ -141,7 +144,7 @@ export async function openDirectoryFolder<
 	} catch {
 		// Leftovers are inert; an open that cannot clear them still opens.
 	}
-	return openAtRoot<TDefinition, TDeclared>(schema, {
+	return openAtRoot<TDefinition, TDeclared, THistory>(schema, {
 		detector,
 		lens: shape,
 		location: { kind: 'directory', root: rootPath },

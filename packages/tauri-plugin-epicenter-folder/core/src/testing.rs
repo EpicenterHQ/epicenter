@@ -5,8 +5,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Once;
 
-use crate::registry::Author;
-
 static NEXT: AtomicU64 = AtomicU64::new(0);
 static ENVIRONMENT: Once = Once::new();
 
@@ -48,12 +46,5 @@ impl TempDir {
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-pub fn author() -> Author {
-    Author {
-        name: "Test Author".to_string(),
-        email: "test@example.com".to_string(),
     }
 }

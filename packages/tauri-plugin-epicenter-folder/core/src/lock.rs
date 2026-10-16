@@ -1,24 +1,20 @@
-//! Two locks per folder directory, each a file beside it, across processes.
+//! The folder's save lock, `SaveLock`, a file beside the folder's directory,
+//! `.<name>.epicenter-save-lock`: one save at a time, across processes, held
+//! only across one save's check and rename (or removal), by every Epicenter
+//! shell and by Bun (`@epicenter/folder/bun`) alike, so two saves never
+//! interleave between the check and the change (ADR-0562, ADR-0568). It
+//! waits for the other holder, up to `SAVE_LOCK_WAIT`.
 //!
-//! - `RootLock`, on `.<name>.epicenter-lock`: one desktop shell per folder,
-//!   held from the folder's first grant until the shell shuts down.
-//! - `SaveLock`, on `.<name>.epicenter-save-lock`: one save at a time, held
-//!   only across one save's check and rename (or removal), by the shell and
-//!   by the Bun host (`@epicenter/folder/bun`) alike, so a save from the
-//!   `epicenter` CLI and a save from a window never interleave between the
-//!   check and the change (ADR-0562). It waits for the other holder, up to
-//!   `SAVE_LOCK_WAIT`.
-//!
-//! Each lock is an exclusive SQLite transaction on its file, which `rusqlite`
+//! The lock is an exclusive SQLite transaction on its file, which `rusqlite`
 //! and Bun's `bun:sqlite` both take. SQLite holds it with an operating-system
-//! file lock (`fcntl` on Unix, `LockFileEx` on Windows), which the system
-//! releases when the process ends, however it ends. There is no stale lock to
-//! detect and nothing to recover after a forced kill. The transaction writes
-//! nothing, so no journal is left behind. The files themselves are never
-//! deleted, so a live holder's lock is never removed by anyone.
+//! file lock (`fcntl`), which the system releases when the process ends,
+//! however it ends. There is no stale lock to detect and nothing to recover
+//! after a forced kill. The transaction writes nothing, so no journal is left
+//! behind. The file itself is never deleted, so a live holder's lock is never
+//! removed by anyone.
 //!
 //! Operating-system file locks are unreliable on some network filesystems; a
-//! folder there is not protected by either.
+//! folder there is not protected.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -46,24 +42,16 @@ fn sibling(root: &Path, suffix: &str) -> Result<PathBuf, String> {
     Ok(parent.join(file))
 }
 
-/// Where the cross-process lock for a canonical root lives: a sibling, outside
-/// the folder's files.
-pub fn lock_path(root: &Path) -> Result<PathBuf, String> {
-    sibling(root, ".epicenter-lock")
-}
-
-/// Where the save lock for a canonical root lives, beside the root lock.
+/// Where the save lock for a canonical root lives: a sibling, outside the
+/// folder's files.
 pub fn save_lock_path(root: &Path) -> Result<PathBuf, String> {
     sibling(root, ".epicenter-save-lock")
 }
 
-/// Refuse a lock path that is a symbolic link or anything other than a regular
-/// file, before it is opened, so the lock is never taken on a database
-/// somewhere else. Checked once; it does not defend against a later swap.
-pub fn verify_lock_path(root: &Path) -> Result<PathBuf, String> {
-    verify(root, lock_path(root)?, "locked", "open the folder again")
-}
-
+/// Refuse a lock path that is a symbolic link or anything other than a
+/// regular file, before it is opened, so the lock is never taken on a
+/// database somewhere else. Checked once; it does not defend against a later
+/// swap.
 fn verify(root: &Path, path: PathBuf, verb: &str, then: &str) -> Result<PathBuf, String> {
     match fs::symlink_metadata(&path) {
         Err(cause) if cause.kind() == ErrorKind::NotFound => Ok(path),
@@ -108,59 +96,6 @@ fn begin_exclusive(path: &Path, wait: Duration) -> Result<Connection, rusqlite::
 fn release(connection: Connection) {
     let _ = connection.execute_batch("ROLLBACK");
     let _ = connection.close();
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LockError {
-    /// Another process holds the folder.
-    Busy {
-        root: PathBuf,
-    },
-    Failed {
-        message: String,
-    },
-}
-
-/// The held lock. Dropping it releases the folder to the next process.
-#[derive(Debug)]
-pub struct RootLock {
-    connection: Option<Connection>,
-    path: PathBuf,
-}
-
-impl RootLock {
-    /// Take the lock for a canonical root, or refuse at once.
-    pub fn acquire(root: &Path) -> Result<Self, LockError> {
-        let failed = |message: String| LockError::Failed { message };
-        let path = verify_lock_path(root).map_err(failed)?;
-        // Refuse immediately; waiting would only delay telling the person.
-        match begin_exclusive(&path, Duration::ZERO) {
-            Ok(connection) => Ok(Self {
-                connection: Some(connection),
-                path,
-            }),
-            Err(cause) if is_busy(&cause) => Err(LockError::Busy {
-                root: root.to_path_buf(),
-            }),
-            Err(cause) => Err(failed(format!(
-                "The folder at {} could not be locked: {cause}",
-                root.display()
-            ))),
-        }
-    }
-
-    /// The lock file, beside the directory it guards.
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for RootLock {
-    fn drop(&mut self) {
-        if let Some(connection) = self.connection.take() {
-            release(connection);
-        }
-    }
 }
 
 /// One save's hold on a folder, across processes. Dropping it lets the next
@@ -209,28 +144,9 @@ mod tests {
     use crate::testing::TempDir;
 
     #[test]
-    fn a_second_acquisition_is_busy_until_the_first_is_dropped() {
-        let temp = TempDir::new("lock");
-        let root = temp.folder("notes");
-        let held = RootLock::acquire(&root).expect("first acquisition");
-        assert_eq!(
-            held.path().file_name().unwrap().to_str(),
-            Some(".notes.epicenter-lock")
-        );
-        assert_eq!(
-            RootLock::acquire(&root).unwrap_err(),
-            LockError::Busy { root: root.clone() }
-        );
-        drop(held);
-        RootLock::acquire(&root).expect("the lock is free again");
-    }
-
-    #[test]
     fn the_save_lock_is_its_own_file_and_a_second_save_waits_for_the_first() {
         let temp = TempDir::new("save-lock");
         let root = temp.folder("notes");
-        // The shell's folder lock does not keep out a save.
-        let _folder = RootLock::acquire(&root).expect("folder lock");
         let held = SaveLock::acquire(&root, Duration::ZERO).expect("first save");
         assert!(temp.path().join(".notes.epicenter-save-lock").is_file());
 
@@ -268,28 +184,12 @@ mod tests {
         assert!(!elsewhere.exists(), "the link target was never created");
     }
 
-    #[cfg(unix)]
     #[test]
-    fn a_symbolic_link_at_the_lock_path_is_refused_before_it_is_opened() {
-        let temp = TempDir::new("lock-link");
+    fn a_directory_at_the_save_lock_path_is_refused() {
+        let temp = TempDir::new("save-lock-dir");
         let root = temp.folder("notes");
-        let elsewhere = temp.path().join("elsewhere.sqlite");
-        std::os::unix::fs::symlink(&elsewhere, temp.path().join(".notes.epicenter-lock")).unwrap();
-        let LockError::Failed { message } = RootLock::acquire(&root).unwrap_err() else {
-            panic!("a linked lock path is not a busy folder");
-        };
-        assert!(message.contains("is a symbolic link"), "{message}");
-        assert!(!elsewhere.exists(), "the link target was never created");
-    }
-
-    #[test]
-    fn a_directory_at_the_lock_path_is_refused() {
-        let temp = TempDir::new("lock-dir");
-        let root = temp.folder("notes");
-        std::fs::create_dir(temp.path().join(".notes.epicenter-lock")).unwrap();
-        let LockError::Failed { message } = RootLock::acquire(&root).unwrap_err() else {
-            panic!("a directory at the lock path is not a busy folder");
-        };
+        std::fs::create_dir(temp.path().join(".notes.epicenter-save-lock")).unwrap();
+        let message = SaveLock::acquire(&root, Duration::ZERO).unwrap_err();
         assert!(message.contains("not a regular file"), "{message}");
     }
 }

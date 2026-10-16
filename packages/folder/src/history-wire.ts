@@ -23,7 +23,6 @@ import type {
 	PushOutcome,
 	SyncObservation,
 } from './git/history.js';
-import type { GitCredential } from './git/http.js';
 import type { CommitSummary } from './git/objects.js';
 import type { SyncOutcome } from './git/sync.js';
 
@@ -37,18 +36,13 @@ export type HistoryRequest =
 			/** Make this the folder's remote first (`folder.sync.connect`). */
 			readonly connect?: string;
 			readonly allowUnrelatedHistories?: boolean;
-			readonly credential?: UrlCredential;
 	  }
 	| {
 			readonly op: 'settle';
 			/** The attempt's ID; its conflicts are read again from its commits. */
 			readonly attempt: string;
 			readonly choices: unknown;
-			readonly credential?: UrlCredential;
 	  };
-
-/** A credential the page holds, for exactly one remote URL. */
-export type UrlCredential = GitCredential & { readonly url: string };
 
 /**
  * What the history knew when the operation ended, for the page's snapshot.

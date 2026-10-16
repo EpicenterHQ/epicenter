@@ -6,7 +6,6 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 export const commands = {
 	/**
 	 *  Give this window the directory of a scope the shell registered for it.
-	 *  The folder is locked on its first grant and stays locked until shutdown.
 	 *  The window reads and changes it through this plugin's commands alone;
 	 *  nothing else on disk becomes reachable. From the first grant the folder
 	 *  is watched, and the scope's windows hear `epicenter-folder://changed`.
@@ -117,34 +116,20 @@ export type GrantError =
 { name: "UnknownScope"; scope: string } |
 /**  The scope exists, but is not registered for this window. */
 { name: "WindowNotPermitted"; scope: string; window: string } |
-/**  Another process holds the folder. */
-{ name: "Busy"; root: string } |
 /**
  *  A data folder's directory is not there. The shell creates only an
  *  application's own folder.
  */
 { name: "Missing"; root: string } |
-/**  The folder could not be prepared, locked, or reached. */
+/**  The folder could not be prepared or reached. */
 { name: "Unavailable"; message: string } |
 /**  The shell is shutting its folders down. */
 { name: "ShuttingDown" };
 
-/**
- *  What a scope's window is given: where its folder is, and the shell's
- *  fallbacks for what the repository does not configure.
- */
+/**  What a scope's window is given: where its folder is. */
 export type Granted = {
 	/**  The canonical root, as an absolute path. */
 	root: string,
-	branch: string,
-	authorName: string,
-	authorEmail: string,
-	/**
-	 *  Why the page's first `git init` may not run here: a data folder
-	 *  inside another repository's working tree, as the grant found it. The
-	 *  `epicenter` CLI refuses that `init` too, whenever it is asked.
-	 */
-	initProblem: string | null,
 };
 
 /**  What a path is, without following a final link. */

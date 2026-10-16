@@ -48,7 +48,12 @@ import {
 	type TestStorage,
 } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
-import { defineFolder, type Folder, field } from './contract.js';
+import {
+	defineFolder,
+	type Folder,
+	type FolderGitSteps,
+	field,
+} from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import type { GitBackend } from './git/backend.js';
 import { GITDIR, WORKDIR } from './git/browser-backend.js';
@@ -630,7 +635,7 @@ describe('the browser journey', () => {
 		kv: { theme: field.string(), lang: field.string() },
 		tables: {},
 	});
-	type Opened = Folder<typeof definition>;
+	type Opened = Folder<typeof definition, typeof definition, FolderGitSteps>;
 	const originalFetch = globalThis.fetch;
 	const originalEnv = { ...process.env };
 	beforeAll(() => {

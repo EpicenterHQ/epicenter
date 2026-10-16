@@ -41,7 +41,7 @@ import {
 	createTestStorage,
 	dumpStorage,
 } from './browser-storage.test-support.js';
-import { defineFolder, type Folder } from './contract.js';
+import { defineFolder, type Folder, type FolderGitSteps } from './contract.js';
 import { formatDeclaration } from './declaration.js';
 import { openNativeFolder } from './directory.test-support.js';
 import {
@@ -57,7 +57,7 @@ const definition = defineFolder({
 	kv: {},
 	tables: {},
 });
-type Opened = Folder<typeof definition>;
+type Opened = Folder<typeof definition, typeof definition, FolderGitSteps>;
 const author = { name: 'Reader', email: 'reader@example.test' };
 const decoder = new TextDecoder();
 
