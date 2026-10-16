@@ -168,8 +168,10 @@ Keyring services use the running bundle identifier for both the desktop auth
 cell and application secrets. Production addresses remain unchanged; development
 starts with its own credentials. Model settings retain Tauri's app-config
 location, already scoped by that identifier. (Corrected 2026-10-16:
-`local-transcription.json` is now in the data directory, copied once from the
-app-config location when the new file is missing.)
+`local-transcription.json` is now in the data directory. A file an earlier
+build kept in the app-config location is not read; on macOS the two are one
+directory, and elsewhere the active model and unload policy are chosen
+again.)
 
 Standalone Local Books retains the TypeScript production-default resolver.
 That is CLI convenience, not desktop authority. A CLI targeting development
