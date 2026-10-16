@@ -2,10 +2,10 @@
 	import type { TableOptions } from '@epicenter/folder/query';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
-	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import type { ConnectionKind } from '../send.js';
 	import ConnectionEditor from './ConnectionEditor.svelte';
-	import { type ConnectionFields, type ConnectionKeys, connectionId, KIND_LABELS } from './connection-keys.js';
+	import { type ConnectionFields, type ConnectionKeys, connectionId, KIND_LABELS, keyStateKey } from './connection-keys.js';
 
 	/**
 	 * Every AI connection in `so.epicenter`, each with its editor, and a form
@@ -27,6 +27,7 @@
 	} = $props();
 	const here = $derived(keys.place === 'computer' ? 'this computer' : 'this browser');
 
+	const client = useQueryClient();
 	const list = createQuery(() => options.list.queryOptions());
 	const create = createMutation(() => options.create.mutationOptions());
 
@@ -63,6 +64,8 @@
 			if (!saved) return;
 			if (kind === 'openai-compatible') {
 				const { error } = await keys.save(stem, endpoint, key);
+				// The new row's editor may have read its key before this saved it.
+				await client.invalidateQueries({ queryKey: keyStateKey(stem) });
 				if (error !== null) {
 					problem = `The connection was added, but its endpoint and key were not saved in ${here}: ${error}`;
 					return;
