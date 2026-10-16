@@ -10,16 +10,17 @@
  * themselves: each puts its result in the cache and marks stale what else
  * it changed, such as the listing a capture file's text decides.
  *
- * A capture's body is a document, so an edit of it is a body draft its form
- * holds (`formOf`): the version it started from and the body typed, outside
- * the cache, saved one save at a time and merged by the folder, by line,
- * with whatever changed since (ADR-0551, ADR-0554). A failed save keeps the
- * draft and is reported. An edit of a file's text is a text draft held the
- * same way. A view saves typed text after a pause and when the person
- * leaves it (`flush`, `saveText`); a thought command saves at once. Where a
- * save meets another writer's change to the same line, the save wins, with
- * no notice (ADR-0575). A text save that fails drops the typed text, reads
- * the file again, and reports the text that was not written.
+ * A capture's body is a document, so an edit of it is a body editor its
+ * form holds (`formOf`): the row it started from and the body typed,
+ * outside the cache, saved one save at a time as the change from that row
+ * and merged by the folder, by line, with whatever changed since (ADR-0551,
+ * ADR-0576). A failed save keeps the edit and is reported. An edit of a
+ * file's text is a text draft held the same way. A view saves typed text
+ * after a pause and when the person leaves it (`flush`, `saveText`); a
+ * thought command saves at once. Where a save meets another writer's change
+ * to the same line, the save wins, with no notice. A text save that fails
+ * drops the typed text, reads the file again, and reports the text that was
+ * not written.
  *
  * Every other action is a mutation too: create, delete, Save version, and
  * the import of old captures. Closing fences new input, then waits for the
@@ -41,16 +42,16 @@ import {
 import {
 	type CommitOutcome,
 	type FileCapture,
-	type FileError,
+	FileError,
 	type FileSaveError,
 	type RowReadError,
 	rowPath,
 	rowStemOf,
 	type StoredRow,
-	type TableCreateError,
 	type TableError,
 	type TableListing,
-	type TableSetBodyError,
+	type WriteError,
+	type WrittenRow,
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
 import { folderOptions, runMutation, whenIdle } from '@epicenter/folder/query';
@@ -292,7 +293,7 @@ export function createCaptures(
 	const listKey = folder$.captures.list.queryKey();
 	/** Saves of a capture and writes of a file's text, the header's Saving… */
 	const writeKeys = [
-		folder$.captures.setBody.mutationOptions().mutationKey,
+		folder$.captures.write.mutationOptions().mutationKey,
 		folder$.files.write.mutationOptions().mutationKey,
 	];
 	const writing = () =>
@@ -324,18 +325,17 @@ export function createCaptures(
 		const path = pathOf(stem);
 		const form: CaptureForm = createCaptureForm({
 			row: () => rowOf(stem),
-			save: (variables) =>
-				runMutation(
-					queryClient,
-					folder$.captures.setBody.mutationOptions(),
-					variables,
-				).catch((error: TableSetBodyError) => {
-					const text = form.body ?? variables.text;
-					// The file is gone: the edit has nowhere to go but the notice.
-					if (error.name === 'NotFound') form.discard();
-					onWriteFailed({ path, error, text });
+			write: (change) =>
+				runMutation(queryClient, folder$.captures.write.mutationOptions(), {
+					stem,
+					...change,
+				}).catch((error: WriteError) => {
+					onWriteFailed({ path, error, text: form.body ?? change.to.body });
 					throw error;
 				}),
+			// The file is gone: the edit has nowhere to go but the notice.
+			gone: (text) =>
+				onWriteFailed({ path, error: FileError.NotFound({ path }).error, text }),
 			locked: () => refused() !== undefined || removing(path),
 		});
 		forms.set(stem, form);
@@ -406,8 +406,8 @@ export function createCaptures(
 			.length;
 
 	/**
-	 * The capture a delete of `path` acts on, read when it runs: the newest
-	 * version the cache holds for what the app edits, if it holds one.
+	 * The version a delete of `stem` expects, read when it runs: the newest
+	 * the cache holds for what the app edits, if it holds one.
 	 */
 	function heldCapture(stem: string): FileCapture | undefined {
 		const path = pathOf(stem);
@@ -547,7 +547,7 @@ export function createCaptures(
 			mutationFn: async (
 				text: string,
 			): Promise<
-				Result<StoredRow<CaptureFields>, TableCreateError | CapturesError>
+				Result<WrittenRow<CaptureFields>, WriteError | CapturesError>
 			> => {
 				const why = refused();
 				if (why !== undefined) return CapturesError.NotStarted({ reason: why });
@@ -556,23 +556,25 @@ export function createCaptures(
 					return CapturesError.NotStarted({ reason: 'Write something first.' });
 				const now = new Date();
 				const { body } = composeBody(text);
-				for (let attempt = 0; ; attempt++) {
-					const created = await table.create(
-						{
-							fields: {
-								capturedAt: now.toISOString() as CaptureFields['capturedAt'],
-							},
-							body,
+				return table.create(
+					{
+						fields: {
+							capturedAt: now.toISOString() as CaptureFields['capturedAt'],
 						},
-						{ stem: newStem(now) },
-					);
-					// Another capture took this name: a new one is tried.
-					if (created.error?.name !== 'Exists' || attempt >= 3) return created;
-				}
+						body,
+					},
+					{ stem: newStem(now) },
+				);
 			},
 			onSuccess: (created, text) => {
-				const stem = rowStemOf(CAPTURES_TABLE, created.path);
 				if (newCapture === text) newCapture = '';
+				// The file written does not read as a row: the listing says why.
+				if (created === null)
+					return queryClient.invalidateQueries({
+						queryKey: listKey,
+						exact: true,
+					});
+				const stem = rowStemOf(CAPTURES_TABLE, created.path);
 				if (stem === undefined) return;
 				queryClient.setQueryData<CaptureListing>(
 					listKey,
@@ -611,14 +613,15 @@ export function createCaptures(
 		},
 		/**
 		 * Delete what was confirmed. It runs after the capture's edits held
-		 * here are written, so it removes what this window saved last; a file
-		 * another program changed since is refused, and read again.
+		 * here are written, so it removes what this window saved last. The
+		 * folder's delete removes whatever the file holds, so a file another
+		 * program changed since is refused here first, and read again.
 		 */
 		remove(deletion: Deletion) {
 			return defineMutation({
 				mutationKey: capturesKeys.remove(deletion.path),
 				mutationFn: async (): Promise<
-					Result<undefined, FileError | TableError | CapturesError>
+					Result<undefined, FileError | WriteError | CapturesError>
 				> => {
 					const why = refused();
 					if (why !== undefined)
@@ -627,7 +630,18 @@ export function createCaptures(
 						forms.get(deletion.stem)?.flush(),
 						writeText(deletion.path),
 					]);
-					return table.delete(heldCapture(deletion.stem) ?? deletion.capture);
+					const { path } = deletion;
+					const expected = heldCapture(deletion.stem) ?? deletion.capture;
+					const { data: now, error: readError } = await folder.files.read(path);
+					if (readError !== null && readError.name !== 'NotFound')
+						return Err(readError);
+					if (now?.sha256 !== expected.sha256)
+						return FileError.Conflict({
+							path,
+							expectedSha256: expected.sha256,
+							actualSha256: now?.sha256,
+						});
+					return table.delete(deletion.stem);
 				},
 				onSuccess: () => {
 					queryClient.setQueryData<CaptureListing>(listKey, (entries) =>
