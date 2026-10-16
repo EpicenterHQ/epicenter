@@ -69,7 +69,8 @@ const PATH = 'captures/one.md';
 /** How many saves of a capture are running. */
 const savesRunning = ({ captures }: Opened) =>
 	captures.queryClient.isMutating({
-		mutationKey: captures.folder$.captures.setBody.mutationOptions().mutationKey,
+		mutationKey:
+			captures.folder$.captures.setBody.mutationOptions().mutationKey,
 	});
 
 /** Create a capture through the New capture form; it opens. Answers its stem. */

@@ -143,10 +143,7 @@ export function createCaptureForm(capture: {
 		inputText(value: string) {
 			const now = current();
 			if (now === undefined) return;
-			write(
-				{ text: value, thoughts: now.thoughts },
-				{ later: true },
-			);
+			write({ text: value, thoughts: now.thoughts }, { later: true });
 		},
 
 		get newThought() {
