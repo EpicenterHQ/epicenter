@@ -21,8 +21,8 @@
  */
 
 import { isTauri } from '@tauri-apps/api/core';
+import { Buffer } from 'buffer/';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { ensureBufferGlobal } from './buffer-global.js';
 import { browserChangeDetector } from './changes-browser.js';
 import type {
 	OpenDataFolder,
@@ -232,7 +232,10 @@ async function openBrowserFolder<
 		if (environmentError !== null) return Err(environmentError);
 		environment = found;
 	}
-	ensureBufferGlobal();
+	// isomorphic-git reads a global `Buffer` at call time, and browsers have
+	// none; install the `buffer` package's before the first Git call.
+	const scope = globalThis as { Buffer?: unknown };
+	if (scope.Buffer === undefined) scope.Buffer = Buffer;
 	const at = folderAddress(id);
 	const { locks } = environment;
 	// The first write makes the directory, so no read ever writes.

@@ -10,7 +10,6 @@
  */
 import type { Result } from 'wellcrafted/result';
 import type { FileBoundary } from './boundary.js';
-import { ensureBufferGlobal } from './buffer-global.js';
 import {
 	type FolderDefinition,
 	prepareFolderDefinition,
@@ -125,7 +124,6 @@ export async function openDirectoryFolder<
 		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
 		shape = prepared;
 	}
-	ensureBufferGlobal();
 	// The lock name comes from the directory alone, so every opener in this
 	// process takes turns with the others, whatever ID it opened it by.
 	const address = JSON.stringify(['directory', rootPath]);
