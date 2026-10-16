@@ -5,7 +5,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { useQueryClient } from '@tanstack/svelte-query';
-	import { openNotesFolder } from '#platform/notes-host';
+	import { openNotesFolder } from '#platform/folder';
 	import { onDestroy } from 'svelte';
 	import {
 		createNotes,

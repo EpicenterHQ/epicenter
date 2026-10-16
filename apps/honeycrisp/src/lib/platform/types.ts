@@ -1,7 +1,7 @@
 /**
  * The seam between the notes UI and where its folder lives.
  *
- * `#platform/notes-host` resolves at build time. The Epicenter host leaf opens
+ * `#platform/folder` resolves at build time. The Epicenter host leaf opens
  * the folder Epicenter hands the installed app's window, a real directory;
  * the browser leaf opens a folder in OPFS. Both answer the same folder handle,
  * so the UI reads, writes, and shows where the notes are the same way in

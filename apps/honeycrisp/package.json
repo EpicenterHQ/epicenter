@@ -5,9 +5,9 @@
 	"version": "0.0.2",
 	"type": "module",
 	"imports": {
-		"#platform/notes-host": {
-			"epicenter-host": "./src/lib/platform/notes-host.epicenter-host.ts",
-			"default": "./src/lib/platform/notes-host.browser.ts"
+		"#platform/folder": {
+			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
+			"default": "./src/lib/platform/folder.browser.ts"
 		}
 	},
 	"scripts": {

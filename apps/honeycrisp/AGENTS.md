@@ -118,7 +118,7 @@ shell, and the folder plugin fit together, and verify it against the code. The c
 
 ## The boundary
 
-- The page reaches its folder only through `#platform/notes-host`. Do not
+- The page reaches its folder only through `#platform/folder`. Do not
   detect the platform at runtime, and do not import a Node or Bun module
   under `src/`.
 - The installed build's folder is the one Epicenter hands the window as

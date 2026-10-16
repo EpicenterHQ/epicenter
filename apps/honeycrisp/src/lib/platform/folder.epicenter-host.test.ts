@@ -62,7 +62,7 @@ mock.module('../../../../../packages/folder/src/tauri-adapter.js', () => ({
 	},
 }));
 
-const { openNotesFolder } = await import('./notes-host.epicenter-host.js');
+const { openNotesFolder } = await import('./folder.epicenter-host.js');
 
 /** Open the window as the shell does, handed `folder` in `?folder=`, or none. */
 function openWindow(folder?: string) {

@@ -41,7 +41,7 @@ describe('bundles', () => {
 			).toBe(true);
 			expect(
 				modules.some((path) =>
-					path.endsWith('platform/notes-host.epicenter-host.ts'),
+					path.endsWith('platform/folder.epicenter-host.ts'),
 				),
 			).toBe(true);
 			// Only the folder package's generated bindings: its plugin's and the
@@ -99,7 +99,7 @@ describe('bundles', () => {
 			// No desktop adapter, no bindings, and not the installed leaf.
 			expect(
 				modules.filter((path) =>
-					/folder\/src\/(index|tauri|tauri-adapter)\.ts$|bindings\.gen\.ts$|platform\/notes-host\.epicenter-host\.ts$/.test(
+					/folder\/src\/(index|tauri|tauri-adapter)\.ts$|bindings\.gen\.ts$|platform\/folder\.epicenter-host\.ts$/.test(
 						path,
 					),
 				),
