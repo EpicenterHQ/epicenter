@@ -76,6 +76,7 @@ import type {
 	TableEnumerationError,
 	TableRenameError,
 	TableSaveError,
+	TableSetBodyError,
 	TableUpdateError,
 } from './errors.js';
 import { type OpenedFile, openedFile, readTextFile } from './file-browser.js';
@@ -159,6 +160,12 @@ export type SaveRowVariables<TFields> = {
 	readonly row: Row<TFields>;
 };
 
+/** What a body write sends: the row the edit started from, and the body typed. */
+export type SetBodyVariables<TFields> = {
+	readonly base: StoredRow<TFields>;
+	readonly text: string;
+};
+
 export type TableOptions<TFields> = {
 	readonly list: QueryFactory<[], TableListing<TFields>, TableEnumerationError>;
 	/** `null` when no file is at the stem: TanStack keeps no `undefined`. */
@@ -183,6 +190,12 @@ export type TableOptions<TFields> = {
 		UpdateRowVariables<TFields>,
 		SavedRow<TFields>,
 		TableUpdateError
+	>;
+	/** Replace a row's body on the file as it is now, merged by line from `base` (`table.setBody`). */
+	readonly setBody: MutationFactory<
+		SetBodyVariables<TFields>,
+		SavedRow<TFields>,
+		TableSetBodyError
 	>;
 	readonly rename: MutationFactory<
 		{ readonly file: FileCapture; readonly stem: string },
@@ -639,6 +652,17 @@ export function folderOptions<TTables, TValues>(
 							table.update(stem, update),
 						wrote: (client, saved) => wroteRow(client, saved.stored),
 						touched: ({ stem }) => [rowPath(name, stem)],
+					}),
+			},
+			setBody: {
+				mutationOptions: () =>
+					writeOptions({
+						mutationKey: [...keys.table(name), 'setBody'],
+						file: ({ base }: SetBodyVariables<Fields>) => base.path,
+						run: ({ base, text }: SetBodyVariables<Fields>) =>
+							table.setBody(base, text),
+						wrote: (client, saved) => wroteRow(client, saved.stored),
+						touched: ({ base }) => [base.path],
 					}),
 			},
 			rename: {

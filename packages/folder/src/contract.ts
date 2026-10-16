@@ -55,6 +55,7 @@ export {
 	type TableReadError,
 	type TableRenameError,
 	type TableSaveError,
+	type TableSetBodyError,
 	type TableUpdateError,
 	type TableWriteError,
 } from './errors.js';

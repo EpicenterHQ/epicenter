@@ -11,9 +11,9 @@
  * - A failed save keeps the draft, and the next save sends it again
  * - `restore` sends theirs back through the same save, heard like any save;
  *   a body's restore sends the body with theirs
- * - A body editor shows the file's body until something is typed, saves the
- *   body with the fields of the row it started from, and shows the file again
- *   once its save lands with nothing typed since
+ * - A body editor shows the file's body until something is typed, sends the
+ *   text typed with the row it started from, and shows the file again once
+ *   its save lands with nothing typed since
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
@@ -169,7 +169,7 @@ test("a body's restore sends the body with theirs back through the same save, he
 	expect(heard.map(({ saved }) => saved.stored)).toEqual([written, restored]);
 });
 
-test('a body editor saves the body with the fields of the row it started from', async () => {
+test('a body editor sends the text typed with the row it started from', async () => {
 	type Note = { title: string };
 	const row = (sha: string, title: string, body: string): StoredRow<Note> =>
 		Object.freeze({
@@ -180,7 +180,7 @@ test('a body editor saves the body with the fields of the row it started from', 
 		});
 	let cached: StoredRow<Note> | undefined = row('a', 'One', 'one\n');
 	const { calls, save } = heldSaves<
-		{ base: StoredRow<Note>; row: { fields: Note; body: string } },
+		{ base: StoredRow<Note>; text: string },
 		SavedRow<Note>
 	>();
 	const body = createBodyEditor<Note>({ row: () => cached, save });
@@ -195,10 +195,7 @@ test('a body editor saves the body with the fields of the row it started from', 
 	expect(body.text).toBe('mine\n');
 
 	const done = body.save();
-	expect(calls[0]?.sent).toEqual({
-		base: started,
-		row: { fields: { title: 'One' }, body: 'mine\n' },
-	});
+	expect(calls[0]?.sent).toEqual({ base: started, text: 'mine\n' });
 	const written = row('c', 'Renamed', 'mine\n');
 	calls[0]?.land({ stored: written, merged: true, replaced: [] });
 	await done;
@@ -213,7 +210,7 @@ test('a body editor takes no change while there is no row', () => {
 	const body = createBodyEditor<Note>({
 		row: () => undefined,
 		save: heldSaves<
-			{ base: StoredRow<Note>; row: { fields: Note; body: string } },
+			{ base: StoredRow<Note>; text: string },
 			SavedRow<Note>
 		>().save,
 	});

@@ -348,6 +348,16 @@ export type TableSaveError =
  */
 export type TableUpdateError = TableSaveError | TableErrorOf<'InvalidUtf8'>;
 
+/**
+ * Why a body write wrote nothing (ADR-0575): the file is gone (`NotFound`),
+ * does not read as a row of the table (`InvalidRow`, `InvalidUtf8`), the
+ * result does not read as one (`InvalidValues`), it kept changing
+ * (`KeptChanging`), or storage failed.
+ */
+export type TableSetBodyError =
+	| FileError
+	| TableErrorOf<'KeptChanging' | 'InvalidValues' | 'InvalidRow' | 'InvalidUtf8'>;
+
 /** A guarded row move preserves the file move's failures, its landed capture included. */
 export type TableRenameError = FileError | MoveError;
 
@@ -358,6 +368,7 @@ export type TableDeleteError = FileError;
 export type TableWriteError =
 	| TableCreateError
 	| TableUpdateError
+	| TableSetBodyError
 	| TableRenameError
 	| TableDeleteError;
 

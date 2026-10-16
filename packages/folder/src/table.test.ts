@@ -535,3 +535,103 @@ test('a stem that is not one segment is InvalidPath before storage', async () =>
 	}
 	expect(s.counts()).toEqual({ reads: 0, applications: 0 });
 });
+
+// -- Body writes (ADR-0575) ------------------------------------------------------
+
+const STYLED =
+	'---\r\ntitle: "Kept"   # a comment\r\ndone: false\r\ntags: []\r\npriority: high\r\n---\r\nOne\r\nTwo\r\n';
+
+test('setBody keeps every byte before the body and writes the body with line feeds', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', STYLED);
+	const stored = await s.row('a');
+	const saved = expectOk(await s.table.setBody(stored, 'One\nTwo\nThree\n'));
+	expect(saved).toMatchObject({ merged: false, replaced: [] });
+	const head = STYLED.slice(0, STYLED.indexOf('---\r\n', 4) + 5);
+	expect(await s.stored('todos/a.md')).toBe(`${head}One\nTwo\nThree\n`);
+	expect(saved.stored.row.body).toBe('One\nTwo\nThree\n');
+	expect(saved.stored.row.fields).toMatchObject({ title: 'Kept', priority: 'high' });
+});
+
+test('setBody keeps fields another writer changed and merges the body by line', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\ntwo\nthree\n');
+	const stored = await s.row('a');
+	await s.put('todos/a.md', '---\ntitle: Renamed\ndone: true\ntags: []\n---\none\ntwo\nthree\nfour\n');
+	const saved = expectOk(await s.table.setBody(stored, 'ONE\ntwo\nthree\n'));
+	expect(saved).toMatchObject({ merged: true, replaced: [] });
+	expect<unknown>(expectOk(await s.table.get('a'))?.row).toEqual({
+		fields: { title: 'Renamed', done: true, tags: [] },
+		body: 'ONE\ntwo\nthree\nfour\n',
+	});
+});
+
+test('setBody wins lines both changed and names them in replaced', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\n');
+	const stored = await s.row('a');
+	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\ntheirs\n');
+	const saved = expectOk(await s.table.setBody(stored, 'mine\n'));
+	expect(saved.stored.row.body).toBe('mine\n');
+	expect(saved.replaced).toMatchObject([
+		{ kind: 'text', part: 'body', kept: 'mine\n', theirs: 'theirs\n' },
+	]);
+});
+
+test('setBody writes nothing when the body would not change', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', STYLED);
+	const stored = await s.row('a');
+	s.resetCounts();
+	const saved = expectOk(await s.table.setBody(stored, 'One\r\nTwo\r\n'));
+	expect(saved.stored.sha256).toBe(stored.sha256);
+	expect(s.counts().applications).toBe(0);
+	expect(await s.stored('todos/a.md')).toBe(STYLED);
+});
+
+test('setBody puts a line break after a closing fence with none', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---');
+	const stored = await s.row('a');
+	expectOk(await s.table.setBody(stored, 'Body\n'));
+	expect(await s.stored('todos/a.md')).toBe(
+		'---\ntitle: A\ndone: false\ntags: []\n---\nBody\n',
+	);
+});
+
+test('setBody never recreates a deleted row and refuses a file that is not a row', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	const stored = await s.row('a');
+	expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/a.md' }]));
+	expect(expectErr(await s.table.setBody(stored, 'x\n')).name).toBe('NotFound');
+	expect(await s.stored('todos/a.md')).toBeUndefined();
+
+	await s.put('todos/a.md', VALID);
+	const again = await s.row('a');
+	await s.put('todos/a.md', 'no frontmatter at all\n');
+	expect(expectErr(await s.table.setBody(again, 'x\n')).name).toBe('InvalidRow');
+	await s.put('todos/a.md', MALFORMED);
+	expect(expectErr(await s.table.setBody(again, 'x\n')).name).toBe('InvalidRow');
+	expect(await s.stored('todos/a.md')).toBe(MALFORMED);
+});
+
+test('setBody gives up after the bounded attempts when the file keeps changing', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', VALID);
+	const stored = await s.row('a');
+	let n = 0;
+	s.beforeApply(async () => {
+		s.beforeApply(undefined);
+		await s.put('todos/a.md', `${VALID}${n++}\n`);
+		s.beforeApply(async function again() {
+			s.beforeApply(undefined);
+			await s.put('todos/a.md', `${VALID}${n++}\n`);
+			s.beforeApply(again);
+		});
+	});
+	expect(expectErr(await s.table.setBody(stored, 'mine\n'))).toMatchObject({
+		name: 'KeptChanging',
+		attempts: WRITE_ATTEMPTS,
+	});
+});

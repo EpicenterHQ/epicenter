@@ -27,14 +27,14 @@
  * does, and the app decides which fields go with it.
  *
  * `createBodyEditor({ row, save })` opens one row's body for a control
- * (ADR-0573). It reads the row as the cache holds it, saves the body with
- * the row's fields as the draft's starting version holds them, so the merge
- * keeps every field another writer changed, and shows the draft's text or
- * the file's body:
+ * (ADR-0575). It reads the row as the cache holds it, sends the body typed
+ * with the row it started from to the table's `setBody` mutation, which
+ * replaces only the body on the file as it is now, and shows the draft's
+ * text or the file's body:
  *
  * ```ts
- * const save = createMutation(() => folder.notes.save.mutationOptions());
- * const body = createBodyEditor({ row: () => note.data ?? undefined, save: save.mutateAsync });
+ * const setBody = createMutation(() => folder.notes.setBody.mutationOptions());
+ * const body = createBodyEditor({ row: () => note.data ?? undefined, save: (v) => setBody.mutateAsync(v) });
  * ```
  *
  * ```svelte
@@ -52,7 +52,6 @@ import {
 	writtenBody,
 	writtenFile,
 } from '../draft.js';
-import type { Row } from '../row-text.js';
 import { restoreTheirs, type SavedFile } from '../save-file.js';
 import type { SavedRow, StoredRow } from '../table.js';
 
@@ -197,7 +196,7 @@ export function createBodyDraftState<TFields>({
 	});
 }
 
-/** One row's body, opened for a control (ADR-0573). */
+/** One row's body, opened for a control (ADR-0575). */
 export type BodyEditor = {
 	/** What the control shows: the text typed, or the body as the file holds it; `undefined` with no row. */
 	readonly text: string | undefined;
@@ -220,17 +219,16 @@ export function createBodyEditor<TFields>({
 }: {
 	/** The row as the cache holds it now; `undefined` while it is absent or does not read as a row. */
 	row: () => StoredRow<TFields> | undefined;
-	/** The table's save mutation, rejecting on failure: `mutateAsync` of `folder.<table>.save`. */
+	/** The table's body write, rejecting on failure: `mutateAsync` of `folder.<table>.setBody`. */
 	save: (variables: {
 		readonly base: StoredRow<TFields>;
-		readonly row: Row<TFields>;
+		readonly text: string;
 	}) => Promise<SavedRow<TFields>>;
 	/** Each save that landed, as for a notice of what it replaced, and the save that restores it. */
 	onSaved?: OnSaved<SavedRow<TFields>>;
 }): BodyEditor {
 	const draft = createBodyDraftState<TFields>({
-		save: ({ base, content }) =>
-			save({ base, row: { fields: base.row.fields, body: content } }),
+		save: ({ base, content }) => save({ base, text: content }),
 		onSaved,
 	});
 	return {

@@ -45,22 +45,25 @@ import {
 	TableError,
 	type TableRenameError,
 	type TableSaveError,
+	type TableSetBodyError,
 	type TableUpdateError,
 } from './errors.js';
+import { mergeLines } from './git/merge-lines.js';
+import { frameRowText } from './markdown.js';
 import {
 	ROW_EXTENSION,
 	rowAddressProblem,
 	rowPath,
 	rowStemOf,
 } from './paths.js';
-import { parseRow, type Row, writeRow } from './row-text.js';
+import { parseRow, type Row, wellFormed, writeRow } from './row-text.js';
 import {
 	type Replaced,
 	type SaveOptions,
 	saveFile,
 	WRITE_ATTEMPTS,
 } from './save-file.js';
-import { applyOne } from './storage.js';
+import { applyOne, replaceCaptured } from './storage.js';
 
 /**
  * One read or write of a row file: which bytes, their exact text, and the
@@ -183,6 +186,26 @@ export type FileTable<TFields> = {
 		stem: string,
 		change: RowUpdate<TFields>,
 	): Promise<Result<SavedRow<TFields>, TableUpdateError>>;
+	/**
+	 * Replace the body of the row file `base` was read from with `text`, on
+	 * the file as it is now (ADR-0575). Each attempt reads the file and keeps
+	 * every byte before its body exactly: frontmatter, keys the table does not
+	 * declare, comments, and line endings. When the body changed since `base`,
+	 * `text` is merged with it by line from `base.row.body`, `text` winning
+	 * only lines both changed, and each region it won is in `replaced`. The
+	 * new body has `\n` line endings and well-formed text, and is written
+	 * guarded by what the attempt read; another writer in between starts the
+	 * next attempt. After `WRITE_ATTEMPTS` it is `KeptChanging`.
+	 *
+	 * Writes nothing when the body would not change. `NotFound` when the file
+	 * is gone (a body is never written to a new file), and `InvalidRow` or
+	 * `InvalidUtf8` when it does not read as a row of this table, including
+	 * text with no closed frontmatter.
+	 */
+	setBody(
+		base: StoredRow<TFields>,
+		text: string,
+	): Promise<Result<SavedRow<TFields>, TableSetBodyError>>;
 	/**
 	 * Move the captured row file to a vacant stem, guarded by its bytes. The
 	 * returned capture is those bytes at the new path, not a read of it.
@@ -409,6 +432,79 @@ export function createTable<TFields>(
 				path: rowPath(name, stem),
 				attempts: WRITE_ATTEMPTS,
 			});
+		},
+		async setBody(base, text) {
+			const { data: captured, error: captureError } = ownRowCapture(base);
+			if (captureError !== null) return Err(captureError);
+			const { path } = captured;
+			// Owned before anything is awaited, so later edits change nothing.
+			const baseBody = base.row.body;
+			const typed = wellFormed(text.replace(/\r\n?/g, '\n'));
+			for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+				const { data: read, error: readError } = await storage.read(path);
+				if (readError !== null) return Err(readError);
+				const { data: current, error: rowError } = storedRow(path, read);
+				if (rowError !== null) return Err(rowError);
+				const frame = frameRowText(current.text);
+				// A row always has closed frontmatter; this keeps the splice honest.
+				if (frame.kind !== 'frontmatter')
+					return TableError.InvalidRow({
+						path,
+						sha256: current.sha256,
+						text: current.text,
+						issues: [{ message: 'The file has no closed frontmatter' }],
+					});
+				let body = typed;
+				let replaced: readonly Replaced[] = Object.freeze([]);
+				const merged = current.row.body !== baseBody;
+				if (merged) {
+					const merge = await mergeLines({
+						base: baseBody,
+						ours: typed,
+						theirs: current.row.body,
+					});
+					body = merge.ours;
+					if (merge.regions.length > 0)
+						replaced = Object.freeze([
+							Object.freeze({
+								kind: 'text',
+								part: 'body',
+								kept: merge.ours,
+								theirs: merge.theirs,
+								regions: Object.freeze(
+									merge.regions.map((region) => Object.freeze(region)),
+								),
+							}),
+						]);
+				}
+				if (body === current.row.body)
+					return Ok(Object.freeze({ stored: current, merged, replaced }));
+				const head = current.text.slice(0, frame.bodyStart);
+				const nextText = `${head}${head.endsWith('\n') ? '' : frame.newline}${body}`;
+				const { bytes, text: written } = submittedText(nextText);
+				const { data: row, error: issues } = parseRow(table, written);
+				if (issues !== null) return TableError.InvalidValues({ issues });
+				const { data: saved, error: saveError } = await replaceCaptured(
+					storage,
+					fileCapture(path, current.sha256),
+					bytes,
+				);
+				if (saveError === null)
+					return Ok(
+						Object.freeze({
+							stored: Object.freeze({
+								path,
+								sha256: saved.sha256,
+								text: written,
+								row: row as Row<TFields>,
+							}),
+							merged,
+							replaced,
+						}),
+					);
+				if (saveError.name !== 'Conflict') return Err(saveError);
+			}
+			return TableError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
 		},
 		async rename(file, nextStem) {
 			const { data: captured, error: captureError } = ownRowCapture(file);
