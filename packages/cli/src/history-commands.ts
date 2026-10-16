@@ -34,6 +34,7 @@ import {
 	runHistory,
 } from '@epicenter/folder/bun';
 import { resolveAppPaths } from './app-paths.ts';
+import type { GrantKind } from './auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 type Options = Record<string, string | true>;
@@ -220,7 +221,7 @@ export async function historyCommand(
 	dir: string,
 	options: Options,
 	json: boolean,
-	desktop = false,
+	grant: GrantKind,
 ): Promise<number> {
 	let request: HistoryRequest;
 	try {
@@ -238,10 +239,7 @@ export async function historyCommand(
 					import('./auth.ts'),
 					import('./repository-commands.ts'),
 				]);
-				return hostedCredentials(authContext(), desktop ? 'desktop' : 'device')(
-					url,
-					signal,
-				);
+				return hostedCredentials(authContext(), grant)(url, signal);
 			},
 		});
 	} catch (error) {

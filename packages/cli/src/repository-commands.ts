@@ -34,9 +34,6 @@ import {
 } from './auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
-const grantOf = (desktop: boolean): GrantKind =>
-	desktop ? 'desktop' : 'device';
-
 /**
  * The credential for a remote of this deployment's hosted Git, asked for by
  * URL as each transfer starts: the grant's access token for the Git
@@ -87,12 +84,12 @@ export function remoteFor(ctx: AuthContext, to: string): string {
 }
 
 /** `epicenter repos`: the caller's repositories by namespace. */
-export async function repos(json: boolean, desktop: boolean) {
+export async function repos(json: boolean, grant: GrantKind) {
 	const ctx = authContext();
 	// The listing is folder metadata, served at the Git audience (ADR-0549).
 	const { data, error } = await accessToken(
 		ctx,
-		grantOf(desktop),
+		grant,
 		ctx.deployment.audiences.git,
 	);
 	if (error !== null) return fail(error.message, json);
@@ -140,7 +137,7 @@ export async function clone(
 	source: string,
 	target: string | undefined,
 	json: boolean,
-	desktop: boolean,
+	grant: GrantKind,
 ) {
 	const ctx = authContext();
 	let url: string;
@@ -160,7 +157,7 @@ export async function clone(
 		return fail(`${dir} already exists and is not empty`, json);
 	let cloned: Awaited<ReturnType<typeof runGit>>;
 	try {
-		const credential = await hostedCredentials(ctx, grantOf(desktop))(
+		const credential = await hostedCredentials(ctx, grant)(
 			url,
 			AbortSignal.timeout(60_000),
 		);

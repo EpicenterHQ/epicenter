@@ -31,9 +31,6 @@ import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 
 type Options = Record<string, string | true>;
 
-const grantOf = (desktop: boolean): GrantKind =>
-	desktop ? 'desktop' : 'device';
-
 const who = (account: StoredGrant['account']) =>
 	account === null
 		? 'an Epicenter account'
@@ -71,10 +68,10 @@ function signedInResult(
  */
 export async function authLogin(
 	json: boolean,
-	desktop: boolean,
+	grant: GrantKind,
 ): Promise<number> {
 	const ctx = authContext();
-	if (desktop) {
+	if (grant === 'desktop') {
 		const { data, error } = await loginWithLoopback(ctx, {
 			onUrl: (url) => {
 				if (json) writeJson({ open: url });
@@ -136,14 +133,14 @@ export async function authLogin(
 export async function authToken(
 	options: Options,
 	json: boolean,
-	desktop: boolean,
+	grant: GrantKind,
 ): Promise<number> {
 	const ctx = authContext();
 	const resource =
 		typeof options.resource === 'string'
 			? options.resource
 			: ctx.deployment.audiences.api;
-	const { data, error } = await accessToken(ctx, grantOf(desktop), resource);
+	const { data, error } = await accessToken(ctx, grant, resource);
 	if (error !== null) return fail(error.message, json);
 	if (json)
 		writeJson({
@@ -181,10 +178,9 @@ export async function authStatusCommand(json: boolean): Promise<number> {
 /** `epicenter auth logout`: the device grant, or with `--desktop` the app's. */
 export async function authLogout(
 	json: boolean,
-	desktop: boolean,
+	grant: GrantKind,
 ): Promise<number> {
 	const ctx = authContext();
-	const grant = grantOf(desktop);
 	const { data, error } = await logout(ctx, grant);
 	if (error !== null) return fail(error.message, json);
 	if (json) writeJson({ grant, ...data });
@@ -216,7 +212,7 @@ export async function authLogout(
  */
 export async function authGitCredential(
 	action: string,
-	desktop: boolean,
+	grant: GrantKind,
 ): Promise<number> {
 	const request = await Bun.stdin.text();
 	if (action === 'store' || action === 'erase') return EXIT.ok;
@@ -226,11 +222,7 @@ export async function authGitCredential(
 		);
 		return EXIT.unusable;
 	}
-	const { data, error } = await gitCredential(
-		authContext(),
-		grantOf(desktop),
-		request,
-	);
+	const { data, error } = await gitCredential(authContext(), grant, request);
 	if (error !== null) {
 		writeErr(`epicenter: ${(error as AuthError).message}`);
 		return EXIT.unusable;
