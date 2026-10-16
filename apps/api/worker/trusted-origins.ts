@@ -1,4 +1,4 @@
-import { APPS, localUrl, prodOrigins } from '@epicenter/constants/apps';
+import { APPS, localUrl } from '@epicenter/constants/apps';
 
 /**
  * Epicenter cloud's trusted-origin set. This lives in `apps/api`, not in the
@@ -8,7 +8,7 @@ import { APPS, localUrl, prodOrigins } from '@epicenter/constants/apps';
 
 /**
  * Production origins trusted on every Epicenter cloud deployment: each app's
- * canonical origin (and aliases).
+ * production `url`.
  *
  * Adding an app to `APPS` auto-extends this.
  *
@@ -26,8 +26,9 @@ import { APPS, localUrl, prodOrigins } from '@epicenter/constants/apps';
  * exceptions; self-distributed XPIs get a random per-install UUID) rather than
  * a wildcard, which is what defeated CSRF protection the first time.
  */
-const PRODUCTION_TRUSTED_ORIGINS: readonly string[] =
-	Object.values(APPS).flatMap(prodOrigins);
+const PRODUCTION_TRUSTED_ORIGINS: readonly string[] = Object.values(APPS).map(
+	(app) => app.url,
+);
 
 /**
  * Development-only origins: each app's `localhost:<port>` dev server plus the

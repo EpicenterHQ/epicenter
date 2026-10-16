@@ -11,7 +11,6 @@
 import {
 	APPS,
 	localUrl,
-	prodOrigins,
 	resolveOAuthAudiences,
 } from '@epicenter/constants/apps';
 import type { FirstPartyClient } from '@epicenter/server';
@@ -53,10 +52,9 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 			({ clientId, name, app }): FirstPartyClient => ({
 				clientId,
 				name,
-				redirectUris: [
-					...prodOrigins(app),
-					...(local ? [localUrl(app)] : []),
-				].map((appOrigin) => `${appOrigin}/auth/callback`),
+				redirectUris: [app.url, ...(local ? [localUrl(app)] : [])].map(
+					(appOrigin) => `${appOrigin}/auth/callback`,
+				),
 				grantTypes: ['authorization_code'],
 				scopes: [
 					'openid',
