@@ -159,13 +159,24 @@ export function rowStemOf(table: string, path: string): string | undefined {
 }
 
 /**
- * Case- and Unicode-folded spelling used only when adopting incoming history,
- * to refuse a commit whose paths some filesystem could not hold apart
- * (ADR-0474). Never used for lookup, and never applied to a local save: a
- * create or rename is refused by what its own filesystem does.
+ * Case- and Unicode-folded spelling Sync compares names by, to refuse a tree
+ * whose paths some filesystem could not hold apart and a file that stands
+ * under another spelling (ADR-0474, ADR-0576). Never used for lookup, and
+ * never applied to a local save: a create or rename is refused by what its
+ * own filesystem does.
+ *
+ * Lowercased, uppercased, and lowercased again, so names APFS holds as one
+ * meet: `ς` and `σ`, `ß` and `ss`, `ﬀ` and `ff`, `ſ` and `s`, `µ` and `μ`.
+ * It also joins `ı` and `i`, which APFS keeps apart; that only refuses a
+ * Sync, never merges two files.
  */
 export function collisionKey(path: string): string {
-	return path.normalize('NFC').toLowerCase();
+	return path
+		.normalize('NFC')
+		.toLowerCase()
+		.toUpperCase()
+		.toLowerCase()
+		.normalize('NFC');
 }
 
 /** Where an opened folder publishes its declaration (ADR-0517). */

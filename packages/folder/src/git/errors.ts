@@ -122,18 +122,26 @@ export const SyncError = defineErrors({
 		reason,
 	}),
 	/**
-	 * The remote holds what this folder cannot write as plain files: a link,
-	 * an executable, a submodule, a Git attribute filter, an invalid path, or
-	 * two paths only their case tells apart. Nothing was written or sent.
+	 * A tree that some folder could not write as plain files: a link, an
+	 * executable, a submodule, a Git attribute filter, an invalid path, or two
+	 * paths only their case tells apart. `whose` is the side that holds it:
+	 * the remote's, which this folder cannot take, or the one this folder
+	 * would send, which another device could not. Nothing was written or sent.
 	 */
 	Unrepresentable: ({
+		whose,
 		paths,
 		reason,
 	}: {
+		whose: 'remote' | 'folder';
 		paths: readonly string[];
 		reason: string;
 	}) => ({
-		message: `The remote's files cannot be written to this folder: ${reason}`,
+		message:
+			whose === 'remote'
+				? `The remote's files cannot be written to this folder: ${reason}`
+				: `This folder's files cannot be sent, since another folder could not hold them: ${reason}; rename or move ${paths.map((path) => `'${path}'`).join(', ')}, then sync again`,
+		whose,
 		paths,
 		reason,
 	}),

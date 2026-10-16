@@ -1415,11 +1415,14 @@ writes each file holding the folder's save lock (`storage.lock`), one file
 at a time, so a save waits for one file, never for the whole publish, and
 its editor keeps what is typed. Each changed path takes one write, the live file as the writer acting, so text
 typed after the checkpoint keeps the units it changed. Removals go first,
-guarded by the checkpoint's bytes, then the directories they emptied, so a
-file can take a directory's place and the reverse. Every write lands whole,
+in one hold of the lock: each is checked against the checkpoint's bytes,
+then all are made, with the directories they emptied, so a file can take a
+directory's place and the reverse. Every write lands whole,
 so a publish cut off partway leaves each file at its old bytes or its new
-ones, ordinary changes that the next Sync records and merges to the same
-files (ADR-0545); there is no journal. A folder that had no history before
+ones (ADR-0545). `refs/epicenter/publishing` names the publish, as a commit
+whose parents are where the branch was and what it publishes, until the
+branch moves; the next commit finishes that publish before it records the
+files, so what arrived is never recorded as this device's edit. A folder that had no history before
 the run adopts the remote's by merging over an empty base; one with a
 history of its own meets an unrelated remote as `Unrelated`, and
 `run({ allowUnrelatedHistories: true })` combines them. `connect(url)` sets
@@ -1430,7 +1433,7 @@ Sync stops, and says why, only where it must not decide:
 | `SyncError` | When | What was written |
 | --- | --- | --- |
 | `Blocked` | a merge or a rebase another Git program began (`.git/MERGE_HEAD`), a detached head, a file of this folder's own where the remote needs the path (a file it never committed, ignored or new, where the remote adds one; files where the remote needs a file), or a branch another program moved while Sync wrote | nothing sent, for a file in the way; for a moved branch, the files written are changes to it |
-| `Unrepresentable` | the remote holds a link, an executable, a submodule, an invalid path, two paths only their case tells apart, or a commit whose attributes declare a filter or a byte conversion | nothing |
+| `Unrepresentable` | the remote (`whose: 'remote'`) or the tree this folder would send (`whose: 'folder'`) holds a link, an executable, a submodule, an invalid path, two paths only their case tells apart, or a commit whose attributes declare a filter or a byte conversion | nothing |
 | `Unrelated` | the histories share no commit | nothing |
 | `KeptChanging` | the remote moved before every push | nothing |
 | `Publish` | a file could not be written | what landed, whole; the next Sync finishes |

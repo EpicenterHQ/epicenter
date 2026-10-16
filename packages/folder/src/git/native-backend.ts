@@ -36,6 +36,7 @@ import { primitiveFs } from './primitive-fs.js';
 import { gitignoreMatcher } from './scope.js';
 
 const ZERO = '0000000000000000000000000000000000000000';
+const PUBLISHING_REF = 'refs/epicenter/publishing';
 const REMOTE_NAME = 'origin';
 
 export class GitCommandError extends Error {
@@ -277,6 +278,14 @@ export async function createNativeGitBackend({
 		exclusive: serialized,
 		readBranch: () => resolve(branchRef),
 		readRemoteTracking: () => resolve(trackingRef),
+		readPublishing: () => resolve(PUBLISHING_REF),
+		async writePublishing(oid) {
+			await run(
+				oid === undefined
+					? ['update-ref', '-d', PUBLISHING_REF]
+					: ['update-ref', '-m', 'epicenter: publishing', PUBLISHING_REF, oid],
+			);
+		},
 		async casBranch(expected, next) {
 			const result = await run(
 				[

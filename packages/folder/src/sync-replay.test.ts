@@ -9,10 +9,12 @@
  * every kind a folder merges: a row, `kv.json`, text by line, bytes whole, a
  * removal, a file becoming a directory and the reverse, a new file and a new
  * row. Each must end exactly where an uninterrupted Sync ends, here and on
- * the remote.
+ * the remote, including when the remote moved on again before the next Sync:
+ * the next commit finishes the cut publish before it records anything, so
+ * what arrived is never recorded as this device's edit.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { openFolder } from './browser.js';
@@ -141,7 +143,22 @@ async function diverged() {
 	expectOk(await folder.kv.set('theme', 'dark'));
 	expectOk(await put(folder, 'notes.txt', 'ONE\ntwo\nthree\n'));
 	expectOk(await put(folder, 'keep.md', 'kept here\n'));
-	return { folder, storage, bare, hooks };
+	return { folder, storage, bare, hooks, peer };
+}
+
+/**
+ * The peer takes what the remote holds now and changes two units again
+ * that the first Sync settled: a row's field and a line of text.
+ */
+async function peerEditsAgain(peer: string) {
+	await git(peer, 'pull', '--quiet', '--no-rebase', 'origin', 'main');
+	await writeFile(
+		join(peer, 'todos/walk.md'),
+		row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
+	);
+	await writeFile(join(peer, 'notes.txt'), 'ONE\ntwo\n3\n');
+	await git(peer, 'commit', '--quiet', '-am', 'Peer again');
+	await git(peer, 'push', '--quiet', 'origin', 'main');
 }
 
 /** The folder's files as text, `.git` aside. */
@@ -287,4 +304,180 @@ test('a file of this folder in the way stops Sync before its merge is sent', asy
 	// Nothing was sent.
 	expect(await git(run.bare, 'rev-parse', 'main')).toBe(before);
 	expect(filesOf(run.storage)['new.md']).toBe('mine, ignored\n');
+});
+
+test('a publish cut off, then a peer editing again, ends where an uninterrupted Sync does', async () => {
+	const clean = await diverged();
+	const counted = cutAfter(clean.storage, Number.POSITIVE_INFINITY);
+	expect(expectOk(await clean.folder.sync.run()).kind).toBe('synced');
+	const changes = counted();
+	uncut(clean.storage);
+	await peerEditsAgain(clean.peer);
+	expect(expectOk(await clean.folder.sync.run()).kind).toBe('synced');
+	const expected = filesOf(clean.storage);
+	const expectedRemote = await remoteFiles(clean.bare);
+	// The peer's second edits stand.
+	expect(expected['notes.txt']).toBe('ONE\ntwo\n3\n');
+	expect(expected['todos/walk.md']).toContain('done: false');
+	for (const each of opened.splice(0)) await each.close();
+
+	for (let cut = 0; cut < changes; cut++) {
+		const run = await diverged();
+		cutAfter(run.storage, cut);
+		await run.folder.sync.run();
+		uncut(run.storage);
+		await peerEditsAgain(run.peer);
+		const second = await run.folder.sync.run();
+		expect([cut, second.data?.kind]).toEqual([cut, 'synced']);
+		expect([cut, filesOf(run.storage)]).toEqual([cut, expected]);
+		expect([cut, await remoteFiles(run.bare)]).toEqual([cut, expectedRemote]);
+		for (const each of opened.splice(0)) await each.close();
+	}
+}, 120_000);
+
+test('a fast-forward cut off, then a peer editing again, keeps the peer edit here and on the remote', async () => {
+	const root = await scratch('sync-replay-ff-');
+	const bare = await createBareRemote(root);
+	const storage: TestStorage = createTestStorage();
+	const folder = expectOk(
+		await openFolder({
+			id: ID,
+			definition,
+			browser: {
+				author: { name: 'Local', email: 'local@example.test' },
+				httpFetch: await gitHttpFetch(root),
+				...browserStorage(storage),
+			},
+		}),
+	);
+	opened.push(folder);
+	expectOk(await folder.write('notes.txt', null, 'one\ntwo\nthree\n'));
+	expect(expectOk(await folder.sync.connect(REMOTE)).kind).toBe('synced');
+	const peer = join(root, 'peer');
+	await git(root, 'clone', '--quiet', bare, peer);
+	await writeFile(join(peer, 'notes.txt'), 'one\ntwo\nTHREE\n');
+	await writeFile(join(peer, 'zz.txt'), 'last\n');
+	await git(peer, 'add', '--', 'notes.txt', 'zz.txt');
+	await git(peer, 'commit', '--quiet', '-m', 'Peer');
+	await git(peer, 'push', '--quiet', 'origin', 'main');
+	// Cut after `notes.txt` lands and before `zz.txt` does.
+	cutAfter(storage, 1);
+	expect((await folder.sync.run()).error?.name).toBe('Publish');
+	uncut(storage);
+	expect(filesOf(storage)['notes.txt']).toBe('one\ntwo\nTHREE\n');
+	await git(peer, 'pull', '--quiet', '--no-rebase', 'origin', 'main');
+	await writeFile(join(peer, 'notes.txt'), 'one\ntwo\n3\n');
+	await git(peer, 'commit', '--quiet', '-am', 'Peer again');
+	await git(peer, 'push', '--quiet', 'origin', 'main');
+
+	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+	expect(filesOf(storage)).toMatchObject({
+		'notes.txt': 'one\ntwo\n3\n',
+		'zz.txt': 'last\n',
+	});
+	expect(await git(bare, 'show', 'main:notes.txt')).toBe('one\ntwo\n3');
+	expect(expectOk(await folder.git.status()).changes).toEqual([]);
+});
+
+/**
+ * A folder holding `seed`, connected, and a peer clone of it. `net` can fail
+ * the fetch after the next push, as a closed tab or a lost network would
+ * stop the Sync there.
+ */
+async function connected(seed: Record<string, string>) {
+	const root = await scratch('sync-replay-seed-');
+	const bare = await createBareRemote(root);
+	const storage: TestStorage = createTestStorage();
+	const served = await gitHttpFetch(root);
+	const net = { failFetchAfterPush: false, failNextFetch: false };
+	const httpFetch = (async (input, init) => {
+		const url = String(input instanceof Request ? input.url : input);
+		if (net.failNextFetch && url.includes('git-upload-pack')) {
+			net.failNextFetch = false;
+			throw new TypeError('the network is down');
+		}
+		const response = await served(input, init);
+		if (url.endsWith('/git-receive-pack') && net.failFetchAfterPush) {
+			net.failFetchAfterPush = false;
+			net.failNextFetch = true;
+		}
+		return response;
+	}) as typeof fetch;
+	const folder = expectOk(
+		await openFolder({
+			id: ID,
+			definition,
+			browser: {
+				author: { name: 'Local', email: 'local@example.test' },
+				httpFetch,
+				...browserStorage(storage),
+			},
+		}),
+	);
+	opened.push(folder);
+	for (const [path, text] of Object.entries(seed))
+		expectOk(await folder.write(path, null, text));
+	expect(expectOk(await folder.sync.connect(REMOTE)).kind).toBe('synced');
+	const peer = join(root, 'peer');
+	await git(root, 'clone', '--quiet', bare, peer);
+	return { folder, storage, bare, peer, net };
+}
+
+test('an edit found while Sync removes files stops it before any removal, so none is recorded as this device', async () => {
+	const run = await connected({ 'x1.txt': 'x1\n', 'x2.txt': 'x2\n' });
+	await rm(join(run.peer, 'x1.txt'));
+	await rm(join(run.peer, 'x2.txt'));
+	await git(run.peer, 'commit', '--quiet', '-am', 'Peer removes both');
+	await git(run.peer, 'push', '--quiet', 'origin', 'main');
+	expectOk(await put(run.folder, 'keep.txt', 'mine\n'));
+	// The person edits x2 after the check before the lock, and the Sync is cut
+	// off after it records that edit and pushes again.
+	const encoder = new TextEncoder();
+	let edited = false;
+	run.storage.opfs.faults.remove = () => {
+		if (!edited) {
+			edited = true;
+			run.storage.opfs.put(`${ID}/x2.txt`, encoder.encode('x2 edited\n'));
+		}
+		return undefined;
+	};
+	run.net.failFetchAfterPush = true;
+	await run.folder.sync.run();
+	run.storage.opfs.faults.remove = undefined;
+	run.net.failFetchAfterPush = false;
+	run.net.failNextFetch = false;
+	// The peer takes what was pushed and restores x1 as it was.
+	await git(run.peer, 'pull', '--quiet', '--no-rebase', 'origin', 'main');
+	await writeFile(join(run.peer, 'x1.txt'), 'x1\n');
+	await git(run.peer, 'add', 'x1.txt');
+	await git(run.peer, 'commit', '--quiet', '-m', 'Peer restores x1');
+	await git(run.peer, 'push', '--quiet', 'origin', 'main');
+
+	expect(expectOk(await run.folder.sync.run()).kind).toBe('synced');
+	expect(filesOf(run.storage)['x1.txt']).toBe('x1\n');
+	expect(await git(run.bare, 'show', 'main:x1.txt')).toBe('x1');
+});
+
+test('a file the person makes where a cut publish adds one joins it on the next Sync', async () => {
+	const run = await connected({ 'notes.txt': 'n\n' });
+	await writeFile(join(run.peer, 'a.txt'), 'a\n');
+	await writeFile(join(run.peer, 'new.txt'), 'theirs\n');
+	await git(run.peer, 'add', 'a.txt', 'new.txt');
+	await git(run.peer, 'commit', '--quiet', '-m', 'Peer adds');
+	await git(run.peer, 'push', '--quiet', 'origin', 'main');
+	// Once a.txt lands, the person makes new.txt, after Sync looked.
+	const encoder = new TextEncoder();
+	run.storage.opfs.faults.move = (path) => {
+		if (path === `${ID}/a.txt`)
+			queueMicrotask(() =>
+				run.storage.opfs.put(`${ID}/new.txt`, encoder.encode('mine\n')),
+			);
+		return undefined;
+	};
+	expect((await run.folder.sync.run()).error?.name).toBe('Publish');
+	run.storage.opfs.faults.move = undefined;
+
+	expect(expectOk(await run.folder.sync.run()).kind).toBe('synced');
+	expect(filesOf(run.storage)['new.txt']).toBe('mine\ntheirs\n');
+	expect(expectOk(await run.folder.git.status()).changes).toEqual([]);
 });

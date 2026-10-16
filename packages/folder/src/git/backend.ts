@@ -13,19 +13,22 @@ import type { DeclaredAttribute } from './attributes.js';
 import type { CommitSummary, ObjectAccess, TreeFile } from './objects.js';
 
 /**
- * The folder's remote: Git configuration's `remote.origin.url`, and the
- * remote branch, which is always the local branch.
- */
-/**
  * How a remote names its refusal to move a branch that moved after it
  * advertised it, or that a push is not a fast-forward of: Git's
  * `non-fast-forward` and `fetch first`, receive-pack's `failed to update
- * ref`, and the reasons Git 2.49 and later give for a ref update whose old
- * value no longer holds. A push refused for one of these is `'rejected'`.
+ * ref` and `cannot lock ref`, and the reasons Git 2.49 and later give for a
+ * ref update whose old value no longer holds. A push refused for one of
+ * these is `'rejected'`, and Sync fetches again; a remote that refused one
+ * without moving is then a failure. A race worded otherwise is a failed
+ * push, whose merge the next Sync merges again.
  */
 export const REMOTE_MOVED =
-	/non-fast-forward|fetch first|failed to update ref|incorrect old value provided|reference already exists|reference does not exist/i;
+	/non-fast-forward|fetch first|failed to update ref|cannot lock ref|incorrect old value provided|reference already exists|reference does not exist/i;
 
+/**
+ * The folder's remote: Git configuration's `remote.origin.url`, and the
+ * remote branch, which is always the local branch.
+ */
 export type GitRemote = {
 	readonly url: string;
 	readonly branch: string;
@@ -71,6 +74,14 @@ export type GitBackend = {
 	readRemoteTracking(): Promise<string | undefined>;
 	/** Move the branch only if it still names `expected`. */
 	casBranch(expected: string | undefined, next: string): Promise<CasResult>;
+	/**
+	 * `refs/epicenter/publishing`: the publish Sync began and has not
+	 * finished, as a commit whose parents are the branch it began from, when
+	 * there was one, and the commit it publishes. `undefined` when none is.
+	 */
+	readPublishing(): Promise<string | undefined>;
+	/** Point `refs/epicenter/publishing` at `oid`, or delete it with `undefined`. */
+	writePublishing(oid: string | undefined): Promise<void>;
 	/**
 	 * Why no commit or incoming update may run now, such as a detached
 	 * `HEAD`, a rebase in progress, or a merge another Git program began
