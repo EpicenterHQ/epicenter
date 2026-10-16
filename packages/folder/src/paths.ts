@@ -22,6 +22,7 @@ const RESERVED = /[<>:"|?*]/;
  * default-ignorable: a name holding one can resolve to a name without it.
  */
 const IGNORABLE =
+	// biome-ignore lint/suspicious/noMisleadingCharacterClass: each combining mark is escaped and matched alone, which is the point.
 	/[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFF8\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E0FFF}]/u;
 /**
  * A Windows 8.3 short name such as `GIT~1` or `NOTES~12.MD`, which can name
