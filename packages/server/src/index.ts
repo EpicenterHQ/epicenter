@@ -84,6 +84,8 @@ export {
 	mountGitHost,
 } from './routes/git.js';
 export { mountInferenceApp } from './routes/inference.js';
+// The folder MCP server at the MCP audience (ADR-0550).
+export { mountMcpServer } from './routes/mcp.js';
 export { mountSessionApp } from './routes/session.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
 export { resolveDeploymentBlobStore } from './s3-blob-store.js';

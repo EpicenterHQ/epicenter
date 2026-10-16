@@ -18,6 +18,7 @@ choice and any deployment policy.
 | `mountSessionApp` | `src/routes/session.ts` | The profile read: the account an access token acts for. |
 | `mountPersonalAuthorityBlobs` | `src/routes/authority-blobs.ts` | Personal owner URLs with private and public reads; deployment supplies local SQLite or S3 byte storage. |
 | `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`, push-to-create, and `GET /api/repos`; the deployment supplies the store (`GitHost`). |
+| `mountMcpServer` | `src/routes/mcp.ts` | The folder MCP server at the MCP audience: six tools over hosted repositories, reached through the same `GitHost` store as Git. |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells (sign-in, consent, device approval), discovery metadata, and Better Auth's endpoints, including the authorization server. |
@@ -108,6 +109,43 @@ bare repositories at `<root>/<repository id>.git`, served by
 `git http-backend` with no hook run, from the repository or anywhere else, a
 clean environment, and every non-fast-forward and branch deletion refused.
 
+### The folder MCP server
+
+`mountMcpServer` serves MCP over streamable HTTP at the MCP audience
+([ADR-0550](../../docs/adr/0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md)):
+`https://mcp.epicenter.so/mcp` for the hosted cloud and `<origin>/mcp`
+elsewhere. Each POST builds one stateless server and answers JSON; there is no
+session and no server-sent stream, so `GET` and `DELETE` answer 405.
+
+| Tool | Scope | Role | Answers |
+| --- | --- | --- | --- |
+| `list_folders` | `folders:read` | read | The grant's repositories, grouped "Personal" or by group title |
+| `describe_folder` | `folders:read` | read | `epicenter.json`, the head commit, and the file count |
+| `list_files` | `folders:read` | read | Paths under a prefix at a commit (the head by default) |
+| `read_files` | `folders:read` | read | Each path's content; an LFS file as its pointer and size, a binary file as its size |
+| `write_files` | `folders:write` | push | One commit on `base`, refused when `base` is not the head |
+| `history` | `folders:read` | read | The commits that touch a path |
+
+Each request is checked twice. `authorizeAccountRequest` decides the request
+itself: a missing or other-audience token is 401 with `resource_metadata`, so
+a client discovers the authorization server, and a call to `write_files`
+without `folders:write` is 403 `insufficient_scope` with
+`scope="folders:read folders:write"`. Then each tool that names a repository
+calls `authorizeResourceRequest` with its namespace and name; a namespace
+outside the grant's target, a missing membership, or a missing repository is
+that tool's error, not the request's.
+
+The server reaches storage as itself. `src/hosted-repository.ts` copies a
+repository into memory with isomorphic-git, whose HTTP client calls
+`GitHost.serve` in process, so no request leaves the server and the client's
+token never reaches the store. `write_files` merges nothing: it commits on the
+head it fetched and pushes, and a push that finds the head moved is refused
+like a stale `base`. The commit's author and committer are the grant's
+account, named `<account name> via <client name>`, with the account's email.
+Every call copies the whole repository, which bounds the size of a folder MCP
+can serve. The module runs in workerd (`workers/mcp.test.ts`) but has not run
+against the Artifacts store.
+
 `renameRepository`, `moveRepository`, and `changeRepository`
 (`src/repositories.ts`) are the `manage` role's rename and move, each leaving
 an alias for the old `<namespace>/<name>`; no route or screen mounts them yet.
@@ -151,8 +189,8 @@ on every Better Auth upgrade.
 A resource that acts on a namespace calls `authorizeResourceRequest` with its
 own audience, the scope the operation needs, and the namespace in its path,
 then decides the operation from the role with `roleAllows`
-(`src/namespace-roles.ts`); `mountGitHost` does (LFS and MCP are ADR-0544's
-and ADR-0550's). The other mounted resources act on the account and sit
+(`src/namespace-roles.ts`); `mountGitHost` and `mountMcpServer` do (LFS is
+ADR-0544's). The other mounted resources act on the account and sit
 behind `requireAccessToken`, which runs `authorizeAccountRequest`. The
 deployment names each mount's audience and scope:
 
@@ -162,6 +200,7 @@ deployment names each mount's audience and scope:
 | `mountSessionApp` (`/api/session`, the profile read) | API | `profile` |
 | `mountGitHost` (Git requests) | Git | `folders:read` to fetch, `folders:write` to push |
 | `mountGitHost` (`GET /api/repos`) | API or Git | `folders:read` |
+| `mountMcpServer` | MCP | `folders:read` for every request, `folders:write` to call `write_files` |
 | `mountPersonalAuthorityBlobs` | Git | `folders:read` to read a private object, `folders:write` to publish or delete |
 
 A missing, unknown, revoked, or other-audience token answers 401 and a missing
