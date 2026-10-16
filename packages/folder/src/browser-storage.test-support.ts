@@ -19,7 +19,6 @@ import type { BrowserFolderOptions } from './contract.js';
 import type { FolderLocation } from './folder.js';
 import type { GitBackend, GitRemote } from './git/backend.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
-import { createOpfsGitStore } from './git/opfs-git.js';
 import { type MemoryOpfs, memoryOpfs } from './opfs.test-support.js';
 import {
 	createOpfsStorage,
@@ -158,7 +157,7 @@ export async function rawBrowserFolder({
 		}),
 		backend: async ({ branch = 'main', remote } = {}) => {
 			const backend = await createStoredGitBackend({
-				store: createOpfsGitStore({ folder: presentFolder(root) }),
+				folder: presentFolder(root),
 				locks: testLocks,
 				lockName: `epicenter-folder:${id}:git`,
 				branch,

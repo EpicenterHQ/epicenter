@@ -34,13 +34,12 @@ import {
 	writePrivateFile,
 } from '../opfs-store.js';
 import type { CasResult } from './backend.js';
-import {
-	type BrowserGitStore,
-	GITDIR,
-	type GitFsSession,
-	WORKDIR,
-} from './browser-backend.js';
 import { entryKey, parseIndex } from './index-file.js';
+
+/** isomorphic-git's view of private Git state. */
+export const GITDIR = '/git';
+/** isomorphic-git's read-only view of the folder's files. */
+export const WORKDIR = '/files';
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -99,11 +98,6 @@ function sameIndexEntries(left: Uint8Array, right: Uint8Array): boolean {
 	);
 }
 
-type OpfsGitSession = GitFsSession & {
-	/** The index bytes this session wrote and has not flushed. */
-	unflushedIndex(): Uint8Array | undefined;
-};
-
 /** A private file's bytes by `.git`-relative path, with empty read as absent where Git never stores empty. */
 async function readGitFile(folder: OpfsFolder, path: string) {
 	const root = await folder.existing();
@@ -128,7 +122,14 @@ async function removeIn(folder: OpfsFolder, path: string) {
 	if (root !== undefined) await removePrivateFile(root, path);
 }
 
-function createOpfsGitSession(folder: OpfsFolder): OpfsGitSession {
+/**
+ * One piece of Git work's filesystem view over `folder`; `flush` stores its
+ * private writes.
+ */
+function createOpfsGitSession(folder: OpfsFolder): {
+	readonly fs: PromiseFsClient;
+	flush(): Promise<void>;
+} {
 	/** Private writes not yet stored, by `/git/...` path; `null` removes. */
 	const pending = new Map<string, Uint8Array | null>();
 
@@ -306,9 +307,6 @@ function createOpfsGitSession(folder: OpfsFolder): OpfsGitSession {
 
 	return {
 		fs: { promises } as unknown as PromiseFsClient,
-		unflushedIndex() {
-			return pending.get(INDEX) ?? undefined;
-		},
 		async flush() {
 			// Objects first: nothing may name an object before it is stored.
 			const order = [...pending.keys()].sort(
@@ -341,14 +339,16 @@ function createOpfsGitSession(folder: OpfsFolder): OpfsGitSession {
 	};
 }
 
-export function createOpfsGitStore({
-	folder,
-}: {
-	folder: OpfsFolder;
-}): BrowserGitStore<OpfsGitSession> {
+/**
+ * Where a browser folder's private Git state lives: a filesystem view for
+ * each piece of Git work, a private file's bytes by its `/git/...` path, and
+ * a ref moved only if it still names `expected`.
+ */
+export function createOpfsGitStore({ folder }: { folder: OpfsFolder }) {
 	const privatePath = (path: string) => path.slice(GITDIR.length + 1);
 
-	const readPrivate = (path: string) => readGitFile(folder, privatePath(path));
+	const readPrivate = (path: string): Promise<Uint8Array | undefined> =>
+		readGitFile(folder, privatePath(path));
 	const writeRef = async (path: string, oid: string) =>
 		writePrivateFile(
 			await folder.made(),
@@ -359,7 +359,11 @@ export function createOpfsGitStore({
 	return {
 		session: () => createOpfsGitSession(folder),
 		readPrivate,
-		async casRef(path, expected, next): Promise<CasResult> {
+		async casRef(
+			path: string,
+			expected: string | undefined,
+			next: string,
+		): Promise<CasResult> {
 			// Every cooperating writer moves refs inside the Git Web Lock, so
 			// nothing lands between this read and the write. An empty ref is
 			// one whose creation never published: it names no commit.

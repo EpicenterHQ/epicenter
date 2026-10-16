@@ -38,7 +38,6 @@ import type { Folder } from './folder.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
 import { createHistory, type History } from './git/history.js';
 import type { Author } from './git/objects.js';
-import { createOpfsGitStore } from './git/opfs-git.js';
 import { type FolderSchema, openAtRoot } from './open-at-root.js';
 import {
 	createOpfsStorage,
@@ -198,7 +197,7 @@ async function openBrowserFolder<
 				landed: relay,
 			});
 			const backend = await createStoredGitBackend({
-				store: createOpfsGitStore({ folder }),
+				folder,
 				locks,
 				lockName: at.gitLock,
 				createLock: at.openLock,

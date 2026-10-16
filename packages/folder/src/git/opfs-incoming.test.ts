@@ -55,7 +55,6 @@ import { overwrite } from '../put.test-support.js';
 import { useWebLocks } from '../web-locks.test-support.js';
 import { createStoredGitBackend } from './browser-backend.js';
 import { createHistory } from './history.js';
-import { createOpfsGitStore } from './opfs-git.js';
 
 useWebLocks();
 
@@ -87,7 +86,7 @@ async function folderAt(opfs = memoryOpfs()) {
 		await ensureDirectory(await environment.getDirectory(), ROOT),
 	);
 	const backend = await createStoredGitBackend({
-		store: createOpfsGitStore({ folder: presentFolder(root) }),
+		folder: presentFolder(root),
 		locks: environment.locks,
 		lockName: GIT_LOCK,
 		branch: 'main',
