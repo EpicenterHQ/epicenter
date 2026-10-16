@@ -58,6 +58,7 @@ import {
 	mountAuthRoutes,
 	mountGitHost,
 	mountInferenceApp,
+	mountMcpServer,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
 	mountTranscriptionApp,
@@ -204,6 +205,13 @@ export async function startBunApiServer(
 		? createDiskGitHost({ root: env.GIT_STORE_ROOT })
 		: null;
 	mountGitHost(app, {
+		setup: cloudContext,
+		resolveAudiences: () => audiences,
+		resolveHost: () => gitHost,
+	});
+	// The folder MCP server at `<origin>/mcp` (ADR-0550) reads and commits
+	// through the same store; without one it answers 503.
+	mountMcpServer(app, {
 		setup: cloudContext,
 		resolveAudiences: () => audiences,
 		resolveHost: () => gitHost,

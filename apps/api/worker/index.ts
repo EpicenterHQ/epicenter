@@ -23,6 +23,7 @@ import {
 	mountAuthRoutes,
 	mountGitHost,
 	mountInferenceApp,
+	mountMcpServer,
 	mountPersonalAuthorityBlobs,
 	mountSessionApp,
 	mountTranscriptionApp,
@@ -143,20 +144,28 @@ mountSessionApp(app, { auth: resource('api', 'profile') });
 // so they take no guard here. Unmetered like hosted blobs. The local dev
 // launcher removes the Artifacts binding and required account secret, so the
 // store resolves to null and hosted Git answers 503.
+const resolveGitHost = (env: ServerBindings) => {
+	const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } =
+		env as Partial<Cloudflare.Env>;
+	if (!ARTIFACTS || !ARTIFACTS_ACCOUNT_ID || !ARTIFACTS_NAMESPACE) return null;
+	return createArtifactsGitHost({
+		artifacts: ARTIFACTS,
+		accountId: ARTIFACTS_ACCOUNT_ID,
+		namespace: ARTIFACTS_NAMESPACE,
+	});
+};
 mountGitHost(app, {
 	setup: cloudContext,
 	resolveAudiences: (c) => resolveOAuthAudiences(c.var.authBaseURL),
-	resolveHost: (env) => {
-		const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } =
-			env as Partial<Cloudflare.Env>;
-		if (!ARTIFACTS || !ARTIFACTS_ACCOUNT_ID || !ARTIFACTS_NAMESPACE)
-			return null;
-		return createArtifactsGitHost({
-			artifacts: ARTIFACTS,
-			accountId: ARTIFACTS_ACCOUNT_ID,
-			namespace: ARTIFACTS_NAMESPACE,
-		});
-	},
+	resolveHost: resolveGitHost,
+});
+// The folder MCP server at mcp.epicenter.so/mcp (ADR-0550) reads and commits
+// through the same store as this server, never with the client's token.
+// Unverified against Artifacts, and that host is not yet routed here.
+mountMcpServer(app, {
+	setup: cloudContext,
+	resolveAudiences: (c) => resolveOAuthAudiences(c.var.authBaseURL),
+	resolveHost: resolveGitHost,
 });
 // Owner-addressed hosted blobs are currently unmetered. Autumn's check()
 // denies by default without a plan, so this route has no billing policy.

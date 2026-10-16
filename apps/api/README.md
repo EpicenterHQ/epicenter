@@ -40,9 +40,9 @@ sessions, and routes; set `API_PUBLIC_ORIGIN` to its public origin and see
 Postgres and S3 on every pull request. ADR-0549 records how auth will work
 there. The surfaces that need Worker-only bindings are absent on Bun: the dashboard shell comes from `ASSETS`, account
 deletion is a hosted resource sweep, and billing needs the Autumn secret and the
-after-response drain. Hosted Git is mounted there over bare repositories on
-disk when `GIT_STORE_ROOT` names a directory, and answers 503
-`git_unavailable` when it does not. `runtime-profile.test.ts` is where that
+after-response drain. Hosted Git and the folder MCP server are mounted there
+over bare repositories on disk when `GIT_STORE_ROOT` names a directory, and
+answer 503 when it does not. `runtime-profile.test.ts` is where that
 divergence is declared and checked against both entries.
 
 Better Auth owns identity and sessions. Hosted Epicenter configures Google,
@@ -275,6 +275,13 @@ reaches Artifacts. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
 (`<root>/<id>.git`, served by `git http-backend`); without it Git answers 503.
 Hosted Git is unmetered. The hosted cloud also needs `git.epicenter.so` routed
 to this Worker; that is a deploy step, not in this repository's config.
+
+Both entries also mount the folder MCP server (`mountMcpServer`,
+[ADR-0550](../../docs/adr/0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md))
+over the same store, at `<origin>/mcp` on the Bun entry and at
+`https://mcp.epicenter.so/mcp` for the hosted cloud, which also needs that
+host routed to this Worker. It answers 503 `mcp_unavailable` where Git has no
+store. The Worker path has not run against Artifacts.
 
 Deploying needs the production-only `ARTIFACTS_ACCOUNT_ID` secret and an account
 on the Workers Paid plan, and, once, deleting the existing `api` Worker first:

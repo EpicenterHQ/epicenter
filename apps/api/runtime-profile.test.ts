@@ -124,6 +124,13 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
+		surface: 'MCP server',
+		method: 'POST',
+		url: `${ORIGIN}/mcp`,
+		worker: 'served',
+		bun: 'served',
+	},
+	{
 		surface: 'mountAuthRoutes',
 		method: 'GET',
 		url: `${ORIGIN}/auth/get-session`,
@@ -356,12 +363,14 @@ test('both runtime compositions fail closed on protected operations during a dat
 			[worker, 'worker'],
 			[bun, 'bun'],
 		] as const) {
-			// Neither entry has a Git store here, so the Git data plane answers
-			// 503 before it reads Postgres.
+			// Neither entry has a Git store here, so the Git data plane and the
+			// MCP server answer 503 before they read Postgres.
 			for (const row of PROFILE.filter(
 				(row) =>
 					row[runtime] === 'served' &&
-					!['health', 'dashboard SPA', 'Git data plane'].includes(row.surface),
+					!['health', 'dashboard SPA', 'Git data plane', 'MCP server'].includes(
+						row.surface,
+					),
 			)) {
 				const callsBefore = databaseCalls;
 				const response = await fetcher(

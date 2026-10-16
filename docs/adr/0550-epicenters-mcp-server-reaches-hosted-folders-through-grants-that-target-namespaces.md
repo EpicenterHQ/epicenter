@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
-- **Unbuilt:** all of it: the server at `https://mcp.epicenter.so/mcp`, its Protected Resource Metadata, the six tools, and the server-side commit behind `write_files`, whose feasibility against Artifacts is not yet measured.
+- **Unbuilt:** routing `mcp.epicenter.so` to the Worker, `write_files` against the Artifacts store, and Claude and ChatGPT end to end. Built: `mountMcpServer` (`packages/server/src/routes/mcp.ts`) on both entries, its Protected Resource Metadata, the six tools, and `write_files`' commit through the `GitHost` store, which copies the repository into memory with isomorphic-git on every call; verified on Bun with the disk store and an MCP SDK client.
 
 ## Context
 
