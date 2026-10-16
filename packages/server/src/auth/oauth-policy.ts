@@ -44,12 +44,13 @@ export type OAuthAudiences = {
 };
 
 /**
- * The scopes each audience accepts. `openid` and `offline_access` ride along
- * on every audience: the library intersects requested scopes with each
- * resource's list, so leaving `offline_access` out would silently withhold
- * the refresh token.
+ * The scopes each audience accepts, as its protected resource metadata lists
+ * them. `openid` and `offline_access` ride along on every audience's
+ * registration (`oauthResourceInputs`): the library intersects requested
+ * scopes with each resource's list, so leaving `offline_access` out would
+ * silently withhold the refresh token.
  */
-const AUDIENCE_SCOPES = {
+export const AUDIENCE_SCOPES = {
 	api: ['ai', 'profile', 'folders:read'],
 	git: ['folders:read', 'folders:write'],
 	mcp: ['folders:read', 'folders:write'],

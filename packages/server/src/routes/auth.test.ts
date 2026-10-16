@@ -81,6 +81,31 @@ test('protected resource metadata answers only for audiences on this origin', as
 			.status,
 	).toBe(404);
 });
+test("each audience's metadata lists its own scopes, on its own host", async () => {
+	const app = setup();
+	const api = await app.request(
+		`${origin}/.well-known/oauth-protected-resource`,
+	);
+	expect(await api.json()).toMatchObject({
+		scopes_supported: ['ai', 'profile', 'folders:read'],
+	});
+	const mcp = await app.request(
+		`${origin}/.well-known/oauth-protected-resource/mcp`,
+	);
+	expect(await mcp.json()).toMatchObject({
+		scopes_supported: ['folders:read', 'folders:write'],
+	});
+	// When the Git host routes here, it is answered there, naming this issuer.
+	const git = await app.request(
+		'https://git.example.test/.well-known/oauth-protected-resource',
+	);
+	expect((await git.json()) as object).toEqual({
+		resource: 'https://git.example.test',
+		authorization_servers: [`${origin}/auth`],
+		scopes_supported: ['folders:read', 'folders:write'],
+		bearer_methods_supported: ['header'],
+	});
+});
 test('the sign-in page serves a private shell outside the Better Auth catch-all', async () => {
 	const response = await setup().request('/sign-in?redirect=%2Fdashboard');
 	expect(response.status).toBe(200);

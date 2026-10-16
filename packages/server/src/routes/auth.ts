@@ -8,21 +8,23 @@ import {
 } from '@better-auth/oauth-provider';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { describeRoute } from 'hono-openapi';
-import { OAUTH_SCOPES, type OAuthAudiences } from '../auth/oauth-policy.js';
+import { AUDIENCE_SCOPES, type OAuthAudiences } from '../auth/oauth-policy.js';
 import { protectedResourceMetadataUrl } from '../auth/resource-access.js';
 import type { CloudEnv } from '../types.js';
 
 /** The browser pages this server owns, served from the deployment's UI shell. */
 const AUTH_PAGES = ['/sign-in', '/consent', '/device'];
 
-/** The RFC 9728 document for one audience this origin serves. */
-function protectedResourceMetadata(audience: string, issuer: string) {
+/** The RFC 9728 document for one audience: its own scopes, never the others'. */
+function protectedResourceMetadata(
+	kind: keyof OAuthAudiences,
+	audience: string,
+	issuer: string,
+) {
 	return {
 		resource: audience,
 		authorization_servers: [issuer],
-		scopes_supported: OAUTH_SCOPES.filter(
-			(scope) => scope !== 'openid' && scope !== 'offline_access',
-		),
+		scopes_supported: AUDIENCE_SCOPES[kind],
 		bearer_methods_supported: ['header'],
 	};
 }
@@ -54,20 +56,28 @@ export function mountAuthRoutes(
 		oauthProviderOpenIdConfigMetadata(c.var.auth)(c.req.raw),
 	);
 
-	// RFC 9728: each audience this origin serves names this issuer. A
-	// resource's 401 points here through `resource_metadata`.
+	// RFC 9728: each audience names this issuer. A resource's 401 points here
+	// through `resource_metadata`, on the resource's own host: an audience on
+	// another host (`git.epicenter.so`, `mcp.epicenter.so`) is answered when
+	// that host routes to this server, and never from the API's host.
 	app.get('/.well-known/oauth-protected-resource/*', (c) =>
 		protectedResource(c),
 	);
 	app.get('/.well-known/oauth-protected-resource', (c) => protectedResource(c));
 	function protectedResource(c: Context<CloudEnv>) {
-		const requested = new URL(c.req.url).pathname;
-		const origin = new URL(c.var.authBaseURL).origin;
-		for (const audience of Object.values(opts.resolveAudiences(c))) {
-			const metadataUrl = new URL(protectedResourceMetadataUrl(audience));
-			if (metadataUrl.origin === origin && metadataUrl.pathname === requested)
+		const requested = new URL(c.req.url);
+		const issuer = `${new URL(c.var.authBaseURL).origin}/auth`;
+		const audiences = opts.resolveAudiences(c);
+		for (const kind of Object.keys(audiences) as (keyof OAuthAudiences)[]) {
+			const metadataUrl = new URL(
+				protectedResourceMetadataUrl(audiences[kind]),
+			);
+			if (
+				metadataUrl.origin === requested.origin &&
+				metadataUrl.pathname === requested.pathname
+			)
 				return c.json(
-					protectedResourceMetadata(audience, `${origin}/auth`),
+					protectedResourceMetadata(kind, audiences[kind], issuer),
 					200,
 					{ 'Cache-Control': 'public, max-age=3600' },
 				);
