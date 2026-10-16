@@ -959,6 +959,16 @@ export function createHistory({
 						else if (resuming) kept = true;
 						else return Ok('edited');
 					}
+					// A file `to` changes that was moved or removed since the
+					// checkpoint is that change of the person's, which no commit
+					// holds yet: recorded first, the merge follows a move with the
+					// incoming edit, and a removal names what it overrode.
+					if (!resuming)
+						for (const path of writes) {
+							if (blobs.get(path)!.was === null) continue;
+							if ((await held.read(path)).error?.name === 'NotFound')
+								return Ok('edited');
+						}
 					for (const { path, sha256 } of targets) {
 						const put = await confirmedPut(held, path, null, sha256, null);
 						if (put.error !== null) return failed(path, put.error);

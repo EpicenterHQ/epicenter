@@ -106,16 +106,21 @@ async function setup() {
 	const hooks: {
 		beforePush?: () => Promise<void>;
 		afterPush?: () => Promise<void>;
+		afterFetch?: () => Promise<void>;
 	} = {};
 	const httpFetch = (async (input, init) => {
-		const pushing = String(
-			input instanceof Request ? input.url : input,
-		).endsWith('/git-receive-pack');
+		const url = String(input instanceof Request ? input.url : input);
+		const pushing = url.endsWith('/git-receive-pack');
 		if (pushing) await hooks.beforePush?.();
 		const response = await served(input, init);
-		if (pushing && hooks.afterPush !== undefined) {
+		const after = pushing
+			? hooks.afterPush
+			: url.endsWith('/git-upload-pack')
+				? hooks.afterFetch
+				: undefined;
+		if (after !== undefined) {
 			await response.clone().arrayBuffer();
-			await hooks.afterPush();
+			await after();
 		}
 		return response;
 	}) as typeof fetch;
@@ -435,6 +440,40 @@ test("a refused push is a lost race in old and new Git's wording, and nothing el
 		'Authentication failed',
 	])
 		expect([reason, REMOTE_MOVED.test(reason)]).toEqual([reason, false]);
+});
+
+test('a row renamed while Sync fetches keeps the edit the remote made to it', async () => {
+	const context = await setup();
+	const { local, hooks } = context;
+	await context.incoming({
+		[TODO]: row(['title: Walk', 'done: true'], 'Left at dawn.\n'),
+	});
+	// After the checkpoint, before the publish reaches the row.
+	hooks.afterFetch = async () => {
+		hooks.afterFetch = undefined;
+		expectOk(await local.tables.todos.rename('walk', 'stroll'));
+	};
+
+	synced(expectOk(await local.sync.run()));
+	expect(await text(local, 'todos/stroll.md')).toContain('done: true');
+	expect(await context.remoteFile('todos/stroll.md')).toContain('done: true');
+});
+
+test('a row renamed after Sync pushed its merge keeps the edit the remote made to it', async () => {
+	const context = await setup();
+	const { local, hooks } = context;
+	expectOk(await put(local, 'other.txt', 'mine\n'));
+	await context.incoming({
+		[TODO]: row(['title: Walk', 'done: true'], 'Left at dawn.\n'),
+	});
+	hooks.afterPush = async () => {
+		hooks.afterPush = undefined;
+		expectOk(await local.tables.todos.rename('walk', 'stroll'));
+	};
+
+	synced(expectOk(await local.sync.run()));
+	expect(await text(local, 'todos/stroll.md')).toContain('done: true');
+	expect(await context.remoteFile('todos/stroll.md')).toContain('done: true');
 });
 
 test('a push that lost a race merges again from the same local head', async () => {
