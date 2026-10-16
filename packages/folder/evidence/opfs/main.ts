@@ -331,9 +331,10 @@ async function publication(id: string) {
 			const expected = formatDeclaration(definition);
 			const stored = decoder.decode(await rawRead(id, DECLARATION_PATH));
 			assert(stored === expected, `stored ${stored}`);
+			// The first commit makes the repository, not the first write.
 			assert(
-				await rawExists(id, '.git/HEAD'),
-				'the repository did not come with it',
+				!(await rawExists(id, '.git/HEAD')),
+				'the first write made a repository',
 			);
 			assert(
 				ok(await folder.git.log(10)).length === 0,
@@ -803,6 +804,82 @@ async function writeHandle(handle: FileSystemFileHandle, text: string) {
  * The store's tests run a model of these behaviors; these probes are the
  * browser itself.
  */
+/**
+ * What the browser's own `move()` does, which a folder's new file relies on:
+ * it is written to `.git/epicenter/scratch` and moved into place where the
+ * files lock has just found nothing. The overwrite and open-stream cases are
+ * notes: storage never moves onto a name that is there.
+ */
+async function moves(id: string) {
+	used.add(id);
+	const top = await rawDirectory(id, true);
+	const into = await top.getDirectoryHandle('into', { create: true });
+	const fresh = async (name: string, text: string) => {
+		const handle = await top.getFileHandle(name, { create: true });
+		await writeHandle(handle, text);
+		return handle as FileSystemFileHandle & {
+			move?(directory: FileSystemDirectoryHandle, name: string): Promise<void>;
+		};
+	};
+	await check(
+		'a file moves into an absent name in another directory, whole, and leaves its old name',
+		async () => {
+			const staged = await fresh('staged.md', 'moved');
+			assert(typeof staged.move === 'function', 'FileSystemFileHandle.move is missing');
+			await staged.move(into, 'target.md');
+			const moved = await (await (await into.getFileHandle('target.md')).getFile()).text();
+			assert(moved === 'moved', `the target holds ${JSON.stringify(moved)}`);
+			const left = await outcome(top.getFileHandle('staged.md'));
+			assert(left !== 'done', 'the old name is still there');
+			return `target holds "moved"; old name ${left}`;
+		},
+	);
+	const existing = await into.getFileHandle('existing.md', { create: true });
+	await writeHandle(existing, 'before');
+	const onto = await fresh('onto.md', 'after');
+	const movedOnto = await outcome(onto.move!(into, 'existing.md'));
+	const after = await (await (await into.getFileHandle('existing.md')).getFile()).text();
+	record(
+		'a move onto an existing name',
+		'note',
+		`${movedOnto}; the name holds ${JSON.stringify(after)}`,
+	);
+	const streamed = await into.getFileHandle('open.md', { create: true });
+	await writeHandle(streamed, 'before');
+	const writable = await streamed.createWritable({ keepExistingData: false });
+	const whileOpen = await fresh('while-open.md', 'moved in');
+	let movedWhileOpen: string;
+	try {
+		movedWhileOpen = await outcome(whileOpen.move!(into, 'open.md'));
+		await writable.write(encoder.encode('stream'));
+	} finally {
+		await outcome(writable.close());
+	}
+	const held = await (await (await into.getFileHandle('open.md')).getFile()).text();
+	record(
+		'a move onto a name with an open write stream',
+		'note',
+		`${movedWhileOpen}; after the stream closed the name holds ${JSON.stringify(held)}`,
+	);
+	await check(
+		"a folder's new file appears whole, and leaves nothing in its scratch directory",
+		async () => {
+			const folder = await open(id);
+			ok(await folder.files.create('new/whole.md', 'whole'));
+			const git = await (await rawDirectory(id)).getDirectoryHandle('.git');
+			const epicenter = await git.getDirectoryHandle('epicenter');
+			const scratch = (
+				await rawEntries(await epicenter.getDirectoryHandle('scratch'))
+			).length;
+			assert(scratch === 0, `${scratch} files left in scratch`);
+			const text = new TextDecoder().decode(await rawRead(id, 'new/whole.md'));
+			assert(text === 'whole', `the file holds ${JSON.stringify(text)}`);
+			await closeAll();
+			return 'the file holds "whole"; scratch is empty';
+		},
+	);
+}
+
 async function streams(id: string) {
 	used.add(id);
 	await check(
@@ -980,6 +1057,7 @@ async function main() {
 			await address(runId);
 			await rowRepair(`${runId}-rows`);
 			await streams(`${runId}-streams`);
+			await moves(`${runId}-moves`);
 			await closing(runId);
 		}
 	} catch (cause) {
