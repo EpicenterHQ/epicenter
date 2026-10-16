@@ -46,8 +46,9 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   the last change, or at once when the view leaves it; `table.write` merges
   it by line with a file changed elsewhere since. A read never replaces a draft. A failed save keeps
   the draft and reports it through `onWriteFailed`. While a file is open as
-  text, its text is a draft of its own, written whole over the version it
-  started from, and row edits of it are refused.
+  text, its text is a text editor of its own (`createTextEditor`), written
+  as the change from the text it started from, and row edits of it are
+  refused.
 - A save moves no timestamp (ADR-0573). Do not add a last-edited field or
   write `updatedAt`; the list orders and groups notes by `createdAt`.
 - Row editors pass the text typed as it is (ADR-0572): the folder reads a

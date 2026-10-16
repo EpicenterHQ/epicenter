@@ -302,13 +302,15 @@ store, shared by rich text and Source: it takes the cached row at the first
 change, keeps the body outside the cache, and sends the change from that row
 to the typed body with `tables.notes.write` a second after the last change or
 when the view leaves it, merging with whatever changed since. It sends nothing
-while the listing does not hold the note. A text edit is a text draft
-(`createTextDraftState`) saved the same way with `files.save`. Writes to one
-file run one at a time, and each puts its result in the cache. A new note
-or folder is `tables.<name>.create`; a new file is `files.create`. Rename and
-delete wait for the file's saves. A note or folder renames by stem
-(`tables.<name>.rename`), and a folder row is deleted by stem; any other file
-moves, and every file is deleted, guarded by the version the last save wrote.
+while the listing does not hold the note. A text edit is a text editor
+(`createTextEditor`) saved the same way with the folder's `write`. Writes to
+one file run one at a time, and each puts its result in the cache. A new
+note or folder is `tables.<name>.create`; a new file is a write from no file,
+`folder.write(path, null, '')`. Rename and delete wait for the file's saves.
+A note or folder renames by stem (`tables.<name>.rename`), and a folder row
+is deleted by stem; any other file moves with `folder.move`, and every file
+is deleted with a write to no file, whatever it holds by then: the deleter
+wins (ADR-0576).
 After its own actions the page makes what they changed stale, and after its
 saves it reads Git status again, since the folder does not report a page's
 own writes to it.

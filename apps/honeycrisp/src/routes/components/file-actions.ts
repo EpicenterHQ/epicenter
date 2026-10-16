@@ -47,14 +47,14 @@ export function describeDeletion(deletion: Deletion) {
 
 /**
  * Ask before deleting `path`. The delete waits for the file's saves to
- * land, so it removes what the app saved last; a file changed elsewhere
- * since is refused.
+ * land, so what the app saved last goes with it, and it deletes the file
+ * whatever was changed elsewhere since (ADR-0576).
  */
 export async function confirmDelete(notes: Notes, path: string) {
-	const { data: deletion, error: captureError } = await notes.deletionFor(path);
-	if (captureError !== null) {
+	const { data: deletion, error: refusal } = await notes.deletionFor(path);
+	if (refusal !== null) {
 		toast.error(`Could not delete ${basename(path)}`, {
-			description: captureError,
+			description: refusal,
 		});
 		return;
 	}
@@ -62,7 +62,7 @@ export async function confirmDelete(notes: Notes, path: string) {
 		...describeDeletion(deletion),
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
-			const problem = await notes.remove(deletion);
+			const problem = await notes.delete(deletion);
 			if (problem)
 				toast.error(`Could not delete ${basename(path)}`, {
 					description: problem,

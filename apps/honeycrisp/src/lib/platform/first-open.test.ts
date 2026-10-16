@@ -132,7 +132,7 @@ describe('an existing folder', () => {
 			(await fingerprint(root)).filter((line) => !line.includes('/.git'));
 		const before = await savedFiles();
 		const folder = await open(root);
-		await setUpFolder(folder.files, TABLES);
+		await setUpFolder(folder.files, TABLES, folder.write);
 		// Setup found nothing to write, so the definition was never published.
 		expect(await savedFiles()).toEqual(before);
 		expect(git('rev-parse', 'HEAD').stdout.trim()).toBe(prior);
@@ -149,7 +149,7 @@ describe('an existing folder', () => {
 			(line) => !line.includes('/.git'),
 		);
 		const folder = await open(root);
-		await setUpFolder(folder.files, TABLES);
+		await setUpFolder(folder.files, TABLES, folder.write);
 		expect(git('rev-parse', '--verify', '--quiet', 'HEAD').status).not.toBe(0);
 		expect(
 			(await fingerprint(root)).filter((line) => !line.includes('/.git')),
@@ -166,7 +166,7 @@ describe('an existing folder', () => {
 			await stat(join(root, 'kv.json')),
 		].map((stats) => stats.mtimeMs);
 		const folder = await open(root);
-		await setUpFolder(folder.files, TABLES);
+		await setUpFolder(folder.files, TABLES, folder.write);
 		expect((await stat(join(root, 'folders'))).isDirectory()).toBe(true);
 		// Making the directory was the first write, so it published the definition.
 		expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(
@@ -191,7 +191,7 @@ describe('a new folder', () => {
 	test('gets its table directories, definition and default settings, and setting up again changes nothing', async () => {
 		const { root, git } = await directory();
 		const folder = await open(root);
-		await setUpFolder(folder.files, TABLES);
+		await setUpFolder(folder.files, TABLES, folder.write);
 		for (const table of TABLES)
 			expect((await stat(join(root, table))).isDirectory()).toBe(true);
 		expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe('{}\n');
@@ -201,7 +201,7 @@ describe('a new folder', () => {
 		// Setting up again writes nothing, so even epicenter.json is untouched.
 		const files = await fingerprint(root);
 		const reopened = await open(root);
-		await setUpFolder(reopened.files, TABLES);
+		await setUpFolder(reopened.files, TABLES, reopened.write);
 		expect(await fingerprint(root)).toEqual(files);
 		expect(git('rev-parse', '--verify', '--quiet', 'HEAD').status).not.toBe(0);
 	});
@@ -226,12 +226,12 @@ describe('races and refusals', () => {
 					await writeFile(join(root, 'kv.json'), KV);
 					return found;
 				},
-				create(...args) {
-					writes += 1;
-					return folder.files.create(...args);
-				},
 			},
 			TABLES,
+			(...args) => {
+				writes += 1;
+				return folder.write(...args);
+			},
 		);
 		expect(writes).toBe(1);
 		expect(await readFile(join(root, 'kv.json'), 'utf8')).toBe(KV);
@@ -256,20 +256,20 @@ describe('races and refusals', () => {
 				return reply(results.mkdir ?? null);
 			},
 			read: async () => reply(results.read),
-			create: async () => {
-				calls.write += 1;
-				return reply(results.write ?? null);
-			},
 		} as unknown as NotesFolder['files'];
-		return { files, calls };
+		const write = (async () => {
+			calls.write += 1;
+			return reply(results.write ?? null);
+		}) as unknown as NotesFolder['write'];
+		return { files, write, calls };
 	}
 
 	test('a write whose outcome is unknown is reported and not tried again', async () => {
-		const { files, calls } = scripted({
+		const { files, write, calls } = scripted({
 			read: { name: 'NotFound', message: 'kv.json was not found' },
 			write: { name: 'Unconfirmed', message: 'The reply was lost' },
 		});
-		await expect(setUpFolder(files, TABLES)).rejects.toThrow(
+		await expect(setUpFolder(files, TABLES, write)).rejects.toThrow(
 			'The notes folder could not be set up: The reply was lost',
 		);
 		expect(calls.write).toBe(1);
@@ -277,10 +277,10 @@ describe('races and refusals', () => {
 
 	test('a read that fails for any reason but absence writes nothing', async () => {
 		for (const name of ['Io', 'NotAFile', 'Unconfirmed', 'Closed']) {
-			const { files, calls } = scripted({
+			const { files, write, calls } = scripted({
 				read: { name, message: `${name} while reading` },
 			});
-			await expect(setUpFolder(files, TABLES)).rejects.toThrow(
+			await expect(setUpFolder(files, TABLES, write)).rejects.toThrow(
 				`${name} while reading`,
 			);
 			expect(calls.write).toBe(0);
@@ -288,11 +288,11 @@ describe('races and refusals', () => {
 	});
 
 	test('a table directory that cannot be made stops before the settings are touched', async () => {
-		const { files, calls } = scripted({
+		const { files, write, calls } = scripted({
 			read: { name: 'NotFound', message: 'kv.json was not found' },
 			mkdir: { name: 'Io', message: 'Read-only file system' },
 		});
-		await expect(setUpFolder(files, TABLES)).rejects.toThrow(
+		await expect(setUpFolder(files, TABLES, write)).rejects.toThrow(
 			'Read-only file system',
 		);
 		// Only the missing table was attempted; `notes` was already listed.
@@ -301,13 +301,13 @@ describe('races and refusals', () => {
 	});
 
 	test('a folder that cannot be listed is not changed', async () => {
-		const { files, calls } = scripted({ read: null });
+		const { files, write, calls } = scripted({ read: null });
 		files.list = async () =>
 			({
 				data: null,
 				error: { name: 'Io', message: 'Permission denied' },
 			}) as unknown as Awaited<ReturnType<NotesFolder['files']['list']>>;
-		await expect(setUpFolder(files, TABLES)).rejects.toThrow(
+		await expect(setUpFolder(files, TABLES, write)).rejects.toThrow(
 			'Permission denied',
 		);
 		expect(calls.mkdir).toEqual([]);

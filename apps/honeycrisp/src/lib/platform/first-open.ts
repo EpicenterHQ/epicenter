@@ -29,9 +29,11 @@ function refused(error: { readonly message: string }): Error {
 }
 
 export async function setUpFolder(
-	files: Pick<NotesFolder['files'], 'list' | 'mkdir' | 'read' | 'create'>,
+	files: Pick<NotesFolder['files'], 'list' | 'mkdir' | 'read'>,
 	/** The declared table names; each is a directory of the folder. */
 	tables: readonly string[],
+	/** The folder's one write, which creates `kv.json` from no file. */
+	write: NotesFolder['write'],
 ): Promise<void> {
 	const { data: listing, error: listError } = await files.list();
 	if (listError) throw refused(listError);
@@ -46,7 +48,8 @@ export async function setUpFolder(
 	// Only a confirmed absence is a missing file. Any other failure to read
 	// might be a file that is there.
 	if (readError.name !== 'NotFound') throw refused(readError);
-	const { error: createError } = await files.create(KV_PATH, '{}\n');
+	const { error: createError } = await write(KV_PATH, null, '{}\n');
 	// Another writer created it first: theirs stands.
-	if (createError && createError.name !== 'Exists') throw refused(createError);
+	if (createError && createError.name !== 'InvalidPath')
+		throw refused(createError);
 }

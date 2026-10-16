@@ -50,7 +50,11 @@ export async function openNotesFolder() {
 		);
 	const folder = await openTab();
 	const tabs: { close(): Promise<void> }[] = [];
-	await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));
+	await setUpFolder(
+		folder.files,
+		Object.keys(honeycrispDefinition.tables),
+		folder.write,
+	);
 	const key = (path: string) => `${ROOT}/${path}`;
 
 	/** Streams held open, by folder path, in the order they were asked for. */
@@ -94,7 +98,7 @@ export async function openNotesFolder() {
 		},
 		/** Write a file through the app's own folder, before the app reads it. */
 		async write(path: string, text: string) {
-			expectOk(await folder.files.create(path, text));
+			expectOk(await folder.write(path, null, text));
 		},
 		/** Every file of the folder now, outside its history, sorted. */
 		paths: () =>

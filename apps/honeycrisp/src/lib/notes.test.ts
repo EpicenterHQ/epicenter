@@ -368,7 +368,7 @@ test('a change another tab saved shows in the lists and the open note', async ()
 	expectOk(
 		await tab.tables.notes.write('a', theirs.row, titled('Theirs')(theirs.row)),
 	);
-	expectOk(await tab.files.create('notes/c.md', noteText({ title: 'Gamma' })));
+	expectOk(await tab.write('notes/c.md', null, noteText({ title: 'Gamma' })));
 	await until(
 		() =>
 			listing(notes).some((entry) => entry.stem === 'c') &&
@@ -387,7 +387,7 @@ test('a note whose text is not a note is named for repair, opens as text, is wri
 	const { notes, disk, failures } = await open();
 	const broken = '---\ntitle: Gamma\npinned: maybe\n---\nBody.\n';
 	const tab = await disk.otherTab();
-	expectOk(await tab.files.create('notes/c.md', broken));
+	expectOk(await tab.write('notes/c.md', null, broken));
 	await until(
 		() => repairsOf(listing(notes)).length === 1,
 		'the reported file to be read',
@@ -546,7 +546,7 @@ test('a folder is not deleted while a note cannot say which folder it is in', as
 	const [work] = folderRows(notes);
 	if (work === undefined) throw new Error('No folder');
 	const tab = await disk.otherTab();
-	expectOk(await tab.files.create('notes/c.md', 'no frontmatter\n'));
+	expectOk(await tab.write('notes/c.md', null, 'no frontmatter\n'));
 	await until(
 		() => listing(notes).some((entry) => entry.stem === 'c'),
 		'the reported file to be read',
@@ -619,14 +619,14 @@ test('a name some disk reads as another file is refused in words a person reads,
 	expect(disk.text(A)).toContain('Alpha');
 });
 
-test('a delete waits for the save and removes what it wrote', async () => {
+test('a delete waits for the save and deletes what it wrote', async () => {
 	const { notes, disk, failures } = await open();
 	notes.open(A);
 	const deletion = expectOk(await notes.deletionFor(A));
 	expect(deletion).toMatchObject({ kind: 'file', title: 'Alpha' });
 	// Typed while the confirmation is open: saved, then deleted.
 	typeBody(notes, A, 'Typed during the dialog.\n');
-	expect(await notes.remove(deletion)).toBeUndefined();
+	expect(await notes.delete(deletion)).toBeUndefined();
 	await quiet(notes);
 	expect(failures).toEqual([]);
 	expect(disk.text(A)).toBeUndefined();
@@ -634,12 +634,12 @@ test('a delete waits for the save and removes what it wrote', async () => {
 	expect(listing(notes).some((entry) => entry.stem === 'a')).toBe(false);
 });
 
-test('a delete is refused when the file changed elsewhere after it was confirmed', async () => {
+test('a delete stands over a change made elsewhere after it was confirmed: the deleter wins', async () => {
 	const { notes, disk } = await open();
 	const deletion = expectOk(await notes.deletionFor(B));
 	disk.put(B, noteText({ title: 'Changed' }));
-	expect(await notes.remove(deletion)).toContain('changed elsewhere');
-	expect(disk.text(B)).toBe(noteText({ title: 'Changed' }));
+	expect(await notes.delete(deletion)).toBeUndefined();
+	expect(disk.text(B)).toBeUndefined();
 });
 
 // ============================================================================
