@@ -1,6 +1,6 @@
 # 0553. A page's own writes keep its folder cache in step, and folder queries carry their read policy
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-15
 - **Amended by:** [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md): a field edit sets fields on the file as it is now, as an `UPDATE` does; only document editors keep a starting version.
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) at "a page's own save updates its cache directly" and at TanStack's focus refetch.
