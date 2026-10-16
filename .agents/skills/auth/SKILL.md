@@ -57,8 +57,6 @@ An application session keeps one person and one server for its entire lifetime.
 
 `AuthClient` selects `getState().account`; it exposes sign-in, sign-out, profile,
 and state. Application HTTP and sockets use the captured Account.
-`AuthIdentityState` is the serializable principal projection for desktop
-bootstrap, with no credential or transport functions.
 
 Preserve these guarantees:
 

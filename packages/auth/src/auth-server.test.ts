@@ -1,13 +1,13 @@
 /** Server configuration canonicalizes equivalent origins and separates instance data addresses. */
 import { expect, test } from 'bun:test';
-import { normalizeInstanceServer } from './instance-server.js';
+import { selfHostedServer } from './auth-server.js';
 
 test('equivalent origins select the same authority before boot', () => {
-	expect(normalizeInstanceServer(' https://EXAMPLE.com:443/ ')).toEqual(
-		normalizeInstanceServer('https://example.com'),
+	expect(selfHostedServer(' https://EXAMPLE.com:443/ ')).toEqual(
+		selfHostedServer('https://example.com'),
 	);
-	expect(normalizeInstanceServer('https://example.com').authorityId).not.toBe(
-		normalizeInstanceServer('https://other.example.com').authorityId,
+	expect(selfHostedServer('https://example.com').authorityId).not.toBe(
+		selfHostedServer('https://other.example.com').authorityId,
 	);
 });
 test('server configuration rejects URLs that are not origins', () => {
@@ -18,12 +18,12 @@ test('server configuration rejects URLs that are not origins', () => {
 		'https://example.com/#x',
 		'file:///tmp/server',
 	]) {
-		expect(() => normalizeInstanceServer(value)).toThrow();
+		expect(() => selfHostedServer(value)).toThrow();
 	}
 });
 
 test('the configured origin preserves the existing local-data authority bytes', () => {
-	expect(normalizeInstanceServer('https://self.example').authorityId).toBe(
+	expect(selfHostedServer('https://self.example').authorityId).toBe(
 		'instance-68747470733a2f2f73656c662e6578616d706c65',
 	);
 });
