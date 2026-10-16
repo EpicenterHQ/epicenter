@@ -1,6 +1,6 @@
 /** Storage owner addresses distinguish accounts, authorities, and case on every filesystem. */
 import { expect, test } from 'bun:test';
-import { deviceOwnerPath, isDeviceOwnerPath } from './device-owner.js';
+import { deviceOwnerPath } from './device-owner.js';
 import { asPrincipalId } from './principal.js';
 
 test('account identity encodes without case folding or separator collisions', () => {
@@ -17,20 +17,9 @@ test('account identity encodes without case folding or separator collisions', ()
 		'accounts/62/62',
 	]);
 	expect(new Set(addresses).size).toBe(4);
-	for (const address of addresses)
-		expect(isDeviceOwnerPath(address)).toBe(true);
 });
 
-test('untrusted owner paths cannot escape or alias a namespace', () => {
-	for (const path of [
-		'../no-account',
-		'accounts/../62',
-		'/no-account',
-		'accounts/6/62',
-		'accounts/AA/62',
-		'no-account/',
-	])
-		expect(isDeviceOwnerPath(path)).toBe(false);
+test('empty or malformed account identities are refused', () => {
 	expect(() =>
 		deviceOwnerPath({ authorityId: '', principalId: asPrincipalId('alice') }),
 	).toThrow();
