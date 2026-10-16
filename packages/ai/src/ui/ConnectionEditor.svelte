@@ -51,7 +51,7 @@
 	// svelte-ignore state_referenced_locally
 	onDestroy(
 		keys.onChange?.((connection) => {
-			if (connection === stem) void client.invalidateQueries({ queryKey: keyStateKey(stem) });
+			if (connection === null || connection === stem) void client.invalidateQueries({ queryKey: keyStateKey(stem) });
 		}) ?? (() => {}),
 	);
 
@@ -149,7 +149,11 @@
 	{:else if fields.kind === 'epicenter'}
 		<p>{epicenterNote}</p>
 	{:else}
-		<p class="text-muted-foreground">Runs on this computer with the local transcription model chosen below. Nothing is sent.</p>
+		<p class="text-muted-foreground">
+			{keys.place === 'computer'
+				? 'Runs on this computer with the local transcription model chosen below. Nothing is sent.'
+				: "Runs on a computer's local transcription model, which this browser does not have."}
+		</p>
 	{/if}
 	{#if keyProblem}<p role="alert" class="text-destructive">{keyProblem}</p>{/if}
 	{#if deleteConnection.error}<p role="alert" class="text-destructive">{deleteConnection.error.message}</p>{/if}

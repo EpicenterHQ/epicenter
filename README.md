@@ -117,7 +117,7 @@ These packages carry the main architecture.
 | Package | Role | License |
 | --- | --- | --- |
 | [`@epicenter/folder`](packages/folder) | The data folder: tables, `kv`, files, history, and Git sync, in a browser, a desktop page, or Bun. | AGPL-3.0-or-later |
-| [`@epicenter/ai`](packages/ai) | Inference connections, the AI gateway client, and the inference picker. | AGPL-3.0-or-later |
+| [`@epicenter/ai`](packages/ai) | AI connections as rows of `so.epicenter`, sending a request over one, and the editor every app uses for them. | AGPL-3.0-or-later |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |
 | [`@epicenter/server`](packages/server) | Shared Hono server library composed by the API on Cloudflare Workers and on Bun. | AGPL-3.0-or-later |
 

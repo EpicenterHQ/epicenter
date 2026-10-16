@@ -173,3 +173,19 @@ test('storage that does not read imports nothing and is left as it is', async ()
 		connectionsImported: true,
 	});
 });
+
+test('an import run again before it finished writes the same rows, not copies', async () => {
+	await using browser = createBrowser();
+	const vocab = await browser.open();
+	const connections = await browser.openConnections();
+	const secrets = createMemorySecrets();
+	const storage = storageWith({ [EARLIER_CONNECTIONS]: earlier });
+	await importEarlierConnections({ vocab, connections, secrets, storage });
+	// As if the first run stopped before it could record that it ran.
+	expectOk(await vocab.kv.set('connectionsImported', undefined));
+	await importEarlierConnections({ vocab, connections, secrets, storage });
+	expect(Object.keys(await fields(connections)).sort()).toEqual([
+		'groq1',
+		'local-ollama',
+	]);
+});

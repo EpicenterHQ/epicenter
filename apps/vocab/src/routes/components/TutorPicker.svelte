@@ -2,8 +2,8 @@
 	import type { epicenterDefinition } from '@epicenter/ai/connection-table';
 	import { browserKeys, ConnectionList } from '@epicenter/ai/ui';
 	import type { FolderOptions } from '@epicenter/folder/query';
+	import type { ConnectionFields } from '@epicenter/ai/ui';
 	import { Button } from '@epicenter/ui/button';
-	import { createQuery } from '@tanstack/svelte-query';
 
 	/**
 	 * Which connection the tutor uses (ADR-0581): Epicenter's hosted model when
@@ -13,6 +13,7 @@
 	 */
 	let {
 		connections,
+		rows,
 		choice,
 		signedIn,
 		hostedLabel,
@@ -20,6 +21,8 @@
 		onChoose,
 	}: {
 		connections: FolderOptions<typeof epicenterDefinition> | null;
+		/** The rows a tutor can use, by title. */
+		rows: readonly (ConnectionFields & { stem: string })[];
 		/** The stored `tutorConnection`; undefined is the hosted default. */
 		choice: string | undefined;
 		signedIn: boolean;
@@ -29,18 +32,6 @@
 	} = $props();
 
 	const keys = browserKeys();
-	// Until `so.epicenter` opens there are no rows to list.
-	const list = createQuery(() =>
-		connections
-			? connections.tables.connections.list.queryOptions()
-			: { queryKey: ['so.epicenter', 'unopened'], queryFn: () => [], enabled: false },
-	);
-	const rows = $derived(
-		(list.data ?? [])
-			.flatMap(({ stem, result }) => (result.error === null ? [{ stem, ...result.data.row.fields }] : []))
-			.filter((row) => row.kind !== 'local')
-			.sort((a, b) => (a.title || a.stem).localeCompare(b.title || b.stem)),
-	);
 	let managing = $state(false);
 </script>
 

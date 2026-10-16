@@ -48,8 +48,11 @@ export type ConnectionKeys = {
 		key: string,
 	): Promise<Result<unknown, string>>;
 	remove(connection: string): Promise<Result<unknown, string>>;
-	/** Calls `listener` when another tab changes a saved key; returns the unsubscribe. */
-	onChange?(listener: (connection: string) => void): () => void;
+	/**
+	 * Calls `listener` when another tab changes a saved key, with `null` when
+	 * it cleared them all; returns the unsubscribe.
+	 */
+	onChange?(listener: (connection: string | null) => void): () => void;
 };
 
 /** The query key of what `keys` holds for `connection`. */
@@ -77,7 +80,8 @@ export function browserKeys(secrets: SecretStore = browserSecrets()) {
 		onChange(listener) {
 			const prefix = secretStorageKey('');
 			const changed = (event: StorageEvent) => {
-				if (event.key?.startsWith(prefix))
+				if (event.key === null) listener(null);
+				else if (event.key.startsWith(prefix))
 					listener(event.key.slice(prefix.length));
 			};
 			globalThis.addEventListener('storage', changed);

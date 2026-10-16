@@ -91,8 +91,9 @@ export async function importEarlierConnections({
 
 	const tutor = earlierTutor(readJson(storage, EARLIER_SELECTIONS));
 	const rows = connections.tables.connections;
-	const { data: listing } = await rows.list();
-	const taken = new Set((listing ?? []).map(({ stem }) => stem));
+	// Ids come from the earlier entries alone, so an import cut short and run
+	// again, or run by two tabs at once, writes the same rows, which merge.
+	const named = new Set<string>();
 	let tutorConnection: string | undefined;
 
 	for (const earlier of earlierConnections(
@@ -100,11 +101,10 @@ export async function importEarlierConnections({
 	)) {
 		const { data: endpoint, error } = canonicalEndpoint(earlier.baseUrl);
 		if (error !== null) continue;
-		const stem =
-			isConnectionId(earlier.id) && !taken.has(earlier.id)
-				? earlier.id
-				: connectionId(earlier.name, taken);
-		taken.add(stem);
+		const stem = isConnectionId(earlier.id)
+			? earlier.id
+			: connectionId(earlier.name, named);
+		named.add(stem);
 		const chosen = tutor?.connectionId === earlier.id ? tutor.model : undefined;
 		const created = await rows.create(
 			{
@@ -129,7 +129,7 @@ export async function importEarlierConnections({
 		tutor.model &&
 		tutor.model !== VOCAB_MODEL
 	) {
-		const stem = connectionId('Epicenter', taken);
+		const stem = 'epicenter';
 		const created = await rows.create(
 			{
 				fields: { kind: 'epicenter', title: 'Epicenter', model: tutor.model },

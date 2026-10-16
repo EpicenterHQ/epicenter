@@ -27,15 +27,6 @@ import { resolveAppPaths } from './app-paths.ts';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
 
 /**
- * The folder's id, its directory's name under the Epicenter folder root:
- * `@epicenter/ai`'s `CONNECTIONS_FOLDER_ID`, under the name the desktop
- * app's Settings imports from this subpath.
- */
-export const EPICENTER_FOLDER_ID = CONNECTIONS_FOLDER_ID;
-
-export { epicenterDefinition };
-
-/**
  * Make the handle's first write, which publishes its declaration first: the
  * `connections` table's directory, the table apps read through a lens. A
  * directory already there is left as it is, and so is an `epicenter.json`

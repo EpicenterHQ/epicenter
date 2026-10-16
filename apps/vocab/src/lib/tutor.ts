@@ -59,16 +59,19 @@ export function hostedClient(account: BrowserAccount) {
  * the words the learner sees.
  */
 export async function tutorRoute({
-	choice,
+	choice: choiceResult,
 	connections,
 	account,
 	secrets = browserSecrets(),
 }: {
-	choice: string | undefined;
+	/** The stored `tutorConnection`, or why Vocab's settings cannot say. */
+	choice: Result<string | undefined, string>;
 	connections: Connections | null;
 	account: BrowserAccount | undefined;
 	secrets?: SecretStore;
 }): Promise<Result<TutorRoute, string>> {
+	if (choiceResult.error !== null) return Err(choiceResult.error);
+	const choice = choiceResult.data;
 	if (!choice)
 		return account
 			? Ok({ client: hostedClient(account), model: VOCAB_MODEL })

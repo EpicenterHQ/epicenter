@@ -4,7 +4,6 @@ export type {
 	AgentEngine,
 	AgentEngineRequest,
 } from '@epicenter/agent-protocol';
-export { CONNECTION_PRESETS, type PresetId } from './connection-presets.js';
 export { ListModelsError, TranscribeError } from './inference-errors.js';
 export {
 	createOpenAiAgentEngine,

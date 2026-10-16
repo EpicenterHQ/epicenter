@@ -84,7 +84,11 @@
 	<p class="text-muted-foreground">Reading…</p>
 {:else}
 	{#if rows.length === 0}
-		<p class="text-muted-foreground">No AI connections yet. Each one is a file in so.epicenter/connections{keys.place === 'computer' ? ', so it follows you to every computer where that folder syncs' : ''}.</p>
+		<p class="text-muted-foreground">
+			{keys.place === 'computer'
+				? 'No AI connections yet. Each one is a file in so.epicenter/connections, so it follows you to every computer where that folder syncs.'
+				: 'No connections yet. Add an OpenAI-compatible endpoint below, such as a local Ollama at http://localhost:11434/v1.'}
+		</p>
 	{/if}
 	<ul class="grid gap-2">
 		{#each rows as stored (stored.stem)}

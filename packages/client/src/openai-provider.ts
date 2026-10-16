@@ -243,10 +243,16 @@ export function createOpenAiAgentEngine({
 			if (signal.aborted) return;
 			const apiError = error instanceof OpenAI.APIError ? error : undefined;
 			const payload = apiError?.error;
+			// A transport that refuses a request rejects its fetch, which the SDK
+			// wraps as "Connection error."; the reason is in its cause.
+			const refused =
+				error instanceof OpenAI.APIConnectionError && error.cause !== undefined
+					? error.cause
+					: error;
 			const message =
 				payload && 'message' in payload && typeof payload.message === 'string'
 					? payload.message
-					: extractErrorMessage(error);
+					: extractErrorMessage(refused);
 			yield {
 				type: 'run-error',
 				message,

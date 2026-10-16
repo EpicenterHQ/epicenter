@@ -4,10 +4,7 @@
 	import { openFolder } from '@epicenter/folder/tauri';
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import { onMount } from 'svelte';
-	import {
-		EPICENTER_FOLDER_ID,
-		epicenterDefinition,
-	} from '@epicenter/cli/epicenter-folder';
+	import { CONNECTIONS_FOLDER_ID, epicenterDefinition } from '@epicenter/ai/connection-table';
 	import { keychainKeys } from './connections';
 
 	/**
@@ -28,7 +25,7 @@
 		let release: (() => Promise<void>) | undefined;
 		void (async () => {
 			const { data: folder, error } = await openFolder({
-				id: EPICENTER_FOLDER_ID,
+				id: CONNECTIONS_FOLDER_ID,
 				definition: epicenterDefinition,
 			});
 			if (closed) {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { agentMessageText } from '@epicenter/agent';
 	import type { epicenterDefinition } from '@epicenter/ai/connection-table';
+	import type { ConnectionFields } from '@epicenter/ai/ui';
 	import type { FolderOptions } from '@epicenter/folder/query';
 	import * as Chat from '@epicenter/ui/chat';
 	import { Button } from '@epicenter/ui/button';
@@ -30,6 +31,7 @@
 		write,
 		tutor,
 		connections,
+		rows,
 		connectionsProblem,
 		choice,
 		hostedLabel,
@@ -47,6 +49,7 @@
 		tutor: Parameters<typeof createVocabChat>[0]['tutor'];
 		/** This browser's `so.epicenter`, or null until it opens or when it did not. */
 		connections: FolderOptions<typeof epicenterDefinition> | null;
+		rows: readonly (ConnectionFields & { stem: string })[];
 		connectionsProblem: string | null;
 		/** The stored `tutorConnection`; undefined is the hosted default. */
 		choice: string | undefined;
@@ -192,7 +195,7 @@
 	{/if}
 
 	<div class="bg-background px-2 pt-1.5">
-		<TutorPicker {connections} {choice} signedIn={account !== undefined} {hostedLabel} disabled={chat.isGenerating} {onChoose} />
+		<TutorPicker {connections} {rows} {choice} signedIn={account !== undefined} {hostedLabel} disabled={chat.isGenerating} {onChoose} />
 	</div>
 	{#if connectionsProblem}
 		<p role="alert" class="px-3 pb-1 text-xs text-destructive">This browser's connections did not open: {connectionsProblem}</p>

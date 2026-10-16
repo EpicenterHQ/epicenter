@@ -2,6 +2,8 @@
 	import { browserSecrets, openBrowserConnections } from '@epicenter/ai/browser';
 	import type { epicenterDefinition } from '@epicenter/ai/connection-table';
 	import { MODELS_BY_ID } from '@epicenter/constants/ai-providers';
+	import type { Folder } from '@epicenter/folder';
+	import { Err, Ok, type Result } from 'wellcrafted/result';
 	import { type FolderOptions, folderOptions } from '@epicenter/folder/query';
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
@@ -37,41 +39,58 @@
 	const secrets = browserSecrets();
 
 	// This browser's connections are rows of its own `so.epicenter` (ADR-0581).
-	let connections = $state.raw<{ folder: Awaited<ReturnType<typeof openConnections>>; options: FolderOptions<typeof epicenterDefinition> } | null>(null);
+	let connections = $state.raw<{ folder: Folder<typeof epicenterDefinition>; options: FolderOptions<typeof epicenterDefinition> } | null>(null);
 	let connectionsProblem = $state<string | null>(null);
-	async function openConnections() {
-		const { data: opened, error } = await openBrowserConnections();
-		if (error !== null) throw new Error(error.message);
-		return opened;
-	}
+	const describe = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 	let departed = false;
+	let opened: Folder<typeof epicenterDefinition> | undefined;
 	let stopConnections: (() => void) | undefined;
-	void openConnections().then(
-		async (opened) => {
-			if (departed) return void opened.close();
-			const options = folderOptions(opened);
-			stopConnections = options.invalidateOnChange(vocab.queryClient);
-			await importEarlierConnections({ vocab: folder, connections: opened, secrets });
-			// The import wrote Vocab's settings itself, and a page is not told of
-			// its own writes, so the settings are read again.
-			await vocab.queryClient.invalidateQueries({ queryKey: vocab.folder$.kv.get.queryKey() });
-			connections = { folder: opened, options };
-		},
-		(cause: unknown) => (connectionsProblem = cause instanceof Error ? cause.message : String(cause)),
-	);
+	void (async () => {
+		const { data, error } = await openBrowserConnections();
+		if (error !== null) return void (connectionsProblem = error.message);
+		opened = data;
+		if (departed) return void data.close();
+		const options = folderOptions(data);
+		stopConnections = options.invalidateOnChange(vocab.queryClient);
+		// A failed import leaves the earlier entries where they are and the
+		// connections usable; the problem is shown.
+		await importEarlierConnections({ vocab: folder, connections: data, secrets }).catch(
+			(cause: unknown) => (connectionsProblem = `Connections saved by an earlier version were not brought in: ${describe(cause)}`),
+		);
+		if (departed) return;
+		// The import wrote Vocab's settings itself, and a page is not told of
+		// its own writes, so the settings are read again.
+		await vocab.queryClient.invalidateQueries({ queryKey: vocab.folder$.kv.get.queryKey() });
+		connections = { folder: data, options };
+	})().catch((cause: unknown) => (connectionsProblem = describe(cause)));
 
 	const settings = createQuery(() => vocab.folder$.kv.get.queryOptions());
 	const setSetting = createMutation(() => vocab.folder$.kv.set.mutationOptions());
-	const choice = $derived(settings.data?.values.tutorConnection);
+	// Not read yet, or not readable, is never "nothing chosen": that would send
+	// a learner who chose their own endpoint to the hosted model.
+	const choice = $derived<Result<string | undefined, string>>(
+		settings.data !== undefined
+			? Ok(settings.data?.values.tutorConnection)
+			: settings.error
+				? Err(`Vocab's settings did not read: ${settings.error.message}`)
+				: Err('Vocab is still reading its settings. Try again in a moment.'),
+	);
 	// Until `so.epicenter` opens there are no rows to list.
 	const rowList = createQuery(() =>
 		connections
 			? connections.options.tables.connections.list.queryOptions()
 			: { queryKey: ['so.epicenter', 'unopened'], queryFn: () => [], enabled: false },
 	);
+	const rows = $derived(
+		(rowList.data ?? [])
+			.flatMap(({ stem, result }) => (result.error === null ? [{ stem, ...result.data.row.fields }] : []))
+			.filter((row) => row.kind !== 'local')
+			.sort((a, b) => (a.title || a.stem).localeCompare(b.title || b.stem)),
+	);
 	const tutor = {
 		get canServe() {
-			return choice ? (rowList.data ?? []).some((row) => row.stem === choice) : account !== undefined;
+			if (choice.error !== null) return false;
+			return choice.data ? rows.some((row) => row.stem === choice.data) : account !== undefined;
 		},
 		route: () => tutorRoute({ choice, connections: connections?.folder ?? null, account, secrets }),
 	};
@@ -126,7 +145,7 @@
 	onDestroy(() => {
 		departed = true;
 		stopConnections?.();
-		void connections?.folder.close();
+		void opened?.close();
 	});
 
 	// A write or another action still running lives only in this page.
@@ -206,7 +225,7 @@
 			{#if focusOpen && selectedChat}<div class="border-b p-3 md:hidden"><FocusWords focus={selectedChat.focus} {entries} /></div>{/if}
 			{#if !selectedChatId}<p class="m-auto text-center text-muted-foreground">Choose a chat from history.</p>{/if}
 			{#if selectedChatId && selectedChat}
-				{#key selectedChatId}<ConversationView chatId={selectedChatId} {folder} write={chats.messageWriter(selectedChatId)} {tutor} connections={connections?.options ?? null} {connectionsProblem} {choice} {hostedLabel} onChoose={(next) => setSetting.mutate({ key: 'tutorConnection', value: next })} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
+				{#key selectedChatId}<ConversationView chatId={selectedChatId} {folder} write={chats.messageWriter(selectedChatId)} {tutor} connections={connections?.options ?? null} {rows} {connectionsProblem} choice={choice.data ?? undefined} {hostedLabel} onChoose={(next) => setSetting.mutate({ key: 'tutorConnection', value: next })} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
 			{/if}
 		</div>
 		<aside class="hidden w-60 shrink-0 overflow-y-auto border-l p-3 md:block" aria-label="Focus words">

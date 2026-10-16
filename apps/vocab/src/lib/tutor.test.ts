@@ -6,6 +6,7 @@
  */
 import { expect, test } from 'bun:test';
 import { createMemorySecrets, saveKey } from '@epicenter/ai/send';
+import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { VOCAB_MODEL } from './data.js';
 import { createBrowser } from './folder.test-support.js';
@@ -41,7 +42,7 @@ async function withRows(
 test('with nothing chosen, a signed-in learner gets the hosted model and a signed-out one is told what to do', async () => {
 	const hosted = expectOk(
 		await tutorRoute({
-			choice: undefined,
+			choice: Ok(undefined),
 			connections: null,
 			account,
 			secrets: createMemorySecrets(),
@@ -51,7 +52,7 @@ test('with nothing chosen, a signed-in learner gets the hosted model and a signe
 	expect(hosted.client.baseURL).toBe('https://api.epicenter.test/v1');
 
 	const signedOut = await tutorRoute({
-		choice: undefined,
+		choice: Ok(undefined),
 		connections: null,
 		account: undefined,
 		secrets: createMemorySecrets(),
@@ -66,7 +67,7 @@ test('a chosen endpoint routes to the endpoint saved for it, with its model', as
 	await using _ = browser;
 	const secrets = createMemorySecrets();
 	const missing = await tutorRoute({
-		choice: 'groq',
+		choice: Ok('groq'),
 		connections,
 		account: undefined,
 		secrets,
@@ -81,7 +82,7 @@ test('a chosen endpoint routes to the endpoint saved for it, with its model', as
 	});
 	const route = expectOk(
 		await tutorRoute({
-			choice: 'groq',
+			choice: Ok('groq'),
 			connections,
 			account: undefined,
 			secrets,
@@ -101,7 +102,7 @@ test('a gone row, a row with no model, an Epicenter row signed out, and a local 
 	const secrets = createMemorySecrets();
 	const route = (choice: string, signedIn = false) =>
 		tutorRoute({
-			choice,
+			choice: Ok(choice),
 			connections,
 			account: signedIn ? account : undefined,
 			secrets,
@@ -118,4 +119,16 @@ test('a gone row, a row with no model, an Epicenter row signed out, and a local 
 	);
 	expect(expectOk(await route('hosted', true)).model).toBe('other');
 	expect((await route('device')).error).toContain('a browser does not have');
+});
+
+test('settings Vocab has not read are never taken as nothing chosen', async () => {
+	const route = await tutorRoute({
+		choice: Err('Vocab is still reading its settings. Try again in a moment.'),
+		connections: null,
+		account,
+		secrets: createMemorySecrets(),
+	});
+	expect(route.error).toBe(
+		'Vocab is still reading its settings. Try again in a moment.',
+	);
 });

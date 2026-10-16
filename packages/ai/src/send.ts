@@ -19,8 +19,9 @@
  *   {@link responseEvents} as NDJSON. The desktop shell runs it for a page
  *   (`ai_send`), and the page reads the lines back into a `Response` with
  *   {@link createResponseReader}.
- * - A browser tab has no keychain; it keeps its key in the page's storage
- *   and sends with {@link sendToEndpoint} over its own `fetch`.
+ * - A browser page has no keychain; it keeps each key in `localStorage`
+ *   and sends with {@link sendRequest} over its own `fetch`
+ *   (`browser-connections.ts`, ADR-0581).
  *
  * This module imports nothing but `wellcrafted`, so the compiled CLI carries
  * no UI code.
