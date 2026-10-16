@@ -20,8 +20,9 @@
  * with whatever changed since. A file open as its exact text has a text
  * draft of its own (`createTextDraftState`), saved the same way (ADR-0551).
  * Writes to one file run one at a time, in the order made. A body save that
- * fails keeps the body on screen and reports the failure; a body whose
- * note was deleted elsewhere is dropped and its text offered. Where a save meets another
+ * fails keeps the body on screen and reports the failure. A delete beats
+ * an edit that never saw it: a body whose note was deleted elsewhere
+ * writes nothing, and is dropped with its text offered. Where a save meets another
  * writer's change to the same lines, the save wins (ADR-0576).
  *
  * Every other action is a mutation: create, rename, delete, deleting a
@@ -497,29 +498,47 @@ export function createNotes(
 			}),
 	} satisfies ReturnType<typeof folder$.notes.write.mutationOptions>;
 
+	/** Stems whose body save found the note deleted, so it wrote nothing. */
+	const savedOverDelete = new Set<string>();
+
 	/**
-	 * A held body whose note left the listing, deleted elsewhere, is let go
-	 * and offered once, as a failed save; nothing writes the note again. A
-	 * body whose save is running is left to it.
+	 * Let go of the body held for `stem` and offer its text once, as a failed
+	 * save, when its note was deleted elsewhere: a save found it gone, or the
+	 * listing no longer holds it. A delete beats an edit that never saw it
+	 * (ADR-0576), so nothing writes the note again. A body whose save is
+	 * running is left to it.
 	 */
-	function dropDeletedBodies() {
+	function dropIfDeleted(stem: string) {
+		const typed = bodies.get(stem);
+		if (typed === undefined || typed.draft.saving) return;
 		const listed = noteRows.listing();
-		if (listed === undefined) return;
-		for (const [stem, typed] of bodies) {
-			if (listed.some((entry) => entry.stem === stem)) continue;
-			const unsaved = typed.typed();
-			if (unsaved === undefined || typed.draft.saving) continue;
-			// A save scheduled after a pause still runs, and finds no body.
-			typed.draft.discard();
-			bodies.delete(stem);
-			const path = rowPath(NOTES, stem);
-			onWriteFailed({
-				path,
-				error: NotesError.NoteDeleted({ path }).error,
-				unsaved,
-				kept: false,
-			});
-		}
+		const deleted =
+			savedOverDelete.has(stem) ||
+			(listed !== undefined && !listed.some((entry) => entry.stem === stem));
+		if (!deleted) return;
+		savedOverDelete.delete(stem);
+		const unsaved = typed.typed();
+		if (unsaved === undefined) return;
+		// A save scheduled after a pause still runs, and finds no body.
+		typed.draft.discard();
+		bodies.delete(stem);
+		const path = rowPath(NOTES, stem);
+		onWriteFailed({
+			path,
+			error: NotesError.NoteDeleted({ path }).error,
+			unsaved,
+			kept: false,
+		});
+	}
+
+	function dropDeletedBodies() {
+		for (const stem of [...bodies.keys()]) dropIfDeleted(stem);
+	}
+
+	/** Save the body of `stem` now, as leaving it does; a note deleted since lets it go. */
+	async function saveBodyOf(stem: string) {
+		await saveTyped(bodies, stem);
+		dropIfDeleted(stem);
 	}
 	const noteListHash = hashKey(folder$.notes.list.queryKey());
 	const stopDeletedBodies = queryClient.getQueryCache().subscribe((event) => {
@@ -536,13 +555,19 @@ export function createNotes(
 		if (known !== undefined) return known;
 		const draft = createBodyEditor<NoteFields>({
 			row: () => noteRows.storedOf(stem),
-			write: (change) =>
-				runMutation(queryClient, writeNote, { stem, ...change }),
+			write: async (change) => {
+				const written = await runMutation(queryClient, writeNote, {
+					stem,
+					...change,
+				});
+				if (written === null) savedOverDelete.add(stem);
+				return written;
+			},
 		});
 		const typed = {
 			draft,
 			typed: () => draft.typed,
-			later: useDebounce(() => saveTyped(bodies, stem), 1000),
+			later: useDebounce(() => saveBodyOf(stem), 1000),
 		};
 		bodies.set(stem, typed);
 		return typed;
@@ -640,7 +665,7 @@ export function createNotes(
 	async function writesSettled() {
 		for (;;) {
 			await Promise.all([
-				...[...bodies.keys()].map((stem) => saveTyped(bodies, stem)),
+				...[...bodies.keys()].map((stem) => saveBodyOf(stem)),
 				...[...textDrafts.keys()].map((path) => saveTyped(textDrafts, path)),
 			]);
 			await whenIdle(queryClient, {
@@ -654,7 +679,7 @@ export function createNotes(
 	async function settledAt(path: string) {
 		const stem = noteIdOf(path);
 		await Promise.all([
-			stem === undefined ? undefined : saveTyped(bodies, stem),
+			stem === undefined ? undefined : saveBodyOf(stem),
 			saveTyped(textDrafts, path),
 		]);
 		await whenIdle(queryClient, {
@@ -702,6 +727,7 @@ export function createNotes(
 		if (stem !== undefined) {
 			bodies.get(stem)?.draft.discard();
 			bodies.delete(stem);
+			savedOverDelete.delete(stem);
 		}
 		textDrafts.get(path)?.draft.discard();
 		textDrafts.delete(path);
@@ -1131,7 +1157,7 @@ export function createNotes(
 		/** Send the body typed at `path` now, as leaving it does; resolves once no save of it runs. */
 		saveBody(path: string): Promise<void> {
 			const stem = noteIdOf(path);
-			return stem === undefined ? Promise.resolve() : saveTyped(bodies, stem);
+			return stem === undefined ? Promise.resolve() : saveBodyOf(stem);
 		},
 		/**
 		 * The note at `path` as the rich-text editor uses it: the row shown

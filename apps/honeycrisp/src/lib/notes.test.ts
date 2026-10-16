@@ -17,10 +17,10 @@
  *   save merges with the change the read brought
  * - A set over a change made elsewhere keeps the fields it did not set
  * - A body save that fails keeps the body on screen and says so; Save
- *   again, or the next change, saves it. A body saved over a delete not yet
- *   reported writes the note again; a reported delete takes the note off
- *   the list, it takes no edit, and a body typed and not yet saved is
- *   dropped and its text offered
+ *   again, or the next change, saves it. A body saved over a delete writes
+ *   nothing, and is dropped with its text offered once, whether the save
+ *   found the delete or a report did; a reported delete takes the note off
+ *   the list, and it takes no edit
  * - One note's writes run one at a time; another note's do not wait
  * - A change another tab saved shows in the lists and the open note
  * - A note whose text is not a valid note is named for repair, opens as
@@ -232,18 +232,24 @@ test('a set over a change made elsewhere keeps the fields it did not set', async
 	expect(cached(notes, 'a').row.body).toBe('Their body.\n');
 });
 
-test('a body saved over a delete not yet reported writes the note again', async () => {
+test('a body saved over a delete not yet reported writes nothing, and the text is offered', async () => {
 	const { notes, disk, failures } = await open();
 	notes.open(A);
 	disk.drop(A);
 	typeBody(notes, A, 'Mine.\n');
 	await quiet(notes);
-	// The save is the writer acting, so its edit stands over the delete.
-	expect(failures).toEqual([]);
-	expect(disk.text(A)).toMatch(/^"?title"?: "?Alpha"?$/m);
-	expect(disk.text(A)).toContain('Mine.\n');
-	expect(shown(notes, A)?.body).toBe('Mine.\n');
+	// A delete beats an edit that never saw it.
+	expect(disk.text(A)).toBeUndefined();
+	expect(failures).toMatchObject([
+		{ path: A, error: { name: 'NoteDeleted' }, unsaved: 'Mine.\n', kept: false },
+	]);
 	expect(notes.isUnsaved(A)).toBe(false);
+	expect(notes.unsaved).toBe(false);
+	// The listing read once the save found the note gone offers it no second time.
+	await notes.queryClient.invalidateQueries(notes.folder$.pathFilter([A]));
+	await quiet(notes);
+	expect(failures).toHaveLength(1);
+	expect(listing(notes).some((entry) => entry.stem === 'a')).toBe(false);
 });
 
 test('a body typed and not yet saved when a delete is reported is dropped and offered once', async () => {
