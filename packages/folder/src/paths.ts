@@ -21,8 +21,39 @@ const RESERVED = /[<>:"|?*]/;
  * Code points HFS+ ignores when it compares names, or that Unicode marks
  * default-ignorable: a name holding one can resolve to a name without it.
  */
-const IGNORABLE =
-	/[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFF8\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E0FFF}]/u;
+const IGNORABLE: readonly (readonly [number, number])[] = [
+	[0x00ad, 0x00ad],
+	[0x034f, 0x034f],
+	[0x061c, 0x061c],
+	[0x115f, 0x1160],
+	[0x17b4, 0x17b5],
+	[0x180b, 0x180f],
+	[0x200b, 0x200f],
+	[0x202a, 0x202e],
+	[0x2060, 0x206f],
+	[0x3164, 0x3164],
+	[0xfe00, 0xfe0f],
+	[0xfeff, 0xfeff],
+	[0xffa0, 0xffa0],
+	[0xfff0, 0xfff8],
+	[0x1bca0, 0x1bca3],
+	[0x1d173, 0x1d17a],
+	[0xe0000, 0xe0fff],
+];
+
+/**
+ * Whether `segment` holds an `IGNORABLE` code point. A table of ranges, not
+ * a character class: several are combining marks, which a class would run
+ * together with the character before them.
+ */
+export function holdsIgnorable(segment: string): boolean {
+	for (const char of segment) {
+		const point = char.codePointAt(0)!;
+		if (IGNORABLE.some(([first, last]) => point >= first && point <= last))
+			return true;
+	}
+	return false;
+}
 /**
  * A Windows 8.3 short name such as `GIT~1` or `NOTES~12.MD`, which can name
  * another entry, `.git` itself among them: a stem of one to six characters
@@ -53,7 +84,7 @@ function namesOnlyItself(segment: string): boolean {
 	return (
 		!/[. ]$/.test(segment) &&
 		!RESERVED.test(segment) &&
-		!IGNORABLE.test(segment) &&
+		!holdsIgnorable(segment) &&
 		!isDeviceName(segment) &&
 		!SHORT_NAME.test(segment)
 	);
