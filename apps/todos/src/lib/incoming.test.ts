@@ -17,11 +17,12 @@
  *   remote's content lands and the cache shows it
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
-import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
+import { afterAll, afterEach, expect, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseRow } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
+import { $ } from 'bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
@@ -33,7 +34,11 @@ import {
 	createGitHandler,
 	type GitSession,
 	prepareGitSession,
-} from '../../server/git-server.js';
+} from '../../../../packages/folder/src/git-demo-server.test-support.js';
+import {
+	GIT_ENV,
+	git,
+} from '../../../../packages/folder/src/git-http.test-support.js';
 import { todosDefinition } from './definition.js';
 import { cached, notesEditor, observe, quiet } from './query.test-support.js';
 import type { Todos } from './todos.svelte.js';
@@ -41,20 +46,6 @@ import type { Todos } from './todos.svelte.js';
 const { createTodos } = await import('./todos.svelte.ts');
 
 const originalFetch = globalThis.fetch;
-const env = {
-	...process.env,
-	GIT_CONFIG_GLOBAL: '/dev/null',
-	GIT_CONFIG_NOSYSTEM: '1',
-	GIT_AUTHOR_NAME: 'Native',
-	GIT_AUTHOR_EMAIL: 'native@localhost',
-	GIT_COMMITTER_NAME: 'Native',
-	GIT_COMMITTER_EMAIL: 'native@localhost',
-};
-
-beforeAll(() => {
-	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-	delete process.env.TODOS_DEMO_ROOT;
-});
 afterAll(() => {
 	globalThis.fetch = originalFetch;
 });
@@ -79,29 +70,13 @@ Two cartons.
 `;
 const BREAD_REMOTE = '---\ntitle: Bake bread\ndone: false\n---\n';
 
-async function run(cwd: string, command: string[]) {
-	const child = Bun.spawn(command, {
-		cwd,
-		env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`${command.join(' ')}: ${stderr}${stdout}`);
-	return stdout.trim();
-}
-
 /**
  * A browser folder whose remote is a fresh demo session, opened by the app.
  * The returned `opfs` is the folder's stand-in storage, where a test injects
  * a fault.
  */
 async function openDemo() {
-	const session = await prepareGitSession(5990);
+	const session = await prepareGitSession({ name: 'todos', port: 5990 });
 	const handle = await createGitHandler(session);
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
 		handle(new Request(input, init))) as typeof fetch;
@@ -146,14 +121,14 @@ async function shareMilk(todos: Todos, session: GitSession) {
 	await quiet(todos);
 	expect(expectOk(await todos.sync.run())).toMatchObject({ kind: 'synced' });
 	await quiet(todos);
-	await run(session.nativeCheckout, [
-		'git',
+	await git(
+		session.nativeCheckout,
 		'pull',
 		'--quiet',
 		'--ff-only',
 		session.bare,
 		'main',
-	]);
+	);
 }
 
 /** The native checkout rewrites milk, adds bread, commits, and pushes. */
@@ -161,9 +136,9 @@ async function pushRemoteChanges(session: GitSession) {
 	const native = session.nativeCheckout;
 	await writeFile(join(native, MILK), MILK_REMOTE);
 	await writeFile(join(native, BREAD), BREAD_REMOTE);
-	await run(native, ['git', 'add', '-A']);
-	await run(native, ['git', 'commit', '--quiet', '-m', 'Edit elsewhere']);
-	await run(native, ['git', 'push', '--quiet', session.bare, 'main']);
+	await git(native, 'add', '-A');
+	await git(native, 'commit', '--quiet', '-m', 'Edit elsewhere');
+	await git(native, 'push', '--quiet', session.bare, 'main');
 }
 
 async function text(todos: Todos, path: string) {
@@ -240,22 +215,18 @@ test('the remote-edit demo fixture pushes a hand edit that Sync brings in byte f
 	const { todos, session } = await openDemo();
 	await shareMilk(todos, session);
 	// The fixture pushes to the checkout's origin; here that is the bare path.
-	await run(session.nativeCheckout, [
-		'git',
+	await git(
+		session.nativeCheckout,
 		'remote',
 		'set-url',
 		'origin',
 		session.bare,
-	]);
-	const pushed = JSON.parse(
-		await run(join(import.meta.dir, '../..'), [
-			'bun',
-			'scripts/remote-edit.ts',
-			session.nativeCheckout,
-			'milk',
-			'Buy oat milk',
-		]),
 	);
+	const pushed =
+		await $`bun scripts/remote-edit.ts ${session.nativeCheckout} milk ${'Buy oat milk'}`
+			.cwd(join(import.meta.dir, '../..'))
+			.env(GIT_ENV)
+			.json();
 	expect(pushed.path).toBe(MILK);
 	expect(pushed.source).toContain('owner: sam');
 

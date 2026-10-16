@@ -1560,6 +1560,14 @@ Application tests import `src/browser-storage.test-support.ts` by path:
 `createTestStorage()` owns one fresh stand-in tree, `browserStorage(storage)`
 opens it, and `testBrowserStorage()` does both in one call.
 
+Real Git remotes for tests come from `src/git-http.test-support.ts`: its
+`gitHttpBackend` answers smart HTTP with the system `git http-backend` over
+bare repositories on disk. `src/git-demo-server.test-support.ts` serves that
+bridge on loopback with a native checkout beside the bare repository. The
+Todos and Git lab development commands (`bun dev:todos`, `bun dev:git`) run
+it, and their tests call its handler without binding a port. Neither file is
+in the package's exports.
+
 ## Limits
 
 A reference field has no integrity: nothing checks its target, and rename

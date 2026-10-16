@@ -1,66 +1,56 @@
 /**
- * The demo's Git handler and native CLI, exercised without binding a port:
- * the browser folder's HTTP requests go straight to the handler, which runs
- * the real `git http-backend` against the demo's bare repository.
+ * Native CLI Tests
+ *
+ * `scripts/native.ts` over the demo's native checkout, beside a browser
+ * folder whose HTTP requests go straight to the demo's Git handler (no port),
+ * which runs the real `git http-backend` against the demo's bare repository.
+ *
+ * Key behaviors:
+ * - The CLI completes a todo the browser pushed, commits, and pushes
+ * - A native edit and push reaches the browser by fetch and fast-forward
+ * - With diverged history, the CLI's pull refuses with the pointer to Sync
+ *   and writes nothing
+ *
+ * `packages/folder/src/git-demo-server.test.ts` covers the server itself.
  */
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CONFLICTS_NEED_SYNC } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
+import { $ } from 'bun';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	browserStorage,
 	configureRemote,
 	createTestStorage,
 } from '../../../packages/folder/src/browser-storage.test-support.js';
+import {
+	createGitHandler,
+	prepareGitSession,
+} from '../../../packages/folder/src/git-demo-server.test-support.js';
+import {
+	GIT_ENV,
+	git,
+} from '../../../packages/folder/src/git-http.test-support.js';
 import { todosDefinition } from '../src/lib/definition.js';
-import { createGitHandler, prepareGitSession } from './git-server.js';
 
 const originalFetch = globalThis.fetch;
-const env = {
-	...process.env,
-	GIT_CONFIG_GLOBAL: '/dev/null',
-	GIT_CONFIG_NOSYSTEM: '1',
-	GIT_AUTHOR_NAME: 'Native',
-	GIT_AUTHOR_EMAIL: 'native@localhost',
-	GIT_COMMITTER_NAME: 'Native',
-	GIT_COMMITTER_EMAIL: 'native@localhost',
-};
-
-beforeAll(() => {
-	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-	delete process.env.TODOS_DEMO_ROOT;
-});
 afterAll(() => {
 	globalThis.fetch = originalFetch;
 });
 
-async function run(cwd: string, command: string[]) {
-	const child = Bun.spawn(command, {
-		cwd,
-		env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`${command.join(' ')}: ${stderr}${stdout}`);
-	return stdout.trim();
-}
+/** `bun scripts/native.ts <checkout> <command>`, run from the app. */
+const native = (checkout: string, command: string) =>
+	$`bun scripts/native.ts ${checkout} ${command.split(' ')}`
+		.cwd(join(import.meta.dir, '..'))
+		.env(GIT_ENV);
 
 test('browser push, native pull and push, then browser fast-forward through the demo handler', async () => {
-	const session = await prepareGitSession(5999);
+	const session = await prepareGitSession({ name: 'todos', port: 5999 });
 	const handle = await createGitHandler(session);
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
 		handle(new Request(input, init))) as typeof fetch;
-
-	expect(
-		await (await handle(new Request('http://127.0.0.1:5999/session'))).json(),
-	).toEqual(session);
 
 	const storage = createTestStorage();
 	await configureRemote(storage, 'demo', session.remoteUrl);
@@ -84,38 +74,23 @@ test('browser push, native pull and push, then browser fast-forward through the 
 	expect(first.commit.status).toBe('committed');
 	expect(first.push.status).toBe('pushed');
 	// Opening the folder published its epicenter.json beside the new row.
-	expect(await run(session.bare, ['git', 'log', '--format=%s', 'main'])).toBe(
+	expect(await git(session.bare, 'log', '--format=%s', 'main')).toBe(
 		'Update 2 files',
 	);
 
 	// The native checkout pulls from the bare repository with ordinary Git.
-	const native = session.nativeCheckout;
-	await run(native, ['git', 'pull', '--ff-only', session.bare, 'main']);
-	expect(await readFile(join(native, 'todos/milk.md'), 'utf8')).toContain(
+	const checkout = session.nativeCheckout;
+	await git(checkout, 'pull', '--ff-only', session.bare, 'main');
+	expect(await readFile(join(checkout, 'todos/milk.md'), 'utf8')).toContain(
 		'title: Buy milk',
 	);
 
 	// The native CLI completes the todo and pushes (to the bare path here).
-	await run(native, ['git', 'remote', 'set-url', 'origin', session.bare]);
-	const cli = JSON.parse(
-		await run(join(import.meta.dir, '..'), [
-			'bun',
-			'scripts/native.ts',
-			native,
-			'complete',
-			'milk',
-		]),
-	);
+	await git(checkout, 'remote', 'set-url', 'origin', session.bare);
+	const cli = await native(checkout, 'complete milk').json();
 	expect(cli.history.commit.status).toBe('committed');
 	expect(cli.history.push.status).toBe('pushed');
-	const status = JSON.parse(
-		await run(join(import.meta.dir, '..'), [
-			'bun',
-			'scripts/native.ts',
-			native,
-			'status',
-		]),
-	);
+	const status = await native(checkout, 'status').json();
 	expect(status.status.data.changes).toEqual([]);
 	expect(status.todos).toEqual([
 		{ path: 'todos/milk.md', stem: 'milk', title: 'Buy milk', done: true },
@@ -123,20 +98,14 @@ test('browser push, native pull and push, then browser fast-forward through the 
 
 	// An ordinary native edit, commit, and push.
 	await writeFile(
-		join(native, 'todos/milk.md'),
-		(await readFile(join(native, 'todos/milk.md'), 'utf8')).replace(
+		join(checkout, 'todos/milk.md'),
+		(await readFile(join(checkout, 'todos/milk.md'), 'utf8')).replace(
 			'Buy milk',
 			'Buy oat milk',
 		),
 	);
-	await run(native, [
-		'git',
-		'commit',
-		'--quiet',
-		'-am',
-		'Rename the milk todo',
-	]);
-	await run(native, ['git', 'push', '--quiet', session.bare, 'main']);
+	await git(checkout, 'commit', '--quiet', '-am', 'Rename the milk todo');
+	await git(checkout, 'push', '--quiet', session.bare, 'main');
 
 	// The browser fetches and fast-forwards explicitly.
 	expectOk(await browser.git.fetch());
@@ -161,24 +130,14 @@ test('browser push, native pull and push, then browser fast-forward through the 
 		),
 	);
 	expect((await browser.git.commitAndPush()).push.status).toBe('pushed');
-	await writeFile(join(native, 'notes.txt'), 'Native only\n');
-	await run(native, ['git', 'add', 'notes.txt']);
-	await run(native, ['git', 'commit', '--quiet', '-m', 'Native only']);
-	const before = await run(native, ['git', 'rev-parse', 'HEAD']);
-	const child = Bun.spawn(['bun', 'scripts/native.ts', native, 'pull'], {
-		cwd: join(import.meta.dir, '..'),
-		env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [pullOut, pullErr, pullCode] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	expect(pullCode).toBe(1);
-	expect(pullErr).toContain(CONFLICTS_NEED_SYNC);
-	expect(JSON.parse(pullOut).pulled.error.name).toBe('Diverged');
-	expect(await run(native, ['git', 'rev-parse', 'HEAD'])).toBe(before);
+	await writeFile(join(checkout, 'notes.txt'), 'Native only\n');
+	await git(checkout, 'add', 'notes.txt');
+	await git(checkout, 'commit', '--quiet', '-m', 'Native only');
+	const before = await git(checkout, 'rev-parse', 'HEAD');
+	const pull = await native(checkout, 'pull').nothrow().quiet();
+	expect(pull.exitCode).toBe(1);
+	expect(pull.stderr.toString()).toContain(CONFLICTS_NEED_SYNC);
+	expect(pull.json().pulled.error.name).toBe('Diverged');
+	expect(await git(checkout, 'rev-parse', 'HEAD')).toBe(before);
 	await browser.close();
 }, 60_000);

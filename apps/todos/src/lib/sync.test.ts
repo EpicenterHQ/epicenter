@@ -17,7 +17,7 @@
  * The review's Cancel lives in the page; `TodosView.mounted.test.ts` covers it.
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
-import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
+import { afterAll, afterEach, expect, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/browser';
@@ -31,27 +31,14 @@ import {
 	createGitHandler,
 	type GitSession,
 	prepareGitSession,
-} from '../../server/git-server.js';
+} from '../../../../packages/folder/src/git-demo-server.test-support.js';
+import { git } from '../../../../packages/folder/src/git-http.test-support.js';
 import { todosDefinition } from './definition.js';
 import { cached, observe, quiet, rowEditor } from './query.test-support.js';
 
 const { createTodos } = await import('./todos.svelte.ts');
 
 const originalFetch = globalThis.fetch;
-const env = {
-	...process.env,
-	GIT_CONFIG_GLOBAL: '/dev/null',
-	GIT_CONFIG_NOSYSTEM: '1',
-	GIT_AUTHOR_NAME: 'Native',
-	GIT_AUTHOR_EMAIL: 'native@localhost',
-	GIT_COMMITTER_NAME: 'Native',
-	GIT_COMMITTER_EMAIL: 'native@localhost',
-};
-
-beforeAll(() => {
-	process.env.GIT_CONFIG_GLOBAL = '/dev/null';
-	delete process.env.TODOS_DEMO_ROOT;
-});
 afterAll(() => {
 	globalThis.fetch = originalFetch;
 });
@@ -64,25 +51,9 @@ afterEach(async () => {
 let count = 0;
 const MILK = 'todos/milk.md';
 
-async function run(cwd: string, command: string[]) {
-	const child = Bun.spawn(command, {
-		cwd,
-		env,
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(`${command.join(' ')}: ${stderr}${stdout}`);
-	return stdout.trim();
-}
-
 /** Todos over a browser folder whose remote is a fresh demo session, with milk shared. */
 async function openDemo() {
-	const session = await prepareGitSession(5990);
+	const session = await prepareGitSession({ name: 'todos', port: 5990 });
 	const handle = await createGitHandler(session);
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
 		handle(new Request(input, init))) as typeof fetch;
@@ -110,14 +81,14 @@ async function openDemo() {
 	);
 	expect(expectOk(await todos.sync.run())).toMatchObject({ kind: 'synced' });
 	await quiet(todos);
-	await run(session.nativeCheckout, [
-		'git',
+	await git(
+		session.nativeCheckout,
 		'pull',
 		'--quiet',
 		'--ff-only',
 		session.bare,
 		'main',
-	]);
+	);
 	return { todos, session };
 }
 
@@ -125,8 +96,8 @@ async function openDemo() {
 async function pushMilk(session: GitSession, text: string) {
 	const native = session.nativeCheckout;
 	await writeFile(join(native, MILK), text);
-	await run(native, ['git', 'commit', '--quiet', '-am', 'Edit elsewhere']);
-	await run(native, ['git', 'push', '--quiet', session.bare, 'main']);
+	await git(native, 'commit', '--quiet', '-am', 'Edit elsewhere');
+	await git(native, 'push', '--quiet', session.bare, 'main');
 }
 
 const titled = (title: string) => ({ title });
@@ -136,7 +107,7 @@ test('a sync waits for queued writes, so its checkpoint holds what was typed', a
 	rowEditor(todos, 'milk')(titled('Buy oat milk'));
 	const synced = todos.sync.run();
 	expect(expectOk(await synced)).toMatchObject({ kind: 'synced' });
-	expect(await run(session.bare, ['git', 'show', `main:${MILK}`])).toContain(
+	expect(await git(session.bare, 'show', `main:${MILK}`)).toContain(
 		'title: Buy oat milk',
 	);
 });
@@ -203,13 +174,13 @@ test('competing edits need choices and write nothing; refused choices keep the a
 	expect(resolved.kind).toBe('synced');
 	await quiet(todos);
 	expect(cached(todos, 'milk').row.fields.title).toBe('Buy soy milk');
-	expect(await run(session.bare, ['git', 'show', `main:${MILK}`])).toContain(
+	expect(await git(session.bare, 'show', `main:${MILK}`)).toContain(
 		'title: Buy soy milk',
 	);
 });
 
 test('Connect sends a first folder, gives the next one its todos, and asks before combining separate histories', async () => {
-	const session = await prepareGitSession(5990);
+	const session = await prepareGitSession({ name: 'todos', port: 5990 });
 	const handle = await createGitHandler(session);
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
 		handle(new Request(input, init))) as typeof fetch;
