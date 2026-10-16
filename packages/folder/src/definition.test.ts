@@ -140,6 +140,25 @@ test('an untyped definition with a key other than title, tables, and local is re
 	);
 });
 
+test('a settings table is written with only optional fields, and a published one that requires a setting still opens', () => {
+	// Where a definition is written, a required setting is refused: a row of
+	// one concern holds only that concern's settings.
+	expect(() =>
+		defineFolder({
+			tables: {
+				settings: defineTable({ fields: { theme: field.string() } }),
+			},
+		} as never),
+	).toThrow("'theme' is a setting, which may be unset");
+	// A declaration already published that requires one is read as written,
+	// so the folder still opens and a row missing it is one to repair.
+	expectOk(
+		prepareFolderDefinition({
+			tables: { settings: { fields: { theme: field.string() } } },
+		} as never),
+	);
+});
+
 test('a definition names no folder: an id is refused where it is written and where it is opened', async () => {
 	const declared = { tables: {} };
 	expect(() =>

@@ -18,8 +18,9 @@ import {
 	type DataSchema,
 	type DeclaredTable,
 	type FieldMap,
+	isOptional,
 	prepareSchema,
-	type SETTINGS_TABLE,
+	SETTINGS_TABLE,
 } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
@@ -257,6 +258,12 @@ export function defineFolder<const TDefinition extends DataSchema>(
 			`A folder definition declares title, tables, and local; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}${unknown.includes('kv') ? '. Settings are rows of a `settings` table' : ''}`,
 		);
 	const { title, tables, local } = schema;
+	const settings = (tables as Record<string, FolderTable>)[SETTINGS_TABLE];
+	for (const [name, declared] of Object.entries(settings?.fields ?? {}))
+		if (!isOptional(declared as never))
+			throw new Error(
+				`'${name}' is a setting, which may be unset: declare it with field.optional(...)`,
+			);
 	const declaration: Definition = {
 		...(title === undefined ? {} : { title }),
 		tables,

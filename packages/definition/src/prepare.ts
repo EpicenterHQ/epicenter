@@ -25,12 +25,11 @@ import { Format } from 'typebox/format';
 import { Resolve } from 'typebox/schema';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result, trySync } from 'wellcrafted/result';
-import {
-	type ConformanceIssue,
-	type DataSchema,
-	type FieldMap,
-	SETTINGS_TABLE,
-	type TableDeclaration,
+import type {
+	ConformanceIssue,
+	DataSchema,
+	FieldMap,
+	TableDeclaration,
 } from './declaration.js';
 import { isJsonSafe, type JsonObject, type JsonValue } from './json.js';
 import { isTableName } from './table-name.js';
@@ -255,10 +254,6 @@ function prepareFields(
 			return unrecognized('a field is a TypeBox schema');
 		const problem = schemaProblem(declared);
 		if (problem !== undefined) return unrecognized(problem);
-		if (tableName === SETTINGS_TABLE && !Type.IsOptional(declared))
-			return unrecognized(
-				'a setting may always be unset, so it is declared with field.optional(...)',
-			);
 		const field = trySync({
 			try: () => {
 				const schema = plainSchema(declared, Type.IsOptional(declared));

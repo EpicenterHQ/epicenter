@@ -38,8 +38,8 @@
  *   holding `undefined` is absent
  * - `field.optional` makes a field absentable; `field.nullable` over an
  *   optional schema throws
- * - The `settings` table declares only `field.optional` fields; another table
- *   with the same fields keeps them required
+ * - A `settings` table prepares like any other: a published declaration that
+ *   requires a setting is read as written (only `defineFolder` refuses one)
  * - A native `default` annotation is admitted and inert: it fills nothing, and
  *   a missing required field is still an issue
  * - A frozen declared schema is prepared with every check it had
@@ -1846,7 +1846,7 @@ test('field.optional copies the schema it is given', () => {
 	expect(() => field.optional('string' as never)).toThrow('needs a schema');
 });
 
-test('the settings table declares only optional fields, and another table may require them', () => {
+test('a settings table prepares like any table, so a published one that requires a setting still reads', () => {
 	const settings = defineTable({
 		fields: {
 			theme: field.optional(field.select(['light', 'dark'])),
@@ -1863,16 +1863,8 @@ test('the settings table declares only optional fields, and another table may re
 	const required = defineTable({
 		fields: { theme: field.optional(field.string()), width: Type.Integer() },
 	});
-	expect(
-		expectErr(prepareSchema({ tables: { settings: required } })),
-	).toMatchObject({
-		name: 'UnrecognizedField',
-		table: 'settings',
-		field: 'width',
-		message: expect.stringContaining('field.optional'),
-	});
-	const elsewhere = expectOk(prepareSchema({ tables: { display: required } }));
-	expect(isOptional(fieldOf(elsewhere.tables.display.fields, 'width'))).toBe(
+	const published = expectOk(prepareSchema({ tables: { settings: required } }));
+	expect(isOptional(fieldOf(published.tables.settings.fields, 'width'))).toBe(
 		false,
 	);
 });
