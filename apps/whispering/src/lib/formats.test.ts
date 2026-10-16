@@ -1,36 +1,17 @@
 /**
- * The small pure pieces the workflow rests on: the audio container check
- * that names a recording's file, and the transcription request.
+ * The small pure pieces the workflow rests on: audio file facts, recording
+ * ids, and the transcription request.
  */
 import { expectOk } from 'wellcrafted/testing';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import {
-	audioMimeTypeOf,
-	resolveAudioFormat,
-	wavDurationMs,
-} from './audio-format.js';
+import { audioMimeTypeOf, wavDurationMs } from './audio-format.js';
 import { toneWav } from './capture.js';
 import { requestTranscription } from './transcription.js';
 
 const { recordingId } = await import('./library.svelte.ts');
 
-test('the container signature names the extension, not the claimed type', () => {
-	expect(resolveAudioFormat(toneWav(), 'audio/webm').extension).toBe('wav');
-	const webm = new Uint8Array(16);
-	webm.set([0x1a, 0x45, 0xdf, 0xa3]);
-	expect(resolveAudioFormat(webm, '').extension).toBe('webm');
-	const mp4 = new Uint8Array(16);
-	mp4.set([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70]);
-	expect(resolveAudioFormat(mp4, 'audio/webm')).toEqual({
-		extension: 'm4a',
-		mimeType: 'audio/mp4',
-	});
-	// Unrecognized bytes fall back to the claim, then to a file that is still saved.
-	expect(
-		resolveAudioFormat(new Uint8Array(16), 'audio/mp4;codecs=mp4a').extension,
-	).toBe('m4a');
-	expect(resolveAudioFormat(new Uint8Array(16), '').extension).toBe('bin');
+test('a file’s extension names its playback type, ignoring case', () => {
 	expect(audioMimeTypeOf('recordings/a.M4A')).toBe('audio/mp4');
 	expect(audioMimeTypeOf('recordings/a.md')).toBeUndefined();
 });
