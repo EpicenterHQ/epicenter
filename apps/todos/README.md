@@ -90,16 +90,12 @@ in another program, another window, or by an agent shows while you work
 
 ### What is and is not protected
 
-- One Epicenter owns the directory at a time. A second one pointed at the same
-  directory (a development and a production build sharing
-  `EPICENTER_FOLDER_DIR`) is refused when Todos opens, with a message naming
-  the directory. The lock is a file beside the directory,
-  `.so.epicenter.todos.epicenter-lock`. The operating system releases it when
-  Epicenter exits, including after a crash or a forced kill, so there is
-  nothing to clean up and the file is never deleted. It is not reliable on
-  network filesystems. A symbolic link or anything but a regular file at that
-  path is refused when Todos opens; a link swapped in while it runs is not
-  defended against.
+- Every Epicenter process, a second build or the `epicenter` CLI, takes turns
+  with Todos under the folder's save lock,
+  `.so.epicenter.todos.epicenter-save-lock`, across each check and change
+  (ADR-0562, ADR-0568). The operating system releases it when a process
+  exits, including after a crash or a forced kill. It is not reliable on
+  network filesystems.
 - The lock is between Epicenter processes. Other programs are not asked to
   take it. Every write is guarded by the version Todos last read or wrote: if
   another program changed or deleted the file since, the write changes

@@ -13,8 +13,9 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   through `src/lib/workspace/`: `@epicenter/folder/browser` is imported by the
   browser workspace alone, and `@epicenter/folder/tauri` by the desktop
   workspace alone. Other native services use Epicenter's generated bindings
-  (`src/lib/tauri/bindings.gen.ts`), imported only by the desktop workspace. The only direct Tauri import is
-  `isTauri` in the workspace opener. `src/lib/page-boundary.test.ts` enforces
+  (`src/lib/tauri/bindings.gen.ts`), imported only by the desktop workspace. The build
+  picks the workspace through `#platform/workspace` (ADR-0391); no page code
+  asks where it runs. `src/lib/page-boundary.test.ts` enforces
   these boundaries; keep it passing without granting native reach to components.
 - **One folder, one opener.** Inside Epicenter the shell's
   `tauri-plugin-epicenter-folder` grants Whispering's window its own folder,
@@ -31,9 +32,9 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   lost work.
 - **A folder that cannot be opened is reported, not replaced.** Opening
   returns a `Result`. Inside a desktop app, a shell that refuses the folder is
-  shown as that refusal; browser storage is never opened there. Whether the
-  page is inside a desktop app is asked of the runtime, never inferred from
-  anything the host injected.
+  shown as that refusal; browser storage is never opened there. The build
+  Epicenter serves carries no browser storage, and the browser workspace
+  refuses inside a desktop app.
 - **One session per mounted layout.** `src/routes/+layout.svelte` holds the
   one opening (`mountSession`) and `AppShell` puts its session in context. A page or component takes it with
   `getSession()`; it never opens a workspace, builds a library, or keeps

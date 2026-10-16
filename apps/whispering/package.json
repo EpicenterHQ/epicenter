@@ -4,6 +4,12 @@
 	"version": "7.11.1",
 	"description": "Voice notes: recordings, transcripts, and settings are files in a Git-versioned folder, in Epicenter or a browser tab",
 	"type": "module",
+	"imports": {
+		"#platform/workspace": {
+			"epicenter-host": "./src/lib/workspace/desktop.ts",
+			"default": "./src/lib/workspace/browser.ts"
+		}
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
@@ -14,7 +20,7 @@
 		"check": "bun run typecheck",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json"
 	},
 	"license": "AGPL-3.0-or-later",
 	"devDependencies": {

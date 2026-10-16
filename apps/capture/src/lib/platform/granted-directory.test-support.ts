@@ -12,7 +12,7 @@
  *
  * Neither checks paths the way the shell does; the folder package's own
  * tests and the shell's cover that. Git reads no global or system
- * configuration here, so the grant's author is the one Git records.
+ * configuration here, so the CLI's own author is the one Git records.
  */
 
 import { createHash } from 'node:crypto';
@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 import {
 	answerShellHistory,
 	type ShellHistoryCommand,
-} from '@epicenter/folder/bun';
+} from '../../../../../packages/folder/src/shell-history.test-support.js';
 
 /** A fresh directory under the system temp directory, by its real path. */
 export async function scratch(prefix: string): Promise<string> {
@@ -95,7 +95,6 @@ export async function shellCommand(
 	root: string,
 	cmd: string,
 	args: Record<string, unknown>,
-	author = { name: 'Epicenter', email: 'epicenter@localhost' },
 ): Promise<{ reply: unknown } | undefined> {
 	switch (cmd) {
 		case 'status':
@@ -107,11 +106,10 @@ export async function shellCommand(
 			process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 			process.env.GIT_CONFIG_NOSYSTEM = '1';
 			return {
-				reply: await answerShellHistory(
-					root,
-					{ command: cmd, ...args } as unknown as ShellHistoryCommand,
-					{ author },
-				),
+				reply: await answerShellHistory(root, {
+					command: cmd,
+					...args,
+				} as unknown as ShellHistoryCommand),
 			};
 		case 'read_folder_directory': {
 			const entries = await asShellError(() =>

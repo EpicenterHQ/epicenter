@@ -9,10 +9,9 @@
  * (`open_installed_app`): Capture's own folder, `CAPTURE_FOLDER_ID`, or
  * another folder whose declaration contains Capture's shape (ADR-0538). A
  * window handed no folder opens Capture's own. Capture owns its own folder's
- * schema, so it opens that folder with `openFolder`, which publishes
- * `captureDefinition`. Any other folder opens with `openDataFolder` and
- * `captureDefinition` as the lens: its declaration is never written, and one
- * that does not contain the lens is refused, named.
+ * schema, so `openHandedFolder` publishes `captureDefinition` to that folder
+ * and reads any other through it as a lens, refusing one that does not
+ * contain it by name.
  *
  * The page names the folder by its scope and nothing else; the shell chose
  * the directory, the fallback author, and the windows that may use it. The
@@ -25,37 +24,18 @@
  * Quitting Epicenter asks this window nothing (ADR-0542).
  */
 import { captureDefinition } from '@epicenter/capture';
-import { openDataFolder, openFolder } from '@epicenter/folder/tauri';
+import { openHandedFolder } from '@epicenter/folder/tauri';
 import { CAPTURE_FOLDER_ID, type OpenCaptureHost } from './types.js';
-
-/** The scope the shell handed this window as `?folder=`, if any. */
-function handedFolder(): string | undefined {
-	const handed = new URLSearchParams(globalThis.location?.search).get('folder');
-	return handed || undefined;
-}
-
-/**
- * The folder's name as a person knows it, its directory's: the shell scopes
- * a listed folder `data:<directory>`, and an app's own folder by its
- * directory, the app's id (`apps/epicenter/src-tauri/src/data_folders.rs`).
- */
-function folderName(id: string): string {
-	return id.startsWith('data:') ? id.slice('data:'.length) : id;
-}
 
 /** Called from a mounted component; importing this module opens nothing. */
 export const openCaptureHost: OpenCaptureHost = async () => {
-	const id = handedFolder() ?? CAPTURE_FOLDER_ID;
-	const { data: folder, error } =
-		id === CAPTURE_FOLDER_ID
-			? await openFolder({ id, definition: captureDefinition })
-			: await openDataFolder({ id, lens: captureDefinition });
-	if (error?.name === 'ShapeMismatch')
-		throw new Error(
-			`Capture cannot open the folder '${folderName(id)}': ${error.problems.map((problem) => problem.message).join('; ')}.`,
-			{ cause: error },
-		);
+	const { data, error } = await openHandedFolder({
+		ownId: CAPTURE_FOLDER_ID,
+		definition: captureDefinition,
+		appTitle: 'Capture',
+	});
 	if (error) throw new Error(error.message, { cause: error });
+	const { folder } = data;
 	return {
 		folder,
 		location: folder.location,

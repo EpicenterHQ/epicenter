@@ -6,11 +6,10 @@
  * (`open_installed_app`): Whispering's own folder, `WHISPERING_FOLDER_ID`,
  * `<folder root>/so.epicenter.whispering`, or another folder chosen with "Open
  * in Whispering" (ADR-0560). A window handed no folder opens Whispering's own.
- * Whispering owns its own folder's schema, so it opens that folder with
- * `openFolder`, which publishes `whisperingDefinition`. Any other folder opens
- * with `openDataFolder` and `whisperingDefinition` as the lens (ADR-0538): its
- * declaration is never written, and one that does not contain the lens is
- * refused, named.
+ * Whispering owns its own folder's schema, so `openHandedFolder` publishes
+ * `whisperingDefinition` to that folder and reads any other through it as a
+ * lens (ADR-0538): its declaration is never written, and one that does not
+ * contain the lens is refused, named.
  *
  * Either way the page names only the scope: the shell grants the window the
  * directory and holds its lock, and the page's own folder engine reads it,
@@ -40,8 +39,7 @@ import {
 	CONNECTIONS_FOLDER_ID,
 	connectionsLens,
 } from '@epicenter/ai/connection-table';
-import type { OpenFolderError } from '@epicenter/folder';
-import { openDataFolder, openFolder } from '@epicenter/folder/tauri';
+import { openDataFolder, openHandedFolder } from '@epicenter/folder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
 import {
@@ -71,50 +69,13 @@ import {
 } from './local-transcription.js';
 import { localPreferences } from './microphone-preference.js';
 import {
+	type OpenWorkspace,
 	WHISPERING_FOLDER_ID,
-	type WhisperingFolder,
 	type Workspace,
 	WorkspaceError,
 } from './types.js';
 
 type Route = Awaited<ReturnType<DesktopConnections['route']>>;
-
-/** The scope the shell handed this window as `?folder=`, if any. */
-function handedFolder(): string | undefined {
-	const handed = new URLSearchParams(globalThis.location?.search).get('folder');
-	return handed || undefined;
-}
-
-/**
- * The folder's name as a person knows it, its directory's: the shell scopes
- * a listed folder `data:<directory>`, and an app's own folder by its
- * directory, the app's id (`apps/epicenter/src-tauri/src/data_folders.rs`).
- */
-function folderName(id: string): string {
-	return id.startsWith('data:') ? id.slice('data:'.length) : id;
-}
-
-/**
- * Open the folder this window was handed: Whispering's own with its
- * definition, any other through it as a lens. A folder that lacks the lens is
- * refused with its name and what it lacks.
- */
-async function openHandedFolder(
-	id: string,
-): Promise<Result<WhisperingFolder, OpenFolderError>> {
-	if (id === WHISPERING_FOLDER_ID)
-		return openFolder({ id, definition: whisperingDefinition });
-	const { data: folder, error } = await openDataFolder({
-		id,
-		lens: whisperingDefinition,
-	});
-	if (error === null) return Ok(folder);
-	if (error.name !== 'ShapeMismatch') return Err(error);
-	return Err({
-		...error,
-		message: `Whispering cannot open the folder '${folderName(id)}': ${error.problems.map((problem) => problem.message).join('; ')}.`,
-	});
-}
 
 export async function openDesktopWorkspace({
 	commands: native = commands,
@@ -130,11 +91,14 @@ export async function openDesktopWorkspace({
 		Result<ConnectionsFolder, { readonly message: string }>
 	>;
 } = {}): Promise<Result<Workspace, WorkspaceError>> {
-	const folderId = handedFolder() ?? WHISPERING_FOLDER_ID;
-	const opened = await openHandedFolder(folderId);
+	const opened = await openHandedFolder({
+		ownId: WHISPERING_FOLDER_ID,
+		definition: whisperingDefinition,
+		appTitle: 'Whispering',
+	});
 	if (opened.error !== null)
 		return WorkspaceError.DesktopFolder({ refusal: opened.error });
-	const folder = opened.data;
+	const { folder, id: folderId } = opened.data;
 	const root = folder.location.kind === 'directory' ? folder.location.root : '';
 	const connections = createDesktopConnections({
 		commands: connectionCommands,
@@ -230,3 +194,6 @@ export async function openDesktopWorkspace({
 		},
 	});
 }
+
+/** The `#platform/workspace` leaf of the build Epicenter serves. */
+export const openWorkspace: OpenWorkspace = () => openDesktopWorkspace();

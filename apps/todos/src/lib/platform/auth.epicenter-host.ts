@@ -12,12 +12,7 @@
  * with the same grant.
  */
 
-import {
-	bytesToBase64,
-	createResponseReader,
-	type SendEvent,
-	toSendRequest,
-} from '@epicenter/ai/send';
+import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
 import type { AuthClient } from '@epicenter/auth';
 import {
 	createDesktopAccountAuth,
@@ -36,12 +31,6 @@ type AuthStatus = {
 		signedInAt: string | null;
 	}[];
 };
-
-/** The shell's own last line of a send: the run ended. */
-type ExitLine = { type: 'exit'; code: number; stderr: string };
-
-const describe = (cause: unknown) =>
-	cause instanceof Error ? cause.message : String(cause);
 
 /** The desktop grant, the one the app signs in with, from `auth_status`. */
 async function status(): Promise<DesktopAccountStatus> {
@@ -69,47 +58,12 @@ async function send(
 	const origin = new URL(request.url).origin;
 	const { data: prepared, error } = await toSendRequest(origin, request);
 	if (error !== null) throw new Error(error.message);
-	const reader = createResponseReader();
-	const channel = new Channel<string>();
-	channel.onmessage = (line) => {
-		let event: SendEvent | ExitLine;
-		try {
-			event = JSON.parse(line);
-		} catch {
-			reader.fail({
-				name: 'InvalidResponse',
-				message: 'Epicenter answered with a line that does not read',
-			});
-			return;
-		}
-		// The run ended, so a response not ended by now never will be.
-		if (event.type === 'exit')
-			reader.fail({
-				name: 'Incomplete',
-				message: `the epicenter command exited ${event.code}${event.stderr.trim() ? `: ${event.stderr.trim()}` : ''}`,
-			});
-		else reader.push(event);
-	};
-	invoke('account_send', {
-		audience,
-		request: {
-			method: prepared.method,
-			path: prepared.path,
-			headers: prepared.headers,
-			body: prepared.body ? bytesToBase64(prepared.body) : null,
-		},
-		onEvent: channel,
-	}).catch((cause: unknown) => {
-		const refusal = cause as { name?: string; message?: string } | undefined;
-		reader.fail({
-			name: refusal?.name ?? 'Failed',
-			message: refusal?.message ?? describe(cause),
-		});
+	return sendThroughShell(prepared, async (wire, onLine) => {
+		const channel = new Channel<string>();
+		channel.onmessage = onLine;
+		await invoke('account_send', { audience, request: wire, onEvent: channel });
+		return null;
 	});
-	const { data: response, error: failure } = await reader.response;
-	if (failure !== null)
-		throw Object.assign(new Error(failure.message), { name: failure.name });
-	return response;
 }
 
 export const auth: AuthClient | undefined = createDesktopAccountAuth({

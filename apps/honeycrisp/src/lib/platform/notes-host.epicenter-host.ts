@@ -8,12 +8,11 @@
  * another folder whose declaration contains Honeycrisp's shape (ADR-0538). A
  * window handed no folder opens Honeycrisp's own.
  *
- * Honeycrisp owns its own folder's schema, so it opens that folder with
- * `openFolder`, which publishes `honeycrispDefinition`, and sets up what its
- * layout is missing (`first-open.ts`). Any other folder opens with
- * `openDataFolder` and `honeycrispDefinition` as the lens: its declaration is
- * never written, nothing is set up in it, and one that does not contain the
- * lens is refused, named.
+ * Honeycrisp owns its own folder's schema, so `openHandedFolder` publishes
+ * `honeycrispDefinition` to that folder, and this leaf sets up what its
+ * layout is missing (`first-open.ts`). Any other folder is read through
+ * `honeycrispDefinition` as a lens: its declaration is never written, nothing
+ * is set up in it, and one that does not contain the lens is refused, named.
  *
  * The page names the folder by its scope and nothing else; the shell chose
  * the directory, the fallback author, and the windows that may use it. The
@@ -25,7 +24,7 @@
  * folder to fall back to in this build. Quitting Epicenter asks this window
  * nothing (ADR-0542).
  */
-import { openDataFolder, openFolder } from '@epicenter/folder/tauri';
+import { openHandedFolder } from '@epicenter/folder/tauri';
 import { honeycrispDefinition } from '../data.js';
 import { setUpFolder } from './first-open.js';
 import {
@@ -35,53 +34,28 @@ import {
 	type OpenNotes,
 } from './types.js';
 
-/** The scope the shell handed this window as `?folder=`, if any. */
-function handedFolder(): string | undefined {
-	const handed = new URLSearchParams(globalThis.location?.search).get('folder');
-	return handed || undefined;
-}
-
-/**
- * The folder's name as a person knows it, its directory's: the shell scopes
- * a listed folder `data:<directory>`, and an app's own folder by its
- * directory, the app's id (`apps/epicenter/src-tauri/src/data_folders.rs`).
- */
-function folderName(id: string): string {
-	return id.startsWith('data:') ? id.slice('data:'.length) : id;
-}
-
-async function openHandedFolder(id: string): Promise<NotesFolder> {
-	if (id === HONEYCRISP_FOLDER_ID) {
-		const { data: folder, error } = await openFolder({
-			id,
-			definition: honeycrispDefinition,
-		});
-		if (error) throw new Error(error.message, { cause: error });
-		try {
-			// The shell holds the directory's lock now. An existing folder is
-			// left as it is.
-			await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));
-		} catch (cause) {
-			await folder.close();
-			throw cause;
-		}
-		return folder;
-	}
-	const { data: folder, error } = await openDataFolder({
-		id,
-		lens: honeycrispDefinition,
+async function openNotesFolder(): Promise<NotesFolder> {
+	const { data, error } = await openHandedFolder({
+		ownId: HONEYCRISP_FOLDER_ID,
+		definition: honeycrispDefinition,
+		appTitle: 'Honeycrisp',
 	});
-	if (error?.name === 'ShapeMismatch')
-		throw new Error(
-			`Honeycrisp cannot open the folder '${folderName(id)}': ${error.problems.map((problem) => problem.message).join('; ')}.`,
-			{ cause: error },
-		);
 	if (error) throw new Error(error.message, { cause: error });
+	const { folder, own } = data;
+	if (!own) return folder;
+	try {
+		// The shell holds the directory's lock now. An existing folder is
+		// left as it is.
+		await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));
+	} catch (cause) {
+		await folder.close();
+		throw cause;
+	}
 	return folder;
 }
 
 async function acquire(): Promise<NotesHost> {
-	const folder = await openHandedFolder(handedFolder() ?? HONEYCRISP_FOLDER_ID);
+	const folder = await openNotesFolder();
 	const { location } = folder;
 	return {
 		folder,

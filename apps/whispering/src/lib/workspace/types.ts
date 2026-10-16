@@ -209,3 +209,10 @@ export type Workspace = {
 		| undefined;
 	close(): Promise<void>;
 };
+
+/**
+ * Opens the build's workspace: the desktop leaf in the build Epicenter serves,
+ * the browser leaf otherwise (`#platform/workspace` in `package.json`). A
+ * refusal is returned as it is; a leaf never opens another storage instead.
+ */
+export type OpenWorkspace = () => Promise<Result<Workspace, WorkspaceError>>;

@@ -156,10 +156,10 @@ The shell's side is the shared folder plugin in
 [`packages/tauri-plugin-epicenter-folder`](../../packages/tauri-plugin-epicenter-folder/README.md),
 whose README states what a grant allows. What that means for Capture:
 
-- One Epicenter holds the directory at a time, through a lock file beside
-  it, `.so.epicenter.capture.epicenter-lock`, which the shell takes at the
-  first grant and keeps until it shuts down. A second Epicenter is refused
-  with a message naming the directory.
+- Every Epicenter process, a second build or the `epicenter` CLI, takes turns
+  with this window under the folder's save lock,
+  `.so.epicenter.capture.epicenter-save-lock`, across each check and change
+  (ADR-0562, ADR-0568).
 - Other programs are not asked to take the lock. Every write and delete
   names the version of the file this window last wrote or read. A row write
   merges with another program's edit, keeping what only they changed; a text

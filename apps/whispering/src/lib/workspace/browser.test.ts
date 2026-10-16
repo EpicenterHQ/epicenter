@@ -31,7 +31,7 @@ mock.module('@epicenter/folder/browser', () => ({
 		return Ok(folder);
 	},
 }));
-const { openBrowserWorkspace } = await import('./browser.js');
+const { openWorkspace: openBrowserWorkspace } = await import('./browser.js');
 const originalStorage = Object.getOwnPropertyDescriptor(
 	globalThis,
 	'localStorage',

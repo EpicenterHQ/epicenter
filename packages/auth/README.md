@@ -94,7 +94,7 @@ page and uses its session cookie.
 ## Desktop
 
 The desktop app's sign-in is the `epicenter` CLI's desktop grant
-(ADR-0556, ADR-0558). Settings signs in with `epicenter auth login --loopback`
+(ADR-0556, ADR-0558). Settings signs in with `epicenter auth login --desktop`
 and signs out with `epicenter auth logout`; the CLI keeps the refresh token in
 the keychain and mints access tokens per resource. No WebView holds a token
 (ADR-0549's desktop row). Compile the shell with `EPICENTER_SERVER_ORIGIN` for

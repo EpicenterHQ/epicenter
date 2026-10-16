@@ -3,8 +3,8 @@
  * Epicenter.
  *
  * The shell's replies are scripted here, so these pin what the page itself
- * decides: which storage it asks for, that it names a folder and never a
- * path, that a refusal is returned and nothing else is opened in its place,
+ * decides: that the browser workspace refuses inside a desktop app, that it
+ * names a folder and never a path, that a refusal is returned and nothing else is opened in its place,
  * and that the folder's changes go to the shell. The shell grants a real
  * directory, and the page's own folder engine opens it
  * (`granted-folder.test-support.ts`); nothing here runs the Rust shell or a
@@ -71,8 +71,7 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-const { openWorkspace } = await import('./index.js');
-const { openBrowserWorkspace } = await import('./browser.js');
+const { openWorkspace: openBrowserWorkspace } = await import('./browser.js');
 const { openDesktopWorkspace } = await import('./desktop.js');
 
 const ORIGIN = 'http://127.0.0.1:39130';
@@ -276,32 +275,8 @@ const openWith = (host: Epicenter) =>
 	});
 
 // ============================================================================
-// Which storage is asked for
+// The browser workspace inside a desktop app
 // ============================================================================
-
-test('inside a desktop app the page opens the folder Epicenter grants it, and never browser storage', async () => {
-	setup();
-	await granted();
-
-	const workspace = expectOk(await openWorkspace());
-
-	expect(workspace.kind).toBe('native');
-	expect(calls[0]).toEqual({ cmd: 'grant_directory', args: { scope: SCOPE } });
-	await workspace.close();
-});
-
-test('a browser tab asks for browser storage and never the shell', async () => {
-	inShell = false;
-	setup();
-
-	const refused = expectErr(await openWorkspace());
-
-	// The tab asked for browser storage, which this process does not have.
-	expect(refused.name).toBe('BrowserFolder');
-	if (refused.name === 'BrowserFolder')
-		expect(refused.refusal.name).toBe('NoFileSystem');
-	expect(calls).toEqual([]);
-});
 
 test('a browser folder that is refused is returned as that refusal', async () => {
 	setup();
@@ -360,7 +335,6 @@ test('a refusal from the shell is returned, and nothing is opened in its place',
 	for (const refusal of [
 		{ name: 'UnknownScope', scope: SCOPE },
 		{ name: 'WindowNotPermitted', scope: SCOPE, window: 'other' },
-		{ name: 'Busy', root: '/elsewhere' },
 		// What Tauri answers a window with no capability for the plugin.
 		'epicenter-folder.grant_directory not allowed',
 	]) {
@@ -414,7 +388,7 @@ test('saves and history go through the shell', async () => {
 	await workspace.close();
 });
 
-test('a version is recorded as the person Git’s configuration names, and as Whispering only when none is set', async () => {
+test('a version is recorded as the person Git’s configuration names, and as Epicenter only when none is set', async () => {
 	setup();
 	const { root } = await granted();
 	const first = expectOk(await openDesktopWorkspace({ commands: noCommands }));
@@ -422,7 +396,7 @@ test('a version is recorded as the person Git’s configuration names, and as Wh
 	expect((await first.folder.git.commit()).status).toBe('committed');
 	await first.close();
 	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(
-		'Whispering <whispering@localhost>',
+		'Epicenter <epicenter@localhost>',
 	);
 
 	// The person sets who they are; the next opening records versions as them.

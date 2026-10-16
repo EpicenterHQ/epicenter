@@ -228,26 +228,16 @@ export const commands = {
 	 *  sync that needs choices records its attempt in the folder for
 	 *  `settle_sync`.
 	 */
-	sync: (scope: string, remote: string | null, allowUnrelated: boolean, credential: {
-	url: string,
-	username: string,
-	password: string,
-} | null) => typedError<CliExit, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated, credential })),
+	sync: (scope: string, remote: string | null, allowUnrelated: boolean) => typedError<CliExit, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated })),
 	/**
 	 *  Settle the sync attempt this folder recorded, named by its ID, with one
 	 *  choice per conflict, then push. The conflicts are read again from the
 	 *  commits the attempt recorded; nothing of them crosses from the page.
 	 */
-	settleSync: (scope: string, attempt: string, choices: string, credential: {
-	url: string,
-	username: string,
-	password: string,
-} | null) => typedError<CliExit, CliError>(__TAURI_INVOKE("settle_sync", { scope, attempt, choices, credential })),
+	settleSync: (scope: string, attempt: string, choices: string) => typedError<CliExit, CliError>(__TAURI_INVOKE("settle_sync", { scope, attempt, choices })),
 	/**
-	 *  Start what gives this computer a `git`, after the CLI answered
-	 *  `GitMissing` (ADR-0559): on macOS the Command Line Tools installer, a
-	 *  one-time step; on Windows the Git for Windows download page. Elsewhere a
-	 *  package manager installs it, which this cannot start.
+	 *  Start the Command Line Tools installer, which gives this Mac a `git`,
+	 *  after the CLI answered `GitMissing` (ADR-0559). It is a one-time step.
 	 */
 	installGit: () => typedError<null, string>(__TAURI_INVOKE("install_git")),
 	/**
@@ -428,7 +418,7 @@ export type AiKeyState = { state: "missing" } | { state: "saved"; endpoint: stri
  */
 export type AiRequest = {
 	method: string,
-	/**  Below the target, such as `audio/transcriptions` or `api/git/connect`. */
+	/**  Below the target, such as `audio/transcriptions` or `api/repos`. */
 	path: string,
 	headers: ([string, string])[],
 	/**  The body in base64, decoded here and written to the CLI as raw bytes. */
@@ -615,16 +605,6 @@ export type DownloadProgress = {
 	totalBytes: number | null,
 };
 
-/**
- *  A credential the page holds for exactly one remote URL, which the child
- *  sends only to that URL, and only when it is `https`.
- */
-export type GitCredential = {
-	url: string,
-	username: string,
-	password: string,
-};
-
 export type GlobalShortcutRegistration = {
 	commandId: string,
 	accelerator: string,
@@ -646,14 +626,12 @@ export type GrantError =
 { name: "UnknownScope"; scope: string } | 
 /**  The scope exists, but is not registered for this window. */
 { name: "WindowNotPermitted"; scope: string; window: string } | 
-/**  Another process holds the folder. */
-{ name: "Busy"; root: string } | 
 /**
  *  A data folder's directory is not there. The shell creates only an
  *  application's own folder.
  */
 { name: "Missing"; root: string } | 
-/**  The folder could not be prepared, locked, or reached. */
+/**  The folder could not be prepared or reached. */
 { name: "Unavailable"; message: string } | 
 /**  The shell is shutting its folders down. */
 { name: "ShuttingDown" };

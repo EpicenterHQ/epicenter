@@ -62,19 +62,8 @@ mock.module('@tauri-apps/api/core', () => ({
 		const call = { cmd: name.replace(PLUGIN, ''), args };
 		calls.push(call);
 		await before[call.cmd]?.(call);
-		if (call.cmd === 'grant_directory')
-			return grant
-				? grant()
-				: {
-						root,
-						branch: 'main',
-						authorName: 'Capture',
-						authorEmail: 'capture@localhost',
-					};
-		const answered = await shellCommand(root, call.cmd, args, {
-			name: 'Capture',
-			email: 'capture@localhost',
-		});
+		if (call.cmd === 'grant_directory') return grant ? grant() : { root };
+		const answered = await shellCommand(root, call.cmd, args);
 		if (answered === undefined)
 			throw new Error(`the scripted shell has no ${call.cmd}`);
 		return answered.reply;
@@ -176,11 +165,6 @@ test.each([
 				window: 'capture',
 			}),
 		"The window 'capture' may not use the folder",
-	],
-	[
-		'a folder another Epicenter holds',
-		() => refuse({ name: 'Busy', root: '/Users/someone/Epicenter/capture' }),
-		'/Users/someone/Epicenter/capture',
 	],
 	[
 		// Tauri rejects an unknown or unpermitted command with a bare string.
@@ -370,7 +354,7 @@ test('Save version commits and rewrites no file', async () => {
 		path,
 	);
 	expect(await git(root, 'log', '-1', '--format=%an <%ae>')).toBe(
-		'Capture <capture@localhost>',
+		'Epicenter <epicenter@localhost>',
 	);
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await captures.close();

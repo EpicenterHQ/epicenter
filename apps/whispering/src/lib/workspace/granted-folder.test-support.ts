@@ -30,7 +30,7 @@ import { join } from 'node:path';
 import {
 	answerShellHistory,
 	type ShellHistoryCommand,
-} from '../../../../../packages/folder/src/history-command.js';
+} from '../../../../../packages/folder/src/shell-history.test-support.js';
 
 export type ShellCall = { cmd: string; args: Record<string, unknown> };
 
@@ -135,12 +135,7 @@ export function createGrantedShell(root: string, scope: string) {
 	const changes: DataChange[] = [];
 	const control = {
 		/** The shell's answer to `grant_directory`; throw to refuse. */
-		grant: (): unknown => ({
-			root,
-			branch: 'main',
-			authorName: 'Whispering',
-			authorEmail: 'whispering@localhost',
-		}),
+		grant: (): unknown => ({ root }),
 		/** Runs before each data change is made; await in it to hold the change. */
 		beforeChange: undefined as
 			| ((change: DataChange) => Promise<void>)
@@ -159,15 +154,10 @@ export function createGrantedShell(root: string, scope: string) {
 		// The CLI's `git` reads no global or system configuration here.
 		process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 		process.env.GIT_CONFIG_NOSYSTEM = '1';
-		const granted = control.grant() as {
-			authorName: string;
-			authorEmail: string;
-		};
-		return answerShellHistory(
-			root,
-			{ command: cmd, ...args } as unknown as ShellHistoryCommand,
-			{ author: { name: granted.authorName, email: granted.authorEmail } },
-		);
+		return answerShellHistory(root, {
+			command: cmd,
+			...args,
+		} as unknown as ShellHistoryCommand);
 	};
 
 	/** One data change, under the test's controls. */

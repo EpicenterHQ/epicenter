@@ -1,40 +1,21 @@
 /**
  * Opens the workspace this page was given.
  *
- * Where the page runs decides which storage it has: inside a desktop app the
- * page is Whispering installed in Epicenter (ADR-0493, ADR-0552), and its
- * folder is the one Epicenter's shell grants; in a browser tab it is this
- * browser's own. That is asked of the runtime, never inferred from anything
- * the host injected.
- *
- * The desktop workspace and its Tauri adapter are loaded only when the page is
- * inside a desktop app, so a browser tab never loads them.
+ * The build decides which storage it has (ADR-0391): the build Epicenter
+ * serves (ADR-0493, ADR-0552) resolves `#platform/workspace` to the desktop
+ * workspace, whose folder is the one Epicenter's shell grants; every other
+ * build resolves it to the browser workspace, this browser's own storage.
+ * Neither build carries the other's adapter, and the browser workspace
+ * refuses inside a desktop app, so a desktop window never opens browser
+ * storage.
  */
-import { isTauri } from '@tauri-apps/api/core';
-import type { Result } from 'wellcrafted/result';
-import type { Workspace, WorkspaceError } from './types.js';
-
+export { openWorkspace } from '#platform/workspace';
 export type {
 	InjectionState,
+	OpenWorkspace,
 	TerminalResult,
 	WhisperingFolder,
 	Workspace,
 	WorkspaceError,
 	WorkspaceTerminal,
 } from './types.js';
-
-/**
- * Called from a mounted component; importing this module opens nothing. A
- * refusal is returned as it is. Inside a desktop app browser storage is never
- * opened, whatever is missing or refused.
- */
-export async function openWorkspace(): Promise<
-	Result<Workspace, WorkspaceError>
-> {
-	if (!isTauri()) {
-		const { openBrowserWorkspace } = await import('./browser.js');
-		return openBrowserWorkspace();
-	}
-	const { openDesktopWorkspace } = await import('./desktop.js');
-	return openDesktopWorkspace();
-}

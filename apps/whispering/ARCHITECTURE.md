@@ -120,8 +120,11 @@ arrived when the app quits is lost.
 
 ## The storage boundary
 
-`src/lib/workspace/types.ts` is the one seam. `openWorkspace()` picks an
-implementation when the app layout mounts:
+`src/lib/workspace/types.ts` is the one seam. The build picks its
+implementation (ADR-0391): `#platform/workspace` in `package.json` resolves to
+`desktop.ts` in the build Epicenter serves (`EPICENTER_HOST=1`, the
+`epicenter-host` condition) and to `browser.ts` otherwise, and
+`openWorkspace()` opens it when the app layout mounts:
 
 | | Desktop, in Epicenter (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
@@ -133,16 +136,14 @@ implementation when the app layout mounts:
 | Chosen microphone | `localStorage` | `localStorage` |
 | Terminal, reveal, failure injection | None | None |
 
-`isTauri()` selects the storage: inside a desktop app the folder is the
-shell's, and in a browser tab it is the browser's. There is no build flag
-for it. The desktop workspace opens the folder the window is handed as
-`?folder=<scope>`, or Whispering's own when it is handed none.
-`openFolder({ id: WHISPERING_FOLDER_ID, definition })` asks the shell for the
-scope `so.epicenter.whispering` (`grant_directory`), the folder Epicenter hands
-an installed app opened from its Apps list, and opens the directory it is
-granted. Any other handed folder opens with
-`openDataFolder({ id, lens: whisperingDefinition })`, which never writes its
-`epicenter.json` and refuses one that lacks Whispering's tables with
+The desktop workspace opens the folder the window is handed as
+`?folder=<scope>`, or Whispering's own when it is handed none, with
+`openHandedFolder` from `@epicenter/folder/tauri`. Whispering's own folder
+asks the shell for the scope `so.epicenter.whispering` (`grant_directory`),
+the folder Epicenter hands an installed app opened from its Apps list, and
+opens the directory it is granted with `whisperingDefinition`. Any other
+handed folder opens with `whisperingDefinition` as the lens, which never
+writes its `epicenter.json` and refuses one that lacks Whispering's tables with
 "Whispering cannot open the folder '<name>': …". Recordings are written under
 the scope opened (`Workspace.folderId`). The shell's refusal (an unknown scope, a window the
 scope does not list, a folder another process holds, a missing permission) is
@@ -157,13 +158,15 @@ desktop app is replaced by browser storage, and the browser opener itself
 refuses there (`InsideTauri`).
 
 Page code names types and helpers from `@epicenter/folder`. `vite.config.ts`
-aliases that exact specifier to `@epicenter/folder/browser`. The desktop
-workspace imports `@epicenter/folder/tauri` by its own name, which the alias
-leaves alone, and the opener loads that workspace with a dynamic import, so a
-browser tab never loads the desktop adapter or Epicenter's generated
-bindings. `src/lib/page-boundary.test.ts` fails if anything else under `src/`
-opens a folder, imports a Node or Bun module, imports a Tauri module other
-than the opener's `isTauri`, imports the bindings outside the desktop
+aliases that exact specifier to `@epicenter/folder/tauri` in the host build
+and to `@epicenter/folder/browser` otherwise, so a browser build carries no
+desktop adapter or Epicenter's generated bindings, and the host build no
+browser storage or isomorphic-git. `src/lib/platform-selection.test.ts`
+bundles both builds and reads what each pulls in.
+`src/lib/page-boundary.test.ts` fails if anything else under `src/` opens a
+folder, imports a workspace other than through `#platform/workspace`, imports
+a Node or Bun module, imports a Tauri module other than the `Channel` the
+desktop connections stream on, imports the bindings outside the desktop
 workspace, or imports the Yjs store.
 
 ## Installed in Epicenter

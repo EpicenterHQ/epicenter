@@ -32,12 +32,7 @@ import {
 	CONNECTIONS_FOLDER_ID,
 	type connectionsLens,
 } from '@epicenter/ai/connection-table';
-import {
-	bytesToBase64,
-	createResponseReader,
-	type SendEvent,
-	toSendRequest,
-} from '@epicenter/ai/send';
+import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
 import type { Folder, FolderDefinition } from '@epicenter/folder';
 import { Channel } from '@tauri-apps/api/core';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -112,52 +107,18 @@ async function sendThroughEpicenter(
 ): Promise<Response> {
 	const { data: request, error } = await toSendRequest(endpoint, input, init);
 	if (error !== null) throw new Error(error.message);
-	const reader = createResponseReader();
-	const channel = new Channel<string>();
-	channel.onmessage = (line) => {
-		let event: SendEvent | { type: 'exit'; code: number; stderr: string };
-		try {
-			event = JSON.parse(line);
-		} catch {
-			reader.fail({
-				name: 'InvalidResponse',
-				message: 'Epicenter answered with a line that does not read',
-			});
-			return;
-		}
-		// The shell's own last line: the run ended, so a response not ended by now never will be.
-		if (event.type === 'exit')
-			reader.fail({
-				name: 'Incomplete',
-				message: `the epicenter command exited ${event.code}${event.stderr.trim() ? `: ${event.stderr.trim()}` : ''}`,
-			});
-		else reader.push(event);
-	};
-	native
-		.aiSend(
+	return sendThroughShell(request, async (wire, onLine) => {
+		const channel = new Channel<string>();
+		channel.onmessage = onLine;
+		const { error: refusal } = await native.aiSend(
 			target === 'epicenter'
 				? { kind: 'epicenter', connection }
 				: { kind: 'openai-compatible', connection, endpoint },
-			{
-				method: request.method,
-				path: request.path,
-				headers: request.headers.map(([name, value]) => [name, value]),
-				body: request.body ? bytesToBase64(request.body) : null,
-			},
+			wire,
 			channel,
-		)
-		.then(
-			({ error: runError }) => {
-				if (runError !== null)
-					reader.fail({ name: runError.name, message: failureOf(runError) });
-			},
-			(cause: unknown) =>
-				reader.fail({ name: 'Failed', message: describe(cause) }),
 		);
-	const { data: response, error: failure } = await reader.response;
-	if (failure !== null)
-		throw Object.assign(new Error(failure.message), { name: failure.name });
-	return response;
+		return refusal && { name: refusal.name, message: failureOf(refusal) };
+	});
 }
 
 export type DesktopConnections = ReturnType<typeof createDesktopConnections>;

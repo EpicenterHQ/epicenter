@@ -42,7 +42,9 @@ let opened: Opened[] = [];
 /** The directory the shell registered under each scope. */
 let roots: Record<string, string> = {};
 
-mock.module('@epicenter/folder/tauri', () => ({
+// `openHandedFolder` reaches the shell through the desktop adapter, so the
+// adapter is what stands in for the shell.
+mock.module('../../../../../packages/folder/src/tauri-adapter.js', () => ({
 	openFolder: (options: OpenFolderOptions<FolderDefinition>) => {
 		opened.push({ opener: 'openFolder', id: options.id });
 		return bun.openFolder({

@@ -11,7 +11,7 @@
  * the person is shown: nothing else is opened in its place.
  */
 import { openFolder } from '@epicenter/folder/browser';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
 import { createFixtureDevice, toneWav } from '../capture.js';
 import {
@@ -37,8 +37,8 @@ import {
 } from '../transformation.js';
 import { localPreferences } from './microphone-preference.js';
 import {
+	type OpenWorkspace,
 	WHISPERING_FOLDER_ID,
-	type Workspace,
 	WorkspaceError,
 } from './types.js';
 
@@ -105,9 +105,8 @@ function wantsToneFixture(): boolean {
 	);
 }
 
-export async function openBrowserWorkspace(): Promise<
-	Result<Workspace, WorkspaceError>
-> {
+/** The `#platform/workspace` leaf of every build Epicenter does not serve. */
+export const openWorkspace: OpenWorkspace = async () => {
 	const { data: folder, error: openError } = await openFolder({
 		id: WHISPERING_FOLDER_ID,
 		definition: whisperingDefinition,
@@ -221,4 +220,4 @@ export async function openBrowserWorkspace(): Promise<
 		injection: undefined,
 		close: () => folder.close(),
 	});
-}
+};

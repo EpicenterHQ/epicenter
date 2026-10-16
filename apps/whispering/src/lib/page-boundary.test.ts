@@ -7,8 +7,8 @@
  * two places, each naming its entry: the browser workspace opens browser
  * storage, and the desktop workspace opens the directory the desktop shell
  * grants.
- * The only other Tauri import is the one question the workspace opener asks,
- * whether the page is inside a desktop app. The recording workflow is
+ * The build picks the workspace (`#platform/workspace`), so no page code asks
+ * where it is running. The recording workflow is
  * file-backed, so it may not reach the Yjs store either. This reads the
  * sources, so a violation names its file.
  *
@@ -55,7 +55,7 @@ function importers(matches: (specifier: string) => boolean) {
 	return found;
 }
 
-test('the page imports no Node or Bun module, and Tauri only to ask where it is running', () => {
+test('the page imports no Node or Bun module, and Tauri only for the Channel a response streams on', () => {
 	expect(
 		importers(
 			(specifier) =>
@@ -65,14 +65,13 @@ test('the page imports no Node or Bun module, and Tauri only to ask where it is 
 				specifier === '@epicenter/folder/bun',
 		),
 	).toEqual([]);
-	// The Tauri APIs the page names: the opener asks whether it is inside a
-	// desktop app, and the desktop connections open the `Channel` an AI
-	// response streams back on. Folder commands are the folder adapter's, and
-	// Epicenter's own commands go through its generated bindings (below).
+	// The one Tauri API the page names: the desktop connections open the
+	// `Channel` an AI response streams back on. Folder commands are the folder
+	// adapter's, and Epicenter's own commands go through its generated
+	// bindings (below).
 	expect(
 		importers((specifier) => specifier.startsWith('@tauri-apps/')),
 	).toEqual([
-		'lib/workspace/index.ts imports @tauri-apps/api/core',
 		'lib/workspace/desktop-connections.ts imports @tauri-apps/api/core',
 	]);
 });
@@ -85,10 +84,8 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 	expect(
 		importers((specifier) => specifier === '@epicenter/folder/tauri'),
 	).toEqual(['lib/workspace/desktop.ts imports @epicenter/folder/tauri']);
-	expect(callers('openFolder').sort()).toEqual([
-		'lib/workspace/browser.ts',
-		'lib/workspace/desktop.ts',
-	]);
+	expect(callers('openFolder')).toEqual(['lib/workspace/browser.ts']);
+	expect(callers('openHandedFolder')).toEqual(['lib/workspace/desktop.ts']);
 	const folderEntries = importers((specifier) =>
 		specifier.startsWith('@epicenter/folder'),
 	).map((found) => found.split(' imports ')[1]);
@@ -100,29 +97,24 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 		'@epicenter/folder/svelte',
 		'@epicenter/folder/tauri',
 	]);
-	// The bare specifier is built against the browser entry. It is the exact
-	// specifier only, so the desktop workspace's entry is left as it is.
+	// Each build points the exact bare specifier at its workspace's entry;
+	// `platform-selection.test.ts` reads what each build pulls in.
 	expect(
 		readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8'),
 	).toContain('find: /^@epicenter\\/folder$/');
 });
 
-test('the desktop workspace is loaded only when the page is inside a desktop app', () => {
-	// Both workspaces are dynamic imports of the opener and of nothing else, so
-	// a browser tab never loads the desktop adapter.
-	const loaders = files
-		.filter((file) =>
-			/import\(\s*['"]\.\/(desktop|browser)\.js['"]/.test(file.text),
-		)
-		.map((file) => file.path);
-	expect(loaders).toEqual(['lib/workspace/index.ts']);
+test('the build picks the workspace: nothing imports either one but through the seam', () => {
 	expect(
-		files.filter(
-			(file) =>
-				/from\s+['"][^'"]*workspace\/desktop\.js['"]/.test(file.text) ||
-				/from\s+['"]\.\/desktop\.js['"]/.test(file.text),
+		files.filter((file) =>
+			/(?:from\s+|import\s*\(\s*)['"][^'"]*workspace\/(desktop|browser)\.js['"]|(?:from\s+|import\s*\(\s*)['"]\.\/(desktop|browser)\.js['"]/.test(
+				file.text,
+			),
 		),
 	).toEqual([]);
+	expect(importers((specifier) => specifier === '#platform/workspace')).toEqual(
+		['lib/workspace/index.ts imports #platform/workspace'],
+	);
 });
 
 test('the page imports no Yjs store, sync, or account module', () => {
