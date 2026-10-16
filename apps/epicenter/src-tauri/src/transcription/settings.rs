@@ -111,14 +111,6 @@ impl LocalTranscriptionSettings {
     /// file is a warning, not a startup failure, and it is never overwritten:
     /// changes are refused, naming the file, until it is fixed or removed.
     pub fn load(path: PathBuf) -> Self {
-        Self::load_or_adopt(path, None)
-    }
-
-    /// [`load`](Self::load), and when `path` holds no file, adopt the one an
-    /// earlier build kept at `previous`: its settings are copied to `path`, and
-    /// the old file is left where it is. An unreadable old file is left alone
-    /// too, and the settings start from the defaults.
-    pub fn load_or_adopt(path: PathBuf, previous: Option<&Path>) -> Self {
         let state = match read_file(&path) {
             OnDisk::Read(stored) => State {
                 stored,
@@ -135,10 +127,7 @@ impl LocalTranscriptionSettings {
                 }
             }
             OnDisk::Missing => State {
-                stored: previous
-                    .filter(|previous| *previous != path)
-                    .map(|previous| adopt(&path, previous))
-                    .unwrap_or_default(),
+                stored: Stored::default(),
                 unreadable: false,
             },
         };
@@ -231,32 +220,6 @@ impl LocalTranscriptionSettings {
                 message: error.to_string(),
             }
         })
-    }
-}
-
-/// Copy the settings an earlier build kept at `previous` to `path`. A failed
-/// copy is a warning: the settings still load, and the next launch, or the next
-/// change, writes `path`.
-fn adopt(path: &Path, previous: &Path) -> Stored {
-    match read_file(previous) {
-        OnDisk::Missing => Stored::default(),
-        OnDisk::Unreadable(error) => {
-            warn!(
-                "[Transcription] cannot read earlier settings at {}; leaving them there and starting from defaults: {error}",
-                previous.display()
-            );
-            Stored::default()
-        }
-        OnDisk::Read(stored) => {
-            if let Err(error) = persist(path, &stored) {
-                warn!(
-                    "[Transcription] could not copy settings from {} to {}: {error}",
-                    previous.display(),
-                    path.display()
-                );
-            }
-            stored
-        }
     }
 }
 
@@ -458,68 +421,6 @@ mod tests {
         assert_eq!(reloaded.unload_policy(), UnloadPolicy::Never);
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn a_corrupt_file_is_not_replaced_by_earlier_settings() {
-        let path = temp_path("corrupt-over-previous");
-        let previous = temp_path("corrupt-over-previous-earlier");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::create_dir_all(previous.parent().unwrap()).unwrap();
-        std::fs::write(&path, b"{ not json").unwrap();
-        std::fs::write(&previous, br#"{ "unloadPolicy": "never" }"#).unwrap();
-
-        let settings = LocalTranscriptionSettings::load_or_adopt(path.clone(), Some(&previous));
-        assert_eq!(settings.unload_policy(), UnloadPolicy::default());
-        assert_eq!(std::fs::read(&path).unwrap(), b"{ not json");
-
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
-        std::fs::remove_dir_all(previous.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn settings_from_an_earlier_location_are_copied_and_left_in_place() {
-        let path = temp_path("adopt");
-        let previous = temp_path("adopt-previous");
-        std::fs::create_dir_all(previous.parent().unwrap()).unwrap();
-        let earlier = format!(
-            r#"{{ "activeModelId": "{}", "unloadPolicy": "never" }}"#,
-            a_catalog_model_id()
-        );
-        std::fs::write(&previous, &earlier).unwrap();
-
-        let settings = LocalTranscriptionSettings::load_or_adopt(path.clone(), Some(&previous));
-        assert_eq!(settings.active_model_id(), Some(a_catalog_model_id()));
-        assert_eq!(settings.unload_policy(), UnloadPolicy::Never);
-        let copied = LocalTranscriptionSettings::load(path.clone());
-        assert_eq!(copied.unload_policy(), UnloadPolicy::Never);
-        assert_eq!(std::fs::read_to_string(&previous).unwrap(), earlier);
-
-        // Once the new file exists, the earlier one is not read again.
-        settings
-            .set_unload_policy(UnloadPolicy::Immediately)
-            .unwrap();
-        let again = LocalTranscriptionSettings::load_or_adopt(path.clone(), Some(&previous));
-        assert_eq!(again.unload_policy(), UnloadPolicy::Immediately);
-
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
-        std::fs::remove_dir_all(previous.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn an_unreadable_earlier_file_is_left_alone() {
-        let path = temp_path("adopt-corrupt");
-        let previous = temp_path("adopt-corrupt-previous");
-        std::fs::create_dir_all(previous.parent().unwrap()).unwrap();
-        std::fs::write(&previous, b"{ not json").unwrap();
-
-        let settings = LocalTranscriptionSettings::load_or_adopt(path.clone(), Some(&previous));
-        assert_eq!(settings.active_model_id(), None);
-        settings.set_unload_policy(UnloadPolicy::Never).unwrap();
-        assert_eq!(std::fs::read(&previous).unwrap(), b"{ not json");
-
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
-        std::fs::remove_dir_all(previous.parent().unwrap()).ok();
     }
 
     #[test]
