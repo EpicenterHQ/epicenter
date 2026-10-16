@@ -7,11 +7,7 @@
 
 import { type HistoryOptions, historyExitCode, runHistory } from './bun.js';
 import { GitMissingError } from './git/native-host.js';
-import {
-	decodeHistory,
-	encodeHistory,
-	type HistoryRequest,
-} from './history-wire.js';
+import { encodeHistory, type HistoryRequest } from './history-wire.js';
 
 /** One history command of the Epicenter shell, with the arguments a page sends. */
 export type ShellHistoryCommand =
@@ -22,12 +18,6 @@ export type ShellHistoryCommand =
 			readonly command: 'sync';
 			readonly remote: string | null;
 			readonly allowUnrelated: boolean;
-	  }
-	| {
-			readonly command: 'settle_sync';
-			readonly attempt: string;
-			/** The choices in the history encoding, as the page sends them. */
-			readonly choices: string;
 	  };
 
 /** The request a shell history command makes of the CLI. */
@@ -44,12 +34,6 @@ export function historyRequestOf(shell: ShellHistoryCommand): HistoryRequest {
 				op: 'sync',
 				connect: shell.remote ?? undefined,
 				allowUnrelatedHistories: shell.allowUnrelated,
-			};
-		case 'settle_sync':
-			return {
-				op: 'settle',
-				attempt: shell.attempt,
-				choices: decodeHistory(shell.choices),
 			};
 	}
 }

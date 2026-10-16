@@ -467,7 +467,7 @@ export function sameContent(
  * wins. Whether a file exists is decided by a delete; what it holds, by the
  * writer acting.
  */
-function wholeFile(
+export function wholeFile(
 	{ base, ours, theirs }: FileVersions,
 	winner: Winner = 'ours',
 ): Merged {

@@ -142,7 +142,6 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             history::history::<tauri::Wry>,
             history::save_version::<tauri::Wry>,
             history::sync::<tauri::Wry>,
-            history::settle_sync::<tauri::Wry>,
             history::install_git,
             installed_apps::list_installed_apps,
             installed_apps::list_repository_apps,
@@ -201,7 +200,6 @@ mod export_bindings {
                         history::history::<Wry>,
                         history::save_version::<Wry>,
                         history::sync::<Wry>,
-                        history::settle_sync::<Wry>,
                     ],
                 )),
             ),
@@ -839,7 +837,6 @@ mod tests {
                 "allow-history",
                 "allow-save-version",
                 "allow-sync",
-                "allow-settle-sync",
                 "epicenter-recorder:default",
                 {
                     "identifier": "opener:allow-open-url",
@@ -1129,7 +1126,6 @@ mod tests {
             "allow-history",
             "allow-save-version",
             "allow-sync",
-            "allow-settle-sync",
         ];
         for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
@@ -1209,7 +1205,6 @@ mod tests {
                 "allow-history",
                 "allow-save-version",
                 "allow-sync",
-                "allow-settle-sync",
                 "allow-install-git",
                 "allow-ai-send",
                 "allow-ai-key-set",

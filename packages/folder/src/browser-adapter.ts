@@ -34,7 +34,7 @@ import {
 	prepareFolderDefinition,
 } from './definition.js';
 import { OpenFolderError } from './errors.js';
-import type { Folder, FolderGitSteps } from './folder.js';
+import type { Folder } from './folder.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
 import { createHistory, type History } from './git/history.js';
 import type { Author } from './git/objects.js';
@@ -183,7 +183,7 @@ function lazyDirectory(
  * definition a folder cannot keep, a page inside the desktop app, an ID that
  * cannot name a directory, or missing browser storage. Nothing is written.
  */
-export const openFolder: OpenFolder<FolderGitSteps> = async ({
+export const openFolder: OpenFolder = async ({
 	definition,
 	...options
 }) => {
@@ -203,7 +203,7 @@ export const openFolder: OpenFolder<FolderGitSteps> = async ({
  * An `epicenter.json` that cannot be used is `InvalidDeclaration`, and one
  * that does not contain the `lens` is `ShapeMismatch`.
  */
-export const openDataFolder: OpenDataFolder<FolderGitSteps> = async <
+export const openDataFolder: OpenDataFolder = async <
 	const TLens extends FolderDefinition = FolderDefinition,
 >({
 	lens,
@@ -226,7 +226,7 @@ async function openBrowserFolder<
 	{ id, credentials, browser = {} }: OpenDataFolderOptions,
 	lens?: FolderDefinition,
 ): Promise<
-	Result<Folder<TDefinition, TDeclared, FolderGitSteps>, OpenFolderError>
+	Result<Folder<TDefinition, TDeclared>, OpenFolderError>
 > {
 	if (isTauri()) return OpenFolderError.InsideTauri();
 	if (!isFolderName(id)) return OpenFolderError.InvalidId({ id: String(id) });
@@ -265,13 +265,7 @@ async function openBrowserFolder<
 				landed: relay,
 			});
 			const backend = await createStoredGitBackend({
-				store: createOpfsGitStore({
-					root,
-					locks,
-					filesLock: at.filesLock,
-					branch: 'main',
-					landed: relay,
-				}),
+				store: createOpfsGitStore({ root }),
 				locks,
 				lockName: at.gitLock,
 				createLock: at.openLock,

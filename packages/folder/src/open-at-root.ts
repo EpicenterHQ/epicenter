@@ -24,7 +24,6 @@ import {
 	type Folder,
 	type FolderHistory,
 	type FolderLocation,
-	type GitOf,
 } from './folder.js';
 import { withPublication } from './storage.js';
 
@@ -88,7 +87,7 @@ export async function openAtRoot<
 		readonly lens?: FolderDefinition;
 	},
 ): Promise<
-	Result<Folder<TDefinition, TDeclared, GitOf<THistory>>, OpenFolderError>
+	Result<Folder<TDefinition, TDeclared>, OpenFolderError>
 > {
 	const hints = createFileHints();
 	let history: THistory | undefined;

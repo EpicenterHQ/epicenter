@@ -36,12 +36,6 @@ export type HistoryRequest =
 			/** Make this the folder's remote first (`folder.sync.connect`). */
 			readonly connect?: string;
 			readonly allowUnrelatedHistories?: boolean;
-	  }
-	| {
-			readonly op: 'settle';
-			/** The attempt's ID; its conflicts are read again from its commits. */
-			readonly attempt: string;
-			readonly choices: unknown;
 	  };
 
 /**
@@ -73,7 +67,6 @@ export type HistoryResults = {
 	readonly log: Result<CommitSummary[], GitError>;
 	readonly saveVersion: CommitOutcome;
 	readonly sync: Result<SyncOutcome, SyncError>;
-	readonly settle: Result<SyncOutcome, SyncError>;
 };
 
 /**

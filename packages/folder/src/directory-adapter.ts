@@ -20,7 +20,7 @@ import {
 	SCRATCH_DIRECTORY,
 } from './directory-handle.js';
 import { OpenFolderError } from './errors.js';
-import type { Folder, FolderHistory, GitOf } from './folder.js';
+import type { Folder, FolderHistory } from './folder.js';
 import {
 	type ChangeDetector,
 	type FolderSchema,
@@ -117,7 +117,7 @@ export async function openDirectoryFolder<
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
 }): Promise<
-	Result<Folder<TDefinition, TDeclared, GitOf<THistory>>, OpenFolderError>
+	Result<Folder<TDefinition, TDeclared>, OpenFolderError>
 > {
 	let schema: FolderSchema = 'declared';
 	if (definition !== 'declared') {

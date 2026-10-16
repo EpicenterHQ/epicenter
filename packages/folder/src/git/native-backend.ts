@@ -25,28 +25,13 @@
  * desktop page runs none of this: the `epicenter` CLI runs it for the page
  * (ADR-0559, `tauri-history.ts`).
  */
-import type { FileBoundary } from '../boundary.js';
 import type { DirectoryPrimitives } from '../directory-handle.js';
 import { byCodePoint, NORMALIZING } from './attributes.js';
-import {
-	type GitBackend,
-	type GitRemote,
-	type PathStatus,
-	type PublishResult,
-	type StatusCode,
-	stoppedApplying,
-} from './backend.js';
-import { capturedIndexMatchesHead } from './captured-index.js';
+import type { GitBackend, GitRemote } from './backend.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
 import { createMutex } from './mutex.js';
 import { nativeCheckpointProblem } from './native-checkpoint.js';
-import {
-	type CommitSummary,
-	commitTree,
-	EMPTY_TREE,
-	type ObjectAccess,
-	writeCommitObject,
-} from './objects.js';
+import type { CommitSummary, ObjectAccess } from './objects.js';
 import { primitiveFs } from './primitive-fs.js';
 import { gitignoreMatcher } from './scope.js';
 
@@ -130,7 +115,6 @@ const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 export async function createNativeGitBackend({
 	root,
 	branch,
-	boundary,
 	host,
 	credentials,
 	initialized,
@@ -138,7 +122,6 @@ export async function createNativeGitBackend({
 }: {
 	root: string;
 	branch: string;
-	boundary: FileBoundary;
 	host: NativeGitHost;
 	/**
 	 * Runs once `git init` has created the repository. A folder with no
@@ -256,14 +239,15 @@ export async function createNativeGitBackend({
 		return text(result.stdout).trim();
 	}
 
-	const literal = ['--literal-pathspecs'];
+	/** Sync's journal, within the Git directory (ADR-0576). */
+	const JOURNAL = 'epicenter/sync-journal.json';
 
 	/** Reset the named index entries without changing working files. */
 	async function syncIndex(commit: string, paths: readonly string[]) {
 		if (paths.length === 0) return;
 		await run(
 			[
-				...literal,
+				'--literal-pathspecs',
 				'reset',
 				'--quiet',
 				commit,
@@ -279,46 +263,6 @@ export async function createNativeGitBackend({
 		const path = `${gitdir}/${name}`;
 		if ((await files.lstat(path)) === undefined) return undefined;
 		return files.readFile(path);
-	}
-
-	/**
-	 * The tree the index names now, by Git's own rules: an unmerged path
-	 * fails it, and an intent-to-add entry (`git add -N`) is left out.
-	 * `write-tree` runs on a private copy, because on the live index it
-	 * rewrites the cached trees: a commit the compare-and-swap refuses then
-	 * leaves the index byte for byte as it was.
-	 */
-	async function indexTree(): Promise<string> {
-		const copy = `${gitdir}/index.tmp-${crypto.randomUUID()}`;
-		try {
-			// No index is an empty one.
-			const index = await readPrivate('index');
-			if (index !== undefined)
-				await files.writeFile(copy, index, { createNew: true });
-			// Keep the scratch index from creating an unreferenced shared index.
-			const written = await run(['-c', 'core.splitIndex=false', 'write-tree'], {
-				env: { GIT_INDEX_FILE: copy },
-			});
-			return text(written.stdout).trim();
-		} finally {
-			if ((await files.lstat(copy).catch(() => undefined)) !== undefined)
-				await files.remove(copy).catch(() => {});
-		}
-	}
-
-	function parsePorcelain(output: Uint8Array): PathStatus[] {
-		const tokens = text(output).split('\0');
-		const result: PathStatus[] = [];
-		for (let index = 0; index < tokens.length; index++) {
-			const token = tokens[index]!;
-			if (token.length < 4) continue;
-			const indexCode = token[0] as StatusCode;
-			const worktreeCode = token[1] as StatusCode;
-			const path = token.slice(3);
-			if (indexCode === 'R' || indexCode === 'C') index++;
-			result.push({ path, index: indexCode, worktree: worktreeCode });
-		}
-		return result;
 	}
 
 	const backend: GitBackend = {
@@ -445,87 +389,6 @@ export async function createNativeGitBackend({
 				throw new GitCommandError(['check-ignore'], result.code, result.stderr);
 			return new Set(text(result.stdout).split('\0').filter(Boolean));
 		},
-		async indexMatchesHead(captured) {
-			return backend.withObjects((access) =>
-				capturedIndexMatchesHead(access, captured),
-			);
-		},
-		readIndex: () => readPrivate('index'),
-		async pathStatus() {
-			if (!(await exists())) return [];
-			const result = await run([
-				'status',
-				'--porcelain=v1',
-				'-z',
-				'--untracked-files=all',
-			]);
-			return parsePorcelain(result.stdout);
-		},
-		async stage(paths, options) {
-			await repository();
-			if (paths === 'all') await run(['add', '--all']);
-			else await run([...literal, 'add', '--all', '--', ...paths]);
-			const except = options?.except;
-			if (except === undefined) return;
-			const indexed = text((await run(['ls-files', '-z', '--cached'])).stdout)
-				.split('\0')
-				.filter((path) => path !== '' && except(path));
-			if (indexed.length === 0) return;
-			await run(
-				[
-					...literal,
-					'rm',
-					'--cached',
-					'--quiet',
-					'--ignore-unmatch',
-					'--pathspec-from-file=-',
-					'--pathspec-file-nul',
-				],
-				{ input: `${indexed.join('\0')}\0` },
-			);
-		},
-		async commitIndex(message, author) {
-			// Nothing was staged where there is no repository.
-			if (!(await exists())) return { status: 'nothing' };
-			// The parent is pinned before anything is written; the branch moves
-			// only from it.
-			const parent = await resolve(branchRef);
-			const tree = await indexTree();
-			if (
-				tree ===
-				(parent === undefined ? EMPTY_TREE : await commitTree(access, parent))
-			)
-				return { status: 'nothing' };
-			const oid = await writeCommitObject(access, {
-				tree,
-				parents: parent === undefined ? [] : [parent],
-				message,
-				author,
-			});
-			const moved = await backend.casBranch(parent, oid);
-			if (!moved.ok)
-				return {
-					status: 'branchMoved',
-					expected: parent,
-					actual: moved.actual,
-				};
-			return { status: 'committed', oid, parent };
-		},
-		async diff({ staged, paths }) {
-			if (!(await exists())) return '';
-			const result = await run([
-				...literal,
-				'diff',
-				'--no-color',
-				'--no-ext-diff',
-				// No textconv driver runs, whatever attributes name one.
-				'--no-textconv',
-				...(staged ? ['--cached'] : []),
-				'--',
-				...paths,
-			]);
-			return text(result.stdout);
-		},
 		async log(depth): Promise<CommitSummary[]> {
 			if ((await resolve(branchRef)) === undefined) return [];
 			const result = await run([
@@ -556,16 +419,30 @@ export async function createNativeGitBackend({
 		async push(oid, signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
 			const credential = await authorize(remote.url, signal);
-			await run(
+			const pushed = await run(
 				[
 					'push',
 					'--porcelain',
 					remote.url,
 					`${oid}:refs/heads/${remote.branch}`,
 				],
-				{ signal, credential },
+				{ signal, credential, allowFailure: true },
 			);
+			if (pushed.code !== 0) {
+				// `--porcelain` marks a ref the remote refused to move by a
+				// fast-forward with `!` and `[rejected]`, and one that moved after
+				// the remote advertised it with `[remote rejected]` and the
+				// remote's failed update.
+				if (
+					/^!\t.*\t\[rejected\]|^!\t.*\[remote rejected\] .*failed to update ref/m.test(
+						text(pushed.stdout),
+					)
+				)
+					return 'rejected';
+				throw new GitCommandError(['push'], pushed.code, pushed.stderr);
+			}
 			await run(['update-ref', trackingRef, oid]);
+			return 'pushed';
 		},
 		async fetch(signal) {
 			if (remote === undefined) throw new Error('No remote is configured');
@@ -586,29 +463,23 @@ export async function createNativeGitBackend({
 			}
 			return resolve(trackingRef);
 		},
-		// The baseline is not checked here: each step carries its own file
-		// condition, and other programs are met only at Git's lock files.
-		async publishIncoming(plan): Promise<PublishResult> {
-			const { error: applyError } = await boundary.apply(plan.changes);
-			if (applyError !== null) return stoppedApplying(plan.changes, applyError);
-			const interrupted = (error: string): PublishResult => ({
-				status: 'interrupted',
-				landed: plan.paths,
-				error,
+		readJournal: async () => {
+			const bytes = await readPrivate(JOURNAL);
+			return bytes === undefined ? undefined : text(bytes);
+		},
+		async writeJournal(contents) {
+			// `.git/epicenter` is a real directory: every Git command made it
+			// (`noHooksDirectory`) and refuses a link there.
+			await files.mkdir(`${gitdir}/epicenter`);
+			const staged = `${gitdir}/${JOURNAL}.${crypto.randomUUID()}`;
+			await files.writeFile(staged, new TextEncoder().encode(contents), {
+				createNew: true,
 			});
-			try {
-				await syncIndex(plan.nextHead, plan.paths);
-			} catch (cause) {
-				return interrupted(
-					`the Git index could not be updated: ${cause instanceof Error ? cause.message : String(cause)}`,
-				);
-			}
-			const moved = await backend.casBranch(plan.expectedHead, plan.nextHead);
-			if (!moved.ok)
-				return interrupted(
-					`the branch moved to ${moved.actual ?? 'no commit'} before it could be advanced`,
-				);
-			return { status: 'published' };
+			await files.rename(staged, `${gitdir}/${JOURNAL}`, 'any');
+		},
+		async removeJournal() {
+			if ((await files.lstat(`${gitdir}/${JOURNAL}`)) === undefined) return;
+			await files.remove(`${gitdir}/${JOURNAL}`);
 		},
 	};
 	return backend;

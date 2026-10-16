@@ -157,13 +157,7 @@ export async function rawBrowserFolder({
 		}),
 		backend: async ({ branch = 'main', remote } = {}) => {
 			const backend = await createStoredGitBackend({
-				store: createOpfsGitStore({
-					root,
-					locks: testLocks,
-					filesLock,
-					branch,
-					landed: () => {},
-				}),
+				store: createOpfsGitStore({ root }),
 				locks: testLocks,
 				lockName: `epicenter-folder:${id}:git`,
 				branch,

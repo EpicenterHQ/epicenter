@@ -18,48 +18,26 @@
  * which every cooperating tab holds for index and branch work. The branch is
  * compared with the pinned value before it is replaced.
  *
- * An incoming fast-forward or merge publishes as on the desktop, and
- * nothing records it (ADR-0545). Admission checks the folder is still what
- * the clean check found, and that nothing the update does not empty, a
- * directory or a file no path names, is where it writes a file. Then
- * removals (pruning directories they emptied), any directory the update
- * emptied where it writes a file, writes, the index, and the branch. An
- * update cut off partway leaves files that differ from `HEAD`: status shows
- * them as changed, and the next Sync records them and merges with the
- * tracking ref.
+ * Sync publishes the files itself, one guarded write at a time, as on the
+ * desktop (ADR-0576); this store keeps only Git's own private files.
  */
 
 import type { PromiseFsClient } from 'isomorphic-git';
-import { hashBytes } from '../capture.js';
-import { describe, FileError } from '../errors.js';
 import {
-	applyChanges,
-	captureFiles,
 	errorName,
-	holding,
 	lookup,
 	type OpfsDirectoryHandle,
-	type OpfsLocks,
 	PRIVATE_DIRECTORY,
 	readHandle,
 	readPrivateFile,
 	removePrivateFile,
-	walk,
 	writePrivateFile,
 } from '../opfs-store.js';
-import { basename, dirname } from '../paths.js';
-import {
-	type CasResult,
-	type IncomingPlan,
-	type PublishResult,
-	stoppedApplying,
-} from './backend.js';
+import type { CasResult } from './backend.js';
 import {
 	type BrowserGitStore,
 	GITDIR,
 	type GitFsSession,
-	refValue,
-	sameBytes,
 	WORKDIR,
 } from './browser-backend.js';
 import { entryKey, parseIndex } from './index-file.js';
@@ -348,104 +326,14 @@ function createOpfsGitSession(root: OpfsDirectoryHandle): OpfsGitSession {
 
 export function createOpfsGitStore({
 	root,
-	locks,
-	filesLock,
-	branch,
-	landed,
 }: {
 	root: OpfsDirectoryHandle;
-	locks: OpfsLocks;
-	/** Held while an update publishes, so no save lands between checks and writes. */
-	filesLock: string;
-	branch: string;
-	/** Paths one landed step reached, as soon as it lands. */
-	landed: (paths: readonly string[]) => void;
 }): BrowserGitStore<OpfsGitSession> {
-	const branchKey = `${GITDIR}/refs/heads/${branch}`;
 	const privatePath = (path: string) => path.slice(GITDIR.length + 1);
 
 	const readPrivate = (path: string) => readGitFile(root, privatePath(path));
-	const readRef = async (path: string) => refValue(await readPrivate(path));
 	const writeRef = (path: string, oid: string) =>
 		writePrivateFile(root, privatePath(path), encoder.encode(`${oid}\n`));
-
-	/**
-	 * Every file below the directory `path`, portable or not, and every
-	 * directory from `path` down, deepest first.
-	 */
-	async function below(path: string) {
-		const at = await lookup(root, path);
-		const files: string[] = [];
-		const directories = [path];
-		if (at.kind !== 'directory') return { files, directories: [] };
-		await walk(at.handle, `${path}/`, {
-			file: (file) => void files.push(file),
-			directory: (directory) => void directories.push(directory),
-		});
-		return { files, directories: directories.reverse() };
-	}
-
-	/**
-	 * Where the update writes a file, what is in the way. A file above it is
-	 * in nobody's way when the update removes that file. A directory is
-	 * `emptied` when every file in it is one the update removes and it and
-	 * every directory in it held such a file: removed after the removals,
-	 * before the writes. Any other directory, or a file in one that no path
-	 * can name, is `blocked`, and the update is refused before it writes.
-	 */
-	async function inTheWay(plan: IncomingPlan) {
-		const removed = new Set(
-			plan.changes.flatMap((change) =>
-				change.kind === 'remove' ? [change.path] : [],
-			),
-		);
-		const heldRemoved = (directory: string) =>
-			[...removed].some((path) => path.startsWith(`${directory}/`));
-		const emptied: string[] = [];
-		for (const change of plan.changes) {
-			if (change.kind === 'remove' || change.kind === 'move') continue;
-			const at = await lookup(root, change.path);
-			if (at.kind === 'underFile' && !removed.has(at.ancestor))
-				return { blocked: FileError.Exists({ path: at.ancestor }).error };
-			if (at.kind !== 'directory') continue;
-			const inside = await below(change.path);
-			if (
-				!inside.directories.every(heldRemoved) ||
-				!inside.files.every((file) => removed.has(file))
-			)
-				return { blocked: FileError.NotAFile({ path: change.path }).error };
-			emptied.push(change.path);
-		}
-		return { emptied };
-	}
-
-	/**
-	 * Remove each directory in `emptied` with the directories inside it,
-	 * deepest first, where a write is about to put a file. Pruning after a
-	 * removal does this as it goes; this finishes pruning that stopped. Only
-	 * empty directories are removed, so a file in one stops this with an
-	 * error and nothing in it is lost.
-	 */
-	async function removeEmptied(
-		emptied: readonly string[],
-	): Promise<FileError | undefined> {
-		for (const path of emptied) {
-			try {
-				for (const directory of (await below(path)).directories) {
-					const parent = await lookup(root, dirname(directory));
-					if (parent.kind === 'directory')
-						await parent.handle.removeEntry(basename(directory));
-				}
-			} catch (cause) {
-				return FileError.Io({
-					path,
-					operation: 'remove the directory the update emptied at',
-					cause,
-				}).error;
-			}
-		}
-		return undefined;
-	}
 
 	return {
 		session: () => createOpfsGitSession(root),
@@ -461,106 +349,9 @@ export function createOpfsGitStore({
 			await writeRef(path, next);
 			return { ok: true };
 		},
-		publishIncoming(plan, prepared) {
-			return holding(locks, filesLock, () => publish(plan, prepared));
+		async writePrivate(path, bytes) {
+			if (bytes === null) await removePrivateFile(root, privatePath(path));
+			else await writePrivateFile(root, privatePath(path), bytes);
 		},
 	};
-
-	/** Under the Git lock and the files lock: admission, files, index, branch. */
-	async function publish(
-		plan: IncomingPlan,
-		prepared: OpfsGitSession,
-	): Promise<PublishResult> {
-		// Admission: the folder is still exactly what the clean check found.
-		// Every portable file has its captured hash, nothing new appeared, the
-		// index is the bytes shown to match the pinned head, and the branch
-		// still names it. Ordinary saves wait on the files lock held here.
-		const captured = await captureFiles(root);
-		if (captured.unreadable.length > 0)
-			return { status: 'refused', error: captured.unreadable[0]!.error };
-		for (const [file, bytes] of captured.files) {
-			const expected = plan.baseline.files.get(file);
-			if (expected === undefined)
-				return {
-					status: 'refused',
-					error: FileError.Exists({ path: file }).error,
-				};
-			const actual = await hashBytes(bytes);
-			if (actual !== expected)
-				return {
-					status: 'refused',
-					error: FileError.Conflict({
-						path: file,
-						expectedSha256: expected,
-						actualSha256: actual,
-					}).error,
-				};
-		}
-		for (const [file, expected] of plan.baseline.files)
-			if (!captured.files.has(file))
-				return {
-					status: 'refused',
-					error: FileError.Conflict({
-						path: file,
-						expectedSha256: expected,
-						actualSha256: undefined,
-					}).error,
-				};
-		if (!sameBytes(await readPrivate(INDEX), plan.baseline.index))
-			return { status: 'indexChanged' };
-		const head = await readRef(branchKey);
-		if (head !== plan.expectedHead)
-			return { status: 'branchMoved', actual: head };
-		// Captured files are portable files only, so what else is in the way
-		// is looked for here.
-		const way = await inTheWay(plan);
-		if (way.blocked !== undefined)
-			return { status: 'refused', error: way.blocked };
-
-		// Removals first (pruning directories they emptied), then directories
-		// the update emptied where it writes a file, then writes, then the
-		// index, then the branch. A step that stops leaves what landed as
-		// changed files for the next Sync (ADR-0545).
-		const removals = plan.changes.filter((change) => change.kind === 'remove');
-		const writes = plan.changes.filter((change) => change.kind !== 'remove');
-		const reached: string[] = [];
-		for (const group of [removals, writes]) {
-			if (group === writes) {
-				const error = await removeEmptied(way.emptied);
-				if (error !== undefined) return stoppedApplying(group, error, reached);
-			}
-			if (group.length === 0) continue;
-			const { error } = await applyChanges(root, group, landed, {
-				prune: true,
-			});
-			if (error !== null) return stoppedApplying(group, error, reached);
-			reached.push(...group.map((change) => (change as { path: string }).path));
-		}
-		const interrupted = (error: string): PublishResult => ({
-			status: 'interrupted',
-			landed: plan.paths,
-			error,
-		});
-		try {
-			const target = prepared.unflushedIndex();
-			if (target !== undefined) await writePrivateFile(root, 'index', target);
-		} catch (cause) {
-			return interrupted(
-				`the Git index could not be updated: ${describe(cause)}`,
-			);
-		}
-		try {
-			const moved = await readRef(branchKey);
-			if (moved !== plan.expectedHead)
-				return interrupted(
-					`the branch moved to ${moved ?? 'no commit'} before it could be advanced`,
-				);
-			await writeRef(branchKey, plan.nextHead);
-		} catch (cause) {
-			return interrupted(
-				`the branch could not be advanced: ${describe(cause)}`,
-			);
-		}
-		return { status: 'published' };
-	}
 }

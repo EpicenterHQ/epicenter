@@ -9,25 +9,12 @@
  * Backend methods throw on failure; the coordinator turns failures into
  * reported outcomes.
  */
-import type { FileChange } from '../boundary.js';
-import type { ApplyError, FileError, FileStep } from '../errors.js';
 import type { DeclaredAttribute } from './attributes.js';
-import type { CapturedIndex } from './captured-index.js';
 import type {
-	Author,
 	CommitSummary,
 	ObjectAccess,
 	TreeFile,
 } from './objects.js';
-
-export type StatusCode = ' ' | 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?';
-
-/** One path's staged (`index`) and unstaged (`worktree`) state, as `git status` reports it. */
-export type PathStatus = {
-	readonly path: string;
-	readonly index: StatusCode;
-	readonly worktree: StatusCode;
-};
 
 /**
  * The folder's remote: Git configuration's `remote.origin.url`, and the
@@ -41,82 +28,6 @@ export type GitRemote = {
 export type CasResult =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly actual: string | undefined };
-
-/**
- * An incoming fast-forward or merge, prepared against observed files and
- * refs. `nextHead` is the fetched commit or the merge commit; `changes` turn
- * the files of `expectedHead` into its tree.
- */
-export type IncomingPlan = {
-	readonly expectedHead: string | undefined;
-	readonly nextHead: string;
-	readonly changes: readonly FileChange[];
-	readonly paths: readonly string[];
-	/**
-	 * What the folder held when the update was planned: the SHA-256 of every
-	 * portable file, and the exact index bytes checked for cleanliness. The browser
-	 * requires both unchanged under its publication locks before it writes. A
-	 * folder on disk checks only each changed file's own condition, best effort.
-	 */
-	readonly baseline: {
-		readonly files: ReadonlyMap<string, string>;
-		readonly index: Uint8Array | undefined;
-	};
-};
-
-export type PublishResult =
-	| { readonly status: 'published' }
-	/** Nothing was written. */
-	| { readonly status: 'refused'; readonly error: FileError }
-	/** Browser only: the index changed after it was observed. Nothing was written. */
-	| { readonly status: 'indexChanged' }
-	/** The branch moved after it was pinned. Nothing was written. */
-	| { readonly status: 'branchMoved'; readonly actual: string | undefined }
-	/**
-	 * The update stopped after it wrote, or may have written, the folder
-	 * paths in `landed`; the branch did not reach `nextHead`. No host records
-	 * the update (ADR-0545): those paths differ from `HEAD`, status shows them
-	 * as changed, and the next Sync records them and merges with the tracking
-	 * ref.
-	 */
-	| {
-			readonly status: 'interrupted';
-			readonly landed: readonly string[];
-			readonly error: string;
-	  };
-
-const stepPaths = (step: FileStep | FileChange) =>
-	step.kind === 'move' ? [step.from, step.to] : [step.path];
-
-/**
- * What an incoming update's file steps failing with `error` leaves, after
- * the paths in `landed` already landed: `refused` when nothing landed and the
- * failed step certainly wrote nothing, `interrupted` otherwise.
- */
-export function stoppedApplying(
-	changes: readonly FileChange[],
-	error: FileError | ApplyError,
-	landed: readonly string[] = [],
-): PublishResult {
-	const reached =
-		error.name === 'Partial'
-			? [
-					...landed,
-					...error.applied.flatMap(stepPaths),
-					...(error.error.name === 'Unconfirmed'
-						? stepPaths(error.failed)
-						: []),
-				]
-			: error.name === 'Unconfirmed'
-				? [...landed, ...changes.flatMap(stepPaths)]
-				: landed;
-	if (reached.length === 0)
-		return {
-			status: 'refused',
-			error: error.name === 'Partial' ? error.error : error,
-		};
-	return { status: 'interrupted', landed: reached, error: error.message };
-}
 
 export type GitBackend = {
 	/**
@@ -168,7 +79,7 @@ export type GitBackend = {
 	 * nested Git data, and normalizing attributes are refused rather than
 	 * silently rewritten. Unmerged index stages another Git program left are
 	 * refused too: a checkpoint would reset them and record conflict markers
-	 * as ordinary content. Explicit staging and staged commits are unaffected.
+	 * as ordinary content.
 	 */
 	checkpointProblem(): Promise<string | undefined>;
 	/**
@@ -192,55 +103,22 @@ export type GitBackend = {
 		candidates: readonly string[],
 		current: ReadonlyMap<string, Uint8Array>,
 	): Promise<ReadonlySet<string>>;
-	/** Check these exact captured bytes against this pinned head. */
-	indexMatchesHead(captured: CapturedIndex): Promise<boolean>;
-	/** The index file's stored bytes, or `undefined` when there is none. */
-	readIndex(): Promise<Uint8Array | undefined>;
-	pathStatus(): Promise<PathStatus[]>;
-	/**
-	 * Stage current contents of `paths`, including deletions; `'all'` stages
-	 * everything. A path `except` matches is left out of the index, as
-	 * `git rm --cached` leaves it, whether or not it was tracked.
-	 */
-	stage(
-		paths: readonly string[] | 'all',
-		options?: { readonly except?: (path: string) => boolean },
-	): Promise<void>;
-	/**
-	 * Commit the index's tree onto the branch head pinned when the commit
-	 * starts. A tree equal to the parent's is `nothing`. The branch moves only
-	 * if it still names the pinned parent; otherwise the result is
-	 * `branchMoved` and no ref or index entry changes.
-	 */
-	commitIndex(
-		message: string,
-		author: Author,
-	): Promise<
-		| {
-				readonly status: 'committed';
-				readonly oid: string;
-				readonly parent: string | undefined;
-		  }
-		| { readonly status: 'nothing' }
-		| {
-				readonly status: 'branchMoved';
-				readonly expected: string | undefined;
-				readonly actual: string | undefined;
-		  }
-	>;
-	diff(options: { staged: boolean; paths: readonly string[] }): Promise<string>;
 	log(depth: number): Promise<CommitSummary[]>;
-	/** Push an exact commit to the configured remote branch. */
-	push(oid: string, signal: AbortSignal): Promise<void>;
+	/**
+	 * Push an exact commit to the configured remote branch, never forcing:
+	 * `'rejected'` when the remote branch moved on and the commit does not
+	 * descend from it. Throws for any other failure.
+	 */
+	push(oid: string, signal: AbortSignal): Promise<'pushed' | 'rejected'>;
 	/** Fetch the configured remote branch; returns its commit, or undefined if absent. */
 	fetch(signal: AbortSignal): Promise<string | undefined>;
-	/** Publish an incoming fast-forward or merge: files, then the index, then the branch. */
-	publishIncoming(plan: IncomingPlan): Promise<PublishResult>;
 	/**
-	 * Whether incoming publication removes the directories its removals
-	 * emptied, so a file may take the place of a directory whose files the
-	 * same update removes, and the reverse. A backend that omits this refuses
-	 * such an update as a collision.
+	 * Sync's journal (ADR-0576): the text of `.git/epicenter/sync-journal.json`,
+	 * or `undefined` when there is none. Written before a Sync publishes a
+	 * tree over the files and removed when it is done, so an interrupted
+	 * publish is finished before anything else.
 	 */
-	readonly replacesDirectories?: boolean;
+	readJournal(): Promise<string | undefined>;
+	writeJournal(text: string): Promise<void>;
+	removeJournal(): Promise<void>;
 };

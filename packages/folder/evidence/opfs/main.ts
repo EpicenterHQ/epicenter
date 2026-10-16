@@ -676,7 +676,10 @@ async function history(id: string) {
 			folder = await open(id);
 			const [head] = ok(await folder.git.log(1));
 			assert(head?.oid === commit.oid, 'the log changed');
-			assert(ok(await folder.git.paths()).length === 0, 'paths are not clean');
+			assert(
+				ok(await folder.git.status()).changes.length === 0,
+				'status is not clean after reopening',
+			);
 			return commit.oid;
 		},
 	);
