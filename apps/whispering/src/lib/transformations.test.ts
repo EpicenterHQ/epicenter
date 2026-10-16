@@ -737,9 +737,7 @@ test('a running transformation is reported as held until it answers', async () =
 	await new Promise((resolve) => setTimeout(resolve, 20));
 
 	expect(library.transformationRuns[0]!.state.kind).toBe('running');
-	expect(library.unsavedWork).toContain(
-		'A transformation is still running; its result would be lost.',
-	);
+	expect(library.holdsUnsavedWork).toBe(true);
 
 	answer.resolve(Ok({ text: 'done' }));
 	await running;

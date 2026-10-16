@@ -89,7 +89,7 @@
 				<!-- Its own lifetime: the collection keeps the text after this view is gone. -->
 				<Textarea
 					id="new-capture"
-					readonly={captures.fenced}
+					readonly={captures.locked}
 					bind:value={
 						() => captures.newCapture,
 						(value) => {
@@ -114,7 +114,7 @@
 			</Field.Field>
 			<Modal.Footer class="flex-row justify-end gap-2 p-0">
 				<Button type="button" variant="outline" onclick={() => (dialogOpen = false)}>Close</Button>
-				<Button type="submit" disabled={creating || captures.fenced}>{creating ? 'Saving…' : 'Add capture'}</Button>
+				<Button type="submit" disabled={creating || captures.locked}>{creating ? 'Saving…' : 'Add capture'}</Button>
 			</Modal.Footer>
 		</form>
 	</Modal.Content>

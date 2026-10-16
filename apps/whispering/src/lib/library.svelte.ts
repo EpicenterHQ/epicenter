@@ -21,7 +21,8 @@
  * Three things live only in this window until they reach the folder: a draft
  * whose save failed, a captured recording whose audio and row are not both in
  * place, and text an endpoint returned whose file is not written yet
- * (`runs.svelte.ts`). All block leaving the app.
+ * (`runs.svelte.ts`). In a browser tab each raises the leave warning; closing
+ * the desktop app loses them.
  *
  * Git status comes from the folder's shared snapshot; this module adds no
  * status cache of its own. A save and its commit are separate outcomes.
@@ -155,8 +156,7 @@ export type RecorderState =
 
 export type { InPlace };
 
-const LEAVING = 'Whispering is closing, so nothing new was started.';
-const CLOSING = 'The library is closing.';
+const CLOSING = 'Whispering is closing, so nothing new was started.';
 const RECORDING_NAME =
 	'A recording’s file is named by its ID, which its transcription results refer to. Change the title instead.';
 const RECORDING_AUDIO_NAME =
@@ -241,22 +241,20 @@ export function createLibrary(workspace: Workspace) {
 	const recordings = folder.tables.recordings;
 	const transformations = folder.tables.transformations;
 
-	let closing = false;
 	/**
-	 * Whether new work starts: a capture, a request, a retry, a file change, or
-	 * input. Off while the page decides whether it may close, so what it saves
-	 * and inspects is all there is. Work accepted before stays accepted.
+	 * Once set, no new work starts: a capture, a request, a retry, a file
+	 * change, or input. Work accepted before stays accepted.
 	 */
-	let admitting = $state(true);
-	/** Work admitted and not finished; leaving and closing wait for it. */
+	let closing = $state(false);
+	/** The one completion every `close` call answers. */
+	let released: Promise<void> | undefined;
+	/** Work admitted and not finished; `close` waits for it. */
 	const admissions = createAdmissions();
 	const { command } = admissions;
 
 	/** Why nothing new starts now, if it does not. */
 	function refused(): string | undefined {
-		if (closing) return CLOSING;
-		if (!admitting) return LEAVING;
-		return undefined;
+		return closing ? CLOSING : undefined;
 	}
 
 	let entries = $state.raw<RecordingEntry[]>([]);
@@ -303,7 +301,7 @@ export function createLibrary(workspace: Workspace) {
 	const recordingsListed = new Set<(present: ReadonlySet<string>) => void>();
 
 	const drafts = createDrafts(folder, {
-		locked: () => !admitting,
+		locked: () => closing,
 		sizeOf: (path) =>
 			listing?.files.find((file) => file.path === path)?.size ?? 0,
 	});
@@ -352,7 +350,7 @@ export function createLibrary(workspace: Workspace) {
 			exec: (command, options) =>
 				refused() === undefined
 					? admissions.admit(() => workspace.terminal.exec(command, options))
-					: Promise.reject(new Error(LEAVING)),
+					: Promise.reject(new Error(CLOSING)),
 		},
 		afterRun: refreshAll,
 	});
@@ -523,31 +521,18 @@ export function createLibrary(workspace: Workspace) {
 		);
 	}
 
-	/** Everything held only in this window, in the words the leave prompt shows. */
-	function unsavedWork(): string[] {
-		const held: string[] = [];
-		if (recorder.phase !== 'idle') held.push('A recording is in progress.');
-		if (pending.length > 0)
-			held.push(
-				pending.length === 1
-					? '1 recording is not saved to the folder. Its audio is kept in this window. Any files already written stay in the folder.'
-					: `${pending.length} recordings are not saved to the folder. Their audio is kept in this window. Any files already written stay in the folder.`,
-			);
-		held.push(...runs.held());
-		for (const session of drafts.sessions()) {
-			const { state } = session;
-			if (state.status === 'saving')
-				held.push(`${session.path} is still being saved.`);
-			else if (state.status === 'error')
-				held.push(
-					state.error.name === 'Conflict'
-						? `${session.path} has edits held in a conflict.`
-						: state.error.name === 'Unconfirmed'
-							? `${session.path} has edits whose last save was not confirmed.`
-							: `${session.path} has edits whose last save failed.`,
-				);
-		}
-		return held;
+	/** Whether anything is held only in this window. */
+	function holdsUnsavedWork(): boolean {
+		return (
+			recorder.phase !== 'idle' ||
+			pending.length > 0 ||
+			runs.holds() ||
+			drafts
+				.sessions()
+				.some(
+					({ state }) => state.status === 'saving' || state.status === 'error',
+				)
+		);
 	}
 
 	// --- recording ----------------------------------------------------------
@@ -728,19 +713,6 @@ export function createLibrary(workspace: Workspace) {
 		get closing() {
 			return closing;
 		},
-		/** Whether new work starts now. Off from the moment the shell asks to close. */
-		get admitting() {
-			return admitting;
-		},
-		/** Start nothing new. Work already accepted continues and settles. */
-		pauseAdmission() {
-			admitting = false;
-		},
-		/** Start admitting new work again, after the person chose to keep working. */
-		resumeAdmission() {
-			if (closing) return;
-			admitting = true;
-		},
 		/** Hear which recording files each successful listing found. */
 		onRecordingsListed(
 			listener: (present: ReadonlySet<string>) => void,
@@ -753,6 +725,10 @@ export function createLibrary(workspace: Workspace) {
 		},
 		get recorder() {
 			return recorder;
+		},
+		/** Whether a recording is starting, running, or stopping. */
+		get recording() {
+			return recorder.phase !== 'idle';
 		},
 		get recorderError() {
 			return recorderError;
@@ -866,20 +842,11 @@ export function createLibrary(workspace: Workspace) {
 		},
 		/** Whether leaving now would lose a draft, captured audio, a received answer, or a live recording. */
 		get holdsUnsavedWork() {
-			return unsavedWork().length > 0;
+			return holdsUnsavedWork();
 		},
-		/** What leaving now would lose, one plain line each. */
-		get unsavedWork() {
-			return unsavedWork();
-		},
-		/**
-		 * Get ready to leave: let running work and saves finish, then report
-		 * whether anything is still held only in this window.
-		 */
-		async prepareToLeave(): Promise<boolean> {
-			await admissions.quiet();
-			await Promise.all(drafts.sessions().map((session) => session.settled()));
-			return unsavedWork().length === 0;
+		/** Whether a command is still running. */
+		get busy() {
+			return admissions.busy;
 		},
 		refresh,
 		refreshAll,
@@ -1004,7 +971,7 @@ export function createLibrary(workspace: Workspace) {
 		 */
 		stopRecording: command(async () => {
 			if (recorder.phase !== 'recording' || active === undefined) return;
-			if (!admitting) return;
+			if (closing) return;
 			const capture = active;
 			active = undefined;
 			recorder = { phase: 'stopping' };
@@ -1025,7 +992,7 @@ export function createLibrary(workspace: Workspace) {
 		},
 		/** Publish a held capture again, under the same id and with the same bytes. */
 		retryPending: command(async (id: string) => {
-			if (!admitting) return;
+			if (closing) return;
 			const item = pending.find((candidate) => candidate.capture.id === id);
 			if (item === undefined || item.state.kind === 'saving') return;
 			await publish(item);
@@ -1099,7 +1066,7 @@ export function createLibrary(workspace: Workspace) {
 			operation: Operation,
 			change: ConnectionChange,
 		): Promise<string | undefined> {
-			if (!admitting) return LEAVING;
+			if (closing) return CLOSING;
 			const { data: saved, error } = await workspace.connections.set(
 				operation,
 				change,
@@ -1113,7 +1080,7 @@ export function createLibrary(workspace: Workspace) {
 		async adoptLegacyKey(
 			targets: LegacyKeyTargets,
 		): Promise<string | undefined> {
-			if (!admitting) return LEAVING;
+			if (closing) return CLOSING;
 			const { data: adopted, error } =
 				await workspace.connections.adoptLegacyKey(targets);
 			if (error !== null) return error;
@@ -1247,28 +1214,34 @@ export function createLibrary(workspace: Workspace) {
 		}),
 		/** Commit current saved files. */
 		commit: command(async (): Promise<CommitOutcome> => {
-			if (!admitting) return { status: 'blocked', reason: LEAVING };
+			if (closing) return { status: 'blocked', reason: CLOSING };
 			return folder.git.commit();
 		}),
 		/**
-		 * Let running work and saves finish, then release the folder. A draft
-		 * that could not save, and audio that could not be published, end with
-		 * the page; the view asks before the page is left while either exists.
+		 * Refuse new work, let running work and saves finish, then release the
+		 * folder. A recording in progress is cancelled. A draft that could not
+		 * save, and audio that could not be published, end with the page; a
+		 * browser tab warns before it is left while either exists. Every call
+		 * answers the same completion.
 		 */
-		async close() {
-			closing = true;
-			admitting = false;
-			// The microphone first: nothing still being written may keep it open.
-			input.close();
-			starting?.abort();
-			starting = undefined;
-			active?.cancel();
-			await admissions.quiet();
-			await input.saved();
-			await Promise.all(drafts.sessions().map((session) => session.settled()));
-			for (const path of drafts.keys()) drafts.forget(path);
-			recordingsListed.clear();
-			await workspace.close();
+		close(): Promise<void> {
+			released ??= (async () => {
+				closing = true;
+				// The microphone first: nothing still being written may keep it open.
+				input.close();
+				starting?.abort();
+				starting = undefined;
+				active?.cancel();
+				await admissions.quiet();
+				await input.saved();
+				await Promise.all(
+					drafts.sessions().map((session) => session.settled()),
+				);
+				for (const path of drafts.keys()) drafts.forget(path);
+				recordingsListed.clear();
+				await workspace.close();
+			})();
+			return released;
 		},
 	};
 }

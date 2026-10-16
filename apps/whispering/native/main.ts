@@ -6,10 +6,6 @@
  * output to learn the port, and loads the page from it. The host stops when
  * the shell closes its standard input, so it never outlives the window.
  *
- * Before the shell closes the window or quits, it writes
- * `{"type":"close-requested"}` to this process's standard input. The host asks
- * the page, and prints `{"closeApproved":true}` when the window may close.
- *
  * The shell decides where the data folder is and who may reach it. It passes
  * the directory it resolved and the per-launch credential, and this process
  * runs only with both: it has no default folder and no way to be the page's
@@ -47,14 +43,13 @@ const host = await createHost({
 	fixturePath: env.WHISPERING_AUDIO_FIXTURE?.trim() || undefined,
 	env,
 	log,
-	// The shell reads this line and closes; nothing else may print it.
-	onCloseApproved: () => console.log(JSON.stringify({ closeApproved: true })),
 });
 
 const server = Bun.serve({
 	hostname: '127.0.0.1',
 	port: Number(env.WHISPERING_HOST_PORT ?? 0),
-	// The event stream is long-lived; the host pings it well inside this limit.
+	// A transcription or transformation can take longer than the default ten
+	// seconds to answer.
 	idleTimeout: 255,
 	fetch: (request) => host.handle(request),
 });
@@ -74,19 +69,8 @@ async function stop(reason: string) {
 process.on('SIGINT', () => void stop('interrupted'));
 process.on('SIGTERM', () => void stop('terminated'));
 
-// One JSON line per message from the shell. The only one is a close request.
-let buffered = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk: string) => {
-	buffered += chunk;
-	let newline = buffered.indexOf('\n');
-	while (newline >= 0) {
-		const line = buffered.slice(0, newline).trim();
-		buffered = buffered.slice(newline + 1);
-		if (line.includes('"close-requested"')) host.closeRequested();
-		newline = buffered.indexOf('\n');
-	}
-});
+// The shell sends nothing on standard input; it closes it when it exits.
+process.stdin.on('data', () => {});
 process.stdin.on('end', () => void stop('the shell closed'));
 process.stdin.on('close', () => void stop('the shell closed'));
 process.stdin.resume();

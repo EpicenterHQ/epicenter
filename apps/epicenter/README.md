@@ -167,9 +167,10 @@ have no HTTP route. Markdown interpretation and the restricted terminal remain
 shared TypeScript code, while Rust owns file publication, Git, watching, and the
 cross-process lock.
 
-A window close hides the loaded page and preserves its drafts. Quitting or
-restarting Epicenter asks the page first (see [Leaving Epicenter](#leaving-epicenter));
-reloading the page loses unsaved typing. Native shutdown drains accepted saves
+Closing the Todos window ends its page once the page has closed its todos,
+and never asks. Quitting or restarting Epicenter closes it the same way (see
+[Leaving Epicenter](#leaving-epicenter)). Reloading the page loses
+unsaved typing. Native shutdown drains accepted saves
 and commits; forced termination can leave saved files uncommitted. Two native
 processes cannot open the same directory. See Todos' [README](../todos/README.md)
 for version checks, terminal interleaving, and external-edit limits.
@@ -188,123 +189,73 @@ there is no Capture HTTP file bridge. First attach opens the directory, and
 native shutdown drains admitted work. Browser Capture keeps a separate folder
 in its origin's private file system (OPFS).
 
-Closing the native window hides it with its drafts intact. Quitting or
-restarting Epicenter asks the page first (see [Leaving Epicenter](#leaving-epicenter)).
+Closing the native window ends its page once the page has closed its
+captures, and never asks. Quitting or restarting Epicenter closes it the same
+way (see [Leaving Epicenter](#leaving-epicenter)).
 A stopped sidecar leaves the page open for recovering its text. Forced
 termination does not wait.
 
 ## Leaving Epicenter
 
-Capture and Todos keep unsaved text in their pages, and the Folder plugin's
-exit drain sees only writes a page already submitted, not a draft still inside
-its 400 ms batch. So before the process quits, or restarts for an account
-change, the native host runs one departure round
-(`src-tauri/src/departure.rs`) and asks both windows. The pages own their
-drafts; the host owns the round and a generation for each page. Nothing else
-takes part: Whispering's shared-host build has no folder root, and Home, Mail,
-and admitted apps hold no file-backed drafts.
+Quitting never asks, and nothing in the host waits on a page or sets a timer
+(`src-tauri/src/leaving.rs`, ADR-0529). The one thing worth protecting is a
+save in flight: Capture and Todos keep drafts in their pages, and a draft's
+latest snapshot can still be waiting behind a running write, where the Folder
+plugin's exit drain cannot see it. So their pages end themselves:
 
-- **Who is asked.** The `capture` and `todos` windows that exist when the round
-  starts, hidden ones included. No window joins later: while a round runs, a
-  participant window cannot be created.
-- **Every quit asks.** The round starts from `ExitRequested`. The tray's Quit
-  and `app.exit` raise it directly. AppKit's own quits (the app menu's Quit and
-  Cmd-Q, the Dock's Quit, logout, restart, shutdown, a `quit` Apple event) call
-  `terminate:`, which Tao's application delegate would let through without
-  `ExitRequested`. A quit guard (`src-tauri/src/departure/terminate.rs`) adds
-  `applicationShouldTerminate:` to Tao's delegate class at startup and fails
-  startup if it cannot. With no Capture or Todos window it lets AppKit
-  terminate as before. Otherwise it refuses and requests an ordinary exit,
-  which runs the round, so a logout or shutdown that reaches Epicenter is
-  cancelled, and the person retries it once the round has finished. Epicenter
-  does not resume a cancelled logout. Force Quit, a signal, or a crash still
-  skips the round. Letting AppKit terminate runs Tao's exit path, which takes
-  a lock Tao already holds during Tauri callbacks, so `terminate:` must never
-  be answered "now" from inside one: it would hang the main thread. AppKit's
-  own quits arrive from the run loop, and nothing in Epicenter calls
-  `terminate:`; code that wants to quit calls `app.exit`. While a modal
-  session runs, the nesting identified so far, the guard always takes the
-  ordinary exit instead. Other nested run loops are not ruled out.
-- **One owner.** The round and the participant windows belong to the main
-  thread. Bun frames, timers, dialog answers, and page answers are carried
-  there, and each hide or show happens inside the step that decided it, so
-  nothing from an ended round can show or hide a window in a newer one.
-- **Nothing pops up unasked.** Starting a round shows no window. A page that
-  answers `asking` is shown, even if the person had closed it, so it can ask
-  them; so is every undecided page when the person asks again.
-- **Agreeing never ends the page.** A page answers `ready` once its draft is
-  flushed, or once the person deliberately discards it in the page. Nothing is
-  closed, discarded, or reloaded. If any page answers `cancel` ("Keep working"),
-  every page the round held resumes, and every window the round showed or hid
-  goes back as the round found it, shown or hidden.
-- **Silence is not permission.** A page that has not answered after three
-  seconds is listed in a native dialog: "Keep open" (the default), "Discard
-  and quit" or "Discard and restart", and "Cancel". Only the discard button
-  lets the round go on; "Cancel", a dialog that fails, and any other answer
-  keep Epicenter open. The discarded window
-  is hidden, and confirmed hidden, before its vote counts, and nothing shows it
-  again until the round ends without leaving. A hide that was applied but not
-  confirmed ends the round with an error and shows the window again.
-- **Asking again.** Quitting during a quit or a restart round asks the
-  undecided pages again in the same round, with the same intent, so a page that
-  hung after `asking` reaches the dialog ("Discard and restart" during a
-  restart); a live page re-sends `asking` and shows its own prompt once. Quit
-  and restart never merge: a second restart is refused as busy, and quitting
-  while a restart is granted says so and leaves the grant to Bun.
-- **Restart is granted, then finished.** An account change asks over the
-  private Bun pipe (`prepare-relaunch`, protocol 8) and gets exactly one answer.
-  Granting hides every participant window, each confirmed hidden, and refuses
-  to show them; `relaunch` then calls `request_restart`, whose Exit lets the
-  Folder plugin drain admitted writes. `relaunch-abort`, or the Bun generation
-  ending, restores them. A page that reloads or closes while the round collects
-  ends the round: a restart gets its error, a quit says so. While granted it
-  only loses its vote, and every page stays fenced.
-- **The Window menu.** AppKit lists open windows in the Window menu and raises
-  the one chosen. Capture and Todos are left out of that list and get their
-  own Window-menu items instead, which open or show them through the same
-  checked path as Home's launcher, so the menu cannot show a discarded or
-  granted window.
-- **Bun stopping** leaves both windows and their native folders running, and
-  sends them `host-stopped`. Their HTTP session does not come back; they are
-  shown when no round is in progress.
+1. Each Capture and Todos page registers Tauri's `onCloseRequested` for its
+   window before anything can be edited (`#platform/window`).
+2. A close request runs that handler, which awaits the owner's `close()`
+   with no timeout (`createClosing` from `@epicenter/svelte/closing`). After
+   about 1,200 ms the page shows "Still saving…" with **Close anyway**.
+3. When the handler returns, Tauri destroys the window. The `page-close-*`
+   capabilities grant `core:window:allow-destroy` to `capture` and `todos`
+   alone; no installed app's window holds it.
+
+Quit, from the app menu (Cmd-Q) or the tray, marks Epicenter as quitting and
+closes every built-in window; installed app windows are destroyed. Windows
+that hide on close (Home, Whispering, installed apps) close while quitting.
+When the last window is gone, the run loop's `ExitRequested { code: None }`
+exits; without a quit or restart under way it is prevented, so closing the
+last window leaves Epicenter in the tray. The Folder plugin drains the writes
+it accepted on `Exit`.
+
+A draft whose save failed or conflicted, and text not added yet, is lost on
+close. Its page's save bar already said so. Nothing is fenced and nobody is
+prompted.
+
+- **Which quits close windows.** The tray's Quit and the app menu's Quit. The
+  app menu's Quit is an item of Epicenter's own, because the predefined one
+  calls AppKit's `terminate:`, which closes no window. An `app.exit` with a
+  code, such as the startup failure dialog's Quit, exits at once.
+- **Which quits do not.** The Dock's Quit, logout, restart, shutdown, and a
+  `quit` Apple event call `terminate:` directly. Tao 0.37 answers only
+  `applicationWillTerminate:`, so they reach Epicenter as `RunEvent::Exit`
+  with no window closed first. They drain the writes the Folder plugin
+  already accepted; a snapshot still waiting in a page is lost. Epicenter
+  does not cancel a logout or shutdown. Force Quit, a signal, or a crash
+  also skip the pages.
+- **A frozen page.** A handler that never returns keeps its window, and so a
+  quit, open until Epicenter is force quit.
+- **Restart.** An account change asks over the private Bun pipe
+  (`prepare-relaunch`, protocol 8). Rust grants it at once to that Bun
+  generation; `relaunch` then closes every window the same way and, once the
+  last is gone, calls `request_restart`, whose Exit lets the Folder plugin
+  drain admitted writes. `relaunch-abort`, a withdrawn preparation, or the Bun
+  generation ending drops the grant. A quit outranks a restart.
+- **Bun stopping** leaves the Capture and Todos windows and their native
+  folders running, sends them `host-stopped`, and shows them. Their HTTP
+  session does not come back.
 
 ### The page wire
 
-[`src/departure-wire.ts`](src/departure-wire.ts), exported as
-`@epicenter/epicenter/departure`, is the published shape, with a strict reader
-the native harness uses. It imports nothing, so a browser bundle can take it.
-[`src/departure-page.svelte.ts`](src/departure-page.svelte.ts), exported as
-`@epicenter/epicenter/departure/page`, is the one page client that follows the
-rules below; Capture and Todos each attach their owner to it as a participant
-(`holdsUnsaved`, `fence`, `settle`, `resume`) and word the notice themselves.
-[`src/departure-window.ts`](src/departure-window.ts), exported as
-`@epicenter/epicenter/departure/window`, binds the client to the Tauri window;
-only a page's host build imports it.
+[`src/host-stopped.ts`](src/host-stopped.ts), exported as
+`@epicenter/epicenter/host-stopped`, is the page's side of the one event the
+host sends. Only a page's host build imports it.
 
 ```text
-Rust -> page   emit_to(label, "departure-changed", ())     no payload
-               emit_to(label, "host-stopped", ())          no payload
-page -> Rust   departure_status() -> Status
-               departure_answer({ generation, round, answer: asking | ready | cancel }) -> Status
-Status = { version, generation, phase: idle | collecting | granted | leaving,
-           round?, intent?: quit | restart, vote?: none | asking | ready | discarded }
+Rust -> page   emit_to(label, "host-stopped", ())     the Bun host stopped
 ```
-
-Rust identifies the caller by its window, never by a label the page sends. A
-stale generation or round changes nothing and returns the current status.
-`version` rises with every change. The `departure-*` capabilities grant both
-commands to `capture` and `todos` alone, and neither window holds a
-`core:window` grant, so a page cannot show itself.
-
-A page must, in this order: await registration of
-`getCurrentWebviewWindow().listen('departure-changed', ...)`; read status; and
-only on `idle` become editable. It drops any status older than the newest it
-applied, fences before its first await when a round arrives, answers `ready`
-directly when it holds nothing unsaved (`asking` shows its window), thaws only on an
-authoritative `idle` newer than its own answer, and stays fenced on `granted`,
-`leaving`, or `discarded`. A lost or rejected answer never thaws it. A global
-`listen` registers for every target and can hear the other window's nudge;
-that is harmless, because a nudge only means "read again".
 
 ## Install a local application release
 
@@ -422,8 +373,9 @@ Bun discovers installed IDs once and names them in its versioned ready frame.
 Rust admits launches against that list and its matching launch token before
 registering a folder. Unknown IDs open nothing. Registrations survive Bun
 restarts for the native process's lifetime. Closing an installed app hides its
-window and keeps its drafts; host restart destroys its page. Installed apps do
-not yet enroll drafts in the full-quit departure flow.
+window and keeps its drafts; host restart destroys its page. Quitting and an
+account-change restart destroy installed app windows without running a close
+handler, so they drain only the writes their folder already accepted.
 
 ## Build and verify
 
@@ -449,33 +401,16 @@ bun test apps/epicenter/scripts apps/epicenter/src
 # Native command and fixture tests
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 
-# The departure round alone, with no dependencies
-rustc --edition 2021 --test apps/epicenter/src-tauri/src/departure/machine.rs -o apps/epicenter/src-tauri/target/departure-machine
-apps/epicenter/src-tauri/target/departure-machine
-
-# Twenty real restarts through a granted relaunch, and two departure rounds
-# through Capture- and Todos-labelled windows, in an isolated profile
+# Twenty real restarts through a granted relaunch, in an isolated profile
 bun apps/epicenter/scripts/native-runtime-evidence.ts
 ```
 
-The runtime harness proves what the mock-runtime tests cannot: the restart
-reaches Exit and the Folder plugin's shutdown; a page's first read carries the
-generation of every page load before it; a window-scoped listener hears only
-its own label's nudge; AppKit leaves both windows out of its Window list; a
-grant hides both windows as `is_visible` reports and refuses the Window-menu
-items, and its abort leaves a window the person had closed hidden; the
-dialog's discard path hides a silent page, which the Window menu then cannot
-show; and Bun's withdrawal restores both. On macOS every process installs the
-quit guard on Tao's delegate, and the last one leaves through `[NSApp
-terminate:]`: refused into a quit round that one page cancels with its draft
-intact, then agreed and left through one Exit. A separate process with no
-participant window terminates through AppKit with no exit request. It drives
-the rounds natively, not through Bun's `prepare-relaunch`, which the port and
-authority tests cover. It schedules `terminate:` on the main run loop, as
-AppKit's own quits arrive, rather than pressing anything; it does not prove that an
-in-flight Folder write drains, and does not press Cmd-Q, use the Dock or
-tray, log out, click the dialog, or check whether a hidden window can still
-take input.
+The runtime harness proves what the mock-runtime tests cannot: each restart
+reaches Exit and the Folder plugin's shutdown, every relaunch closes the
+windows and restarts once the last is gone, every Bun sidecar stops, and the
+last process's exit with a code is not held. It does not open Capture or
+Todos, so it does not prove a page's close handler, that an in-flight Folder
+write drains, or anything about Cmd-Q, the Dock, the tray, or logout.
 
 The root `bun typecheck` runs each workspace's checks, including the apps checked
 by `typecheck:desktop`. Use `typecheck:desktop` for standalone verification of

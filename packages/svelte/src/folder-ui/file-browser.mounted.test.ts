@@ -13,7 +13,7 @@
  * - F2 renames in place: Enter applies the name, a refused name keeps the
  *   field, and Escape returns focus to the row
  * - New file creates in the folder root through the app
- * - Delete asks the app; while disabled, F2 and Delete do nothing
+ * - Delete asks the app
  * - The app chooses the icon for its own items
  *
  * Run with `bun run test:mounted`.
@@ -48,7 +48,7 @@ afterEach(() => {
 	for (const step of cleanup.splice(0)) step();
 });
 
-function setup(options: { disabled?: boolean; renameProblem?: string } = {}) {
+function setup(options: { renameProblem?: string } = {}) {
 	const calls: unknown[][] = [];
 	const expanded = new SvelteSet<string>(['todos']);
 	const target = document.createElement('div');
@@ -65,7 +65,6 @@ function setup(options: { disabled?: boolean; renameProblem?: string } = {}) {
 				icon: (path: string) =>
 					path.startsWith('todos/') ? ListTodoIcon : undefined,
 				emptyDescription: 'Add a todo.',
-				disabled: options.disabled ?? false,
 				onRefresh: () => calls.push(['refresh']),
 				onOpen: (path: string) => calls.push(['open', path]),
 				onCreate: async (
@@ -221,16 +220,10 @@ test('New file creates in the folder root through the app', async () => {
 	expect(calls).toEqual([['create', '', 'plan.md', 'file']]);
 });
 
-test('Delete asks the app; while disabled, F2 and Delete do nothing', () => {
-	const enabled = setup();
-	enabled.press('readme.md', 'Delete');
-	expect(enabled.calls).toEqual([['delete', 'readme.md']]);
-
-	const disabled = setup({ disabled: true });
-	disabled.press('readme.md', 'Delete');
-	disabled.press('readme.md', 'F2');
-	expect(disabled.calls).toEqual([]);
-	expect(disabled.field()).toBeNull();
+test('Delete asks the app', () => {
+	const { press, calls } = setup();
+	press('readme.md', 'Delete');
+	expect(calls).toEqual([['delete', 'readme.md']]);
 });
 
 test('the app chooses the icon for its own items', () => {

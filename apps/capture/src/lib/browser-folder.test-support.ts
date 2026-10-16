@@ -99,9 +99,12 @@ export async function openCaptures(files: Record<string, string> = {}) {
 		expectOk(await folder.files.create(path, text));
 	// Loaded on use, after the test file registered its runes-module loader.
 	const { createCaptures } = await import('./captures.svelte.ts');
+	// The harness keeps the folder open past the store's close, so a test can
+	// read what closing saved; `close` below releases it.
 	const captures: Captures = createCaptures({
 		folder,
 		location: folder.location,
+		close: async () => {},
 	});
 	await captures.refresh();
 	const faults = opfsOf(storage).faults;

@@ -25,8 +25,8 @@
  *   saved last; a refused delete shows the file again in a new session
  * - Close waits for a whole action, such as a folder delete, not only the
  *   write running when it began
- * - The close fence stops input, and settling counts a draft that could not
- *   save
+ * - Close sends the autosave snapshot held behind a running write and waits
+ *   for it, and a draft whose save failed does not hold it
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -552,26 +552,33 @@ test('a refused delete after renaming the open note shows it again at its new pa
 // Closing
 // ============================================================================
 
-test('the close fence stops input, and settling counts a draft that could not save', async () => {
+test('close sends the snapshot held behind a running write and waits for it to land', async () => {
+	const { notes, disk } = await open();
+	const session = await openNote(notes);
+	disk.hold();
+	session.edit((row) => {
+		row.body = 'Running.\n';
+	});
+	await until(() => disk.held().length === 1, 'the first write to start');
+	session.edit((row) => {
+		row.body = 'Held behind it.\n';
+	});
+	const closing = notes.close();
+	disk.release({ all: true });
+	await closing;
+	expect(disk.text(A)).toContain('Held behind it.\n');
+});
+
+test('a draft whose save failed does not hold close', async () => {
 	const { notes, disk } = await open();
 	const session = await openNote(notes);
 	disk.failWrites();
 	session.edit((row) => {
 		row.body = 'Mine.\n';
 	});
-	const release = notes.fenceInput();
-	expect(session.locked).toBe(true);
-	session.edit((row) => {
-		row.body = 'Typed while closing.\n';
-	});
-	expect(session.draft.body).toBe('Mine.\n');
-	expect(await notes.createNote()).toContain('closing');
-	expect(await notes.settleAll()).toBe(1);
-	release();
-	expect(session.locked).toBe(false);
-	disk.failWrites(false);
-	session.retry();
-	expect(await notes.settleAll()).toBe(0);
+	expect((await session.settled()).status).toBe('error');
+	await notes.close();
+	expect(disk.text(A)).not.toContain('Mine.');
 });
 
 test('close waits for a running save, and a second call shares it', async () => {

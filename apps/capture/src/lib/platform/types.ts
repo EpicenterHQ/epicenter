@@ -2,13 +2,12 @@
  * The seam between the Capture UI and where its folder lives.
  *
  * `#platform/folder` resolves at build time. The Epicenter host leaf attaches
- * to a real directory the desktop shell owns and answers the host when it
- * quits or restarts; the browser leaf opens a logical folder in OPFS and has
- * no such gate. Neither leaf imports the other's storage.
+ * to a real directory the desktop shell owns and hears when the host that
+ * served the page stops; the browser leaf opens a logical folder in OPFS and
+ * has no host. Neither leaf imports the other's storage.
  */
 
 import type { CaptureFields } from '@epicenter/capture';
-import type { Departure } from '@epicenter/epicenter/departure/page';
 import type {
 	FileTable,
 	FolderFiles,
@@ -45,8 +44,17 @@ export type CaptureHost = {
 export type OpenCaptureHost = () => Promise<CaptureHost>;
 
 /**
- * The host's question before it quits or restarts, for this window. Started
- * before the folder opens, so no round is missed. `undefined` in a browser,
- * where the leave warning covers a reload or a closed tab.
+ * Hear that the Bun service which served the page stopped. Resolves to how to
+ * stop listening. A browser has no such service.
  */
-export type OpenDeparture = () => Departure | undefined;
+export type OnHostStopped = (listener: () => void) => Promise<() => void>;
+
+/**
+ * Run `handler` when this window is asked to close: its close button, Quit,
+ * or a host restart. Tauri awaits the handler; `preventDefault` keeps the
+ * window open, and once the handler returns otherwise, the window is
+ * destroyed. Resolves to how to stop listening.
+ */
+export type OnCloseRequested = (
+	handler: (event: { preventDefault(): void }) => void | Promise<void>,
+) => Promise<() => void>;

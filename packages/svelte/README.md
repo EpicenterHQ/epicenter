@@ -86,6 +86,30 @@ it. `command(fn)` wraps a whole method so each call counts from the call,
 before its first await; `admit(fn)` counts one piece; `quiet()` waits for all
 of it; `busy` is reactive.
 
+### `closing` and `ClosingNotice` (`@epicenter/svelte/closing`, `@epicenter/svelte/closing-notice`)
+
+A desktop page's window close handler. `createClosing({ close, confirm? })`
+returns `request(event)`, which the page registers with Tauri's
+`onCloseRequested`: it awaits the owner's `close()` with no timeout, and the
+window goes once it returns. Every request joins one close. `confirm`, when
+given, is asked before the close starts; `false` calls
+`event.preventDefault()` and closes nothing, and a second request while it is
+asked joins the same answer.
+
+When the close has run longer than about 1,200 ms, `slow` turns on and
+`ClosingNotice` shows "Still saving…" with "Close anyway", which calls
+`closeAnyway()` to stop waiting and let the window go. The delay decides when
+the notice shows; it never ends the close.
+
+```svelte
+<script lang="ts">
+	const closing = createClosing({ close: () => owner?.close() });
+	const listening = onCloseRequested?.(closing.request);
+</script>
+
+<ClosingNotice {closing} />
+```
+
 ### `SaveBar` (`@epicenter/svelte/save-bar`)
 
 The save state and conflict prompt for one edit session: Reload theirs or
@@ -137,8 +161,7 @@ ends, F2 renames in place, Delete asks to delete, and Shift+F10 or the
 context-menu key opens the same actions the right-click and "…" menus offer.
 The app gives `onOpen`, `onCreate`, `onRename`, and `onDelete`, an `icon`
 for its own items, what an empty folder suggests, and optionally a
-`location` line and `onReveal`. While `disabled`, creating, renaming, and
-deleting wait and a typed name stays.
+`location` line and `onReveal`.
 
 ```svelte
 <FileBrowser
@@ -148,7 +171,6 @@ deleting wait and a typed name stays.
 	selected={(path) => todos.current?.path === path}
 	icon={(path) => (todos.isTodo(path) ? ListTodoIcon : undefined)}
 	emptyDescription="Add a todo, or create a file or folder above."
-	disabled={todos.departing}
 	onRefresh={() => void todos.refresh()}
 	onOpen={(path) => void openItem(todos, path, 'files')}
 	onCreate={(directory, name, type) =>
@@ -173,11 +195,11 @@ type and size.
 
 `FolderTerminal` shows a terminal session: its `description`, the output,
 and the prompt, with Up and Down recalling earlier commands.
-`createTerminalSession({ terminal, afterRun, fenced })`, also at
+`createTerminalSession({ terminal, afterRun, locked })`, also at
 `@epicenter/svelte/terminal-session` so a state module can create one
 without loading components, keeps the output, history, typed command, and
 working directory for as long as the folder is open. `clear` empties the
-output without running; while `fenced()` is true, typing, recall, and Enter
+output without running; while `locked()` is true, typing, recall, and Enter
 change nothing.
 
 ### `createSyncController` (`@epicenter/svelte/sync`)

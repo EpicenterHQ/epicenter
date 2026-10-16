@@ -69,14 +69,13 @@ running. Standalone Whispering and Epicenter cannot own the same canonical
 folder simultaneously; the second process reports that it is already open.
 Switching shells releases that ownership and reopens the same saved files.
 
-Hiding a retained page preserves drafts. Before destroying a dirty page, the
-shell offers save, discard, or cancel and waits for the chosen action. Active
-recording and transcription must finish or be explicitly cancelled before their
-owning page is destroyed. Full quit stops admitting new native work, resolves
-page-owned input, and drains admitted saves and history. A failed save offers
-retry, discard the draft, or cancel quit. History failure remains separate and
-can be left for the next launch; it never requires discarding an already saved
-file. A crash or forced termination can lose unsaved input and unfinished
+Hiding a retained page preserves drafts. Closing a page or quitting waits for
+the page's own close (ADR-0529): its saves in flight land, then the window
+goes and the shell drains admitted saves and history. Only a recording in
+progress is asked about first. A failed save and an unfinished transcription
+are lost on quit. History
+failure remains separate and can be left for the next launch; it never
+requires discarding an already saved file. A crash or forced termination can lose unsaved input and unfinished
 operations; it does not promise draft recovery.
 
 ## Delivery evidence

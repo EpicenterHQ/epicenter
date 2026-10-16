@@ -10,8 +10,8 @@
  * Key behaviors:
  * - Outside the shell, a refused window, an unregistered scope, and a missing
  *   plugin each fail the open with a reason, and leave no listener behind
- * - The page names the Capture scope and is told the directory; departure is
- *   heard on this window only
+ * - The page names the Capture scope and is told the directory; the host's
+ *   stop is heard on this window only
  * - Closing detaches this page once, and a sibling page keeps saving
  * - A save sends the whole row as one replacement guarded by the bytes this
  *   page last saved, and keeps undeclared metadata
@@ -26,16 +26,11 @@
  * See also:
  * - `packages/folder/src/tauri.test.ts` for what the adapter decides
  * - `packages/folder/src/tauri-native.test.ts` for the real Rust owner
- * - `departure.test.ts` for the departure wire
  */
 import '../svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { readLegacyBundle } from '@epicenter/capture/legacy';
-import {
-	DEPARTURE_CHANGED_EVENT,
-	DEPARTURE_STATUS_COMMAND,
-	HOST_STOPPED_EVENT,
-} from '@epicenter/epicenter/departure';
+import { HOST_STOPPED_EVENT } from '@epicenter/epicenter/host-stopped';
 import { expectOk } from 'wellcrafted/testing';
 import type {
 	FileChange as Change,
@@ -184,15 +179,11 @@ function own({ cmd, args }: Call): unknown {
 	}
 }
 
-/** The departure status the host reports; this file only reads it. */
-const IDLE = { version: 1, generation: 1, phase: 'idle' };
-
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
 	async invoke(name: string, args: Record<string, unknown> = {}) {
 		const call = { cmd: name.replace(PLUGIN, ''), args };
 		calls.push(call);
-		if (name === DEPARTURE_STATUS_COMMAND) return IDLE;
 		const override = overrides[call.cmd];
 		return override ? override(call, () => own(call)) : own(call);
 	},
@@ -224,7 +215,7 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 	}),
 }));
 
-const { openCaptureHost, openDeparture } = await import(
+const { openCaptureHost, onHostStopped } = await import(
 	'./folder.epicenter-host.js'
 );
 const { createCaptures } = await import('../captures.svelte.ts');
@@ -359,28 +350,20 @@ test('the page names the Capture scope and is told the directory', async () => {
 	await host.close();
 });
 
-test('departure is heard on this window only, registered before its first status read', async () => {
-	const departure = openDeparture();
-	if (!departure) throw new Error('the desktop leaf has a departure gate');
-	await departure.start();
-	// Targeted at this window, not any window's global listener.
-	expect([...windowListeners.keys()].sort()).toEqual(
-		[DEPARTURE_CHANGED_EVENT, FOCUS, HOST_STOPPED_EVENT].sort(),
-	);
-	expect(listeners.has(DEPARTURE_CHANGED_EVENT)).toBe(false);
-	expect(calls.map((call) => call.cmd)).toEqual([DEPARTURE_STATUS_COMMAND]);
-	expect(departure.known).toBe(true);
-	expect(departure.fenced).toBe(false);
-
+test('the host stopping is heard on this window only', async () => {
+	const { captures } = await opened();
 	let stopped = 0;
-	departure.onHostStopped(() => stopped++);
+	const stopHearing = await onHostStopped?.(() => stopped++);
+	// Targeted at this window, not any window's global listener.
+	expect(windowListeners.get(HOST_STOPPED_EVENT)?.size).toBe(1);
+	expect(listeners.has(HOST_STOPPED_EVENT)).toBe(false);
+
 	for (const listener of windowListeners.get(HOST_STOPPED_EVENT) ?? [])
 		listener();
 	expect(stopped).toBe(1);
-	departure.destroy();
-	expect(
-		[...windowListeners.values()].reduce((count, set) => count + set.size, 0),
-	).toBe(0);
+	stopHearing?.();
+	expect(windowListeners.get(HOST_STOPPED_EVENT)?.size).toBe(0);
+	await captures.close();
 });
 
 test('closing detaches this page once, and a sibling page keeps saving', async () => {
@@ -402,7 +385,7 @@ test('closing detaches this page once, and a sibling page keeps saving', async (
 
 test('a save sends the whole row as one replacement guarded by the bytes this page last saved', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { session, form } = await openOne(captures);
 	calls = [];
 
@@ -422,12 +405,11 @@ test('a save sends the whole row as one replacement guarded by the bytes this pa
 		},
 	]);
 	await captures.close();
-	await host.close();
 });
 
 test('an edit made elsewhere is a conflict and is not overwritten', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { session, form } = await openOne(captures);
 	const theirs = `${SAVED}- from another window\n`;
 	put(PATH, theirs);
@@ -440,12 +422,11 @@ test('an edit made elsewhere is a conflict and is not overwritten', async () => 
 	await session.settled();
 	expect(text(PATH)).toBe(`${withText('Mine')}`);
 	await captures.close();
-	await host.close();
 });
 
 test('a save whose reply is lost is confirmed by one read when it landed', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { session, form } = await openOne(captures);
 	overrides.apply = (_call, reply) => {
 		reply();
@@ -461,12 +442,11 @@ test('a save whose reply is lost is confirmed by one read when it landed', async
 	expect((await session.settled()).status).toBe('saved');
 	expect(text(PATH)).toBe(withText('Mine, more'));
 	await captures.close();
-	await host.close();
 });
 
 test('a save whose reply is lost and did not land stays unknown until it is saved again', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { session, form } = await openOne(captures);
 	overrides.apply = () => {
 		throw new Error(LOST);
@@ -477,19 +457,18 @@ test('a save whose reply is lost and did not land stays unknown until it is save
 	delete overrides.apply;
 	expect(lost.status === 'error' && lost.error.name).toBe('Unconfirmed');
 	expect(text(PATH)).toBe(SAVED);
-	expect(await captures.departure.settle()).toBe(1);
+	expect(captures.unsettled).toBe(1);
 
 	session.retry();
 	expect((await session.settled()).status).toBe('saved');
 	expect(text(PATH)).toBe(withText('Mine'));
 	expect(captures.unsettled).toBe(0);
 	await captures.close();
-	await host.close();
 });
 
 test('closing waits for a save already sent and the latest edit after it, and only then detaches', async () => {
 	put(PATH, SAVED);
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	const { form } = await openOne(captures);
 	calls = [];
 	const landing = Promise.withResolvers<void>();
@@ -501,12 +480,9 @@ test('closing waits for a save already sent and the latest edit after it, and on
 	form.inputText('Submitted');
 	form.inputText('Typed later');
 	let closed = false;
-	const closing = captures
-		.close()
-		.then(() => host.close())
-		.then(() => {
-			closed = true;
-		});
+	const closing = captures.close().then(() => {
+		closed = true;
+	});
 	await Bun.sleep(5);
 	expect(closed).toBe(false);
 	expect(sent('detach')).toEqual([]);
@@ -519,7 +495,7 @@ test('closing waits for a save already sent and the latest edit after it, and on
 });
 
 test('a failed commit is reported beside a saved file, and retried without rewriting it', async () => {
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	captures.inputNewCapture('Saved before history');
 	expect(await captures.create()).toBeUndefined();
 	const path =
@@ -548,11 +524,10 @@ test('a failed commit is reported beside a saved file, and retried without rewri
 	expect(calls.map((call) => call.cmd)).toEqual(['commit']);
 	expect(text(path)).toBe(saved);
 	await captures.close();
-	await host.close();
 });
 
 test('a folder its owner closed is reported as stopped, and the text typed stays', async () => {
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	emit(SNAPSHOT_CHANGED, {
 		scope: CAPTURE_FOLDER_ID,
 		sequence: 1,
@@ -567,13 +542,12 @@ test('a folder its owner closed is reported as stopped, and the text typed stays
 	expect(await captures.create()).toContain('was not saved');
 	expect(captures.newCapture).toBe('typed after the folder closed');
 	await captures.close();
-	await host.close();
 });
 
 test('an import whose first save lost its reply is finished by a retry, and repeats create nothing', async () => {
 	const read = readLegacyBundle(fixture);
 	if (!read.ok) throw new Error('the fixture is not a bundle');
-	const { host, captures } = await opened();
+	const { captures } = await opened();
 	let lost = 0;
 	overrides.apply = (_call, reply) => {
 		reply();
@@ -607,5 +581,4 @@ test('an import whose first save lost its reply is finished by a retry, and repe
 		[...files.keys()].filter((path) => path.startsWith('captures/')),
 	).toHaveLength(6);
 	await captures.close();
-	await host.close();
 });

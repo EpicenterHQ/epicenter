@@ -13,8 +13,9 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   through `src/lib/workspace/`: `@epicenter/folder/browser` is imported by the
   browser workspace alone, and `@epicenter/folder/tauri` by the desktop
   workspace alone. Other native services use shared typed invoke bindings
-  imported only by the desktop workspace. The only direct Tauri import is
-  `isTauri` in the workspace opener. `src/lib/page-boundary.test.ts` enforces
+  imported only by the desktop workspace. The only direct Tauri imports are
+  `isTauri` in the workspace opener, and `getCurrentWindow` in the desktop
+  workspace, for its window's close request. `src/lib/page-boundary.test.ts` enforces
   these boundaries; keep it passing without granting native reach to components.
 - **One folder, one owner.** On the desktop the data folder is owned by the
   shell's `tauri-plugin-epicenter-folder` and by nothing else. The page
@@ -30,7 +31,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   one opening (`mountSession`) and `AppShell` puts its session in context. A page or component takes it with
   `getSession()`; it never opens a workspace, builds a library, or keeps
   product state in a module-level variable. State that must survive a page
-  change belongs to the session. Only leaving the app is guarded, never a
+  change belongs to the session. Only leaving a browser tab warns, never a
   navigation between routes. `src/lib/page-boundary.test.ts` enforces the
   ownership.
 - **Native services are shared by both desktop shells.** New native services
@@ -48,18 +49,23 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   inputs and protocol compatibility in Rust; a failed desktop acquisition is
   visible and never selects browser storage. `ARCHITECTURE.md` describes the
   current startup order; ADR-0493 records the shared-service migration.
-- **The shell never closes on its own judgement.** Every window close and exit
-  request goes through the close handshake (`ARCHITECTURE.md`, "Closing"). Do
-  not add a path that exits without the page's answer, a timeout that approves,
-  or a reliance on the browser's leave warning in the desktop app. A close is
-  answered without looking only after an opening has failed and everything it
-  opened is closed; never while an opening is under way or a session exists.
-  The close guard is created only after the session's first read and credential
-  check have settled: do not make it listen earlier. On macOS a system quit
-  reaches the handshake only through `src-tauri/src/quit.rs`, which always
-  cancels AppKit's quit and asks for an ordinary exit: do not answer
-  `NSTerminateNow` or `NSTerminateLater` from it, or mirror the handshake's
-  state there.
+- **Closing never asks, except while recording.** The window's close and the
+  Quit menu item, which closes the window, run the layout's close handler
+  (`ARCHITECTURE.md`, "Closing"): it awaits `session.close()` with no timeout,
+  then Tauri destroys the window and the app exits. After about 1,200 ms the
+  page shows "Still saving…" with Close anyway (`@epicenter/svelte/closing`).
+  The one ask is a recording in progress (`library.recording`): the layout
+  shows the window and asks in the page with `confirmationDialog`; Cancel
+  keeps the window open and the recording going. Do not widen the ask to
+  other unsaved work, move it into the shell, or add an acknowledgement, a
+  wait in the shell, or a timer. A save that failed and work held only in the
+  page are lost on close; the save bar and notices already say so. Keep the
+  custom Quit menu item: the predefined one calls AppKit's `terminate:`,
+  which closes no window. A quit from macOS itself (the Dock, a logout,
+  shutdown, an Apple Event) reaches the shell only as `RunEvent::Exit` and
+  does not reach the page or the ask; only writes the folder's owner had
+  accepted are finished. Do not hook `applicationShouldTerminate:` to change
+  that: Whispering never cancels a logout or shutdown.
 - **A lost reply is not a refusal.** When a native service does not answer, the page
   does not know whether the endpoint was called. Report it as unknown, never
   as "not sent", and never send a provider request again without the person
@@ -86,7 +92,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   unsaved, and never build an entry or draft from it: opening the recording
   afterward is its own read. Do not publish again, recreate, or repair after a
   confirmed receipt. A failed or `Unconfirmed` save and a refusal before
-  publication are not confirmed: they stay unsaved and keep the close guard.
+  publication are not confirmed: they stay unsaved and are reported as such.
 - **Fixture audio and failure injection are debug-only.** They are enabled by
   the shell's build, never by an environment variable alone, and the UI says so
   while they are active. An injected publication failure obstructs the real
@@ -112,9 +118,9 @@ From `apps/whispering`: `bun run typecheck`, `bun run test` (which runs the
 mounted views under the browser runtime after the rest), `bun run build`. For
 shell changes also
 `cargo test --manifest-path src-tauri/Cargo.toml`. After a change to the shell's
-exit handling, or an upgrade of macOS, Tauri, or Tao, also run the probe and
-the three `bun run test:quit` scenarios in `evidence/native-quit/README.md`.
-Tests establish logic and
+exit handling, or an upgrade of Tauri or Tao, quit `bun dev:whispering` with
+Command-Q and with the window's close button while a save is running, and
+check that the save lands. Tests establish logic and
 what reaches disk. The TypeScript tests script the shell's replies or open the
 directory with the Bun opener; they never run the Rust owner. Only running
 `bun dev:whispering` establishes that the desktop app works.

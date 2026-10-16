@@ -19,6 +19,8 @@
 		"./terminal-session": "./src/folder-ui/terminal-session.svelte.ts",
 		"./open-item": "./src/open-item.svelte.ts",
 		"./admissions": "./src/admissions.svelte.ts",
+		"./closing": "./src/closing.svelte.ts",
+		"./closing-notice": "./src/closing-notice.svelte",
 		"./save-bar": "./src/save-bar.svelte",
 		"./sync": "./src/sync.svelte.ts",
 		"./sync-line": "./src/sync-line.ts",

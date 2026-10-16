@@ -483,11 +483,12 @@ export function createNativePort(
 	}
 
 	/**
-	 * Ask Rust to settle every Capture and Todos page before a restart.
+	 * Ask Rust for a restart. Rust grants it without asking the pages; they
+	 * flush their saves in flight when `relaunch` finishes the grant.
 	 *
 	 * Settles once, on Rust's one terminal answer for this request: a grant, or
 	 * the reason there is none. Aborting `signal` withdraws a preparation that
-	 * is still collecting. The request stays pending until Rust answers it, so
+	 * is still waiting. The request stays pending until Rust answers it, so
 	 * that answer is never an unknown request, and a grant that crossed the
 	 * withdrawal is given back before anyone can act on it. This is not the
 	 * SQLite cancellation: a withdrawn preparation is not an interrupted query.

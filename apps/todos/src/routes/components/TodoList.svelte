@@ -47,9 +47,9 @@
 			bind:value={() => todos.newTitle, (title) => todos.newTitle = title}
 			placeholder="Add a todo"
 			aria-label="New todo title"
-			disabled={adding || todos.departing}
+			disabled={adding}
 		/>
-		<Button type="submit" disabled={adding || todos.departing || todos.newTitle.trim() === ''}>
+		<Button type="submit" disabled={adding || todos.newTitle.trim() === ''}>
 			{adding ? 'Adding…' : 'Add'}
 		</Button>
 	</form>
@@ -78,7 +78,6 @@
 							});
 						}
 					}
-					disabled={todos.departing}
 					aria-label="{done ? 'Reopen' : 'Complete'} {titleOf(entry)}"
 				/>
 				<Button

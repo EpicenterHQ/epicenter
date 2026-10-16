@@ -58,7 +58,7 @@ export const WorkspaceError = defineErrors({
 	}),
 	/**
 	 * The page is inside a desktop app that did not start the Whispering host,
-	 * so it has no terminal, transcription, or close handshake. Nothing is
+	 * so it has no terminal or transcription. Nothing is
 	 * opened: a folder alone is not the app.
 	 */
 	HostMissing: () => ({
@@ -110,7 +110,20 @@ export type RecordingWriteHook = <T>(
 	run: () => Promise<T>,
 ) => Promise<T>;
 
-export type CloseDecision = 'proceed' | 'asking' | 'cancel';
+/** The desktop window a page runs in, as far as closing it goes. */
+export type WorkspaceWindow = {
+	/**
+	 * Run `handler` when the window is asked to close: its close button or
+	 * Quit. The shell awaits the handler; `preventDefault` keeps the window
+	 * open, and once the handler returns otherwise, the window is destroyed.
+	 * Resolves to how to stop listening.
+	 */
+	onCloseRequested(
+		handler: (event: { preventDefault(): void }) => void | Promise<void>,
+	): Promise<() => void>;
+	/** Unminimize, show, and focus the window, before the person is asked something. */
+	reveal(): Promise<void>;
+};
 
 export type Workspace = {
 	readonly kind: 'native' | 'browser';
@@ -178,28 +191,10 @@ export type Workspace = {
 		): Promise<string | undefined>;
 	};
 	/**
-	 * The desktop shell asks before it closes the window or quits, because only
-	 * the page knows what is unsaved. The page answers `proceed` to let it
-	 * close, `asking` while it shows its own confirmation, or `cancel` to stay
-	 * open. Undefined in a browser tab, where the browser owns leaving.
+	 * The desktop window this page runs in. Undefined in a browser tab, which
+	 * closes without asking the page; its leave rule is the browser's.
 	 */
-	readonly closing:
-		| {
-				onRequest(listener: () => void): () => void;
-				/**
-				 * Rejects when the answer was not delivered. The host may still have
-				 * taken it: a rejected `proceed` is not a refusal to quit.
-				 */
-				answer(decision: CloseDecision): Promise<void>;
-				/**
-				 * The shell tried to close but the host is gone, so it could not ask
-				 * through it. The page must keep the window and say why.
-				 */
-				onRequestWithoutHost(listener: () => void): () => void;
-				/** With the host gone, the one way to tell the shell to quit. */
-				quitWithoutHost(): void;
-		  }
-		| undefined;
+	readonly window: WorkspaceWindow | undefined;
 	/** Whether debug controls are offered. */
 	readonly debugControls: boolean;
 	/** Failure injection, in a debug desktop shell only. */

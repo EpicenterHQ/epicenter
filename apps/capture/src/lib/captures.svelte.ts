@@ -33,7 +33,6 @@ import {
 	type LegacyBundle,
 	runLegacyImport,
 } from '@epicenter/capture/legacy';
-import type { DepartureParticipant } from '@epicenter/epicenter/departure/page';
 import {
 	type CommitOutcome,
 	type RowReadError,
@@ -107,9 +106,6 @@ export type Repair = {
 	readonly problem: string;
 };
 
-/** Why input or an action was refused while Epicenter asks to quit or restart. */
-export const DEPARTING =
-	'Epicenter is asking to quit or restart, so nothing is changed now. Your text is kept.';
 const CLOSING = 'Capture is closing, so nothing was changed.';
 
 /**
@@ -182,7 +178,7 @@ function readProblem(error: RowReadError): string {
 	return error.message;
 }
 
-export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
+export function createCaptures(host: CaptureHost) {
 	const { folder } = host;
 	const table = folder.tables.captures;
 	const pathOf = (stem: string) => rowPath(CAPTURES_TABLE, stem);
@@ -198,19 +194,16 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 	const trackGit = createSubscriber((update) => folder.git.subscribe(update));
 	/** The Epicenter service that served this page has stopped. */
 	let serviceStopped = $state(false);
-	/** Epicenter asks to quit or restart: no action starts, and the open capture takes no input. */
-	let departing = $state(false);
 	let closing: Promise<void> | undefined;
 	let refreshSequence = 0;
-	/** Commands admitted and not finished: a departure and `close` wait for them. */
+	/** Commands admitted and not finished: `close` waits for them. */
 	const { command, quiet, ...admissions } = createAdmissions();
 
-	const locked = () => departing || closing !== undefined;
+	const locked = () => closing !== undefined;
 
 	/** Why no action starts now, if one does not. */
 	function refused(): string | undefined {
 		if (closing !== undefined) return CLOSING;
-		if (departing) return DEPARTING;
 		return undefined;
 	}
 
@@ -398,8 +391,8 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 		markServiceStopped() {
 			serviceStopped = true;
 		},
-		/** Leaving or closing refuses input and actions. */
-		get fenced() {
+		/** Closing refuses input and actions. */
+		get locked() {
 			return locked();
 		},
 		/** The open capture, or `undefined`. */
@@ -546,7 +539,7 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 				}
 			},
 		),
-		/** Commit what is saved. Refused, as other actions are, while closing or departing. */
+		/** Commit what is saved. Refused, as other actions are, while closing. */
 		commit: command(async (): Promise<CommitOutcome> => {
 			const why = refused();
 			if (why !== undefined) return { status: 'blocked', reason: why };
@@ -554,32 +547,9 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 		}),
 
 		/**
-		 * The page's part in leaving Epicenter. `fence` runs before anything is
-		 * awaited; `settle` lets running actions and saves finish and answers
-		 * how many things would be lost; `resume` gives everything back.
-		 */
-		departure: {
-			/** Whether leaving would lose anything: the open capture, the New capture text, running actions. */
-			get holdsUnsaved() {
-				return slot.unsaved || newCapture !== '' || admissions.busy;
-			},
-			fence() {
-				departing = true;
-			},
-			async settle(): Promise<number> {
-				await quiet();
-				await slot.session?.settled();
-				return (slot.unsaved ? 1 : 0) + (newCapture === '' ? 0 : 1);
-			},
-			resume() {
-				departing = false;
-			},
-		} satisfies DepartureParticipant,
-
-		/**
-		 * Let running actions and the open capture's saves finish before the
-		 * page releases its folder. A failed save is not sent again. Every call
-		 * answers the same completion.
+		 * Refuse new work, let running actions and the open capture's saves
+		 * finish, then let go of the page's folder. A failed save is not sent
+		 * again. Every call answers the same completion.
 		 */
 		close(): Promise<void> {
 			if (closing !== undefined) return closing;
@@ -592,6 +562,7 @@ export function createCaptures(host: Pick<CaptureHost, 'folder' | 'location'>) {
 							`Closed with a capture that could not be saved: ${unsaved}`,
 						),
 					);
+				await host.close();
 			})();
 			return closing;
 		},

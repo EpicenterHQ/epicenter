@@ -494,40 +494,17 @@ export function createRuns({
 		isRetrying(id: string) {
 			return retrying.has(id);
 		},
-		/** What leaving now would lose, one plain line each. */
-		held(): string[] {
-			const lines: string[] = [];
-			const count = (n: number, one: string, many: string) => {
-				if (n > 0) lines.push(n === 1 ? one : many.replace('#', String(n)));
-			};
-			count(
-				unsaved.transcripts(),
-				'1 transcript arrived but its file is not saved.',
-				'# transcripts arrived but their files are not saved.',
-			);
-			if ([...transcriptions.values()].some((run) => run.kind === 'running'))
-				lines.push(
-					'A transcription is still running; its result would be lost.',
-				);
-			count(
-				unsaved.transformations(),
-				'1 transformation result arrived but its file is not saved.',
-				'# transformation results arrived but their files are not saved.',
-			);
-			count(
-				unsaved.text(),
-				'1 result on pasted text arrived and is not saved.',
-				'# results on pasted text arrived and are not saved.',
-			);
-			if (
+		/** Whether leaving now would lose a received answer or a running request. */
+		holds(): boolean {
+			return (
+				unsaved.transcripts() > 0 ||
+				[...transcriptions.values()].some((run) => run.kind === 'running') ||
+				unsaved.transformations() > 0 ||
+				unsaved.text() > 0 ||
 				applying.size > 0 ||
 				retrying.size > 0 ||
 				[...recipes.values()].some((run) => run.state.kind === 'running')
-			)
-				lines.push(
-					'A transformation is still running; its result would be lost.',
-				);
-			return lines;
+			);
 		},
 		/**
 		 * Why a recording cannot be deleted now: a request for it still runs, an

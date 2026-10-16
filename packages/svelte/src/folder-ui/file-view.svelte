@@ -40,7 +40,6 @@
 		children,
 		row,
 		notice,
-		disabled = false,
 		backLabel = 'Back',
 		onBack,
 		onRetry,
@@ -63,8 +62,6 @@
 		row?: { table: PreparedFolderTable; noun: string; onOpenAsRow?: () => void };
 		/** Shown above the text when it has no issues to repair. */
 		notice?: Snippet;
-		/** Renaming and deleting wait, as while the app asks to quit or restart. */
-		disabled?: boolean;
 		/** Names where `onBack` goes, such as "Back to todos". */
 		backLabel?: string;
 		/** Shown on narrow screens, where the list and the file take turns. */
@@ -177,5 +174,5 @@
 		</Empty.Root>
 	{/if}
 
-	<FileNameBar prefix={directory === '' ? '' : `${directory}/`} {name} {disabled} {onRename} {onDelete} />
+	<FileNameBar prefix={directory === '' ? '' : `${directory}/`} {name} {onRename} {onDelete} />
 </section>

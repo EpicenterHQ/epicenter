@@ -2,7 +2,9 @@
  * Confirmation dialog operation ownership.
  * Compiles the real component's module script with Svelte, without exporting
  * production helpers or replacing runes. Failure stays retryable, duplicate
- * submissions are ignored, and stale completion cannot change a newer dialog.
+ * submissions are ignored, stale completion cannot change a newer dialog,
+ * and every opening ends in a confirmation or `onCancel`, so a caller that
+ * waits on one is never left waiting.
  */
 import { expect, test } from 'bun:test';
 import { compileModule, parse } from 'svelte/compiler';
@@ -227,3 +229,53 @@ for (const dismiss of ['close', 'binding'] as const) {
 		});
 	}
 }
+
+test('an opening that ends without an answer calls onCancel exactly once', () => {
+	const cancelled: string[] = [];
+	const opening = (name: string) => ({
+		title: name,
+		description: name,
+		onConfirm() {},
+		onCancel() {
+			cancelled.push(name);
+		},
+	});
+
+	// Cancel, as the button and Escape call it.
+	dialog.open(opening('cancelled'));
+	dialog.cancel();
+	dialog.close();
+	// Replaced by a newer dialog before it was answered.
+	dialog.open(opening('replaced'));
+	dialog.open(opening('replacement'));
+	// Closed from outside, as a page leaving does.
+	dialog.close();
+	// Closed through the bound open state.
+	dialog.open(opening('unbound'));
+	dialog.isOpen = false;
+	dialog.close();
+
+	expect(cancelled).toEqual([
+		'cancelled',
+		'replaced',
+		'replacement',
+		'unbound',
+	]);
+});
+
+test('a confirmed opening is not cancelled when it is closed or replaced', async () => {
+	let cancelled = 0;
+	dialog.open({
+		title: 'Delete',
+		description: 'Delete item',
+		onConfirm() {},
+		onCancel() {
+			cancelled++;
+		},
+	});
+	await dialog.confirm();
+	dialog.close();
+	dialog.open({ title: 'Next', description: 'Next', onConfirm() {} });
+	dialog.close();
+	expect(cancelled).toBe(0);
+});

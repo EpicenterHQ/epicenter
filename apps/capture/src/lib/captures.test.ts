@@ -25,8 +25,8 @@
  *   last; a file changed elsewhere since is not deleted
  * - Returning adopts a newer version of an open capture that holds nothing
  *   unsaved, and a thought edit whose thought changed keeps its text
- * - A departure refuses input, settles saves, counts what would be lost, and
- *   gives everything back; close waits for saves
+ * - Close waits for a delete still waiting on a save, for the save already
+ *   sent and the latest edit after it, and is not held by a failed save
  */
 import './svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -467,7 +467,7 @@ test('deleting waits for the open capture saves and deletes what it saved last',
 	expect(captures.timeline).toEqual([]);
 });
 
-test('a departure and close wait for a delete that is still waiting on a save', async () => {
+test('close waits for a delete that is still waiting on a save', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
@@ -480,18 +480,14 @@ test('a departure and close wait for a delete that is still waiting on a save', 
 		order.push('deleted');
 		return problem;
 	});
-	captures.departure.fence();
-	const settling = captures.departure.settle().then(() => {
-		order.push('settled');
-	});
 	const closing = captures.close().then(() => {
 		order.push('closed');
 	});
 	await Bun.sleep(5);
 	expect(order).toEqual([]);
 	release();
-	await Promise.all([settling, closing]);
-	// Both waited for the delete itself, not only for the save before it.
+	await closing;
+	// It waited for the delete itself, not only for the save before it.
 	expect(order[0]).toBe('deleted');
 	expect(await removing).toBeUndefined();
 	expect(await harness.text(PATH)).toBeUndefined();
@@ -582,45 +578,24 @@ test('deleting or moving a thought from a list that changed meanwhile says why',
 });
 
 // ============================================================================
-// Departure and closing
+// Closing
 // ============================================================================
 
-test('a departure refuses input, settles saves, counts what would be lost, and gives everything back', async () => {
+test('a draft whose save failed does not hold close', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	await captures.open('one', 'capture');
 	const { session, form } = openCapture(captures);
-	form.inputText('Saves on its own');
-	form.inputNewThought('Held');
-	captures.inputNewCapture('A new capture, not added');
-
-	captures.departure.fence();
-	expect(captures.fenced).toBe(true);
-	expect(session.locked).toBe(true);
-	form.inputText('refused');
-	form.inputNewThought('refused');
-	captures.inputNewCapture('refused');
-	expect(await captures.create()).toContain('quit or restart');
-	// The new thought and the New capture text would be lost.
-	expect(await captures.departure.settle()).toBe(2);
-	expect(await harness.text(PATH)).toContain('\nSaves on its own\n');
-
-	captures.departure.resume();
-	expect(session.locked).toBe(false);
-	expect(form.newThought).toBe('Held');
-	expect(captures.newCapture).toBe('A new capture, not added');
-	expect(form.addThought()).toBe(true);
-	expect((await session.settled()).status).toBe('saved');
+	harness.failNextWrite(PATH);
+	form.inputText('Mine');
+	expect((await session.settled()).status).toBe('error');
+	await captures.close();
+	// Nothing was retried: the file keeps what was saved before.
+	expect(await harness.text(PATH)).not.toContain('Mine');
 });
 
-test('a commit is refused while departing or closing, as other actions are', async () => {
+test('a commit is refused while closing, as other actions are', async () => {
 	const { captures } = await open({ [PATH]: HAND });
-	captures.departure.fence();
-	expect(await captures.commit()).toEqual({
-		status: 'blocked',
-		reason: expect.stringContaining('quit or restart'),
-	});
-	captures.departure.resume();
 	void captures.close();
 	expect(await captures.commit()).toEqual({
 		status: 'blocked',

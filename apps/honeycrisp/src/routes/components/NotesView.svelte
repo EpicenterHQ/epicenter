@@ -20,14 +20,11 @@
 	let filesOpen = $state(false);
 	let terminalOpen = $state(false);
 
-	// Drafts live only in this window. Three things can end it, and each is held
-	// back while the open item's save runs or failed:
-	// - a reload or in-page navigation: cancelled here, and the webview asks first;
-	// - closing the window or quitting the app: the shell asks the page, which
-	//   answers from `+page.svelte` before these notes exist. While it answers,
-	//   `notes.fenced` holds back every input and action here.
-	beforeNavigate(({ cancel }) => {
-		if (notes.unsettled > 0) cancel();
+	// Drafts live only in this window. Unloading it while the open item's save
+	// runs or failed, or an action runs, raises the browser's own "Leave
+	// site?". Closing the desktop window waits for `+page.svelte`'s close.
+	beforeNavigate((navigation) => {
+		if (navigation.willUnload && notes.unsettled > 0) navigation.cancel();
 	});
 
 	async function toggleTerminal() {
@@ -61,14 +58,11 @@
 />
 <svelte:window
 	onfocus={() => void notes.check()}
-	onbeforeunload={(event) => {
-		if (notes.unsettled > 0) event.preventDefault();
-	}}
 	onkeydown={async (event) => {
 		const mod = event.metaKey || event.ctrlKey;
 		if ((event.key === 'F5' || (mod && event.key.toLowerCase() === 'r')) && notes.unsettled > 0) {
-			// A reload would end this window's drafts. The leave prompt below is
-			// the webview's to show or not; refusing the shortcut does not depend on it.
+			// A reload would end this window's drafts. The leave prompt is the
+			// webview's to show or not; refusing the shortcut does not depend on it.
 			event.preventDefault();
 			toast.warning('Reload stopped: the open note is not saved', {
 				description: 'Wait for them to save, or resolve them in the note, then reload.',
@@ -87,9 +81,7 @@
 	}}
 />
 
-<!-- While a close is being answered nothing here takes input. The editors stay
-     mounted, so Keep editing returns to the same text and undo history. -->
-<div class="flex h-dvh flex-col overflow-hidden" inert={notes.fenced}>
+<div class="flex h-dvh flex-col overflow-hidden">
 	<AppHeader
 		{notes}
 		{filesOpen}
@@ -148,7 +140,6 @@
 							icon={(path) => (notes.isNote(path) ? NotebookTextIcon : undefined)}
 							emptyDescription="Create a note, or a file or folder above."
 							location={notes.host.location}
-							disabled={notes.fenced}
 							onRefresh={() => void notes.refresh()}
 							onReveal={notes.host.reveal}
 							onOpen={(path) => void openItem(notes, path)}

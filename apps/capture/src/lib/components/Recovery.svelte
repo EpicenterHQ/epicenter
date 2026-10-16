@@ -162,7 +162,7 @@
 			<li>{bundle.captures.filter((capture) => capture.text === null).length + bundle.entries.filter((entry) => entry.text === null).length} with text that was not available on that device</li>
 		</ul>
 		<div class="mt-4 flex flex-wrap gap-3">
-			<Button size="sm" disabled={working !== '' || captures.fenced} onclick={runImport}>Import as Markdown files</Button>
+			<Button size="sm" disabled={working !== '' || captures.locked} onclick={runImport}>Import as Markdown files</Button>
 			<Button variant="outline" size="sm" onclick={() => bundle && downloadText(`capture-export-${bundle.exportedAt.slice(0, 10)}.json`, serializeLegacyBundle(bundle), 'application/json')}>Download this export</Button>
 		</div>
 	</section>
