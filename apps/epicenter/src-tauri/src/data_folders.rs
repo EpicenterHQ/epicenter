@@ -15,8 +15,8 @@
 //!   directory when it is missing (`FolderConfig::new`). Both windows share
 //!   the one scope and publish under the plugin's one mutex per root.
 //! - Epicenter's own folder, `so.epicenter` (ADR-0539), is registered at
-//!   setup for the Folders window and Settings, which hold its `apps` table
-//!   and settings, and is listed under that scope.
+//!   setup for the Folders window and Settings, which hold its AI
+//!   connections, and is listed under that scope.
 //! - Any other folder gets a scope of its own, `data:<directory name>`, the
 //!   first time it is listed in a run, registered for the Folders window
 //!   alone as a data folder (`FolderConfig::data`): the shell never creates
@@ -51,7 +51,7 @@ use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, Folders, ScopeConfi
 use crate::app_data::DesktopPaths;
 use crate::{BuiltInApp, DesktopAppHandle};
 
-/// Epicenter's own folder: its `apps` table and its settings (ADR-0539). It is
+/// Epicenter's own folder: its AI connections (ADR-0539, ADR-0569). It is
 /// named by Epicenter's id, as each app's folder is named by its id.
 pub const EPICENTER_FOLDER: &str = "so.epicenter";
 

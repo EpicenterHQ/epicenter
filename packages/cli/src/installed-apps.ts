@@ -33,9 +33,9 @@
  * inherited variable pointing Git elsewhere), with the `ext` and `fd`
  * transports refused. Trust covers code, never data.
  *
- * This module writes the clones, `approvals.json`, and the builds. The
- * Folders window records each installed app as a row of `so.epicenter`'s
- * `apps` table, as it records any row.
+ * This module writes the clones, `approvals.json`, and the builds. They are
+ * the only record of what is installed (ADR-0569): `epicenter app list`
+ * reads them, and `so.epicenter` keeps no row per app.
  */
 
 import { spawn } from 'node:child_process';
