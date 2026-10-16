@@ -69,7 +69,7 @@ What Whispering adds on top:
 - A recording's identity is its stem. Results refer to it by `recordingId`, so
   the app never renames a recording's row; the title is a field.
 - A recording names its audio in `audioPath`, a folder-relative path such as
-  `recordings/<id>.wav`. That field is the only link between the two files.
+  `audio/<id>.wav`. That field is the only link between the two files.
   Nothing is inferred from a file that shares the row's stem. A row with no
   `audioPath`, including one written before the field existed, is listed as
   needing repair and has no audio the app will play or send; the app does not
@@ -289,7 +289,7 @@ So `/recordings` and `/transformations` open directly and survive a refresh.
 A recording is in the folder from the moment it starts (ADR-0543). The
 library names it and writes its row first: `startRecording` makes the ID from
 the start time, asks the capture device to record into
-`recordings/<id>` (`recordingAudioStem`), and writes the row with the start
+`audio/<id>` (`recordingAudioStem`), and writes the row with the start
 time and the `audioPath` the device answered. `stopRecording` stops the
 device and writes the length (`durationMs`) onto the row it reads again, so a
 title typed meanwhile is kept. `cancelRecording` stops the device, which
@@ -317,7 +317,7 @@ opens; neither falls back to the other.
 - The fixture device (`src/lib/capture.ts`) writes fixed bytes on stop, under
   the fixture's own extension, and marks the row `fixture`.
 
-When the library starts it calls `recoverRecordings` over `recordings/`: on
+When the library starts it calls `recoverRecordings` over `audio/`: on
 the desktop the shell rewrites the header of any WAV a quit or a crash cut
 off, so it plays to its end; a browser has none. The row of such a recording
 has no length.

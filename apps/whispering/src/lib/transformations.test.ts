@@ -498,10 +498,12 @@ test('a recording cannot be deleted while a transformation of it runs, including
 	const { error: refusal } = await library.deletionFor(recording.path);
 	expect(refusal).toContain('still running');
 	expect(await library.remove(confirmed)).toContain('still running');
-	expect((await names(root, 'recordings')).sort()).toEqual([
-		`${recording.stem}.md`,
-		`${recording.stem}.wav`,
-	]);
+	expect(
+		[
+			...(await names(root, 'recordings')),
+			...(await names(root, 'audio')),
+		].sort(),
+	).toEqual([`${recording.stem}.md`, `${recording.stem}.wav`]);
 
 	answer.resolve(Ok({ text: 'arrived' }));
 	await running;
@@ -513,7 +515,8 @@ test('a recording cannot be deleted while a transformation of it runs, including
 	expect(again).toMatchObject({ kind: 'recording' });
 	expect(await library.remove(again!)).toBeUndefined();
 	// The row and the results are gone. The audio is an ordinary file and stays.
-	expect(await names(root, 'recordings')).toEqual([`${recording.stem}.wav`]);
+	expect(await names(root, 'recordings')).toEqual([]);
+	expect(await names(root, 'audio')).toEqual([`${recording.stem}.wav`]);
 	expect(await names(root, RUNS)).toEqual([]);
 });
 

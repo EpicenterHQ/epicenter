@@ -29,6 +29,7 @@
 	import { audioPathIn, RECORDINGS, whisperingDefinition } from '$lib/definition.js';
 	import type { Library, RecordingEntry } from '$lib/library.svelte.js';
 	import { committedState } from '$lib/status.js';
+	import AudioAbsent from './AudioAbsent.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { confirmDelete, lf } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
@@ -107,6 +108,8 @@
 	const run = $derived(library.transcriptionRun(id));
 	/** The audio the row names. Nothing is guessed from another file's name. */
 	const audioPath = $derived(entry ? audioPathIn(entry.row.fields) : undefined);
+	/** Whether the audio the row names is missing from this device's folder. */
+	const absent = $derived(entry !== undefined && library.audioOf(entry).kind === 'absent');
 	const history = $derived(
 		entry ? committedState(library.git, [entry.path, ...(audioPath ? [audioPath] : [])]) : undefined,
 	);
@@ -195,7 +198,9 @@
 		<Tabs.Content value="details" class="min-h-0 flex-1 overflow-y-auto">
 			{#if row}
 			<div class="flex flex-col gap-4 py-1">
-				{#if audioPath}
+				{#if absent}
+					<AudioAbsent />
+				{:else if audioPath}
 					<AudioPlayer
 						source={{ kind: 'file', files: library.folder.files, path: audioPath, generation: library.generation }}
 						label="Audio of {title || id}"
@@ -213,7 +218,7 @@
 						<Button
 							class="ml-auto"
 							size="sm"
-							disabled={entry === undefined || audioPath === undefined || run?.kind === 'running'}
+							disabled={entry === undefined || audioPath === undefined || absent || run?.kind === 'running'}
 							onclick={() => entry && void library.transcribe(entry)}
 							data-testid="transcribe"
 						>
@@ -228,7 +233,7 @@
 						</p>
 					{/if}
 					{#each results as result (result.path)}
-						<TranscriptCard {library} {result} />
+						<TranscriptCard {library} {result} audioAbsent={absent} />
 					{:else}
 						{#if run === undefined}
 							<p class="text-sm text-muted-foreground">No transcription yet.</p>

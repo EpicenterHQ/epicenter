@@ -24,8 +24,9 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 ~/Epicenter/so.epicenter.whispering/
 ├── kv.json                          transcription endpoint and model an earlier version saved; read, never written
 ├── recordings/
-│   ├── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
-│   └── <recording-id>.<extension>   the audio that row names, with the extension its bytes call for
+│   └── <recording-id>.md            title, time, length, and audioPath in frontmatter; notes in the body
+├── audio/
+│   └── <recording-id>.<extension>   the audio a row names, with the extension its bytes call for; never committed
 ├── transcriptions/
 │   └── <result-id>.md               names its recording in frontmatter; transcript in the body
 ├── transformations/
@@ -34,7 +35,8 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 │   └── <run-id>.md                  a result on a transcript: what it was made from and with; the result in the body
 ├── text_runs/
 │   └── <run-id>.md                  a result on pasted text you saved: what was sent and with what; the result in the body
-└── .git/                            ordinary Git: Markdown, kv.json, and audio bytes
+├── .gitignore                       names audio/, so the audio stays on the device that recorded it
+└── .git/                            ordinary Git: Markdown, kv.json, and .gitignore
 ```
 
 Opening the folder creates Git metadata. Where requests go is set up per
@@ -51,11 +53,18 @@ starting Epicenter to use another root, such as a disposable one for a test.
 
 A recording's ID is its file stem, set when the recording starts
 (`20260102-030405-k3f9`). Its title is a field, so renaming a recording changes
-frontmatter and never moves a file. Audio is committed as real bytes. There is no
-LFS pointer and no LFS service.
+frontmatter and never moves a file. Audio is never committed: no commit the
+app makes carries a file under `audio/`, and one committed by an earlier build
+is removed from the index on the next commit, its file kept. Before its first
+write the app also adds `audio/` to the folder's `.gitignore`, keeping any
+lines already there, so plain `git` agrees; a `!` exception you add there does
+not get audio into the app's commits. A copy of the folder made with Git, such
+as a clone on another computer, has each recording's row, notes, and
+transcripts, and no audio. There a recording says "This recording's audio
+isn't on this device", and it cannot be played or transcribed.
 
 A recording's file names its audio in `audioPath`, such as
-`audioPath: recordings/20260102-030405-k3f9.wav`. That line is the only link
+`audioPath: audio/20260102-030405-k3f9.wav`. That line is the only link
 between the two files:
 
 - The app plays, transcribes, and lists only the file `audioPath` names. A file
@@ -408,7 +417,7 @@ is written when it stops. Nothing in the row says whether it is still
 recording: the window knows that, and only while it runs.
 
 - In Epicenter the shell writes the audio as it is captured, to
-  `recordings/<id>.wav`, and brings its header up to date about once a
+  `audio/<id>.wav`, and brings its header up to date about once a
   second. Stop finishes the file. Reloading or closing the window finishes it
   too. A quit, a crash, or power loss keeps the audio up to that moment; when
   the folder next opens, the app rewrites the header of any recording that
@@ -538,12 +547,14 @@ rm ~/Epicenter/so.epicenter.whispering/.git/refs/heads/main.lock      # Save ver
 
 ## Restoring from history
 
-History is ordinary Git, so a recording can be recovered without the app:
+History is ordinary Git, so a recording's row, notes, and transcripts can be
+recovered without the app. Its audio is not in history: it is only in `audio/`
+on the device that recorded it.
 
 ```sh
 git -C ~/Epicenter/so.epicenter.whispering log --oneline -- recordings/
 git clone ~/Epicenter/so.epicenter.whispering /tmp/whispering-restore
-afplay /tmp/whispering-restore/recordings/<recording-id>.wav
+cat /tmp/whispering-restore/recordings/<recording-id>.md
 ```
 
 ## Changed promises

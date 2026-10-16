@@ -6,10 +6,13 @@ import {
 } from '@epicenter/definition';
 import { defineFolder } from '@epicenter/folder';
 
+/** Where recordings' audio is written: one machine's files, never committed. */
+export const AUDIO = 'audio';
+
 /**
  * Whispering's folder: each recording is `recordings/<id>.md` with its
  * metadata in frontmatter and notes in the Markdown body. The row names its
- * audio in `audioPath`; the audio is an ordinary file the table does not own,
+ * audio in `audioPath`, a file under `audio/`; the audio is an ordinary file the table does not own,
  * so nothing is inferred from a file that happens to share the row's stem.
  * The row is written when the recording starts and holds facts only: when it
  * started, where its audio is, and, once it stops, how long it is. Whether a
@@ -36,6 +39,10 @@ import { defineFolder } from '@epicenter/folder';
  * saved. This build reads them, to offer them when the transcription
  * connection is set up, and never writes them; no request goes to them.
  *
+ * Audio stays on the machine that recorded it: `local` names `audio/`, so no
+ * commit carries it and Sync sends the rows alone (ADR-0577). Where the
+ * audio a row names is not in the folder, the app says so.
+ *
  * The file stem is a row's identity. A recording's title is a field, so
  * renaming a recording never moves a file or breaks a result's `recordingId`.
  *
@@ -46,6 +53,7 @@ import { defineFolder } from '@epicenter/folder';
  */
 export const whisperingDefinition = defineFolder({
 	title: 'Whispering',
+	local: [`${AUDIO}/`],
 	kv: {
 		/** Saved by an earlier build. Offered at setup; never written, never a destination. */
 		transcriptionBaseUrl: field.string(),
@@ -67,7 +75,7 @@ export const whisperingDefinition = defineFolder({
 				capture: field.select(['microphone', 'fixture']),
 				/**
 				 * The folder-relative path of the audio file, such as
-				 * `recordings/20260102-030405-k3f9.wav`. A row without it has no
+				 * `audio/20260102-030405-k3f9.wav`. A row without it has no
 				 * audio the app will play, transcribe, or name.
 				 */
 				audioPath: field.string(),
@@ -171,7 +179,7 @@ export const DEFAULT_TRANSCRIPTION_CONNECTION = {
  * whatever its `audioPath` says.
  */
 export function recordingAudioStem(id: string): string {
-	return `${RECORDINGS}/${id}`;
+	return `${AUDIO}/${id}`;
 }
 
 /**

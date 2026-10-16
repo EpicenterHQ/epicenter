@@ -16,11 +16,14 @@
 		path,
 		result,
 		onDelete,
+		audioAbsent = false,
 	}: {
 		library: Library;
 		path: string;
 		result: Exclude<ResultState, { kind: 'answered' }>;
 		onDelete: () => void;
+		/** The recording's audio is not in this device's folder, so nothing can be sent again from here. */
+		audioAbsent?: boolean;
 	} = $props();
 
 	async function runAgain() {
@@ -52,7 +55,13 @@
 			<p class="text-muted-foreground" role="status">Unfinished: no answer was written to this file.</p>
 		{/if}
 		<div class="flex items-center gap-1">
-			<Button size="xs" onclick={() => void runAgain()} data-testid="run-again">Run again</Button>
+			<Button
+				size="xs"
+				disabled={audioAbsent}
+				tooltip={audioAbsent ? 'This recording’s audio isn’t on this device.' : undefined}
+				onclick={() => void runAgain()}
+				data-testid="run-again">Run again</Button
+			>
 			<Button size="xs" variant="ghost-destructive" onclick={onDelete} data-testid="delete-unfinished">Delete</Button>
 		</div>
 	{/if}

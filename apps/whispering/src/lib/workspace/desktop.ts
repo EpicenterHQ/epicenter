@@ -46,8 +46,8 @@ import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
 import {
+	AUDIO,
 	DEFAULT_TRANSCRIPTION_CONNECTION,
-	RECORDINGS,
 	whisperingDefinition,
 } from '../definition.js';
 import { commands } from '../tauri/bindings.gen.js';
@@ -107,7 +107,7 @@ export async function openDesktopWorkspace({
 	// them. A failure keeps the folder open and is shown beside the recorder.
 	const { error: recoverError } = await recoverRecordings({
 		folder: { id: folderId, files: folder.files },
-		under: RECORDINGS,
+		under: AUDIO,
 	});
 	const captureNotice =
 		recoverError === null

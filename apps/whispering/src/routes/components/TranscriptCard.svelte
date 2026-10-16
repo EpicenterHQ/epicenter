@@ -24,7 +24,11 @@
 	 * is not edited while its answer is on its way. Nothing here selects the
 	 * transcript's file, so the recording stays open.
 	 */
-	let { library, result }: { library: Library; result: TranscriptionEntry } = $props();
+	let {
+		library,
+		result,
+		audioAbsent = false,
+	}: { library: Library; result: TranscriptionEntry; audioAbsent?: boolean } = $props();
 	// The list keys each card by its file; what is typed is sent to that one.
 	// svelte-ignore state_referenced_locally
 	const own = result.path;
@@ -57,7 +61,13 @@
 
 <article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
 	{#if progress.kind !== 'answered'}
-		<ResultStatus {library} path={result.path} result={progress} onDelete={() => void confirmDelete(library, result.path)} />
+		<ResultStatus
+			{library}
+			path={result.path}
+			result={progress}
+			{audioAbsent}
+			onDelete={() => void confirmDelete(library, result.path)}
+		/>
 	{/if}
 	{#if progress.kind === 'running' || progress.kind === 'writing'}
 		<!-- The answer is on its way into this file. A file with text is not filled, so typing now would keep it out. -->
