@@ -7,7 +7,7 @@
  * names a folder and never a path, that a refusal is returned and nothing else is opened in its place,
  * and that the folder's changes go to the shell. The shell grants a real
  * directory, and the page's own folder engine opens it
- * (`granted-folder.test-support.ts`); nothing here runs the Rust shell or a
+ * (`granted-shell.test-support.ts` in the folder package); nothing here runs the Rust shell or a
  * WebView.
  *
  * The connections are rows of a real `so.epicenter` folder on disk, opened
@@ -36,14 +36,14 @@ import { isStoredRow } from '@epicenter/folder';
 import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
-import { toneWav } from '../capture.js';
-import type { ConnectionCommands } from './desktop-connections.js';
 import {
 	createGrantedShell,
 	type GrantedShell,
 	grantedDirectory,
 	shellArguments,
-} from './granted-folder.test-support.js';
+} from '../../../../../packages/folder/src/granted-shell.test-support.js';
+import { toneWav } from '../capture.js';
+import type { ConnectionCommands } from './desktop-connections.js';
 import type { LocalTranscriptionCommands } from './local-transcription.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
@@ -110,7 +110,14 @@ afterEach(async () => {
 async function granted() {
 	const directory = await grantedDirectory();
 	cleanups.push(() => rm(directory, { recursive: true, force: true }));
-	shell = createGrantedShell(directory, SCOPE);
+	shell = createGrantedShell(directory);
+	// The recorder plugin beside the folder: no recording was ever cut off
+	// here, so there is nothing to repair.
+	const folderCommands = shell.invoke;
+	shell.invoke = async (cmd, body, options) =>
+		cmd === 'plugin:epicenter-recorder|recover'
+			? []
+			: folderCommands(cmd, body, options);
 	return shell;
 }
 

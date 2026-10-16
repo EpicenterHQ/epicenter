@@ -5,7 +5,7 @@
  * the real Capture store, on a real directory with the system `git`. The
  * shell's `invoke` is scripted: `grant_directory` grants a fresh temporary
  * directory, and the commands that follow a grant act on it (see
- * `granted-directory.test-support.ts`).
+ * `granted-shell.test-support.ts` in the folder package).
  *
  * Key behaviors:
  * - Outside the shell, opening fails and invokes nothing
@@ -31,43 +31,27 @@ import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
+import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
 import {
-	git,
-	scratch,
-	shellArguments,
-	shellCommand,
-} from './granted-directory.test-support.js';
+	createGrantedShell,
+	type GrantedShell,
+	grantedDirectory,
+} from '../../../../../packages/folder/src/granted-shell.test-support.js';
 import { CAPTURE_FOLDER_ID } from './types.js';
 
-const PLUGIN = 'plugin:epicenter-folder|';
-
-type Call = { cmd: string; args: Record<string, unknown> };
 let inShell = true;
-let calls: Call[] = [];
 /** The directory the shell grants, new for each test. */
 let root = '';
-/** Replaces the shell's answer to `grant_directory`. Throw to refuse. */
-let grant: (() => unknown) | undefined;
-/** Runs before the shell answers a command; throw to fail it unanswered. */
-let before: Record<string, (call: Call) => Promise<void> | void> = {};
+/** The shell granting `root`; its `calls` are every command the page sent. */
+let shell: GrantedShell;
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inShell,
-	async invoke(
+	invoke: (
 		name: string,
 		body?: Record<string, unknown> | Uint8Array,
 		options?: { headers?: Record<string, string> },
-	) {
-		const args = shellArguments(body, options);
-		const call = { cmd: name.replace(PLUGIN, ''), args };
-		calls.push(call);
-		await before[call.cmd]?.(call);
-		if (call.cmd === 'grant_directory') return grant ? grant() : { root };
-		const answered = await shellCommand(root, call.cmd, args);
-		if (answered === undefined)
-			throw new Error(`the scripted shell has no ${call.cmd}`);
-		return answered.reply;
-	},
+	) => shell.invoke(name, body, options),
 }));
 
 /** Hand the window `folder` as the shell does, in its URL's `?folder=`. */
@@ -127,14 +111,12 @@ async function openOne(
 }
 
 beforeEach(async () => {
-	root = await scratch('capture-host-');
+	root = await grantedDirectory('capture-host-');
+	shell = createGrantedShell(root);
 });
 afterEach(async () => {
 	await rm(root, { recursive: true, force: true });
 	inShell = true;
-	calls = [];
-	grant = undefined;
-	before = {};
 	Reflect.deleteProperty(globalThis, 'location');
 });
 
@@ -148,7 +130,7 @@ test('outside the desktop shell, opening fails with the reason and invokes nothi
 
 	await expect(openCaptureFolder()).rejects.toThrow('desktop app');
 
-	expect(calls).toEqual([]);
+	expect(shell.calls).toEqual([]);
 });
 
 test.each([
@@ -181,23 +163,23 @@ test.each([
 		LOST,
 	],
 ] as const)('%s fails the open with its reason', async (_name, refusal, reason) => {
-	grant = refusal;
+	shell.control.grant = refusal;
 
 	await expect(openCaptureFolder()).rejects.toThrow(reason);
 
-	expect(calls.map((call) => call.cmd)).toEqual(['grant_directory']);
+	expect(shell.calls.map((call) => call.cmd)).toEqual(['grant_directory']);
 });
 
 test('a window handed no folder names the Capture scope and is told the directory', async () => {
 	const folder = await openCaptureFolder();
 
-	expect(calls[0]).toEqual({
+	expect(shell.calls[0]).toEqual({
 		cmd: 'grant_directory',
 		args: { scope: CAPTURE_FOLDER_ID },
 	});
 	expect(CAPTURE_FOLDER_ID).toBe('so.epicenter.capture');
 	// Everything after the grant is for the granted scope.
-	for (const call of calls.slice(1))
+	for (const call of shell.calls.slice(1))
 		expect(call.args.scope).toBe(CAPTURE_FOLDER_ID);
 	expect(folder.location).toEqual({ kind: 'directory', root });
 	await folder.close();
@@ -235,11 +217,12 @@ test('a window handed another folder opens it through the shape and keeps its de
 
 	const { folder, captures } = await opened();
 
-	expect(calls[0]).toEqual({
+	expect(shell.calls[0]).toEqual({
 		cmd: 'grant_directory',
 		args: { scope: 'data:Notes' },
 	});
-	for (const call of calls.slice(1)) expect(call.args.scope).toBe('data:Notes');
+	for (const call of shell.calls.slice(1))
+		expect(call.args.scope).toBe('data:Notes');
 	const { form } = await openOne(captures);
 	expect(form).toBeDefined();
 	// The folder's own declaration stays; Capture's is never published over it.
@@ -305,8 +288,8 @@ test('closing waits for a save already sent and the latest edit after it', async
 	// The first save of the capture is held just before it lands.
 	const landing = Promise.withResolvers<void>();
 	let held = 0;
-	before.rename_folder_path = async (call) => {
-		if (!String(call.args.to).endsWith(`/${PATH}`)) return;
+	shell.control.beforeChange = async (change) => {
+		if (change.kind !== 'write' || change.path !== PATH) return;
 		if (held++ === 0) await landing.promise;
 	};
 
@@ -339,13 +322,13 @@ test('Save version commits and rewrites no file', async () => {
 	// creates it.
 	expect(await Bun.file(join(root, '.git/HEAD')).exists()).toBe(false);
 
-	calls = [];
+	shell.calls.length = 0;
 	expect(expectOk(await captures.saveVersion()).status).toBe('committed');
 	// Only the CLI's save version ran: the page wrote, moved, and removed
 	// nothing.
 	expect(
 		new Set(
-			calls
+			shell.calls
 				.map((call) => call.cmd)
 				.filter((cmd) => !cmd.startsWith('read_') && !cmd.startsWith('stat_')),
 		),

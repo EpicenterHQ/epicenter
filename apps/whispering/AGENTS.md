@@ -103,7 +103,7 @@ mounted views under the browser runtime after the rest), `bun run build`, and
 also `cargo test --manifest-path ../epicenter/src-tauri/Cargo.toml`. Tests
 establish logic and what reaches disk. The TypeScript tests grant a real
 directory through a scripted shell
-(`src/lib/workspace/granted-folder.test-support.ts`) or open it with the Bun
+(`packages/folder/src/granted-shell.test-support.ts`) or open it with the Bun
 opener; they never run the Rust shell. Only installing Whispering in
 `bun dev:epicenter` and using it establishes that the desktop app works.
 
