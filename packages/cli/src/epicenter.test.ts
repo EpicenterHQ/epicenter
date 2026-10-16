@@ -468,7 +468,7 @@ test('--help lists every command but send and install-command, and --json descri
 	expect(help.exitCode).toBe(0);
 	for (const usage of [
 		'epicenter query <dir> [<sql>]',
-		'epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]',
+		'epicenter sync <dir> [--to <namespace>/<name>]',
 		'epicenter app install <url> [--folder <path>] [--approve]',
 		'epicenter auth git-credential get | store | erase',
 		'epicenter merge-driver <dir>',

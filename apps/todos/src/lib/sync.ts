@@ -1,16 +1,11 @@
 /**
- * `todos.sync`: commit the saved files, fetch, merge, and push. A sync whose
- * changes conflict fails with `NeedsChoices`; the review answers its attempt
- * with `apply`. Given a remote URL, it connects first: the URL becomes the
+ * `todos.sync`: commit the saved files, fetch, merge, and push. Sync asks
+ * nothing: what both sides changed merges, this device's version winning
+ * (ADR-0576). Given a remote URL, it connects first: the URL becomes the
  * folder's remote, and the same sync runs. Separate histories are
  * `Unrelated` until the person agrees to combine them.
  */
-import type {
-	SyncAttempt,
-	SyncChoices,
-	SyncError,
-	SyncOutcome,
-} from '@epicenter/folder';
+import type { SyncError, SyncOutcome } from '@epicenter/folder';
 import type { Result } from 'wellcrafted/result';
 import type { Session, TodosError } from './session.js';
 
@@ -37,21 +32,6 @@ export function createSync({
 					: folder.sync.connect(connect.url, {
 							allowUnrelatedHistories: connect.combine,
 						});
-			},
-			onSettled: () => invalidate(),
-		}),
-		/** Answer a sync's review. Refused choices are `InvalidChoices` and keep the attempt. */
-		apply: defineMutation({
-			mutationKey: ['todos', 'apply'],
-			mutationFn: async ({
-				attempt,
-				choices,
-			}: {
-				attempt: SyncAttempt;
-				choices: SyncChoices;
-			}): Promise<Result<SyncOutcome, SyncError | TodosError>> => {
-				await writesSettled();
-				return folder.sync.resolve(attempt, choices);
 			},
 			onSettled: () => invalidate(),
 		}),

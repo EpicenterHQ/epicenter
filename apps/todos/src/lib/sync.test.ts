@@ -1,7 +1,7 @@
 /**
  * Sync Tests
  *
- * Drives the real Todos store's Sync and Apply mutations against a
+ * Drives the real Todos store's Sync mutation against a
  * production browser folder whose remote is the demo's real Git target: a
  * bare repository served by `git http-backend`, and a native checkout that
  * commits and pushes with system Git.
@@ -10,11 +10,8 @@
  * - Sync waits for queued writes, so its checkpoint holds what was typed
  * - Independent edits of one todo merge without a review, and the cache
  *   shows the merged todo after the sync
- * - Competing edits fail with `NeedsChoices` and write nothing; refused
- *   choices are `InvalidChoices` and keep the attempt; Apply settles it,
- *   pushes, and the cache shows the choice
- *
- * The review's Cancel lives in the page; `TodosView.mounted.test.ts` covers it.
+ * - Competing edits merge into one commit this device wins, pushed, and the
+ *   cache shows the merged todo
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, afterEach, expect, test } from 'bun:test';
@@ -129,54 +126,28 @@ test('independent edits merge without a review, and the cache shows the merged t
 	});
 });
 
-test('competing edits need choices and write nothing; refused choices keep the attempt, and Apply settles it', async () => {
+test('competing edits merge into one commit this device wins, and the cache shows it', async () => {
 	const { todos, session } = await openDemo();
 	rowEditor(todos, 'milk')(titled('Buy oat milk'));
 	await quiet(todos);
 	await pushMilk(
 		session,
-		'---\ntitle: Buy soy milk\ndone: false\n---\nOne carton.\n',
+		'---\ntitle: Buy soy milk\ndone: true\n---\nOne carton.\n',
 	);
 
-	const needs = expectErr(await todos.sync.run());
-	if (needs.name !== 'NeedsChoices')
-		throw new Error(`Expected choices, got ${needs.message}`);
-	const { attempt } = needs;
+	expect(expectOk(await todos.sync.run())).toMatchObject({ kind: 'synced' });
 	await quiet(todos);
-	expect(cached(todos, 'milk').row.fields.title).toBe('Buy oat milk');
-	const [title] = attempt.conflicts;
-	expect(title).toMatchObject({
-		kind: 'field',
-		field: 'title',
-		local: { present: true, value: 'Buy oat milk' },
-		incoming: { present: true, value: 'Buy soy milk' },
+	// The title both changed is this device's; what only the remote changed
+	// merges in.
+	expect(cached(todos, 'milk').row).toEqual({
+		fields: { title: 'Buy oat milk', done: true },
+		body: 'One carton.\n',
 	});
-
-	// A refused choice keeps the attempt, with what to fix.
-	const refused = expectErr(
-		await todos.sync.apply({
-			attempt,
-			choices: { [title!.id]: { kind: 'remove' } },
-		}),
-	);
-	if (refused.name !== 'InvalidChoices')
-		throw new Error(`Expected invalid choices, got ${refused.message}`);
-	expect(refused.problems.map((problem) => problem.conflictId)).toEqual([
-		title!.id,
-	]);
-
-	const resolved = expectOk(
-		await todos.sync.apply({
-			attempt,
-			choices: { [title!.id]: { kind: 'take', side: 'incoming' } },
-		}),
-	);
-	expect(resolved.kind).toBe('synced');
-	await quiet(todos);
-	expect(cached(todos, 'milk').row.fields.title).toBe('Buy soy milk');
-	expect(await git(session.bare, 'show', `main:${MILK}`)).toContain(
-		'title: Buy soy milk',
-	);
+	const remote = await git(session.bare, 'show', `main:${MILK}`);
+	expect(remote).toContain('title: Buy oat milk');
+	expect(
+		await git(session.bare, 'log', '-1', '--format=%B', 'main'),
+	).toContain(`field="title" "${MILK}"`);
 });
 
 test('Connect sends a first folder, gives the next one its todos, and asks before combining separate histories', async () => {

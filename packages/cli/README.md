@@ -26,7 +26,7 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter status <dir>` | built | `runHistory` in `@epicenter/folder/bun` |
 | `epicenter history <dir> [--depth <n>]` | built, hidden | `runHistory` |
 | `epicenter save-version <dir> [-m <text>]` | built, hidden | `runHistory` |
-| `epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]` | built | `runHistory`, `src/repository-commands.ts` |
+| `epicenter sync <dir> [--to <namespace>/<name>]` | built | `runHistory`, `src/repository-commands.ts` |
 | `epicenter merge-driver <dir>` | built | `src/merge-driver.ts`, over `mergeForGit` in `@epicenter/folder/bun` |
 | `epicenter clone <namespace>/<name> \| <url> [<dir>]` | built | `src/repository-commands.ts` |
 | `epicenter repos` | built | `src/repository-commands.ts` |
@@ -95,14 +95,11 @@ window closed), the child ends every `git` it started, with their helpers
 - `status` reads only, and takes no lock.
 - `save-version` records the folder's edits as one commit, with `-m` as its
   message when given, under the folder's history lock.
-- `sync` records the edits, fetches, merges by each file's kind (ADR-0551),
-  and pushes, under the same lock. `--to <url>` connects first, to a
-  network URL only. Changes both sides made to one unit exit 1 with the
-  conflicts and record the attempt as `.git/epicenter/sync-attempt.json`:
-  its ID and the commits it merged. `--resolve <file>`, or `-` for standard
-  input, settles it with `{"attempt": "<id>", "choices": {...}}`; the
-  conflicts are merged again from the recorded commits. A later sync
-  retires the attempt.
+- `sync` records the edits, fetches, and merges both heads into one commit
+  by each file's kind (ADR-0576), pushed before the folder's files change,
+  under the same lock. `--to <url>` connects first, to a network URL only.
+  This folder's version of a unit both sides changed wins, and each lost
+  unit is an `Overrode:` trailer on the merge. A sync asks nothing.
 
 The history lock is an exclusive SQLite transaction on
 `.<name>.epicenter-history-lock` beside the folder, the mechanism of the

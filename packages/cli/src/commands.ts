@@ -60,7 +60,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 1,
 		options: [
 			{ name: 'to', value: '<namespace>/<name>' },
-			{ name: 'resolve', value: '<choices.json>' },
 			{ name: 'allow-unrelated', hidden: true },
 		],
 		summary: 'fetch, merge by file kind, commit, and push',
