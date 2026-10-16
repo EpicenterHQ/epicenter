@@ -40,11 +40,7 @@ export const openNotesFolder: OpenNotesFolder = async () => {
 	try {
 		// The shell holds the directory's lock now. An existing folder is
 		// left as it is.
-		await setUpFolder(
-			folder.files,
-			Object.keys(honeycrispDefinition.tables),
-			folder.write,
-		);
+		await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));
 	} catch (cause) {
 		await folder.close();
 		throw cause;

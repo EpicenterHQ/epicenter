@@ -121,7 +121,6 @@ const messagesTable = defineTable({
 
 export const vocabFolder = defineFolder({
 	title: 'Vocab',
-	kv: {},
 	tables: {
 		entries: entriesTable,
 		chats: chatsTable,

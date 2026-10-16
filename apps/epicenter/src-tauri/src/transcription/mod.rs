@@ -4,7 +4,7 @@ mod model_cache;
 mod settings;
 
 pub use catalog::{
-    delete_model, download_model, list_models, ActiveModel, CatalogError, ModelInfo,
+    download_model, list_models, reveal_model, ActiveModel, CatalogError, ModelInfo,
 };
 pub use error::TranscriptionError;
 pub use model_cache::ModelCache;

@@ -76,7 +76,7 @@ window was opened for an installed folder.
 - ADR-0391's default runtime can flip to desktop recording: the
   `current_recording` probe at App close is permitted in every window.
 - An installed app in an `app-*` window can set the active transcription
-  model, delete a model file, launch another application, replace the global
+  model, download a model file, launch another application, replace the global
   shortcuts, and simulate a keystroke. It could already read every document,
   hold the session, and make any HTTP request. ADR-0334 priced the second list
   and it is the larger one.

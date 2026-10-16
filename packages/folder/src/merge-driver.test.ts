@@ -20,7 +20,6 @@ import { gitMergeKind, mergeForGit } from './merge-driver.js';
 import { fileKindOf } from './merge-file.js';
 
 const definition = defineFolder({
-	kv: { a: field.number(), b: field.number(), c: field.number() },
 	tables: {
 		posts: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
@@ -28,7 +27,6 @@ const definition = defineFolder({
 	},
 });
 const ROW = fileKindOf(definition, 'posts/x.md');
-const KV = fileKindOf(definition, 'kv.json');
 const TEXT = fileKindOf(definition, 'notes.txt');
 
 const bytes = (text: string) => new TextEncoder().encode(text);
@@ -73,32 +71,6 @@ test('one field both sides changed is marked on its own line', async () => {
 		);
 });
 
-test('kv.json keys added beside each other combine', async () => {
-	const merged = await merge(
-		KV,
-		'{\n  "a": 1\n}\n',
-		'{\n  "a": 1,\n  "b": 2\n}\n',
-		'{\n  "a": 1,\n  "c": 3\n}\n',
-	);
-	expect(merged.kind).toBe('merged');
-	if (merged.kind === 'merged')
-		expect(JSON.parse(text(merged.content))).toEqual({ a: 1, b: 2, c: 3 });
-});
-
-test('one kv.json key both sides set is marked', async () => {
-	const merged = await merge(
-		KV,
-		'{\n  "a": 1\n}\n',
-		'{\n  "a": 2\n}\n',
-		'{\n  "a": 3\n}\n',
-	);
-	expect(merged.kind).toBe('conflicted');
-	if (merged.kind === 'conflicted')
-		expect(text(merged.content)).toContain(
-			'<<<<<<< ours\n  "a": 2\n=======\n  "a": 3\n>>>>>>> theirs\n',
-		);
-});
-
 test('text edits to neighboring lines both merge', async () => {
 	const merged = await merge(TEXT, 'a\nb\nc\n', 'A\nb\nc\n', 'a\nB\nc\n');
 	expect(merged.kind).toBe('merged');
@@ -139,9 +111,6 @@ test('a path takes its kind from the nearest declaration above it', async () => 
 		);
 		expect(await gitMergeKind(top, 'vault/posts/x.md')).toMatchObject({
 			kind: { kind: 'row' },
-		});
-		expect(await gitMergeKind(top, 'vault/kv.json')).toMatchObject({
-			kind: { kind: 'kv' },
 		});
 		expect(await gitMergeKind(top, 'vault/notes.txt')).toEqual({
 			kind: { kind: 'file' },

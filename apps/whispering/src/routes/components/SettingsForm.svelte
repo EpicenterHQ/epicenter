@@ -73,7 +73,4 @@
 		{#if index > 0}<Separator />{/if}
 		<ConnectionForm {operation} />
 	{/each}
-	{#if library.settingsProblem}
-		<p class="text-xs text-destructive" role="alert">kv.json: {library.settingsProblem}</p>
-	{/if}
 </div>

@@ -57,9 +57,9 @@
 	{#if draft.readOnlyReason}
 		<p class="text-xs text-muted-foreground">{draft.readOnlyReason}</p>
 	{/if}
-	{#if operation === 'transcription' && !draft.saved && library.legacySettings.transcriptionBaseUrl}
-		<p class="text-xs text-muted-foreground" data-testid="legacy-settings">
-			This folder’s kv.json names {library.legacySettings.transcriptionBaseUrl}{library.legacySettings.transcriptionModel ? ` and ${library.legacySettings.transcriptionModel}` : ''}, saved by an earlier
+	{#if operation === 'transcription' && !draft.saved && library.earlierTranscription.baseUrl}
+		<p class="text-xs text-muted-foreground" data-testid="earlier-transcription">
+			This folder’s kv.json names {library.earlierTranscription.baseUrl}{library.earlierTranscription.model ? ` and ${library.earlierTranscription.model}` : ''}, saved by an earlier
 			version. They fill in the form; nothing is sent there until you save.
 		</p>
 	{/if}

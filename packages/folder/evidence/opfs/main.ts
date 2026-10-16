@@ -50,7 +50,6 @@ import type { PeerReply, PeerRequest } from './peer.js';
 type Status = 'pass' | 'fail' | 'note';
 
 const definition = defineFolder({
-	kv: {},
 	tables: { rows: defineTable({ fields: { title: field.string() } }) },
 });
 const author = { name: 'Evidence', email: 'evidence@example.test' };

@@ -33,7 +33,7 @@ export type PeerReply = {
 	readonly failures?: number;
 };
 
-const definition = defineFolder({ kv: {}, tables: {} });
+const definition = defineFolder({ tables: {} });
 let folder: Folder<typeof definition> | undefined;
 const hints: string[] = [];
 

@@ -3,9 +3,10 @@
  * Query cache (ADR-0528, ADR-0548).
  *
  * Reads are the folder's queries (`folderOptions`): each table's rows, the
- * listing the file browser shows, `kv.json`, Git status, and the text of each
- * file opened as text. The library observes the listings and Git status for
- * as long as it is open, so every page shows them. They are read when the
+ * listing the file browser shows, Git status, and the text of each file
+ * opened as text, an earlier build's `kv.json` among them. The library
+ * observes the listings and Git status for as long as it is open, so every
+ * page shows them. They are read when the
  * page opens and after the app's own actions and terminal commands; changes
  * made anywhere else arrive on `folder.onFilesChanged`, which makes exactly
  * the queries they name stale. Rows that read are listed to edit; the rest
@@ -48,7 +49,6 @@ import type {
 	CommitOutcome,
 	FileListing,
 	FileTable,
-	KvReading,
 	Row,
 	RowReadError,
 	StoredRow,
@@ -104,7 +104,9 @@ import type {
 } from './connections.js';
 import {
 	audioPathIn,
-	type LegacySettings,
+	EARLIER_SETTINGS_PATH,
+	type EarlierTranscription,
+	earlierTranscriptionOf,
 	RECORDINGS,
 	type RecordingFields,
 	recordingAudioStem,
@@ -394,7 +396,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		}
 		return options;
 	}
-	/** The listings every page shows: the tables, the files, and `kv.json`. */
+	/**
+	 * The listings every page shows: the tables and the files, and the text
+	 * of an earlier build's `kv.json`, which setup offers from.
+	 */
 	const listingQueries = () => [
 		listingOf(RECORDINGS),
 		listingOf(TRANSCRIPTIONS),
@@ -402,7 +407,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		listingOf(TRANSFORMATION_RUNS),
 		listingOf(TEXT_RUNS),
 		folder$.files.list.queryOptions(),
-		folder$.kv.get.queryOptions(),
+		textQuery(EARLIER_SETTINGS_PATH),
 	];
 	/**
 	 * What the library observes while it is open: the listings, and Git
@@ -1025,12 +1030,16 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		() => undefined,
 	);
 
-	const kvReading = () => {
+	/**
+	 * What an earlier build's `kv.json` offers, read as an ordinary file: a
+	 * file that is missing, does not read, or holds no string there offers
+	 * nothing.
+	 */
+	const earlierTranscription = () => {
 		trackQueries();
-		return (
-			queryClient.getQueryData<KvReading<LegacySettings> | null>(
-				folder$.kv.get.queryKey(),
-			) ?? undefined
+		const opened = textData(EARLIER_SETTINGS_PATH);
+		return earlierTranscriptionOf(
+			opened?.kind === 'text' ? opened.text : undefined,
 		);
 	};
 
@@ -1083,16 +1092,8 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		 * `kv.json`. Offered when the transcription connection is set up; never
 		 * written, and never where a request goes.
 		 */
-		get legacySettings(): Partial<LegacySettings> {
-			return kvReading()?.values ?? {};
-		},
-		/** Why `kv.json` could not be read, or what in it does not conform. */
-		get settingsProblem() {
-			const error = readError(folder$.kv.get.queryKey());
-			if (error !== undefined) return error;
-			const kv = kvReading();
-			if (kv === undefined || kv.issues.length === 0) return undefined;
-			return kv.issues.map((issue) => issue.message).join('; ');
+		get earlierTranscription(): EarlierTranscription {
+			return earlierTranscription();
 		},
 		/** What this device has set up for requests, never a key. */
 		get connections() {

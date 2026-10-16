@@ -15,7 +15,6 @@ When a schema, builder, or configuration is only used once in a test, inline it 
 test('declares an app', () => {
 	const definition = defineStore({
 		id: 'test.app',
-		kv: { theme: field.string() },
 		tables: {
 			posts: defineTable({
 				title: field.string(),
@@ -33,14 +32,14 @@ test('declares an app', () => {
 ```typescript
 test('declares an app', () => {
 	expect(defineStore({
-		id: 'test.app', kv: {}, tables: {},
+		id: 'test.app', tables: {},
 	}).id).toBe('test.app');
 });
 ```
 
 ### Why Inlining is Better
 
-1. **All context in one place**: No scrolling to understand what `posts` or `theme` are
+1. **All context in one place**: No scrolling to understand what `posts` is
 2. **Reduces naming overhead**: No need to invent variable names for single-use values
 3. **Matches mental model**: The definition IS the usage - they're one conceptual unit
 4. **Easier to copy/modify**: Self-contained test setup is easier to duplicate and tweak

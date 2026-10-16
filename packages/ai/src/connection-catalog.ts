@@ -1,4 +1,3 @@
-import type { Account } from '@epicenter/auth';
 import type {
 	AiConnectionSnapshot,
 	AiConnections,
@@ -164,15 +163,4 @@ export type ConnectionCatalog = Awaited<
  */
 export async function openLocalConnectionCatalog() {
 	return openConnectionCatalog(createBrowserConnections());
-}
-export async function openAccountConnectionCatalog({
-	account,
-}: {
-	account: Account;
-}) {
-	const identity = Object.freeze({
-		authorityId: account.authorityId,
-		principalId: account.principalId,
-	});
-	return openConnectionCatalog(createBrowserConnections(identity));
 }

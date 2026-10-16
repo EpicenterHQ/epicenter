@@ -15,6 +15,7 @@
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { readdir } from 'node:fs/promises';
 import { OpenFolderError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -105,9 +106,9 @@ test('a session whose first read fails releases the folder it opened', async () 
 		...test.workspace,
 		folder: {
 			...folder,
-			kv: {
-				...folder.kv,
-				get: () => Promise.reject(lost),
+			files: {
+				...folder.files,
+				list: () => Promise.reject(lost),
 			},
 		},
 	};
@@ -159,7 +160,7 @@ test('a mounted session is released once, however often the layout releases it',
 
 /**
  * A workspace whose first read is held open by the test. The folder underneath
- * is real and fresh; starting reads it without creating settings.
+ * is real and fresh; starting reads it and writes nothing.
  */
 async function starting() {
 	const test = await openTestWorkspace();
@@ -177,11 +178,11 @@ async function starting() {
 		...test.workspace,
 		folder: {
 			...folder,
-			kv: {
-				...folder.kv,
-				get: async () => {
+			files: {
+				...folder.files,
+				list: async () => {
 					await held();
-					return folder.kv.get();
+					return folder.files.list();
 				},
 			},
 		},
@@ -254,8 +255,8 @@ test('a layout released while its session is starting leaves nothing open', asyn
 	finish();
 
 	await expect(mounted.opening).rejects.toThrow('released');
-	// The admitted read settled before the folder closed; nothing was seeded.
-	expect(await Bun.file(`${test.root}/kv.json`).exists()).toBe(false);
+	// The admitted read settled before the folder closed; nothing was written.
+	expect(await readdir(test.root)).toEqual([]);
 	expect(test.closes).toBe(1);
 });
 
@@ -268,11 +269,11 @@ test('a layout released while its workspace is still opening closes that workspa
 		...test.workspace,
 		folder: {
 			...folder,
-			kv: {
-				...folder.kv,
-				get: () => {
+			files: {
+				...folder.files,
+				list: () => {
 					reads += 1;
-					return folder.kv.get();
+					return folder.files.list();
 				},
 			},
 		},

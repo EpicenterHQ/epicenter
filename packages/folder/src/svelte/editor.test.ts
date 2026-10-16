@@ -267,7 +267,6 @@ test('a body editor takes no change while there is no row', () => {
 
 test("an agent's lines merged into the body stay, and typing after a save appears once", async () => {
 	const definition = defineFolder({
-		kv: {},
 		tables: { notes: defineTable({ fields: { title: field.string() } }) },
 	});
 	const { boundary } = await rawBrowserFolder({ id: 'draft.agent' });

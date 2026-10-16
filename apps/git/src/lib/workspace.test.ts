@@ -125,7 +125,7 @@ test('a copy keeps its own epicenter.json: saves and commits never write it, and
 	const { workspace } = await setup();
 	// Hand-formatted, as no publication would write it.
 	const declared =
-		'{"kv":{"type":"object","properties":{}},"tables":{"notes":{"type":"object","properties":{"title":{"type":"string"}}}}}';
+		'{"tables":{"notes":{"type":"object","properties":{"title":{"type":"string"}}}}}';
 	const read = async (folder: typeof workspace.folder) =>
 		new TextDecoder().decode(
 			expectOk(await folder.files.read('epicenter.json')).bytes,

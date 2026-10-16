@@ -6,8 +6,7 @@
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing "Sync: decided by the person": an overlap in Sync is decided by the device syncing. That files are the truth, with one read path and one channel of change, remains.
 - **Amends:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md), replacing `mergeFile`'s settle and pick with one merge that returns `{ content, overridden }`, adding a union for insertions at one place, and giving Save and Sync the same tiebreaker. That every write merges by the file's kind remains.
 - **Relates:** [ADR-0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md), whose ordinary changed files after an interrupted update this keeps, now because every write lands whole and the next Sync merges them back to the same files; [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), [ADR-0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md), [ADR-0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md)
-- **Replaced:** ADR-0514 and ADR-0516 (Sync's captured attempts, choices, and review), deleted now that Sync is built; and, as a Proposed record, ADR-0522 (settings as `kv.json` keys), which carries a note pointing here and is deleted when settings are a table.
-- **Unbuilt:** the `settings` table and deleting `kv.json`'s machinery.
+- **Replaced:** ADR-0514 and ADR-0516 (Sync's captured attempts, choices, and review), deleted now that Sync is built; and ADR-0522 (settings as `kv.json` keys), deleted now that settings are a table.
 
 ## Context
 
@@ -120,7 +119,6 @@ never its losing content, which stays in whatever version held it:
 ```ts
 type Overridden =
   | { kind: 'field'; field: string }
-  | { kind: 'setting'; key: string } // until settings are a table
   | { kind: 'lines'; part: 'body' | 'text'; line: number; count: number }
   | { kind: 'file'; lost: 'ours' | 'theirs' };
 ```
@@ -293,7 +291,9 @@ time (`inTurn`). It has no revision counter, no re-merge, and no `onSaved`.
 
 **Settings are a declared `settings` table.** Its fields are all optional, and
 its stems are named by concern, such as `settings/display.md` and
-`settings/transcription.md`. No stem is named `app`.
+`settings/transcription.md`; by convention no stem is named `app`. Where a
+definition is written, `defineFolder` refuses a required setting; a published
+declaration that requires one is read as written.
 
 **Deleted:**
 
@@ -312,7 +312,9 @@ its stems are named by concern, such as `settings/display.md` and
   (`directory-handle.ts`), and the browser's lazy root handle
 - Sync's journal, `.git/epicenter/sync-journal.json`, and its recovery
 - `folder.kv`, `kv.json`, `kv.ts`, `kv-merge.ts`, `KV_ROOT`, `InvalidKv`, and
-  the `kv` section of `epicenter.json` and `defineFolder`
+  the `kv` section of `epicenter.json` and `defineFolder`. An `epicenter.json`
+  an earlier build published still holds `"kv": {}`; it is admitted and not
+  read, and the next publication drops it.
 
 ## Consequences
 
@@ -347,6 +349,10 @@ its stems are named by concern, such as `settings/display.md` and
   an app.
 - The browser's whole-folder check before publishing goes, and the browser
   publishes as the desktop does.
+- A setting is a field of its concern's row, so a value that does not read
+  makes that whole row one to repair, and every setting in it falls back to
+  the app's default until then; `kv.json` read each key alone. And `set`
+  changes a row that is there: the first setting of a concern is a `create`.
 - `kv.json` becomes an ordinary file. Each app moves its settings into
   `settings/<concern>.md` rows; Whispering keeps reading an earlier build's
   endpoint as a file.

@@ -66,7 +66,7 @@ const ROOT = 'merge';
 const FILES_LOCK = 'epicenter-folder:merge:files';
 const GIT_LOCK = 'epicenter-folder:merge:git';
 const REMOTE_URL = 'http://git.test/remote.git';
-const definition = defineFolder({ kv: {}, tables: {} });
+const definition = defineFolder({ tables: {} });
 const discovery = formatDeclaration(definition);
 
 type Tree = Record<string, string>;
@@ -486,7 +486,7 @@ test("a local pattern Sync brings in keeps its files out of this open folder's n
 	// Another device's definition keeps drafts on the machine that wrote them.
 	await push({
 		'epicenter.json': formatDeclaration(
-			defineFolder({ kv: {}, tables: {}, local: ['drafts/'] }),
+			defineFolder({ tables: {}, local: ['drafts/'] }),
 		),
 	});
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');

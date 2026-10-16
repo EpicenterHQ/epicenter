@@ -39,11 +39,31 @@ import {
 
 const definition = defineFolder({
 	title: 'Notes',
-	kv: { theme: field.string() },
-	tables: { notes: defineTable({ fields: { title: field.string() } }) },
+	tables: {
+		notes: defineTable({ fields: { title: field.string() } }),
+		settings: defineTable({
+			fields: { theme: field.optional(field.string()) },
+		}),
+	},
 });
 const author = { name: 'Publication', email: 'publication@example.test' };
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+/** The settings row each test writes. */
+const DISPLAY = 'settings/display.md';
+
+/** Set the display theme: the row is created the first time, then set. */
+async function setTheme(folder: Folder<FolderDefinition>, theme: string) {
+	const settings = folder.tables.settings!;
+	const current = expectOk(await settings.get('display'));
+	return expectOk(
+		current === undefined
+			? await settings.create(
+					{ fields: { theme }, body: '' },
+					{ stem: 'display' },
+				)
+			: await settings.set('display', { theme }),
+	);
+}
 
 test('opening writes nothing, so a fresh browser copy takes an existing remote as it is', async () => {
 	const root = await scratch('definition-existing-remote-');
@@ -58,7 +78,7 @@ test('opening writes nothing, so a fresh browser copy takes an existing remote a
 		});
 	const sender = expectOk(await open());
 	try {
-		expectOk(await sender.kv.set('theme', 'remote'));
+		await setTheme(sender, 'remote');
 		expect(expectOk(await sender.sync.connect(url)).kind).toBe('synced');
 		const environment = createTestStorage();
 		const receiver = expectOk(await open(environment));
@@ -66,9 +86,9 @@ test('opening writes nothing, so a fresh browser copy takes an existing remote a
 			expect(environment.opfs.directories()).toEqual([]);
 			expect(expectOk(await receiver.files.list()).files).toEqual([]);
 			expect(expectOk(await receiver.sync.connect(url)).kind).toBe('synced');
-			expect(expectOk(await receiver.kv.get())).toMatchObject({
-				values: { theme: 'remote' },
-			});
+			expect(
+				expectOk(await receiver.tables.settings.get('display'))?.row.fields,
+			).toEqual({ theme: 'remote' });
 			expect(
 				decode(expectOk(await receiver.files.read('epicenter.json')).bytes),
 			).toBe(formatDeclaration(definition));
@@ -118,9 +138,9 @@ for (const adapter of ['browser', 'bun'] as const) {
 				),
 			);
 			expect(await declaration(folder)).toBe(formatDeclaration(definition));
-			expectOk(await folder.kv.set('theme', 'dark'));
+			await setTheme(folder, 'dark');
 			const row = expectOk(await folder.files.read('notes/kept.md'));
-			const kv = expectOk(await folder.files.read('kv.json'));
+			const display = expectOk(await folder.files.read(DISPLAY));
 			expectOk(
 				await put(folder, 'epicenter.json', 'malformed manual description'),
 			);
@@ -128,22 +148,26 @@ for (const adapter of ['browser', 'bun'] as const) {
 			// Reopening writes nothing; the next write publishes again.
 			folder = await open(definition);
 			expect(await declaration(folder)).toBe('malformed manual description');
-			expectOk(await folder.kv.set('theme', 'dark'));
+			await setTheme(folder, 'light');
 			expect(await declaration(folder)).toBe(formatDeclaration(definition));
 			await folder.close();
 			const changed = defineFolder({
-				...definition,
 				title: 'Changed',
-				kv: { theme: field.string({ minLength: 4 }) },
+				tables: {
+					...definition.tables,
+					settings: defineTable({
+						fields: { theme: field.optional(field.string({ minLength: 4 })) },
+					}),
+				},
 			});
 			folder = await open(changed);
-			expectOk(await folder.kv.set('theme', 'dark'));
+			await setTheme(folder, 'dark');
 			expect(await declaration(folder)).toBe(formatDeclaration(changed));
 			expect(expectOk(await folder.files.read('notes/kept.md')).bytes).toEqual(
 				row.bytes,
 			);
-			expect(expectOk(await folder.files.read('kv.json')).bytes).toEqual(
-				kv.bytes,
+			expect(expectOk(await folder.files.read(DISPLAY)).bytes).toEqual(
+				display.bytes,
 			);
 			expect(expectOk(await folder.git.log(10))).toEqual([]);
 			expect(folder.git.snapshot.activity.commit.active).toBe(false);
@@ -168,7 +192,7 @@ for (const adapter of ['browser', 'bun'] as const) {
 							browser: { ...browserStorage(environment), author },
 						}),
 			);
-		const watched = ['epicenter.json', 'kv.json'];
+		const watched = ['epicenter.json', DISPLAY];
 		/** Which files the saves in `write` replaced. */
 		const landed = async (
 			_folder: Folder<FolderDefinition>,
@@ -199,26 +223,22 @@ for (const adapter of ['browser', 'bun'] as const) {
 		};
 		let folder: Folder<FolderDefinition> = await open(definition);
 		try {
-			expect(
-				await landed(folder, async () =>
-					expectOk(await folder.kv.set('theme', 'dark')),
-				),
-			).toEqual(['epicenter.json', 'kv.json']);
+			expect(await landed(folder, () => setTheme(folder, 'dark'))).toEqual([
+				'epicenter.json',
+				DISPLAY,
+			]);
 			await folder.close();
 			folder = await open(definition);
-			expect(
-				await landed(folder, async () =>
-					expectOk(await folder.kv.set('theme', 'light')),
-				),
-			).toEqual(['kv.json']);
+			expect(await landed(folder, () => setTheme(folder, 'light'))).toEqual([
+				DISPLAY,
+			]);
 			await folder.close();
 			const changed = defineFolder({ ...definition, title: 'Changed' });
 			folder = await open(changed);
-			expect(
-				await landed(folder, async () =>
-					expectOk(await folder.kv.set('theme', 'dark')),
-				),
-			).toEqual(['epicenter.json', 'kv.json']);
+			expect(await landed(folder, () => setTheme(folder, 'dark'))).toEqual([
+				'epicenter.json',
+				DISPLAY,
+			]);
 			expect(
 				decode(expectOk(await folder.files.read('epicenter.json')).bytes),
 			).toBe(formatDeclaration(changed));
@@ -243,13 +263,16 @@ for (const adapter of ['browser', 'bun'] as const) {
 			);
 		let folder = await open();
 		try {
-			expectOk(await folder.kv.set('theme', 'dark'));
+			await setTheme(folder, 'dark');
 			expect((await folder.git.commit()).status).toBe('committed');
 			const before = expectOk(await folder.git.log(10));
 			expect(before).toHaveLength(1);
 			await folder.close();
 			folder = await open();
-			expectOk(await folder.kv.set('theme', 'dark'));
+			// The first write publishes the same declaration, and the row ends
+			// as it was committed.
+			await setTheme(folder, 'light');
+			await setTheme(folder, 'dark');
 			expect(folder.git.snapshot.lastCommit).toBeUndefined();
 			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 			expect((await folder.git.commit()).status).toBe('unchanged');
@@ -285,14 +308,17 @@ test('Bun publication failure leaves the folder usable and reports the actual de
 test('a definition with a runtime callback is refused before any folder opens, so nothing unpublishable is ever published', () => {
 	expect(() =>
 		defineFolder({
-			kv: {
-				// @ts-expect-error The type refuses it too; this is an untyped caller.
-				value: {
-					type: 'string',
-					'~refine': [{ refine: () => true, message: 'local validation' }],
-				},
+			tables: {
+				notes: defineTable({
+					fields: {
+						// @ts-expect-error The type refuses it too; this is an untyped caller.
+						value: {
+							type: 'string',
+							'~refine': [{ refine: () => true, message: 'local validation' }],
+						},
+					},
+				}),
 			},
-			tables: {},
 		}),
 	).toThrow('runtime callback');
 });

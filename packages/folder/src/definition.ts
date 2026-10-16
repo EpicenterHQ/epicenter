@@ -14,12 +14,13 @@
  * dangle.
  */
 import {
+	type CreateRowOf,
 	type DataSchema,
 	type DeclaredTable,
 	type FieldMap,
-	KV_ROOT,
+	isOptional,
 	prepareSchema,
-	type ValidateFields,
+	SETTINGS_TABLE,
 } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
@@ -88,8 +89,6 @@ export function prepareFolderDefinition<TDefinition extends FolderDefinition>(
 ): Result<TDefinition, { readonly reason: string }> {
 	const { data: prepared, error: schemaError } = prepareSchema(definition);
 	if (schemaError !== null) return Err({ reason: schemaError.message });
-	const kvProblem = publicationProblem(KV_ROOT, prepared.kv);
-	if (kvProblem !== undefined) return Err({ reason: kvProblem });
 	for (const [name, table] of Object.entries(prepared.tables)) {
 		const problem = publicationProblem(name, table.fields);
 		if (problem !== undefined) return Err({ reason: problem });
@@ -112,11 +111,11 @@ const SCHEMA_MAP_KEYWORDS = new Set([
 const NO_BASE = 'http://unknown/';
 
 /**
- * Why one bucket's fields, published together as one object schema in
+ * Why one table's fields, published together as one object schema in
  * `epicenter.json` (ADR-0517), would resolve their references differently
  * there than each field does alone, or `undefined` when they agree.
  *
- * Each field is validated on its own, but the file holds the bucket as one
+ * Each field is validated on its own, but the file holds the table as one
  * JSON Schema document. Two things change meaning in that document: an `$id`
  * that two fields define, such as the name of a recursive type, names two
  * schemas, which a JSON Schema validator refuses for the whole table; and a
@@ -125,12 +124,12 @@ const NO_BASE = 'http://unknown/';
  * the fields a reader prepares.
  */
 function publicationProblem(
-	bucket: string,
+	table: string,
 	fields: FieldMap,
 ): string | undefined {
 	const owners = new Map<string, string>();
 	for (const [name, field] of Object.entries(fields)) {
-		const where = `'${bucket}.${name}'`;
+		const where = `'${table}.${name}'`;
 		const visit = (
 			node: unknown,
 			base: string | undefined,
@@ -151,7 +150,7 @@ function publicationProblem(
 				if (owner === name)
 					return `Field ${where} defines the $id '${schema.$id}' twice. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.`;
 				if (owner !== undefined)
-					return `Fields '${bucket}.${owner}' and ${where} both define the $id '${schema.$id}'. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.`;
+					return `Fields '${table}.${owner}' and ${where} both define the $id '${schema.$id}'. epicenter.json holds a table as one JSON Schema, where an $id names one schema; rename one of them.`;
 				owners.set(scope, name);
 			}
 			if (
@@ -191,6 +190,31 @@ function resolved(id: string, base: string | undefined): string {
 	}
 }
 
+/** The fields a row of `TTable` cannot leave out. */
+type RequiredFields<TTable extends FolderTable> = {
+	[K in keyof CreateRowOf<TTable>]-?: object extends Pick<
+		CreateRowOf<TTable>,
+		K
+	>
+		? never
+		: K;
+}[keyof CreateRowOf<TTable>];
+
+/**
+ * A declared table as `defineFolder` takes it under `name`. The `settings`
+ * table's fields are all `field.optional`, as preparation requires, so a
+ * required one is refused at the table with the field's name.
+ */
+type TableUnder<TName, TTable> = TTable extends FolderTable
+	? TName extends typeof SETTINGS_TABLE
+		? TTable & {
+				readonly fields: {
+					readonly [K in RequiredFields<TTable>]: `'${K & string}' is a setting, which may be unset: declare it with field.optional(...)`;
+				};
+			}
+		: TTable
+	: FolderTable;
+
 /**
  * Declare how a folder's files read without opening anything or naming a
  * folder. Tables use `defineTable` and fields use `field`, the same
@@ -203,21 +227,21 @@ function resolved(id: string, base: string | undefined): string {
  */
 export function defineFolder<const TDefinition extends DataSchema>(
 	schema: TDefinition & {
-		kv: ValidateFields<TDefinition['kv']>;
 		tables: {
-			[Name in keyof TDefinition['tables']]: TDefinition['tables'][Name] extends FolderTable
-				? TDefinition['tables'][Name]
-				: FolderTable;
+			[Name in keyof TDefinition['tables']]: TableUnder<
+				Name,
+				TDefinition['tables'][Name]
+			>;
 		};
 		local?: readonly string[];
 	} & Record<Exclude<keyof TDefinition, keyof DataSchema | 'local'>, never>,
 ): PreparedFolderDefinition<
-	Pick<TDefinition & Pick<DataSchema, 'title'>, 'title' | 'kv' | 'tables'> &
+	Pick<TDefinition & Pick<DataSchema, 'title'>, 'title' | 'tables'> &
 		Pick<FolderDefinition, 'local'>
 > {
 	type Definition = Pick<
 		TDefinition & Pick<DataSchema, 'title'>,
-		'title' | 'kv' | 'tables'
+		'title' | 'tables'
 	> &
 		Pick<FolderDefinition, 'local'>;
 	if (Object.hasOwn(schema, 'id'))
@@ -227,17 +251,21 @@ export function defineFolder<const TDefinition extends DataSchema>(
 	// The types refuse other keys; an untyped caller, such as a generated
 	// epicenter.ts, is refused here rather than having a misspelling dropped.
 	const unknown = Object.keys(schema).filter(
-		(key) =>
-			key !== 'title' && key !== 'kv' && key !== 'tables' && key !== 'local',
+		(key) => key !== 'title' && key !== 'tables' && key !== 'local',
 	);
 	if (unknown.length > 0)
 		throw new Error(
-			`A folder definition declares title, kv, tables, and local; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}`,
+			`A folder definition declares title, tables, and local; it also declares ${unknown.map((key) => `'${key}'`).join(', ')}${unknown.includes('kv') ? '. Settings are rows of a `settings` table' : ''}`,
 		);
-	const { title, kv, tables, local } = schema;
+	const { title, tables, local } = schema;
+	const settings = (tables as Record<string, FolderTable>)[SETTINGS_TABLE];
+	for (const [name, declared] of Object.entries(settings?.fields ?? {}))
+		if (!isOptional(declared as never))
+			throw new Error(
+				`'${name}' is a setting, which may be unset: declare it with field.optional(...)`,
+			);
 	const declaration: Definition = {
 		...(title === undefined ? {} : { title }),
-		kv,
 		tables,
 		...(local === undefined ? {} : { local }),
 	};

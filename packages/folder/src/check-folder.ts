@@ -44,8 +44,8 @@ export type FolderCheck = {
 	/** The rows that conform, across every table. */
 	rows: number;
 	/**
-	 * Files to fix: a row or `kv.json` that does not conform, bytes that are
-	 * not UTF-8, or a path the folder cannot hold, such as a symbolic link.
+	 * Files to fix: a row that does not conform, bytes that are not UTF-8,
+	 * or a path the folder cannot hold, such as a symbolic link.
 	 */
 	invalid: Finding[];
 	/** Files that could not be read at all. */
@@ -126,10 +126,6 @@ export async function checkFolder(
 				});
 		}
 	}
-	if (folder.kv.error !== null) report('kv.json', folder.kv.error);
-	else
-		for (const issue of folder.kv.data?.issues ?? [])
-			invalid.push({ path: 'kv.json', ...issue });
 	return Ok({
 		tables,
 		rows: tables.reduce((sum, table) => sum + table.rows.length, 0),

@@ -242,7 +242,7 @@ test('epicenter.json merges whole, and local paths are in no merge', async () =>
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const declaration = (theme: string, size: string) =>
-			`{\n\t"kv": {\n\t\t"theme": ${theme},\n\t\t"size": ${size}\n\t}\n}\n`;
+			`{\n\t"meta": {\n\t\t"theme": ${theme},\n\t\t"size": ${size}\n\t}\n}\n`;
 		const base = await commitOf(
 			access,
 			{ 'epicenter.json': declaration('1', '1'), 'cache.db': 'base\n' },
@@ -287,7 +287,7 @@ test("epicenter.json's local lists every pattern either side keeps local", async
 	const withObjects = await objects();
 	await withObjects(async (access) => {
 		const declaration = (title: string, local: string[]) =>
-			`${JSON.stringify({ title, local, kv: { type: 'object', properties: {} } }, null, 2)}\n`;
+			`${JSON.stringify({ title, local }, null, 2)}\n`;
 		const base = await commitOf(
 			access,
 			{ 'epicenter.json': declaration('Base', ['audio/']) },
@@ -319,7 +319,6 @@ test("epicenter.json's local lists every pattern either side keeps local", async
 		).toEqual({
 			title: 'Mine',
 			local: ['audio/', 'cache/', 'video/'],
-			kv: { type: 'object', properties: {} },
 		});
 	});
 });

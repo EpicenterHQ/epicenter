@@ -44,7 +44,6 @@ installs and builds Honeycrisp from a clone of this repository named by
 ```text
 ~/Epicenter/so.epicenter.honeycrisp/
 ├── epicenter.json
-├── kv.json
 ├── notes/
 │   └── <note-id>.md
 ├── folders/
@@ -69,8 +68,8 @@ them is refused with what it lacks.
 
 A missing own folder gets this layout and a Git repository. Opening publishes
 `epicenter.json` from Honeycrisp's declaration, replacing any previous
-description, and creates a default `kv.json` when there is none. Saved notes
-and settings stay intact, and opening records no commit. The definition file
+description. Saved notes and every other file, such as a `kv.json` an earlier
+version wrote, stay intact, and opening records no commit. The definition file
 supports discovery and does not configure Honeycrisp.
 
 A note's file stem is its identity. Its frontmatter holds `title`, `folderId`,
@@ -339,9 +338,8 @@ rest in Rust (`apps/epicenter/src-tauri`):
 
 The layout of Honeycrisp's own folder is set up by the page, through the
 folder, after the folder plugin holds the directory's lock
-(`src/lib/platform/first-open.ts`). It looks first: a missing table directory
-is made, and `kv.json` is written only when a read confirmed it is absent, on
-the condition that it still is. Existing settings are kept. Folder acquisition
+(`src/lib/platform/first-open.ts`). It looks first and makes only a missing
+table directory; every other file is left as it is. Folder acquisition
 separately publishes `epicenter.json`. Neither records a commit. Another
 folder is not set up. A directory another Epicenter holds is reported as in
 use and gains no file.

@@ -376,7 +376,7 @@ function nullable<S extends TSchema & object>(inner: S): TUnion<[S, TNull]> {
  * against `inner`. `undefined` is absence, never a stored value.
  *
  * Absent and `null` stay distinct: `field.optional(field.nullable(inner))`
- * allows both. Every KV field is optional already, so this is for rows.
+ * allows both. Every field of the `settings` table is one.
  */
 function optional<S extends TSchema & object>(inner: S): TOptional<S> {
 	if (!isSchema(inner)) throw new TypeError('field.optional needs a schema');

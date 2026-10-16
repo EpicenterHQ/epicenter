@@ -9,7 +9,7 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import { defineFolder, field, openFolder } from './browser.js';
+import { defineFolder, openFolder } from './browser.js';
 import {
 	browserStorage,
 	createTestStorage,
@@ -31,10 +31,7 @@ import {
 	scratch,
 } from './git-http.test-support.js';
 
-const definition = defineFolder({
-	kv: { language: field.string() },
-	tables: {},
-});
+const definition = defineFolder({ tables: {} });
 const AUTHORIZATION = basicAuthorization({
 	username: 'x-token',
 	password: 's3cret',
@@ -128,7 +125,7 @@ test('a browser folder sends the credential it is given to that remote alone, fo
 		}),
 	);
 	try {
-		expectOk(await folder.kv.set('language', 'Chinese'));
+		expectOk(await folder.write('language.txt', null, 'Chinese\n'));
 		expect(expectOk(await folder.sync.connect(remote)).kind).toBe('synced');
 		expect(await git(bare, 'rev-parse', 'main')).toMatch(/^[0-9a-f]{40}$/);
 		// Asked once per transfer, always with the exact remote.
@@ -164,7 +161,7 @@ test('a browser folder without a credential is refused by a server that needs on
 		}),
 	);
 	try {
-		expectOk(await folder.kv.set('language', 'Chinese'));
+		expectOk(await folder.write('language.txt', null, 'Chinese\n'));
 		const connected = await folder.sync.connect(
 			'https://git.example.test/remote.git',
 		);
@@ -211,7 +208,7 @@ test('a Bun folder passes its credential to `git` through configuration, scoped 
 		}),
 	);
 	try {
-		expectOk(await folder.kv.set('language', 'Chinese'));
+		expectOk(await folder.write('language.txt', null, 'Chinese\n'));
 		expectOk(await folder.sync.run());
 		expect(await git(bare, 'rev-parse', 'main')).toBe(
 			await git(directory, 'rev-parse', 'main'),

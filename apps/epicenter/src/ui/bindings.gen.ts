@@ -236,26 +236,20 @@ export const commands = {
 	 *  cumulative progress on `on_progress`. Registered under `download_id` so
 	 *  `cancel_download(download_id)` can abort the in-flight transfer (the aborted
 	 *  task drops mid-download; hf-hub leaves a temp file, never a corrupt final).
-	 *  A no-op-fast when the file is already cached (hf-hub reuses it).
+	 *  A no-op when the file is already cached, at any commit.
 	 */
 	downloadModel: (modelId: string, downloadId: string, onProgress: Channel<DownloadProgress>) => typedError<null, CatalogError>(__TAURI_INVOKE("download_model", { modelId, downloadId, onProgress })),
 	/**
-	 *  Remove a downloaded model's file from the shared HF cache, reclaiming its
-	 *  space, and stand down the active choice if this was it.
+	 *  Show a downloaded model's folder in the shared Hugging Face cache, such as
+	 *  `models--handy-computer--whisper-tiny-gguf`, so the user can see where it
+	 *  lives and remove it themselves. Epicenter itself never deletes a model.
 	 * 
-	 *  One host operation, not two invokes, because the host owns both halves: the
-	 *  file and the active-model setting live on the same side of the boundary, and
-	 *  splitting them would let a caller succeed at deleting and then fail (or
-	 *  forget) to clear, leaving an active model that cannot run and a UI that never
-	 *  learned. Clearing is deliberate rather than promoting another installed
-	 *  model: there is no substitution, so the next transcription fails with an
-	 *  actionable error until the user chooses again.
-	 * 
-	 *  Best-effort on the file: removes the snapshot pointer and its backing blob. A
-	 *  no-op when the model is not downloaded. Other quantizations in the same repo
-	 *  are untouched (each is its own blob + pointer).
+	 *  The folder, not the file: the file is a symlink into the repo's `blobs/`,
+	 *  and the file manager would select the 64-hex blob it resolves to. Deleting
+	 *  the folder frees the space, and the model then reads as not downloaded.
+	 *  Async so a slow file manager call never blocks the main thread.
 	 */
-	deleteModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("delete_model", { modelId })),
+	revealModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("reveal_model", { modelId })),
 	/**
 	 *  Abort the in-flight download registered under `download_id`, if any. The
 	 *  matching `download_model` call then resolves with an `Err` (and the dropped
@@ -428,7 +422,7 @@ export type AuthStatus = {
 	grants: AuthGrant[],
 };
 
-export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "DeleteFailed"; message: string };
+export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "RevealFailed"; message: string };
 
 /**  Why a command did not run the CLI, or the CLI did not finish. */
 export type CliError = 
@@ -609,7 +603,7 @@ message: string };
 /**
  *  A catalog model as Home's administration view sees it: identity, display
  *  fields, static capabilities, and whether it is already downloaded. Home names
- *  `id` when it activates, downloads, or deletes a model; it never learns the
+ *  `id` when it activates, downloads, or reveals a model; it never learns the
  *  Hugging Face coordinate. Applications see none of this.
  */
 export type ModelInfo = {

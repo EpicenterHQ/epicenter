@@ -297,7 +297,6 @@ test('safe aliases expand; alias expansion is bounded', () => {
 
 test('the row reader applies exactly the codec alias bound, so both accept the same aliases', () => {
 	const notes = defineFolder({
-		kv: {},
 		tables: { notes: defineTable({ fields: { title: field.string() } }) },
 	}).tables.notes;
 
@@ -398,7 +397,6 @@ test('a body that UTF-8 encoding would change is refused rather than rewritten',
 
 test('an invalid row keeps unknown and invalid fields through a raw write from its exact text, and restores only explicitly', async () => {
 	const definition = defineFolder({
-		kv: {},
 		tables: {
 			todos: defineTable({
 				fields: { title: field.string(), done: field.boolean() },

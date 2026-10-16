@@ -33,7 +33,6 @@ import {
 } from './field-input';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		items: defineTable({
 			fields: {
@@ -110,7 +109,6 @@ test('a plain JSON Schema declaration gets editors by type', () => {
 	const declared = expectOk(
 		parseDeclaration(
 			JSON.stringify({
-				kv: { type: 'object', properties: {} },
 				tables: {
 					books: {
 						type: 'object',

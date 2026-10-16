@@ -35,7 +35,6 @@ export const EPICENTER_FOLDER_ID = CONNECTIONS_FOLDER_ID;
 
 export const epicenterDefinition = defineFolder({
 	title: 'Epicenter',
-	kv: {},
 	tables: {
 		/** One row per AI connection, at `connections/<id>.md`. */
 		connections: connectionsTable,

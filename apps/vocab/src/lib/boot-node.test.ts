@@ -74,19 +74,6 @@ describe('the working page needs no account', () => {
 		expect(declaration).not.toMatch(/accountKey|@epicenter\/auth/);
 	});
 
-	test('connected endpoints and the chosen model are kept for the device, never for an account', async () => {
-		const files = await shippedSources();
-		expect(
-			files
-				.filter(({ text }) => /openAccountConnectionCatalog/.test(text))
-				.map(({ path }) => path),
-		).toEqual([]);
-		const shell = await Bun.file(
-			join(routes, 'components/VocabShell.svelte'),
-		).text();
-		expect(shell).toContain("createBrowserInferenceSelections('vocab')");
-	});
-
 	test('no shipped source opens a store: the folder is the only saved data', async () => {
 		const files = await shippedSources();
 		const openers = files

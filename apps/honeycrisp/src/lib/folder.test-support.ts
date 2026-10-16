@@ -50,11 +50,7 @@ export async function openNotesFolder() {
 		);
 	const folder = await openTab();
 	const tabs: { close(): Promise<void> }[] = [];
-	await setUpFolder(
-		folder.files,
-		Object.keys(honeycrispDefinition.tables),
-		folder.write,
-	);
+	await setUpFolder(folder.files, Object.keys(honeycrispDefinition.tables));
 	const key = (path: string) => `${ROOT}/${path}`;
 
 	/** Streams held open, by folder path, in the order they were asked for. */

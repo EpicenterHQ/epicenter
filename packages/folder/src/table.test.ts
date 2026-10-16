@@ -47,7 +47,6 @@ import { createTable } from './table.js';
 import { WRITE_ATTEMPTS } from './write.js';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: {

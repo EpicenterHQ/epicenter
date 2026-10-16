@@ -1,8 +1,13 @@
-import { type AccountIdentity, deviceOwnerPath } from '@epicenter/principal';
 import { createAiConnections } from './ai-connections.js';
 
-export function createBrowserConnections(account?: AccountIdentity) {
-	const storageKey = `epicenter/ai/${deviceOwnerPath(account)}`;
+/**
+ * This browser's connections live under this key. `no-account` is left from
+ * when keys were split by account; browsers already hold data under it, so the
+ * literal stays as written.
+ */
+const storageKey = 'epicenter/ai/no-account';
+
+export function createBrowserConnections() {
 	return createAiConnections({
 		storage: window.localStorage,
 		storageKey,

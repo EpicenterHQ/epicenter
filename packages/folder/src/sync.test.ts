@@ -11,7 +11,7 @@
  * `git` itself.
  *
  * Key behaviors:
- * - Independent setting, field, and body changes merge into one commit with
+ * - Independent field and body changes merge into one commit with
  *   parents [local, remote], pushed, and the merged row is in standard form
  * - Competing units go to this device; each lost unit is an `Overrode:`
  *   trailer naming the losing parent, and the lost version stays reachable
@@ -30,7 +30,7 @@
  *   history adopts the remote on its first sync
  *
  * See also:
- * - `merge-file.test.ts`, `write.test.ts`, and `kv.test.ts` for the unit merges
+ * - `merge-file.test.ts` and `write.test.ts` for the unit merges
  * - `git/opfs-incoming.test.ts` and `sync-replay.test.ts` for a publish cut off
  *   partway, which the next Sync finishes
  */
@@ -60,21 +60,33 @@ import {
 import { put } from './put.test-support.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string(), size: field.number() },
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
+		}),
+		settings: defineTable({
+			fields: {
+				theme: field.optional(field.string()),
+				size: field.optional(field.number()),
+			},
 		}),
 	},
 });
 type Opened = Folder<typeof definition>;
 const TODO = 'todos/walk.md';
+const DISPLAY = 'settings/display.md';
 const REMOTE = 'http://git.test/remote.git';
 const decoder = new TextDecoder();
 
 const row = (frontmatter: string[], body = '') =>
 	['---', ...frontmatter, '---', body].join('\n');
 const SEED = row(['title: Walk', 'done: false'], 'Left at dawn.\n');
+/** The display settings row as a peer writes it. */
+const display = (theme: string, size: number) =>
+	row([`theme: ${theme}`, `size: ${size}`]);
+/** The display settings this device reads. */
+const settingsOf = async (folder: Opened) =>
+	expectOk(await folder.tables.settings.get('display'))?.row.fields;
 
 const opened: { close(): Promise<void> }[] = [];
 afterEach(async () => {
@@ -82,7 +94,7 @@ afterEach(async () => {
 });
 
 /**
- * One remote seeded by a browser folder with a todo and `kv.json`, and a
+ * One remote seeded by a browser folder with a todo and a settings row, and a
  * `git` clone of it that produces incoming history: two checkouts of the
  * same base commit. `beforePush` runs before each push request reaches the
  * remote, and `afterPush` after the remote answered it; either may throw.
@@ -120,8 +132,12 @@ async function setup() {
 	);
 	opened.push(local);
 	expectOk(await local.write(TODO, null, SEED));
-	expectOk(await local.kv.set('theme', 'light'));
-	expectOk(await local.kv.set('size', 1));
+	expectOk(
+		await local.tables.settings.create(
+			{ fields: { theme: 'light', size: 1 }, body: '' },
+			{ stem: 'display' },
+		),
+	);
 	// Connecting a folder with files to an empty remote sends them.
 	synced(expectOk(await local.sync.connect(REMOTE)));
 	const peer = join(root, 'peer');
@@ -185,14 +201,14 @@ test('independent changes merge into one pushed commit, in the standard form', a
 			row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
 		),
 	);
-	expectOk(await local.kv.set('theme', 'dark'));
+	expectOk(await local.tables.settings.set('display', { theme: 'dark' }));
 	const mine = await saved(local);
 	const theirs = await context.incoming({
 		[TODO]: row(
 			['done: true # finished', "title: 'Walk'"],
 			'Left at dawn.\nCame back by the river.\n',
 		),
-		'kv.json': '{"theme":"light","size":2}\n',
+		[DISPLAY]: display('light', 2),
 	});
 
 	const head = synced(expectOk(await local.sync.run()));
@@ -205,7 +221,7 @@ test('independent changes merge into one pushed commit, in the standard form', a
 	);
 	expect(await text(local, TODO)).toBe(merged);
 	expect(await context.remoteFile(TODO)).toBe(merged.trimEnd());
-	expect(expectOk(await local.kv.get())?.values).toEqual({
+	expect(await settingsOf(local)).toEqual({
 		theme: 'dark',
 		size: 2,
 	});
@@ -217,17 +233,17 @@ test("competing units go to this device, and each lost unit names the remote's c
 	const { local } = context;
 	const mine = row(['title: Mine', 'done: false'], 'Left at noon.\n');
 	expectOk(await put(local, TODO, mine));
-	expectOk(await local.kv.set('theme', 'dark'));
+	expectOk(await local.tables.settings.set('display', { theme: 'dark' }));
 	const theirs = await context.incoming({
 		[TODO]: row(['title: Theirs', 'done: true'], 'Left at dusk.\n'),
-		'kv.json': '{"theme":"sepia","size":1}\n',
+		[DISPLAY]: display('sepia', 1),
 	});
 
 	synced(expectOk(await local.sync.run()));
 	expect(await text(local, TODO)).toBe(
 		row(['title: Mine', 'done: true'], 'Left at noon.\n'),
 	);
-	expect(expectOk(await local.kv.get())?.values).toEqual({
+	expect(await settingsOf(local)).toEqual({
 		theme: 'dark',
 		size: 1,
 	});
@@ -236,7 +252,7 @@ test("competing units go to this device, and each lost unit names the remote's c
 	expect(message).toMatch(
 		new RegExp(`Overrode: ${theirs} lines=body:\\d+\\+\\d+ "${TODO}"`),
 	);
-	expect(message).toContain(`Overrode: ${theirs} setting="theme" "kv.json"`);
+	expect(message).toContain(`Overrode: ${theirs} field="theme" "${DISPLAY}"`);
 	// What lost is still in history, as the merge's second parent.
 	expect(await context.remoteFile(TODO, theirs)).toContain('Theirs');
 });
@@ -424,21 +440,21 @@ test("a refused push is a lost race in old and new Git's wording, and nothing el
 test('a push that lost a race merges again from the same local head', async () => {
 	const context = await setup();
 	const { local, hooks } = context;
-	expectOk(await local.kv.set('theme', 'dark'));
+	expectOk(await local.tables.settings.set('display', { theme: 'dark' }));
 	const mine = await saved(local);
-	await context.incoming({ 'kv.json': '{"theme":"light","size":2}\n' });
+	await context.incoming({ [DISPLAY]: display('light', 2) });
 	let raced: string | undefined;
 	hooks.beforePush = async () => {
 		hooks.beforePush = undefined;
 		raced = await context.incoming({
-			'kv.json': '{"theme":"light","size":3}\n',
+			[DISPLAY]: display('light', 3),
 		});
 	};
 
 	const head = synced(expectOk(await local.sync.run()));
 	// One merge of this device's head and the remote that won the race.
 	expect(await context.remoteParents()).toEqual([head, mine, raced!]);
-	expect(expectOk(await local.kv.get())?.values).toEqual({
+	expect(await settingsOf(local)).toEqual({
 		theme: 'dark',
 		size: 3,
 	});
@@ -447,14 +463,14 @@ test('a push that lost a race merges again from the same local head', async () =
 test('a remote that keeps moving stops Sync after five attempts, with nothing published', async () => {
 	const context = await setup();
 	const { local, hooks } = context;
-	expectOk(await local.kv.set('theme', 'dark'));
+	expectOk(await local.tables.settings.set('display', { theme: 'dark' }));
 	const mine = await saved(local);
-	await context.incoming({ 'kv.json': '{"theme":"light","size":2}\n' });
+	await context.incoming({ [DISPLAY]: display('light', 2) });
 	let size = 2;
 	hooks.beforePush = async () => {
 		size++;
 		await context.incoming({
-			'kv.json': `{"theme":"light","size":${size}}\n`,
+			[DISPLAY]: display('light', size),
 		});
 	};
 
@@ -462,14 +478,14 @@ test('a remote that keeps moving stops Sync after five attempts, with nothing pu
 	hooks.beforePush = undefined;
 	expect(error).toMatchObject({ name: 'KeptChanging', attempts: 5 });
 	expect(expectOk(await local.git.log(1))[0]?.oid).toBe(mine);
-	expect(expectOk(await local.kv.get())?.values.size).toBe(1);
+	expect((await settingsOf(local))?.size).toBe(1);
 });
 
 test('a push whose reply was lost still publishes, and the next Sync finds the remote there', async () => {
 	const context = await setup();
 	const { local, hooks } = context;
-	expectOk(await local.kv.set('theme', 'dark'));
-	await context.incoming({ 'kv.json': '{"theme":"light","size":2}\n' });
+	expectOk(await local.tables.settings.set('display', { theme: 'dark' }));
+	await context.incoming({ [DISPLAY]: display('light', 2) });
 	hooks.afterPush = async () => {
 		hooks.afterPush = undefined;
 		throw new Error('The connection dropped');
@@ -482,7 +498,7 @@ test('a push whose reply was lost still publishes, and the next Sync finds the r
 	});
 	const head = await context.remoteHead();
 	expect(outcome.head).toBe(head);
-	expect(expectOk(await local.kv.get())?.values).toEqual({
+	expect(await settingsOf(local)).toEqual({
 		theme: 'dark',
 		size: 2,
 	});

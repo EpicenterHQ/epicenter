@@ -6,7 +6,7 @@
  * number of its changes leaves each file at its old bytes or its new ones,
  * and the next Sync records what is there and merges it with the commit it
  * already sent. These cut a publish after each of its changes in turn, over
- * every kind a folder merges: a row, `kv.json`, text by line, bytes whole, a
+ * every kind a folder merges: rows by field, text by line, bytes whole, a
  * removal, a file becoming a directory and the reverse, a new file and a new
  * row. Each must end exactly where an uninterrupted Sync ends, here and on
  * the remote, including when the remote moved on again before the next Sync:
@@ -34,10 +34,15 @@ import {
 import { put } from './put.test-support.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string(), size: field.number() },
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
+		}),
+		settings: defineTable({
+			fields: {
+				theme: field.optional(field.string()),
+				size: field.optional(field.number()),
+			},
 		}),
 	},
 });
@@ -96,8 +101,12 @@ async function diverged() {
 			row(['title: Walk', 'done: false'], 'Left at dawn.\n'),
 		),
 	);
-	expectOk(await folder.kv.set('theme', 'light'));
-	expectOk(await folder.kv.set('size', 1));
+	expectOk(
+		await folder.tables.settings.create(
+			{ fields: { theme: 'light', size: 1 }, body: '' },
+			{ stem: 'display' },
+		),
+	);
 	expectOk(await folder.write('notes.txt', null, 'one\ntwo\nthree\n'));
 	expectOk(await folder.write('photo.bin', null, new Uint8Array([0, 1, 2])));
 	expectOk(await folder.write('gone.txt', null, 'gone\n'));
@@ -110,7 +119,7 @@ async function diverged() {
 	await git(root, 'clone', '--quiet', bare, peer);
 	const peerFiles: Record<string, string | Uint8Array | null> = {
 		'todos/walk.md': row(['title: Walk', 'done: true'], 'Left at dawn.\n'),
-		'kv.json': '{"theme":"light","size":2}\n',
+		'settings/display.md': row(['theme: light', 'size: 2']),
 		'notes.txt': 'one\ntwo\nTHREE\n',
 		'photo.bin': new Uint8Array([7, 7, 7]),
 		'gone.txt': null,
@@ -140,7 +149,7 @@ async function diverged() {
 			row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
 		),
 	);
-	expectOk(await folder.kv.set('theme', 'dark'));
+	expectOk(await folder.tables.settings.set('display', { theme: 'dark' }));
 	expectOk(await put(folder, 'notes.txt', 'ONE\ntwo\nthree\n'));
 	expectOk(await put(folder, 'keep.md', 'kept here\n'));
 	return { folder, storage, bare, hooks, peer };
@@ -238,7 +247,7 @@ test('a publish cut off after any of its changes ends where an uninterrupted one
 		'keep.md': 'kept here\n',
 	});
 	expect(expected['gone.txt']).toBeUndefined();
-	expect(JSON.parse(expected['kv.json']!)).toEqual({ theme: 'dark', size: 2 });
+	expect(expected['settings/display.md']).toBe(row(['theme: dark', 'size: 2']));
 	expect(changes).toBeGreaterThan(8);
 	for (const each of opened.splice(0)) await each.close();
 

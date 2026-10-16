@@ -49,7 +49,6 @@ import { fileKindOf, merge } from './merge-file.js';
 import { writeFile as writeFolderFile } from './write.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string(), size: field.number() },
 	tables: {
 		notes: defineTable({
 			fields: {
@@ -63,7 +62,6 @@ const definition = defineFolder({
 const prepared = expectOk(prepareFolderDefinition(definition));
 const ROW = fileKindOf(prepared, 'notes/a.md');
 const TEXT = fileKindOf(prepared, 'notes.txt');
-const KV = fileKindOf(prepared, 'kv.json');
 
 const row = (frontmatter: string[], body = '') =>
 	['---', ...frontmatter, '---', body].join('\n');
@@ -209,19 +207,6 @@ test('the merge driver asks for either side to win, with the same lines kept bes
 	expect((await merge(TEXT, versions, { winner: 'theirs' })).content).toBe(
 		'a\nB (theirs)\nc\nadded\n',
 	);
-});
-
-test('kv.json merges by key, the writer winning a key both set', async () => {
-	expect(
-		await merge(KV, {
-			base: '{"size": 1, "theme": "light"}',
-			ours: '{"size": 2, "theme": "dark"}',
-			theirs: '{"size": 1, "theme": "blue"}',
-		}),
-	).toEqual({
-		content: '{\n  "size": 2,\n  "theme": "dark"\n}\n',
-		overridden: [{ kind: 'setting', key: 'theme' }],
-	});
 });
 
 test('put lands only while the path holds ifMatch, and changes nothing when stale', async () => {
