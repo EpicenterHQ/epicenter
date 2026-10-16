@@ -6,6 +6,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./installed-app": "./src/installed-app.ts",
 		"./module-graph": "./src/module-graph.ts"
 	},
 	"dependencies": {

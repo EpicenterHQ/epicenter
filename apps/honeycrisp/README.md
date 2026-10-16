@@ -272,7 +272,8 @@ holding the notes and their `.git`, with `openFolder` from
 `@epicenter/folder/browser`. A browser folder an earlier version kept in
 IndexedDB is not read, copied, or deleted; the browser opens the OPFS
 directory alone. Shared code imports the folder contract from the bare
-`@epicenter/folder`, which `vite.config.ts` aliases to the build's one entry.
+`@epicenter/folder`, which `installedAppViteConfig` (from
+`@epicenter/vite-config`) aliases to the build's one entry.
 A folder Epicenter hands that cannot be opened is an error on screen, never a
 fallback to browser storage. `src/lib/platform-selection.test.ts` checks that
 the installed bundle holds no browser store and no Git implementation, that

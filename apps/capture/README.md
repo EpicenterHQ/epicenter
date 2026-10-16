@@ -218,9 +218,9 @@ folder to the same store the
 browser build uses. The browser leaf calls `openFolder`
 from `@epicenter/folder/browser` and states its own history policy: a local
 author and no remote. Each entry refuses in the
-other environment. `vite.config.ts` points the bare `@epicenter/folder`
-specifier, which `@epicenter/capture` imports, at the same entry, so a build
-emits one adapter.
+other environment. `installedAppViteConfig` (from `@epicenter/vite-config`)
+points the bare `@epicenter/folder` specifier, which `@epicenter/capture`
+imports, at the same entry, so a build emits one adapter.
 
 Capture uses the folder's captures table (`list`, `create`, `save`, and
 `delete`, each write guarded by the version it replaces, `save` merging

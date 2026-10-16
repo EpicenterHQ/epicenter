@@ -97,11 +97,9 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 		'@epicenter/folder/svelte',
 		'@epicenter/folder/tauri',
 	]);
-	// Each build points the exact bare specifier at its workspace's entry;
-	// `platform-selection.test.ts` reads what each build pulls in.
-	expect(
-		readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8'),
-	).toContain('find: /^@epicenter\\/folder$/');
+	// Each build points the exact bare specifier at its workspace's entry
+	// (`installedAppViteConfig`); `platform-selection.test.ts` reads what each
+	// build pulls in.
 });
 
 test('the build picks the workspace: nothing imports either one but through the seam', () => {
