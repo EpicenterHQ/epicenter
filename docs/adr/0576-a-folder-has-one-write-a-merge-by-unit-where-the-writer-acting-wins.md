@@ -1,6 +1,6 @@
 # 0576. A folder has one write: a merge by unit where the writer acting wins
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-16
 - **Supersedes:** [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (a field edit as its own verb, `table.update`)
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing "Sync: decided by the person": an overlap in Sync is decided by the device syncing. That files are the truth, with one read path and one channel of change, remains.
@@ -65,7 +65,10 @@ it is now and merges the change from `from` to `to` into it, by unit:
 - Units only one side changed all survive.
 - On a unit both changed differently, the writer acting wins.
 - Two insertions at the same place both survive, the other side's first,
-  then the writer's. Two identical insertions are one, and where one holds
+  then the writer's; in Sync's publish, where the live file is the writer
+  acting, the live file's comes first, since an insertion's order follows
+  its side, not the winner, so the merge driver's two renderings agree. Two
+  identical insertions are one, and where one holds
   the other at its start or end, the longer stands alone, so an insertion
   sent again after it landed is not doubled.
 - Lines compare without their line feeds, so appending to text that ends
@@ -155,8 +158,9 @@ delete of a file is then the deleter winning, as for a row.
 **The query layer offers one mutation per helper.**
 `folder.<table>.get(stem)` and `.list()` give `queryOptions()`, and
 `.set`, `.create`, `.rename`, `.delete`, and the body editor's `.write` give
-`mutationOptions()`. There is no mutation shared across controls, so each
-control owns its pending and error state.
+`mutationOptions()`, and so do `folder$.write` and `folder$.move` for any
+path. There is no mutation shared across controls, so each control owns its
+pending and error state.
 A query is named for its data and a mutation for its verb and noun:
 
 ```ts
@@ -167,8 +171,8 @@ const deleteTodo = createMutation(() => folder.todos.delete.mutationOptions());
 
 A delete is never named `remove`.
 
-**What writes a folder:** a click (`set`), a typed body (the body editor), a
-create, a delete, a Sync, and `git pull` through the merge driver.
+**What writes a folder:** a click (`set`), typed text (the text editor), a
+create, a delete, a move, a Sync, and `git pull` through the merge driver.
 
 **Sync never stops for a person, and the last device to sync wins.** Sync
 makes one merge commit, computed by Epicenter on every host through the Git
@@ -281,10 +285,11 @@ wins" would silently drop replayed commits or stashed edits. Only Epicenter's
 Sync, which runs no Git merge, applies the writer acting. A file with markers
 shows as one to repair. The driver has one mode.
 
-**`createBodyEditor` holds `from`, `typed`, and one write.** The first change
-takes the row as the cache holds it as `from`. A save that lands with nothing
+**`createTextEditor` holds `from`, `typed`, and one write**, and
+`createBodyEditor` is its row case. The first change takes the document as
+the cache holds it as `from`. A save that lands with nothing
 typed since clears both. A save that lands while typing continued makes `from`
-the text it sent. A failed save keeps both. A save that finds the row deleted
+the text it sent. A failed save keeps both. A save that finds the file deleted
 writes nothing and keeps what is typed, which the control offers until the
 person copies or discards it (`gone`). Saves of one file run one at a
 time (`inTurn`). It has no revision counter, no re-merge, and no `onSaved`.
