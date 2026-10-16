@@ -77,8 +77,8 @@ async function setup() {
 	});
 	const workspace = await openWorkingCopy('a', '');
 	opened.push(workspace);
-	expectOk(await workspace.folder.files.create('a.txt', 'original\n'));
-	expectOk(await workspace.folder.files.create('b.txt', 'other\n'));
+	expectOk(await workspace.folder.write('a.txt', null, 'original\n'));
+	expectOk(await workspace.folder.write('b.txt', null, 'other\n'));
 	await workspace.select('a.txt');
 	return { workspace, opfs };
 }
@@ -130,7 +130,7 @@ test('a copy keeps its own epicenter.json: saves and commits never write it, and
 		new TextDecoder().decode(
 			expectOk(await folder.files.read('epicenter.json')).bytes,
 		);
-	expectOk(await workspace.folder.files.create('epicenter.json', declared));
+	expectOk(await workspace.folder.write('epicenter.json', null, declared));
 	workspace.input('edited\n');
 	await workspace.flush();
 	await workspace.commit();
@@ -189,18 +189,20 @@ test('switching files waits through the active save and newer input', async () =
 	expect(workspace.buffer).toBe('other\n');
 });
 
-/** Save `content` at `path` of `folder` over whatever is there, without merging. */
+/** Make `path` of `folder` hold `content`, whatever is there. */
 async function put(
 	folder: Awaited<ReturnType<typeof elsewhere>>,
 	path: string,
 	content: string,
 ) {
 	const current = await folder.files.read(path);
-	if (current.error?.name === 'NotFound')
-		return expectOk(await folder.files.create(path, content));
 	return expectOk(
-		await folder.files.save(expectOk(current), content, { merge: false }),
-	).stored;
+		await folder.write(
+			path,
+			current.error === null ? current.data.bytes : null,
+			content,
+		),
+	);
 }
 
 const fileText = async (workspace: (typeof opened)[number], path: string) =>
@@ -217,7 +219,7 @@ test('a change from another page rereads a clean editor; typed text merges with 
 
 	workspace.input('my unsaved text\n');
 	await put(other, 'a.txt', 'outside\n');
-	expectOk(await other.files.create('c.txt', ''));
+	expectOk(await other.write('c.txt', null, ''));
 	await until(() =>
 		workspace.listing.files.some((file) => file.path === 'c.txt'),
 	);
@@ -233,7 +235,7 @@ test('a save of a file deleted elsewhere fails and keeps the text; discarding it
 	const { workspace } = await setup();
 	workspace.input('my text\n');
 	const other = await elsewhere(workspace);
-	expectOk(await other.files.remove(expectOk(await other.files.read('a.txt'))));
+	expectOk(await other.write('a.txt', null, null));
 	await expect(workspace.flush()).rejects.toThrow();
 	expect(workspace.buffer).toBe('my text\n');
 	expect(workspace.dirty).toBe(true);
@@ -253,7 +255,7 @@ test('two copies sync; a line both changed goes to the copy that syncs, and the 
 		const remote = 'http://git.test/remote.git';
 		const a = await openWorkingCopy('a', remote);
 		opened.push(a);
-		expectOk(await a.folder.files.create('notes/color.txt', 'color=blue\n'));
+		expectOk(await a.folder.write('notes/color.txt', null, 'color=blue\n'));
 		await a.sync();
 		const b = await openWorkingCopy('b', remote);
 		opened.push(b);
