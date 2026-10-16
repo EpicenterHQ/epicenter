@@ -6,13 +6,16 @@
  * database.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RepositoryListing } from '@epicenter/constants/repositories';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import type { Client } from 'pg';
+import isomorphicGit from 'isomorphic-git';
+import http from 'isomorphic-git/http/web';
+import { type Client, Pool } from 'pg';
 import { registerFirstPartyClients } from '../auth/oauth-registrations.js';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';
@@ -39,6 +42,7 @@ let stopPostgres: () => Promise<void>;
 let server: ReturnType<typeof Bun.serve>;
 let sql: Client;
 let db: Db;
+let pool: Pool;
 let client: OAuthTestClient;
 
 beforeAll(async () => {
@@ -81,8 +85,17 @@ beforeAll(async () => {
 			},
 		],
 	});
+	// Requests run at once, as concurrent pushes do, so each takes its own
+	// connection, as a deployment's pool gives it.
+	pool = new Pool({
+		host: '127.0.0.1',
+		port: cluster.port,
+		user: 'postgres',
+		database: 'postgres',
+	});
+	const requestDb = createDb(pool);
 	const context = {
-		connect: async () => ({ db, close: async () => {} }),
+		connect: async () => ({ db: requestDb, close: async () => {} }),
 		afterResponse: () => {},
 		resolveAuthSecrets: () => ({ BETTER_AUTH_SECRET: secret }),
 	};
@@ -110,6 +123,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	server?.stop(true);
+	await pool?.end();
 	await stopPostgres?.();
 	if (scratch) await rm(scratch, { recursive: true, force: true });
 });
@@ -213,9 +227,49 @@ describe('hosted Git over the disk store', () => {
 		const url = remote(person.personal, 'notes');
 		const first = await workingCopy('notes', { 'a.md': 'one\n' });
 
-		// Nothing exists yet, so a read is 404 and creates nothing.
-		const missing = await git(first, token, 'ls-remote', url);
-		expect(missing.code).not.toBe(0);
+		// Nothing exists yet: one who may push reads an empty repository, and
+		// reading creates nothing, under protocol v2 or v0.
+		for (const version of ['2', '0']) {
+			const missing = await git(
+				first,
+				token,
+				'-c',
+				`protocol.version=${version}`,
+				'ls-remote',
+				url,
+			);
+			expect(missing.code).toBe(0);
+			expect(missing.stdout).toBe('');
+		}
+		const probe = await fetch(`${url}/info/refs?service=git-receive-pack`, {
+			headers: { authorization: `Bearer ${token}` },
+		});
+		expect(probe.status).toBe(200);
+		expect(probe.headers.get('content-type')).toBe(
+			'application/x-git-receive-pack-advertisement',
+		);
+		await probe.body?.cancel();
+		const upload = await fetch(`${url}/git-upload-pack`, {
+			method: 'POST',
+			headers: {
+				authorization: `Bearer ${token}`,
+				'content-type': 'application/x-git-upload-pack-request',
+			},
+			body: '0000',
+		});
+		expect(upload.status).toBe(404);
+		expect(await repositoryRows(person.personal)).toEqual([]);
+		expect(await readdir(storeRoot).catch(() => [])).not.toContainEqual(
+			expect.stringMatching(/\.git$/),
+		);
+		// A clone of the empty name is empty, and a sync that fetches first
+		// finds nothing to take.
+		const empty = join(scratch, `empty-${crypto.randomUUID().slice(0, 8)}`);
+		const emptyClone = await git(scratch, token, 'clone', url, empty);
+		expect(emptyClone.code).toBe(0);
+		expect(emptyClone.stderr).toContain('empty repository');
+		const nothing = await git(first, token, 'fetch', url, 'main');
+		expect(nothing.stderr).toContain("couldn't find remote ref main");
 		expect(await repositoryRows(person.personal)).toEqual([]);
 
 		const pushed = await git(first, token, 'push', url, 'HEAD:main');
@@ -246,6 +300,65 @@ describe('hosted Git over the disk store', () => {
 		const fetched = await git(first, token, 'fetch', url, 'main');
 		expect(fetched.code).toBe(0);
 		expect((await repositoryRows(person.personal)).length).toBe(1);
+	}, 120_000);
+
+	test('concurrent first pushes to one name make one repository', async () => {
+		const { person, token } = await signedIn('racer');
+		const url = remote(person.personal, 'raced');
+		const copies = await Promise.all(
+			['a', 'b', 'c', 'd'].map((label) =>
+				workingCopy(`race-${label}`, { [`${label}.md`]: `${label}\n` }),
+			),
+		);
+		const pushes = await Promise.all(
+			copies.map((dir) => git(dir, token, 'push', url, 'HEAD:main')),
+		);
+		// Unrelated histories: exactly one lands, and every other is refused.
+		expect(pushes.filter((run) => run.code === 0)).toHaveLength(1);
+		const rows = await repositoryRows(person.personal);
+		expect(rows.map((row) => row.name)).toEqual(['raced']);
+		const check = join(scratch, `raced-${crypto.randomUUID().slice(0, 8)}`);
+		expect((await git(scratch, token, 'clone', url, check)).code).toBe(0);
+		const winner = pushes.findIndex((run) => run.code === 0);
+		const label = ['a', 'b', 'c', 'd'][winner] as string;
+		expect(await Bun.file(join(check, `${label}.md`)).text()).toBe(
+			`${label}\n`,
+		);
+	}, 120_000);
+
+	test('isomorphic-git, as a browser syncs, fetches nothing from a new name, then its push creates it', async () => {
+		const { person, token } = await signedIn('browser');
+		const url = remote(person.personal, 'from-browser');
+		const dir = await workingCopy('browser', { 'a.md': 'one\n' });
+		const headers = { authorization: `Bearer ${token}`, origin };
+		const fetched = await isomorphicGit.fetch({
+			fs,
+			http,
+			dir,
+			url,
+			ref: 'main',
+			singleBranch: true,
+			tags: false,
+			headers,
+		});
+		expect(fetched.fetchHead).toBeNull();
+		expect(await repositoryRows(person.personal)).toEqual([]);
+		const pushed = await isomorphicGit.push({
+			fs,
+			http,
+			dir,
+			url,
+			ref: 'main',
+			remoteRef: 'main',
+			headers,
+		});
+		expect(pushed.ok).toBe(true);
+		expect((await repositoryRows(person.personal)).map((r) => r.name)).toEqual([
+			'from-browser',
+		]);
+		const check = join(scratch, `browser-${crypto.randomUUID().slice(0, 8)}`);
+		expect((await git(scratch, token, 'clone', url, check)).code).toBe(0);
+		expect(await Bun.file(join(check, 'a.md')).text()).toBe('one\n');
 	}, 120_000);
 
 	test('unrelated history to an existing name is refused, even forced', async () => {

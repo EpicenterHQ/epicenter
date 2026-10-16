@@ -35,14 +35,15 @@ export function newRepositoryId(): string {
 }
 
 /**
- * The repository `<namespaceId>/<name>` names, created when there is none.
- * A name taken by an alias is freed for the new repository. Two first pushes
- * at once both get the one row the first inserted.
+ * The repository `<namespaceId>/<name>` names, inserted as `id` when there is
+ * none; `id`'s storage must already exist. A name taken by an alias is freed
+ * for the new repository. Two first pushes at once both get the one row the
+ * first inserted, so the second's `id` is left unnamed.
  */
 export async function createRepository(
 	db: Db,
-	{ namespaceId, name }: { namespaceId: string; name: string },
-): Promise<{ id: string; name: string; created: boolean }> {
+	{ id, namespaceId, name }: { id: string; namespaceId: string; name: string },
+): Promise<{ id: string; name: string }> {
 	return db.transaction(async (tx) => {
 		await tx.execute(sql`
 			delete from repository_alias
@@ -50,28 +51,22 @@ export async function createRepository(
 		`);
 		const inserted = await tx.execute<{ id: string }>(sql`
 			insert into repository (id, namespace_id, name)
-			values (${newRepositoryId()}, ${namespaceId}, ${name})
+			values (${id}, ${namespaceId}, ${name})
 			on conflict (namespace_id, name) do nothing
 			returning id
 		`);
-		const created = inserted.rows[0]?.id;
-		if (created !== undefined) return { id: created, name, created: true };
+		if (inserted.rows[0] !== undefined) return { id, name };
 		const existing = await tx.execute<{ id: string }>(sql`
 			select id from repository
 			where namespace_id = ${namespaceId} and name = ${name}
 		`);
-		const id = existing.rows[0]?.id;
-		if (id === undefined)
+		const found = existing.rows[0]?.id;
+		if (found === undefined)
 			throw new Error(
 				`repository ${namespaceId}/${name} was neither inserted nor found`,
 			);
-		return { id, name, created: false };
+		return { id: found, name };
 	});
-}
-
-/** Remove a repository's row and its aliases, as when its storage could not be made. */
-export async function forgetRepository(db: Db, id: string): Promise<void> {
-	await db.execute(sql`delete from repository where id = ${id}`);
 }
 
 /**
