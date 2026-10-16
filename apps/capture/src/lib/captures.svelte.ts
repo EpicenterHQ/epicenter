@@ -41,7 +41,6 @@ import {
 } from '@epicenter/capture';
 import {
 	type CommitOutcome,
-	type FileCapture,
 	FileError,
 	type FileSaveError,
 	type RowReadError,
@@ -101,8 +100,6 @@ export type Deletion = {
 	readonly path: string;
 	/** What the dialog names: the start of the capture's text, if it reads as one. */
 	readonly title: string;
-	/** The file as it was when the person was asked, for a file no view holds. */
-	readonly capture: FileCapture;
 	/**
 	 * Whether the file has changes that are in no saved version, as Git
 	 * status last checked; `undefined` when the check failed.
@@ -406,22 +403,6 @@ export function createCaptures(
 			.length;
 
 	/**
-	 * The version a delete of `stem` expects, read when it runs: the newest
-	 * the cache holds for what the app edits, if it holds one.
-	 */
-	function heldCapture(stem: string): FileCapture | undefined {
-		const path = pathOf(stem);
-		if (opened?.stem === stem && opened.mode === 'text') {
-			const file = textData(path);
-			return file?.kind === 'text' ? file.file : undefined;
-		}
-		const result = rowsData()?.find((entry) => entry.stem === stem)?.result;
-		if (result?.error === null) return result.data;
-		if (result?.error.name === 'InvalidRow') return result.error;
-		return undefined;
-	}
-
-	/**
 	 * Show `stem` as `mode` edits it. A capture that is not a valid one opens
 	 * as text. Coming from its text, the text's writes land first and the
 	 * listing is read again, so the view shows what was typed there.
@@ -594,7 +575,7 @@ export function createCaptures(
 			const why = refused();
 			if (why !== undefined) return CapturesError.NotStarted({ reason: why });
 			const path = pathOf(stem);
-			const { data: read, error } = await folder.files.read(path);
+			const { error } = await folder.files.read(path);
 			if (error !== null) return Err(error);
 			const status = await folder.git.status().then(
 				(observed) => observed.data ?? undefined,
@@ -607,15 +588,14 @@ export function createCaptures(
 				stem,
 				path,
 				title: text?.trim().slice(0, 60) ?? '',
-				capture: { path: read.path, sha256: read.sha256 },
 				unversioned: status?.changes.some((change) => change.path === path),
 			});
 		},
 		/**
 		 * Delete what was confirmed. It runs after the capture's edits held
-		 * here are written, so it removes what this window saved last. The
-		 * folder's delete removes whatever the file holds, so a file another
-		 * program changed since is refused here first, and read again.
+		 * here are written, so it removes what this window saved last, and it
+		 * removes whatever another program wrote since: a delete beats edits
+		 * that never saw it (ADR-0576).
 		 */
 		remove(deletion: Deletion) {
 			return defineMutation({
@@ -630,17 +610,6 @@ export function createCaptures(
 						forms.get(deletion.stem)?.flush(),
 						writeText(deletion.path),
 					]);
-					const { path } = deletion;
-					const expected = heldCapture(deletion.stem) ?? deletion.capture;
-					const { data: now, error: readError } = await folder.files.read(path);
-					if (readError !== null && readError.name !== 'NotFound')
-						return Err(readError);
-					if (now?.sha256 !== expected.sha256)
-						return FileError.Conflict({
-							path,
-							expectedSha256: expected.sha256,
-							actualSha256: now?.sha256,
-						});
 					return table.delete(deletion.stem);
 				},
 				onSuccess: () => {

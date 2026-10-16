@@ -11,9 +11,9 @@
  * A thought added, edited, deleted, or moved saves at once; the capture
  * text is saved by the view after a pause in typing, or when the person
  * leaves it (`flush`). Saves run one at a time; text typed while one runs
- * goes in the next. A failed save keeps the draft. An edit whose capture
- * left the cache is not saved, so it never makes a deleted file again: it
- * is dropped and handed to `gone`.
+ * goes in the next. A failed save keeps the draft. An edit of a capture
+ * deleted elsewhere writes nothing (a delete beats an edit it never saw,
+ * ADR-0576): it leaves the form and is handed to `gone`, which offers it.
  *
  * Every structured change reads the body the form shows now (the typed
  * body, or the cache's), composes the complete `{ text, thoughts }`, encodes it
@@ -65,8 +65,8 @@ export function createCaptureForm(capture: {
 	write(change: {
 		readonly from: Row<CaptureFields>;
 		readonly to: Row<CaptureFields>;
-	}): Promise<unknown>;
-	/** The capture left the cache with `typed` not saved; the edit is dropped. */
+	}): Promise<StoredRow<CaptureFields> | null>;
+	/** The capture is gone with `typed` not saved; the edit leaves the form. */
 	gone(typed: string): void;
 	/** Whether input is refused now: closing, or deleting. */
 	locked(): boolean;
@@ -83,12 +83,14 @@ export function createCaptureForm(capture: {
 	/** The body the form shows: the typed body, or the cache's. */
 	const shown = () => draft.text;
 
-	/** Save what the draft holds; an edit whose capture is gone is dropped. */
+	/**
+	 * Save what the draft holds. An edit whose capture is gone, as the cache
+	 * says or a save found, leaves the form and is handed to `gone`.
+	 */
 	async function save() {
-		if (capture.row() !== undefined) await draft.save();
+		await draft.save();
 		const typed = draft.typed;
-		if (typed === undefined || draft.saving || capture.row() !== undefined)
-			return;
+		if (typed === undefined || draft.saving || !draft.gone) return;
 		draft.discard();
 		capture.gone(typed);
 	}

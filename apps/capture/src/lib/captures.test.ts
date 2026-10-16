@@ -294,16 +294,24 @@ test('a save that fails keeps the edit and reports it, and the next change sends
 	expect(await harness.text(PATH)).toContain('\nSecond\n');
 });
 
-test('a save to a file deleted elsewhere that this window has not heard of writes the capture again', async () => {
+test('a save to a file deleted elsewhere writes nothing, drops the edit, and reports its text', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	captures.open('one', 'capture');
 	await harness.deleteElsewhere(PATH);
-	typeText(captures.formOf('one'), 'Mine');
+	const form = captures.formOf('one');
+	typeText(form, 'Mine');
 	await quiet(captures);
-	// The writer acting wins over a delete (ADR-0576).
-	expect(harness.failures).toEqual([]);
-	expect(await harness.text(PATH)).toContain('\nMine\n');
+	// A delete beats an edit that never saw it (ADR-0576).
+	expect(harness.failures).toMatchObject([
+		{
+			path: PATH,
+			error: { name: 'NotFound' },
+			text: expect.stringContaining('\nMine\n'),
+		},
+	]);
+	expect(form.body).toBeUndefined();
+	expect(await harness.text(PATH)).toBeUndefined();
 });
 
 test('an edit held when its capture is deleted elsewhere is dropped, reports its text, and writes nothing', async () => {
@@ -503,16 +511,18 @@ test('a delete runs after the edit is saved and removes what it saved', async ()
 	expect(listing(captures)).toEqual([]);
 });
 
-test('a capture changed elsewhere is not deleted, and the timeline shows it as it is now', async () => {
+test('a delete removes a capture changed elsewhere since it was confirmed', async () => {
 	const harness = await open({ [PATH]: HAND });
 	const { captures } = harness;
 	const deletion = expectOk(await captures.deletionFor('one'));
-	const theirs = `---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`;
-	await harness.writeElsewhere(PATH, theirs);
-	expect(expectErr(await captures.remove(deletion)).name).toBe('Conflict');
+	await harness.writeElsewhere(
+		PATH,
+		`---\ncapturedAt: ${AT}\n---\n\nTheirs\n\n## Thoughts\n`,
+	);
+	expectOk(await captures.remove(deletion));
 	await quiet(captures);
-	expect(await harness.text(PATH)).toBe(theirs);
-	expect(timelineOf(listing(captures)).rows[0]?.preview).toBe('Theirs');
+	expect(await harness.text(PATH)).toBeUndefined();
+	expect(listing(captures)).toEqual([]);
 });
 
 // ============================================================================

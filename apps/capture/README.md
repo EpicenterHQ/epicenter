@@ -36,8 +36,8 @@ the repository root. It starts the app and nothing else.
 - **More** holds Copy capture text, Download file, and **Delete capture**.
   Deleting asks first, and says when the capture has changes that are in no
   saved version. It waits for your edit to be saved and deletes the file
-  this window wrote last. If the file changed elsewhere since, Capture
-  deletes nothing and the timeline shows the file as it is now.
+  this window wrote last, along with anything another program wrote to it
+  since: a delete beats edits that never saw it (ADR-0576).
 - **Save version** in the header records every saved capture in the folder's
   Git history. Nothing else records a version.
 
@@ -70,10 +70,9 @@ are not UTF-8 text are listed apart and not opened.
   with it: what only the other writer changed stays, and where you both
   changed the same field or line, your edit wins, with no notice
   (ADR-0576). Text edited as text merges the same way, by line. When the
-  window has heard that the file was deleted, the edit is not saved: the
-  capture leaves the list, and a notice says your change was not saved and
-  offers **Copy your text**. A save sent before the window hears of the
-  delete writes the capture again.
+  file was deleted elsewhere, the edit writes nothing: the capture leaves
+  the list, and a notice says your change was not saved and offers **Copy
+  your text** until you dismiss it.
 - A save that fails for another reason keeps your edit on screen, the
   capture says Not saved, and the notice names the failure and offers your
   text to copy. Your next change saves it again. A save whose reply was lost
@@ -225,9 +224,8 @@ points the bare `@epicenter/folder` specifier, which `@epicenter/capture`
 imports, at the same entry, so a build emits one adapter.
 
 Capture uses the folder's captures table (`list`, `create`, `write`, and
-`delete`; a write merges with whatever changed since, and a delete removes
-whatever is there, so Capture first checks the file is the version it
-expects), its files for editing a capture as text (`read`
+`delete`; a write merges with whatever changed since and writes nothing
+to a file deleted since, and a delete removes whatever is there), its files for editing a capture as text (`read`
 and `write`), the Git snapshot, `status`,
 and `commit`, and `onFilesChanged`. Reads and saves go through the folder's
 query options (`folderOptions` from `@epicenter/folder/query`), so every
@@ -324,10 +322,11 @@ before it:
 
 - There is no review with Your edit and Saved elsewhere. A write that meets
   a change made elsewhere merges with it, and your edit wins where you both
-  changed the same lines. An edit of a capture the window knows was deleted
-  elsewhere is not written; a notice offers the text that was lost to copy.
-  A save sent before the window hears of the delete writes the file again.
-  A write in Edit as text to a deleted file is refused.
+  changed the same lines. A write to a file deleted elsewhere writes
+  nothing and never creates it again; a notice offers the text that was
+  lost to copy.
+- A delete no longer refuses a file changed elsewhere since you confirmed
+  it: it removes the file as it is then (ADR-0576).
 - A failed save keeps your edit on screen without Try again or Save again
   buttons: your next change saves it again, and the notice offers your
   text. A failed write in Edit as text shows the file, and the notice
