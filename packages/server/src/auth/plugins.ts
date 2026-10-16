@@ -110,7 +110,7 @@ export function oauthServerPlugins({
 export function authPlugins(apiBaseURL: string) {
 	const origin = apiBaseURL.replace(/\/$/, '');
 	const rpID = new URL(origin).hostname;
-	return [
-		passkey({ rpID, rpName: 'Epicenter', origin }),
-	] satisfies NonNullable<BetterAuthOptions['plugins']>;
+	return [passkey({ rpID, rpName: 'Epicenter', origin })] satisfies NonNullable<
+		BetterAuthOptions['plugins']
+	>;
 }
