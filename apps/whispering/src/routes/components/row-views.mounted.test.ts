@@ -149,7 +149,7 @@ test('a change made elsewhere shows once the folder reports it', async () => {
 	expect(body()?.value).toBe('Theirs.\n');
 });
 
-test('typing over a change made elsewhere merges with it, and the typing wins where both changed', async () => {
+test('typing over a change made elsewhere merges with it, and the typing wins where both changed, with no notice', async () => {
 	const { library, target, notices, root } = await open({
 		[A]: transcript('Alpha.\n'),
 	});
@@ -164,9 +164,7 @@ test('typing over a change made elsewhere merges with it, and the typing wins wh
 	type(body(), 'Mine.\n');
 	leave(body());
 	await settle(library);
-	expect(notices).toMatchObject([
-		{ kind: 'replaced', path: A, replaced: [{ theirs: 'Theirs.\n' }] },
-	]);
+	expect(notices).toEqual([]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith('---\nMine.\n');
 	expect(body()?.value).toBe('Mine.\n');
 });

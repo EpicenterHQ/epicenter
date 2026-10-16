@@ -191,13 +191,13 @@ shows directly.
 | What happened | What Honeycrisp does |
 | --- | --- |
 | Another program or window changed a file | The lists and the open note show the new version. If you were not typing, the rich-text view starts over on the new text, so its undo history restarts. |
-| Another program changed the file while you were typing | What you typed stays on screen, and a read never replaces it. A title or other field you set wins that field and keeps every field they changed. The note's text holds the version it started from, and its save merges with their change by line (ADR-0548): what only they changed stays, and where you both changed the same lines, yours win. A message says what of theirs your text replaced, with **Restore theirs**. |
+| Another program changed the file while you were typing | What you typed stays on screen, and a read never replaces it. A title or other field you set wins that field and keeps every field they changed. The note's text holds the version it started from, and its save merges with their change by line (ADR-0548): what only they changed stays, and where you both changed the same lines, yours win, with no message (ADR-0575). |
 | Another program deleted the file, and you edit it | The save is refused, and the note leaves the list. A message offers **Copy your text**, which copies the note's text as you had it. |
 | You typed while a save was running | The newer typing saves next, on top of the save before it. |
 | A save failed, for example on a full disk | What you typed stays on screen, the note shows **Not saved**, and the message offers the note's text to copy. It saves again with your next change, or with **Save again**. |
 | A save got no reply | The same as a failed save: the message says the save may or may not have happened, and the next save merges with whatever the file holds. |
 | A value is not valid for a note | Inputs only change notes to valid values. A value the folder still refuses is reported the same way. |
-| You typed in a file open as text, and it changed elsewhere | The save merges by line (ADR-0551): what only they changed stays, and where you both changed the same lines, yours win. A message says what of theirs your edit replaced, with **Restore theirs**. |
+| You typed in a file open as text, and it changed elsewhere | The save merges by line (ADR-0551): what only they changed stays, and where you both changed the same lines, yours win, with no message (ADR-0575). |
 | You rename or delete the open item | Its saves finish first, and the rename or delete acts on what it saved last. Typing is paused while a rename or delete runs. A file changed elsewhere since is refused. |
 
 What a failed save held stays on screen until it saves; what a failed text
@@ -437,9 +437,8 @@ app:
 
 This version saves a field as a change to the file as it is now
 (ADR-0554). A title and the note's text are saved a second after you stop
-typing, not at every keystroke; a field never names another writer's value
-it replaced, since it sets only what you changed; and a list action no longer
-shows in the open note before it is saved.
+typing, not at every keystroke; a field sets only what you changed; and a
+list action no longer shows in the open note before it is saved.
 
 Before that, this version reads through the query cache, follows the folder's change
 reports, and holds each edit in a draft that merges on save (ADR-0548). It
@@ -451,7 +450,7 @@ versions before it:
   saved** until it saves again, instead of putting the note back to the file.
 - There is no review with **Apply**. A save that meets a change made
   elsewhere merges with it, and your edit wins where you both changed the
-  same field or lines; a message names what of theirs it replaced.
+  same field or lines, with no message (ADR-0575).
 - A note deleted elsewhere is no longer offered back. Your next edit to it is
   refused, and it leaves the list.
 - Closing and quitting never ask and never wait. They quit at once; a save

@@ -348,17 +348,14 @@ Text that does not parse as the field's value is not sent, and says why.
 Writes to one row run one at a time, in the order made. A field update that
 fails says why beside the field and keeps the typed text.
 
-A row's body is a document, so the side panel's Notes box holds a body draft
-(`createBodyDraftState` from `@epicenter/folder/svelte`, in
+A row's body is a document, so the side panel's Notes box holds a body editor
+(`createBodyEditor` from `@epicenter/folder/svelte`, in
 `src/folders/RowBody.svelte`) that captures the row and its version at the
-first keystroke, and saves with `table.save` over that version a second after
-the last keystroke, when the box loses focus, and when the panel goes away.
-The engine merges by line with whatever changed since (ADR-0548): lines only
-one side changed keep that side's change. Where both changed the same lines,
-the typing wins, and a notice names what of theirs it replaced, with what was
-kept. "Restore theirs" is one more save of what `restoreTheirs(saved)` builds,
-over the version the save wrote, that puts their side of those lines back
-(ADR-0551). A row another window deleted, or saved in a form that does not
+first keystroke, and saves with `table.setBody` over that version a second
+after the last keystroke, when the box loses focus, and when the panel goes
+away. The engine merges by line with whatever changed since (ADR-0548): lines
+only one side changed keep that side's change. Where both changed the same
+lines, the typing wins, with no notice (ADR-0575). A row another window deleted, or saved in a form that does not
 read as a row, is not overwritten. An edit not yet sent when Epicenter quits
 is lost, at most the last second of typing (see
 [Quitting Epicenter](#quitting-epicenter)).

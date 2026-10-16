@@ -667,24 +667,12 @@ test('typing over a transcript changed outside, before the window read it again,
 	await writeFile(join(root, TRANSCRIPT), outside);
 
 	// Typing before the window read it again: both replaced the same line,
-	// so the typing wins there, and the save names what it replaced.
+	// so the typing wins there, and nothing is told.
 	editor.edit((row) => {
 		row.body = 'What I typed.\n';
 	});
 	await settle(library);
-	expect(notices).toMatchObject([
-		{
-			kind: 'replaced',
-			path: TRANSCRIPT,
-			replaced: [
-				{
-					kind: 'text',
-					part: 'body',
-					theirs: expect.stringContaining('migration'),
-				},
-			],
-		},
-	]);
+	expect(notices).toEqual([]);
 	const saved = await readFile(join(root, TRANSCRIPT), 'utf8');
 	expect(saved).toContain('What I typed.');
 	expect(saved).not.toContain('migration');

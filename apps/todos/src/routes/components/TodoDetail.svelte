@@ -31,7 +31,6 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { createBodyEditor } from '@epicenter/folder/svelte';
-	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 	import { createMutation, createQuery, useIsMutating } from '@tanstack/svelte-query';
 	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
@@ -97,9 +96,6 @@
 	const notes = createBodyEditor<TodoFields>({
 		row: () => stored,
 		save: (variables) => saveNotes.mutateAsync(variables),
-		// Name what a save replaced of another writer's lines, and offer them back.
-		onSaved: ({ replaced, stored }, restore) =>
-			void toastReplaced({ replaced, subject: stored.row.fields.title, restore }),
 	});
 	const sendNotesLater = useDebounce(() => notes.save(), 1000);
 

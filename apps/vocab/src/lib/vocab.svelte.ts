@@ -15,7 +15,7 @@ import type { QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber } from 'svelte/reactivity';
 import { createChats } from './chat/chats.js';
 import type { VocabFolder } from './data.js';
-import { createEntries, type ReplacedNotice } from './entries.svelte.js';
+import { createEntries } from './entries.svelte.js';
 import { CLOSING, setVocabDefaults, type WriteFailure } from './query.js';
 
 export type Vocab = ReturnType<typeof createVocab>;
@@ -25,12 +25,9 @@ export function createVocab(
 	queryClient: QueryClient,
 	{
 		onWriteFailed = () => {},
-		onReplaced = () => {},
 	}: {
 		/** A write failed; the app tells the learner. */
 		onWriteFailed?: (failure: WriteFailure) => void;
-		/** A save replaced a value changed elsewhere; the app tells the learner. */
-		onReplaced?: (notice: ReplacedNotice) => void;
 	} = {},
 ) {
 	const folder$ = folderOptions(folder);
@@ -49,7 +46,6 @@ export function createVocab(
 		entries: createEntries(folder, folder$, queryClient, {
 			refused,
 			onWriteFailed,
-			onReplaced,
 		}),
 		chats: createChats(folder, folder$, queryClient, {
 			refused,

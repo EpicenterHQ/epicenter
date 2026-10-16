@@ -321,8 +321,8 @@ time, and switching never waits or asks.
   what another writer changed in another field stays, and where you both
   changed the title, yours wins. The notes keep the version they started
   from and merge by line with whatever changed since: lines only the other
-  writer changed stay, and where you both changed the same lines, yours win
-  and a message names what of theirs was replaced, with **Restore theirs**.
+  writer changed stay, and where you both changed the same lines, yours win,
+  with no message (ADR-0575).
 - A save that fails, or whose reply is lost, keeps what you typed in the
   editor, which says it is not saved and offers **Try again**; a message
   about notes offers **Copy your text**. A checkbox that did not save shows

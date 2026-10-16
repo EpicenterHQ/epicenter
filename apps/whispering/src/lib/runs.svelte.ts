@@ -19,7 +19,6 @@
 import {
 	type FileTable,
 	type Row,
-	restoreTheirs,
 	rowPath,
 	rowStemOf,
 } from '@epicenter/folder';
@@ -228,11 +227,11 @@ export function createRuns({
 	 * Fill the row's empty body, and only an empty one. A row that is gone or
 	 * already has a body is left as it is.
 	 *
-	 * The body is written with `table.setBody` (ADR-0575), on the file as it
-	 * is now. When another writer filled the body between the read and the
-	 * write, the lines merge from the empty body; where both wrote the same
-	 * lines this answer would win, so the lines it replaced are put back and
-	 * the other writer's fill stands.
+	 * The body is written with `table.setBody` (ADR-0575) and
+	 * `{ ifUnchanged: true }`, so it lands only while the body is still
+	 * empty. A body another writer filled between the read and the write is a
+	 * `Conflict`, and a row deleted meanwhile is `NotFound`: either stops the
+	 * fill, and their fill or deletion stands.
 	 */
 	async function fill(target: Target, body: string) {
 		const table = tableOf(target.table);
@@ -240,23 +239,13 @@ export function createRuns({
 			const { data: stored, error } = await table.get(target.stem);
 			if (error !== null) return describeError(error);
 			if (stored === undefined || stored.row.body !== '') return undefined;
-			const { data: saved, error: bodyError } = await table.setBody(
-				stored,
-				body,
-			);
-			if (bodyError !== null)
-				return bodyError.name === 'NotFound'
-					? undefined
-					: describeError(bodyError);
-			if (saved.replaced.length === 0) return undefined;
-			const theirs = restoreTheirs(saved);
-			const { error: restoreError } = await table.setBody(
-				saved.stored,
-				theirs.row.body,
-			);
-			return restoreError === null || restoreError.name === 'NotFound'
+			const { error: bodyError } = await table.setBody(stored, body, {
+				ifUnchanged: true,
+			});
+			if (bodyError === null) return undefined;
+			return bodyError.name === 'Conflict' || bodyError.name === 'NotFound'
 				? undefined
-				: describeError(restoreError);
+				: describeError(bodyError);
 		} catch (cause) {
 			return describe(cause);
 		}

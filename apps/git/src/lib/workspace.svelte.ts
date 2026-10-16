@@ -2,8 +2,6 @@ import {
 	type FileListing,
 	type GitSnapshot,
 	type PathStatus,
-	type Replaced,
-	restoreTheirs,
 	type SavedFile,
 	type SyncAttempt,
 	type SyncChoiceProblem,
@@ -65,8 +63,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 	let capture = $state.raw<TextCapture>();
 	/** The typed text and the version it started from, apart from `capture`. */
 	let draft: TextDraft = createTextDraft();
-	/** The last save that replaced another writer's change, until dismissed. */
-	let replacedBy = $state.raw<SavedFile>();
 	let saveMessage = $state('');
 	let dirty = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -194,7 +190,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			text,
 		};
 		saved = text;
-		if (written.replaced.length > 0) replacedBy = written;
 	}
 	/**
 	 * Save the typed text over the version it started from. A file changed
@@ -379,7 +374,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			selected = path;
 			capture = undefined;
 			draft = createTextDraft();
-			replacedBy = undefined;
 			buffer = '';
 			saved = '';
 			saveMessage = 'Opening…';
@@ -403,29 +397,6 @@ export async function openWorkingCopy(copy: string, remote: string) {
 			dirty = false;
 			draft = createTextDraft();
 			await readSelected();
-		},
-		/** What the last save replaced of another writer's change, until dismissed. */
-		get replaced(): readonly Replaced[] {
-			return replacedBy?.replaced ?? [];
-		},
-		dismissReplaced() {
-			replacedBy = undefined;
-		},
-		/** Put back what the last save replaced: one more save over the version it wrote. */
-		async restoreTheirs() {
-			const last = replacedBy;
-			if (last === undefined || dirty || saving) return;
-			replacedBy = undefined;
-			const { base, content } = restoreTheirs(last, folder.definition);
-			const result = await folder.files.save(base, content);
-			if (result.error !== null) {
-				saveMessage = result.error.message;
-				return;
-			}
-			showWritten(result.data);
-			buffer = saved;
-			saveMessage = 'Saved';
-			await refresh(false);
 		},
 		flush,
 		status: action('Status', () => folder.git.status()),

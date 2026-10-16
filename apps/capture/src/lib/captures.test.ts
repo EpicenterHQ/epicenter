@@ -217,7 +217,6 @@ test('rapid edits run one save at a time, and the changes made meanwhile go in o
 	// The held save, then one save of the newest text, from the version it wrote.
 	expect(counter.mdWrites - before).toBe(1);
 	expect(await harness.text(PATH)).toContain('\nTyping\n');
-	expect(harness.replaced).toEqual([]);
 });
 
 test('a change reported elsewhere reads the view again, and never replaces an edit not saved yet', async () => {
@@ -251,7 +250,6 @@ test('a change reported elsewhere reads the view again, and never replaces an ed
 	const saved = await harness.text(PATH);
 	expect(saved).toContain('\nMine again\n');
 	expect(saved).toContain('- theirs');
-	expect(harness.replaced).toEqual([]);
 });
 
 test('a save that meets a change made elsewhere merges with it: the edit wins where both changed', async () => {
@@ -269,20 +267,6 @@ test('a save that meets a change made elsewhere merges with it: the edit wins wh
 	expect(merged).not.toContain('Theirs');
 	expect(merged).not.toContain('custom: kept');
 	expect(merged).not.toContain('- first');
-	// The save names what of theirs it replaced.
-	expect(harness.replaced).toMatchObject([
-		{
-			path: PATH,
-			replaced: [expect.objectContaining({ kind: 'text', part: 'body' })],
-		},
-	]);
-
-	// Restoring theirs is one more save, over the version this one wrote.
-	harness.replaced[0]?.restore();
-	await quiet(captures);
-	expect(harness.failures).toEqual([]);
-	expect(await harness.text(PATH)).toContain('\nTheirs\n');
-	expect(await harness.text(PATH)).not.toContain('\nMine\n');
 });
 
 test('a save that fails keeps the edit and reports it, and the next change sends it again', async () => {
@@ -390,11 +374,10 @@ test('a write of the text that meets a change made elsewhere merges with it by l
 	typeFile(captures, PATH, `${HAND}- mine\n`);
 	await quiet(captures);
 	stop();
-	// Their changes and the added line do not compete, so both stand, and
-	// nothing of theirs was replaced. A row is written in its standard form.
+	// Their changes and the added line do not compete, so both stand. A row
+	// is written in its standard form.
 	const merged = `---\ncapturedAt: "${AT}"\n---\n\nTheirs\n- mine\n`;
 	expect(harness.failures).toEqual([]);
-	expect(harness.replaced).toEqual([]);
 	expect(captures.typedText(PATH)).toBeUndefined();
 	expect(cachedText(captures, PATH)).toBe(merged);
 	expect(await harness.text(PATH)).toBe(merged);

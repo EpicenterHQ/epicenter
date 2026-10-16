@@ -252,8 +252,8 @@ export function withResultFailures<TFields>(
 			failures.starts -= 1;
 			return refusedResult(`${table.name}/${options?.stem}.md`, 'create');
 		},
-		async setBody(base, text) {
-			if (failures.answers === 0) return table.setBody(base, text);
+		async setBody(base, text, options) {
+			if (failures.answers === 0) return table.setBody(base, text, options);
 			failures.answers -= 1;
 			return refusedResult(base.path, 'write');
 		},

@@ -64,15 +64,12 @@ export function createCaptureForm(capture: {
 		readonly base: StoredRow<CaptureFields>;
 		readonly text: string;
 	}): Promise<SavedRow<CaptureFields>>;
-	/** A save landed, with the save that restores what it replaced. */
-	onSaved(saved: SavedRow<CaptureFields>, restore: () => void): void;
 	/** Whether input is refused now: closing, or deleting. */
 	locked(): boolean;
 }) {
 	const draft = createBodyEditor<CaptureFields>({
 		row: capture.row,
 		save: capture.save,
-		onSaved: capture.onSaved,
 	});
 	let newThought = $state('');
 	let editing = $state.raw<ThoughtEdit | undefined>();

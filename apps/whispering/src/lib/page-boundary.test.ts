@@ -125,10 +125,8 @@ test('the page imports no Yjs store, sync, or account module', () => {
 				specifier.startsWith('@y/') ||
 				specifier.startsWith('@epicenter/sync') ||
 				// Files are edited through the query cache (ADR-0528): no edit
-				// session, open-item slot, admission, or save bar. The notice of
-				// what a save replaced is the one shared view (ADR-0551).
-				(specifier.startsWith('@epicenter/svelte') &&
-					specifier !== '@epicenter/svelte/replaced-notice') ||
+				// session, open-item slot, admission, or save bar.
+				specifier.startsWith('@epicenter/svelte') ||
 				specifier.startsWith('@epicenter/auth') ||
 				specifier.startsWith('@epicenter/blobs') ||
 				// The store package, by any entry. Folders and their declarations

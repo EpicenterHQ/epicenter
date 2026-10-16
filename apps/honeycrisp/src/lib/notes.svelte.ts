@@ -21,8 +21,8 @@
  * draft of its own (`createTextDraftState`), saved the same way (ADR-0551).
  * Writes to one file run one at a time, in the order made. A body save that
  * fails keeps the body on screen and reports the failure; a note deleted
- * elsewhere drops it. A save that replaced another writer's lines names
- * them, with a way to put theirs back.
+ * elsewhere drops it. Where a save meets another writer's change to the
+ * same lines, the save wins (ADR-0575).
  *
  * Every other action is a mutation: create, rename, delete, deleting a
  * folder, and Save version. Closing the notes fences new input, then waits
@@ -37,12 +37,10 @@ import {
 	type FileSaveError,
 	type GitError,
 	type MoveError,
-	type Replaced,
 	type Row,
 	type RowReadError,
 	rowPath,
 	rowStemOf,
-	type SavedRow,
 	type StoredRow,
 	type TableCreateError,
 	type TableError,
@@ -147,16 +145,6 @@ export type WriteFailure = {
 	 * shows the file: the note is gone, or a text save failed.
 	 */
 	readonly kept: boolean;
-};
-
-/**
- * A save that replaced another writer's change to the same values, and the
- * one more save that puts theirs back.
- */
-export type ReplacedChange = {
-	readonly path: string;
-	readonly replaced: readonly Replaced[];
-	readonly restore: () => void;
 };
 
 /** Why an action did not start, or stopped before it changed anything. */
@@ -275,12 +263,9 @@ export function createNotes(
 	queryClient: QueryClient,
 	{
 		onWriteFailed = () => {},
-		onReplaced = () => {},
 	}: {
 		/** A save failed; the app tells the person. */
 		onWriteFailed?: (failure: WriteFailure) => void;
-		/** A save replaced another writer's change to the same values; the app may say so. */
-		onReplaced?: (change: ReplacedChange) => void;
 	} = {},
 ) {
 	const { folder } = host;
@@ -508,23 +493,12 @@ export function createNotes(
 		},
 	} satisfies ReturnType<typeof folder$.notes.setBody.mutationOptions>;
 
-	/** Name what a note's save replaced, and offer theirs back as one more save. */
-	function report(saved: SavedRow<NoteFields>, restore: () => void) {
-		if (saved.replaced.length > 0)
-			onReplaced({
-				path: saved.stored.path,
-				replaced: saved.replaced,
-				restore,
-			});
-	}
-
 	function bodyOf(stem: string) {
 		const known = bodies.get(stem);
 		if (known !== undefined) return known;
 		const draft = createBodyEditor<NoteFields>({
 			row: () => noteRows.storedOf(stem),
 			save: (variables) => runMutation(queryClient, saveNote, variables),
-			onSaved: report,
 		});
 		const typed = {
 			draft,
@@ -584,16 +558,12 @@ export function createNotes(
 		},
 	} satisfies ReturnType<typeof folder$.files.write.mutationOptions>;
 
-	/** An edit of one file's exact text, saved one write at a time after a pause; what a save replaced is named. */
+	/** An edit of one file's exact text, saved one write at a time after a pause. */
 	function textDraftOf(path: string) {
 		const known = textDrafts.get(path);
 		if (known !== undefined) return known;
 		const draft = createTextDraftState({
 			save: (sent) => runMutation(queryClient, writeText, { path, ...sent }),
-			onSaved: ({ replaced }, restore) => {
-				if (replaced.length > 0) onReplaced({ path, replaced, restore });
-			},
-			definition: folder.definition,
 		});
 		const typed = {
 			draft,

@@ -19,9 +19,9 @@
  * the cache (`createBodyDraftState`, `createTextDraftState`), saved a second
  * after the last change, or when the view leaves it, over the version it
  * started from and merged by line with whatever changed since (ADR-0551). A
- * read never touches a draft. Writes to one file run one at a time. A save that
- * replaced another writer's change says so, with a way to put theirs back.
- * A text save that fails is reported with the text that was not written. A
+ * read never touches a draft. Writes to one file run one at a time. Where
+ * another writer changed the same lines, the save wins, with no notice
+ * (ADR-0575). A text save that fails is reported with the text that was not written. A
  * row deleted elsewhere stays deleted: its save fails, and nothing creates
  * it again.
  *
@@ -50,7 +50,6 @@ import type {
 	FileTable,
 	KvReading,
 	MoveError,
-	Replaced,
 	Row,
 	RowReadError,
 	SavedRow,
@@ -196,30 +195,18 @@ export type Selection = {
 	readonly entry: RecordingEntry | undefined;
 };
 
-/** What the person is told about an edit's write. */
-export type WriteNotice =
-	/**
-	 * The write failed. A row's edit is kept and is saved again with the
-	 * next change, or before anything that reads it. `lost` is the text that
-	 * was dropped instead: a row whose file is gone, or text whose save
-	 * failed.
-	 */
-	| {
-			readonly kind: 'failed';
-			readonly path: string;
-			readonly error: TableError | FileError | FileSaveError;
-			readonly lost: string | undefined;
-	  }
-	/**
-	 * The save landed, and replaced what another writer changed in the same
-	 * places; `restore` is the one more save that puts theirs back.
-	 */
-	| {
-			readonly kind: 'replaced';
-			readonly path: string;
-			readonly replaced: readonly Replaced[];
-			readonly restore: () => void;
-	  };
+/**
+ * What the person is told about an edit's write: it failed. A row's edit is
+ * kept and is saved again with the next change, or before anything that
+ * reads it. `lost` is the text that was dropped instead: a row whose file is
+ * gone, or text whose save failed.
+ */
+export type WriteNotice = {
+	readonly kind: 'failed';
+	readonly path: string;
+	readonly error: TableError | FileError | FileSaveError;
+	readonly lost: string | undefined;
+};
 
 export type RecorderState =
 	| { readonly phase: 'idle' }
@@ -592,14 +579,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				path === undefined || writePath(mutation) === path,
 		}) > 0;
 
-	/** What a save of `path` replaced, named with the save that restores it. */
-	const tell =
-		(path: string) =>
-		({ replaced }: { replaced: readonly Replaced[] }, restore: () => void) => {
-			if (replaced.length > 0)
-				notify({ kind: 'replaced', path, replaced, restore });
-		};
-
 	/** A document being typed: its draft, and the save that runs after a pause. */
 	type Typed<TDraft> = {
 		readonly draft: TDraft;
@@ -659,7 +638,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 						throw error;
 					},
 				),
-			onSaved: tell(path),
 		});
 		const typed = {
 			draft,
@@ -708,8 +686,6 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 						throw error;
 					},
 				),
-			onSaved: tell(path),
-			definition: folder.definition,
 		});
 		const typed = {
 			draft,
@@ -1245,7 +1221,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		},
 		/** Write the text typed into `path` now, as leaving it does; resolves once no write of it runs. */
 		saveText: (path: string) => saveTyped(textEdits, path),
-		/** Hear what an edit's write did that the person is told: it failed, or it replaced another writer's change. */
+		/** Hear each edit's write that failed, which the person is told. */
 		onWriteNotice(listener: (notice: WriteNotice) => void): () => void {
 			noticeListeners.add(listener);
 			return () => noticeListeners.delete(listener);

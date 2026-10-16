@@ -464,8 +464,7 @@ the table shows the row once it is saved.
   runs are written next, so fast typing writes what you typed last.
 - A save merges with a change made elsewhere since your edit started: fields
   and lines only one side changed are both kept. Where both changed the same
-  field or the same lines, your edit wins and a notice names what of theirs it
-  replaced, with **Restore theirs**. Reading the folder again never touches
+  field or the same lines, your edit wins, with no notice. Reading the folder again never touches
   what you are typing.
 - Text edited as a whole file (Source, or any text file from Files) merges the
   same way, by line (ADR-0551).

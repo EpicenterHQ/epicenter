@@ -4,7 +4,6 @@
  */
 
 import { basename } from '@epicenter/folder/file-browser';
-import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeDeletion } from '$lib/deletion.js';
@@ -90,17 +89,11 @@ export async function openItem(
 }
 
 /**
- * Tell the person what an edit's write did that they need to know: it
- * failed, offering to copy text that did not reach the file, or it replaced
- * a change made elsewhere to the same place.
+ * Tell the person an edit's write failed, offering to copy text that did not
+ * reach the file.
  */
 export function reportWriteNotice(notice: WriteNotice) {
 	const name = basename(notice.path);
-	if (notice.kind === 'replaced') {
-		const { replaced, restore } = notice;
-		void toastReplaced({ replaced, subject: name, restore });
-		return;
-	}
 	const { error, lost } = notice;
 	if (lost === undefined) {
 		toast.error(`${name} was not saved`, {

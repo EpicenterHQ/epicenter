@@ -6,11 +6,9 @@
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
 	import { openCaptureHost } from '#platform/folder';
-	import { toastReplaced } from '@epicenter/svelte/replaced-notice';
 	import {
 		createCaptures,
 		describeError,
-		type ReplacedChange,
 		type WriteFailure,
 	} from '$lib/captures.svelte.js';
 	import CaptureApp from '$lib/components/CaptureApp.svelte';
@@ -36,16 +34,10 @@
 		});
 	}
 
-	/** A save replaced a change made elsewhere: name it, and offer theirs back. */
-	function replacedChange({ path, replaced, restore }: ReplacedChange) {
-		void toastReplaced({ replaced, subject: path, restore });
-	}
-
 	const opening = (async () => {
 		const host = await openCaptureHost();
 		const captures = createCaptures(host, queryClient, {
 			onWriteFailed: writeFailed,
-			onReplaced: replacedChange,
 		});
 		// Files changed outside this page mark what the views show as stale.
 		const stopChanges = captures.folder$.invalidateOnChange(queryClient);
