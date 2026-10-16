@@ -9,30 +9,14 @@
  * version fact; it never makes a saved file look unsaved.
  */
 import type { CommitOutcome, GitSnapshot } from '@epicenter/folder';
-
-export type Tone = 'neutral' | 'busy' | 'good' | 'warning' | 'error';
-export type StatusLine = {
-	readonly label: string;
-	readonly detail?: string;
-	readonly tone: Tone;
-};
-
-const short = (oid: string | undefined) => oid?.slice(0, 7) ?? 'none';
-
-function at(time: number) {
-	const date = new Date(time);
-	return date.toDateString() === new Date().toDateString()
-		? date.toLocaleTimeString()
-		: date.toLocaleString();
-}
-
-const SEVERITY: Record<Tone, number> = {
-	error: 4,
-	busy: 3,
-	warning: 2,
-	neutral: 1,
-	good: 0,
-};
+import {
+	changeList,
+	localTime,
+	mostSevere,
+	type StatusLine,
+	shortOid,
+	withTime,
+} from '@epicenter/svelte/status-line';
 
 /**
  * Saves: every edit is saved as it is made. A save that failed keeps the
@@ -76,7 +60,7 @@ export function changesLine(git: GitSnapshot): StatusLine {
 				? { label: 'Checking…', tone: 'busy' }
 				: { label: 'Not checked yet', tone: 'neutral' };
 	const count = files.value.changes.length;
-	const last = `Last check at ${at(files.checkedAt)}: ${changesLabel(count).toLowerCase()}`;
+	const last = `Last check at ${localTime(files.checkedAt)}: ${changesLabel(count).toLowerCase()}`;
 	if (files.error)
 		return {
 			label: 'Check failed',
@@ -91,18 +75,15 @@ export function changesLine(git: GitSnapshot): StatusLine {
 					detail: last,
 					tone: 'neutral',
 				};
-	const changes = files.value.changes
-		.slice(0, 8)
-		.map(
-			(change) =>
-				`${change.kind === 'add' ? 'new' : change.kind === 'delete' ? 'deleted' : 'modified'} ${change.path}`,
-		);
-	return {
-		label: changesLabel(count),
-		detail:
-			[...changes, `Checked at ${at(files.checkedAt)}`].join('\n') || undefined,
-		tone: count === 0 ? 'good' : 'neutral',
-	};
+	return withTime(
+		{
+			label: changesLabel(count),
+			detail: changeList(files.value.changes).join('\n') || undefined,
+			tone: count === 0 ? 'good' : 'neutral',
+		},
+		'Checked',
+		files.checkedAt,
+	);
 }
 
 /** One Save version outcome, as the header and its toast say it. */
@@ -111,12 +92,12 @@ export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 		case 'committed':
 			return outcome.indexWarning
 				? {
-						label: `Saved version ${short(outcome.oid)} · index not updated`,
+						label: `Saved version ${shortOid(outcome.oid)} · index not updated`,
 						detail: `${outcome.message}\nIndex not updated: ${outcome.indexWarning}`,
 						tone: 'warning',
 					}
 				: {
-						label: `Saved version ${short(outcome.oid)}`,
+						label: `Saved version ${shortOid(outcome.oid)}`,
 						detail: outcome.message,
 						tone: 'good',
 					};
@@ -167,9 +148,7 @@ export function historyLine(git: GitSnapshot): StatusLine {
 	const last = git.lastCommit;
 	if (last === undefined)
 		return { label: 'No version saved this session', tone: 'neutral' };
-	const line = commitOutcomeLine(last);
-	const when = `Last attempt at ${at(last.at)}`;
-	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
+	return withTime(commitOutcomeLine(last), 'Last attempt', last.at);
 }
 
 /**
@@ -182,14 +161,12 @@ export function summaryLine(lines: {
 	changes: StatusLine;
 	history: StatusLine;
 }): StatusLine {
-	let chosen: StatusLine | undefined;
-	for (const line of [lines.saves, lines.changes, lines.history])
-		if (
-			line.tone !== 'neutral' &&
-			(chosen === undefined || SEVERITY[line.tone] > SEVERITY[chosen.tone])
-		)
-			chosen = line;
-	if (chosen === undefined || chosen.tone === 'good')
+	const chosen = mostSevere([lines.saves, lines.changes, lines.history]);
+	if (
+		chosen === undefined ||
+		chosen.tone === 'good' ||
+		chosen.tone === 'neutral'
+	)
 		return { label: 'Saved', tone: 'good' };
 	return chosen;
 }

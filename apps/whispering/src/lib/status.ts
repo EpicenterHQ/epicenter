@@ -8,41 +8,14 @@
  * screen.
  */
 import type { CommitOutcome, GitSnapshot } from '@epicenter/folder';
-
-export type Tone = 'neutral' | 'busy' | 'good' | 'warning' | 'error';
-export type StatusLine = {
-	readonly label: string;
-	/** A compact label for narrow windows, when `label` is long. */
-	readonly short?: string;
-	readonly detail?: string;
-	readonly tone: Tone;
-};
-
-const short = (oid: string | undefined) => oid?.slice(0, 7) ?? 'none';
-
-function at(time: number) {
-	const date = new Date(time);
-	return date.toDateString() === new Date().toDateString()
-		? date.toLocaleTimeString()
-		: date.toLocaleString();
-}
-
-const SEVERITY: Record<Tone, number> = {
-	error: 4,
-	busy: 3,
-	warning: 2,
-	neutral: 1,
-	good: 0,
-};
-
-function withTime(
-	line: StatusLine,
-	event: 'Checked' | 'Last attempt',
-	time: number,
-): StatusLine {
-	const when = `${event} at ${at(time)}`;
-	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
-}
+import {
+	changeList,
+	localTime,
+	mostSevere,
+	type StatusLine,
+	shortOid,
+	withTime,
+} from '@epicenter/svelte/status-line';
 
 /** What is saved to files: edits being written or kept after a failed write, and answers whose write failed. */
 export function filesLine(state: {
@@ -102,7 +75,7 @@ export function uncommittedLine(git: GitSnapshot): StatusLine {
 						tone: 'neutral',
 					};
 	const count = files.value.changes.length;
-	const last = `Last check at ${at(files.checkedAt)}: ${changesLabel(count).toLowerCase()}`;
+	const last = `Last check at ${localTime(files.checkedAt)}: ${changesLabel(count).toLowerCase()}`;
 	if (files.error)
 		return {
 			label: 'Check failed',
@@ -118,17 +91,11 @@ export function uncommittedLine(git: GitSnapshot): StatusLine {
 					detail: `Files changed after the last check. ${last}`,
 					tone: 'neutral',
 				};
-	const changes = files.value.changes
-		.slice(0, 8)
-		.map(
-			(change) =>
-				`${change.kind === 'add' ? 'new' : change.kind === 'delete' ? 'deleted' : 'modified'} ${change.path}`,
-		);
 	return withTime(
 		{
 			label: changesLabel(count),
 			short: count === 0 ? undefined : `${count} changed`,
-			detail: changes.join('\n') || undefined,
+			detail: changeList(files.value.changes).join('\n') || undefined,
 			tone: count === 0 ? 'good' : 'neutral',
 		},
 		'Checked',
@@ -142,13 +109,13 @@ export function commitOutcomeLine(outcome: CommitOutcome): StatusLine {
 		case 'committed':
 			return outcome.indexWarning
 				? {
-						label: `Committed ${short(outcome.oid)} · index not updated`,
+						label: `Committed ${shortOid(outcome.oid)} · index not updated`,
 						short: 'Index issue',
 						detail: `${outcome.message}\nIndex not updated: ${outcome.indexWarning}`,
 						tone: 'warning',
 					}
 				: {
-						label: `Committed ${short(outcome.oid)}`,
+						label: `Committed ${shortOid(outcome.oid)}`,
 						detail: outcome.message,
 						tone: 'good',
 					};
@@ -213,7 +180,7 @@ export function headLine(git: GitSnapshot): StatusLine {
 		files.value.head === undefined
 			? { label: 'No commits yet', tone: 'neutral' }
 			: {
-					label: `${git.branch} at ${short(files.value.head)}`,
+					label: `${git.branch} at ${shortOid(files.value.head)}`,
 					tone: 'neutral',
 				};
 	if (!files.stale && !files.error) return line;
@@ -242,18 +209,12 @@ export function summaryLine(lines: {
 		return lines.files;
 	const needsAttention = (line: StatusLine) =>
 		line.tone !== 'neutral' && line.tone !== 'good';
-	let chosen: StatusLine | undefined;
-	for (const line of [
+	const chosen = mostSevere([
 		lines.files,
 		needsAttention(lines.commit) ? lines.commit : undefined,
 		// How many files changed since the last version is detail, not news.
 		needsAttention(lines.uncommitted) ? lines.uncommitted : undefined,
-	])
-		if (
-			line &&
-			(chosen === undefined || SEVERITY[line.tone] > SEVERITY[chosen.tone])
-		)
-			chosen = line;
+	]);
 	if (chosen === undefined || chosen.tone === 'good')
 		return { label: 'Saved', tone: 'good' };
 	if (chosen === lines.commit)
