@@ -27,7 +27,7 @@
  *   on transcripts are listed apart; a malformed `text_runs/` file never holds
  *   up a recording's deletion; a failed listing is reported, not shown empty
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

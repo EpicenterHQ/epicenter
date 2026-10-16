@@ -16,7 +16,7 @@
  *   Save version and editing go ahead, and the next Sync finishes it: the
  *   remote's content lands and the cache shows it
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

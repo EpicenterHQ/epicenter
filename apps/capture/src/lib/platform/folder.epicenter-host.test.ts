@@ -26,7 +26,7 @@
  * - `packages/folder/src/tauri-directory.test.ts` for the granted opener
  * - `packages/folder/src/directory-folder.test.ts` for the directory engine
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';

@@ -16,7 +16,7 @@
  *
  * The review's Cancel lives in the page; `TodosView.mounted.test.ts` covers it.
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

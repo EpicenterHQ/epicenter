@@ -36,7 +36,7 @@
  * - Closing stops input and actions, waits for every save and action, a
  *   whole folder delete included, and every call shares it
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { type Row, rowStemOf } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';

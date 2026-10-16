@@ -26,7 +26,7 @@
  * - A read that lands while an edit is held does not replace the typing,
  *   and the save merges the change it brought
  */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { toggleMark } from 'prosemirror-commands';
 import {

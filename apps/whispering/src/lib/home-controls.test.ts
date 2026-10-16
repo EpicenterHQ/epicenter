@@ -23,7 +23,7 @@
  * - A key saved by an earlier build moves only into the connections chosen,
  *   at the base URL each form shows
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';

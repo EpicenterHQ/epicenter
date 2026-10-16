@@ -32,7 +32,7 @@
  *   request and one result, while another pair and a later run stay separate;
  *   a row run again twice at once is sent once
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { chmodSync } from 'node:fs';

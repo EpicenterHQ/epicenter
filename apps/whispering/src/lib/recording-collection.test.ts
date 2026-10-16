@@ -30,7 +30,7 @@
  * - Once the session is closing, nothing new is opened, and a recording still
  *   waiting its turn to be transcribed is not sent
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

@@ -3,7 +3,7 @@
  * that names a recording's file, and the transcription request.
  */
 import { expectOk } from 'wellcrafted/testing';
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import {
 	audioMimeTypeOf,

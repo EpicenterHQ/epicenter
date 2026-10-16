@@ -8,8 +8,8 @@
  * observed as the timeline observes it, and records every write that failed
  * and every save that replaced a change made elsewhere.
  *
- * Import a runes-module loader first (`svelte-modules.test-support.js` or
- * `svelte-dom.test-support.js`); this module loads `captures.svelte.ts`.
+ * Import a runes-module loader first (`packages/svelte/src/svelte-modules.test-support.js`
+ * or `svelte-dom.test-support.js`); this module loads `captures.svelte.ts`.
  */
 import { captureDefinition } from '@epicenter/capture';
 import { openFolder } from '@epicenter/folder/browser';

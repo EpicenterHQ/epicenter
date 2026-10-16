@@ -1,23 +1,7 @@
 /**
- * Compiles `.svelte.ts` runes modules for Bun tests the way the Svelte Vite
- * plugin does. Import this first, then load runes modules with a dynamic
- * `import()` so the plugin is registered before they are loaded.
+ * Forwards to the shared runes-module loader for the tests under `workspace/`
+ * and `microphone-input.test.ts`, which still import it from here. Other tests
+ * import `packages/svelte/src/svelte-modules.test-support.js` directly; delete
+ * this file once those last importers do too.
  */
-import { compileModule } from 'svelte/compiler';
-
-Bun.plugin({
-	name: 'svelte-runes-module',
-	setup(build) {
-		build.onLoad({ filter: /\.svelte\.[jt]s$/ }, async ({ path }) => {
-			const typescript = await Bun.file(path).text();
-			const javascript = new Bun.Transpiler({ loader: 'ts' }).transformSync(
-				typescript,
-			);
-			const compiled = compileModule(javascript, {
-				filename: path,
-				generate: 'client',
-			});
-			return { contents: compiled.js.code, loader: 'js' };
-		});
-	},
-});
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';

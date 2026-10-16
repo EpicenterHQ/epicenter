@@ -30,7 +30,7 @@
  *   keep their names
  * - Closing waits for admitted commands
  */
-import './svelte-modules.test-support.js';
+import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import {
