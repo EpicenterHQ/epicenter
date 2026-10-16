@@ -42,7 +42,7 @@ test('a save with no change since ends the draft; one with typing since continue
 	const written = file('b', 'ONE\n');
 	await draft.saved(
 		sent,
-		writtenFile({ stored: written, merged: false, replaced: [] }),
+		writtenFile({ stored: written, merged: false }),
 	);
 	expect(draft.base).toBe(written);
 	expect(draft.text).toBe('ONE\ntwo\n');
@@ -53,7 +53,6 @@ test('a save with no change since ends the draft; one with typing since continue
 		writtenFile({
 			stored: file('c', again.content),
 			merged: false,
-			replaced: [],
 		}),
 	);
 	expect(draft.text).toBeUndefined();
@@ -71,7 +70,7 @@ test('after a merged save, text typed since is carried onto the version written'
 	const written = file('c', 'ONE\nTWO\n');
 	await draft.saved(
 		sent,
-		writtenFile({ stored: written, merged: true, replaced: [] }),
+		writtenFile({ stored: written, merged: true }),
 	);
 	expect(draft.base).toBe(written);
 	expect(draft.text).toBe('ONE\nTWO\nthree\n');
@@ -95,7 +94,7 @@ test("a row's body drafts the same way, reading the body the save wrote", async 
 	const written = row('b', 'Theirs', 'ONE\nTWO\n');
 	await draft.saved(
 		sent,
-		writtenBody({ stored: written, merged: true, replaced: [] }),
+		writtenBody({ stored: written, merged: true }),
 	);
 	expect(draft.base).toBe(written);
 	expect(draft.text).toBe('ONE\nTWO\nthree\n');

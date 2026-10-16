@@ -58,7 +58,7 @@ import {
 } from './paths.js';
 import { parseRow, type Row, wellFormed, writeRow } from './row-text.js';
 import {
-	type Replaced,
+	logOverwrite,
 	type SaveOptions,
 	saveFile,
 	WRITE_ATTEMPTS,
@@ -113,8 +113,16 @@ export type SavedRow<TFields> = {
 	 * was merged with their change before it was written.
 	 */
 	readonly merged: boolean;
-	/** What of theirs the edit replaced; empty when nothing competed. */
-	readonly replaced: readonly Replaced[];
+};
+
+/** How `setBody` treats a body another writer changed since `base`. */
+export type SetBodyOptions = {
+	/**
+	 * `true` writes only while the body is still `base.row.body`, and answers
+	 * `Conflict` when it changed; a change to the fields does not block it.
+	 * Defaults to merging.
+	 */
+	readonly ifUnchanged?: boolean;
 };
 
 export type FileTable<TFields> = {
@@ -175,7 +183,7 @@ export type FileTable<TFields> = {
 	 * the write, the attempt is `Conflict` and the next one starts from their
 	 * row, so their fields stay and the update wins only the fields it
 	 * names. After `WRITE_ATTEMPTS` conflicts it is `KeptChanging`. An
-	 * update replaces nothing it did not name, so `replaced` is empty.
+	 * update replaces nothing it did not name.
 	 *
 	 * `unset` names optional fields only; `null` may be a field's real value.
 	 * `NotFound` when no file is at the stem (an update never creates a row),
@@ -192,10 +200,12 @@ export type FileTable<TFields> = {
 	 * every byte before its body exactly: frontmatter, keys the table does not
 	 * declare, comments, and line endings. When the body changed since `base`,
 	 * `text` is merged with it by line from `base.row.body`, `text` winning
-	 * only lines both changed, and each region it won is in `replaced`. The
-	 * new body has `\n` line endings and well-formed text, and is written
-	 * guarded by what the attempt read; another writer in between starts the
-	 * next attempt. After `WRITE_ATTEMPTS` it is `KeptChanging`.
+	 * lines both changed; each overwrite is logged, not returned. With
+	 * `{ ifUnchanged: true }` a changed body is `Conflict` instead, whatever
+	 * happened to the fields. The new body has `\n` line endings and
+	 * well-formed text, and is written guarded by what the attempt read;
+	 * another writer in between starts the next attempt. After
+	 * `WRITE_ATTEMPTS` it is `KeptChanging`.
 	 *
 	 * Writes nothing when the body would not change. `NotFound` when the file
 	 * is gone (a body is never written to a new file), and `InvalidRow` or
@@ -205,6 +215,7 @@ export type FileTable<TFields> = {
 	setBody(
 		base: StoredRow<TFields>,
 		text: string,
+		options?: SetBodyOptions,
 	): Promise<Result<SavedRow<TFields>, TableSetBodyError>>;
 	/**
 	 * Move the captured row file to a vacant stem, guarded by its bytes. The
@@ -403,7 +414,6 @@ export function createTable<TFields>(
 				Object.freeze({
 					stored: stored.data,
 					merged: written.merged,
-					replaced: written.replaced,
 				}),
 			);
 		},
@@ -433,7 +443,7 @@ export function createTable<TFields>(
 				attempts: WRITE_ATTEMPTS,
 			});
 		},
-		async setBody(base, text) {
+		async setBody(base, text, { ifUnchanged = false } = {}) {
 			const { data: captured, error: captureError } = ownRowCapture(base);
 			if (captureError !== null) return Err(captureError);
 			const { path } = captured;
@@ -454,9 +464,15 @@ export function createTable<TFields>(
 						text: current.text,
 						issues: [{ message: 'The file has no closed frontmatter' }],
 					});
-				let body = typed;
-				let replaced: readonly Replaced[] = Object.freeze([]);
 				const merged = current.row.body !== baseBody;
+				if (merged && ifUnchanged)
+					return FileError.Conflict({
+						path,
+						expectedSha256: base.sha256,
+						actualSha256: current.sha256,
+					});
+				let body = typed;
+				let overwrote: Parameters<typeof logOverwrite>[1] = [];
 				if (merged) {
 					const merge = await mergeLines({
 						base: baseBody,
@@ -465,20 +481,19 @@ export function createTable<TFields>(
 					});
 					body = merge.ours;
 					if (merge.regions.length > 0)
-						replaced = Object.freeze([
-							Object.freeze({
+						overwrote = [
+							{
 								kind: 'text',
 								part: 'body',
-								kept: merge.ours,
+								base: baseBody,
+								ours: merge.ours,
 								theirs: merge.theirs,
-								regions: Object.freeze(
-									merge.regions.map((region) => Object.freeze(region)),
-								),
-							}),
-						]);
+								regions: merge.regions,
+							},
+						];
 				}
 				if (body === current.row.body)
-					return Ok(Object.freeze({ stored: current, merged, replaced }));
+					return Ok(Object.freeze({ stored: current, merged }));
 				const head = current.text.slice(0, frame.bodyStart);
 				const nextText = `${head}${head.endsWith('\n') ? '' : frame.newline}${body}`;
 				const { bytes, text: written } = submittedText(nextText);
@@ -489,7 +504,8 @@ export function createTable<TFields>(
 					fileCapture(path, current.sha256),
 					bytes,
 				);
-				if (saveError === null)
+				if (saveError === null) {
+					logOverwrite(path, overwrote);
 					return Ok(
 						Object.freeze({
 							stored: Object.freeze({
@@ -499,9 +515,9 @@ export function createTable<TFields>(
 								row: row as Row<TFields>,
 							}),
 							merged,
-							replaced,
 						}),
 					);
+				}
 				if (saveError.name !== 'Conflict') return Err(saveError);
 			}
 			return TableError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });

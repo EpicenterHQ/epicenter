@@ -153,8 +153,6 @@ export {
 	wellFormed,
 } from './row-text.js';
 export {
-	type Replaced,
-	restoreTheirs,
 	type SavedFile,
 	type SaveOptions,
 	WRITE_ATTEMPTS,
@@ -163,6 +161,7 @@ export type {
 	FileTable,
 	RowUpdate,
 	SavedRow,
+	SetBodyOptions,
 	StoredRow,
 	TableListing,
 } from './table.js';

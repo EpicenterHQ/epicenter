@@ -53,27 +53,6 @@ Show it in place of the page while the attempt waits, keyed on
 each shows beside its row until the person changes that row's choice. The
 sides read "This device" and "Remote".
 
-### `ReplacedNotice` (`@epicenter/svelte/replaced-notice`)
-
-The one notice for a save that replaced another writer's change (ADR-0551).
-It names each value in `saved.replaced`: a field or setting with what was
-kept and what was theirs, each competing span of text by its lines, or the
-whole file. **Restore theirs** calls `onRestore`, which the app runs as one
-more save of `restoreTheirs(saved)` from `@epicenter/folder`; **Dismiss**
-calls `onDismiss`. Render it inline, or show it in the app's `Toaster` until
-it is dismissed with `toastReplaced`:
-
-```ts
-import { restoreTheirs } from '@epicenter/folder';
-import { toastReplaced } from '@epicenter/svelte/replaced-notice';
-
-void toastReplaced({
-	replaced: saved.replaced,
-	subject: saved.stored.path,
-	restore: () => void save.mutateAsync(restoreTheirs(saved)),
-});
-```
-
 ### Running a sync from a page
 
 A page runs `folder.sync` as two of its own mutations; this package keeps no

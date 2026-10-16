@@ -229,14 +229,14 @@ describe('browser folder tables', () => {
 		expect(expectOk(await folder.tables.todos.get('odd'))).toEqual(fixed);
 		// The capture names bytes that are gone, and its text is not a row, so
 		// a second save from it merges by line: the edit wins where both
-		// changed the same lines, and says what it replaced.
+		// changed the same lines.
 		const again = expectOk(
 			await folder.tables.todos.save(odd, {
 				fields: { title: 'Again', done: false },
 				body: '',
 			}),
 		);
-		expect(again.replaced).toMatchObject([{ kind: 'text', part: 'file' }]);
+		expect(again.merged).toBe(true);
 		expect(again.stored.row).toEqual({
 			fields: { title: 'Again', done: false },
 			body: '',

@@ -31,7 +31,7 @@
  * - `row-text.test.ts` for parsing, formatting, and issue locations
  * - `native.test.ts` for the same table over a real directory
  */
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { rawBrowserFolder } from './browser-storage.test-support.js';
@@ -350,7 +350,7 @@ test('save against bytes that changed merges with them, keeping what only they c
 	const edited = structuredClone(stored.row);
 	edited.fields.done = true;
 	const saved = expectOk(await s.table.save(stored, edited));
-	expect(saved).toMatchObject({ merged: true, replaced: [] });
+	expect(saved.merged).toBe(true);
 	expect<unknown>(expectOk(await s.table.get('a'))?.row).toEqual({
 		fields: { title: 'Newer', done: true, tags: [] },
 		body: '',
@@ -456,7 +456,7 @@ test('delete removes the captured row, a listed or invalid one included', async 
 	expect(expectOk(await s.table.list())).toEqual([]);
 });
 
-test('a save that races a competing write merges over it once, and says what it replaced', async () => {
+test('a save that races a competing write merges over it once, and the edit wins', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
@@ -467,16 +467,12 @@ test('a save that races a competing write merges over it once, and says what it 
 	s.resetCounts();
 	const saved = expectOk(await s.table.save(stored, todo('Mine')));
 	expect(s.counts().applications).toBe(2);
-	expect(saved.replaced).toContainEqual({
-		kind: 'field',
-		field: 'title',
-		kept: 'Mine',
-		theirs: 'Newer',
-	});
+	expect(saved.merged).toBe(true);
 	expect(saved.stored.row.fields.title).toBe('Mine');
+	expect(expectOk(await s.table.get('a'))?.row.fields.title).toBe('Mine');
 });
 
-test("every merge round starts from the edit's own base, so a save names what the last round replaced", async () => {
+test("every merge round starts from the edit's own base, so a save logs what the last round overwrote", async () => {
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
@@ -486,11 +482,24 @@ test("every merge round starts from the edit's own base, so a save names what th
 		if (writes === 2) return s.beforeApply(undefined);
 		await s.put('todos/a.md', NEWER.replace('Newer', `Newer ${writes++}`));
 	});
-	const saved = expectOk(await s.table.save(stored, todo('Mine')));
-	expect(saved.replaced).toEqual([
-		{ kind: 'field', field: 'title', kept: 'Mine', theirs: 'Newer 1' },
-	]);
-	expect(saved.stored.row.fields.title).toBe('Mine');
+	const logged = spyOn(console, 'info').mockImplementation(() => {});
+	try {
+		const saved = expectOk(await s.table.save(stored, todo('Mine')));
+		expect(saved.stored.row.fields.title).toBe('Mine');
+		// One line for the save that landed, naming the last round's units.
+		expect(logged.mock.calls).toEqual([
+			[
+				'[folder/save]',
+				"Saved over another writer's change to todos/a.md",
+				{
+					path: 'todos/a.md',
+					units: [{ kind: 'field', field: 'title' }],
+				},
+			],
+		]);
+	} finally {
+		logged.mockRestore();
+	}
 });
 
 test('a row that keeps changing gives up after the bounded merges, writing nothing of its own', async () => {
@@ -546,7 +555,7 @@ test('setBody keeps every byte before the body and writes the body with line fee
 	await s.put('todos/a.md', STYLED);
 	const stored = await s.row('a');
 	const saved = expectOk(await s.table.setBody(stored, 'One\nTwo\nThree\n'));
-	expect(saved).toMatchObject({ merged: false, replaced: [] });
+	expect(saved.merged).toBe(false);
 	const head = STYLED.slice(0, STYLED.indexOf('---\r\n', 4) + 5);
 	expect(await s.stored('todos/a.md')).toBe(`${head}One\nTwo\nThree\n`);
 	expect(saved.stored.row.body).toBe('One\nTwo\nThree\n');
@@ -559,23 +568,69 @@ test('setBody keeps fields another writer changed and merges the body by line', 
 	const stored = await s.row('a');
 	await s.put('todos/a.md', '---\ntitle: Renamed\ndone: true\ntags: []\n---\none\ntwo\nthree\nfour\n');
 	const saved = expectOk(await s.table.setBody(stored, 'ONE\ntwo\nthree\n'));
-	expect(saved).toMatchObject({ merged: true, replaced: [] });
+	expect(saved.merged).toBe(true);
 	expect<unknown>(expectOk(await s.table.get('a'))?.row).toEqual({
 		fields: { title: 'Renamed', done: true, tags: [] },
 		body: 'ONE\ntwo\nthree\nfour\n',
 	});
 });
 
-test('setBody wins lines both changed and names them in replaced', async () => {
+test('setBody wins lines both changed', async () => {
 	const s = await setup();
 	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\n');
 	const stored = await s.row('a');
 	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\ntheirs\n');
 	const saved = expectOk(await s.table.setBody(stored, 'mine\n'));
-	expect(saved.stored.row.body).toBe('mine\n');
-	expect(saved.replaced).toMatchObject([
-		{ kind: 'text', part: 'body', kept: 'mine\n', theirs: 'theirs\n' },
-	]);
+	expect(saved).toMatchObject({ merged: true, stored: { row: { body: 'mine\n' } } });
+	expect(await s.stored('todos/a.md')).toBe(
+		'---\ntitle: A\ndone: false\ntags: []\n---\nmine\n',
+	);
+});
+
+test('setBody with ifUnchanged refuses a body another writer changed, writing nothing', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\n');
+	const stored = await s.row('a');
+	const theirs = '---\ntitle: A\ndone: false\ntags: []\n---\ntheirs\n';
+	await s.put('todos/a.md', theirs);
+	s.resetCounts();
+	const refused = expectErr(
+		await s.table.setBody(stored, 'mine\n', { ifUnchanged: true }),
+	);
+	expect(refused).toMatchObject({
+		name: 'Conflict',
+		path: 'todos/a.md',
+		expectedSha256: stored.sha256,
+		actualSha256: await hashBytes(encoder.encode(theirs)),
+	});
+	expect(s.counts().applications).toBe(0);
+	expect(await s.stored('todos/a.md')).toBe(theirs);
+});
+
+test('setBody with ifUnchanged writes over a change to the fields alone, keeping it', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', '---\ntitle: A\ndone: false\ntags: []\n---\none\n');
+	const stored = await s.row('a');
+	await s.put('todos/a.md', '---\ntitle: Renamed\ndone: true\ntags: []\n---\none\n');
+	const saved = expectOk(
+		await s.table.setBody(stored, 'mine\n', { ifUnchanged: true }),
+	);
+	expect(saved.merged).toBe(false);
+	expect(await s.stored('todos/a.md')).toBe(
+		'---\ntitle: Renamed\ndone: true\ntags: []\n---\nmine\n',
+	);
+});
+
+test('setBody with ifUnchanged writes as usual over an unchanged file', async () => {
+	const s = await setup();
+	await s.put('todos/a.md', STYLED);
+	const stored = await s.row('a');
+	const saved = expectOk(
+		await s.table.setBody(stored, 'One\nTwo\nThree\n', { ifUnchanged: true }),
+	);
+	expect(saved.merged).toBe(false);
+	const head = STYLED.slice(0, STYLED.indexOf('---\r\n', 4) + 5);
+	expect(await s.stored('todos/a.md')).toBe(`${head}One\nTwo\nThree\n`);
 });
 
 test('setBody writes nothing when the body would not change', async () => {

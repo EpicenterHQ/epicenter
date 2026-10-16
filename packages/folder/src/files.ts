@@ -129,7 +129,6 @@ export function createFiles({
 						bytes: written.bytes,
 					}),
 					merged: written.merged,
-					replaced: written.replaced,
 				}),
 			);
 		},

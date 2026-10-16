@@ -9,8 +9,6 @@
  * - A component re-reads the draft's text on each change
  * - Text typed while a save runs is sent next, from the version it wrote
  * - A failed save keeps the draft, and the next save sends it again
- * - `restore` sends theirs back through the same save, heard like any save;
- *   a body's restore sends the body with theirs
  * - A body editor shows the file's body until something is typed, sends the
  *   text typed with the row it started from, and shows the file again once
  *   its save lands with nothing typed since
@@ -23,8 +21,9 @@ import type { SavedFile } from '../save-file.js';
 import type { SavedRow, StoredRow } from '../table.js';
 
 const { flushSync } = await import('svelte');
-const { createBodyDraftState, createBodyEditor, createTextDraftState } =
-	await import('./draft.svelte.js');
+const { createBodyEditor, createTextDraftState } = await import(
+	'./draft.svelte.js'
+);
 const { track } = await import('./fixtures/track.svelte.js');
 
 const file = (sha: string, text: string): CapturedFile =>
@@ -37,7 +36,6 @@ const file = (sha: string, text: string): CapturedFile =>
 const landed = (stored: CapturedFile): SavedFile => ({
 	stored,
 	merged: false,
-	replaced: [],
 });
 
 /** A save whose results the test hands out, one call at a time. */
@@ -72,11 +70,7 @@ test("a component re-reads the draft's text on each change", () => {
 
 test('text typed while a save runs is sent next, from the version it wrote', async () => {
 	const { calls, save } = heldSaves<SaveTextVariables, SavedFile>();
-	const heard: SavedFile[] = [];
-	const draft = createTextDraftState({
-		save,
-		onSaved: (saved) => heard.push(saved),
-	});
+	const draft = createTextDraftState({ save });
 	const first = file('a', 'one\n');
 
 	await draft.save();
@@ -102,7 +96,7 @@ test('text typed while a save runs is sent next, from the version it wrote', asy
 	await done;
 	expect(draft.saving).toBe(false);
 	expect(draft.text).toBeUndefined();
-	expect(heard.map((saved) => saved.stored)).toEqual([written, last]);
+	expect(draft.base).toBeUndefined();
 });
 
 test('a failed save keeps the draft, and the next save sends it again', async () => {
@@ -123,50 +117,6 @@ test('a failed save keeps the draft, and the next save sends it again', async ()
 	calls[1]?.land(landed(file('b', 'mine\n')));
 	await retry;
 	expect(draft.text).toBeUndefined();
-});
-
-test("a body's restore sends the body with theirs back through the same save, heard like any save", async () => {
-	type Note = { title: string };
-	const row = (sha: string, body: string): StoredRow<Note> =>
-		Object.freeze({
-			path: 'notes/a.md',
-			sha256: sha.repeat(64),
-			text: `---\ntitle: One\n---\n${body}`,
-			row: { fields: { title: 'One' }, body },
-		});
-	const { calls, save } = heldSaves<
-		{ base: StoredRow<Note>; content: string },
-		SavedRow<Note>
-	>();
-	const heard: { saved: SavedRow<Note>; restore: () => void }[] = [];
-	const draft = createBodyDraftState<Note>({
-		save,
-		onSaved: (saved, restore) => heard.push({ saved, restore }),
-	});
-	draft.change(row('a', 'one\n'), 'mine\n');
-	const done = draft.save();
-	const written = row('b', 'mine\n');
-	calls[0]?.land({
-		stored: written,
-		merged: true,
-		replaced: [
-			{
-				kind: 'text',
-				part: 'body',
-				kept: 'mine\n',
-				theirs: 'theirs\n',
-				regions: [],
-			},
-		],
-	});
-	await done;
-
-	heard[0]?.restore();
-	expect(calls[1]?.sent).toEqual({ base: written, content: 'theirs\n' });
-	const restored = row('c', 'theirs\n');
-	calls[1]?.land({ stored: restored, merged: false, replaced: [] });
-	await Bun.sleep(0);
-	expect(heard.map(({ saved }) => saved.stored)).toEqual([written, restored]);
 });
 
 test('a body editor sends the text typed with the row it started from', async () => {
@@ -197,7 +147,7 @@ test('a body editor sends the text typed with the row it started from', async ()
 	const done = body.save();
 	expect(calls[0]?.sent).toEqual({ base: started, text: 'mine\n' });
 	const written = row('c', 'Renamed', 'mine\n');
-	calls[0]?.land({ stored: written, merged: true, replaced: [] });
+	calls[0]?.land({ stored: written, merged: true });
 	await done;
 	cached = written;
 

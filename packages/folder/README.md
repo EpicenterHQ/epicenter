@@ -28,7 +28,6 @@ else {
   const edited = { ...created.row, fields: { ...created.row.fields, done: true } };
   const { data: saved, error: saveError } = await folder.tables.todos.save(created, edited);
   if (saveError !== null) show(saveError.message);     // deleted, invalid, or kept changing
-  else if (saved.replaced.length > 0) say(saved.replaced); // another writer's change it replaced
 }
 await folder.close();                                  // closed either way
 ```
@@ -649,7 +648,6 @@ const { data: file, error: readError } = await folder.files.read('notes/a.md');
 if (readError !== null) return show(readError.message);             // file is { path, sha256, bytes }
 const { data: saved, error: saveError } = await folder.files.save(file, 'new text');
 if (saveError !== null) return show(saveError.message);             // deleted, or kept changing
-if (saved.replaced.length > 0) say(saved.replaced);                 // another writer's lines it replaced
 const { data: moved, error: moveError } = await folder.files.move(saved.stored, 'notes/b.md');
 if (moveError !== null) return show(moveError.message);             // refused if either end changed
 const { error: removeError } = await folder.files.remove(moved);
@@ -883,7 +881,8 @@ it started from with a capture, `{ path, sha256 }`: a `StoredRow`, an
 
 ```ts
 const created = await todos.create({ fields, body: '' }, { stem: 'milk' }); // Exists if taken
-const saved = await todos.save(stored, edited); // { stored, merged, replaced }
+const saved = await todos.save(stored, edited); // { stored, merged }
+const body = await todos.setBody(stored, 'New notes\n'); // only the body, on the file as it is now
 const updated = await todos.update('milk', { set: { done: true } }); // over the row as it is now
 const moved = await todos.rename(stored, 'groceries'); // the capture at the new path
 await todos.delete(stored);
@@ -894,8 +893,16 @@ writes an edit of a row: one save over the row's kind (see
 [One save](#one-save)). A field only one side changed keeps that side's value;
 body lines only one side changed keep that side's lines, and edits to
 neighboring lines both stay. Where both changed one field, or the same body
-lines, the edit wins, and `replaced` names what of theirs it replaced. A
-merged row is written in the standard form.
+lines, the edit wins; nothing is returned to show a person, and the folder
+logs the overwrite (ADR-0575). A merged row is written in the standard form.
+
+`setBody(base, text, options?)` replaces only the body (ADR-0575): it reads
+the file as it is now, keeps every byte before its body, merges `text` by
+line from `base.row.body` with whatever changed since, the text winning
+lines both changed, and writes the body with `\n` line endings. With
+`{ ifUnchanged: true }` a body another writer changed is `Conflict`, and a
+change to the fields does not block it. A file with no closed frontmatter
+is `InvalidRow`, and a deleted file is `NotFound`.
 
 The merge base is the row the base's text holds, never its `row`, which is the
 caller's to edit. A base whose text is not a row, such as an `InvalidRow`
@@ -934,8 +941,7 @@ removes each field in `unset`, and saves that over what it read with the
 body unchanged and no merge. When another writer saved in between, the save
 is `Conflict`, and the update tries again from their row, up to
 `WRITE_ATTEMPTS` times, then answers `KeptChanging`. So every field it did
-not name keeps their value, and a field it set wins; `replaced` is always
-empty. `unset` takes only optional fields, since `null` may be a field's
+not name keeps their value, and a field it set wins. `unset` takes only optional fields, since `null` may be a field's
 real value. An update of a missing row is `NotFound`; a value a field does
 not admit is `InvalidValues`. A relative change (`count + 1`) is not an
 update: a script reads the row and `save`s it.
@@ -962,26 +968,23 @@ await draft.saved(sent, writtenFile(saved)); // done, or later typing continues 
 
 When the save merged another writer's lines, text typed while it ran is
 merged onto the written text, so the next save does not undo them. A row's
-body drafts the same way over a `StoredRow`, saved with `table.save` and
-read back with `writtenBody`.
+body drafts the same way over a `StoredRow`, written with `table.setBody`
+and read back with `writtenBody`.
 
-A Svelte component holds one with `createTextDraftState({ save, definition? })`
-or `createBodyDraftState({ save })` from `@epicenter/folder/svelte`: the same
+A Svelte component holds one with `createTextDraftState({ save })` or
+`createBodyDraftState({ save })` from `@epicenter/folder/svelte`: the same
 draft, read reactively, and a `save()` that runs one save at a time and
 sends text typed meanwhile from the version the last save wrote. A failed
-save keeps the draft; the error is the save mutation's. `onSaved(saved,
-restore)` hears each save that landed: `restore` is one more save of what
-`restoreTheirs(saved)` builds through the same `save`, for a notice's
-"Restore theirs", and its result is heard the same way. Restoring a file at
-a row path or `kv.json` needs the folder's `definition`.
+save keeps the draft; the error is the save mutation's. A control opens a
+row's body with `createBodyEditor({ row, save })`, which wraps the body
+draft over the row as the cache holds it and the table's `setBody`
+mutation.
 
 ```svelte
 <script lang="ts">
-  const save = createMutation(() => folder$.notes.save.mutationOptions());
+  const setBody = createMutation(() => folder$.notes.setBody.mutationOptions());
   const body = createBodyDraftState<Note>({
-    save: ({ base, content }) =>
-      save.mutateAsync({ base, row: { fields: base.row.fields, body: content } }),
-    onSaved: ({ replaced }, restore) => toastReplaced({ replaced, restore }),
+    save: ({ base, content }) => setBody.mutateAsync({ base, text: content }),
   });
   const note = createQuery(() => folder$.notes.get.queryOptions(stem));
   const send = useDebounce(() => body.save(), 1000);
@@ -1012,10 +1015,9 @@ Every write to an existing file is one save loop, `saveFile` (ADR-0551):
    `KeptChanging`. A reply lost as `Unconfirmed` is read back once: our bytes
    mean done.
 
-Every round merges from the edit's own base, so `replaced` names what the
-last round replaced. `{ merge: false }` stops at the first swap and answers
-`Conflict`: for a write that must land only over what it read, such as
-filling a body only while it is empty.
+Every round merges from the edit's own base. `{ merge: false }` stops at
+the first swap and answers `Conflict`: for a write that must land only over
+what it read.
 
 | Kind | Merges by | A competing unit |
 | --- | --- | --- |
@@ -1028,22 +1030,9 @@ A row or `kv.json` version that does not read as its kind merges as text. A
 saved JSON, YAML, or CSV file merges by line, so the result may not parse. Sync
 merges with the same rules (see [Sync](#sync)).
 
-`replaced` names each value with its content, so theirs can be put back when
-their version exists nowhere else:
-
-- `{ kind: 'field', field, kept, theirs }` and `{ kind: 'setting', key, kept, theirs }`
-- `{ kind: 'text', part: 'body' | 'file', kept, theirs, regions }`: `theirs`
-  is the same merge with theirs winning every competing span, so it keeps the
-  edit's other lines, and each region names a span standing in `kept` from
-  its 0-based line
-- `{ kind: 'whole', theirs }`: their whole file, bytes included
-
-`restoreTheirs(saved)` is the one save that puts theirs back, over the
-version the save wrote: `{ base, row }` for a row save, `{ base, content }`
-for a file save. A file saved at a row path or `kv.json` is restored by field
-or key, which takes the folder's definition: `restoreTheirs(saved,
-folder.definition)`. `ReplacedNotice` in `@epicenter/svelte` is the one view
-of it.
+Where both sides changed one unit, the edit wins (ADR-0575). The save
+returns no record of it for a person; each overwrite that lands is logged
+through `wellcrafted/logger` (`folder/save`) with the units it replaced.
 
 ### Reading and saving kv.json
 

@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
+- **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing the "Restore theirs" notice: where a save meets another writer's change to the same unit, the saver wins and nothing is shown. That Save and Sync share one merge, and that Sync asks the person, remains.
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (`InvalidRow`, no partial row), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (a row merges by field and the body by line), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (`table.update`), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (`getFolder()`)
 - **Unbuilt:** retiring `table.save` and `folderOptions(folder).<table>.save`, whose remaining callers are `table.update`'s own write, `publish-definition.ts`, the Git lab (`apps/git/src/lib/workspace.svelte.ts`), `apps/todos/scripts/native.ts`, the folder package's evidence apps, and its tests; Whispering's library drafts, held in its store rather than a view, still call `createBodyDraftState` directly over `setBody`.
 
@@ -46,7 +47,7 @@ given the row as the cache holds it and the table's `setBody` mutation:
 
 ```ts
 const setBody = createMutation(() => folder.books.setBody.mutationOptions());
-const body = createBodyEditor({ row: () => book.data ?? undefined, save: (v) => setBody.mutateAsync(v), onSaved });
+const body = createBodyEditor({ row: () => book.data ?? undefined, save: (v) => setBody.mutateAsync(v) });
 body.text      // the text typed, or the body as the file holds it
 body.typed     // the text typed and not yet in the file
 body.change(t) // the first change takes the row as the cache holds it as the base
@@ -69,14 +70,26 @@ frontmatter, keys the table does not declare, comments, quoting, and line
 endings. A file whose frontmatter is `\r\n` and whose new body is `\n`
 therefore has mixed line endings, which is accepted. When the body changed
 since `base`, the text is merged with it by line from `base.row.body`, the
-text winning only lines both changed, and each region it won is in the
-result's `replaced`. The new body is written with `\n` line endings and
+text winning only lines both changed. With `{ ifUnchanged: true }` a body
+another writer changed is `Conflict` instead, and nothing is written; a
+change to the fields does not block it. This is how a writer that must only
+fill an empty body, such as Whispering's answers, stops when someone filled
+it first. The new body is written with `\n` line endings and
 well-formed text (ADR-0572), guarded by what the attempt read; another writer
 in between starts the next attempt, and after `WRITE_ATTEMPTS` it is
 `KeptChanging`. A file with missing or unclosed frontmatter, or one that is
 `InvalidRow` or `InvalidUtf8`, is refused, and a deleted file is `NotFound`:
 a body is never written to a new file. A body that would not change writes
 nothing. A failed save keeps the draft.
+
+**Where a save meets another writer's change to the same unit, the saver
+wins, and nothing is shown.** This holds for a body region, a field, and a
+setting alike. The save returns no list of what it replaced and there is no
+"Restore theirs": `Replaced`, `restoreTheirs`, `SavedRow.replaced`,
+`SavedFile.replaced`, the drafts' `onSaved`, and `ReplacedNotice` are
+deleted. The engine logs each overwrite that lands through
+`wellcrafted/logger` (`folder/save`) with the units it replaced. Sync is
+unchanged: competing units still wait for the person's choice.
 
 **`table.update` never carries a body, and no control saves a whole row.**
 Replacing a body on the file as it is now is the write this record exists to
@@ -90,6 +103,8 @@ fields and the body as one unit.
   judgment about the control: a key is patched, the body is opened.
 - A body edit no longer rewrites the frontmatter. A hand-written file keeps
   its comments and quoting until a field is changed.
+- An overlap lost to the saver is gone unless a version holds it (ADR-0529).
+  Nobody is asked, and the log is the only record.
 - The hand-wired body editors become one `createBodyEditor` call each, and
   both kinds of control bind with a plain `bind:` getter and setter.
 - A long text kept in frontmatter is a value: the saver wins over it whole.
