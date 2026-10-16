@@ -4,10 +4,11 @@
  *
  * The page never holds a token (ADR-0549's desktop row). It learns who is
  * signed in from `auth_status`, sends its one account request,
- * `POST /api/git/connect`, through `account_send` with the `git` resource,
- * where the CLI adds the token, and sends the person to Settings with
- * `open_home` to sign in. The shell grants these three commands to Todos'
- * windows by app id (`installed-todos-*`).
+ * `GET /api/repos`, through `account_send` with the `git` resource, where the
+ * CLI adds the token, and sends the person to Settings with `open_home` to
+ * sign in. The shell grants these three commands to Todos' windows by app id
+ * (`installed-todos-*`). Git itself runs in `epicenter sync`, which signs in
+ * with the same grant.
  */
 
 import {
@@ -126,3 +127,10 @@ if (import.meta.hot) {
 	import.meta.hot.dispose(() => auth?.[Symbol.dispose]());
 	import.meta.hot.accept(() => import.meta.hot?.invalidate());
 }
+
+/**
+ * Whether the page itself reaches Epicenter's Git origin with its account.
+ * The browser does; the desktop window does not, and `epicenter sync` makes
+ * the repository there.
+ */
+export const pageReachesGit = false;

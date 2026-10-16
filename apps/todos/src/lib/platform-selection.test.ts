@@ -113,7 +113,7 @@ describe('#platform/folder', () => {
 			for (const module of [
 				'platform/auth.epicenter-host.ts',
 				'auth/src/desktop-account-auth.ts',
-				'src/lib/git-access.ts',
+				'src/lib/remote.ts',
 			])
 				expect(modules.some((path) => path.endsWith(module))).toBe(true);
 			expect(
@@ -165,7 +165,7 @@ describe('#platform/folder', () => {
 			for (const module of [
 				'platform/auth.browser.ts',
 				'auth/src/browser-oauth.ts',
-				'src/lib/git-access.ts',
+				'src/lib/remote.ts',
 			])
 				expect(modules.some((path) => path.endsWith(module))).toBe(true);
 			expect(

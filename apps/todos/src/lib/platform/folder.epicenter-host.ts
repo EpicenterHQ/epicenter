@@ -14,16 +14,14 @@
  *
  * The shell chooses, locks, and grants the directory; the page opens it with
  * the folder's file storage and the system `git`, and reads the author and
- * remote from Git's configuration. A push or fetch to Epicenter's server, or
- * to a remote with a pasted token, signs in with what `gitAccess` gives;
- * any other uses the person's own Git credentials. Imports acquire nothing,
- * and a folder that cannot be opened is a refusal; browser storage is not
+ * remote from Git's configuration. Pushes and fetches sign in through the
+ * `epicenter` command, which holds the desktop grant and the person's Git
+ * credential helper. Imports acquire nothing, and a folder that cannot be opened is a refusal; browser storage is not
  * opened.
  */
 import { openDataFolder, openFolder } from '@epicenter/folder/tauri';
 import { Err, Ok } from 'wellcrafted/result';
 import { todosDefinition } from '../definition.js';
-import { gitAccess } from '../remote.js';
 import { type OpenTodosFolder, TODOS_FOLDER_ID } from './types.js';
 
 /** The scope the shell handed this window as `?folder=`, if any. */
@@ -48,7 +46,6 @@ export const openTodosFolder: OpenTodosFolder = async () => {
 		const { data: folder, error } = await openFolder({
 			id,
 			definition: todosDefinition,
-			credentials: gitAccess.credentials,
 		});
 		if (error !== null) return Err(error);
 		return Ok({ folder, own: true });
@@ -56,7 +53,6 @@ export const openTodosFolder: OpenTodosFolder = async () => {
 	const { data: folder, error } = await openDataFolder({
 		id,
 		lens: todosDefinition,
-		credentials: gitAccess.credentials,
 	});
 	if (error === null) return Ok({ folder, own: false });
 	if (error.name !== 'ShapeMismatch') return Err(error);

@@ -29,7 +29,7 @@
 		versionOutcomeLine,
 	} from '$lib/status.js';
 	import { describeError } from '$lib/describe-error.js';
-	import { gitAccess } from '$lib/remote.js';
+	import { isEpicenter } from '$lib/remote.js';
 	import type { TodosError } from '$lib/session.js';
 	import type { ConnectTo } from '$lib/sync.js';
 	import { getTodos } from '$lib/todos.svelte.js';
@@ -151,13 +151,13 @@
 			: connected === undefined ? 'Choose where your todos sync' : `Syncs with ${connected.url}. Click to change.`}
 		aria-label={connected === undefined
 			? `Not connected${onconnect === undefined ? '' : '. Connect'}`
-			: `Syncs with ${remoteLabel(connected.url, gitAccess.isEpicenter)}${onconnect === undefined ? '' : '. Change remote'}`}
+			: `Syncs with ${remoteLabel(connected.url, isEpicenter)}${onconnect === undefined ? '' : '. Change remote'}`}
 		disabled={busy || onconnect === undefined}
 		data-testid="remote"
 		onclick={onconnect}
 	>
 		{#if connected === undefined}<LinkIcon />{:else}<FolderGitIcon />{/if}
-		<span class="truncate max-sm:sr-only">{connected === undefined ? 'Not connected' : remoteLabel(connected.url, gitAccess.isEpicenter)}</span>
+		<span class="truncate max-sm:sr-only">{connected === undefined ? 'Not connected' : remoteLabel(connected.url, isEpicenter)}</span>
 	</Button>
 
 	<Popover.Root>

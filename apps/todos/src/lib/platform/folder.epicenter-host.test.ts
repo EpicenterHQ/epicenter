@@ -58,7 +58,6 @@ mock.module('@epicenter/folder/tauri', () => ({
 		});
 	},
 }));
-mock.module('../remote.js', () => ({ gitAccess: { credentials: undefined } }));
 
 const { openTodosFolder } = await import('./folder.epicenter-host.js');
 

@@ -16,7 +16,7 @@
 	import { Err, Ok } from 'wellcrafted/result';
 	import type { TodosError } from '$lib/session.js';
 	import { remoteLabel, syncOutcomeLine } from '$lib/status.js';
-	import { gitAccess } from '$lib/remote.js';
+	import { isEpicenter } from '$lib/remote.js';
 	import type { ConnectTo } from '$lib/sync.js';
 	import { getTodos } from '$lib/todos.svelte.js';
 	import SyncChoices from './SyncChoices.svelte';
@@ -67,12 +67,12 @@
 			<Dialog.Description>
 				{current === undefined
 					? 'Choose where your todos sync. They stay Markdown files, here and there.'
-					: `Your todos sync with ${remoteLabel(current.url, gitAccess.isEpicenter)}. Choose another remote to sync with it instead.`}
+					: `Your todos sync with ${remoteLabel(current.url, isEpicenter)}. Choose another remote to sync with it instead.`}
 			</Dialog.Description>
 		</Dialog.Header>
 		{#if unrelated !== undefined}
 			<Alert variant="warning" data-testid="connect-unrelated">
-				<AlertTitle>{remoteLabel(unrelated, gitAccess.isEpicenter)} already has todos of its own</AlertTitle>
+				<AlertTitle>{remoteLabel(unrelated, isEpicenter)} already has todos of its own</AlertTitle>
 				<AlertDescription>
 					Its history and this folder's are separate. Combining keeps both; where the same todo differs, you choose.
 					Nothing has changed yet.

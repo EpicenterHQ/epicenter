@@ -4,4 +4,4 @@
  */
 export { auth } from '#platform/auth';
 export { openTodosFolder } from '#platform/folder';
-export { gitAccess } from './remote.js';
+export { connectEpicenter, httpFetch } from './remote.js';
