@@ -58,7 +58,13 @@ import type {
 	WriteError,
 	WrittenRow,
 } from '@epicenter/folder';
-import { FileError, parseRow, rowPath, rowStemOf } from '@epicenter/folder';
+import {
+	FileError,
+	isStoredRow,
+	parseRow,
+	rowPath,
+	rowStemOf,
+} from '@epicenter/folder';
 import {
 	ancestorsOf,
 	dirname,
@@ -1583,7 +1589,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				});
 				if (error !== null) return describeError(error);
 				// A new stem holds no other file, so the write leaves this row.
-				if (created === null) return undefined;
+				if (!isStoredRow(created)) return undefined;
 				const stem = rowStemOf(TRANSFORMATIONS, created.path);
 				if (stem !== undefined)
 					queryClient.setQueryData<TableListing<TransformationFields>>(
