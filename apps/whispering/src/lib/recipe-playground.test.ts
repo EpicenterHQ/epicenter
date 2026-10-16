@@ -41,7 +41,6 @@ import {
 } from './definition.js';
 import { settle, transformationEditor } from './edits.test-support.js';
 import type { Library } from './library.svelte.js';
-import { resolvePostProcessing } from './post-processing.js';
 import { createQueryClient } from './query.test-support.js';
 import { resolveRecipe } from './recipe.js';
 import { TransformationError } from './transformation.js';
@@ -53,7 +52,7 @@ import {
 	type TestWorkspaceOptions,
 } from './workspace.test-support.js';
 
-const { createLibrary } = await import('./library.svelte.ts');
+const { createSession } = await import('./session.svelte.ts');
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -71,13 +70,13 @@ type Hooks = {
 	>;
 };
 
-/** A library over a test workspace whose `text_runs/` listings run `hooks` first. */
+/** A session over a test workspace whose `text_runs/` listings run `hooks` first. */
 async function open(options: TestWorkspaceOptions = {}) {
 	const test = await openTestWorkspace(options);
 	const hooks: Hooks = {};
 	const { tables } = test.workspace.folder;
 	const textRuns = tables.text_runs;
-	const library = createLibrary(
+	const session = await createSession(
 		{
 			...test.workspace,
 			folder: {
@@ -96,11 +95,10 @@ async function open(options: TestWorkspaceOptions = {}) {
 		createQueryClient(),
 	);
 	cleanups.push(async () => {
-		await library.close();
+		await session.close();
 		await test.remove();
 	});
-	await library.start();
-	return { library, hooks, ...test };
+	return { session, library: session.library, hooks, ...test };
 }
 
 const names = (root: string, directory: string) =>
@@ -239,7 +237,7 @@ test('the resolver uses the text connection, lets a recipe name its model, and t
 });
 
 test('the Run check, the post-processing choice, the menu, and the run agree about every recipe', async () => {
-	const { library, root, transformed } = await open();
+	const { session, library, root, transformed } = await open();
 	const { transcript } = await transcribed(library);
 	const fresh = await recipe(library);
 	const matching = await earlierRecipe(root, 'matching', {
@@ -258,11 +256,8 @@ test('the Run check, the post-processing choice, the menu, and the run agree abo
 		// The draft on the recipe's page is read by the same resolver.
 		await library.open(path);
 		const shown = library.resolve(transformationEditor(library).draft);
-		const chosen = resolvePostProcessing(
-			path,
-			library.transformations,
-			library.resolve,
-		);
+		session.view.postProcessing = path;
+		const chosen = session.postProcessing;
 		const before = transformed.length;
 		const problem = await library.transform(transcript.path, path);
 

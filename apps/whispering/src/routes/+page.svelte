@@ -8,7 +8,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { audioPathIn } from '$lib/definition.js';
-	import { resolvePostProcessing, transformationName } from '$lib/post-processing.js';
+	import { transformationName } from '$lib/post-processing.js';
 	import { getSession } from '$lib/session.svelte.js';
 	import AudioPlayer from './components/AudioPlayer.svelte';
 	import { confirmDelete, copyText, formatTime, openItem, recordingTitle } from './components/file-actions.js';
@@ -16,7 +16,8 @@
 	import ResultStatus from './components/ResultStatus.svelte';
 	import TransformationOutput from './components/TransformationOutput.svelte';
 
-	const { library, view } = getSession();
+	const session = getSession();
+	const { library, view } = session;
 
 	/** The newest saved recording. A capture still being saved is in the notice under the header. */
 	const latest = $derived(library.entries[0]);
@@ -29,7 +30,7 @@
 	const model = $derived(library.connections?.transcription?.model);
 
 	/** The transformation chosen beside the recorder, as the folder and the text connection have it now. */
-	const postProcessing = $derived(resolvePostProcessing(view.postProcessing, library.transformations, library.resolve));
+	const postProcessing = $derived(session.postProcessing);
 	/** Whether a transformation of the newest transcript is under way. Its result shows below once its file is written. */
 	const postRunning = $derived(
 		transcript !== undefined && library.recipeRuns.some((item) => item.transcriptionId === transcript.stem),
