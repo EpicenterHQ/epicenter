@@ -11,10 +11,6 @@
  *   - A domain package that owns its protocol and so owns its routes, as
  *     api-routes.ts itself prescribes: packages/blobs/src/hosted-url.ts
  *     declares the Personal blob addresses its server and clients share.
- *   - Vendored mirrors that intentionally re-declare these paths to avoid a
- *     runtime dependency on @epicenter/constants (apps/epicenter/src/routes.ts,
- *     whose /api/session is the shell's own loopback contract, not the cloud
- *     session endpoint).
  *   - *.test.ts / *.test.tsx (mock URL matchers may reference paths verbatim).
  *   - JSDoc/comment lines (descriptive prose, not constructions).
  *
@@ -48,7 +44,7 @@ const HARDCODED_PATH = /['"`]\/api\/(session|rooms|blobs|ai)([^a-z]|$)/;
 // The next two regexes test the full `path:line:content` record, exactly as
 // the workflow's `grep -v` filters did.
 const ALLOWED_RECORD =
-	/packages\/constants\/src\/api-routes\.ts|packages\/blobs\/src\/hosted-url\.ts|apps\/epicenter\/src\/routes\.ts/;
+	/packages\/constants\/src\/api-routes\.ts|packages\/blobs\/src\/hosted-url\.ts/;
 const COMMENT_RECORD = /^[^:]+:[0-9]+:[ \t\v\f\r]*(\*|\/\/|\/\*)/;
 
 const isScannedFile = (name: string): boolean =>

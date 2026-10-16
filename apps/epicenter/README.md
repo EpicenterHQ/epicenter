@@ -3,60 +3,60 @@
 Epicenter is the repository's native application host. It owns one Tauri runtime, one native command API, and the short list of what it compiles in. Epicenter ships with no apps installed (ADR-0552): every app, Todos, Capture, Whispering, and Honeycrisp included, is a folder in a Git repository that Epicenter clones and builds on this machine (see [Installed apps](#installed-apps)).
 
 ```text
-trusted SPA source                 Epicenter build output
+page source                        build output            served at
 
-apps/epicenter/src/ui -----------> dist/home
-apps/epicenter/src/folders ------> dist/folders
-                                          |
-                                          v
-                              Bun loopback sidecar
-                                          |
-                                          v
-                              apps/epicenter/src-tauri
+apps/epicenter/src/ui -----------> dist/home ------------> epicenter-app://localhost/home/
+apps/epicenter/src/folders ------> dist/folders ---------> epicenter-app://localhost/folders/
+an installed app's folder -------> builds/<id>/<commit>/ -> epicenter-app://localhost/apps/<id>/
 ```
 
-The host serves Settings (the `home` document) and one compiled application,
-its own Folders window. Application routes live below `/apps/<id>/`. Apps a
-person installs from a Git repository are served below `/apps/<app-id>/` too.
-The `epicenter-host` build condition selects each product's host
+Rust serves every page Epicenter shows from one origin,
+`epicenter-app://localhost`, through a scheme the shell registers
+(`src-tauri/src/scheme.rs`, ADR-0561): Settings (the `home` window) at
+`/home/`, the Folders window at `/folders/`, and each installed app at
+`/apps/<app-id>/`. No server listens on a port and no Bun process outlives a
+command. The `epicenter-host` build condition selects each product's host
 integrations.
+
+The scheme answers GET only. It serves a regular file inside the page's
+directory or the app's current build, refusing a symbolic link and any path
+that leaves it, and answers an extensionless path that names no file with that
+directory's `index.html`, so client-side routes load. Every response carries
+one Content-Security-Policy: a page reaches its own origin and Tauri's IPC
+(`connect-src 'self' ipc: http://ipc.localhost`) and nothing else, and a
+document's policy admits each of its inline scripts by hash. Windows navigate
+only within the origin; a new-window link opens in the system browser only
+when it is the hosted account website.
 
 Installed apps reach native file folders through the shared Folder plugin.
 Each page runs `@epicenter/folder`'s own engine over a directory the shell
 grants (ADR-0531). An app that needs other native commands is granted them by
 its app id (see [Native commands for an installed app](#native-commands-for-an-installed-app)).
 
-The host serves product bundles and holds no credential: the `epicenter`
+The shell serves product bundles and holds no credential: the `epicenter`
 CLI holds the account and every key (ADR-0556). Product pages own unsaved
-input. The Bun sidecar serves product bundles without owning their row input.
+input.
 
 ## The epicenter binary
 
 Epicenter ships one compiled Bun binary (ADR-0556): the `epicenter` CLI from
-[`packages/cli`](../../packages/cli/README.md), with the Bun host as its hidden
-`__host` mode until the shell serves apps itself. `src/epicenter-binary.ts` is
-its entry, and `bun run build:sidecar` compiles it to
+[`packages/cli`](../../packages/cli/README.md). `bun run build:sidecar`
+compiles its entry, `packages/cli/src/bin.ts`, to
 `src-tauri/binaries/epicenter-cli-<target triple>`, the `externalBin`. The
 bundle calls it `epicenter-cli` because Tauri refuses a sidecar named like the
 Cargo package, `epicenter`; on `PATH` it is `epicenter`.
 
-The one binary has three uses:
+The one binary has these uses:
 
-- The shell starts the host as `epicenter-cli __host --runtime-mode=production`
-  (`host_command` in `src-tauri/src/lib.rs`). Development runs
-  `bun run src/epicenter-binary.ts __host --runtime-mode=development`.
 - `epicenter app …` installs and builds apps, running the same binary as
   `bun` with `BUN_BE_BUN=1` ([Installed apps](#installed-apps)).
 - The shell's narrow CLI runner (`src-tauri/src/cli.rs`) runs it for a page's
   fixed commands. A page has no generic exec: each command maps to one
   `epicenter` invocation, writes stdin on its own task, and streams each
-  stdout line to the page's `Channel`. `folder_check(scope, onLine)`, granted
-  to the Folders window alone, runs `epicenter check <root> --json` on a
-  folder that window was granted and answers `{ code, stderr }`, or
-  `NotGranted` with the grant error. The installed-app commands are below.
+  stdout line to the page's `Channel`. The installed-app commands are below.
   Development runs the CLI's source under `bun` instead of the binary.
 - Settings' Account section runs the CLI's desktop sign-in through three
-  fixed commands, granted to the `home` window by `home-account-*`
+  fixed commands, granted to the `home` window by `home.json`
   (ADR-0558). `auth_login(onEvent)` runs `epicenter auth login --desktop
   --json`: the CLI listens once on
   `http://127.0.0.1:<random port>/callback` and prints `{"open": "<url>"}`,
@@ -99,10 +99,9 @@ window opened first.
 
 A desktop build connects to one server. The default is Epicenter Cloud. Set
 `EPICENTER_SERVER_ORIGIN` when compiling the native host to build for a
-self-hosted HTTP(S) origin. Changing it requires rebuilding the host.
-Rust passes this descriptor to Bun and uses the same origin to validate native
-sign-in URLs. App windows receive the descriptor with their identity snapshot.
-Rust passes the same origin to the CLI it runs for sign-in and `send`.
+self-hosted HTTP(S) origin. Changing it requires rebuilding the app.
+Rust uses that origin to choose which account pages open in the system browser,
+and passes it to the CLI it runs for sign-in and `send`.
 Settings lets people sign in and out; it cannot change the server.
 
 Debug Cloud builds retain `EPICENTER_API_URL` for the local development API.
@@ -145,18 +144,19 @@ Files split by what they cost to lose (ADR-0539):
 ~/Library/Caches/so.epicenter/                disposable
   builds/<app-id>/<commit>/                   built app bundles
   builds/<app-id>/<commit>.log                what the install and build printed
-  builds/<app-id>/current                     the commit the host serves
+  builds/<app-id>/current                     the commit the shell serves
   apps.lock                                   one install or build at a time
 ```
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development starts signed out after
 credential isolation; production credentials are unchanged.
 
-Rust resolves the three directories once at startup, stores them for the
-desktop lifetime, and sends them through the versioned startup message. Bun
-consumes those paths. The recorder writes into a folder a window was granted,
-not into application data (`tauri-plugin-epicenter-recorder`, ADR-0543). Bun never derives a desktop root from its
-process environment. Native model settings retain Tauri's app-config location.
+Rust resolves the three directories once at startup and stores them for the
+desktop lifetime; the scheme serves installed apps from the cache directory,
+and every `epicenter` command the shell runs receives all three. The recorder
+writes into a folder a window was granted, not into application data
+(`tauri-plugin-epicenter-recorder`, ADR-0543). Native model settings retain
+Tauri's app-config location.
 Standalone Local Books still defaults to production data; use
 `EPICENTER_DATA_DIR` when directing its CLI to development storage.
 
@@ -169,13 +169,7 @@ already contains data, do not merge or overwrite the directories. Set
 `EPICENTER_DATA_DIR` to the full path of the directory you intend to use instead.
 The same override can keep an existing installation at its old location.
 
-### Start the host
-
-Use Bun 1.3.14 or newer (`bun --version`; update with `bun upgrade`).
-Bun 1.3.1 and 1.3.3 can close the native input stream during sign-in, leaving
-Settings disconnected and applications unable to open. The host rejects older
-runtimes before startup. Packaged builds embed Bun and must be rebuilt with
-the supported version.
+### Start the app
 
 Start Epicenter from the repository root:
 
@@ -183,7 +177,13 @@ Start Epicenter from the repository root:
 bun dev:epicenter
 ```
 
-This starts the local API on `http://localhost:8787` and the desktop host.
+This starts the local API on `http://localhost:8787` and the desktop app.
+Before the app starts, Tauri runs `bun run build:desktop`, which builds
+Settings and the Folders window into `dist/` and compiles the `epicenter`
+binary. A development build's scheme serves the pages from that `dist/`
+directly, so after changing a page, run `bun run --cwd apps/epicenter build`
+and reload its window (Cmd-R). There is no dev server and no hot reload: the
+scheme is the one way a page is served, in development as in a release.
 It requires the API's [local Postgres and Infisical setup](../api/README.md#development).
 Settings' Sign in is the CLI's desktop sign-in (`epicenter auth login
 --desktop`, client `so.epicenter`): finish it in your browser and Settings
@@ -196,7 +196,7 @@ An installed app uses the same account. Todos' desktop leaf
 `@epicenter/auth/desktop`) reads who is signed in with `auth_status`, sends
 `GET /api/repos` through `account_send` with the `git` resource, and
 sends the person to Settings with `open_home` to sign in; it signs out only
-from Settings. The host has no account routes and stamps nothing into a
+from Settings. The shell has no account routes and stamps nothing into a
 page.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
@@ -254,14 +254,14 @@ same directory. See Todos' [README](../todos/README.md) and Capture's
 
 ## The Folders window
 
-The Folders window (`folders`, served at `/apps/folders/`) opens any data
+The Folders window (`folders`, served at `/folders/`) opens any data
 folder under the authored folder root, including an installed app's own folder
 while the app is open. Its page source is `src/folders`, built by
-`build:folders` into `dist/folders` and served like any compiled application.
+`build:folders` into `dist/folders`.
 It is the window Epicenter opens to, and `epicenter://app/folders` opens it.
 
 The page asks the shell for `list_data_folders`, granted to this window alone
-(`folders-*` capabilities, beside `epicenter-folder:default`). The shell lists
+(`folders.json`, beside `epicenter-folder:default`). The shell lists
 the direct children of the root that are real directories, not links or dot
 entries, holding a regular file `epicenter.json`, and answers each with
 `{ id, title, declaration }`: `title` is `epicenter.json`'s `title` when it is
@@ -314,7 +314,7 @@ whose `epicenter.json` lacks a table or field the app reads, with a message
 naming the folder and what is missing. Opening it there hands
 the app that folder; the Apps list's Open hands it its own folder. Every button
 opens through `open_installed_app`, and the Settings button through
-`open_home`, both granted by the `folders-*` capabilities; model
+`open_home`, both granted by `folders.json`; model
 administration stays in Settings. An opened folder shows the tables its `epicenter.json` declares
 (`folder.definition.tables`). The selected table is a grid of its rows read
 with `table.list()`: one column per declared field, in declared order. A row's
@@ -457,57 +457,54 @@ running the command: in a release the bundled
 `bun` first on the build's `PATH`); in development the CLI's source runs under
 the `bun` on `PATH`.
 
-The Bun host serves an installed app's current build at `/apps/<app-id>/` on
-Epicenter's origin, behind the same session gate as a compiled app, with its document's inline scripts hashed into its own
-Content-Security-Policy. `open_installed_app` opens it in its own window,
-after the CLI builds the listed commit when it is not the current build,
-labelled `app:<id with _ for .>`, plus `:<folder scope in hex>` when it is
-opened on a folder; the `installed-app-windows-*` capability grants those
-windows `epicenter-folder:default` alone. Opened on a folder, the window is
-permitted into that folder's scope and the page gets `?folder=<scope>`, which
-the app opens with `openDataFolder({ id, lens })`. Opened with no folder, the
-app is handed its own folder, [`<app-id>`](#an-apps-own-folder).
+The scheme serves an installed app's current build, the commit
+`builds/<app-id>/current` names, at `epicenter-app://localhost/apps/<app-id>/`.
+`open_installed_app` opens it in its own window, after the CLI builds the
+listed commit when it is not the current build, labelled
+`app:<id with _ for .>`, plus `:<folder scope in hex>` when it is opened on a
+folder. Opened on a folder, the window is permitted into that folder's scope
+and the page gets `?folder=<scope>`, which the app opens with
+`openDataFolder({ id, lens })`. Opened with no folder, the app is handed its
+own folder, [`<app-id>`](#an-apps-own-folder). Every app's window is also
+permitted into `so.epicenter`, whose `connections` table its AI commands name.
 
 ### Native commands for an installed app
 
-Every installed app's window holds the folder plugin and nothing else, unless
-a capability names its app id. An app that needs more of Epicenter's native
-commands gets them from one capability per app id, in both build variants
-(`src-tauri/capabilities/installed-<name>-development.json` and
-`-production.json`):
+Every installed app's window gets the same grant, one capability file,
+`src-tauri/capabilities/installed-app.json` (ADR-0570):
 
-- Its `windows` are `app:<id with _ for .>` and `app:<id with _ for .>:*`.
-  Tauri matches each entry against a window's label as a glob
-  (`glob::Pattern`, in Tauri 2.12's `ipc::authority`), so the two select
-  exactly the labels `installed_window_label` makes for that id: the window
-  on its own folder and one on any other folder. An id holds no `_`, so no
-  other id's window matches, and no built-in window does.
-- Its `permissions` list the commands the app's page calls, by name, and
-  nothing it does not. Approving an app trusts its code fully (ADR-0540), so
-  this is wiring, not a sandbox: the list says what the app reaches, and a
-  test fails when a grant is added without one.
+- Its `windows` is `app:*`. Tauri matches it against a window's label as a
+  glob (`glob::Pattern`, in Tauri 2.12's `ipc::authority`), so it selects
+  every label `installed_window_label` makes, for any app id and folder, and
+  no window of Epicenter's own.
+- Its `permissions` are the union of what any installed app's page calls: the
+  folder plugin and its change event; the folder's history (`status`,
+  `history`, `save_version`, `sync`, `settle_sync`); the recorder plugin,
+  which writes into the folder the window was granted (ADR-0543);
+  `list_inference_models`, `transcribe_audio_bytes`, and
+  `get_local_transcription_readiness`, for transcription with the one active
+  local model (ADR-0180); `open_home`, to open Settings; `ai_send`,
+  `ai_key_set`, `ai_key_remove`, and `ai_key_state`, for AI connections
+  (ADR-0557); and `auth_status` and `account_send`, for who Epicenter is
+  signed in as and an account request such as Todos' `GET /api/repos`
+  (ADR-0558).
+- Approving an app trusts its code fully (ADR-0540), so this is wiring, not a
+  sandbox, and a per-app grant would protect nothing. A native feature an app
+  may use is one line in that file, and it reaches every app.
 - Native state an app owns, such as an overlay window or global shortcuts, is
   created when the app's window opens, never at startup.
 
-Two apps have one:
-
-- Whispering (`so.epicenter.whispering`, `installed-whispering-*`): the
-  recorder plugin, which writes into the folder the window was granted
-  (ADR-0543); `list_inference_models`, `transcribe_audio_bytes`, and
-  `get_local_transcription_readiness`, for transcription with the one active
-  local model (ADR-0180); `open_home`, to open Settings where that model is
-  chosen; and `ai_send`, `ai_key_set`, `ai_key_remove`, and `ai_key_state`,
-  for its AI connections (ADR-0557).
-- Todos (`so.epicenter.todos`, `installed-todos-*`): `auth_status`, to know
-  who Epicenter is signed in as; `account_send`, for its one account request,
-  `GET /api/repos` with the `git` resource; and `open_home`, to send
-  the person to Settings to sign in (ADR-0558).
+Each kind of window has one capability file, and every file is `"local": true`
+because its page is served on the scheme: `folders.json`, `home.json`, and
+`installed-app.json`. A development build selects the same three.
 
 Whispering's page has no recording overlay and registers no global shortcuts,
 so neither is created or granted.
 The shell's overlay panel (`src-tauri/src/overlay.rs`) and the dictation
-commands (global shortcuts, keyboard delivery, playback pause, accessibility,
-and autostart) are compiled but granted to no window. The shell registers the
+commands (keyboard delivery, the paste capability, playback pause,
+accessibility, and autostart) are compiled but granted to no window; ADR-0555
+wires them for push-to-talk. Global shortcuts come from the global-shortcut
+plugin, not a shell command. The shell registers the
 clipboard-manager, global-shortcut, opener, and autostart plugins and grants
 none of them to a page; the notification plugin is a dependency but stays
 unregistered until a capability grants it (ADR-0555).
@@ -525,24 +522,10 @@ not submit is lost, as people expect.
 - **Every quit is the same.** The tray's Quit calls `app.exit`. AppKit's own
   quits (the app menu's Quit and Cmd-Q, the Dock's Quit, logout, restart,
   shutdown) end Tao's loop directly. Either way Tauri delivers `RunEvent::Exit`,
-  where the Folder plugin fences new work and releases each folder's lock, and
-  `shutdown_host` closes Bun's stdin and gives it `SHUTDOWN_TIMEOUT` to stop.
+  where the Folder plugin fences new work and releases each folder's lock.
 - **An account change restarts nothing.** The account is the CLI's desktop
   grant (ADR-0556); a page that uses it reads it again when its window
-  regains focus. The private Bun pipe carries the boot frame and nothing
-  after it.
-- **A host restart reloads the windows.** When Bun stops, every window it
-  served is destroyed, because its initialization script carries that host's
-  token. The built-in windows a person could see are queued and created again
-  once the next host is ready, and each page reopens its folder. Installed
-  apps' windows stay closed; the person opens them again from the Apps list.
-  Destroying the last window does not quit Epicenter: an exit request with no
-  code is refused, and Epicenter stays in the tray meanwhile. The failure
-  dialog offers Retry, which starts the next host and opens those windows.
-  The recording overlay is an `NSPanel` that cannot be destroyed (destroying
-  it throws an AppKit exception that aborts the process), so a host restart
-  would hide it instead (`on_host_stop` in `src-tauri/src/lib.rs`); nothing
-  creates it today.
+  regains focus.
 - **Closing a window hides it.** The built-in windows are hidden, not
   destroyed, so their pages and folders stay open until Epicenter quits. An
   installed app's window is destroyed when it closes.
@@ -550,19 +533,19 @@ not submit is lost, as people expect.
 ## Build and verify
 
 ```bash
-# Build Settings, every compiled application, and the epicenter binary
+# Build Settings, the Folders window, and the epicenter binary
 bun run --cwd apps/epicenter build:desktop
 
 # Package the complete native application
 bun run --cwd apps/epicenter desktop:build
 
-# Typecheck the host, Settings, and the Folders window
+# Typecheck Settings, the Folders window, and the build scripts
 bun run --cwd apps/epicenter typecheck
 
-# Host, routing, sidecar, and window tests
+# Page builds, the epicenter binary, and window tests
 bun test apps/epicenter/scripts apps/epicenter/src
 
-# Native command and fixture tests
+# Native command, scheme, capability, and fixture tests
 cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml
 ```
 
@@ -571,18 +554,18 @@ Whispering and Honeycrisp, are checked in their own folders.
 
 ## Ownership rules
 
-- `src-tauri` owns native commands, permissions, windows, deep links, and packaging.
-- `src` owns the Bun host, built-in routes, static-asset containment, the Settings page, and the entry of the `epicenter` binary. The CLI's commands live in `packages/cli`.
+- `src-tauri` owns native commands, permissions, windows, deep links, the `epicenter-app` scheme that serves every page, and packaging.
+- `src` owns the Settings page and the Folders window's page. The CLI's commands live in `packages/cli`.
 - `dist` is generated. Never edit it or commit product source beneath it.
 - A product SPA owns its UI and browser deployment from its own app folder.
 - A multi-host SPA selects implementations through build-time `#platform/*` conditions. Runtime checks guard optional capabilities; they do not choose which implementation was bundled.
 - Do not create `apps/epicenter/<app>` source copies. The build must consume the canonical app source directly.
 
-The durable host and trust decision is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md).
+The one trusted origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), and Rust serving it over the scheme in [ADR-0561](../../docs/adr/0561-rust-serves-every-app-from-one-epicenter-app-origin.md).
 
 ## Shared AI connections
 
-The Bun host keeps no AI connections and serves no `/_epicenter/ai` routes.
+The shell keeps no AI connections and serves no `/_epicenter/ai` routes.
 [ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)
 makes each connection a row of a `connections` table in `so.epicenter`, keeps
 its key in this machine's keychain bound to the endpoint it was saved for, and

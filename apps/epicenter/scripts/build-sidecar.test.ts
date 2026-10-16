@@ -1,45 +1,13 @@
 /**
- * Epicenter Binary Packaging Tests
- *
- * Verifies the compiled `epicenter` binary's hidden host mode runs without a
- * system Bun on PATH, refuses a
- * production boot on any port but the fixed one, finds packaged Home and
- * Folders assets through the Rust-supplied resource path, and exits when the
- * parent pipe closes. Apps that are installed now, Todos and Whispering, are
- * not served from the package; native Folder commands belong to the Rust shell.
- *
- * The serving half boots in development mode on a port the OS hands out, not in
- * production mode on 39130. Binding the real production port made this test
- * fail whenever a developer had Epicenter open, reporting it as "compiled host
- * exited before readiness", and it bought nothing: the host binds whatever port
- * the boot frame names, so the number under test is the contract, not the
- * behaviour. The contract is asserted directly below instead.
+ * The compiled `epicenter` binary is the CLI (ADR-0556) and runs without a
+ * system Bun on `PATH`, and with `BUN_BE_BUN=1` it is `bun`, which
+ * `epicenter app` runs to install and build apps.
  */
 
 import { expect, test } from 'bun:test';
-import { mkdtempSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-	PRODUCTION_PORT,
-	type ReadyFrame,
-	SIDECAR_PROTOCOL_VERSION,
-} from '../src/sidecar-runtime.ts';
 
 const appDir = join(import.meta.dir, '..');
-
-/** A port the OS is willing to give us, released before the caller binds it. */
-function freePort(): number {
-	const probe = Bun.serve({
-		hostname: '127.0.0.1',
-		port: 0,
-		fetch: () => new Response(),
-	});
-	const { port } = probe;
-	probe.stop(true);
-	if (port === undefined) throw new Error('The OS handed out no port.');
-	return port;
-}
 
 async function hostTargetTriple(): Promise<string> {
 	const process = Bun.spawn(['rustc', '-vV'], { stdout: 'pipe' });
@@ -54,37 +22,20 @@ async function hostTargetTriple(): Promise<string> {
 	return host;
 }
 
-async function readReady(
-	stdout: ReadableStream<Uint8Array>,
-	stderr: ReadableStream<Uint8Array>,
-): Promise<ReadyFrame> {
-	const reader = stdout.getReader();
-	const decoder = new TextDecoder();
-	let buffer = '';
-	try {
-		while (true) {
-			const { value, done } = await reader.read();
-			if (value) buffer += decoder.decode(value, { stream: true });
-			const newline = buffer.indexOf('\n');
-			if (newline !== -1) {
-				return JSON.parse(buffer.slice(0, newline)) as ReadyFrame;
-			}
-			if (done) {
-				const detail = (await new Response(stderr).text()).trim();
-				throw new Error(
-					detail.length > 0
-						? `compiled host exited before readiness: ${detail}`
-						: 'compiled host exited before readiness',
-				);
-			}
-		}
-	} finally {
-		reader.releaseLock();
-	}
+async function run(
+	command: string[],
+	env: Record<string, string>,
+): Promise<{ code: number; stdout: string }> {
+	const process = Bun.spawn(command, { env, stdout: 'pipe', stderr: 'pipe' });
+	const [code, stdout] = await Promise.all([
+		process.exited,
+		new Response(process.stdout).text(),
+	]);
+	return { code, stdout };
 }
 
-test('compiled host refuses a mis-bound production boot, serves packaged apps, and exits on parent EOF', async () => {
-	const build = Bun.spawn(['bun', 'run', 'build:desktop'], {
+test('the compiled binary is the CLI, and bun with BUN_BE_BUN=1', async () => {
+	const build = Bun.spawn(['bun', 'run', 'build:sidecar'], {
 		cwd: appDir,
 		stdout: 'pipe',
 		stderr: 'pipe',
@@ -92,136 +43,18 @@ test('compiled host refuses a mis-bound production boot, serves packaged apps, a
 	if ((await build.exited) !== 0) {
 		throw new Error(await new Response(build.stderr).text());
 	}
-
-	const triple = await hostTargetTriple();
 	const binary = join(
 		appDir,
 		'src-tauri',
 		'binaries',
-		`epicenter-cli-${triple}`,
-	);
-	const dataDir = mkdtempSync(join(tmpdir(), 'epicenter-compiled-host-'));
-
-	// The production boot contract, proven against the compiled binary rather
-	// than only against `parseBootFrame`: production is pinned to one port, and
-	// a parent offering another gets a refusal instead of a stray listener.
-	const misbound = Bun.spawn([binary, '__host', '--runtime-mode=production'], {
-		env: { PATH: '' },
-		stdin: 'pipe',
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	misbound.stdin.write(
-		`${JSON.stringify({
-			type: 'boot',
-			protocolVersion: SIDECAR_PROTOCOL_VERSION,
-			token: 'compiled_test_token',
-			port: PRODUCTION_PORT + 1,
-			dataDir,
-			folderDir: join(dataDir, 'checkout'),
-			cacheDir: join(dataDir, 'cache'),
-		})}\n`,
-	);
-	await misbound.stdin.flush();
-	misbound.stdin.end();
-	expect(await misbound.exited).not.toBe(0);
-	expect(await new Response(misbound.stderr).text()).toContain(
-		`Production must bind port ${PRODUCTION_PORT}`,
+		`epicenter-cli-${await hostTargetTriple()}`,
 	);
 
-	// Still no system Bun on PATH: the one directory there holds only `git`,
-	// which the Todos folder needs for its history.
-	const git = Bun.which('git');
-	if (git === null) throw new Error('This test needs git on PATH.');
-	const gitOnly = mkdtempSync(join(tmpdir(), 'epicenter-git-only-'));
-	symlinkSync(git, join(gitOnly, 'git'));
+	const cli = await run([binary, '--version'], { PATH: '' });
+	expect(cli.code).toBe(0);
+	expect(cli.stdout).toStartWith('epicenter ');
 
-	const port = freePort();
-	const sidecar = Bun.spawn([binary, '__host', '--runtime-mode=development'], {
-		env: {
-			EPICENTER_APPS_DIST: join(appDir, 'dist'),
-			PATH: gitOnly,
-			GIT_CONFIG_GLOBAL: '/dev/null',
-			GIT_CONFIG_NOSYSTEM: '1',
-		},
-		stdin: 'pipe',
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	try {
-		sidecar.stdin.write(
-			`${JSON.stringify({
-				type: 'boot',
-				protocolVersion: SIDECAR_PROTOCOL_VERSION,
-				token: 'compiled_test_token',
-				port,
-				dataDir,
-				folderDir: join(dataDir, 'checkout'),
-				cacheDir: join(dataDir, 'cache'),
-			})}\n`,
-		);
-		await sidecar.stdin.flush();
-		expect(await readReady(sidecar.stdout, sidecar.stderr)).toEqual({
-			type: 'ready',
-			protocolVersion: SIDECAR_PROTOCOL_VERSION,
-			port,
-		});
-		const origin = `http://127.0.0.1:${port}`;
-		const bootstrap = await fetch(`${origin}/_epicenter/bootstrap`, {
-			method: 'POST',
-			headers: {
-				authorization: 'Bearer compiled_test_token',
-				origin,
-			},
-		});
-		expect(bootstrap.status).toBe(204);
-		const cookie = bootstrap.headers.get('set-cookie')?.split(';', 1)[0];
-		expect(cookie).toBeDefined();
-		const session = { headers: { cookie: cookie ?? '' } };
-
-		const home = await fetch(`${origin}/apps/home/`, session);
-		expect(home.status).toBe(200);
-		expect(await home.text()).toContain('<title>Settings</title>');
-		const folders = await fetch(`${origin}/apps/folders/`, session);
-		expect(folders.status).toBe(200);
-		const foldersPage = await folders.text();
-		expect(foldersPage).toContain('<title>Folders</title>');
-		const entryPath = foldersPage.match(
-			/\/apps\/folders\/assets\/[^" ]+\.js/,
-		)?.[0];
-		expect(entryPath).toBeDefined();
-		const entry = await fetch(`${origin}${entryPath ?? ''}`, session);
-		expect(entry.status).toBe(200);
-		expect(entry.headers.get('content-type')).toContain('text/javascript');
-		// Todos and Whispering are installed now, not compiled in (ADR-0552).
-		for (const id of ['todos', 'whispering']) {
-			const installed = await fetch(`${origin}/apps/${id}/`, session);
-			expect(installed.status).toBe(404);
-		}
-		const removedBridge = await fetch(`${origin}/_epicenter/todos/call`, {
-			method: 'POST',
-			headers: {
-				cookie: cookie ?? '',
-				origin,
-				'content-type': 'application/json',
-			},
-			body: JSON.stringify({ path: ['files', 'list'], args: [] }),
-		});
-		expect(removedBridge.status).toBe(404);
-		const todosDir = join(dataDir, 'checkout', 'so.epicenter.todos');
-		expect(await Bun.file(join(todosDir, '.git', 'HEAD')).exists()).toBe(false);
-
-		sidecar.stdin.end();
-		expect(await sidecar.exited).toBe(0);
-
-		const replacement = Bun.serve({
-			hostname: '127.0.0.1',
-			port,
-			fetch: () => new Response(),
-		});
-		expect(replacement.port).toBe(port);
-		await replacement.stop(true);
-	} finally {
-		sidecar.kill();
-	}
+	const bun = await run([binary, '--version'], { PATH: '', BUN_BE_BUN: '1' });
+	expect(bun.code).toBe(0);
+	expect(bun.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
 }, 120_000);

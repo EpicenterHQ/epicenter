@@ -1,4 +1,4 @@
-//! Paths selected once at desktop startup and shared with the Bun sidecar.
+//! Paths selected once at desktop startup and handed to the `epicenter` CLI.
 //!
 //! The running bundle identifier selects the native data directory, the cache
 //! directory, and a stable checkout folder name. Explicit overrides win before
@@ -13,12 +13,10 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 
-/// Immutable for the desktop lifetime, including sidecar restarts.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// Immutable for the desktop lifetime.
+#[derive(Debug)]
 pub struct DesktopPaths {
     pub data_dir: PathBuf,
     pub folder_dir: PathBuf,
@@ -58,8 +56,8 @@ impl DesktopPaths {
                     .context("resolve the cache directory")
             },
         )?;
-        // JSON paths must round-trip exactly through Bun; refuse unrepresentable
-        // paths before recorder cleanup or sidecar launch can touch any root.
+        // Paths must round-trip exactly through the CLI's environment; refuse
+        // unrepresentable ones before anything touches a root.
         for path in [&data_dir, &folder_dir, &cache_dir] {
             path.to_str()
                 .context("desktop directories must be valid UTF-8")?;

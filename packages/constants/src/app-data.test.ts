@@ -1,7 +1,7 @@
 /**
  * Standalone CLI production defaults and app-owned directory boundaries.
  * Tests cover platform variable selection, explicit overrides, and path escapes.
- * Desktop paths are selected natively and arrive through the sidecar boot frame.
+ * Desktop paths are selected natively and handed to the CLI by the shell.
  */
 
 import { expect, test } from 'bun:test';

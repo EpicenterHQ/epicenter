@@ -1,21 +1,18 @@
 #!/usr/bin/env bun
 /**
- * Remove generated trusted-SPA assets before composing a fresh desktop build.
- *
- * The list is derived, not written down twice. It was written down twice, and
- * drifted: it still named `query`, a directory no build has produced since Home
- * was renamed, and it never named `home`, so the one document the host serves
- * from its own build survived every clean.
+ * Remove the built pages before composing a fresh desktop build, so a page
+ * that no longer builds leaves nothing behind for the shell to serve. The
+ * committed `.gitkeep` stays: Tauri's build requires the bundled `dist`
+ * resource directory to exist.
  */
 
-import { rm } from 'node:fs/promises';
+import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { COMPILED_APPLICATIONS } from '../src/applications.ts';
 
 const dist = join(import.meta.dir, '..', 'dist');
-const generated = ['home', ...COMPILED_APPLICATIONS.map(({ id }) => id)];
+const entries = await readdir(dist).catch(() => []);
 await Promise.all(
-	generated.map((directory) =>
-		rm(join(dist, directory), { recursive: true, force: true }),
-	),
+	entries
+		.filter((entry) => entry !== '.gitkeep')
+		.map((entry) => rm(join(dist, entry), { recursive: true, force: true })),
 );

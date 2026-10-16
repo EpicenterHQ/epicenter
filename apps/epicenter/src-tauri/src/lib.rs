@@ -1,27 +1,14 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use serde::{Deserialize, Serialize};
 use tauri::webview::NewWindowResponse;
 use tauri::{
     AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent, Wry,
 };
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_dialog::{
-    DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
-};
-use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_epicenter_folder::FolderExt;
+use tauri_plugin_opener::OpenerExt;
 use tauri_specta::Event as _;
 
 /// The command list, shared with `build.rs` through `include!`. Only the tests
@@ -34,6 +21,7 @@ mod cli;
 mod data_folders;
 mod history;
 mod installed_apps;
+mod scheme;
 
 pub mod audio;
 
@@ -62,10 +50,7 @@ use media::{pause_playback, resume_playback};
 pub mod timing;
 
 mod shell;
-use shell::{
-    is_autostart_enabled, replace_global_shortcuts, set_autostart_enabled, GlobalShortcutRegistry,
-    GlobalShortcutTriggered,
-};
+use shell::{is_autostart_enabled, set_autostart_enabled};
 
 #[cfg(desktop)]
 pub mod keyboard;
@@ -76,19 +61,7 @@ pub mod overlay;
 #[cfg(target_os = "macos")]
 pub mod clipboard;
 
-#[cfg(any(not(debug_assertions), test))]
-const PRODUCTION_PORT: u16 = 39_130;
-#[cfg(any(debug_assertions, test))]
-const DEVELOPMENT_PORT: u16 = 39_131;
-const PROTOCOL_VERSION: u8 = 15;
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
-const READY_TIMEOUT: Duration = Duration::from_secs(15);
-/// How long Bun gets to shut down after its stdin closes before it is killed.
-///
-/// Longer than Bun's own ten-second shutdown grace (`SHUTDOWN_GRACE_MS` in
-/// `src/sidecar-runtime.ts`), so Bun's owners finish their disposal and Bun
-/// exits by itself. The kill is the bound for a host that hangs anyway.
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// Epicenter's own windows. Every app is installed and opened with
 /// `open_installed_app` (ADR-0552).
@@ -110,8 +83,8 @@ impl BuiltInApp {
 
     const fn path(self) -> &'static str {
         match self {
-            Self::Home => "/apps/home/",
-            Self::Folders => "/apps/folders/",
+            Self::Home => "/home/",
+            Self::Folders => "/folders/",
         }
     }
 
@@ -129,132 +102,23 @@ impl BuiltInApp {
 
 type DesktopAppHandle = AppHandle<Wry>;
 
-/// The largest line either side writes on the private pipe, newline
-/// included: the boot frame and the ready frame. Bun holds the same limit
-/// (`MAX_NATIVE_FRAME_BYTES`).
-const MAX_NATIVE_FRAME_BYTES: usize = 8 * 1024 * 1024;
+/// A section of Settings an application asked the shell to open, held until
+/// Settings is able to claim it. Only the latest survives: two recovery nudges
+/// in a row should land the user somewhere once, not queue a backlog.
+#[derive(Default)]
+struct PendingHomeSection(Mutex<Option<HomeSection>>);
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BootFrame<'a> {
-    r#type: &'static str,
-    protocol_version: u8,
-    token: &'a str,
-    port: u16,
-    #[serde(flatten)]
-    paths: &'a app_data::DesktopPaths,
-}
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ReadyFrame {
-    r#type: String,
-    protocol_version: u8,
-    port: u16,
-}
-
-struct ManagedChild {
-    generation: u64,
-    child: Child,
-    /// Held open as Bun's parent lifetime signal; dropping it asks Bun to stop.
-    stdin: Option<ChildStdin>,
-}
-
-struct HostState {
-    port: std::result::Result<u16, String>,
-    next_generation: AtomicU64,
-    process: Mutex<Option<ManagedChild>>,
-    /// The launch token of the Bun generation windows are opened for.
-    active_token: Mutex<Option<String>>,
-    pending_apps: Mutex<Vec<BuiltInApp>>,
-    /// A section of Home an application asked the shell to open, held until Home
-    /// is able to claim it. Only the latest survives: two recovery nudges in a
-    /// row should land the user somewhere once, not queue a backlog.
-    pending_home_section: Mutex<Option<HomeSection>>,
-    shutting_down: AtomicBool,
-    starting: AtomicBool,
-}
-
-impl HostState {
-    fn new(port: Result<u16>) -> Self {
-        Self {
-            port: port.map_err(|error| format!("{error:#}")),
-            next_generation: AtomicU64::new(1),
-            process: Mutex::new(None),
-            active_token: Mutex::new(None),
-            pending_apps: Mutex::new(Vec::new()),
-            pending_home_section: Mutex::new(None),
-            shutting_down: AtomicBool::new(false),
-            starting: AtomicBool::new(false),
-        }
+impl PendingHomeSection {
+    fn queue(&self, section: HomeSection) {
+        *self.0.lock().expect("pending home section lock poisoned") = Some(section);
     }
 
-    fn port(&self) -> Result<u16> {
-        self.port
-            .as_ref()
-            .copied()
-            .map_err(|error| anyhow!(error.clone()))
-    }
-
-    fn queue_app(&self, built_in: BuiltInApp) {
-        let mut pending = self.pending_apps.lock().expect("pending app lock poisoned");
-        if !pending.contains(&built_in) {
-            pending.push(built_in);
-        }
-    }
-
-    fn take_pending_apps(&self) -> Vec<BuiltInApp> {
-        std::mem::take(&mut *self.pending_apps.lock().expect("pending app lock poisoned"))
-    }
-
-    fn queue_home_section(&self, section: HomeSection) {
-        *self
-            .pending_home_section
-            .lock()
-            .expect("pending home section lock poisoned") = Some(section);
-    }
-
-    fn take_home_section(&self) -> Option<HomeSection> {
-        self.pending_home_section
+    fn take(&self) -> Option<HomeSection> {
+        self.0
             .lock()
             .expect("pending home section lock poisoned")
             .take()
     }
-
-    fn activate(&self, token: &str) {
-        *self.active_token.lock().expect("active host lock poisoned") = Some(token.to_string());
-    }
-
-    fn deactivate(&self) {
-        *self.active_token.lock().expect("active host lock poisoned") = None;
-    }
-
-    fn active_token(&self) -> Option<String> {
-        self.active_token
-            .lock()
-            .expect("active host lock poisoned")
-            .clone()
-    }
-
-    fn token_is_active(&self, token: &str) -> bool {
-        self.active_token
-            .lock()
-            .expect("active host lock poisoned")
-            .as_deref()
-            == Some(token)
-    }
-}
-
-struct LaunchedHost {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-    token: String,
-}
-
-enum FailureChoice {
-    Retry,
-    Quit,
 }
 
 /// The typed command and event contract every Epicenter window and Whispering
@@ -277,7 +141,6 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             open_home,
             take_pending_home_section,
             data_folders::list_data_folders,
-            cli::folder_check::<tauri::Wry>,
             cli::ai_send,
             cli::account_send,
             cli::ai_key_set,
@@ -308,13 +171,11 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             resume_playback,
             keyboard::commands::set_auto_paste_enabled,
             keyboard::commands::get_dictation_capability,
-            replace_global_shortcuts,
             is_autostart_enabled,
             set_autostart_enabled,
         ])
         .events(tauri_specta::collect_events![
             keyboard::DictationCapabilityEvent,
-            GlobalShortcutTriggered,
             HomeSectionPending,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
@@ -322,24 +183,61 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 
 #[cfg(test)]
 mod export_bindings {
-    /// Both consumers of this crate's typed command API are generated from
-    /// the one builder, so neither can drift from Rust.
+    use super::*;
+
+    /// Every consumer of this crate's typed command API is generated from
+    /// Rust, so none can drift from it.
     ///
-    /// Each file carries the whole API because `tauri_specta` exports a
-    /// builder, not a slice of one. What a window may actually call is decided
-    /// by its capability file, not by which bindings it can import: Home's
-    /// `home-model-administration-*` capability grants exactly the local-model
-    /// administration commands (ADR-0180), and every other command in Home's
-    /// copy is denied at the IPC boundary.
-    const TARGETS: &[&str] = &[
+    /// Settings and Whispering carry the whole API in one file each. What a
+    /// window may actually call is decided by its capability file, not by
+    /// which bindings it can import: only `home.json` grants the local-model
+    /// administration commands (ADR-0180), and a window whose file does not
+    /// grant a command is denied it at the IPC boundary.
+    const WHOLE_API: &[&str] = &[
         "../../whispering/src/lib/tauri/bindings.gen.ts",
         "../src/ui/bindings.gen.ts",
     ];
 
+    /// A package that calls a few of the shell's commands gets those alone,
+    /// generated from the same functions: `@epicenter/folder`'s desktop
+    /// history (`tauri-history.ts`) and Todos' account leaf.
+    fn subsets() -> [(&'static str, tauri_specta::Builder<Wry>); 2] {
+        let data_errors = |builder: tauri_specta::Builder<Wry>| {
+            builder.error_handling(tauri_specta::ErrorHandlingMode::DataError)
+        };
+        [
+            (
+                "../../../packages/folder/src/shell/bindings.gen.ts",
+                data_errors(tauri_specta::Builder::new().commands(
+                    tauri_specta::collect_commands![
+                        history::status::<Wry>,
+                        history::history::<Wry>,
+                        history::save_version::<Wry>,
+                        history::sync::<Wry>,
+                        history::settle_sync::<Wry>,
+                    ],
+                )),
+            ),
+            (
+                "../../todos/src/lib/tauri/bindings.gen.ts",
+                data_errors(
+                    tauri_specta::Builder::new().commands(tauri_specta::collect_commands![
+                        cli::auth_status,
+                        cli::account_send,
+                        open_home,
+                    ]),
+                ),
+            ),
+        ]
+    }
+
     #[test]
     fn export_types() {
-        for target in TARGETS {
-            super::make_specta_builder()
+        let whole = WHOLE_API
+            .iter()
+            .map(|target| (*target, make_specta_builder()));
+        for (target, builder) in whole.chain(subsets()) {
+            builder
                 .export(specta_typescript::Typescript::default(), target)
                 .unwrap_or_else(|error| panic!("failed to export bindings to {target}: {error}"));
         }
@@ -388,7 +286,7 @@ pub struct HomeSectionPending;
 #[specta::specta]
 fn open_home(section: Option<HomeSection>, app: DesktopAppHandle) {
     if let Some(section) = section {
-        app.state::<HostState>().queue_home_section(section);
+        app.state::<PendingHomeSection>().queue(section);
     }
     request_window(&app, BuiltInApp::Home);
     if section.is_some() {
@@ -402,16 +300,10 @@ fn open_home(section: Option<HomeSection>, app: DesktopAppHandle) {
 #[tauri::command]
 #[specta::specta]
 fn take_pending_home_section(app: DesktopAppHandle) -> Option<HomeSection> {
-    app.state::<HostState>().take_home_section()
+    app.state::<PendingHomeSection>().take()
 }
 
-/// The host restarted between a request and the main thread reaching it: every
-/// window from the old generation is being torn down, so opening one now would
-/// create a window against a dead token.
-const HOST_RESTARTED: &str = "the Epicenter host restarted before the window opened";
-
 pub fn run() {
-    let port = configured_port();
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
     let log_plugin = tauri_plugin_log::Builder::new()
@@ -442,20 +334,18 @@ pub fn run() {
         .plugin(log_plugin)
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
-        .manage(HostState::new(port))
+        .manage(PendingHomeSection::default())
         .manage(data_folders::DataFolderScopes::default())
         .manage(cli::CliChildren::default())
-        .manage(GlobalShortcutRegistry::default())
         .manage(DownloadManager::default());
 
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
 
-    builder
+    scheme::register(builder)
         // A page that reloads or navigates, and a closed window, end the
         // `epicenter` children that page started (ADR-0559).
         .on_page_load(|webview, payload| {
@@ -491,6 +381,11 @@ pub fn run() {
             // An installed app may read `so.epicenter` through a lens, so its
             // declaration is published before any app opens.
             app.manage(cli::spawn_epicenter_folder_declaration(&desktop_paths));
+            // Every window's page comes from the scheme, which reads these.
+            app.manage(scheme::Roots {
+                pages: scheme::pages_dir(app.handle())?,
+                builds: desktop_paths.builds_dir(),
+            });
             app.manage(desktop_paths);
 
             // The active local model and the unload policy are device-local host
@@ -507,7 +402,7 @@ pub fn run() {
             app.manage(cache);
 
             #[cfg(desktop)]
-            app.manage(keyboard::TapController::new(app.handle().clone()));
+            app.manage(keyboard::TapController::new());
 
             shell::create_tray(app.handle())?;
 
@@ -530,18 +425,14 @@ pub fn run() {
             if !opened_window {
                 request_window(app.handle(), BuiltInApp::Folders);
             }
-            request_start(app.handle().clone(), None);
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("failed to build Epicenter")
-        .run(|app, event| match event {
-            RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Folders),
-            // A host restart destroys every window; Epicenter stays in the
-            // tray while they come back (`refuses_exit`).
-            RunEvent::ExitRequested { api, code, .. } if refuses_exit(code) => api.prevent_exit(),
-            RunEvent::Exit => shutdown_host(app),
-            _ => {}
+        .run(|app, event| {
+            if let RunEvent::Reopen { .. } = event {
+                request_window(app, BuiltInApp::Folders);
+            }
         });
 }
 
@@ -580,37 +471,22 @@ fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
     }
 }
 
-/// Ask for a window without waiting: queue it when the host is not ready yet,
-/// and log rather than report what the main thread makes of it.
+/// Ask for a window without waiting, and log rather than report what the
+/// main thread makes of it.
 ///
 /// That is right for the callers that have nobody to answer to (startup, the
 /// tray, a deep link, macOS reopen, Settings asked for by the Folders window
 /// or an app). It is wrong for `open_installed_app`, where a person clicked
 /// and is owed an outcome, so that command waits on the main thread instead.
 fn request_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
-    let state = app.state::<HostState>();
-    let Some(token) = state.active_token() else {
-        state.queue_app(built_in);
-        return;
-    };
-    let Ok(port) = state.port() else {
-        return;
-    };
-
     let window_app = app.clone();
     let schedule = app.run_on_main_thread(move || {
-        if !window_app.state::<HostState>().token_is_active(&token) {
-            return;
-        }
-        if let Err(error) = ensure_window(&window_app, built_in, port, &token, true) {
-            append_parent_log(
-                &window_app,
-                &format!("open {} window: {error:#}", built_in.id()),
-            );
+        if let Err(error) = ensure_window(&window_app, built_in) {
+            log::error!("open the {} window: {error:#}", built_in.id());
         }
     });
     if let Err(error) = schedule {
-        append_parent_log(app, &format!("schedule {} window: {error}", built_in.id()));
+        log::error!("schedule the {} window: {error}", built_in.id());
     }
 }
 
@@ -643,283 +519,6 @@ fn parse_app_deep_link(url: &tauri::Url) -> Option<BuiltInApp> {
         return None;
     }
     BuiltInApp::from_id(id)
-}
-
-fn request_start(app: DesktopAppHandle, initial_error: Option<String>) {
-    let state = app.state::<HostState>();
-    if state.shutting_down.load(Ordering::Acquire) || state.starting.swap(true, Ordering::AcqRel) {
-        return;
-    }
-
-    thread::spawn(move || start_until_ready(app, initial_error));
-}
-
-fn start_until_ready(app: DesktopAppHandle, mut failure: Option<String>) {
-    loop {
-        if app
-            .state::<HostState>()
-            .shutting_down
-            .load(Ordering::Acquire)
-        {
-            app.state::<HostState>()
-                .starting
-                .store(false, Ordering::Release);
-            return;
-        }
-
-        if let Some(message) = failure.take() {
-            append_parent_log(&app, &message);
-            invalidate_windows(&app);
-            match show_failure_dialog(&app, &message) {
-                FailureChoice::Retry => {}
-                FailureChoice::Quit => {
-                    app.state::<HostState>()
-                        .starting
-                        .store(false, Ordering::Release);
-                    app.exit(1);
-                    return;
-                }
-            }
-        }
-
-        match start_once(&app) {
-            Ok(()) => {
-                app.state::<HostState>()
-                    .starting
-                    .store(false, Ordering::Release);
-                return;
-            }
-            Err(error) => failure = Some(format!("{error:#}")),
-        }
-    }
-}
-
-fn start_once(app: &DesktopAppHandle) -> Result<()> {
-    let state = app.state::<HostState>();
-    let port = state.port()?;
-    let launched = launch_host(app, port)?;
-    let generation = state.next_generation.fetch_add(1, Ordering::Relaxed);
-    let LaunchedHost {
-        child,
-        stdin,
-        stdout,
-        token,
-    } = launched;
-
-    {
-        let mut process = state.process.lock().expect("host state lock poisoned");
-        if process.is_some() {
-            drop(process);
-            stop_starting_child(child, stdin);
-            bail!("a Bun host is already managed by Epicenter");
-        }
-        *process = Some(ManagedChild {
-            generation,
-            child,
-            stdin: Some(stdin),
-        });
-    }
-
-    state.activate(&token);
-    let mut built_ins = state.take_pending_apps();
-    if built_ins.is_empty() {
-        built_ins.push(BuiltInApp::Folders);
-    }
-    if let Err(error) = create_windows_on_main_thread(app, port, &token, built_ins) {
-        state.deactivate();
-        if let Some(child) = take_generation(&state, generation) {
-            stop_child(child);
-        }
-        invalidate_windows(app);
-        return Err(error);
-    }
-
-    monitor_host(app.clone(), generation, stdout);
-    Ok(())
-}
-
-fn launch_host(app: &DesktopAppHandle, port: u16) -> Result<LaunchedHost> {
-    let log = open_log_file(app)?;
-
-    // The native startup owns paths; the sidecar receives them in its boot frame.
-    let mut command = host_command(app)?;
-    command
-        .env("EPICENTER_APPS_DIST", apps_dist(app)?)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(host_stderr(&log)?);
-
-    let mut child = command
-        .spawn()
-        .context("spawn the bundled Bun application host")?;
-    let mut stdin = child.stdin.take().context("capture Bun stdin")?;
-    let stdout = child.stdout.take().context("capture Bun stdout")?;
-    let token = launch_token()?;
-    let frame = boot_frame_json(&token, port, &app.state::<app_data::DesktopPaths>())?;
-
-    if let Err(error) = writeln!(stdin, "{frame}").and_then(|()| stdin.flush()) {
-        stop_starting_child(child, stdin);
-        return Err(error).context("send the Bun boot frame");
-    }
-
-    let (sender, receiver) = mpsc::sync_channel(1);
-    thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        let ready = read_ready_frame(&mut reader, port);
-        let _ = sender.send((ready, reader));
-    });
-
-    let (ready, stdout) = match receiver.recv_timeout(READY_TIMEOUT) {
-        Ok(value) => value,
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            stop_starting_child(child, stdin);
-            bail!("Bun did not emit its versioned ready frame within 15 seconds");
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            stop_starting_child(child, stdin);
-            bail!("the Bun readiness reader stopped before returning a frame");
-        }
-    };
-
-    if let Err(error) = ready {
-        stop_starting_child(child, stdin);
-        return Err(error);
-    }
-
-    Ok(LaunchedHost {
-        child,
-        stdin,
-        stdout,
-        token,
-    })
-}
-
-#[cfg(debug_assertions)]
-fn apps_dist(_app: &DesktopAppHandle) -> Result<PathBuf> {
-    Ok(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .context("Epicenter src-tauri directory has no app parent")?
-        .join("dist"))
-}
-
-#[cfg(not(debug_assertions))]
-fn apps_dist(app: &DesktopAppHandle) -> Result<PathBuf> {
-    Ok(app.path().resource_dir()?.join("apps-dist"))
-}
-
-/// Where the Bun host's own output goes.
-///
-/// A release writes it to `host.log`, which is where a person is asked to look
-/// when something has already gone wrong. A development run writes it to the
-/// terminal that started `tauri dev`, because that is the only place anyone is
-/// actually watching: a host that fails in development wrote its reason to a
-/// file nobody opened, so every failure looked silent.
-#[cfg(debug_assertions)]
-fn host_stderr(_log: &File) -> Result<Stdio> {
-    Ok(Stdio::inherit())
-}
-
-#[cfg(not(debug_assertions))]
-fn host_stderr(log: &File) -> Result<Stdio> {
-    Ok(Stdio::from(log.try_clone()?))
-}
-
-#[cfg(debug_assertions)]
-fn host_command(_app: &DesktopAppHandle) -> Result<Command> {
-    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .context("Epicenter src-tauri directory has no app parent")?;
-    let mut command = Command::new("bun");
-    command
-        .current_dir(app_dir)
-        .arg("run")
-        .arg("src/epicenter-binary.ts")
-        .arg("__host")
-        .arg("--runtime-mode=development");
-    Ok(command)
-}
-
-#[cfg(not(debug_assertions))]
-fn host_command(_app: &DesktopAppHandle) -> Result<Command> {
-    let executable = std::env::current_exe().context("resolve the Epicenter executable")?;
-    let directory = executable
-        .parent()
-        .context("the Epicenter executable has no parent directory")?;
-    // The `epicenter` binary, whose hidden `__host` mode is the Bun host
-    // until the shell serves apps itself (ADR-0556).
-    let filename = if cfg!(windows) {
-        "epicenter-cli.exe"
-    } else {
-        "epicenter-cli"
-    };
-    let mut command = Command::new(directory.join(filename));
-    command.arg("__host").arg("--runtime-mode=production");
-    Ok(command)
-}
-
-fn monitor_host(app: DesktopAppHandle, generation: u64, mut stdout: BufReader<ChildStdout>) {
-    // After readiness Bun writes nothing on stdout, so whatever arrives there,
-    // or its closing, ends this generation.
-    let (stdout_sender, stdout_receiver) = mpsc::sync_channel(1);
-    thread::spawn(move || {
-        let mut line = String::new();
-        let message = match (&mut stdout)
-            .take((MAX_NATIVE_FRAME_BYTES + 1) as u64)
-            .read_line(&mut line)
-        {
-            Ok(0) => "Bun closed stdout after readiness".to_string(),
-            Ok(_) => "Bun wrote to stdout after readiness, which carries nothing more".to_string(),
-            Err(error) => format!("failed to monitor Bun stdout: {error}"),
-        };
-        let _ = stdout_sender.send(message);
-    });
-
-    thread::spawn(move || loop {
-        if app
-            .state::<HostState>()
-            .shutting_down
-            .load(Ordering::Acquire)
-        {
-            return;
-        }
-
-        if let Ok(message) = stdout_receiver.recv_timeout(Duration::from_millis(150)) {
-            fail_generation(&app, generation, message);
-            return;
-        }
-
-        let status = {
-            let state = app.state::<HostState>();
-            let mut process = state.process.lock().expect("host state lock poisoned");
-            let Some(process) = process.as_mut() else {
-                return;
-            };
-            if process.generation != generation {
-                return;
-            }
-            process.child.try_wait()
-        };
-
-        match status {
-            Ok(Some(status)) => {
-                fail_generation(
-                    &app,
-                    generation,
-                    format!("Bun exited unexpectedly with {status}"),
-                );
-                return;
-            }
-            Ok(None) => {}
-            Err(error) => {
-                fail_generation(
-                    &app,
-                    generation,
-                    format!("failed to inspect the Bun process: {error}"),
-                );
-                return;
-            }
-        }
-    });
 }
 
 /// The deployment this build signs in to and sends to, and whether it has
@@ -991,122 +590,24 @@ fn is_hosted_account_url(url: &tauri::Url, config: &AuthConfiguration) -> bool {
 fn open_account_website(app: &DesktopAppHandle, url: &tauri::Url) -> NewWindowResponse<Wry> {
     if configured_auth_server().is_ok_and(|server| is_hosted_account_url(url, &server)) {
         if let Err(error) = app.opener().open_url(url.as_str(), None::<String>) {
-            append_parent_log(app, &format!("could not open the account website: {error}"));
+            log::warn!("could not open the account website: {error}");
         }
     }
     NewWindowResponse::Deny
-}
-
-fn fail_generation(app: &DesktopAppHandle, generation: u64, message: String) {
-    let state = app.state::<HostState>();
-    if state.shutting_down.load(Ordering::Acquire) {
-        return;
-    }
-    let Some(child) = take_generation(&state, generation) else {
-        return;
-    };
-    state.deactivate();
-    stop_child(child);
-    invalidate_windows(app);
-    request_start(app.clone(), Some(message));
-}
-
-fn take_generation(state: &HostState, generation: u64) -> Option<ManagedChild> {
-    let mut process = state.process.lock().expect("host state lock poisoned");
-    if process
-        .as_ref()
-        .is_some_and(|process| process.generation == generation)
-    {
-        process.take()
-    } else {
-        None
-    }
-}
-
-fn stop_starting_child(mut child: Child, stdin: ChildStdin) {
-    drop(stdin);
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-fn stop_child(mut process: ManagedChild) {
-    drop(process.stdin.take());
-    let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
-    loop {
-        match process.child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(25)),
-            Ok(None) | Err(_) => break,
-        }
-    }
-    let _ = process.child.kill();
-    let _ = process.child.wait();
-}
-
-fn shutdown_host(app: &DesktopAppHandle) {
-    let state = app.state::<HostState>();
-    state.shutting_down.store(true, Ordering::Release);
-    state.deactivate();
-    let process = state
-        .process
-        .lock()
-        .expect("host state lock poisoned")
-        .take();
-    if let Some(process) = process {
-        stop_child(process);
-    }
-}
-
-fn create_windows_on_main_thread(
-    app: &DesktopAppHandle,
-    port: u16,
-    token: &str,
-    built_ins: Vec<BuiltInApp>,
-) -> Result<()> {
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let app = app.clone();
-    let token = token.to_string();
-    app.clone().run_on_main_thread(move || {
-        let result = built_ins
-            .into_iter()
-            .try_for_each(|built_in| ensure_window(&app, built_in, port, &token, true));
-        let _ = sender.send(result);
-    })?;
-    receiver
-        .recv()
-        .context("the main thread stopped before creating Epicenter windows")?
 }
 
 /// Make sure the one window for this built-in app exists, and reveal it.
 ///
 /// The window label is the app's ID, which is what every capability file in
 /// `src-tauri/capabilities/` selects on. One built-in app has one window.
-fn ensure_window(
-    app: &DesktopAppHandle,
-    built_in: BuiltInApp,
-    port: u16,
-    token: &str,
-    reveal: bool,
-) -> Result<()> {
+fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     if let Some(window) = app.get_webview_window(built_in.id()) {
-        if reveal {
-            focus(window);
-        }
+        focus(window);
         return Ok(());
     }
 
-    let origin = origin(port);
-    let url: tauri::Url = format!("{origin}{}", built_in.path()).parse()?;
-    let window = create_app_window(
-        app,
-        built_in.id(),
-        built_in.title(),
-        url,
-        port,
-        token,
-        reveal,
-    )?;
-
+    let url = scheme::url(built_in.path())?;
+    let window = create_app_window(app, built_in.id(), built_in.title(), url)?;
     let close_window = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -1114,32 +615,26 @@ fn ensure_window(
             let _ = close_window.hide();
         }
     });
-    if reveal {
-        focus(window);
-    }
+    focus(window);
     Ok(())
 }
 
-/// One app window on the active origin: the session bootstrap runs before
-/// the page, and navigation stays on the origin.
+/// One window on the `epicenter-app` origin (ADR-0561). Navigation stays on
+/// the origin; a link that opens a new window reaches the system browser only
+/// when it is a hosted account page.
 fn create_app_window(
     app: &DesktopAppHandle,
     label: &str,
     title: &str,
     url: tauri::Url,
-    port: u16,
-    token: &str,
-    visible: bool,
 ) -> Result<WebviewWindow<Wry>> {
-    let initialization_script = initialization_script(&origin(port), token)?;
     let account_opener = app.clone();
-    WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
+    let navigating = label.to_string();
+    WebviewWindowBuilder::new(app, label, WebviewUrl::CustomProtocol(url))
         .title(title)
         .inner_size(1100.0, 760.0)
         .min_inner_size(680.0, 480.0)
-        .visible(visible)
-        .initialization_script(initialization_script)
-        .on_navigation(move |url| is_allowed_navigation(url, port))
+        .on_navigation(move |url| scheme::is_allowed_navigation(&navigating, url))
         .on_new_window(move |url, _| open_account_website(&account_opener, &url))
         .build()
         .with_context(|| format!("create the {title} WebView"))
@@ -1148,10 +643,8 @@ fn create_app_window(
 /// The window label of installed app `id` opened on `folder`: one window per
 /// app and folder. A label may hold only letters, digits, `-`, `/`, `:`, and
 /// `_`, so the id's dots become `_` (an id has no `_`) and the folder's scope
-/// is spelled in hex. The installed-app capability selects `app:*`. An app
-/// that needs native commands is granted them by its id: a capability whose
-/// windows are `app:<id with _ for .>` and `app:<id with _ for .>:*`, which
-/// select exactly the labels made here for that id (`installed-whispering-*`).
+/// is spelled in hex. Every installed app's window gets the one grant,
+/// `capabilities/installed-app.json`, which selects `app:*` (ADR-0570).
 fn installed_window_label(id: &str, folder: Option<&str>) -> String {
     let mut label = format!("{INSTALLED_WINDOW_PREFIX}{}", id.replace('.', "_"));
     if let Some(folder) = folder {
@@ -1165,42 +658,45 @@ fn installed_window_label(id: &str, folder: Option<&str>) -> String {
 
 const INSTALLED_WINDOW_PREFIX: &str = "app:";
 
-/// Installed apps that send over AI connections. Opening one permits its
-/// window into `so.epicenter`, whose `connections` table names them
-/// (ADR-0557); its capability, `installed-<app>-*`, grants it the AI
-/// commands by the same id.
-const AI_CONNECTION_APPS: &[&str] = &["so.epicenter.whispering"];
+/// Reload every open window of installed app `id`, on any folder, once its
+/// build changed, so a running page never asks the new build for a chunk only
+/// the old one had.
+pub(crate) fn reload_installed_windows(app: &DesktopAppHandle, id: &str) {
+    let own = installed_window_label(id, None);
+    let on_folder = format!("{own}:");
+    for (label, window) in app.webview_windows() {
+        if label == own || label.starts_with(&on_folder) {
+            if let Err(error) = window.reload() {
+                log::warn!("reload the {label} window: {error}");
+            }
+        }
+    }
+}
 
-/// Open installed app `id`, served at `/apps/<id>/` like a compiled app, in
-/// its own window, or reveal the one already open on the same folder. With
-/// `folder`, a registered scope, the window is permitted into it and the app
-/// is handed it as `?folder=<scope>`; an app opens it with
-/// `openDataFolder({ id, lens })` (ADR-0538). Approving an app trusts it
-/// fully (ADR-0540), so the shell does not check its shape against the
-/// folder.
+/// Open installed app `id`, served at `/apps/<id>/`, in its own window, or
+/// reveal the one already open on the same folder. With `folder`, a
+/// registered scope, the window is permitted into it and the app is handed
+/// it as `?folder=<scope>`; an app opens it with `openDataFolder({ id, lens })`
+/// (ADR-0538). Every app's window is also permitted into `so.epicenter`,
+/// whose `connections` table its AI commands name (ADR-0557, ADR-0570).
+/// Approving an app trusts it fully (ADR-0540), so the shell does not check
+/// its shape against the folder.
 pub(crate) fn open_installed_window(
     app: &DesktopAppHandle,
     id: &str,
     title: &str,
     folder: Option<&str>,
 ) -> Result<()> {
-    let state = app.state::<HostState>();
-    let Some(token) = state.active_token() else {
-        bail!("the Epicenter host is not ready");
-    };
-    let port = state.port()?;
     let label = installed_window_label(id, folder);
     if let Some(folder) = folder {
         app.folders()
             .permit(folder, &label)
             .map_err(|error| anyhow!("the app cannot open this folder: {error:?}"))?;
     }
-    if AI_CONNECTION_APPS.contains(&id) {
-        app.folders()
-            .permit(data_folders::EPICENTER_FOLDER, &label)
-            .map_err(|error| anyhow!("the app cannot open Epicenter's folder: {error:?}"))?;
-    }
-    let mut url: tauri::Url = format!("{}/apps/{id}/", origin(port)).parse()?;
+    app.folders()
+        .permit(data_folders::EPICENTER_FOLDER, &label)
+        .map_err(|error| anyhow!("the app cannot open Epicenter's folder: {error:?}"))?;
+    let mut url = scheme::url(&format!("/apps/{id}/"))?;
     if let Some(folder) = folder {
         url.query_pairs_mut().append_pair("folder", folder);
     }
@@ -1209,13 +705,12 @@ pub(crate) fn open_installed_window(
     let (sender, receiver) = mpsc::sync_channel(1);
     let window_app = app.clone();
     app.run_on_main_thread(move || {
-        let result = if !window_app.state::<HostState>().token_is_active(&token) {
-            Err(anyhow!(HOST_RESTARTED))
-        } else if let Some(window) = window_app.get_webview_window(&label) {
-            focus(window);
-            Ok(())
-        } else {
-            create_app_window(&window_app, &label, &title, url, port, &token, true).map(focus)
+        let result = match window_app.get_webview_window(&label) {
+            Some(window) => {
+                focus(window);
+                Ok(())
+            }
+            None => create_app_window(&window_app, &label, &title, url).map(focus),
         };
         let _ = sender.send(result);
     })
@@ -1231,308 +726,221 @@ fn focus<R: Runtime>(window: WebviewWindow<R>) {
     let _ = window.set_focus();
 }
 
-/// What a host restart does to one window, by its label.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OnHostStop {
-    /// A built-in app's window: destroyed, and opened again once the next
-    /// host is ready if a person could see it.
-    Reopen(BuiltInApp),
-    /// An installed app's window: destroyed. Its app is opened again from the
-    /// Folders window.
-    Close,
-    /// The recording overlay: hidden, never destroyed. It is an `NSPanel`
-    /// (`overlay.rs`), and destroying it aborts the process: as wry removes
-    /// the panel's `WKWebView`, WebKit's window-visibility observer removes a
-    /// key-value observer the panel no longer has registered, AppKit throws an
-    /// `NSException`, and the exception unwinds into tao's event loop, which
-    /// Rust cannot catch. Converting it back with `Panel::to_window` first does
-    /// not prevent it. Its page keeps the stopped host's token until Epicenter
-    /// restarts, so a page that creates it again must hand it the next one.
-    /// Nothing creates it today: installed Whispering's page has no overlay.
-    Hide,
-    /// Not a window of the host's session.
-    Keep,
-}
-
-fn on_host_stop(label: &str) -> OnHostStop {
-    if let Some(built_in) = BuiltInApp::from_id(label) {
-        return OnHostStop::Reopen(built_in);
-    }
-    if label.starts_with(INSTALLED_WINDOW_PREFIX) {
-        return OnHostStop::Close;
-    }
-    #[cfg(target_os = "macos")]
-    if label == overlay::WINDOW_LABEL {
-        return OnHostStop::Hide;
-    }
-    OnHostStop::Keep
-}
-
-/// Whether Epicenter refuses to exit when asked with `code`. Only a request
-/// with no code is refused: Tauri raises one when the last window is
-/// destroyed, which a host restart does, and Epicenter stays in the tray while
-/// its windows come back (ADR-0542). A quit or a restart carries a code and
-/// passes.
-fn refuses_exit(code: Option<i32>) -> bool {
-    code.is_none()
-}
-
-/// Tear down every window of a Bun host that stopped, and queue the ones a
-/// person could see to open again once the next host is ready
-/// (`on_host_stop`).
-///
-/// Each window's initialization script carries the stopped host's token, so a
-/// reload is not enough: the window is created again, and its page reopens its
-/// folder. Work already lives in the folder (ADR-0542); text a person had not
-/// submitted is lost, as it is on quit.
-fn invalidate_windows(app: &DesktopAppHandle) {
-    let (sender, receiver) = mpsc::sync_channel(1);
-    let app = app.clone();
-    let _ = app.clone().run_on_main_thread(move || {
-        let state = app.state::<HostState>();
-        let mut windows: Vec<_> = app.webview_windows().into_iter().collect();
-        // Built-in apps reopen in their table's order.
-        windows.sort_by_key(|(label, _)| {
-            BuiltInApp::ALL
-                .iter()
-                .position(|built_in| built_in.id() == label)
-        });
-        for (label, window) in windows {
-            match on_host_stop(&label) {
-                OnHostStop::Reopen(built_in) => {
-                    if window.is_visible().unwrap_or(false) {
-                        state.queue_app(built_in);
-                    }
-                    if window.destroy().is_err() {
-                        let _ = window.hide();
-                    }
-                }
-                OnHostStop::Close => {
-                    if window.destroy().is_err() {
-                        let _ = window.hide();
-                    }
-                }
-                OnHostStop::Hide => {
-                    let _ = window.hide();
-                }
-                OnHostStop::Keep => {}
-            }
-        }
-        let _ = sender.send(());
-    });
-    let _ = receiver.recv_timeout(Duration::from_secs(2));
-}
-
-fn show_failure_dialog(app: &DesktopAppHandle, message: &str) -> FailureChoice {
-    loop {
-        let result = app
-            .dialog()
-            // A person reads the first two lines and the buttons; the detail is
-            // kept because this is a startup crash, where the one useful thing
-            // anybody can do with it is paste it into a report.
-            .message(format!(
-                "Epicenter could not start.\n\nNo app window was opened. Retry, or reveal the logs if it keeps happening.\n\nDetails: {message}"
-            ))
-            .title("Epicenter could not start")
-            .kind(MessageDialogKind::Error)
-            .buttons(MessageDialogButtons::YesNoCancelCustom(
-                "Retry".to_string(),
-                "Reveal Logs".to_string(),
-                "Quit".to_string(),
-            ))
-            .blocking_show_with_result();
-
-        match result {
-            MessageDialogResult::Yes => return FailureChoice::Retry,
-            MessageDialogResult::Custom(value) if value == "Retry" => return FailureChoice::Retry,
-            MessageDialogResult::No => {
-                if let Ok(path) = log_path(app) {
-                    let _ = app.opener().reveal_item_in_dir(path);
-                }
-            }
-            MessageDialogResult::Custom(value) if value == "Reveal Logs" => {
-                if let Ok(path) = log_path(app) {
-                    let _ = app.opener().reveal_item_in_dir(path);
-                }
-            }
-            _ => return FailureChoice::Quit,
-        }
-    }
-}
-
-fn ensure_log_file(app: &DesktopAppHandle) -> Result<()> {
-    let path = log_path(app)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create Epicenter log directory at {}", parent.display()))?;
-    }
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .with_context(|| format!("open Epicenter host log at {}", path.display()))?;
-    Ok(())
-}
-
-fn open_log_file(app: &DesktopAppHandle) -> Result<File> {
-    ensure_log_file(app)?;
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path(app)?)
-        .context("open the stable Epicenter host log")
-}
-
-fn append_parent_log(app: &DesktopAppHandle, message: &str) {
-    if let Ok(mut file) = open_log_file(app) {
-        let _ = writeln!(file, "[tauri-host] {message}");
-    }
-    // The same line on the development terminal, beside the host's own output.
-    #[cfg(debug_assertions)]
-    eprintln!("[tauri-host] {message}");
-}
-
-fn log_path(app: &DesktopAppHandle) -> Result<PathBuf> {
-    Ok(app.path().app_log_dir()?.join("host.log"))
-}
-
-fn launch_token() -> Result<String> {
-    let mut bytes = [0_u8; 32];
-    getrandom::fill(&mut bytes)
-        .map_err(|error| anyhow!("generate the per-launch credential: {error}"))?;
-    Ok(URL_SAFE_NO_PAD.encode(bytes))
-}
-
-fn boot_frame_json(token: &str, port: u16, paths: &app_data::DesktopPaths) -> Result<String> {
-    serde_json::to_string(&BootFrame {
-        r#type: "boot",
-        protocol_version: PROTOCOL_VERSION,
-        token,
-        port,
-        paths,
-    })
-    .context("serialize the Bun boot frame")
-}
-
-/// Read Bun's one ready frame: the current protocol version, the expected
-/// port, and no other field.
-fn read_ready_frame(reader: &mut impl BufRead, expected_port: u16) -> Result<()> {
-    let mut line = String::new();
-    let count = reader
-        .read_line(&mut line)
-        .context("read the Bun readiness frame")?;
-    if count == 0 {
-        bail!("Bun exited without emitting its versioned ready frame");
-    }
-    if !line.ends_with('\n') {
-        bail!("Bun closed stdout before completing its versioned ready frame");
-    }
-
-    let line = line.trim_end_matches(['\r', '\n']);
-    let frame: ReadyFrame = serde_json::from_str(line)
-        .context("Bun stdout was not one strict versioned ready frame")?;
-    if frame.r#type != "ready" {
-        bail!("Bun emitted a frame other than ready");
-    }
-    if frame.protocol_version != PROTOCOL_VERSION {
-        bail!(
-            "Bun emitted readiness protocol version {}, expected {}",
-            frame.protocol_version,
-            PROTOCOL_VERSION
-        );
-    }
-    if frame.port != expected_port {
-        bail!(
-            "Bun reported ready on port {}, expected {}",
-            frame.port,
-            expected_port
-        );
-    }
-    Ok(())
-}
-
-fn initialization_script(origin: &str, token: &str) -> Result<String> {
-    let origin = serde_json::to_string(origin)?;
-    let token = serde_json::to_string(token)?;
-    Ok(format!(
-        r#"(() => {{
-  const expectedOrigin = {origin};
-  if (window.location.origin !== expectedOrigin) return;
-  const sessionReady = fetch('/_epicenter/bootstrap', {{
-    method: 'POST',
-    credentials: 'include',
-    headers: {{ authorization: `Bearer ${{{token}}}` }},
-  }}).then((response) => {{
-    if (!response.ok) throw new Error(`Epicenter session bootstrap failed (${{response.status}}).`);
-  }});
-  Object.defineProperty(window, '__EPICENTER_SESSION_READY__', {{
-    value: sessionReady,
-    enumerable: false,
-    configurable: false,
-    writable: false,
-  }});
-}})();"#
-    ))
-}
-
-pub(crate) fn is_allowed_navigation(url: &tauri::Url, port: u16) -> bool {
-    url.scheme() == "http"
-        && url.host_str() == Some("127.0.0.1")
-        && url.port() == Some(port)
-        && url.username().is_empty()
-        && url.password().is_none()
-}
-
-fn origin(port: u16) -> String {
-    format!("http://127.0.0.1:{port}")
-}
-
-#[cfg(debug_assertions)]
-fn configured_port() -> Result<u16> {
-    development_port(std::env::var_os("EPICENTER_DEV_PORT").as_deref())
-}
-
-#[cfg(not(debug_assertions))]
-fn configured_port() -> Result<u16> {
-    // Keep this branch literal: release builds never inspect any port override.
-    Ok(PRODUCTION_PORT)
-}
-
-#[cfg(any(debug_assertions, test))]
-fn development_port(value: Option<&std::ffi::OsStr>) -> Result<u16> {
-    let Some(value) = value else {
-        return Ok(DEVELOPMENT_PORT);
-    };
-    let value = value
-        .to_str()
-        .context("EPICENTER_DEV_PORT must be valid UTF-8")?;
-    let port: u16 = value
-        .parse()
-        .context("EPICENTER_DEV_PORT must be an integer from 1024 through 65535")?;
-    if port < 1_024 {
-        bail!("EPICENTER_DEV_PORT must be an integer from 1024 through 65535");
-    }
-    Ok(port)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::OsStr;
-    use std::io::Cursor;
+
+    const FOLDERS: &str = include_str!("../capabilities/folders.json");
+    const HOME: &str = include_str!("../capabilities/home.json");
+    const INSTALLED_APP: &str = include_str!("../capabilities/installed-app.json");
+
+    /// Every capability file, for checks that hold for all of them.
+    const ALL_CAPABILITIES: &[&str] = &[FOLDERS, HOME, INSTALLED_APP];
 
     #[test]
-    fn development_port_defaults_and_validates_override() {
-        assert_eq!(development_port(None).unwrap(), DEVELOPMENT_PORT);
-        assert_eq!(development_port(Some(OsStr::new("49152"))).unwrap(), 49_152);
-        assert!(development_port(Some(OsStr::new("1023"))).is_err());
-        assert!(development_port(Some(OsStr::new("65536"))).is_err());
-        assert!(development_port(Some(OsStr::new("not-a-port"))).is_err());
+    fn built_in_window_table_has_stable_ids_routes_and_titles() {
+        let actual = BuiltInApp::ALL.map(|window| (window.id(), window.path(), window.title()));
+        assert_eq!(
+            actual,
+            [
+                ("home", "/home/", "Epicenter: Settings"),
+                ("folders", "/folders/", "Epicenter: Folders"),
+            ]
+        );
     }
 
+    /// The recovery path an application offers must survive Settings not being
+    /// there yet. The intent is shell state, so "Settings is absent", "Settings
+    /// is still booting", and "Settings is open behind another window" are the
+    /// same code path: the intent waits until Settings claims it.
     #[test]
-    fn production_port_is_stable() {
-        assert_eq!(PRODUCTION_PORT, 39_130);
+    fn a_pending_home_section_waits_for_home_to_claim_it() {
+        let pending = PendingHomeSection::default();
+        assert_eq!(pending.take(), None, "nothing pending before anyone asks");
+        pending.queue(HomeSection::Transcription);
+        assert_eq!(
+            pending.take(),
+            Some(HomeSection::Transcription),
+            "the intent is still there whenever Settings gets around to asking"
+        );
+    }
+
+    /// Taking is destructive, so however many nudges arrive, one request opens
+    /// one section once, and two requests in a row land the user there once.
+    #[test]
+    fn a_claimed_home_section_is_not_replayed() {
+        let pending = PendingHomeSection::default();
+        pending.queue(HomeSection::Transcription);
+        pending.queue(HomeSection::Transcription);
+        assert!(pending.take().is_some());
+        assert_eq!(pending.take(), None, "a claimed intent must not fire again");
+    }
+
+    /// Every page is served on the `epicenter-app` scheme, which Tauri treats
+    /// as local, so no capability names a remote origin (ADR-0561). There is
+    /// one file per kind of window, and the build selects each of them; a
+    /// development build changes none of it.
+    #[test]
+    fn one_local_capability_per_kind_of_window() {
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+        let mut files: Vec<String> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        files.sort();
+        assert_eq!(files, ["folders.json", "home.json", "installed-app.json"]);
+
+        let mut identifiers = Vec::new();
+        for encoded in ALL_CAPABILITIES {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            let identifier = capability["identifier"].as_str().unwrap();
+            assert_eq!(capability["local"], true, "{identifier}");
+            assert!(capability.get("remote").is_none(), "{identifier}");
+            identifiers.push(serde_json::json!(identifier));
+        }
+        let production: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            production["app"]["security"]["capabilities"],
+            serde_json::json!(identifiers)
+        );
+        let development: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
+        assert!(development.get("app").is_none());
+    }
+
+    /// Every installed app's window gets the one grant (ADR-0570): the
+    /// capability selects every label `open_installed_window` makes, for any
+    /// app id, with or without a folder, and none of Epicenter's own windows.
+    /// It grants the union of what any installed app's page calls: the folder
+    /// plugin and its history (ADR-0559), the recorder (ADR-0543), local
+    /// transcription and its readiness (ADR-0180), opening Settings, the AI
+    /// commands (ADR-0557), who the app is signed in as, and its account
+    /// request (ADR-0549, ADR-0556).
+    #[test]
+    fn every_installed_app_window_gets_one_grant() {
+        let capability: serde_json::Value = serde_json::from_str(INSTALLED_APP).unwrap();
+        assert_eq!(capability["windows"], serde_json::json!(["app:*"]));
+        for id in [
+            "so.epicenter.whispering",
+            "so.epicenter.todos",
+            "com.example.board",
+        ] {
+            for folder in [
+                None,
+                Some(id),
+                Some("data:Voice notes"),
+                Some("so.epicenter"),
+            ] {
+                let label = installed_window_label(id, folder);
+                assert!(selects(&capability, &label), "{label}");
+            }
+        }
+        for built_in in BuiltInApp::ALL {
+            assert!(!selects(&capability, built_in.id()), "{}", built_in.id());
+        }
+        #[cfg(target_os = "macos")]
+        assert!(!selects(&capability, overlay::WINDOW_LABEL));
+        assert_eq!(
+            capability["permissions"],
+            serde_json::json!([
+                "epicenter-folder:default",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten",
+                "allow-status",
+                "allow-history",
+                "allow-save-version",
+                "allow-sync",
+                "allow-settle-sync",
+                "epicenter-recorder:default",
+                "allow-list-inference-models",
+                "allow-transcribe-audio-bytes",
+                "allow-get-local-transcription-readiness",
+                "allow-open-home",
+                "allow-ai-send",
+                "allow-ai-key-set",
+                "allow-ai-key-remove",
+                "allow-ai-key-state",
+                "allow-auth-status",
+                "allow-account-send"
+            ])
+        );
+
+        // It reads and changes only the directory a grant names: no fs plugin
+        // is installed, and its Git runs in the `epicenter` CLI.
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(
+            config["plugins"].get("fs").is_none(),
+            "no fs plugin is installed"
+        );
+        for (id, folder, label) in [
+            ("com.example.board", None, "app:com_example_board"),
+            (
+                "com.example.board",
+                Some("data:My notes"),
+                "app:com_example_board:646174613a4d79206e6f746573",
+            ),
+        ] {
+            let made = installed_window_label(id, folder);
+            assert_eq!(made, label);
+            assert!(made.starts_with(INSTALLED_WINDOW_PREFIX));
+            assert!(made
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '/' | ':' | '_')));
+        }
+        assert_ne!(
+            installed_window_label("com.example.board", Some("a")),
+            installed_window_label("com.example.board", Some("b"))
+        );
+    }
+
+    /// The AI commands reach Settings, the Folders window, and every
+    /// installed app, and no other window (ADR-0557, ADR-0570). Each is one
+    /// fixed CLI invocation that never hands a page a saved key.
+    #[test]
+    fn ai_commands_are_granted_to_settings_folders_and_installed_apps() {
+        const AI: [&str; 4] = [
+            "allow-ai-send",
+            "allow-ai-key-set",
+            "allow-ai-key-remove",
+            "allow-ai-key-state",
+        ];
+        for encoded in ALL_CAPABILITIES {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            let permissions = capability["permissions"].as_array().unwrap();
+            for permission in AI {
+                assert!(
+                    permissions.contains(&serde_json::json!(permission)),
+                    "{} {permission}",
+                    capability["identifier"]
+                );
+            }
+        }
+    }
+
+    /// An account request and who the app is signed in as reach every
+    /// installed app; who it is signed in as also reaches Settings; signing in
+    /// and out reaches Settings alone (ADR-0558).
+    #[test]
+    fn signing_in_and_out_is_granted_to_settings_alone() {
+        for encoded in ALL_CAPABILITIES {
+            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
+            let permissions = capability["permissions"].as_array().unwrap();
+            let grants = |permission: &str| permissions.contains(&serde_json::json!(permission));
+            let identifier = capability["identifier"].as_str().unwrap();
+            let settings = *encoded == HOME;
+            let installed = *encoded == INSTALLED_APP;
+            assert_eq!(grants("allow-account-send"), installed, "{identifier}");
+            assert_eq!(
+                grants("allow-auth-status"),
+                installed || settings,
+                "{identifier}"
+            );
+            for permission in ["allow-auth-login", "allow-auth-logout"] {
+                assert_eq!(grants(permission), settings, "{identifier} {permission}");
+            }
+        }
     }
 
     #[test]
@@ -1584,103 +992,6 @@ mod tests {
         }
     }
 
-    fn ready_line(version: u8, port: u16) -> String {
-        format!("{{\"type\":\"ready\",\"protocolVersion\":{version},\"port\":{port}}}\n")
-    }
-
-    #[test]
-    fn parses_only_the_expected_v15_ready_frame() {
-        read_ready_frame(&mut Cursor::new(ready_line(15, PRODUCTION_PORT)), PRODUCTION_PORT)
-            .unwrap();
-
-        for invalid in [
-            "preamble\n".to_string(),
-            "".to_string(),
-            // The earlier protocols: 11 named installed applications, 12
-            // booted without the cache directory and relaunched only after a
-            // departure round, 13 carried labeled application secrets, and
-            // 14 carried the desktop auth cell and the native auth frames.
-            ready_line(11, PRODUCTION_PORT),
-            "{\"type\":\"ready\",\"protocolVersion\":11,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
-            ready_line(12, PRODUCTION_PORT),
-            ready_line(13, PRODUCTION_PORT),
-            ready_line(14, PRODUCTION_PORT),
-            ready_line(15, 39_131),
-            // A field this protocol does not define refuses the frame.
-            "{\"type\":\"ready\",\"protocolVersion\":15,\"port\":39130,\"installedAppIds\":[]}\n".to_string(),
-            "{\"type\":\"boot\",\"protocolVersion\":15,\"port\":39130}\n".to_string(),
-            ready_line(15, PRODUCTION_PORT).trim_end().to_string(),
-        ] {
-            assert!(
-                read_ready_frame(&mut Cursor::new(invalid.as_bytes()), PRODUCTION_PORT).is_err(),
-                "{invalid:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn navigation_allows_only_the_exact_active_origin_without_credentials() {
-        for allowed in [
-            "http://127.0.0.1:39130/apps/home/",
-            "http://127.0.0.1:39130/another/path?query=ok#fragment",
-        ] {
-            assert!(is_allowed_navigation(
-                &allowed.parse().unwrap(),
-                PRODUCTION_PORT
-            ));
-        }
-
-        for denied in [
-            "https://127.0.0.1:39130/apps/home/",
-            "http://localhost:39130/apps/home/",
-            "http://127.0.0.1:39131/apps/home/",
-            "http://user@127.0.0.1:39130/apps/home/",
-            "http://user:secret@127.0.0.1:39130/apps/home/",
-        ] {
-            assert!(!is_allowed_navigation(
-                &denied.parse().unwrap(),
-                PRODUCTION_PORT
-            ));
-        }
-    }
-
-    #[test]
-    fn built_in_window_table_has_stable_ids_routes_and_titles() {
-        let actual = BuiltInApp::ALL.map(|window| (window.id(), window.path(), window.title()));
-        assert_eq!(
-            actual,
-            [
-                ("home", "/apps/home/", "Epicenter: Settings"),
-                ("folders", "/apps/folders/", "Epicenter: Folders"),
-            ]
-        );
-    }
-
-    /// A Bun host that ends after readiness destroys and reopens the windows
-    /// on its session, and Epicenter stays up meanwhile. The recording
-    /// overlay is hidden rather than destroyed: destroying its `NSPanel`
-    /// aborted the process on 2026-10-15 before the Retry dialog could show.
-    #[test]
-    fn a_host_restart_reopens_built_in_windows_and_never_destroys_the_overlay() {
-        for built_in in BuiltInApp::ALL {
-            assert_eq!(on_host_stop(built_in.id()), OnHostStop::Reopen(built_in));
-        }
-        assert_eq!(
-            on_host_stop(&installed_window_label("so.example.board", Some("data:x"))),
-            OnHostStop::Close
-        );
-        #[cfg(target_os = "macos")]
-        assert_eq!(on_host_stop(overlay::WINDOW_LABEL), OnHostStop::Hide);
-        assert_eq!(on_host_stop("unknown"), OnHostStop::Keep);
-
-        // The last window's destruction asks to exit with no code; a quit or
-        // a restart names one.
-        assert!(refuses_exit(None));
-        assert!(!refuses_exit(Some(0)));
-        assert!(!refuses_exit(Some(1)));
-        assert!(!refuses_exit(Some(tauri::RESTART_EXIT_CODE)));
-    }
-
     /// The `tauri-plugin-macos-permissions` plugin is gone from this build:
     /// `command.rs` owns the two OS permission capabilities Epicenter exposes,
     /// through AVFoundation and the Accessibility API directly.
@@ -1709,53 +1020,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// The recovery path an application offers must survive Home not being
-    /// there yet. The intent is host state, so "Home is absent", "Home is still
-    /// booting", and "Home is open behind another window" are the same code
-    /// path: the intent waits until Home claims it.
-    #[test]
-    fn a_pending_home_section_waits_for_home_to_claim_it() {
-        let state = HostState::new(Ok(1));
-        assert_eq!(
-            state.take_home_section(),
-            None,
-            "nothing pending before anyone asks"
-        );
-
-        // Home absent or mid-boot: nobody is listening, and the intent survives.
-        state.queue_home_section(HomeSection::Transcription);
-        assert_eq!(
-            state.take_home_section(),
-            Some(HomeSection::Transcription),
-            "the intent is still there whenever Home gets around to asking"
-        );
-    }
-
-    /// Taking is destructive, so however many nudges arrive, one request opens
-    /// one section once. Without this a stale intent would reopen the panel on
-    /// some later unrelated mount.
-    #[test]
-    fn a_claimed_home_section_is_not_replayed() {
-        let state = HostState::new(Ok(1));
-        state.queue_home_section(HomeSection::Transcription);
-        assert!(state.take_home_section().is_some());
-        assert_eq!(
-            state.take_home_section(),
-            None,
-            "a claimed intent must not fire again"
-        );
-    }
-
-    /// Two recovery attempts in a row should land the user somewhere once.
-    #[test]
-    fn repeated_requests_collapse_to_one_pending_section() {
-        let state = HostState::new(Ok(1));
-        state.queue_home_section(HomeSection::Transcription);
-        state.queue_home_section(HomeSection::Transcription);
-        assert!(state.take_home_section().is_some());
-        assert_eq!(state.take_home_section(), None);
     }
 
     /// Every command a capability grants must exist, and every command the crate
@@ -1831,23 +1095,18 @@ mod tests {
             "allow-set-unload-policy",
         ];
 
-        for encoded in [
-            include_str!("../capabilities/home-model-administration-development.json"),
-            include_str!("../capabilities/home-model-administration-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert_eq!(
-                capability["windows"].as_array().unwrap(),
-                &vec![serde_json::json!("home")],
-                "model administration belongs to Home alone"
+        let capability: serde_json::Value = serde_json::from_str(HOME).unwrap();
+        assert_eq!(
+            capability["windows"].as_array().unwrap(),
+            &vec![serde_json::json!("home")],
+            "model administration belongs to Home alone"
+        );
+        let permissions = capability["permissions"].as_array().unwrap();
+        for permission in ADMINISTRATION {
+            assert!(
+                permissions.contains(&serde_json::json!(permission)),
+                "Home must be able to invoke {permission}"
             );
-            let permissions = capability["permissions"].as_array().unwrap();
-            for permission in ADMINISTRATION {
-                assert!(
-                    permissions.contains(&serde_json::json!(permission)),
-                    "Home must be able to invoke {permission}"
-                );
-            }
         }
 
         // Applications read readiness and transcribe, and can send the person
@@ -1868,7 +1127,7 @@ mod tests {
     }
 
     /// The folder history commands reach the Folders window and every
-    /// installed app's windows, by app id (`app:<id>`), and no other window;
+    /// installed app's windows (`app:*`), and no other window;
     /// each runs only for a folder the window was granted (ADR-0559).
     /// Starting what installs `git` reaches the Folders window alone.
     #[test]
@@ -1905,78 +1164,6 @@ mod tests {
         }
     }
 
-    /// `epicenter check` reaches the Folders window alone (ADR-0556).
-    #[test]
-    fn folder_check_is_granted_to_the_folders_window_alone() {
-        for encoded in ALL_CAPABILITIES {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let grants = capability["permissions"]
-                .as_array()
-                .unwrap()
-                .contains(&serde_json::json!("allow-folder-check"));
-            assert_eq!(
-                grants,
-                capability["windows"] == serde_json::json!(["folders"]),
-                "{}",
-                capability["identifier"]
-            );
-        }
-    }
-
-    /// The AI commands reach Settings, the Folders window, and installed
-    /// Whispering by its app id, and no other window (ADR-0557). Each is one
-    /// fixed CLI invocation that never hands a page a saved key.
-    #[test]
-    fn ai_commands_are_granted_to_settings_folders_and_whispering_alone() {
-        const AI: [&str; 4] = [
-            "allow-ai-send",
-            "allow-ai-key-set",
-            "allow-ai-key-remove",
-            "allow-ai-key-state",
-        ];
-        for encoded in ALL_CAPABILITIES {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let permissions = capability["permissions"].as_array().unwrap();
-            let granted = AI
-                .iter()
-                .filter(|permission| permissions.contains(&serde_json::json!(permission)))
-                .count();
-            let windows = &capability["windows"];
-            let expected = windows == &serde_json::json!(["folders"])
-                || windows == &serde_json::json!(["home"])
-                    && capability["identifier"]
-                        .as_str()
-                        .unwrap()
-                        .starts_with("home-ai-connections")
-                || windows
-                    == &serde_json::json!(["app:so_epicenter_whispering", "app:so_epicenter_whispering:*"]);
-            assert_eq!(
-                granted,
-                if expected { AI.len() } else { 0 },
-                "{}",
-                capability["identifier"]
-            );
-        }
-    }
-
-    /// Every capability file, for checks that hold for all of them.
-    const ALL_CAPABILITIES: &[&str] = &[
-        include_str!("../capabilities/home-model-administration-development.json"),
-        include_str!("../capabilities/home-model-administration-production.json"),
-        include_str!("../capabilities/home-ai-connections-development.json"),
-        include_str!("../capabilities/home-ai-connections-production.json"),
-        include_str!("../capabilities/home-account-development.json"),
-        include_str!("../capabilities/home-account-production.json"),
-        include_str!("../capabilities/folders-development.json"),
-        include_str!("../capabilities/folders-production.json"),
-        include_str!("../capabilities/installed-app-windows-development.json"),
-        include_str!("../capabilities/installed-app-windows-production.json"),
-        include_str!("../capabilities/installed-whispering-development.json"),
-        include_str!("../capabilities/installed-whispering-production.json"),
-        include_str!("../capabilities/installed-todos-development.json"),
-        include_str!("../capabilities/installed-todos-production.json"),
-    ];
-
     /// Whether `capability` applies to the window labelled `label`, decided as
     /// Tauri decides it: each `windows` entry is a `glob::Pattern` matched
     /// against the label (`tauri::ipc::authority`).
@@ -1986,257 +1173,6 @@ mod tests {
             .unwrap()
             .iter()
             .any(|pattern| glob::Pattern::new(pattern.as_str().unwrap()).unwrap().matches(label))
-    }
-
-    /// Native commands reach an installed app by its id, never by a label a
-    /// built-in window or another app could hold: Whispering's capability
-    /// selects every window `open_installed_window` makes for
-    /// `so.epicenter.whispering`, opened on its own folder or on another, and
-    /// no other window. It grants what Whispering's page calls and nothing
-    /// else: the recorder into its granted folder (ADR-0543), local
-    /// transcription with the active model and its readiness (ADR-0180),
-    /// opening Settings where that model is chosen, its AI connections
-    /// (ADR-0557), and who the app is signed in as, for an Epicenter
-    /// connection.
-    #[test]
-    fn installed_whispering_is_granted_its_native_commands_by_app_id() {
-        for encoded in [
-            include_str!("../capabilities/installed-whispering-development.json"),
-            include_str!("../capabilities/installed-whispering-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            for label in [
-                installed_window_label("so.epicenter.whispering", None),
-                installed_window_label("so.epicenter.whispering", Some("so.epicenter.whispering")),
-                installed_window_label("so.epicenter.whispering", Some("data:Voice notes")),
-            ] {
-                assert!(selects(&capability, &label), "{label} is Whispering's");
-            }
-            for label in [
-                installed_window_label("so.epicenter.todos", None),
-                installed_window_label("so.epicenter.whisperingx", None),
-                installed_window_label("so.epicenter.whispering.other", None),
-                installed_window_label("so.epicenter", Some("so.epicenter.whispering")),
-                "whispering".to_string(),
-                "home".to_string(),
-                "folders".to_string(),
-            ] {
-                assert!(!selects(&capability, &label), "{label} is not Whispering's");
-            }
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!([
-                    "epicenter-recorder:default",
-                    "allow-list-inference-models",
-                    "allow-transcribe-audio-bytes",
-                    "allow-get-local-transcription-readiness",
-                    "allow-open-home",
-                    "allow-ai-send",
-                    "allow-ai-key-set",
-                    "allow-ai-key-remove",
-                    "allow-ai-key-state",
-                    "allow-auth-status"
-                ]),
-                "{encoded}"
-            );
-        }
-        // Every installed app, Whispering included, holds the folder plugin
-        // under the same labels.
-        for encoded in [
-            include_str!("../capabilities/installed-app-windows-development.json"),
-            include_str!("../capabilities/installed-app-windows-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert!(selects(
-                &capability,
-                &installed_window_label("so.epicenter.whispering", None)
-            ));
-        }
-    }
-
-    /// `AI_CONNECTION_APPS` (whose windows are let into `so.epicenter`) and
-    /// the capabilities that grant `ai_send` name the same apps: every listed
-    /// app's windows are granted it, and every capability that grants it
-    /// selects a listed app's windows (ADR-0564).
-    #[test]
-    fn the_apps_let_into_so_epicenter_are_the_apps_granted_ai_send() {
-        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
-        let granting: Vec<serde_json::Value> = std::fs::read_dir(&directory)
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
-            .map(|path| serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap())
-            .filter(|capability: &serde_json::Value| {
-                capability["permissions"]
-                    .as_array()
-                    .is_some_and(|permissions| permissions.iter().any(|p| p == "allow-ai-send"))
-            })
-            .collect();
-        for id in AI_CONNECTION_APPS {
-            let label = installed_window_label(id, None);
-            for build in ["development", "production"] {
-                assert!(
-                    granting.iter().any(|capability| {
-                        selects(capability, &label)
-                            && capability["identifier"]
-                                .as_str()
-                                .is_some_and(|name| name.ends_with(build))
-                    }),
-                    "{id}'s {build} windows are granted ai_send"
-                );
-            }
-        }
-        for capability in &granting {
-            let identifier = capability["identifier"].as_str().unwrap();
-            if !identifier.starts_with("installed-") {
-                continue;
-            }
-            assert!(
-                AI_CONNECTION_APPS
-                    .iter()
-                    .any(|id| selects(capability, &installed_window_label(id, None))),
-                "{identifier} grants ai_send to an app not in AI_CONNECTION_APPS"
-            );
-        }
-    }
-
-    /// Todos' capability selects every window `open_installed_window` makes
-    /// for `so.epicenter.todos` and no other, and grants what its page calls
-    /// for the account Settings signed in to: who it is (`auth_status`), its
-    /// one account request through the CLI (`account_send`), and opening
-    /// Settings to sign in. No token reaches the page (ADR-0549, ADR-0556).
-    #[test]
-    fn installed_todos_is_granted_its_account_commands_by_app_id() {
-        for encoded in [
-            include_str!("../capabilities/installed-todos-development.json"),
-            include_str!("../capabilities/installed-todos-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            for label in [
-                installed_window_label("so.epicenter.todos", None),
-                installed_window_label("so.epicenter.todos", Some("so.epicenter.todos")),
-                installed_window_label("so.epicenter.todos", Some("data:Groceries")),
-            ] {
-                assert!(selects(&capability, &label), "{label} is Todos'");
-            }
-            for label in [
-                installed_window_label("so.epicenter.whispering", None),
-                installed_window_label("so.epicenter.todosx", None),
-                installed_window_label("so.epicenter.todos.other", None),
-                installed_window_label("so.epicenter", Some("so.epicenter.todos")),
-                "todos".to_string(),
-                "home".to_string(),
-                "folders".to_string(),
-            ] {
-                assert!(!selects(&capability, &label), "{label} is not Todos'");
-            }
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!(["allow-account-send", "allow-auth-status", "allow-open-home"]),
-                "{encoded}"
-            );
-        }
-    }
-
-    /// An account request reaches installed Todos by its app id and no other
-    /// window; who the app is signed in as reaches Settings, Todos, and
-    /// Whispering, whose Epicenter connection sends with that sign-in;
-    /// signing in and out reaches Settings alone (ADR-0558).
-    #[test]
-    fn account_commands_are_granted_to_settings_and_todos_alone() {
-        for encoded in ALL_CAPABILITIES {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let permissions = capability["permissions"].as_array().unwrap();
-            let grants = |permission: &str| permissions.contains(&serde_json::json!(permission));
-            let identifier = capability["identifier"].as_str().unwrap();
-            let todos = capability["windows"]
-                == serde_json::json!(["app:so_epicenter_todos", "app:so_epicenter_todos:*"]);
-            let whispering = capability["windows"]
-                == serde_json::json!([
-                    "app:so_epicenter_whispering",
-                    "app:so_epicenter_whispering:*"
-                ]);
-            let settings_account = capability["windows"] == serde_json::json!(["home"])
-                && identifier.starts_with("home-account");
-            assert_eq!(grants("allow-account-send"), todos, "{identifier}");
-            assert_eq!(
-                grants("allow-auth-status"),
-                todos || whispering || settings_account,
-                "{identifier}"
-            );
-            for permission in ["allow-auth-login", "allow-auth-logout"] {
-                assert_eq!(
-                    grants(permission),
-                    settings_account,
-                    "{identifier} {permission}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn each_build_selects_the_home_model_administration_capability() {
-        for (encoded, capability) in [
-            (
-                include_str!("../tauri.dev.conf.json"),
-                "home-model-administration-development",
-            ),
-            (
-                include_str!("../tauri.conf.json"),
-                "home-model-administration-production",
-            ),
-            (
-                include_str!("../tauri.dev.conf.json"),
-                "home-ai-connections-development",
-            ),
-            (
-                include_str!("../tauri.conf.json"),
-                "home-ai-connections-production",
-            ),
-            (
-                include_str!("../tauri.dev.conf.json"),
-                "home-account-development",
-            ),
-            (
-                include_str!("../tauri.conf.json"),
-                "home-account-production",
-            ),
-            (include_str!("../tauri.dev.conf.json"), "folders-development"),
-            (include_str!("../tauri.conf.json"), "folders-production"),
-            (
-                include_str!("../tauri.dev.conf.json"),
-                "installed-app-windows-development",
-            ),
-            (
-                include_str!("../tauri.conf.json"),
-                "installed-app-windows-production",
-            ),
-            (
-                include_str!("../tauri.dev.conf.json"),
-                "installed-whispering-development",
-            ),
-            (
-                include_str!("../tauri.conf.json"),
-                "installed-whispering-production",
-            ),
-            (
-                include_str!("../tauri.dev.conf.json"),
-                "installed-todos-development",
-            ),
-            (
-                include_str!("../tauri.conf.json"),
-                "installed-todos-production",
-            ),
-        ] {
-            let config: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let selected = config["app"]["security"]["capabilities"]
-                .as_array()
-                .unwrap();
-            assert!(
-                selected.contains(&serde_json::json!(capability)),
-                "{capability} exists but this build does not select it"
-            );
-        }
     }
 
     /// A development build and an installed one can be running at the same time
@@ -2255,116 +1191,61 @@ mod tests {
         assert_ne!(production["identifier"], development["identifier"]);
     }
 
-    /// The Folders window holds the folder plugin, its own listing, `epicenter
-    /// check` on a granted folder (ADR-0556), that folder's history through
-    /// the CLI and starting what installs `git` (ADR-0559), the AI commands
-    /// (ADR-0557),
-    /// installing and opening apps, and
-    /// opening Settings (ADR-0537, ADR-0552), and nothing else: it reaches
+    /// The Folders window holds the folder plugin, its own listing, a granted
+    /// folder's history through the CLI and starting what installs `git`
+    /// (ADR-0559), the AI commands
+    /// (ADR-0557), installing and opening apps, and opening Settings
+    /// (ADR-0537, ADR-0552), and nothing else: it reaches
     /// folders only through scopes the listing registered or permitted it
     /// into, and it administers no model.
     #[test]
     fn the_folders_window_holds_the_folder_plugin_and_its_listing() {
-        for encoded in [
-            include_str!("../capabilities/folders-development.json"),
-            include_str!("../capabilities/folders-production.json"),
-        ] {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert_eq!(capability["windows"], serde_json::json!(["folders"]));
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!([
-                    "epicenter-folder:default",
-                    "core:event:allow-listen",
-                    "core:event:allow-unlisten",
-                    "allow-list-data-folders",
-                    "allow-folder-check",
-                    "allow-status",
-                    "allow-history",
-                    "allow-save-version",
-                    "allow-sync",
-                    "allow-settle-sync",
-                    "allow-install-git",
-                    "allow-ai-send",
-                    "allow-ai-key-set",
-                    "allow-ai-key-remove",
-                    "allow-ai-key-state",
-                    "allow-list-installed-apps",
-                    "allow-list-repository-apps",
-                    "allow-install-app",
-                    "allow-approve-app",
-                    "allow-update-app",
-                    "allow-open-installed-app",
-                    "allow-open-home"
-                ]),
-                "{encoded}"
-            );
-        }
+        let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
+        assert_eq!(capability["windows"], serde_json::json!(["folders"]));
+        assert_eq!(
+            capability["permissions"],
+            serde_json::json!([
+                "epicenter-folder:default",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten",
+                "allow-list-data-folders",
+                "allow-status",
+                "allow-history",
+                "allow-save-version",
+                "allow-sync",
+                "allow-settle-sync",
+                "allow-install-git",
+                "allow-ai-send",
+                "allow-ai-key-set",
+                "allow-ai-key-remove",
+                "allow-ai-key-state",
+                "allow-list-installed-apps",
+                "allow-list-repository-apps",
+                "allow-install-app",
+                "allow-approve-app",
+                "allow-update-app",
+                "allow-open-installed-app",
+                "allow-open-home"
+            ]),
+            "folders"
+        );
         for encoded in ALL_CAPABILITIES
             .iter()
-            .filter(|encoded| !encoded.contains("\"identifier\": \"folders-"))
+            .filter(|encoded| **encoded != FOLDERS)
         {
-            assert!(
-                !encoded.contains("list-data-folders"),
-                "the listing belongs to the Folders window alone"
-            );
-            assert!(
-                !encoded.contains("-app\""),
-                "installing and opening apps belong to the Folders window alone"
-            );
-        }
-    }
-
-    /// An installed app's window holds the folder plugin and its folder's
-    /// history through the CLI (ADR-0559), and hears the plugin's change
-    /// event, under every label `open_installed_window` makes, and nothing
-    /// that installs, approves, or launches.
-    #[test]
-    fn installed_app_windows_hold_only_the_folder_plugin() {
-        for encoded in [
-            include_str!("../capabilities/installed-app-windows-development.json"),
-            include_str!("../capabilities/installed-app-windows-production.json"),
-        ] {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            assert_eq!(capability["windows"], serde_json::json!(["app:*"]));
-            assert_eq!(
-                capability["permissions"],
-                serde_json::json!([
-                    "epicenter-folder:default",
-                    "allow-status",
-                    "allow-history",
-                    "allow-save-version",
-                    "allow-sync",
-                    "allow-settle-sync",
-                    "core:event:allow-listen",
-                    "core:event:allow-unlisten"
-                ])
-            );
+            for permission in capability["permissions"].as_array().unwrap() {
+                let permission = permission.as_str().unwrap();
+                assert_ne!(
+                    permission, "allow-list-data-folders",
+                    "the listing belongs to the Folders window alone"
+                );
+                assert!(
+                    !permission.ends_with("-app"),
+                    "installing and opening apps belong to the Folders window alone: {permission}"
+                );
+            }
         }
-        // It reads and changes only the directory a grant names: no fs plugin
-        // is installed, and its Git runs in the `epicenter` CLI.
-        let config: serde_json::Value =
-            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert!(config["plugins"].get("fs").is_none(), "no fs plugin is installed");
-        for (id, folder, label) in [
-            ("com.example.board", None, "app:com_example_board"),
-            (
-                "com.example.board",
-                Some("data:My notes"),
-                "app:com_example_board:646174613a4d79206e6f746573",
-            ),
-        ] {
-            let made = installed_window_label(id, folder);
-            assert_eq!(made, label);
-            assert!(made.starts_with(INSTALLED_WINDOW_PREFIX));
-            assert!(made
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '/' | ':' | '_')));
-        }
-        assert_ne!(
-            installed_window_label("com.example.board", Some("a")),
-            installed_window_label("com.example.board", Some("b"))
-        );
     }
 
     #[test]
@@ -2451,38 +1332,5 @@ mod tests {
             apps_from_arguments(&arguments),
             vec![BuiltInApp::Home, BuiltInApp::Folders]
         );
-    }
-
-    #[test]
-    fn boot_frame_carries_the_native_directories_and_no_auth() {
-        let paths = app_data::DesktopPaths {
-            data_dir: std::env::temp_dir().join("so.epicenter.dev"),
-            folder_dir: std::env::temp_dir().join("Epicenter Dev"),
-            cache_dir: std::env::temp_dir().join("so.epicenter.dev-cache"),
-        };
-        let json = boot_frame_json("safe_token", PRODUCTION_PORT, &paths).unwrap();
-        let frame: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(
-            frame,
-            serde_json::json!({
-                "type": "boot", "protocolVersion": 15, "token": "safe_token",
-                "port": PRODUCTION_PORT,
-                "dataDir": paths.data_dir, "folderDir": paths.folder_dir,
-                "cacheDir": paths.cache_dir,
-            })
-        );
-    }
-
-    #[test]
-    fn initialization_script_guards_origin_and_exposes_only_ready_promise() {
-        let script = initialization_script("http://127.0.0.1:39130", "safe_token").unwrap();
-        assert!(script.contains("window.location.origin !== expectedOrigin"));
-        assert!(script.contains("/_epicenter/bootstrap"));
-        assert!(script.contains("__EPICENTER_SESSION_READY__"));
-        assert!(!script.contains("__EPICENTER_WHISPERING_AUTH_READY__"));
-        assert!(!script.contains("__EPICENTER_WHISPERING_AUTH_BOOTSTRAP__"));
-        assert!(!script.contains("keyring_read"));
-        assert!(!script.contains("localStorage"));
-        assert!(!script.contains("sessionStorage"));
     }
 }

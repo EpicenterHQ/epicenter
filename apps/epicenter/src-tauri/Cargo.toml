@@ -30,15 +30,16 @@ tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epice
 anyhow = "1"
 base64 = "0.22"
 enigo = "0.5.0"
-getrandom = "0.3"
 hf-hub = { version = "0.5", features = ["tokio"] }
 hound = "3.5"
 log = "0.4"
 notify = "8"
 notify-debouncer-full = "0.5"
+percent-encoding = "2"
 rubato = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 specta = "=2.0.0-rc.26"
 specta-typescript = "=0.0.13"
 symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4"] }
@@ -47,7 +48,6 @@ tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b
 tauri-plugin-autostart = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-deep-link = "2"
-tauri-plugin-dialog = "2.7"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-log = "2"
 # Unregistered: ADR-0555 grants it to apps; register it with that grant.

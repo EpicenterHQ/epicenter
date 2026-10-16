@@ -6,9 +6,9 @@ are the data. A recording is a file in the folder from its start
 (`@epicenter/recorder`); inference, hosted blobs, and secrets have their own
 constructors and lifetimes beside the folder.
 
-Epicenter's desktop applications run as SPAs in Tauri WebViews. The Tauri host
-launches a Bun sidecar that serves bundles, HTTP, and the Home session; Rust
-owns native mechanisms. A desktop page opens its folder itself, over a
+Epicenter's desktop applications run as SPAs in Tauri WebViews. Rust serves
+every page from one origin, `epicenter-app://localhost`, and owns native
+mechanisms; the `epicenter` CLI holds the account. A desktop page opens its folder itself, over a
 directory the shell grants it. Browser builds open the same folder in the
 origin's private file system.
 

@@ -42,8 +42,8 @@ change against the shared path rule and keeps it out of Git's private state.
 This app has no folder code of its own on the desktop: no copy of the plugin's
 bindings and no second transport.
 
-Every other native service is Epicenter's, granted to Whispering's windows by
-its app id (`installed-whispering-*` in `apps/epicenter/src-tauri/capabilities`):
+Every other native service is Epicenter's, granted to every installed app's
+windows (`installed-app.json` in `apps/epicenter/src-tauri/capabilities`):
 the recorder, local transcription with Epicenter's active model, and the AI
 commands. The two connections are rows of Epicenter's own folder
 `so.epicenter`, whose endpoints and keys stay in this computer's keychain; a
@@ -177,14 +177,15 @@ workspace, or imports the Yjs store.
 `build:installed` sets `EPICENTER_HOST=1`: adapter-static writes `dist/` with
 relative asset paths, and every page is prerendered (`src/routes/+layout.ts`),
 so the build runs wherever Epicenter serves it, at
-`/apps/so.epicenter.whispering/`. Links go through `resolve` from
+`epicenter-app://localhost/apps/so.epicenter.whispering/`. Links go through `resolve` from
 `$app/paths`.
 
 Epicenter opens the app's window with the label `app:so_epicenter_whispering`
-(or, on another folder, that label plus the folder's scope in hex). Its
-capabilities select those labels: `installed-app-windows-*` grants the folder
-plugin, and `installed-whispering-*` the recorder, local transcription and
-its readiness, and opening Settings. Epicenter's README states the rule.
+(or, on another folder, that label plus the folder's scope in hex). One
+capability, `installed-app.json`, selects every installed app's labels and
+grants the folder plugin, the recorder, local transcription and its
+readiness, opening Settings, and the AI commands. Epicenter's README states
+the rule.
 
 ## Connections through Epicenter
 

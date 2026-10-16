@@ -1,7 +1,7 @@
 /**
- * Build the Folders window's page. The host serves it from its own asset
- * tree below `/apps/folders/`, as it serves every compiled application, so
- * this build emits ordinary assets under that base rather than one document.
+ * Build the Folders window's page. The shell serves it on the
+ * `epicenter-app` scheme below `/folders/` (ADR-0561), so this build emits
+ * ordinary assets under that base.
  */
 
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
 	root: fileURLToPath(new URL('./src/folders', import.meta.url)),
-	base: '/apps/folders/',
+	base: '/folders/',
 	plugins: [
 		tailwindcss(),
 		svelte({
