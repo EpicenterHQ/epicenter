@@ -16,9 +16,7 @@ export type AnyRow = Row<Record<string, unknown>>;
 
 /** One field both sides changed differently; `undefined` is no such field. */
 type FieldUnit = {
-	readonly kind: 'field';
 	readonly field: string;
-	readonly base: unknown;
 	readonly ours: unknown;
 	readonly theirs: unknown;
 };
@@ -118,13 +116,7 @@ export async function mergeRows(
 		];
 		const chosen = choose(b, o, t, sameValue);
 		if (chosen === undefined)
-			conflicts.push({
-				kind: 'field',
-				field: name,
-				base: b,
-				ours: o,
-				theirs: t,
-			});
+			conflicts.push({ field: name, ours: o, theirs: t });
 		else setField(fields, name, chosen.value);
 	}
 	const body = await mergeLines({
