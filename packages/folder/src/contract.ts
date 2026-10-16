@@ -70,12 +70,6 @@ export type { SyncOptions, SyncOutcome } from './git/sync.js';
 export { hashBytes } from './hash.js';
 export { frameRowText, type RowTextFrame } from './markdown.js';
 export type { FileContent, Overridden } from './merge-file.js';
-export type {
-	OpfsDirectoryHandle,
-	OpfsEnvironment,
-	OpfsFileHandle,
-	OpfsLocks,
-} from './opfs-store.js';
 export {
 	DECLARATION_PATH,
 	pathProblem,
