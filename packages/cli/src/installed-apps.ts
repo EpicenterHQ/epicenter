@@ -1013,15 +1013,28 @@ async function build(
 		);
 	onProgress?.('Keeping the build…');
 	const staged = join(builds, `.${app.commit}-${randomSuffix()}`);
+	const destination = join(builds, app.commit);
+	// A rebuild of the same commit moves the old build aside rather than
+	// deleting it first, so the shell finds a build there except for the
+	// moment between the two renames, never for the length of a delete.
+	const aside = join(builds, `.${app.commit}-${randomSuffix()}-old`);
+	let movedAside = false;
 	try {
 		await copyTree(output, staged);
-		const destination = join(builds, app.commit);
-		await rm(destination, { recursive: true, force: true });
+		movedAside = await rename(destination, aside).then(
+			() => true,
+			(cause: NodeJS.ErrnoException) => {
+				if (cause.code === 'ENOENT') return false;
+				throw cause;
+			},
+		);
 		await rename(staged, destination);
 	} catch (cause) {
+		if (movedAside) await rename(aside, destination).catch(() => {});
 		await rm(staged, { recursive: true, force: true });
 		throw failed(`the build could not be kept: ${String(cause)}`);
 	}
+	if (movedAside) await rm(aside, { recursive: true, force: true });
 	await writeReplacing(join(builds, CURRENT_BUILD), `${app.commit}\n`).catch(
 		(cause) => {
 			throw failed(`the build could not be made current: ${String(cause)}`);

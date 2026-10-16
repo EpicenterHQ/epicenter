@@ -331,6 +331,28 @@ test('install clones and waits for approval, then approval builds', async () => 
 	);
 });
 
+test('rebuilding the same commit replaces its build without deleting it first', async () => {
+	const f = await fixture();
+	const upstream = await appRepository(f, 'board');
+	const first = shGit(upstream, 'rev-parse', 'HEAD');
+	await install(f.paths, upstream, '', { approve: true });
+
+	// The build of `first` is there but no longer current, so opening that
+	// commit builds it again over the old directory.
+	const builds = join(f.paths.buildsDir, BOARD);
+	await writeFile(join(builds, first, 'stale.txt'), 'from the old build');
+	await rm(join(builds, 'current'));
+	const ready = await update(f.paths, BOARD, { commit: first });
+
+	expect(ready.state).toEqual({ kind: 'ready' });
+	expect(await servedPage(f, BOARD)).toBe('<!doctype html><title>one</title>');
+	expect(await exists(join(builds, first, 'stale.txt'))).toBe(false);
+	// Neither the staged copy nor the old build is left beside it.
+	expect((await readdir(builds)).sort()).toEqual(
+		[first, `${first}.log`, 'current'].sort(),
+	);
+});
+
 test('approval names the commit it was shown', async () => {
 	const f = await fixture();
 	const pending = await install(f.paths, await appRepository(f, 'board'), '');
