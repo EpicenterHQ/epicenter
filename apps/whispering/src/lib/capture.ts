@@ -4,8 +4,9 @@
  * A capture names its audio file when it starts, so the recording's row can
  * name it from the start too (ADR-0543). The microphone device
  * (`microphone.ts`) records with `@epicenter/recorder`: inside the desktop app
- * the shell writes the WAV into the folder from the first sample, and in a
- * browser the page writes it on stop. The fixture device exists for
+ * the shell owns the microphone and writes the WAV into the folder from the
+ * first sample (ADR-0571), and in a browser the page records and writes it on
+ * stop. The fixture device exists for
  * repeatable automation: it writes the same bytes every time on stop and
  * marks the recording `fixture`, so a fixture take is never stored as a
  * microphone take. The workspace decides which device a session uses;
@@ -70,7 +71,7 @@ export type ActiveCapture = {
 
 /** A microphone the person chose by name. Kept on this device, never in the folder. */
 export type MicrophonePreference = {
-	/** The ID the WebView gave it. Capture asks for exactly this one. */
+	/** The ID its platform lists it under: the shell's in Epicenter, the WebView's in a browser. Capture asks for exactly this one. */
 	readonly deviceId: string;
 	/** Its name when it was chosen, shown when it is not connected. */
 	readonly label: string;
@@ -79,8 +80,12 @@ export type MicrophonePreference = {
 export type MicrophoneListing = {
 	/** Inputs that can be chosen by name. Empty until microphone access is allowed. */
 	readonly devices: readonly MicrophonePreference[];
-	/** Inputs exist but the WebView withholds their names until access is allowed. */
-	readonly namesWithheld: boolean;
+	/**
+	 * Inputs exist but a WebView withholds their names until access is
+	 * allowed. Absent where names are never withheld: Epicenter's shell lists
+	 * every input by name, whether or not access was allowed.
+	 */
+	readonly namesWithheld?: boolean;
 };
 
 /** A live reading of one microphone that records, sends, and saves nothing. */
@@ -89,6 +94,11 @@ export type MicrophoneMeter = {
 	readonly label: string;
 	/** How loud the input is now, from 0 to 1. */
 	level(): number;
+	/**
+	 * Hear that the microphone stopped on its own, such as when it was
+	 * unplugged or access was withdrawn, and why. Returns the unsubscribe.
+	 */
+	onEnded(listener: (error: CaptureError) => void): () => void;
 	/** Release the microphone. */
 	stop(): void;
 };
@@ -96,22 +106,29 @@ export type MicrophoneMeter = {
 /** The real inputs behind a capture device. A fixture device has none. */
 export type MicrophoneInputs = {
 	/**
-	 * The inputs the WebView lists now. This never asks for access: without
-	 * it the WebView lists nothing by name.
+	 * The inputs connected now. This never asks for access: without it a
+	 * WebView lists nothing by name.
 	 */
 	list(): Promise<Result<MicrophoneListing, CaptureError>>;
 	/**
 	 * Ask for microphone access so inputs are listed by name. This opens the
 	 * system default microphone and releases it at once; nothing is recorded.
+	 * Only a WebView has it: in Epicenter the shell asks for access itself
+	 * before it opens a microphone, and lists names without it.
 	 */
-	allow(signal?: AbortSignal): Promise<Result<undefined, CaptureError>>;
+	allow?(signal?: AbortSignal): Promise<Result<undefined, CaptureError>>;
+	/**
+	 * Open the system's microphone privacy settings, where access that was
+	 * denied is allowed again. Absent where the page cannot open them.
+	 */
+	openSettings?(): Promise<Result<undefined, CaptureError>>;
 	/** Open `input`, or the system default, for a level reading only. */
 	meter(
 		input: MicrophonePreference | undefined,
 		signal?: AbortSignal,
 	): Promise<Result<MicrophoneMeter, CaptureError>>;
 	/**
-	 * Hear that inputs were connected or removed. Not every WebView says so,
+	 * Hear that inputs were connected or removed. Not every platform says so,
 	 * which is why listing again is always offered.
 	 */
 	onChange(listener: () => void): () => void;

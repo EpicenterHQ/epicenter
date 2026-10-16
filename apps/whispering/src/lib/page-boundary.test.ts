@@ -55,7 +55,7 @@ function importers(matches: (specifier: string) => boolean) {
 	return found;
 }
 
-test('the page imports no Node or Bun module, and Tauri only for the Channel a response streams on', () => {
+test('the page imports no Node or Bun module, and Tauri only for a response’s Channel and the opener', () => {
 	expect(
 		importers(
 			(specifier) =>
@@ -65,13 +65,15 @@ test('the page imports no Node or Bun module, and Tauri only for the Channel a r
 				specifier === '@epicenter/folder/bun',
 		),
 	).toEqual([]);
-	// The one Tauri API the page names: the desktop connections open the
-	// `Channel` an AI response streams back on. Folder commands are the folder
+	// The Tauri APIs the page names: the desktop connections open the
+	// `Channel` an AI response streams back on, and the desktop microphone
+	// opens System Settings through the opener. Folder commands are the folder
 	// adapter's, and Epicenter's own commands go through its generated
 	// bindings (below).
 	expect(
 		importers((specifier) => specifier.startsWith('@tauri-apps/')),
 	).toEqual([
+		'lib/workspace/desktop-microphone.ts imports @tauri-apps/plugin-opener',
 		'lib/workspace/desktop-connections.ts imports @tauri-apps/api/core',
 	]);
 });
@@ -102,6 +104,28 @@ test('a folder is opened only by the two workspaces, each through its own entry'
 	expect(
 		readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8'),
 	).toContain('find: /^@epicenter\\/folder$/');
+});
+
+test('a microphone is reached only through its platform’s recorder entry', () => {
+	// In Epicenter Rust owns the microphone (ADR-0571): only the desktop
+	// workspace's microphone reaches the shell's recorder, and only the
+	// WebView microphone reaches the browser's.
+	expect(
+		importers((specifier) => specifier === '@epicenter/recorder/tauri'),
+	).toEqual([
+		'lib/workspace/desktop-microphone.ts imports @epicenter/recorder/tauri',
+	]);
+	expect(
+		importers((specifier) => specifier === '@epicenter/recorder/browser'),
+	).toEqual(['lib/webview-microphone.ts imports @epicenter/recorder/browser']);
+	expect(callers('createWebViewMicrophone')).toEqual([
+		'lib/workspace/browser.ts',
+	]);
+	// Shared code names the bare specifier, which each build points at its
+	// own entry; `platform-selection.test.ts` reads what each build pulls in.
+	expect(
+		readFileSync(new URL('../../vite.config.ts', import.meta.url), 'utf8'),
+	).toContain('find: /^@epicenter\\/recorder$/');
 });
 
 test('the build picks the workspace: nothing imports either one but through the seam', () => {

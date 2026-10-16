@@ -1,7 +1,7 @@
 /**
- * Microphone tests
+ * WebView microphone tests
  *
- * Drives the real microphone device over a scripted WebView: `getUserMedia`,
+ * Drives the browser's microphone device over a scripted WebView: `getUserMedia`,
  * `enumerateDevices`, a recorder, and an audio graph that count what was
  * opened and released. Recording goes through `@epicenter/recorder`'s browser
  * recorder over the same WebView. No hardware is involved, so these establish
@@ -29,9 +29,9 @@ import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { CaptureDevice, CaptureStart } from './capture.js';
 import {
-	createMicrophoneDevice,
+	createWebViewMicrophone,
 	type MicrophoneEnvironment,
-} from './microphone.js';
+} from './webview-microphone.js';
 import { deferred } from './workspace.test-support.js';
 
 const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
@@ -57,11 +57,13 @@ const recorderOver = (
 
 const named = (name: string) => Object.assign(new Error(name), { name });
 
-/** The real inputs of a microphone device, which always has them. */
+/** The real inputs of a WebView microphone, which can always ask for access. */
 function inputsOf(device: CaptureDevice) {
-	if (device.inputs === undefined)
-		throw new Error('A microphone device has inputs');
-	return device.inputs;
+	const inputs = device.inputs;
+	if (inputs?.allow === undefined)
+		throw new Error('A WebView microphone has inputs it can allow');
+	const allow = inputs.allow.bind(inputs);
+	return { ...inputs, allow };
 }
 
 type FakeStream = { readonly deviceId: string; stopped: boolean };
@@ -179,7 +181,7 @@ function webView({
 
 test('a chosen microphone is asked for by its exact ID, and the system default only when none is chosen', async () => {
 	const view = webView();
-	const device = createMicrophoneDevice(view.environment);
+	const device = createWebViewMicrophone(view.environment);
 
 	await expectOk(await device.start({ ...INTO, input: USB })).cancel();
 	await expectOk(await device.start(INTO)).cancel();
@@ -198,7 +200,7 @@ test('a chosen microphone that is not there refuses after one request, and no ot
 				throw named(refusal);
 			},
 		});
-		const device = createMicrophoneDevice(view.environment);
+		const device = createWebViewMicrophone(view.environment);
 
 		const error = expectErr(await device.start({ ...INTO, input: USB }));
 
@@ -214,7 +216,7 @@ test('a chosen microphone that is not there refuses after one request, and no ot
 test('a stream that is not the chosen microphone is released and refused', async () => {
 	// A WebView that answers an exact request with some other input.
 	const view = webView({ open: async () => 'built-in-id' });
-	const device = createMicrophoneDevice(view.environment);
+	const device = createWebViewMicrophone(view.environment);
 
 	expect(expectErr(await device.start({ ...INTO, input: USB })).name).toBe(
 		'InputUnavailable',
@@ -241,7 +243,7 @@ test('refused access and a missing default microphone are reported as themselves
 				throw named(thrown);
 			},
 		});
-		const device = createMicrophoneDevice(view.environment);
+		const device = createWebViewMicrophone(view.environment);
 		const inputs = inputsOf(device);
 
 		expect(expectErr(await device.start(INTO)).name).toBe(expected);
@@ -252,7 +254,7 @@ test('refused access and a missing default microphone are reported as themselves
 });
 
 test('a window with no microphone access says so for recording, listing, enabling, and testing', async () => {
-	const device = createMicrophoneDevice({
+	const device = createWebViewMicrophone({
 		mediaDevices: undefined,
 		createLevelContext: undefined,
 		record: recorderOver({ mediaDevices: undefined, Recorder: undefined }),
@@ -269,7 +271,7 @@ test('a window with no microphone access says so for recording, listing, enablin
 
 test('listing opens no microphone, lists audio inputs by name, and leaves out the system aliases', async () => {
 	const view = webView();
-	const inputs = inputsOf(createMicrophoneDevice(view.environment));
+	const inputs = inputsOf(createWebViewMicrophone(view.environment));
 
 	expect(expectOk(await inputs.list())).toEqual({
 		devices: [{ deviceId: 'built-in-id', label: 'Built-in Microphone' }, USB],
@@ -290,14 +292,14 @@ test('before access is allowed, withheld names are reported and nothing is liste
 
 	expect(
 		expectOk(
-			await inputsOf(createMicrophoneDevice(withheld.environment)).list(),
+			await inputsOf(createWebViewMicrophone(withheld.environment)).list(),
 		),
 	).toEqual({
 		devices: [],
 		namesWithheld: true,
 	});
 	expect(
-		expectOk(await inputsOf(createMicrophoneDevice(none.environment)).list()),
+		expectOk(await inputsOf(createWebViewMicrophone(none.environment)).list()),
 	).toEqual({
 		devices: [],
 		namesWithheld: false,
@@ -307,7 +309,7 @@ test('before access is allowed, withheld names are reported and nothing is liste
 
 test('enabling opens the default microphone once and releases it at once', async () => {
 	const view = webView();
-	const inputs = inputsOf(createMicrophoneDevice(view.environment));
+	const inputs = inputsOf(createWebViewMicrophone(view.environment));
 
 	expectOk(await inputs.allow());
 
@@ -317,7 +319,7 @@ test('enabling opens the default microphone once and releases it at once', async
 
 test('a test reads a level from the chosen microphone and releases the stream and audio graph when stopped', async () => {
 	const view = webView();
-	const inputs = inputsOf(createMicrophoneDevice(view.environment));
+	const inputs = inputsOf(createWebViewMicrophone(view.environment));
 
 	const meter = expectOk(await inputs.meter(USB));
 
@@ -339,7 +341,7 @@ test('a microphone that opens after its request was withdrawn is released, for a
 	for (const request of ['meter', 'start', 'allow'] as const) {
 		const answer = deferred<string>();
 		const view = webView({ open: () => answer.promise });
-		const device = createMicrophoneDevice(view.environment);
+		const device = createWebViewMicrophone(view.environment);
 		const inputs = inputsOf(device);
 		const withdrawn = new AbortController();
 
@@ -360,7 +362,7 @@ test('a microphone that opens after its request was withdrawn is released, for a
 
 test('a request withdrawn before it is made opens nothing', async () => {
 	const view = webView();
-	const device = createMicrophoneDevice(view.environment);
+	const device = createWebViewMicrophone(view.environment);
 	const withdrawn = new AbortController();
 	withdrawn.abort();
 
@@ -372,7 +374,7 @@ test('a request withdrawn before it is made opens nothing', async () => {
 
 test('connected and removed inputs are heard until the listener is removed', async () => {
 	const view = webView();
-	const inputs = inputsOf(createMicrophoneDevice(view.environment));
+	const inputs = inputsOf(createWebViewMicrophone(view.environment));
 	let heard = 0;
 
 	const stop = inputs.onChange(() => (heard += 1));

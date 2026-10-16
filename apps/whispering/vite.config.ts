@@ -39,6 +39,14 @@ export default defineConfig(
 						? '@epicenter/folder/tauri'
 						: '@epicenter/folder/browser',
 				},
+				// The same for the recorder: the host build records through the
+				// shell's recorder plugin and carries no WebView microphone code.
+				{
+					find: /^@epicenter\/recorder$/,
+					replacement: isEpicenterHost
+						? '@epicenter/recorder/tauri'
+						: '@epicenter/recorder/browser',
+				},
 				// The package directory, so both `buffer` and `buffer/` resolve.
 				{ find: 'buffer', replacement: dirname(fromFolder.resolve('buffer/')) },
 			],
