@@ -5,5 +5,6 @@ export {
 	type ConnectionKeys,
 	connectionId,
 	KIND_LABELS,
+	keychainKeys,
 	keyStateKey,
 } from './connection-keys.js';
