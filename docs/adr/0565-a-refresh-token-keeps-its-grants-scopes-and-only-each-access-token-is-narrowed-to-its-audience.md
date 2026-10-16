@@ -3,9 +3,9 @@
 - **Status:** Proposed
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at "A refresh family is one grant's lineage": a refresh family is every grant of one client for one person, a replay after 60 seconds ends all of them, and the desktop and the CLI are separate families; the vendored patch and "A refresh row without a lineage is an error" are withdrawn; at the consequences "No other installation is affected", which becomes "every installation of that client signs in again", and "The patch is re-verified on every Better Auth upgrade", which is withdrawn; at the resource table, where `api` and `git` accept every first-party scope and only `mcp` limits scopes; at the Unbuilt item "sending the lineage patch upstream", which is withdrawn; at the `so.epicenter.cli` row, whose grant includes `openid`; and at "Its issuer and resources are its own origin", which is `<origin>`, `<origin>/git`, and `<origin>/mcp`, resolved by `resolveOAuthAudiences`.
-- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at "`epicenter auth login` sets `credential.https://git.epicenter.so.helper=!epicenter auth git-credential`": the key is `credential.<the deployment's Git audience>.helper`, its value is `!'<absolute path to the CLI>' auth git-credential`, and an empty value is written before it.
+- **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at "`epicenter auth login` sets `credential.https://git.epicenter.so.helper=!epicenter auth git-credential`": the key is `credential.<the deployment's Git audience>.helper`, its value is `!'<absolute path to the CLI>' auth git-credential`, and an empty value is written before it; and at "When the CLI spawns `git`, it passes the helper on that one command", which is refused: every `git` the CLI starts gets the CLI's own access token as a header, minted in the CLI's process, and the helper serves only the person's own `git`.
 - **Relates:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) (the Git audience a folder syncs to), [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) (the deployment names the authority), [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) (a window's children end with the window).
-- **Unbuilt:** moving from Better Auth `1.8.0-beta.0` to 1.8 stable before the first deploy; `epicenter auth status` reporting a grant as signed in after its sign-in has ended (a refresh answered `invalid_grant` twice) until `epicenter auth logout`; a development build's auth lock files, which land in the release data directory because Rust does not pass `EPICENTER_DATA_DIR` to the auth commands.
+- **Unbuilt:** moving from Better Auth `1.8.0-beta.0` to 1.8 stable before the first deploy; `epicenter auth status` reporting a grant as signed in after its sign-in has ended (a refresh answered `invalid_grant` twice) until `epicenter auth logout`.
 
 ## Context
 
@@ -38,7 +38,7 @@ the patch could not be dropped on 1.7.
 **Every first-party resource allows the same scopes, so a refresh never
 narrows the grant, and each access token stays bound to its audience.** The
 `api` and `git` resources allow every scope Epicenter grants (`openid`,
-`offline_access`, `profile`, `ai`, `folders:read`, `folders:write`); the
+`offline_access`, `profile`, `email`, `ai`, `folders:read`, `folders:write`); the
 intersection a refresh computes is then the grant itself. The audience, not
 the scope list, keeps a Git token out of inference: the resource query checks
 `t.resources ? $2` before `t.scopes ? $3`. `mcp` keeps `folders:read` and
@@ -86,8 +86,10 @@ and fits its own behavior to the library's:
   `apps/epicenter/src-tauri/src/cli.rs`), both when a window's page ends
   (ADR-0559's rule stands: a window's children end with the window) and when
   a run is dropped or its listener stops. A history command still kills its
-  own `git` children at once, so a credential helper refreshing under one of
-  them is not covered.
+  own `git` children at once, which is why no refresh runs under one of
+  them: the CLI mints the token for every `git` it starts in its own
+  process, and hands it to that `git` as a header (`hostedCredentials` in
+  `packages/cli/src/repository-commands.ts`).
 - **A Git token lists `ai` and `profile`, and an API token lists
   `folders:write`.** Both are inert at their audience: inference requires the
   `api` audience, and no API route checks `folders:write`. Least privilege
@@ -99,6 +101,10 @@ and fits its own behavior to the library's:
   `0006_better_auth_1_8`). The same migration gives `api` and `git` every
   first-party scope, by the resources `so.epicenter.cli` links to, so it
   covers every deployment's rows.
+- **The profile is Better Auth's userinfo.** `getProfile` in every client
+  reads `/auth/oauth2/userinfo`, which answers `sub` for any token with
+  `openid` and the email only with `email`; `/api/session` is deleted.
+  Browser builds may ask for `email`, and Vocab, which shows it, does.
 - **`so.epicenter.cli` includes `openid`.** Its registration in
   `apps/api/worker/oauth-registrations.ts` lists `openid` beside
   `offline_access`, `profile`, `ai`, `folders:read`, and `folders:write`, and
@@ -160,6 +166,15 @@ and fits its own behavior to the library's:
   lifetime is per resource, and browser apps use the `api` audience, so every
   browser app would redirect every hour and lose a recording held only in
   memory, which ADR-0549 refused.
+- **The helper on every `git` the CLI starts, as ADR-0558 planned
+  (`-c credential.<git audience>.helper=!'<the CLI>' auth git-credential`).**
+  The refresh would then run in a grandchild of `git`, inside the process
+  group a history command ends at once when its page reloads, with no grace.
+  A refresh cut off after the server rotated the token is a replay, which
+  under this record signs out every installation of the client. Minting the
+  token first, so the helper only read the cache, would keep the in-process
+  refresh anyway and add a process to each transfer. The CLI keeps minting
+  in-process and sending the header.
 - **A plain `credential.<git audience>.helper` entry with no reset.** Git calls
   `store` on every helper in its list after a successful request, so the token
   would be copied into whatever broader helper the machine configures.

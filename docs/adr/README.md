@@ -790,4 +790,4 @@ When you add an ADR, add its row here.
 | [0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) | A hidden app window keeps running until Epicenter quits | Accepted |
 | [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Accepted (amends 0557) |
 | [0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) | A refresh token keeps its grant's scopes, and only each access token is narrowed to its audience | Proposed (amends 0549 and 0558) |
-| [0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-an-opt-in-merge-driver.md) | Plain git merges an Epicenter folder's files by kind through an opt-in merge driver | Proposed (amends 0558) |
+| [0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md) | Plain git merges an Epicenter folder's files by kind through a merge driver every connect and clone configures | Proposed (amends 0558) |

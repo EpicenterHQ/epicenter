@@ -19,7 +19,7 @@ const ADR_PATHS: Record<string, string> = {
 	'ADR-0559':
 		'docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md',
 	'ADR-0566':
-		'docs/adr/0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-an-opt-in-merge-driver.md',
+		'docs/adr/0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md',
 };
 
 /** `ADR-0558 (docs/adr/0558-….md)`, where a record lives in the repository. */

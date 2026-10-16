@@ -1,10 +1,10 @@
-# 0566. Plain git merges an Epicenter folder's files by kind through an opt-in merge driver
+# 0566. Plain git merges an Epicenter folder's files by kind through a merge driver every connect and clone configures
 
 - **Status:** Proposed
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at its command list: it adds the top-level folder command `epicenter merge-driver <dir>`, which Git also runs with four arguments; and at `install-command`, which always remakes `<dataDir>/bin/epicenter` at the running binary and links `/usr/local/bin/epicenter` (`~/.local/bin/epicenter` on Linux) to that link rather than into the bundle.
 - **Relates:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) (all desktop Git runs in the CLI; Sync never runs `git merge`), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (`mergeFile`, the one merge by kind).
-- **Built:** `epicenter merge-driver` (`packages/cli/src/merge-driver.ts`) over `gitMergeKind` and `mergeForGit` (`packages/folder/src/merge-driver.ts`) and `markConflicts` (`packages/folder/src/git/merge-lines.ts`); the configuration written by `epicenter merge-driver <dir>` and by `epicenter sync <dir> --remote <url>`; the per-user link `<dataDir>/bin/epicenter` (`gitCommand` and `install-command --user-only` in `packages/cli/src/install-command.ts`, and the launch call `spawn_command_link_refresh` in `apps/epicenter/src-tauri/src/cli.rs`).
+- **Built:** `epicenter merge-driver` (`packages/cli/src/merge-driver.ts`) over `gitMergeKind` and `mergeForGit` (`packages/folder/src/merge-driver.ts`) and `markConflicts` (`packages/folder/src/git/merge-lines.ts`); the configuration written by `epicenter merge-driver <dir>`, by `epicenter sync <dir>` with `--remote <url>` or `--to <namespace>/<name>`, and by `epicenter clone`; the per-user link `<dataDir>/bin/epicenter` (`gitCommand` and `install-command --user-only` in `packages/cli/src/install-command.ts`, and the launch call `spawn_command_link_refresh` in `apps/epicenter/src-tauri/src/cli.rs`).
 - **Unbuilt:** an `NSIS_HOOK_PREUNINSTALL` that removes the credential helper and the driver on Windows uninstall; `install-command` on Windows; Settings showing that a launch under App Translocation left the link alone, which today only the log records.
 
 ## Context
@@ -128,10 +128,13 @@ version that is not text (a binary file stays ours, as a conflict), and any
 failure of the driver's own. The driver's exits are 0 and 1 only, and it
 never reaches the network.
 
-**The CLI writes the configuration** when a person runs
-`epicenter merge-driver <dir>`, and after a sync that connects a remote
-(`sync --remote`, which the desktop app runs). A failure there is a line on
-stderr, not a failed sync, since Git's text merge loses nothing.
+**Connecting configures the driver; nobody opts in.** The CLI writes the
+configuration after every sync that connects a remote (`sync --remote`,
+which the desktop app runs, and `sync --to`) and after every `epicenter
+clone`, and when a person runs `epicenter merge-driver <dir>`. A repository
+Epicenter neither connected nor cloned keeps Git's text merge until that
+command runs. A failure to configure is a line on stderr, not a failed sync
+or clone, since Git's text merge loses nothing.
 
 ## Consequences
 
@@ -164,6 +167,11 @@ stderr, not a failed sync, since Git's text merge loses nothing.
 
 ## Considered alternatives
 
+- **Configuring only when a person asks, with `epicenter merge-driver
+  <dir>` or a flag.** Every folder Epicenter connects or clones would merge
+  as text under `git pull` until its owner learned of the command, and the
+  configuration lives in the folder's own `.git` and changes nothing
+  outside it, so asking first protects nothing.
 - **`epicenter sync <dir> --merge-driver`.** Configuring would also commit,
   fetch, and push, and fails on a folder with no remote.
 - **A committed `.gitattributes` line.** It cannot define the driver,

@@ -90,7 +90,8 @@ Browser storage and preloaded native serialized storage adapt that port.
 Do not add old-format readers or suppress write failures.
 
 A cached principal can boot local data without network access. Before first
-resource use, `/api/session` must confirm that the credential belongs to it.
+resource use, the profile read (`/auth/oauth2/userinfo`) must confirm that
+the credential belongs to it.
 A rejection preserves local identity and publishes `reauth-required`.
 An unavailable server refuses traffic without deleting identity. A verified
 different principal retires and clears the old attachment.
@@ -169,7 +170,8 @@ implicit same-email linking separately; they have different policy gates.
 Hosted resource routes use `requireBearerPrincipal` with
 `resolveRequestSessionPrincipal`. The resolver calls Better Auth with only
 the explicit bearer and live session lookup. No cookie fallback or JWT verifier
-remains. `/api/session` is the resource identity projection, not another session engine.
+remains. The profile is Better Auth's `/auth/oauth2/userinfo`; Epicenter
+serves no profile route of its own.
 
 Unknown, expired, or revoked credentials are 401. Database and infrastructure
 failures are retryable 503.
