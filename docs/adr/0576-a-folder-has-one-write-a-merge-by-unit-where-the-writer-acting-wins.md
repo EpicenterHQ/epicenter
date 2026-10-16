@@ -7,7 +7,7 @@
 - **Amends:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md), replacing `mergeFile`'s settle and pick with one merge that returns `{ content, overridden }`, adding a union for insertions at one place, and giving Save and Sync the same tiebreaker. That every write merges by the file's kind remains.
 - **Relates:** [ADR-0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), [ADR-0566](0566-plain-git-merges-an-epicenter-folders-files-by-kind-through-a-merge-driver-every-connect-and-clone-configures.md), [ADR-0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md)
 - **Replaces, as Proposed records:** ADR-0514 and ADR-0516 (Sync's captured attempts, choices, and review) and ADR-0522 (settings as `kv.json` keys). Each carries a note pointing here and is deleted when this is built.
-- **Unbuilt:** Sync and the merge driver on `merge`; the `settings` table and deleting `kv.json`'s machinery.
+- **Unbuilt:** Sync's merge commit, journal, and trailer on `merge`, and the merge driver on it; the `settings` table and deleting `kv.json`'s machinery.
 
 ## Context
 
@@ -145,41 +145,51 @@ A delete is never named `remove`.
 **What writes a folder:** a click (`set`), a typed body (the body editor), a
 create, a delete, a Sync, and `git pull` through the merge driver.
 
-**Sync never stops for a person.** Save and Sync merge the same units with the
-same tiebreaker: the device syncing is the writer acting, and its side wins
-every unit both changed. The merge commit's message lists each unit it
-overrode, and the losing side stays reachable as the merge's other parent.
-Sync publishes each changed file with the same `merge` and `put`, on every
-host. The device's side of that publish is its file as it is at the put, not
-the merge Sync computed, so text typed while Sync runs, which no commit
-holds, wins over what arrived. A delete wins over an edit the deleting side
-never saw; the edit stays in the other parent, and the merge commit lists it
-as overridden.
+**Sync never stops for a person, and the last device to sync wins.** Sync
+makes one merge commit, computed by Epicenter on every host through the Git
+object port (read blobs and trees; write blobs, trees, and commits;
+compare-and-swap a ref; fetch; push), with no `git merge-tree` and no rebase:
 
-**Epicenter owns how a file merges; Git owns how histories merge.** There is
-one merge driver, `epicenter merge-driver` (`merge-driver.ts`), which is this
-merge exposed to Git, in two modes. Under Epicenter's Sync
-(`EPICENTER_SYNC=1`), the writer acting wins competing units, and the driver
-writes the units it overrode to a file Sync names, for the merge commit's
-message. Run by hand, it keeps Git's conflicts, below. The desktop's Sync
-merges histories with `git merge-tree --write-tree` under Sync's mode, which
-writes no working file; the browser's with isomorphic-git's `merge` given the
-same merge as its driver. Git's merge reports some conflicts outside any one file's content, without
-calling the driver, and Sync settles each without stopping, listing what lost
-as overridden:
+1. It records saved files in a checkpoint commit (ADR-0529), so the local
+   head is `L`, and fetches the remote head `R`.
+2. When `R` descends from `L`, it fast-forwards. When `L` descends from `R`,
+   it pushes. Otherwise the base `B` is the merge base of `L` and `R`. Where
+   hand-run merges left several, `B` is the one with the newest committer
+   time, and on a tie the smallest object ID, so every host picks the same.
+3. Each path that changed between `B` and either head merges once, net:
+   `merge(kind, { base: B, ours: L, theirs: R })`, with this device as the
+   writer acting. A delete beats an edit it never saw. A path deleted on one
+   side and created on the other with the content the deleted path had at
+   `B` is a rename: the created path takes `merge(base: P at B, ours, theirs)`
+   of both sides' versions. A file against a directory at one path keeps the
+   directory and the file beside it as `<path>~<side>`, to repair.
+4. The tree becomes a commit with the parents `[L, R]`. Its message lists one
+   `Overrode:` trailer per unit this device's side won or lost: the path, the
+   unit (`field`, `setting`, `lines` with its part, line, and count, or
+   `file`), and the losing parent's object ID, so the lost value can be
+   restored. Every version a merge overrode stays reachable as a parent.
+5. Before publishing, Sync writes a journal under `.git/epicenter` naming `L`
+   and the merge commit. Each changed file is then published with `merge` and
+   `put`: `merge(kind, { base: L, ours: liveFile, theirs: merged })`, put
+   guarded by the live file's hash and done again when it is stale, so text
+   typed while Sync runs, which no commit holds, stands. Then the branch moves
+   by compare-and-swap, it pushes guarded by the remote still being `R`, and
+   the journal is removed. An open that finds a journal finishes its publish,
+   from `L`, before any checkpoint, so a crash halfway does not make arrived
+   values look like this device's edits.
+6. A push that lost a race discards the unpushed merge commit, fetches, and
+   merges again from `L` against the new `R`, never merging its own merge, a
+   bounded number of times, then `KeptChanging`. So history Sync makes has
+   one merge base, and no criss-cross.
 
-| Git's conflict | Sync keeps |
-| --- | --- |
-| a modify against a delete, or a rename against a delete | no file: the delete beats an edit it never saw |
-| one file renamed to two names | the device's name: the writer acting |
-| a file against a directory at one path | the directory, and the file beside it under the name Git gives it, to repair |
+"The writer acting" in Sync is the device syncing now, even with an edit a
+week old: the last device to sync wins every unit both changed. Paths the
+opened definition declares local never enter a commit (ADR-0577).
 
-Then each changed file is published by a loop of `merge` and `put` in Sync:
-`merge(kind, { base: committed, ours: liveFile, theirs: merged })`, put
-guarded by the live file's hash and done again when it is stale. The device's
-file as it is at the put is the writer acting, so text typed while Sync runs
-stands. The merge commit is made with both parents. Epicenter's own history merge goes, with its merge bases,
-its tree walk, and its refusal of a criss-cross history.
+`epicenter.json` merges as one whole file, never by line. When a row version
+does not read and merges as text, insertions at one place inside its
+frontmatter compete instead of joining, so no key is written twice; its body
+lines still join.
 
 **Plain Git keeps its conflicts.** The merge driver that `git merge`, `git
 pull`, `git rebase`, `git cherry-pick`, and `git stash pop` run uses the same
@@ -188,8 +198,8 @@ at one place are a union. Where both sides replaced one unit differently, it
 writes Git's conflict markers and exits non-zero, so Git stops. In a rebase
 or a stash pop, Git's `ours` is not the local work, so "the writer acting
 wins" would silently drop replayed commits or stashed edits. Only Epicenter's
-Sync, which never runs `git merge`, applies the writer acting. A file with
-markers shows as one to repair.
+Sync, which runs no Git merge, applies the writer acting. A file with markers
+shows as one to repair. The driver has one mode.
 
 **`createBodyEditor` holds `from`, `typed`, and one write.** The first change
 takes the row as the cache holds it as `from`. A save that lands with nothing
@@ -247,6 +257,15 @@ its stems are named by concern, such as `settings/display.md` and
 
 ## Considered alternatives
 
+- **Replaying this device's commits onto the remote** (as `git pull
+  --rebase`). It revives intermediate states a person reverted, can leave a
+  saved version referenced by nothing when the remote deleted its file, and
+  replays the same commits again after a lost push reply. A merge commit
+  keeps `L` as a parent and fast-forwards the next time.
+- **Git's history merge** (`git merge-tree`, isomorphic-git's `merge`).
+  isomorphic-git refuses a history with several merge bases and stops on a
+  modify against a delete without calling a driver, so the two hosts could
+  not share one rule.
 - **Sync asks the person when units compete** (ADR-0514, ADR-0516). It stops
   Sync on a choice, needs a modal and its own state, and Save already settles
   the same overlap without asking.
