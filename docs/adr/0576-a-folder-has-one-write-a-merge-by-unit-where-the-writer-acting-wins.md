@@ -108,7 +108,9 @@ system, where a new file is written to `.git/epicenter/scratch` and moved
 into place; a directory's save lock, which the desktop shell and Bun share
 (ADR-0562), where every write is a scratch file renamed over its path.
 `lock(work)` holds that lock across several changes, which go through the
-same calls without asking for it again. Reads, a folder's capture, a move
+same calls without asking for it again; only storage Sync publishes through
+has it, which a desktop page's is not, since the `epicenter` CLI runs that
+page's Sync. Reads, a folder's capture, a move
 (a create at the destination, then a guarded removal of the source), and
 the file verbs are composed from these.
 - Every failure is one `WriteError`: `KeptChanging`, `InvalidValues`, `Io`,

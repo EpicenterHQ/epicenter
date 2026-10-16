@@ -14,17 +14,20 @@
  * gives them fresh storage in one call.
  */
 import { createHash } from 'node:crypto';
-import type { FolderStorage } from './boundary.js';
+import type { LockingStorage } from './boundary.js';
 import type { BrowserFolderOptions } from './contract.js';
 import type { FolderLocation } from './folder.js';
 import type { GitBackend, GitRemote } from './git/backend.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
-import { type MemoryOpfs, memoryOpfs } from './opfs.test-support.js';
+import {
+	type MemoryOpfs,
+	memoryOpfs,
+	presentFolder,
+} from './opfs.test-support.js';
 import {
 	createOpfsStorage,
 	ensureDirectory,
 	type OpfsLocks,
-	presentFolder,
 } from './opfs-store.js';
 import { createWebLocks } from './web-locks.test-support.js';
 
@@ -83,7 +86,7 @@ export function locationOf(id: string): FolderLocation {
 }
 
 export type RawBrowserFolder = {
-	readonly boundary: FolderStorage;
+	readonly boundary: LockingStorage;
 	/** A Git backend on the same storage, with the locks the opener uses. */
 	/** With `remote`, its URL is set in Git configuration first. */
 	backend(options?: {
@@ -153,7 +156,6 @@ export async function rawBrowserFolder({
 			folder: presentFolder(root),
 			locks: testLocks,
 			filesLock,
-			landed: () => {},
 		}),
 		backend: async ({ branch = 'main', remote } = {}) => {
 			const backend = await createStoredGitBackend({

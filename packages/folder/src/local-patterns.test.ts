@@ -14,6 +14,8 @@
  *   the `.gitignore` in place, not without it, not past a person's `!`
  *   exception, and one committed before the rule is untracked, its bytes
  *   kept on disk and out of the pushed tree
+ * - A pattern another device's declaration brings in by Sync reaches
+ *   `.gitignore` with the next publication
  */
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -25,7 +27,12 @@ import {
 	browserStorage,
 	createTestStorage,
 } from './browser-storage.test-support.js';
-import { defineFolder, defineTable, field } from './contract.js';
+import {
+	defineFolder,
+	defineTable,
+	field,
+	formatDeclaration,
+} from './contract.js';
 import { openNativeFolder } from './directory.test-support.js';
 import { FileError } from './errors.js';
 import {
@@ -144,9 +151,27 @@ type Opened = {
 	}>;
 	/** The paths in the remote's `main` tree. */
 	remoteTree(): Promise<string[]>;
+	/** Another device commits `files` and pushes them to the remote. */
+	push(files: Record<string, string>): Promise<void>;
 	/** Sync once, as the person would. */
 	sync(folder: { sync: { run(): Promise<unknown> } }): Promise<void>;
 };
+
+/** A clone of `bare` in `root` that commits and pushes as another device would. */
+function anotherDevice(root: string, bare: string) {
+	const other = join(root, 'other');
+	return async (files: Record<string, string>) => {
+		await rm(other, { recursive: true, force: true });
+		await git(root, 'clone', '--quiet', bare, other);
+		for (const [path, text] of Object.entries(files)) {
+			await mkdir(dirname(join(other, path)), { recursive: true });
+			await writeFile(join(other, path), text);
+			await git(other, 'add', '--force', path);
+		}
+		await git(other, 'commit', '--quiet', '-m', 'Other device');
+		await git(other, 'push', '--quiet', 'origin', 'HEAD:main');
+	};
+}
 
 /** A browser folder over one in-memory store, syncing to a bare remote over HTTP. */
 async function browserFixture(): Promise<Opened> {
@@ -186,6 +211,7 @@ async function browserFixture(): Promise<Opened> {
 			(await git(bare, 'ls-tree', '-r', '--name-only', 'main'))
 				.split('\n')
 				.sort(),
+		push: anotherDevice(root, bare),
 		async sync(folder) {
 			const run = connected
 				? folder.sync.run()
@@ -228,6 +254,7 @@ async function nativeFixture(): Promise<Opened> {
 			(await git(bare, 'ls-tree', '-r', '--name-only', 'main'))
 				.split('\n')
 				.sort(),
+		push: anotherDevice(root, bare),
 		async sync(folder) {
 			expect(expectOk((await folder.sync.run()) as never)).toMatchObject({
 				kind: 'synced',
@@ -297,6 +324,38 @@ for (const [name, fixture] of [
 			expect(await after.read('audio/run.wav')).toBe('RIFF');
 		} finally {
 			await after.folder.close();
+		}
+	});
+
+	test(`${name}: a pattern Sync brings in reaches .gitignore on the next publication`, async () => {
+		const at = await fixture();
+		const first = await at.open();
+		try {
+			await recordTake(first.folder, 'walk');
+			await at.sync(first.folder);
+		} finally {
+			await first.folder.close();
+		}
+		// Another device's declaration keeps drafts local too; nothing it
+		// pushes adds the pattern to `.gitignore`.
+		await at.push({
+			'epicenter.json': formatDeclaration(
+				defineFolder({ tables, local: ['audio/', 'drafts/'] }),
+			),
+		});
+		const second = await at.open();
+		try {
+			await at.sync(second.folder);
+			expect(await second.read('.gitignore')).toBe('audio/\n');
+			// The first write publishes again: `epicenter.json` keeps both
+			// patterns, and `.gitignore` names both.
+			await recordTake(second.folder, 'run');
+			expect(
+				JSON.parse((await second.read('epicenter.json')) ?? '{}').local,
+			).toEqual(['audio/', 'drafts/']);
+			expect(await second.read('.gitignore')).toBe('audio/\ndrafts/\n');
+		} finally {
+			await second.folder.close();
 		}
 	});
 

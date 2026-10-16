@@ -1,8 +1,8 @@
 /**
  * The desktop opener: `grant_directory` hands over the directory, and the
  * folder is read and changed through the shell's commands. They are replaced
- * by stand-ins that reach the disk through `node:fs` and fail as the shell
- * does, with the operating system's message as text.
+ * by the stand-ins in `granted-shell.test-support.ts`, which reach the disk
+ * through `node:fs` and fail as the shell does.
  *
  * Key behaviors:
  * - A granted folder opens over its real directory, and its history runs
@@ -37,122 +37,24 @@ import {
 	git,
 	scratch,
 } from './git-http.test-support.js';
-import type { Expectation } from './native/bindings.gen.js';
-import { mustRow } from './row-write.test-support.js';
 import {
-	answerShellHistory,
-	type ShellHistoryCommand,
-} from './shell-history.test-support.js';
+	createGrantedShell,
+	type GrantedShell,
+} from './granted-shell.test-support.js';
+import { mustRow } from './row-write.test-support.js';
 
-type Call = { cmd: string; args: Record<string, unknown> };
-let grantedRoot: string | undefined;
-let calls: Call[] = [];
 /** The shell's history commands, which run the `epicenter` CLI. */
 const HISTORY_COMMANDS = new Set(['status', 'history', 'save_version', 'sync']);
-let grant: (args: Record<string, unknown>) => unknown = () => {
-	throw new Error('no grant scripted');
-};
-/** Runs after the shell's removal and may lose its reply by throwing. */
-let afterRemove: (path: string) => void = () => {};
-/**
- * Runs before the shell checks a rename's destination or a removal's path:
- * another writer landing there after the page checked it.
- */
-let beforeChange: (path: string) => Promise<void> | void = () => {};
+/** The shell; a test that opens a folder grants it a directory (`grantRoot`). */
+let shell: GrantedShell;
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
-	async invoke(
+	invoke: (
 		cmd: string,
-		body: Record<string, unknown> | Uint8Array = {},
+		body?: Record<string, unknown> | Uint8Array,
 		options?: { headers?: Record<string, string> },
-	) {
-		const name = cmd.replace('plugin:epicenter-folder|', '');
-		// A raw body carries its arguments in percent-encoded headers.
-		const args =
-			body instanceof Uint8Array
-				? {
-						...Object.fromEntries(
-							Object.entries(options?.headers ?? {}).map(([key, value]) => [
-								key,
-								decodeURIComponent(value),
-							]),
-						),
-						bytes: body,
-					}
-				: body;
-		calls.push({ cmd: name, args });
-		if (name === 'grant_directory') return grant(args);
-		// The shell runs one `epicenter` child per history operation; here
-		// the same engine runs in this process.
-		if (HISTORY_COMMANDS.has(name)) {
-			const root = grantedRoot;
-			if (root === undefined)
-				throw { name: 'NotGranted', grant: { name: 'Unavailable' } };
-			return answerShellHistory(root, {
-				command: name,
-				...args,
-			} as unknown as ShellHistoryCommand);
-		}
-		// The shell's reads; here `node:fs` stands in.
-		if (name === 'read_folder_directory')
-			return asShellError(async () =>
-				(
-					await nodeFs.readdir(args.path as string, { withFileTypes: true })
-				).map((entry) => ({ name: entry.name, kind: kindOf(entry) })),
-			);
-		if (name === 'stat_folder_path')
-			return asShellError(async () => {
-				const stats = await nodeFs
-					.lstat(args.path as string)
-					.catch((cause: { code?: string }) => {
-						if (cause.code === 'ENOENT') return undefined;
-						throw cause;
-					});
-				if (stats === undefined) return null;
-				return { kind: kindOf(stats), size: stats.size, mode: null };
-			});
-		if (name === 'read_folder_file')
-			return asShellError(async () => {
-				// The raw response arrives as an `ArrayBuffer`.
-				const bytes = await nodeFs.readFile(args.path as string);
-				return bytes.buffer.slice(
-					bytes.byteOffset,
-					bytes.byteOffset + bytes.byteLength,
-				);
-			});
-		// The shell's own changes; here `node:fs` stands in.
-		if (name === 'write_folder_file') {
-			if (!(args.bytes instanceof Uint8Array))
-				throw 'write_folder_file takes its bytes as a raw body, not JSON';
-			await nodeFs.writeFile(args.path as string, args.bytes, {
-				flag: args['create-new'] === 'true' ? 'wx' : 'w',
-			});
-			return null;
-		}
-		if (name === 'rename_folder_path') {
-			await beforeChange(args.to as string);
-			await check(args.to as string, args.expected as Expectation);
-			await asRefusal(() =>
-				nodeFs.rename(args.from as string, args.to as string),
-			);
-			return null;
-		}
-		if (name === 'remove_folder_path') {
-			await beforeChange(args.path as string);
-			await check(args.path as string, args.expected as Expectation);
-			await asRefusal(() =>
-				nodeFs.rm(args.path as string, { recursive: args.recursive === true }),
-			);
-			afterRemove(args.path as string);
-			return null;
-		}
-		if (name === 'make_folder_directory') {
-			await nodeFs.mkdir(args.path as string, { recursive: true });
-			return null;
-		}
-		throw new Error(`unexpected command ${name}`);
-	},
+	) => shell.invoke(cmd, body, options),
 }));
 
 /** The handlers pages registered for the folder plugin's change event. */
@@ -181,58 +83,6 @@ mock.module('@tauri-apps/api/webviewWindow', () => ({
 	}),
 }));
 
-/** The shell's errors are strings carrying the operating system's message. */
-const asShellError = async <T>(work: () => Promise<T>): Promise<T> => {
-	try {
-		return await work();
-	} catch (cause) {
-		throw String(cause);
-	}
-};
-
-/** A rename's or removal's failure as the shell refuses it. */
-const asRefusal = async <T>(work: () => Promise<T>): Promise<T> => {
-	try {
-		return await work();
-	} catch (cause) {
-		throw { name: 'Failed', message: String(cause) };
-	}
-};
-
-/** The shell's check of what a rename or removal expects at `path`. */
-async function check(path: string, expected: Expectation) {
-	if (expected === 'any') return;
-	const found = await nodeFs.lstat(path).catch(() => undefined);
-	if (expected === 'absent') {
-		if (found !== undefined) throw { name: 'Exists' };
-		return;
-	}
-	if (expected === 'present') {
-		if (found === undefined) throw { name: 'NotFound' };
-		return;
-	}
-	if (!found?.isFile()) throw { name: 'Conflict', actualSha256: null };
-	const actualSha256 = createHash('sha256')
-		.update(await nodeFs.readFile(path))
-		.digest('hex');
-	if (actualSha256 !== expected.sha256)
-		throw { name: 'Conflict', actualSha256 };
-}
-
-/** What an entry is, without following a link, as the shell names it. */
-const kindOf = (entry: {
-	isFile(): boolean;
-	isDirectory(): boolean;
-	isSymbolicLink(): boolean;
-}) =>
-	entry.isSymbolicLink()
-		? 'link'
-		: entry.isFile()
-			? 'file'
-			: entry.isDirectory()
-				? 'directory'
-				: 'other';
-
 const { openDataFolder, openFolder } = await import('./tauri-adapter.js');
 const { defineFolder, defineTable, field } = await import('./contract.js');
 
@@ -258,17 +108,20 @@ afterAll(() => {
 		else process.env[key] = originalEnv[key];
 });
 beforeEach(() => {
-	calls = [];
+	// A shell that has granted nothing yet; a refused grant is scripted on it.
+	shell = createGrantedShell('');
 	listenedTo = [];
-	afterRemove = () => {};
-	beforeChange = () => {};
 });
+
+/** The shell grants `root`. */
+function grantRoot(root: string) {
+	shell = createGrantedShell(root);
+}
 
 /** A granted folder over a new directory. */
 async function granted() {
 	const root = await scratch('tauri-directory-');
-	grantedRoot = root;
-	grant = () => ({ root });
+	grantRoot(root);
 	const folder = expectOk(
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
@@ -277,15 +130,14 @@ async function granted() {
 
 test('a granted folder opens over its real directory', async () => {
 	const root = await scratch('tauri-directory-');
-	grantedRoot = root;
-	grant = () => ({ root });
+	grantRoot(root);
 	const folder = expectOk(
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
 	// The grant comes first; every later call is a read, for the granted
 	// scope. Opening writes nothing and runs no `git`.
-	const commands = () => new Set(calls.map(({ cmd }) => cmd));
-	expect(calls[0]).toEqual({
+	const commands = () => new Set(shell.calls.map(({ cmd }) => cmd));
+	expect(shell.calls[0]).toEqual({
 		cmd: 'grant_directory',
 		args: { scope: 'so.epicenter.todos' },
 	});
@@ -301,7 +153,7 @@ test('a granted folder opens over its real directory', async () => {
 			)
 			.sort(),
 	).toEqual(['grant_directory']);
-	for (const call of calls.slice(1))
+	for (const call of shell.calls.slice(1))
 		expect(call.args.scope).toBe('so.epicenter.todos');
 	// The shell's watcher is how this page hears outside changes.
 	expect(listenedTo).toEqual(['epicenter-folder://changed']);
@@ -349,7 +201,7 @@ test("the shell's change event reaches this folder's listeners: its own scope on
 });
 
 test('a refused grant is the refusal', async () => {
-	grant = () => {
+	shell.control.grant = () => {
 		throw {
 			name: 'WindowNotPermitted',
 			scope: 'so.epicenter.todos',
@@ -360,7 +212,7 @@ test('a refused grant is the refusal', async () => {
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
 	expect(refused.name).toBe('WindowNotPermitted');
-	expect(calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
+	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
 });
 
 test.each<[unknown, OpenFolderError['name']]>([
@@ -373,20 +225,20 @@ test.each<[unknown, OpenFolderError['name']]>([
 	// The reply never arrived.
 	[new Error('the IPC channel closed'), 'Unavailable'],
 ])('a grant refused with %p opens nothing and is %s', async (refusal, name) => {
-	grant = () => {
+	shell.control.grant = () => {
 		throw refusal;
 	};
 	const refused = expectErr(
 		await openFolder({ definition, id: 'so.epicenter.todos' }),
 	);
 	expect(refused.name).toBe(name);
-	expect(calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
+	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
 });
 
 test('a removal whose reply is lost is done once the path is gone', async () => {
 	const { root, folder } = await granted();
 	expectOk(await folder.write('notes/a.md', null, 'a\n'));
-	afterRemove = () => {
+	shell.control.afterChange = () => {
 		throw new Error('the reply was lost');
 	};
 	expectOk(await folder.write('notes/a.md', null, null));
@@ -399,9 +251,9 @@ test('a removal whose reply is lost is done once the path is gone', async () => 
 test('a removal whose reply is lost with the path still there is unconfirmed', async () => {
 	const { root, folder } = await granted();
 	expectOk(await folder.write('notes/a.md', null, 'a\n'));
-	afterRemove = (path) => {
+	shell.control.afterChange = (change) => {
 		// Another program, or the shell's own late removal, has not run yet.
-		writeFileSync(path, 'a\n');
+		writeFileSync(join(root, change.path), 'a\n');
 		throw new Error('the reply was lost');
 	};
 	const refused = expectErr(await folder.write('notes/a.md', null, null));
@@ -417,7 +269,8 @@ test('a row write another window overtakes where it publishes merges with what i
 	// Another window's save lands after this page checked the path and
 	// before the shell publishes this one.
 	const overtaken = new Map<string, string>();
-	beforeChange = (path) => {
+	shell.control.beforeChange = (change) => {
+		const path = join(root, change.path);
 		const theirs = overtaken.get(path);
 		if (theirs === undefined) return;
 		overtaken.delete(path);
@@ -463,7 +316,7 @@ test('a row write another window overtakes where it publishes merges with what i
 	// The page told the shell what each publish expected: the declaration,
 	// published before the first save, is created where none is.
 	expect(
-		calls
+		shell.calls
 			.filter(({ cmd }) => cmd === 'rename_folder_path')
 			.map(({ args }) => args.expected),
 	).toEqual([
@@ -482,15 +335,9 @@ test('a row write another window overtakes where it publishes merges with what i
 /** Hand-formatted, as no publication would write it. */
 const DECLARED = `{"tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
 
-/** The shell grants `root` as `so.epicenter.vault`. */
-function grantRoot(root: string) {
-	grantedRoot = root;
-	grant = () => ({ root });
-}
-
 /** Every path the page asked the shell to write, rename onto, or remove. */
 const changedPaths = () =>
-	calls.flatMap(({ cmd, args }) =>
+	shell.calls.flatMap(({ cmd, args }) =>
 		cmd === 'write_folder_file' || cmd === 'remove_folder_path'
 			? [args.path as string]
 			: cmd === 'rename_folder_path'
@@ -508,12 +355,12 @@ test('a data folder reads with its own epicenter.json, never writes it, and its 
 	);
 	grantRoot(root);
 	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
-	expect(calls[0]).toEqual({
+	expect(shell.calls[0]).toEqual({
 		cmd: 'grant_directory',
 		args: { scope: 'so.epicenter.vault' },
 	});
 	// Opening read the declaration and asked for no history.
-	expect(calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
+	expect(shell.calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
 	expect(changedPaths()).toEqual([]);
 	expect(existsSync(join(root, '.git'))).toBe(false);
 	expect(Object.keys(folder.definition.tables)).toEqual(['todos']);
@@ -572,7 +419,7 @@ test('a data folder whose epicenter.json cannot be used is InvalidDeclaration an
 	const refused = expectErr(await openDataFolder({ id: 'so.epicenter.vault' }));
 	expect(refused.name).toBe('InvalidDeclaration');
 	expect(refused.message).toContain("requires 'title'");
-	expect(calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
+	expect(shell.calls.some(({ cmd }) => HISTORY_COMMANDS.has(cmd))).toBe(false);
 	expect(changedPaths()).toEqual([]);
 });
 
@@ -584,8 +431,7 @@ test('a data folder inside another repository blocks its first commit', async ()
 	await nodeFs.writeFile(join(root, 'epicenter.json'), DECLARED);
 	// The CLI names the folder and the repository by their real paths.
 	const initProblem = `${await nodeFs.realpath(root)} is inside the repository at ${await nodeFs.realpath(outer)}; commit it with that repository's Git`;
-	grantedRoot = root;
-	grant = () => ({ root });
+	grantRoot(root);
 	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
 	expectOk(
 		await folder.tables.todos!.create({
@@ -602,12 +448,12 @@ test('a data folder inside another repository blocks its first commit', async ()
 });
 
 test('a data folder grant refused is the refusal', async () => {
-	grant = () => {
+	shell.control.grant = () => {
 		throw { name: 'UnknownScope', scope: 'so.epicenter.vault' };
 	};
 	const refused = expectErr(await openDataFolder({ id: 'so.epicenter.vault' }));
 	expect(refused.name).toBe('UnknownScope');
-	expect(calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
+	expect(shell.calls.map(({ cmd }) => cmd)).toEqual(['grant_directory']);
 });
 
 test('a data folder opened through a lens reads its fields, keeps the rest, and never writes epicenter.json', async () => {
@@ -734,7 +580,7 @@ test("a page's Sync runs in the CLI, reports what it wrote once, and merges comp
 	heard.length = 0;
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expect(heard).toEqual([['todos/one.md', 'todos/two.md']]);
-	expect(calls.filter(({ cmd }) => cmd === 'sync')).toHaveLength(2);
+	expect(shell.calls.filter(({ cmd }) => cmd === 'sync')).toHaveLength(2);
 
 	await git(native, 'pull', '--quiet', 'origin', 'main');
 	await nodeFs.writeFile(
@@ -761,6 +607,6 @@ test("a page's Sync runs in the CLI, reports what it wrote once, and merges comp
 	expect(await git(bare, 'rev-parse', 'main')).toBe(
 		await git(root, 'rev-parse', 'HEAD'),
 	);
-	expect(calls.filter(({ cmd }) => cmd === 'sync')).toHaveLength(3);
+	expect(shell.calls.filter(({ cmd }) => cmd === 'sync')).toHaveLength(3);
 	await folder.close();
 });

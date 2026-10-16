@@ -4,6 +4,9 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing } from './boundary.js';
 import type { FileError } from './errors.js';
 import type { FolderFiles } from './files.js';
+import { basename, dirname } from './paths.js';
+
+export { ancestors, basename, dirname } from './paths.js';
 
 export type TreeRow = {
 	path: string;
@@ -11,23 +14,8 @@ export type TreeRow = {
 	depth: number;
 } & ({ kind: 'directory'; children: number } | { kind: 'file'; size: number });
 
-export function basename(path: string): string {
-	return path.slice(path.lastIndexOf('/') + 1);
-}
-
-export function dirname(path: string): string {
-	const slash = path.lastIndexOf('/');
-	return slash < 0 ? '' : path.slice(0, slash);
-}
-
 export function joinPath(directory: string, name: string): string {
 	return directory === '' ? name : `${directory}/${name}`;
-}
-
-/** Every proper ancestor directory of a path, outermost first. */
-export function ancestorsOf(path: string): string[] {
-	const parts = path.split('/');
-	return parts.slice(1).map((_, index) => parts.slice(0, index + 1).join('/'));
 }
 
 const byName = (a: string, b: string) =>

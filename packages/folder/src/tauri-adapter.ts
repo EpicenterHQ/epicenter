@@ -89,13 +89,18 @@ async function grant(id: string): Promise<Result<Granted, OpenFolderError>> {
  * not use.
  */
 export const openFolder: OpenFolder = async ({ definition, id }) => {
-	const { error: definitionError } = prepareFolderDefinition(definition);
+	const { data: prepared, error: definitionError } =
+		prepareFolderDefinition(definition);
 	if (definitionError !== null)
 		return OpenFolderError.InvalidDefinition(definitionError);
 	const { data: granted, error } = await grant(id);
 	if (error !== null) return Err(error);
 	const { openGrantedFolder } = await import('./tauri-directory.js');
-	return openGrantedFolder({ definition, id, granted });
+	return openGrantedFolder<typeof definition>({
+		schema: prepared,
+		id,
+		granted,
+	});
 };
 
 /**
@@ -111,16 +116,18 @@ export const openDataFolder: OpenDataFolder = async <
 	id,
 	lens,
 }: OpenDataFolderOptions<TLens>) => {
+	let shape: FolderDefinition | undefined;
 	if (lens !== undefined) {
-		const { error: lensError } = prepareFolderDefinition(lens);
+		const { data: prepared, error: lensError } = prepareFolderDefinition(lens);
 		if (lensError !== null) return OpenFolderError.InvalidDefinition(lensError);
+		shape = prepared;
 	}
 	const { data: granted, error } = await grant(id);
 	if (error !== null) return Err(error);
 	const { openGrantedFolder } = await import('./tauri-directory.js');
 	return openGrantedFolder<TLens, FolderDefinition>({
-		definition: 'declared',
-		lens,
+		schema: 'declared',
+		lens: shape,
 		id,
 		granted,
 	});

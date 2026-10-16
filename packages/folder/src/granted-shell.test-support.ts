@@ -1,5 +1,5 @@
 /**
- * The desktop shell as the page's folder engine reaches it, over a real
+ * The desktop shell as a page's folder engine reaches it, over a real
  * directory, for tests that run the production desktop opener
  * (`@epicenter/folder/tauri`) and everything above it.
  *
@@ -7,31 +7,31 @@
  * reads and changes it through the folder plugin's commands, and its history
  * runs in the `epicenter` CLI through the shell's history commands
  * (ADR-0559). Here `node:fs` stands in for the plugin, and the CLI's engine
- * runs in this process (`answerShellHistory`), failing as each fails: a refused read or staged write is text
- * carrying the reason, and a refused rename or removal is the plugin's
- * `ChangeError`. A rename or removal lands only if its path holds what the
- * page expected, checked when the change is made, as the plugin checks it. A test installs `invoke` with `mock.module`, then opens the folder
- * the way the desktop workspace does.
+ * runs in this process (`answerShellHistory`), failing as each fails: a
+ * refused read or staged write is text carrying the operating system's
+ * reason, and a refused rename or removal is the plugin's `ChangeError`. A
+ * rename or removal lands only if its path holds what the page expected,
+ * checked when the change is made, as the plugin checks it. A test installs
+ * `invoke` with `mock.module`, then opens the folder the way its app does.
  *
  * A data file is published as the engine publishes one: its bytes are staged
  * under `.git/epicenter/scratch` and renamed over the path, or the path is
  * removed. A test decides when such a change is made (`beforeChange`),
- * whether it fails before it lands (`refuseNext`), and whether its reply is
- * lost after it landed (`loseReplies`). Reads of a path can fail
- * (`failReads`). What a handle publishes before its first write, the
- * declaration `epicenter.json` and the `.gitignore` naming the audio, is
- * outside every control. Nothing here is the Rust shell; `packages/tauri-plugin-epicenter-folder`
- * tests what it allows.
+ * whether it fails before it lands (`refuseNext`), what happens once it
+ * landed (`afterChange`), and whether its reply is lost after it landed
+ * (`loseReplies`). Reads of a path can fail (`failReads`). What a handle
+ * publishes before its first write, `epicenter.json` and `.gitignore`, is
+ * outside every control. Nothing here checks paths the way the shell does;
+ * `packages/tauri-plugin-epicenter-folder` tests what it allows.
  */
 import { createHash } from 'node:crypto';
 import * as nodeFs from 'node:fs/promises';
-import { mkdtemp, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	answerShellHistory,
 	type ShellHistoryCommand,
-} from '../../../../../packages/folder/src/shell-history.test-support.js';
+} from './shell-history.test-support.js';
 
 export type ShellCall = { cmd: string; args: Record<string, unknown> };
 
@@ -127,11 +127,12 @@ function kindOf(entry: {
 }
 
 /** A new, empty directory to grant, resolved to the spelling the shell reports. */
-export async function grantedDirectory(): Promise<string> {
-	return realpath(await mkdtemp(join(tmpdir(), 'whispering-granted-')));
+export async function grantedDirectory(prefix = 'granted-'): Promise<string> {
+	return nodeFs.realpath(await nodeFs.mkdtemp(join(tmpdir(), prefix)));
 }
 
-export function createGrantedShell(root: string, scope: string) {
+/** The shell, granting the directory at `root`. */
+export function createGrantedShell(root: string) {
 	const calls: ShellCall[] = [];
 	/** Every data change that landed, in order. */
 	const changes: DataChange[] = [];
@@ -140,8 +141,10 @@ export function createGrantedShell(root: string, scope: string) {
 		grant: (): unknown => ({ root }),
 		/** Runs before each data change is made; await in it to hold the change. */
 		beforeChange: undefined as
-			| ((change: DataChange) => Promise<void>)
+			| ((change: DataChange) => Promise<void> | void)
 			| undefined,
+		/** Runs after each data change landed; throw in it to lose the reply. */
+		afterChange: undefined as ((change: DataChange) => void) | undefined,
 		/** How many upcoming data changes fail before anything lands. */
 		refuseNext: 0,
 		/** How many upcoming data changes land and then lose their reply. */
@@ -175,6 +178,7 @@ export function createGrantedShell(root: string, scope: string) {
 		}
 		await make();
 		changes.push(described);
+		control.afterChange?.(described);
 		if (control.loseReplies > 0) {
 			control.loseReplies -= 1;
 			throw 'the reply never reached the window';
@@ -202,7 +206,7 @@ export function createGrantedShell(root: string, scope: string) {
 						throw cause;
 					});
 				if (stats === undefined) return null;
-				return { kind: kindOf(stats), size: stats.size, mode: null };
+				return { kind: kindOf(stats), size: stats.size, mode: stats.mode };
 			}),
 		read_folder_file: (args) =>
 			asPluginError(async () => {
@@ -273,7 +277,6 @@ export function createGrantedShell(root: string, scope: string) {
 
 	return {
 		root,
-		scope,
 		calls,
 		changes,
 		control,
@@ -290,16 +293,13 @@ export function createGrantedShell(root: string, scope: string) {
 			await nodeFs.mkdir(join(root, path, '..'), { recursive: true });
 			await nodeFs.writeFile(join(root, path), text);
 		},
-		/** In place of Tauri's `invoke`. */
+		/** In place of Tauri's `invoke`, for the folder plugin's commands. */
 		async invoke(
 			cmd: string,
 			body?: Record<string, unknown> | Uint8Array,
 			options?: { headers?: Record<string, string> },
-		) {
+		): Promise<unknown> {
 			const args = shellArguments(body, options);
-			// The recorder plugin beside the folder: no recording was ever cut
-			// off here, so there is nothing to repair.
-			if (cmd === 'plugin:epicenter-recorder|recover') return [];
 			const name = cmd.replace('plugin:epicenter-folder|', '');
 			calls.push({ cmd: name, args });
 			const command = commands[name];

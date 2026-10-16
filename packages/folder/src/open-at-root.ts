@@ -1,7 +1,7 @@
 /**
  * Opening a folder whose directory is already decided, shared by the browser
- * folder (an OPFS directory its ready marker claims) and the directory folder
- * (a real directory the desktop shell granted).
+ * folder (the OPFS directory its ID names) and the directory folder (a real
+ * directory the desktop shell granted, or one a Bun process names).
  *
  * The opener supplies the file storage and the history, whatever orders
  * their changes (Web Locks in the browser, the host's checks and Git's on a
@@ -25,7 +25,6 @@ import {
 	type FolderHistory,
 	type FolderLocation,
 } from './folder.js';
-import { withPublication } from './storage.js';
 
 /**
  * A host's one detector of changes made outside this handle (ADR-0548).
@@ -133,7 +132,7 @@ export async function openAtRoot<
 			prepared,
 			lens: schema === 'declared' ? captured.lens : undefined,
 			publishes: schema !== 'declared',
-			storage: withPublication({ storage: boundary, history: opened }),
+			storage: boundary,
 			history: opened,
 			location: captured.location,
 			hints,

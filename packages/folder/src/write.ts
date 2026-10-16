@@ -119,7 +119,8 @@ export function writeFailure(path: string, error: FileError): WriteError {
  * are owned before anything is awaited. With `joining`, a create onto a
  * file merges with it as an addition on both sides instead: what Sync does
  * when it finishes a publish over a file the person made where the
- * published tree adds one.
+ * published tree adds one, and what a handle does when it publishes its
+ * declaration over the one there.
  *
  * Any `to` is written, whether or not it reads as its kind: a typed view
  * refuses a row it cannot write before it gets here (`InvalidValues`), and
@@ -213,10 +214,12 @@ export async function writeFile(
  * `InvalidPath`.
  *
  * No file at `path`, or one already at `next`, is `InvalidPath`, and nothing
- * changes. `path` changing on every attempt is `KeptChanging`; both paths
- * then hold the file, as they do when the removal fails, which a person can
- * see and repair (ADR-0503). A move onto its own path answers the file as it
- * is. The answer is the file as it stands at `next`.
+ * changes; so is another writer changing `next` after the bytes landed
+ * there, which leaves the file at `path` and `next` as that writer left it.
+ * `path` changing on every attempt is `KeptChanging`; both paths then hold
+ * the file, as they do when the removal fails, which a person can see and
+ * repair (ADR-0503). A move onto its own path answers the file as it is.
+ * The answer is the file as it stands at `next`.
  */
 export async function movePath(
 	storage: Pick<FolderStorage, 'put' | 'read'>,
@@ -275,7 +278,14 @@ export async function movePath(
 			now.data.sha256,
 		);
 		if (carried.error !== null) return Err(writeFailure(next, carried.error));
-		if (carried.data === 'stale') break;
+		// Another writer changed `next` since the bytes landed there: the
+		// file stays at `path`, and `next` is that writer's.
+		if (carried.data === 'stale')
+			return WriteError.InvalidPath({
+				path: next,
+				reason:
+					'another writer changed this path while the file moved here, so the file stays where it was',
+			});
 		moved = now.data;
 	}
 	return WriteError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });

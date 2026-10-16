@@ -64,7 +64,7 @@ import {
 	rowStemOf,
 } from '@epicenter/folder';
 import {
-	ancestorsOf,
+	ancestors,
 	dirname,
 	joinPath,
 	type OpenedFile,
@@ -666,6 +666,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** Each file's text edit, by path: the text it started from and the text typed. */
 	const textEdits = new SvelteMap<string, Typed<TextEditor>>();
 	const writeFile = folder$.write.mutationOptions();
+	const moveFile = folder$.move.mutationOptions();
 
 	/** The text of `path` as the cache holds it, when it opens as text. */
 	function shownText(path: string): string | undefined {
@@ -917,7 +918,7 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 	/** Show `path`: a transformation on its page, anything else beside the recordings. Opening never waits or asks. */
 	function open(path: string) {
 		if (closing) return;
-		for (const ancestor of ancestorsOf(path)) expanded.add(ancestor);
+		for (const ancestor of ancestors(path)) expanded.add(ancestor);
 		if (rowTableOf(path) === TRANSFORMATIONS) selectedTransformationPath = path;
 		else selectedPath = path;
 	}
@@ -1672,10 +1673,12 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		readConnections,
 
 		/**
-		 * Rename a file within its folder. Recording and transformation files
-		 * keep their names, and so does audio a recording names. The edits
-		 * being written land first, and it moves what the last one confirmed;
-		 * edits of the file wait meanwhile.
+		 * Rename a file within its folder, through the folder's one move
+		 * (`folder$.move`): a transcript and any other file alike move as exact
+		 * bytes. Recording and transformation files keep their names, and so
+		 * does audio a recording names. The edits being written land first,
+		 * and it moves what the last one confirmed; edits of the file wait
+		 * meanwhile.
 		 */
 		async rename(path: string, name: string): Promise<string | undefined> {
 			const why = refused();
@@ -1699,9 +1702,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 				scope: { id: path },
 				mutationFn: async (): Promise<Result<unknown, WriteError | string>> => {
 					await writesSettled();
-					if (stem !== undefined && nextStem !== undefined)
-						return tableOf(TRANSCRIPTIONS).rename(stem, nextStem);
-					return folder.move(path, to);
+					return runMutation(queryClient, moveFile, { path, next: to }).then(
+						(written) => Ok(written),
+						(error: WriteError) => Err(error),
+					);
 				},
 				onSuccess: () => moved(path, to),
 				onSettled: () => invalidate(),

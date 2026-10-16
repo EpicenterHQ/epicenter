@@ -42,7 +42,6 @@ import {
 import type { FileContent } from './merge-file.js';
 import { ROW_EXTENSION, rowAddressProblem, rowPath } from './paths.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
-import { readMany } from './storage.js';
 import { movePath, writeFailure, writeFile } from './write.js';
 
 /**
@@ -253,36 +252,22 @@ export function createTable<TFields>(
 			const { data: filenames, error: listError } = await filenamesOf();
 			if (listError !== null) return Err(listError);
 			// Only the exact lowercase extension is a row; `a.MD` is an ordinary file.
-			const rows = filenames.filter((file) => file.endsWith(ROW_EXTENSION));
-			const reads = await readMany(
-				storage,
-				rows.map((file) => `${name}/${file}`),
-			);
-			return Ok(
-				Object.freeze(
-					rows.map((file) => {
-						const path = `${name}/${file}`;
-						const stem = file.slice(0, -ROW_EXTENSION.length);
-						const outcome = reads.get(path);
-						if (outcome === undefined)
-							return Object.freeze({
-								stem,
-								result: FileError.Io({
-									path,
-									operation: 'read',
-									cause: 'The storage response omitted this requested file',
-								}),
-							});
-						return Object.freeze({
-							stem,
-							result:
-								outcome.error !== null
-									? Err(outcome.error)
-									: storedRow(path, outcome.data),
-						});
+			const rows: TableListing<TFields>[number][] = [];
+			for (const file of filenames) {
+				if (!file.endsWith(ROW_EXTENSION)) continue;
+				const path = `${name}/${file}`;
+				const read = await storage.read(path);
+				rows.push(
+					Object.freeze({
+						stem: file.slice(0, -ROW_EXTENSION.length),
+						result:
+							read.error !== null
+								? Err(read.error)
+								: storedRow(path, read.data),
 					}),
-				),
-			);
+				);
+			}
+			return Ok(Object.freeze(rows));
 		},
 		async get(stem) {
 			const { data: path, error: addressError } = rowAddress(stem);

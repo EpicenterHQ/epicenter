@@ -297,7 +297,12 @@ test('Bun publication failure leaves the folder usable and reports the actual de
 		).toMatchObject({
 			name: 'DefinitionPublicationUnconfirmed',
 			path: 'epicenter.json',
-			cause: { name: 'NotAFile', path: 'epicenter.json' },
+			// The write's own refusal, naming what is in the way.
+			cause: {
+				name: 'InvalidPath',
+				path: 'epicenter.json',
+				reason: expect.stringContaining('is a directory'),
+			},
 		});
 	} finally {
 		await folder.close();

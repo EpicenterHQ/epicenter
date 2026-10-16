@@ -77,7 +77,6 @@ export async function readFolder(
 	const storage = createDirectoryStorage({
 		root: resolved,
 		primitives: nodeDirectoryPrimitives,
-		landed: () => {},
 	});
 
 	const { data: definition, error: declarationError } =

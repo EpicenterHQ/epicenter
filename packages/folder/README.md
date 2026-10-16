@@ -106,11 +106,13 @@ plain JSON, so formatting cannot fail; a failed write is logged through
 folder remains usable. A failed attempt can leave discovery missing, stale, or
 uncertain.
 
-Publication reads `epicenter.json` and, when its bytes differ from the
-declaration, writes it once per handle, before that handle's first save: a
-missing file is created, and a present one is saved over as read with
-`{ merge: false }`, so `epicenter.json` is never line-merged. Another
-writer getting there first is read once more (ADR-0551). It never commits or pushes, so the published
+Publication writes `epicenter.json` once per handle, before that handle's
+first save, with the one write, as a create that joins the file there: a
+missing file is created, and a present one takes the declaration whole but
+for `local`, which keeps every pattern the file lists, as `merge` decides
+every write of `epicenter.json` (ADR-0576). A file that already holds the
+result is not written, and another writer getting there first starts the
+write again, as it does any write. It never commits or pushes, so the published
 `epicenter.json` is recorded with the next version. A folder opened only to
 read, or to take a remote's history, is never written by opening.
 
@@ -148,11 +150,13 @@ the rule is removed from the next commit's tree and from the index, as
 one either. A person's `!` exception in `.gitignore` does not override it.
 
 With the declaration, before the same first write, the handle also makes the
-root `.gitignore` name each pattern, so plain `git` and the `epicenter` CLI
-agree. A missing `.gitignore` is created holding the patterns. A present one
-gains each missing pattern as a line at its end, saved over as read with
-`{ merge: false }`; its other lines are never reordered, rewritten, or
-removed, and a file that already names every pattern is not written. A failed
+root `.gitignore` name each pattern `epicenter.json` then lists, its
+definition's and any a Sync brought from another device, so plain `git` and
+the `epicenter` CLI agree. A missing `.gitignore` is created holding the patterns. A present one
+gains each missing pattern as a line at its end, written with the one write
+from the file as it was read, so a line another writer adds meanwhile stays;
+its other lines are never reordered, rewritten, or removed, and a file that
+already names every pattern is not written. A failed
 write is logged, and the engine's rule still holds. The `.gitignore` is source
 like any other file, so it syncs.
 
@@ -390,11 +394,12 @@ IndexedDB is not required and is never read or written. A folder an earlier
 version kept in IndexedDB is not opened, copied, or removed.
 
 Storage is one port on every host (`boundary.ts`): `read`, `list`,
-`children`, `put(path, bytes | null, ifMatch)`, `mkdir`, `rmdir`, and
-`lock`. In a browser (`opfs-store.ts`) every change holds the folder's files
-Web Lock, so the condition of each `put` is checked and the change lands
-without interleaving across tabs, and `lock(work)` holds it across several,
-as Sync's publish does. Reads take no lock. Every change lands whole: a
+`children`, `put(path, bytes | null, ifMatch)`, `mkdir`, and `rmdir`, and
+`lock` where Sync publishes: in a browser, and in Bun, where the `epicenter`
+CLI runs a desktop page's Sync. In a browser (`opfs-store.ts`) every change
+holds the folder's files Web Lock, so the condition of each `put` is checked
+and the change lands without interleaving across tabs, and `lock(work)`
+holds it across several, as Sync's publish does. Reads take no lock. Every change lands whole: a
 replaced file's bytes publish when its stream closes, so a reader sees the
 old bytes or the new ones, and a new file is written to
 `.git/epicenter/scratch` and moved into place, so a crash never leaves it
@@ -1410,13 +1415,13 @@ dangle.
 | `src/contract.ts` | Everything an application names besides the opener. Every entry exports it unchanged. Loads no storage, Git implementation, or runtime module. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts` | The entries. |
 | `src/browser-adapter.ts`, `tauri-adapter.ts` | The adapters the automatic entry loads lazily. The browser adapter maps the folder ID to its OPFS directory; the desktop opener asks the shell for the granted directory and loads `tauri-directory.ts`, `tauri-history.ts`, and the directory folder only then. |
-| `src/folder.ts`, `table.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter. `table.ts` holds the typed row view over the one write. |
+| `src/folder.ts`, `table.ts`, `markdown.ts` | The handle and its interpretation of files, shared by every adapter: the handle's storage (save accounting, the close fence, and publishing the definition before the first change), and `table.ts`, the typed row view over the one write. |
 | `src/changes-browser.ts`, `changes-tauri.ts` | Each host's one detector of changes made outside the handle ([Changes](#changes)). |
 | `src/query.ts` | `@epicenter/folder/query`: `folderOptions`, with `folder$.write` and `folder$.move`. |
 | `src/check-folder.ts`, `query-folder.ts`, `generate-declaration.ts` | What the CLI's `check`, `query`, and `generate` do, exported from the Bun entry. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | `@epicenter/folder/svelte` (`editor.svelte.ts`: `createTextEditor` and `createBodyEditor`), its tests, and the Svelte boundary tests. |
-| `src/boundary.ts`, `storage.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, `lock`), and what folders build on it: save accounting, the close fence, and the reads composed from `read` and `list`. |
+| `src/boundary.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, and `lock` where Sync publishes), and the part of it every host shares: the path rule, owned bytes, the relay to other pages, sorted listings, holding the lock, and staged names. |
 | `src/write.ts`, `hash.ts` | The one write (`writeFile`, `folder.write`) and the one move (`movePath`, `folder.move`), with the guarded put they share; and the SHA-256 that names a file's bytes. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-store.ts`, `directory-primitives.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: its storage over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
@@ -1469,9 +1474,9 @@ what the Web Locks can see.
 
 ## Internal composition
 
-Files and tables use one storage port (`boundary.ts`). Every opener
-wraps it so each `put` that may have landed marks history stale, under the
-save lock too, so a domain method cannot write without that.
+Files and tables use one storage port (`boundary.ts`). The handle wraps
+it once (`handleStorage` in `folder.ts`) so each `put` that may have landed
+marks history stale, so a domain method cannot write without that.
 
 ```ts
 createFiles({ storage })
@@ -1483,9 +1488,9 @@ file's kind, which merges through `merge` (`merge-file.ts`), the merge Sync
 and the merge driver use too; `folder.move` and `table.rename` call
 `movePath`.
 
-Every opener wraps raw storage with publication accounting. Assembly fences
-the resulting storage with the handle's close signal. These wrappers retain
-no file-operation collection.
+The same wrapper fences the storage with the handle's close signal and
+publishes the definition before the first change. It retains no
+file-operation collection.
 
 Git keeps raw storage because Sync's publish updates files and history
 under its own policy, each file under the save lock, and is not recorded

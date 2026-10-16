@@ -2,7 +2,6 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing, FileRead, FolderStorage } from './boundary.js';
 import type { FileError } from './errors.js';
-import { openFile } from './storage.js';
 
 /**
  * Ordinary files at literal folder-relative paths (ADR-0479): what a folder
@@ -37,7 +36,12 @@ export function createFiles({
 			if (error !== null) return Err(error);
 			return Ok(Object.freeze({ bytes: read.bytes, sha256: read.sha256 }));
 		},
-		open: (path) => openFile(storage, path),
+		async open(path) {
+			// Copied into memory, so later changes to the path do not alter it.
+			const { data: read, error } = await storage.read(path);
+			if (error !== null) return Err(error);
+			return Ok(new Blob([read.bytes as Uint8Array<ArrayBuffer>]));
+		},
 		mkdir: (path) => storage.mkdir(path),
 		rmdir: (path) => storage.rmdir(path),
 	} satisfies FolderFiles);

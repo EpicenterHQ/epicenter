@@ -11,13 +11,13 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
+import { SCRATCH_DIRECTORY } from './boundary.js';
 import { defineFolder, defineTable, field } from './contract.js';
+import { prepareFolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
-import {
-	type DirectoryPrimitives,
-	SCRATCH_DIRECTORY,
-} from './directory-primitives.js';
+import type { DirectoryPrimitives } from './directory-primitives.js';
+import { createDirectoryStorage } from './directory-store.js';
 import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
 import {
@@ -142,13 +142,22 @@ function open(
 		await options.beforeGit?.(args);
 		return system(args, runOptions);
 	};
-	return openDirectoryFolder({
-		definition,
+	// This process is the directory's only writer, so Sync's save lock is no
+	// lock at all.
+	const storage = createDirectoryStorage({
+		root,
+		primitives: files,
+		hold: { lock: <T>(work: () => Promise<T>) => work(), held: files },
+	});
+	return openDirectoryFolder<typeof definition>({
+		schema: expectOk(prepareFolderDefinition(definition)),
 		rootPath: root,
 		files,
+		storage,
 		history: nativeHistory({
 			rootPath: root,
 			host: { run, files: primitives },
+			boundary: storage,
 			author,
 		}),
 	});
