@@ -24,6 +24,9 @@
  *   where the remote added a directory stands beside it as `~local`
  * - An empty first-commit ref, and a repository whose creation stopped before
  *   `HEAD`, keep working
+ * - A `local` pattern another device's `epicenter.json` brings in keeps its
+ *   files out of the next commit in the same open folder; an `epicenter.json`
+ *   that does not read refuses the commit
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
@@ -477,3 +480,33 @@ test('a commit whose branch write landed but whose reply was lost is unconfirmed
 	expect(expectOk(await made.history.log(1))).toHaveLength(1);
 	expect((await made.history.commit()).status).toBe('unchanged');
 });
+
+test("a local pattern Sync brings in keeps its files out of this open folder's next commit", async () => {
+	const { folder, bare, push } = await synced({});
+	// Another device's definition keeps drafts on the machine that wrote them.
+	await push({
+		'epicenter.json': formatDeclaration(
+			defineFolder({ kv: {}, tables: {}, local: ['drafts/'] }),
+		),
+	});
+	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+	expectOk(await folder.files.create('drafts/secret.md', 'private'));
+	expectOk(await folder.files.create('notes.md', 'shared'));
+	expect(await changedPaths(folder)).toEqual(['notes.md']);
+	expect((await folder.git.commit()).status).toBe('committed');
+	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+	const tree = await git(bare, 'ls-tree', '-r', '--name-only', 'main');
+	expect(tree.split('\n').sort()).toEqual(['epicenter.json', 'notes.md']);
+
+	// A declaration that does not read leaves nothing known to keep local.
+	await overwriteDeclaration(folder, '{ not json');
+	expect(await folder.git.commit()).toMatchObject({
+		status: 'blocked',
+		reason: expect.stringContaining('epicenter.json'),
+	});
+});
+
+async function overwriteDeclaration(folder: Opened, text: string) {
+	const current = expectOk(await folder.files.read('epicenter.json'));
+	expectOk(await folder.files.save(current, text));
+}

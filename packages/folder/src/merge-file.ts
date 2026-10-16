@@ -170,7 +170,9 @@ export function wholeFile(
 }
 
 /** The patterns a declaration's `local` lists, or `undefined` when it is no declaration. */
-function localPatterns(content: FileContent | null): string[] | undefined {
+export function localPatterns(
+	content: FileContent | null,
+): string[] | undefined {
 	const text = content === null ? undefined : textOf(content);
 	if (text === undefined || text === null) return undefined;
 	try {
