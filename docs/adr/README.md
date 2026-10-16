@@ -803,3 +803,4 @@ When you add an ADR, add its row here.
 | [0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) | A folder has one write: a merge by unit where the writer acting wins | Proposed (supersedes 0554; amends 0548 and 0551) |
 | [0577](0577-audio-stays-on-the-machine-that-recorded-it.md) | Audio stays on the machine that recorded it | Accepted (amends 0543 and 0544; withdraws 0438) |
 | [0578](0578-epicenter-hosts-no-mcp-server.md) | Epicenter hosts no MCP server | Accepted (supersedes 0550; amends 0549 and 0565) |
+| [0579](0579-epicenter-never-deletes-a-model-from-the-shared-hugging-face-cache.md) | Epicenter never deletes a model from the shared Hugging Face cache | Proposed (amends 0539) |

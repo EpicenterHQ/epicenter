@@ -145,13 +145,9 @@ document replacement. Temporary previews and operation-owned access still close.
 **Saved connection catalogs open separately from inference destinations.**
 
 ```ts
-import {
-  openLocalConnectionCatalog,
-  openAccountConnectionCatalog,
-} from '@epicenter/app/ai-connections';
+import { openLocalConnectionCatalog } from '@epicenter/ai/connections';
 
-const localCatalog = await openLocalConnectionCatalog();
-const accountCatalog = await openAccountConnectionCatalog({ account });
+const catalog = await openLocalConnectionCatalog();
 ```
 
 Saved catalogs retain their existing optional bearer API key contract. They do
@@ -160,12 +156,14 @@ Adding those would require a separate stored-secret format, host broker, editing
 semantics, and access-version contract; the endpoint constructor does not expand
 the catalog promise.
 
-Both catalogs persist on this device. Local uses the no-account partition.
-Account requires a captured Account and uses its authority/principal partition.
-Neither takes an app ID or synchronizes through Personal data. Desktop apps
-share their account's catalog within the host profile; browser apps share it
-within the origin/profile. Sign-in does not adopt Local entries, and account
-replacement does not merge keys or retarget an existing catalog.
+The catalog persists in this browser's storage under
+`epicenter/ai/no-account`, and an app's choices under `<appId>/no-account`.
+`no-account` is left from an account split that no app used; the keys keep it
+because browsers hold data under them. The catalog takes no app ID and does not
+synchronize. Browser apps share it within the origin and profile, and sign-in
+neither adopts nor partitions it. Inside Epicenter, connections are rows of
+`so.epicenter` instead
+([ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)).
 
 Catalogs retain `add`, `update`, `remove`, `reorder`, `get`, `getAll`, and
 `subscribe`. Reads and subscriptions expose saved descriptions, without creating

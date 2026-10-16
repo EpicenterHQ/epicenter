@@ -2,14 +2,14 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-18
-- **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) makes Local data, blobs, SQLite, secrets, and recording independent of account identity; account-partitioned AI catalogs remain separate and existing bytes are not migrated.
+- **Amended by:** [ADR-0423](0423-app-resources-open-as-independent-handles.md) makes Local data, blobs, SQLite, secrets, and recording independent of account identity; account-partitioned AI catalogs remained separate until browser AI storage dropped its account split too ([ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md)), and existing bytes are not migrated.
 - **Supersedes:** [ADR-0400](0400-device-sqlite-and-secrets-key-by-application-id.md).
-- **Relates:** [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md): the desktop catalog is shared across an account's apps, not across people.
+- **Relates:** [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md): a browser's AI connections are shared across its apps on that origin and are not split by account.
 
 <!-- doc-path-check: ignore-next-line -->
 - **Implementation checkpoint, 2026-09-18:** Account-scoped local storage and Account, undefined, and union opening overloads are implemented. App/device tests cover namespace isolation, durable reopen, acquisition, draining, and cleanup. The single-SDK report (`docs/reports/20260918-single-sdk-clean-break.md`, deleted; recover via `git log --all --full-history`) and flat-App report (`docs/reports/20260918-flat-app-declaration.md`, deleted; recover via `git log --all --full-history`) record verification and its limits. No existing data, credentials, or settings were migrated or adopted.
 
-- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
+- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs used the fixed `device/no-account` path, which nothing builds now because a blob is a file in its folder ([ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)); copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
 
 ## Context
 

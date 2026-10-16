@@ -131,7 +131,8 @@ Git history before that date.
 
 - **Blob namespace** (ADR-0426): an app owns the blob namespace selected by its
   ID and storage owner. A BlobId identifies an object there; it does
-  not include the namespace or account. Local paths retain `device/no-account`.
+  not include the namespace or account. Nothing builds the local
+  `device/no-account` paths now; a blob is a file in its folder (ADR-0544).
 - **Blob reference** (ADR-0427, ADR-0428): a BlobId plus any placement scope not
   supplied by context. `copyFrom` preserves bytes and creates a fresh destination
   ID. A locator is not an access grant; a playback URL is temporary. Rows do not
