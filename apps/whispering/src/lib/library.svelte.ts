@@ -78,7 +78,7 @@ import {
 	createTextDraftState,
 	type TextDraftState,
 } from '@epicenter/folder/svelte';
-import { type RecordingFolder, recoverRecordings } from '@epicenter/recorder';
+import type { RecordingFolder } from '@epicenter/recorder';
 import {
 	hashKey,
 	type Mutation,
@@ -1347,17 +1347,10 @@ export function createLibrary(workspace: Workspace, queryClient: QueryClient) {
 		/** Read the folder again, as after a read that failed. */
 		readAgain: () => invalidate(),
 		/**
-		 * First read after opening: repair recordings a quit or a crash cut
-		 * off, then the folder, then what this device has set up. Nothing is
-		 * created and nothing is sent.
+		 * First read after opening: the folder, then what this device has set
+		 * up. Nothing is created and nothing is sent.
 		 */
 		async start() {
-			const { error: recoverError } = await recoverRecordings({
-				folder: recordingFolder(),
-				under: RECORDINGS,
-			});
-			if (recoverError !== null)
-				recorderError = `Recordings a quit cut off could not be checked: ${recoverError.message}`;
 			// A read that answers with an error is shown as that listing's
 			// problem; one that throws means the folder cannot be read at all,
 			// and the opening fails with it.

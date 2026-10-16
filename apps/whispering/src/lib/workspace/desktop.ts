@@ -42,10 +42,12 @@ import {
 	connectionsLens,
 } from '@epicenter/ai/connection-table';
 import { openDataFolder, openHandedFolder } from '@epicenter/folder/tauri';
+import { recoverRecordings } from '@epicenter/recorder/tauri';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { audioMimeTypeOf } from '../audio-format.js';
 import {
 	DEFAULT_TRANSCRIPTION_CONNECTION,
+	RECORDINGS,
 	whisperingDefinition,
 } from '../definition.js';
 import { commands } from '../tauri/bindings.gen.js';
@@ -101,6 +103,16 @@ export async function openDesktopWorkspace({
 	if (opened.error !== null)
 		return WorkspaceError.DesktopFolder({ refusal: opened.error });
 	const { folder, id: folderId } = opened.data;
+	// Repair the recordings a quit or a crash cut off, before anything reads
+	// them. A failure keeps the folder open and is shown beside the recorder.
+	const { error: recoverError } = await recoverRecordings({
+		folder: { id: folderId, files: folder.files },
+		under: RECORDINGS,
+	});
+	const captureNotice =
+		recoverError === null
+			? undefined
+			: `Recordings a quit cut off could not be checked: ${recoverError.message}`;
 	const root = folder.location.kind === 'directory' ? folder.location.root : '';
 	const connections = createDesktopConnections({
 		commands: connectionCommands,
@@ -132,7 +144,7 @@ export async function openDesktopWorkspace({
 		location: root,
 		terminal: undefined,
 		capture: createDesktopMicrophone(),
-		captureNotice: undefined,
+		captureNotice,
 		reveal: undefined,
 		async transcribe(request) {
 			let route: Route;

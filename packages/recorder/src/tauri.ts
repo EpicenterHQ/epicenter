@@ -157,7 +157,7 @@ export async function listInputs(): Promise<Result<Input[], RecorderError>> {
 export type Meter = {
 	/** The name of the microphone that is open. */
 	readonly device: string;
-	/** Hear how loud the input is, from 0 to 1, about twenty times a second. Returns the unsubscribe. */
+	/** Hear how loud the input is, from 0 to 1, at most twenty times a second. Returns the unsubscribe. */
 	onLevel(listener: (level: number) => void): () => void;
 	/** Hear that the microphone stopped on its own. Returns the unsubscribe. */
 	onEnded(listener: (reason: RecordingEndedReason) => void): () => void;

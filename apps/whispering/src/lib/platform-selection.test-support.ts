@@ -4,5 +4,5 @@
  * build resolves it to see which leaf and which folder entry it selects.
  */
 export { wellFormed } from '@epicenter/folder';
-export { recoverRecordings } from '@epicenter/recorder';
+export { RecorderError } from '@epicenter/recorder';
 export { openWorkspace } from '#platform/workspace';

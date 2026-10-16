@@ -29,12 +29,12 @@ import {
 	DEFAULT_TRANSCRIPTION_CONNECTION,
 	whisperingDefinition,
 } from '../definition.js';
-import { createWebViewMicrophone } from '../webview-microphone.js';
 import { transcribeOverConnection } from '../transcription.js';
 import {
 	TransformationError,
 	transformOverConnection,
 } from '../transformation.js';
+import { createWebViewMicrophone } from '../webview-microphone.js';
 import { localPreferences } from './microphone-preference.js';
 import {
 	type OpenWorkspace,

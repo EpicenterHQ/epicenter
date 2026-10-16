@@ -7,17 +7,23 @@ voice activity detection.
 
 A recording is a file in its folder
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
-The bare entry chooses where the page runs when it is called, as
-`@epicenter/folder` does:
+Each build imports the entry for where it runs; nothing chooses at run
+time, so the type checker, tests, and every bundler resolve each specifier to
+the same file:
 
 ```txt
-@epicenter/recorder                    chooses by isTauri() when called
+@epicenter/recorder           the recording contract: types and RecorderError, no implementation
   /tauri    → tauri-plugin-epicenter-recorder: the shell writes <path>.wav from the first sample
-  /browser  → MediaRecorder in memory, written to the folder on stop
+  /browser  → MediaRecorder in memory, written to the folder on stop; streams and VAD
+  /vad-assets → the VAD runtime files, for a build's static copy
 ```
 
+An app that runs in both picks the entry through its own build-time seam
+(Whispering's `#platform/workspace`), and its shared code names only the bare
+contract.
+
 ```ts
-import { recoverRecordings, startRecording } from '@epicenter/recorder';
+import { recoverRecordings, startRecording } from '@epicenter/recorder/browser'; // or /tauri
 
 const folder = { id: 'so.epicenter.whispering', files: opened.files };
 await recoverRecordings({ folder, under: 'recordings' });
@@ -60,7 +66,7 @@ import { listInputs, openMeter } from '@epicenter/recorder/tauri';
 
 const { data: inputs } = await listInputs(); // [{ id, name, isDefault }]
 const { data: meter } = await openMeter({ input: { deviceId: inputs[0].id, label: inputs[0].name } });
-meter.onLevel((rms) => bar.set(rms)); // about twenty times a second
+meter.onLevel((rms) => bar.set(rms)); // at most twenty times a second
 await meter.close(); // the shell also closes it when the page reloads or its window closes
 ```
 
@@ -71,8 +77,8 @@ or records, and a denial is `PermissionDenied`.
 
 ## Streams and voice activity detection
 
-These call `getUserMedia`, so they are for a browser page; a desktop build
-imports `@epicenter/recorder/tauri` instead of this entry.
+These call `getUserMedia`, so they are in the browser entry; a desktop build
+imports `@epicenter/recorder/tauri` instead.
 
 ```ts
 import {
@@ -86,7 +92,7 @@ import {
 
 	// Device vocabulary
 	asDeviceIdentifier,
-} from '@epicenter/recorder';
+} from '@epicenter/recorder/browser';
 ```
 
 Types: `DeviceIdentifier`, `DeviceAcquisitionOutcome`,

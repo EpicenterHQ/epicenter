@@ -360,6 +360,36 @@ test('a refusal from the shell is returned, and nothing is opened in its place',
 // The folder is the shell's
 // ============================================================================
 
+test('opening repairs the recordings a quit cut off, and a repair that fails is the capture notice', async () => {
+	setup();
+	const granting = await granted();
+	const invoke = granting.invoke;
+	const asked: Record<string, unknown>[] = [];
+	let refuse = false;
+	granting.invoke = async (cmd, body, options) => {
+		if (cmd !== 'plugin:epicenter-recorder|recover')
+			return invoke(cmd, body, options);
+		asked.push(shellArguments(body, options));
+		if (refuse) throw { name: 'Failed', message: 'the disk is gone' };
+		return [];
+	};
+
+	const repaired = expectOk(
+		await openDesktopWorkspace({ commands: noCommands }),
+	);
+	expect(asked).toEqual([{ scope: repaired.folderId, under: 'recordings' }]);
+	expect(repaired.captureNotice).toBeUndefined();
+	await repaired.close();
+
+	refuse = true;
+	const unrepaired = expectOk(
+		await openDesktopWorkspace({ commands: noCommands }),
+	);
+	expect(unrepaired.captureNotice).toContain('could not be checked');
+	expect(unrepaired.captureNotice).toContain('the disk is gone');
+	await unrepaired.close();
+});
+
 test('saves and history go through the shell', async () => {
 	setup();
 	const { root } = await granted();
