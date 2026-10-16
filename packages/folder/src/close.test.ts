@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { FolderStorage } from './boundary.js';
+import type { LockingStorage } from './boundary.js';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
@@ -117,7 +117,7 @@ async function held() {
 	const order: string[] = [];
 	const { promise: released, resolve: release } = Promise.withResolvers<void>();
 	const { promise: reached, resolve: reach } = Promise.withResolvers<void>();
-	const boundary: FolderStorage = {
+	const boundary: LockingStorage = {
 		...base,
 		async put(path, bytes, ifMatch) {
 			if (path === DECLARATION_PATH) return base.put(path, bytes, ifMatch);

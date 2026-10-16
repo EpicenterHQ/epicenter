@@ -7,9 +7,10 @@
  * `put` is the one change: one file's bytes, or its removal, landing only
  * while the path holds what the caller expects. It lands whole: a reader,
  * and a crash, see the old file or the new one, never part of either, and a
- * new file never appears empty first. `lock` holds the folder's save lock,
- * the one every cooperating writer takes for each change, across several.
- * Reads, a folder's list, and its captures are built on these.
+ * new file never appears empty first. Where Sync publishes, `lock` holds the
+ * folder's save lock, the one every cooperating writer takes for each
+ * change, across several (`LockingStorage`). Reads, a folder's list, and its
+ * captures are built on these.
  *
  * Saves are not ordered by when their methods were called: the last to land
  * on a path wins. A change that must not overwrite bytes its caller did not
@@ -75,12 +76,18 @@ export type FolderStorage = {
 	mkdir(path: string): Promise<Result<undefined, FileError>>;
 	/** Remove the empty directory at `path`. */
 	rmdir(path: string): Promise<Result<undefined, FileError>>;
+};
+
+/**
+ * Storage that Sync publishes through: the browser's, and a directory's in
+ * Bun, where the `epicenter` CLI runs a desktop page's Sync. A desktop page's
+ * own storage has no `lock`, since its Sync never runs there.
+ */
+export type LockingStorage = FolderStorage & {
 	/**
 	 * Run `work` holding the folder's save lock, with storage whose changes
 	 * land under it without asking for it again, so no cooperating save lands
-	 * between `work`'s check and its last change. Sync publishes this way. A
-	 * host whose every change is checked elsewhere (a desktop page, whose
-	 * shell holds the lock for each one) runs `work` with its own storage.
+	 * between `work`'s check and its last change.
 	 */
 	lock<T>(work: (held: FolderStorage) => Promise<T>): Promise<T>;
 };

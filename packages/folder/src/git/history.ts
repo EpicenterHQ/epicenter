@@ -31,7 +31,7 @@
  * and the last one reads the folder after every request was made.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FolderStorage } from '../boundary.js';
+import type { FolderStorage, LockingStorage } from '../boundary.js';
 import type { FolderDefinition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
 import { fileKindOf, localPatterns, sameContent } from '../merge-file.js';
@@ -171,7 +171,7 @@ export function createHistory({
 	landed = () => {},
 }: {
 	backend: GitBackend;
-	boundary: FolderStorage;
+	boundary: LockingStorage;
 	author: Author;
 	/** The prepared definition whose rows sync merges by field; without it, rows merge as text. */
 	definition?: FolderDefinition;

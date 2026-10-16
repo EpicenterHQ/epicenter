@@ -13,6 +13,7 @@ import type { Result } from 'wellcrafted/result';
 import { tauriChangeDetector } from './changes-tauri.js';
 import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
+import { createDirectoryStorage } from './directory-store.js';
 import { tauriDirectoryPrimitives } from './directory-tauri.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
@@ -41,6 +42,7 @@ export async function openGrantedFolder<
 		lens,
 		rootPath: granted.root,
 		files,
+		storage: createDirectoryStorage({ root: granted.root, primitives: files }),
 		// The CLI commits as the person's Git identity, or as Epicenter where
 		// Git names none, and refuses a data folder's first commit inside
 		// another repository.

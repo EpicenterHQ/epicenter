@@ -19,7 +19,6 @@ import {
 	isStaleScratch,
 	SCRATCH_DIRECTORY,
 } from './directory-primitives.js';
-import { createDirectoryStorage } from './directory-store.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder, FolderHistory } from './folder.js';
 import {
@@ -29,14 +28,12 @@ import {
 } from './open-at-root.js';
 
 /**
- * A directory folder's history, made once its file storage exists:
- * `landed` hears the paths an incoming update wrote. Answers the history
- * for the definition the handle reads with; without one, Sync merges rows
- * as text.
+ * A directory folder's history, made when the folder opens: `landed` hears
+ * the paths an incoming update wrote. Answers the history for the definition
+ * the handle reads with; without one, Sync merges rows as text.
  */
 export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
 	(wiring: {
-		readonly boundary: FolderStorage;
 		readonly landed: (paths: readonly string[]) => void;
 	}) => Promise<(definition?: FolderDefinition) => THistory>;
 
@@ -77,8 +74,8 @@ export async function openDirectoryFolder<
 	lens,
 	rootPath,
 	files,
+	storage,
 	history,
-	hold,
 	detector,
 }: {
 	/** The opener's definition, or `'declared'` for the folder's own. */
@@ -89,18 +86,13 @@ export async function openDirectoryFolder<
 	readonly rootPath: string;
 	/** The host's file system, with absolute paths. */
 	readonly files: DirectoryPrimitives;
+	/**
+	 * The directory's storage over `files`, which the host also gives the
+	 * history it runs in this process.
+	 */
+	readonly storage: FolderStorage;
 	/** The folder's history. */
 	readonly history: DirectoryHistory<THistory>;
-	/**
-	 * The directory's save lock, for a host whose own primitives check and
-	 * rename under it (Bun), and the primitives without it, which `lock`
-	 * changes files through while it holds it. Without it the desktop shell
-	 * takes the lock for each change.
-	 */
-	readonly hold?: {
-		lock<T>(work: () => Promise<T>): Promise<T>;
-		held: DirectoryPrimitives;
-	};
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
 }): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
@@ -137,14 +129,8 @@ export async function openDirectoryFolder<
 		detector,
 		lens: shape,
 		location: { kind: 'directory', root: rootPath },
-		async start({ relay, landed }) {
-			const boundary = createDirectoryStorage({
-				root: rootPath,
-				primitives: files,
-				hold,
-				landed: relay,
-			});
-			return { boundary, history: await history({ boundary, landed }) };
+		async start({ landed }) {
+			return { boundary: storage, history: await history({ landed }) };
 		},
 	});
 }

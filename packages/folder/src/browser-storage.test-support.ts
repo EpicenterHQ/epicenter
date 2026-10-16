@@ -14,7 +14,7 @@
  * gives them fresh storage in one call.
  */
 import { createHash } from 'node:crypto';
-import type { FolderStorage } from './boundary.js';
+import type { LockingStorage } from './boundary.js';
 import type { BrowserFolderOptions } from './contract.js';
 import type { FolderLocation } from './folder.js';
 import type { GitBackend, GitRemote } from './git/backend.js';
@@ -84,7 +84,7 @@ export function locationOf(id: string): FolderLocation {
 }
 
 export type RawBrowserFolder = {
-	readonly boundary: FolderStorage;
+	readonly boundary: LockingStorage;
 	/** A Git backend on the same storage, with the locks the opener uses. */
 	/** With `remote`, its URL is set in Git configuration first. */
 	backend(options?: {

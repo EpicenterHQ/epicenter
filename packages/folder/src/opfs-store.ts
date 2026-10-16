@@ -40,7 +40,7 @@
  * order their methods were called: whichever lands last on a path stays.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FileListing, FolderStorage } from './boundary.js';
+import type { FileListing, FolderStorage, LockingStorage } from './boundary.js';
 import { isStaleScratch } from './directory-primitives.js';
 import { FileError, UnconfirmedWrite } from './errors.js';
 import { hashBytes } from './hash.js';
@@ -532,7 +532,7 @@ export function createOpfsStorage({
 	/** The Web Lock every change of this folder holds. */
 	filesLock: string;
 	landed: (paths: readonly string[]) => void;
-}): FolderStorage {
+}): LockingStorage {
 	async function readOne(path: string) {
 		try {
 			const root = await folder.existing();
@@ -602,10 +602,9 @@ export function createOpfsStorage({
 		return createAt(root, parent, path, bytes);
 	}
 
-	/** The storage, each change under `guard`; `held` when the lock is. */
+	/** The storage, each change under `guard`. */
 	const storage = (
 		guard: <T>(work: () => Promise<T>) => Promise<T>,
-		held: boolean,
 	): FolderStorage => ({
 		async list() {
 			const files: { path: string; size: number }[] = [];
@@ -717,12 +716,10 @@ export function createOpfsStorage({
 			if (removed.error === null) landed([path]);
 			return removed;
 		},
-		lock: (work) =>
-			held
-				? work(storage(guard, true))
-				: holding(locks, filesLock, () =>
-						work(storage((step) => step(), true)),
-					),
 	});
-	return storage((work) => holding(locks, filesLock, work), false);
+	return {
+		...storage((work) => holding(locks, filesLock, work)),
+		lock: (work) =>
+			holding(locks, filesLock, () => work(storage((step) => step()))),
+	};
 }

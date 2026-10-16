@@ -390,11 +390,12 @@ IndexedDB is not required and is never read or written. A folder an earlier
 version kept in IndexedDB is not opened, copied, or removed.
 
 Storage is one port on every host (`boundary.ts`): `read`, `list`,
-`children`, `put(path, bytes | null, ifMatch)`, `mkdir`, `rmdir`, and
-`lock`. In a browser (`opfs-store.ts`) every change holds the folder's files
-Web Lock, so the condition of each `put` is checked and the change lands
-without interleaving across tabs, and `lock(work)` holds it across several,
-as Sync's publish does. Reads take no lock. Every change lands whole: a
+`children`, `put(path, bytes | null, ifMatch)`, `mkdir`, and `rmdir`, and
+`lock` where Sync publishes: in a browser, and in Bun, where the `epicenter`
+CLI runs a desktop page's Sync. In a browser (`opfs-store.ts`) every change
+holds the folder's files Web Lock, so the condition of each `put` is checked
+and the change lands without interleaving across tabs, and `lock(work)`
+holds it across several, as Sync's publish does. Reads take no lock. Every change lands whole: a
 replaced file's bytes publish when its stream closes, so a reader sees the
 old bytes or the new ones, and a new file is written to
 `.git/epicenter/scratch` and moved into place, so a crash never leaves it
@@ -1416,7 +1417,7 @@ dangle.
 | `src/check-folder.ts`, `query-folder.ts`, `generate-declaration.ts` | What the CLI's `check`, `query`, and `generate` do, exported from the Bun entry. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | `@epicenter/folder/svelte` (`editor.svelte.ts`: `createTextEditor` and `createBodyEditor`), its tests, and the Svelte boundary tests. |
-| `src/boundary.ts`, `storage.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, `lock`), and what folders build on it: save accounting, the close fence, and the reads composed from `read` and `list`. |
+| `src/boundary.ts`, `storage.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, and `lock` where Sync publishes), and what folders build on it: save accounting, the close fence, and the reads composed from `read` and `list`. |
 | `src/write.ts`, `hash.ts` | The one write (`writeFile`, `folder.write`) and the one move (`movePath`, `folder.move`), with the guarded put they share; and the SHA-256 that names a file's bytes. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
 | `src/directory-adapter.ts`, `directory-store.ts`, `directory-primitives.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: its storage over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
@@ -1470,8 +1471,8 @@ what the Web Locks can see.
 ## Internal composition
 
 Files and tables use one storage port (`boundary.ts`). Every opener
-wraps it so each `put` that may have landed marks history stale, under the
-save lock too, so a domain method cannot write without that.
+wraps it so each `put` that may have landed marks history stale, so a
+domain method cannot write without that.
 
 ```ts
 createFiles({ storage })

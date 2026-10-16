@@ -23,7 +23,7 @@
  */
 import { expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
-import type { FolderStorage } from '../boundary.js';
+import type { LockingStorage } from '../boundary.js';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
 import { overwrite } from '../put.test-support.js';
 import type { GitBackend } from './backend.js';
@@ -43,7 +43,7 @@ function gate() {
 
 async function setup(
 	overrides: (real: GitBackend) => Partial<GitBackend> = () => ({}),
-	options: { boundary?: (base: FolderStorage) => FolderStorage } = {},
+	options: { boundary?: (base: LockingStorage) => LockingStorage } = {},
 ) {
 	const raw = await rawBrowserFolder({ id: 'ordering' });
 	const base = raw.boundary;

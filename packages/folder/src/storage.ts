@@ -11,9 +11,9 @@ import { isPortablePath } from './paths.js';
 
 /**
  * Every folder records its local saves here: each one that may have changed
- * a file makes the history's observations stale, including those made under
- * the save lock. A save is not reported to the handle's own change listeners
- * (ADR-0548): whoever saved holds the result.
+ * a file makes the history's observations stale. A save is not reported to
+ * the handle's own change listeners (ADR-0548): whoever saved holds the
+ * result.
  */
 export function withPublication({
 	storage,
@@ -22,17 +22,15 @@ export function withPublication({
 	storage: FolderStorage;
 	history: Pick<History, 'noteEdit'>;
 }): FolderStorage {
-	const noting = (inner: FolderStorage): FolderStorage => ({
-		...inner,
+	return {
+		...storage,
 		async put(path, bytes, ifMatch) {
-			const result = await inner.put(path, bytes, ifMatch);
+			const result = await storage.put(path, bytes, ifMatch);
 			if (result.data === 'landed' || result.error?.name === 'Unconfirmed')
 				history.noteEdit();
 			return result;
 		},
-		lock: (work) => inner.lock((held) => work(noting(held))),
-	});
-	return noting(storage);
+	};
 }
 
 /** Fence the next backend call. A begun call owns its complete result. */
@@ -50,10 +48,6 @@ export function fenceStorage(
 			signal.aborted ? closed() : storage.put(path, bytes, ifMatch),
 		mkdir: (path) => (signal.aborted ? closed() : storage.mkdir(path)),
 		rmdir: (path) => (signal.aborted ? closed() : storage.rmdir(path)),
-		lock: (work) =>
-			signal.aborted
-				? Promise.reject(new Error('The folder is closed'))
-				: storage.lock(work),
 	};
 }
 

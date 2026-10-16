@@ -36,6 +36,7 @@ import { Database } from 'bun:sqlite';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { LockingStorage } from './boundary.js';
 import { readDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
@@ -143,10 +144,11 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
+	const opened = directory(resolved);
 	return openDirectoryFolder({
 		definition,
-		...directory(resolved),
-		history: systemHistory(resolved, git),
+		...opened,
+		history: systemHistory(resolved, opened.storage, git),
 	});
 }
 
@@ -175,11 +177,14 @@ export async function openDataFolder<
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
+	const opened = directory(resolved);
 	return openDirectoryFolder<TLens, FolderDefinition, History>({
 		definition: 'declared',
 		lens,
-		...directory(resolved),
-		history: systemHistory(resolved, git, () => enclosingRepository(resolved)),
+		...opened,
+		history: systemHistory(resolved, opened.storage, git, () =>
+			enclosingRepository(resolved),
+		),
 	});
 }
 
@@ -240,13 +245,7 @@ export async function runHistory(
 		);
 	locateGit();
 
-	const { files, hold } = directory(resolved);
-	const boundary = createDirectoryStorage({
-		root: resolved,
-		primitives: files,
-		hold,
-		landed: () => {},
-	});
+	const { storage: boundary } = directory(resolved);
 	const { data: declared, error: declarationError } =
 		await readDeclaration(boundary);
 	// What stays local is read from `epicenter.json`, so a commit made without
@@ -264,6 +263,7 @@ export async function runHistory(
 	const landed: string[] = [];
 	const open = await systemHistory(
 		resolved,
+		boundary,
 		{
 			author,
 			credentials,
@@ -273,7 +273,6 @@ export async function runHistory(
 		},
 		application ? undefined : () => enclosingRepository(resolved),
 	)({
-		boundary,
 		landed: (paths) => landed.push(...paths),
 	});
 	const history = open(definition);
@@ -358,23 +357,29 @@ export async function directoryRoot(
 	}
 }
 
-/** This process's file system at `resolved`. */
+/** This process's file system at `resolved`, and the folder's storage over it. */
 function directory(resolved: string) {
+	const files = savingPrimitives(resolved);
 	return {
 		rootPath: resolved,
-		files: savingPrimitives(resolved),
-		// Sync's publish holds the save lock across its changes, which go
-		// through `node:fs` itself meanwhile.
-		hold: {
-			lock: <T>(work: () => Promise<T>) => holdingSaveLock(resolved, work),
-			held: nodeDirectoryPrimitives,
-		},
+		files,
+		storage: createDirectoryStorage({
+			root: resolved,
+			primitives: files,
+			// Sync's publish holds the save lock across its changes, which go
+			// through `node:fs` itself meanwhile.
+			hold: {
+				lock: <T>(work: () => Promise<T>) => holdingSaveLock(resolved, work),
+				held: nodeDirectoryPrimitives,
+			},
+		}),
 	};
 }
 
 /** History over this process's own `git` at `resolved`. */
 function systemHistory(
 	resolved: string,
+	boundary: LockingStorage,
 	git: {
 		readonly author: FolderGitOptions['author'];
 		readonly credentials?: GitCredentials;
@@ -386,6 +391,7 @@ function systemHistory(
 	return nativeHistory({
 		rootPath: resolved,
 		host: { run: createGitRunner(resolved), files: savingPrimitives(resolved) },
+		boundary,
 		author: git.author,
 		credentials: git.credentials,
 		initProblem,
