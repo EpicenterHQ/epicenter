@@ -15,12 +15,13 @@
  * outside the cache, saved one save at a time as the change from that row
  * and merged by the folder, by line, with whatever changed since (ADR-0551,
  * ADR-0576). A failed save keeps the edit and is reported. An edit of a
- * file's text is a text draft held the same way. A view saves typed text
+ * file's text is a text editor held the same way (`createTextEditor`), over
+ * the folder's write. A view saves typed text
  * after a pause and when the person leaves it (`flush`, `saveText`); a
  * thought command saves at once. Where a save meets another writer's change
- * to the same line, the save wins, with no notice. A text save that fails
- * drops the typed text, reads the file again, and reports the text that was
- * not written.
+ * to the same line, the save wins, with no notice. A text save that fails,
+ * or finds the file deleted elsewhere, drops the typed text, reads the file
+ * again, and reports the text that was not written.
  *
  * Every other action is a mutation too: create, delete, Save version, and
  * the import of old captures. Closing fences new input, then waits for the
@@ -42,7 +43,6 @@ import {
 import {
 	type CommitOutcome,
 	FileError,
-	type FileSaveError,
 	isStoredRow,
 	type RowReadError,
 	rowPath,
@@ -55,10 +55,7 @@ import {
 } from '@epicenter/folder';
 import type { OpenedFile } from '@epicenter/folder/file-browser';
 import { folderOptions, runMutation, whenIdle } from '@epicenter/folder/query';
-import {
-	createTextDraftState,
-	type TextDraftState,
-} from '@epicenter/folder/svelte';
+import { createTextEditor, type TextEditor } from '@epicenter/folder/svelte';
 import type { QueryClient } from '@tanstack/svelte-query';
 import { createSubscriber, SvelteMap } from 'svelte/reactivity';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
@@ -114,7 +111,7 @@ export type Deletion = {
  */
 export type WriteFailure = {
 	readonly path: string;
-	readonly error: TableError | FileError | FileSaveError;
+	readonly error: TableError | FileError;
 	/** The text that was on screen and is not in the file. */
 	readonly text: string;
 };
@@ -134,7 +131,7 @@ const CLOSING = 'Capture is closing, so nothing was changed.';
 export const capturesKeys = defineKeys({
 	all: ['captures'],
 	create: ['captures', 'create'],
-	remove: (path: string) => ['captures', 'remove', path] as const,
+	delete: (path: string) => ['captures', 'delete', path] as const,
 	saveVersion: ['captures', 'save-version'],
 });
 
@@ -148,10 +145,8 @@ export function describeError(
 	switch (error.name) {
 		case 'NotStarted':
 			return error.reason;
-		case 'Conflict':
-			return error.actualSha256 === undefined
-				? 'The file is no longer here, so nothing was changed.'
-				: 'The file changed elsewhere, so nothing was changed. Its current version is shown.';
+		case 'NotFound':
+			return 'The file is no longer here, so nothing was changed.';
 		case 'Unconfirmed':
 			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${error.message}`;
 		case 'InvalidValues':
@@ -271,8 +266,8 @@ export function createCaptures(
 	let newCapture = $state('');
 	/** Each capture's edit and input not committed yet, kept while the person moves between captures. */
 	const forms = new SvelteMap<string, CaptureForm>();
-	/** Each file's text edit: the version it started from, and the text typed. */
-	const texts = new SvelteMap<string, TextDraftState>();
+	/** Each file's text edit: the text it started from, and the text typed. */
+	const texts = new SvelteMap<string, TextEditor>();
 	let closing: Promise<void> | undefined;
 	let closed = $state(false);
 
@@ -292,7 +287,7 @@ export function createCaptures(
 	/** Saves of a capture and writes of a file's text, the header's Saving… */
 	const writeKeys = [
 		folder$.captures.write.mutationOptions().mutationKey,
-		folder$.files.write.mutationOptions().mutationKey,
+		folder$.write.mutationOptions().mutationKey,
 	];
 	const writing = () =>
 		writeKeys.some(
@@ -300,8 +295,13 @@ export function createCaptures(
 		);
 
 	const rowsData = () => queryClient.getQueryData<CaptureListing>(listKey);
-	const textData = (path: string) =>
-		queryClient.getQueryData<OpenedFile>(folder$.files.text.queryKey(path));
+	/** The text of `path` as the cache holds it, when it opens as text. */
+	const shownText = (path: string) => {
+		const opened = queryClient.getQueryData<OpenedFile>(
+			folder$.files.text.queryKey(path),
+		);
+		return opened?.kind === 'text' ? opened.file.text : undefined;
+	};
 
 	/** The row the cache holds for `stem`, if it reads as a row. */
 	function rowOf(stem: string): StoredRow<CaptureFields> | undefined {
@@ -310,9 +310,9 @@ export function createCaptures(
 	}
 
 	/** Whether a delete of `path` is running, which pauses its edits. */
-	const removing = (path: string) =>
+	const deleting = (path: string) =>
 		queryClient.isMutating({
-			mutationKey: capturesKeys.remove(path),
+			mutationKey: capturesKeys.delete(path),
 			exact: true,
 		}) > 0;
 
@@ -338,32 +338,43 @@ export function createCaptures(
 					error: FileError.NotFound({ path }).error,
 					text,
 				}),
-			locked: () => refused() !== undefined || removing(path),
+			locked: () => refused() !== undefined || deleting(path),
 		});
 		forms.set(stem, form);
 		return form;
 	}
 
 	/** The text edit of `path`, made at its first change. */
-	function textDraftOf(path: string): TextDraftState {
+	function textDraftOf(path: string): TextEditor {
 		const known = texts.get(path);
 		if (known !== undefined) return known;
-		const draft = createTextDraftState({
-			save: (sent) =>
-				runMutation(queryClient, folder$.files.write.mutationOptions(), {
-					path,
-					...sent,
-				}).catch((error: FileSaveError) => {
-					// The save neither landed nor merged: the typed text gives way
-					// to the file as it is now, read again, and the notice offers it.
-					const lost =
-						draft.text ??
-						(typeof sent.content === 'string' ? sent.content : '');
-					draft.discard();
-					texts.delete(path);
-					onWriteFailed({ path, error, text: lost });
+		/**
+		 * The write did not land, or found the file deleted: the typed text
+		 * gives way to the file as it is now, read again, and the notice
+		 * offers it.
+		 */
+		const drop = (error: WriteFailure['error'], sent: string) => {
+			const lost = draft.typed ?? sent;
+			draft.discard();
+			texts.delete(path);
+			onWriteFailed({ path, error, text: lost });
+		};
+		const draft = createTextEditor({
+			current: () => shownText(path),
+			write: async (change) => {
+				const written = await runMutation(
+					queryClient,
+					folder$.write.mutationOptions(),
+					{ path, ...change },
+				).catch((error: WriteError) => {
+					drop(error, change.to);
 					throw error;
-				}),
+				});
+				if (written.file !== null) return 'landed';
+				// A delete beats an edit it never saw (ADR-0576).
+				drop(FileError.NotFound({ path }).error, change.to);
+				return 'gone';
+			},
 		});
 		texts.set(path, draft);
 		return draft;
@@ -374,24 +385,21 @@ export function createCaptures(
 		const draft = texts.get(path);
 		if (draft === undefined) return;
 		await draft.save();
-		if (draft.text === undefined && texts.get(path) === draft)
+		if (draft.typed === undefined && texts.get(path) === draft)
 			texts.delete(path);
 	}
 
 	/**
-	 * Replace the text of `path`, over the version the view showed when
-	 * typing started; the view writes it after a pause (`saveText`). Refused
-	 * while closing, while the file is being deleted, and when the file is
-	 * not open as text.
+	 * Replace the text of `path`, as the change from the text the view showed
+	 * when typing started; the view writes it after a pause (`saveText`).
+	 * Refused while closing, while the file is being deleted, and when the
+	 * file is not open as text.
 	 */
 	function editText(path: string, text: string): boolean {
-		if (refused() !== undefined || removing(path)) return false;
-		const file = textData(path);
-		// The first change starts from the file shown; later ones keep their base.
-		const base =
-			texts.get(path)?.base ?? (file?.kind === 'text' ? file.file : undefined);
-		if (base === undefined) return false;
-		textDraftOf(path).change(base, text);
+		if (refused() !== undefined || deleting(path)) return false;
+		// The first change starts from the file shown; later ones keep theirs.
+		if (!texts.has(path) && shownText(path) === undefined) return false;
+		textDraftOf(path).change(text);
 		return true;
 	}
 
@@ -461,9 +469,9 @@ export function createCaptures(
 			return writing();
 		},
 		/** Whether `path` is being deleted, which pauses its edits; read reactively. */
-		isRemoving(path: string) {
+		isDeleting(path: string) {
 			trackMutations();
-			return removing(path);
+			return deleting(path);
 		},
 		/** Whether a browser reload now could lose anything: an action running, or text not saved or added. */
 		get unsettled() {
@@ -471,7 +479,7 @@ export function createCaptures(
 			return (
 				queryClient.isMutating() > 0 ||
 				newCapture !== '' ||
-				[...texts.values()].some((draft) => draft.text !== undefined) ||
+				[...texts.values()].some((draft) => draft.typed !== undefined) ||
 				unsentForms() > 0
 			);
 		},
@@ -488,7 +496,7 @@ export function createCaptures(
 		},
 		/** The text typed for `path` and not written yet, read reactively. */
 		typedText(path: string): string | undefined {
-			return texts.get(path)?.text;
+			return texts.get(path)?.typed;
 		},
 
 		// ------------------------------------------------------------------
@@ -598,13 +606,13 @@ export function createCaptures(
 		},
 		/**
 		 * Delete what was confirmed. It runs after the capture's edits held
-		 * here are written, so it removes what this window saved last, and it
-		 * removes whatever another program wrote since: a delete beats edits
-		 * that never saw it (ADR-0576).
+		 * here are written, so what this window saved last goes with it, and
+		 * it deletes whatever another program wrote since: a delete beats
+		 * edits that never saw it (ADR-0576).
 		 */
-		remove(deletion: Deletion) {
+		delete(deletion: Deletion) {
 			return defineMutation({
-				mutationKey: capturesKeys.remove(deletion.path),
+				mutationKey: capturesKeys.delete(deletion.path),
 				mutationFn: async (): Promise<
 					Result<undefined, FileError | WriteError | CapturesError>
 				> => {
