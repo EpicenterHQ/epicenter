@@ -1,37 +1,36 @@
 <script lang="ts">
+	import { ConnectionList } from '@epicenter/ai/ui';
 	import { Button } from '@epicenter/ui/button';
-	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { Label } from '@epicenter/ui/label';
 	import { Separator } from '@epicenter/ui/separator';
 	import { toast } from '@epicenter/ui/sonner';
-	import { Spinner } from '@epicenter/ui/spinner';
-	import type { Operation } from '$lib/connections.js';
+	import { type Operation, unusable } from '$lib/connection-routes.js';
 	import { getSession } from '$lib/session.svelte.js';
-	import ConnectionForm from './ConnectionForm.svelte';
 
 	/**
-	 * Settings: this device's two connections, and the key an earlier version
-	 * saved, if any. Everything here stays on this device. `only` shows one
-	 * connection, as the control beside the recorder does.
+	 * Settings: which connection each operation uses, and the connections
+	 * themselves, rows of this device's `so.epicenter` (ADR-0557) edited with
+	 * the same editor as Epicenter's Settings. `only` shows one operation's
+	 * choice, as the control beside the recorder does.
 	 */
 	let { only }: { only?: Operation } = $props();
 
-	const { library, settings } = getSession();
+	const { library, workspace } = getSession();
 	const operations = $derived<Operation[]>(only ? [only] : ['transcription', 'text']);
+	const LABELS: Record<Operation, { title: string; detail: string }> = {
+		transcription: { title: 'Transcription', detail: 'Audio is sent only when you press Transcribe.' },
+		text: {
+			title: 'Text',
+			detail: 'Transformations send their instructions and text only when you press Run. A transformation may name its own model.',
+		},
+	};
 
-	/** Where the earlier key may go: only destinations the person ticks, as each form shows them now. */
-	let chosen = $state<Operation[]>([]);
-	const offered = $derived(
-		operations.filter((operation) => settings[operation].readOnlyReason === undefined),
-	);
-
-	async function adopt() {
-		const problem = await settings.adoptLegacyKey(chosen.filter((operation) => offered.includes(operation)));
-		if (problem) toast.error(problem.title, { description: problem.description });
-		else {
-			chosen = [];
-			toast.success('The earlier key is saved with the connections you chose');
-		}
+	async function choose(operation: Operation, select: HTMLSelectElement) {
+		const problem = await library.chooseConnection(operation, select.value || undefined);
+		if (!problem) return;
+		// Shown as it is saved, not as it was picked.
+		select.value = library.connections[operation]?.connection ?? '';
+		toast.error(`Could not choose the ${operation} connection`, { description: problem });
 	}
 </script>
 
@@ -39,40 +38,51 @@
 	{#if library.connectionsProblem}
 		<div class="flex flex-col gap-2 text-xs text-destructive" role="alert" data-testid="connections-problem">
 			<p>The connections on this device could not be read, so none is used: {library.connectionsProblem}</p>
-			<Button size="xs" variant="outline" class="self-start" onclick={() => void library.readConnections()}>Read again</Button>
+			<Button size="xs" variant="outline" class="self-start" onclick={() => void library.openConnections()}>Try again</Button>
 		</div>
 	{/if}
-	{#if library.connections?.legacyKey && offered.length > 0}
-		<div class="flex flex-col gap-2 rounded border p-2 text-xs" data-testid="legacy-key">
-			<p>
-				A key saved by an earlier version of Whispering is on this device. It is not sent anywhere until you choose where
-				it may go. Choosing moves it there; it is never shown.
-			</p>
-			{#each offered as operation (operation)}
-				{@const target = settings[operation]}
-				<div class="flex items-center gap-2">
-					<Checkbox
-						id="legacy-key-{operation}"
-						checked={chosen.includes(operation)}
-						onCheckedChange={(checked) =>
-							(chosen = checked ? [...chosen, operation] : chosen.filter((item) => item !== operation))}
-						data-testid="legacy-key-{operation}"
-					/>
-					<Label for="legacy-key-{operation}" class="min-w-0 font-normal break-all">
-						{operation === 'transcription' ? 'Transcription' : 'Text'} at {target.baseUrl}
-					</Label>
-				</div>
-			{/each}
-			<Button size="xs" class="self-start" disabled={chosen.length === 0 || settings.adopting} onclick={adopt} data-testid="legacy-key-adopt">
-				{#if settings.adopting}<Spinner class="size-3" />{/if}
-				Use the earlier key there
-			</Button>
+	{#each operations as operation (operation)}
+		{@const chosen = library.connections[operation]}
+		<div class="flex flex-col gap-1.5" data-testid="{operation}-choice">
+			<Label for="{operation}-connection">{LABELS[operation].title}</Label>
+			<select
+				id="{operation}-connection"
+				class="h-8 rounded-md border border-input bg-transparent px-2 text-sm dark:bg-input/30"
+				value={chosen?.connection ?? ''}
+				onchange={(event) => void choose(operation, event.currentTarget)}
+			>
+				<option value="">None</option>
+				{#each library.connectionRows as row (row.stem)}
+					{@const why = unusable({ workspace }, operation, row.kind, row.title || row.stem)}
+					<option value={row.stem} disabled={why !== undefined}>
+						{row.title || row.stem}{row.model ? ` · ${row.model}` : ''}{why ? ' (not here)' : ''}
+					</option>
+				{/each}
+				{#if chosen && chosen.kind === undefined}
+					<option value={chosen.connection} disabled>{chosen.title} (unavailable)</option>
+				{/if}
+			</select>
+			<p class="text-xs text-muted-foreground">{LABELS[operation].detail}</p>
+			{#if chosen?.unusable}
+				<p class="text-xs text-destructive" role="alert">{chosen.unusable}</p>
+			{/if}
 		</div>
-	{/if}
-	{#each operations as operation, index (operation)}
-		{#if index > 0}<Separator />{/if}
-		<ConnectionForm {operation} />
 	{/each}
+	{#if !only}
+		<Separator />
+		<div class="flex flex-col gap-2">
+			<p class="font-medium">Connections</p>
+			<p class="text-xs text-muted-foreground">{workspace.connections.note}</p>
+			{#if library.connectionTable}
+				<ConnectionList
+					options={library.connectionTable}
+					keys={workspace.connections.keys}
+					kinds={workspace.connections.kinds}
+					epicenterNote={workspace.connections.epicenterNote}
+				/>
+			{/if}
+		</div>
+	{/if}
 	{#if library.settingsProblem}
 		<p class="text-xs text-destructive" role="alert">kv.json: {library.settingsProblem}</p>
 	{/if}

@@ -9,20 +9,21 @@
 
 	/**
 	 * The transcription connection in use, beside the recorder. It opens the
-	 * transcription part of the header's settings, over the same draft. The
-	 * model is typed, not picked from a list: an endpoint is never asked what
-	 * it serves. The recorder owns which option popover is open.
+	 * choice of it from the header's Settings. The model is the connection's:
+	 * an endpoint is never asked what it serves. The recorder owns which
+	 * option popover is open.
 	 */
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
 	const { library } = getSession();
-	const connection = $derived(library.connections?.transcription);
+	const connection = $derived(library.connections.transcription);
 	const summary = $derived(
-		connection
-			? `Transcription model: ${connection.model}, at ${connection.baseUrl}`
-			: 'Transcription is not set up. Set up its connection to transcribe.',
+		connection?.unusable ??
+			(connection
+				? `Transcribes with ${connection.kind === 'local' && !connection.model ? 'the active local model' : connection.model} over ${connection.title}`
+				: 'Transcription is not set up. Choose its connection to transcribe.'),
 	);
 	let hinting = $state(false);
 </script>
@@ -42,7 +43,7 @@
 							aria-label={summary}
 							data-testid="transcription-control"
 						>
-							<AudioLinesIcon class={connection ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
+							<AudioLinesIcon class={connection && !connection.unusable ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
 						</Button>
 					{/snippet}
 				</Popover.Trigger>

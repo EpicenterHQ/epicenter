@@ -3,9 +3,8 @@
  *
  * A recipe is a row in `transformations/`: a title and instructions, with an
  * optional model to use instead of the text connection's. Where the request
- * goes is always the text connection. A recipe written by an earlier build
- * may name an endpoint; that is a constraint the connection must meet
- * exactly, never a destination.
+ * goes is always the text connection, the `so.epicenter` row `textConnection`
+ * names.
  *
  * This is the one place that decides. The Run button, the post-processing
  * choice, a transcript's Transform menu, the recipe's own page, and the run
@@ -15,11 +14,7 @@
  */
 
 import type { Row } from '@epicenter/folder';
-import {
-	type ConnectionInfo,
-	canonicalBaseUrl,
-	sameBaseUrl,
-} from './connections.js';
+import type { ChosenConnection } from './connection-routes.js';
 import type { TransformationFields } from './definition.js';
 
 /** A recipe as a row: a listed one, or its text as typed. Undefined when its text is not a valid row. */
@@ -30,9 +25,12 @@ export type ResolvedRecipe =
 			readonly kind: 'ready';
 			readonly title: string;
 			readonly prompt: string;
+			/** The model it would use, as last listed. */
 			readonly model: string;
-			/** The text connection's base URL: where the request goes. */
-			readonly endpoint: string;
+			/** The model the recipe names for itself, which a run sends instead of the connection's. */
+			readonly ownModel: string | undefined;
+			/** The text connection's name: where the request goes. */
+			readonly connection: string;
 	  }
 	| {
 			readonly kind: 'blocked';
@@ -54,22 +52,14 @@ export function recipeModel(
 	return given(fields.model);
 }
 
-/** The endpoint an earlier build wrote into a recipe, or undefined when it names none. */
-export function recipeEndpoint(
-	fields: Readonly<TransformationFields>,
-): string | undefined {
-	return given(fields.endpoint);
-}
-
 /**
  * Decide, in the order a person would fix things: the file, its
- * instructions, the connection, the old endpoint constraint, the model.
- * `connectionsProblem` is why the connections could not be read; then none
- * is assumed.
+ * instructions, the connection, the model. `connectionsProblem` is why the
+ * connections could not be read; then none is assumed.
  */
 export function resolveRecipe(
 	recipe: RecipeRow | undefined,
-	text: ConnectionInfo | undefined,
+	text: ChosenConnection | undefined,
 	connectionsProblem?: string,
 ): ResolvedRecipe {
 	if (recipe === undefined)
@@ -94,25 +84,12 @@ export function resolveRecipe(
 		return {
 			kind: 'blocked',
 			fix: 'connection',
-			reason: 'Set up the text connection in Settings to run this.',
+			reason: 'Choose a text connection in Settings to run this.',
 		};
-	const endpoint = recipeEndpoint(recipe.fields);
-	if (endpoint !== undefined) {
-		const { error: endpointError } = canonicalBaseUrl(endpoint);
-		if (endpointError !== null)
-			return {
-				kind: 'blocked',
-				fix: 'recipe',
-				reason: `This transformation names the endpoint ${endpoint}, which is not a base URL. Remove the endpoint from it to use the text connection.`,
-			};
-		if (!sameBaseUrl(endpoint, text.baseUrl))
-			return {
-				kind: 'blocked',
-				fix: 'recipe',
-				reason: `This transformation runs only at ${endpoint}, and the text connection is ${text.baseUrl}. Remove the endpoint from it to use the text connection, or change the connection.`,
-			};
-	}
-	const model = recipeModel(recipe.fields) ?? given(text.model);
+	if (text.unusable !== undefined)
+		return { kind: 'blocked', fix: 'connection', reason: text.unusable };
+	const ownModel = recipeModel(recipe.fields);
+	const model = ownModel ?? given(text.model);
 	if (model === undefined)
 		return {
 			kind: 'blocked',
@@ -124,6 +101,7 @@ export function resolveRecipe(
 		title: recipe.fields.title,
 		prompt: recipe.body,
 		model,
-		endpoint: text.baseUrl,
+		ownModel,
+		connection: text.title,
 	};
 }

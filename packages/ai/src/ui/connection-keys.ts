@@ -6,8 +6,8 @@
  * and a browser page (`localStorage`, ADR-0581).
  */
 
-import type { Result } from 'wellcrafted/result';
-import { browserSecrets, secretStorageKey } from '../browser-connections.js';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import { browserSecrets, secretStorageKey } from '../browser-secrets.js';
 
 export { connectionId } from '../connection-table.js';
 
@@ -88,4 +88,38 @@ export function browserKeys(secrets: SecretStore = browserSecrets()) {
 			return () => globalThis.removeEventListener('storage', changed);
 		},
 	} satisfies ConnectionKeys;
+}
+
+/**
+ * The keychain's keys inside Epicenter, reached through the `epicenter` CLI's
+ * key commands, which an app's generated bindings expose (ADR-0557). A
+ * command error is shown as `describe` words it.
+ */
+export function keychainKeys<TError>({
+	aiKeyState,
+	aiKeySet,
+	aiKeyRemove,
+	describe,
+}: {
+	aiKeyState(connection: string): Promise<Result<KeyState, TError>>;
+	aiKeySet(
+		connection: string,
+		endpoint: string,
+		key: string,
+	): Promise<Result<unknown, TError>>;
+	aiKeyRemove(connection: string): Promise<Result<unknown, TError>>;
+	describe(error: TError): string;
+}): ConnectionKeys {
+	const readable = <T>({
+		data,
+		error,
+	}: Result<T, TError>): Result<T, string> =>
+		error === null ? Ok(data as T) : Err(describe(error));
+	return {
+		place: 'computer',
+		state: async (connection) => readable(await aiKeyState(connection)),
+		save: async (connection, endpoint, key) =>
+			readable(await aiKeySet(connection, endpoint, key)),
+		remove: async (connection) => readable(await aiKeyRemove(connection)),
+	};
 }

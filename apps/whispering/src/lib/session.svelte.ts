@@ -19,7 +19,6 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createLibrary } from './library.svelte.js';
 import type { PostProcessingChoice } from './post-processing.js';
 import { DEFAULT_SORT, type RecordingSort } from './recording-collection.js';
-import { createSettingsDraft } from './settings-draft.svelte.js';
 import {
 	openWorkspace,
 	type Workspace,
@@ -126,7 +125,6 @@ export async function createSession(
 		 */
 		postProcessing: undefined as string | undefined,
 	});
-	const settings = createSettingsDraft(library);
 	// A ticked recording whose file a listing no longer finds is unticked then,
 	// not later: a file made afterward at the same path is another recording
 	// and must not arrive ticked. A search hides rows without removing them,
@@ -144,8 +142,6 @@ export async function createSession(
 		workspace,
 		library,
 		view,
-		/** The one draft of the connection settings, wherever its form is shown. */
-		settings,
 		/**
 		 * The post-processing choice read against the transformations as last
 		 * listed and the library's one recipe resolver. The folder is the truth

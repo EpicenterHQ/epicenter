@@ -1,14 +1,23 @@
 /**
  * The browser workspace's own storage: microphone preference failures reach
- * the chooser rather than becoming System default, and connections keep their
- * keys in this browser, tell the page none, and send only to the base URL a
- * request was prepared for.
+ * the chooser rather than becoming System default, and connections are rows
+ * of this origin's `so.epicenter` whose endpoints and keys stay in this
+ * browser, sent only to the endpoint a request was prepared for.
  */
 import { afterEach, expect, mock, test } from 'bun:test';
+import { mkdtemp, realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+	CONNECTIONS_FOLDER_ID,
+	epicenterDefinition,
+} from '@epicenter/ai/connection-table';
+import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
+import { transformationRequest } from '../requests.js';
 import { openTestWorkspace } from '../workspace.test-support.js';
-import type { Workspace } from './types.js';
+import type { ConnectionsFolder, Workspace } from './types.js';
 
 // Compile the Vite build flag for this adapter test; no microphone is opened.
 Bun.plugin({
@@ -25,8 +34,22 @@ Bun.plugin({
 });
 
 let folder: Workspace['folder'];
+let connectionsFolder: ConnectionsFolder | undefined;
 mock.module('@epicenter/folder/browser', () => ({
+	// Whispering's own folder, or this origin's `so.epicenter`.
 	openFolder: async (options: { id: string }) => {
+		if (options.id === CONNECTIONS_FOLDER_ID) {
+			connectionsFolder ??= expectOk(
+				await openBunFolder({
+					root: await realpath(
+						await mkdtemp(join(tmpdir(), 'whispering-browser-connections-')),
+					),
+					definition: epicenterDefinition,
+					git: { author: { name: 'Test', email: 'test@localhost' } },
+				}),
+			);
+			return Ok(connectionsFolder);
+		}
 		expect(options.id).toBe('so.epicenter.whispering');
 		return Ok(folder);
 	},
@@ -43,6 +66,7 @@ const originalLocation = Object.getOwnPropertyDescriptor(
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0)) await cleanup();
+	connectionsFolder = undefined;
 	for (const [name, descriptor] of [
 		['localStorage', originalStorage],
 		['location', originalLocation],
@@ -105,12 +129,12 @@ test('malformed microphone JSON rejects instead of selecting System default', as
 // ============================================================================
 
 const BASE_URL = 'http://127.0.0.1:18080/v1';
-const prepared = (expectedBaseUrl: string) => ({
-	expectedBaseUrl,
-	model: 'chat-model',
-	prompt: 'Fix it.',
-	input: 'some text',
-});
+const chat = () =>
+	transformationRequest({
+		model: 'chat-model',
+		prompt: 'Fix it.',
+		input: 'some text',
+	});
 
 /** A browser workspace over storage held in `stored`, with every request it sends recorded. */
 async function browserWithStorage(stored: Map<string, string>) {
@@ -134,6 +158,7 @@ async function browserWithStorage(stored: Map<string, string>) {
 		init: RequestInit;
 	}[] = [];
 	const originalFetch = globalThis.fetch;
+	let reachable = true;
 	globalThis.fetch = (async (input: string, init: RequestInit) => {
 		const request = new Request(input, init);
 		sent.push({
@@ -141,6 +166,7 @@ async function browserWithStorage(stored: Map<string, string>) {
 			authorization: request.headers.get('authorization'),
 			init,
 		});
+		if (!reachable) throw new TypeError('Failed to fetch');
 		return Response.json({ choices: [{ message: { content: 'ok' } }] });
 	}) as unknown as typeof fetch;
 	const browser = expectOk(await openBrowserWorkspace());
@@ -149,43 +175,62 @@ async function browserWithStorage(stored: Map<string, string>) {
 		await browser.close();
 		await workspace.remove();
 	});
-	return { browser, sent };
+	return {
+		browser,
+		sent,
+		unreachable: () => {
+			reachable = false;
+		},
+	};
 }
 
-test('a browser keeps connections and keys in its own storage, tells the page no key, and sends only to the connection it was prepared for', async () => {
-	const stored = new Map([['whispering.transcriptionApiKey', 'earlier-key']]);
+test('a browser keeps a connection’s endpoint and key under its row’s id, never in the row, and sends only to that endpoint', async () => {
+	const stored = new Map<string, string>();
 	const { browser, sent } = await browserWithStorage(stored);
-	expect(await browser.connections.read()).toEqual({
-		transcription: undefined,
-		text: undefined,
-		legacyKey: true,
-	});
-	// Nothing is set up, so nothing is sent, and the earlier key is lent to nothing.
-	const { error: unavailable } = await browser.transform(prepared(BASE_URL));
-	expect(unavailable?.name).toBe('ConnectionUnavailable');
+	const { connections } = browser;
+	expect(connections.kinds).toEqual(['openai-compatible']);
+	expect(browser.localTranscription).toBeUndefined();
+	expect((await connections.epicenterEndpoint()).error).toBeTruthy();
 
-	const saved = expectOk(
-		await browser.connections.set('text', {
-			baseUrl: `${BASE_URL}/`,
-			model: 'chat-model',
-			key: { action: 'replace', key: 'text-key' },
-		}),
+	const opened = expectOk(await connections.open());
+	expectOk(
+		await opened.tables.connections.create(
+			{
+				fields: {
+					kind: 'openai-compatible',
+					title: 'Groq',
+					model: 'chat-model',
+				},
+				body: '',
+			},
+			{ stem: 'groq' },
+		),
 	);
-	expect(JSON.stringify(saved)).not.toContain('text-key');
-	expect(JSON.parse(stored.get('whispering.connections')!)).toEqual({
-		text: { baseUrl: BASE_URL, model: 'chat-model', apiKey: 'text-key' },
+	expectOk(await connections.keys.save('groq', `${BASE_URL}/`, 'text-key'));
+	expect(JSON.parse(stored.get('so.epicenter.secret.groq')!)).toEqual({
+		endpoint: BASE_URL,
+		key: 'text-key',
 	});
+	const row = expectOk(await opened.tables.connections.get('groq'))!;
+	expect(JSON.stringify(row)).not.toContain('text-key');
+	expect(JSON.stringify(row)).not.toContain(BASE_URL);
 
+	const target = { kind: 'openai-compatible', connection: 'groq' } as const;
 	for (const elsewhere of [
 		'http://127.0.0.1:18080/other/v1',
 		'https://api.openai.com/v1',
 	]) {
-		const { error: changed } = await browser.transform(prepared(elsewhere));
-		expect(changed?.name).toBe('ConnectionChanged');
+		const { error } = await connections.send(
+			{ ...target, endpoint: elsewhere },
+			chat(),
+		);
+		expect(error?.message).toContain(`saved for ${BASE_URL}`);
 	}
 	expect(sent).toEqual([]);
-	const answer = expectOk(await browser.transform(prepared(BASE_URL)));
-	expect(answer?.text).toBe('ok');
+	const response = expectOk(
+		await connections.send({ ...target, endpoint: BASE_URL }, chat()),
+	);
+	expect(response.ok).toBe(true);
 	expect(sent).toMatchObject([
 		{
 			url: `${BASE_URL}/chat/completions`,
@@ -193,78 +238,36 @@ test('a browser keeps connections and keys in its own storage, tells the page no
 			init: { redirect: 'error', credentials: 'omit' },
 		},
 	]);
-
-	// A new endpoint cannot keep the key.
-	const { error: refusal } = await browser.connections.set('text', {
-		baseUrl: 'http://127.0.0.1:18080/other/v1',
-		model: 'chat-model',
-		key: { action: 'keep' },
-	});
-	expect(refusal).toContain('saved key is not sent there');
-
-	// The earlier key moves into the chosen connection, at the URL shown, and is gone.
-	expectOk(
-		await browser.connections.adoptLegacyKey({
-			transcription: { baseUrl: BASE_URL, model: 'whisper-1' },
-		}),
-	);
-	expect(stored.has('whispering.transcriptionApiKey')).toBe(false);
-	expect(JSON.parse(stored.get('whispering.connections')!)).toEqual({
-		text: { baseUrl: BASE_URL, model: 'chat-model', apiKey: 'text-key' },
-		transcription: {
-			baseUrl: BASE_URL,
-			model: 'whisper-1',
-			apiKey: 'earlier-key',
-		},
-	});
 });
 
-test('browser connections that do not read are reported, never taken for none, and never replaced', async () => {
-	const stored = new Map([['whispering.connections', '{"text": ']]);
-	const { browser, sent } = await browserWithStorage(stored);
-
-	await expect(browser.connections.read()).rejects.toThrow(
-		'do not read as a JSON object',
-	);
-	const { error: refusal } = await browser.connections.set('text', {
-		baseUrl: BASE_URL,
-		model: 'chat-model',
-		key: { action: 'remove' },
-	});
-	expect(refusal).toContain('do not read as a JSON object');
-	expect(stored.get('whispering.connections')).toBe('{"text": ');
-	const { error: unavailable } = await browser.transform(prepared(BASE_URL));
-	expect(unavailable?.name).toBe('ConnectionUnavailable');
-	expect(sent).toEqual([]);
-});
-
-test('a malformed browser connection is never replaced by setup or legacy adoption', async () => {
-	const original = JSON.stringify({
-		text: { baseUrl: BASE_URL, model: 7, apiKey: 'recoverable-key' },
-	});
-	const stored = new Map([
-		['whispering.connections', original],
+test('nothing an earlier build kept in this browser is read, moved, or removed', async () => {
+	const earlier = new Map([
+		[
+			'whispering.connections',
+			'{"text": {"baseUrl": "http://127.0.0.1:18080/v1", "model": "m", "apiKey": "old"}}',
+		],
 		['whispering.transcriptionApiKey', 'earlier-key'],
 	]);
+	const stored = new Map(earlier);
 	const { browser, sent } = await browserWithStorage(stored);
-	for (const key of [
-		{ action: 'keep' },
-		{ action: 'remove' },
-		{ action: 'replace', key: 'new-key' },
-	] as const) {
-		const { error: refusal } = await browser.connections.set('text', {
-			baseUrl: BASE_URL,
-			model: 'chat-model',
-			key,
-		});
-		expect(refusal).toContain('does not read as one');
-		expect(stored.get('whispering.connections')).toBe(original);
-	}
-	const { error: adoptionRefusal } = await browser.connections.adoptLegacyKey({
-		text: { baseUrl: BASE_URL, model: 'chat-model' },
-	});
-	expect(adoptionRefusal).toContain('does not read as one');
-	expect(stored.get('whispering.connections')).toBe(original);
-	expect(stored.get('whispering.transcriptionApiKey')).toBe('earlier-key');
+	const opened = expectOk(await browser.connections.open());
+
+	expect(expectOk(await opened.tables.connections.list())).toEqual([]);
+	expect(stored).toEqual(earlier);
 	expect(sent).toEqual([]);
+});
+
+test('an endpoint a browser cannot reach says what a tab needs that Epicenter does not', async () => {
+	const stored = new Map<string, string>();
+	const { browser, unreachable } = await browserWithStorage(stored);
+	expectOk(await browser.connections.keys.save('local', BASE_URL, ''));
+	unreachable();
+
+	const { error } = await browser.connections.send(
+		{ kind: 'openai-compatible', connection: 'local', endpoint: BASE_URL },
+		chat(),
+	);
+	expect(error?.message).toContain(
+		'must allow requests from http://localhost:5199 (CORS)',
+	);
 });

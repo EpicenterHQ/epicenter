@@ -1,7 +1,9 @@
 # Recipes, connections, and the pasted-text playground (October 3, 2026)
 
-Execution notes for one slice. The README describes the behavior; ARCHITECTURE
-describes the structure. This file records the decision, what it costs an
+Execution notes for one slice, kept as history. The connections described
+here, two private ones with their own base URLs, were replaced on
+2026-10-16 by rows of `so.epicenter` chosen by id (ADR-0582). The README
+describes the behavior; ARCHITECTURE describes the structure. This file records the decision, what it costs an
 existing folder or device, and what was and was not verified.
 
 ## Decision

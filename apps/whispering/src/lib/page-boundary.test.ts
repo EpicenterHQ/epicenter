@@ -65,7 +65,7 @@ test('the page imports no Node or Bun module, and Tauri only for a response’s 
 				specifier === '@epicenter/folder/bun',
 		),
 	).toEqual([]);
-	// The Tauri APIs the page names: the desktop connections open the
+	// The Tauri APIs the page names: the desktop workspace opens the
 	// `Channel` an AI response streams back on, and the desktop microphone
 	// opens System Settings through the opener. Folder commands are the folder
 	// adapter's, and Epicenter's own commands go through its generated
@@ -73,8 +73,8 @@ test('the page imports no Node or Bun module, and Tauri only for a response’s 
 	expect(
 		importers((specifier) => specifier.startsWith('@tauri-apps/')),
 	).toEqual([
+		'lib/workspace/desktop.ts imports @tauri-apps/api/core',
 		'lib/workspace/desktop-microphone.ts imports @tauri-apps/plugin-opener',
-		'lib/workspace/desktop-connections.ts imports @tauri-apps/api/core',
 	]);
 });
 
@@ -196,6 +196,5 @@ test('only the desktop workspace reaches Epicenter’s commands, through the gen
 	expect(importers((specifier) => specifier.includes('bindings.gen'))).toEqual([
 		'lib/workspace/desktop.ts imports ../tauri/bindings.gen.js',
 		'lib/workspace/local-transcription.ts imports ../tauri/bindings.gen.js',
-		'lib/workspace/desktop-connections.ts imports ../tauri/bindings.gen.js',
 	]);
 });

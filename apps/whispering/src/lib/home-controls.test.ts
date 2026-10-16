@@ -1,5 +1,5 @@
 /**
- * Home controls tests: post-processing choice and the settings draft
+ * Home controls tests: post-processing choice and connection choices
  *
  * Drives a real session over a real directory with stubbed endpoints that
  * count every request. No component is mounted, so these establish what the
@@ -16,30 +16,24 @@
  * - The choice is read against the folder and the text connection by the
  *   library's one resolver: a deleted transformation is missing, one with no
  *   text connection to run over cannot run, and neither runs
- * - The settings form has one draft per connection: it saves the base URL,
- *   model, and key on the device only, keeps the saved key when none is
- *   typed, refuses to keep a key for another endpoint, and asks no endpoint
- *   anything
- * - A key saved by an earlier build moves only into the connections chosen,
- *   at the base URL each form shows
+ * - Choosing a connection writes only the choice to `kv.json`, never a key,
+ *   and asks no endpoint anything
+ * - A local connection is never the text connection
  */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { folderOptions } from '@epicenter/folder/query';
-import { Err, Ok } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import type { ConnectionChange } from './connections.js';
 import { STARTER_TRANSFORMATIONS } from './definition.js';
 import { settle, transformationEditor } from './edits.test-support.js';
 import { createQueryClient } from './query.test-support.js';
 import type { Session } from './session.svelte.js';
 import type { Workspace } from './workspace/types.js';
 import {
-	deferred,
 	openTestWorkspace,
-	TEST_BASE_URL,
 	type TestWorkspaceOptions,
 } from './workspace.test-support.js';
 
@@ -140,18 +134,18 @@ test('choosing, recording, stopping, and transcribing send nothing to the transf
 
 test('a chosen transformation with no text connection to run over cannot run, and one that was deleted is missing; neither is run', async () => {
 	const { session, library, view, root, transformed } = await open(undefined, {
-		connections: {},
+		connections: { text: null },
 	});
 	const profile = await cleanup(session);
 	view.postProcessing = profile.path;
 
-	// A new transformation uses the text connection, and none is set up.
+	// A new transformation uses the text connection, and none is chosen.
 	expect(session.postProcessing).toMatchObject({
 		kind: 'repair',
-		reason: 'Set up the text connection in Settings to run this.',
+		reason: 'Choose a text connection in Settings to run this.',
 	});
 	expect(await library.transform('transcriptions/none.md', profile.path)).toBe(
-		'Set up the text connection in Settings to run this.',
+		'Choose a text connection in Settings to run this.',
 	);
 
 	await rm(join(root, profile.path));
@@ -180,172 +174,41 @@ test('the folder being read is reported while it is read, and not after', async 
 	expect(library.refreshing).toBe(false);
 });
 
-test('the settings draft saves a connection on the device only, keeps the saved key when none is typed, and asks no endpoint anything', async () => {
-	const { session, library, root, transcribed, transformed, device } =
-		await open(undefined, { connections: {} });
-	const draft = session.settings.transcription;
-	// Not set up: the form starts from the defaults, and nothing is saved.
-	expect(draft.saved).toBeUndefined();
-	expect(draft.baseUrl).toBe('https://api.openai.com/v1');
-	expect(draft.model).toBe('whisper-1');
-
-	draft.baseUrl = 'http://127.0.0.1:9000/v1/';
-	draft.model = ' local-whisper ';
-	draft.key = 'typed-key';
-	expect(await draft.save()).toBeUndefined();
-
-	expect(device.stored.transcription).toEqual({
-		baseUrl: 'http://127.0.0.1:9000/v1',
-		model: 'local-whisper',
-		apiKey: 'typed-key',
+test('choosing a connection writes only the choice to kv.json and asks no endpoint anything', async () => {
+	const { library, root, transcribed, transformed } = await open(undefined, {
+		connections: { transcription: null },
+		others: { groq: { title: 'Groq', model: 'whisper-large-v3', key: 'gsk' } },
 	});
-	expect(library.connections?.transcription).toMatchObject({
-		baseUrl: 'http://127.0.0.1:9000/v1',
-		keyPresent: true,
+	expect(library.connections.transcription).toBeUndefined();
+
+	expect(
+		await library.chooseConnection('transcription', 'groq'),
+	).toBeUndefined();
+
+	expect(library.connections.transcription).toMatchObject({
+		connection: 'groq',
+		title: 'Groq',
+		model: 'whisper-large-v3',
+		unusable: undefined,
 	});
-	// The draft follows what was saved, and the key is never read back.
-	expect(draft.model).toBe('local-whisper');
-	expect(draft.key).toBe('');
-	expect(draft.keyAction).toBe('keep');
-
-	draft.model = 'larger-whisper';
-	expect(await draft.save()).toBeUndefined();
-	expect(device.stored.transcription?.apiKey).toBe('typed-key');
-
-	// Nothing reached the folder or an endpoint.
-	expect(await readdir(root)).not.toContain('kv.json');
+	const kv = JSON.parse(await readFile(join(root, 'kv.json'), 'utf8'));
+	expect(kv).toEqual({
+		textConnection: 'test-text',
+		transcriptionConnection: 'groq',
+	});
+	// A key never reaches the folder.
+	expect(JSON.stringify(kv)).not.toContain('gsk');
 	expect(transcribed).toEqual([]);
 	expect(transformed).toEqual([]);
 });
 
-test('a changed endpoint cannot keep the saved key: the draft says why and the device refuses it', async () => {
-	const { session, device } = await open(undefined, {
-		connections: {
-			text: { baseUrl: TEST_BASE_URL, model: 'chat-model', apiKey: 'text-key' },
-		},
+test('a local connection can transcribe on the desktop, and is never the text connection', async () => {
+	const { library } = await open(undefined, {
+		connections: { text: { kind: 'local', title: 'This computer', model: '' } },
 	});
-	const draft = session.settings.text;
-	expect(draft.keyAction).toBe('keep');
-
-	// Same origin, another path: another endpoint.
-	draft.baseUrl = 'http://127.0.0.1:18080/other/v1';
-	expect(draft.problem).toContain('saved key is not sent there');
-	expect(await draft.save()).toMatchObject({
-		description: expect.stringContaining('saved key is not sent there'),
+	expect(library.connections.text).toMatchObject({
+		kind: 'local',
+		unusable:
+			'This computer runs on this computer’s local transcription model, which only transcribes.',
 	});
-	expect(device.stored.text).toEqual({
-		baseUrl: TEST_BASE_URL,
-		model: 'chat-model',
-		apiKey: 'text-key',
-	});
-
-	// Removing the key, or replacing it, is an explicit choice for the new endpoint.
-	draft.keyAction = 'remove';
-	expect(draft.problem).toBeUndefined();
-	expect(await draft.save()).toBeUndefined();
-	expect(device.stored.text).toEqual({
-		baseUrl: 'http://127.0.0.1:18080/other/v1',
-		model: 'chat-model',
-	});
-});
-
-test('a connection the device refuses is reported, its typed key stays, and nothing changes', async () => {
-	const { session, device } = await open((workspace) => ({
-		...workspace,
-		connections: {
-			...workspace.connections,
-			set: async () =>
-				Err('The transcription connection comes from the environment.'),
-		},
-	}));
-	const draft = session.settings.transcription;
-	draft.keyAction = 'replace';
-	draft.key = 'typed-key';
-
-	expect(await draft.save()).toEqual({
-		title: 'Could not save the transcription connection',
-		description: 'The transcription connection comes from the environment.',
-	});
-	expect(draft.key).toBe('typed-key');
-	expect(draft.saving).toBe(false);
-	expect(device.stored.transcription?.apiKey).toBeUndefined();
-});
-
-test('the earlier key moves only into the connections chosen, at the endpoint each form shows', async () => {
-	const { session, library, device, transformed } = await open(undefined, {
-		connections: {},
-		legacyKey: 'earlier-key',
-	});
-	expect(library.connections?.legacyKey).toBe(true);
-	const { settings } = session;
-	settings.text.baseUrl = 'http://127.0.0.1:11434/v1';
-	settings.text.model = 'local-chat';
-
-	expect(await settings.adoptLegacyKey(['text'])).toBeUndefined();
-
-	expect(device.stored.text).toEqual({
-		baseUrl: 'http://127.0.0.1:11434/v1',
-		model: 'local-chat',
-		apiKey: 'earlier-key',
-	});
-	// Moved, not copied: it is not offered again, and transcription did not get it.
-	expect(device.stored.transcription).toBeUndefined();
-	expect(device.device.legacyKey).toBe('');
-	expect(library.connections?.legacyKey).toBe(false);
-	expect(await settings.adoptLegacyKey(['transcription'])).toMatchObject({
-		description: 'No key from an earlier version is saved on this device.',
-	});
-	expect(transformed).toEqual([]);
-});
-
-test.each([
-	true,
-	false,
-])('saving another connection preserves unsaved settings with configured connections: %s', async (configured) => {
-	const { session } = await open(
-		undefined,
-		configured ? {} : { connections: {} },
-	);
-	const { text, transcription } = session.settings;
-	text.baseUrl = 'http://127.0.0.1:9001/v1';
-	text.model = 'unsaved-text-model';
-	text.keyAction = 'remove';
-	transcription.model = 'changed-transcription-model';
-
-	expect(await transcription.save()).toBeUndefined();
-	expect(text.baseUrl).toBe('http://127.0.0.1:9001/v1');
-	expect(text.model).toBe('unsaved-text-model');
-	expect(text.keyAction).toBe('remove');
-});
-
-test('saving uses the submitted key and keeps typing done while the save is under way', async () => {
-	const started = deferred<void>();
-	const finish = deferred<void>();
-	const changes: ConnectionChange[] = [];
-	const { session } = await open((workspace) => ({
-		...workspace,
-		connections: {
-			...workspace.connections,
-			async set(operation, change) {
-				changes.push(change);
-				started.resolve();
-				await finish.promise;
-				return workspace.connections.set(operation, change);
-			},
-		},
-	}));
-	const draft = session.settings.transcription;
-	draft.keyAction = 'replace';
-	draft.key = 'submitted-fixture-key';
-	const saving = draft.save();
-	await started.promise;
-	expect(draft.saving).toBe(true);
-	draft.key = 'next-fixture-key';
-	finish.resolve();
-	expect(await saving).toBeUndefined();
-	expect(changes.map((change) => change.key)).toEqual([
-		{ action: 'replace', key: 'submitted-fixture-key' },
-	]);
-	expect(draft.key).toBe('next-fixture-key');
-	expect(draft.saving).toBe(false);
 });

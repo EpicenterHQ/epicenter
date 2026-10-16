@@ -7,6 +7,14 @@
  * is the same code for both. Capabilities a storage cannot offer are
  * `undefined` here, not emulated: a browser folder has no directory to reveal.
  */
+
+import type { epicenterDefinition } from '@epicenter/ai/connection-table';
+import type {
+	ConnectionKind,
+	SendRequest,
+	SendTarget,
+} from '@epicenter/ai/send';
+import type { ConnectionKeys } from '@epicenter/ai/ui';
 import type {
 	Folder,
 	FolderDefinition,
@@ -16,22 +24,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import manifest from '../../../epicenter.app.json';
 import type { CaptureDevice, MicrophonePreference } from '../capture.js';
-import type {
-	ConnectionChange,
-	ConnectionDefaults,
-	ConnectionsInfo,
-	LegacyKeyTargets,
-	Operation,
-} from '../connections.js';
 import type { whisperingDefinition } from '../definition.js';
-import type {
-	PreparedTranscription,
-	TranscriptionError,
-} from '../transcription.js';
-import type {
-	PreparedTransformation,
-	TransformationError,
-} from '../transformation.js';
 import type { LocalTranscription } from './local-transcription.js';
 
 /**
@@ -43,6 +36,47 @@ export type WhisperingFolder = Folder<
 	typeof whisperingDefinition,
 	FolderDefinition
 >;
+
+/** A request's target over a connection; never one of the account's own resources. */
+export type ConnectionTarget = Exclude<
+	SendTarget,
+	{ readonly kind: 'account' }
+>;
+
+/** This device's `so.epicenter`, seen through its `connections` table. */
+export type ConnectionsFolder = Folder<
+	typeof epicenterDefinition,
+	FolderDefinition
+>;
+
+/**
+ * Where Whispering's requests go (ADR-0557): connections are rows of this
+ * device's `so.epicenter`, each row's endpoint and key are kept outside it,
+ * and a request is sent by the row's kind. The two workspaces differ in
+ * where keys are kept and how a request leaves.
+ */
+export type WorkspaceConnections = {
+	/** The kinds a person may add here, in the order the form offers them. */
+	readonly kinds: readonly ConnectionKind[];
+	/** Where each connection's endpoint and key are kept. */
+	readonly keys: ConnectionKeys;
+	/** Where an Epicenter connection's sign-in comes from, for the connection form. */
+	readonly epicenterNote: string;
+	/** What a person should know about where requests leave from. */
+	readonly note: string;
+	/** Open this device's `so.epicenter`. The workspace closes it. */
+	open(): Promise<Result<ConnectionsFolder, string>>;
+	/** Where an Epicenter connection sends now, its deployment's `/v1`, or why there is none. */
+	epicenterEndpoint(): Promise<Result<string, string>>;
+	/**
+	 * Send a request over a connection. A refusal, or an answer that never
+	 * came back, is its message; nothing is sent again by this.
+	 */
+	send(
+		target: ConnectionTarget,
+		request: SendRequest,
+	): Promise<Result<Response, { readonly message: string }>>;
+};
 
 /**
  * The folder both workspaces open, named by Whispering's app id in
@@ -142,49 +176,11 @@ export type Workspace = {
 	/** Show the folder in the system file manager; a problem is returned as text. Absent where nothing can. */
 	readonly reveal: (() => Promise<string | undefined>) | undefined;
 	/**
-	 * Send the audio a row names over the transcription connection, only while
-	 * that connection is still the base URL the request was prepared for.
-	 * Nothing is written by this.
-	 */
-	transcribe(
-		request: PreparedTranscription,
-	): Promise<Result<{ text: string }, TranscriptionError>>;
-	/**
-	 * Send instructions and a text to the text connection's chat endpoint and
-	 * return its answer, only while that connection is still the base URL the
-	 * request was prepared for. Nothing is written by this.
-	 */
-	transform(
-		request: PreparedTransformation,
-	): Promise<Result<{ text: string }, TransformationError>>;
-	/** Where text requests leave from, and what that requires of the endpoint. */
-	readonly transformNote: string;
-	/**
-	 * Transcription with Epicenter's active local model; absent in a browser,
-	 * which has none.
+	 * Transcription with Epicenter's local models, which a `local` connection
+	 * reaches; absent in a browser, which has none.
 	 */
 	readonly localTranscription: LocalTranscription | undefined;
-	/**
-	 * This device's two connections. Kept outside the folder; what the page is
-	 * told never includes a key.
-	 */
-	readonly connections: {
-		/** Where connections and keys are kept, for the settings form. */
-		readonly storedIn: string;
-		/** Where an unconfigured connection's form starts. Never used for a request. */
-		readonly defaults: ConnectionDefaults;
-		/** Rejects when what is stored cannot be read. */
-		read(): Promise<ConnectionsInfo>;
-		/** Save one connection; a refusal is returned as text. */
-		set(
-			operation: Operation,
-			change: ConnectionChange,
-		): Promise<Result<ConnectionsInfo, string>>;
-		/** Move the earlier build's key into the chosen connections; a refusal is returned as text. */
-		adoptLegacyKey(
-			targets: LegacyKeyTargets,
-		): Promise<Result<ConnectionsInfo, string>>;
-	};
+	readonly connections: WorkspaceConnections;
 	/**
 	 * What this device remembers that is neither folder data nor a secret. It
 	 * is never written to `kv.json`, so it does not travel with the folder.

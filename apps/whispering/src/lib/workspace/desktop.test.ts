@@ -28,6 +28,7 @@ import {
 	base64ToBytes,
 	createMemorySecrets,
 	keyState,
+	removeKey,
 	responseEvents,
 	saveKey,
 	sendRequest,
@@ -36,8 +37,14 @@ import { isStoredRow } from '@epicenter/folder';
 import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { git } from '../../../../../packages/folder/src/git-http.test-support.js';
+import { audioMimeTypeOf } from '../audio-format.js';
 import { toneWav } from '../capture.js';
-import type { ConnectionCommands } from './desktop-connections.js';
+import {
+	type Route,
+	transcribeOver,
+	transformOver,
+} from '../connection-routes.js';
+import type { ConnectionCommands } from './desktop.js';
 import {
 	createGrantedShell,
 	type GrantedShell,
@@ -45,6 +52,7 @@ import {
 	shellArguments,
 } from './granted-folder.test-support.js';
 import type { LocalTranscriptionCommands } from './local-transcription.js';
+import type { Workspace } from './types.js';
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
@@ -141,7 +149,6 @@ const noCommands: LocalTranscriptionCommands = {
 	getLocalTranscriptionReadiness: unexpected,
 	listInferenceModels: unexpected,
 	transcribeAudioBytes: unexpected,
-	openHome: unexpected,
 };
 
 /** A provider's request, as the stubbed endpoint received it. */
@@ -208,6 +215,16 @@ async function epicenter() {
 			});
 			return error === null
 				? { status: 'ok', data, error: null }
+				: {
+						status: 'error',
+						data: null,
+						error: { name: 'Refused', message: error.message },
+					};
+		},
+		async aiKeyRemove(connection) {
+			const { data, error } = await removeKey(keychain, connection);
+			return error === null
+				? { status: 'ok', data: data.removed, error: null }
 				: {
 						status: 'error',
 						data: null,
@@ -500,111 +517,101 @@ test('a row write whose reply the shell never sent is confirmed by what landed, 
 // Connections are rows of so.epicenter, and keys stay in the keychain
 // ============================================================================
 
+/** A route over `connection`, as the library resolves one. */
+const routeOver = (connection: string, model = 'whisper-1'): Route => ({
+	connection,
+	kind: 'openai-compatible',
+	title: connection,
+	model,
+	endpoint: ENDPOINT,
+});
+
+/** The audio at `path`, read through the workspace's folder as the library reads it. */
+const audioOf = (workspace: Workspace) => async (path: string) => {
+	const { data: audio, error } = await workspace.folder.files.read(path);
+	if (error !== null) return { data: null, error: error.message } as const;
+	return {
+		data: {
+			bytes: audio.bytes,
+			filename: path.slice(path.lastIndexOf('/') + 1),
+			mimeType: audioMimeTypeOf(path) ?? 'application/octet-stream',
+		},
+		error: null,
+	} as const;
+};
+
 test('a connection is a row of so.epicenter with its endpoint and key in the keychain; the page is told whether a key is set and never the key', async () => {
 	setup();
 	await granted();
 	const host = await epicenter();
-	const first = expectOk(await openWith(host));
-	expect(await first.connections.read()).toEqual({
-		transcription: undefined,
-		text: undefined,
-		legacyKey: false,
-	});
+	const workspace = expectOk(await openWith(host));
+	const { connections } = workspace;
+	expect(connections.kinds).toEqual([
+		'openai-compatible',
+		'epicenter',
+		'local',
+	]);
+	expect(connections.keys.place).toBe('computer');
 
-	const saved = expectOk(
-		await first.connections.set('text', {
-			baseUrl: `${ENDPOINT}/`,
-			model: 'chat-model',
-			key: { action: 'replace', key: 'device-secret-key' },
-		}),
+	const folder = expectOk(await connections.open());
+	expectOk(
+		await folder.tables.connections.create(
+			{
+				fields: {
+					kind: 'openai-compatible',
+					title: 'Groq',
+					model: 'chat-model',
+				},
+				body: '',
+			},
+			{ stem: 'groq' },
+		),
 	);
-	expect(saved.text).toEqual({
-		baseUrl: ENDPOINT,
-		model: 'chat-model',
-		keyPresent: true,
-		readOnlyReason: undefined,
+	expect(
+		expectOk(
+			await connections.keys.save('groq', `${ENDPOINT}/`, 'device-secret-key'),
+		),
+	).toEqual({ state: 'saved', endpoint: ENDPOINT, hasKey: true });
+	expect(expectOk(await connections.keys.state('groq'))).toEqual({
+		state: 'saved',
+		endpoint: ENDPOINT,
+		hasKey: true,
 	});
-	// One row, named for what it is, holding no endpoint and no key.
-	const row = await readFile(
-		join(host.root, 'connections/whispering-text.md'),
-		'utf8',
-	);
+	// The row holds no endpoint and no key; the keychain holds both.
+	const row = await readFile(join(host.root, 'connections/groq.md'), 'utf8');
 	expect(row).toContain('kind: openai-compatible');
-	expect(row).toContain('title: Whispering text');
-	expect(row).toContain('model: chat-model');
 	expect(row).not.toContain(ENDPOINT);
 	expect(row).not.toContain('device-secret-key');
-	expect(await host.keychain.get('whispering-text')).toBe(
+	expect(await host.keychain.get('groq')).toBe(
 		JSON.stringify({ endpoint: ENDPOINT, key: 'device-secret-key' }),
 	);
 
-	// The key is never carried to another base URL.
-	const moved = await first.connections.set('text', {
-		baseUrl: 'http://127.0.0.1:18081/v1',
-		model: 'chat-model',
-		key: { action: 'keep' },
+	expectOk(await connections.keys.remove('groq'));
+	expect(expectOk(await connections.keys.state('groq'))).toEqual({
+		state: 'missing',
 	});
-	expect(moved.error).toContain('the saved key is not sent there');
-	expect(
-		JSON.parse((await host.keychain.get('whispering-text'))!).endpoint,
-	).toBe(ENDPOINT);
-	await first.close();
-
-	// Another window reads the same row; removing the key keeps the endpoint.
-	const second = expectOk(await openWith(host));
-	expect((await second.connections.read()).text?.keyPresent).toBe(true);
-	const removed = expectOk(
-		await second.connections.set('text', {
-			baseUrl: ENDPOINT,
-			model: 'other-model',
-			key: { action: 'remove' },
-		}),
-	);
-	expect(removed.text).toMatchObject({
-		baseUrl: ENDPOINT,
-		model: 'other-model',
-		keyPresent: false,
-	});
-	expect(await host.keychain.get('whispering-text')).toBe(
-		JSON.stringify({ endpoint: ENDPOINT, key: '' }),
-	);
-	const { error: adopted } = await second.connections.adoptLegacyKey({});
-	expect(adopted).toContain('No key from an earlier version');
-	await second.close();
-
-	// A row synced from another computer is not set up here until this
-	// computer saves its endpoint.
-	await host.keychain.delete('whispering-text');
-	const third = expectOk(await openWith(host));
-	expect((await third.connections.read()).text).toBeUndefined();
-	await third.close();
+	// Signed out, an Epicenter connection has nowhere to send.
+	expect((await connections.epicenterEndpoint()).error).toContain('sign in');
+	await workspace.close();
 });
 
-test('a transcription reads the audio through the shell and Epicenter sends it with the key, only while the connection is the one it was prepared for', async () => {
+test('a transcription reads the audio through the shell and Epicenter sends it with the key, only to the endpoint it was prepared for', async () => {
 	setup();
 	const granting = await granted();
 	await granting.write('audio/take.wav', toneWav());
 	const host = await epicenter();
 	const workspace = expectOk(await openWith(host));
-	const request = {
-		audioPath: 'audio/take.wav',
-		expectedBaseUrl: ENDPOINT,
-		model: 'whisper-1',
-	};
-
-	// Nothing set up: nothing is read or sent.
-	const { error: none } = await workspace.transcribe(request);
-	expect(none?.name).toBe('ConnectionUnavailable');
-	expect(host.provider).toEqual([]);
-
 	expectOk(
-		await workspace.connections.set('transcription', {
-			baseUrl: ENDPOINT,
-			model: 'whisper-1',
-			key: { action: 'replace', key: 'transcription-key' },
-		}),
+		await workspace.connections.keys.save(
+			'groq',
+			ENDPOINT,
+			'transcription-key',
+		),
 	);
-	expect(expectOk(await workspace.transcribe(request))).toEqual({
+	const transcribe = (route: Route, path = 'audio/take.wav') =>
+		transcribeOver({ workspace }, route, path, audioOf(workspace));
+
+	expect(expectOk(await transcribe(routeOver('groq')))).toEqual({
 		text: 'a steady tone',
 	});
 	expect(host.provider).toHaveLength(1);
@@ -627,19 +634,41 @@ test('a transcription reads the audio through the shell and Epicenter sends it w
 	).toBe(true);
 	expect(host.lines.join('\n')).not.toContain('transcription-key');
 
-	// A request prepared for another base URL is not sent.
-	const { error: changed } = await workspace.transcribe({
-		...request,
-		expectedBaseUrl: 'http://127.0.0.1:18081/v1',
+	// A request prepared for another endpoint is not sent: Epicenter refuses it.
+	const { error: changed } = await transcribe({
+		...routeOver('groq'),
+		endpoint: 'http://127.0.0.1:18081/v1',
 	});
-	expect(changed?.name).toBe('ConnectionChanged');
+	expect(changed?.message).toContain(`saved for ${ENDPOINT}`);
 	// Audio that cannot be read is certain: nothing is sent.
-	const { error: unreadable } = await workspace.transcribe({
-		...request,
-		audioPath: 'audio/gone.wav',
-	});
-	expect(unreadable?.name).toBe('AudioUnreadable');
+	const { error: unreadable } = await transcribe(
+		routeOver('groq'),
+		'audio/gone.wav',
+	);
+	expect(unreadable?.message).toContain('could not be read');
 	expect(host.provider).toHaveLength(1);
+	await workspace.close();
+});
+
+test('a refusal Epicenter names before sending reads as that refusal, never as an unknown outcome', async () => {
+	setup();
+	await granted();
+	const host = await epicenter();
+	const workspace = expectOk(await openWith(host));
+
+	// No key is saved for this connection: Epicenter refuses, and sends nothing.
+	const { error } = await transformOver(
+		{ workspace },
+		routeOver('unsaved', 'model'),
+		{
+			prompt: 'Fix it.',
+			input: 'text',
+		},
+	);
+	expect(error?.message).toBe(
+		"No endpoint or key is saved on this computer for the connection 'unsaved'. Add your key on this computer.",
+	);
+	expect(host.provider).toEqual([]);
 	await workspace.close();
 });
 
@@ -649,34 +678,26 @@ test('a reply Epicenter never delivered is reported as unknown, never as not sen
 	await granting.write('audio/take.wav', toneWav());
 	const host = await epicenter();
 	const workspace = expectOk(await openWith(host));
-	for (const operation of ['transcription', 'text'] as const)
-		expectOk(
-			await workspace.connections.set(operation, {
-				baseUrl: ENDPOINT,
-				model: 'model',
-				key: { action: 'replace', key: 'test-key' },
-			}),
-		);
+	expectOk(await workspace.connections.keys.save('groq', ENDPOINT, 'test-key'));
+	const route = routeOver('groq', 'model');
 	const transformation = {
-		expectedBaseUrl: ENDPOINT,
-		model: 'model',
 		prompt: 'Fix the punctuation.',
 		input: 'um so a steady tone',
 	};
 	host.lose(true);
 
-	const transcribed = await workspace.transcribe({
-		audioPath: 'audio/take.wav',
-		expectedBaseUrl: ENDPOINT,
-		model: 'model',
-	});
-	const transformed = await workspace.transform(transformation);
+	const transcribed = await transcribeOver(
+		{ workspace },
+		route,
+		'audio/take.wav',
+		audioOf(workspace),
+	);
+	const transformed = await transformOver({ workspace }, route, transformation);
 
 	// The endpoint was called, once each, and the page was not told the answer.
 	expect(host.provider).toHaveLength(2);
 	for (const { data: answer, error: lost } of [transcribed, transformed]) {
 		expect(answer).toBeNull();
-		expect(lost?.name).toBe('HostUnavailable');
 		expect(lost?.message).toContain(
 			'it is not known whether the request was sent',
 		);
@@ -687,9 +708,9 @@ test('a reply Epicenter never delivered is reported as unknown, never as not sen
 
 	// Asking again is the person's choice, and it is one more request.
 	host.lose(false);
-	expect(expectOk(await workspace.transform(transformation))).toEqual({
-		text: 'A steady tone.',
-	});
+	expect(
+		expectOk(await transformOver({ workspace }, route, transformation)),
+	).toEqual({ text: 'A steady tone.' });
 	expect(host.provider).toHaveLength(3);
 	await workspace.close();
 });
@@ -732,7 +753,6 @@ function localModel({
 	outcome?: LocalOutcome;
 }) {
 	const asked: { modelId: string; bytes: number[] }[] = [];
-	const opened: unknown[] = [];
 	const commands = {
 		getLocalTranscriptionReadiness: async () =>
 			active === undefined
@@ -763,11 +783,8 @@ function localModel({
 				error: null,
 			};
 		},
-		openHome: async (section: unknown) => {
-			opened.push(section);
-		},
 	} as unknown as LocalTranscriptionCommands;
-	return { commands, asked, opened };
+	return { commands, asked };
 }
 
 test('a recording is transcribed on this computer with Epicenter’s active model, from the bytes its row names', async () => {
@@ -780,23 +797,27 @@ test('a recording is transcribed on this computer with Epicenter’s active mode
 	);
 	const transcriber = workspace.localTranscription!;
 
-	expect(await transcriber.readiness()).toEqual({ ready: true });
-	expect(expectOk(await transcriber.transcribe('audio/take.wav'))).toEqual({
-		text: 'a local tone',
-		model: 'parakeet-tdt-0.6b-v3',
-	});
+	expect(expectOk(await transcriber.activeModel())).toBe(
+		'parakeet-tdt-0.6b-v3',
+	);
+	expect(
+		expectOk(
+			await transcriber.transcribe('audio/take.wav', 'parakeet-tdt-0.6b-v3'),
+		),
+	).toEqual({ text: 'a local tone' });
 	// The active model, never another installed one, and exactly the file's bytes.
 	expect(local.asked).toEqual([
 		{ modelId: 'parakeet-tdt-0.6b-v3', bytes: Array.from(toneWav()) },
 	]);
 
 	// Audio that cannot be read is not handed to the model.
-	const { error: unreadable } = await transcriber.transcribe('audio/gone.wav');
-	expect(unreadable?.name).toBe('AudioUnreadable');
+	const { error: unreadable } = await transcriber.transcribe(
+		'audio/gone.wav',
+		'parakeet-tdt-0.6b-v3',
+	);
+	expect(unreadable?.message).toContain('could not be read');
 	expect(local.asked).toHaveLength(1);
 
-	await transcriber.openSettings();
-	expect(local.opened).toEqual(['transcription']);
 	await workspace.close();
 });
 
@@ -810,13 +831,10 @@ test('with no active local model nothing is transcribed, and the reason names Se
 	);
 	const transcriber = workspace.localTranscription!;
 
-	expect(await transcriber.readiness()).toEqual({
-		ready: false,
-		message: 'No local transcription model is chosen on this device.',
-	});
-	const { error } = await transcriber.transcribe('audio/take.wav');
-	expect(error?.name).toBe('ConnectionUnavailable');
-	expect(error?.message).toContain('Epicenter’s Settings');
+	const { error } = await transcriber.activeModel();
+	expect(error).toBe(
+		'No local transcription model is chosen on this device. Choose a model in Epicenter’s Settings.',
+	);
 	expect(local.asked).toEqual([]);
 	await workspace.close();
 });
@@ -828,7 +846,7 @@ test('a local model that fails is reported as that failure, and an empty recordi
 	for (const [outcome, expected] of [
 		[
 			{ error: { name: 'ModelLoadError', message: 'the model did not load' } },
-			'LocalFailed',
+			'Transcription on this computer failed',
 		],
 		[
 			{
@@ -837,16 +855,18 @@ test('a local model that fails is reported as that failure, and an empty recordi
 					message: 'The chosen model is not on this computer.',
 				},
 			},
-			'ConnectionUnavailable',
+			'Epicenter’s Settings',
 		],
 	] as const) {
 		const local = localModel({ active: 'whisper-small', outcome });
 		const workspace = expectOk(
 			await openDesktopWorkspace({ commands: local.commands }),
 		);
-		const { error } =
-			await workspace.localTranscription!.transcribe('audio/take.wav');
-		expect(error?.name).toBe(expected);
+		const { error } = await workspace.localTranscription!.transcribe(
+			'audio/take.wav',
+			'whisper-small',
+		);
+		expect(error?.message).toContain(expected);
 		expect(error?.message).toContain(outcome.error.message);
 		await workspace.close();
 	}
@@ -859,7 +879,12 @@ test('a local model that fails is reported as that failure, and an empty recordi
 		await openDesktopWorkspace({ commands: empty.commands }),
 	);
 	expect(
-		expectOk(await workspace.localTranscription!.transcribe('audio/take.wav')),
-	).toEqual({ text: '', model: 'whisper-small' });
+		expectOk(
+			await workspace.localTranscription!.transcribe(
+				'audio/take.wav',
+				'whisper-small',
+			),
+		),
+	).toEqual({ text: '' });
 	await workspace.close();
 });

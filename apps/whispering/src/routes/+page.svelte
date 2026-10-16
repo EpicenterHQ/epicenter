@@ -107,7 +107,7 @@
 								variant="outline"
 								disabled={!transcript.row.body.trim() || postRunning}
 								aria-label="Run post-processing: {name}"
-								tooltip={chosen.kind === 'ready' ? `Runs “${name}”: sends this transcript to ${chosen.model} at ${chosen.endpoint}` : undefined}
+								tooltip={chosen.kind === 'ready' ? `Runs “${name}”: sends this transcript to ${chosen.model} over ${chosen.connection}` : undefined}
 								onclick={() => void runPostProcessing()}
 								data-testid="run-post-processing"
 							>

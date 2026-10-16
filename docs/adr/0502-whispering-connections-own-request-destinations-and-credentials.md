@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-03
 - **Relates:** [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) defines the static connection primitive. This record describes ownership in the current file-based Whispering application.
+- **Amended by:** [ADR-0582](0582-whisperings-results-name-the-connection-they-were-sent-over.md) at its two private operation connections, legacy-key adoption, the recipe `endpoint` read as a constraint, and `expectedBaseUrl`: each operation chooses a row of `so.epicenter` by id, nothing an earlier build saved is read, and a result row names the connection it went over.
 - **Implementation:** Two private operation connections, explicit setup and legacy-key adoption, one recipe resolver, and request destination confirmation. See [execution evidence](../../apps/whispering/docs/recipe-playground.md).
 - **Unbuilt:** Cross-application recipe execution and credential storage independent of the opened folder. This decision introduces neither a shared recipe app nor a connection registry.
 

@@ -17,6 +17,7 @@ import {
 	responseEvents,
 	saveKey,
 	sendRequest,
+	sendToEndpoint,
 	toSendRequest,
 } from './send.js';
 
@@ -316,4 +317,16 @@ test('a response becomes lines and back, and a failure before its head is the re
 	cut.fail({ name: 'Failed', message: 'the CLI stopped' });
 	const { data: partial } = await cut.response;
 	expect(partial!.text()).rejects.toThrow('the CLI stopped');
+});
+
+test('a refusal that echoes the key reaches the caller without it', async () => {
+	const { data: response } = await sendToEndpoint(
+		{ endpoint, key: 'sk-secret' },
+		{ method: 'POST', path: 'chat/completions', headers: [] },
+		{
+			fetch: async () => new Response('bad key sk-secret', { status: 401 }),
+		},
+	);
+	expect(response?.status).toBe(401);
+	expect(await response?.text()).toBe('bad key [key removed]');
 });

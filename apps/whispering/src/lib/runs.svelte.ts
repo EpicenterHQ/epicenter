@@ -25,7 +25,7 @@ import {
 } from '@epicenter/folder';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { type ConnectionsInfo, sameBaseUrl } from './connections.js';
+import type { Route, Routing } from './connection-routes.js';
 import {
 	audioPathIn,
 	RECORDINGS,
@@ -121,7 +121,7 @@ export function createRuns({
 	workspace,
 	makeId,
 	refused,
-	connections,
+	routing,
 	resolve,
 	settle,
 	deleting,
@@ -132,10 +132,8 @@ export function createRuns({
 	makeId: MakeId;
 	/** Why nothing new starts now, if it does not. */
 	refused: () => string | undefined;
-	connections: () => {
-		readonly info: ConnectionsInfo | undefined;
-		readonly error: string | undefined;
-	};
+	/** Where requests go: each operation's connection, read when a request is sent. */
+	routing: Routing;
 	resolve: (recipe: Row<TransformationFields> | undefined) => ResolvedRecipe;
 	/** Resolves once the edits being written have landed, so what is read is what was typed. */
 	settle: () => Promise<void>;
@@ -358,19 +356,6 @@ export function createRuns({
 		return Ok({ transcriptionId, recordingId, input });
 	}
 
-	/** Why a row made with `endpoint` would not go out over the connection set up now. */
-	function connectionMoved(
-		operation: 'transcription' | 'text',
-		endpoint: string,
-	): string | undefined {
-		const connection = connections().info?.[operation];
-		if (connection === undefined)
-			return `This was run with ${endpoint}, and no ${operation} connection is set up now, so it was not sent again.`;
-		if (!sameBaseUrl(connection.baseUrl, endpoint))
-			return `This was run with ${endpoint}, and the ${operation} connection is now ${connection.baseUrl}, so it was not sent again. Delete it and run it anew.`;
-		return undefined;
-	}
-
 	/**
 	 * Run a recipe whose row `prepare` makes from what it reads now. `key`
 	 * names the pair, so the same pair does not run twice at once.
@@ -382,6 +367,7 @@ export function createRuns({
 			| string
 			| {
 					readonly target: Target;
+					readonly route: Route;
 					readonly fields: TransformationRunFields | TextRunFields;
 			  }
 		>,
@@ -391,14 +377,12 @@ export function createRuns({
 			// The reads are folder work that closing waits for; the request is not.
 			const prepared = await track(prepare);
 			if (typeof prepared === 'string') return prepared;
-			const { target, fields } = prepared;
+			const { target, route, fields } = prepared;
 			const problem = await begin(target, { fields, body: '' });
 			if (problem !== undefined)
 				return `Nothing was sent: the result’s file could not be written. ${problem}`;
 			await send(target, () =>
-				workspace.transform({
-					expectedBaseUrl: fields.endpoint,
-					model: fields.model,
+				routing.transform(route, {
 					prompt: fields.prompt,
 					input: fields.input,
 				}),
@@ -431,8 +415,6 @@ export function createRuns({
 		if (table === TRANSCRIPTIONS) {
 			const fields = stored.row.fields as TranscriptionFields;
 			const recording = fields.recordingId;
-			const moved = connectionMoved('transcription', fields.endpoint);
-			if (moved !== undefined) return Err(moved);
 			if (deleting.has(recording)) return Err(BEING_DELETED);
 			if (capturing.has(recording)) return Err(STILL_RECORDING);
 			const { data: entry, error: recordingError } =
@@ -442,28 +424,29 @@ export function createRuns({
 				return Err('The recording is no longer in the folder.');
 			const audioPath = audioPathIn(entry.row.fields);
 			if (audioPath === undefined) return Err(NO_AUDIO);
+			const { data: route, error: routeError } = await routing.recorded(
+				'transcription',
+				fields,
+			);
+			if (routeError !== null) return Err(routeError);
 			return Ok({
 				target: { table, stem, recording },
-				request: () =>
-					workspace.transcribe({
-						audioPath,
-						expectedBaseUrl: fields.endpoint,
-						model: fields.model,
-					}),
+				request: () => routing.transcribe(route, audioPath),
 			});
 		}
 		const fields = stored.row.fields as TransformationRunFields | TextRunFields;
-		const moved = connectionMoved('text', fields.endpoint);
-		if (moved !== undefined) return Err(moved);
 		const recording = 'recordingId' in fields ? fields.recordingId : undefined;
 		if (recording !== undefined && deleting.has(recording))
 			return Err(BEING_DELETED);
+		const { data: route, error: routeError } = await routing.recorded(
+			'text',
+			fields,
+		);
+		if (routeError !== null) return Err(routeError);
 		return Ok({
 			target: { table, stem, recording },
 			request: () =>
-				workspace.transform({
-					expectedBaseUrl: fields.endpoint,
-					model: fields.model,
+				routing.transform(route, {
 					prompt: fields.prompt,
 					input: fields.input,
 				}),
@@ -544,17 +527,22 @@ export function createRuns({
 			if (capturing.has(id)) return fail(STILL_RECORDING);
 			const audioPath = audioPathIn(entry.row.fields);
 			if (audioPath === undefined) return fail(NO_AUDIO);
-			const { info, error: connectionsError } = connections();
-			const connection = info?.transcription;
-			if (connection === undefined)
-				return fail(
-					connectionsError === undefined
-						? 'No transcription connection is set up, so nothing was sent. Set one up in Settings, then transcribe.'
-						: `The transcription connection could not be read, so nothing was sent: ${connectionsError}`,
-				);
 			const running: TranscriptionRun = { kind: 'running' };
 			transcriptions.set(id, running);
 			try {
+				// Folder work closing waits for, as a recipe run's reads are.
+				const routed = await track(() =>
+					routing
+						.route('transcription')
+						.catch((cause: unknown) =>
+							Err(`the connection could not be read: ${describe(cause)}`),
+						),
+				);
+				if (routed.error !== null)
+					return fail(`Nothing was sent: ${routed.error}`);
+				const route = routed.data;
+				const late = refused();
+				if (late !== undefined) return fail(late);
 				const at = new Date();
 				const target: Target = {
 					table: TRANSCRIPTIONS,
@@ -565,8 +553,9 @@ export function createRuns({
 					fields: {
 						recordingId: id,
 						createdAt: at.toISOString(),
-						model: connection.model,
-						endpoint: connection.baseUrl,
+						connection: route.connection,
+						model: route.model,
+						endpoint: route.endpoint,
 					} as TranscriptionFields,
 					body: '',
 				});
@@ -574,13 +563,7 @@ export function createRuns({
 					return fail(
 						`Nothing was sent: the transcript’s file could not be written. ${problem}`,
 					);
-				await send(target, () =>
-					workspace.transcribe({
-						audioPath,
-						expectedBaseUrl: connection.baseUrl,
-						model: connection.model,
-					}),
-				);
+				await send(target, () => routing.transcribe(route, audioPath));
 			} finally {
 				if (transcriptions.get(id) === running) transcriptions.delete(id);
 			}
@@ -613,6 +596,11 @@ export function createRuns({
 					if (error !== null) return error;
 					const { resolved } = recipe;
 					if (resolved.kind !== 'ready') return resolved.reason;
+					const { data: route, error: routeError } = await routing.route(
+						'text',
+						resolved.ownModel,
+					);
+					if (routeError !== null) return `Nothing was sent: ${routeError}`;
 					const { data: source, error: sourceError } =
 						await transcriptAt(transcriptionPath);
 					if (sourceError !== null) return sourceError;
@@ -625,14 +613,16 @@ export function createRuns({
 							stem: makeId(at),
 							recording: source.recordingId,
 						},
+						route,
 						fields: {
 							recordingId: source.recordingId,
 							transcriptionId: source.transcriptionId,
 							transformationId: recipe.stem,
 							transformationTitle: resolved.title,
 							createdAt: at.toISOString(),
-							model: resolved.model,
-							endpoint: resolved.endpoint,
+							connection: route.connection,
+							model: route.model,
+							endpoint: route.endpoint,
 							prompt: resolved.prompt,
 							input: source.input,
 						} as TransformationRunFields,
@@ -666,6 +656,11 @@ export function createRuns({
 					if (error !== null) return error;
 					const { resolved } = recipe;
 					if (resolved.kind !== 'ready') return resolved.reason;
+					const { data: route, error: routeError } = await routing.route(
+						'text',
+						resolved.ownModel,
+					);
+					if (routeError !== null) return `Nothing was sent: ${routeError}`;
 					const late = refused();
 					if (late !== undefined) return late;
 					const at = new Date();
@@ -675,12 +670,14 @@ export function createRuns({
 							stem: makeId(at),
 							recording: undefined,
 						},
+						route,
 						fields: {
 							transformationId: stem,
 							transformationTitle: resolved.title,
 							createdAt: at.toISOString(),
-							model: resolved.model,
-							endpoint: resolved.endpoint,
+							connection: route.connection,
+							model: route.model,
+							endpoint: route.endpoint,
 							prompt: resolved.prompt,
 							input,
 						} as TextRunFields,
@@ -690,9 +687,9 @@ export function createRuns({
 		},
 		/**
 		 * Send the request of an unfinished result row again, from the row's own
-		 * fields, and write the answer into the same row. Sent only while the
-		 * connection is still the one the row names. Answers why nothing was
-		 * sent.
+		 * fields, and write the answer into the same row: over the connection
+		 * the row names, and only to the endpoint it recorded. Answers why
+		 * nothing was sent.
 		 */
 		async runAgain(path: string): Promise<string | undefined> {
 			const why = refused();

@@ -430,14 +430,23 @@ export async function sendToEndpoint(
 		if (!REFUSED_HEADERS.has(name.toLowerCase())) headers.append(name, value);
 	if (key !== '') headers.set('authorization', `Bearer ${key}`);
 	try {
+		const response = await send(url, {
+			method: request.method,
+			headers,
+			body: request.body as Uint8Array<ArrayBuffer> | undefined,
+			redirect: 'error',
+			credentials: 'omit',
+			signal,
+		});
+		if (response.ok || key === '') return Ok(response);
+		// A refusal's body is read whole, so an endpoint that echoes the key
+		// does not carry it into what is shown.
+		const text = await response.text().catch(() => '');
 		return Ok(
-			await send(url, {
-				method: request.method,
-				headers,
-				body: request.body as Uint8Array<ArrayBuffer> | undefined,
-				redirect: 'error',
-				credentials: 'omit',
-				signal,
+			new Response(text.split(key).join('[key removed]'), {
+				status: response.status,
+				statusText: response.statusText,
+				headers: response.headers,
 			}),
 		);
 	} catch (cause) {

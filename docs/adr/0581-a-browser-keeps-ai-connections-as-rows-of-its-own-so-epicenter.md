@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) at "no `so.epicenter` folder is open there, so an app keeps its connections in its origin's storage, with the same fields as a row": a browser page opens its origin's own `so.epicenter` in OPFS and keeps connections as rows of the same `connections` table; only the `{ endpoint, key }` entry of [ADR-0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) stays in the page's storage.
-- **Unbuilt:** Whispering's browser build, whose two connections are still `whispering.connections` in `localStorage` (`apps/whispering/src/lib/workspace/browser.ts`); it moves to rows with ADR-0564's `transcriptionConnection` and `textConnection`.
 
 ## Context
 
