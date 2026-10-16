@@ -42,7 +42,6 @@ export {
 export {
 	FileError,
 	type FileSaveError,
-	type FileStep,
 	type KvReadError,
 	type KvWriteError,
 	MoveError,

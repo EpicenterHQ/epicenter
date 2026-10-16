@@ -33,7 +33,6 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from '../boundary.js';
 import { captureFiles } from '../storage.js';
-import { hashBytes } from '../capture.js';
 import type { FolderDefinition } from '../definition.js';
 import { describe, UnconfirmedWrite } from '../errors.js';
 import { callObserver } from '../observer.js';
@@ -636,17 +635,20 @@ export function createHistory({
 				paths: [declared.path],
 				reason: `the commit declares the Git attribute ${declared.attribute}, and this folder does not apply attribute filters or conversion`,
 			});
+		// Every file and every directory on the way to one, so `Docs/a.md`
+		// and `docs/b.md` collide as surely as `a.md` and `A.md` do.
 		const folded = new Map<string, string>();
-		for (const path of files.keys()) {
-			const key = collisionKey(path);
-			const existing = folded.get(key);
-			if (existing !== undefined)
-				return SyncError.Unrepresentable({
-					paths: [existing, path],
-					reason: 'paths collide on case-insensitive filesystems',
-				});
-			folded.set(key, path);
-		}
+		for (const path of files.keys())
+			for (const name of [...ancestors(path), path]) {
+				const key = collisionKey(name);
+				const existing = folded.get(key);
+				if (existing !== undefined && existing !== name)
+					return SyncError.Unrepresentable({
+						paths: [existing, name],
+						reason: 'paths collide on case-insensitive filesystems',
+					});
+				folded.set(key, name);
+			}
 		return Ok(undefined);
 	}
 
@@ -693,14 +695,32 @@ export function createHistory({
 			.map(({ path }) => path)
 			.filter((path) => !leaving.has(path));
 		const present = new Set(staying);
+		// On a case-insensitive disk a name is taken by every spelling of it,
+		// so names are compared folded (`collisionKey`).
+		const files = new Map(staying.map((path) => [collisionKey(path), path]));
+		const directories = new Map<string, string>();
+		for (const path of staying)
+			for (const directory of ancestors(path))
+				directories.set(collisionKey(directory), directory);
 		const blocked = changes
 			.filter((change) => change.kind !== 'delete')
 			.map((change) => change.path)
-			.filter(
-				(path) =>
-					ancestors(path).some((ancestor) => present.has(ancestor)) ||
-					staying.some((other) => other.startsWith(`${path}/`)),
-			);
+			.filter((path) => {
+				const key = collisionKey(path);
+				const spelled = files.get(key);
+				return (
+					(spelled !== undefined && spelled !== path) ||
+					directories.has(key) ||
+					ancestors(path).some((ancestor) => {
+						const folded = collisionKey(ancestor);
+						const directory = directories.get(folded);
+						return (
+							files.has(folded) ||
+							(directory !== undefined && directory !== ancestor)
+						);
+					})
+				);
+			});
 		for (const { path } of changes) {
 			if (before.has(path) || !after.has(path) || !present.has(path)) continue;
 			const read = await storage.read(path);
@@ -716,25 +736,27 @@ export function createHistory({
 
 	/**
 	 * Inside the protection: write the tree of `to` over the files, which the
-	 * branch left at `from`, then set the index to it and move the branch.
+	 * branch left at `from`, then move the branch and set the index to it.
 	 * `moved` when a commit moved the branch since `from`, so Sync merges from
 	 * there instead.
 	 *
-	 * The files are written holding the folder's save lock (`lock`), so no
-	 * cooperating save lands between the checks and the last write. Each path
-	 * that differs between the two goes once, by the one write (ADR-0576),
-	 * the live file as the writer acting: one still at `from`'s bytes takes
-	 * `to`'s, and one edited since keeps the units it changed. Removals go
-	 * first, each guarded by `from`'s bytes, and each removal's emptied
-	 * directories after it, so a file can take a directory's place and the
-	 * reverse; an empty directory where a file goes is removed too.
+	 * Each path that differs between the two goes once, by the one write
+	 * (ADR-0576), the live file as the writer acting: one still at `from`'s
+	 * bytes takes `to`'s, and one edited since keeps the units it changed.
+	 * Each file is checked and written holding the folder's save lock
+	 * (`lock`), one file at a time, so no cooperating save lands between its
+	 * check and its write, and a save waits for one file, never for the whole
+	 * publish. Removals go first, each guarded by `from`'s bytes, with the
+	 * directories they empty after them, so a file can take a directory's
+	 * place and the reverse; an empty directory where a file goes is removed
+	 * too.
 	 *
-	 * `edited`, before anything is written, when a file `to` removes holds an
-	 * edit no commit has: Sync records it and merges again, so the delete
-	 * wins and the edit stays in history. Every write lands whole, so a
-	 * publish cut off partway leaves each file at its old or its new bytes:
-	 * ordinary changes, which the next Sync records and merges to the same
-	 * files (ADR-0545).
+	 * `edited` when a file `to` removes holds an edit no commit has: Sync
+	 * records it and merges again, so the delete wins and the edit stays in
+	 * history. Every write lands whole, so a publish that stops partway, for
+	 * that or any other reason, leaves each file at its old bytes or its new
+	 * ones: ordinary changes, which the next Sync records and merges to the
+	 * same files (ADR-0545).
 	 */
 	function publish(
 		from: string | undefined,
@@ -753,122 +775,111 @@ export function createHistory({
 			const head = await backend.readBranch();
 			if (head !== from) return Ok({ kind: 'moved', head } as const);
 			const plan = await between(from, to);
-			const { before, after, changes } = plan;
+			const refused = await inTheWay(boundary, plan);
+			if (refused !== undefined) return SyncError.Blocked({ reason: refused });
+			// Read from history before any lock: only each file's check and
+			// write need it.
+			const blobs = new Map<
+				string,
+				{ readonly was: Uint8Array | null; readonly next: Uint8Array | null }
+			>();
+			for (const { path } of plan.changes)
+				blobs.set(path, {
+					was: await blobOf(plan.before.get(path)),
+					next: await blobOf(plan.after.get(path)),
+				});
+			const removals = plan.changes
+				.filter((change) => change.kind === 'delete')
+				.map(({ path }) => path);
+			const writes = plan.changes
+				.filter((change) => change.kind !== 'delete')
+				.map(({ path }) => path);
+			// Before anything is written: an edit no commit has, in a file `to`
+			// removes, is recorded first.
+			for (const path of removals) {
+				const read = await boundary.read(path);
+				if (
+					read.error === null &&
+					!sameContent(read.data.bytes, blobs.get(path)!.was)
+				)
+					return Ok({ kind: 'edited' } as const);
+			}
+			const { data: listed } = await boundary.list();
+			const directories = listed?.directories ?? [];
 			const reached: string[] = [];
 			let kept = false;
+			const failed = (path: string, error: { message: string }) =>
+				SyncError.Publish({ path, error: error.message });
 			try {
-				return await publishFiles();
-			} finally {
-				// Heard once the index and the branch are set, or the publish
-				// stopped: a status taken between them would be of neither.
-				if (reached.length > 0) {
-					markLanded(kept);
-					landed(reached);
-				}
-			}
-
-			async function publishFiles(): Promise<
-				Result<
-					{ readonly kind: 'published' } | { readonly kind: 'edited' },
-					SyncError
-				>
-			> {
-				const written = await boundary.lock(
-					async (
-						held,
-					): Promise<
-						Result<{ readonly kind: 'written' | 'edited' }, SyncError>
-					> => {
-						const refused = await inTheWay(held, plan);
-						if (refused !== undefined)
-							return SyncError.Blocked({ reason: refused });
-						for (const { path, kind } of changes) {
-							if (kind !== 'delete') continue;
+				for (const path of removals) {
+					const { was } = blobs.get(path)!;
+					const step = await boundary.lock(
+						async (
+							held,
+						): Promise<Result<'removed' | 'kept' | 'edited', SyncError>> => {
 							const read = await held.read(path);
-							if (
-								read.error === null &&
-								!sameContent(read.data.bytes, await blobOf(before.get(path)))
+							if (read.error?.name === 'NotFound') return Ok('removed');
+							if (read.error !== null) return failed(path, read.error);
+							if (!sameContent(read.data.bytes, was)) return Ok('edited');
+							const removed = await confirmedPut(
+								held,
+								path,
+								null,
+								read.data.sha256,
+								null,
+							);
+							if (removed.error !== null) return failed(path, removed.error);
+							// Changed by a program outside the save lock: it stays.
+							if (removed.data === 'stale') return Ok('kept');
+							for (const directory of ancestors(path).reverse())
+								if ((await held.rmdir(directory)).error !== null) break;
+							return Ok('removed');
+						},
+					);
+					if (step.error !== null) return Err(step.error);
+					if (step.data === 'edited') return Ok({ kind: 'edited' } as const);
+					if (step.data === 'kept') kept = true;
+					else reached.push(path);
+				}
+				for (const path of writes) {
+					const { was, next } = blobs.get(path)!;
+					const { data: wrote, error } = await boundary.lock(async (held) => {
+						// An empty directory where the file goes, which a removal
+						// cut off before its own prune can leave.
+						for (const directory of directories
+							.filter(
+								(directory) =>
+									directory === path || directory.startsWith(`${path}/`),
 							)
-								return Ok({ kind: 'edited' } as const);
-						}
-						const { data: listed } = await held.list();
-						const directories = listed?.directories ?? [];
-						{
-							for (const { path } of changes.filter(
-								(change) => change.kind === 'delete',
-							)) {
-								const was = await blobOf(before.get(path));
-								const removed = await confirmedPut(
-									held,
-									path,
-									null,
-									was === null ? null : await hashBytes(was),
-									null,
-								);
-								if (removed.error !== null)
-									return SyncError.Publish({
-										path,
-										error: removed.error.message,
-									});
-								// Changed by a program outside the save lock: it stays.
-								if (removed.data === 'stale') {
-									kept = true;
-									continue;
-								}
-								reached.push(path);
-								for (const directory of ancestors(path).reverse())
-									if ((await held.rmdir(directory)).error !== null) break;
-							}
-							for (const { path } of changes.filter(
-								(change) => change.kind !== 'delete',
-							)) {
-								// An empty directory where the file goes, which a removal
-								// cut off before its own prune can leave.
-								for (const directory of directories
-									.filter(
-										(directory) =>
-											directory === path || directory.startsWith(`${path}/`),
-									)
-									.sort((a, b) => b.length - a.length))
-									await held.rmdir(directory);
-								const [was, next] = await Promise.all([
-									blobOf(before.get(path)),
-									blobOf(after.get(path)),
-								]);
-								const { data: wrote, error } = await writeFile(
-									held,
-									kindOf(path),
-									path,
-									was,
-									next,
-									{ winner: 'theirs' },
-								);
-								if (error !== null) {
-									// A file a program outside the save lock created since:
-									// it stays, and the next Sync merges it.
-									if (was === null && error.name === 'InvalidPath') {
-										kept = true;
-										continue;
-									}
-									return SyncError.Publish({ path, error: error.message });
-								}
-								if (!sameContent(wrote.file?.bytes ?? null, next)) kept = true;
-								reached.push(path);
-							}
-						}
-						return Ok({ kind: 'written' } as const);
-					},
-				);
-				if (written.error !== null) return Err(written.error);
-				if (written.data.kind === 'edited')
-					return Ok({ kind: 'edited' } as const);
-				await backend.reconcileIndex(to);
+							.sort((a, b) => b.length - a.length))
+							await held.rmdir(directory);
+						return writeFile(held, kindOf(path), path, was, next, {
+							winner: 'theirs',
+						});
+					});
+					// A file this folder cannot take there, from a program outside
+					// the save lock or a name the disk holds under another spelling.
+					if (error !== null) return failed(path, error);
+					if (!sameContent(wrote.file?.bytes ?? null, next)) kept = true;
+					reached.push(path);
+				}
 				const moved = await backend.casBranch(from, to);
 				if (!moved.ok)
 					return SyncError.Blocked({
 						reason: `the branch moved to ${moved.actual ?? 'no commit'} while Sync wrote its files, which are now changes to it`,
 					});
+				// The branch holds the files now. An index another program holds
+				// is left as it is, as a commit leaves it: the next commit
+				// refreshes it.
+				await backend.reconcileIndex(to).catch(() => {});
 				return Ok({ kind: 'published' } as const);
+			} finally {
+				// Heard once the branch and the index are set, or the publish
+				// stopped: a status taken between them would be of neither.
+				if (reached.length > 0) {
+					markLanded(kept);
+					landed(reached);
+				}
 			}
 		});
 	}
@@ -1012,7 +1023,8 @@ export function createHistory({
 			};
 			// The remote head the last push was rejected against: a remote
 			// that refused without moving refused for another reason.
-			let rejectedAt: string | undefined;
+			// `null` before any rejection; `undefined` names a remote with no branch.
+			let rejectedAt: string | null | undefined = null;
 			for (let attempt = 0; attempt < SYNC_ATTEMPTS; attempt++) {
 				const { data: fetched, error: fetchError } =
 					await fetchRunner.request();
@@ -1021,13 +1033,13 @@ export function createHistory({
 						? SyncError.Closed()
 						: SyncError.Fetch({ error: fetchError });
 				const theirs = fetched.oid;
-				if (rejectedAt !== undefined && theirs === rejectedAt)
+				if (rejectedAt !== null && theirs === rejectedAt)
 					return SyncError.Failed({
 						cause: new Error(
 							'the remote refused the push, and its branch has not moved',
 						),
 					});
-				rejectedAt = undefined;
+				rejectedAt = null;
 				if (theirs === local) return done(local, undefined);
 				if (
 					theirs === undefined ||

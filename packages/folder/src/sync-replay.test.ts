@@ -58,13 +58,30 @@ async function diverged() {
 	const root = await scratch('sync-replay-');
 	const bare = await createBareRemote(root);
 	const storage: TestStorage = createTestStorage();
+	/** Runs once a push has reached the remote, before Sync writes a file here. */
+	const hooks: { afterPush?: () => Promise<void> } = {};
+	const served = await gitHttpFetch(root);
+	const httpFetch = (async (input, init) => {
+		const response = await served(input, init);
+		if (
+			String(input instanceof Request ? input.url : input).endsWith(
+				'/git-receive-pack',
+			)
+		) {
+			const after = hooks.afterPush;
+			hooks.afterPush = undefined;
+			await response.clone().arrayBuffer();
+			await after?.();
+		}
+		return response;
+	}) as typeof fetch;
 	const folder = expectOk(
 		await openFolder({
 			id: ID,
 			definition,
 			browser: {
 				author: { name: 'Local', email: 'local@example.test' },
-				httpFetch: await gitHttpFetch(root),
+				httpFetch,
 				...browserStorage(storage),
 			},
 		}),
@@ -124,7 +141,7 @@ async function diverged() {
 	expectOk(await folder.kv.set('theme', 'dark'));
 	expectOk(await put(files, 'notes.txt', 'ONE\ntwo\nthree\n'));
 	expectOk(await put(files, 'keep.md', 'kept here\n'));
-	return { folder, storage, bare };
+	return { folder, storage, bare, hooks };
 }
 
 /** The folder's files as text, `.git` aside. */
@@ -232,26 +249,27 @@ test('a publish cut off after any of its changes ends where an uninterrupted one
 	}
 }, 120_000);
 
-test('an edit saved to a file the remote removes is recorded, then loses to the removal, and stays in history', async () => {
+test('an edit saved during Sync to a file the remote removes is recorded, then loses to the removal, and stays in history', async () => {
 	const run = await diverged();
-	// The remote removes `gone.txt`; this folder edits it, as a save that
-	// landed after Sync's checkpoint would.
-	const before = await git(run.bare, 'rev-parse', 'main');
-	expectOk(await put(run.folder.files, 'gone.txt', 'edited here\n'));
+	// The save lands after Sync's checkpoint, while its merge is being sent.
+	run.hooks.afterPush = async () => {
+		expectOk(await put(run.folder.files, 'gone.txt', 'edited during Sync\n'));
+	};
 	expect(expectOk(await run.folder.sync.run()).kind).toBe('synced');
 	expect(filesOf(run.storage)['gone.txt']).toBeUndefined();
+	// Sync recorded the edit and merged again: the last merge names it as
+	// lost to the removal, and its commit holds the text.
 	const message = await git(run.bare, 'log', '-1', '--format=%B', 'main');
-	const [, mine] = message.match(/Overrode: ([0-9a-f]+) file "gone.txt"/) ?? [];
-	expect(mine).toBeDefined();
-	const shown = Bun.spawn(['git', 'show', `${mine}:gone.txt`], {
+	const [, recorded] =
+		message.match(/Overrode: ([0-9a-f]+) file "gone.txt"/) ?? [];
+	expect(recorded).toBeDefined();
+	const shown = Bun.spawn(['git', 'show', `${recorded}:gone.txt`], {
 		cwd: run.bare,
 		env: GIT_ENV,
 		stdout: 'pipe',
 	});
-	expect(await new Response(shown.stdout).text()).toBe('edited here\n');
-	expect(
-		await git(run.bare, 'merge-base', '--is-ancestor', before, 'main'),
-	).toBe('');
+	expect(await new Response(shown.stdout).text()).toBe('edited during Sync\n');
+	expect(expectOk(await run.folder.git.status()).changes).toEqual([]);
 });
 
 test('a file of this folder in the way stops Sync before its merge is sent', async () => {

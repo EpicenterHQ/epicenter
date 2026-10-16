@@ -209,9 +209,10 @@ compare-and-swap a ref; fetch; push), with no `git merge-tree` and no rebase:
    `M` here, so the device keeps receiving, and answers that it saved without
    syncing.
 6. Publishing a tree `T` over the files, for a merge or a fast-forward,
-   holds the folder's save lock (`lock`) from its checks through its last
-   write, so no cooperating save lands between them; a save waits, and its
-   editor keeps what is typed. Each path in the difference of `L` and `T` is
+   checks and writes each file holding the folder's save lock (`lock`), one
+   file at a time, so no cooperating save lands between that file's check
+   and its write, and a save waits for one file, never for the whole
+   publish. Each path in the difference of `L` and `T` is
    written once, by the one write: `write(path, from: L, to: T)` with the
    live file as the writer acting, so a live file still at `L` takes `T`
    exactly, and text typed after the checkpoint, which no commit holds,
@@ -221,11 +222,13 @@ compare-and-swap a ref; fetch; push), with no `git merge-tree` and no rebase:
    a file of this folder's own where `T` needs a directory, files where `T`
    needs a file, and a file `L` never tracked (ignored, or new since) where
    `T` adds different bytes, which Sync never merges into history. And when
-   a file `T` removes holds an edit no commit has, it writes nothing,
-   records the files again as `K`, and merges `K` with what it pushed: the
-   delete wins, and the edit stays in history as a parent, named by a
-   trailer. Then the index is set to `T` and the branch moves from `L` to
-   `T` by compare-and-swap. Every write lands whole, so a publish cut off
+   a file `T` removes holds an edit no commit has, it stops, records the
+   files again as `K`, and merges `K` with what it pushed: the delete wins,
+   and the edit stays in history as a parent, named by a trailer. Names
+   compare as a case-insensitive disk folds them, so a name held under
+   another spelling stops it too. Then the branch moves from `L` to `T` by
+   compare-and-swap, and the index is set to `T`; an index another program
+   holds is left for the next commit to refresh. Every write lands whole, so a publish cut off
    partway leaves each file at its old bytes or its new ones: ordinary
    changes (ADR-0545), which the next Sync records and merges with the
    commit it already sent, to the same files. There is no journal.
@@ -306,8 +309,9 @@ its stems are named by concern, such as `settings/display.md` and
   merges to the files an uninterrupted Sync would have left, here and on
   the remote. Its checkpoint credits the arrived values to this device;
   the trailers stay right.
-- Saves wait while Sync writes the folder's files, and only then: the merge
-  is pushed before the lock is taken, so the wait is local work.
+- A save waits only while Sync checks and writes one file: the merge is
+  pushed before any file is written, and each file takes the lock on its
+  own.
 - Two writers who add different text at one place both keep it, so a body
   can hold both versions of an addition. A writer that fills a body once,
   such as Whispering's answers, needs no guard against another fill:
@@ -339,7 +343,7 @@ its stems are named by concern, such as `settings/display.md` and
   partial writes from a file another writer made since, which bytes cannot
   say: an empty file a cut-off create left looks like a file a tab made
   empty on purpose. A branch another program moved strands the journal and
-  stops every commit. Whole writes under the save lock make every partial
+  stops every commit. Whole writes, each under the save lock, make every partial
   state an ordinary change, which needs no recovery.
 - **Desktop Sync as Git's own merge** (`git add`, `git merge` with the
   driver, a resolver, `git push`, run by the CLI). It would be a second Sync

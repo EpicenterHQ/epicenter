@@ -4,7 +4,7 @@ Svelte utilities for synchronizing state with external systems.
 
 ## Overview
 
-This package adapts opened Epicenter data and agent conversations into Svelte reactivity, and holds the shared sync review UI.
+This package adapts opened Epicenter data and agent conversations into Svelte reactivity, and words Sync's result for a status line (`sync-line`).
 
 ## Installation
 

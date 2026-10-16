@@ -240,8 +240,8 @@ The page opens the folder with `@epicenter/folder`'s own engine: reads and
 writes through the shell (`read_folder_file`, `write_folder_file`), which read
 only beneath the root, never through a link, and change only data paths the
 shared path rule accepts, never Git's own state. Its history runs in the
-`epicenter` CLI: the shell's `status`, `history`, `save_version`, `sync`, and
-`settle_sync` (`src-tauri/src/history.rs`) each run one child over a folder the
+`epicenter` CLI: the shell's `status`, `history`, `save_version`, and `sync`
+(`src-tauri/src/history.rs`) each run one child over a folder the
 window was granted, granted to the Folders window and to every installed app's
 windows, and a reload or a closed window ends that window's children
 ([ADR-0559](../../docs/adr/0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md)).
@@ -478,7 +478,7 @@ Every installed app's window gets the same grant, one capability file,
   no window of Epicenter's own.
 - Its `permissions` are the union of what any installed app's page calls: the
   folder plugin and its change event; the folder's history (`status`,
-  `history`, `save_version`, `sync`, `settle_sync`); the recorder plugin,
+  `history`, `save_version`, `sync`); the recorder plugin,
   which lists the microphones, reads one's level, and writes into the folder
   the window was granted, asking macOS for microphone access before it opens
   one (ADR-0543, ADR-0571); the opener's `allow-open-url`, scoped to

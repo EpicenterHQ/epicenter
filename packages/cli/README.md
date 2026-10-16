@@ -254,7 +254,8 @@ it, Git merges these files as text, which loses nothing.
 
 Git runs the driver from the top of the working tree for each file both
 sides changed. It finds the file's kind from the nearest `epicenter.json`
-above the path, merges with `mergeFile`, and writes the result over Git's
+above the path, merges with `merge`, the merge Sync and every save use, and
+writes the result over Git's
 `%A`:
 
 - A clean merge exits 0. A row is written in its canonical form.
@@ -289,7 +290,7 @@ work prints `{"error": "..."}` on stdout with `--json`, and the message on
 stderr without it.
 
 Exit codes are ADR-0520's: 0 done, 1 a finding a person acts on (a file that
-does not conform, an app waiting for approval, a sync that needs choices), 2
+does not conform, an app waiting for approval, a sync that stopped), 2
 input the command cannot use (a folder that is not one, a refused statement,
 an unknown option, no `git`).
 

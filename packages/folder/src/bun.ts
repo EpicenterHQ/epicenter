@@ -328,7 +328,7 @@ function stateOf(history: History): HistoryState {
 /**
  * The CLI's exit code for a reply (ADR-0558): 0 when the operation did what
  * it says, 1 when its result is a refusal or a finding a person acts on,
- * such as a sync that needs choices.
+ * such as a sync that stopped.
  */
 export function historyExitCode(reply: HistoryReply<unknown>): 0 | 1 {
 	const { result } = reply;

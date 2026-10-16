@@ -190,8 +190,6 @@ async function openBrowserFolder<
 		lens,
 		detector: browserChangeDetector(environment, at.hintChannel),
 		location: { kind: 'opfs', directory: at.directory },
-		// An incoming update a closed tab left half published stays pending:
-		// opening reads it into the snapshot and never resumes it.
 		async start({ relay, landed }) {
 			const boundary = createOpfsStorage({
 				folder,

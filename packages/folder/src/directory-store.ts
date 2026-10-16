@@ -39,7 +39,7 @@ type Found =
 	| { readonly kind: 'file' | 'other'; readonly size: number }
 	| { readonly kind: 'directory' }
 	| { readonly kind: 'absent' }
-	/** A case-variant of the last name is stored there instead. */
+	/** A case-variant of one of its names is stored there instead. */
 	| { readonly kind: 'occupied' }
 	/** The path passes through a symbolic link, which is never followed. */
 	| { readonly kind: 'link' }
@@ -114,10 +114,10 @@ export function createDirectoryStorage({
 				const found = await files.lstat(next);
 				if (found === undefined) return { kind: 'absent' };
 				if (found.kind === 'link') return { kind: 'link' };
-				if (!(await literal(at, name, found)))
-					return index === segments.length - 1
-						? { kind: 'occupied' }
-						: { kind: 'absent' };
+				// A name stored under another spelling, on a case-insensitive
+				// disk, is another entry: nothing reads through it, and nothing
+				// is written into it.
+				if (!(await literal(at, name, found))) return { kind: 'occupied' };
 				if (index === segments.length - 1)
 					return found.kind === 'directory'
 						? { kind: 'directory' }

@@ -14,6 +14,8 @@
  * - A Sync whose files landed but whose branch did not move never leaves a
  *   fresh clean observation behind
  * - Explicit `commit()` never pushes; Sync does, once
+ * - An index another program holds does not fail a Sync whose files and
+ *   branch landed
  * - An explicit request made during a pass waits and takes its own pass
  *
  * See also:
@@ -340,6 +342,32 @@ test('a branch read failure before publication remains a failed checkpoint', asy
 		});
 		expect(await real.readBranch()).toBeUndefined();
 		expect(publications).toBe(0);
+	} finally {
+		await history.close();
+	}
+});
+
+test('an index another program holds does not fail a Sync whose files and branch landed', async () => {
+	let incoming: string | undefined;
+	const { real, base, history, write, commitOf } = await setup((backend) => ({
+		fetch: async () => incoming,
+		async reconcileIndex(commit) {
+			if (commit === incoming) throw new Error('index.lock exists');
+			return backend.reconcileIndex(commit);
+		},
+	}));
+	try {
+		await write('saved.md', 'before');
+		await history.commit();
+		incoming = await commitOf(await real.readBranch(), { 'saved.md': 'after' });
+		expect(expectOk(await history.sync.run())).toEqual({
+			kind: 'synced',
+			head: incoming,
+		});
+		expect(await real.readBranch()).toBe(incoming);
+		expect(
+			new TextDecoder().decode(expectOk(await base.read('saved.md')).bytes),
+		).toBe('after');
 	} finally {
 		await history.close();
 	}

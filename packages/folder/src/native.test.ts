@@ -212,6 +212,70 @@ describe('native folder', () => {
 		await folder.close();
 	});
 
+	test('a path through a differently cased directory is refused and reads nothing', async () => {
+		const root = await scratch('native-case-dir-');
+		const folder = await openNativeFolder({
+			root,
+			definition,
+			git: { author },
+		});
+		expectOk(await folder.files.create('Docs/a.md', 'a'));
+		const oneDirectory = await readFile(join(root, 'docs/a.md')).then(
+			() => true,
+			() => false,
+		);
+		const created = await folder.files.create('docs/b.md', 'b');
+		if (oneDirectory) {
+			expect(expectErr(created).name).toBe('InvalidPath');
+			expect(await readdir(join(root, 'Docs'))).toEqual(['a.md']);
+			expect(expectErr(await folder.files.read('docs/a.md')).name).toBe(
+				'NotFound',
+			);
+		} else expectOk(created);
+		await folder.close();
+	});
+
+	test("Sync stops where a remote file's name is held here under another spelling", async () => {
+		const project = await scratch('native-case-sync-');
+		const bare = await createBareRemote(project);
+		const peer = join(project, 'peer');
+		await git(project, 'clone', '--quiet', bare, peer);
+		await writeFile(join(peer, 'keep.md'), 'keep\n');
+		await git(peer, 'add', '--all');
+		await git(peer, 'commit', '--quiet', '-m', 'Start');
+		await git(peer, 'push', '--quiet', 'origin', 'HEAD:main');
+		const root = join(project, 'local');
+		await git(project, 'clone', '--quiet', bare, root);
+		const folder = await openNativeFolder({
+			root,
+			definition,
+			git: { author },
+		});
+		expect(expectOk(await folder.sync.run()).kind).toBe('synced');
+		// An ignored local file, and the remote adding its other spelling.
+		await writeFile(join(root, '.git/info/exclude'), 'notes.md\n');
+		await writeFile(join(root, 'notes.md'), 'mine, ignored\n');
+		const oneFile = await readFile(join(root, 'NOTES.md')).then(
+			() => true,
+			() => false,
+		);
+		await writeFile(join(peer, 'Notes.md'), 'theirs\n');
+		await git(peer, 'add', '--all');
+		await git(peer, 'commit', '--quiet', '-m', 'Notes');
+		await git(peer, 'push', '--quiet', 'origin', 'HEAD:main');
+		const head = await git(root, 'rev-parse', 'HEAD');
+		const synced = await folder.sync.run();
+		if (oneFile) {
+			expect(synced.error?.name).toBe('Blocked');
+			expect(synced.error?.message).toContain("'Notes.md'");
+			expect(await git(root, 'rev-parse', 'HEAD')).toBe(head);
+			expect(await readFile(join(root, 'notes.md'), 'utf8')).toBe(
+				'mine, ignored\n',
+			);
+		} else expect(expectOk(synced).kind).toBe('synced');
+		await folder.close();
+	});
+
 	test('literal lookup: a stem does not alias a differently cased file', async () => {
 		const root = await scratch('native-case-');
 		const folder = await openNativeFolder({

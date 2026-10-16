@@ -431,9 +431,9 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/session.ts` | What the namespaces share: the delete's mutation key (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type, which carries the folder's options (`folder$`). |
 | `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `set` options each field sends with, the `write` options the notes' body editor writes with, `create`, `listed`, `delete`, and `notesGone`, which reports notes typed into a deleted todo. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
-| `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL, and the review's `apply`. |
+| `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
-| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), the sync review, and Connect (`ConnectDialog`). `TodosView` sets the store and its query client as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
+| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), and Connect (`ConnectDialog`). `TodosView` sets the store and its query client as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
 | `packages/folder/src/git-demo-server.test-support.ts` | The loopback `git http-backend` server `apps/todos/scripts/dev.ts` starts: a bare repository plus the native checkout, shared with Git lab. |
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |

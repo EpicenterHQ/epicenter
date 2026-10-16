@@ -43,6 +43,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileListing, FolderStorage } from './boundary.js';
 import { hashBytes } from './capture.js';
 import { FileError, UnconfirmedWrite } from './errors.js';
+import { isStaleScratch } from './directory-primitives.js';
 import { ancestors, basename, pathProblem } from './paths.js';
 
 /** A snapshot of a stored file. */
@@ -431,7 +432,9 @@ async function createAt(
 	const name = basename(path);
 	let scratch: OpfsDirectoryHandle;
 	let staged: OpfsFileHandle;
-	const stagedName = crypto.randomUUID();
+	// Named for when it was made, so a later create can tell one a stopped
+	// write left behind (`isStaleScratch`).
+	const stagedName = `${Date.now().toString(36)}-${crypto.randomUUID().replaceAll('-', '')}-0`;
 	try {
 		scratch = await (
 			await (
@@ -442,6 +445,7 @@ async function createAt(
 	} catch (cause) {
 		return FileError.Io({ path, operation: 'write', cause });
 	}
+	await sweepScratch(scratch);
 	const discard = () => scratch.removeEntry(stagedName).catch(() => {});
 	if (staged.move === undefined) {
 		await discard();
@@ -463,6 +467,22 @@ async function createAt(
 		return unconfirmed(path, cause);
 	}
 	return Ok('landed');
+}
+
+/**
+ * Remove what writes that stopped (a crash, a closed tab) left staged. A
+ * write moves its staged file right after writing it, so only one old
+ * enough to be abandoned is taken; another tab may be writing now.
+ */
+async function sweepScratch(scratch: OpfsDirectoryHandle) {
+	try {
+		const now = Date.now();
+		for await (const entry of scratch.values())
+			if (entry.kind === 'file' && isStaleScratch(entry.name, now))
+				await scratch.removeEntry(entry.name).catch(() => {});
+	} catch {
+		// Leftovers are inert; a create that cannot clear them still writes.
+	}
 }
 
 /** A create where the browser cannot move a file: in place, empty until it closes. */

@@ -28,8 +28,8 @@
  * stands as it is, spelling included.
  *
  * `mergeFile` is the earlier form, which returns the competing units and a
- * `settle(pick)` for each caller to drive. Sync's choices and the Git merge
- * driver still settle through it.
+ * `settle(pick)` for each caller to drive. No caller outside its tests uses
+ * it; it goes with the files collapse (ADR-0576).
  *
  * This module writes nothing and loads no Git implementation.
  */

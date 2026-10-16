@@ -31,7 +31,8 @@
  *
  * See also:
  * - `merge-file.test.ts`, `write.test.ts`, and `kv.test.ts` for the unit merges
- * - `git/opfs-incoming.test.ts` for a publish cut off and finished from its journal
+ * - `git/opfs-incoming.test.ts` and `sync-replay.test.ts` for a publish cut off
+ *   partway, which the next Sync finishes
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';

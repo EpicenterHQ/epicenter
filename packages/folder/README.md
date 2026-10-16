@@ -339,7 +339,7 @@ if (error?.name === 'Unrelated') {
 | --- | --- | --- |
 | files, no history | no branch | commits and pushes |
 | empty | history | takes it |
-| files, no history | history | merges them over an empty base; a differing path is a choice in the review |
+| files, no history | history | merges them over an empty base; where a path differs, this folder's version wins and history keeps the remote's |
 | its own history | related | syncs |
 | its own history | unrelated | `Unrelated`, writing nothing, until `allowUnrelatedHistories` |
 
@@ -515,7 +515,7 @@ a sync hold the folder's history lock, an exclusive SQLite transaction on
 `.<name>.epicenter-history-lock` beside the folder (`holdingHistoryLock` in
 `bun.ts`), so two windows' children, or a window's and a terminal's, take
 turns; it is apart from the save lock, so a page's saves never wait on a
-sync's network: they wait only while the child writes the folder's files,
+sync's network: they wait only while the child checks and writes one file,
 holding the save lock. Status and the log take no lock. What a sync wrote comes back in the reply (`landed`) and is reported once on
 `onFilesChanged`; the shell's watcher reports the same files and the moved
 history, which at most rereads them.
@@ -1173,7 +1173,7 @@ nesting beyond 64 containers return `kind: 'invalid'` and the first invalid
 output. Callers must decode bytes without replacing invalid UTF-8.
 
 A save and Sync settle competing keys through the same merge (`reconcileKv`
-in `kv-merge.ts`, through `mergeFile`): each settled key is its raw value
+in `kv-merge.ts`, through `merge`): each settled key is its raw value
 text, or `null` to leave it out, and applies only where the key competes.
 
 The function does not apply field schemas, write files, or choose a winner for
@@ -1404,10 +1404,10 @@ most five times, then `KeptChanging`. One the remote refused without moving
 stops. A push that failed otherwise still publishes `M` here and answers
 `saved`, and a lost reply is found by the next fetch.
 
-Publishing a tree over the files, for a merge or a fast-forward, holds the
-folder's save lock from its checks through its last write
-(`storage.lock`), so a save waits and its editor keeps what is typed. Each
-changed path takes one write, the live file as the writer acting, so text
+Publishing a tree over the files, for a merge or a fast-forward, checks and
+writes each file holding the folder's save lock (`storage.lock`), one file
+at a time, so a save waits for one file, never for the whole publish, and
+its editor keeps what is typed. Each changed path takes one write, the live file as the writer acting, so text
 typed after the checkpoint keeps the units it changed. Removals go first,
 guarded by the checkpoint's bytes, then the directories they emptied, so a
 file can take a directory's place and the reverse. Every write lands whole,
@@ -1573,15 +1573,15 @@ createKv({ storage }, definition.kv)
 ```
 
 `files.save` and `kv.set` each call `saveFile` (`save-file.ts`), and every table helper calls `writeFile`
-with the file's kind, which merges through `mergeFile` (`merge-file.ts`), the
-merge Sync uses too.
+with the file's kind, which merges through `merge` (`merge-file.ts`), the
+merge Sync and the merge driver use too.
 
 Every opener wraps raw storage with publication accounting. Assembly fences
 the resulting storage with the handle's close signal. These wrappers retain
 no file-operation collection.
 
 Git keeps raw storage because Sync's publish updates files and history
-under its own policy, holding the save lock, and is not recorded as local
-saves. Saves are not
+under its own policy, each file under the save lock, and is not recorded
+as local saves. Saves are not
 ordered by when their methods were called; each names the bytes it started
 from, so a later one merges with or is refused by what landed first.
