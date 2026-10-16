@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-02
-- **Relates:** [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server and the credential; [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) sets the remote and combines histories on Connect; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) decides when commits happen; [ADR-0516](0516-the-sync-review-is-modal-and-its-choices-live-only-while-it-shows.md) is the review a conflict opens.
+- **Relates:** [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) chooses the server and the credential; [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) sets the remote and combines histories on Connect; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) decides when commits happen; [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) settles what both sides changed, the device syncing winning.
 - **Unbuilt:** refreshing only the views an incoming change touched; until then an app reloads after incoming changes.
 
 ## Context
@@ -33,7 +33,7 @@ Sync
   -> commit portable authored changes (ADR-0529)
   -> fetch origin
   -> fast-forward, or merge (an unrelated history only with the person's agreement, ADR-0532)
-       -> conflict: keep both versions and open the review (ADR-0516)
+       -> competing units: the device syncing wins, and history keeps the rest (ADR-0576)
        -> clean: push the result
   -> refresh what the incoming change touched
 ```

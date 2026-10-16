@@ -12,7 +12,7 @@
 import type { Result } from 'wellcrafted/result';
 import type { FolderDefinition } from './definition.js';
 import type { OpenFolderError } from './errors.js';
-import type { Folder, FolderGit } from './folder.js';
+import type { Folder } from './folder.js';
 import type { GitCredentials, HttpFetch } from './git/http.js';
 import type { Author } from './git/objects.js';
 import type { OpfsEnvironment } from './opfs-store.js';
@@ -42,7 +42,6 @@ export {
 export {
 	FileError,
 	type FileSaveError,
-	type FileStep,
 	type KvReadError,
 	type KvWriteError,
 	MoveError,
@@ -60,40 +59,20 @@ export type {
 	FolderAccess,
 	FolderGit,
 	FolderGitOptions,
-	FolderGitSteps,
 	FolderLocation,
 	FolderSync,
 } from './folder.js';
-export type {
-	GitRemote,
-	PathStatus,
-	StatusCode,
-} from './git/backend.js';
-export {
-	CONFLICTS_NEED_SYNC,
-	type ConflictVersion,
-	GitError,
-	type GitInstall,
-	type MergeConflict,
-	MergeError,
-	PullError,
-	type SyncChoiceProblem,
-	SyncError,
-} from './git/errors.js';
+export type { GitRemote } from './git/backend.js';
+export { GitError, type GitInstall, SyncError } from './git/errors.js';
 export type {
 	Activity,
 	Attempt,
-	CommitAndPushResult,
 	CommitOutcome,
 	FetchOutcome,
 	FilesObservation,
 	GitSnapshot,
-	MergeConflictPolicy,
-	MergeOutcome,
 	Observation,
-	PullOutcome,
 	PushOutcome,
-	StagedCommit,
 	SyncObservation,
 } from './git/history.js';
 export type {
@@ -104,16 +83,7 @@ export type {
 export type { SettledRegion } from './git/merge-lines.js';
 export type { PathChange } from './git/messages.js';
 export type { Author, CommitSummary } from './git/objects.js';
-export type {
-	SyncAttempt,
-	SyncChoice,
-	SyncChoices,
-	SyncConflict,
-	SyncOptions,
-	SyncOutcome,
-	SyncSide,
-	SyncVersion,
-} from './git/sync.js';
+export type { SyncOptions, SyncOutcome } from './git/sync.js';
 export type { FileKv, KvReading } from './kv.js';
 export { type KvMerge, type KvMergeInput, mergeKv } from './kv-merge.js';
 export { frameRowText, type RowTextFrame } from './markdown.js';
@@ -211,14 +181,11 @@ export type OpenFolderOptions<TDefinition extends FolderDefinition> = {
 
 /**
  * The one opener signature. The automatic entry and the desktop entry each
- * export an `openFolder` of exactly this type; the browser entry's is
- * `OpenFolder<FolderGitSteps>`, whose handle has the finer Git steps too.
+ * export an `openFolder` of exactly this type.
  */
-export type OpenFolder<TGit extends FolderGit = FolderGit> = <
-	const TDefinition extends FolderDefinition,
->(
+export type OpenFolder = <const TDefinition extends FolderDefinition>(
 	options: OpenFolderOptions<TDefinition>,
-) => Promise<Result<Folder<TDefinition, TDefinition, TGit>, OpenFolderError>>;
+) => Promise<Result<Folder<TDefinition, TDefinition>, OpenFolderError>>;
 
 /**
  * Which existing folder `openDataFolder` opens: `openFolder`'s options
@@ -246,12 +213,11 @@ export type OpenDataFolderOptions<
  * Without a lens, rows are checked at run time, so tables are keyed by any
  * name. With one, a folder whose declaration does not contain it is
  * `ShapeMismatch`; otherwise the handle has the lens's tables, typed by it,
- * and `definition` stays the folder's own. The automatic and the desktop
- * entry each export an `openDataFolder` of exactly this type; the browser
- * entry's is `OpenDataFolder<FolderGitSteps>`.
+ * and `definition` stays the folder's own. Every entry exports an
+ * `openDataFolder` of exactly this type.
  */
-export type OpenDataFolder<TGit extends FolderGit = FolderGit> = <
+export type OpenDataFolder = <
 	const TLens extends FolderDefinition = FolderDefinition,
 >(
 	options: OpenDataFolderOptions<TLens>,
-) => Promise<Result<Folder<TLens, FolderDefinition, TGit>, OpenFolderError>>;
+) => Promise<Result<Folder<TLens, FolderDefinition>, OpenFolderError>>;

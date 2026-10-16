@@ -6,8 +6,8 @@
  * folder plugin's read and change commands with `node:fs`, failing with the
  * operating system's message as text (a rename or removal as the plugin's
  * `ChangeError`, landing only if its path holds what the page expected), and
- * the history commands (`status`, `history`, `save_version`, `sync`,
- * `settle_sync`) with the engine the `epicenter` CLI runs, in this process
+ * the history commands (`status`, `history`, `save_version`, and `sync`)
+ * with the engine the `epicenter` CLI runs, in this process
  * (`answerShellHistory`, ADR-0559).
  *
  * Neither checks paths the way the shell does; the folder package's own
@@ -101,7 +101,6 @@ export async function shellCommand(
 		case 'history':
 		case 'save_version':
 		case 'sync':
-		case 'settle_sync':
 			// The CLI's `git`, like the person's, reads no configuration here.
 			process.env.GIT_CONFIG_GLOBAL = '/dev/null';
 			process.env.GIT_CONFIG_NOSYSTEM = '1';

@@ -230,14 +230,13 @@ test('a deletion waits for the save of the row, then removes what it saved', asy
 	expect(library.locked(session.path)).toBe(false);
 });
 
-test('a deletion whose reply was lost is reported and recreates nothing', async () => {
+test('a deletion whose reply was lost is confirmed by reading back, and recreates nothing', async () => {
 	const { library } = await open({ [PATH]: SEED });
 	const deletion = expectOk(await library.deletionFor(PATH));
 	shell.control.loseReplies = 1;
 
-	expect(await library.remove(deletion)).toContain(
-		'the reply never reached the window',
-	);
+	// The file is gone, so the removal landed after all.
+	expect(await library.remove(deletion)).toBeUndefined();
 	expect(await shell.text(PATH)).toBeUndefined();
 	expect(shell.kinds).toEqual(['remove']);
 });

@@ -6,17 +6,15 @@
  * which runs the real `git http-backend` against the demo's bare repository.
  *
  * Key behaviors:
- * - The CLI completes a todo the browser pushed, commits, and pushes
- * - A native edit and push reaches the browser by fetch and fast-forward
- * - With diverged history, the CLI's pull refuses with the pointer to Sync
- *   and writes nothing
+ * - The CLI completes a todo the browser synced, and its Sync pushes it
+ * - A native edit and push reaches the browser by Sync, a fast-forward
+ * - With diverged history, the CLI's Sync merges both into one commit
  *
  * `packages/folder/src/git-demo-server.test.ts` covers the server itself.
  */
 import { afterAll, expect, test } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { CONFLICTS_NEED_SYNC } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
 import { $ } from 'bun';
 import { expectOk } from 'wellcrafted/testing';
@@ -46,7 +44,7 @@ const native = (checkout: string, command: string) =>
 		.cwd(join(import.meta.dir, '..'))
 		.env(GIT_ENV);
 
-test('browser push, native pull and push, then browser fast-forward through the demo handler', async () => {
+test('browser sync, native sync, then a browser fast-forward and a native merge through the demo handler', async () => {
 	const session = await prepareGitSession({ name: 'todos', port: 5999 });
 	const handle = await createGitHandler(session);
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
@@ -70,9 +68,7 @@ test('browser push, native pull and push, then browser fast-forward through the 
 			{ stem: 'milk' },
 		),
 	);
-	const first = await browser.git.commitAndPush();
-	expect(first.commit.status).toBe('committed');
-	expect(first.push.status).toBe('pushed');
+	expect(expectOk(await browser.sync.run()).kind).toBe('synced');
 	// Opening the folder published its epicenter.json beside the new row.
 	expect(await git(session.bare, 'log', '--format=%s', 'main')).toBe(
 		'Update 2 files',
@@ -85,11 +81,10 @@ test('browser push, native pull and push, then browser fast-forward through the 
 		'title: Buy milk',
 	);
 
-	// The native CLI completes the todo and pushes (to the bare path here).
+	// The native CLI completes the todo and syncs (to the bare path here).
 	await git(checkout, 'remote', 'set-url', 'origin', session.bare);
 	const cli = await native(checkout, 'complete milk').json();
-	expect(cli.history.commit.status).toBe('committed');
-	expect(cli.history.push.status).toBe('pushed');
+	expect(cli.sync.data.kind).toBe('synced');
 	const status = await native(checkout, 'status').json();
 	expect(status.status.data.changes).toEqual([]);
 	expect(status.todos).toEqual([
@@ -107,10 +102,8 @@ test('browser push, native pull and push, then browser fast-forward through the 
 	await git(checkout, 'commit', '--quiet', '-am', 'Rename the milk todo');
 	await git(checkout, 'push', '--quiet', session.bare, 'main');
 
-	// The browser fetches and fast-forwards explicitly.
-	expectOk(await browser.git.fetch());
-	const pulled = expectOk(await browser.git.pullFastForward());
-	expect(pulled.status).toBe('fastForwarded');
+	// The browser's Sync is a fast-forward.
+	expect(expectOk(await browser.sync.run()).kind).toBe('synced');
 	const entry = expectOk(await browser.tables.todos.get('milk'));
 	if (!entry) throw new Error('Expected milk todo');
 	expect(entry.row.fields).toEqual({
@@ -121,23 +114,30 @@ test('browser push, native pull and push, then browser fast-forward through the 
 		expectOk(await browser.git.log(5)).map((commit) => commit.message.trim()),
 	).toEqual(['Rename the milk todo', 'Update todos/milk.md', 'Update 2 files']);
 
-	// Diverged history: the native CLI's pull applies only a fast-forward,
-	// refuses with the folder's pointer to Sync, and writes nothing.
+	// Diverged history: the native CLI's Sync merges both into one commit.
 	expectOk(
 		await browser.tables.todos.create(
 			{ fields: { title: 'Buy bread', done: false }, body: '' },
 			{ stem: 'bread' },
 		),
 	);
-	expect((await browser.git.commitAndPush()).push.status).toBe('pushed');
+	expect(expectOk(await browser.sync.run()).kind).toBe('synced');
+	const theirs = await git(session.bare, 'rev-parse', 'main');
 	await writeFile(join(checkout, 'notes.txt'), 'Native only\n');
 	await git(checkout, 'add', 'notes.txt');
 	await git(checkout, 'commit', '--quiet', '-m', 'Native only');
-	const before = await git(checkout, 'rev-parse', 'HEAD');
-	const pull = await native(checkout, 'pull').nothrow().quiet();
-	expect(pull.exitCode).toBe(1);
-	expect(pull.stderr.toString()).toContain(CONFLICTS_NEED_SYNC);
-	expect(pull.json().pulled.error.name).toBe('Diverged');
-	expect(await git(checkout, 'rev-parse', 'HEAD')).toBe(before);
+	const mine = await git(checkout, 'rev-parse', 'HEAD');
+	const merged = await native(checkout, 'sync').json();
+	expect(merged.data.kind).toBe('synced');
+	expect((await git(checkout, 'log', '-1', '--format=%P')).split(' ')).toEqual([
+		mine,
+		theirs,
+	]);
+	expect(await readFile(join(checkout, 'todos/bread.md'), 'utf8')).toContain(
+		'title: Buy bread',
+	);
+	expect(await git(session.bare, 'rev-parse', 'main')).toBe(
+		await git(checkout, 'rev-parse', 'HEAD'),
+	);
 	await browser.close();
 }, 60_000);

@@ -5,24 +5,21 @@
  *   bun apps/todos/scripts/native.ts <checkout> list
  *   bun apps/todos/scripts/native.ts <checkout> create "<title>"
  *   bun apps/todos/scripts/native.ts <checkout> complete <stem>
- *   bun apps/todos/scripts/native.ts <checkout> commit-and-push
- *   bun apps/todos/scripts/native.ts <checkout> fetch
- *   bun apps/todos/scripts/native.ts <checkout> pull
+ *   bun apps/todos/scripts/native.ts <checkout> sync
  *
- * A command saves files, then `create` and `complete` request one explicit
- * commit and push; saves never commit on their own (ADR-0529). `pull`
- * applies only a fast-forward; diverged history is refused with the folder's
- * pointer to Sync, and nothing is written. A
- * checkout that cannot be opened prints the refusal and exits 1.
+ * A command saves files, then `create` and `complete` run one Sync; saves
+ * never commit on their own (ADR-0529). Sync records the files, fetches,
+ * and merges what both sides changed into one commit, this checkout's
+ * version winning, then pushes (ADR-0576). A checkout that cannot be opened
+ * prints the refusal and exits 1.
  */
-import { CONFLICTS_NEED_SYNC } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/bun';
 import { todosDefinition } from '../src/lib/definition.js';
 
 const [root, command, ...args] = process.argv.slice(2);
 if (root === undefined || command === undefined) {
 	console.error(
-		'Usage: bun apps/todos/scripts/native.ts <checkout> <status|list|create|complete|commit-and-push|fetch|pull> [args]',
+		'Usage: bun apps/todos/scripts/native.ts <checkout> <status|list|create|complete|sync> [args]',
 	);
 	process.exit(2);
 }
@@ -123,7 +120,7 @@ try {
 			}
 			print({
 				created: created.data?.path ?? null,
-				history: await folder.git.commitAndPush(),
+				sync: await folder.sync.run(),
 			});
 			break;
 		}
@@ -143,26 +140,14 @@ try {
 			}
 			print({
 				updated: updated.path,
-				history: await folder.git.commitAndPush(),
+				sync: await folder.sync.run(),
 			});
 			break;
 		}
-		case 'commit-and-push':
-			print(await folder.git.commitAndPush());
-			break;
-		case 'fetch':
-			print(await folder.git.fetch());
-			break;
-		case 'pull': {
-			// A fast-forward only. Diverged history is not merged here: the folder
-			// never leaves a conflict in its files, and Sync settles one.
-			const fetched = await folder.git.fetch();
-			const pulled = fetched.error
-				? fetched
-				: await folder.git.pullFastForward();
-			if (pulled.error) exitCode = 1;
-			if (pulled.error?.name === 'Diverged') console.error(CONFLICTS_NEED_SYNC);
-			print({ fetched, pulled });
+		case 'sync': {
+			const synced = await folder.sync.run();
+			if (synced.error) exitCode = 1;
+			print(synced);
 			break;
 		}
 		default:

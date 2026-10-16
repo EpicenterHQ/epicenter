@@ -13,7 +13,6 @@ import {
 	type NativeGitHost,
 } from './native-backend.js';
 import type { Author } from './objects.js';
-import type { AttemptStore } from './sync.js';
 
 export function nativeHistory({
 	rootPath,
@@ -21,7 +20,6 @@ export function nativeHistory({
 	author,
 	credentials,
 	initProblem,
-	attempts,
 	commits = true,
 }: {
 	readonly rootPath: string;
@@ -33,8 +31,6 @@ export function nativeHistory({
 	readonly credentials?: GitCredentials;
 	/** Why the first commit of a folder with no repository must not create one here. */
 	readonly initProblem?: () => Promise<string | undefined>;
-	/** Where a sync attempt is recorded for another process to settle. */
-	readonly attempts?: AttemptStore;
 	/**
 	 * Whether this history may commit. Without it the person's Git identity
 	 * is not read: two `git` runs a status or a log does not need.
@@ -65,7 +61,6 @@ export function nativeHistory({
 		const backend = await createNativeGitBackend({
 			root: rootPath,
 			branch: 'main',
-			boundary,
 			host,
 			credentials,
 			initialized: readIdentity,
@@ -92,7 +87,6 @@ export function nativeHistory({
 				},
 				definition: prepared,
 				landed,
-				attempts,
 			});
 	};
 }

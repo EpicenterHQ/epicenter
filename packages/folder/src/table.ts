@@ -48,6 +48,7 @@ import {
 	writeFailure,
 	writeFile,
 } from './save-file.js';
+import { readMany } from './storage.js';
 
 /**
  * One read or write of a row file: which bytes, their exact text, and the
@@ -260,10 +261,10 @@ export function createTable<TFields>(
 			if (listError !== null) return Err(listError);
 			// Only the exact lowercase extension is a row; `a.MD` is an ordinary file.
 			const rows = filenames.filter((file) => file.endsWith(ROW_EXTENSION));
-			const { data: reads, error: readsError } = await storage.readMany(
+			const reads = await readMany(
+				storage,
 				rows.map((file) => `${name}/${file}`),
 			);
-			if (readsError !== null) return Err(readsError);
 			return Ok(
 				Object.freeze(
 					rows.map((file) => {

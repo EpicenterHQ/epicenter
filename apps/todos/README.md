@@ -180,12 +180,11 @@ Todos window (WebView)
 ~/Epicenter/so.epicenter.todos          (locked and granted by the Rust shell)
 ```
 
-The page reads and writes files through an OPFS-shaped directory handle
-(`directory-handle.ts` in `@epicenter/folder`); a write's bytes are staged
-under `.git/epicenter/scratch` and renamed into place. History is the native
-Git backend a Bun directory folder uses, with its `git` run by the shell:
-only the operations the folder engine needs, with no hook, fsmonitor, or
-terminal prompt. Several Todos windows share the folder without waiting on
+The page reads and writes files through the directory's storage
+(`directory-store.ts` in `@epicenter/folder`); a write's bytes are staged
+under `.git/epicenter/scratch` and renamed into place, so another program
+sees the old file or the new one. History runs in the `epicenter` CLI, one
+child per operation, over the system `git` (ADR-0559). Several Todos windows share the folder without waiting on
 each other (ADR-0541): the shell checks each save where it lands, a commit
 whose branch another window moved retries once, and a save another window
 overtook merges with it (`table.save`, ADR-0548). Todos follows
@@ -290,7 +289,7 @@ list and its editor fill the window. The header holds the rest:
 | Remote | Where the todos sync: **Epicenter**, a GitHub repository's `owner/name` (desktop), the URL, or **Not connected**. Click it to connect, or to change the remote. Connect offers Epicenter or another Git server's URL. |
 | Status button | Shows the most important current fact, shortened on narrow screens. Open it for where the folder is, whether every edit is written, the changes since the last version, the last version, and the remote, with the times they were observed, plus "Check again", which reads everything again. |
 | Save version | Records the written files as a version in history (`folder.git.commit()`). Writes still running land first. Nothing is sent. |
-| Sync | Waits for writes still running, records a version, fetches, merges, and pushes (`folder.sync`, ADR-0514). Edits to different fields, or to different lines of the notes, merge on their own; a merged todo is rewritten in the standard form. When both sides changed the same title, done, notes, or a whole todo (one side deleted it, or a version is not a valid todo), the review replaces the workspace and nothing is written until you apply your choices. The review is modal: the workspace and the Git buttons wait until you apply or cancel, and Cancel forgets the attempt and your choices. A choice the folder refuses shows beside its row and keeps the review. Afterwards the list and Git status are read again. |
+| Sync | Waits for writes still running, records a version, fetches, merges, and pushes (`folder.sync`, ADR-0576). It asks nothing. Edits to different fields, or to different lines of the notes, merge on their own; where both sides changed the same title, done, or notes, this device's stands, and the merge commit names what lost, which history keeps. A todo one side deleted stays deleted. Afterwards the list and Git status are read again. |
 | Connect | Shown instead of Sync while the folder has no remote; opens Connect. |
 
 The open todo is part of the address, `?todo=<stem>`, so a reload or a
@@ -432,9 +431,9 @@ todo; `todos/a.MD` is an ordinary file.
 | `src/lib/session.ts` | What the namespaces share: the delete's mutation key (`todosKeys`), `TodosError`, the `WriteFailure` type, and the `Session` type, which carries the folder's options (`folder$`). |
 | `src/lib/rows.ts` | `todos.rows`: the listing's views (`todos`, `repairs`, `entry(stem)`), the `set` options each field sends with, the `write` options the notes' body editor writes with, `create`, `listed`, `delete`, and `notesGone`, which reports notes typed into a deleted todo. Views ask TanStack's `useIsMutating` whether a write or delete runs. |
 | `src/lib/git.ts` | `todos.git`: the history `snapshot`, `status`, and Save version. |
-| `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL, and the review's `apply`. |
+| `src/lib/sync.ts` | `todos.sync`: `run`, which connects first when given a URL. |
 | `src/lib/status.ts` | Plain-language status lines and the header summary. |
-| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), the sync review, and Connect (`ConnectDialog`). `TodosView` sets the store and its query client as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
+| `src/routes/components/` | Header, list (`TodoList`, one `TodoRow` per todo), the open todo (`TodoDetail`, with its file name bar and delete confirmation, which also shows a file that does not read as a todo, read-only), and Connect (`ConnectDialog`). `TodosView` sets the store and its query client as context for them, lays them out, and reads which todo is open from the URL's `?todo=`. |
 | `packages/folder/src/git-demo-server.test-support.ts` | The loopback `git http-backend` server `apps/todos/scripts/dev.ts` starts: a bare repository plus the native checkout, shared with Git lab. |
 | `apps/todos/scripts/dev.ts` | Starts the backend and Vite together. |
 | `apps/todos/scripts/native.ts` | JSON CLI over the native checkout. |

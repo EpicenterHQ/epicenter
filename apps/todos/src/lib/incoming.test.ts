@@ -241,10 +241,7 @@ test('the remote-edit demo fixture pushes a hand edit that Sync brings in byte f
 
 test('an interrupted sync leaves changed files; Save version and editing go ahead, and the next Sync finishes it', async () => {
 	const { todos, before, synced } = await interruptedSync();
-	expect(expectErr(synced)).toMatchObject({
-		name: 'Merge',
-		error: { name: 'Interrupted' },
-	});
+	expect(expectErr(synced)).toMatchObject({ name: 'Publish', path: MILK });
 	expect(await text(todos, MILK)).toBe(before);
 	expect(await text(todos, BREAD)).toBe(BREAD_REMOTE);
 	const status = expectOk(await todos.git.status.fetch());

@@ -13,7 +13,6 @@ import type { Result } from 'wellcrafted/result';
 import { tauriChangeDetector } from './changes-tauri.js';
 import type { FolderDefinition } from './definition.js';
 import { openDirectoryFolder } from './directory-adapter.js';
-import { directoryHandle } from './directory-handle.js';
 import { tauriDirectoryPrimitives } from './directory-tauri.js';
 import type { OpenFolderError } from './errors.js';
 import type { Folder } from './folder.js';
@@ -40,7 +39,6 @@ export async function openGrantedFolder<
 	return openDirectoryFolder({
 		definition,
 		lens,
-		root: directoryHandle(files, granted.root),
 		rootPath: granted.root,
 		files,
 		// The CLI commits as the person's Git identity, or as Epicenter where

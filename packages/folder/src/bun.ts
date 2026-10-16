@@ -33,30 +33,17 @@
  */
 
 import { Database } from 'bun:sqlite';
-import {
-	lstat,
-	mkdir,
-	readFile,
-	realpath,
-	rename,
-	rm,
-	writeFile,
-} from 'node:fs/promises';
+import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { readDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
-import {
-	directoryFilesLock,
-	openDirectoryFolder,
-} from './directory-adapter.js';
-import {
-	type DirectoryPrimitives,
-	directoryHandle,
-} from './directory-handle.js';
+import { openDirectoryFolder } from './directory-adapter.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
+import type { DirectoryPrimitives } from './directory-primitives.js';
+import { createDirectoryStorage } from './directory-store.js';
 import { OpenFolderError } from './errors.js';
-import type { Folder, FolderGitOptions, FolderGitSteps } from './folder.js';
+import type { Folder, FolderGitOptions } from './folder.js';
 import type { History } from './git/history.js';
 import type { GitCredentials } from './git/http.js';
 import { createMutex } from './git/mutex.js';
@@ -68,13 +55,11 @@ import {
 	locateGit,
 } from './git/native-host.js';
 import type { Author } from './git/objects.js';
-import type { AttemptStore, HeldSync } from './git/sync.js';
 import type {
 	HistoryReply,
 	HistoryRequest,
 	HistoryState,
 } from './history-wire.js';
-import { createOpfsFileBoundary, type OpfsLocks } from './opfs-store.js';
 
 export {
 	type CheckedTable,
@@ -143,19 +128,6 @@ export type DataFolderOptions<
 	readonly lens?: TLens;
 };
 
-/** One mutex per lock name, shared by every folder this process opens. */
-const mutexes = new Map<string, ReturnType<typeof createMutex>>();
-const locks: OpfsLocks = {
-	request(name, { signal }, work) {
-		let mutex = mutexes.get(name);
-		if (mutex === undefined) {
-			mutex = createMutex();
-			mutexes.set(name, mutex);
-		}
-		return mutex.run(async () => work(undefined), signal);
-	},
-};
-
 /**
  * Open the directory at `root`. Refusals are returned, not thrown: a
  * definition a folder cannot keep, a root that is not a directory, or one
@@ -167,7 +139,7 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 	definition,
 	git,
 }: DirectoryFolderOptions<TDefinition>): Promise<
-	Result<Folder<TDefinition, TDefinition, FolderGitSteps>, OpenFolderError>
+	Result<Folder<TDefinition, TDefinition>, OpenFolderError>
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
@@ -199,7 +171,7 @@ export async function openDataFolder<
 	git,
 	lens,
 }: DataFolderOptions<TLens>): Promise<
-	Result<Folder<TLens, FolderDefinition, FolderGitSteps>, OpenFolderError>
+	Result<Folder<TLens, FolderDefinition>, OpenFolderError>
 > {
 	const { data: resolved, error } = await directoryRoot(root);
 	if (error !== null) return OpenFolderError.InvalidRoot(error);
@@ -239,17 +211,11 @@ export type HistoryOptions = {
  * The folder is opened for its history alone: its file storage, its own
  * `epicenter.json` (rows merge as text when it has none), and history over
  * this process's `git` (`systemHistory`). An `epicenter.json` that is there
- * but cannot be read or prepared refuses a save version, a sync, and a
- * settle, which could otherwise commit files its `local` keeps on this
- * machine; status and the log still read. A save
- * version and a sync, and the settling of a sync's attempt, hold the folder's
- * history lock (`holdingHistoryLock`), so two processes never interleave
- * them. Reading status or the log takes no lock.
- *
- * A sync that needs choices records its attempt under `.git/epicenter`
- * (`attemptFile`), and `settle` names it by ID with the person's choices:
- * the conflicts are merged again from the recorded commits, never read back
- * from the caller.
+ * but cannot be read or prepared refuses a save version and a sync, which
+ * could otherwise commit files its `local` keeps on this machine; status and
+ * the log still read. A save version and a sync hold the folder's history
+ * lock (`holdingHistoryLock`), so two processes never interleave them.
+ * Reading status or the log takes no lock.
  */
 export async function runHistory(
 	root: string,
@@ -274,11 +240,11 @@ export async function runHistory(
 		);
 	locateGit();
 
-	const { root: handle, locks } = directory(resolved);
-	const boundary = createOpfsFileBoundary({
-		root: handle,
-		locks,
-		filesLock: directoryFilesLock(resolved),
+	const { files, hold } = directory(resolved);
+	const boundary = createDirectoryStorage({
+		root: resolved,
+		primitives: files,
+		hold,
 		landed: () => {},
 	});
 	const { data: declared, error: declarationError } =
@@ -333,13 +299,6 @@ export async function runHistory(
 							: history.sync.connect(connect, options),
 					);
 				}
-				case 'settle':
-					return holdingHistoryLock(resolved, () =>
-						history.sync.resolve(
-							{ id: request.attempt },
-							request.choices as never,
-						),
-					);
 			}
 		})();
 		return {
@@ -369,7 +328,7 @@ function stateOf(history: History): HistoryState {
 /**
  * The CLI's exit code for a reply (ADR-0558): 0 when the operation did what
  * it says, 1 when its result is a refusal or a finding a person acts on,
- * such as a sync that needs choices.
+ * such as a sync that stopped.
  */
 export function historyExitCode(reply: HistoryReply<unknown>): 0 | 1 {
 	const { result } = reply;
@@ -401,20 +360,19 @@ export async function directoryRoot(
 
 /** This process's file system at `resolved`. */
 function directory(resolved: string) {
-	const files = savingPrimitives(resolved);
 	return {
-		root: directoryHandle(files, resolved),
 		rootPath: resolved,
-		files,
-		locks,
+		files: savingPrimitives(resolved),
+		// Sync's publish holds the save lock across its changes, which go
+		// through `node:fs` itself meanwhile.
+		hold: {
+			lock: <T>(work: () => Promise<T>) => holdingSaveLock(resolved, work),
+			held: nodeDirectoryPrimitives,
+		},
 	};
 }
 
-/**
- * History over this process's own `git` at `resolved`, recording a sync
- * attempt that needs choices under `.git/epicenter` (`attemptFile`), so
- * another process can settle it.
- */
+/** History over this process's own `git` at `resolved`. */
 function systemHistory(
 	resolved: string,
 	git: {
@@ -431,54 +389,8 @@ function systemHistory(
 		author: git.author,
 		credentials: git.credentials,
 		initProblem,
-		attempts: attemptFile(resolved),
 		commits: git.commits,
 	});
-}
-
-/**
- * The sync attempt a run left for a person, recorded as
- * `.git/epicenter/sync-attempt.json`: its ID and the commits it merged, and
- * nothing a caller supplied. `epicenter sync --resolve` reads it to settle
- * the attempt in a later process (ADR-0559). A run retires it, and so does a
- * resolve that got past its choices. A record that does not read is no
- * record: the attempt is stale, and a run makes a new one.
- */
-function attemptFile(resolved: string): AttemptStore {
-	const directory = join(resolved, '.git', 'epicenter');
-	const path = join(directory, 'sync-attempt.json');
-	const oid = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
-	return {
-		async load() {
-			const text = await readFile(path, 'utf8').catch(() => undefined);
-			if (text === undefined) return undefined;
-			try {
-				const { id, commits } = JSON.parse(text) as HeldSync;
-				const { base, head, fetched } = commits;
-				if (
-					typeof id !== 'string' ||
-					!oid.test(head) ||
-					!oid.test(fetched) ||
-					(base !== undefined && !oid.test(base))
-				)
-					return undefined;
-				return { id, commits: { base, head, fetched } };
-			} catch {
-				return undefined;
-			}
-		},
-		async save({ id, commits }) {
-			// `.git/epicenter` is a real directory: every Git command made
-			// it (`noHooksDirectory`) and refuses a link there.
-			await mkdir(directory, { recursive: true });
-			const staged = `${path}.${crypto.randomUUID()}`;
-			await writeFile(staged, JSON.stringify({ id, commits }), { flag: 'wx' });
-			await rename(staged, path);
-		},
-		async clear() {
-			await rm(path, { force: true });
-		},
-	};
 }
 
 /**
@@ -635,8 +547,8 @@ async function takeFileLock(
 const HISTORY_LOCK_WAIT_MS = 60_000;
 
 /**
- * Run `work`, one whole history operation (a save version, or a sync and
- * the settling of its attempt), holding the history lock of the directory
+ * Run `work`, one whole history operation (a save version or a sync),
+ * holding the history lock of the directory
  * at `resolved`: an exclusive SQLite transaction on
  * `.<name>.epicenter-history-lock` beside it, the mechanism of the save
  * lock, held by whichever process runs the operation (ADR-0559). Two

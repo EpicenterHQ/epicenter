@@ -171,17 +171,10 @@ export const commands = {
 	/**  Record the folder's edits as a version, with `message` when a person gave one. */
 	saveVersion: (scope: string, message: string | null) => typedError<CliExit, CliError>(__TAURI_INVOKE("save_version", { scope, message })),
 	/**
-	 *  Record the folder's edits, fetch, merge by each file's kind, and push. A
-	 *  sync that needs choices records its attempt in the folder for
-	 *  `settle_sync`.
+	 *  Record the folder's edits, fetch, merge by each file's kind into one
+	 *  merge commit, and push (ADR-0576). Sync asks the person nothing.
 	 */
 	sync: (scope: string, remote: string | null, allowUnrelated: boolean) => typedError<CliExit, CliError>(__TAURI_INVOKE("sync", { scope, remote, allowUnrelated })),
-	/**
-	 *  Settle the sync attempt this folder recorded, named by its ID, with one
-	 *  choice per conflict, then push. The conflicts are read again from the
-	 *  commits the attempt recorded; nothing of them crosses from the page.
-	 */
-	settleSync: (scope: string, attempt: string, choices: string) => typedError<CliExit, CliError>(__TAURI_INVOKE("settle_sync", { scope, attempt, choices })),
 	/**
 	 *  Start the Command Line Tools installer, which gives this Mac a `git`,
 	 *  after the CLI answered `GitMissing` (ADR-0559). It is a one-time step.

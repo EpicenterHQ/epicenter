@@ -31,7 +31,6 @@ pub const COMMANDS: &[&str] = &[
     "history",
     "save_version",
     "sync",
-    "settle_sync",
     "install_git",
     "list_installed_apps",
     "list_repository_apps",

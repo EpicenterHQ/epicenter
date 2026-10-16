@@ -23,7 +23,6 @@ import {
 	type Folder,
 	type FolderDefinition,
 	type FolderGit,
-	type FolderGitSteps,
 	type FolderLocation,
 	field,
 	formatRow,
@@ -247,14 +246,10 @@ expectTypeOf<
 	CreateRowOf<typeof definition.tables.todos>['due']
 >().toEqualTypeOf<InstantString | null>();
 
-// One opener signature at the automatic entry and the desktop entry; the
-// browser entry's handle has the finer Git steps too, and is still one.
+// One opener signature at every entry, with one Git surface.
 expectTypeOf(root.openFolder).toEqualTypeOf<OpenFolder>();
-expectTypeOf(browser.openFolder).toEqualTypeOf<OpenFolder<FolderGitSteps>>();
+expectTypeOf(browser.openFolder).toEqualTypeOf<OpenFolder>();
 expectTypeOf(tauri.openFolder).toEqualTypeOf<OpenFolder>();
-expectTypeOf(tauri.openFolder).toEqualTypeOf(root.openFolder);
-expectTypeOf(browser.openFolder).toExtend<OpenFolder>();
-// The desktop folder offers no Git step it cannot take.
 expectTypeOf<keyof Opened['git']>().toEqualTypeOf<keyof FolderGit>();
 expectTypeOf(root.openFolder<typeof definition>).returns.toEqualTypeOf<
 	Promise<Result<Opened, OpenFolderError>>
@@ -277,9 +272,7 @@ void root.openFolder({
 // One data-folder opener signature at the automatic entry and at both
 // explicit entries: an existing folder by ID, with its own schema.
 expectTypeOf(root.openDataFolder).toEqualTypeOf<OpenDataFolder>();
-expectTypeOf(browser.openDataFolder).toEqualTypeOf<
-	OpenDataFolder<FolderGitSteps>
->();
+expectTypeOf(browser.openDataFolder).toEqualTypeOf<OpenDataFolder>();
 expectTypeOf(tauri.openDataFolder).toEqualTypeOf<OpenDataFolder>();
 expectTypeOf<keyof OpenDataFolderOptions>().toEqualTypeOf<
 	'id' | 'credentials' | 'browser' | 'lens'
@@ -309,12 +302,11 @@ type Lensed = Folder<typeof board, FolderDefinition>;
 expectTypeOf(root.openDataFolder<typeof board>).returns.toEqualTypeOf<
 	Promise<Result<Lensed, OpenFolderError>>
 >();
-type LensedSteps = Folder<typeof board, FolderDefinition, FolderGitSteps>;
 expectTypeOf(browser.openDataFolder<typeof board>).returns.toEqualTypeOf<
-	Promise<Result<LensedSteps, OpenFolderError>>
+	Promise<Result<Lensed, OpenFolderError>>
 >();
 expectTypeOf(bun.openDataFolder<typeof board>).returns.toEqualTypeOf<
-	Promise<Result<LensedSteps, OpenFolderError>>
+	Promise<Result<Lensed, OpenFolderError>>
 >();
 async function lensedRows() {
 	const { data: folder, error } = await root.openDataFolder({
@@ -375,23 +367,13 @@ expectTypeOf(bun.openDataFolder<FolderDefinition>)
 	.parameter(0)
 	.toEqualTypeOf<bun.DataFolderOptions>();
 expectTypeOf(bun.openDataFolder<FolderDefinition>).returns.toEqualTypeOf<
-	Promise<
-		Result<
-			Folder<FolderDefinition, FolderDefinition, FolderGitSteps>,
-			OpenFolderError
-		>
-	>
+	Promise<Result<Folder<FolderDefinition, FolderDefinition>, OpenFolderError>>
 >();
 expectTypeOf(bun.openFolder<typeof definition>)
 	.parameter(0)
 	.toEqualTypeOf<bun.DirectoryFolderOptions<typeof definition>>();
 expectTypeOf(bun.openFolder<typeof definition>).returns.toEqualTypeOf<
-	Promise<
-		Result<
-			Folder<typeof definition, typeof definition, FolderGitSteps>,
-			OpenFolderError
-		>
-	>
+	Promise<Result<Folder<typeof definition, typeof definition>, OpenFolderError>>
 >();
 
 async function typedValues(

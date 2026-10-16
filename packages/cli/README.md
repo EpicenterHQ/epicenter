@@ -26,7 +26,7 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter status <dir>` | built | `runHistory` in `@epicenter/folder/bun` |
 | `epicenter history <dir> [--depth <n>]` | built, hidden | `runHistory` |
 | `epicenter save-version <dir> [-m <text>]` | built, hidden | `runHistory` |
-| `epicenter sync <dir> [--to <namespace>/<name>] [--resolve <choices.json>]` | built | `runHistory`, `src/repository-commands.ts` |
+| `epicenter sync <dir> [--to <namespace>/<name>]` | built | `runHistory`, `src/repository-commands.ts` |
 | `epicenter merge-driver <dir>` | built | `src/merge-driver.ts`, over `mergeForGit` in `@epicenter/folder/bun` |
 | `epicenter clone <namespace>/<name> \| <url> [<dir>]` | built | `src/repository-commands.ts` |
 | `epicenter repos` | built | `src/repository-commands.ts` |
@@ -95,14 +95,11 @@ window closed), the child ends every `git` it started, with their helpers
 - `status` reads only, and takes no lock.
 - `save-version` records the folder's edits as one commit, with `-m` as its
   message when given, under the folder's history lock.
-- `sync` records the edits, fetches, merges by each file's kind (ADR-0551),
-  and pushes, under the same lock. `--to <url>` connects first, to a
-  network URL only. Changes both sides made to one unit exit 1 with the
-  conflicts and record the attempt as `.git/epicenter/sync-attempt.json`:
-  its ID and the commits it merged. `--resolve <file>`, or `-` for standard
-  input, settles it with `{"attempt": "<id>", "choices": {...}}`; the
-  conflicts are merged again from the recorded commits. A later sync
-  retires the attempt.
+- `sync` records the edits, fetches, and merges both heads into one commit
+  by each file's kind (ADR-0576), pushed before the folder's files change,
+  under the same lock. `--to <url>` connects first, to a network URL only.
+  This folder's version of a unit both sides changed wins, and each lost
+  unit is an `Overrode:` trailer on the merge. A sync asks nothing.
 
 The history lock is an exclusive SQLite transaction on
 `.<name>.epicenter-history-lock` beside the folder, the mechanism of the
@@ -257,7 +254,8 @@ it, Git merges these files as text, which loses nothing.
 
 Git runs the driver from the top of the working tree for each file both
 sides changed. It finds the file's kind from the nearest `epicenter.json`
-above the path, merges with `mergeFile`, and writes the result over Git's
+above the path, merges with `merge`, the merge Sync and every save use, and
+writes the result over Git's
 `%A`:
 
 - A clean merge exits 0. A row is written in its canonical form.
@@ -292,7 +290,7 @@ work prints `{"error": "..."}` on stdout with `--json`, and the message on
 stderr without it.
 
 Exit codes are ADR-0520's: 0 done, 1 a finding a person acts on (a file that
-does not conform, an app waiting for approval, a sync that needs choices), 2
+does not conform, an app waiting for approval, a sync that stopped), 2
 input the command cannot use (a folder that is not one, a refused statement,
 an unknown option, no `git`).
 

@@ -1,23 +1,22 @@
 /**
- * Domain methods share one storage API. Openers attach local-save accounting
- * before assembly gives it to files, tables, and KV. Git keeps
- * raw storage for its own publication sequence and captures.
+ * The folder's one storage contract, which every host implements natively
+ * (ADR-0576): a browser over the origin private file system
+ * (`opfs-store.ts`), and a directory over its host's file system
+ * (`directory-store.ts`), in Bun and in the desktop shell alike.
  *
- * `put` is the one conditional change of one file that `folder.write`
- * makes (ADR-0576). `apply` takes ordered changes for Git publication and
- * the native transport; the earlier verbs of files, tables, and KV publish
- * one change at a time through `applyOne` (`storage.ts`), which restates
- * the raw outcome.
+ * `put` is the one change: one file's bytes, or its removal, landing only
+ * while the path holds what the caller expects. It lands whole: a reader,
+ * and a crash, see the old file or the new one, never part of either, and a
+ * new file never appears empty first. `lock` holds the folder's save lock,
+ * the one every cooperating writer takes for each change, across several.
+ * Reads, a folder's list, and its captures are built on these.
  *
  * Saves are not ordered by when their methods were called: the last to land
  * on a path wins. A change that must not overwrite bytes its caller did not
- * review carries `expectedSha256`.
- *
- * Browser OPFS and native applications both use ordered filesystem steps and
- * report completed steps on later failure.
+ * review carries `ifMatch`.
  */
 import type { Result } from 'wellcrafted/result';
-import type { ApplyError, FileError } from './errors.js';
+import type { FileError } from './errors.js';
 
 export type FileRead = {
 	readonly bytes: Uint8Array;
@@ -35,25 +34,6 @@ export type FileListing = {
 	readonly directories: readonly string[];
 };
 
-/**
- * A write owns its bytes before the asynchronous hash is computed.
- *
- * `replace` always requires a file at the path: it never creates one, with
- * or without `expectedSha256`. With it, the current bytes must also hash to
- * that value. Only `overwrite` saves whatever is, or is not, there.
- */
-type FileWriteIntent = { path: string; bytes: Uint8Array } & (
-	| { kind: 'create' }
-	| { kind: 'overwrite' }
-	| { kind: 'replace'; expectedSha256?: string }
-);
-
-/** The operation states its publication condition. Move destinations must be absent. */
-export type FileChange =
-	| (FileWriteIntent & { sha256: string })
-	| { kind: 'remove'; path: string; expectedSha256?: string }
-	| { kind: 'move'; from: string; to: string; expectedSha256?: string };
-
 /** Every portable file's bytes, captured for a commit or status observation. */
 export type CapturedFiles = {
 	readonly files: ReadonlyMap<string, Uint8Array>;
@@ -64,8 +44,9 @@ export type CapturedFiles = {
 	}[];
 };
 
-/** Storage used by domain methods; apply includes content-save accounting. */
+/** A folder's files, as each host stores them. */
 export type FolderStorage = {
+	/** Every entry below the folder, `.git` aside. */
 	list(): Promise<Result<FileListing, FileError>>;
 	/**
 	 * Immediate children of a directory by name: real subdirectories in
@@ -76,35 +57,30 @@ export type FolderStorage = {
 		directory: string,
 	): Promise<Result<{ files: string[]; directories: string[] }, FileError>>;
 	read(path: string): Promise<Result<FileRead, FileError>>;
-	/** Reads several files; a missing or unreadable path is reported by path. */
-	readMany(
-		paths: readonly string[],
-	): Promise<Result<Map<string, Result<FileRead, FileError>>, FileError>>;
-	/** Stable bytes for consumption; later path changes do not alter them. */
-	open(path: string): Promise<Result<Blob, FileError>>;
 	/**
 	 * Publish `bytes` at `path`, or remove its file for `null`, only while
 	 * the path holds `ifMatch`: the SHA-256 of the file there, or `null` for
 	 * no file. `'stale'` when it does not, and nothing changed. Missing
-	 * parent directories are made for a new file. The host checks the
-	 * condition where the change lands: under the folder's Web Lock in a
-	 * browser, and in a directory under its save lock, in the desktop shell
-	 * and in Bun alike (ADR-0562).
+	 * parent directories are made for a new file. The bytes land whole. The
+	 * host checks the condition where the change lands, under the folder's
+	 * save lock: the Web Lock in a browser, and in a directory the lock the
+	 * desktop shell and Bun share (ADR-0562). A reply that was lost is
+	 * `Unconfirmed`.
 	 */
 	put(
 		path: string,
 		bytes: Uint8Array | null,
 		ifMatch: string | null,
 	): Promise<Result<'landed' | 'stale', FileError>>;
-	/** Publish `changes` in order, each under its own condition. */
-	apply(
-		changes: readonly FileChange[],
-	): Promise<Result<undefined, FileError | ApplyError>>;
 	mkdir(path: string): Promise<Result<undefined, FileError>>;
+	/** Remove the empty directory at `path`. */
 	rmdir(path: string): Promise<Result<undefined, FileError>>;
-};
-
-/** Raw storage also captures portable files for history. */
-export type FileBoundary = FolderStorage & {
-	capture(): Promise<Result<CapturedFiles, FileError>>;
+	/**
+	 * Run `work` holding the folder's save lock, with storage whose changes
+	 * land under it without asking for it again, so no cooperating save lands
+	 * between `work`'s check and its last change. Sync publishes this way. A
+	 * host whose every change is checked elsewhere (a desktop page, whose
+	 * shell holds the lock for each one) runs `work` with its own storage.
+	 */
+	lock<T>(work: (held: FolderStorage) => Promise<T>): Promise<T>;
 };

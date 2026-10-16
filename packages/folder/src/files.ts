@@ -6,7 +6,6 @@ import {
 	type ContentCapture,
 	type FileCapture,
 	fileCapture,
-	hashBytes,
 	ownBytes,
 	ownCapture,
 } from './capture.js';
@@ -14,7 +13,7 @@ import type { FolderDefinition } from './definition.js';
 import type { FileError, FileSaveError, MoveError } from './errors.js';
 import { fileKindOf } from './merge-file.js';
 import { type SavedFile, type SaveOptions, saveFile } from './save-file.js';
-import { applyOne } from './storage.js';
+import { createFile, moveFile, openFile, removeFile } from './storage.js';
 
 /**
  * Ordinary files at literal folder-relative paths (ADR-0479).
@@ -99,18 +98,12 @@ export function createFiles({
 				}),
 			);
 		},
-		open: (path) => storage.open(path),
+		open: (path) => openFile(storage, path),
 		async create(path, content) {
 			const bytes = ownBytes(content);
-			const sha256 = await hashBytes(bytes);
-			const applied = await applyOne(storage, {
-				kind: 'create',
-				path,
-				bytes,
-				sha256,
-			});
-			if (applied.error !== null) return applied;
-			return Ok(Object.freeze({ ...fileCapture(path, sha256), bytes }));
+			const created = await createFile(storage, path, bytes);
+			if (created.error !== null) return created;
+			return Ok(Object.freeze({ ...created.data, bytes }));
 		},
 		async save(base, content, options) {
 			const path = (base as Partial<FileCapture> | null | undefined)?.path;
@@ -135,28 +128,12 @@ export function createFiles({
 		remove: (file) => {
 			const { data: captured, error: captureError } = ownCapture(file);
 			if (captureError !== null) return Promise.resolve(Err(captureError));
-			const { path, sha256 } = captured;
-			return applyOne(storage, {
-				kind: 'remove',
-				path,
-				expectedSha256: sha256,
-			});
+			return removeFile(storage, captured);
 		},
 		move: async (file, destination) => {
 			const { data: captured, error: captureError } = ownCapture(file);
 			if (captureError !== null) return Err(captureError);
-			const { path, sha256 } = captured;
-
-			const applied = await applyOne(storage, {
-				kind: 'move',
-				from: path,
-				to: destination,
-				expectedSha256: sha256,
-			});
-			// A move carries the captured bytes, so their hash is the capture's.
-			return applied.error !== null
-				? applied
-				: Ok(fileCapture(destination, sha256));
+			return moveFile(storage, captured, destination);
 		},
 		mkdir: (path) => storage.mkdir(path),
 		rmdir: (path) => storage.rmdir(path),

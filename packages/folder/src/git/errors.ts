@@ -6,9 +6,8 @@
  * implementation.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { describe, type FileError } from '../errors.js';
+import { describe } from '../errors.js';
 import type { CommitOutcome } from './history.js';
-import type { SyncAttempt } from './sync.js';
 
 export const GitError = defineErrors({
 	Unconfirmed: ({
@@ -75,225 +74,12 @@ export type GitInstall =
 	| 'git-for-windows'
 	| 'package-manager';
 
-export const PullError = defineErrors({
-	NoFetchedHead: () => ({
-		message: 'No fetched remote head is available; fetch first',
-	}),
-	Blocked: ({ reason }: { reason: string }) => ({
-		message: `The folder cannot be updated now: ${reason}`,
-		reason,
-	}),
-	Diverged: ({ head, fetched }: { head: string; fetched: string }) => ({
-		message:
-			'Local and remote history have diverged; this folder only applies fast-forwards',
-		head,
-		fetched,
-	}),
-	Dirty: ({ paths }: { paths: readonly string[] }) => ({
-		message: `${paths.length} uncommitted ${paths.length === 1 ? 'change blocks' : 'changes block'} the update`,
-		paths,
-	}),
-	StagedChanges: () => ({
-		message: 'Staged changes block the update',
-	}),
-	Collision: ({ paths }: { paths: readonly string[] }) => ({
-		message: `The update would overwrite ${paths.length === 1 ? 'an ignored or untracked file' : `${paths.length} ignored or untracked files`}: ${paths.join(', ')}`,
-		paths,
-	}),
-	Unrepresentable: ({
-		paths,
-		reason,
-	}: {
-		paths: readonly string[];
-		reason: string;
-	}) => ({
-		message: `The incoming commit cannot be written to this folder: ${reason}`,
-		paths,
-		reason,
-	}),
-	Refused: ({ error }: { error: FileError }) => ({
-		message: `A file changed before the update could be written: ${error.message}`,
-		error,
-	}),
-	/** The branch moved after it was pinned. Nothing was written. */
-	BranchMoved: ({ actual }: { actual: string | undefined }) => ({
-		message:
-			'The branch moved before the update could be published; nothing was written',
-		actual,
-	}),
-	/**
-	 * The update stopped after it wrote, or may have written, `paths`; the
-	 * branch did not reach the incoming commit. Nothing records the update:
-	 * those paths show as changed files, and the next sync records them and
-	 * merges with the remote (ADR-0545).
-	 */
-	Interrupted: ({
-		paths,
-		error,
-	}: {
-		paths: readonly string[];
-		error: string;
-	}) => ({
-		message: `The update stopped partway; ${paths.length} ${paths.length === 1 ? 'file it wrote shows' : 'files it wrote show'} as changed until the next sync: ${error}`,
-		paths,
-		error,
-	}),
-});
-export type PullError = InferErrors<typeof PullError>;
-
 /**
- * One reason a merge could not combine both sides by itself. `ours` is the
- * local branch and `theirs` the fetched remote head, as in Git.
- */
-export type MergeConflict =
-	/** Both sides changed the same lines of a text file. */
-	| { readonly reason: 'content'; readonly path: string }
-	/**
-	 * Both sides changed a file whose bytes are not merged as text here: not
-	 * UTF-8, holding a NUL byte, or holding line breaks the line merge would
-	 * not keep (a lone carriage return, U+2028, or U+2029).
-	 */
-	| { readonly reason: 'binary'; readonly path: string }
-	/** One side deleted a file the other side changed. */
-	| {
-			readonly reason: 'deleted';
-			readonly path: string;
-			readonly deletedBy: 'ours' | 'theirs';
-	  }
-	/** One side has a file where the other has a directory. */
-	| { readonly reason: 'shape'; readonly path: string }
-	/** Both sides changed one root key of `kv.json` to different values. Values are raw JSON text, `null` for an absent key. */
-	| {
-			readonly reason: 'kvKey';
-			readonly path: string;
-			readonly key: string;
-			readonly base: string | null;
-			readonly ours: string | null;
-			readonly theirs: string | null;
-	  }
-	/** One side deleted `kv.json` while the other changed its values. */
-	| { readonly reason: 'kvFile'; readonly path: string }
-	/** Both sides changed `kv.json`, and `side`'s text is not a KV object `mergeKv` accepts. */
-	| {
-			readonly reason: 'kvInvalid';
-			readonly path: string;
-			readonly side: 'base' | 'ours' | 'theirs';
-	  };
-
-/**
- * What a command-line tool says when a merge or pull refuses competing changes:
- * the folder never leaves a conflict in its files, and Sync is how a person
- * settles one.
- */
-export const CONFLICTS_NEED_SYNC =
-	'Automatic merge failed; nothing was written. Competing changes are settled with Sync, which asks you before it writes them.';
-
-/**
- * One conflicted file's committed bytes on each side of a refused merge, as
- * stored: `ours` at the local head, `theirs` at the fetched head, `null`
- * where that side has no file.
- */
-export type ConflictVersion = {
-	readonly path: string;
-	readonly ours: Uint8Array | null;
-	readonly theirs: Uint8Array | null;
-};
-
-export const MergeError = defineErrors({
-	/**
-	 * The two heads have no common commit, or more than one best one. No
-	 * common commit merges only with `allowUnrelatedHistories`.
-	 */
-	UnsupportedHistory: ({
-		head,
-		fetched,
-		bases,
-	}: {
-		head: string;
-		fetched: string;
-		bases: number;
-	}) => ({
-		message:
-			bases === 0
-				? 'Local and remote history share no commit, so they cannot be merged'
-				: `Local and remote history have ${bases} merge bases; only a single merge base is supported`,
-		head,
-		fetched,
-		bases,
-	}),
-	/** A path would need a merge this folder does not perform faithfully. Nothing was written. */
-	Unmergeable: ({
-		paths,
-		reason,
-	}: {
-		paths: readonly string[];
-		reason: string;
-	}) => ({
-		message: `The histories cannot be merged here: ${reason}`,
-		paths,
-		reason,
-	}),
-	/**
-	 * Competing changes need a person. Nothing was written to files, the
-	 * index, or the branch. A merge asked to leave its conflicts gets this
-	 * only for conflicts it cannot leave as files: a file against a directory.
-	 * Asked for `versions`, it carries each conflicted file's bytes on both
-	 * sides; otherwise `versions` is undefined.
-	 */
-	Conflicted: ({
-		conflicts,
-		versions,
-	}: {
-		conflicts: readonly MergeConflict[];
-		versions?: readonly ConflictVersion[];
-	}) => ({
-		message: `${conflicts.length} ${conflicts.length === 1 ? 'conflict blocks' : 'conflicts block'} the merge: ${[
-			...new Set(conflicts.map((conflict) => conflict.path)),
-		].join(', ')}`,
-		conflicts,
-		versions,
-	}),
-});
-export type MergeError = InferErrors<typeof MergeError>;
-
-/**
- * Why submitted choices cannot settle an attempt, for one entry or for the
- * choices as a whole. `message` is for a person fixing the choice:
- *
- * - `malformed`: the choices are not an object keyed by conflict ID, or this
- *   entry is not a choice
- * - `unknown`: an own key names no conflict of the attempt
- * - `missing`: no own entry answers this conflict, or it holds `undefined`
- * - `disallowed`: the conflict does not allow this operation
- * - `invalid`: the folder refuses the value, as a save would
- */
-export type SyncChoiceProblem = {
-	/** The entry's key; absent when the choices themselves are malformed. */
-	readonly conflictId?: string;
-	readonly reason:
-		| 'malformed'
-		| 'unknown'
-		| 'missing'
-		| 'disallowed'
-		| 'invalid';
-	readonly message: string;
-};
-
-/**
- * Why `folder.sync` stopped. Each names the step that stopped it and
- * carries that step's own result. `NeedsChoices` and `InvalidChoices` keep an
- * attempt current.
+ * Why `folder.sync` stopped. Sync never stops because changes compete
+ * (ADR-0576): each of these is a state it cannot represent or must not
+ * decide, or a step that failed, and each carries what that step reported.
  */
 export const SyncError = defineErrors({
-	/**
-	 * The run merged everything it could; `attempt` holds the conflicts that
-	 * need a person's choice. Nothing conflicted was written and nothing was
-	 * sent. Answer it with `resolve(attempt, choices)`.
-	 */
-	NeedsChoices: ({ attempt }: { attempt: SyncAttempt }) => ({
-		message: `${attempt.conflicts.length} ${attempt.conflicts.length === 1 ? 'change needs' : 'changes need'} a choice`,
-		attempt,
-	}),
 	Closed: () => ({ message: 'The folder is closed' }),
 	NoRemote: () => ({ message: 'No remote is configured for this folder' }),
 	/**
@@ -326,50 +112,55 @@ export const SyncError = defineErrors({
 		error,
 	}),
 	/**
-	 * Merging or publishing stopped. `error` is the merge's own result, so
-	 * `Interrupted` names the files that landed. Nothing was sent.
+	 * The repository or the folder is in a state Sync must not change: a
+	 * merge or a rebase another Git program began, a detached head, a file of
+	 * the folder's own where the remote needs the path, or a branch another
+	 * program moved while Sync wrote. `reason` names it.
 	 */
-	Merge: ({ error }: { error: MergeError | PullError | GitError }) => ({
-		message: `Incoming changes could not be merged: ${error.message}`,
-		error,
-	}),
-	/**
-	 * Competing changes sync cannot offer for review: a file that is a link,
-	 * executable, or submodule in a version, or a file against a directory. Nothing was written or sent; repair them with Git
-	 * outside the folder, then sync again.
-	 */
-	Unreviewable: ({ conflicts }: { conflicts: readonly MergeConflict[] }) => ({
-		message: `${conflicts.length === 1 ? 'A change conflicts' : `${conflicts.length} changes conflict`} in a way sync cannot review: ${[
-			...new Set(conflicts.map((conflict) => conflict.path)),
-		].join(', ')}`,
-		conflicts,
-	}),
-	/** The choices cannot settle the attempt. Nothing was written; the attempt stays current. */
-	InvalidChoices: ({
-		problems,
-	}: {
-		problems: readonly SyncChoiceProblem[];
-	}) => ({
-		message: `${problems.length === 1 ? 'A choice needs' : `${problems.length} choices need`} a fix: ${problems
-			.map(({ message }) => message)
-			.join('; ')}`,
-		problems,
-	}),
-	/**
-	 * The attempt no longer describes the folder. Nothing was written; sync
-	 * again to review the latest changes.
-	 *
-	 * - `replaced`: another run, a resolve, or closing retired it, or this
-	 *   folder handle did not prepare it
-	 * - `changed`: the branch moved or saved files changed since it was
-	 *   captured
-	 */
-	Stale: ({ reason }: { reason: 'replaced' | 'changed' }) => ({
-		message:
-			reason === 'replaced'
-				? 'This sync review is no longer current; sync again'
-				: 'Files changed after this sync review was prepared; sync again',
+	Blocked: ({ reason }: { reason: string }) => ({
+		message: `Sync cannot run now: ${reason}`,
 		reason,
+	}),
+	/**
+	 * A tree that some folder could not write as plain files: a link, an
+	 * executable, a submodule, a Git attribute filter, an invalid path, or two
+	 * paths only their case tells apart. `whose` is the side that holds it:
+	 * the remote's, which this folder cannot take, or the one this folder
+	 * would send, which another device could not. Nothing was written or sent.
+	 */
+	Unrepresentable: ({
+		whose,
+		paths,
+		reason,
+	}: {
+		whose: 'remote' | 'folder';
+		paths: readonly string[];
+		reason: string;
+	}) => ({
+		message:
+			whose === 'remote'
+				? `The remote's files cannot be written to this folder: ${reason}`
+				: `This folder's files cannot be sent, since another folder could not hold them: ${reason}; rename or move ${paths.map((path) => `'${path}'`).join(', ')}, then sync again`,
+		whose,
+		paths,
+		reason,
+	}),
+	/**
+	 * Another device pushed between each fetch and push, `attempts` times.
+	 * Nothing of this run was sent, and the folder is as the checkpoint left it.
+	 */
+	KeptChanging: ({ attempts }: { attempts: number }) => ({
+		message: `The remote kept changing while this folder synced; gave up after ${attempts} attempts`,
+		attempts,
+	}),
+	/**
+	 * Writing the synced files stopped partway. Each file holds its old bytes
+	 * or its new ones, and the next Sync records and merges them (ADR-0545).
+	 */
+	Publish: ({ path, error }: { path: string; error: string }) => ({
+		message: `Synced files could not all be written; the next Sync finishes them. ${path}: ${error}`,
+		path,
+		error,
 	}),
 	/** Sync stopped on an unexpected failure. */
 	Failed: ({ cause }: { cause: unknown }) => ({

@@ -18,16 +18,12 @@ import type { PromiseFsClient } from 'isomorphic-git';
 import * as git from 'isomorphic-git';
 import type { OpfsLocks } from '../opfs-store.js';
 import { isAttributesPath, normalizingAttribute } from './attributes.js';
-import type {
-	CasResult,
-	GitBackend,
-	GitRemote,
-	IncomingPlan,
-	PathStatus,
-	PublishResult,
-	StatusCode,
+import {
+	type CasResult,
+	type GitBackend,
+	type GitRemote,
+	REMOTE_MOVED,
 } from './backend.js';
-import { capturedIndexMatchesHead } from './captured-index.js';
 import {
 	abortableHttp,
 	basicAuthorization,
@@ -35,18 +31,13 @@ import {
 	type HttpFetch,
 } from './http.js';
 import { orphanStagesProblem, parseIndex } from './index-file.js';
-import {
-	commitTree,
-	EMPTY_TREE,
-	logCommits,
-	type ObjectAccess,
-	readBlob,
-} from './objects.js';
+import { logCommits, type ObjectAccess, readBlob } from './objects.js';
 import { gitignoreMatcher } from './scope.js';
 import { webLockExclusive } from './web-lock-exclusive.js';
 
 const decoder = new TextDecoder();
 const REMOTE_NAME = 'origin';
+const PUBLISHING_REF = 'refs/epicenter/publishing';
 
 /** One piece of Git work's filesystem view; `flush` persists its private writes. */
 export type GitFsSession = {
@@ -65,14 +56,6 @@ export type BrowserGitStore<TSession extends GitFsSession> = {
 		expected: string | undefined,
 		next: string,
 	): Promise<CasResult>;
-	/**
-	 * Publish files, index, and branch for an incoming update. `prepared` holds
-	 * the index entries already reset to `plan.nextHead`, unflushed.
-	 */
-	publishIncoming(
-		plan: IncomingPlan,
-		prepared: TSession,
-	): Promise<PublishResult>;
 };
 
 /** isomorphic-git's view of private Git state. */
@@ -94,39 +77,6 @@ export function refValue(value: Uint8Array | undefined): string | undefined {
 	if (value === undefined) return undefined;
 	const text = decoder.decode(value).trim();
 	return /^[0-9a-f]{40}$/.test(text) ? text : undefined;
-}
-
-/**
- * Set the index entries of `paths` to `commit`'s tree, in `fs` (unflushed):
- * entries of `removed` paths go, the others take the commit's blob.
- * `resetIndex` alone would keep a removed file's entry where the commit has
- * a directory of the same name.
- */
-async function indexTo(
-	fs: PromiseFsClient,
-	commit: string,
-	paths: readonly string[],
-	removed: ReadonlySet<string>,
-) {
-	for (const filepath of paths)
-		if (removed.has(filepath))
-			await git.remove({
-				fs,
-				dir: WORKDIR,
-				gitdir: GITDIR,
-				filepath,
-				cache: {},
-			});
-	for (const filepath of paths)
-		if (!removed.has(filepath))
-			await git.resetIndex({
-				fs,
-				dir: WORKDIR,
-				gitdir: GITDIR,
-				filepath,
-				ref: commit,
-				cache: {},
-			});
 }
 
 /**
@@ -231,23 +181,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 	}
 	/** Whether there is a repository to read. A read never creates one. */
 	const available = created;
-	/**
-	 * Whether a write has a repository to write to, creating it for files a
-	 * directory holds without one (a creation that stopped partway). A folder
-	 * with no files stays as it is.
-	 */
-	async function writable() {
-		if (await created()) return true;
-		const files = await withObjects(({ fs }) =>
-			fs.promises.readdir(WORKDIR).then(
-				(entries: string[]) => entries.length > 0,
-				() => false,
-			),
-		);
-		if (files) await ensureCreated();
-		return files;
-	}
-
 	/** The remote Git configuration names, read without writing. */
 	async function configuredRemote(): Promise<GitRemote | undefined> {
 		if (!(await created())) return undefined;
@@ -268,86 +201,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		return store.casRef(branchKey, expected, next);
 	}
 
-	function matrixCodes(
-		head: number,
-		workdir: number,
-		stage: number,
-	): PathStatus['index'][] {
-		let index: StatusCode = ' ';
-		if (head === 0 && stage !== 0) index = 'A';
-		else if (head === 1 && stage === 0) index = 'D';
-		else if (head === 1 && (stage === 2 || stage === 3)) index = 'M';
-		let worktree: StatusCode = ' ';
-		if (stage === 0) worktree = workdir === 0 ? ' ' : '?';
-		// Untracked, as `git status --porcelain` reports it: `??`.
-		if (head === 0 && stage === 0 && workdir !== 0) index = '?';
-		else if (stage === 1)
-			worktree = workdir === 0 ? 'D' : workdir === 2 ? 'M' : ' ';
-		else if (stage === 3) worktree = workdir === 0 ? 'D' : 'M';
-		return [index, worktree];
-	}
-
-	/**
-	 * isomorphic-git's status walk, with its index refresh off. That refresh
-	 * writes a merged entry for a file whose bytes equal the stage it looked
-	 * at, which would resolve an unmerged path by reading it. Stats here are
-	 * never cached anyway (see `opfs-git.ts`), so it saves nothing.
-	 */
-	async function matrix(access: ObjectAccess, filepaths?: string[]) {
-		const hasHead = (await readRef(branchKey)) !== undefined;
-		if (!hasHead) {
-			// isomorphic-git's statusMatrix needs a resolvable HEAD; compare the
-			// index and working files against an empty history instead.
-			const rows: [string, number, number, number][] = [];
-			await git.walk({
-				...access,
-				dir: WORKDIR,
-				trees: [git.STAGE(), git.WORKDIR({ refresh: false })],
-				map: async (filepath, [stage, workdir]) => {
-					if (filepath === '.') return undefined;
-					if (
-						filepaths &&
-						!filepaths.some(
-							(p) =>
-								filepath === p || filepath.startsWith(`${p}/`) || p === '.',
-						)
-					) {
-						const isAncestor = filepaths.some((p) =>
-							p.startsWith(`${filepath}/`),
-						);
-						return isAncestor ? undefined : null;
-					}
-					const stageType = stage ? await stage.type() : undefined;
-					const workType = workdir ? await workdir.type() : undefined;
-					if (stageType === 'tree' || workType === 'tree') return undefined;
-					if (stageType === undefined && workType === undefined)
-						return undefined;
-					const stageOid = stage ? await stage.oid() : undefined;
-					const workOid = workdir ? await workdir.oid() : undefined;
-					const s =
-						stageOid === undefined
-							? 0
-							: workOid === undefined
-								? 3
-								: stageOid === workOid
-									? 2
-									: 3;
-					const w = workOid === undefined ? 0 : 2;
-					rows.push([filepath, 0, w, s]);
-					return undefined;
-				},
-			});
-			return rows;
-		}
-		return git.statusMatrix({
-			...access,
-			dir: WORKDIR,
-			ref: branchKey.slice(GITDIR.length + 1),
-			filepaths,
-			refresh: false,
-		});
-	}
-
 	/** Each unmerged path's stages, from the stored index. */
 	async function unmergedStages(): Promise<Map<string, Set<number>>> {
 		const bytes = await store.readPrivate(indexKey);
@@ -360,15 +213,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 					(stages.get(entry.path) ?? new Set()).add(entry.stage),
 				);
 		return stages;
-	}
-
-	async function blobText(
-		access: ObjectAccess,
-		oid: string | undefined,
-	): Promise<{ text: string; binary: boolean }> {
-		if (oid === undefined) return { text: '', binary: false };
-		const { blob } = await git.readBlob({ ...access, oid });
-		return { text: decoder.decode(blob), binary: blob.includes(0) };
 	}
 
 	const backend: GitBackend = {
@@ -406,7 +250,21 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 		readBranch: () => readRef(branchKey),
 		readRemoteTracking: () => readRef(trackingKey),
 		casBranch,
-		replacesDirectories: true,
+		readPublishing: () => readRef(`${GITDIR}/${PUBLISHING_REF}`),
+		async writePublishing(oid) {
+			await ensureCreated();
+			await withObjects(({ fs, gitdir }) =>
+				oid === undefined
+					? git.deleteRef({ fs, gitdir, ref: PUBLISHING_REF })
+					: git.writeRef({
+							fs,
+							gitdir,
+							ref: PUBLISHING_REF,
+							value: oid,
+							force: true,
+						}),
+			);
+		},
 		async blocked() {
 			// A folder with no repository yet has nothing in progress.
 			if (!(await available())) return undefined;
@@ -469,184 +327,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			const ignored = gitignoreMatcher(current);
 			return new Set(candidates.filter((path) => ignored(path)));
 		},
-		async indexMatchesHead(captured) {
-			return withObjects((access) =>
-				capturedIndexMatchesHead(access, captured),
-			);
-		},
-		readIndex: () => store.readPrivate(indexKey),
-		async pathStatus() {
-			if (!(await available())) return [];
-			const rows = await withObjects((access) => matrix(access));
-			const result: PathStatus[] = [];
-			for (const [path, head, workdir, stage] of rows) {
-				const [index, worktree] = matrixCodes(head, workdir, stage) as [
-					StatusCode,
-					StatusCode,
-				];
-				if (index === ' ' && worktree === ' ') continue;
-				result.push({ path, index, worktree });
-			}
-			return result;
-		},
-		async stage(paths, options) {
-			const except = options?.except ?? (() => false);
-			// A folder with no files has nothing to stage.
-			if (!(await writable())) return;
-			await withObjects(async (access) => {
-				const rows = await matrix(
-					access,
-					paths === 'all' ? undefined : [...paths],
-				);
-				if (paths !== 'all') {
-					for (const path of paths) {
-						if (path === '.') continue;
-						const matched = rows.some(
-							([filepath]) =>
-								filepath === path || filepath.startsWith(`${path}/`),
-						);
-						if (!matched)
-							throw new Error(`pathspec '${path}' did not match any files`);
-					}
-				}
-				for (const [filepath, , workdir, stage] of rows) {
-					if (except(filepath)) {
-						if (stage !== 0)
-							await git.remove({ ...access, dir: WORKDIR, filepath });
-					} else if (workdir === 0) {
-						if (stage !== 0)
-							await git.remove({ ...access, dir: WORKDIR, filepath });
-					} else if (stage !== 2 || workdir !== 2) {
-						await git.add({ ...access, dir: WORKDIR, filepath });
-					}
-				}
-			});
-		},
-		async commitIndex(message, author) {
-			if (!(await writable())) return { status: 'nothing' };
-			const session = store.session();
-			const access: ObjectAccess = {
-				fs: session.fs,
-				gitdir: GITDIR,
-				cache: {},
-			};
-			const parent = await readRef(branchKey);
-			const now = new Date();
-			const signature = {
-				name: author.name,
-				email: author.email,
-				timestamp: Math.floor(now.getTime() / 1000),
-				timezoneOffset: now.getTimezoneOffset(),
-			};
-			const oid = await git.commit({
-				...access,
-				dir: WORKDIR,
-				message: message.endsWith('\n') ? message : `${message}\n`,
-				author: signature,
-				committer: signature,
-				noUpdateBranch: true,
-				parent: parent === undefined ? [] : [parent],
-			});
-			const tree = await commitTree(access, oid);
-			const parentTree =
-				parent === undefined ? EMPTY_TREE : await commitTree(access, parent);
-			if (tree === parentTree) return { status: 'nothing' };
-			await session.flush();
-			const moved = await store.casRef(branchKey, parent, oid);
-			if (!moved.ok)
-				return {
-					status: 'branchMoved',
-					expected: parent,
-					actual: moved.actual,
-				};
-			return { status: 'committed', oid, parent };
-		},
-		async diff({ staged, paths }) {
-			// Loaded when a diff is first asked for. The shell uses the same
-			// library, and a bundler keeps one copy: imported statically here, that
-			// copy would sit in this adapter's chunk, and a desktop page running a
-			// shell command would load the browser's Git with it.
-			const { createTwoFilesPatch } = await import('diff');
-			if (!(await available())) return '';
-			return withObjects(async (access) => {
-				const head = await readRef(branchKey);
-				const filepaths = paths.length === 0 ? undefined : [...paths];
-				const outputs: string[] = [];
-				// No index refresh, as in `matrix`: a diff never writes the index.
-				const workdir = git.WORKDIR({ refresh: false });
-				const trees =
-					head === undefined
-						? [git.STAGE(), workdir]
-						: [git.TREE({ ref: head }), git.STAGE(), workdir];
-				await git.walk({
-					...access,
-					dir: WORKDIR,
-					trees,
-					map: async (filepath, entries) => {
-						if (filepath === '.') return undefined;
-						if (
-							filepaths &&
-							!filepaths.some(
-								(p) =>
-									filepath === p ||
-									filepath.startsWith(`${p}/`) ||
-									p.startsWith(`${filepath}/`) ||
-									p === '.',
-							)
-						)
-							return null;
-						const [headEntry, stageEntry, workEntry] =
-							head === undefined ? [null, entries[0], entries[1]] : entries;
-						const types = await Promise.all(
-							[headEntry, stageEntry, workEntry].map((entry) => entry?.type()),
-						);
-						if (types.includes('tree')) return undefined;
-						const oids = await Promise.all(
-							[headEntry, stageEntry, workEntry].map((entry) => entry?.oid()),
-						);
-						const [headOid, stageOid, workOid] = oids;
-						// Unstaged diff compares the index with files; untracked files are not shown.
-						const [before, after] = staged
-							? [headOid, stageOid]
-							: [stageOid, workOid];
-						if (!staged && stageOid === undefined) return undefined;
-						if (before === after) return undefined;
-						const [left, right] = await Promise.all([
-							blobText(access, before),
-							!staged && workEntry
-								? (async () => {
-										const content = await workEntry.content();
-										const bytes = content ?? new Uint8Array();
-										return {
-											text: decoder.decode(bytes),
-											binary: bytes.includes(0),
-										};
-									})()
-								: blobText(access, after),
-						]);
-						const header = `diff --git a/${filepath} b/${filepath}\n`;
-						if (left.binary || right.binary) {
-							outputs.push(`${header}Binary files differ\n`);
-							return undefined;
-						}
-						const patch = createTwoFilesPatch(
-							before === undefined ? '/dev/null' : `a/${filepath}`,
-							after === undefined && !(!staged && workEntry)
-								? '/dev/null'
-								: `b/${filepath}`,
-							left.text,
-							right.text,
-							undefined,
-							undefined,
-							{ context: 3 },
-						);
-						outputs.push(header + patch.replace(/^=+\n/, ''));
-						return undefined;
-					},
-				});
-				return outputs.join('');
-			});
-		},
 		async log(depth) {
 			const head = await readRef(branchKey);
 			if (head === undefined) return [];
@@ -656,7 +336,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 			if (remote === undefined) throw new Error('No remote is configured');
 			const { url, branch: remoteBranch } = remote;
 			const headers = await authorizationHeaders(url, signal);
-			await withObjects(async (access) => {
+			return withObjects(async (access): Promise<'pushed' | 'rejected'> => {
 				let result: Awaited<ReturnType<typeof git.push>>;
 				try {
 					result = await git.push({
@@ -671,23 +351,30 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 						force: false,
 					});
 				} catch (cause) {
-					// isomorphic-git refuses this itself, before it sends the update, and
-					// its own message advises forcing, which a folder never does.
+					// isomorphic-git refuses a push that is not a fast-forward itself,
+					// before it sends the update, and its own message advises
+					// forcing, which a folder never does.
 					if (
 						cause instanceof git.Errors.PushRejectedError &&
 						cause.data.reason === 'not-fast-forward'
 					)
-						throw new Error(
-							`The remote branch '${remoteBranch}' cannot be updated by a fast-forward`,
-							{ cause },
-						);
+						return 'rejected';
+					// The remote moved the branch after it advertised it.
+					if (
+						cause instanceof git.Errors.GitPushError &&
+						REMOTE_MOVED.test(
+							cause.data.result.refs[`refs/heads/${remoteBranch}`]?.error ?? '',
+						)
+					)
+						return 'rejected';
 					throw cause;
 				}
 				const status = result.refs[`refs/heads/${remoteBranch}`];
-				if (!result.ok || (status && !status.ok))
-					throw new Error(
-						status?.error ?? result.error ?? 'The remote rejected the push',
-					);
+				if (result.ok && (status === undefined || status.ok)) return 'pushed';
+				if (REMOTE_MOVED.test(status?.error ?? '')) return 'rejected';
+				throw new Error(
+					status?.error ?? result.error ?? 'The remote rejected the push',
+				);
 			});
 		},
 		async fetch(signal) {
@@ -720,25 +407,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 					throw cause;
 				}
 			});
-		},
-		async publishIncoming(plan: IncomingPlan) {
-			await ensureCreated();
-			// Compute index entries for the new head without writing them; the
-			// store publishes them with the files and the branch.
-			const session = store.session();
-			await indexTo(
-				session.fs,
-				plan.nextHead,
-				plan.changes.flatMap((change) =>
-					change.kind === 'move' ? [] : [change.path],
-				),
-				new Set(
-					plan.changes
-						.filter((change) => change.kind === 'remove')
-						.map((change) => (change as { path: string }).path),
-				),
-			);
-			return store.publishIncoming(plan, session);
 		},
 	};
 	return backend;

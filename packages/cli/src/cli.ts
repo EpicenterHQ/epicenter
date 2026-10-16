@@ -202,13 +202,10 @@ syncs or a sync and save-version never interleave. --to <namespace>/<name>
 connects the folder to that repository on this deployment's Git origin:
 the first sync creates it, and the folder's remote becomes
 <git origin>/<namespace>/<name>.git. --to also takes any remote's URL.
-Changes both sides made to
-one setting, field, body, or file are not written: the command exits 1 with
-the conflicts and records the attempt under .git/epicenter. --resolve <file>
-settles it with {"attempt": "<id>", "choices": {"<conflict id>": choice}},
-where a choice is {"kind": "take", "side": "local" | "incoming"},
-{"kind": "replace", "value": ...}, or {"kind": "remove"}; - reads it from
-standard input. A later sync retires the attempt.`,
+What both sides changed
+merges into one commit, and this folder's version of each setting, field,
+or lines both changed wins; the commit's Overrode: lines name what the
+remote lost, which its history still holds. A sync asks nothing.`,
 	'merge-driver': `Makes git merge, git pull, and any Git client merge the folder's files
 by kind, with the merge Epicenter's saves and Sync use: rows by field,
 kv.json by key, other text by line. It writes "* merge=epicenter" to the

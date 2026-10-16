@@ -37,13 +37,10 @@
 
 	let {
 		sync,
-		reviewing = false,
 		onconnect,
 	}: {
-		/** The page's Sync; a sync that needs choices opens the review the page shows. */
+		/** The page's Sync. */
 		sync: CreateMutationResult<SyncOutcome, SyncError | TodosError, ConnectTo | void, unknown>;
-		/** Whether the sync review shows, which holds every other Git action. */
-		reviewing?: boolean;
 		/**
 		 * Open Connect, to choose or change the remote. Absent for a folder
 		 * that offers no Connect: the remote is shown and cannot be changed here.
@@ -77,14 +74,12 @@
 	);
 	const connected = $derived(todos.git.snapshot.remote);
 
-	/** Sync and Save version wait for each other and the review. */
-	const busy = $derived(sync.isPending || saveVersion.isPending || reviewing);
+	/** Sync and Save version wait for each other. */
+	const busy = $derived(sync.isPending || saveVersion.isPending);
 
-	/** Sync; conflicts open the review instead of a toast. */
 	function runSync() {
 		sync.mutate(undefined, {
 			onSettled: (outcome, error) => {
-				if (error?.name === 'NeedsChoices') return;
 				toastStatus(syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot));
 			},
 		});

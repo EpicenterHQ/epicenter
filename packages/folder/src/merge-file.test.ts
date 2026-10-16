@@ -1,11 +1,12 @@
 /**
  * File Merge Tests
  *
- * `mergeFile` merges three versions of one file by its kind: a row by field
+ * `merge` merges three versions of one file by its kind, the writer acting
+ * (`ours`) winning each unit both sides changed differently: a row by field
  * and body after reading each version through `parseRow`, `kv.json` by key,
  * any other text by line, and binary or a side with no file as the whole
- * file. Each test names a pair of changes and shows what merges, what
- * competes, and what each pick settles to.
+ * file. Each test names a pair of changes and shows what merges and what
+ * the writer overrode.
  *
  * Key behaviors:
  * - Independent field and body changes merge, unknown keys included
@@ -13,17 +14,15 @@
  *   same values
  * - Two edits of one field compete even where a line merge would succeed
  * - Body edits to neighboring lines both merge; only the same lines compete,
- *   and each side of a competing body keeps the other side's other lines
+ *   and the writer keeps the other side's other lines
  * - Two added rows with no base agree only where they are equal; two bodies
  *   added at one place both stay
  * - A row version that does not read as a row merges as text
  * - A side with no file, or a version that is not text, is the whole file
- * - A settled row is checked against its table
  */
 import { expect, test } from 'bun:test';
-import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineFolder, defineTable, field } from './contract.js';
-import { fileKindOf, type MergeUnit, mergeFile } from './merge-file.js';
+import { type FileVersions, fileKindOf, merge } from './merge-file.js';
 import { sameValue } from './row-merge.js';
 
 const definition = defineFolder({
@@ -45,18 +44,11 @@ const row = (frontmatter: string[], body = '') =>
 
 const BASE = row(['title: Walk', 'done: false'], 'Left at dawn.\n');
 
-const ours = { kind: 'take', side: 'ours' } as const;
-const theirs = { kind: 'take', side: 'theirs' } as const;
-
-/** A merge that must be clean, as its settled text. */
-async function clean(versions: Parameters<typeof mergeFile>[1], kind = ROW) {
-	const merged = await mergeFile(kind, versions);
-	expect(merged.units).toEqual([]);
-	return expectOk(
-		merged.settle(() => {
-			throw new Error('nothing competes');
-		}),
-	);
+/** A merge where nothing competes, as its content. */
+async function clean(versions: FileVersions, kind = ROW) {
+	const merged = await merge(kind, versions);
+	expect(merged.overridden).toEqual([]);
+	return merged.content;
 }
 
 test('a path is a row of its table, kv.json, or a plain file', () => {
@@ -109,91 +101,61 @@ test('quoting, key order, and comments are spelling, not changes', async () => {
 	).toBe(row(['title: Walk', 'done: true'], 'Left at dawn.\n'));
 });
 
-test('two edits of one field compete, and each pick settles a valid row', async () => {
-	const merged = await mergeFile(ROW, {
-		base: BASE,
-		ours: row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
-		theirs: row(['title: Morning walk', 'done: true'], 'Left at dawn.\n'),
-	});
-	expect(merged.units).toEqual([
-		{
-			kind: 'field',
-			field: 'title',
-			base: 'Walk',
-			ours: 'Evening walk',
-			theirs: 'Morning walk',
-		},
-	]);
-	expect(expectOk(merged.settle(() => ours))).toBe(
-		row(['title: Evening walk', 'done: true'], 'Left at dawn.\n'),
-	);
+test('two edits of one field compete, and the writer wins a valid row', async () => {
 	expect(
-		expectOk(merged.settle(() => ({ kind: 'replace', value: 'Noon walk' }))),
-	).toBe(row(['title: Noon walk', 'done: true'], 'Left at dawn.\n'));
-	// The table refuses a value it does not admit, naming the unit.
-	const refused = expectErr(
-		merged.settle(() => ({ kind: 'replace', value: 7 })),
-	);
-	expect(refused).toMatchObject([{ unit: merged.units[0] }]);
+		await merge(ROW, {
+			base: BASE,
+			ours: row(['title: Evening walk', 'done: false'], 'Left at dawn.\n'),
+			theirs: row(['title: Morning walk', 'done: true'], 'Left at dawn.\n'),
+		}),
+	).toEqual({
+		content: row(['title: Evening walk', 'done: true'], 'Left at dawn.\n'),
+		overridden: [{ kind: 'field', field: 'title' }],
+	});
 });
 
 test('a field one side removed and the other changed competes', async () => {
-	const merged = await mergeFile(ROW, {
-		base: row(['title: Walk', 'done: false', 'tags: [a]']),
-		ours: row(['title: Walk', 'done: false']),
-		theirs: row(['title: Walk', 'done: false', 'tags: [a, b]']),
+	expect(
+		await merge(ROW, {
+			base: row(['title: Walk', 'done: false', 'tags: [a]']),
+			ours: row(['title: Walk', 'done: false']),
+			theirs: row(['title: Walk', 'done: false', 'tags: [a, b]']),
+		}),
+	).toEqual({
+		content: row(['title: Walk', 'done: false']),
+		overridden: [{ kind: 'field', field: 'tags' }],
 	});
-	expect(merged.units).toEqual([
-		{
-			kind: 'field',
-			field: 'tags',
-			base: ['a'],
-			ours: undefined,
-			theirs: ['a', 'b'],
-		},
-	]);
-	expect(expectOk(merged.settle(() => ours))).toBe(
-		row(['title: Walk', 'done: false']),
-	);
 });
 
-test("competing body lines are one unit, and each side keeps the other side's other lines", async () => {
+test("competing body lines are one unit, and the writer keeps the other side's other lines", async () => {
 	const at = (title: string, body: string) =>
 		row([`title: ${title}`, 'done: false'], body);
-	const merged = await mergeFile(ROW, {
+	const versions = {
 		base: at('Walk', 'one\ntwo\nthree\nfour\n'),
 		ours: at('Evening walk', 'ONE\ntwo\nthree\nfour (ours)\n'),
 		theirs: at('Walk', 'one\nTWO\nthree\nfour (theirs)\n'),
+	};
+	expect(await merge(ROW, versions)).toEqual({
+		content: at('Evening walk', 'ONE\nTWO\nthree\nfour (ours)\n'),
+		overridden: [{ kind: 'lines', part: 'body', line: 4, count: 1 }],
 	});
-	expect(merged.units).toEqual([
-		{
-			kind: 'text',
-			part: 'body',
-			base: 'one\ntwo\nthree\nfour\n',
-			ours: 'ONE\nTWO\nthree\nfour (ours)\n',
-			theirs: 'ONE\nTWO\nthree\nfour (theirs)\n',
-			regions: [{ line: 3, kept: 'four (ours)\n', theirs: 'four (theirs)\n' }],
-		},
-	]);
-	// Taking theirs keeps our other lines and our title.
-	expect(expectOk(merged.settle(() => theirs))).toBe(
+	// The merge driver's other side keeps our other lines and our title.
+	expect((await merge(ROW, versions, { winner: 'theirs' })).content).toBe(
 		at('Evening walk', 'ONE\nTWO\nthree\nfour (theirs)\n'),
 	);
-	expect(expectErr(merged.settle(() => ({ kind: 'remove' })))).toMatchObject([
-		{ message: 'A body cannot be removed; replace it with empty text' },
-	]);
 });
 
 test('two added rows with no base agree only where equal, and both bodies stay', async () => {
-	const merged = await mergeFile(ROW, {
-		base: null,
-		ours: row(['title: Walk', 'done: false'], 'Mine\n'),
-		theirs: row(['title: Walk', 'done: true'], 'Theirs\n'),
+	expect(
+		await merge(ROW, {
+			base: null,
+			ours: row(['title: Walk', 'done: false'], 'Mine\n'),
+			theirs: row(['title: Walk', 'done: true'], 'Theirs\n'),
+		}),
+	).toEqual({
+		content: row(['title: Walk', 'done: false'], 'Theirs\nMine\n'),
+		overridden: [{ kind: 'field', field: 'done' }],
 	});
-	expect(merged.units.map((unit) => unit.kind)).toEqual(['field']);
-	expect(expectOk(merged.settle(() => ours))).toBe(
-		row(['title: Walk', 'done: false'], 'Theirs\nMine\n'),
-	);
 });
 
 test('a row version that does not read as a row merges as text', async () => {
@@ -206,40 +168,27 @@ test('a row version that does not read as a row merges as text', async () => {
 			theirs: row(['title: Walk', 'done: false'], 'Left at dawn.\nAnd more.\n'),
 		}),
 	).toBe('---\ntitle: [unclosed\n---\nAnd more.\n');
-	// Their changed title does.
-	const merged = await mergeFile(ROW, {
+	// Their changed title does, and ours stands.
+	const merged = await merge(ROW, {
 		base: BASE,
 		ours: broken,
 		theirs: row(['title: Run', 'done: false'], 'Left at dawn.\nAnd more.\n'),
 	});
-	expect(merged.units).toMatchObject([{ kind: 'text', part: 'file' }]);
-	expect(expectOk(merged.settle(() => ours))).toBe(
-		'---\ntitle: [unclosed\n---\nAnd more.\n',
-	);
+	expect(merged.content).toBe('---\ntitle: [unclosed\n---\nAnd more.\n');
+	expect(merged.overridden).toMatchObject([{ kind: 'lines', part: 'text' }]);
 });
 
-test('kv.json merges by key, and a competing key settles by its schema', async () => {
-	const KV = fileKindOf(definition, 'kv.json');
-	const merged = await mergeFile(KV, {
-		base: '{\n  "theme": "light"\n}\n',
-		ours: '{\n  "theme": "dark",\n  "other": 1\n}\n',
-		theirs: '{\n  "theme": "sepia",\n  "more": 2\n}\n',
-	});
-	expect(merged.units).toEqual([
-		{
-			kind: 'setting',
-			key: 'theme',
-			base: 'light',
-			ours: 'dark',
-			theirs: 'sepia',
-		},
-	]);
-	expect(expectOk(merged.settle(() => ours))).toBe(
-		'{\n  "more": 2,\n  "other": 1,\n  "theme": "dark"\n}\n',
-	);
+test('kv.json merges by key, and the writer wins a competing key', async () => {
 	expect(
-		expectErr(merged.settle(() => ({ kind: 'replace', value: 7 }))),
-	).toHaveLength(1);
+		await merge(fileKindOf(definition, 'kv.json'), {
+			base: '{\n  "theme": "light"\n}\n',
+			ours: '{\n  "theme": "dark",\n  "other": 1\n}\n',
+			theirs: '{\n  "theme": "sepia",\n  "more": 2\n}\n',
+		}),
+	).toEqual({
+		content: '{\n  "more": 2,\n  "other": 1,\n  "theme": "dark"\n}\n',
+		overridden: [{ kind: 'setting', key: 'theme' }],
+	});
 });
 
 test('other text merges by line', async () => {
@@ -250,35 +199,38 @@ test('other text merges by line', async () => {
 			FILE,
 		),
 	).toBe('A\nb\nC\n');
-	const merged = await mergeFile(FILE, {
-		base: 'a\nb\n',
-		ours: 'a\nB (ours)\n',
-		theirs: 'a\nB (theirs)\n',
+	expect(
+		await merge(FILE, {
+			base: 'a\nb\n',
+			ours: 'a\nB (ours)\n',
+			theirs: 'a\nB (theirs)\n',
+		}),
+	).toEqual({
+		content: 'a\nB (ours)\n',
+		overridden: [{ kind: 'lines', part: 'text', line: 2, count: 1 }],
 	});
-	expect(merged.units).toMatchObject([{ kind: 'text', part: 'file' }]);
-	expect(expectOk(merged.settle(() => ({ kind: 'remove' })))).toBeNull();
 });
 
 test('a side with no file, or a version that is not text, is the whole file', async () => {
 	const changed = row(['title: Evening walk', 'done: false']);
 	const bytes = new Uint8Array([0, 1, 2]);
-	const cases: [Parameters<typeof mergeFile>[1], boolean][] = [
-		[{ base: BASE, ours: null, theirs: changed }, false],
-		[{ base: BASE, ours: changed, theirs: null }, false],
-		[{ base: BASE, ours: changed, theirs: bytes }, true],
-		[{ base: bytes, ours: new Uint8Array([1]), theirs: bytes.slice(1) }, true],
-	];
-	for (const [versions, binary] of cases) {
-		const merged = await mergeFile(ROW, versions);
-		expect(merged.units).toEqual([
-			{ kind: 'whole', binary, ...versions } as MergeUnit,
-		]);
-		expect(expectOk(merged.settle(() => theirs))).toBe(versions.theirs);
-		if (binary)
-			expect(
-				expectErr(merged.settle(() => ({ kind: 'replace', value: 'x' }))),
-			).toHaveLength(1);
-	}
+	const cases: [FileVersions, string | Uint8Array | null, 'ours' | 'theirs'][] =
+		[
+			// A delete beats the edit it never saw, from either side.
+			[{ base: BASE, ours: null, theirs: changed }, null, 'theirs'],
+			[{ base: BASE, ours: changed, theirs: null }, null, 'ours'],
+			[{ base: BASE, ours: changed, theirs: bytes }, changed, 'theirs'],
+			[
+				{ base: bytes, ours: new Uint8Array([1]), theirs: bytes.slice(1) },
+				new Uint8Array([1]),
+				'theirs',
+			],
+		];
+	for (const [versions, content, lost] of cases)
+		expect(await merge(ROW, versions)).toEqual({
+			content,
+			overridden: [{ kind: 'file', lost }],
+		});
 });
 
 test('values compare as JSON, whatever their key order', () => {

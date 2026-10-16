@@ -10,7 +10,7 @@
  * raw file access, and explicit native Git (`git add`, `git commit`) are
  * unaffected.
  */
-import type { DirectoryPrimitives } from '../directory-handle.js';
+import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { pathProblem } from '../paths.js';
 import { NORMALIZING } from './attributes.js';
 import { orphanStagesProblem } from './index-file.js';

@@ -31,17 +31,24 @@ export type CommitSummary = {
 /** Git's empty tree, which every repository can name without storing it. */
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
-/** Write every file as a blob and the directories as trees. Returns the root tree. */
+/**
+ * Write every file as a blob and the directories as trees. Returns the root
+ * tree. A blob `stored` already names is hashed here and never written
+ * again: on a native folder each write is one `git hash-object -w`, and a
+ * packed object is not found as a loose one, so it would be written anew.
+ */
 export async function writeFilesTree(
 	access: ObjectAccess,
 	files: ReadonlyMap<string, Uint8Array>,
+	stored: ReadonlyMap<string, TreeFile> = new Map(),
 ): Promise<string> {
+	const present = new Set([...stored.values()].map((file) => file.oid));
 	const entries = new Map<string, TreeFile>();
-	for (const [path, bytes] of files)
-		entries.set(path, {
-			mode: '100644',
-			oid: await git.writeBlob({ ...access, blob: bytes }),
-		});
+	for (const [path, bytes] of files) {
+		const { oid } = await git.hashBlob({ object: bytes });
+		if (!present.has(oid)) await git.writeBlob({ ...access, blob: bytes });
+		entries.set(path, { mode: '100644', oid });
+	}
 	return writeTreeFiles(access, entries);
 }
 
@@ -107,6 +114,13 @@ export async function commitTree(
 	oid: string,
 ): Promise<string> {
 	return (await git.readCommit({ ...access, oid })).commit.tree;
+}
+
+export async function commitParents(
+	access: ObjectAccess,
+	oid: string,
+): Promise<readonly string[]> {
+	return (await git.readCommit({ ...access, oid })).commit.parent;
 }
 
 /** Every leaf of a tree by path. Symbolic links and submodules keep their modes. */

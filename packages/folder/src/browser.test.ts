@@ -28,7 +28,7 @@ import {
 } from './browser-storage.test-support.js';
 import { hashBytes } from './capture.js';
 import { createHistory } from './git/history.js';
-import { put } from './put.test-support.js';
+import { overwrite, put } from './put.test-support.js';
 import { parseRow } from './row-text.js';
 import { mustRow } from './row-write.test-support.js';
 import { useWebLocks } from './web-locks.test-support.js';
@@ -82,17 +82,7 @@ describe('browser folder tables', () => {
 			boundary,
 			author,
 		});
-		const bytes = new TextEncoder().encode('previous history');
-		expectOk(
-			await boundary.apply([
-				{
-					kind: 'create',
-					path: 'legacy.txt',
-					bytes,
-					sha256: await hashBytes(bytes),
-				},
-			]),
-		);
+		await overwrite(boundary, 'legacy.txt', 'previous history');
 		expect((await history.commit()).status).toBe('committed');
 		const previous = await backend.readBranch();
 		await history.close();
@@ -530,7 +520,7 @@ describe('browser folder persistence and history', () => {
 		unsubscribe();
 	});
 
-	test('table, file, and KV saves make no commit; commitAndPush commits', async () => {
+	test('table, file, and KV saves make no commit; Save version commits', async () => {
 		const folder = await open();
 		await folder.tables.todos.create(
 			{ fields: { title: 'M', done: false }, body: '' },
@@ -540,12 +530,10 @@ describe('browser folder persistence and history', () => {
 		expectOk(await folder.kv.set('theme', 'dark'));
 		await Bun.sleep(20);
 		expect(folder.git.snapshot.lastCommit).toBeUndefined();
-		const result = await folder.git.commitAndPush();
-		expect(result.commit.status).toBe('committed');
-		expect(result.push.status).toBe('noRemote');
+		expect((await folder.git.commit()).status).toBe('committed');
 	});
 
-	test('a stalled push blocks neither saves nor commits; a commit made meanwhile stays local; close aborts the push and settles', async () => {
+	test('a stalled Sync blocks neither saves nor commits; close aborts it and settles', async () => {
 		const originalFetch = globalThis.fetch;
 		let requests = 0;
 		globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
@@ -579,10 +567,10 @@ describe('browser folder persistence and history', () => {
 			);
 			expect((await folder.git.commit()).status).toBe('committed');
 			expect(requests).toBe(0);
-			const pushing = folder.git.push();
+			const syncing = folder.sync.run();
 			for (let index = 0; index < 200 && requests === 0; index++)
 				await Bun.sleep(5);
-			expect(folder.git.snapshot.activity.push.active).toBe(true);
+			expect(folder.git.snapshot.activity.fetch.active).toBe(true);
 
 			expectOk(
 				await folder.tables.todos.create(
@@ -595,13 +583,12 @@ describe('browser folder persistence and history', () => {
 				status: 'committed',
 				message: 'Add todos/b.md',
 			});
-			// That commit is local: its push was not started behind the stalled one.
-			expect(folder.git.snapshot.activity.push.active).toBe(true);
+			// That commit is local: nothing more was asked of the remote.
+			expect(folder.git.snapshot.activity.fetch.active).toBe(true);
 
 			await folder.close();
-			expect((await pushing).status).toBe('cancelled');
-			expect(folder.git.snapshot.lastPush?.status).toBe('cancelled');
-			expect(folder.git.snapshot.activity.push).toEqual({ active: false });
+			expect((await syncing).error?.name).toBe('Closed');
+			expect(folder.git.snapshot.activity.fetch).toEqual({ active: false });
 			expect(requests).toBe(1);
 			expect(expectErr(await folder.tables.todos.list()).name).toBe('Closed');
 		} finally {
@@ -643,15 +630,7 @@ describe('browser folder persistence and history', () => {
 			boundary,
 			author,
 		});
-		await boundary.apply([
-			{
-				kind: 'create',
-				path: 'a.txt',
-				bytes: new TextEncoder().encode('a'),
-				sha256:
-					'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb',
-			},
-		]);
+		await overwrite(boundary, 'a.txt', 'a');
 		const outcome = await history.commit();
 		// The retry captured again and committed on top of the competitor.
 		expect(outcome).toMatchObject({ status: 'committed', parent: competitor });

@@ -18,6 +18,7 @@ import { hashBytes, ownBytes } from './capture.js';
 import { formatDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
 import { createFiles, type FolderFiles } from './files.js';
+import { localPatterns } from './merge-file.js';
 import { DECLARATION_PATH } from './paths.js';
 
 const log = createLogger('folder/definition');
@@ -37,8 +38,25 @@ const PublicationError = defineErrors({
 });
 
 /**
+ * `prepared` with `local` also listing what the file there lists, sorted, so
+ * a pattern a Sync brought from another device (ADR-0576) is never dropped
+ * by this definition's publication. A file whose `local` does not read adds
+ * nothing.
+ */
+function keepingLocal(
+	prepared: FolderDefinition,
+	declared: readonly string[] | undefined,
+): FolderDefinition {
+	const local = [
+		...new Set([...(prepared.local ?? []), ...(declared ?? [])]),
+	].sort();
+	return local.length === 0 ? prepared : { ...prepared, local };
+}
+
+/**
  * Await one publication, skipped when the file already holds the
- * declaration's bytes. `epicenter.json` is never merged (ADR-0551): a
+ * declaration's bytes. `epicenter.json` is never merged (ADR-0551) but for
+ * `local`, which keeps every pattern the file already lists: a
  * missing file is created, reading once more when another writer created it
  * first, and a present one is saved over as read with `{ merge: false }`,
  * reading once more when another writer saved first. A failure is logged and
@@ -48,8 +66,6 @@ export async function publishDefinition(
 	prepared: FolderDefinition,
 	files: Pick<FolderFiles, 'read' | 'create' | 'save'>,
 ): Promise<void> {
-	const declaration = ownBytes(formatDeclaration(prepared));
-	const sha256 = await hashBytes(declaration);
 	let failure: unknown;
 	try {
 		for (let reads = 0; reads < 2; reads++) {
@@ -59,7 +75,19 @@ export async function publishDefinition(
 				failure = readError;
 				break;
 			}
-			if (readError === null && current.sha256 === sha256) return;
+			const declaration = ownBytes(
+				formatDeclaration(
+					keepingLocal(
+						prepared,
+						readError === null ? localPatterns(current.bytes) : undefined,
+					),
+				),
+			);
+			if (
+				readError === null &&
+				current.sha256 === (await hashBytes(declaration))
+			)
+				return;
 			const { error } =
 				readError === null
 					? await files.save(current, declaration, { merge: false })
@@ -146,9 +174,10 @@ export function declaring(
 			await first();
 			return storage.put(path, bytes, ifMatch);
 		},
-		async apply(changes) {
+		// Published before the lock is taken: publishing writes through it.
+		async lock(work) {
 			await first();
-			return storage.apply(changes);
+			return storage.lock(work);
 		},
 		async mkdir(path) {
 			await first();

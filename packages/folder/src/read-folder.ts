@@ -18,15 +18,14 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { readDeclaration } from './declaration.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
-import { directoryHandle } from './directory-handle.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createDirectoryStorage } from './directory-store.js';
 import {
 	FileError,
 	type KvReadError,
 	type TableEnumerationError,
 } from './errors.js';
 import { createKv, type KvReading } from './kv.js';
-import { createOpfsFileBoundary } from './opfs-store.js';
 import { DECLARATION_PATH } from './paths.js';
 import { createTable, type TableListing } from './table.js';
 
@@ -90,8 +89,9 @@ export async function readFolder(
 			? FileError.NotFound({ path: root })
 			: FileError.Io({ path: root, operation: 'open', cause });
 	}
-	const storage = createOpfsFileBoundary({
-		root: directoryHandle(nodeDirectoryPrimitives, resolved),
+	const storage = createDirectoryStorage({
+		root: resolved,
+		primitives: nodeDirectoryPrimitives,
 		landed: () => {},
 	});
 

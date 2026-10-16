@@ -9,11 +9,8 @@
  * narrow screen. Buttons are clicked through the DOM.
  *
  * Key behaviors:
- * - Sync with competing edits opens the shared review in place of the
- *   workspace, and nothing is written; Cancel forgets it and gives the
- *   workspace back
- * - A refused choice shows beside its row and keeps the review; Apply with
- *   valid choices ends it, and the list shows the result
+ * - Sync with competing edits asks nothing: the workspace stays, this
+ *   device's title wins on the remote, and a title being typed stays
  * - A folder that is not Todos's own offers no Connect, and a Connect asked
  *   for before sign-in does not open over it; Todos's own folder opens it
  *
@@ -139,9 +136,7 @@ async function pushMilk(session: GitSession, text: string) {
 	await git(native, 'push', '--quiet', session.bare, 'main');
 }
 
-const review = (target: Element) =>
-	target.querySelector('[aria-label="Review sync changes"]');
-/** The todo list, while it shows: the review hides it without unmounting it. */
+/** The todo list, while it shows. */
 const workspace = (target: Element) => {
 	const list = target.querySelector('[aria-label="Todo list"]');
 	return list?.closest('[hidden]') ? null : list;
@@ -155,66 +150,25 @@ function sync(target: Element) {
 		.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }
 
-test('Sync with competing edits opens the review in place of the workspace and writes nothing; Cancel forgets it and keeps a typed title', async () => {
+test('Sync with competing edits asks nothing: the workspace stays, this device wins, and a typed title stays', async () => {
 	const { todos, session, target } = await competing();
 	expect(workspace(target)?.textContent).toContain('Buy oat milk');
 	newTitle(target).value = 'Buy bread';
 	newTitle(target).dispatchEvent(new Event('input', { bubbles: true }));
 
 	sync(target);
-	await eventually(() => review(target) !== null);
-	expect(review(target)?.textContent).toContain(MILK);
-	expect(workspace(target)).toBeNull();
-	// The Git actions wait while the review shows.
-	expect(
-		target.querySelector<HTMLButtonElement>('[data-testid="sync"]')!.disabled,
-	).toBe(true);
-	expect(await git(session.bare, 'show', `main:${MILK}`)).toContain(
-		'title: Buy soy milk',
-	);
-
-	click(review(target)!, 'Cancel');
-	await eventually(() => review(target) === null);
+	const button = () =>
+		target.querySelector<HTMLButtonElement>('[data-testid="sync"]')!;
+	await eventually(() => !button().disabled);
 	await settle(todos);
-	expect(review(target)).toBeNull();
+	expect(target.querySelector('[aria-label="Review sync changes"]')).toBeNull();
 	expect(workspace(target)?.textContent).toContain('Buy oat milk');
 	expect(newTitle(target).value).toBe('Buy bread');
-	expect(
-		target.querySelector<HTMLButtonElement>('[data-testid="sync"]')!.disabled,
-	).toBe(false);
-}, 60_000);
-
-test('a refused choice shows beside its row and keeps the review; Apply with a valid choice ends it, and the list shows the result', async () => {
-	const { todos, session, target } = await competing();
-	sync(target);
-	await eventually(() => review(target) !== null);
-
-	// Leaving out a required field is refused by the folder.
-	click(review(target)!, 'Leave out');
-	flushSync();
-	click(review(target)!, 'Apply and sync');
-	await eventually(() =>
-		Boolean(review(target)?.querySelector('[aria-invalid="true"]')),
-	);
-	expect(review(target)).not.toBeNull();
-	expect(
-		review(target)!
-			.querySelector('[aria-label="Result for title"]')
-			?.getAttribute('aria-invalid'),
-	).toBe('true');
-
-	// Take the remote's title.
-	const [, remote] = [...review(target)!.querySelectorAll('button')].filter(
-		(button) => button.textContent?.trim() === 'Use this',
-	);
-	remote!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-	flushSync();
-	click(review(target)!, 'Apply and sync');
-	await eventually(() => review(target) === null);
-	await settle(todos);
-	expect(workspace(target)?.textContent).toContain('Buy soy milk');
 	expect(await git(session.bare, 'show', `main:${MILK}`)).toContain(
-		'title: Buy soy milk',
+		'title: Buy oat milk',
+	);
+	expect(await git(session.bare, 'log', '-1', '--format=%B', 'main')).toContain(
+		`field="title" "${MILK}"`,
 	);
 }, 60_000);
 

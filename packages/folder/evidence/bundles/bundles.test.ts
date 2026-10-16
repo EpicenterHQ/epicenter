@@ -146,7 +146,7 @@ describe('what a Vite build of the same application emits', () => {
 		// the browser's own storage address, download, or private Git, and no
 		// Git engine of its own.
 		expect(granted[0]).toContain(READS);
-		expect(granted[0]).toContain('"settle_sync"');
+		expect(granted[0]).toContain('"save_version"');
 		expect(granted[0]).not.toContain(GIT);
 		expect(granted[0]).not.toContain(BROWSER);
 		// Loading the desktop adapter loads no Git and no browser storage.

@@ -1,84 +1,68 @@
 /**
- * Publication accounting over partially completed file operations.
+ * Publication accounting over a folder's storage.
  *
- * Any outcome that may have changed a path notes one edit, so the history's
- * observations go stale, and the storage receipt passes through unchanged.
- * A refusal that changed nothing notes none. Accounting asks for no commit
- * (ADR-0529) and tells no change listener: a handle's own saves are not
- * reported to it (ADR-0548).
+ * A change that landed, or may have, notes one edit, so the history's
+ * observations go stale, and the storage's answer passes through unchanged;
+ * so do changes made holding the save lock. A change that changed nothing
+ * notes none. Accounting asks for no commit (ADR-0529) and tells no change
+ * listener: a handle's own saves are not reported to it (ADR-0548).
  */
 import { expect, test } from 'bun:test';
-import { expectErr } from 'wellcrafted/testing';
 import { rawBrowserFolder } from './browser-storage.test-support.js';
-import { ApplyError, FileError, type FileStep } from './errors.js';
+import { FileError } from './errors.js';
 import { withPublication } from './storage.js';
 
-const overwrite = (path: string) =>
-	({
-		kind: 'overwrite',
-		path,
-		bytes: new Uint8Array(),
-		sha256: path,
-	}) as const;
+const bytes = new TextEncoder().encode('x');
 
-for (const failed of [
-	{ kind: 'move', from: 'source/b.md', to: 'destination/b.md' },
-	{ kind: 'remove', path: 'source/b.md' },
-] satisfies FileStep[])
-	for (const unknown of [true, false])
-		test(`a partial ${failed.kind} ${unknown ? 'with an uncertain step' : 'with a refused step'} notes one edit without changing its receipt`, async () => {
-			const { boundary } = await rawBrowserFolder({
-				id: 'publication-receipt',
-			});
-			const path = failed.kind === 'move' ? failed.to : failed.path;
-			const cause = {
-				path,
-				operation: 'publication',
-				cause: new Error('lost reply'),
-			};
-			const receipt = ApplyError.Partial({
-				applied: [{ kind: 'write', path: 'confirmed.md' }],
-				failed,
-				error: unknown
-					? expectErr(FileError.Unconfirmed(cause))
-					: expectErr(FileError.Io(cause)),
-				notAttempted: [{ kind: 'write', path: 'unattempted.md' }],
-			});
-			let edits = 0;
-			const storage = withPublication({
-				storage: { ...boundary, apply: async () => receipt },
+async function counted(id: string) {
+	const { boundary } = await rawBrowserFolder({ id });
+	let edits = 0;
+	return {
+		boundary,
+		edits: () => edits,
+		wrap: (storage = boundary) =>
+			withPublication({
+				storage,
 				history: {
 					noteEdit: () => {
 						edits++;
 					},
 				},
-			});
-			expect(
-				await storage.apply([
-					overwrite('confirmed.md'),
-					failed,
-					overwrite('unattempted.md'),
-				]),
-			).toBe(receipt);
-			expect(edits).toBe(1);
-		});
+			}),
+	};
+}
 
-test('a refusal that changed nothing notes no edit', async () => {
-	const { boundary } = await rawBrowserFolder({ id: 'publication-refusal' });
-	const refusal = FileError.Conflict({
-		path: 'a.md',
-		expectedSha256: 'a'.repeat(64),
-		actualSha256: undefined,
+test('a change that landed, or whose reply was lost, notes one edit, under the lock too', async () => {
+	const { boundary, edits, wrap } = await counted('publication-landed');
+	const storage = wrap();
+	expect((await storage.put('a.md', bytes, null)).data).toBe('landed');
+	expect(edits()).toBe(1);
+	await storage.lock(async (held) => {
+		expect((await held.put('b.md', bytes, null)).data).toBe('landed');
 	});
-	let edits = 0;
-	const storage = withPublication({
-		storage: { ...boundary, apply: async () => refusal },
-		history: {
-			noteEdit: () => {
-				edits++;
-			},
-		},
+	expect(edits()).toBe(2);
+	const lost = FileError.Unconfirmed({
+		path: 'c.md',
+		operation: 'write',
+		cause: new Error('lost reply'),
 	});
-	expect(await storage.apply([overwrite('a.md')])).toBe(refusal);
-	expect(edits).toBe(0);
+	const unconfirmed = wrap({ ...boundary, put: async () => lost });
+	expect(await unconfirmed.put('c.md', bytes, null)).toBe(lost);
+	expect(edits()).toBe(3);
+});
+
+test('a change that changed nothing notes no edit', async () => {
+	const { boundary, edits, wrap } = await counted('publication-refusal');
+	const storage = wrap();
+	expect((await storage.put('a.md', bytes, null)).data).toBe('landed');
+	expect((await storage.put('a.md', bytes, null)).data).toBe('stale');
+	expect(edits()).toBe(1);
+	const refusal = FileError.Io({
+		path: 'b.md',
+		operation: 'write',
+		cause: new Error('disk full'),
+	});
+	const refusing = wrap({ ...boundary, put: async () => refusal });
+	expect(await refusing.put('b.md', bytes, null)).toBe(refusal);
+	expect(edits()).toBe(1);
 });

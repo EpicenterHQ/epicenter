@@ -3,8 +3,8 @@
  * Concurrent save waiters share writes, file switches wait for saves, and another
  * page's change rereads a clean editor but never replaces typed input: the save
  * merges with it, and the typed text wins the lines both changed.
- * Two copies on one remote sync: a competing line waits for a modal review that
- * locks the editor, Cancel forgets it, and an applied choice reaches the remote.
+ * Two copies on one remote sync: a line both changed goes to the copy that
+ * syncs, the merge commit names what lost, and the other copy receives it.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { openDataFolder } from '@epicenter/folder';
@@ -242,7 +242,7 @@ test('a save of a file deleted elsewhere fails and keeps the text; discarding it
 	expect(workspace.saveMessage).toContain('No file');
 });
 
-test('two copies sync; a competing line waits for a modal review that Cancel forgets', async () => {
+test('two copies sync; a line both changed goes to the copy that syncs, and the other receives it', async () => {
 	const { workspace: unused } = await setup();
 	void unused;
 	const root = await scratch('git-lab-sync-');
@@ -266,27 +266,14 @@ test('two copies sync; a competing line waits for a modal review that Cancel for
 		await a.sync();
 		b.input('color=green\n');
 		await b.sync();
-		const attempt = b.syncAttempt;
-		expect(
-			attempt?.conflicts.map(({ kind, path }) => ({ kind, path })),
-		).toEqual([{ kind: 'file', path: 'notes/color.txt' }]);
-		expect(b.locked).toBe(true);
-		b.input('typed during the review\n');
-		expect(b.buffer).toBe('color=green\n');
-
-		b.cancelSync();
-		expect(b.syncAttempt).toBeUndefined();
-		expect(b.locked).toBe(false);
-
-		await b.sync();
-		const again = b.syncAttempt;
-		if (again === undefined) throw new Error('Expected a review');
-		await b.applySync(again, {
-			[again.conflicts[0]!.id]: { kind: 'take', side: 'local' },
-		});
-		expect(b.syncAttempt).toBeUndefined();
-		expect(await git(bare, 'show', 'main:notes/color.txt')).toBe('color=green');
 		expect(b.output).toContain('Synced');
+		// B synced last: its line stands, and the merge names A's as lost.
+		expect(await git(bare, 'show', 'main:notes/color.txt')).toBe('color=green');
+		expect(await git(bare, 'log', '-1', '--format=%B', 'main')).toContain(
+			'Overrode:',
+		);
+		await a.sync();
+		expect(a.buffer).toBe('color=green\n');
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
