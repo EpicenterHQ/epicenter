@@ -29,10 +29,12 @@
 	} = $props();
 
 	const keys = browserKeys();
-	const list = createQuery(() => ({
-		...connections!.tables.connections.list.queryOptions(),
-		enabled: connections !== null,
-	}));
+	// Until `so.epicenter` opens there are no rows to list.
+	const list = createQuery(() =>
+		connections
+			? connections.tables.connections.list.queryOptions()
+			: { queryKey: ['so.epicenter', 'unopened'], queryFn: () => [], enabled: false },
+	);
 	const rows = $derived(
 		(list.data ?? [])
 			.flatMap(({ stem, result }) => (result.error === null ? [{ stem, ...result.data.row.fields }] : []))

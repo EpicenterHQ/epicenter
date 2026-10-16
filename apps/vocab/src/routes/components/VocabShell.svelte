@@ -52,6 +52,9 @@
 			const options = folderOptions(opened);
 			stopConnections = options.invalidateOnChange(vocab.queryClient);
 			await importEarlierConnections({ vocab: folder, connections: opened, secrets });
+			// The import wrote Vocab's settings itself, and a page is not told of
+			// its own writes, so the settings are read again.
+			await vocab.queryClient.invalidateQueries({ queryKey: vocab.folder$.kv.get.queryKey() });
 			connections = { folder: opened, options };
 		},
 		(cause: unknown) => (connectionsProblem = cause instanceof Error ? cause.message : String(cause)),
@@ -60,10 +63,12 @@
 	const settings = createQuery(() => vocab.folder$.kv.get.queryOptions());
 	const setSetting = createMutation(() => vocab.folder$.kv.set.mutationOptions());
 	const choice = $derived(settings.data?.values.tutorConnection);
-	const rowList = createQuery(() => ({
-		...connections!.options.tables.connections.list.queryOptions(),
-		enabled: connections !== null,
-	}));
+	// Until `so.epicenter` opens there are no rows to list.
+	const rowList = createQuery(() =>
+		connections
+			? connections.options.tables.connections.list.queryOptions()
+			: { queryKey: ['so.epicenter', 'unopened'], queryFn: () => [], enabled: false },
+	);
 	const tutor = {
 		get canServe() {
 			return choice ? (rowList.data ?? []).some((row) => row.stem === choice) : account !== undefined;
