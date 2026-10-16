@@ -7,7 +7,6 @@
  *
  * | Kind | Unit |
  * | --- | --- |
- * | `kv.json` | one root key |
  * | a row of a declared table | one frontmatter field; one region of body lines |
  * | other UTF-8 text | one region of lines |
  * | binary, or a side absent | the whole file |
@@ -16,9 +15,9 @@
  * body or a text both survive, and identical ones are one (`mergeLines`).
  * A delete beats an edit the deleting side never saw: only a side with no
  * base brings a file into existence.
- * A row or `kv.json` version that does not read as its kind merges as text,
- * and so does a merge of rows that does not write as one: the result is a
- * file a person can repair, never a refusal (ADR-0503).
+ * A row version that does not read as a row merges as text, and so does a
+ * merge of rows that does not write as one: the result is a file a person
+ * can repair, never a refusal (ADR-0503).
  *
  * Rows are compared by the values `parseRow` reads, never by their spelling,
  * so key order, quoting, and frontmatter comments never compete, and a
@@ -29,11 +28,8 @@
  *
  * This module writes nothing and loads no Git implementation.
  */
-import type { FieldMap } from '@epicenter/definition';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
 import { mergeLines, type SettledRegion } from './git/merge-lines.js';
-import { KV_PATH } from './kv.js';
-import { reconcileKv } from './kv-merge.js';
 import { frameRowText } from './markdown.js';
 import { DECLARATION_PATH, ROW_EXTENSION } from './paths.js';
 import { type AnyRow, mergeRows, sameValue, setField } from './row-merge.js';
@@ -41,7 +37,6 @@ import { parseRow, writeRow } from './row-text.js';
 
 /** How a path merges: decided by its place in the folder, for save and Sync alike. */
 export type FileKind =
-	| { readonly kind: 'kv'; readonly schemas: FieldMap }
 	| { readonly kind: 'row'; readonly table: PreparedFolderTable }
 	/** `epicenter.json`, which merges whole but for the union of `local`. */
 	| { readonly kind: 'declaration' }
@@ -64,7 +59,6 @@ export function fileKindOf(
 ): FileKind {
 	if (path === DECLARATION_PATH) return { kind: 'declaration' };
 	if (definition === undefined) return { kind: 'file' };
-	if (path === KV_PATH) return { kind: 'kv', schemas: definition.kv };
 	const table = tableAt(definition, path);
 	return table === undefined ? { kind: 'file' } : { kind: 'row', table };
 }
@@ -101,7 +95,6 @@ function textOf(content: FileContent | null): string | null | undefined {
  * A unit of a file where the writer acting replaced another writer's change.
  *
  * - `field`: one frontmatter field of a row.
- * - `setting`: one root key of `kv.json`.
  * - `lines`: one region of a row's body or a text file. The writer's `count`
  *   lines stand there from `line`, 1-based within the body or the file; a
  *   `count` of 0 is a removal at that place.
@@ -115,7 +108,6 @@ function textOf(content: FileContent | null): string | null | undefined {
  */
 export type Overridden =
 	| { readonly kind: 'field'; readonly field: string }
-	| { readonly kind: 'setting'; readonly key: string }
 	| {
 			readonly kind: 'lines';
 			readonly part: 'body' | 'text';
@@ -305,31 +297,6 @@ async function rowTextWins(
 	};
 }
 
-/** `kv.json` by key, ours winning each competing key; `undefined` when a version does not read. */
-function settingsWin(
-	base: string | null,
-	ours: string,
-	theirs: string,
-	winner: Winner,
-): Merged | undefined {
-	const texts = { base, ours, theirs };
-	const merged = reconcileKv(texts, new Map());
-	if (merged.kind === 'merged') return { content: merged.text, overridden: [] };
-	if (merged.kind !== 'conflict') return undefined;
-	const settled = reconcileKv(
-		texts,
-		new Map(merged.conflicts.map((key) => [key.key, key[winner]])),
-	);
-	if (settled.kind !== 'merged') return undefined;
-	return {
-		content: settled.text,
-		overridden: merged.conflicts.map((key) => ({
-			kind: 'setting',
-			key: key.key,
-		})),
-	};
-}
-
 const sameRow = (left: AnyRow, right: AnyRow) =>
 	left.body === right.body && sameValue(left.fields, right.fields);
 
@@ -417,7 +384,5 @@ export async function merge(
 	}
 	if (ours === null || theirs === null) return wholeFile(versions, winner);
 	if (kind.kind === 'row') return rowTextWins(base, ours, theirs, winner);
-	const structured =
-		kind.kind === 'kv' ? settingsWin(base, ours, theirs, winner) : undefined;
-	return structured ?? textWins(base, ours, theirs, winner);
+	return textWins(base, ours, theirs, winner);
 }

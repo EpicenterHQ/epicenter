@@ -1,9 +1,10 @@
 /**
  * The opened folder handle every opener returns (ADR-0471, ADR-0478).
  *
- * `write` is the one write (ADR-0576); `tables`, `kv`, and `files` publish
- * through the same file boundary, one file change per operation. A caller that needs several changes makes several
- * calls; each one that succeeded stays published when a later one fails.
+ * `write` is the one write (ADR-0576); `tables` and `files` publish through
+ * the same file boundary, one file change per operation. A caller that
+ * needs several changes makes several calls; each one that succeeded stays
+ * published when a later one fails.
  * `git` observes and records history. A save never commits: commits happen
  * only through `git.commit()` or sync's checkpoint (ADR-0529).
  *
@@ -13,11 +14,7 @@
  * file helpers; storage applications already started return their actual
  * outcome. Closing makes no last commit.
  */
-import {
-	type CreateRowOf,
-	type KvOf,
-	requiredOutsideShape,
-} from '@epicenter/definition';
+import { type CreateRowOf, requiredOutsideShape } from '@epicenter/definition';
 import type { Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
@@ -33,7 +30,6 @@ import type {
 import type { GitCredentials } from './git/http.js';
 import type { Author, CommitSummary } from './git/objects.js';
 import type { SyncOptions, SyncOutcome } from './git/sync.js';
-import { createKv, type FileKv } from './kv.js';
 import { type FileContent, fileKindOf } from './merge-file.js';
 import { callObserver } from './observer.js';
 import { declaring } from './publish-definition.js';
@@ -112,7 +108,6 @@ export type FolderAccess<TDefinition extends FolderDefinition> = {
 			CreateRowOf<TDefinition['tables'][K]>
 		>;
 	};
-	readonly kv: FileKv<KvOf<TDefinition>>;
 	readonly files: FolderFiles;
 	readonly git: FolderGit;
 	/**
@@ -152,7 +147,7 @@ export type FolderLocation =
 	| { readonly kind: 'directory'; readonly root: string };
 
 /**
- * An opened folder. `TDefinition` types `tables` and `kv`; `TDeclared` types
+ * An opened folder. `TDefinition` types `tables`; `TDeclared` types
  * `definition`, and differs from it only for a lens, whose tables are typed by
  * the lens while the handle reads and writes with the folder's own
  * declaration.
@@ -165,10 +160,9 @@ export type Folder<
 	/**
 	 * The prepared definition this handle reads with: the one `openFolder`
 	 * was given, or the folder's own `epicenter.json` as `openDataFolder`
-	 * read it when it opened (no tables and no settings when there was
-	 * none), lens or not. Every row and setting is checked against it, and
-	 * Sync merges rows by it. A declaration changed after opening is read
-	 * by the next open.
+	 * read it when it opened (no tables when there was none), lens or not.
+	 * Every row is checked against it, and Sync merges rows by it. A
+	 * declaration changed after opening is read by the next open.
 	 */
 	readonly definition: TDeclared;
 	readonly location: FolderLocation;
@@ -269,8 +263,8 @@ function createFolderGit(history: FolderHistory): FolderGit {
 /**
  * Assemble the handle over acquired storage. `prepared` is the prepared
  * definition: `openFolder`'s `prepareFolderDefinition` result, or the
- * declaration `openDataFolder` read. It is the snapshot every table and the
- * KV read through, never the declaration the opener was handed. No argument
+ * declaration `openDataFolder` read. It is the snapshot every table reads
+ * through, never the declaration the opener was handed. No argument
  * carries `TDefinition`, so the opener names it.
  *
  * With a `lens` that `prepared` contains, the handle has the lens's tables
@@ -335,7 +329,6 @@ export function assembleFolder<
 	return Object.freeze({
 		definition: prepared as TDeclared,
 		tables: Object.freeze(tables) as Folder<TDefinition>['tables'],
-		kv: createKv({ storage }, prepared.kv) as Folder<TDefinition>['kv'],
 		files,
 		git,
 		write: (path: string, from: FileContent | null, to: FileContent | null) =>

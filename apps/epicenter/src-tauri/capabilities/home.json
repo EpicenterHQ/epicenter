@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "home",
-	"description": "Epicenter Settings (the `home` window). It administers the one active local transcription model: which model is active, downloading and deleting model files, and the unload policy (ADR-0180); model identity is administration data, so `get_active_model` is granted here and nowhere else, and Settings claims the section an app asked it to open (take_pending_home_section). It lists and edits the AI connections in Epicenter's own folder, so.epicenter (ADR-0557): it opens that folder with the page's own engine through the folder plugin and listens for its change event, and saves, removes, and reports each connection's endpoint and key in this computer's keychain through the narrow CLI runner, which never hands the key back. It signs the app in and out and shows who it is signed in as (ADR-0558): each is one fixed `epicenter auth` invocation with `--desktop`, and the shell opens only the deployment's authorization page the CLI names; no token reaches the page. Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561).",
+	"description": "Epicenter Settings (the `home` window). It administers the one active local transcription model: which model is active, downloading model files and showing their folders, and the unload policy (ADR-0180); model identity is administration data, so `get_active_model` is granted here and nowhere else, and Settings claims the section an app asked it to open (take_pending_home_section). It lists and edits the AI connections in Epicenter's own folder, so.epicenter (ADR-0557): it opens that folder with the page's own engine through the folder plugin and listens for its change event, and saves, removes, and reports each connection's endpoint and key in this computer's keychain through the narrow CLI runner, which never hands the key back. It signs the app in and out and shows who it is signed in as (ADR-0558): each is one fixed `epicenter auth` invocation with `--desktop`, and the shell opens only the deployment's authorization page the CLI names; no token reaches the page. Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561).",
 	"local": true,
 	"windows": ["home"],
 	"permissions": [
@@ -12,7 +12,7 @@
 		"allow-list-models",
 		"allow-download-model",
 		"allow-cancel-download",
-		"allow-delete-model",
+		"allow-reveal-model",
 		"allow-get-active-model",
 		"allow-set-active-model",
 		"allow-get-local-transcription-readiness",

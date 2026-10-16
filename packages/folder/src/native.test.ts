@@ -45,7 +45,6 @@ const openNativeFolder = async <const TDefinition extends FolderDefinition>(
 ) => expectOk(await openFolder(options));
 
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },

@@ -123,10 +123,9 @@ in another program, another window, or by an agent shows while you work
   A Save version while another Git program holds the index lands, says the
   index could not be refreshed, and the next Save version refreshes it.
 - Git hooks and fsmonitor never run for Todos' Git commands. The page
-  changes only `todos/*.md`, `epicenter.json`, and `kv.json`, which the
-  shell declares for it, and its own staging files in `.git`: the shell
-  makes every change and refuses any other path, or one with a link on the
-  way. Git stores every object itself.
+  changes only `todos/*.md` and `epicenter.json`, which the shell declares
+  for it, and its own staging files in `.git`: the shell makes every change
+  and refuses any other path, or one with a link on the way. Git stores every object itself.
 
 ### Closing, quitting, and unsaved typing
 

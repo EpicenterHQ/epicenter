@@ -36,7 +36,7 @@ import {
 const tables = {
 	recordings: defineTable({ fields: { title: field.string() } }),
 };
-const definition = defineFolder({ kv: {}, tables, local: ['audio/'] });
+const definition = defineFolder({ tables, local: ['audio/'] });
 const author = { name: 'Recorder', email: 'recorder@example.test' };
 const originalGlobal = process.env.GIT_CONFIG_GLOBAL;
 const roots: string[] = [];
@@ -58,11 +58,10 @@ test('local is written into epicenter.json and read back', () => {
 	expect(JSON.parse(text).local).toEqual(['audio/']);
 	expect(expectOk(parseDeclaration(text)).local).toEqual(['audio/']);
 	// Its bytes change with `local`, so publishing writes the new list.
-	expect(formatDeclaration(defineFolder({ kv: {}, tables }))).not.toBe(text);
+	expect(formatDeclaration(defineFolder({ tables }))).not.toBe(text);
 	expect(
-		expectOk(
-			parseDeclaration(formatDeclaration(defineFolder({ kv: {}, tables }))),
-		).local,
+		expectOk(parseDeclaration(formatDeclaration(defineFolder({ tables }))))
+			.local,
 	).toBeUndefined();
 });
 
@@ -81,12 +80,10 @@ test('a declared local that is not .gitignore lines is refused when read', () =>
 
 test('local formats to the same bytes whatever its order or repeats', () => {
 	const ordered = defineFolder({
-		kv: {},
 		tables,
 		local: ['drafts/', 'audio/'],
 	});
 	const repeated = defineFolder({
-		kv: {},
 		tables,
 		local: ['audio/', 'drafts/', 'audio/'],
 	});
@@ -142,7 +139,7 @@ test("the CLI's Sync untracks audio committed before epicenter.json declared it 
 	const folder = await desktopFolder();
 	await folder.write(
 		'epicenter.json',
-		formatDeclaration(defineFolder({ kv: {}, tables })),
+		formatDeclaration(defineFolder({ tables })),
 	);
 	await folder.write('recordings/x.md', '---\ntitle: X\n---\n');
 	await folder.write('audio/x.wav', 'RIFF');
@@ -165,7 +162,7 @@ test('the CLI refuses to save or sync when epicenter.json cannot be used, and pu
 	const folder = await desktopFolder();
 	await folder.write(
 		'epicenter.json',
-		formatDeclaration(defineFolder({ kv: {}, tables })),
+		formatDeclaration(defineFolder({ tables })),
 	);
 	await folder.write('recordings/x.md', '---\ntitle: X\n---\n');
 	await folder.write('audio/x.wav', 'RIFF');

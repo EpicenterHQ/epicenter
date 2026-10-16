@@ -6,8 +6,8 @@
  * Key behaviors:
  * - Configuring writes `* merge=epicenter` to `.git/info/attributes` and the
  *   driver to `.git/config`, once however often it runs, and nothing tracked
- * - Different fields of one row, and `kv.json` keys, merge; one field both
- *   sides changed is a conflict Git reports, with markers and stages
+ * - Different fields of one row merge; one field both sides changed is a
+ *   conflict Git reports, with markers and stages
  * - Plain text merges by line, neighboring lines included
  * - A binary file and a file in no data folder merge as Git's default does
  * - A driver path that points nowhere is an ordinary conflict, not an abort
@@ -111,14 +111,6 @@ async function write(root: string, path: string, content: string | Uint8Array) {
 }
 
 const DECLARATION = JSON.stringify({
-	kv: {
-		type: 'object',
-		properties: {
-			a: { type: 'number' },
-			b: { type: 'number' },
-			c: { type: 'number' },
-		},
-	},
 	tables: {
 		posts: {
 			type: 'object',
@@ -238,20 +230,6 @@ test('the same field both sides changed is a conflict Git reports', async () => 
 	expect(await git(repo, 'show', ':3:posts/x.md')).toBe(
 		row('Theirs', false).trim(),
 	);
-});
-
-test('kv.json keys both sides added combine', async () => {
-	const { repo } = await repository({
-		'epicenter.json': DECLARATION,
-		'kv.json': '{\n  "a": 1\n}\n',
-	});
-	const merged = await mergeBranches(
-		repo,
-		{ 'kv.json': '{\n  "a": 1,\n  "b": 2\n}\n' },
-		{ 'kv.json': '{\n  "a": 1,\n  "c": 3\n}\n' },
-	);
-	expect(merged.exitCode).toBe(0);
-	expect(JSON.parse(await read(repo, 'kv.json'))).toEqual({ a: 1, b: 2, c: 3 });
 });
 
 test('a plain text file merges by line, neighboring lines included', async () => {

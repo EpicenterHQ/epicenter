@@ -219,8 +219,6 @@ function unitWords(unit: Overridden): string {
 	switch (unit.kind) {
 		case 'field':
 			return `field=${JSON.stringify(unit.field)}`;
-		case 'setting':
-			return `setting=${JSON.stringify(unit.key)}`;
 		case 'lines':
 			return `lines=${unit.part}:${unit.line}+${unit.count}`;
 		case 'file':

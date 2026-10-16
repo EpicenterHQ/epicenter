@@ -19,8 +19,8 @@ its sync Durable Objects, and the apps built only on it are deleted.
 
 ```txt
 ~/Epicenter/so.epicenter.todos/
-  epicenter.json        the folder's declaration: its tables and settings
-  kv.json               settings
+  epicenter.json        the folder's declaration: its tables
+  settings/<concern>.md settings, one row per concern (ADR-0576)
   todos/<id>.md         one row per file: YAML frontmatter fields, Markdown body
   recordings/...        one row per recording
   audio/...             recordings' audio: declared local, never committed
@@ -52,8 +52,8 @@ its sync Durable Objects, and the apps built only on it are deleted.
 
 ## One folder engine, three hosts
 
-`@epicenter/folder` is the engine: tables, `kv`, files, history, merge, and
-Sync. Every host returns the same `Folder` handle
+`@epicenter/folder` is the engine: tables, files, history, merge, and Sync.
+Every host returns the same `Folder` handle
 ([ADR-0533](adr/0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md)).
 
 | Host | Entry | Storage | History |

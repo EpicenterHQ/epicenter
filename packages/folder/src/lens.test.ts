@@ -34,15 +34,17 @@ import { GIT_ENV, scratch } from './git-http.test-support.js';
 const author = { name: 'Board', email: 'board@localhost' };
 
 /** A folder that declares more than any lens below reads, written by hand. */
-const DECLARED = `{"title":"Todos","kv":{"type":"object","properties":{"theme":{"enum":["light","dark"]},"density":{"type":"number"}}},"tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"status":{"enum":["todo","done"]},"priority":{"type":"integer","minimum":1,"maximum":3},"note":{"type":"string"}},"required":["title","status","priority"]},"projects":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}`;
+const DECLARED = `{"title":"Todos","tables":{"settings":{"type":"object","properties":{"theme":{"enum":["light","dark"]},"density":{"type":"number"}},"required":[]},"todos":{"type":"object","properties":{"title":{"type":"string"},"status":{"enum":["todo","done"]},"priority":{"type":"integer","minimum":1,"maximum":3},"note":{"type":"string"}},"required":["title","status","priority"]},"projects":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}`;
 
 const ROW =
 	'---\ntitle: Milk\nstatus: todo\npriority: 2\nnote: Oat\nsource: phone\n---\nBuy it.\n';
 
 /** Reads the title and status, and knows nothing of priority. */
 const board = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
+		settings: defineTable({
+			fields: { theme: field.optional(field.string()) },
+		}),
 		todos: defineTable({
 			fields: {
 				title: field.string(),
@@ -54,7 +56,6 @@ const board = defineFolder({
 
 /** Knows every field the folder requires. */
 const full = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: {
@@ -92,7 +93,7 @@ test('a lens over a bigger folder opens with its own tables, and the folder keep
 	const folder = expectOk(
 		await openDataFolder({ root, git: { author }, lens: board }),
 	);
-	expect(Object.keys(folder.tables)).toEqual(['todos']);
+	expect(Object.keys(folder.tables)).toEqual(['settings', 'todos']);
 	expect(folder.definition).toEqual(
 		expectOk(await readFolder(root)).definition,
 	);
@@ -105,8 +106,15 @@ test('a lens over a bigger folder opens with its own tables, and the folder keep
 		'---\ntitle: Milk\nstatus: done\npriority: 2\nnote: Oat\nsource: phone\n---\nBuy it.\n',
 	);
 
-	expectOk(await folder.kv.set('theme', 'dark'));
-	expect(expectOk(await folder.kv.get())!.values).toEqual({ theme: 'dark' });
+	expectOk(
+		await folder.tables.settings.create(
+			{ fields: { theme: 'dark' }, body: '' },
+			{ stem: 'display' },
+		),
+	);
+	expect(
+		expectOk(await folder.tables.settings.get('display'))!.row.fields,
+	).toEqual({ theme: 'dark' });
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(DECLARED);
 	await folder.close();
@@ -129,9 +137,14 @@ test("every write is checked against the folder's declaration, not the lens's", 
 			.name,
 	).toBe('InvalidValues');
 	// The lens's string theme is checked against the folder's options.
-	expect(expectErr(await folder.kv.set('theme', 'sepia')).name).toBe(
-		'InvalidValues',
-	);
+	expect(
+		expectErr(
+			await folder.tables.settings.create(
+				{ fields: { theme: 'sepia' }, body: '' },
+				{ stem: 'display' },
+			),
+		).name,
+	).toBe('InvalidValues');
 	expect(await readFile(join(root, 'todos/milk.md'), 'utf8')).toBe(ROW);
 	await folder.close();
 });
@@ -181,8 +194,10 @@ test('a lens that does not declare a required field cannot add rows', async () =
 test('a lens the declaration does not contain is ShapeMismatch, listing every problem, and opens nothing', async () => {
 	const root = await folderRoot('lens-mismatch-');
 	const lens = defineFolder({
-		kv: { accent: field.string() },
 		tables: {
+			settings: defineTable({
+				fields: { accent: field.optional(field.string()) },
+			}),
 			todos: defineTable({
 				fields: {
 					title: field.number(),
@@ -205,7 +220,7 @@ test('a lens the declaration does not contain is ShapeMismatch, listing every pr
 			'field' in problem ? problem.field : undefined,
 		]),
 	).toEqual([
-		['missingField', 'kv', 'accent'],
+		['missingField', 'settings', 'accent'],
 		['incompatibleField', 'todos', 'title'],
 		['missingField', 'todos', 'due'],
 		['incompatibleField', 'todos', 'note'],
@@ -222,7 +237,7 @@ test('a folder without epicenter.json contains only a lens that reads nothing', 
 		expectErr(await openDataFolder({ root, git: { author }, lens: board }))
 			.name,
 	).toBe('ShapeMismatch');
-	const empty = defineFolder({ kv: {}, tables: {} });
+	const empty = defineFolder({ tables: {} });
 	const folder = expectOk(
 		await openDataFolder({ root, git: { author }, lens: empty }),
 	);
@@ -234,7 +249,7 @@ test('a closed folder table opens through a lens that reads a subset of it', asy
 	const root = await scratch('lens-closed-');
 	await writeFile(
 		join(root, 'epicenter.json'),
-		'{"kv":{"type":"object","properties":{}},"tables":{"pages":{"type":"object","properties":{"title":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["title"],"additionalProperties":false}}}',
+		'{"tables":{"pages":{"type":"object","properties":{"title":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}}},"required":["title"],"additionalProperties":false}}}',
 	);
 	await mkdir(join(root, 'pages'));
 	await writeFile(
@@ -242,7 +257,6 @@ test('a closed folder table opens through a lens that reads a subset of it', asy
 		'---\ntitle: A\ntags:\n  - x\n---\n',
 	);
 	const lens = defineFolder({
-		kv: {},
 		tables: { pages: defineTable({ fields: { title: field.string() } }) },
 	});
 	const folder = expectOk(
@@ -279,7 +293,7 @@ test('a browser folder opened through a lens reads, writes, and refuses alike', 
 	const folder = expectOk(
 		await openBrowserDataFolder({ id: 'todos', browser: storage, lens: board }),
 	);
-	expect(Object.keys(folder.tables)).toEqual(['todos']);
+	expect(Object.keys(folder.tables)).toEqual(['settings', 'todos']);
 	expect(folder.tables.todos.canCreate).toBe(false);
 	expectOk(await folder.tables.todos.set('milk', { status: 'done' }));
 	expect(
@@ -295,7 +309,6 @@ test('a browser folder opened through a lens reads, writes, and refuses alike', 
 	await folder.close();
 
 	const mismatch = defineFolder({
-		kv: {},
 		tables: { todos: defineTable({ fields: { title: field.boolean() } }) },
 	});
 	expect(

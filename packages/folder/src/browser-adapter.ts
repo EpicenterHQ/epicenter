@@ -132,7 +132,7 @@ export const openFolder: OpenFolder = async ({ definition, ...options }) => {
 
 /**
  * Open the browser folder named `id` with its own `epicenter.json`, which the
- * handle never writes; a folder without one has no tables and no settings.
+ * handle never writes; a folder without one has no tables.
  * Opening writes nothing, as `openFolder`'s does: a folder nobody wrote to
  * lists no files, its first write creates its directory, and its first
  * commit, staging, or remote creates its repository.

@@ -57,8 +57,8 @@ was out.
 ## The data model
 
 `src/lib/definition.ts` declares the folder with the shared vocabulary
-(`@epicenter/definition`): five tables and `kv`. `@epicenter/folder` turns that
-into Markdown rows at `<table>/<stem>.md` and `kv.json`. A table owns exactly
+(`@epicenter/definition`): five tables. `@epicenter/folder` turns that into
+Markdown rows at `<table>/<stem>.md`. A table owns exactly
 one Markdown file per row; any other file is an ordinary file reached through
 `folder.files`. The package's [README](../../packages/folder/README.md) is the
 contract for entries, captures, conditional saves, source-preserving patches,
@@ -93,8 +93,10 @@ What Whispering adds on top:
   person saves it. It carries the same snapshot (transformation and title,
   time, model, endpoint, prompt, input) and names no recording or
   transcript, so recording deletion never counts or waits on it.
-- `kv.json` holds the transcription endpoint and model an earlier build saved.
-  It is read, to fill in the transcription form, and never written.
+- `kv.json` is an ordinary file, where an earlier build saved the
+  transcription endpoint and model. It is read as text to fill in the
+  transcription form, and never written; a file that does not parse, or a
+  value that is not a string, offers nothing (`earlierTranscriptionOf`).
 - Connections are not data in Whispering's folder. There are two,
   transcription and text, each a canonical base URL, a default model, and an
   optional key. In Epicenter each is a row of the `connections` table in
@@ -492,9 +494,9 @@ is running, and nothing new starts for it while it is removed.
 Files are read through the TanStack Query cache (ADR-0528, ADR-0548), with
 the folder's own query options (`folderOptions` from
 `@epicenter/folder/query`). The library observes each table's listing, the
-folder listing, `kv.json`, and Git status for as long as it is open, and a
-view that shows a file's exact text reads it with its own query, keyed
-beside the folder's read of that file. A row that does not read is an
+folder listing, the text of `kv.json`, and Git status for as long as it is
+open, and a view that shows a file's exact text reads it with its own query,
+keyed beside the folder's read of that file. A row that does not read is an
 `Err(InvalidRow)` entry in the same listing, shown as text with its issues
 (`parseRow`) until it reads. A row the person opens in Source is shown as
 text too; its fields open again once the text reads.

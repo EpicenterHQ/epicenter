@@ -238,8 +238,8 @@ build runs at a time (`<cache>/apps.lock`, `holdingFileLock`).
 
 `epicenter merge-driver <dir>` makes `git merge`, `git pull`, an agent's Git,
 and any Git client merge the folder's files by kind, with the merge saves and
-Sync use (ADR-0551, ADR-0566): rows by field and body line, `kv.json` by key, other
-text by line. It writes two things, neither committed:
+Sync use (ADR-0551, ADR-0566): rows by field and body line, other text by
+line. It writes two things, neither committed:
 
 ```txt
 .git/info/attributes   * merge=epicenter

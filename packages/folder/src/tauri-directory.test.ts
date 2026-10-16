@@ -236,7 +236,6 @@ const { openDataFolder, openFolder } = await import('./tauri-adapter.js');
 const { defineFolder, defineTable, field } = await import('./contract.js');
 
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
@@ -483,7 +482,7 @@ test('a row write another window overtakes where it publishes merges with what i
 });
 
 /** Hand-formatted, as no publication would write it. */
-const DECLARED = `{"kv":{"type":"object","properties":{}},"tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
+const DECLARED = `{"tables":{"todos":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"}},"required":["title","done"]}}}`;
 
 /** The shell grants `root` as `so.epicenter.vault`. */
 function grantRoot(root: string) {
@@ -552,7 +551,7 @@ test('a data folder without epicenter.json opens with no tables, and files work'
 	const root = await scratch('tauri-data-folder-none-');
 	grantRoot(root);
 	const folder = expectOk(await openDataFolder({ id: 'so.epicenter.vault' }));
-	expect(folder.definition).toEqual({ kv: {}, tables: {} });
+	expect(folder.definition).toEqual({ tables: {} });
 	expect(folder.tables).toEqual({});
 	expectOk(await folder.files.create('notes/a.md', 'a\n'));
 	expect(
@@ -569,7 +568,7 @@ test('a data folder whose epicenter.json cannot be used is InvalidDeclaration an
 	const root = await scratch('tauri-data-folder-invalid-');
 	await nodeFs.writeFile(
 		join(root, 'epicenter.json'),
-		'{"kv":{"type":"object","properties":{}},"tables":{"todos":{"type":"object","properties":{},"required":["title"]}}}',
+		'{"tables":{"todos":{"type":"object","properties":{},"required":["title"]}}}',
 	);
 	grantRoot(root);
 	const refused = expectErr(await openDataFolder({ id: 'so.epicenter.vault' }));
@@ -623,7 +622,6 @@ test('a data folder opened through a lens reads its fields, keeps the rest, and 
 	);
 	grantRoot(root);
 	const lens = defineFolder({
-		kv: {},
 		tables: { todos: defineTable({ fields: { title: field.string() } }) },
 	});
 	const folder = expectOk(
@@ -647,7 +645,6 @@ test('a data folder opened through a lens reads its fields, keeps the rest, and 
 	await folder.close();
 
 	const mismatch = defineFolder({
-		kv: {},
 		tables: { todos: defineTable({ fields: { done: field.string() } }) },
 	});
 	const refused = expectErr(

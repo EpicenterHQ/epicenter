@@ -151,8 +151,8 @@ export async function openFolder<const TDefinition extends FolderDefinition>({
 /**
  * Open the existing directory at `root` with the schema in its own
  * `epicenter.json`, which the handle never writes (ADR-0535). A directory
- * without one opens with no tables and no settings; one that cannot be used
- * is `InvalidDeclaration`. The root is refused as `openFolder` refuses it.
+ * without one opens with no tables; one that cannot be used is
+ * `InvalidDeclaration`. The root is refused as `openFolder` refuses it.
  * With a `lens`, a declaration that does not contain it is `ShapeMismatch`,
  * and the handle's tables are the lens's (ADR-0538).
  *

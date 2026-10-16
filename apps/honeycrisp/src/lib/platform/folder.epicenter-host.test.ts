@@ -99,7 +99,7 @@ const INSTANT = {
 };
 /** A folder's `epicenter.json` with `tables`, as Epicenter writes one. */
 const declaration = (title: string, tables: Record<string, unknown>) =>
-	`${JSON.stringify({ title, kv: { type: 'object', properties: {} }, tables }, null, '\t')}\n`;
+	`${JSON.stringify({ title, tables }, null, '\t')}\n`;
 
 beforeEach(() => {
 	opened = [];
@@ -123,7 +123,6 @@ test("a window handed no folder opens Honeycrisp's own with its definition and s
 		'.git',
 		'epicenter.json',
 		'folders',
-		'kv.json',
 		'notes',
 	]);
 	await folder.close();
@@ -195,7 +194,7 @@ test('a window handed another folder reads its notes and writes nothing to it', 
 	expect(rows.map(({ result }) => result.data?.row.fields.title)).toEqual([
 		'Monday',
 	]);
-	// Its own declaration stays, and setup made no `folders/` or `kv.json`.
+	// Its own declaration stays, and setup made no `folders/`.
 	expect(await readFile(join(root, 'epicenter.json'), 'utf8')).toBe(journal);
 	expect((await readdir(root)).sort()).toEqual(['epicenter.json', 'notes']);
 	await folder.close();

@@ -17,7 +17,7 @@ afterEach(() => {
 });
 const { publishDefinition } = await import('./publish-definition.js');
 
-const definition = defineFolder({ kv: {}, tables: {} });
+const definition = defineFolder({ tables: {} });
 const encode = (text: string) => new TextEncoder().encode(text);
 const missing = async (path: string) => FileError.NotFound({ path });
 /** A file at `epicenter.json` holding `text`. */
@@ -105,10 +105,9 @@ for (const [name, read] of [
 	});
 
 test('a local pattern the file lists, from another device, is kept', async () => {
-	const own = defineFolder({ kv: {}, tables: {}, local: ['audio/'] });
-	const theirs = defineFolder({ kv: {}, tables: {}, local: ['drafts/'] });
+	const own = defineFolder({ tables: {}, local: ['audio/'] });
+	const theirs = defineFolder({ tables: {}, local: ['drafts/'] });
 	const both = defineFolder({
-		kv: {},
 		tables: {},
 		local: ['audio/', 'drafts/'],
 	});

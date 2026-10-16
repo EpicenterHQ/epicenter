@@ -129,8 +129,8 @@ export const MoveError = defineErrors({
 export type MoveError = InferErrors<typeof MoveError>;
 
 /**
- * Failures of reading a row or `kv.json` as text and of preparing a
- * structured write. None of them published anything. An address a folder does not admit is
+ * Failures of reading a row as text and of preparing a structured write.
+ * None of them published anything. An address a folder does not admit is
  * `FileError.InvalidPath`, and an occupied destination is `FileError.Exists`:
  * a table has no naming or collision rule of its own (ADR-0457).
  */
@@ -161,35 +161,6 @@ export const TableError = defineErrors({
 		issues: Issues;
 	}) => ({
 		message: `'${path}' is not a valid row: ${issues
-			.map((issue) =>
-				issue.line === undefined
-					? issue.message
-					: `line ${issue.line}: ${issue.message}`,
-			)
-			.join('; ')}`,
-		path,
-		sha256,
-		text,
-		issues,
-	}),
-	/**
-	 * `kv.json` was read as text, but it is not a file a folder can hold: not
-	 * one strict JSON object, or a key that appears twice. `text` is exactly
-	 * what was read and `sha256` the hash of its bytes, so a repair can show
-	 * the text and save guarded by them.
-	 */
-	InvalidKv: ({
-		path,
-		sha256,
-		text,
-		issues,
-	}: {
-		path: string;
-		sha256: string;
-		text: string;
-		issues: Issues;
-	}) => ({
-		message: `'${path}' cannot be read as settings: ${issues
 			.map((issue) =>
 				issue.line === undefined
 					? issue.message
@@ -250,17 +221,13 @@ export type RowReadError = TableReadError | TableErrorOf<'InvalidRow'>;
  * it names (`UnknownBase`), the file was deleted (`NotFound`; a save never
  * recreates a file), it moved on and the save was asked not to merge
  * (`Conflict`), the edit merged with another writer's file does not read as
- * its kind (`InvalidValues`, `InvalidRow`, `InvalidKv`), it kept changing
+ * its kind (`InvalidValues`, `InvalidRow`), it kept changing
  * past the merges (`KeptChanging`), or storage failed.
  */
 export type FileSaveError =
 	| FileError
 	| TableErrorOf<
-			| 'UnknownBase'
-			| 'KeptChanging'
-			| 'InvalidValues'
-			| 'InvalidRow'
-			| 'InvalidKv'
+			'UnknownBase' | 'KeptChanging' | 'InvalidValues' | 'InvalidRow'
 	  >;
 
 /**
@@ -284,18 +251,6 @@ export const WriteError = {
 	Closed: FileError.Closed,
 	InvalidPath: FileError.InvalidPath,
 };
-
-/** `kv.json` could not be read, is not UTF-8, or is not a file a folder can hold. */
-export type KvReadError = FileError | TableErrorOf<'InvalidUtf8' | 'InvalidKv'>;
-
-/**
- * Why a `kv.set` saved nothing: the value cannot be stored, the current file
- * cannot be read as settings, publication failed, or the file kept changing
- * past the merges (`KeptChanging`).
- */
-export type KvWriteError =
-	| KvReadError
-	| TableErrorOf<'InvalidValues' | 'KeptChanging'>;
 
 /**
  * Why a folder could not be opened. Every opener returns these; none throws

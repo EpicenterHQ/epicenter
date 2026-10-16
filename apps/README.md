@@ -1,6 +1,6 @@
 # Apps
 
-An application keeps its data in a data folder: Markdown rows, `kv.json`,
+An application keeps its data in a data folder: Markdown rows,
 `epicenter.json`, and Git history beside them (`@epicenter/folder`). The files
 are the data. A recording is a file in the folder from its start
 (`@epicenter/recorder`), and its audio stays on the machine that recorded it,
@@ -18,15 +18,15 @@ Cloudflare Workers or, self-hosted, on Bun with Postgres), the public `landing` 
 
 ## Declare the folder, then open it
 
-`defineFolder` declares tables and settings. The declaration is inert: importing
-it opens nothing. A folder ID names the dataset, conventionally the app's
+`defineFolder` declares tables; settings are rows of a `settings` table whose
+fields are all optional. The declaration is inert: importing it opens
+nothing. A folder ID names the dataset, conventionally the app's
 reverse-domain ID.
 
 ```ts
 import { defineFolder, defineTable, field } from '@epicenter/folder';
 
 export const todosDefinition = defineFolder({
-  kv: {},
   tables: { todos: defineTable({ fields: { title: field.string(), done: field.boolean() } }) },
 });
 ```
@@ -104,7 +104,7 @@ in-memory OPFS stand-in.
 
 ## Adding an app
 
-1. Declare `defineFolder({ kv, tables })` in `apps/<app>/src/lib/`. Preserve
+1. Declare `defineFolder({ tables })` in `apps/<app>/src/lib/`. Preserve
    existing table and field names. Applications own fallback values; schema
    fields have no defaults.
 2. Add `#platform/folder` leaves that open the folder in the browser and, if

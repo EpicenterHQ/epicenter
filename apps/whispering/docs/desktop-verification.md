@@ -81,7 +81,7 @@ What the TypeScript tests establish, and with what:
   that holds a transcription still waiting for its answer, only the session's
   guard answers and it does not approve.
 - **Closing while the session is starting**, over the Bun directory opener
-  with the first `kv.json` read
+  with the first file listing read
   held open: a close asked then gets no answer, not even `asking`, and no
   guard is listening; when the start finishes the kept request reaches the
   guard, which answers; when the start fails nothing answers until the

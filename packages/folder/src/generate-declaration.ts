@@ -100,7 +100,7 @@ export async function generateDeclaration(
 	}
 	if (typeof declared !== 'object' || declared === null)
 		return GenerateDeclarationError.InvalidDeclaration({
-			reason: `${DECLARATION_SOURCE_PATH} must \`export default defineFolder({ kv, tables })\``,
+			reason: `${DECLARATION_SOURCE_PATH} must \`export default defineFolder({ tables })\``,
 		});
 	// defineFolder refuses what a folder cannot keep, and returns a prepared
 	// definition as it is.

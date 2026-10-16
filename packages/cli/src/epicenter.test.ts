@@ -35,10 +35,8 @@ const objectSchema = (properties: Record<string, object>) => ({
 	properties,
 	required: Object.keys(properties),
 });
-const noSettings = { type: 'object', properties: {} };
 
 const declaration = {
-	kv: noSettings,
 	tables: {
 		posts: objectSchema({
 			title: { type: 'string' },
@@ -181,22 +179,21 @@ test('a missing or unusable epicenter.json is a tool failure with exit 2', async
 	await write(
 		'epicenter.json',
 		JSON.stringify({
-			kv: noSettings,
 			tables: { 'bad name': objectSchema({}) },
 		}),
 	);
 	expect(run('check', folder).exitCode).toBe(2);
 
-	// A declaration missing a section was not generated; say how to make one.
-	await write('epicenter.json', JSON.stringify({ tables: {} }));
-	const noKv = run('check', folder);
-	expect(noKv.exitCode).toBe(2);
-	expect(noKv.stderr).toContain(
-		"it has no 'kv'; every generated declaration has both, so declare the folder in epicenter.ts and run `epicenter generate`",
+	// A declaration missing its tables was not generated; say how to make one.
+	await write('epicenter.json', JSON.stringify({ title: 'No tables' }));
+	const noTables = run('check', folder);
+	expect(noTables.exitCode).toBe(2);
+	expect(noTables.stderr).toContain(
+		"it has no 'tables'; every generated declaration has them, so declare the folder in epicenter.ts and run `epicenter generate`",
 	);
 });
 
-test('a typo epicenter.json would otherwise ignore is refused, and $schema is allowed', async () => {
+test("a typo epicenter.json would otherwise ignore is refused, and $schema and an earlier build's kv are allowed", async () => {
 	const { folder, write, run } = await setup();
 	const declare = (value: object) =>
 		write('epicenter.json', JSON.stringify(value));
@@ -207,7 +204,6 @@ test('a typo epicenter.json would otherwise ignore is refused, and $schema is al
 	expect(extraKey.stderr).toContain("unknown top-level key 'tabels'");
 
 	await declare({
-		kv: noSettings,
 		tables: {
 			posts: objectSchema({ due: { type: 'string', format: 'date-tme' } }),
 		},
@@ -219,6 +215,13 @@ test('a typo epicenter.json would otherwise ignore is refused, and $schema is al
 
 	await declare({
 		$schema: 'https://example.test/epicenter.schema.json',
+		...declaration,
+	});
+	expect(run('check', folder).exitCode).toBe(0);
+
+	// A `kv` section an earlier build wrote is not read.
+	await declare({
+		kv: { type: 'object', properties: { theme: { type: 'string' } } },
 		...declaration,
 	});
 	expect(run('check', folder).exitCode).toBe(0);
@@ -237,7 +240,6 @@ test('query refuses fields it cannot project: case duplicates, stem, and body', 
 		await write(
 			'epicenter.json',
 			JSON.stringify({
-				kv: noSettings,
 				tables: { posts: objectSchema(fields) },
 			}),
 		);
@@ -609,7 +611,6 @@ if (!isOptional(field.optional(field.string())))
 
 export default defineFolder({
 	local: ['drafts/'],
-	kv: {},
 	tables: {
 		pages: defineTable({
 			fields: {
@@ -677,7 +678,7 @@ test('generate refuses a folder with no epicenter.ts, no default export, or a de
 	);
 	await write(
 		'epicenter.ts',
-		'export default { kv: {}, tables: {}, titel: "Typo" };\n',
+		'export default { tables: {}, titel: "Typo" };\n',
 	);
 	expect(run('generate', folder).stderr).toContain("also declares 'titel'");
 	await write('epicenter.ts', 'export const nothing = 1;\n');
@@ -687,7 +688,7 @@ test('generate refuses a folder with no epicenter.ts, no default export, or a de
 
 	await write(
 		'epicenter.ts',
-		`export default { kv: { a: { type: 'string', format: 'date-tme' } }, tables: {} };\n`,
+		`export default { tables: { posts: { fields: { a: { type: 'string', format: 'date-tme' } } } } };\n`,
 	);
 	const refused = run('generate', folder);
 	expect(refused.exitCode).toBe(2);

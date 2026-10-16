@@ -10,8 +10,9 @@
  * Key behaviors:
  * - A first launch creates no files or history, and saving a connection
  *   writes nothing to the folder
- * - `kv.json` from an earlier build is read and reported, never written, and
- *   never where a request goes
+ * - `kv.json` from an earlier build is read as an ordinary file and offered,
+ *   never written, and never where a request goes; one that does not read
+ *   offers nothing
  * - Record, stop, and save produce audio, a row that names it, and a commit
  *   of the row; the audio stays out of history, and a recording being
  *   captured never reads as absent
@@ -42,12 +43,12 @@ import {
 	readFile,
 	realpath,
 	rm,
+	stat,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathProblem } from '@epicenter/folder';
-import { FileError } from '@epicenter/folder/bun';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { loadAudio } from './audio-source.js';
@@ -99,12 +100,9 @@ type Options = {
 	beforeFileCreate?: () => Promise<void>;
 	/** Runs before each `files.read` of the folder. */
 	beforeFileRead?: (path: string) => Promise<void>;
-	/** Stand in front of the folder's settings methods; `real` is the folder's own. */
-	kv?: (real: Kv) => Kv;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Parameters<typeof testConnections>[0];
 };
-type Kv = Workspace['folder']['kv'];
 
 async function open({
 	failRowWrites = 0,
@@ -114,7 +112,6 @@ async function open({
 	beforeFileCreate,
 	beforeFileRead,
 	root,
-	kv,
 	connections,
 }: Options = {}) {
 	const directory =
@@ -138,7 +135,6 @@ async function open({
 		folder: {
 			...folder,
 			tables,
-			kv: kv?.(folder.kv) ?? folder.kv,
 			files: {
 				...folder.files,
 				async create(path, content) {
@@ -246,7 +242,7 @@ test('the first launch creates no files or history, and saving a connection writ
 		text: undefined,
 		legacyKey: false,
 	});
-	expect(library.legacySettings).toEqual({});
+	expect(library.earlierTranscription).toEqual({});
 
 	expect(
 		await library.saveConnection('transcription', {
@@ -276,9 +272,9 @@ test('kv.json from an earlier build is offered, never written, and never where a
 	await writeFile(join(root, 'kv.json'), saved);
 	const { library, transcribed } = await open({ root });
 
-	expect(library.legacySettings).toEqual({
-		transcriptionBaseUrl: 'https://elsewhere.example/v1',
-		transcriptionModel: 'old-model',
+	expect(library.earlierTranscription).toEqual({
+		baseUrl: 'https://elsewhere.example/v1',
+		model: 'old-model',
 	});
 	await record(library);
 	await library.transcribe(library.entries[0]!);
@@ -313,25 +309,19 @@ test('with no transcription connection, transcribing sends nothing and says to s
 	expect(library.resultsFor(entry.stem)).toEqual([]);
 });
 
-test('a launch whose kv.json read fails creates no settings file and says why', async () => {
-	const { library, root } = await open({
-		kv: (real) => ({
-			...real,
-			get: async () =>
-				FileError.Io({
-					path: 'kv.json',
-					operation: 'read',
-					cause: new Error('disk refused the read'),
-				}),
-		}),
-	});
+test('a kv.json that cannot be read offers nothing, and nothing is created in its place', async () => {
+	const root = await realpath(
+		await mkdtemp(join(tmpdir(), 'whispering-library-')),
+	);
+	roots.push(root);
+	await mkdir(join(root, 'kv.json'));
+	const { library } = await open({ root });
 
-	expect(await readdir(root)).not.toContain('kv.json');
-	expect(library.settingsProblem).toContain('disk refused the read');
-	expect(library.legacySettings).toEqual({});
+	expect(library.earlierTranscription).toEqual({});
+	expect((await stat(join(root, 'kv.json'))).isDirectory()).toBe(true);
 });
 
-test('kv.json that does not parse, or holds a value that does not conform, is the settings problem, and only values that read are offered', async () => {
+test('kv.json is read leniently: text that does not parse offers nothing, and only string values are offered', async () => {
 	const root = await realpath(
 		await mkdtemp(join(tmpdir(), 'whispering-library-')),
 	);
@@ -339,23 +329,22 @@ test('kv.json that does not parse, or holds a value that does not conform, is th
 	await writeFile(join(root, 'kv.json'), '{"transcriptionModel": ');
 	const { library } = await open({ root });
 
-	expect(library.settingsProblem).toContain('not valid JSON');
-	expect(library.legacySettings).toEqual({});
+	expect(library.earlierTranscription).toEqual({});
 
 	await writeFile(
 		join(root, 'kv.json'),
 		'{"transcriptionModel": 7, "transcriptionBaseUrl": "http://kept"}\n',
 	);
 	await settle(library);
-	expect(library.settingsProblem).toContain('transcriptionModel');
-	expect(library.legacySettings).toEqual({
-		transcriptionBaseUrl: 'http://kept',
-	});
+	expect(library.earlierTranscription).toEqual({ baseUrl: 'http://kept' });
+
+	await writeFile(join(root, 'kv.json'), '["transcriptionModel"]\n');
+	await settle(library);
+	expect(library.earlierTranscription).toEqual({});
 
 	await writeFile(join(root, 'kv.json'), '{"transcriptionModel": "kept"}\n');
 	await settle(library);
-	expect(library.settingsProblem).toBeUndefined();
-	expect(library.legacySettings).toEqual({ transcriptionModel: 'kept' });
+	expect(library.earlierTranscription).toEqual({ model: 'kept' });
 });
 
 // ============================================================================

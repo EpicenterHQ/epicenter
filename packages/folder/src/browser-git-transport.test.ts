@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { expectOk } from 'wellcrafted/testing';
-import { defineFolder, field, openFolder } from './browser.js';
+import { defineFolder, defineTable, field, openFolder } from './browser.js';
 import {
 	browserStorage,
 	createTestStorage,
@@ -30,8 +30,11 @@ test('a folder routes only its Git requests through the injected transport and k
 		return serveGit(new Request(target, request));
 	};
 	const definition = defineFolder({
-		kv: { language: field.string() },
-		tables: {},
+		tables: {
+			settings: defineTable({
+				fields: { language: field.optional(field.string()) },
+			}),
+		},
 	});
 	const open = () =>
 		openFolder({
@@ -46,14 +49,22 @@ test('a folder routes only its Git requests through the injected transport and k
 	const sender = expectOk(await open());
 	const receiver = expectOk(await open());
 	try {
-		expectOk(await sender.kv.set('language', 'Chinese'));
+		expectOk(
+			await sender.tables.settings.create(
+				{ fields: { language: 'Chinese' }, body: '' },
+				{ stem: 'display' },
+			),
+		);
 		expect(expectOk(await sender.sync.connect(canonical)).kind).toBe('synced');
 		const remoteHead = await git(bare, 'rev-parse', 'main');
 		expect(expectOk(await receiver.sync.connect(canonical))).toEqual({
 			kind: 'synced',
 			head: remoteHead,
 		});
-		expect(expectOk(await receiver.kv.get())?.values.language).toBe('Chinese');
+		expect(
+			expectOk(await receiver.tables.settings.get('display'))?.row.fields
+				.language,
+		).toBe('Chinese');
 		expect(receiver.git.snapshot.remote).toEqual({
 			url: canonical,
 			branch: 'main',

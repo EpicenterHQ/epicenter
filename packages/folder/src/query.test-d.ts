@@ -1,6 +1,6 @@
 /**
- * `folderOptions` mirrors the folder's own types: each table's rows, its
- * settings, and the errors each operation can return.
+ * `folderOptions` mirrors the folder's own types: each table's rows and the
+ * errors each operation can return.
  */
 import { expectTypeOf } from 'bun:test';
 import type {
@@ -22,12 +22,12 @@ import {
 import { folderOptions } from './query.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
 		}),
 		files: defineTable({ fields: { name: field.string() } }),
+		kv: defineTable({ fields: { note: field.string() } }),
 	},
 });
 type Todo = { title: string; done: boolean };
@@ -59,10 +59,6 @@ expectTypeOf<QueryData<List>>().toEqualTypeOf<TableListing<Todo>>();
 type Get = ReturnType<typeof folder$.todos.get.queryOptions>;
 expectTypeOf<QueryData<Get>>().toEqualTypeOf<StoredRow<Todo> | null>();
 expectTypeOf<QueryError<Get>>().toEqualTypeOf<RowReadError>();
-type Settings = ReturnType<typeof folder$.kv.get.queryOptions>;
-expectTypeOf<QueryData<Settings>>().toEqualTypeOf<NonNullable<
-	Awaited<ReturnType<typeof folder.kv.get>>['data']
-> | null>();
 
 // A row write sends the change from one row to another, either one absent.
 type Write = ReturnType<typeof folder$.todos.write.mutationOptions>;
@@ -85,13 +81,10 @@ expectTypeOf<{
 	row: { fields: { name: string }; body: string };
 }>().not.toMatchTypeOf<Create>();
 
-// A setting's value is its own key's.
-type Set = Variables<ReturnType<typeof folder$.kv.set.mutationOptions>>;
-expectTypeOf<{ key: 'theme'; value: 'dark' }>().toMatchTypeOf<Set>();
-expectTypeOf<{ key: 'theme'; value: 1 }>().not.toMatchTypeOf<Set>();
-
 // A table named like a member is under `tables`; the member keeps its name.
+// No member is named for settings, which are a table: `kv` is a table's name.
 expectTypeOf(folder$.tables.files.list.queryOptions).toBeFunction();
+expectTypeOf(folder$.kv.list.queryOptions).toBeFunction();
 expectTypeOf(folder$.files.read.queryKey).toEqualTypeOf<
 	(path: string) => readonly unknown[]
 >();
@@ -107,10 +100,9 @@ expectTypeOf<{ stem: 'milk'; fields: { done: 'yes' } }>().not.toExtend<
 expectTypeOf<MutationData<SetRow>>().toEqualTypeOf<WrittenRow<Todo>>();
 expectTypeOf<MutationError<SetRow>>().toEqualTypeOf<WriteError>();
 
-// The definition is inferred from the folder, with no settings declared too.
+// The definition is inferred from the folder.
 const plain = defineFolder({
 	title: 'Plain',
-	kv: {},
 	tables: {
 		todos: defineTable({ fields: { title: field.string() } }),
 	},

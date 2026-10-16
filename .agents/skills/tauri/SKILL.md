@@ -246,7 +246,7 @@ async function saveData(segments: string[], data: Uint8Array) {
 Prefer app-owned identifiers over frontend-controlled paths when the native side owns data.
 
 - Recording operations should pass a recording id when Rust owns the recordings directory.
-- Model selection can pass a path, but Rust should canonicalize it and reject values outside the allowed app data model directory.
+- Model selection passes a catalog id, and Rust resolves it to a file in the shared Hugging Face cache.
 - Markdown export, downloads, and temporary files should use focused commands rooted in app-owned directories rather than broad filesystem permissions.
 - Removing a capability, plugin, or command should also remove stale docs and UI that describe it. Proposed ADR-0402 would consolidate capability verification into one schema comparison; current tests still cover separate window grants.
 

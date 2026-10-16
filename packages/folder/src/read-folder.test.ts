@@ -2,11 +2,11 @@
  * Read Folder Tests
  *
  * `readFolder` reads a data folder on disk without opening it, through the
- * same tables, settings, and native file boundary an opened folder uses.
+ * same tables and native file boundary an opened folder uses.
  *
  * Key behaviors:
- * - Every declared table is exactly what an opened folder's `list()` returns,
- *   and `kv` is exactly what its `kv.get()` returns
+ * - Every declared table is exactly what an opened folder's `list()` returns
+ * - A `kv` section an earlier build wrote is admitted and not read
  * - A directory without `epicenter.json` is `NotDataFolder`; a declaration
  *   that is not UTF-8 JSON, is not the declaration grammar (an unknown key, a
  *   `required` naming no property, a visible `~optional`), or declares a field
@@ -45,7 +45,6 @@ import {
 } from './bun.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: {
 		todos: defineTable({ fields: { title: field.string() } }),
 		notes: defineTable({ fields: { body: field.string() } }),
@@ -58,12 +57,11 @@ const objectSchema = (
 	required = Object.keys(properties),
 ) => ({ type: 'object', properties, required });
 
-/** `epicenter.json` text with no settings and these tables. */
+/** `epicenter.json` text with these tables. */
 const declaration = (
 	tables: Record<string, object>,
 	extra: Record<string, unknown> = {},
-) =>
-	JSON.stringify({ kv: { type: 'object', properties: {} }, tables, ...extra });
+) => JSON.stringify({ tables, ...extra });
 
 const roots: string[] = [];
 afterAll(async () => {
@@ -90,7 +88,7 @@ async function tree(root: string): Promise<string[]> {
 	return out.sort();
 }
 
-test('an opened folder reads back exactly as its tables and settings list it', async () => {
+test('an opened folder reads back exactly as its tables list it', async () => {
 	const root = await scratch();
 	const folder = expectOk(
 		await openFolder({
@@ -108,16 +106,13 @@ test('an opened folder reads back exactly as its tables and settings list it', a
 	expectOk(
 		await folder.files.create('todos/broken.md', '---\ntitle: [\n---\n'),
 	);
-	expectOk(await folder.kv.set('theme', 'dark'));
 	const listed = expectOk(await folder.tables.todos.list());
-	const kv = await folder.kv.get();
 	await folder.close();
 
 	const reading = expectOk(await readFolder(root));
 	expect(Object.keys(reading.tables).sort()).toEqual(['notes', 'todos']);
 	expect(expectOk(reading.tables.todos!)).toEqual(listed);
 	expect(expectOk(reading.tables.notes!)).toEqual([]);
-	expect(reading.kv).toEqual(kv);
 	expect(Object.keys(reading.definition.tables).sort()).toEqual([
 		'notes',
 		'todos',
@@ -139,11 +134,8 @@ test('a declaration that cannot be used is InvalidDeclaration', async () => {
 		declaration({
 			t: objectSchema({ title: { type: 'string', '~optional': true } }, []),
 		}),
-		JSON.stringify({
-			kv: { type: 'object', properties: {}, required: [] },
-			tables: {},
-		}),
-		'{"kv": {"type": "object", "properties": {}}, "tables": {"__proto__": {"type": "object", "properties": {}}}}',
+		JSON.stringify({ title: 'No tables' }),
+		'{"tables": {"__proto__": {"type": "object", "properties": {}}}}',
 	]) {
 		const root = await scratch();
 		await writeFile(join(root, DECLARATION_PATH), text);
@@ -153,12 +145,26 @@ test('a declaration that cannot be used is InvalidDeclaration', async () => {
 	}
 });
 
+test("an earlier build's kv section is admitted and not read", async () => {
+	const root = await scratch();
+	await writeFile(
+		join(root, DECLARATION_PATH),
+		JSON.stringify({
+			kv: { type: 'object', properties: { theme: { type: 'string' } } },
+			tables: { todos: objectSchema({ title: { type: 'string' } }) },
+		}),
+	);
+	const reading = expectOk(await readFolder(root));
+	expect(Object.keys(reading.definition)).toEqual(['tables']);
+	expect(Object.keys(reading.definition.tables)).toEqual(['todos']);
+});
+
 test('an unknown top-level key is InvalidDeclaration, and $schema is allowed', async () => {
 	const root = await scratch();
 	const tables = { todos: objectSchema({ title: { type: 'string' } }) };
 	await writeFile(
 		join(root, DECLARATION_PATH),
-		JSON.stringify({ kv: { type: 'object', properties: {} }, tabels: tables }),
+		JSON.stringify({ tabels: tables }),
 	);
 	const refused = expectErr(await readFolder(root));
 	expect(refused).toMatchObject({ name: 'InvalidDeclaration' });
@@ -259,7 +265,6 @@ test('a hand-written declaration with optional fields reads sparse rows as valid
 test('a written folder publishes each table as a standard object schema, and reads it back the same', async () => {
 	const root = await scratch();
 	const sparse = defineFolder({
-		kv: { theme: field.select(['light', 'dark']) },
 		tables: {
 			pages: defineTable({
 				fields: {
@@ -277,17 +282,17 @@ test('a written folder publishes each table as a standard object schema, and rea
 		}),
 	);
 	// Opening writes nothing; the first write publishes the declaration.
-	expectOk(await folder.kv.set('theme', 'dark'));
+	expectOk(
+		await folder.tables.pages.create(
+			{ fields: { title: 'First' }, body: '' },
+			{ stem: 'first' },
+		),
+	);
 	await folder.close();
 	const published = JSON.parse(
 		await readFile(join(root, DECLARATION_PATH), 'utf8'),
 	);
-	expect(published.kv).toEqual({
-		type: 'object',
-		properties: {
-			theme: { enum: ['light', 'dark'], 'x-field': { kind: 'select' } },
-		},
-	});
+	expect(Object.keys(published)).toEqual(['tables']);
 	expect(published.tables.pages.type).toBe('object');
 	expect(published.tables.pages.required).toEqual(['title']);
 	expect(JSON.stringify(published)).not.toContain('~');
@@ -322,7 +327,6 @@ test('a symbolically linked table directory is refused, not followed, and the ot
 	await writeFile(
 		join(root, DECLARATION_PATH),
 		JSON.stringify({
-			kv: { type: 'object', properties: {} },
 			tables: {
 				todos: objectSchema({ title: { type: 'string' } }),
 				notes: objectSchema({ body: { type: 'string' } }),
@@ -351,7 +355,6 @@ test('reading writes nothing, inside a folder nested in another repository', asy
 	await writeFile(
 		join(root, DECLARATION_PATH),
 		JSON.stringify({
-			kv: { type: 'object', properties: {} },
 			tables: { todos: objectSchema({ title: { type: 'string' } }) },
 		}),
 	);
@@ -360,6 +363,5 @@ test('reading writes nothing, inside a folder nested in another repository', asy
 
 	const reading = expectOk(await readFolder(root));
 	expect(expectOk(reading.tables.todos!)).toHaveLength(1);
-	expect(expectOk(reading.kv)).toBeUndefined();
 	expect(await tree(repository)).toEqual(before);
 });

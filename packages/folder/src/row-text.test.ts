@@ -29,7 +29,6 @@ import {
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: {
@@ -303,7 +302,6 @@ test('an undefined field is an absent key', () => {
 
 test('an optional field may be absent, and is checked when present', () => {
 	const pages = defineFolder({
-		kv: {},
 		tables: {
 			pages: defineTable({
 				fields: {

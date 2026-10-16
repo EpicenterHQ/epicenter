@@ -48,9 +48,9 @@ export type ChangeDetector = (report: (change: FilesChanged) => void) => {
  */
 export type FolderSchema = FolderDefinition | 'declared';
 
-/** What a folder with no `epicenter.json` declares: no tables and no settings. */
+/** What a folder with no `epicenter.json` declares: no tables. */
 const UNDECLARED = (() => {
-	const { data, error } = prepareFolderDefinition({ kv: {}, tables: {} });
+	const { data, error } = prepareFolderDefinition({ tables: {} });
 	if (error !== null) throw new Error(error.reason);
 	return data;
 })();

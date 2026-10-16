@@ -37,17 +37,18 @@
 
 ## The Folder
 
-A data folder is a directory: one Markdown file per row, `kv.json` for
-settings, `epicenter.json` describing both, and Git history beside them. The
+A data folder is a directory: one Markdown file per row, with settings as
+rows of a `settings` table, `epicenter.json` describing the tables, and Git
+history beside them. The
 files are the data. There is no database behind them for an app to own.
 
 ```ts
 import { defineFolder, defineTable, field, openFolder } from '@epicenter/folder';
 
 const definition = defineFolder({
-  kv: { theme: field.string() },
   tables: {
     todos: defineTable({ fields: { title: field.string(), done: field.boolean() } }),
+    settings: defineTable({ fields: { theme: field.optional(field.string()) } }),
   },
 });
 
@@ -116,7 +117,7 @@ These packages carry the main architecture.
 
 | Package | Role | License |
 | --- | --- | --- |
-| [`@epicenter/folder`](packages/folder) | The data folder: tables, `kv`, files, history, and Git sync, in a browser, a desktop page, or Bun. | AGPL-3.0-or-later |
+| [`@epicenter/folder`](packages/folder) | The data folder: tables, files, history, and Git sync, in a browser, a desktop page, or Bun. | AGPL-3.0-or-later |
 | [`@epicenter/ai`](packages/ai) | Inference connections, the AI gateway client, and the inference picker. | AGPL-3.0-or-later |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |
 | [`@epicenter/server`](packages/server) | Shared Hono server library composed by the API on Cloudflare Workers and on Bun. | AGPL-3.0-or-later |

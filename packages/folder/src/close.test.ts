@@ -38,7 +38,6 @@ import { withPublication } from './storage.js';
 import { useWebLocks } from './web-locks.test-support.js';
 
 const definition = defineFolder({
-	kv: { theme: field.string() },
 	tables: { todos: defineTable({ fields: { title: field.string() } }) },
 });
 const author = { name: 'Close', email: 'close@example.test' };
@@ -185,7 +184,10 @@ test('closing releases storage before a begun save replies; its actual result st
 	const snapshots: boolean[] = [];
 	folder.git.subscribe((snapshot) => snapshots.push(snapshot.closed));
 
-	const saving = folder.kv.set('theme', 'dark');
+	const saving = folder.tables.todos.create(
+		{ fields: { title: 'Dark' }, body: '' },
+		{ stem: 'one' },
+	);
 	await reached;
 	let closed = false;
 	const closing = folder.close().then(() => {
@@ -211,7 +213,7 @@ test('closing releases storage before a begun save replies; its actual result st
 	const saved = expectOk(await saving);
 	await closing;
 
-	expect(saved.values).toEqual({ theme: 'dark' });
+	expect(saved).toMatchObject({ row: { fields: { title: 'Dark' } } });
 	// The save landed after closing began, and closing made no commit.
 	expect(order).toEqual(['released', 'saved']);
 	expect(folder.git.snapshot.lastCommit).toBeUndefined();
@@ -223,7 +225,10 @@ test('a commit running when the folder closes finishes and stays local before st
 	const { folder, order, reached, release, commits, pushes } = await held();
 	const { promise: holding, resolve: letGo } = Promise.withResolvers<void>();
 	commits.hold = holding;
-	const saving = folder.kv.set('theme', 'dark');
+	const saving = folder.tables.todos.create(
+		{ fields: { title: 'Dark' }, body: '' },
+		{ stem: 'one' },
+	);
 	await reached;
 	release();
 	expectOk(await saving);
@@ -248,7 +253,7 @@ test('a commit running when the folder closes finishes and stays local before st
 	await closing;
 	expect(order).toEqual(['saved', 'committed', 'released']);
 	// The first commit holds the declaration published before the first
-	// save, and `kv.json`.
+	// save, and the row.
 	expect(await committing).toMatchObject({
 		status: 'committed',
 		message: 'Update 2 files',
