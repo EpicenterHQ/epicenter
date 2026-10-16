@@ -1,16 +1,10 @@
 /** `@epicenter/agent`: a UI-free agent loop over explicit host capabilities. */
 
-export { composeToolCatalogs } from './compose-tool-catalogs.js';
 export type {
 	AgentEngine,
 	AgentEngineRequest,
 	EngineChunk,
-} from './engine.js';
-export {
-	createLocalToolCatalog,
-	type LocalAction,
-	type LocalActionRegistry,
-} from './local-tool-catalog.js';
+} from '@epicenter/agent-protocol';
 export {
 	type AgentMessageStore,
 	AgentMessageStoreError,
@@ -34,7 +28,6 @@ export {
 	type ModelToolCall,
 	toModelMessages,
 } from './message.js';
-export { namespaceToolCatalog } from './namespace-tool-catalog.js';
 export {
 	type AgentToolCall,
 	type AgentToolDefinition,
