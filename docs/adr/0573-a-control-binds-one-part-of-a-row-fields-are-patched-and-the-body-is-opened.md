@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-16
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (`InvalidRow`, no partial row), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (a row merges by field and the body by line), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (`table.update`), [ADR-0572](0572-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (`getFolder()`)
-- **Unbuilt:** `createBodyEditor` in `@epicenter/folder/svelte`; moving the body editors in Todos (`TodoDetail.svelte`), Honeycrisp (`notes.svelte.ts`), Capture (`captures.svelte.ts`, `capture-form.svelte.ts`), Vocab (`entries.svelte.ts`), Whispering (`library.svelte.ts`), and the Folders window (`RowBody.svelte`) from hand-wired `createBodyDraftState` to it.
+- **Unbuilt:** moving the body editors in Todos (`TodoDetail.svelte`), Honeycrisp (`notes.svelte.ts`), Capture (`captures.svelte.ts`, `capture-form.svelte.ts`), Vocab (`entries.svelte.ts`), Whispering (`library.svelte.ts`), and the Folders window (`RowBody.svelte`) from hand-wired `createBodyDraftState` to it.
 
 ## Context
 
@@ -38,20 +38,27 @@ it is now. When another writer changed the same key, the saver wins.
 
 **The body is opened.** A body is edited over minutes, and a whole-body write
 at the end would replace everything another writer did to it in that time. Its
-control opens it with `createBodyEditor(table, stem)`, which owns the row
-query, the table's save mutation, and a body draft:
+control opens it with `createBodyEditor` from `@epicenter/folder/svelte`,
+given the row as the cache holds it and the table's save mutation. It keeps
+a body draft over them:
 
 ```ts
-const body = createBodyEditor(folder.books, stem, { onSaved });
-body.text      // the draft's text, or the body as the file holds it
-body.change(t) // the first change captures the cached row as the base
+const save = createMutation(() => folder.books.save.mutationOptions());
+const body = createBodyEditor({ row: () => book.data ?? undefined, save: save.mutateAsync, onSaved });
+body.text      // the text typed, or the body as the file holds it
+body.typed     // the text typed and not yet in the file
+body.change(t) // the first change takes the row as the cache holds it as the base
 body.save()    // one save at a time, merging by line with what changed meanwhile
 body.saving
 ```
 
 ```svelte
-<Textarea bind:value={() => body.text, (text) => body.change(text)} onblur={() => body.save()} />
+<Textarea bind:value={() => body.text ?? '', (text) => body.change(text)} onblur={() => body.save()} />
 ```
+
+The app passes the query and the mutation in, so `@epicenter/folder`
+takes no dependency on TanStack's Svelte adapter, and an app keeps its own
+`onError` on the mutation.
 
 A body save sends the row's fields as the base holds them with the new body,
 so the merge (ADR-0551) keeps every field another writer changed. A failed save
