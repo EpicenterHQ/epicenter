@@ -491,11 +491,18 @@ test("a local pattern Sync brings in keeps its files out of this open folder's n
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expectOk(await folder.write('drafts/secret.md', null, 'private'));
 	expectOk(await folder.write('notes.md', null, 'shared'));
-	expect(await changedPaths(folder)).toEqual(['notes.md']);
+	// The first write's publication names the pattern in `.gitignore` too.
+	const gitignore = expectOk(await folder.files.read('.gitignore'));
+	expect(new TextDecoder().decode(gitignore.bytes)).toBe('drafts/\n');
+	expect(await changedPaths(folder)).toEqual(['.gitignore', 'notes.md']);
 	expect((await folder.git.commit()).status).toBe('committed');
 	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	const tree = await git(bare, 'ls-tree', '-r', '--name-only', 'main');
-	expect(tree.split('\n').sort()).toEqual(['epicenter.json', 'notes.md']);
+	expect(tree.split('\n').sort()).toEqual([
+		'.gitignore',
+		'epicenter.json',
+		'notes.md',
+	]);
 
 	// A declaration that does not read leaves nothing known to keep local.
 	await overwriteDeclaration(folder, '{ not json');

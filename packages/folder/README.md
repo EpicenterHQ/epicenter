@@ -150,8 +150,9 @@ the rule is removed from the next commit's tree and from the index, as
 one either. A person's `!` exception in `.gitignore` does not override it.
 
 With the declaration, before the same first write, the handle also makes the
-root `.gitignore` name each pattern, so plain `git` and the `epicenter` CLI
-agree. A missing `.gitignore` is created holding the patterns. A present one
+root `.gitignore` name each pattern `epicenter.json` then lists, its
+definition's and any a Sync brought from another device, so plain `git` and
+the `epicenter` CLI agree. A missing `.gitignore` is created holding the patterns. A present one
 gains each missing pattern as a line at its end, written with the one write
 from the file as it was read, so a line another writer adds meanwhile stays;
 its other lines are never reordered, rewritten, or removed, and a file that

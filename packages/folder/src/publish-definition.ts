@@ -6,10 +6,11 @@
  * which definition last wrote it. A file that already holds the declaration's
  * bytes is left as it is.
  *
- * With the declaration, the handle makes the root `.gitignore` name the
- * definition's `local` patterns, so files that stay on the machine that
- * wrote them never enter a commit. It only adds lines: a person's own lines
- * stay as they are.
+ * With the declaration, the handle makes the root `.gitignore` name every
+ * `local` pattern `epicenter.json` then lists, its definition's and any a
+ * Sync brought from another device, so files that stay on the machine that
+ * wrote them never enter a commit, plain `git add -A` included. It only adds
+ * lines: a person's own lines stay as they are.
  *
  * Both go through the one write (`writeFile`), over the host's storage
  * rather than the handle's writes, so a publication never waits on itself.
@@ -19,6 +20,7 @@ import { createLogger } from 'wellcrafted/logger';
 import type { FolderStorage } from './boundary.js';
 import { formatDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
+import { localPatterns } from './merge-file.js';
 import { DECLARATION_PATH } from './paths.js';
 import { writeFile } from './write.js';
 
@@ -48,14 +50,18 @@ const PublicationError = defineErrors({
  * Sync brought from another device; a file already holding the result is
  * left as it is. A failure is logged and never refuses the write it
  * precedes.
+ *
+ * Answers the `local` patterns the file lists once published, for
+ * `.gitignore`, or the definition's own when the publication failed.
  */
 export async function publishDefinition(
 	prepared: FolderDefinition,
 	storage: Publisher,
-): Promise<void> {
+): Promise<readonly string[]> {
+	const own = prepared.local ?? [];
 	let failure: unknown;
 	try {
-		const { error } = await writeFile(
+		const { data: written, error } = await writeFile(
 			storage,
 			{ kind: 'declaration' },
 			DECLARATION_PATH,
@@ -63,7 +69,8 @@ export async function publishDefinition(
 			formatDeclaration(prepared),
 			{ joining: true },
 		);
-		if (error === null) return;
+		if (error === null)
+			return (written.file && localPatterns(written.file.bytes)) ?? own;
 		failure = error;
 	} catch (cause) {
 		// A thrown write can also have landed. Retain the cause without claiming
@@ -73,6 +80,7 @@ export async function publishDefinition(
 	log.error(
 		PublicationError.DefinitionPublicationUnconfirmed({ cause: failure }),
 	);
+	return own;
 }
 
 /**

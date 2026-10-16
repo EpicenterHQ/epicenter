@@ -293,8 +293,8 @@ function handleStorage(
 	let publishing: Promise<void> | undefined;
 	const publish = async () => {
 		if (published === undefined) return;
-		publishing ??= publishDefinition(published, noting).then(() =>
-			publishLocalPatterns(published.local ?? [], noting),
+		publishing ??= publishDefinition(published, noting).then((local) =>
+			publishLocalPatterns(local, noting),
 		);
 		await publishing;
 	};
