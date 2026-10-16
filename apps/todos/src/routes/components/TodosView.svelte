@@ -1,16 +1,11 @@
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { toastStatus } from '@epicenter/svelte/status-popover';
-	import SyncReview from '@epicenter/svelte/sync-review';
 	import { createMutation, setQueryClientContext } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import type { SyncAttempt, SyncChoices } from '@epicenter/folder';
-	import { Err, Ok } from 'wellcrafted/result';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { syncOutcomeLine } from '$lib/status.js';
 	import { todoPath } from '$lib/todo-listing.js';
 	import { setTodos, type Todos } from '$lib/todos.svelte.js';
 	import AppHeader from './AppHeader.svelte';
@@ -52,33 +47,8 @@
 		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
 	});
 
-	/**
-	 * Sync and its review. A sync that needs choices fails with `NeedsChoices`;
-	 * its attempt is the review, which shows until Apply ends it or Cancel
-	 * forgets it.
-	 */
+	/** The page's Sync, which the header and Connect both run. */
 	const sync = createMutation(() => todos.sync.run.options);
-	const apply = createMutation(() => todos.sync.apply.options);
-	const attempt = $derived(sync.error?.name === 'NeedsChoices' ? sync.error.attempt : undefined);
-
-	function cancelReview() {
-		sync.reset();
-		apply.reset();
-	}
-
-	/** Apply the review's choices; refused ones stay in the review, marked. */
-	function applyReview(answered: SyncAttempt, choices: SyncChoices) {
-		apply.mutate(
-			{ attempt: answered, choices },
-			{
-				onSettled: (outcome, error) => {
-					if (error?.name === 'InvalidChoices') return;
-					cancelReview();
-					toastStatus(syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot));
-				},
-			},
-		);
-	}
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
@@ -129,29 +99,11 @@
 {/snippet}
 
 <div class="flex h-dvh flex-col overflow-hidden">
-	<AppHeader {sync} reviewing={attempt !== undefined} onconnect={canConnect ? () => (connecting = true) : undefined} />
+	<AppHeader {sync} onconnect={canConnect ? () => (connecting = true) : undefined} />
 	{#if canConnect}<ConnectDialog bind:open={connecting} {sync} />{/if}
 
-	{#if attempt !== undefined}
-		<!--
-			The review is modal: it covers the workspace until it is applied or
-			cancelled. The workspace is hidden, not unmounted, so what the person
-			typed there is still there afterwards.
-		-->
-		<div class="min-h-0 flex-1 overflow-y-auto p-4">
-			{#key attempt.id}
-				<SyncReview
-					{attempt}
-					pending={apply.isPending}
-					problems={apply.error?.name === 'InvalidChoices' ? apply.error.problems : []}
-					onCancel={cancelReview}
-					onApply={applyReview}
-				/>
-			{/key}
-		</div>
-	{/if}
 	{#if wide.current}
-		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1" hidden={attempt !== undefined}>
+		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
 			<Resizable.Pane id="list" order={1} defaultSize={38} minSize={20}>
 				<TodoList {open} onOpen={(stem) => void show(stem)} />
 			</Resizable.Pane>
@@ -161,7 +113,7 @@
 			</Resizable.Pane>
 		</Resizable.PaneGroup>
 	{:else}
-		<main class="min-h-0 flex-1" hidden={attempt !== undefined}>
+		<main class="min-h-0 flex-1">
 			{#if open !== undefined}
 				{@render detail(back)}
 			{/if}

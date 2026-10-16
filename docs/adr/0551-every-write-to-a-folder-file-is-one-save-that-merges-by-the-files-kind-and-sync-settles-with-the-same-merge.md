@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
-- **Amends:** [ADR-0514](0514-folder-sync-resolves-captured-attempts.md): taking a side of a text unit no longer takes the captured version exactly.
+- **Amends:** ADR-0514, since deleted: [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) replaced Sync's choices with a merge the device syncing wins. This amended it so that taking a side of a text unit no longer took the captured version exactly.
 - **Built:** `mergeFile` and `fileKindOf` (`merge-file.ts`), the one-pass line merge (`git/merge-lines.ts`), `saveFile`, `Replaced`, and `restoreTheirs` (`save-file.ts`); content-carrying captures (`files.read`, `files.create`, `files.save`, and `StoredRow.text`); `files.save` with `files.replace` and `files.overwrite` deleted; `table.save` and `kv.set` over `saveFile`; Sync's held paths and binary paths over `mergeFile`; `publishDefinition` over create and `{ merge: false }`; drafts that carry changes made during a merged save onto the version it wrote, for rows and, in `createTextDraft`, for text; `ReplacedNotice` in `@epicenter/svelte`; and every caller listed below. The storage boundary keeps its `overwrite` change kind, which no folder verb sends.
 
 ## Context

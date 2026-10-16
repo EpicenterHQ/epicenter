@@ -94,53 +94,10 @@ export const FileError = defineErrors({
 });
 export type FileError = InferErrors<typeof FileError>;
 
-/** A step that reached, or failed to reach, the folder. */
-export type FileStep =
-	| { readonly kind: 'write'; readonly path: string }
-	| { readonly kind: 'remove'; readonly path: string }
-	| { readonly kind: 'move'; readonly from: string; readonly to: string };
-
-/**
- * Raw storage failures beyond one file's refusal. Internal: Git publication
- * applies ordered changes, and the ordinary domain methods restate a single
- * change's outcome as `FileError` or `MoveError` (`applyOne` in
- * `storage.ts`).
- */
-export const ApplyError = defineErrors({
-	/**
-	 * A multi-file operation stopped partway. `applied` steps reached the
-	 * folder; nothing was rolled back. `failed` did not complete, and
-	 * `notAttempted` never started.
-	 *
-	 * `failed` may name the second half of a step whose first half is in
-	 * `applied`. A move whose destination landed but whose source stayed has
-	 * the destination write applied and `{ kind: 'remove', path: from }`
-	 * failed.
-	 */
-	Partial: ({
-		applied,
-		failed,
-		error,
-		notAttempted,
-	}: {
-		applied: readonly FileStep[];
-		failed: FileStep;
-		error: FileError;
-		notAttempted: readonly FileStep[];
-	}) => ({
-		message: `${applied.length} of ${applied.length + 1 + notAttempted.length} file steps completed before a failure: ${error.message}`,
-		applied,
-		failed,
-		error,
-		notAttempted,
-	}),
-});
-export type ApplyError = InferErrors<typeof ApplyError>;
-
 export const MoveError = defineErrors({
 	/**
 	 * A move is two steps: the bytes at `from` are put at `to`, then `from`
-	 * is removed. A native directory and browser OPFS storage both move this
+	 * is removed (`moveFile` in `storage.ts`). Every host moves this
 	 * way. The first step landed and the second failed, so `to` was written
 	 * and `from` is still there. Nothing was rolled back. `cause` is why
 	 * `from` was not removed.

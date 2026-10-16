@@ -1,5 +1,5 @@
 /**
- * Plain wording for a `folder.sync` result (ADR-0514), for a toast or a
+ * Plain wording for a `folder.sync` result (ADR-0576), for a toast or a
  * status line. A plain module, so a page's status helpers can import it
  * without loading Svelte runes.
  */
@@ -14,7 +14,7 @@ export type SyncLine = {
 };
 
 /**
- * Plain wording for one run or Apply. `describePush` words the push of a
+ * Plain wording for one run. `describePush` words the push of a
  * merge that is not synced yet, for a page with its own push wording.
  */
 export function describeSync(
@@ -24,25 +24,6 @@ export function describeSync(
 ): SyncLine {
 	if (error) {
 		switch (error.name) {
-			case 'NeedsChoices':
-				return {
-					label: `${error.attempt.conflicts.length} ${error.attempt.conflicts.length === 1 ? 'change needs' : 'changes need'} your choice`,
-					detail: 'Nothing was changed yet.',
-					tone: 'warning',
-				};
-			case 'InvalidChoices':
-				return {
-					label: 'Some choices need a fix',
-					detail:
-						'Nothing was changed. Fix the marked results and apply again.',
-					tone: 'warning',
-				};
-			case 'Stale':
-				return {
-					label: 'Sync again to review',
-					detail: `${error.message}. Nothing was changed.`,
-					tone: 'warning',
-				};
 			case 'Unrelated':
 				return {
 					label: 'The remote has its own history',
@@ -50,10 +31,16 @@ export function describeSync(
 						'Nothing was changed. Combine them to keep both, or choose another remote.',
 					tone: 'warning',
 				};
-			case 'Unreviewable':
+			case 'KeptChanging':
 				return {
-					label: 'Sync stopped: changes conflict',
-					detail: `${error.message}. Nothing was changed. Resolve them with Git, then sync again.`,
+					label: 'The remote kept changing',
+					detail: 'Nothing was changed here. Sync again in a moment.',
+					tone: 'warning',
+				};
+			case 'Blocked':
+				return {
+					label: 'Sync stopped',
+					detail: error.reason,
 					tone: 'error',
 				};
 			default:

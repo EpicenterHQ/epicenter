@@ -66,9 +66,9 @@ async function setup(initial?: string | Uint8Array) {
 			await afterRead.shift()?.();
 			return read;
 		},
-		apply(changes) {
+		put(path, bytes, ifMatch) {
 			calls.applies += 1;
-			return base.apply(changes);
+			return base.put(path, bytes, ifMatch);
 		},
 	};
 	const files = createFiles({ storage: base });
@@ -315,8 +315,8 @@ test('an Unconfirmed save is read again and re-applied, since a set does not dep
 		{
 			storage: {
 				...base,
-				async apply(changes) {
-					const result = await base.apply(changes);
+				async put(path, bytes, ifMatch) {
+					const result = await base.put(path, bytes, ifMatch);
 					if (!lose) return result;
 					lose = false;
 					return FileError.Unconfirmed({

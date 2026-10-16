@@ -119,8 +119,6 @@ describe('browser folder scope', () => {
 		const outcome = await folder.git.commit();
 		expect(outcome.status).toBe('committed');
 		expect((await folder.git.status()).data?.changes).toEqual([]);
-		// Folder commits include the same authored SQLite path as ordinary Git.
-		expect((await folder.git.paths()).data).toEqual([]);
 		await folder.close();
 	});
 });
@@ -178,21 +176,15 @@ describe('native folder scope', () => {
 		});
 
 		await writer.files.create('.gitignore', '*.log\n');
-		expect((await writer.git.commitAndPush()).push.status).toBe('pushed');
-		await reader.git.fetch();
-		expect((await reader.git.pullFastForward()).data?.status).toBe(
-			'fastForwarded',
-		);
+		expect((await writer.sync.run()).data?.kind).toBe('synced');
+		expect((await reader.sync.run()).data?.kind).toBe('synced');
 
 		// Ignored local files do not make the reader dirty and survive updates.
 		await writeFile(join(readerRoot, 'local.log'), 'reader only\n');
 		await writeFile(join(readerRoot, 'shared.log'), 'reader copy\n');
 		await writer.files.create('readme.md', 'hello\n');
-		await writer.git.commitAndPush();
-		await reader.git.fetch();
-		expect((await reader.git.pullFastForward()).data?.status).toBe(
-			'fastForwarded',
-		);
+		expect((await writer.sync.run()).data?.kind).toBe('synced');
+		expect((await reader.sync.run()).data?.kind).toBe('synced');
 		expect(await readFile(join(readerRoot, 'local.log'), 'utf8')).toBe(
 			'reader only\n',
 		);
@@ -201,10 +193,10 @@ describe('native folder scope', () => {
 		await writeFile(join(writerRoot, 'shared.log'), 'writer copy\n');
 		await git(writerRoot, 'add', '--force', 'shared.log');
 		await git(writerRoot, 'commit', '--quiet', '-m', 'Track shared.log');
-		expect((await writer.git.push()).status).toBe('pushed');
-		await reader.git.fetch();
-		const { error: collision } = await reader.git.pullFastForward();
-		expect(collision?.name).toBe('Collision');
+		expect((await writer.sync.run()).data?.kind).toBe('synced');
+		const { error: collision } = await reader.sync.run();
+		expect(collision?.name).toBe('Blocked');
+		expect(collision?.message).toContain("'shared.log'");
 		expect(await readFile(join(readerRoot, 'shared.log'), 'utf8')).toBe(
 			'reader copy\n',
 		);

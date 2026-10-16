@@ -27,7 +27,7 @@ carries no runtime or AI override.
 App-level seams select auth and product capabilities. They do not choose store
 persistence. Keep resource composition at the product boundary; do not restore
 Whispering's removed `#platform/runtime` seam. For constructors and ownership,
-read the [resource contracts](../../../packages/app/README.md).
+read the [folder package](../../../packages/folder/README.md).
 
 ## Folder apps use the seam for their folder entry
 

@@ -1,37 +1,38 @@
 /**
  * Folder Sync Tests
  *
- * `folder.sync.run()` commits saved files, fetches, merges, and pushes;
- * competing settings, row fields, row bodies, and whole row files return an
- * attempt that only `folder.sync.resolve(attempt, choices)` on the same
- * folder settles. These run a browser folder on the in-memory OPFS stand-in
- * over real Git smart HTTP (the `git http-backend` CGI, no port), with a
- * `git` clone producing incoming history, and check every result against
- * the bare repository with `git` itself. Conflict IDs are opaque: tests find
- * conflicts by kind and name.
+ * `folder.sync.run()` saves the folder's edits, fetches, and brings the two
+ * histories together without asking anyone anything (ADR-0576): a
+ * fast-forward, a push, or one merge commit of both heads whose files are
+ * one merge per changed path, this device the writer acting. These run a
+ * browser folder on the in-memory OPFS stand-in over real Git smart HTTP
+ * (the `git http-backend` CGI, no port), with a `git` clone producing
+ * incoming history, and check every result against the bare repository with
+ * `git` itself.
  *
  * Key behaviors:
- * - Independent setting, field, and body changes merge without choices, and
- *   a merged row is written in the standard form
- * - Competing units are captured with both versions; nothing conflicted is
- *   written, the branch stays, and nothing is sent
- * - Choices settle fields, bodies, and settings together; the merge has the
- *   captured commits as parents and keeps everything that merged
- * - A deleted row is one whole-file unit; an unreadable one merges as text,
- *   and text chosen for it is written as chosen and reads as `InvalidRow`
- *   until repaired
- * - Taking a side of a body or a text file takes the line merge with that
- *   side winning where both changed the same lines: the other side's other
- *   lines stay
- * - Invalid choices are all reported, write nothing, and keep the attempt
- * - Another run, a save, or a moved branch makes an attempt stale
- * - A folder with no history adopts the remote on its first sync
- * - A text file outside a table merges by line; competing lines are one
- *   unit. A binary file both changed is one unit, taken or removed
+ * - Independent setting, field, and body changes merge into one commit with
+ *   parents [local, remote], pushed, and the merged row is in standard form
+ * - Competing units go to this device; each lost unit is an `Overrode:`
+ *   trailer naming the losing parent, and the lost version stays reachable
+ * - A delete beats an edit it never saw, from either side
+ * - A text file merges by line, a lone carriage return kept; a binary file,
+ *   or bytes that are not UTF-8, both changed, are this device's whole
+ * - Only the net change of each side counts: a change made and reverted
+ *   between syncs does not override the other side
+ * - A rename merges the other side's edit into the renamed file
+ * - A row that does not read merges as text with no frontmatter union
+ * - A push that loses a race merges again from the same local head against
+ *   the new remote; it never merges its own merge, and gives up after five
+ * - A push whose reply is lost still publishes, and the next Sync finds the
+ *   remote already there
+ * - Unrelated histories are refused unless asked for, and a folder with no
+ *   history adopts the remote on its first sync
  *
  * See also:
- * - `merge-file.test.ts` and `kv.test.ts` for the unit merges
- * - `merge.test.ts` for `mergeIncoming`, whose publication sync reuses
+ * - `merge-file.test.ts`, `write.test.ts`, and `kv.test.ts` for the unit merges
+ * - `git/opfs-incoming.test.ts` and `sync-replay.test.ts` for a publish cut off
+ *   partway, which the next Sync finishes
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
@@ -47,11 +48,9 @@ import {
 	defineTable,
 	type Folder,
 	field,
-	type SyncAttempt,
-	type SyncChoices,
-	type SyncConflict,
 	type SyncOutcome,
 } from './contract.js';
+import { REMOTE_MOVED } from './git/backend.js';
 import {
 	createBareRemote,
 	git,
@@ -70,6 +69,7 @@ const definition = defineFolder({
 });
 type Opened = Folder<typeof definition>;
 const TODO = 'todos/walk.md';
+const REMOTE = 'http://git.test/remote.git';
 const decoder = new TextDecoder();
 
 const row = (frontmatter: string[], body = '') =>
@@ -84,12 +84,29 @@ afterEach(async () => {
 /**
  * One remote seeded by a browser folder with a todo and `kv.json`, and a
  * `git` clone of it that produces incoming history: two checkouts of the
- * same base commit.
+ * same base commit. `beforePush` runs before each push request reaches the
+ * remote, and `afterPush` after the remote answered it; either may throw.
  */
 async function setup() {
 	const root = await scratch('folder-sync-');
 	const bare = await createBareRemote(root);
-	const httpFetch = await gitHttpFetch(root);
+	const served = await gitHttpFetch(root);
+	const hooks: {
+		beforePush?: () => Promise<void>;
+		afterPush?: () => Promise<void>;
+	} = {};
+	const httpFetch = (async (input, init) => {
+		const pushing = String(
+			input instanceof Request ? input.url : input,
+		).endsWith('/git-receive-pack');
+		if (pushing) await hooks.beforePush?.();
+		const response = await served(input, init);
+		if (pushing && hooks.afterPush !== undefined) {
+			await response.clone().arrayBuffer();
+			await hooks.afterPush();
+		}
+		return response;
+	}) as typeof fetch;
 	const local = expectOk(
 		await openFolder({
 			id: 'so.epicenter.synctest',
@@ -106,19 +123,20 @@ async function setup() {
 	expectOk(await local.kv.set('theme', 'light'));
 	expectOk(await local.kv.set('size', 1));
 	// Connecting a folder with files to an empty remote sends them.
-	synced(expectOk(await local.sync.connect('http://git.test/remote.git')));
+	synced(expectOk(await local.sync.connect(REMOTE)));
 	const peer = join(root, 'peer');
 	await git(root, 'clone', '--quiet', bare, peer);
-	const base = await git(bare, 'rev-parse', 'main');
 	return {
-		base,
 		local,
+		hooks,
 		httpFetch,
 		remoteHead: () => git(bare, 'rev-parse', 'main'),
 		/** `[commit, ...parents]` of the remote branch head. */
 		remoteParents: async () =>
 			(await git(bare, 'rev-list', '--parents', '-n', '1', 'main')).split(' '),
-		remoteFile: (path: string) => git(bare, 'show', `main:${path}`),
+		remoteFile: (path: string, ref = 'main') =>
+			git(bare, 'show', `${ref}:${path}`),
+		remoteMessage: () => git(bare, 'log', '-1', '--format=%B', 'main'),
 		/** The peer writes `files` (`null` removes one), commits, and pushes. */
 		async incoming(files: Record<string, string | Uint8Array | null>) {
 			await git(peer, 'pull', '--quiet', '--ff-only');
@@ -145,35 +163,19 @@ function synced(result: SyncOutcome): string {
 	return result.head;
 }
 
-async function attempted(folder: Opened): Promise<SyncAttempt> {
-	const error = expectErr(await folder.sync.run());
-	if (error.name !== 'NeedsChoices')
-		throw new Error(`Expected choices, got ${error.message}`);
-	return error.attempt;
+/** The local head before Sync, as Save version leaves it. */
+async function saved(folder: Opened): Promise<string> {
+	const outcome = await folder.git.commit();
+	if (outcome.status !== 'committed')
+		throw new Error(`Expected a commit, got ${outcome.status}`);
+	return outcome.oid;
 }
 
 async function text(folder: Opened, path: string) {
 	return decoder.decode(expectOk(await folder.files.read(path)).bytes);
 }
 
-/** The conflict of `kind`, by its key or field name when it has one. */
-function find(
-	attempt: SyncAttempt,
-	kind: SyncConflict['kind'],
-	name?: string,
-): SyncConflict {
-	const found = attempt.conflicts.find(
-		(conflict) =>
-			conflict.kind === kind &&
-			(name === undefined ||
-				(conflict.kind === 'setting' && conflict.key === name) ||
-				(conflict.kind === 'field' && conflict.field === name)),
-	);
-	if (found === undefined) throw new Error(`No ${kind} conflict ${name ?? ''}`);
-	return found;
-}
-
-test('independent changes merge without choices, in the standard form', async () => {
+test('independent changes merge into one pushed commit, in the standard form', async () => {
 	const context = await setup();
 	const { local } = context;
 	expectOk(
@@ -184,7 +186,8 @@ test('independent changes merge without choices, in the standard form', async ()
 		),
 	);
 	expectOk(await local.kv.set('theme', 'dark'));
-	await context.incoming({
+	const mine = await saved(local);
+	const theirs = await context.incoming({
 		[TODO]: row(
 			['done: true # finished', "title: 'Walk'"],
 			'Left at dawn.\nCame back by the river.\n',
@@ -194,6 +197,8 @@ test('independent changes merge without choices, in the standard form', async ()
 
 	const head = synced(expectOk(await local.sync.run()));
 	expect(await context.remoteHead()).toBe(head);
+	expect(await context.remoteParents()).toEqual([head, mine, theirs]);
+	expect(await context.remoteMessage()).not.toContain('Overrode:');
 	const merged = row(
 		['title: Evening walk', 'done: true'],
 		'Left at dawn.\nCame back by the river.\n',
@@ -204,398 +209,325 @@ test('independent changes merge without choices, in the standard form', async ()
 		theme: 'dark',
 		size: 2,
 	});
-	expect((await context.remoteParents()).length).toBe(3);
+	expect(expectOk(await local.git.status()).changes).toEqual([]);
 });
 
-test('competing units are captured, and nothing conflicted is written or sent', async () => {
+test("competing units go to this device, and each lost unit names the remote's commit", async () => {
 	const context = await setup();
-	const { local, base } = context;
-	const mine = row(['title: Evening walk', 'done: true'], 'Left at six.\n');
+	const { local } = context;
+	const mine = row(['title: Mine', 'done: false'], 'Left at noon.\n');
 	expectOk(await put(local.files, TODO, mine));
 	expectOk(await local.kv.set('theme', 'dark'));
-	const incoming = await context.incoming({
-		[TODO]: row(['title: Morning walk', 'done: true'], 'Left at seven.\n'),
+	const theirs = await context.incoming({
+		[TODO]: row(['title: Theirs', 'done: true'], 'Left at dusk.\n'),
 		'kv.json': '{"theme":"sepia","size":1}\n',
 	});
 
-	const attempt = await attempted(local);
-	expect(attempt.incoming).toBe(incoming);
-	expect(attempt.local).not.toBe(base);
-	expect(
-		attempt.conflicts.map(({ kind, path, base, local, incoming }) => ({
-			kind,
-			path,
-			base,
-			local,
-			incoming,
-		})),
-	).toEqual([
-		{
-			kind: 'setting',
-			path: 'kv.json',
-			base: { present: true, value: 'light' },
-			local: { present: true, value: 'dark' },
-			incoming: { present: true, value: 'sepia' },
-		},
-		{
-			kind: 'field',
-			path: TODO,
-			base: { present: true, value: 'Walk' },
-			local: { present: true, value: 'Evening walk' },
-			incoming: { present: true, value: 'Morning walk' },
-		},
-		{
-			kind: 'body',
-			path: TODO,
-			base: { present: true, value: 'Left at dawn.\n' },
-			local: { present: true, value: 'Left at six.\n' },
-			incoming: { present: true, value: 'Left at seven.\n' },
-		},
-	]);
-	expect(await text(local, TODO)).toBe(mine);
-	expect((await local.git.log(1)).data?.[0]?.oid).toBe(attempt.local);
-	expect(await context.remoteHead()).toBe(incoming);
-});
-
-test('choices settle every unit, and the merge keeps what merged', async () => {
-	const context = await setup();
-	const { local } = context;
-	expectOk(
-		await put(
-			local.files,
-			TODO,
-			row(['title: Evening walk', 'done: true'], 'Left at six.\n'),
-		),
-	);
-	expectOk(await local.kv.set('theme', 'dark'));
-	const incoming = await context.incoming({
-		[TODO]: row(['title: Morning walk', 'done: false'], 'Left at seven.\n'),
-		'kv.json': '{"theme":"sepia","size":3}\n',
-	});
-	const attempt = await attempted(local);
-	const choices: Record<string, SyncChoices[string]> = {
-		[find(attempt, 'setting', 'theme').id]: { kind: 'take', side: 'incoming' },
-		[find(attempt, 'field', 'title').id]: {
-			kind: 'replace',
-			value: 'Walk at noon',
-		},
-		[find(attempt, 'body').id]: { kind: 'take', side: 'incoming' },
-	};
-	const resolving = local.sync.resolve(attempt, choices);
-	// Read when resolve is called: a later edit changes nothing published.
-	choices[find(attempt, 'body').id] = { kind: 'take', side: 'local' };
-	const head = synced(expectOk(await resolving));
-
-	expect(await context.remoteParents()).toEqual([
-		head,
-		attempt.local,
-		incoming,
-	]);
-	const resolved = row(
-		['title: Walk at noon', 'done: true'],
-		'Left at seven.\n',
-	);
-	expect(await text(local, TODO)).toBe(resolved);
-	expect(await context.remoteFile(TODO)).toBe(resolved.trimEnd());
-	expect(expectOk(await local.kv.get())?.values).toEqual({
-		theme: 'sepia',
-		size: 3,
-	});
-	// Spent: the same attempt is not resolved twice.
-	expect(expectErr(await local.sync.resolve(attempt, choices)).name).toBe(
-		'Stale',
-	);
-});
-
-test('a deleted row against an edit is one whole-file unit', async () => {
-	const context = await setup();
-	const { local } = context;
-	expectOk(await local.tables.todos.delete('walk'));
-	const edited = row(['title: Morning walk', 'done: false'], 'Left at dawn.\n');
-	await context.incoming({ [TODO]: edited });
-
-	const attempt = await attempted(local);
-	expect(attempt.conflicts).toEqual([
-		{
-			id: expect.any(String),
-			kind: 'file',
-			binary: false,
-			path: TODO,
-			base: { present: true, value: SEED },
-			local: { present: false },
-			incoming: { present: true, value: edited },
-		},
-	]);
-	const file = find(attempt, 'file');
-	synced(
-		expectOk(
-			await local.sync.resolve(attempt, {
-				[file.id]: { kind: 'take', side: 'local' },
-			}),
-		),
-	);
-	expect(expectOk(await local.tables.todos.get('walk'))).toBeUndefined();
-});
-
-test('an invalid row on either side merges as text, and is repaired as text', async () => {
-	const context = await setup();
-	const { local } = context;
-	const broken = row(['title: Walk', 'done: maybe'], 'Left at dawn.\n');
-	expectOk(await put(local.files, TODO, broken));
-	// Their changed lines meet ours, so the lines compete.
-	const theirs = row(['title: Morning walk', 'done: true'], 'Left at dawn.\n');
-	await context.incoming({ [TODO]: theirs });
-
-	const attempt = await attempted(local);
-	const file = find(attempt, 'file');
-	expect(file).toMatchObject({ binary: false });
-	expect(file.local).toEqual({ present: true, value: broken });
-	expect(file.incoming).toEqual({ present: true, value: theirs });
-	const typed = row(['title: Morning walk', 'done: maybe'], 'Left at dawn.\n');
-	synced(
-		expectOk(
-			await local.sync.resolve(attempt, {
-				[file.id]: { kind: 'replace', value: typed },
-			}),
-		),
-	);
-	// Written as chosen; the table reads it as text to repair.
-	expect(await text(local, TODO)).toBe(typed);
-	const read = expectErr(await local.tables.todos.get('walk'));
-	expect(read.name).toBe('InvalidRow');
-});
-
-test('invalid choices are all reported, write nothing, and keep the attempt', async () => {
-	const context = await setup();
-	const { local } = context;
-	expectOk(
-		await put(
-			local.files,
-			TODO,
-			row(['title: Evening walk', 'done: false'], 'Left at six.\n'),
-		),
-	);
-	expectOk(await local.kv.set('size', 2));
-	const incoming = await context.incoming({
-		[TODO]: row(['title: Morning walk', 'done: false'], 'Left at seven.\n'),
-		'kv.json': '{"theme":"light","size":3}\n',
-	});
-	const attempt = await attempted(local);
-	const title = find(attempt, 'field', 'title');
-	const body = find(attempt, 'body');
-	const size = find(attempt, 'setting', 'size');
-
-	const shapes = expectErr(
-		await local.sync.resolve(attempt, {
-			[title.id]: { kind: 'take', side: 'elsewhere' } as never,
-			[body.id]: { kind: 'remove' },
-			stray: { kind: 'remove' },
-		}),
-	);
-	expect(shapes.name).toBe('InvalidChoices');
-	if (shapes.name !== 'InvalidChoices') return;
-	expect(
-		shapes.problems.map(({ conflictId, reason }) => ({ conflictId, reason })),
-	).toEqual([
-		{ conflictId: size.id, reason: 'missing' },
-		{ conflictId: title.id, reason: 'malformed' },
-		{ conflictId: body.id, reason: 'disallowed' },
-		{ conflictId: 'stray', reason: 'unknown' },
-	]);
-
-	const values = expectErr(
-		await local.sync.resolve(attempt, {
-			[title.id]: { kind: 'remove' },
-			[body.id]: { kind: 'replace', value: 42 },
-			[size.id]: { kind: 'replace', value: 'large' },
-		}),
-	);
-	if (values.name !== 'InvalidChoices') throw new Error(values.message);
-	expect(
-		values.problems.map(({ conflictId, reason }) => ({ conflictId, reason })),
-	).toEqual([
-		{ conflictId: size.id, reason: 'invalid' },
-		{ conflictId: body.id, reason: 'invalid' },
-	]);
-	const required = expectErr(
-		await local.sync.resolve(attempt, {
-			[title.id]: { kind: 'remove' },
-			[body.id]: { kind: 'take', side: 'local' },
-			[size.id]: { kind: 'take', side: 'local' },
-		}),
-	);
-	if (required.name !== 'InvalidChoices') throw new Error(required.message);
-	expect(required.problems).toEqual([
-		{ conflictId: title.id, reason: 'invalid', message: 'title is missing' },
-	]);
-	expect(await context.remoteHead()).toBe(incoming);
-
-	// Still current: valid choices settle it.
-	synced(
-		expectOk(
-			await local.sync.resolve(attempt, {
-				[title.id]: { kind: 'take', side: 'local' },
-				[body.id]: { kind: 'replace', value: '' },
-				[size.id]: { kind: 'replace', value: 5 },
-			}),
-		),
-	);
+	synced(expectOk(await local.sync.run()));
 	expect(await text(local, TODO)).toBe(
-		row(['title: Evening walk', 'done: false']),
+		row(['title: Mine', 'done: true'], 'Left at noon.\n'),
 	);
+	expect(expectOk(await local.kv.get())?.values).toEqual({
+		theme: 'dark',
+		size: 1,
+	});
+	const message = await context.remoteMessage();
+	expect(message).toContain(`Overrode: ${theirs} field="title" "${TODO}"`);
+	expect(message).toMatch(
+		new RegExp(`Overrode: ${theirs} lines=body:\\d+\\+\\d+ "${TODO}"`),
+	);
+	expect(message).toContain(`Overrode: ${theirs} setting="theme" "kv.json"`);
+	// What lost is still in history, as the merge's second parent.
+	expect(await context.remoteFile(TODO, theirs)).toContain('Theirs');
 });
 
-test('another run or a later save makes an attempt stale', async () => {
+test('a delete beats an edit it never saw, from either side', async () => {
 	const context = await setup();
 	const { local } = context;
-	expectOk(await local.kv.set('theme', 'dark'));
-	await context.incoming({ 'kv.json': '{"theme":"sepia","size":1}\n' });
-	const first = await attempted(local);
-	const theme = find(first, 'setting', 'theme');
-	const take = { [theme.id]: { kind: 'take', side: 'local' } } as const;
+	expectOk(await local.files.create('notes.txt', 'one\n'));
+	synced(expectOk(await local.sync.run()));
 
-	const second = await attempted(local);
-	const replaced = expectErr(await local.sync.resolve(first, take));
-	expect(replaced).toMatchObject({ name: 'Stale', reason: 'replaced' });
-
-	expectOk(await local.files.create('notes.txt', 'Saved while reviewing\n'));
-	const changed = expectErr(
-		await local.sync.resolve(second, {
-			[find(second, 'setting', 'theme').id]: { kind: 'take', side: 'local' },
-		}),
+	// This device deletes; the remote edits.
+	expectOk(await local.tables.todos.delete('walk'));
+	const edited = await context.incoming({
+		[TODO]: row(['title: Walk', 'done: true'], 'Left at dawn.\n'),
+	});
+	synced(expectOk(await local.sync.run()));
+	expect(expectOk(await local.tables.todos.get('walk'))).toBeUndefined();
+	expect(await context.remoteMessage()).toContain(
+		`Overrode: ${edited} file "${TODO}"`,
 	);
-	expect(changed).toMatchObject({ name: 'Stale', reason: 'changed' });
-	expect(await text(local, 'notes.txt')).toBe('Saved while reviewing\n');
+	expect(await context.remoteFile(TODO, edited)).toContain('done: true');
 
-	// A fresh run commits the save and asks again.
-	const third = await attempted(local);
-	synced(
-		expectOk(
-			await local.sync.resolve(third, {
-				[find(third, 'setting', 'theme').id]: {
-					kind: 'take',
-					side: 'local',
-				},
-			}),
-		),
+	// The remote deletes; this device edits.
+	expectOk(await put(local.files, 'notes.txt', 'one\ntwo\n'));
+	const editedHere = await saved(local);
+	await context.incoming({ 'notes.txt': null });
+	synced(expectOk(await local.sync.run()));
+	expect(expectErr(await local.files.read('notes.txt')).name).toBe('NotFound');
+	expect(await context.remoteMessage()).toContain(
+		`Overrode: ${editedHere} file "notes.txt"`,
 	);
-	expect(await context.remoteFile('notes.txt')).toBe('Saved while reviewing');
+	expect(await context.remoteFile('notes.txt', editedHere)).toBe('one\ntwo');
 });
 
-test('a text file outside a table merges by line, or is one text unit when lines compete', async () => {
+test('a text file merges by line, and a binary file both changed is this device’s', async () => {
 	const context = await setup();
 	const { local } = context;
 	expectOk(await local.files.create('README.md', 'one\ntwo\nthree\n'));
-	synced(expectOk(await local.sync.run()));
-	await context.incoming({ 'README.md': 'one\ntwo\nTHREE\n' });
-	expectOk(await put(local.files, 'README.md', 'ONE\ntwo\nthree\n'));
-	synced(expectOk(await local.sync.run()));
-	expect(await text(local, 'README.md')).toBe('ONE\ntwo\nTHREE\n');
-
-	await context.incoming({ 'README.md': 'ONE\nsecond\nTHREE\n' });
-	expectOk(await put(local.files, 'README.md', 'ONE\n2\nTHREE\n'));
-	const attempt = await attempted(local);
-	const file = find(attempt, 'file');
-	expect(file).toMatchObject({
-		path: 'README.md',
-		binary: false,
-		local: { present: true, value: 'ONE\n2\nTHREE\n' },
-		incoming: { present: true, value: 'ONE\nsecond\nTHREE\n' },
-	});
-	expect(await text(local, 'README.md')).toBe('ONE\n2\nTHREE\n');
-	synced(
-		expectOk(
-			await local.sync.resolve(attempt, {
-				[file.id]: { kind: 'replace', value: 'ONE\ntwo, second\nTHREE\n' },
-			}),
-		),
-	);
-	expect(await context.remoteFile('README.md')).toBe('ONE\ntwo, second\nTHREE');
-});
-
-test("taking a side of a body or a text file keeps the other side's lines that did not compete", async () => {
-	const context = await setup();
-	const { local } = context;
-	const BASE = 'one\ntwo\nthree\nfour\n';
-	expectOk(await local.files.create('README.md', BASE));
-	expectOk(
-		await put(local.files, TODO, row(['title: Walk', 'done: false'], BASE)),
-	);
-	synced(expectOk(await local.sync.run()));
-	// Each side changes one line of its own and the same third line.
-	const ours = 'ONE (ours)\ntwo\nthree\nFOUR (ours)\n';
-	const theirs = 'one\nTWO (theirs)\nthree\nFOUR (theirs)\n';
-	await context.incoming({
-		'README.md': theirs,
-		[TODO]: row(['title: Walk', 'done: false'], theirs),
-	});
-	expectOk(await put(local.files, 'README.md', ours));
-	expectOk(
-		await put(local.files, TODO, row(['title: Walk', 'done: false'], ours)),
-	);
-
-	const attempt = await attempted(local);
-	const file = find(attempt, 'file');
-	const body = find(attempt, 'body');
-	const merged = {
-		local: 'ONE (ours)\nTWO (theirs)\nthree\nFOUR (ours)\n',
-		incoming: 'ONE (ours)\nTWO (theirs)\nthree\nFOUR (theirs)\n',
-	};
-	for (const conflict of [file, body])
-		expect(conflict).toMatchObject({
-			local: { present: true, value: merged.local },
-			incoming: { present: true, value: merged.incoming },
-		});
-	synced(
-		expectOk(
-			await local.sync.resolve(attempt, {
-				[file.id]: { kind: 'take', side: 'incoming' },
-				[body.id]: { kind: 'take', side: 'incoming' },
-			}),
-		),
-	);
-	// "Take incoming" kept our first line.
-	expect(await text(local, 'README.md')).toBe(merged.incoming);
-	expect(await text(local, TODO)).toBe(
-		row(['title: Walk', 'done: false'], merged.incoming),
-	);
-});
-
-test('a binary file both changed is one unit, taken or removed but never replaced', async () => {
-	const context = await setup();
-	const { local } = context;
 	expectOk(await local.files.create('photo.bin', new Uint8Array([0, 1, 2])));
 	synced(expectOk(await local.sync.run()));
-	const theirs = new Uint8Array([0, 7, 7]);
-	await context.incoming({ 'photo.bin': theirs });
-	expectOk(await put(local.files, 'photo.bin', new Uint8Array([0, 9, 9])));
 
-	const attempt = await attempted(local);
-	const file = find(attempt, 'file');
-	expect(file).toMatchObject({
-		path: 'photo.bin',
-		binary: true,
-		base: { present: true, value: new Uint8Array([0, 1, 2]) },
-		local: { present: true, value: new Uint8Array([0, 9, 9]) },
-		incoming: { present: true, value: theirs },
+	expectOk(await put(local.files, 'README.md', 'ONE\ntwo\nthree\n'));
+	const mine = new Uint8Array([0, 9, 9]);
+	expectOk(await put(local.files, 'photo.bin', mine));
+	const theirs = await context.incoming({
+		'README.md': 'one\ntwo\nTHREE\n',
+		'photo.bin': new Uint8Array([7, 7, 7]),
 	});
-	const replaced = expectErr(
-		await local.sync.resolve(attempt, {
-			[file.id]: { kind: 'replace', value: 'text' },
-		}),
+	synced(expectOk(await local.sync.run()));
+	expect(await text(local, 'README.md')).toBe('ONE\ntwo\nTHREE\n');
+	expect(expectOk(await local.files.read('photo.bin')).bytes).toEqual(mine);
+	expect(await context.remoteMessage()).toContain(
+		`Overrode: ${theirs} file "photo.bin"`,
 	);
-	if (replaced.name !== 'InvalidChoices') throw new Error(replaced.message);
-	expect(replaced.problems).toMatchObject([
-		{ conflictId: file.id, reason: 'disallowed' },
-	]);
-	synced(
-		expectOk(
-			await local.sync.resolve(attempt, {
-				[file.id]: { kind: 'take', side: 'incoming' },
-			}),
+});
+
+test('bytes stay exact: a lone carriage return merges by line, and invalid UTF-8 both changed is this device’s whole', async () => {
+	const context = await setup();
+	const { local } = context;
+	const base = {
+		'lone-cr.txt': 'one\rtwo\nthree\n',
+		'latin1.txt': new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x0a]),
+	};
+	for (const [path, bytes] of Object.entries(base))
+		expectOk(await local.files.create(path, bytes));
+	synced(expectOk(await local.sync.run()));
+
+	const mine = {
+		'lone-cr.txt': 'ONE\rtwo\nthree\n',
+		'latin1.txt': new Uint8Array([0x43, 0x61, 0x66, 0xe9, 0x0a, 0x0a]),
+	};
+	for (const [path, bytes] of Object.entries(mine))
+		expectOk(await put(local.files, path, bytes));
+	await context.incoming({
+		'lone-cr.txt': 'one\rtwo\nTHREE\n',
+		'latin1.txt': new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x21]),
+	});
+
+	synced(expectOk(await local.sync.run()));
+	expect(await text(local, 'lone-cr.txt')).toBe('ONE\rtwo\nTHREE\n');
+	expect(expectOk(await local.files.read('latin1.txt')).bytes).toEqual(
+		mine['latin1.txt'],
+	);
+});
+
+test('a change made and reverted between syncs does not override the other side', async () => {
+	const context = await setup();
+	const { local } = context;
+	expectOk(
+		await put(
+			local.files,
+			TODO,
+			row(['title: Run', 'done: false'], 'Left at dawn.\n'),
 		),
 	);
-	expect(expectOk(await local.files.read('photo.bin')).bytes).toEqual(theirs);
+	await saved(local);
+	expectOk(await put(local.files, TODO, SEED));
+	await saved(local);
+	await context.incoming({
+		[TODO]: row(['title: Peer walk', 'done: false'], 'Left at dawn.\n'),
+	});
+
+	synced(expectOk(await local.sync.run()));
+	expect(expectOk(await local.tables.todos.get('walk'))?.row.fields.title).toBe(
+		'Peer walk',
+	);
+	expect(await context.remoteMessage()).not.toContain('Overrode:');
+});
+
+test("a rename merges the other side's edit into the renamed file", async () => {
+	const context = await setup();
+	const { local } = context;
+	expectOk(await local.tables.todos.rename('walk', 'stroll'));
+	await context.incoming({
+		[TODO]: row(['title: Walk', 'done: true'], 'Left at dawn.\n'),
+	});
+
+	synced(expectOk(await local.sync.run()));
+	expect(expectOk(await local.tables.todos.get('walk'))).toBeUndefined();
+	expect(expectOk(await local.tables.todos.get('stroll'))?.row.fields).toEqual({
+		title: 'Walk',
+		done: true,
+	});
+	expect(await context.remoteFile('todos/stroll.md')).toContain('done: true');
+});
+
+test('a row that does not read merges as text, and its frontmatter lines compete', async () => {
+	const context = await setup();
+	const { local } = context;
+	// `done` is not a boolean on either side, so the row merges as text.
+	const mine = row(
+		['title: Walk', 'done: maybe', 'note: mine'],
+		'Left at dawn.\n',
+	);
+	expectOk(await put(local.files, TODO, mine));
+	const theirs = await context.incoming({
+		[TODO]: row(
+			['title: Walk', 'done: maybe', 'note: theirs'],
+			'Left at dawn.\n',
+		),
+	});
+
+	synced(expectOk(await local.sync.run()));
+	expect(await text(local, TODO)).toBe(mine);
+	expect(await context.remoteMessage()).toContain(`Overrode: ${theirs} lines=`);
+});
+
+test('a merge that would hold two paths only their case tells apart is not sent', async () => {
+	const context = await setup();
+	const { local } = context;
+	expectOk(await put(local.files, 'Notes.md', 'mine\n'));
+	const theirs = await context.incoming({ 'notes.md': 'theirs\n' });
+
+	const refused = expectErr(await local.sync.run());
+	expect(refused).toMatchObject({
+		name: 'Unrepresentable',
+		whose: 'folder',
+		paths: ['Notes.md', 'notes.md'],
+	});
+	expect(refused.message).toContain("'Notes.md', 'notes.md'");
+	expect(await context.remoteHead()).toBe(theirs);
+	expect(await text(local, 'Notes.md')).toBe('mine\n');
+});
+
+test("a refused push is a lost race in old and new Git's wording, and nothing else", () => {
+	for (const reason of [
+		'non-fast-forward',
+		'fetch first',
+		'failed to update ref',
+		"cannot lock ref 'refs/heads/main': is at 1234 but expected 5678",
+		'incorrect old value provided',
+		'reference already exists',
+		'reference does not exist',
+	])
+		expect([reason, REMOTE_MOVED.test(reason)]).toEqual([reason, true]);
+	for (const reason of [
+		'pre-receive hook declined',
+		'protected branch hook declined',
+		'unpacker error',
+		'Authentication failed',
+	])
+		expect([reason, REMOTE_MOVED.test(reason)]).toEqual([reason, false]);
+});
+
+test('a push that lost a race merges again from the same local head', async () => {
+	const context = await setup();
+	const { local, hooks } = context;
+	expectOk(await local.kv.set('theme', 'dark'));
+	const mine = await saved(local);
+	await context.incoming({ 'kv.json': '{"theme":"light","size":2}\n' });
+	let raced: string | undefined;
+	hooks.beforePush = async () => {
+		hooks.beforePush = undefined;
+		raced = await context.incoming({
+			'kv.json': '{"theme":"light","size":3}\n',
+		});
+	};
+
+	const head = synced(expectOk(await local.sync.run()));
+	// One merge of this device's head and the remote that won the race.
+	expect(await context.remoteParents()).toEqual([head, mine, raced!]);
+	expect(expectOk(await local.kv.get())?.values).toEqual({
+		theme: 'dark',
+		size: 3,
+	});
+});
+
+test('a remote that keeps moving stops Sync after five attempts, with nothing published', async () => {
+	const context = await setup();
+	const { local, hooks } = context;
+	expectOk(await local.kv.set('theme', 'dark'));
+	const mine = await saved(local);
+	await context.incoming({ 'kv.json': '{"theme":"light","size":2}\n' });
+	let size = 2;
+	hooks.beforePush = async () => {
+		size++;
+		await context.incoming({
+			'kv.json': `{"theme":"light","size":${size}}\n`,
+		});
+	};
+
+	const error = expectErr(await local.sync.run());
+	hooks.beforePush = undefined;
+	expect(error).toMatchObject({ name: 'KeptChanging', attempts: 5 });
+	expect(expectOk(await local.git.log(1))[0]?.oid).toBe(mine);
+	expect(expectOk(await local.kv.get())?.values.size).toBe(1);
+});
+
+test('a push whose reply was lost still publishes, and the next Sync finds the remote there', async () => {
+	const context = await setup();
+	const { local, hooks } = context;
+	expectOk(await local.kv.set('theme', 'dark'));
+	await context.incoming({ 'kv.json': '{"theme":"light","size":2}\n' });
+	hooks.afterPush = async () => {
+		hooks.afterPush = undefined;
+		throw new Error('The connection dropped');
+	};
+
+	const outcome = expectOk(await local.sync.run());
+	expect(outcome).toMatchObject({
+		kind: 'saved',
+		push: { status: 'failed' },
+	});
+	const head = await context.remoteHead();
+	expect(outcome.head).toBe(head);
+	expect(expectOk(await local.kv.get())?.values).toEqual({
+		theme: 'dark',
+		size: 2,
+	});
+
+	expect(synced(expectOk(await local.sync.run()))).toBe(head);
+	expect(await context.remoteHead()).toBe(head);
+});
+
+test('only the remote changed: a fast-forward; only this device: a push', async () => {
+	const context = await setup();
+	const { local } = context;
+	const theirs = await context.incoming({ 'notes.txt': 'From the peer\n' });
+	expect(synced(expectOk(await local.sync.run()))).toBe(theirs);
+	expect(await text(local, 'notes.txt')).toBe('From the peer\n');
+
+	expectOk(await put(local.files, 'notes.txt', 'From here\n'));
+	const head = synced(expectOk(await local.sync.run()));
+	expect(await context.remoteParents()).toEqual([head, theirs]);
+	expect(await context.remoteFile('notes.txt')).toBe('From here');
+});
+
+test('unrelated histories are refused unless asked for', async () => {
+	const context = await setup();
+	const other = expectOk(
+		await openFolder({
+			id: 'so.epicenter.synctest.other',
+			definition,
+			browser: {
+				author: { name: 'Other', email: 'other@example.test' },
+				httpFetch: context.httpFetch,
+				...browserStorage(createTestStorage()),
+			},
+		}),
+	);
+	opened.push(other);
+	expectOk(await other.files.create('notes.txt', 'Other\n'));
+	await saved(other);
+
+	expect(expectErr(await other.sync.connect(REMOTE)).name).toBe('Unrelated');
+	const head = synced(
+		expectOk(await other.sync.run({ allowUnrelatedHistories: true })),
+	);
+	expect(await context.remoteHead()).toBe(head);
+	expect(await text(other, TODO)).toBe(SEED);
+	expect(await context.remoteFile('notes.txt')).toBe('Other');
 });
 
 test('a folder with no history adopts the remote on its first sync, merging over an empty base', async () => {
@@ -614,9 +546,7 @@ test('a folder with no history adopts the remote on its first sync, merging over
 	opened.push(fresh);
 	expectOk(await fresh.files.create('notes.txt', 'Fresh\n'));
 
-	const head = synced(
-		expectOk(await fresh.sync.connect('http://git.test/remote.git')),
-	);
+	const head = synced(expectOk(await fresh.sync.connect(REMOTE)));
 	expect(await context.remoteHead()).toBe(head);
 	expect((await context.remoteParents()).length).toBe(3);
 	expect(await text(fresh, TODO)).toBe(SEED);

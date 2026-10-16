@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { FileBoundary } from './boundary.js';
+import type { FolderStorage } from './boundary.js';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
@@ -119,24 +119,8 @@ async function held() {
 	const order: string[] = [];
 	const { promise: released, resolve: release } = Promise.withResolvers<void>();
 	const { promise: reached, resolve: reach } = Promise.withResolvers<void>();
-	const boundary: FileBoundary = {
+	const boundary: FolderStorage = {
 		...base,
-		async apply(changes) {
-			// The declaration a handle publishes before its first write is not
-			// the save under test.
-			if (
-				changes.every(
-					(change) => 'path' in change && change.path === DECLARATION_PATH,
-				)
-			)
-				return base.apply(changes);
-			const applying = base.apply(changes);
-			reach();
-			await released;
-			const result = await applying;
-			order.push('saved');
-			return result;
-		},
 		async put(path, bytes, ifMatch) {
 			if (path === DECLARATION_PATH) return base.put(path, bytes, ifMatch);
 			const putting = base.put(path, bytes, ifMatch);
@@ -161,6 +145,7 @@ async function held() {
 		...real,
 		async push() {
 			pushes++;
+			return 'pushed' as const;
 		},
 		async casBranch(expected, next) {
 			commits.reached?.();
@@ -215,13 +200,8 @@ test('closing releases storage before a begun save replies; its actual result st
 		'Closed',
 	);
 	expect(await folder.git.commit()).toEqual({ status: 'closed' });
-	expect(await folder.git.push()).toEqual({ status: 'closed' });
 	expect(expectErr(await folder.git.status()).name).toBe('Closed');
-	expect(expectErr(await folder.git.fetch()).name).toBe('Closed');
-	expect(expectErr(await folder.git.pullFastForward()).name).toBe('Closed');
-	expect((await folder.git.commitAndPush()).commit).toEqual({
-		status: 'closed',
-	});
+	expect(expectErr(await folder.sync.run()).name).toBe('Closed');
 	await Bun.sleep(20);
 	// File replies are owned by their callers, not close.
 	expect(closed).toBe(true);

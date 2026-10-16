@@ -44,8 +44,6 @@
 				}
 				unrelated = undefined;
 				open = false;
-				// The review the page shows answers a sync that needs choices.
-				if (error?.name === 'NeedsChoices') return;
 				toastStatus(syncOutcomeLine(error ? Err(error) : Ok(outcome!), todos.git.snapshot));
 			},
 		});

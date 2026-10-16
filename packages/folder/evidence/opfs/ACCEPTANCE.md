@@ -34,8 +34,28 @@ Stream probes use the browser's own OPFS API in a directory of the run's own:
 - With the `getFile()` recheck the replacement makes, that stream is aborted
   and the path stays absent.
 
-These checks have not been run in a browser since they were written. Run the
-page in the browser under test before claiming any result.
+Move probes, which a folder's new file relies on (it is written to
+`.git/epicenter/scratch` and moved into place where the files lock has just
+found nothing, ADR-0576):
+
+- A file moves into an absent name in another directory, whole, and leaves
+  its old name.
+- A move onto an existing name, and onto one with an open write stream:
+  recorded as notes, since storage never moves onto a name that is there.
+- A folder's new file appears whole and leaves its scratch directory empty.
+
+2026-10-16, headless through Playwright 1.62 with a persistent context:
+
+- Chromium 151 (macOS arm64): 21 passed, 0 failed. A move onto an existing
+  name replaces it without a word; onto a name with an open write stream it
+  is refused (`NoModificationAllowedError`) and the stream's bytes land.
+- WebKit 26.5: names differing only by case or Unicode form are one name
+  (`case.md` meets `Case.md`, so its create is `Exists`); the run then
+  stopped at the two-context stage and did not finish, so its move probes
+  did not run.
+- Firefox: not run; Playwright 1.62's build was not installed.
+
+Run the page in the browser under test before claiming any other result.
 
 ### Chrome 142 behavior the replacement relies on
 

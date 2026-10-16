@@ -14,12 +14,11 @@ import { expectOk } from 'wellcrafted/testing';
 import { hashBytes } from './capture.js';
 import { defineFolder, defineTable, field } from './contract.js';
 import { openDirectoryFolder } from './directory-adapter.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
 import {
 	type DirectoryPrimitives,
-	directoryHandle,
 	SCRATCH_DIRECTORY,
-} from './directory-handle.js';
-import { nodeDirectoryPrimitives } from './directory-node.js';
+} from './directory-primitives.js';
 import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
 import {
@@ -136,7 +135,10 @@ function open(
 		beforeGit?: (args: readonly string[]) => Promise<void>;
 	} = {},
 ) {
-	const files = recording(root, options.primitives ?? nodeDirectoryPrimitives);
+	const primitives = options.primitives ?? nodeDirectoryPrimitives;
+	// Only the page's file changes are recorded: on the desktop the history
+	// runs in the `epicenter` CLI, which the shell does not hold to them.
+	const files = recording(root, primitives);
 	const system = createGitRunner(root);
 	const run: typeof system = async (args, runOptions) => {
 		await options.beforeGit?.(args);
@@ -144,10 +146,13 @@ function open(
 	};
 	return openDirectoryFolder({
 		definition,
-		root: directoryHandle(files, root),
 		rootPath: root,
 		files,
-		history: nativeHistory({ rootPath: root, host: { run, files }, author }),
+		history: nativeHistory({
+			rootPath: root,
+			host: { run, files: primitives },
+			author,
+		}),
 	});
 }
 
@@ -613,7 +618,7 @@ describe('a folder over an ordinary directory', () => {
 		await reopened.close();
 	});
 
-	test('a save another window lands while Sync writes the same row survives, and the next Sync asks for a choice', async () => {
+	test('a save another window lands while Sync writes the same row wins over the remote, and the next Sync sends it', async () => {
 		const project = await scratch('directory-folder-incoming-race-');
 		const bare = await createBareRemote(project);
 		const root = join(project, 'desktop');
@@ -649,45 +654,31 @@ describe('a folder over an ordinary directory', () => {
 
 		const theirs = '---\ntitle: Other window\ndone: false\n---\n';
 		racing = theirs;
-		const stopped = await folder.sync.run();
-		expect(stopped.error).toMatchObject({
-			name: 'Merge',
-			error: {
-				name: 'Refused',
-				error: { name: 'Conflict', path: created.path },
-			},
-		});
-		// The other window's save is still there, and the branch did not move.
+		// Sync merges the save in, the save winning the title both changed,
+		// and says the folder changed since the version it published.
+		const first = expectOk(await folder.sync.run());
+		expect(first).toMatchObject({ kind: 'saved', changedSince: true });
 		expect(await readFile(join(root, created.path), 'utf8')).toBe(theirs);
 
-		// The next Sync records that save and meets the remote's rename.
-		const next = await folder.sync.run();
-		expect(next.error?.name).toBe('NeedsChoices');
-		const conflicts =
-			next.error?.name === 'NeedsChoices' ? next.error.attempt.conflicts : [];
-		expect(conflicts).toMatchObject([
-			{ kind: 'field', field: 'title', path: created.path },
-		]);
+		const next = expectOk(await folder.sync.run());
+		expect(next.kind).toBe('synced');
 		expect(await readFile(join(root, created.path), 'utf8')).toBe(theirs);
+		expect(await git(bare, 'show', `main:${created.path}`)).toContain(
+			'title: Other window',
+		);
 		await folder.close();
 	});
 
-	test('stages, commits what was staged, and reads its log and diff with Git', async () => {
-		const { root } = await nativeRepository('directory-folder-staged-');
+	test('saves a version with a message and reads its log with Git', async () => {
+		const { root } = await nativeRepository('directory-folder-version-');
 		const folder = expectOk(await open(root));
-		const created = await addTodo(folder, 'Staged');
-		expect(
-			expectOk(await folder.git.paths()).map(({ path }) => path),
-		).toContain(created.path);
-		expectOk(await folder.git.stage([created.path]));
-		expect(
-			expectOk(await folder.git.diff({ staged: true, paths: [created.path] })),
-		).toContain('Staged');
-		expectOk(await folder.git.commitStaged('Add one todo'));
+		await addTodo(folder, 'Versioned');
+		expect((await folder.git.commit({ message: 'Add one todo' })).status).toBe(
+			'committed',
+		);
 		expect(await git(root, 'log', '--format=%s', '-1')).toBe('Add one todo');
 		const log = expectOk(await folder.git.log(5));
 		expect(log[0]?.message.trim()).toBe('Add one todo');
-		expectOk(await folder.git.stage('all'));
 		await git(root, 'fsck', '--strict');
 		await folder.close();
 	});

@@ -22,9 +22,12 @@ import {
 } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { hashBytes } from './capture.js';
-import type { DirectoryPrimitives, EntryKind } from './directory-handle.js';
+import type {
+	DirectoryPrimitives,
+	EntryKind,
+	Expectation,
+} from './directory-primitives.js';
 import { UnexpectedTarget } from './errors.js';
-import type { Expectation } from './opfs-store.js';
 
 const kindOf = (entry: {
 	isFile(): boolean;
@@ -77,10 +80,15 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 			const stats = await lstat(path);
 			const kind = kindOf(stats);
 			// `realpath` answers with the stored spelling; a link is not followed.
-			const name =
+			// Racing a rename over the path, Bun's on Linux can answer with
+			// `<name> (deleted)`, so a name it does not confirm is left out and
+			// the directory store lists the parent instead.
+			const asked = basename(path);
+			const stored =
 				kind === 'file' || kind === 'directory'
 					? basename(await realpath(path))
 					: undefined;
+			const name = stored === asked ? stored : undefined;
 			return { kind, size: stats.size, mode: stats.mode, name };
 		} catch (cause) {
 			if ((cause as { code?: string }).code === 'ENOENT') return undefined;

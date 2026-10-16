@@ -8,7 +8,7 @@
  * reads (`ENOENT` for a missing path, `EEXIST`, `ENOTDIR`).
  */
 import type { PromiseFsClient } from 'isomorphic-git';
-import type { DirectoryPrimitives } from '../directory-handle.js';
+import type { DirectoryPrimitives } from '../directory-primitives.js';
 
 function fsError(code: string, path: string): Error {
 	return Object.assign(new Error(`${code}: ${path}`), { code });

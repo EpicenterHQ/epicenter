@@ -4,11 +4,8 @@
  * page (ADR-0559).
  *
  * Key behaviors:
- * - A sync that needs choices exits 1, writes nothing conflicted, and
- *   records its attempt; a second process settles it from the attempt's ID
- *   and the choices alone: take, replace, and remove, binary files included
- * - Invalid choices write nothing and keep the attempt; a settled attempt is
- *   spent, and a new sync retires one
+ * - A sync of competing changes merges them into one commit that this
+ *   folder wins, binary files included, and asks nothing
  * - Two processes running save-version and sync at once take turns under the
  *   folder's history lock and leave one linear history the remote holds
  * - A save-version waits while another process holds the history lock
@@ -200,188 +197,57 @@ test('status, save-version, and history read and record the folder', async () =>
 	expect(after.reply.state.sync).toMatchObject({ ahead: 1, behind: 0 });
 });
 
-test('a sync that needs choices is settled by a second process from the attempt ID and the choices: take, replace, and remove, binary included', async () => {
+test('a sync of competing changes merges them into one commit this folder wins, asking nothing', async () => {
 	const { folder, other } = await synced({
 		'epicenter.json': DECLARATION,
 		'posts/x.md': '---\ntitle: Base\ndone: false\n---\n',
 		'notes.txt': 'one\ntwo\nthree\n',
 		'doc.md': 'kept\n',
 		'image.bin': bytes(0, 1, 2),
-		'sound.bin': bytes(0, 9, 9),
 	});
 	// Another device changes each, and pushes.
 	await write(other, 'posts/x.md', '---\ntitle: Theirs\ndone: false\n---\n');
 	await write(other, 'notes.txt', 'one\nTWO (theirs)\nthree\n');
 	await rm(join(other, 'doc.md'));
 	await write(other, 'image.bin', bytes(0, 1, 3));
-	await write(other, 'sound.bin', bytes(0, 8, 8));
 	await git(other, 'add', '--all');
 	await git(other, 'commit', '--quiet', '-m', 'Theirs');
 	await git(other, 'push', '--quiet', 'origin', 'main');
+	const theirs = await git(other, 'rev-parse', 'HEAD');
 	// This folder changes the same units, unsaved.
 	await write(folder, 'posts/x.md', '---\ntitle: Mine\ndone: true\n---\n');
 	await write(folder, 'notes.txt', 'one\ntwo (mine)\nthree\n');
 	await write(folder, 'doc.md', 'changed here\n');
 	await write(folder, 'image.bin', bytes(0, 1, 4));
-	await write(folder, 'sound.bin', bytes(0, 7, 7));
-	const remoteBefore = await git(other, 'rev-parse', 'HEAD');
 
-	const held = await reply('sync', ['sync', folder]);
-	expect(held.exitCode).toBe(1);
-	const error = held.reply.result.error;
-	if (error?.name !== 'NeedsChoices')
-		throw new Error(JSON.stringify(held.reply));
-	const { attempt } = error;
-	const byPath = new Map(
-		attempt.conflicts.map((conflict) => [conflict.path, conflict]),
+	const result = await reply('sync', ['sync', folder]);
+	expect(result.exitCode, result.stderr).toBe(0);
+	expect(result.reply.result.data?.kind).toBe('synced');
+	expect(await readFile(join(folder, 'posts/x.md'), 'utf8')).toBe(
+		'---\ntitle: Mine\ndone: true\n---\n',
 	);
-	expect(byPath.get('posts/x.md')).toMatchObject({
-		kind: 'field',
-		field: 'title',
-		local: { present: true, value: 'Mine' },
-		incoming: { present: true, value: 'Theirs' },
-	});
-	expect(byPath.get('notes.txt')).toMatchObject({
-		kind: 'file',
-		binary: false,
-	});
-	expect(byPath.get('doc.md')).toMatchObject({
-		kind: 'file',
-		incoming: { present: false },
-	});
-	// A binary version crosses as bytes.
-	expect(byPath.get('image.bin')).toMatchObject({
-		kind: 'file',
-		binary: true,
-		local: { present: true, value: bytes(0, 1, 4) },
-		incoming: { present: true, value: bytes(0, 1, 3) },
-	});
-	// Nothing conflicted was written or sent; the attempt is recorded.
 	expect(await readFile(join(folder, 'notes.txt'), 'utf8')).toBe(
 		'one\ntwo (mine)\nthree\n',
 	);
-	expect(await git(other, 'ls-remote', 'origin', 'main')).toStartWith(
-		remoteBefore,
-	);
-	const record = join(folder, '.git/epicenter/sync-attempt.json');
-	expect(JSON.parse(await readFile(record, 'utf8'))).toEqual({
-		id: attempt.id,
-		commits: {
-			base: expect.any(String),
-			head: attempt.local,
-			fetched: attempt.incoming,
-		},
-	});
-	// What crosses on settling: the attempt's ID and the choices, never a
-	// conflict's text.
-	const id = (path: string) => byPath.get(path)!.id;
-
-	// A binary file cannot be replaced: nothing is written, and the attempt stays.
-	const invalid = await reply('settle', ['sync', folder, '--resolve', '-'], {
-		input: JSON.stringify({
-			attempt: attempt.id,
-			choices: {
-				[id('posts/x.md')]: { kind: 'take', side: 'incoming' },
-				[id('notes.txt')]: { kind: 'replace', value: 'one\nboth\nthree\n' },
-				[id('doc.md')]: { kind: 'remove' },
-				[id('image.bin')]: { kind: 'replace', value: 'text' },
-				[id('sound.bin')]: { kind: 'remove' },
-			},
-		}),
-	});
-	expect(invalid.exitCode).toBe(1);
-	expect(invalid.reply.result.error).toMatchObject({
-		name: 'InvalidChoices',
-		problems: [{ conflictId: id('image.bin'), reason: 'disallowed' }],
-	});
-	expect(existsSync(record)).toBe(true);
-
-	const choicesFile = join(dirname(folder), 'choices.json');
-	await writeFile(
-		choicesFile,
-		JSON.stringify({
-			attempt: attempt.id,
-			choices: {
-				[id('posts/x.md')]: { kind: 'take', side: 'incoming' },
-				[id('notes.txt')]: { kind: 'replace', value: 'one\nboth\nthree\n' },
-				[id('doc.md')]: { kind: 'remove' },
-				[id('image.bin')]: { kind: 'take', side: 'local' },
-				[id('sound.bin')]: { kind: 'remove' },
-			},
-		}),
-	);
-	const settled = await reply('settle', [
-		'sync',
-		folder,
-		'--resolve',
-		choicesFile,
-	]);
-	expect(settled.exitCode).toBe(0);
-	expect(settled.reply.result.data?.kind).toBe('synced');
-	// Taking incoming keeps this side's other field.
-	expect(await readFile(join(folder, 'posts/x.md'), 'utf8')).toBe(
-		'---\ntitle: Theirs\ndone: true\n---\n',
-	);
-	expect(await readFile(join(folder, 'notes.txt'), 'utf8')).toBe(
-		'one\nboth\nthree\n',
-	);
+	// A delete beats an edit it never saw.
 	expect(existsSync(join(folder, 'doc.md'))).toBe(false);
 	expect(new Uint8Array(await readFile(join(folder, 'image.bin')))).toEqual(
 		bytes(0, 1, 4),
 	);
-	expect(existsSync(join(folder, 'sound.bin'))).toBe(false);
-	expect([...settled.reply.landed].sort()).toEqual(
-		['doc.md', 'notes.txt', 'posts/x.md', 'sound.bin'].sort(),
-	);
-	// The merge has both commits as parents, and the remote holds it.
+	// One merge of both heads, which the remote holds, naming what lost.
 	const head = await git(folder, 'rev-parse', 'HEAD');
-	expect((await git(folder, 'log', '-1', '--format=%P')).split(' ')).toEqual([
-		attempt.local,
-		attempt.incoming,
-	]);
+	const parents = (await git(folder, 'log', '-1', '--format=%P')).split(' ');
+	expect(parents).toHaveLength(2);
+	expect(parents[1]).toBe(theirs);
+	const message = await git(folder, 'log', '-1', '--format=%B');
+	expect(message).toContain(`Overrode: ${theirs} field="title" "posts/x.md"`);
+	expect(message).toContain(`Overrode: ${theirs} file "image.bin"`);
+	expect(message).toContain(`Overrode: ${parents[0]} file "doc.md"`);
 	expect(await git(other, 'ls-remote', 'origin', 'main')).toStartWith(head);
 	expect(await git(folder, 'status', '--porcelain')).toBe('');
-	// The attempt is spent.
-	expect(existsSync(record)).toBe(false);
-	const spent = await reply('settle', [
-		'sync',
-		folder,
-		'--resolve',
-		choicesFile,
-	]);
-	expect(spent.reply.result.error).toMatchObject({
-		name: 'Stale',
-		reason: 'replaced',
-	});
-});
-
-test('a new sync retires the recorded attempt', async () => {
-	const { folder, other } = await synced({ 'a.txt': 'base\n' });
-	await write(other, 'a.txt', 'theirs\n');
-	await git(other, 'commit', '--quiet', '-am', 'Theirs');
-	await git(other, 'push', '--quiet', 'origin', 'main');
-	await write(folder, 'a.txt', 'mine\n');
-	const first = await reply('sync', ['sync', folder]);
-	const firstAttempt =
-		first.reply.result.error?.name === 'NeedsChoices'
-			? first.reply.result.error.attempt
-			: undefined;
-	expect(firstAttempt).toBeDefined();
-	const second = await reply('sync', ['sync', folder]);
-	expect(second.reply.result.error?.name).toBe('NeedsChoices');
-	const retired = await reply('settle', ['sync', folder, '--resolve', '-'], {
-		input: JSON.stringify({
-			attempt: firstAttempt!.id,
-			choices: {
-				[firstAttempt!.conflicts[0]!.id]: { kind: 'take', side: 'local' },
-			},
-		}),
-	});
-	expect(retired.reply.result.error).toMatchObject({
-		name: 'Stale',
-		reason: 'replaced',
-	});
-	expect(await readFile(join(folder, 'a.txt'), 'utf8')).toBe('mine\n');
+	expect(existsSync(join(folder, '.git/epicenter/sync-journal.json'))).toBe(
+		false,
+	);
 });
 
 test('save-version and sync from two processes at once take turns and leave one linear history', async () => {

@@ -2,18 +2,12 @@
  * A desktop page's folder history, run by the `epicenter` CLI (ADR-0559).
  *
  * The page runs no Git. Each operation is one fixed command of the
- * Epicenter shell (`status`, `history`, `save_version`, `sync`, and
- * `settle_sync`), which runs one `epicenter` child over the folder this
+ * Epicenter shell (`status`, `history`, `save_version`, and `sync`),
+ * which runs one `epicenter` child over the folder this
  * window was granted and hands back the child's one reply line
  * (`history-wire.ts`). The child runs the same engine a Bun process does
  * (`runHistory`), over the system `git`. Two windows' children take turns
  * under the folder's history lock.
- *
- * Sync's review spans a person's decision (ADR-0514): a sync that needs
- * choices records its attempt under `.git/epicenter`, and `resolve` sends
- * only the attempt's ID and the choices, which a second child settles
- * against the commits the attempt recorded. The page never sends a
- * conflict's text back.
  *
  * What a sync wrote is reported once on the folder's change channel from
  * the reply's `landed` paths, as a page's own Sync is on every host
@@ -25,12 +19,11 @@
  * page's own marks it stale (ADR-0553).
  *
  * The history is `FolderGit`: status, the log, Save version, and Sync. The
- * finer Git steps (`FolderGitSteps`) have no desktop command; Sync is how a
- * desktop folder exchanges history. The CLI sends the deployment's Git its
+ * CLI sends the deployment's Git its
  * own token, so the page holds none. A reload or a closed window ends the
  * children it started.
  */
-import { Err, type Result } from 'wellcrafted/result';
+import type { Result } from 'wellcrafted/result';
 import type { DirectoryHistory } from './directory-adapter.js';
 import { describe } from './errors.js';
 import type { FolderHistory } from './folder.js';
@@ -44,15 +37,9 @@ import type {
 } from './git/history.js';
 import type { CommitSummary } from './git/objects.js';
 import { createPassRunner } from './git/runner.js';
-import type {
-	SyncAttempt,
-	SyncChoices,
-	SyncOptions,
-	SyncOutcome,
-} from './git/sync.js';
+import type { SyncOptions, SyncOutcome } from './git/sync.js';
 import {
 	decodeHistory,
-	encodeHistory,
 	type GitMissingReply,
 	type HistoryReply,
 	type HistoryResults,
@@ -152,8 +139,7 @@ function createCliHistory({
 		state: 'unknown',
 		error: undefined,
 	};
-	let lastMerge: GitSnapshot['lastMerge'];
-	const running = { commit: 0, merge: 0 };
+	const running = { commit: 0, sync: 0 };
 	const admitted = new Set<Promise<unknown>>();
 	const listeners = new Set<(snapshot: GitSnapshot) => void>();
 	let snapshot: GitSnapshot;
@@ -167,16 +153,12 @@ function createCliHistory({
 			activity: {
 				scan: { active: scanRunner.active },
 				commit: { active: running.commit > 0 },
-				push: { active: false },
+				push: { active: running.sync > 0 },
 				fetch: { active: false },
-				pull: { active: false },
-				merge: { active: running.merge > 0 },
 			},
 			lastCommit: state.lastCommit,
 			lastPush: state.lastPush,
 			lastFetch: undefined,
-			lastPull: undefined,
-			lastMerge,
 			closed: closing.signal.aborted,
 		});
 		for (const listener of [...listeners])
@@ -284,12 +266,12 @@ function createCliHistory({
 		});
 	}
 
-	/** One sync request: `sync` or `settle_sync`. */
+	/** One `sync` request. */
 	function syncing(
 		run: () => Promise<Answer<HistoryResults['sync']>>,
 	): Promise<Result<SyncOutcome, SyncError>> {
 		if (closing.signal.aborted) return Promise.resolve(SyncError.Closed());
-		running.merge++;
+		running.sync++;
 		emit();
 		return admit(async () => {
 			try {
@@ -298,14 +280,9 @@ function createCliHistory({
 				if (answer.kind !== 'reply')
 					return SyncError.Failed({ cause: gitFailure('sync', answer).error });
 				observe(answer.reply, capturedAt);
-				const result = answer.reply.result;
-				lastMerge =
-					result.error?.name === 'Merge'
-						? { result: Err(result.error.error), at: Date.now() }
-						: lastMerge;
-				return result;
+				return answer.reply.result;
 			} finally {
-				running.merge--;
+				running.sync--;
 				emit();
 			}
 		});
@@ -321,24 +298,6 @@ function createCliHistory({
 				),
 			),
 		);
-
-	function resolveSync(
-		attempt: SyncAttempt | Pick<SyncAttempt, 'id'>,
-		choices: SyncChoices,
-	): Promise<Result<SyncOutcome, SyncError>> {
-		// The choices are read once, now: later edits to the caller's object
-		// change nothing that is sent.
-		const id = (attempt as Partial<SyncAttempt> | null | undefined)?.id;
-		let picked: string;
-		try {
-			picked = encodeHistory(choices) ?? 'null';
-		} catch {
-			picked = 'null';
-		}
-		if (typeof id !== 'string')
-			return Promise.resolve(SyncError.Stale({ reason: 'replaced' }));
-		return syncing(() => ask(() => commands.settleSync(scope, id, picked)));
-	}
 
 	let closed: Promise<void> | undefined;
 
@@ -362,7 +321,6 @@ function createCliHistory({
 		commit,
 		sync: Object.freeze({
 			run: (options?: SyncOptions) => runSync(options),
-			resolve: resolveSync,
 			connect: (url: string, options?: SyncOptions) => runSync(options, url),
 		}),
 		async log(depth: number): Promise<Result<CommitSummary[], GitError>> {

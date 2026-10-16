@@ -34,17 +34,18 @@ import {
 	prepareFolderDefinition,
 } from './definition.js';
 import { OpenFolderError } from './errors.js';
-import type { Folder, FolderGitSteps } from './folder.js';
+import type { Folder } from './folder.js';
 import { createStoredGitBackend } from './git/browser-backend.js';
 import { createHistory, type History } from './git/history.js';
 import type { Author } from './git/objects.js';
 import { createOpfsGitStore } from './git/opfs-git.js';
 import { type FolderSchema, openAtRoot } from './open-at-root.js';
 import {
-	createOpfsFileBoundary,
-	errorName,
+	createOpfsStorage,
+	folderIn,
 	type OpfsDirectoryHandle,
 	type OpfsEnvironment,
+	type OpfsFolder,
 	type OpfsLocks,
 } from './opfs-store.js';
 
@@ -117,76 +118,12 @@ function folderAddress(id: string): FolderAddress {
 	};
 }
 
-const notFound = (name: string) =>
-	Object.assign(new Error(`'${name}' does not exist`), {
-		name: 'NotFoundError',
-	});
-
-/**
- * The directory `name` in `origin`, which may not exist yet. Reading a missing
- * directory finds nothing and lists nothing; the first call that creates
- * an entry in it creates it.
- */
-function lazyDirectory(
-	origin: OpfsDirectoryHandle,
-	name: string,
-): OpfsDirectoryHandle {
-	let made: OpfsDirectoryHandle | undefined;
-	let making: Promise<OpfsDirectoryHandle> | undefined;
-	/** The directory if it exists, without creating it. */
-	async function existing(): Promise<OpfsDirectoryHandle | undefined> {
-		if (made !== undefined) return made;
-		try {
-			made = await origin.getDirectoryHandle(name);
-			return made;
-		} catch (cause) {
-			if (errorName(cause) === 'NotFoundError') return undefined;
-			throw cause;
-		}
-	}
-	async function resolve(create: boolean | undefined) {
-		if (create) {
-			if (made !== undefined) return made;
-			making ??= (async () => {
-				const directory = await origin.getDirectoryHandle(name, {
-					create: true,
-				});
-				made = directory;
-				return directory;
-			})().finally(() => {
-				making = undefined;
-			});
-			return making;
-		}
-		const found = await existing();
-		if (found === undefined) throw notFound(name);
-		return found;
-	}
-	return {
-		kind: 'directory',
-		name,
-		getDirectoryHandle: async (entry, options) =>
-			(await resolve(options?.create)).getDirectoryHandle(entry, options),
-		getFileHandle: async (entry, options) =>
-			(await resolve(options?.create)).getFileHandle(entry, options),
-		removeEntry: async (entry, options) =>
-			(await resolve(false)).removeEntry(entry, options),
-		async *values() {
-			const found = await existing();
-			if (found !== undefined) yield* found.values();
-		},
-	};
-}
-
 /**
  * Open the browser folder named `id`. Refusals are returned, not thrown: a
  * definition a folder cannot keep, a page inside the desktop app, an ID that
  * cannot name a directory, or missing browser storage. Nothing is written.
  */
-export const openFolder: OpenFolder<FolderGitSteps> = async ({
-	definition,
-	...options
-}) => {
+export const openFolder: OpenFolder = async ({ definition, ...options }) => {
 	const { data: prepared, error: definitionError } =
 		prepareFolderDefinition(definition);
 	if (definitionError !== null)
@@ -203,7 +140,7 @@ export const openFolder: OpenFolder<FolderGitSteps> = async ({
  * An `epicenter.json` that cannot be used is `InvalidDeclaration`, and one
  * that does not contain the `lens` is `ShapeMismatch`.
  */
-export const openDataFolder: OpenDataFolder<FolderGitSteps> = async <
+export const openDataFolder: OpenDataFolder = async <
 	const TLens extends FolderDefinition = FolderDefinition,
 >({
 	lens,
@@ -225,9 +162,7 @@ async function openBrowserFolder<
 	schema: FolderSchema,
 	{ id, credentials, browser = {} }: OpenDataFolderOptions,
 	lens?: FolderDefinition,
-): Promise<
-	Result<Folder<TDefinition, TDeclared, FolderGitSteps>, OpenFolderError>
-> {
+): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
 	if (isTauri()) return OpenFolderError.InsideTauri();
 	if (!isFolderName(id)) return OpenFolderError.InvalidId({ id: String(id) });
 	const author = browser.author ?? LOCAL_AUTHOR;
@@ -245,9 +180,9 @@ async function openBrowserFolder<
 	const at = folderAddress(id);
 	const { locks } = environment;
 	// The first write makes the directory, so no read ever writes.
-	let root: OpfsDirectoryHandle;
+	let folder: OpfsFolder;
 	try {
-		root = lazyDirectory(await environment.getDirectory(), at.directory);
+		folder = folderIn(await environment.getDirectory(), at.directory);
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });
 	}
@@ -255,23 +190,15 @@ async function openBrowserFolder<
 		lens,
 		detector: browserChangeDetector(environment, at.hintChannel),
 		location: { kind: 'opfs', directory: at.directory },
-		// An incoming update a closed tab left half published stays pending:
-		// opening reads it into the snapshot and never resumes it.
 		async start({ relay, landed }) {
-			const boundary = createOpfsFileBoundary({
-				root,
+			const boundary = createOpfsStorage({
+				folder,
 				locks,
 				filesLock: at.filesLock,
 				landed: relay,
 			});
 			const backend = await createStoredGitBackend({
-				store: createOpfsGitStore({
-					root,
-					locks,
-					filesLock: at.filesLock,
-					branch: 'main',
-					landed: relay,
-				}),
+				store: createOpfsGitStore({ folder }),
 				locks,
 				lockName: at.gitLock,
 				createLock: at.openLock,

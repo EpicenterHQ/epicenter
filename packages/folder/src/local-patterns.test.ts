@@ -14,7 +14,6 @@
  *   the `.gitignore` in place, not without it, not past a person's `!`
  *   exception, and one committed before the rule is untracked, its bytes
  *   kept on disk and out of the pushed tree
- * - Staging by hand never stages a local file
  */
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -336,30 +335,6 @@ for (const [name, fixture] of [
 				'epicenter.json',
 				'recordings/x.md',
 			]);
-		} finally {
-			await opened.folder.close();
-		}
-	});
-
-	test(`${name}: staging by hand never stages the audio`, async () => {
-		const at = await fixture();
-		const opened = await at.open();
-		try {
-			await recordTake(opened.folder, 'x');
-			await opened.write('.gitignore', '');
-			const { git: history } = opened.folder as unknown as {
-				git: {
-					stage(paths: readonly string[] | 'all'): Promise<unknown>;
-					paths(): Promise<{ data: { path: string; index: string }[] }>;
-				};
-			};
-			expectOk((await history.stage('all')) as never);
-			expectOk((await history.stage(['audio/x.wav', 'audio'])) as never);
-			const staged = (await history.paths()).data
-				.filter((status) => status.index !== ' ' && status.index !== '?')
-				.map((status) => status.path);
-			expect(staged).not.toContain('audio/x.wav');
-			expect(staged).toContain('recordings/x.md');
 		} finally {
 			await opened.folder.close();
 		}

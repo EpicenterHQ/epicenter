@@ -47,13 +47,7 @@ type Call = { cmd: string; args: Record<string, unknown> };
 let grantedRoot: string | undefined;
 let calls: Call[] = [];
 /** The shell's history commands, which run the `epicenter` CLI. */
-const HISTORY_COMMANDS = new Set([
-	'status',
-	'history',
-	'save_version',
-	'sync',
-	'settle_sync',
-]);
+const HISTORY_COMMANDS = new Set(['status', 'history', 'save_version', 'sync']);
 let grant: (args: Record<string, unknown>) => unknown = () => {
 	throw new Error('no grant scripted');
 };
@@ -708,7 +702,7 @@ test("a data folder's Sync merges rows by its own declaration", async () => {
 	await folder.close();
 });
 
-test("a page's Sync runs in the CLI, reports what it wrote once, and settles a choice from a second child", async () => {
+test("a page's Sync runs in the CLI, reports what it wrote once, and merges competing edits with this device winning", async () => {
 	const project = await scratch('tauri-sync-cli-');
 	const bare = await createBareRemote(project);
 	const native = join(project, 'native');
@@ -761,39 +755,17 @@ test("a page's Sync runs in the CLI, reports what it wrote once, and settles a c
 			body: '',
 		}),
 	);
-	const held = await folder.sync.run();
-	if (held.error?.name !== 'NeedsChoices')
-		throw new Error(`expected NeedsChoices, got ${JSON.stringify(held)}`);
-	const { attempt } = held.error;
-	expect(attempt.conflicts).toMatchObject([
-		{
-			kind: 'field',
-			field: 'title',
-			local: { present: true, value: 'Mine' },
-			incoming: { present: true, value: 'Theirs' },
-		},
-	]);
-	// Only the attempt's ID and the choices cross to the shell.
-	const choices = {
-		[attempt.conflicts[0]!.id]: { kind: 'take', side: 'incoming' },
-	} as const;
-	expect(expectOk(await folder.sync.resolve(attempt, choices)).kind).toBe(
-		'synced',
-	);
-	const settle = calls.find(({ cmd }) => cmd === 'settle_sync')!;
-	expect(Object.keys(settle.args).sort()).toEqual([
-		'attempt',
-		'choices',
-		'scope',
-	]);
-	expect(settle.args.attempt).toBe(attempt.id);
+	heard.length = 0;
+	expect(expectOk(await folder.sync.run()).kind).toBe('synced');
 	expect(await readFile(join(root, 'todos/one.md'), 'utf8')).toBe(
-		'---\ntitle: Theirs\ndone: false\n---\n',
+		'---\ntitle: Mine\ndone: false\n---\n',
 	);
-	// The attempt is spent.
-	expect(expectErr(await folder.sync.resolve(attempt, choices))).toMatchObject({
-		name: 'Stale',
-		reason: 'replaced',
-	});
+	expect(await git(root, 'log', '-1', '--format=%B')).toContain(
+		'field="title" "todos/one.md"',
+	);
+	expect(await git(bare, 'rev-parse', 'main')).toBe(
+		await git(root, 'rev-parse', 'HEAD'),
+	);
+	expect(calls.filter(({ cmd }) => cmd === 'sync')).toHaveLength(3);
 	await folder.close();
 });

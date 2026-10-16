@@ -5,11 +5,8 @@
  * shell runs these commands with `--json` for the page, one child per
  * operation, and reads the one reply line.
  *
- * `sync` that needs choices exits 1 and records its attempt under the
- * folder's `.git/epicenter`. `sync --resolve <file>` settles it: the file
- * (or `-`, standard input) holds `{"attempt": "<id>", "choices": {...}}`,
- * one choice per conflict ID, and the conflicts are merged again from the
- * commits the attempt recorded.
+ * `sync` asks nothing: what both sides changed merges into one commit
+ * whose competing units go to this folder (ADR-0576).
  *
  * A sync that connects a remote also configures the repository for
  * `epicenter merge-driver`, so terminal merges use the same merge.
@@ -24,7 +21,6 @@ import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import {
-	decodeHistory,
 	encodeHistory,
 	GitMissingError,
 	type HistoryReply,
@@ -65,18 +61,8 @@ export async function isApplicationFolder(
 	);
 }
 
-/** Read all of standard input as one JSON object, or `undefined` when empty. */
-async function stdinObject(): Promise<Record<string, unknown> | undefined> {
-	const text = (await Bun.stdin.text()).trim();
-	if (text === '') return undefined;
-	const value: unknown = decodeHistory(text);
-	if (typeof value !== 'object' || value === null || Array.isArray(value))
-		throw new Error('standard input must hold one JSON object');
-	return value as Record<string, unknown>;
-}
-
 /**
- * The request `sync`'s options and input make. `--to` connects the folder
+ * The request `sync`'s options make. `--to` connects the folder
  * first, and the merge driver follows from connecting: `<namespace>/<name>`
  * names a hosted repository on this deployment (ADR-0546), whose remote is
  * `<git origin>/<namespace>/<name>.git`; anything else is the remote's URL,
@@ -85,7 +71,6 @@ async function stdinObject(): Promise<Record<string, unknown> | undefined> {
  * with the remote the folder's history reads.
  */
 async function syncRequest(options: Options): Promise<HistoryRequest> {
-	const resolve = options.resolve;
 	let connect: string | undefined;
 	if (options.to !== undefined) {
 		if (typeof options.to !== 'string')
@@ -95,20 +80,6 @@ async function syncRequest(options: Options): Promise<HistoryRequest> {
 			import('./repository-commands.ts'),
 		]);
 		connect = remoteFor(authContext(), options.to);
-	}
-	if (typeof resolve === 'string') {
-		const answer =
-			resolve === '-'
-				? await stdinObject()
-				: decodeHistory<Record<string, unknown>>(
-						await Bun.file(resolve).text(),
-					);
-		const attempt = answer?.attempt;
-		if (typeof attempt !== 'string' || answer?.choices === undefined)
-			throw new Error(
-				`${resolve === '-' ? 'standard input' : resolve} must hold {"attempt": "<id>", "choices": {...}}, as the last sync printed them`,
-			);
-		return { op: 'settle', attempt, choices: answer.choices };
 	}
 	return {
 		op: 'sync',
@@ -194,23 +165,12 @@ function describeReply(
 					return `No version was saved (${outcome.status}).`;
 			}
 		}
-		case 'sync':
-		case 'settle': {
+		case 'sync': {
 			const { data, error } = reply.result as HistoryResults['sync'];
-			if (error === null)
-				return data.kind === 'synced'
-					? `Synced at ${short(data.head)}.`
-					: `Saved at ${short(data.head)}; the remote does not hold it yet${data.push?.status === 'failed' ? `: ${data.push.error}` : ''}.`;
-			if (error.name !== 'NeedsChoices') return error.message;
-			const { attempt } = error;
-			return [
-				`${error.message}. Nothing conflicted was written or sent.`,
-				...attempt.conflicts.map(
-					(conflict) =>
-						`  ${conflict.id}  ${conflict.kind} ${conflict.path}${'field' in conflict ? ` ${conflict.field}` : 'key' in conflict ? ` ${conflict.key}` : ''}`,
-				),
-				`Write {"attempt": "${attempt.id}", "choices": {"<id>": {"kind": "take", "side": "local" | "incoming"}, ...}} to a file and run epicenter sync <dir> --resolve <file>.`,
-			].join('\n');
+			if (error !== null) return error.message;
+			return data.kind === 'synced'
+				? `Synced at ${short(data.head)}.`
+				: `Saved at ${short(data.head)}; the remote does not hold it yet${data.push?.status === 'failed' ? `: ${data.push.error}` : ''}.`;
 		}
 	}
 }

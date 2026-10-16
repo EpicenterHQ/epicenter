@@ -7,7 +7,6 @@
  import * as Item from '@epicenter/ui/item';
  import { Folder, FileText, ChevronDown, ChevronRight, GitBranch, GitCommitHorizontal } from '@lucide/svelte';
  import { visibleRows } from '@epicenter/folder/file-browser';
- import SyncReview from '@epicenter/svelte/sync-review';
  import { openWorkingCopy, type WorkingCopy } from '$lib/workspace.svelte';
 
  let workspace = $state.raw<WorkingCopy>();
@@ -103,8 +102,7 @@
    <p>Open A and B on the same remote. Each keeps its own files. Open B in a second tab with <code>?copy=b</code>.</p>
    <p>Both start with <code>notes/color.txt</code> containing <code>color=blue</code>. In A, change it to red and press <strong>Sync</strong>: A commits what it saved, brings in the remote, and pushes.</p>
    <p>In B, press <strong>Sync</strong>: red arrives. Edits to different lines of a file combine on their own.</p>
-   <p>For a conflict, change the same line in both copies, say green in B and yellow in A. Sync A first, then Sync B. B shows its version and the remote's side by side and writes nothing until you choose one, or type your own, and press <strong>Apply and sync</strong>. <strong>Cancel</strong> forgets the review; nothing changed. A can then Sync the result.</p>
-   <p>While the review shows, the editor and the Git actions wait. Merge refuses a conflict and points to Sync; Fetch, Pull, and the rest still work.</p>
+   <p>Change the same line in both copies, say green in B and yellow in A. Sync A first, then Sync B: B keeps yellow, its own, and the merge commit names green as what lost, which the history still holds. Sync A again to receive yellow.</p>
   </section>
  {/if}
  {#if workspace}
@@ -123,8 +121,8 @@
      {:else}<p class="p-3 text-sm text-muted-foreground">No files yet. Create one below.</p>{/each}
     </Item.Group>
     <section class="max-h-60 overflow-auto border-t p-3 text-xs" aria-label="Changes">
-     <p class="mb-2 font-medium">Staged / unstaged</p>
-     {#each workspace.paths as path (path.path)}<p class="break-all font-mono"><span class="whitespace-pre">{path.index}{path.worktree}</span> {path.path}</p>{:else}<p class="text-muted-foreground">Working copy clean</p>{/each}
+     <p class="mb-2 font-medium">Changes since the last version</p>
+     {#each workspace.changes as change (change.path)}<p class="break-all font-mono"><span class="whitespace-pre">{change.kind}</span> {change.path}</p>{:else}<p class="text-muted-foreground">Working copy clean</p>{/each}
     </section>
    </aside>
    <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -133,20 +131,6 @@
      <span class="ml-auto text-xs text-muted-foreground">{workspace.saveMessage}</span>
      <Button variant="ghost" size="xs" disabled={workspace.running || !workspace.dirty} onclick={() => act(() => workspace!.flush())}>Save</Button>
     </div>
-    {#if workspace.syncAttempt}
-     <!-- The review is modal: it replaces the editor and Git actions until it is applied or cancelled. -->
-     <div class="min-h-0 flex-1 overflow-auto p-4">
-      {#key workspace.syncAttempt.id}
-       <SyncReview
-        attempt={workspace.syncAttempt}
-        pending={workspace.syncing}
-        problems={workspace.syncProblems}
-        onCancel={() => workspace!.cancelSync()}
-        onApply={(attempt, choices) => void workspace!.applySync(attempt, choices)}
-       />
-      {/key}
-     </div>
-    {:else}
     {#if workspace.dirty && !['Unsaved changes', 'Saving…'].includes(workspace.saveMessage)}
      <div class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-sm"><span>Your text is still here.</span><Button size="xs" variant="outline" onclick={() => act(() => workspace!.useSavedText())}>Discard my edits and reload</Button></div>
     {/if}
@@ -155,16 +139,15 @@
     {:else}<div class="flex min-h-0 flex-1 items-center justify-center p-8 text-sm text-muted-foreground">{workspace.selected ? workspace.saveMessage : 'Select a file to edit its text.'}</div>{/if}
   {#if showGit}
    <section class="flex h-64 shrink-0 flex-col border-t" aria-label="Git">
-    <div class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground"><span>Files save immediately; versions are explicit</span><div class="ml-auto flex flex-wrap gap-2"><Button size="xs" variant="ghost" disabled={workspace.locked} onclick={() => workspace!.status()}>Status</Button><Button size="xs" variant="ghost" disabled={workspace.locked} onclick={() => workspace!.commit()}>Save version</Button><Button size="xs" variant="ghost" disabled={workspace.locked || !remote} onclick={() => workspace!.fetch()}>Fetch</Button><Button size="xs" variant="ghost" disabled={workspace.locked || !remote} onclick={() => workspace!.pull()}>Pull</Button><Button size="xs" variant="ghost" disabled={workspace.locked || !remote} onclick={() => workspace!.merge()}>Merge</Button><Button size="xs" variant="ghost" disabled={workspace.locked || !remote} onclick={() => workspace!.push()}>Push</Button><Button size="xs" disabled={workspace.locked || !remote} onclick={() => workspace!.sync()}>Sync</Button></div></div>
+    <div class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground"><span>Files save immediately; versions are explicit</span><div class="ml-auto flex flex-wrap gap-2"><Button size="xs" variant="ghost" disabled={workspace.locked} onclick={() => workspace!.status()}>Status</Button><Button size="xs" variant="ghost" disabled={workspace.locked} onclick={() => workspace!.commit()}>Save version</Button><Button size="xs" disabled={workspace.locked || !remote} onclick={() => workspace!.sync()}>Sync</Button></div></div>
     <div role="textbox" aria-readonly="true" aria-multiline="true" tabindex="0" bind:this={gitOutput} onscroll={(event) => { const element = event.currentTarget; followOutput = element.scrollHeight - element.scrollTop - element.clientHeight < 24; }} aria-label="Git output" class="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all px-4 py-2 font-mono text-xs">{workspace.output}</div>
     <form class="flex shrink-0 items-center gap-2 border-t px-4 py-2" onsubmit={(event) => { event.preventDefault(); const path = newPath; newPath = ''; void act(() => workspace!.create(path)); }}><Input aria-label="New file path" class="flex-1 font-mono" spellcheck={false} autocorrect="off" autocapitalize="off" bind:value={newPath} disabled={workspace.locked} placeholder="notes/new.txt" /><Button size="sm" type="submit" disabled={workspace.locked || !newPath.trim()}>New file</Button></form>
    </section>
-  {/if}
   {/if}
    </main>
   </div>
   <footer class="flex shrink-0 flex-wrap gap-x-4 border-t px-4 py-2 text-xs text-muted-foreground"><span>{workspace.snapshot.branch}</span>{#if !remote}<span>Local history</span>{:else if sync?.state === 'observed' && sync.value.remote !== undefined}<span>{sync.value.ahead} ahead · {sync.value.behind} behind last fetched head{sync.stale ? ' · needs refresh' : ''}</span>{:else}<span>Remote relationship unknown</span>{/if}<span class="ml-auto truncate">{location?.kind === 'directory' ? location.root : location?.directory}</span></footer>
  {:else}
-  <main class="flex flex-1 items-center justify-center p-8"><div class="max-w-lg space-y-3"><h1 class="text-xl font-semibold">Two working copies. One remote.</h1><p class="text-sm text-muted-foreground">Open a working copy to browse files and edit text. Sync brings the copies together and asks you before it writes a conflict. Save version, Fetch, Pull, Merge, and Push do one step each by hand. Opening an empty copy fetches the remote's main branch.</p><p class="text-sm text-muted-foreground">Copy A and copy B have separate files and history. Changes arrive only when you Sync or ask Git to bring them in.</p></div></main>
+  <main class="flex flex-1 items-center justify-center p-8"><div class="max-w-lg space-y-3"><h1 class="text-xl font-semibold">Two working copies. One remote.</h1><p class="text-sm text-muted-foreground">Open a working copy to browse files and edit text. Sync brings the copies together without asking: where both changed the same line, the copy syncing wins, and the history keeps the other. Save version records a version by hand. Opening an empty copy fetches the remote's main branch.</p><p class="text-sm text-muted-foreground">Copy A and copy B have separate files and history. Changes arrive only when you Sync.</p></div></main>
  {/if}
 </div>

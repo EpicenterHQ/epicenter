@@ -187,7 +187,6 @@ export function createGrantedShell(root: string, scope: string) {
 		history: history('history'),
 		save_version: history('save_version'),
 		sync: history('sync'),
-		settle_sync: history('settle_sync'),
 		read_folder_directory: (args) =>
 			asPluginError(async () =>
 				(

@@ -1,6 +1,6 @@
 /**
  * Three rows merged by field and the body by line, with no table: the core
- * of `mergeFile`'s row merge (ADR-0551).
+ * of `merge`'s row merge (ADR-0551, ADR-0576).
  *
  * Values compare as JSON, so object key order does not matter and arrays and
  * objects are one unit each. For each field, equal values agree and a side

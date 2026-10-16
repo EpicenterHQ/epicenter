@@ -53,7 +53,7 @@ Save version run in the `epicenter` CLI (`runHistory`), which reads the
 definition from that file, so the CLI excludes exactly what the app does. A
 declaration without `local` keeps nothing local, and a folder with no
 `epicenter.json` has no definition. An `epicenter.json` that is there but
-cannot be read or prepared refuses a save version, a sync, and a settle, with
+cannot be read or prepared refuses a save version and a sync, with
 the problem named, because a commit made without its `local` could carry
 those files; status and the log still read. A browser data folder with such a
 file does not open (`InvalidDeclaration`).
@@ -110,15 +110,16 @@ Whispering has no audio export, so there is nothing else to disable.
 - A person who deletes the `audio/` line from `.gitignore` gets it back the
   next time the app opens the folder and writes.
 - If a Sync takes an `epicenter.json` written by an older app version, one
-  without `local`, the engine stops excluding `audio/` until the app
-  publishes its declaration again on its next write. `.gitignore` merges by
-  line and keeps its `audio/` line meanwhile, so an untracked recording is
-  still ignored there.
-- If two devices publish differing `local` lists, a Sync keeps only one
-  `epicenter.json`, so the other device's patterns lapse until merging
-  `epicenter.json` unions `local`, which is planned with Sync's rewrite
-  ([ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md)
-  wave C).
+  without `local`, other devices' patterns leave the file. Each device still
+  excludes its own definition's patterns, since an open folder reads `local`
+  for each commit joined with its definition's, and lists them again on its
+  next write. `.gitignore` merges by line and keeps its `audio/` line
+  meanwhile, so an untracked recording is still ignored there.
+- If two devices publish differing `local` lists, both stay: merging
+  `epicenter.json` unions `local`
+  ([ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md)),
+  an open folder reads the file's `local` again for each commit and Sync, and
+  a handle's publication keeps every pattern the file lists.
 - No server holds a person's audio unless they send it to a transcription
   service.
 - Objects already in the hosted `epicenter-blobs` bucket stay until the bucket

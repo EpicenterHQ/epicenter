@@ -1,69 +1,50 @@
 /**
- * Origin private file system (OPFS) storage for one browser folder.
+ * A browser folder's storage, in the origin private file system (OPFS).
  *
  * Each literal folder path is one stored file under the folder's directory,
  * and each directory, empty ones included, is one stored directory. There is
  * no inventory beside the files: a file's identity is the SHA-256 of the
  * bytes read from it, never its size or modification time. `.git` at the
  * folder root is private Git state. No portable path can name it, and
- * listing, capture, and the file methods never show it.
+ * listing never shows it.
  *
- * Every mutation holds the folder's files Web Lock, so cooperating tabs and
- * handles check a condition and publish under it without interleaving. Reads
- * take no lock. A file's new bytes publish when its writable stream closes,
- * so a reader sees the old bytes or the new ones. A new file is visible,
- * empty, from the moment it is created until its stream closes.
+ * The folder's directory is made by its first change, never by opening or
+ * reading (`OpfsFolder`).
  *
- * A replacement creates nothing, not even a directory on the way: it opens
- * the file without `create`, opens its stream, then checks once more that
- * the file is there. Chromium opens a stream for a file removed since its
- * handle was taken, and closing that stream creates the file again; the
- * check, whose `getFile` is `NotFoundError` there, aborts it instead and the
- * path stays absent (`NotFound`, or `Conflict` when a sha256 was expected).
- * In Chromium an open stream holds a lock that refuses the removal of the
- * file and the recursive removal of any directory above it, so a file found
- * by that check is still there when the stream closes. Both behaviors are
- * read from Chromium's source and were observed by probes in Chrome 142;
- * `opfs.test-support.ts` models them, and no other engine is verified. A removal
- * by code that skips the files lock is the case it covers, since every
- * mutation here holds that lock.
+ * Every change holds the folder's files Web Lock, so cooperating tabs check
+ * a condition and change a file under it without interleaving; `lock` holds
+ * it across several changes. Reads take no lock. A change lands whole:
  *
- * An application checks every condition first, then applies its steps in
- * order and reports each step that landed. A failure after the first step is
- * `Partial`; nothing is rolled back. Parent directories a step created stay
- * even when the step fails. A stream that fails to close may or may not have
- * published: the outcome is `Unconfirmed`, and the path is reported. The bytes
- * found there afterward are not taken as proof of which write put them there.
- * A new file whose stream never reached its close is removed again; when its
- * absence cannot be established, the outcome is `Unconfirmed` too.
+ * - A file's new bytes replace its old ones when its writable stream closes,
+ *   so a reader sees the old bytes or the new ones.
+ * - A new file is written to `.git/epicenter/scratch` and moved into place,
+ *   since OPFS makes a file empty the moment it is first asked for; a crash
+ *   then leaves nothing at the path, never an empty file. The move happens
+ *   only where the lock has just found no file. A browser that cannot move
+ *   a file writes it in place, empty until its stream closes, and takes it
+ *   away again when the stream fails.
+ * - A stream that fails to close may or may not have published: the outcome
+ *   is `Unconfirmed`. The bytes found there afterward are not taken as proof
+ *   of which write put them there.
+ *
+ * A replacement opens its file's stream, then checks once more that the
+ * file is there. Chromium opens a stream for a file removed since its handle
+ * was taken, and closing that stream creates the file again; the check,
+ * whose `getFile` is `NotFoundError` there, aborts it instead. In Chromium an
+ * open stream holds a lock that refuses the removal of the file, so a file
+ * found by that check is still there when the stream closes. Both behaviors
+ * are read from Chromium's source and were observed by probes in Chrome 142;
+ * `opfs.test-support.ts` models them, and no other engine is verified.
  *
  * Saves are serialized by the Web Lock in the order they take it, not the
  * order their methods were called: whichever lands last on a path stays.
- *
- * Each write and removal also names what it expects at its path when it
- * lands (`Expectation`), on the stream it opens or the removal it asks for.
- * OPFS ignores it: the files lock already holds every change of an origin.
- * A directory handle (`directory-handle.ts`) passes it to its host, which
- * checks it where the bytes publish, so writers that share no lock still
- * cannot overtake each other's saves unseen.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type {
-	CapturedFiles,
-	FileBoundary,
-	FileChange,
-	FileListing,
-	FileRead,
-} from './boundary.js';
+import type { FileListing, FolderStorage } from './boundary.js';
 import { hashBytes } from './capture.js';
-import {
-	ApplyError,
-	FileError,
-	type FileStep,
-	UnconfirmedWrite,
-	UnexpectedTarget,
-} from './errors.js';
-import { ancestors, basename, isPortablePath, pathProblem } from './paths.js';
+import { isStaleScratch } from './directory-primitives.js';
+import { FileError, UnconfirmedWrite } from './errors.js';
+import { ancestors, basename, pathProblem } from './paths.js';
 
 /** A snapshot of a stored file. */
 export type OpfsFile = {
@@ -77,25 +58,15 @@ export type OpfsWritable = {
 	abort(reason?: unknown): Promise<void>;
 };
 
-/**
- * What a change expects at its path when it lands: nothing there, a file, a
- * file whose bytes hash to `sha256`, or whatever is there.
- */
-export type Expectation =
-	| 'absent'
-	| 'present'
-	| { readonly sha256: string }
-	| 'any';
-
 export type OpfsFileHandle = {
 	readonly kind: 'file';
 	readonly name: string;
 	getFile(): Promise<OpfsFile>;
 	createWritable(options?: {
 		keepExistingData?: boolean;
-		/** Checked by a directory handle's host when the stream closes; OPFS ignores it. */
-		expected?: Expectation;
 	}): Promise<OpfsWritable>;
+	/** Move this file to `name` in `directory`, at once. */
+	move?(directory: OpfsDirectoryHandle, name: string): Promise<void>;
 };
 
 export type OpfsDirectoryHandle = {
@@ -109,14 +80,7 @@ export type OpfsDirectoryHandle = {
 		name: string,
 		options?: { create?: boolean },
 	): Promise<OpfsFileHandle>;
-	removeEntry(
-		name: string,
-		options?: {
-			recursive?: boolean;
-			/** Checked by a directory handle's host; OPFS ignores it. */
-			expected?: Expectation;
-		},
-	): Promise<void>;
+	removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
 	values(): AsyncIterable<OpfsFileHandle | OpfsDirectoryHandle>;
 };
 
@@ -152,6 +116,57 @@ export type OpfsEnvironment = {
 		readonly document?: EventTarget;
 	};
 };
+
+/**
+ * A folder's directory, which may not exist yet: what reading finds, and
+ * what a change makes.
+ */
+export type OpfsFolder = {
+	/** The directory if it exists, without making it. */
+	existing(): Promise<OpfsDirectoryHandle | undefined>;
+	/** The directory, made if it is not there. */
+	made(): Promise<OpfsDirectoryHandle>;
+};
+
+/** A folder whose directory is `handle`, already there. */
+export const presentFolder = (handle: OpfsDirectoryHandle): OpfsFolder => ({
+	existing: async () => handle,
+	made: async () => handle,
+});
+
+/** The folder `name` in `origin`, made by the first change that needs it. */
+export function folderIn(
+	origin: OpfsDirectoryHandle,
+	name: string,
+): OpfsFolder {
+	let made: OpfsDirectoryHandle | undefined;
+	let making: Promise<OpfsDirectoryHandle> | undefined;
+	return {
+		async existing() {
+			if (made !== undefined) return made;
+			try {
+				made = await origin.getDirectoryHandle(name);
+				return made;
+			} catch (cause) {
+				if (errorName(cause) === 'NotFoundError') return undefined;
+				throw cause;
+			}
+		},
+		made() {
+			if (made !== undefined) return Promise.resolve(made);
+			making ??= origin
+				.getDirectoryHandle(name, { create: true })
+				.then((directory) => {
+					made = directory;
+					return directory;
+				})
+				.finally(() => {
+					making = undefined;
+				});
+			return making;
+		},
+	};
+}
 
 /** The folder's private Git directory. `pathProblem` refuses it as a path. */
 export const PRIVATE_DIRECTORY = '.git';
@@ -190,32 +205,8 @@ type Lookup =
 	| { readonly kind: 'file'; readonly handle: OpfsFileHandle }
 	| { readonly kind: 'directory'; readonly handle: OpfsDirectoryHandle }
 	| { readonly kind: 'absent' }
-	/** Nothing is stored under this exact name, but a case-variant is. */
-	| { readonly kind: 'occupied' }
-	/** A symbolic link, which is never followed. */
-	| { readonly kind: 'link' }
 	/** `ancestor` is a file, so nothing can be below it. */
 	| { readonly kind: 'underFile'; readonly ancestor: string };
-
-/** Whether `cause` is a directory handle's refusal of a symbolic link. */
-const isLink = (cause: unknown) =>
-	typeof cause === 'object' &&
-	cause !== null &&
-	(cause as { link?: unknown }).link === true;
-
-const absentOrOccupied = (cause: unknown): Lookup =>
-	isLink(cause)
-		? { kind: 'link' }
-		: (cause as { occupied?: unknown }).occupied === true
-			? { kind: 'occupied' }
-			: { kind: 'absent' };
-
-/** What a symbolic link at `path` is reported as. */
-const linkRefusal = (path: string) =>
-	FileError.InvalidPath({
-		path,
-		reason: 'the path passes through a symbolic link',
-	});
 
 /** What `path` names below `root`; the empty path is `root` itself. */
 export async function lookup(
@@ -230,7 +221,7 @@ export async function lookup(
 			directory = await directory.getDirectoryHandle(segments[index]!);
 		} catch (cause) {
 			const name = errorName(cause);
-			if (name === 'NotFoundError') return absentOrOccupied(cause);
+			if (name === 'NotFoundError') return { kind: 'absent' };
 			if (name === 'TypeMismatchError')
 				return {
 					kind: 'underFile',
@@ -244,7 +235,7 @@ export async function lookup(
 		return { kind: 'file', handle: await directory.getFileHandle(last) };
 	} catch (cause) {
 		const name = errorName(cause);
-		if (name === 'NotFoundError') return absentOrOccupied(cause);
+		if (name === 'NotFoundError') return { kind: 'absent' };
 		if (name !== 'TypeMismatchError') throw cause;
 	}
 	return {
@@ -268,7 +259,6 @@ export async function ensureDirectory(
 			});
 		} catch (cause) {
 			const at = segments.slice(0, index + 1).join('/');
-			if (isLink(cause)) return linkRefusal(at);
 			if (errorName(cause) === 'TypeMismatchError')
 				return FileError.NotADirectory({ path: at });
 			return FileError.Io({ path: at, operation: 'create directory', cause });
@@ -347,12 +337,14 @@ export async function removePrivateFile(
 	root: OpfsDirectoryHandle,
 	path: string,
 ): Promise<void> {
-	const { error: removeError } = await removeFileAt(
-		root,
-		`${PRIVATE_DIRECTORY}/${path}`,
-	);
-	if (removeError !== null && removeError.name !== 'NotFound')
-		throw new Error(removeError.message);
+	const full = `${PRIVATE_DIRECTORY}/${path}`;
+	const parent = await lookup(root, parentOf(full));
+	if (parent.kind !== 'directory') return;
+	try {
+		await parent.handle.removeEntry(basename(full));
+	} catch (cause) {
+		if (errorName(cause) !== 'NotFoundError') throw cause;
+	}
 }
 
 /** Visit every entry below `directory`, leaving out the root's `.git`. */
@@ -374,525 +366,6 @@ export async function walk(
 	}
 }
 
-const byPath = <T>([a]: [string, T], [b]: [string, T]) =>
-	a < b ? -1 : a > b ? 1 : 0;
-
-/**
- * Every portable file's bytes, read now. A file removed while it is read is
- * left out, as if enumeration had missed it; any other failure is reported.
- */
-export async function captureFiles(
-	root: OpfsDirectoryHandle,
-): Promise<CapturedFiles> {
-	const files = new Map<string, Uint8Array>();
-	const unreadable: { path: string; error: FileError }[] = [];
-	await walk(root, '', {
-		async file(path, handle) {
-			if (!isPortablePath(path)) return;
-			try {
-				files.set(path, await readHandle(handle));
-			} catch (cause) {
-				if (errorName(cause) === 'NotFoundError') return;
-				unreadable.push({
-					path,
-					error: FileError.Io({ path, operation: 'read', cause }).error,
-				});
-			}
-		},
-	});
-	return { files: new Map([...files].sort(byPath)), unreadable };
-}
-
-/** What a write requires of its path when its bytes land. */
-type WriteTarget =
-	/** A file must be there; with `expectedSha256` the absence is a conflict. */
-	| { readonly kind: 'replace'; readonly expectedSha256?: string }
-	/** Nothing may be there: a new file, or a move's destination. */
-	| { readonly kind: 'create' }
-	/**
-	 * Whatever is there is replaced. `exists` says whether the plan found a
-	 * file, so a failure leaves that file there and removes only one this
-	 * write made.
-	 */
-	| { readonly kind: 'overwrite'; readonly exists: boolean };
-
-/** What a write to `target` expects at its path when its bytes land. */
-function expectationOf(target: WriteTarget): Expectation {
-	if (target.kind === 'create') return 'absent';
-	if (target.kind === 'overwrite') return 'any';
-	return target.expectedSha256 === undefined
-		? 'present'
-		: { sha256: target.expectedSha256 };
-}
-
-/**
- * A host's refusal of what a change expected, as file storage reports it.
- * The host changed nothing. A refusal the expectation could not produce is
- * reported as a failure of `operation`.
- */
-function unexpected(
-	refusal: UnexpectedTarget,
-	path: string,
-	operation: string,
-	expectedSha256: string | undefined,
-): Result<never, FileError> {
-	const { found } = refusal;
-	if (found.name === 'Exists') return FileError.Exists({ path });
-	if (expectedSha256 !== undefined)
-		return FileError.Conflict({
-			path,
-			expectedSha256,
-			actualSha256: found.name === 'Conflict' ? found.actualSha256 : undefined,
-		});
-	if (found.name === 'NotFound') return FileError.NotFound({ path });
-	return FileError.Io({ path, operation, cause: refusal });
-}
-
-/** One step of an application whose conditions held. */
-type Planned =
-	| {
-			readonly kind: 'write';
-			readonly path: string;
-			readonly bytes: Uint8Array;
-			readonly sha256: string;
-			readonly target: WriteTarget;
-	  }
-	| {
-			readonly kind: 'remove';
-			readonly path: string;
-			readonly expectedSha256: string | undefined;
-	  }
-	| {
-			readonly kind: 'move';
-			readonly from: string;
-			readonly to: string;
-			readonly bytes: Uint8Array;
-			readonly sha256: string;
-	  };
-
-function toStep(change: FileChange): FileStep {
-	return change.kind === 'move'
-		? { kind: 'move', from: change.from, to: change.to }
-		: {
-				kind: change.kind === 'remove' ? 'remove' : 'write',
-				path: change.path,
-			};
-}
-
-const stepPaths = (step: FileStep): string[] =>
-	step.kind === 'move' ? [step.from, step.to] : [step.path];
-
-/**
- * Check every change's condition against the folder as earlier changes of the
- * same application leave it. Nothing is written.
- */
-async function plan(
-	root: OpfsDirectoryHandle,
-	changes: readonly FileChange[],
-): Promise<Result<Planned[], FileError>> {
-	/** Files earlier steps write (their SHA-256) or remove (`null`). */
-	const overlay = new Map<string, string | null>();
-	/** Bytes read from the folder while checking, by path. */
-	const read = new Map<string, Uint8Array>();
-
-	type Current =
-		| { kind: 'file'; sha256: string | undefined }
-		| { kind: 'directory' }
-		| { kind: 'absent' }
-		| { kind: 'occupied' }
-		| { kind: 'link' }
-		| { kind: 'underFile'; ancestor: string };
-
-	/** `hash: false` answers whether a file is there without reading it. */
-	async function current(path: string, hash = true): Promise<Current> {
-		const written = overlay.get(path);
-		if (written !== undefined)
-			return written === null
-				? { kind: 'absent' }
-				: { kind: 'file', sha256: written };
-		for (const parent of ancestors(path))
-			if (typeof overlay.get(parent) === 'string')
-				return { kind: 'underFile', ancestor: parent };
-		for (const [other, value] of overlay)
-			if (value !== null && other.startsWith(`${path}/`))
-				return { kind: 'directory' };
-		const found = await lookup(root, path);
-		if (found.kind === 'underFile')
-			// An earlier step may have removed the file in the way.
-			return overlay.get(found.ancestor) === null ? { kind: 'absent' } : found;
-		if (found.kind !== 'file') return found;
-		if (!hash) return { kind: 'file', sha256: undefined };
-		const bytes = await readHandle(found.handle);
-		read.set(path, bytes);
-		return { kind: 'file', sha256: await hashBytes(bytes) };
-	}
-
-	/** A file may be written at `path` where no file is. */
-	function blocked(path: string, found: Current): FileError | undefined {
-		if (found.kind === 'directory') return FileError.NotAFile({ path }).error;
-		if (found.kind === 'occupied') return FileError.Exists({ path }).error;
-		if (found.kind === 'link') return linkRefusal(path).error;
-		if (found.kind === 'underFile')
-			return FileError.NotADirectory({ path: found.ancestor }).error;
-		return undefined;
-	}
-
-	function conflict(
-		path: string,
-		found: Current,
-		expectedSha256: string | undefined,
-	): FileError | undefined {
-		const actual = found.kind === 'file' ? found.sha256 : undefined;
-		if (expectedSha256 === undefined || actual === expectedSha256)
-			return undefined;
-		return FileError.Conflict({
-			path,
-			expectedSha256,
-			actualSha256: actual,
-		}).error;
-	}
-
-	const planned: Planned[] = [];
-	try {
-		for (const change of changes) {
-			if (change.kind === 'remove') {
-				const found = await current(
-					change.path,
-					change.expectedSha256 !== undefined,
-				);
-				if (found.kind === 'directory')
-					return FileError.NotAFile({ path: change.path });
-				if (found.kind === 'link') return linkRefusal(change.path);
-				if (found.kind !== 'file')
-					return FileError.NotFound({ path: change.path });
-				const refused = conflict(change.path, found, change.expectedSha256);
-				if (refused) return Err(refused);
-				overlay.set(change.path, null);
-				planned.push({
-					kind: 'remove',
-					path: change.path,
-					expectedSha256: change.expectedSha256,
-				});
-				continue;
-			}
-			if (change.kind === 'move') {
-				const found = await current(change.from);
-				if (found.kind === 'directory')
-					return FileError.NotAFile({ path: change.from });
-				if (found.kind === 'link') return linkRefusal(change.from);
-				if (found.kind !== 'file' || found.sha256 === undefined)
-					return FileError.NotFound({ path: change.from });
-				const refused = conflict(change.from, found, change.expectedSha256);
-				if (refused) return Err(refused);
-				// A source an earlier step wrote has that step's bytes.
-				const earlier = planned.findLast(
-					(step) =>
-						(step.kind === 'write' && step.path === change.from) ||
-						(step.kind === 'move' && step.to === change.from),
-				);
-				const bytes =
-					earlier !== undefined && earlier.kind !== 'remove'
-						? earlier.bytes
-						: read.get(change.from);
-				if (bytes === undefined)
-					return FileError.NotFound({ path: change.from });
-				const destination = await current(change.to, false);
-				if (destination.kind === 'file')
-					return FileError.Exists({ path: change.to });
-				const refusedTo = blocked(change.to, destination);
-				if (refusedTo) return Err(refusedTo);
-				overlay.set(change.from, null);
-				overlay.set(change.to, found.sha256);
-				planned.push({
-					kind: 'move',
-					from: change.from,
-					to: change.to,
-					bytes,
-					sha256: found.sha256,
-				});
-				continue;
-			}
-			// Only a guarded replacement compares bytes; the others need not read them.
-			const found = await current(
-				change.path,
-				change.kind === 'replace' && change.expectedSha256 !== undefined,
-			);
-			if (change.kind === 'create' && found.kind === 'file')
-				return FileError.Exists({ path: change.path });
-			if (change.kind === 'replace') {
-				const refused = conflict(change.path, found, change.expectedSha256);
-				if (refused) return Err(refused);
-				// A replacement never creates a file, guarded or not.
-				if (found.kind === 'directory')
-					return FileError.NotAFile({ path: change.path });
-				if (found.kind !== 'file')
-					return FileError.NotFound({ path: change.path });
-			}
-			if (found.kind !== 'file') {
-				const refused = blocked(change.path, found);
-				if (refused) return Err(refused);
-			}
-			overlay.set(change.path, change.sha256);
-			planned.push({
-				kind: 'write',
-				path: change.path,
-				bytes: change.bytes,
-				sha256: change.sha256,
-				target:
-					change.kind === 'replace'
-						? { kind: 'replace', expectedSha256: change.expectedSha256 }
-						: change.kind === 'create'
-							? { kind: 'create' }
-							: { kind: 'overwrite', exists: found.kind === 'file' },
-			});
-		}
-	} catch (cause) {
-		return FileError.Io({ path: '', operation: 'read', cause });
-	}
-	return Ok(planned);
-}
-
-/**
- * Publish `bytes` at `path` as `target` requires. A stream that fails to
- * close is `Unconfirmed`, whatever the path holds afterward, unless its host
- * refused it for finding something other than `target` there
- * (`UnexpectedTarget`), which published nothing.
- */
-async function writeFileAt(
-	root: OpfsDirectoryHandle,
-	path: string,
-	bytes: Uint8Array,
-	target: WriteTarget,
-): Promise<Result<undefined, FileError>> {
-	const replace = target.kind === 'replace';
-	const absent = () =>
-		replace && target.expectedSha256 !== undefined
-			? FileError.Conflict({
-					path,
-					expectedSha256: target.expectedSha256,
-					actualSha256: undefined,
-				})
-			: FileError.NotFound({ path });
-	let parent: OpfsDirectoryHandle;
-	if (replace) {
-		let found: Lookup;
-		try {
-			found = await lookup(root, parentOf(path));
-		} catch (cause) {
-			return FileError.Io({ path, operation: 'write', cause });
-		}
-		if (found.kind !== 'directory') return absent();
-		parent = found.handle;
-	} else {
-		const { data: made, error: parentError } = await ensureDirectory(
-			root,
-			parentOf(path),
-		);
-		if (parentError !== null) return Err(parentError);
-		parent = made;
-	}
-	const name = basename(path);
-	let handle: OpfsFileHandle;
-	try {
-		handle = await parent.getFileHandle(name, { create: !replace });
-	} catch (cause) {
-		const problem = errorName(cause);
-		if (problem === 'TypeMismatchError') return FileError.NotAFile({ path });
-		if (replace && problem === 'NotFoundError') return absent();
-		return FileError.Io({ path, operation: 'write', cause });
-	}
-	// A new file exists, empty, from here until its stream closes. A write
-	// that cannot finish takes it away again, and says so only when the path
-	// is then seen to be absent.
-	const failed = async (cause: unknown) => {
-		if (replace || (target.kind === 'overwrite' && target.exists))
-			return FileError.Io({ path, operation: 'write', cause });
-		try {
-			await parent.removeEntry(name);
-		} catch {
-			// Whether it went is asked next.
-		}
-		try {
-			await parent.getFileHandle(name);
-		} catch (missing) {
-			if (errorName(missing) === 'NotFoundError')
-				return FileError.Io({ path, operation: 'write', cause });
-		}
-		return FileError.Unconfirmed({ path, operation: 'write', cause });
-	};
-	let writable: OpfsWritable;
-	try {
-		writable = await handle.createWritable({
-			keepExistingData: false,
-			expected: expectationOf(target),
-		});
-	} catch (cause) {
-		if (replace && errorName(cause) === 'NotFoundError') return absent();
-		return failed(cause);
-	}
-	if (replace) {
-		// The stream may belong to a file removed since the handle was taken;
-		// closing it would create the file again. While it is open, its lock
-		// refuses a removal, so a file found now is there when it closes.
-		try {
-			await handle.getFile();
-		} catch (cause) {
-			await writable.abort().catch(() => {});
-			if (errorName(cause) === 'NotFoundError') return absent();
-			return FileError.Io({ path, operation: 'write', cause });
-		}
-	}
-	try {
-		await writable.write(bytes as Uint8Array<ArrayBuffer>);
-	} catch (cause) {
-		await writable.abort().catch(() => {});
-		return failed(cause);
-	}
-	try {
-		await writable.close();
-	} catch (cause) {
-		if (cause instanceof UnexpectedTarget)
-			return unexpected(
-				cause,
-				path,
-				'write',
-				replace ? target.expectedSha256 : undefined,
-			);
-		// The close may have published these bytes or not. Bytes read now,
-		// even the submitted ones, say what the path holds, not which write
-		// put them there.
-		return FileError.Unconfirmed({ path, operation: 'write', cause });
-	}
-	return Ok(undefined);
-}
-
-/**
- * After Git removed `path`, remove the directories that removal left empty,
- * nearest first. A directory that still holds anything stays, and so does
- * every directory above it.
- */
-async function pruneEmptied(root: OpfsDirectoryHandle, path: string) {
-	for (const directory of ancestors(path).reverse()) {
-		const found = await lookup(root, directory);
-		if (found.kind !== 'directory') return;
-		for await (const _ of found.handle.values()) return;
-		const parent = await lookup(root, parentOf(directory));
-		if (parent.kind !== 'directory') return;
-		await parent.handle.removeEntry(basename(directory));
-	}
-}
-
-/** Remove the file at `path`; with `expectedSha256`, only if it holds those bytes. */
-async function removeFileAt(
-	root: OpfsDirectoryHandle,
-	path: string,
-	expectedSha256?: string,
-): Promise<Result<undefined, FileError>> {
-	try {
-		const parent = await lookup(root, parentOf(path));
-		if (parent.kind !== 'directory') return FileError.NotFound({ path });
-		await parent.handle.removeEntry(
-			basename(path),
-			expectedSha256 === undefined
-				? undefined
-				: { expected: { sha256: expectedSha256 } },
-		);
-		return Ok(undefined);
-	} catch (cause) {
-		if (cause instanceof UnexpectedTarget)
-			return unexpected(cause, path, 'remove', expectedSha256);
-		if (errorName(cause) === 'NotFoundError')
-			return FileError.NotFound({ path });
-		if (cause instanceof UnconfirmedWrite)
-			return FileError.Unconfirmed({ path, operation: 'remove', cause });
-		return FileError.Io({ path, operation: 'remove', cause });
-	}
-}
-
-/**
- * Perform planned steps in order, calling `landed` after each one. A failure
- * after a step landed is `Partial`. With `prune`, as Git's removals do, a
- * removal also removes the directories it left empty.
- */
-async function perform(
-	root: OpfsDirectoryHandle,
-	changes: readonly FileChange[],
-	planned: readonly Planned[],
-	landed: (paths: readonly string[]) => void,
-	prune: boolean,
-): Promise<Result<undefined, FileError | ApplyError>> {
-	const applied: FileStep[] = [];
-	for (let index = 0; index < planned.length; index++) {
-		const step = planned[index]!;
-		const reached: FileStep[] = [];
-		let result: Result<undefined, FileError>;
-		if (step.kind === 'write')
-			result = await writeFileAt(root, step.path, step.bytes, step.target);
-		else if (step.kind === 'remove') {
-			result = await removeFileAt(root, step.path, step.expectedSha256);
-			if (result.error === null && prune)
-				try {
-					await pruneEmptied(root, step.path);
-				} catch {
-					// An empty directory that stays is still a directory a later
-					// write refuses as `NotAFile`; that refusal is the report.
-				}
-		} else {
-			// No portable OPFS move exists, so a move writes the destination,
-			// then retires the source. Between them both paths hold the bytes.
-			// The source is retired only if it still holds the bytes moved.
-			result = await writeFileAt(root, step.to, step.bytes, {
-				kind: 'create',
-			});
-			if (result.error === null) {
-				reached.push({ kind: 'write', path: step.to });
-				landed([step.to]);
-				result = await removeFileAt(root, step.from, step.sha256);
-			}
-		}
-		const { error: stepError } = result;
-		if (stepError !== null) {
-			// An unknown outcome may have changed the path: say so.
-			if (stepError.name === 'Unconfirmed')
-				landed(step.kind === 'move' ? [step.to] : [step.path]);
-			const all = [...applied, ...reached];
-			if (all.length === 0) return Err(stepError);
-			return ApplyError.Partial({
-				applied: all,
-				failed:
-					step.kind === 'move' && reached.length > 0
-						? { kind: 'remove', path: step.from }
-						: toStep(changes[index]!),
-				error: stepError,
-				notAttempted: changes.slice(index + 1).map(toStep),
-			});
-		}
-		const done = toStep(changes[index]!);
-		applied.push(done);
-		landed(step.kind === 'move' ? [step.from] : stepPaths(done));
-	}
-	return Ok(undefined);
-}
-
-/**
- * Check, then apply, already hashed changes under the files lock the caller
- * holds. The boundary and incoming Git publication both publish through it;
- * Git passes `prune` so a tree that turns a directory into a file can land.
- */
-export async function applyChanges(
-	root: OpfsDirectoryHandle,
-	changes: readonly FileChange[],
-	landed: (paths: readonly string[]) => void,
-	{ prune = false }: { prune?: boolean } = {},
-): Promise<Result<undefined, FileError | ApplyError>> {
-	const { data: planned, error: planError } = await plan(root, changes);
-	if (planError !== null) return Err(planError);
-	return perform(root, changes, planned, landed, prune);
-}
-
-const changePaths = (change: FileChange) =>
-	change.kind === 'move' ? [change.from, change.to] : [change.path];
-
 function invalid(path: string): Result<never, FileError> | undefined {
 	const problem = pathProblem(path);
 	return problem === undefined
@@ -900,65 +373,256 @@ function invalid(path: string): Result<never, FileError> | undefined {
 		: FileError.InvalidPath({ path, reason: problem });
 }
 
-export function createOpfsFileBoundary({
-	root,
+/** A stream that may have published its bytes or not. */
+const unconfirmed = (path: string, cause: unknown) =>
+	FileError.Unconfirmed({ path, operation: 'write', cause });
+
+/** Write `bytes` through a new stream on `handle`, which replaces its bytes on close. */
+async function writeThrough(
+	handle: OpfsFileHandle,
+	path: string,
+	bytes: Uint8Array,
+	{ replacing }: { replacing: boolean },
+): Promise<Result<'landed' | 'stale', FileError>> {
+	let writable: OpfsWritable;
+	try {
+		writable = await handle.createWritable({ keepExistingData: false });
+	} catch (cause) {
+		if (replacing && errorName(cause) === 'NotFoundError') return Ok('stale');
+		return FileError.Io({ path, operation: 'write', cause });
+	}
+	if (replacing) {
+		// The stream may belong to a file removed since the handle was taken;
+		// closing it would create the file again. While it is open, its lock
+		// refuses a removal, so a file found now is there when it closes.
+		try {
+			await handle.getFile();
+		} catch (cause) {
+			await writable.abort().catch(() => {});
+			if (errorName(cause) === 'NotFoundError') return Ok('stale');
+			return FileError.Io({ path, operation: 'write', cause });
+		}
+	}
+	try {
+		await writable.write(bytes as Uint8Array<ArrayBuffer>);
+	} catch (cause) {
+		await writable.abort().catch(() => {});
+		return FileError.Io({ path, operation: 'write', cause });
+	}
+	try {
+		await writable.close();
+	} catch (cause) {
+		return unconfirmed(path, cause);
+	}
+	return Ok('landed');
+}
+
+/**
+ * Create `name` in `parent` holding `bytes`, where the lock has just found
+ * no file: written whole to `.git/epicenter/scratch`, then moved into place.
+ * A browser that cannot move a file writes it in place, and takes away the
+ * empty file a failed stream leaves.
+ */
+async function createAt(
+	root: OpfsDirectoryHandle,
+	parent: OpfsDirectoryHandle,
+	path: string,
+	bytes: Uint8Array,
+): Promise<Result<'landed' | 'stale', FileError>> {
+	const name = basename(path);
+	let scratch: OpfsDirectoryHandle;
+	let staged: OpfsFileHandle;
+	// Named for when it was made, so a later create can tell one a stopped
+	// write left behind (`isStaleScratch`).
+	const stagedName = `${Date.now().toString(36)}-${crypto.randomUUID().replaceAll('-', '')}-0`;
+	try {
+		scratch = await (
+			await (
+				await root.getDirectoryHandle(PRIVATE_DIRECTORY, { create: true })
+			).getDirectoryHandle('epicenter', { create: true })
+		).getDirectoryHandle('scratch', { create: true });
+		staged = await scratch.getFileHandle(stagedName, { create: true });
+	} catch (cause) {
+		return FileError.Io({ path, operation: 'write', cause });
+	}
+	await sweepScratch(scratch);
+	const discard = () => scratch.removeEntry(stagedName).catch(() => {});
+	if (staged.move === undefined) {
+		await discard();
+		return createInPlace(parent, path, bytes);
+	}
+	const written = await writeThrough(staged, path, bytes, { replacing: false });
+	if (written.error !== null) {
+		await discard();
+		// What a scratch file holds is nobody's: nothing reached the path.
+		return FileError.Io({ path, operation: 'write', cause: written.error });
+	}
+	try {
+		await staged.move(parent, name);
+	} catch (cause) {
+		await discard();
+		const found = await lookup(parent, name).catch(() => undefined);
+		if (found?.kind === 'absent')
+			return FileError.Io({ path, operation: 'write', cause });
+		return unconfirmed(path, cause);
+	}
+	return Ok('landed');
+}
+
+/**
+ * Remove what writes that stopped (a crash, a closed tab) left staged. A
+ * write moves its staged file right after writing it, so only one old
+ * enough to be abandoned is taken; another tab may be writing now.
+ */
+async function sweepScratch(scratch: OpfsDirectoryHandle) {
+	try {
+		const now = Date.now();
+		for await (const entry of scratch.values())
+			if (entry.kind === 'file' && isStaleScratch(entry.name, now))
+				await scratch.removeEntry(entry.name).catch(() => {});
+	} catch {
+		// Leftovers are inert; a create that cannot clear them still writes.
+	}
+}
+
+/**
+ * A create where the browser cannot move a file (Chrome before 102): in
+ * place, empty until it closes, so a cut write can leave it empty. Every
+ * engine since has `move`; this stays so such a browser can still create.
+ */
+async function createInPlace(
+	parent: OpfsDirectoryHandle,
+	path: string,
+	bytes: Uint8Array,
+): Promise<Result<'landed' | 'stale', FileError>> {
+	const name = basename(path);
+	let handle: OpfsFileHandle;
+	try {
+		handle = await parent.getFileHandle(name, { create: true });
+	} catch (cause) {
+		if (errorName(cause) === 'TypeMismatchError')
+			return FileError.NotAFile({ path });
+		return FileError.Io({ path, operation: 'write', cause });
+	}
+	const written = await writeThrough(handle, path, bytes, { replacing: false });
+	if (written.error === null || written.error.name === 'Unconfirmed')
+		return written;
+	try {
+		await parent.removeEntry(name);
+	} catch {
+		// Whether it went is asked next.
+	}
+	const found = await lookup(parent, name).catch(() => undefined);
+	return found?.kind === 'absent' ? written : unconfirmed(path, written.error);
+}
+
+/**
+ * The storage of the browser folder in `folder`, whose changes hold the
+ * Web Lock `filesLock`. `landed` hears each path a change reached, or may
+ * have, as soon as it does, for the other pages of the origin.
+ */
+export function createOpfsStorage({
+	folder,
 	locks,
 	filesLock,
 	landed,
 }: {
-	/** The folder's directory. */
-	root: OpfsDirectoryHandle;
-	/** Paths one landed step reached, as soon as it lands. */
+	folder: OpfsFolder;
+	locks: OpfsLocks;
+	/** The Web Lock every change of this folder holds. */
+	filesLock: string;
 	landed: (paths: readonly string[]) => void;
-} & (
-	| {
-			locks: OpfsLocks;
-			/** The Web Lock every mutation of this folder holds. */
-			filesLock: string;
-	  }
-	/**
-	 * No lock: a directory's host checks each change where it lands
-	 * (ADR-0541), and a reading makes none.
-	 */
-	| { locks?: undefined; filesLock?: undefined }
-)): FileBoundary {
-	/** Every mutation runs under the files lock, when there is one. */
-	const mutate = <T>(work: () => Promise<T>) =>
-		locks === undefined ? work() : holding(locks, filesLock, work);
-
-	async function readOne(path: string): Promise<Result<FileRead, FileError>> {
+}): FolderStorage {
+	async function readOne(path: string) {
 		try {
-			const found = await lookup(root, path);
+			const root = await folder.existing();
+			const found =
+				root === undefined
+					? ({ kind: 'absent' } as const)
+					: await lookup(root, path);
 			if (found.kind === 'directory') return FileError.NotAFile({ path });
-			if (found.kind === 'link') return linkRefusal(path);
 			if (found.kind !== 'file') return FileError.NotFound({ path });
 			const bytes = await readHandle(found.handle);
 			return Ok({ bytes, sha256: await hashBytes(bytes) });
 		} catch (cause) {
-			if (isLink(cause)) return linkRefusal(path);
 			if (errorName(cause) === 'NotFoundError')
 				return FileError.NotFound({ path });
 			return FileError.Io({ path, operation: 'read', cause });
 		}
 	}
 
-	return {
+	/** One change, with the lock held. */
+	async function change(
+		path: string,
+		bytes: Uint8Array | null,
+		ifMatch: string | null,
+	): Promise<Result<'landed' | 'stale', FileError>> {
+		const root = bytes === null ? await folder.existing() : await folder.made();
+		if (root === undefined) return Ok(ifMatch === null ? 'landed' : 'stale');
+		let found: Lookup;
+		try {
+			found = await lookup(root, path);
+		} catch (cause) {
+			return FileError.Io({ path, operation: 'write', cause });
+		}
+		if (found.kind === 'directory') return FileError.NotAFile({ path });
+		if (found.kind === 'underFile') {
+			if (bytes === null) return Ok(ifMatch === null ? 'landed' : 'stale');
+			return FileError.NotADirectory({ path: found.ancestor });
+		}
+		let current: string | null = null;
+		if (found.kind === 'file')
+			try {
+				current = await hashBytes(await readHandle(found.handle));
+			} catch (cause) {
+				if (errorName(cause) !== 'NotFoundError')
+					return FileError.Io({ path, operation: 'write', cause });
+				found = { kind: 'absent' };
+			}
+		if (current !== ifMatch) return Ok('stale');
+		if (bytes === null) {
+			if (current === null) return Ok('landed');
+			const parent = await lookup(root, parentOf(path));
+			if (parent.kind !== 'directory') return Ok('stale');
+			try {
+				await parent.handle.removeEntry(basename(path));
+			} catch (cause) {
+				if (errorName(cause) === 'NotFoundError') return Ok('stale');
+				return FileError.Io({ path, operation: 'remove', cause });
+			}
+			return Ok('landed');
+		}
+		if (found.kind === 'file')
+			return writeThrough(found.handle, path, bytes, { replacing: true });
+		const { data: parent, error: parentError } = await ensureDirectory(
+			root,
+			parentOf(path),
+		);
+		if (parentError !== null) return Err(parentError);
+		return createAt(root, parent, path, bytes);
+	}
+
+	/** The storage, each change under `guard`; `held` when the lock is. */
+	const storage = (
+		guard: <T>(work: () => Promise<T>) => Promise<T>,
+		held: boolean,
+	): FolderStorage => ({
 		async list() {
 			const files: { path: string; size: number }[] = [];
 			const directories: string[] = [];
 			try {
-				await walk(root, '', {
-					async file(path, handle) {
-						try {
-							files.push({ path, size: (await handle.getFile()).size });
-						} catch (cause) {
-							// A link is listed, so reading it reports why it is unusable.
-							if (isLink(cause)) files.push({ path, size: 0 });
-							else if (errorName(cause) !== 'NotFoundError') throw cause;
-						}
-					},
-					directory: (path) => directories.push(path),
-				});
+				const root = await folder.existing();
+				if (root !== undefined)
+					await walk(root, '', {
+						async file(path, handle) {
+							try {
+								files.push({ path, size: (await handle.getFile()).size });
+							} catch (cause) {
+								if (errorName(cause) !== 'NotFoundError') throw cause;
+							}
+						},
+						directory: (path) => directories.push(path),
+					});
 			} catch (cause) {
 				return FileError.Io({ path: '', operation: 'list', cause });
 			}
@@ -974,10 +638,14 @@ export function createOpfsFileBoundary({
 				if (refused) return refused;
 			}
 			try {
+				const root = await folder.existing();
+				if (root === undefined)
+					return directory === ''
+						? Ok({ files: [], directories: [] })
+						: FileError.NotFound({ path: directory });
 				const found = await lookup(root, directory);
 				if (found.kind === 'file')
 					return FileError.NotADirectory({ path: directory });
-				if (found.kind === 'link') return linkRefusal(directory);
 				if (found.kind !== 'directory')
 					return FileError.NotFound({ path: directory });
 				const files: string[] = [];
@@ -996,124 +664,65 @@ export function createOpfsFileBoundary({
 			if (refused) return refused;
 			return readOne(path);
 		},
-		async readMany(paths) {
-			const results = new Map<string, Result<FileRead, FileError>>();
-			for (const path of paths)
-				results.set(path, invalid(path) ?? (await readOne(path)));
-			return Ok(results);
-		},
-		async open(path) {
-			// The bytes are copied into memory: a `File` from `getFile` stops
-			// reading once the path is replaced, and this Blob must not.
-			const refused = invalid(path);
-			if (refused) return refused;
-			const { data: read, error: readError } = await readOne(path);
-			if (readError !== null) return Err(readError);
-			return Ok(new Blob([read.bytes as Uint8Array<ArrayBuffer>]));
-		},
 		async put(path, bytes, ifMatch) {
 			const refused = invalid(path);
 			if (refused) return refused;
-			let change: FileChange;
-			if (bytes === null) {
-				if (ifMatch === null) {
-					// Nothing to remove, so long as nothing is there. This only
-					// reports, so it needs no lock.
-					const found = await readOne(path);
-					if (found.error === null) return Ok('stale');
-					return found.error.name === 'NotFound'
-						? Ok('landed')
-						: Err(found.error);
-				}
-				change = { kind: 'remove', path, expectedSha256: ifMatch };
-			} else {
-				const owned = new Uint8Array(bytes);
-				const sha256 = await hashBytes(owned);
-				change =
-					ifMatch === null
-						? { kind: 'create', path, bytes: owned, sha256 }
-						: {
-								kind: 'replace',
-								path,
-								bytes: owned,
-								sha256,
-								expectedSha256: ifMatch,
-							};
-			}
-			const { error } = await mutate(() =>
-				applyChanges(root, [change], landed),
-			);
-			if (error === null) return Ok('landed');
-			// One change never stops partway: its report is an unknown outcome.
-			if (error.name === 'Partial')
-				return FileError.Unconfirmed({
-					path,
-					operation: 'publishing',
-					cause: error,
-				});
-			if (error.name === 'Conflict') return Ok('stale');
-			if (error.name === 'NotFound' && ifMatch !== null) return Ok('stale');
-			if (error.name !== 'Exists') return Err(error);
-			// A file landed first, unless what is there is no file of this
-			// name, such as another spelling on a disk that ignores case.
-			const found = await readOne(path);
-			if (found.error === null) return Ok('stale');
-			return FileError.InvalidPath({
-				path,
-				reason: 'another entry occupies this name',
-			});
-		},
-		async apply(changes) {
-			for (const path of changes.flatMap(changePaths)) {
-				const refused = invalid(path);
-				if (refused) return refused;
-			}
-			if (changes.length === 0) return Ok(undefined);
-			return mutate(() => applyChanges(root, changes, landed));
+			const owned = bytes === null ? null : new Uint8Array(bytes);
+			const result = await guard(() => change(path, owned, ifMatch));
+			if (result.data === 'landed' || result.error?.name === 'Unconfirmed')
+				landed([path]);
+			return result;
 		},
 		async mkdir(path) {
 			const refused = invalid(path);
 			if (refused) return refused;
-			return mutate(async () => {
-				const made = await ensureDirectory(root, path);
-				return made.error !== null ? made : Ok(undefined);
-			});
+			const made = await guard(async () =>
+				ensureDirectory(await folder.made(), path),
+			);
+			if (made.error !== null) return Err(made.error);
+			landed([path]);
+			return Ok(undefined);
 		},
 		async rmdir(path) {
 			const refused = invalid(path);
 			if (refused) return refused;
-			return mutate(async (): Promise<Result<undefined, FileError>> => {
-				try {
-					const found = await lookup(root, path);
-					if (found.kind === 'file') return FileError.NotADirectory({ path });
-					if (found.kind !== 'directory') return FileError.NotFound({ path });
-					for await (const _ of found.handle.values())
-						return FileError.DirectoryNotEmpty({ path });
-					const parent = await lookup(root, parentOf(path));
-					if (parent.kind !== 'directory') return FileError.NotFound({ path });
-					await parent.handle.removeEntry(basename(path));
-					return Ok(undefined);
-				} catch (cause) {
-					const name = errorName(cause);
-					if (name === 'InvalidModificationError')
-						return FileError.DirectoryNotEmpty({ path });
-					if (name === 'NotFoundError') return FileError.NotFound({ path });
-					if (cause instanceof UnconfirmedWrite)
-						return FileError.Unconfirmed({
+			const removed = await guard(
+				async (): Promise<Result<undefined, FileError>> => {
+					try {
+						const root = await folder.existing();
+						if (root === undefined) return FileError.NotFound({ path });
+						const found = await lookup(root, path);
+						if (found.kind === 'file') return FileError.NotADirectory({ path });
+						if (found.kind !== 'directory') return FileError.NotFound({ path });
+						for await (const _ of found.handle.values())
+							return FileError.DirectoryNotEmpty({ path });
+						const parent = await lookup(root, parentOf(path));
+						if (parent.kind !== 'directory')
+							return FileError.NotFound({ path });
+						await parent.handle.removeEntry(basename(path));
+						return Ok(undefined);
+					} catch (cause) {
+						const name = errorName(cause);
+						if (name === 'InvalidModificationError')
+							return FileError.DirectoryNotEmpty({ path });
+						if (name === 'NotFoundError') return FileError.NotFound({ path });
+						return FileError.Io({
 							path,
 							operation: 'remove directory',
 							cause,
 						});
-					return FileError.Io({ path, operation: 'remove directory', cause });
-				}
-			});
+					}
+				},
+			);
+			if (removed.error === null) landed([path]);
+			return removed;
 		},
-		async capture() {
-			try {
-				return Ok(await captureFiles(root));
-			} catch (cause) {
-				return FileError.Io({ path: '', operation: 'capture', cause });
-			}
-		},
-	};
+		lock: (work) =>
+			held
+				? work(storage(guard, true))
+				: holding(locks, filesLock, () =>
+						work(storage((step) => step(), true)),
+					),
+	});
+	return storage((work) => holding(locks, filesLock, work), false);
 }

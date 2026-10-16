@@ -30,7 +30,7 @@ import {
 import { type Node, parseTree } from 'jsonc-parser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import { fileCapture, hashBytes } from './capture.js';
+import { fileCapture } from './capture.js';
 import {
 	FileError,
 	type KvReadError,
@@ -40,7 +40,7 @@ import {
 import { formatKvMembers, readKvMembers } from './kv-merge.js';
 import type { Issue, Issues } from './row-text.js';
 import { saveFile } from './save-file.js';
-import { applyOne } from './storage.js';
+import { createFile } from './storage.js';
 
 export const KV_PATH = 'kv.json';
 
@@ -360,14 +360,12 @@ export function createKv<TValues>(
 				else members.set(key, raw);
 			const bytes = encoder.encode(formatKvMembers(members));
 			if (current === undefined) {
-				const sha256 = await hashBytes(bytes);
-				const { error } = await applyOne(storage, {
-					kind: 'create',
-					path: KV_PATH,
+				const { data: created, error } = await createFile(
+					storage,
+					KV_PATH,
 					bytes,
-					sha256,
-				});
-				if (error === null) return written(bytes, sha256);
+				);
+				if (error === null) return written(bytes, created.sha256);
 				// Another writer created it first, or the reply was lost: read
 				// again and save over what is there.
 				if (

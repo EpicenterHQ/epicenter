@@ -60,9 +60,14 @@ export type Faults = {
 	remove?: (path: string) => 'fail' | undefined;
 	/** Runs when a stream is asked for, before it opens. */
 	open?: (path: string) => Promise<void> | void;
+	/** Asked before every move, with the destination's path; `'fail'` refuses it. */
+	move?: (path: string) => 'fail' | undefined;
 };
 
 const fail = (name: string, message: string) => new DOMException(message, name);
+
+/** Where a directory handle of the stand-in points, which a move reads. */
+const AT = Symbol('path');
 
 function checkName(name: string) {
 	if (name === '' || name === '.' || name === '..' || /[/\\]/.test(name))
@@ -122,6 +127,25 @@ export function memoryOpfs(): MemoryOpfs {
 		return {
 			kind: 'file',
 			name: path.at(-1)!,
+			async move(destination, name) {
+				checkName(name);
+				const node = fileAt(path);
+				const to = (destination as { [AT]?: readonly string[] })[AT];
+				if (to === undefined)
+					throw fail('NotFoundError', 'The destination is not of this origin');
+				const target = [...to, name];
+				if (faults.move?.(target.join('/')) === 'fail')
+					throw fail('InvalidStateError', 'Injected move failure');
+				const into = directoryAt(to);
+				if (into.children.get(name)?.kind === 'directory')
+					throw fail('TypeMismatchError', `${name} is a directory`);
+				directoryAt(path.slice(0, -1)).children.delete(path.at(-1)!);
+				into.children.set(name, {
+					...node,
+					version: node.version + 1,
+					lastModified: Math.max(Date.now(), ++clock),
+				});
+			},
 			async getFile(): Promise<OpfsFile & { lastModified: number }> {
 				const node = fileAt(path);
 				const { version, bytes, lastModified } = node;
@@ -210,6 +234,10 @@ export function memoryOpfs(): MemoryOpfs {
 	}
 
 	function directoryHandle(path: readonly string[]): OpfsDirectoryHandle {
+		return Object.assign(directoryHandleAt(path), { [AT]: path });
+	}
+
+	function directoryHandleAt(path: readonly string[]): OpfsDirectoryHandle {
 		return {
 			kind: 'directory',
 			name: path.at(-1) ?? '',

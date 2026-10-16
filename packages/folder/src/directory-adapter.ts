@@ -1,15 +1,15 @@
 /**
  * A folder in an ordinary directory a trusted host has given this code: the
  * desktop page's granted directory, or a directory a Bun process names.
- * Files go through the browser folder's file storage over directory
- * primitives (`directory-handle.ts`); history is whatever the host supplies:
+ * Files go through the directory's storage over its host's primitives
+ * (`directory-store.ts`); history is whatever the host supplies:
  * the system `git` run in this process (`git/native-history.ts`, Bun), or
  * the `epicenter` CLI the shell runs for a page (`tauri-history.ts`,
  * ADR-0559). Nothing of the browser folder's own address, claim, download,
  * or private Git is here.
  */
 import type { Result } from 'wellcrafted/result';
-import type { FileBoundary } from './boundary.js';
+import type { FolderStorage } from './boundary.js';
 import {
 	type FolderDefinition,
 	prepareFolderDefinition,
@@ -18,19 +18,15 @@ import {
 	type DirectoryPrimitives,
 	isStaleScratch,
 	SCRATCH_DIRECTORY,
-} from './directory-handle.js';
+} from './directory-primitives.js';
+import { createDirectoryStorage } from './directory-store.js';
 import { OpenFolderError } from './errors.js';
-import type { Folder, FolderHistory, GitOf } from './folder.js';
+import type { Folder, FolderHistory } from './folder.js';
 import {
 	type ChangeDetector,
 	type FolderSchema,
 	openAtRoot,
 } from './open-at-root.js';
-import {
-	createOpfsFileBoundary,
-	type OpfsDirectoryHandle,
-	type OpfsLocks,
-} from './opfs-store.js';
 
 /**
  * A directory folder's history, made once its file storage exists:
@@ -40,18 +36,9 @@ import {
  */
 export type DirectoryHistory<THistory extends FolderHistory = FolderHistory> =
 	(wiring: {
-		readonly boundary: FileBoundary;
+		readonly boundary: FolderStorage;
 		readonly landed: (paths: readonly string[]) => void;
 	}) => Promise<(definition?: FolderDefinition) => THistory>;
-
-/**
- * The lock a directory folder's file saves take turns under in one process.
- * Its name comes from the directory alone, so every opener takes turns with
- * the others, whatever ID it opened the directory by.
- */
-export function directoryFilesLock(rootPath: string): string {
-	return `epicenter-folder-directory-files:${JSON.stringify(['directory', rootPath])}`;
-}
 
 /**
  * Open the folder in an ordinary directory a trusted host has already given
@@ -65,15 +52,14 @@ export function directoryFilesLock(rootPath: string): string {
  * publishes it to `epicenter.json` before its first write. With
  * `'declared'`, the handle reads with the folder's own `epicenter.json` and
  * never writes it.
- * Files are read and written through the browser folder's storage over
- * `root`. History is real Git on every host, so it honors Git's lock files,
+ * Files are read and written through the directory's storage
+ * (`directory-store.ts`). History is real Git on every host, so it honors Git's lock files,
  * packed refs, and configuration, and another Git program can share the
  * repository; `history` decides which process runs it.
  *
  * A save is checked where it lands: the desktop shell checks each rename
  * against what the page expects, and in Bun the check runs just before the
- * rename, under `locks` so saves within one process take turns. Across
- * processes, the shell and the Bun host each hold the folder's save lock
+ * rename, under the save lock. Across processes, the shell and the Bun host each hold the folder's save lock
  * across one check and rename (ADR-0562), so saves wait only for each other
  * and only for that long. A commit moves the branch only by compare-and-swap,
  * and Git's own lock files keep its index whole. Each handle orders its own
@@ -89,19 +75,16 @@ export async function openDirectoryFolder<
 >({
 	definition,
 	lens,
-	root,
 	rootPath,
 	files,
 	history,
-	locks,
+	hold,
 	detector,
 }: {
 	/** The opener's definition, or `'declared'` for the folder's own. */
 	readonly definition: TDefinition | 'declared';
 	/** With `'declared'`, the prepared shape the folder must contain (ADR-0538). */
 	readonly lens?: FolderDefinition;
-	/** The directory, as a handle over the host's file system. */
-	readonly root: OpfsDirectoryHandle;
 	/** The directory's absolute path, for showing to a person and naming locks. */
 	readonly rootPath: string;
 	/** The host's file system, with absolute paths. */
@@ -109,16 +92,18 @@ export async function openDirectoryFolder<
 	/** The folder's history. */
 	readonly history: DirectoryHistory<THistory>;
 	/**
-	 * Saves to the directory take turns under these, for a host that checks
-	 * and renames in this process (Bun). Without them saves do not wait: the
-	 * desktop shell checks each one where it lands.
+	 * The directory's save lock, for a host whose own primitives check and
+	 * rename under it (Bun), and the primitives without it, which `lock`
+	 * changes files through while it holds it. Without it the desktop shell
+	 * takes the lock for each change.
 	 */
-	readonly locks?: OpfsLocks;
+	readonly hold?: {
+		lock<T>(work: () => Promise<T>): Promise<T>;
+		held: DirectoryPrimitives;
+	};
 	/** The host's detector of changes made outside the handle. */
 	readonly detector?: ChangeDetector;
-}): Promise<
-	Result<Folder<TDefinition, TDeclared, GitOf<THistory>>, OpenFolderError>
-> {
+}): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
 	let schema: FolderSchema = 'declared';
 	if (definition !== 'declared') {
 		const { data: prepared, error: definitionError } =
@@ -153,15 +138,12 @@ export async function openDirectoryFolder<
 		lens: shape,
 		location: { kind: 'directory', root: rootPath },
 		async start({ relay, landed }) {
-			const boundary =
-				locks === undefined
-					? createOpfsFileBoundary({ root, landed: relay })
-					: createOpfsFileBoundary({
-							root,
-							locks,
-							filesLock: directoryFilesLock(rootPath),
-							landed: relay,
-						});
+			const boundary = createDirectoryStorage({
+				root: rootPath,
+				primitives: files,
+				hold,
+				landed: relay,
+			});
 			return { boundary, history: await history({ boundary, landed }) };
 		},
 	});

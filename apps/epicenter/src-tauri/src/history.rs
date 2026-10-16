@@ -9,15 +9,12 @@
 //! history       epicenter history <root> --depth <n> --json --desktop
 //! save_version  epicenter save-version <root> [--message <text>] --json --desktop
 //! sync          epicenter sync <root> [--to <url>] [--allow-unrelated] --json --desktop
-//! settle_sync   epicenter sync <root> --resolve - --json --desktop
 //! ```
 //!
 //! A page names a scope and nothing else; the root comes from the shell's
 //! grant (`Folders::granted_root`). The CLI decides the rest itself: who
 //! commits, the branch, whether the folder is an application's own, and
-//! the token for the deployment's Git. The choices that settle a sync cross
-//! on the child's standard input, never in its arguments. Each command
-//! answers the child's exit code and its one reply line, which the page
+//! the token for the deployment's Git. Each command answers the child's exit code and its one reply line, which the page
 //! decodes (`history-wire.ts` in `@epicenter/folder`).
 //!
 //! Each runs through `cli::window_invocation`, with the shell's deployment
@@ -29,10 +26,10 @@ use std::ffi::OsString;
 use tauri::{Runtime, Webview};
 use tauri_plugin_epicenter_folder::FolderExt;
 
-use crate::cli::{failed, window_invocation, CliError, CliExit};
+use crate::cli::{window_invocation, CliError, CliExit};
 
 /// Run one history invocation for `webview`'s grant of `scope`: `command`,
-/// the root, `options`, then `--json`, with `stdin`, as the app's grant. The
+/// the root, `options`, then `--json`, as the app's grant. The
 /// child is this window's until it exits, and its reply is the last line it
 /// printed.
 async fn run_history<R: Runtime>(
@@ -40,7 +37,6 @@ async fn run_history<R: Runtime>(
     scope: &str,
     command: &str,
     options: Vec<OsString>,
-    stdin: Option<Vec<u8>>,
 ) -> Result<CliExit, CliError> {
     let root = webview
         .folders()
@@ -51,7 +47,7 @@ async fn run_history<R: Runtime>(
     args.push("--json".into());
     window_invocation(webview)?
         .desktop()
-        .run(&args, stdin, |_| Ok(()))
+        .run(&args, None, |_| Ok(()))
         .await
 }
 
@@ -62,7 +58,7 @@ pub async fn status<R: Runtime>(
     webview: Webview<R>,
     scope: String,
 ) -> Result<CliExit, CliError> {
-    run_history(&webview, &scope, "status", Vec::new(), None).await
+    run_history(&webview, &scope, "status", Vec::new()).await
 }
 
 /// The folder's last `depth` versions.
@@ -74,7 +70,7 @@ pub async fn history<R: Runtime>(
     depth: u32,
 ) -> Result<CliExit, CliError> {
     let options = vec!["--depth".into(), depth.max(1).to_string().into()];
-    run_history(&webview, &scope, "history", options, None).await
+    run_history(&webview, &scope, "history", options).await
 }
 
 /// Record the folder's edits as a version, with `message` when a person gave one.
@@ -89,7 +85,7 @@ pub async fn save_version<R: Runtime>(
         Some(message) => vec!["--message".into(), message.into()],
         None => Vec::new(),
     };
-    run_history(&webview, &scope, "save-version", options, None).await
+    run_history(&webview, &scope, "save-version", options).await
 }
 
 /// `sync`'s options: `remote` connects first, which the CLI refuses unless
@@ -106,9 +102,8 @@ fn sync_options(remote: Option<String>, allow_unrelated: bool) -> Vec<OsString> 
     options
 }
 
-/// Record the folder's edits, fetch, merge by each file's kind, and push. A
-/// sync that needs choices records its attempt in the folder for
-/// `settle_sync`.
+/// Record the folder's edits, fetch, merge by each file's kind into one
+/// merge commit, and push (ADR-0576). Sync asks the person nothing.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync<R: Runtime>(
@@ -118,36 +113,7 @@ pub async fn sync<R: Runtime>(
     allow_unrelated: bool,
 ) -> Result<CliExit, CliError> {
     let options = sync_options(remote, allow_unrelated);
-    run_history(&webview, &scope, "sync", options, None).await
-}
-
-/// `settle_sync`'s input: the attempt's ID and the choices as the page
-/// encoded them, unparsed so nothing in them changes.
-fn settle_input(attempt: &str, choices: &str) -> Result<Vec<u8>, CliError> {
-    serde_json::from_str::<serde::de::IgnoredAny>(choices).map_err(|error| CliError::Refused {
-        message: format!("the choices are not JSON: {error}"),
-    })?;
-    Ok(format!(
-        "{{\"attempt\":{},\"choices\":{choices}}}",
-        serde_json::to_string(attempt).map_err(|error| failed(error.to_string()))?
-    )
-    .into_bytes())
-}
-
-/// Settle the sync attempt this folder recorded, named by its ID, with one
-/// choice per conflict, then push. The conflicts are read again from the
-/// commits the attempt recorded; nothing of them crosses from the page.
-#[tauri::command]
-#[specta::specta]
-pub async fn settle_sync<R: Runtime>(
-    webview: Webview<R>,
-    scope: String,
-    attempt: String,
-    choices: String,
-) -> Result<CliExit, CliError> {
-    let options: Vec<OsString> = vec!["--resolve".into(), "-".into()];
-    let input = settle_input(&attempt, &choices)?;
-    run_history(&webview, &scope, "sync", options, Some(input)).await
+    run_history(&webview, &scope, "sync", options).await
 }
 
 /// Start the Command Line Tools installer, which gives this Mac a `git`,
@@ -239,8 +205,8 @@ mod tests {
 
     /// Each history command runs only for a folder this window was granted,
     /// as the one fixed invocation, with the CLI's own author; save version
-    /// and sync reach a local bare remote; and a sync that needs choices is
-    /// settled by a second child from the attempt's ID alone.
+    /// and sync reach a local bare remote; and edits that compete merge into
+    /// one commit this folder's edit wins, with nothing to settle.
     #[tokio::test]
     async fn the_history_commands_run_the_cli_on_the_granted_folder_only() {
         std::env::set_var("GIT_CONFIG_GLOBAL", "/dev/null");
@@ -270,7 +236,7 @@ mod tests {
         let webview = |window: &tauri::WebviewWindow<MockRuntime>| window.as_ref().clone();
 
         // Before the grant, and for another window, nothing runs.
-        let refused = run_history(&webview(&folders), "data:notes", "status", Vec::new(), None)
+        let refused = run_history(&webview(&folders), "data:notes", "status", Vec::new())
             .await
             .unwrap_err();
         assert!(matches!(refused, CliError::NotGranted { .. }), "{refused:?}");
@@ -287,12 +253,12 @@ mod tests {
             },
         )
         .unwrap();
-        let refused = run_history(&webview(&other), "data:notes", "status", Vec::new(), None)
+        let refused = run_history(&webview(&other), "data:notes", "status", Vec::new())
             .await
             .unwrap_err();
         assert!(matches!(refused, CliError::NotGranted { .. }), "{refused:?}");
 
-        let status = run_history(&webview(&folders), "data:notes", "status", Vec::new(), None)
+        let status = run_history(&webview(&folders), "data:notes", "status", Vec::new())
             .await
             .unwrap();
         assert_eq!(status.code, 0, "{}", status.stderr);
@@ -306,14 +272,13 @@ mod tests {
             "data:notes",
             "save-version",
             vec!["--message".into(), "First".into()],
-            None,
         )
         .await
         .unwrap();
         assert_eq!(saved.code, 0, "{}", saved.stderr);
         assert_eq!(git(&root, &["log", "-1", "--format=%an %s"]), "Epicenter First");
 
-        let synced = run_history(&webview(&folders), "data:notes", "sync", sync_options(None, false), None)
+        let synced = run_history(&webview(&folders), "data:notes", "sync", sync_options(None, false))
             .await
             .unwrap();
         assert_eq!(synced.code, 0, "{}", synced.stderr);
@@ -330,26 +295,14 @@ mod tests {
         git(&device, &["commit", "--quiet", "-am", "Theirs"]);
         git(&device, &["push", "--quiet", "origin", "main"]);
         fs::write(root.join("a.txt"), "mine\n").unwrap();
-        let held = run_history(&webview(&folders), "data:notes", "sync", sync_options(None, false), None)
+        let held = run_history(&webview(&folders), "data:notes", "sync", sync_options(None, false))
             .await
             .unwrap();
-        assert_eq!(held.code, 1, "{}", held.stderr);
-        let held = reply(&held);
-        let attempt = &held["result"]["error"]["attempt"];
-        let conflict = attempt["conflicts"][0]["id"].as_str().unwrap();
-        let choices = json!({ conflict: { "kind": "replace", "value": "both\n" } }).to_string();
-        let input = settle_input(attempt["id"].as_str().unwrap(), &choices).unwrap();
-        let settled = run_history(
-            &webview(&folders),
-            "data:notes",
-            "sync",
-            vec!["--resolve".into(), "-".into()],
-            Some(input),
-        )
-        .await
-        .unwrap();
-        assert_eq!(settled.code, 0, "{}", settled.stderr);
-        assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "both\n");
+        assert_eq!(held.code, 0, "{}", held.stderr);
+        assert_eq!(reply(&held)["result"]["data"]["kind"], "synced");
+        assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "mine
+");
+        assert_eq!(git(&root, &["rev-list", "--parents", "-n", "1", "HEAD"]).split(' ').count(), 3);
         assert_eq!(
             git(&bare, &["rev-parse", "main"]),
             git(&root, &["rev-parse", "HEAD"])
@@ -357,19 +310,5 @@ mod tests {
         assert_eq!(app.state::<CliChildren>().running("folders"), 0);
         app.folders().shutdown();
         let _ = fs::remove_dir_all(project);
-    }
-
-    #[test]
-    fn settle_input_carries_the_choices_unparsed_and_refuses_what_is_not_json() {
-        let choices = r#"{"[\"setting\",\"kv.json\",\"n\"]":{"kind":"replace","value":1.00000000000000000001}}"#;
-        let input = settle_input("id-1", choices).unwrap();
-        assert_eq!(
-            String::from_utf8(input).unwrap(),
-            format!(r#"{{"attempt":"id-1","choices":{choices}}}"#)
-        );
-        assert!(matches!(
-            settle_input("id-1", "{"),
-            Err(CliError::Refused { .. })
-        ));
     }
 }

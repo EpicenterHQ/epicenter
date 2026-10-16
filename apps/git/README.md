@@ -32,21 +32,18 @@ wins the lines both changed, with no notice (ADR-0576).
 output while hidden. Binary files stay visible with an explanation. Text editing is limited to UTF-8 files of at most 2 MiB.
 
 **Sync** brings a working copy and the remote together: it commits what
-the copy saved, fetches, merges, and pushes. Edits
-to different lines combine on their own. When both copies changed the same
-lines, the review shows each version beside a result and replaces the
-editor and Git actions until you press **Apply and sync** or **Cancel**;
-nothing is written before you choose, and Cancel forgets the review. A copy
-with no history of its own adopts the remote's on its first Sync.
+the copy saved, fetches, merges, and pushes, and asks nothing. Edits to
+different lines combine on their own. Where both copies changed the same
+lines, the copy that syncs wins, and the merge commit's `Overrode:` lines
+name what lost, which the history still holds (ADR-0576). A copy with no
+history of its own adopts the remote's on its first Sync.
 
-Nothing commits on its own. **Save version**, **Fetch**, **Pull**,
-**Merge**, and **Push** each do one step by hand. Fetch updates remote
-knowledge without updating working files. The changes list separates index
-and worktree columns; ahead and behind are relative to the last fetched head.
-Pull applies the fetched head only as a fast-forward. Merge merges it when it
-fast-forwards or merges cleanly; a conflict writes nothing and points to Sync.
-If publication stops partway, the files it wrote show as changes, and the
-next Sync records and merges them.
+Nothing commits on its own. **Save version** records one by hand, and
+**Status** reads what changed since it. The changes list shows each path
+changed since the last version; ahead and behind are relative to the last
+fetched head. If Sync stops while it writes the copy's files, each file
+holds its old bytes or its new ones, and the next Sync records and merges
+them.
 
 Enter an HTTP(S) remote or leave the URL empty for local history. A copy
 with no origin connects to the remote once, when it opens, and keeps it as

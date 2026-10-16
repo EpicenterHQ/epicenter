@@ -23,31 +23,16 @@ import type { FolderStorage } from './boundary.js';
 import type { FolderDefinition, PreparedFolderTable } from './definition.js';
 import type { WriteError } from './errors.js';
 import { createFiles, type FolderFiles } from './files.js';
-import type { PathStatus } from './git/backend.js';
 import type { SyncError } from './git/errors.js';
 import type {
-	CommitAndPushResult,
 	CommitOutcome,
-	FetchOutcome,
 	FilesObservation,
 	GitError,
 	GitSnapshot,
-	MergeConflictPolicy,
-	MergeError,
-	MergeOutcome,
-	PullError,
-	PullOutcome,
-	PushOutcome,
-	StagedCommit,
 } from './git/history.js';
 import type { GitCredentials } from './git/http.js';
 import type { Author, CommitSummary } from './git/objects.js';
-import type {
-	SyncAttempt,
-	SyncChoices,
-	SyncOptions,
-	SyncOutcome,
-} from './git/sync.js';
+import type { SyncOptions, SyncOutcome } from './git/sync.js';
 import { createKv, type FileKv } from './kv.js';
 import { type FileContent, fileKindOf } from './merge-file.js';
 import { callObserver } from './observer.js';
@@ -67,8 +52,7 @@ export type FolderGitOptions = {
 /**
  * A folder's history on every host: what changed, the versions, and saving
  * one. Sync (`folder.sync`) is how a folder exchanges history with its
- * remote; the finer steps are `FolderGitSteps`, which only a browser or Bun
- * folder has.
+ * remote, on every host the same way.
  */
 export type FolderGit = {
 	readonly snapshot: GitSnapshot;
@@ -86,101 +70,26 @@ export type FolderGit = {
 };
 
 /**
- * The Git steps a browser or Bun folder offers beside `FolderGit`, for a
- * tool that drives Git one step at a time, such as the Git lab or Todos'
- * `scripts/native.ts`. A desktop folder has none: its Git runs in the
- * `epicenter` CLI one whole operation at a time (ADR-0559), and Sync is how
- * it exchanges history.
- */
-export type FolderGitSteps = FolderGit & {
-	/**
-	 * Commit, then push. `signal` only stops this caller waiting
-	 * (`stoppedWaiting`): a commit or transport that already started keeps
-	 * running. Closing the folder aborts its network work. A push or fetch
-	 * withdrawn before it starts never starts. The same holds for `push` and
-	 * `fetch`.
-	 */
-	commitAndPush(options?: {
-		signal?: AbortSignal;
-	}): Promise<CommitAndPushResult>;
-	push(options?: { signal?: AbortSignal }): Promise<PushOutcome>;
-	fetch(options?: {
-		signal?: AbortSignal;
-	}): Promise<Result<FetchOutcome, GitError>>;
-	/** Apply the fetched remote head only as a clean fast-forward. */
-	pullFastForward(): Promise<Result<PullOutcome, PullError | GitError>>;
-	/**
-	 * Merge the fetched remote head into a clean folder: a fast-forward when
-	 * possible, otherwise one commit with the branch head and the fetched head
-	 * as parents. Root `kv.json` merges by key; other files by Git's rules.
-	 * A refusal or a conflict changes no file, index entry, or ref; `sync`
-	 * is how a person settles a conflict. An update cut off partway is
-	 * `Interrupted`: the files it wrote show as changes, and the next sync
-	 * records them and merges again. Never pushes.
-	 */
-	mergeIncoming(
-		options?: MergeConflictPolicy,
-	): Promise<Result<MergeOutcome, MergeError | PullError | GitError>>;
-	/** Per-path staged and unstaged state, as `git status` reports it. */
-	paths(): Promise<Result<PathStatus[], GitError>>;
-	/** Stage paths for a commit authored with `commitStaged`. */
-	stage(paths: readonly string[] | 'all'): Promise<Result<undefined, GitError>>;
-	/**
-	 * Commit staged changes with a user-authored message in manual mode. The
-	 * commit pins its parent and moves the branch only if it still names that
-	 * parent; otherwise it is `BranchMoved` and keeps the index unchanged.
-	 * Built-in commits run no commit hooks and are unsigned.
-	 */
-	commitStaged(message: string): Promise<Result<StagedCommit, GitError>>;
-	diff(options: {
-		staged: boolean;
-		paths: readonly string[];
-	}): Promise<Result<string, GitError>>;
-};
-
-/**
- * Synchronization with the configured remote branch (ADR-0514): `run()`,
- * then, when it needs choices, `resolve(attempt, choices)` on this same
- * folder.
+ * Synchronization with the configured remote branch (ADR-0576). It never
+ * stops because changes compete: the device syncing is the writer acting.
  *
  * ```ts
  * const { data: done, error } = await folder.sync.run();
- * if (error?.name === 'NeedsChoices') {
- *   // Usually from the shared review (`@epicenter/svelte/sync-review`).
- *   const { attempt } = error;
- *   const choices = { [attempt.conflicts[0].id]: { kind: 'take', side: 'incoming' } };
- *   const resolved = await folder.sync.resolve(attempt, choices);
- * }
+ * if (error !== null) return show(error.message);
+ * done.kind; // 'synced', or 'saved' when the remote may not have it yet
  * ```
  *
  * Browser and directory folders implement it, the desktop folder included.
  */
 export type FolderSync = {
 	/**
-	 * Commit saved files, fetch the remote branch, merge it, and push.
-	 * One-sided and compatible changes need no choices. Root `kv.json` merges
-	 * by key, each row of a declared table by field and body, written in the
-	 * standard form, and any other text file by line. Competing settings,
-	 * fields, bodies, and whole text files (deleted on one side, unreadable as
-	 * a row, or with competing lines) are `NeedsChoices`; nothing
-	 * conflicted is written and nothing is sent. Binary files and file
-	 * against directory are `Unreviewable`. A run retires the attempt before
-	 * it.
+	 * Commit saved files, fetch the remote branch, and bring the two
+	 * together: a fast-forward, a push, or one merge commit of both heads,
+	 * pushed before its files are written here. Units only one side changed
+	 * merge; where both changed one, this device's side wins, and the merge
+	 * commit names what lost. A delete beats an edit it never saw.
 	 */
 	run(options?: SyncOptions): Promise<Result<SyncOutcome, SyncError>>;
-	/**
-	 * Settle this folder's current attempt with one choice per conflict,
-	 * without fetching again. The choices are read before this returns.
-	 * Invalid choices are `InvalidChoices`, writing nothing and keeping the
-	 * attempt current. Otherwise the attempt is spent: the folder must still
-	 * be at the captured head with no saved change since (`Stale` if not),
-	 * the merge of the captured commits is published like an incoming merge,
-	 * and the result is pushed without force.
-	 */
-	resolve(
-		attempt: SyncAttempt,
-		choices: SyncChoices,
-	): Promise<Result<SyncOutcome, SyncError>>;
 	/**
 	 * Make `url` the folder's remote (`remote.origin.url` in its Git
 	 * configuration), then sync. This is how a folder gets a remote, or
@@ -251,10 +160,8 @@ export type FolderLocation =
 export type Folder<
 	TDefinition extends FolderDefinition,
 	TDeclared extends FolderDefinition = TDefinition,
-	TGit extends FolderGit = FolderGit,
 > = FolderAccess<TDefinition> & {
-	/** The history: `FolderGit` on every host, `FolderGitSteps` in a browser or Bun. */
-	readonly git: TGit;
+	readonly git: FolderGit;
 	/**
 	 * The prepared definition this handle reads with: the one `openFolder`
 	 * was given, or the folder's own `epicenter.json` as `openDataFolder`
@@ -294,17 +201,13 @@ export type Folder<
 	close(): Promise<void>;
 };
 
-/** The history a handle is assembled over, with or without the finer steps. */
+/** The history a handle is assembled over. */
 export type FolderHistory = FolderGit & {
 	readonly sync: FolderSync;
 	/** The files changed outside the history; its observations are stale. */
 	noteEdit(): void;
 	close(): Promise<void>;
 };
-
-/** The `git` a handle over `THistory` exposes: the steps only when it has them. */
-export type GitOf<THistory extends FolderHistory> =
-	THistory extends FolderGitSteps ? FolderGitSteps : FolderGit;
 
 /** Which files changed: their paths, or `'everything'` when a report cannot say. */
 export type FilesChanged = readonly string[] | 'everything';
@@ -350,17 +253,9 @@ export function createFileHints(): FileHints {
 	};
 }
 
-function hasSteps(
-	history: FolderHistory,
-): history is FolderHistory & FolderGitSteps {
-	return 'push' in history;
-}
-
-/** The handle's `git`, frozen, over `history`, with its steps when it has them. */
-function createFolderGit<THistory extends FolderHistory>(
-	history: THistory,
-): GitOf<THistory> {
-	const git: FolderGit = {
+/** The handle's `git`, frozen, over `history`. */
+function createFolderGit(history: FolderHistory): FolderGit {
+	return Object.freeze({
 		get snapshot() {
 			return history.snapshot;
 		},
@@ -368,24 +263,7 @@ function createFolderGit<THistory extends FolderHistory>(
 		status: () => history.status(),
 		commit: (options) => history.commit(options),
 		log: (depth) => history.log(depth),
-	};
-	if (!hasSteps(history)) return Object.freeze(git) as GitOf<THistory>;
-	return Object.freeze(
-		Object.defineProperties(
-			{
-				commitAndPush: (options) => history.commitAndPush(options),
-				push: (options) => history.push(options),
-				fetch: (options) => history.fetch(options),
-				pullFastForward: () => history.pullFastForward(),
-				mergeIncoming: (options) => history.mergeIncoming(options),
-				paths: () => history.paths(),
-				stage: (paths) => history.stage(paths),
-				commitStaged: (message) => history.commitStaged(message),
-				diff: (options) => history.diff(options),
-			} satisfies Omit<FolderGitSteps, keyof FolderGit>,
-			Object.getOwnPropertyDescriptors(git),
-		),
-	) as GitOf<THistory>;
+	} satisfies FolderGit);
 }
 
 /**
@@ -429,7 +307,7 @@ export function assembleFolder<
 	hints: FileHints;
 	/** Releases this attachment after owned Git work settles. */
 	release: () => Promise<void>;
-}): Folder<TDefinition, TDeclared, GitOf<THistory>> {
+}): Folder<TDefinition, TDeclared> {
 	const controller = new AbortController();
 	let closing: Promise<void> | undefined;
 
@@ -483,5 +361,5 @@ export function assembleFolder<
 			})().then(completion.resolve, completion.reject);
 			return closing;
 		},
-	} satisfies Folder<TDefinition, TDeclared, GitOf<THistory>>);
+	} satisfies Folder<TDefinition, TDeclared>);
 }

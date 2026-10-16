@@ -123,9 +123,15 @@ folder's own file, the `epicenter` CLI's Sync and Save version included,
 leaves out the same paths. A declaration without `local` keeps nothing local.
 `local` is sorted and kept once each, so the file's bytes do not depend on the
 order it was declared in. When the folder's `epicenter.json` is there but
-cannot be read or prepared, the CLI's `runHistory` refuses a save version, a
-sync, and a settle, naming the problem, rather than commit without its
-`local`; status and the log still read.
+cannot be read or prepared, the CLI's `runHistory` refuses a save version and
+a sync, naming the problem, rather than commit without its `local`; status and
+the log still read.
+
+An open handle reads `local` from `epicenter.json` again for each commit and
+each Sync, joined with the opened definition's, so a pattern a Sync brings in
+from another device applies at once. Its own publication keeps every pattern
+the file already lists. An `epicenter.json` whose `local` does not read
+refuses the commit, as the CLI does.
 
 The engine decides this itself, on both backends, whatever `.gitignore` says.
 A path `local` matches is never history source (`git/scope.ts`): status does
@@ -143,14 +149,14 @@ removed, and a file that already names every pattern is not written. A failed
 write is logged, and the engine's rule still holds. The `.gitignore` is source
 like any other file, so it syncs.
 
-One limit follows from `epicenter.json` merging as a whole file: if a Sync
-takes an `epicenter.json` written by an older app version, one without
-`local`, the engine stops excluding those paths until the app publishes its
-declaration again on its next write. `.gitignore` merges by line and keeps the
-patterns meanwhile, so plain Git still ignores an untracked file there;
-`.gitignore` does nothing for a file already committed. Likewise, two devices
-that publish differing `local` lists keep only one after a Sync, until
-merging `epicenter.json` unions `local` (ADR-0576 wave C).
+Two devices that publish differing `local` lists keep both: merging
+`epicenter.json` unions `local` (ADR-0576), and no publication drops a
+pattern. One limit remains: an older app version's `epicenter.json`, one
+without `local`, taken whole by a Sync, drops other devices' patterns from the
+file. Each device still excludes its own definition's patterns, and lists them
+again on its next write. `.gitignore` merges by line and keeps the patterns
+meanwhile, so plain Git still ignores an untracked file there; `.gitignore`
+does nothing for a file already committed.
 A pattern must be one line that ignores something: `defineFolder` refuses an
 empty pattern, a comment, a negation, and surrounding whitespace. Plain
 `git add -A` outside Epicenter honors only `.gitignore`.
@@ -339,7 +345,7 @@ if (error?.name === 'Unrelated') {
 | --- | --- | --- |
 | files, no history | no branch | commits and pushes |
 | empty | history | takes it |
-| files, no history | history | merges them over an empty base; a differing path is a choice in the review |
+| files, no history | history | merges them over an empty base; where a path differs, this folder's version wins and history keeps the remote's |
 | its own history | related | syncs |
 | its own history | unrelated | `Unrelated`, writing nothing, until `allowUnrelatedHistories` |
 
@@ -351,8 +357,8 @@ set the remote only to a network URL.
 ### Repository creation
 
 Opening a folder never creates its repository, on any host or opener. The
-first commit (`git.commit`, Save version, or Sync's checkpoint), the first
-staging (`git.stage`), or setting a remote (`sync.connect`) creates it. Until
+first commit (`git.commit`, Save version, or Sync's checkpoint), or setting
+a remote (`sync.connect`), creates it. Until
 then the folder reads as an empty history with every file uncommitted, and on
 the desktop no `git` runs, since the shell runs only `git init` where there
 is no repository. A directory inside another repository's working tree never
@@ -378,17 +384,22 @@ Web Locks; without one it returns `NoFileSystem` and never falls back.
 IndexedDB is not required and is never read or written. A folder an earlier
 version kept in IndexedDB is not opened, copied, or removed.
 
-Every file mutation holds the folder's files Web Lock, so the conditions of
-`create`, `save`, `remove`, and `move` are checked and published without
-interleaving across tabs. Reads take no lock. New bytes publish when a file's
-stream closes, so a reader sees the old bytes or the new ones; a new file is
-visible, empty, from its creation until its stream closes.
+Storage is one port on every host (`boundary.ts`): `read`, `list`,
+`children`, `put(path, bytes | null, ifMatch)`, `mkdir`, `rmdir`, and
+`lock`. In a browser (`opfs-store.ts`) every change holds the folder's files
+Web Lock, so the condition of each `put` is checked and the change lands
+without interleaving across tabs, and `lock(work)` holds it across several,
+as Sync's publish does. Reads take no lock. Every change lands whole: a
+replaced file's bytes publish when its stream closes, so a reader sees the
+old bytes or the new ones, and a new file is written to
+`.git/epicenter/scratch` and moved into place, so a crash never leaves it
+empty. A browser that cannot move a file writes a new one in place.
 
 | What happened | Outcome |
 | --- | --- |
-| A step failed before its stream closed | `Io`. A file the step created is removed again; when its absence cannot be established, `Unconfirmed`. |
-| A stream's close threw | `Unconfirmed`, whatever the path holds afterward: matching bytes do not prove which write put them there. The path is posted to other pages and the history observation turns stale. |
-| A move landed its destination and could not remove its source | `SourceNotRemoved`. The destination is posted to other pages. |
+| A write failed before its stream closed, or a new file's move failed | `Io`, and the path holds what it held. |
+| A replacing stream's close threw | Read back once: the bytes sent are the write landing; anything else is `Unconfirmed`. The path is posted to other pages and the history observation turns stale. |
+| A move landed its destination and could not remove its source | `SourceNotRemoved`: a move is a create at the destination, then a removal of the source guarded by its bytes, so both paths hold the file. The destination is posted to other pages. |
 
 Saves are ordered by the lock alone, not by when their methods were called.
 A save that hashes or waits longer can land after one asked for later, from
@@ -419,11 +430,11 @@ through the shell's commands:
 | Transfers | `httpFetch`, regular fetch by default, with `credentials` as a header | Git's own, in the CLI: `credentials` as a URL-scoped header, or the person's credential helper or SSH |
 | Pages of one folder | Web Locks; each page tells the others the paths it wrote on a `BroadcastChannel` | Several windows may open one root; the shell checks each save where it lands, Git orders commits (ADR-0541), and the shell's watcher tells each window what changed |
 
-Files go through the browser folder's file storage (`opfs-store.ts`) over a
-directory handle (`directory-handle.ts`) built on seven calls: `readDir`,
-`lstat`, `readFile`, `writeFile` with `createNew`, `rename`, `remove`, and
-`mkdir`. `directory-tauri.ts` supplies them from the shell's commands and
-`directory-node.ts` from `node:fs`. A write's bytes are staged under
+Files go through the directory's storage (`directory-store.ts`), the same
+port the browser implements, built on seven calls (`directory-primitives.ts`):
+`readDir`, `lstat`, `readFile`, `writeFile` with `createNew`, `rename`,
+`remove`, and `mkdir`. `directory-tauri.ts` supplies them from the shell's
+commands and `directory-node.ts` from `node:fs`. A write's bytes are staged under
 `.git/epicenter/scratch` and renamed over the path, so another program sees
 the old file or the new one, never an empty or partial one; opening clears
 what a stopped write left there. Symbolic links and special entries are
@@ -437,14 +448,14 @@ names what it expects at its path: nothing, a file, a file with a given
 SHA-256, or anything. The shell checks it and changes the path under one
 lock per root, which every window's changes share, so a save that carries
 what it read (a hash, or a create) and that another window landed after
-this page checked is `Conflict`, or `Exists` for a create, never
-`Unconfirmed`. An `overwrite` is last-writer-wins by contract: it replaces
-whatever is there. In Bun, `directory-node.ts` makes the same check as a
-separate step before the change, and `bun.ts` holds the folder's save lock
-across both, the lock the shell takes around its own (below). A change whose
-reply is lost may have happened: a
-removal is done if the path is then gone and `Unconfirmed` if it is still
-there, and a write is `Unconfirmed`. Objects
+this page checked is `stale`, never `Unconfirmed`. In Bun,
+`directory-node.ts` makes the same check as a separate step before the
+change, and `bun.ts` holds the folder's save lock across both, the lock the
+shell takes around its own (below); `lock(work)` holds it across several
+changes, which then go through `node:fs` without asking for it again. A
+change whose reply is lost is read back once: a removal is done if the path
+is then gone, a write if it holds the bytes sent, and anything else is
+`Unconfirmed`. Objects
 are stored with `git hash-object -w` through the host (`ObjectStore` in
 `git/primitive-fs.ts`), in Bun as on the desktop, so no object file is
 written by hand.
@@ -473,7 +484,7 @@ or a submodule, or converts line endings, refuses a commit and names why.
 A directory folder takes no Web Lock (ADR-0541). Each host supplies the
 check it has instead:
 
-| Host | Save | Commit | First commit, staging, or remote |
+| Host | Save | Commit | First commit or remote |
 | --- | --- | --- | --- |
 | Desktop page | The shell's checked rename | In the CLI, under the folder's history lock, then Git's lock files and the branch's compare-and-swap | `git init` in the CLI, run again if another opener raced it |
 | Bun | Checked just before the rename, under the folder's save lock, which saves from this process, other Bun processes, and the desktop shell take in turn | Git's lock files and the branch's compare-and-swap | The same |
@@ -502,29 +513,21 @@ the folder the window was granted and answers one reply line
 | `git.status()` | `status` | `epicenter status <root> --json` |
 | `git.log(depth)` | `history` | `epicenter history <root> --depth <n> --json` |
 | `git.commit()` | `save_version` | `epicenter save-version <root> [--message <text>] --json` |
-| `sync.run()`, `sync.connect(url)` | `sync` | `epicenter sync <root> [--remote <url>] --json` |
-| `sync.resolve(attempt, choices)` | `settle_sync` | `epicenter sync <root> --resolve - --json` |
+| `sync.run()`, `sync.connect(url)` | `sync` | `epicenter sync <root> [--to <url>] --json` |
 
 The child runs the engine a Bun process runs (`runHistory` in `bun.ts`), so
-the merge is the same TypeScript on every host (ADR-0551). A save version, a sync, and settling a sync hold the folder's
-history lock, an exclusive SQLite transaction on
+the merge is the same TypeScript on every host (ADR-0576). A save version and
+a sync hold the folder's history lock, an exclusive SQLite transaction on
 `.<name>.epicenter-history-lock` beside the folder (`holdingHistoryLock` in
 `bun.ts`), so two windows' children, or a window's and a terminal's, take
 turns; it is apart from the save lock, so a page's saves never wait on a
-sync's network. Status and the log take no lock. A sync that needs choices
-records its attempt as `.git/epicenter/sync-attempt.json`: its ID and the
-commits it merged, nothing a caller supplied. `resolve` sends only the
-attempt's ID and the choices; the child merges the recorded commits again,
-which hold the same conflicts under the same IDs, and settles them. A later
-sync retires the record, and so does a resolve past its choices. What a
-sync wrote comes back in the reply (`landed`) and is reported once on
+sync's network: they wait only while the child checks and writes one file,
+holding the save lock. Status and the log take no lock. What a sync wrote comes back in the reply (`landed`) and is reported once on
 `onFilesChanged`; the shell's watcher reports the same files and the moved
 history, which at most rereads them.
 
-A desktop folder's `git` is `FolderGit`: status, the log, and `commit`. The
-finer steps (`FolderGitSteps`) have no desktop command, so a desktop handle
-does not have them; Sync is how it exchanges history. The page holds no
-token: the CLI sends the deployment's Git its own, and `credentials` does not
+A folder's `git` is status, the log, and `commit` on every host; Sync is
+how it exchanges history. The page holds no token: the CLI sends the deployment's Git its own, and `credentials` does not
 apply on the desktop. A computer with no `git` answers
 `GitError.GitMissing`, with how to get one (`install`); files still read and
 save.
@@ -534,8 +537,9 @@ Status costs one child: on macOS arm64, with 200 files, a median of about
 start. The page holds what it last read (`folderOptions`, ADR-0553) and reads
 again only when a change or its own write marks it stale, with at most one
 read running and one waiting.
-An incoming update that stops partway keeps no record here: the files it
-wrote show as changes, and the next Sync records and merges them.
+An incoming update that stops partway keeps no record: every file it wrote
+landed whole, they show as changes, and the next Sync records and merges
+them.
 
 ### Building for one environment
 
@@ -676,8 +680,8 @@ its default export declares (ADR-0527).
 | `kv` | Root `kv.json`, independent settings. `get()` returns `{ path, sha256, values, issues }`: every declared value that validated, with each broken one reported at its line, or `InvalidKv` for text that is not one strict JSON object. `set(key, value)` changes one key of the file as read at the set, keeps every other key's raw text, creates a missing file, removes a key set to `undefined`, and saves with the one save loop, merging by key with another writer's save. See [Reading and saving kv.json](#reading-and-saving-kvjson). |
 | `write(path, from, to)` | The one write (ADR-0576): merges the change from `from` to `to` into the file as it is now, by unit, the writer winning a unit both changed, and puts the result guarded by what it read. See [One write](#one-write). |
 | `files` | Ordinary files at literal paths. See below. |
-| `git` | `FolderGit` on every host: a status snapshot, `subscribe()`, `status()`, `commit()`, and `log()`. A browser or Bun handle's is `FolderGitSteps`, which adds `commitAndPush()`, `push()`, `fetch()`, `pullFastForward()`, `mergeIncoming()`, `paths()`, `stage()`, `commitStaged(message)`, and `diff()`; the browser entry's openers are `OpenFolder<FolderGitSteps>` and `OpenDataFolder<FolderGitSteps>`. |
-| `sync` | `run()` commits saved files, fetches, merges, and pushes; competing settings, row fields, row bodies, and whole row files come back as a `SyncAttempt` that `resolve(attempt, choices)` settles. See [Sync](#sync). |
+| `git` | `FolderGit` on every host: a status snapshot, `subscribe()`, `status()`, `commit()`, and `log()`. |
+| `sync` | `run()` records saved files, fetches, merges both heads into one commit this device wins, and pushes; `connect(url)` sets the remote first. It asks nothing. See [Sync](#sync). |
 | `definition` | The prepared definition the handle reads with: `openFolder`'s `definition`, or the folder's own `epicenter.json` as `openDataFolder` read it when it opened. Its tables are `tables`, its settings `kv`, and Sync merges rows by it. |
 | `location` | `{ kind: 'opfs', directory }` or `{ kind: 'directory', root }`. For showing to a person. File paths are never joined onto it. |
 | `onFilesChanged(listener)` | Files may have changed: `listener(change)` with the paths, or `'everything'`, so read again. Never this handle's own saves. Returns the function that stops listening. See [Changes](#changes). |
@@ -729,20 +733,14 @@ written. An editor keeps its base and its edited text apart.
 - A stale capture is a `Conflict` for `remove` and `move`. A save merges
   instead (see [One save](#one-save)), unless it is given `{ merge: false }`.
 
-Internally, the same intention reaches each backend as `create`, `replace`,
-`overwrite`, `remove`, or `move`. `replace`, `remove`, and `move` carry an
-optional `expectedSha256`; `files` and tables always send one, and only
-`create` publishes unconditionally. No folder verb sends an `overwrite`, which
-stays in the boundary for tests that play another writer. Without the guard,
-each still requires a file at its path or source: a `replace` never creates a
-file and is never sent as an `overwrite`, and a move's destination must be
-empty. Browser OPFS, the Bun directory, and a desktop page's directory enforce
-this where they publish. There is no sentinel union mixing hashes with
-`'absent'` or `'any'`.
+Internally every verb is `put(path, bytes | null, ifMatch)` on the storage
+port: `create` puts where `ifMatch` is `null`, so only where no file is;
+`remove` puts no file where the captured hash is; a move is a create at the
+destination, then a remove of the source. Browser OPFS, the Bun directory,
+and a desktop page's directory check `ifMatch` where the bytes land.
 
-A directory folder, in Bun or a desktop page, checks that a `replace`'s file
-is there, or holds the expected bytes, where it renames a staged copy over
-it. On the desktop the shell makes that check and the rename under one lock
+A directory folder, in Bun or a desktop page, checks what a `put` expects
+at its path where it renames a staged copy over it. On the desktop the shell makes that check and the rename under one lock
 per root and the folder's save lock, and in Bun under the save lock, so no
 other window's or Bun process's change lands between them. A file another
 program removes between the check and the rename comes back with the new
@@ -1181,13 +1179,13 @@ nesting beyond 64 containers return `kind: 'invalid'` and the first invalid
 output. Callers must decode bytes without replacing invalid UTF-8.
 
 A save and Sync settle competing keys through the same merge (`reconcileKv`
-in `kv-merge.ts`, through `mergeFile`): each settled key is its raw value
+in `kv-merge.ts`, through `merge`): each settled key is its raw value
 text, or `null` to leave it out, and applies only where the key competes.
 
 The function does not apply field schemas, write files, or choose a winner for
 competing edits. Its module owns `kv.json` text: `kv.set` writes through the same
-formatter, so a local save and a merge produce the same file. Every folder's `git.mergeIncoming()` uses it for root
-`kv.json`; see [Merging incoming changes](#merging-incoming-changes).
+formatter, so a local save and a merge produce the same file. Sync uses it
+for root `kv.json`; see [Sync](#sync).
 
 ### One file per save
 
@@ -1312,13 +1310,10 @@ subject derived from the tree difference, and moves the branch only with a
 compare-and-swap. A commit whose branch moved after it pinned the head retries
 once: it captures the folder again, so it records everything the lost
 attempt held, over the new head. A second move is reported as `branchMoved`.
-A staged `commitStaged()` is not retried: its index was staged against the
-head that moved, and it is reported as `BranchMoved`. Commit and push
-failures never undo a save.
+Commit and push failures never undo a save.
 
 A save never asks for a commit (ADR-0529). A commit happens only when a caller
-asks for one: `commit()`, `commitAndPush()`, a staged `commitStaged()`, or
-sync's checkpoint before it fetches. A commit that fails otherwise is reported
+asks for one: `commit()`, or sync's checkpoint before it fetches. A commit that fails otherwise is reported
 in `git.snapshot.lastCommit` and is not retried. `git.snapshot.files` turns
 `stale` when a save lands after the last capture, and `git.status()` lists what
 is uncommitted.
@@ -1328,14 +1323,10 @@ transfer destination; it never selects another local history. An existing
 repository with `HEAD` on another branch refuses commits and incoming
 adoption until its branch is deliberately reconciled.
 
-`commit()` stays local, even with a configured remote.
-Only explicit `push()` or `commitAndPush()` requests upload history.
-`commitAndPush()` commits and then pushes;
-a caller `signal` only stops that caller waiting, and a caller that stopped
-during the commit starts no push. An explicit request waits for the folder's
-Git work and then reads the folder, so it includes saves made while it
-waited. If the folder closes while it still waits, it is told `closed` and
-nothing runs.
+`commit()` stays local, even with a configured remote; only Sync uploads
+history. An explicit request waits for the folder's Git work and then reads
+the folder, so it includes saves made while it waited. If the folder closes
+while it still waits, it is told `closed` and nothing runs.
 
 Source files are tracked files plus untracked files that `.gitignore` does not
 exclude, minus every path the definition's `local` patterns match; private Git
@@ -1358,8 +1349,7 @@ await folder.close();
 ```
 
 A helper still reading or hashing can be refused at its next storage call. An
-already-started application returns its actual Result, including `Partial` or
-`Unconfirmed`. Closing never relabels that outcome. A browser write that
+already-started change returns its actual Result, including `Unconfirmed`. Closing never relabels that outcome. A browser write that
 already holds the files lock can finish after close returns, although the
 paths it posts to other pages can be lost once the channel closes.
 
@@ -1376,177 +1366,101 @@ commit.
 ### Sync
 
 `folder.sync` is the one action an application offers for "bring this folder
-and its remote together" (ADR-0514). `run()` commits the saved files, fetches
-the remote branch, merges, and pushes without force:
+and its remote together" (ADR-0576). It asks nothing:
 
 ```ts
 const { data: ran, error } = await folder.sync.run();
-if (error?.name === 'NeedsChoices') return review(error.attempt); // nothing conflicted was written or sent
-if (error !== null) return show(error.message);
+if (error !== null) return show(error.message); // it stopped, and says why
 // ran.kind: 'synced', or 'saved' when the push is not confirmed
 ```
 
-A folder that had no history before the run, whose first commit the run
-made, adopts the remote's history by merging over an empty base; two
-different files at one path are then a conflict like any other. A folder
-with a history of its own meets an unrelated remote as `Unrelated`, writing
-nothing; `run({ allowUnrelatedHistories: true })` combines them. `connect(url)`
-sets the remote, then runs ([above](#the-folder-opened-lazily-and-its-remote)).
+`run()` records the saved files in a checkpoint commit `L` and fetches the
+remote head `R`. When `R` descends from `L` it fast-forwards; when `L`
+descends from `R` it pushes. Otherwise it makes one merge commit `M` with
+the parents `[L, R]`, computed by Epicenter's own code on every host
+(`git/merge.ts`), and pushes it before any file here changes. Each path
+either side changed since the merge base is settled once, net, by the same
+`merge` a save makes ([One write](#one-write)), this device as the writer
+acting:
 
-Its merge is `mergeIncoming`'s, with every plain file both sides changed
-merged by `mergeFile`, the same merge a save makes ([One save](#one-save),
-ADR-0551):
-
-| Path | Merged by | A conflict is |
+| Path | Merged by | Where both changed one unit |
 | --- | --- | --- |
-| root `kv.json` | key (`reconcileKv`) | `setting`: one key, with JSON values |
-| `<table>/<stem>.md` of a declared table | field and body, through `parseRow` | `field`: one field, with JSON values; `body`: the notes, as text |
-| any other UTF-8 text file, or a row or `kv.json` version that does not read as its kind | line | `file`: the text, when lines compete |
-| any file one side deleted, or a version that is not text | nothing | `file`: the whole file; `binary` when a version is not text |
+| root `kv.json` | key | this device's value |
+| `<table>/<stem>.md` of a declared table | field and body lines | this device's field or lines |
+| any other UTF-8 text, or a version that does not read as its kind | line | this device's lines |
+| `epicenter.json` | whole file, with `local` listing every pattern either side lists | this device's file |
+| a binary file, a link, an executable, or a submodule | whole file | this device's |
 
-Field values compare as JSON, so quoting, key order, and frontmatter
-comments never conflict; the body merges by line. A merged row is written by
-`formatRow`, in the standard form. For a `body`, and a `file` both sides
-changed by line, `local` and `incoming` are the line merge with that side
-winning every competing span, so taking a side keeps the other side's lines
-that did not compete. A binary `file` is taken or removed, never replaced;
-its versions are bytes. A link, executable, or submodule, and a file against
-a directory are `Unreviewable` and nothing is written; repair them with Git
-outside the folder.
+A side that changed nothing leaves the other's bytes exactly as they are. A
+delete beats an edit it never saw. A rename, a path one side deleted and
+created elsewhere with the same bytes, carries the other side's edit to the
+new path. A file against a directory keeps the directory, and the file
+beside it as `<path>~local` or `<path>~remote` (`-2` and on where that name
+is taken). Each unit that lost is a trailer on `M`, naming the parent that
+held it, which stays reachable:
 
-A `SyncAttempt`, carried by `SyncError.NeedsChoices`, is `{ id, local, incoming, conflicts }`.
-Each conflict has an opaque `id`, its `kind`, `path`, `key` or `field`, and
-`base`, `local`, and `incoming` versions, each `{ present: false }` or
-`{ present: true, value }`. `resolve` takes one choice per conflict ID:
-
-```ts
-const choices = {
-	[title.id]: { kind: 'take', side: 'incoming' }, // that side's version; an absent side removes
-	[theme.id]: { kind: 'replace', value: 'dark' }, // JSON for a setting or field, text for a body or file
-	[tags.id]: { kind: 'remove' },                  // not for a body; replace it with ''
-};
-const { data: done, error } = await folder.sync.resolve(attempt, choices);
+```txt
+Overrode: 4f2a… field="title" "todos/buy milk.md"
+Overrode: 4f2a… lines=body:12+3 "todos/buy milk.md"
+Overrode: 9c1e… file "photo.bin"
 ```
 
-- Choices are read before `resolve` first awaits. Every problem is reported
-  at once as `InvalidChoices`, each `{ conflictId?, reason, message }`: a
-  missing or unknown entry, a malformed or disallowed choice, or a value the
-  folder refuses. A replacement setting is checked as `kv.set` checks it, and
-  a resolved row must read back through `parseRow`, so removing a required
-  field is refused. `InvalidChoices` writes nothing and keeps the attempt.
-- A `file` choice is written exactly as chosen, or removes the file. Text that is not a valid row
-  then reads as `InvalidRow` and is repaired as text, like any other. A
-  binary `file` choice that replaces is `disallowed`.
-- Otherwise the attempt is spent. `resolve` merges the captured commits
-  again, never fetching, publishes the merge like `mergeIncoming`, and pushes.
-  An attempt replaced by another `run()`, or a folder whose branch moved or
-  whose saved files changed since the attempt, is `Stale` and nothing is
-  written.
-- `synced` means the push confirmed the merged head and no save landed after
-  the capture. `saved` carries the push's own outcome and `changedSince`.
+A push that lost a race merges again from `L` against the new remote, at
+most five times, then `KeptChanging`. One the remote refused without moving
+stops. A push that failed otherwise still publishes `M` here and answers
+`saved`, and a lost reply is found by the next fetch.
 
-### Incoming changes
+Publishing a tree over the files, for a merge or a fast-forward, checks and
+writes each file holding the folder's save lock (`storage.lock`), one file
+at a time, so a save waits for one file, never for the whole publish, and
+its editor keeps what is typed. Each changed path takes one write, the live file as the writer acting, so text
+typed after the checkpoint keeps the units it changed. Removals go first,
+in one hold of the lock: each is checked against the checkpoint's bytes,
+then all are made, with the directories they emptied, so a file can take a
+directory's place and the reverse. Every write lands whole,
+so a publish cut off partway leaves each file at its old bytes or its new
+ones (ADR-0545). `refs/epicenter/publishing` names the publish, as a commit
+whose parents are where the branch was and what it publishes, until the
+branch moves; the next commit finishes that publish before it records the
+files, so what arrived is never recorded as this device's edit. A folder that had no history before
+the run adopts the remote's by merging over an empty base; one with a
+history of its own meets an unrelated remote as `Unrelated`, and
+`run({ allowUnrelatedHistories: true })` combines them. `connect(url)` sets
+the remote, then runs ([above](#the-folder-opened-lazily-and-its-remote)).
 
-Browser fetch uses isomorphic-git 1.38.5, which fails when a non-default
-remote branch exists but the server advertises no resolvable `HEAD`. This
-failure leaves local files and history intact.
+Sync stops, and says why, only where it must not decide:
 
-`fetch()` records the remote head. `pullFastForward()` applies it only when
-the whole folder, including staged changes, is clean and the update is a
-fast-forward. Ignored and untracked files are left alone; an incoming path
-that would overwrite one is a `Collision`.
+| `SyncError` | When | What was written |
+| --- | --- | --- |
+| `Blocked` | a merge or a rebase another Git program began (`.git/MERGE_HEAD`), a detached head, a file of this folder's own where the remote needs the path (a file it never committed, ignored or new, where the remote adds one; files where the remote needs a file), or a branch another program moved while Sync wrote | nothing sent, for a file in the way; for a moved branch, the files written are changes to it |
+| `Unrepresentable` | the remote (`whose: 'remote'`) or the tree this folder would send (`whose: 'folder'`) holds a link, an executable, a submodule, an invalid path, two paths only their case tells apart, or a commit whose attributes declare a filter or a byte conversion | nothing |
+| `Unrelated` | the histories share no commit | nothing |
+| `KeptChanging` | the remote moved before every push | nothing |
+| `Publish` | a file could not be written | what landed, whole; the next Sync finishes |
+| `Checkpoint`, `Fetch`, `NoRemote`, `Closed`, `Failed` | the checkpoint, the fetch, or the transport failed | nothing |
 
-A fast-forward writes each blob's bytes as they are stored. An incoming commit
-whose own `.gitattributes` declare a filter or a byte conversion (`filter`,
-`text`, `eol`, `crlf`, `ident`, `working-tree-encoding`) for any file in its
-tree is refused as `Unrepresentable` before a file, the index, or the branch
-changes. That includes a commit that only adds the attribute over files it
-does not touch, attributes in nested files, and attributes the folder's
-current files would mask. This is refusal, not Git LFS support: pointer-shaped
-text with no declared filter is ordinary bytes. A directory folder, in Bun or
-on the desktop, asks `git check-attr --source`; the browser evaluates the
-commit's attribute files the same way, matching patterns as a case-insensitive
-checkout does.
+When a file the remote removes holds an edit no commit has, publish writes
+nothing, records the files again, and merges that with what it sent: the
+delete wins, and the edit stays in history as a parent, named by a trailer.
+`synced` means the push confirmed the head and no save landed after the
+checkpoint; `saved` carries the push's own outcome and `changedSince`.
 
-An incoming update publishes files, then the index, then the branch, and no
-host records it in progress (ADR-0545). A browser folder publishes under its
-Git Web Lock and then its files lock. Ordinary saves take only the files lock.
-They wait while an update publishes its working tree, index, and branch, but
-not for fetching or preparing the incoming Git objects.
+An incoming commit whose own `.gitattributes` declare a filter or a byte
+conversion (`filter`, `text`, `eol`, `crlf`, `ident`,
+`working-tree-encoding`) for any file in its tree is refused as
+`Unrepresentable` before anything changes, including attributes in nested
+files and ones the folder's current files would mask. This is refusal, not
+Git LFS support: pointer-shaped text with no declared filter is ordinary
+bytes. A directory folder asks `git check-attr --source`; the browser
+evaluates the commit's attribute files the same way. Browser fetch uses
+isomorphic-git 1.38.5, which fails when a non-default remote branch exists
+but the server advertises no resolvable `HEAD`; that failure changes
+nothing.
 
-1. Admission, in a browser folder. Every portable file must still have the
-   hash the update captured, no new file may have appeared, and the index
-   must be the bytes its clean check left; otherwise nothing is written and
-   the update is `Refused` or `StagedChanges`. A path the update writes a
-   file at that holds a directory the update does not empty is refused here
-   as `NotAFile`, as is one holding a file no portable path names, such as
-   `.DS_Store`. A directory folder, in Bun or on the desktop, checks each
-   changed file's own condition as it writes, best effort.
-2. Removals (pruning only the directories they emptied; empty directories a
-   person made stay), then the directories the update emptied where it
-   writes files, then writes, then the index, then the branch, compared with
-   the pinned head. So `a/b` can become a file `a`, and a file `a` a
-   directory `a/b`.
-
-An update that stops partway, because a step failed or the tab closed, is
-`Interrupted` with the `paths` it wrote or may have written. Nothing is
-pending afterward: the files it wrote differ from the branch head, status
-shows them as changed, saves and commits go ahead, and the next Sync records
-them and merges with the remote. A fast-forward cut off partway holds, at each
-path, the old version or the new one (in a browser, also an empty file whose
-creation never closed), so that merge lands on the remote's tree. The Sync can
-add one local commit of the mixed tree before its merge commit.
-
-### Merging incoming changes
-
-`mergeIncoming()` applies the already fetched remote head when histories
-diverged. It pins the branch head and the fetched head, requires the same
-clean folder as `pullFastForward()`, and refuses the same incoming commits. A
-branch that is behind fast-forwards; a branch that is ahead or equal changes
-nothing. It never fetches or pushes, and `pullFastForward()` still refuses
-divergence.
-
-Diverged histories normally need exactly one merge base; none or several is
-`UnsupportedHistory`. `mergeIncoming({ allowUnrelatedHistories: true })`
-explicitly combines histories with no common commit over an empty base. Both
-heads remain parents of the merge commit. Several bases are refused either way. The merge writes one commit whose parents are the pinned
-head and the pinned fetched commit, and publishes its files, a clean index,
-and the branch the way a fast-forward does.
-
-- Root `kv.json` changed on both sides merges by key with `mergeKv`, and is
-  saved with sorted keys. A nested `kv.json` is an ordinary file.
-- Every other path follows Git's rules through isomorphic-git's merge.
-  Unchanged, identical, and one-sided changes keep their exact bytes.
-- A file both sides changed merges by lines only when all its versions are
-  UTF-8 with no NUL byte and no line break the line merge would drop: a lone
-  carriage return, U+2028, or U+2029. isomorphic-git 1.38.5 would otherwise
-  replace bytes, so such a file is a `binary` conflict.
-- A `merge` attribute other than Git's default on such a file is
-  `Unmergeable`, as is a link, executable, or submodule among its versions.
-
-Competing changes are `Conflicted`, with one entry per reason: `kvKey` with
-the raw base, ours, and theirs values of the key; `kvFile` when one side
-deleted `kv.json` and the other changed it; `kvInvalid`; `content` for
-competing lines; `binary`; `deleted` for a delete against a change; and
-`shape` for a file against a directory. A conflict or refusal writes no
-file, index entry, or ref; unreachable objects may remain. A conflict is
-never left in the files: [Sync](#sync) is how a person settles one. With
-`versions: true`, `Conflicted.versions` carries the exact committed bytes of
-both sides at each conflicted file path, with `null` for an absent file. Shape
-conflicts have no file versions.
-
-Browser folders and directory folders, in Bun or on the desktop, merge under
-these rules.
-
-A merge another Git program began in the repository (`.git/MERGE_HEAD`), or
-unmerged index stages it left, blocks whole-folder commits, staged commits,
-pulls, and merges, writing nothing, until it is finished or abandoned with
-Git. The folder never begins or finishes such a merge.
-
-A whole-folder commit or fast-forward on disk writes every file as plain
-`100644` bytes, so it is refused in a repository it would misrepresent:
-symbolic links, executables, submodules, nested `.git` data, `core.autocrlf`,
-or a normalizing attribute on a source file. Reads and file saves still work.
+A whole-folder commit on disk records every file as plain `100644` bytes,
+so it is refused in a repository it would misrepresent: symbolic links,
+executables, submodules, nested `.git` data, `core.autocrlf`, or a
+normalizing attribute on a source file. Reads and file saves still work.
 
 ## Declaring a folder
 
@@ -1604,8 +1518,10 @@ dangle.
 | `src/check-folder.ts`, `query-folder.ts`, `generate-declaration.ts` | What the CLI's `check`, `query`, and `generate` do, exported from the Bun entry. |
 | `src/row-text.ts`, `canonical.ts` | `parseRow` and `formatRow`, and the row codec under them: the one parser and the one writer of row text. |
 | `src/svelte/` | `@epicenter/folder/svelte` (`draft.svelte.ts`), its tests, and the Svelte boundary tests. |
+| `src/boundary.ts`, `storage.ts` | The storage port every host implements (`read`, `list`, `children`, `put`, `mkdir`, `rmdir`, `lock`), and what folders build on it: save accounting, the close fence, captures, and the file verbs. |
 | `src/opfs-store.ts`, `git/opfs-git.ts`, `git/browser-backend.ts` | OPFS storage, private `.git`, and isomorphic-git. |
-| `src/directory-adapter.ts`, `directory-handle.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: the handle over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
+| `src/directory-adapter.ts`, `directory-store.ts`, `directory-primitives.ts`, `directory-node.ts`, `directory-tauri.ts` | The directory folder both the Bun entry and a desktop page open: its storage over a directory's primitives, and those primitives over `node:fs` or the shell's commands. |
+| `src/git/merge.ts`, `git/history.ts` | Sync's one merge commit as objects, and the coordinator that checkpoints, fetches, pushes, and publishes. |
 | `git/native-*.ts` | The `git` program a directory folder records history with, in Bun. |
 | `src/history-wire.ts`, `tauri-history.ts` | A desktop page's history: the reply line the `epicenter` CLI prints for what it runs (`runHistory` in `bun.ts`), and the page's `folder.git` over the shell's history commands. |
 | `src/native/bindings.gen.ts` | Commands generated from the `tauri-plugin-epicenter-folder` crate. Internal. Do not edit. |
@@ -1655,9 +1571,9 @@ what the Web Locks can see.
 
 ## Internal composition
 
-Files, tables, and KV use one storage API. Its `apply`
-accounts for content changes, so a domain method cannot accidentally choose a
-write that skips marking history stale.
+Files, tables, and KV use one storage port (`boundary.ts`). Every opener
+wraps it so each `put` that may have landed marks history stale, under the
+save lock too, so a domain method cannot write without that.
 
 ```ts
 createFiles({ storage, definition })
@@ -1666,14 +1582,15 @@ createKv({ storage }, definition.kv)
 ```
 
 `files.save` and `kv.set` each call `saveFile` (`save-file.ts`), and every table helper calls `writeFile`
-with the file's kind, which merges through `mergeFile` (`merge-file.ts`), the
-merge Sync uses too.
+with the file's kind, which merges through `merge` (`merge-file.ts`), the
+merge Sync and the merge driver use too.
 
 Every opener wraps raw storage with publication accounting. Assembly fences
 the resulting storage with the handle's close signal. These wrappers retain
 no file-operation collection.
 
-Git keeps raw storage because incoming fast-forwards update files and history
-under their own policy, and are not recorded as local saves. Saves are not
+Git keeps raw storage because Sync's publish updates files and history
+under its own policy, each file under the save lock, and is not recorded
+as local saves. Saves are not
 ordered by when their methods were called; each names the bytes it started
 from, so a later one merges with or is refused by what landed first.

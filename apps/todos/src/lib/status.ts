@@ -191,28 +191,8 @@ function pushOutcomeLine(outcome: PushOutcome, git: GitSnapshot): StatusLine {
 						detail: `${outcome.error}\nLocal commits are kept.`,
 						tone: 'error',
 					};
-		case 'noRemote':
-			return { label: 'No remote configured', tone: 'neutral' };
-		case 'unconfirmed':
-			return {
-				label: 'Push not confirmed',
-				detail: outcome.error,
-				tone: 'warning',
-			};
-		case 'nothingToPush':
-			return { label: 'Nothing to push yet', tone: 'neutral' };
-		case 'skipped':
-			return {
-				label: 'Push skipped',
-				detail: outcome.reason,
-				tone: 'neutral',
-			};
 		case 'cancelled':
 			return { label: 'Push cancelled', tone: 'neutral' };
-		case 'stoppedWaiting':
-			return { label: 'Push may still be running', tone: 'neutral' };
-		case 'closed':
-			return { label: 'Closed', tone: 'neutral' };
 	}
 }
 
@@ -242,7 +222,6 @@ export function pushLine(git: GitSnapshot): StatusLine {
 		};
 	if (git.activity.push.active) return { label: 'Pushing…', tone: 'busy' };
 	if (git.activity.fetch.active) return { label: 'Fetching…', tone: 'busy' };
-	if (git.activity.merge.active) return { label: 'Merging…', tone: 'busy' };
 	const sync = git.sync.state === 'observed' ? git.sync.value : undefined;
 	const last = git.lastPush;
 	const parts: string[] = [];

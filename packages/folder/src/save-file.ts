@@ -40,6 +40,7 @@ import {
 	merge,
 	type Overridden,
 	sameContent,
+	type Winner,
 } from './merge-file.js';
 import { parseRow } from './row-text.js';
 
@@ -148,7 +149,10 @@ export function writeFailure(path: string, error: FileError): WriteError {
  * saw, and only a write from no file creates one. A create, from `null`,
  * places a file only where none is: a file already there is `InvalidPath`,
  * unless it holds the same bytes, which is that create landed before. Both
- * are owned before anything is awaited.
+ * are owned before anything is awaited. With `joining`, a create onto a
+ * file merges with it as an addition on both sides instead: what Sync does
+ * when it finishes a publish over a file the person made where the
+ * published tree adds one.
  *
  * Any `to` is written, whether or not it reads as its kind: a typed view
  * refuses a row it cannot write before it gets here (`InvalidValues`), and
@@ -160,6 +164,10 @@ export async function writeFile(
 	path: string,
 	from: FileContent | null,
 	to: FileContent | null,
+	{
+		winner = 'ours',
+		joining = false,
+	}: { readonly winner?: Winner; readonly joining?: boolean } = {},
 ): Promise<Result<Written, WriteError>> {
 	const own = (content: FileContent | null) =>
 		typeof content === 'string' || content === null
@@ -175,7 +183,7 @@ export async function writeFile(
 		const theirs = current?.bytes ?? null;
 		// A create places a file only where none is. The same bytes already
 		// there are this create landed before, so a retried create is done.
-		if (base === null && ours !== null && current !== null) {
+		if (base === null && ours !== null && current !== null && !joining) {
 			if (sameContent(toBytes(ours), current.bytes))
 				return Ok(
 					Object.freeze({
@@ -201,7 +209,7 @@ export async function writeFile(
 								? [{ kind: 'file', lost: 'theirs' } as const]
 								: [],
 					}
-				: await merge(kind, { base, ours, theirs });
+				: await merge(kind, { base, ours, theirs }, { winner });
 		const bytes = toBytes(merged.content);
 		if (
 			merged.overridden.some(
@@ -271,7 +279,7 @@ function ownBase(
  * issues.
  */
 function unreadable(
-	kind: Exclude<FileKind, { kind: 'file' }>,
+	kind: Exclude<FileKind, { kind: 'file' | 'declaration' }>,
 	path: string,
 	current: { bytes: Uint8Array; sha256: string },
 	merged: Uint8Array,
@@ -303,7 +311,7 @@ function unreadable(
 
 /** Whether `bytes` read as `kind`. */
 function readsAs(kind: FileKind, bytes: Uint8Array): boolean {
-	if (kind.kind === 'file') return true;
+	if (kind.kind === 'file' || kind.kind === 'declaration') return true;
 	let text: string;
 	try {
 		text = strict.decode(bytes);
@@ -367,7 +375,11 @@ export async function saveFile(
 		});
 		// The edit is present, so the merge never settles to no file.
 		const bytes = toBytes(merged.content) as Uint8Array;
-		if (strictEdit && kind.kind !== 'file' && !readsAs(kind, bytes))
+		if (
+			strictEdit &&
+			(kind.kind === 'kv' || kind.kind === 'row') &&
+			!readsAs(kind, bytes)
+		)
 			return Err(unreadable(kind, path, current, bytes));
 		overwrote = merged.overridden;
 		attempt = bytes;

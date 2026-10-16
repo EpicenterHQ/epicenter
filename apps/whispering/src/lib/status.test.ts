@@ -24,14 +24,10 @@ function snapshot(): GitSnapshot {
 			commit: { active: false },
 			push: { active: false },
 			fetch: { active: false },
-			pull: { active: false },
-			merge: { active: false },
 		},
 		lastCommit: undefined,
 		lastPush: undefined,
 		lastFetch: undefined,
-		lastPull: undefined,
-		lastMerge: undefined,
 		closed: false,
 	};
 }
