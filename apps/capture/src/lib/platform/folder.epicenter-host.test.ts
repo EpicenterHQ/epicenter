@@ -319,7 +319,10 @@ test('closing waits for a save already sent and the latest edit after it', async
 		.then(() => {
 			closed = true;
 		});
-	await Bun.sleep(20);
+	// Wait for the save to reach the held rename, however long a loaded
+	// machine takes, rather than a fixed pause.
+	for (let waited = 0; held === 0 && waited < 2000; waited += 5)
+		await Bun.sleep(5);
 	expect(held).toBe(1);
 	expect(closed).toBe(false);
 

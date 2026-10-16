@@ -118,9 +118,16 @@
 		void sendTitleLater.runScheduledNow();
 		return sendNotesLater.runScheduledNow();
 	}
-	// runed's timers outlive the view; send now instead, and offer the notes
-	// if the send finds the todo deleted.
-	onDestroy(() => void Promise.resolve(flush()).then(offerGoneNotes));
+	// runed's timers outlive the view; send now instead, and save the notes
+	// once more, so notes an earlier save failed on are tried as the view
+	// goes: a failure offers them as text again (the write's own failure
+	// notice), and a deleted todo offers them as gone.
+	onDestroy(
+		() =>
+			void Promise.resolve(flush())
+				.then(() => notes.save())
+				.then(offerGoneNotes),
+	);
 
 	const pending = $derived(
 		setDone.isPending ||
