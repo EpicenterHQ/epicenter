@@ -12,9 +12,8 @@
 #   - `bun run check:doc-hygiene`. Its ADR-staleness rule is time-based, so a
 #     PR that touched nothing can go red on a calendar day. It stays an explicit
 #     review command (see 91c4a87c1b), not a merge blocker.
-#   - Runtime parity and Gmail drift. Those need Docker, a Postgres service,
-#     S3, or a live Google endpoint; they keep their own workflows on their
-#     own triggers.
+#   - Gmail drift. It needs a live Google endpoint; it keeps its own workflow
+#     on its own trigger.
 #
 # The gate's tests do need one local program, which this job installs:
 # PostgreSQL's initdb and pg_ctl. The session handoff tests in packages/server

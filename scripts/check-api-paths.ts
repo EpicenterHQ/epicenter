@@ -8,9 +8,6 @@
  *
  * Excluded:
  *   - The constants files themselves (they ARE the source of truth).
- *   - A domain package that owns its protocol and so owns its routes, as
- *     api-routes.ts itself prescribes: packages/blobs/src/hosted-url.ts
- *     declares the Personal blob addresses its server and clients share.
  *   - *.test.ts / *.test.tsx (mock URL matchers may reference paths verbatim).
  *   - JSDoc/comment lines (descriptive prose, not constructions).
  *
@@ -39,12 +36,11 @@ const EXCLUDED_DIRS = new Set([
 
 // A quoted route literal for a path @epicenter/constants owns. `([^a-z]|$)`
 // keeps `/api/sessions-of-mine` style prefixes from matching.
-const HARDCODED_PATH = /['"`]\/api\/(session|rooms|blobs|ai)([^a-z]|$)/;
+const HARDCODED_PATH = /['"`]\/api\/(session|rooms|ai)([^a-z]|$)/;
 
 // The next two regexes test the full `path:line:content` record, exactly as
 // the workflow's `grep -v` filters did.
-const ALLOWED_RECORD =
-	/packages\/constants\/src\/api-routes\.ts|packages\/blobs\/src\/hosted-url\.ts/;
+const ALLOWED_RECORD = /packages\/constants\/src\/api-routes\.ts/;
 const COMMENT_RECORD = /^[^:]+:[0-9]+:[ \t\v\f\r]*(\*|\/\/|\/\*)/;
 
 const isScannedFile = (name: string): boolean =>

@@ -9,11 +9,7 @@
  *
  * The resource check runs in this process against the same database, the way
  * every resource will run it, and a real access token reaches each entry's own
- * resources over HTTP: the repository listing, and on the Bun entry a personal
- * blob round trip when `BLOBS_S3_*` names a store (CI's runtime-parity job runs
- * one). The Worker fetches only public addresses (`global_fetch_strictly_public`),
- * so it gets no local store and answers 503 for storage. Each
- * entry writes its own first-party registrations: the Bun entry at boot, the
+ * resource over HTTP: the repository listing. Each entry writes its own first-party registrations: the Bun entry at boot, the
  * Worker before its first authorization-server request, and concurrent writes
  * agree. Requires initdb and pg_ctl on PATH; never connects to a configured
  * database and never deploys.
@@ -23,10 +19,6 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import {
-	parsePersonalBlobUrl,
-	personalBlobCollectionUrl,
-} from '@epicenter/blobs';
 import {
 	PRODUCTION_API_URL,
 	resolveOAuthAudiences,
@@ -63,23 +55,6 @@ const apiRoot = import.meta.dir;
 const bytewise = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const secret = 'oauth-entries-postgres-secret-0123456789';
 let cluster: DisposablePostgres;
-
-/**
- * The object store the Bun entry publishes personal blobs to, when this
- * process names one. Without it, the entry answers 503 and the round trip
- * checks only that.
- */
-const blobStore = Object.fromEntries(
-	Object.entries(process.env).filter(
-		(entry): entry is [string, string] =>
-			entry[0].startsWith('BLOBS_S3_') && entry[1] !== undefined,
-	),
-);
-const blobStoreConfigured = Boolean(
-	blobStore.BLOBS_S3_ENDPOINT &&
-		blobStore.BLOBS_S3_ACCESS_KEY_ID &&
-		blobStore.BLOBS_S3_SECRET_ACCESS_KEY,
-);
 
 async function freePort() {
 	const listener = createServer();
@@ -215,22 +190,17 @@ function checks(
 		);
 		test(
 			'a real access token reaches its resources over HTTP',
-			() =>
-				checkResourcesOverHttp(
-					harness(),
-					runtime === 'bun' && blobStoreConfigured,
-				),
+			() => checkResourcesOverHttp(harness()),
 			60_000,
 		);
 	});
 }
 
 /**
- * One person's Git-audience token lists their repositories and round-trips a
- * private blob through the entry; an API-audience token is refused by both,
- * since each is the Git audience's.
+ * One person's Git-audience token lists their repositories; an API-audience
+ * token is refused, since the listing is the Git audience's.
  */
-async function checkResourcesOverHttp(h: OAuthHarness, blobs: boolean) {
+async function checkResourcesOverHttp(h: OAuthHarness) {
 	const { client } = h;
 	const person = await client.person('http');
 	const git = await client.codeGrant({
@@ -257,48 +227,6 @@ async function checkResourcesOverHttp(h: OAuthHarness, blobs: boolean) {
 		headers: bearer(api.access_token),
 	});
 	expect(wrongAudience.status).toBe(401);
-
-	const collection = personalBlobCollectionUrl(
-		client.origin,
-		person.id,
-		'private',
-	);
-	const payload = new TextEncoder().encode(`blob ${crypto.randomUUID()}\n`);
-	const refused = await fetch(collection, {
-		method: 'POST',
-		headers: { ...bearer(api.access_token), 'content-type': 'text/plain' },
-		body: payload,
-	});
-	expect(refused.status).toBe(401);
-	const upload = await fetch(collection, {
-		method: 'POST',
-		headers: { ...bearer(git.access_token), 'content-type': 'text/plain' },
-		body: payload,
-	});
-	if (!blobs) {
-		expect(upload.status).toBe(503);
-		await upload.body?.cancel();
-		return;
-	}
-	expect(upload.status).toBe(201);
-	const { url } = (await upload.json()) as { url: string };
-	expect(parsePersonalBlobUrl(url, client.origin)).toMatchObject({
-		principalId: person.id,
-		visibility: 'private',
-	});
-	const read = await fetch(url, {
-		headers: bearer(git.access_token),
-		redirect: 'error',
-	});
-	expect(read.status).toBe(200);
-	expect(new Uint8Array(await read.arrayBuffer())).toEqual(payload);
-	const deleted = await fetch(url, {
-		method: 'DELETE',
-		headers: bearer(git.access_token),
-		redirect: 'error',
-	});
-	expect(deleted.ok).toBe(true);
-	await deleted.body?.cancel();
 }
 
 const running: { stop: () => Promise<void> }[] = [];
@@ -343,7 +271,6 @@ beforeAll(async () => {
 				GITHUB_CLIENT_SECRET: 'fixture',
 				MICROSOFT_CLIENT_ID: 'fixture',
 				MICROSOFT_CLIENT_SECRET: 'fixture',
-				...blobStore,
 			},
 			stdout: 'pipe',
 			stderr: 'pipe',
