@@ -26,14 +26,19 @@
  * writes the body over the row the draft started from, as `table.save`
  * does, and the app decides which fields go with it.
  *
+ * `createBodyEditor({ row, save })` opens one row's body for a control
+ * (ADR-0573). It reads the row as the cache holds it, saves the body with
+ * the row's fields as the draft's starting version holds them, so the merge
+ * keeps every field another writer changed, and shows the draft's text or
+ * the file's body:
+ *
  * ```ts
- * const save = createMutation(() => folder$.notes.save.mutationOptions());
- * const body = createBodyDraftState<NoteFields>({
- *   save: ({ base, content }) =>
- *     save.mutateAsync({ base, row: { fields: base.row.fields, body: content } }),
- * });
- * const shown = $derived(body.text ?? note.data?.row.body);
- * body.change(note.data, typed);
+ * const save = createMutation(() => folder.notes.save.mutationOptions());
+ * const body = createBodyEditor({ row: () => note.data ?? undefined, save: save.mutateAsync });
+ * ```
+ *
+ * ```svelte
+ * <Textarea bind:value={() => body.text ?? '', (text) => body.change(text)} onblur={() => body.save()} />
  * ```
  */
 import { createSubscriber } from 'svelte/reactivity';
@@ -47,6 +52,7 @@ import {
 	writtenBody,
 	writtenFile,
 } from '../draft.js';
+import type { Row } from '../row-text.js';
 import { restoreTheirs, type SavedFile } from '../save-file.js';
 import type { SavedRow, StoredRow } from '../table.js';
 
@@ -189,4 +195,59 @@ export function createBodyDraftState<TFields>({
 		}),
 		onSaved,
 	});
+}
+
+/** One row's body, opened for a control (ADR-0573). */
+export type BodyEditor = {
+	/** What the control shows: the text typed, or the body as the file holds it; `undefined` with no row. */
+	readonly text: string | undefined;
+	/** The text typed and not yet in the file; `undefined` when nothing is. */
+	readonly typed: string | undefined;
+	/** Whether a save of the body is running. */
+	readonly saving: boolean;
+	/** Type `text`. The first change takes the row as the cache holds it as the starting version. */
+	change(text: string): void;
+	/** Save what is typed, one save at a time; a failed save keeps it. */
+	save(): Promise<void>;
+	/** Drop what is typed. */
+	discard(): void;
+};
+
+export function createBodyEditor<TFields>({
+	row,
+	save,
+	onSaved,
+}: {
+	/** The row as the cache holds it now; `undefined` while it is absent or does not read as a row. */
+	row: () => StoredRow<TFields> | undefined;
+	/** The table's save mutation, rejecting on failure: `mutateAsync` of `folder.<table>.save`. */
+	save: (variables: {
+		readonly base: StoredRow<TFields>;
+		readonly row: Row<TFields>;
+	}) => Promise<SavedRow<TFields>>;
+	/** Each save that landed, as for a notice of what it replaced, and the save that restores it. */
+	onSaved?: OnSaved<SavedRow<TFields>>;
+}): BodyEditor {
+	const draft = createBodyDraftState<TFields>({
+		save: ({ base, content }) =>
+			save({ base, row: { fields: base.row.fields, body: content } }),
+		onSaved,
+	});
+	return {
+		get text() {
+			return draft.text ?? row()?.row.body;
+		},
+		get typed() {
+			return draft.text;
+		},
+		get saving() {
+			return draft.saving;
+		},
+		change(text) {
+			const current = row();
+			if (current !== undefined) draft.change(current, text);
+		},
+		save: () => draft.save(),
+		discard: () => draft.discard(),
+	};
 }
