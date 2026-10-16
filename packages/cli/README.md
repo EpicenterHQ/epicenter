@@ -249,8 +249,8 @@ text by line. It writes two things, neither committed:
 
 A sync that connects a remote (`--to`) writes the same, and `clone` does after cloning. A plain `git clone` does not
 carry it: Git reads a driver only from the repository's own configuration,
-and a committed `merge=` attribute is one the folder engine refuses. Without
-it, Git merges these files as text, which loses nothing.
+and `.git/info/attributes` takes precedence over any committed `merge=`
+attribute. Without it, Git merges these files as text, which loses nothing.
 
 Git runs the driver from the top of the working tree for each file both
 sides changed. It finds the file's kind from the nearest `epicenter.json`

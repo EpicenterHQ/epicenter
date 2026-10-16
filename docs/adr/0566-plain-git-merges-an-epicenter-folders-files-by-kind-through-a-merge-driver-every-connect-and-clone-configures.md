@@ -52,9 +52,13 @@ folder without a remote can be configured too.
 ```
 
 Nothing is committed. A committed `.gitattributes` could not define the
-driver anyway, and the folder engine refuses a committed `merge=` attribute
-(`mergeAttribute`), so a clone keeps Git's text merge until it is configured
-on that machine. The engine's own Sync is unchanged: it never runs
+driver anyway: a driver's command lives only in Git configuration, so a clone
+never runs a program its repository names, and it merges as its committed
+attributes say, text by default, until it is configured on that machine.
+The engine reads no `merge` attribute. `.git/info/attributes` takes
+precedence over every committed `.gitattributes`, so once a repository is
+configured, `* merge=epicenter` decides every path's merge whatever a
+committed file says. The engine's own Sync is unchanged: it never runs
 `git merge`, and its `git check-attr` calls ask only for the attributes that
 normalize bytes, not `merge`.
 
@@ -164,9 +168,8 @@ or clone, since Git's text merge loses nothing.
   outside it, so asking first protects nothing.
 - **`epicenter sync <dir> --merge-driver`.** Configuring would also commit,
   fetch, and push, and fails on a folder with no remote.
-- **A committed `.gitattributes` line.** It cannot define the driver,
-  every clone without the configuration would see an undefined driver, and
-  the engine refuses a committed `merge=` attribute.
+- **A committed `.gitattributes` line.** It cannot define the driver, and
+  every clone without the configuration would see an undefined driver.
 - **Running the driver for Sync.** It would cost a process per file and
   still need the review path to re-derive units; Sync keeps merging in
   process (ADR-0559).
