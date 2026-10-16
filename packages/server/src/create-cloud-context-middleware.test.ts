@@ -18,7 +18,6 @@ const identity = {
 	resolveAudiences: () => ({
 		api: origin,
 		git: `${origin}/git`,
-		mcp: `${origin}/mcp`,
 	}),
 };
 const authOptions = {

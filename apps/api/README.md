@@ -1,6 +1,6 @@
 # Epicenter API (Hosted Personal Cloud)
 
-Epicenter Cloud Worker. Handles authentication, hosted blobs, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
+Epicenter Cloud Worker. Handles authentication, hosted Git, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
 This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The same app also runs on Bun with Postgres (`server.ts`), which is how you self-host it.
 
@@ -23,7 +23,7 @@ those classes stored, then deploys this configuration as a new Worker.
 
 Local-first doesn't mean no server. It means your data lives on your machine and you aren't dependent on a cloud service to function. But some operations genuinely need a single authority: user identity, API key storage, AI proxying. Trying to make every device a peer for these operations led to three failed attempts at distributed key management before we split into hub (central authority) and local (device-side execution).
 
-The hub handles auth, blobs, and AI. Local servers handle filesystem access, offline editing, and low-latency operations. Neither tries to do the other's job. See [Why Epicenter Split Into Hub and Local Servers](/docs/articles/why-epicenter-split-into-hub-and-local-servers.md) for the full story.
+The hub handles auth, hosted Git, and AI. Local servers handle filesystem access, offline editing, and low-latency operations. Neither tries to do the other's job. See [Why Epicenter Split Into Hub and Local Servers](/docs/articles/why-epicenter-split-into-hub-and-local-servers.md) for the full story.
 
 ## Stack and priorities
 
@@ -32,19 +32,17 @@ Hono handles HTTP routing. We originally wanted Elysia: it's faster, the API is 
 Cloudflare Workers are the hosted deployment target. Routes, auth, AI, Git, and validation are plain runtime-portable Hono; the Worker holds no Durable Objects, and hosted Git repositories live in Cloudflare Artifacts.
 
 Self-hosting is this app's Bun entry, `apps/api/server.ts`, running against
-Postgres and, for blobs, any S3-compatible endpoint, with no Cloudflare
-account. It builds the same `createServerApp` and the same Better Auth
+Postgres, with no Cloudflare account. It builds the same `createServerApp` and the same Better Auth
 `createAuth` as the Worker, so a self-hosted server has the same sign-in,
 sessions, and routes; set `API_PUBLIC_ORIGIN` to its public origin and see
 `.env.example` for the rest. It serves the sign-in, consent, and device
 pages from the built UI, so build it first with `bun run --cwd apps/api/ui
-build` (or point `API_UI_DIR` at a build). The runtime-parity CI boots this entry against
-Postgres and S3 on every pull request. ADR-0549 records how auth will work
+build` (or point `API_UI_DIR` at a build). The merge gate boots this entry
+against Postgres on every pull request (`oauth-server.postgres.test.ts`). ADR-0549 records how auth will work
 there. The surfaces that need Worker-only bindings are absent on Bun: the dashboard shell comes from `ASSETS`, account
 deletion is a hosted resource sweep, and billing needs the Autumn secret and the
-after-response drain. Hosted Git and the folder MCP server are mounted there
-over bare repositories on disk when `GIT_STORE_ROOT` names a directory, and
-answer 503 when it does not. `runtime-profile.test.ts` is where that
+after-response drain. Hosted Git is mounted there over bare repositories on
+disk when `GIT_STORE_ROOT` names a directory, and answers 503 when it does not. `runtime-profile.test.ts` is where that
 divergence is declared and checked against both entries.
 
 Better Auth owns identity and sessions. Hosted Epicenter configures Google,
@@ -57,9 +55,10 @@ This Worker is the OAuth 2.1 authorization server of
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
 and every resource it serves accepts only its opaque access tokens: `/v1/*`
 takes the API audience and `ai`, Git requests the Git audience with
-`folders:read` or `folders:write` and a namespace role, `GET /api/repos` the
-Git audience with `folders:read`, and personal blobs the Git audience with
-`folders:read` or `folders:write`. An app reads who signed in from Better Auth's
+`folders:read` or `folders:write` and a namespace role, and `GET /api/repos`
+the Git audience with `folders:read`. Epicenter hosts no MCP server
+([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)) and no blobs
+([ADR-0577](../../docs/adr/0577-audio-stays-on-the-machine-that-recorded-it.md)). An app reads who signed in from Better Auth's
 `/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
 with `email`. Browser
 apps get a token by authorization code with PKCE as their own client; the
@@ -80,10 +79,7 @@ That confidentiality covers content, not the wire, and it does not erase three
 things a self-hoster should weigh. The operator still sees the metadata around
 the bytes (principal id, application id, message timing, size, and IP);
 that operator is Epicenter when hosted and you when self-hosted, and even a
-future blind server keeps seeing this envelope. Blobs land wherever
-`BLOBS_S3_ENDPOINT` points, so renting Epicenter's blob service puts your media
-in Epicenter's R2 even on a self-hosted instance; point the store at your own S3
-to keep media local. And hosted sign-in leans on social OAuth (email/password is
+future blind server keeps seeing this envelope. And hosted sign-in leans on social OAuth (email/password is
 disabled in `base-config.ts`); a self-hosted server registers its own OAuth apps
 for the providers it offers. The full
 ledger, with the reasoning, is in [docs/trust-model.md](/docs/trust-model.md).
@@ -116,7 +112,6 @@ Cloudflare Workers
 │   ├── /api/repos             the caller's repositories, by namespace
 │   ├── git audience /:namespace/:name.git/*  Git smart HTTP, forwarded to Artifacts
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
-│   ├── /api/blobs/personal/:principalId/:visibility owner-pinned hosted blobs (S3-compatible backend)
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
 └── Artifacts (ARTIFACTS binding): one namespace per environment, one Git repository per repository id
@@ -210,9 +205,7 @@ bun run test         # Run tests, each file isolated
 
 `bun run test` is also the no-Infisical verification path: with initdb and
 pg_ctl on `PATH`, `oauth-server.postgres.test.ts` boots both entries against
-disposable Postgres clusters and drives them with real access tokens. Set
-`BLOBS_S3_*` to a local S3-compatible store (`docker compose up -d` here) and
-the Bun entry also round-trips a personal blob.
+disposable Postgres clusters and drives them with real access tokens.
 
 ### Authorization server
 
@@ -222,10 +215,10 @@ names what is deployment-specific:
 
 - **Audiences**, from `resolveOAuthAudiences` in `@epicenter/constants/apps`,
   which the `epicenter` CLI reads too. Hosted, they are
-  `https://api.epicenter.so`, `https://git.epicenter.so`, and
-  `https://mcp.epicenter.so/mcp`. Any other origin (local dev, self-host)
-  serves all three from itself: `<origin>`, `<origin>/git`, and
-  `<origin>/mcp` (ADR-0326).
+  `https://api.epicenter.so` and `https://git.epicenter.so`. Any other origin
+  (local dev, self-host) serves both from itself: `<origin>` and
+  `<origin>/git` (ADR-0326). No client registers itself or identifies itself
+  by a metadata document: every client is one of these first-party rows.
 - **First-party clients**, in `worker/oauth-registrations.ts`. Each browser build is its app id, a public PKCE
   client with its exact `/auth/callback`, consent skipped, target `*`. The
   desktop app is `so.epicenter`, with a loopback redirect on any port and
@@ -276,13 +269,6 @@ reaches Artifacts. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
 Hosted Git is unmetered. The hosted cloud also needs `git.epicenter.so` routed
 to this Worker; that is a deploy step, not in this repository's config.
 
-Both entries also mount the folder MCP server (`mountMcpServer`,
-[ADR-0550](../../docs/adr/0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md))
-over the same store, at `<origin>/mcp` on the Bun entry and at
-`https://mcp.epicenter.so/mcp` for the hosted cloud, which also needs that
-host routed to this Worker. It answers 503 `mcp_unavailable` where Git has no
-store. The Worker path has not run against Artifacts.
-
 Deploying needs the production-only `ARTIFACTS_ACCOUNT_ID` secret and an account
 on the Workers Paid plan, and, once, deleting the existing `api` Worker first:
 this configuration has no Durable Object migrations to apply over it. Keep the secret in Infisical's `prod /api`; the
@@ -293,34 +279,6 @@ variable, and required account secret from its local config. Hosted Git answers
 used a separate Worker and namespace, and have not been repeated for the
 per-id store; run them before the first deploy of ADR-0546. The local launcher
 does not enable that integration path.
-
-### Local blob storage
-
-Blob storage is optional: omit `BLOBS_S3_*` and the blob routes answer 503
-while everything else runs. To exercise blobs locally, run
-a real S3-compatible store alongside the server. `compose.yaml` starts
-[versitygw](https://github.com/versity/versitygw) (an S3 API over a plain folder)
-and creates the `epicenter-blobs` bucket:
-
-```bash
-docker compose up -d
-```
-
-Then set the `BLOBS_S3_*` values from `.env.example` (endpoint
-`http://localhost:7070`). Your blobs land as ordinary files under
-`.data/blobs/epicenter-blobs/`.
-
-Clients publish and read through the API authority. Its server-side S3 client
-signs exact-key PUT, GET, HEAD, and DELETE requests; object-store URLs and
-credentials never reach application rows or browsers. The API limits each
-publication to 25 MiB. Browser CORS applies to the API origin, not the bucket.
-
-The server runs the same portable S3 client against versitygw, Garage, AWS S3, or
-R2; the store is endpoint-as-config, so swapping it is a config change, never a
-code change. There is no filesystem blob backend in the codebase by design: the
-self-host story is "run the server next to an S3-compatible service," exactly as
-the hosted Worker runs next to R2. `oauth-server.postgres.test.ts` round-trips a
-personal blob through the Bun entry against whichever store `BLOBS_S3_*` names.
 
 ### Database commands
 

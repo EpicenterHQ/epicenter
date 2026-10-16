@@ -133,7 +133,7 @@ export function createAuth({
 	/** Deployment-supplied trusted origins (CORS, CSRF, redirect allow-list). */
 	trustedOrigins: string[];
 	/**
-	 * The authorization server's audiences and metadata-document transport.
+	 * The authorization server's audiences.
 	 * Only the `/auth/*` routes compose it: the provider seeds its resources
 	 * when an instance initializes, and a Worker builds one per request, so a
 	 * route that only resolves a session must not pay those reads.

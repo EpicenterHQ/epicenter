@@ -34,7 +34,6 @@ mock.module('@epicenter/constants/apps', () => ({
 	resolveOAuthAudiences: () => ({
 		api: SERVER,
 		git: GIT,
-		mcp: `${SERVER}/mcp`,
 	}),
 }));
 

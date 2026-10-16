@@ -56,7 +56,7 @@ export function mountAuthRoutes(
 
 	// RFC 9728: each audience names this issuer. A resource's 401 points here
 	// through `resource_metadata`, on the resource's own host: an audience on
-	// another host (`git.epicenter.so`, `mcp.epicenter.so`) is answered when
+	// another host (`git.epicenter.so`) is answered when
 	// that host routes to this server, and never from the API's host.
 	app.get('/.well-known/oauth-protected-resource/*', (c) =>
 		protectedResource(c),

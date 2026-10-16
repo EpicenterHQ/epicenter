@@ -6,7 +6,6 @@
  */
 import type { Context, MiddlewareHandler } from 'hono';
 import { type CloudAuthBindings, createAuth } from './auth/create-auth.js';
-import type { OAuthServerConfig } from './auth/plugins.js';
 import type { Db } from './db/create-db.js';
 import type { ServerBindings } from './server-bindings.js';
 import type { CloudEnv } from './types.js';
@@ -15,12 +14,11 @@ export function createCloudContextMiddleware(opts: {
 	/** Auth secrets stay in the deployment's bindings, outside ServerBindings. */
 	resolveAuthSecrets: (c: Context<CloudEnv>) => CloudAuthBindings;
 	/**
-	 * The authorization server, for the context that serves `/auth/*`: its
-	 * metadata-document transport, with the request's `c.var.audiences`. Omit
-	 * it for a context that only resolves sessions. Build the transport once
-	 * per process: the CIMD cache is keyed by it.
+	 * True for the context that serves `/auth/*`: it composes the
+	 * authorization server for the request's `c.var.audiences`. Omit it for a
+	 * context that only resolves sessions.
 	 */
-	oauthServer?: Omit<OAuthServerConfig, 'db' | 'audiences'>;
+	oauthServer?: boolean;
 	/**
 	 * Acquire a per-request database handle and how to close it. The returned
 	 * `close` runs after the after-response queue drains. The library depends on
@@ -50,10 +48,9 @@ export function createCloudContextMiddleware(opts: {
 					env: opts.resolveAuthSecrets(c),
 					baseURL: c.var.authBaseURL,
 					trustedOrigins: c.var.trustedOrigins,
-					oauth: opts.oauthServer && {
-						...opts.oauthServer,
-						audiences: c.var.audiences,
-					},
+					oauth: opts.oauthServer
+						? { audiences: c.var.audiences }
+						: undefined,
 				}),
 			);
 			await next();

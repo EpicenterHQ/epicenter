@@ -7,16 +7,16 @@
  *
  *   - the `db` leg   a module-scope `pg.Pool` over `DATABASE_URL`, drained
  *                    fire-and-forget in the live process (no `waitUntil`)
- *   - blobs          any S3 endpoint via the existing `BLOBS_S3_*` env
+ *   - hosted Git     bare repositories on disk under `GIT_STORE_ROOT`
  *
  * This is additive: `wrangler dev`/`deploy` still serve the Worker unchanged.
  * `bun --watch server.ts` boots instantly with real stack traces. This entry is
  * also the self-host path: the same Better Auth, Postgres, and mounts as the
- * Worker, on any machine with Bun, Postgres, and an optional S3 endpoint.
+ * Worker, on any machine with Bun and Postgres.
  *
  * The whole Bun bootstrap lives here, in the app, not behind a shared
  * `@epicenter/server` factory: everything mechanical (the `pg.Pool`, the cloud
- * auth layer, the inference/blobs mounts, `Bun.serve`) is this app's
+ * auth layer, the inference and Git mounts, `Bun.serve`) is this app's
  * composition to own. The library ships the parts.
  *
  * Runtime skew is fenced by design: Worker-only behavior (Hyperdrive,
@@ -51,10 +51,7 @@ import {
 	mountAuthRoutes,
 	mountGitHost,
 	mountInferenceApp,
-	mountMcpServer,
-	mountPersonalAuthorityBlobs,
 	mountTranscriptionApp,
-	nodeClientMetadataFetch,
 	type OAuthScope,
 	registerFirstPartyClients,
 	requireAccessToken,
@@ -209,7 +206,7 @@ export async function startBunApiServer(): Promise<void> {
 	const cloudContext = createCloudContextMiddleware(cloudContextOptions);
 	const authServerContext = createCloudContextMiddleware({
 		...cloudContextOptions,
-		oauthServer: { clientMetadataFetch: nodeClientMetadataFetch },
+		oauthServer: true,
 	});
 	// Public auth shells bypass setup. Database-backed endpoints and resource
 	// guards explicitly install the context middleware, just like the Worker.
@@ -231,12 +228,6 @@ export async function startBunApiServer(): Promise<void> {
 		setup: cloudContext,
 		resolveHost: () => gitHost,
 	});
-	// The folder MCP server at `<origin>/mcp` (ADR-0550) reads and commits
-	// through the same store; without one it answers 503.
-	mountMcpServer(app, {
-		setup: cloudContext,
-		resolveHost: () => gitHost,
-	});
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered
 	// here for the same reason inference is: this host composes no billing, so
@@ -244,12 +235,6 @@ export async function startBunApiServer(): Promise<void> {
 	// transcription working against `dev:bun`; the Worker is the only hosted
 	// artifact, and it meters both gateways.
 	mountTranscriptionApp(app, { auth: resource('api', 'ai') });
-	mountPersonalAuthorityBlobs(app, {
-		auth: {
-			read: resource('git', 'folders:read'),
-			write: resource('git', 'folders:write'),
-		},
-	});
 
 	const server = Bun.serve({
 		port,

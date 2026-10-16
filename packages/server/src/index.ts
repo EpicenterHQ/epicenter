@@ -19,7 +19,6 @@
 
 // The OAuth 2.1 authorization server (ADR-0549): its shared policy, the
 // first-party registrations a deployment writes, and the one resource check.
-export { workerClientMetadataFetch } from './auth/client-metadata-fetch.js';
 // Hosted auth routes are mounted separately from request context creation.
 export { CloudAuthBindings } from './auth/create-auth.js';
 export {
@@ -49,11 +48,8 @@ export {
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // Better Auth endpoints are mounted by mountAuthRoutes.
 export { mountAuthRoutes } from './routes/auth.js';
-export { mountPersonalAuthorityBlobs } from './routes/authority-blobs.js';
 export { type GitHost, mountGitHost } from './routes/git.js';
 export { mountInferenceApp } from './routes/inference.js';
-// The folder MCP server at the MCP audience (ADR-0550).
-export { mountMcpServer } from './routes/mcp.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS)
 // and returns the `Hono` every surface mounts onto. It takes one

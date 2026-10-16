@@ -1,5 +1,5 @@
 /**
- * An `offline_access` grant (the desktop app, the CLI, an MCP client) outlives
+ * An `offline_access` grant (the desktop app, the CLI) outlives
  * the browser session that approved it (ADR-0549). The provider copies the
  * approving session's id onto the refresh token, every rotation copies it
  * forward, and a token whose session has expired is inactive. Clearing

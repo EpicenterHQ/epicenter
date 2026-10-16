@@ -12,10 +12,16 @@ composition to read first.
 (`resolveOrigin`), the origins it trusts (`resolveTrustedOrigins`), and its
 token audiences (`resolveAudiences`, from the resolved origin). The deployment
 names its audiences once there (ADR-0326), and every request carries them as
-`c.var.audiences`: the guards, the Git and MCP mounts, the protected resource
+`c.var.audiences`: the guards, the Git mount, the protected resource
 metadata, and the authorization server all read that one value. `apps/api`
-passes `resolveOAuthAudiences`, which puts the hosted cloud's Git and MCP
-audiences on their own hosts and any other deployment's under its origin.
+passes `resolveOAuthAudiences`, which puts the hosted cloud's Git audience on
+its own host and any other deployment's under its origin.
+
+Epicenter hosts no MCP server
+([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)):
+agents on a machine use files, Git, and the `epicenter` CLI. It hosts no
+blobs either: a recording's audio stays on the machine that made it
+([ADR-0577](../../docs/adr/0577-audio-stays-on-the-machine-that-recorded-it.md)).
 
 ## The surfaces
 
@@ -24,9 +30,7 @@ choice and any deployment policy.
 
 | Mount | Source | Notes |
 | --- | --- | --- |
-| `mountPersonalAuthorityBlobs` | `src/routes/authority-blobs.ts` | Personal owner URLs with private and public reads; deployment supplies local SQLite or S3 byte storage. |
 | `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`, push-to-create, and `GET /api/repos`; the deployment supplies the store (`GitHost`). |
-| `mountMcpServer` | `src/routes/mcp.ts` | The folder MCP server at the MCP audience: six tools over hosted repositories, reached through the same `GitHost` store as Git. |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells (sign-in, consent, device approval), discovery metadata, and Better Auth's endpoints, including the authorization server. |
@@ -44,27 +48,6 @@ route dependencies. Billing keeps a sub-app for its local error handler.
 
 Billing is not here and never comes here: the catalog, the routes, and Autumn
 live in `apps/api/worker/billing/`, because they are hosted-only.
-
-### Personal hosted blobs
-
-Both deployments mount `POST /api/blobs/personal/{principalId}/{private|public}`.
-The body is limited to 25 MiB. A successful create-only write returns
-`{ "url": "https://.../api/blobs/personal/{principalId}/{visibility}/{key}" }`.
-The authority allocates the key; callers cannot choose or replace one. An
-uncertain storage response returns 503 without exposing the allocated URL.
-
-`GET` and `HEAD` at that exact URL support single byte ranges and conditional
-reads. Public reads need no token. Private reads require the deployment's read
-guard and the URL's principal. Safe image, audio, and video types are served inline on public
-URLs; other types are attachments. `DELETE` requires the write guard and the named
-principal at either visibility. Deletion is idempotent and does not change rows.
-These routes provide no listing or owner-wide erasure operation.
-
-The URL parser and collection constructor live in `@epicenter/blobs` so the
-Account-bound client validates publication responses against the same grammar.
-The server parses request paths independently of the inbound Host header and
-mints returned URLs on its configured public authority. The route owns range,
-conditional, and media response policy; the store provides metadata and bytes.
 
 ### Hosted Git
 
@@ -127,43 +110,6 @@ bare repositories at `<root>/<repository id>.git`, served by
 `git http-backend` with no hook run, from the repository or anywhere else, a
 clean environment, and every non-fast-forward and branch deletion refused.
 
-### The folder MCP server
-
-`mountMcpServer` serves MCP over streamable HTTP at the MCP audience
-([ADR-0550](../../docs/adr/0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md)):
-`https://mcp.epicenter.so/mcp` for the hosted cloud and `<origin>/mcp`
-elsewhere. Each POST builds one stateless server and answers JSON; there is no
-session and no server-sent stream, so `GET` and `DELETE` answer 405.
-
-| Tool | Scope | Role | Answers |
-| --- | --- | --- | --- |
-| `list_folders` | `folders:read` | read | The grant's repositories, grouped "Personal" or by group title |
-| `describe_folder` | `folders:read` | read | `epicenter.json`, the head commit, and the file count |
-| `list_files` | `folders:read` | read | Paths under a prefix at a commit (the head by default) |
-| `read_files` | `folders:read` | read | Each path's content; an LFS file as its pointer and size, a binary file as its size |
-| `write_files` | `folders:write` | push | One commit on `base`, refused when `base` is not the head |
-| `history` | `folders:read` | read | The commits that touch a path |
-
-Each request is checked twice. `authorizeAccountRequest` decides the request
-itself: a missing or other-audience token is 401 with `resource_metadata`, so
-a client discovers the authorization server, and a call to `write_files`
-without `folders:write` is 403 `insufficient_scope` with
-`scope="folders:read folders:write"`. Then each tool that names a repository
-calls `authorizeResourceRequest` with its namespace and name; a namespace
-outside the grant's target, a missing membership, or a missing repository is
-that tool's error, not the request's.
-
-The server reaches storage as itself. `src/hosted-repository.ts` copies a
-repository into memory with isomorphic-git, whose HTTP client calls
-`GitHost.serve` in process, so no request leaves the server and the client's
-token never reaches the store. `write_files` merges nothing: it commits on the
-head it fetched and pushes, and a push that finds the head moved is refused
-like a stale `base`. The commit's author and committer are the grant's
-account, named `<account name> via <client name>`, with the account's email.
-Every call copies the whole repository, which bounds the size of a folder MCP
-can serve. The module runs in workerd (`workers/mcp.test.ts`) but has not run
-against the Artifacts store.
-
 `renameRepository` and `moveRepository` (`src/repositories.ts`) are the
 `manage` role's rename and move, each leaving an alias for the old
 `<namespace>/<name>`. They are internal: the package does not export them, and
@@ -176,8 +122,8 @@ A move also needs `push` in the destination.
 makes Epicenter one OAuth 2.1 authorization server. `oauthServerPlugins` in
 `src/auth/plugins.ts` composes it, and `createAuth` adds it only when the
 deployment passes `oauth` (through `createCloudContextMiddleware`'s
-`oauthServer`, with the request's `c.var.audiences`). The provider seeds its resources each time an instance
-initializes, and a Worker builds one per request, so only the context that
+`oauthServer: true`, with the request's `c.var.audiences`). The provider seeds
+its resources each time an instance initializes, and a Worker builds one per request, so only the context that
 serves `/auth/*` composes it. Beside it are only passkeys: a Better Auth
 session is the authorization server's own cookie, never a resource credential,
 so there is no `bearer()`.
@@ -185,31 +131,28 @@ so there is no `bearer()`.
 | Piece | Source | What it holds |
 | --- | --- | --- |
 | Policy | `src/auth/oauth-policy.ts` | Scopes, each audience's scope ceiling and the scopes its metadata lists, the 8-hour access and 30-day refresh lifetimes, the 60-second reuse interval, token prefixes, and the SHA-256 token hash. |
-| Provider | `src/auth/plugins.ts` | `@better-auth/oauth-provider` with `disableJwtPlugin`, no dynamic registration, `resourceSeedMode: "insertOnly"`, the device grant, and `@better-auth/cimd`, whose plugin is kept per transport so its cache outlives a Worker request. |
+| Provider | `src/auth/plugins.ts` | `@better-auth/oauth-provider` with `disableJwtPlugin`, no dynamic registration and no client ID metadata documents (every client is a registered first-party row), `resourceSeedMode: "insertOnly"`, and the device grant. |
 | Grant target | `src/auth/grant-target.ts` | `*` or `ns:<id>`, staged by the consent page through `POST /auth/grant-target/select` and listed by `GET /auth/grant-target/options`. It becomes the consent's `referenceId`, and a consent without one is refused. A device code is approved on the same consent page (`/auth/oauth2/authorize?user_code=<code>`), so its tokens carry the target natively. |
 | Offline grants | `src/auth/offline-detach.ts` | Clears `sessionId` on a grant with a refresh token, so it outlives the browser session that approved it. |
 | Registrations | `src/auth/oauth-registrations.ts` | `registerFirstPartyClients`, the one writer of the `oauth_client`, `oauth_resource`, and `oauth_client_resource` rows a deployment's first-party clients need: insert-only for resources, idempotent with no transaction, so concurrent writers converge. The Bun entry calls it at boot and the Worker once per isolate; no migration seeds a client. |
-| Resource check | `src/auth/resource-access.ts` | `authorizeResourceRequest`: one SQL statement from a token, an audience, a scope, and a namespace to the account and its role, or a 401 or 403 with `resource_metadata`. `authorizeAccountRequest`: the same without a namespace, for resources that act on the account (inference, transcription, personal blobs, the repository listing). |
-| Guards | `src/middleware/require-auth.ts` | `requireAccessToken({ audience, scope })` in front of every resource, where `audience` names one of `c.var.audiences` (`api`, `git`, or `mcp`), and `requireSessionCookie()` in front of account management on the authorization server's own pages: this origin only, an `Origin` on every state change, and its own JSON 401 and 503 with no bearer challenge. |
+| Resource check | `src/auth/resource-access.ts` | `authorizeResourceRequest`: one SQL statement from a token, an audience, a scope, and a namespace to the account and its role, or a 401 or 403 with `resource_metadata`. `authorizeAccountRequest`: the same without a namespace, for resources that act on the account (inference, transcription, the repository listing). |
+| Guards | `src/middleware/require-auth.ts` | `requireAccessToken({ audience, scope })` in front of every resource, where `audience` names one of `c.var.audiences` (`api` or `git`), and `requireSessionCookie()` in front of account management on the authorization server's own pages: this origin only, an `Origin` on every state change, and its own JSON 401 and 503 with no bearer challenge. |
 | Account session | `src/auth/session-policy.ts` | `requireAccountSession`, the Better Auth hook that holds its account-management endpoints (`/link-social`, `/unlink-account`, `/delete-user`, and the passkey changes) to the same rules plus ten-minute freshness. `/delete-user` then refuses with `ACCOUNT_DELETION_UNAVAILABLE` (`src/auth/base-config.ts`). |
-| CIMD transports | `src/auth/client-metadata-fetch.ts`, `@better-auth/cimd/node` | The Worker's `redirect: "manual"` fetch and the Bun host's resolve-once, address-pinned fetch. |
 
 The provider runs unpatched ([ADR-0565](../../docs/adr/0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md)).
 Its refresh family is every grant of one client for one person: a replay
 after the 60-second reuse interval ends all of them, with every access token
 they issued. The library stores a refresh's scopes, intersected with the
-named resource's `allowedScopes`, on the new refresh token too, so the
-first-party audiences, `api` and `git`, allow every scope and a refresh never
-narrows the grant; each access token is still bound to its audience. `mcp`
-allows only the folder scopes, the ceiling for third-party clients. Revoking
+named resource's `allowedScopes`, on the new refresh token too, so both
+audiences, `api` and `git`, allow every scope and a refresh never narrows the
+grant; each access token is still bound to its audience. Revoking
 a refresh token ends only its latest rotation's access tokens, so a client
 signing out revokes each access token it holds as well.
 
 A resource that acts on a namespace calls `authorizeResourceRequest` with its
 own audience, the scope the operation needs, and the namespace in its path,
 then decides the operation from the role with the internal `roleAllows`
-(`src/namespace-roles.ts`); `mountGitHost` and `mountMcpServer` do (LFS is
-ADR-0544's). The other mounted resources act on the account and sit
+(`src/namespace-roles.ts`); `mountGitHost` does (LFS is ADR-0544's). The other mounted resources act on the account and sit
 behind `requireAccessToken`, which runs `authorizeAccountRequest`. The
 deployment names each mount's audience and scope:
 
@@ -218,8 +161,6 @@ deployment names each mount's audience and scope:
 | `mountInferenceApp`, `mountTranscriptionApp` (`/v1/*`) | API | `ai` |
 | `mountGitHost` (Git requests) | Git | `folders:read` to fetch, `folders:write` to push |
 | `mountGitHost` (`GET /api/repos`) | Git | `folders:read` |
-| `mountMcpServer` | MCP | `folders:read` for every request, `folders:write` to call `write_files` |
-| `mountPersonalAuthorityBlobs` | Git | `folders:read` to read a private object, `folders:write` to publish or delete |
 
 A missing, unknown, revoked, or other-audience token answers 401 and a missing
 scope 403, both with `WWW-Authenticate` naming the audience's
