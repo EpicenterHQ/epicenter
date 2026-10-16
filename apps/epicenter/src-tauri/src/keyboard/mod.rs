@@ -31,22 +31,13 @@ pub use event::{DictationCapability, DictationCapabilityEvent};
 
 use std::sync::{Arc, Mutex};
 
-use tauri::AppHandle;
-
 #[cfg(target_os = "macos")]
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 #[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
-#[cfg(target_os = "macos")]
-use tauri_specta::Event;
 
 #[cfg(target_os = "macos")]
 use supervisor::{Control, Effect, Supervisor};
-
-/// The window the capability event is delivered to. We target it explicitly
-/// instead of broadcasting so the overlay and picker webviews never see it.
-#[cfg(target_os = "macos")]
-const MAIN_WINDOW: &str = "whispering";
 
 /// Whether this process may currently tap the keyboard: the live macOS
 /// Accessibility check (`AXIsProcessTrusted`). This is the supervisor's raw
@@ -75,12 +66,12 @@ pub struct TapController {
 }
 
 impl TapController {
-    pub fn new(app: AppHandle) -> Self {
+    pub fn new() -> Self {
         let capability = Arc::new(Mutex::new(DictationCapability::Unknown));
         #[cfg(target_os = "macos")]
         {
             let (control_tx, control_rx) = mpsc::channel();
-            spawn_supervisor(app, capability.clone(), control_tx.clone(), control_rx);
+            spawn_supervisor(capability.clone(), control_tx.clone(), control_rx);
             Self {
                 capability,
                 control_tx,
@@ -89,7 +80,6 @@ impl TapController {
         #[cfg(not(target_os = "macos"))]
         {
             // No grant to watch off macOS: paste needs no permission there.
-            let _ = app;
             Self { capability }
         }
     }
@@ -114,22 +104,15 @@ impl TapController {
     }
 }
 
-/// Store the new capability and, if it changed, push it to the frontend. The
-/// supervisor is the only writer, so the compare-and-emit needs no extra
-/// synchronization beyond the cell's own lock.
+/// Store the new capability, which `get_dictation_capability` answers. The
+/// supervisor is the only writer. Nothing is pushed to a page: the event went
+/// to a window labelled `whispering`, which no longer exists, and ADR-0555
+/// delivers it to the windows of the app that asked instead.
 #[cfg(target_os = "macos")]
-fn set_capability(
-    app: &AppHandle,
-    cell: &Arc<Mutex<DictationCapability>>,
-    next: DictationCapability,
-) {
+fn set_capability(cell: &Arc<Mutex<DictationCapability>>, next: DictationCapability) {
     if let Ok(mut current) = cell.lock() {
-        if *current == next {
-            return;
-        }
         *current = next;
     }
-    let _ = DictationCapabilityEvent { capability: next }.emit_to(app, MAIN_WINDOW);
 }
 
 /// Spawn one Accessibility-grant watcher. Its passive tap runs until a tap break,
@@ -156,14 +139,13 @@ fn spawn_grant_watcher(control_tx: &Sender<Control>) {
 
 #[cfg(target_os = "macos")]
 fn spawn_supervisor(
-    app: AppHandle,
     capability: Arc<Mutex<DictationCapability>>,
     control_tx: Sender<Control>,
     control_rx: std::sync::mpsc::Receiver<Control>,
 ) {
     std::thread::Builder::new()
         .name("dictation-capability-supervisor".into())
-        .spawn(move || run_supervisor(app, capability, control_tx, control_rx))
+        .spawn(move || run_supervisor(capability, control_tx, control_rx))
         .expect("failed to spawn dictation capability supervisor thread");
 }
 
@@ -181,7 +163,6 @@ fn spawn_supervisor(
 /// a bounded poll that runs only while we want the tap but cannot run it.
 #[cfg(target_os = "macos")]
 fn run_supervisor(
-    app: AppHandle,
     capability: Arc<Mutex<DictationCapability>>,
     control_tx: Sender<Control>,
     control_rx: std::sync::mpsc::Receiver<Control>,
@@ -193,7 +174,7 @@ fn run_supervisor(
 
     // Start dormant: auto-paste is off until the FE pushes its state on launch, so
     // the tap does not run and no Accessibility is touched.
-    set_capability(&app, &capability, DictationCapability::Inactive);
+    set_capability(&capability, DictationCapability::Inactive);
 
     // `None` blocks until a control message; `Some(d)` waits at most `d`, after
     // which a `None` control means the wait elapsed (a grant poll or an elapsed
@@ -220,7 +201,7 @@ fn run_supervisor(
             Some(Effect::StopTap) => mac_tap::stop(),
             None => {}
         }
-        set_capability(&app, &capability, outcome.phase);
+        set_capability(&capability, outcome.phase);
         next_timeout = outcome.next_timeout;
     }
 }
