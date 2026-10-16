@@ -785,7 +785,7 @@ When you add an ADR, add its row here.
 | [0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) | The epicenter CLI groups only its app and auth commands | Accepted (amends 0520, 0546, and 0549; amended by 0565; command list amended by 0566) |
 | [0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) | All desktop Git runs in the epicenter CLI, over system git | Accepted (amends 0531, 0533, 0540, 0546, and 0549; amended by 0567) |
 | [0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) | An app's manifest only names it, and every installed app is offered on every folder | Accepted (amends 0540, 0538, 0552, and 0539) |
-| [0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) | Rust serves every app from one epicenter-app origin | Accepted (amends 0118 and 0540; amended by 0570) |
+| [0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) | Rust serves every app from one epicenter-app origin | Accepted (amends 0118 and 0540; amended by 0570 and 0571) |
 | [0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) | The CLI and the shell take turns writing a folder under one save lock | Accepted (amends 0541; amended by 0568) |
 | [0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) | A hidden app window keeps running until Epicenter quits | Accepted |
 | [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Accepted (amends 0557; amended by 0570) |
@@ -795,3 +795,4 @@ When you add an ADR, add its row here.
 | [0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) | A folder takes every writer in turn under its save lock and refuses none | Proposed (amends 0535 and 0562) |
 | [0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) | The installed apps are the clones in Apps/, not rows in so.epicenter | Proposed (amends 0539 and 0552) |
 | [0570](0570-every-installed-apps-window-gets-the-same-grant.md) | Every installed app's window gets the same grant | Proposed (amends 0555, 0561, and 0564) |
+| [0571](0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md) | On desktop, Rust owns the microphone and the page never opens one | Proposed (amends 0561) |
