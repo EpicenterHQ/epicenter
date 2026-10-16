@@ -23,7 +23,8 @@ import {
 	openFolder,
 } from './bun.js';
 import { hashBytes } from './capture.js';
-import { directoryHandle } from './directory-handle.js';
+import { createDirectoryStorage } from './directory-store.js';
+import { overwrite } from './put.test-support.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createHistory } from './git/history.js';
 import { createNativeGitBackend } from './git/native-backend.js';
@@ -35,7 +36,6 @@ import {
 	gitHttpFetch,
 	scratch,
 } from './git-http.test-support.js';
-import { createOpfsFileBoundary } from './opfs-store.js';
 import { parseRow } from './row-text.js';
 import { mustRow } from './row-write.test-support.js';
 import { useWebLocks } from './web-locks.test-support.js';
@@ -355,8 +355,9 @@ describe('native folder', () => {
 	test('a branch that moves again under the retry refuses the checkpoint; the branch is never forced', async () => {
 		const root = await scratch('native-cas-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
-		const boundary = createOpfsFileBoundary({
-			root: directoryHandle(nodeDirectoryPrimitives, root),
+		const boundary = createDirectoryStorage({
+			root,
+			primitives: nodeDirectoryPrimitives,
 			landed: () => {},
 		});
 		const backend = await createNativeGitBackend({
@@ -547,17 +548,7 @@ describe('browser and native exchange through a real bare repository', () => {
 			id: 'exchange',
 			storage: environment,
 		});
-		const bytes = new TextEncoder().encode('local');
-		expectOk(
-			await external.boundary.apply([
-				{
-					kind: 'create',
-					path: 'scratch.txt',
-					bytes,
-					sha256: await hashBytes(bytes),
-				},
-			]),
-		);
+		await overwrite(external.boundary, 'scratch.txt', 'local');
 		const merged = expectOk(await browser.sync.run());
 		expect(merged.kind).toBe('synced');
 		const head = merged.head;

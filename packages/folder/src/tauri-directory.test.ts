@@ -47,12 +47,7 @@ type Call = { cmd: string; args: Record<string, unknown> };
 let grantedRoot: string | undefined;
 let calls: Call[] = [];
 /** The shell's history commands, which run the `epicenter` CLI. */
-const HISTORY_COMMANDS = new Set([
-	'status',
-	'history',
-	'save_version',
-	'sync',
-]);
+const HISTORY_COMMANDS = new Set(['status', 'history', 'save_version', 'sync']);
 let grant: (args: Record<string, unknown>) => unknown = () => {
 	throw new Error('no grant scripted');
 };

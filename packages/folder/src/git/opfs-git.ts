@@ -26,7 +26,7 @@ import type { PromiseFsClient } from 'isomorphic-git';
 import {
 	errorName,
 	lookup,
-	type OpfsDirectoryHandle,
+	type OpfsFolder,
 	PRIVATE_DIRECTORY,
 	readHandle,
 	readPrivateFile,
@@ -105,14 +105,30 @@ type OpfsGitSession = GitFsSession & {
 };
 
 /** A private file's bytes by `.git`-relative path, with empty read as absent where Git never stores empty. */
-async function readGitFile(root: OpfsDirectoryHandle, path: string) {
+async function readGitFile(folder: OpfsFolder, path: string) {
+	const root = await folder.existing();
+	if (root === undefined) return undefined;
 	const bytes = await readPrivateFile(root, path);
 	if (bytes?.byteLength === 0 && emptyIsAbsent(`${GITDIR}/${path}`))
 		return undefined;
 	return bytes;
 }
 
-function createOpfsGitSession(root: OpfsDirectoryHandle): OpfsGitSession {
+/** What `path` names in `folder`, which may not exist yet. */
+async function find(folder: OpfsFolder, path: string) {
+	const root = await folder.existing();
+	return root === undefined
+		? ({ kind: 'absent' } as const)
+		: lookup(root, path);
+}
+
+/** Remove a private file of `folder`, if the folder is there. */
+async function removeIn(folder: OpfsFolder, path: string) {
+	const root = await folder.existing();
+	if (root !== undefined) await removePrivateFile(root, path);
+}
+
+function createOpfsGitSession(folder: OpfsFolder): OpfsGitSession {
 	/** Private writes not yet stored, by `/git/...` path; `null` removes. */
 	const pending = new Map<string, Uint8Array | null>();
 
@@ -142,13 +158,13 @@ function createOpfsGitSession(root: OpfsDirectoryHandle): OpfsGitSession {
 	async function gitValue(path: string): Promise<Uint8Array | undefined> {
 		if (pending.has(path)) return pending.get(path) ?? undefined;
 		const rel = privatePath(path);
-		return rel === '' ? undefined : readGitFile(root, rel);
+		return rel === '' ? undefined : readGitFile(folder, rel);
 	}
 
 	async function gitChildren(path: string): Promise<string[] | undefined> {
 		const rel = privatePath(path);
-		const found = await lookup(
-			root,
+		const found = await find(
+			folder,
 			rel === '' ? PRIVATE_DIRECTORY : `${PRIVATE_DIRECTORY}/${rel}`,
 		);
 		const names = new Set<string>();
@@ -179,7 +195,7 @@ function createOpfsGitSession(root: OpfsDirectoryHandle): OpfsGitSession {
 		if (isWork(path)) {
 			const rel = folderPath(path);
 			if (rel === undefined) throw failure('ENOENT', path);
-			const found = await lookup(root, rel);
+			const found = await find(folder, rel);
 			if (found.kind === 'directory') return statsFor('directory', 0);
 			if (found.kind === 'file') {
 				const file = (await found.handle.getFile()) as {
@@ -218,7 +234,7 @@ function createOpfsGitSession(root: OpfsDirectoryHandle): OpfsGitSession {
 				if (isGit(path)) value = await gitValue(path);
 				else if (isWork(path)) {
 					const rel = folderPath(path);
-					const found = rel === undefined ? undefined : await lookup(root, rel);
+					const found = rel === undefined ? undefined : await find(folder, rel);
 					if (found?.kind === 'file') value = await readHandle(found.handle);
 				}
 				if (value === undefined) throw failure('ENOENT', path);
@@ -256,7 +272,7 @@ function createOpfsGitSession(root: OpfsDirectoryHandle): OpfsGitSession {
 				if (isWork(path)) {
 					const rel = folderPath(path);
 					if (rel === undefined) throw failure('ENOENT', path);
-					const found = await lookup(root, rel);
+					const found = await find(folder, rel);
 					if (found.kind === 'file') throw failure('ENOTDIR', path);
 					if (found.kind !== 'directory') throw failure('ENOENT', path);
 					const names: string[] = [];
@@ -309,15 +325,16 @@ function createOpfsGitSession(root: OpfsDirectoryHandle): OpfsGitSession {
 				const unchanged =
 					path === INDEX &&
 					value !== null &&
-					(await readGitFile(root, 'index').then(
+					(await readGitFile(folder, 'index').then(
 						(stored) => stored !== undefined && sameIndexEntries(stored, value),
 					));
 				if (unchanged) {
 					pending.delete(path);
 					continue;
 				}
-				if (value === null) await removePrivateFile(root, privatePath(path));
-				else await writePrivateFile(root, privatePath(path), value);
+				if (value === null) await removeIn(folder, privatePath(path));
+				else
+					await writePrivateFile(await folder.made(), privatePath(path), value);
 				pending.delete(path);
 			}
 		},
@@ -325,18 +342,22 @@ function createOpfsGitSession(root: OpfsDirectoryHandle): OpfsGitSession {
 }
 
 export function createOpfsGitStore({
-	root,
+	folder,
 }: {
-	root: OpfsDirectoryHandle;
+	folder: OpfsFolder;
 }): BrowserGitStore<OpfsGitSession> {
 	const privatePath = (path: string) => path.slice(GITDIR.length + 1);
 
-	const readPrivate = (path: string) => readGitFile(root, privatePath(path));
-	const writeRef = (path: string, oid: string) =>
-		writePrivateFile(root, privatePath(path), encoder.encode(`${oid}\n`));
+	const readPrivate = (path: string) => readGitFile(folder, privatePath(path));
+	const writeRef = async (path: string, oid: string) =>
+		writePrivateFile(
+			await folder.made(),
+			privatePath(path),
+			encoder.encode(`${oid}\n`),
+		);
 
 	return {
-		session: () => createOpfsGitSession(root),
+		session: () => createOpfsGitSession(folder),
 		readPrivate,
 		async casRef(path, expected, next): Promise<CasResult> {
 			// Every cooperating writer moves refs inside the Git Web Lock, so
@@ -348,10 +369,6 @@ export function createOpfsGitStore({
 			if (actual !== expected) return { ok: false, actual };
 			await writeRef(path, next);
 			return { ok: true };
-		},
-		async writePrivate(path, bytes) {
-			if (bytes === null) await removePrivateFile(root, privatePath(path));
-			else await writePrivateFile(root, privatePath(path), bytes);
 		},
 	};
 }

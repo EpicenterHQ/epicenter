@@ -3,7 +3,7 @@
  * (`grant_directory`).
  */
 import { invoke } from '@tauri-apps/api/core';
-import type { DirectoryPrimitives } from './directory-handle.js';
+import type { DirectoryPrimitives } from './directory-primitives.js';
 import { UnconfirmedWrite, UnexpectedTarget } from './errors.js';
 import { type ChangeError, commands } from './native/bindings.gen.js';
 

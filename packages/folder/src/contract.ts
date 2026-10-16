@@ -184,9 +184,7 @@ export type OpenFolderOptions<TDefinition extends FolderDefinition> = {
  * The one opener signature. The automatic entry and the desktop entry each
  * export an `openFolder` of exactly this type.
  */
-export type OpenFolder = <
-	const TDefinition extends FolderDefinition,
->(
+export type OpenFolder = <const TDefinition extends FolderDefinition>(
 	options: OpenFolderOptions<TDefinition>,
 ) => Promise<Result<Folder<TDefinition, TDefinition>, OpenFolderError>>;
 

@@ -16,9 +16,8 @@ import { defineFolder, defineTable, field } from './contract.js';
 import { openDirectoryFolder } from './directory-adapter.js';
 import {
 	type DirectoryPrimitives,
-	directoryHandle,
 	SCRATCH_DIRECTORY,
-} from './directory-handle.js';
+} from './directory-primitives.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { nativeHistory } from './git/native-history.js';
 import { createGitRunner } from './git/native-host.js';
@@ -147,7 +146,6 @@ function open(
 	};
 	return openDirectoryFolder({
 		definition,
-		root: directoryHandle(files, root),
 		rootPath: root,
 		files,
 		history: nativeHistory({

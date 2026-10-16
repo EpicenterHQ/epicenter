@@ -25,7 +25,7 @@
  * desktop page runs none of this: the `epicenter` CLI runs it for the page
  * (ADR-0559, `tauri-history.ts`).
  */
-import type { DirectoryPrimitives } from '../directory-handle.js';
+import type { DirectoryPrimitives } from '../directory-primitives.js';
 import { byCodePoint, NORMALIZING } from './attributes.js';
 import type { GitBackend, GitRemote } from './backend.js';
 import { basicAuthorization, type GitCredentials } from './http.js';
@@ -239,9 +239,6 @@ export async function createNativeGitBackend({
 		return text(result.stdout).trim();
 	}
 
-	/** Sync's journal, within the Git directory (ADR-0576). */
-	const JOURNAL = 'epicenter/sync-journal.json';
-
 	/** Reset the named index entries without changing working files. */
 	async function syncIndex(commit: string, paths: readonly string[]) {
 		if (paths.length === 0) return;
@@ -256,13 +253,6 @@ export async function createNativeGitBackend({
 			],
 			{ input: `${paths.join('\0')}\0` },
 		);
-	}
-
-	/** A private Git file's bytes, or `undefined` when there is none. */
-	async function readPrivate(name: string): Promise<Uint8Array | undefined> {
-		const path = `${gitdir}/${name}`;
-		if ((await files.lstat(path)) === undefined) return undefined;
-		return files.readFile(path);
 	}
 
 	const backend: GitBackend = {
@@ -462,24 +452,6 @@ export async function createNativeGitBackend({
 				throw new GitCommandError(['fetch'], result.code, result.stderr);
 			}
 			return resolve(trackingRef);
-		},
-		readJournal: async () => {
-			const bytes = await readPrivate(JOURNAL);
-			return bytes === undefined ? undefined : text(bytes);
-		},
-		async writeJournal(contents) {
-			// `.git/epicenter` is a real directory: every Git command made it
-			// (`noHooksDirectory`) and refuses a link there.
-			await files.mkdir(`${gitdir}/epicenter`);
-			const staged = `${gitdir}/${JOURNAL}.${crypto.randomUUID()}`;
-			await files.writeFile(staged, new TextEncoder().encode(contents), {
-				createNew: true,
-			});
-			await files.rename(staged, `${gitdir}/${JOURNAL}`, 'any');
-		},
-		async removeJournal() {
-			if ((await files.lstat(`${gitdir}/${JOURNAL}`)) === undefined) return;
-			await files.remove(`${gitdir}/${JOURNAL}`);
 		},
 	};
 	return backend;

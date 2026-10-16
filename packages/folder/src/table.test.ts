@@ -43,6 +43,7 @@ import { defineFolder, defineTable, field, parseRow } from './contract.js';
 import type { Row } from './row-text.js';
 import { mustRow } from './row-write.test-support.js';
 import { WRITE_ATTEMPTS } from './save-file.js';
+import { overwrite } from './put.test-support.js';
 import { createTable } from './table.js';
 
 const definition = defineFolder({
@@ -81,14 +82,11 @@ async function setup() {
 			reads++;
 			return base.read(path);
 		},
-		async readMany(paths: readonly string[]) {
+		// The table reads its rows once it has their names.
+		async children(directory: string) {
+			const listed = await base.children(directory);
 			await beforeReadMany?.();
-			return base.readMany(paths);
-		},
-		async apply(changes: Parameters<typeof base.apply>[0]) {
-			applications++;
-			await beforeApply?.();
-			return base.apply(changes);
+			return listed;
 		},
 		async put(...args: Parameters<typeof base.put>) {
 			applications++;
@@ -105,9 +103,8 @@ async function setup() {
 	async function put(path: string, content: string | Uint8Array) {
 		const bytes =
 			typeof content === 'string' ? encoder.encode(content) : content;
-		const sha256 = await hashBytes(bytes);
-		expectOk(await base.apply([{ kind: 'overwrite', path, bytes, sha256 }]));
-		return { path, sha256 };
+		await overwrite(base, path, bytes);
+		return { path, sha256: await hashBytes(bytes) };
 	}
 	return {
 		table,
@@ -233,7 +230,7 @@ test('a file that goes away after it was enumerated is its own NotFound', async 
 	await s.put('todos/a.md', VALID);
 	await s.put('todos/gone.md', VALID);
 	s.beforeReadMany(async () => {
-		expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/gone.md' }]));
+		await overwrite(s.base, 'todos/gone.md', null);
 	});
 	const listing = expectOk(await s.table.list());
 	expect(listing.find(({ stem }) => stem === 'gone')?.result.error?.name).toBe(
@@ -444,7 +441,7 @@ test('a write over a row deleted since it started writes nothing: the delete sta
 	const s = await setup();
 	await s.put('todos/a.md', VALID);
 	const stored = await s.row('a');
-	expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/a.md' }]));
+	await overwrite(s.base, 'todos/a.md', null);
 	expect(
 		expectOk(
 			await s.table.write('a', stored.row, { ...stored.row, body: 'Back\n' }),
@@ -577,7 +574,7 @@ test('a delete of the old stem during a rename stands: the row is at neither ste
 	s.beforeApply(async () => {
 		if (raced || (await s.stored('todos/b.md')) === undefined) return;
 		raced = true;
-		expectOk(await s.base.apply([{ kind: 'remove', path: 'todos/a.md' }]));
+		await overwrite(s.base, 'todos/a.md', null);
 	});
 	expect(expectErr(await s.table.rename('a', 'b')).name).toBe('InvalidPath');
 	s.beforeApply(undefined);

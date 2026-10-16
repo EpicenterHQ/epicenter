@@ -10,7 +10,7 @@
  */
 import { shapeProblems } from '@epicenter/definition';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { FileBoundary } from './boundary.js';
+import type { FolderStorage } from './boundary.js';
 import { readDeclaration } from './declaration.js';
 import {
 	type FolderDefinition,
@@ -64,7 +64,7 @@ type StartFolder<THistory extends FolderHistory = FolderHistory> = (wiring: {
 	readonly relay: (paths: readonly string[]) => void;
 	readonly landed: (paths: readonly string[]) => void;
 }) => Promise<{
-	readonly boundary: FileBoundary;
+	readonly boundary: FolderStorage;
 	/** The history, whose Sync merges rows by `definition`. */
 	readonly history: (definition: FolderDefinition) => THistory;
 }>;
@@ -86,9 +86,7 @@ export async function openAtRoot<
 		 */
 		readonly lens?: FolderDefinition;
 	},
-): Promise<
-	Result<Folder<TDefinition, TDeclared>, OpenFolderError>
-> {
+): Promise<Result<Folder<TDefinition, TDeclared>, OpenFolderError>> {
 	const hints = createFileHints();
 	let history: THistory | undefined;
 	let detected: ReturnType<ChangeDetector> | undefined;

@@ -17,8 +17,8 @@
  */
 import { expect, test } from 'bun:test';
 import { rawBrowserFolder } from '../browser-storage.test-support.js';
-import { hashBytes } from '../capture.js';
 import type { GitBackend } from './backend.js';
+import { overwrite } from '../put.test-support.js';
 import { createHistory } from './history.js';
 
 const author = { name: 'History', email: 'history@example.test' };
@@ -53,11 +53,7 @@ async function setup() {
 		},
 	};
 	async function write(path: string, text: string) {
-		const bytes = new TextEncoder().encode(text);
-		const { error: applyError } = await boundary.apply([
-			{ kind: 'overwrite', path, bytes, sha256: await hashBytes(bytes) },
-		]);
-		expect(applyError).toBeNull();
+		await overwrite(boundary, path, text);
 	}
 	return { boundary, backend, probe, write };
 }

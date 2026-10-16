@@ -50,8 +50,6 @@ export type BrowserGitStore<TSession extends GitFsSession> = {
 		expected: string | undefined,
 		next: string,
 	): Promise<CasResult>;
-	/** Write a private Git file by its `/git/...` path, or remove it for `null`. */
-	writePrivate(path: string, bytes: Uint8Array | null): Promise<void>;
 };
 
 /** isomorphic-git's view of private Git state. */
@@ -112,8 +110,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 }): Promise<GitBackend> {
 	const branchKey = `${GITDIR}/refs/heads/${branch}`;
 	const indexKey = `${GITDIR}/index`;
-	/** Sync's journal (ADR-0576). */
-	const journalKey = `${GITDIR}/epicenter/sync-journal.json`;
 	const mergeHeadKey = `${GITDIR}/MERGE_HEAD`;
 	const trackingKey = `${GITDIR}/refs/remotes/${REMOTE_NAME}/${branch}`;
 
@@ -353,8 +349,7 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 					if (
 						cause instanceof git.Errors.GitPushError &&
 						MOVED.test(
-							cause.data.result.refs[`refs/heads/${remoteBranch}`]?.error ??
-								'',
+							cause.data.result.refs[`refs/heads/${remoteBranch}`]?.error ?? '',
 						)
 					)
 						return 'rejected';
@@ -399,13 +394,6 @@ export async function createStoredGitBackend<TSession extends GitFsSession>({
 				}
 			});
 		},
-		readJournal: async () => {
-			const bytes = await store.readPrivate(journalKey);
-			return bytes === undefined ? undefined : decoder.decode(bytes);
-		},
-		writeJournal: (text) =>
-			store.writePrivate(journalKey, new TextEncoder().encode(text)),
-		removeJournal: () => store.writePrivate(journalKey, null),
 	};
 	return backend;
 }

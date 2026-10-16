@@ -35,7 +35,7 @@ import {
 	test,
 } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { FileBoundary } from './boundary.js';
+import type { FolderStorage } from './boundary.js';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	locationOf,
@@ -59,6 +59,7 @@ import {
 } from './folder.js';
 import { GIT_ENV, scratch } from './git-http.test-support.js';
 import { formatRow, parseRow } from './row-text.js';
+import { overwrite } from './put.test-support.js';
 import { mustRow } from './row-write.test-support.js';
 
 const definition = defineFolder({
@@ -409,28 +410,15 @@ describe('a save never reads its bytes back', () => {
 		const base = raw.boundary;
 		const reads: string[] = [];
 		let afterApply: (() => Promise<void>) | undefined;
-		const boundary: FileBoundary = {
+		const boundary: FolderStorage = {
 			...base,
 			read(path) {
 				reads.push(path);
 				return base.read(path);
 			},
-			readMany(paths) {
-				reads.push(...paths);
-				return base.readMany(paths);
-			},
-			open(path) {
-				reads.push(path);
-				return base.open(path);
-			},
-			async apply(changes) {
-				const result = await base.apply(changes);
-				// Runs after the save landed and before its caller hears of it.
-				await afterApply?.();
-				return result;
-			},
 			async put(path, bytes, ifMatch) {
 				const result = await base.put(path, bytes, ifMatch);
+				// Runs after the save landed and before its caller hears of it.
 				await afterApply?.();
 				return result;
 			},
@@ -466,17 +454,7 @@ describe('a save never reads its bytes back', () => {
 			raceNextSave(path: string, content: string) {
 				afterApply = async () => {
 					afterApply = undefined;
-					const bytes = encoder.encode(content);
-					expectOk(
-						await base.apply([
-							{
-								kind: 'overwrite',
-								path,
-								bytes,
-								sha256: await hashBytes(bytes),
-							},
-						]),
-					);
+					await overwrite(base, path, content);
 				};
 			},
 		};
@@ -506,9 +484,10 @@ describe('a save never reads its bytes back', () => {
 		expectOk(await folder.tables.todos.rename('r', 's'));
 		expectOk(await folder.tables.todos.delete('s'));
 		// The declaration's read comes before the first save (ADR-0508); a
-		// table write reads the file it merges into, and nothing else.
+		// move reads the bytes it carries before it writes them; a table write
+		// reads the file it merges into; nothing reads back what it wrote.
 		expect(new Set(reads)).toEqual(
-			new Set(['epicenter.json', 'todos/r.md', 'todos/s.md']),
+			new Set(['epicenter.json', 'a.md', 'todos/r.md', 'todos/s.md']),
 		);
 	});
 

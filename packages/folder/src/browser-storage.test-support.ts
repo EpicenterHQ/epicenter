@@ -14,7 +14,7 @@
  * gives them fresh storage in one call.
  */
 import { createHash } from 'node:crypto';
-import type { FileBoundary } from './boundary.js';
+import type { FolderStorage } from './boundary.js';
 import type { BrowserFolderOptions } from './contract.js';
 import type { FolderLocation } from './folder.js';
 import type { GitBackend, GitRemote } from './git/backend.js';
@@ -22,9 +22,10 @@ import { createStoredGitBackend } from './git/browser-backend.js';
 import { createOpfsGitStore } from './git/opfs-git.js';
 import { type MemoryOpfs, memoryOpfs } from './opfs.test-support.js';
 import {
-	createOpfsFileBoundary,
+	createOpfsStorage,
 	ensureDirectory,
 	type OpfsLocks,
+	presentFolder,
 } from './opfs-store.js';
 import { createWebLocks } from './web-locks.test-support.js';
 
@@ -83,7 +84,7 @@ export function locationOf(id: string): FolderLocation {
 }
 
 export type RawBrowserFolder = {
-	readonly boundary: FileBoundary;
+	readonly boundary: FolderStorage;
 	/** A Git backend on the same storage, with the locks the opener uses. */
 	/** With `remote`, its URL is set in Git configuration first. */
 	backend(options?: {
@@ -149,15 +150,15 @@ export async function rawBrowserFolder({
 	if (directoryError !== null) throw new Error(directoryError.message);
 	const filesLock = `epicenter-folder:${id}:files`;
 	return {
-		boundary: createOpfsFileBoundary({
-			root,
+		boundary: createOpfsStorage({
+			folder: presentFolder(root),
 			locks: testLocks,
 			filesLock,
 			landed: () => {},
 		}),
 		backend: async ({ branch = 'main', remote } = {}) => {
 			const backend = await createStoredGitBackend({
-				store: createOpfsGitStore({ root }),
+				store: createOpfsGitStore({ folder: presentFolder(root) }),
 				locks: testLocks,
 				lockName: `epicenter-folder:${id}:git`,
 				branch,

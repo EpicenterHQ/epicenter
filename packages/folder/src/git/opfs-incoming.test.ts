@@ -1,22 +1,22 @@
 /**
  * What Sync writes into a browser folder in the origin private file system
- * (ADR-0576): a journal naming the commit it publishes, then the files, the
- * index, and the branch, then the journal's removal. A publish cut off
- * partway leaves its journal, and the next commit or Sync finishes it before
- * it records anything.
+ * (ADR-0576): the files, holding the folder's save lock, then the index and
+ * the branch. Each file lands whole: a replaced file when its stream closes,
+ * a new one moved into place from `.git/epicenter/scratch`. A publish cut
+ * off partway leaves each file at its old bytes or its new ones, ordinary
+ * changes that the next Sync records and merges to the same files
+ * (ADR-0545).
  *
  * A publish is interrupted by an injected failure: a write that throws before
- * its stream closed (nothing published), a close that throws (a created file
- * stays empty), or a close whose reply was lost (the bytes landed). These run
- * over the in-memory OPFS stand-in; the remote is a bare repository served by
- * `git http-backend`.
+ * its stream closed, a close that throws, a close whose reply was lost (the
+ * bytes landed), or a move that fails. These run over the in-memory OPFS
+ * stand-in; the remote is a bare repository served by `git http-backend`.
  *
  * Key behaviors:
- * - A fast-forward or a merge cut off at a file, at the index, at the
- *   branch, or at the journal's removal is finished by the next Sync, with
- *   local work kept, and lands on the remote's tree
- * - A folder reopened over a cut-off publish finishes it before its next
- *   version, and a journal that does not read stops commits until removed
+ * - A fast-forward or a merge cut off at a new file, a replaced file, the
+ *   index, or the branch is finished by the next Sync, with local work kept,
+ *   and lands on the remote's tree
+ * - A folder reopened over a cut-off publish converges on its next Sync
  * - Directories turn into files and files into directories; directories the
  *   removals emptied are pruned, and a directory something else keeps stays
  * - A file this folder never committed where Sync writes a file or needs a
@@ -30,7 +30,6 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineFolder, type Folder, openFolder } from '../browser.js';
-import { hashBytes } from '../capture.js';
 import { formatDeclaration } from '../declaration.js';
 import {
 	createBareRemote,
@@ -44,7 +43,12 @@ import {
 	memoryOpfs,
 	opfsEnvironment,
 } from '../opfs.test-support.js';
-import { createOpfsFileBoundary, ensureDirectory } from '../opfs-store.js';
+import {
+	createOpfsStorage,
+	ensureDirectory,
+	presentFolder,
+} from '../opfs-store.js';
+import { overwrite } from '../put.test-support.js';
 import { useWebLocks } from '../web-locks.test-support.js';
 import { createStoredGitBackend } from './browser-backend.js';
 import { createHistory } from './history.js';
@@ -59,7 +63,6 @@ const ROOT = 'merge';
 const FILES_LOCK = 'epicenter-folder:merge:files';
 const GIT_LOCK = 'epicenter-folder:merge:git';
 const REMOTE_URL = 'http://git.test/remote.git';
-const JOURNAL = '.git/epicenter/sync-journal.json';
 const definition = defineFolder({ kv: {}, tables: {} });
 const discovery = formatDeclaration(definition);
 
@@ -81,13 +84,13 @@ async function folderAt(opfs = memoryOpfs()) {
 		await ensureDirectory(await environment.getDirectory(), ROOT),
 	);
 	const backend = await createStoredGitBackend({
-		store: createOpfsGitStore({ root }),
+		store: createOpfsGitStore({ folder: presentFolder(root) }),
 		locks: environment.locks,
 		lockName: GIT_LOCK,
 		branch: 'main',
 	});
-	const boundary = createOpfsFileBoundary({
-		root,
+	const boundary = createOpfsStorage({
+		folder: presentFolder(root),
 		locks: environment.locks,
 		filesLock: FILES_LOCK,
 		landed: () => {},
@@ -96,12 +99,7 @@ async function folderAt(opfs = memoryOpfs()) {
 	opened.push(history);
 
 	async function write(path: string, value: string) {
-		const bytes = encoder.encode(value);
-		expectOk(
-			await boundary.apply([
-				{ kind: 'overwrite', path, bytes, sha256: await hashBytes(bytes) },
-			]),
-		);
+		await overwrite(boundary, path, value);
 	}
 	return { opfs, history, write };
 }
@@ -130,6 +128,7 @@ function clearFaults(opfs: MemoryOpfs) {
 	opfs.faults.write = undefined;
 	opfs.faults.close = undefined;
 	opfs.faults.remove = undefined;
+	opfs.faults.move = undefined;
 }
 
 function folderFiles(opfs: MemoryOpfs) {
@@ -219,28 +218,51 @@ async function remoteFiles(bare: string) {
 }
 
 /** Where a publish is cut off. */
+/** A new file's bytes, staged before they are moved into place. */
+const staged = (path: string) =>
+	path.includes(`${ROOT}/.git/epicenter/scratch/`);
+
+/** Where a publish is cut off: each first matching step fails. */
 const faults: [string, (opfs: MemoryOpfs) => void][] = [
-	['a file write', (opfs) => failWrite(opfs, `${ROOT}/z.md`)],
-	['a file whose reply was lost', (opfs) => loseClose(opfs, `${ROOT}/z.md`)],
 	[
-		'a created file left empty',
+		"a new file's write",
 		(opfs) => {
-			opfs.faults.close = (path) =>
+			let failed = false;
+			opfs.faults.write = (path) => {
+				if (failed || !staged(path)) return undefined;
+				failed = true;
+				return 'fail';
+			};
+		},
+	],
+	[
+		"a new file's close",
+		(opfs) => {
+			let failed = false;
+			opfs.faults.close = (path) => {
+				if (failed || !staged(path)) return undefined;
+				failed = true;
+				return 'fail';
+			};
+		},
+	],
+	[
+		"a new file's move into place",
+		(opfs) => {
+			opfs.faults.move = (path) =>
 				path.endsWith(`${ROOT}/z.md`) ? 'fail' : undefined;
 		},
+	],
+	['a replaced file', (opfs) => failWrite(opfs, `${ROOT}/a.md`)],
+	[
+		'a replaced file whose reply was lost',
+		(opfs) => loseClose(opfs, `${ROOT}/a.md`),
 	],
 	['the index', (opfs) => failWrite(opfs, `${ROOT}/.git/index`)],
 	['the branch', (opfs) => failWrite(opfs, `${ROOT}/.git/refs/heads/main`)],
 	[
 		'the branch whose reply was lost',
 		(opfs) => loseClose(opfs, `${ROOT}/.git/refs/heads/main`),
-	],
-	[
-		"the journal's removal",
-		(opfs) => {
-			opfs.faults.remove = (path) =>
-				path.endsWith(`${ROOT}/${JOURNAL}`) ? 'fail' : undefined;
-		},
 	],
 ];
 
@@ -255,9 +277,8 @@ for (const [stage, fault] of faults)
 		fault(opfs);
 		await folder.sync.run();
 		clearFaults(opfs);
-		// Removals, then writes: the removal and a.md landed before z.md.
+		// Removals go first, so the removal landed before any write failed.
 		expect(stored(opfs, 'gone.md')).toBeUndefined();
-		expect(decoder.decode(stored(opfs, 'a.md'))).toBe('2');
 
 		expectOk(await folder.files.create('notes.md', 'mine'));
 		const outcome = expectOk(await folder.sync.run());
@@ -269,7 +290,6 @@ for (const [stage, fault] of faults)
 			'z.md': 'new',
 		};
 		expect(folderFiles(opfs)).toEqual(expected);
-		expect(stored(opfs, JOURNAL)).toBeUndefined();
 		expect(await changedPaths(folder)).toEqual([]);
 		expect(await remoteFiles(bare)).toEqual(expected);
 	});
@@ -308,48 +328,40 @@ for (const [stage, fault] of faults)
 			'z.md': 'new',
 		};
 		expect(await remoteFiles(bare)).toEqual(expected);
-		expect(decoder.decode(stored(opfs, 'shared.md'))).toBe('ONE\ntwo\nTHREE\n');
 
 		const outcome = expectOk(await folder.sync.run());
 		expect(outcome.kind).toBe('synced');
 		expect(folderFiles(opfs)).toEqual(expected);
-		expect(stored(opfs, JOURNAL)).toBeUndefined();
 		expect(await changedPaths(folder)).toEqual([]);
 		expect(await remoteFiles(bare)).toEqual(expected);
 	});
 
-test('a folder reopened over a cut-off publish finishes it before its next version', async () => {
-	const { opfs, folder, push, open } = await synced({ 'a.md': '1' });
+test('a folder reopened over a cut-off publish converges on its next Sync', async () => {
+	const { opfs, folder, bare, push, open } = await synced({ 'a.md': '1' });
 	await push({ 'a.md': '2', 'z.md': 'new' });
-	failWrite(opfs, `${ROOT}/z.md`);
+	opfs.faults.move = (path) =>
+		path.endsWith(`${ROOT}/z.md`) ? 'fail' : undefined;
 	expect((await folder.sync.run()).error).not.toBeNull();
 	clearFaults(opfs);
-	expect(stored(opfs, JOURNAL)).toBeDefined();
+	// Each file holds its old bytes or its new ones; nothing is empty.
+	expect(folderFiles(opfs)).toEqual({
+		'epicenter.json': discovery,
+		'a.md': '2',
+	});
 	await folder.close();
 
 	const reopened = await open();
 	expectOk(await reopened.files.create('notes.md', 'mine'));
-	expect((await reopened.git.commit()).status).toBe('committed');
-	expect(stored(opfs, JOURNAL)).toBeUndefined();
-	expect(folderFiles(opfs)).toEqual({
+	expect(expectOk(await reopened.sync.run()).kind).toBe('synced');
+	const expected = {
 		'epicenter.json': discovery,
 		'a.md': '2',
 		'notes.md': 'mine',
 		'z.md': 'new',
-	});
-	// The version holds the remote's files and the new one, nothing reverted.
+	};
+	expect(folderFiles(opfs)).toEqual(expected);
+	expect(await remoteFiles(bare)).toEqual(expected);
 	expect(await changedPaths(reopened)).toEqual([]);
-});
-
-test('a journal that does not read stops commits, naming it, until it is removed', async () => {
-	const { opfs, folder } = await synced({ 'a.md': '1' });
-	opfs.put(`${ROOT}/${JOURNAL}`, encoder.encode('{"version":'));
-	expectOk(await folder.files.create('notes.md', 'mine'));
-	const commit = await folder.git.commit();
-	expect(commit.status).toBe('blocked');
-	expect(JSON.stringify(commit)).toContain('sync-journal.json');
-	opfs.drop(`${ROOT}/${JOURNAL}`);
-	expect((await folder.git.commit()).status).toBe('committed');
 });
 
 test('a tree turning a directory into a file, or a file into a directory, publishes', async () => {
@@ -407,7 +419,6 @@ test('a file this folder never committed, where Sync writes a file or needs a di
 		expect(refused.message).toContain(blocked);
 		expect(decoder.decode(stored(opfs, 'a/b'))).toBe('child');
 		expect(decoder.decode(opfs.files().get(blocker))).toBe('mine');
-		expect(stored(opfs, JOURNAL)).toBeUndefined();
 		expect(expectOk(await folder.git.log(1))[0]?.oid).toBe(head);
 		for (const item of opened.splice(0)) await item.close();
 	}

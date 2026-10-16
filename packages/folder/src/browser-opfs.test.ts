@@ -183,35 +183,35 @@ describe('one path is one stored file', () => {
 			name: 'Conflict',
 			actualSha256: read.sha256,
 		});
-		// Git sees the change too: stat caches are never trusted.
-		// Staging creates the repository and records the bytes there now.
-		expectOk(await folder.git.stage(['a.txt']));
-		expect(expectOk(await folder.git.paths())).toEqual([
-			{ path: 'epicenter.json', index: '?', worktree: '?' },
-			{ path: 'a.txt', index: 'A', worktree: ' ' },
+		// Git sees the change too: stat caches are never trusted. The commit
+		// records the bytes the path holds now.
+		const committed = await folder.git.commit();
+		expect(committed.status).toBe('committed');
+		const [head] = expectOk(await folder.git.log(1));
+		expect(head?.oid).toBe(
+			committed.status === 'committed' ? committed.oid : undefined,
+		);
+		expect(expectOk(await folder.git.status()).changes).toEqual([]);
+		opfs.put(`${ROOT}/a.txt`, encoder.encode('bbbc'));
+		expect(expectOk(await folder.git.status()).changes).toEqual([
+			{ path: 'a.txt', kind: 'modify' },
 		]);
-		expect(
-			expectOk(await folder.git.diff({ staged: true, paths: ['a.txt'] })),
-		).toContain('+bbbb');
 	});
 
 	test('status sees a committed file rewritten in the same second, at the same size or another', async () => {
 		const folder = await open();
 		expectOk(await folder.files.create('a.txt', 'aaaa'));
 		expect((await folder.git.commit()).status).toBe('committed');
-		expect(expectOk(await folder.git.paths())).toEqual([]);
+		expect(expectOk(await folder.git.status()).changes).toEqual([]);
 		for (const next of ['bbbb', 'cccccc']) {
 			opfs.put(`${ROOT}/a.txt`, encoder.encode(next));
-			expect(expectOk(await folder.git.paths())).toEqual([
-				{ path: 'a.txt', index: ' ', worktree: 'M' },
-			]);
 			expect(expectOk(await folder.git.status()).changes).toEqual([
 				{ path: 'a.txt', kind: 'modify' },
 			]);
 		}
 		// Looking at status does not rewrite the index.
 		const index = opfs.files(ROOT).get('.git/index');
-		expectOk(await folder.git.paths());
+		expectOk(await folder.git.status());
 		expect(opfs.files(ROOT).get('.git/index')).toEqual(index!);
 	});
 
@@ -347,34 +347,63 @@ describe('a save is not ordered by when it was asked for', () => {
 });
 
 describe('outcomes a caller can rely on', () => {
-	test('a write that throws before its stream closed is Io, and the new file is taken away again', async () => {
-		const folder = await open();
-		opfs.faults.write = (path) => (path.endsWith('/a.md') ? 'fail' : undefined);
-		expect(expectErr(await folder.files.create('a.md', 'x')).name).toBe('Io');
-		expect(opfs.files(ROOT).has('a.md')).toBe(false);
+	test('a new file appears whole or not at all: a create cut off anywhere leaves nothing at its path', async () => {
+		const scratch = (path: string) => path.includes('/.git/epicenter/scratch/');
+		const cuts: [string, () => void][] = [
+			[
+				'a write',
+				() =>
+					(opfs.faults.write = (path) => (scratch(path) ? 'fail' : undefined)),
+			],
+			[
+				'a close',
+				() =>
+					(opfs.faults.close = (path) => (scratch(path) ? 'fail' : undefined)),
+			],
+			[
+				'a lost close reply',
+				() =>
+					(opfs.faults.close = (path) => (scratch(path) ? 'lost' : undefined)),
+			],
+			[
+				'the move into place',
+				() =>
+					(opfs.faults.move = (path) =>
+						path.endsWith('/a.md') ? 'fail' : undefined),
+			],
+		];
+		for (const [where, cut] of cuts) {
+			const folder = await open();
+			cut();
+			const refused = expectErr(await folder.files.create('a.md', 'x'));
+			opfs.faults.write = undefined;
+			opfs.faults.close = undefined;
+			opfs.faults.move = undefined;
+			expect([where, refused.name]).toEqual([where, 'Io']);
+			expect(opfs.files(ROOT).has('a.md')).toBe(false);
+			// What it staged is gone too.
+			expect(
+				[...opfs.files(ROOT).keys()].some((path) =>
+					path.startsWith('.git/epicenter/scratch/'),
+				),
+			).toBe(false);
+			expectOk(await folder.files.create('a.md', 'x'));
+			expect(decoder.decode(opfs.files(ROOT).get('a.md'))).toBe('x');
+			for (const each of opened.splice(0)) await each.close();
+			fresh();
+		}
 	});
 
-	test('a new file that cannot be taken away again is Unconfirmed', async () => {
-		const folder = await open();
-		opfs.faults.write = (path) => (path.endsWith('/a.md') ? 'fail' : undefined);
-		opfs.faults.remove = (path) =>
-			path.endsWith('/a.md') ? 'fail' : undefined;
-		expect(expectErr(await folder.files.create('a.md', 'x')).name).toBe(
-			'Unconfirmed',
-		);
-		expect(opfs.files(ROOT).get('a.md')).toEqual(new Uint8Array());
-	});
-
-	test('a close that throws is Unconfirmed, whatever the path holds after: told to other pages, and the next commit records it as it is', async () => {
-		for (const [fault, after] of [
-			['fail', new Uint8Array()],
-			// The bytes did land; the reply still says nothing of it.
-			['lost', encoder.encode('x')],
+	test('a replacing close that throws is read back once: Unconfirmed unless its bytes landed; told to other pages, and the next commit records what is there', async () => {
+		for (const [fault, after, answer] of [
+			['fail', encoder.encode('old'), 'Unconfirmed'],
+			// The bytes did land; the reply was lost, and reading them back
+			// confirms the save.
+			['lost', encoder.encode('x'), 'saved'],
 		] as const) {
 			const folder = await open({ hints: true });
 			const other = await open({ hints: true });
-			// The first write publishes the declaration; drain its hints.
-			expectOk(await folder.files.create('first.md', 'first'));
+			const base = expectOk(await folder.files.create('a.md', 'old'));
 			await Bun.sleep(20);
 			const heardHere: string[] = [];
 			const heardThere: string[] = [];
@@ -382,18 +411,16 @@ describe('outcomes a caller can rely on', () => {
 			other.onFilesChanged((paths) => heardThere.push(...paths));
 			opfs.faults.close = (path) =>
 				path.endsWith('/a.md') ? fault : undefined;
-			const result = await folder.files.create('a.md', 'x');
+			const result = await folder.files.save(base, 'x', { merge: false });
 			opfs.faults.close = undefined;
-			expect(expectErr(result).name).toBe('Unconfirmed');
+			expect(result.error?.name ?? 'saved').toBe(answer);
 			expect(opfs.files(ROOT).get('a.md')).toEqual(after);
 			// A page's own write is not reported to it; other pages hear it.
 			expect(heardHere).toEqual([]);
 			for (let index = 0; index < 50 && heardThere.length === 0; index++)
 				await Bun.sleep(5);
 			expect(heardThere).toContain('a.md');
-			// The save made no commit. A commit records whatever the path holds,
-			// though nobody knows whether the bytes landed.
-			expect(folder.git.snapshot.lastCommit).toBeUndefined();
+			// The save made no commit. A commit records whatever the path holds.
 			expect((await folder.git.commit()).status).toBe('committed');
 			expect(expectOk(await folder.git.status()).changes).toEqual([]);
 			for (const each of opened.splice(0)) await each.close();
@@ -416,7 +443,7 @@ describe('outcomes a caller can rely on', () => {
 		let closing: Promise<void> | undefined;
 		// Closing starts while the save's stream is closing.
 		opfs.faults.close = (path) => {
-			if (path.endsWith('/begun.md')) closing ??= folder.close();
+			if (path.includes('/.git/epicenter/scratch/')) closing ??= folder.close();
 			return undefined;
 		};
 		expectOk(await folder.files.create('begun.md', 'kept'));
@@ -454,8 +481,6 @@ describe('address and history', () => {
 			[...opfs.files('test')].map(([path, bytes]) => [path, [...bytes]]);
 		const before = stored();
 		expectOk(await folder.git.status());
-		expectOk(await folder.git.paths());
-		expectOk(await folder.git.diff({ staged: false, paths: [] }));
 		expectOk(await folder.git.log(10));
 		expect(stored()).toEqual(before);
 		expect(decoder.decode(opfs.files('test').get('epicenter.json'))).toBe(

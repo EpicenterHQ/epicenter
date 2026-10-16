@@ -146,9 +146,10 @@ export function declaring(
 			await first();
 			return storage.put(path, bytes, ifMatch);
 		},
-		async apply(changes) {
+		// Published before the lock is taken: publishing writes through it.
+		async lock(work) {
 			await first();
-			return storage.apply(changes);
+			return storage.lock(work);
 		},
 		async mkdir(path) {
 			await first();

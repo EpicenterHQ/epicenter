@@ -367,23 +367,13 @@ expectTypeOf(bun.openDataFolder<FolderDefinition>)
 	.parameter(0)
 	.toEqualTypeOf<bun.DataFolderOptions>();
 expectTypeOf(bun.openDataFolder<FolderDefinition>).returns.toEqualTypeOf<
-	Promise<
-		Result<
-			Folder<FolderDefinition, FolderDefinition>,
-			OpenFolderError
-		>
-	>
+	Promise<Result<Folder<FolderDefinition, FolderDefinition>, OpenFolderError>>
 >();
 expectTypeOf(bun.openFolder<typeof definition>)
 	.parameter(0)
 	.toEqualTypeOf<bun.DirectoryFolderOptions<typeof definition>>();
 expectTypeOf(bun.openFolder<typeof definition>).returns.toEqualTypeOf<
-	Promise<
-		Result<
-			Folder<typeof definition, typeof definition>,
-			OpenFolderError
-		>
-	>
+	Promise<Result<Folder<typeof definition, typeof definition>, OpenFolderError>>
 >();
 
 async function typedValues(

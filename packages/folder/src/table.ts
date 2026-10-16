@@ -42,6 +42,7 @@ import {
 import type { FileContent } from './merge-file.js';
 import { ROW_EXTENSION, rowAddressProblem, rowPath } from './paths.js';
 import { parseRow, type Row, writeRow } from './row-text.js';
+import { readMany } from './storage.js';
 import {
 	confirmedPut,
 	WRITE_ATTEMPTS,
@@ -260,10 +261,10 @@ export function createTable<TFields>(
 			if (listError !== null) return Err(listError);
 			// Only the exact lowercase extension is a row; `a.MD` is an ordinary file.
 			const rows = filenames.filter((file) => file.endsWith(ROW_EXTENSION));
-			const { data: reads, error: readsError } = await storage.readMany(
+			const reads = await readMany(
+				storage,
 				rows.map((file) => `${name}/${file}`),
 			);
-			if (readsError !== null) return Err(readsError);
 			return Ok(
 				Object.freeze(
 					rows.map((file) => {

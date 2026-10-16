@@ -38,14 +38,9 @@ import { basename, dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { readDeclaration } from './declaration.js';
 import type { FolderDefinition } from './definition.js';
-import {
-	directoryFilesLock,
-	openDirectoryFolder,
-} from './directory-adapter.js';
-import {
-	type DirectoryPrimitives,
-	directoryHandle,
-} from './directory-handle.js';
+import { openDirectoryFolder } from './directory-adapter.js';
+import type { DirectoryPrimitives } from './directory-primitives.js';
+import { createDirectoryStorage } from './directory-store.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { OpenFolderError } from './errors.js';
 import type { Folder, FolderGitOptions } from './folder.js';
@@ -65,7 +60,6 @@ import type {
 	HistoryRequest,
 	HistoryState,
 } from './history-wire.js';
-import { createOpfsFileBoundary, type OpfsLocks } from './opfs-store.js';
 
 export {
 	type CheckedTable,
@@ -132,19 +126,6 @@ export type DataFolderOptions<
 	 * contain (ADR-0538); see `OpenDataFolderOptions`.
 	 */
 	readonly lens?: TLens;
-};
-
-/** One mutex per lock name, shared by every folder this process opens. */
-const mutexes = new Map<string, ReturnType<typeof createMutex>>();
-const locks: OpfsLocks = {
-	request(name, { signal }, work) {
-		let mutex = mutexes.get(name);
-		if (mutex === undefined) {
-			mutex = createMutex();
-			mutexes.set(name, mutex);
-		}
-		return mutex.run(async () => work(undefined), signal);
-	},
 };
 
 /**
@@ -259,11 +240,11 @@ export async function runHistory(
 		);
 	locateGit();
 
-	const { root: handle, locks } = directory(resolved);
-	const boundary = createOpfsFileBoundary({
-		root: handle,
-		locks,
-		filesLock: directoryFilesLock(resolved),
+	const { files, hold } = directory(resolved);
+	const boundary = createDirectoryStorage({
+		root: resolved,
+		primitives: files,
+		hold,
 		landed: () => {},
 	});
 	const { data: declared, error: declarationError } =
@@ -379,12 +360,15 @@ export async function directoryRoot(
 
 /** This process's file system at `resolved`. */
 function directory(resolved: string) {
-	const files = savingPrimitives(resolved);
 	return {
-		root: directoryHandle(files, resolved),
 		rootPath: resolved,
-		files,
-		locks,
+		files: savingPrimitives(resolved),
+		// Sync's publish holds the save lock across its changes, which go
+		// through `node:fs` itself meanwhile.
+		hold: {
+			lock: <T>(work: () => Promise<T>) => holdingSaveLock(resolved, work),
+			held: nodeDirectoryPrimitives,
+		},
 	};
 }
 

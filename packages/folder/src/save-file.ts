@@ -40,6 +40,7 @@ import {
 	merge,
 	type Overridden,
 	sameContent,
+	type Winner,
 } from './merge-file.js';
 import { parseRow } from './row-text.js';
 
@@ -160,6 +161,7 @@ export async function writeFile(
 	path: string,
 	from: FileContent | null,
 	to: FileContent | null,
+	{ winner = 'ours' }: { readonly winner?: Winner } = {},
 ): Promise<Result<Written, WriteError>> {
 	const own = (content: FileContent | null) =>
 		typeof content === 'string' || content === null
@@ -201,7 +203,7 @@ export async function writeFile(
 								? [{ kind: 'file', lost: 'theirs' } as const]
 								: [],
 					}
-				: await merge(kind, { base, ours, theirs });
+				: await merge(kind, { base, ours, theirs }, { winner });
 		const bytes = toBytes(merged.content);
 		if (
 			merged.overridden.some(

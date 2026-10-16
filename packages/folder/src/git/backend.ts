@@ -10,11 +10,7 @@
  * reported outcomes.
  */
 import type { DeclaredAttribute } from './attributes.js';
-import type {
-	CommitSummary,
-	ObjectAccess,
-	TreeFile,
-} from './objects.js';
+import type { CommitSummary, ObjectAccess, TreeFile } from './objects.js';
 
 /**
  * The folder's remote: Git configuration's `remote.origin.url`, and the
@@ -112,13 +108,4 @@ export type GitBackend = {
 	push(oid: string, signal: AbortSignal): Promise<'pushed' | 'rejected'>;
 	/** Fetch the configured remote branch; returns its commit, or undefined if absent. */
 	fetch(signal: AbortSignal): Promise<string | undefined>;
-	/**
-	 * Sync's journal (ADR-0576): the text of `.git/epicenter/sync-journal.json`,
-	 * or `undefined` when there is none. Written before a Sync publishes a
-	 * tree over the files and removed when it is done, so an interrupted
-	 * publish is finished before anything else.
-	 */
-	readJournal(): Promise<string | undefined>;
-	writeJournal(text: string): Promise<void>;
-	removeJournal(): Promise<void>;
 };

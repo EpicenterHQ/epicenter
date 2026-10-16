@@ -201,9 +201,7 @@ test('the merge driver asks for either side to win, with the same lines kept bes
 		ours: 'a\nB (ours)\nc\nadded\n',
 		theirs: 'a\nB (theirs)\nc\n',
 	};
-	expect((await merge(TEXT, versions)).content).toBe(
-		'a\nB (ours)\nc\nadded\n',
-	);
+	expect((await merge(TEXT, versions)).content).toBe('a\nB (ours)\nc\nadded\n');
 	expect((await merge(TEXT, versions, { winner: 'theirs' })).content).toBe(
 		'a\nB (theirs)\nc\nadded\n',
 	);

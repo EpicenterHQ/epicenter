@@ -112,9 +112,10 @@ export const SyncError = defineErrors({
 		error,
 	}),
 	/**
-	 * The repository is in a state Sync must not change: a merge or a rebase
-	 * another Git program began, a detached head, or a Sync that did not
-	 * finish and that its journal cannot finish. Nothing was written or sent.
+	 * The repository or the folder is in a state Sync must not change: a
+	 * merge or a rebase another Git program began, a detached head, a file of
+	 * the folder's own where the remote needs the path, or a branch another
+	 * program moved while Sync wrote. `reason` names it.
 	 */
 	Blocked: ({ reason }: { reason: string }) => ({
 		message: `Sync cannot run now: ${reason}`,
@@ -145,9 +146,8 @@ export const SyncError = defineErrors({
 		attempts,
 	}),
 	/**
-	 * Writing the synced files stopped partway. The journal names the
-	 * update, and the next Save version or Sync finishes it before anything
-	 * else (ADR-0576).
+	 * Writing the synced files stopped partway. Each file holds its old bytes
+	 * or its new ones, and the next Sync records and merges them (ADR-0545).
 	 */
 	Publish: ({ path, error }: { path: string; error: string }) => ({
 		message: `Synced files could not all be written; the next Sync finishes them. ${path}: ${error}`,

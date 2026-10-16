@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { FileBoundary } from './boundary.js';
+import type { FolderStorage } from './boundary.js';
 import { openFolder as openBrowserFolder } from './browser.js';
 import {
 	browserStorage,
@@ -119,24 +119,8 @@ async function held() {
 	const order: string[] = [];
 	const { promise: released, resolve: release } = Promise.withResolvers<void>();
 	const { promise: reached, resolve: reach } = Promise.withResolvers<void>();
-	const boundary: FileBoundary = {
+	const boundary: FolderStorage = {
 		...base,
-		async apply(changes) {
-			// The declaration a handle publishes before its first write is not
-			// the save under test.
-			if (
-				changes.every(
-					(change) => 'path' in change && change.path === DECLARATION_PATH,
-				)
-			)
-				return base.apply(changes);
-			const applying = base.apply(changes);
-			reach();
-			await released;
-			const result = await applying;
-			order.push('saved');
-			return result;
-		},
 		async put(path, bytes, ifMatch) {
 			if (path === DECLARATION_PATH) return base.put(path, bytes, ifMatch);
 			const putting = base.put(path, bytes, ifMatch);
