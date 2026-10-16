@@ -22,6 +22,7 @@
 
 import { realpath, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { CONNECTIONS_FOLDER_ID } from '@epicenter/ai/connection-table';
 import {
 	decodeHistory,
 	encodeHistory,
@@ -40,9 +41,6 @@ type Options = Record<string, string | true>;
 /** Who commits where the folder's Git configuration names nobody. */
 const AUTHOR = { name: 'Epicenter', email: 'epicenter@localhost' };
 
-/** Epicenter's own folder (ADR-0539), named by Epicenter's id. */
-const EPICENTER_FOLDER = 'so.epicenter';
-
 /**
  * Whether `dir` is an application's own folder, by the shell's rule
  * (`data_folders.rs`): directly under the Epicenter folder root and named
@@ -59,7 +57,7 @@ export async function isApplicationFolder(
 	]);
 	if (resolved === undefined || dirname(resolved) !== folderRoot) return false;
 	const name = basename(resolved);
-	if (name === EPICENTER_FOLDER) return true;
+	if (name === CONNECTIONS_FOLDER_ID) return true;
 	return stat(join(paths.appsDir, name)).then(
 		(found) => found.isDirectory(),
 		() => false,

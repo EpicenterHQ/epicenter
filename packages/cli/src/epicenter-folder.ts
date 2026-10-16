@@ -18,13 +18,20 @@
 
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { connectionsTable } from '@epicenter/ai/connection-table';
+import {
+	CONNECTIONS_FOLDER_ID,
+	connectionsTable,
+} from '@epicenter/ai/connection-table';
 import { defineFolder, type Folder } from '@epicenter/folder';
 import { resolveAppPaths } from './app-paths.ts';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
 
-/** The folder's id, its directory's name under the Epicenter folder root. */
-export const EPICENTER_FOLDER_ID = 'so.epicenter';
+/**
+ * The folder's id, its directory's name under the Epicenter folder root:
+ * `@epicenter/ai`'s `CONNECTIONS_FOLDER_ID`, under the name the desktop
+ * app's Settings imports from this subpath.
+ */
+export const EPICENTER_FOLDER_ID = CONNECTIONS_FOLDER_ID;
 
 export const epicenterDefinition = defineFolder({
 	title: 'Epicenter',
@@ -57,7 +64,7 @@ export async function declareEpicenterFolder(
 	json: boolean,
 	paths = resolveAppPaths(),
 ): Promise<number> {
-	const root = join(dirname(paths.appsDir), EPICENTER_FOLDER_ID);
+	const root = join(dirname(paths.appsDir), CONNECTIONS_FOLDER_ID);
 	await mkdir(root, { recursive: true });
 	const { openFolder } = await import('@epicenter/folder/bun');
 	const { data: folder, error } = await openFolder({
