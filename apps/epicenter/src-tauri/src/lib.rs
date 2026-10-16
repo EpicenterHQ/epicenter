@@ -1121,7 +1121,7 @@ mod tests {
     /// Starting what installs `git` reaches the Folders window alone.
     #[test]
     fn folder_history_is_granted_to_folders_and_installed_apps_alone() {
-        const HISTORY: [&str; 5] = [
+        const HISTORY: [&str; 4] = [
             "allow-status",
             "allow-history",
             "allow-save-version",
