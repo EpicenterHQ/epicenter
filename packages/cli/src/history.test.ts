@@ -28,7 +28,6 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
-	decodeHistory,
 	type HistoryReply,
 	type HistoryResults,
 	holdingHistoryLock,
@@ -104,7 +103,7 @@ async function reply<K extends keyof HistoryResults>(
 	expect(lines).toHaveLength(1);
 	return {
 		...ran,
-		reply: decodeHistory<HistoryReply<HistoryResults[K]>>(lines[0]!),
+		reply: JSON.parse(lines[0]!) as HistoryReply<HistoryResults[K]>,
 	};
 }
 

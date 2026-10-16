@@ -84,7 +84,6 @@ export {
 	runGit,
 } from './git/native-host.js';
 export {
-	decodeHistory,
 	encodeHistory,
 	type GitMissingReply,
 	type HistoryReply,

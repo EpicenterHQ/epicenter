@@ -38,12 +38,11 @@ import type {
 import type { CommitSummary } from './git/objects.js';
 import { createPassRunner } from './git/runner.js';
 import type { SyncOptions, SyncOutcome } from './git/sync.js';
-import {
-	decodeHistory,
-	type GitMissingReply,
-	type HistoryReply,
-	type HistoryResults,
-	type HistoryState,
+import type {
+	GitMissingReply,
+	HistoryReply,
+	HistoryResults,
+	HistoryState,
 } from './history-wire.js';
 import { type CliError, type CliExit, commands } from './shell/bindings.gen.js';
 
@@ -87,7 +86,7 @@ async function ask<T>(
 		};
 	let value: unknown;
 	try {
-		value = decodeHistory(line);
+		value = JSON.parse(line);
 	} catch {
 		return { kind: 'failed', message: `epicenter answered ${line}` };
 	}
