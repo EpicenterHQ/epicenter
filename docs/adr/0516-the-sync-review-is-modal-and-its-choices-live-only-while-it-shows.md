@@ -1,6 +1,7 @@
 # 0516. The sync review is modal and its choices live only while it shows
 
 - **Status:** Proposed
+- **Replaced by:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md), which removes the Sync review (Proposed); this record is deleted when that is built.
 - **Date:** 2026-10-11
 - **Relates:** [ADR-0514](0514-folder-sync-resolves-captured-attempts.md) (the attempt and choices), ADR-0528 (actions are mutations; apps own wording)
 - **Unbuilt:** the review in Vocab, Capture, Honeycrisp, and Whispering.

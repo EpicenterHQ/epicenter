@@ -1,6 +1,7 @@
 # 0522. Settings are independent keys set one at a time
 
 - **Status:** Proposed
+- **Replaced by:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md), which makes settings a declared `settings` table (Proposed); this record is deleted when that is built.
 - **Date:** 2026-10-11
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (rows are documents; this is the other shape), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) (refusal without retry, with one scoped exception here)
 - **Unbuilt:** application adoption (Whispering reads two legacy keys).
