@@ -5,7 +5,8 @@
  * The rich-text view and the Source view both replace the body in the whole
  * note through `withBody`.
  */
-import { instantNow, type NoteFields } from './data.js';
+import { InstantString } from '@epicenter/definition';
+import type { NoteFields } from './data.js';
 
 /**
  * The complete note with `body` as its body, every field kept. A body that
@@ -17,7 +18,7 @@ export function withBody<
 >(
 	note: TNote,
 	body: string,
-	now: NoteFields['updatedAt'] = instantNow(),
+	now: NoteFields['updatedAt'] = InstantString.now(),
 ): TNote {
 	if (body === note.body) return note;
 	const fields: object = note.fields;
