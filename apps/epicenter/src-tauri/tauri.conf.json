@@ -8,23 +8,13 @@
 		"beforeDevCommand": {
 			"script": "bun run build:desktop",
 			"wait": true
-		},
-		"frontendDist": "frontend-placeholder"
+		}
 	},
 	"app": {
 		"macOSPrivateApi": true,
 		"windows": [],
 		"security": {
-			"capabilities": [
-				"home-model-administration-production",
-				"home-ai-connections-production",
-				"home-account-production",
-				"folders-production",
-				"installed-app-windows-production",
-				"installed-whispering-production",
-				"installed-todos-production"
-			],
-			"csp": "default-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+			"capabilities": ["folders", "home", "installed-app"]
 		}
 	},
 	"bundle": {

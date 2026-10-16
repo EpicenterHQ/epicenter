@@ -15,7 +15,9 @@
 Epicenter compiles its apps in. The Rust shell names them in one closed enum,
 `BuiltInApp` (`apps/epicenter/src-tauri/src/lib.rs:97-194`): Home, Whispering,
 Honeycrisp, Capture, Mail, Todos, Books, Folders. Bun mirrors it as
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 `BUILT_IN_ROUTES` (`apps/epicenter/src/routes.ts:29-38`) and
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 `COMPILED_APPLICATIONS` (`apps/epicenter/src/applications.ts:69-74`). The
 Folders window and Settings open them with `launch_application`
 (`apps/epicenter/src-tauri/src/lib.rs:568`), which resolves an id against that
@@ -124,7 +126,9 @@ Deleted:
   and its development twin, 22 lines). The Folders window opens Settings with
   `open_home` (`apps/epicenter/src-tauri/src/lib.rs:525`).
 - Six of eight `BUILT_IN_ROUTES` entries and six route constants
+  <!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
   (`apps/epicenter/src/routes.ts:29-55`); the Whispering, Capture, and Todos
+  <!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
   entries in `apps/epicenter/src/applications.ts` and `LAUNCHABLE_APPLICATIONS`,
   leaving `COMPILED_APPLICATIONS` as the Folders window alone;
   `FOLDER_OPENERS` (`apps/epicenter/src/folders/openers.ts:52-64`).
@@ -135,6 +139,7 @@ Deleted:
   is (`open_installed_window`, `apps/epicenter/src-tauri/src/lib.rs:1702`).
 <!-- doc-path-check: ignore-next-line -->
 - The Mail and Books placeholder pages (`apps/epicenter/src/placeholder-pages.ts`,
+  <!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
   47 lines) and their routes (`apps/epicenter/src/server.ts:346-359`).
 - The refusal to install a built-in app's id
   (`apps/epicenter/src-tauri/src/installed_apps.rs:141-148`); only `so.epicenter`

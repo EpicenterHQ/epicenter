@@ -1,20 +1,19 @@
 /**
- * Build the SPA as one self-contained document. The token gate 401s any
- * request without the browser session. Keeping Home in one document also
- * gives the Bun host one explicit script hash for its CSP. Other trusted SPAs
- * may emit assets under their own directories in the shared application dist.
+ * Build Settings' page (the `home` window). The shell serves it on the
+ * `epicenter-app` scheme below `/home/` (ADR-0561), so this build emits
+ * ordinary assets under that base.
  */
 
 import { fileURLToPath } from 'node:url';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
-import { viteSingleFile } from 'vite-plugin-singlefile';
 
 export default defineConfig({
 	// Absolute, so the build works regardless of the invoking cwd (a relative
 	// root resolves against process.cwd(), not this file).
 	root: fileURLToPath(new URL('./src/ui', import.meta.url)),
+	base: '/home/',
 	plugins: [
 		tailwindcss(),
 		// The plugin resolves svelte.config.js against the Vite root (src/ui),
@@ -22,8 +21,6 @@ export default defineConfig({
 		svelte({
 			configFile: fileURLToPath(new URL('./svelte.config.js', import.meta.url)),
 		}),
-		// Last, so it inlines the CSS asset Tailwind emitted into dist/index.html.
-		viteSingleFile(),
 	],
 	build: {
 		outDir: fileURLToPath(new URL('./dist/home', import.meta.url)),

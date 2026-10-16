@@ -50,7 +50,7 @@ fn is_commit(value: &str) -> bool {
 
 /// Whether `id` can name a directory under `builds/`: the characters of a
 /// reverse-domain app id, never `..`. The CLI checks the whole rule.
-fn is_app_id(id: &str) -> bool {
+pub(crate) fn is_app_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && !id.starts_with(['.', '-'])
@@ -111,6 +111,26 @@ async fn stream(
         .await
 }
 
+/// `stream` for a command that may change app `id`'s current build: when it
+/// did, the app's open windows reload onto the new build (`update_args`).
+async fn stream_building(
+    webview: &Webview,
+    id: &str,
+    args: Vec<OsString>,
+    on_line: Channel<String>,
+) -> Result<CliExit, CliError> {
+    if !is_app_id(id) {
+        return stream(webview, args, on_line).await;
+    }
+    let builds = webview.state::<DesktopPaths>().builds_dir().join(id);
+    let before = current_build(&builds);
+    let exit = stream(webview, args, on_line).await?;
+    if current_build(&builds) != before {
+        crate::reload_installed_windows(webview.app_handle(), id);
+    }
+    Ok(exit)
+}
+
 // ---------------------------------------------------------------------------
 // Commands, granted to the Folders window alone
 
@@ -161,7 +181,13 @@ pub async fn approve_app(
     commit: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream(&webview, update_args(&id, Some(&commit), true), on_line).await
+    stream_building(
+        &webview,
+        &id,
+        update_args(&id, Some(&commit), true),
+        on_line,
+    )
+    .await
 }
 
 /// Fetch app `id`'s upstream and bring it up to date. What arrives from
@@ -173,7 +199,7 @@ pub async fn update_app(
     id: String,
     on_line: Channel<String>,
 ) -> Result<CliExit, CliError> {
-    stream(&webview, update_args(&id, None, false), on_line).await
+    stream_building(&webview, &id, update_args(&id, None, false), on_line).await
 }
 
 /// Open app `id` at `commit`, the commit the Folders window listed, in its own
@@ -209,7 +235,7 @@ pub async fn open_installed_app(
                 other => format!("{other:?}"),
             })?;
         match exit.code {
-            0 => {}
+            0 => crate::reload_installed_windows(&app, &id),
             1 => {
                 return Err(format!(
                     "{title} changed from elsewhere. Review and approve it first."
@@ -325,8 +351,12 @@ mod tests {
             stderr: stderr.into(),
         };
         assert_eq!(
-            exit(Some(r#"{"error":"Board did not build"}"#), 2, "for people\n")
-                .failure("app update"),
+            exit(
+                Some(r#"{"error":"Board did not build"}"#),
+                2,
+                "for people\n"
+            )
+            .failure("app update"),
             "Board did not build"
         );
         assert_eq!(

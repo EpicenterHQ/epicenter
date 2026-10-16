@@ -11,10 +11,9 @@ bun run epicenter check path/to/folder          # from the repository root
 bun packages/cli/src/bin.ts query path/to/folder 'SELECT stem FROM posts'
 ```
 
-The desktop app compiles the same `runCli` into the one binary it ships
-(`apps/epicenter/src/epicenter-binary.ts`, built by `bun run --cwd
-apps/epicenter build:sidecar`). That binary also has the Bun host as a hidden
-`__host` mode and runs as `bun` with `BUN_BE_BUN=1`; see
+The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
+--cwd apps/epicenter build:sidecar`). That binary also runs as `bun` with
+`BUN_BE_BUN=1`; see
 [the epicenter binary](../../apps/epicenter/README.md#the-epicenter-binary).
 
 ## Commands

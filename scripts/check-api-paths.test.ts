@@ -56,15 +56,10 @@ test('flags a hardcoded API path literal with file and line', () => {
 test('passes allowlisted mirrors, comments, tests, and excluded dirs', () => {
 	const dir = makeRepo();
 	try {
-		// Source-of-truth and vendored mirror files are allowed verbatim.
+		// Source-of-truth files are allowed verbatim.
 		write(
 			dir,
 			'packages/constants/src/api-routes.ts',
-			"export const SESSION = '/api/session';\n",
-		);
-		write(
-			dir,
-			'apps/epicenter/src/routes.ts',
 			"export const SESSION = '/api/session';\n",
 		);
 		// Comment lines are prose, not constructions.

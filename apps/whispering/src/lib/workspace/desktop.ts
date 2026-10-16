@@ -16,8 +16,8 @@
  * saves to it through the shell, and records history with the `git` the shell
  * runs. The page supplies no path.
  *
- * Everything else native is Epicenter's, granted to Whispering's windows by
- * its app id (`installed-whispering-*` in Epicenter's capabilities):
+ * Everything else native is Epicenter's, granted to every installed app's
+ * windows (`installed-app.json` in Epicenter's capabilities):
  *
  * - the recorder plugin, which writes a recording into the granted folder as
  *   it captures (ADR-0543);

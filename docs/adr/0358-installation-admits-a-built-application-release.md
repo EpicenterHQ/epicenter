@@ -13,7 +13,9 @@
 ## Context
 
 Epicenter currently launches only the applications compiled into its own
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 release. `apps/epicenter/src/applications.ts` declares the closed
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 `COMPILED_APPLICATIONS` list, `apps/epicenter/src/static-assets.ts` loads each
 application's built static directory, and `apps/epicenter/package.json` builds
 those applications as part of the desktop release. There is no installed-app

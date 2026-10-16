@@ -7,9 +7,10 @@
  * deployment the shell runs the CLI for and none of its own build. It sends its one account request,
  * `GET /api/repos`, through `account_send` with the `git` resource, where the
  * CLI adds the token, and sends the person to Settings with `open_home` to
- * sign in. The shell grants these three commands to Todos' windows by app id
- * (`installed-todos-*`). Git itself runs in `epicenter sync`, which signs in
- * with the same grant.
+ * sign in. The shell grants these three commands to every installed app's
+ * windows (`installed-app.json`), and calls them through the bindings Rust
+ * generates for them (`../tauri/bindings.gen.ts`). Git itself runs in
+ * `epicenter sync`, which signs in with the same grant.
  */
 
 import { sendThroughShell, toSendRequest } from '@epicenter/ai/send';
@@ -19,28 +20,33 @@ import {
 	type DesktopAccountAudience,
 	type DesktopAccountStatus,
 } from '@epicenter/auth/desktop';
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
+import { type CliError, commands } from '../tauri/bindings.gen.js';
 
-/** What `auth_status` answers (`AuthStatus` in `src-tauri/src/cli.rs`). */
-type AuthStatus = {
-	origin: string;
-	grants: {
-		grant: string;
-		signedIn: boolean;
-		account: { id: string } | null;
-		signedInAt: string | null;
-	}[];
-};
+/** What a refused shell command says, for a person. */
+function describeCliError(error: CliError): string {
+	return error.name === 'NotGranted'
+		? `this window holds no grant: ${JSON.stringify(error.grant)}`
+		: error.message;
+}
 
 /** The desktop grant, the one the app signs in with, from `auth_status`. */
 async function status(): Promise<DesktopAccountStatus> {
-	const { origin, grants } = await invoke<AuthStatus>('auth_status');
+	const { data, error } = await commands.authStatus();
+	if (error !== null)
+		throw Object.assign(new Error(describeCliError(error)), {
+			name: error.name,
+		});
+	const { origin, grants } = data;
 	const desktop = grants.find((grant) => grant.grant === 'desktop');
 	return {
 		origin,
 		grant:
 			desktop?.signedIn && desktop.account
-				? { accountId: desktop.account.id, signedInAt: desktop.signedInAt }
+				? {
+						accountId: desktop.account.id,
+						signedInAt: desktop.signedInAt ?? null,
+					}
 				: null,
 	};
 }
@@ -61,8 +67,8 @@ async function send(
 	return sendThroughShell(prepared, async (wire, onLine) => {
 		const channel = new Channel<string>();
 		channel.onmessage = onLine;
-		await invoke('account_send', { audience, request: wire, onEvent: channel });
-		return null;
+		const { error } = await commands.accountSend(audience, wire, channel);
+		return error && { name: error.name, message: describeCliError(error) };
 	});
 }
 
@@ -71,7 +77,7 @@ export const auth: AuthClient | undefined = createDesktopAccountAuth({
 	status,
 	send,
 	openSignIn: async () => {
-		await invoke('open_home', { section: null });
+		await commands.openHome(null);
 	},
 });
 

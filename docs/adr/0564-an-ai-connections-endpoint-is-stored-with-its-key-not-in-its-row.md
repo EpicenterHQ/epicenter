@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) at the row's `endpoint` field, the `savedForAnotherAddress` state, the kind named `endpoint`, the key commands' names and arguments, and the capability-file rule that lets an app into `so.epicenter`: a row holds `kind`, `title`, and `model`, the endpoint lives only in the keychain entry, the kind is `openai-compatible`, and `AI_CONNECTION_APPS` names the apps whose windows open `so.epicenter`.
+- **Amended by:** [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at `AI_CONNECTION_APPS`: every installed app's window is permitted into `so.epicenter`, and the list is deleted.
 - **Relates:** [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (approving an app trusts it fully), [ADR-0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) (native commands granted by app id), [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) (`epicenter auth key`).
 - **Unbuilt:** a build-time flag that replaces the `EPICENTER_TEST_SECRETS` check, so a release binary has no in-memory store; Whispering's `transcriptionConnection` and `textConnection` in `so.epicenter.whispering/kv.json`, replacing the fixed rows `whispering-transcription` and `whispering-text`.
 
@@ -104,6 +105,7 @@ endpoint and key together on each machine, in one form with two fields.
   the shell permits a window whose capability file, `installed-<app>.json`,
   grants `send`. The shell reads no capability file when it opens a window:
   the AI commands are granted separately, by
+  <!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
   `apps/epicenter/src-tauri/capabilities/installed-whispering-development.json`
   and `installed-whispering-production.json` beside it, both compiled into the build and
   keyed by the same app id. `AI_CONNECTION_APPS` is the rule adopted, because

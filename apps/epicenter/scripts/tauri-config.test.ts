@@ -1,10 +1,10 @@
 /**
- * The Tauri config declares the Bun host as an external binary, and
+ * The Tauri config declares the `epicenter` CLI as an external binary, and
  * `src-tauri/binaries/` is gitignored. `build.rs` panics on a missing external
  * binary before the app compiles, so every command that starts or packages the
- * app must compile the sidecar first. `dev:desktop` once ran only the SPA
- * build, which failed on a fresh clone with a missing
- * `binaries/epicenter-cli-<triple>` resource.
+ * app must compile it first, and must build the pages the shell serves.
+ * `dev:desktop` once ran only the page build, which failed on a fresh clone
+ * with a missing `binaries/epicenter-cli-<triple>` resource.
  */
 
 import { expect, test } from 'bun:test';
@@ -36,7 +36,7 @@ function expand(name: string): Set<string> {
 	return seen;
 }
 
-test('starting and packaging the app both compile the Bun sidecar first', () => {
+test('starting and packaging the app both compile the CLI and build the pages first', () => {
 	expect(config.bundle.externalBin).toEqual(['binaries/epicenter-cli']);
 	const dev = config.build.beforeDevCommand.script as string;
 	const build = config.build.beforeBuildCommand as string;
@@ -44,5 +44,6 @@ test('starting and packaging the app both compile the Bun sidecar first', () => 
 		const reached = scriptsRun(command).flatMap((name) => [...expand(name)]);
 		expect(reached).toContain('build:sidecar');
 		expect(reached).toContain('build:home');
+		expect(reached).toContain('build:folders');
 	}
 });

@@ -7,6 +7,7 @@
 ## Context
 
 Blobs live in two places today: a per-app device cache in app data
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 (`apps/<app-id>/device/<owner>/blobs`, `apps/epicenter/src/main.ts`) and hosted
 blob routes in `apps/api` backed by S3-compatible storage (`BLOBS_S3_*`).
 Whispering commits audio as real bytes, with no LFS. A row that refers to a

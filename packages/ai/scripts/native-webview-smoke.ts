@@ -1,10 +1,14 @@
 /**
- * Real macOS Wry WebView, production inference capability, direct transcriber, and cached model.
+ * Real macOS Wry WebView, the installed-app capability's grants, direct transcriber, and cached model.
  * Builds only a temporary native example against the existing Cargo target cache.
+ * It also checks that the installed-app grants refuse model administration
+ * and that the page runs with no CSP violation, under a copy of the policy
+ * the shell's scheme serves (`content_security_policy` in
+ * apps/epicenter/src-tauri/src/scheme.rs); change both together.
  * No account or microphone opens; the WebView is incognito and settings are temporary.
  */
 import assert from 'node:assert/strict';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +26,6 @@ assert(await Bun.file(audioPath).exists());
 const temporary = await mkdtemp(join(tmpdir(), 'epicenter-native-webview-'));
 const native = join(temporary, 'native');
 const token = randomBytes(24).toString('hex');
-const origin = 'http://127.0.0.1:39130';
 const base = `/${token}/`;
 const resultPath = join(temporary, 'result.json');
 const result = Promise.withResolvers<Record<string, unknown>>();
@@ -63,27 +66,25 @@ try {
 `;
 const html =
 	'<!doctype html><html><head><meta charset="utf-8"><title>Native inference acceptance</title></head><body><script type="module" src="./main.js"></script></body></html>';
-// Execute the existing policy constructor without exporting a test-only production API.
-const serverSource = await Bun.file(
-	join(root, 'apps/epicenter/src/server.ts'),
-).text();
-const policySource = serverSource.slice(
-	serverSource.indexOf('function contentSecurityPolicy('),
-	serverSource.indexOf('\nasync function readJsonObject('),
-);
-assert(policySource.startsWith('function contentSecurityPolicy('));
-const policyJavaScript = new Bun.Transpiler({ loader: 'ts' }).transformSync(
-	policySource,
-);
-const csp: string = new Function(
-	'createHash',
-	'page',
-	`${policyJavaScript}; return contentSecurityPolicy(page);`,
-)(createHash, html);
+// The policy the shell's `epicenter-app` scheme serves a page whose scripts
+// are all external (`content_security_policy` in
+// apps/epicenter/src-tauri/src/scheme.rs).
+const csp = [
+	"default-src 'self'",
+	"script-src 'self' 'wasm-unsafe-eval'",
+	"style-src 'self' 'unsafe-inline'",
+	"connect-src 'self' ipc: http://ipc.localhost",
+	"img-src 'self' data: blob:",
+	"media-src 'self' data: blob:",
+	"worker-src 'self' blob:",
+	"object-src 'none'",
+	"base-uri 'self'",
+	"frame-ancestors 'none'",
+].join('; ');
 let script = '';
 const server = Bun.serve({
 	hostname: '127.0.0.1',
-	port: 39130,
+	port: 0,
 	async fetch(request) {
 		const path = new URL(request.url).pathname;
 		if (path === base && request.method === 'GET')
@@ -113,6 +114,8 @@ const server = Bun.serve({
 	},
 });
 
+const origin = `http://127.0.0.1:${server.port}`;
+
 try {
 	await mkdir(join(native, 'examples'), { recursive: true });
 	const copied = Bun.spawn(
@@ -131,9 +134,23 @@ try {
 	const config = await Bun.file(join(native, 'tauri.conf.json')).json();
 	config.identifier = 'so.epicenter.native-ai-evidence';
 	config.productName = 'Native AI Evidence';
-	config.build = { frontendDist: 'frontend-placeholder' };
+	config.build = {};
 	config.bundle = { active: false, icon: ['icons/icon.png'] };
-	config.app.security.capabilities = ['installed-whispering-production'];
+	// The installed-app grants, served to this loopback page: the shell's own
+	// pages are local on the `epicenter-app` scheme, which this fixture does
+	// not register.
+	const installedApp = await Bun.file(
+		join(native, 'capabilities/installed-app.json'),
+	).json();
+	await Bun.write(
+		join(native, 'capabilities/installed-app.json'),
+		JSON.stringify({
+			...installedApp,
+			local: false,
+			remote: { urls: [origin] },
+		}),
+	);
+	config.app.security.capabilities = ['installed-app'];
 	await Bun.write(join(native, 'tauri.conf.json'), JSON.stringify(config));
 	await Bun.write(
 		join(native, 'examples/ai_runtime_webview.rs'),

@@ -247,6 +247,7 @@ of a claim in this paragraph.
 
 The directory is a string. It is computed where the owner is composed, the way
 the Epicenter sidecar already computes `join(root, 'blobs')` in
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 `apps/epicenter/src/main.ts`, and injected into the engine that needs it. This is the per-concern injection that ADR-0193 requires
 for a materialization, and it is why this record adds no capability.
 

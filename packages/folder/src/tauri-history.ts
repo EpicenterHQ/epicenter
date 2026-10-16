@@ -30,7 +30,6 @@
  * own token, so the page holds none. A reload or a closed window ends the
  * children it started.
  */
-import { invoke } from '@tauri-apps/api/core';
 import { Err, type Result } from 'wellcrafted/result';
 import type { DirectoryHistory } from './directory-adapter.js';
 import { describe } from './errors.js';
@@ -59,19 +58,7 @@ import {
 	type HistoryResults,
 	type HistoryState,
 } from './history-wire.js';
-
-/** What the shell's history commands answer: how the child ended, and its reply line. */
-type CliHistoryOutput = {
-	readonly code: number;
-	readonly reply: string | null;
-	readonly stderr: string;
-};
-
-/** Why the shell did not run the child, or the child did not finish. */
-type CliError =
-	| { readonly name: 'NotGranted'; readonly grant: unknown }
-	| { readonly name: 'Refused'; readonly message: string }
-	| { readonly name: 'Failed'; readonly message: string };
+import { type CliError, type CliExit, commands } from './shell/bindings.gen.js';
 
 /** The reply, or why there is none. */
 type Answer<T> =
@@ -79,30 +66,30 @@ type Answer<T> =
 	| { readonly kind: 'missing'; readonly missing: GitMissingReply }
 	| { readonly kind: 'failed'; readonly message: string };
 
-function describeCliError(cause: unknown): string {
-	if (typeof cause === 'string') return cause;
-	if (typeof cause === 'object' && cause !== null) {
-		const { name, message, grant } = cause as Partial<
-			CliError & { grant: unknown; message: string }
-		>;
-		if (name === 'NotGranted')
-			return `this window holds no grant for the folder: ${JSON.stringify(grant)}`;
-		if (typeof message === 'string') return message;
-	}
-	return describe(cause);
+function describeCliError(error: CliError): string {
+	if (error.name === 'NotGranted')
+		return `this window holds no grant for the folder: ${JSON.stringify(error.grant)}`;
+	return error.message;
 }
 
-/** Run one shell command and read the child's reply line. */
+/**
+ * Run one shell command (`run`, a call of the generated `commands`) and read
+ * the child's reply line.
+ */
 async function ask<T>(
-	command: string,
-	args: Record<string, unknown>,
+	run: () => Promise<
+		{ data: CliExit; error: null } | { data: null; error: CliError }
+	>,
 ): Promise<Answer<T>> {
-	let output: CliHistoryOutput;
+	let result: Awaited<ReturnType<typeof run>>;
 	try {
-		output = await invoke<CliHistoryOutput>(command, args);
+		result = await run();
 	} catch (cause) {
-		return { kind: 'failed', message: describeCliError(cause) };
+		return { kind: 'failed', message: describe(cause) };
 	}
+	if (result.error !== null)
+		return { kind: 'failed', message: describeCliError(result.error) };
+	const output = result.data;
 	const line = output.reply;
 	if (line === null)
 		return {
@@ -244,9 +231,9 @@ function createCliHistory({
 		{
 			async run() {
 				const capturedAt = ++clock;
-				const answer = await ask<HistoryResults['status']>('status', {
-					scope,
-				});
+				const answer = await ask<HistoryResults['status']>(() =>
+					commands.status(scope),
+				);
 				if (answer.kind !== 'reply') {
 					const failure = gitFailure('status', answer);
 					files =
@@ -277,9 +264,8 @@ function createCliHistory({
 		return admit(async (): Promise<CommitOutcome> => {
 			try {
 				const capturedAt = ++clock;
-				const answer = await ask<HistoryResults['saveVersion']>(
-					'save_version',
-					{ scope, message: message ?? null },
+				const answer = await ask<HistoryResults['saveVersion']>(() =>
+					commands.saveVersion(scope, message ?? null),
 				);
 				if (answer.kind === 'missing')
 					return {
@@ -327,11 +313,13 @@ function createCliHistory({
 
 	const runSync = (options: SyncOptions = {}, connect?: string) =>
 		syncing(() =>
-			ask('sync', {
-				scope,
-				remote: connect ?? null,
-				allowUnrelated: options.allowUnrelatedHistories === true,
-			}),
+			ask(() =>
+				commands.sync(
+					scope,
+					connect ?? null,
+					options.allowUnrelatedHistories === true,
+				),
+			),
 		);
 
 	function resolveSync(
@@ -349,9 +337,7 @@ function createCliHistory({
 		}
 		if (typeof id !== 'string')
 			return Promise.resolve(SyncError.Stale({ reason: 'replaced' }));
-		return syncing(() =>
-			ask('settle_sync', { scope, attempt: id, choices: picked }),
-		);
+		return syncing(() => ask(() => commands.settleSync(scope, id, picked)));
 	}
 
 	let closed: Promise<void> | undefined;
@@ -383,10 +369,9 @@ function createCliHistory({
 			if (closing.signal.aborted) return GitError.Closed();
 			return admit(async () => {
 				const capturedAt = ++clock;
-				const answer = await ask<HistoryResults['log']>('history', {
-					scope,
-					depth,
-				});
+				const answer = await ask<HistoryResults['log']>(() =>
+					commands.history(scope, depth),
+				);
 				if (answer.kind !== 'reply') return gitFailure('log', answer);
 				observe(answer.reply, capturedAt);
 				return answer.reply.result;

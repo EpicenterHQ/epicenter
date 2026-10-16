@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) at "Whispering's recorder and global shortcuts, and Honeycrisp's terminal and 'reveal folder', are host functions": shortcuts come from the global-shortcut plugin, reveal is a folder action every window offers, and the terminal is refused.
+- **Amended by:** [ADR-0570](0570-every-installed-apps-window-gets-the-same-grant.md) at "granted by app id" and "Each app is granted in one file, `installed-<app>.json`": every installed app's window is granted by one file, `installed-app.json`, whose `windows` is `app:*`.
 - **Relates:** [ADR-0117](0117-global-shortcut-input-is-plugin-chords-only-and-the-macos-tap-is-just-the-paste-grant-watcher.md) (plugin chords only, the tap watches the paste grant), [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) (a hidden app window keeps running, and its 30-minute test), [ADR-0328](0328-epicenter-runs-when-you-log-in-and-pause-is-the-only-control-it-offers.md) (Epicenter adds itself to login items once), [ADR-0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) (an approved app is trusted fully), [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) (one capability file per app).
 - **Unbuilt:** all of it: the plugin JS packages and grants, registering the notification plugin, `open_panel`, `reveal_folder` and `open_folder_in_terminal`, and the deletions below.
 

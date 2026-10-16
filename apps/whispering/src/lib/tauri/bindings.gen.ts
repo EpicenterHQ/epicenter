@@ -171,12 +171,6 @@ export const commands = {
 	 */
 	listDataFolders: () => typedError<DataFolder[], string>(__TAURI_INVOKE("list_data_folders")),
 	/**
-	 *  `epicenter check <folder> --json` on a folder this window was granted
-	 *  (ADR-0520), its one JSON line sent to `on_line`. Granted to the Folders
-	 *  window alone.
-	 */
-	folderCheck: (scope: string, onLine: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("folder_check", { scope, onLine })),
-	/**
 	 *  Send one request over an AI connection with the key saved on this
 	 *  computer, through `epicenter send` (ADR-0557). Each line of its NDJSON
 	 *  (the response's head, its body in base64 chunks, and `end`, or an
@@ -349,13 +343,11 @@ export const commands = {
 	/**
 	 *  The current paste-at-cursor capability: whether a synthetic Cmd/Ctrl+V can
 	 *  land (on macOS, whether the Accessibility grant is live and the tap is
-	 *  healthy). The FE seeds from this on attach, then tracks
-	 *  `DictationCapabilityEvent` for changes; it never probes the OS itself. The
+	 *  healthy). A page reads it from this; it never probes the OS itself. The
 	 *  Rust supervisor owns the value and the tap's lifecycle, so there is no `start`
 	 *  command for the FE to call.
 	 */
 	getDictationCapability: () => __TAURI_INVOKE<DictationCapability>("get_dictation_capability"),
-	replaceGlobalShortcuts: (registrations: GlobalShortcutRegistration[]) => typedError<null, string>(__TAURI_INVOKE("replace_global_shortcuts", { registrations })),
 	isAutostartEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("is_autostart_enabled")),
 	setAutostartEnabled: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_autostart_enabled", { enabled })),
 };
@@ -363,7 +355,6 @@ export const commands = {
 /** Events */
 export const events = {
 	dictationCapabilityEvent: makeEvent<DictationCapabilityEvent, DictationCapabilityEvent>("dictation-capability-event"),
-	globalShortcutTriggered: makeEvent<GlobalShortcutTriggered, GlobalShortcutTriggered>("global-shortcut-triggered"),
 	homeSectionPending: makeEvent<HomeSectionPending, HomeSectionPending>("home-section-pending"),
 };
 
@@ -579,11 +570,10 @@ export type DictationCapability =
 "broken";
 
 /**
- *  Pushed whenever the dictation capability changes. The frontend seeds from
- *  `get_dictation_capability` on attach, then tracks this event for transitions;
- *  it never probes the OS itself. A `tauri_specta::Event`, emitted with
- *  `emit_to(app, MAIN_WINDOW)` (the Whispering webview, not the overlay) and listened
- *  through the generated `events.dictationCapabilityEvent`.
+ *  A dictation capability change, for the generated
+ *  `events.dictationCapabilityEvent`. Nothing emits it yet: ADR-0555 sends it
+ *  to every window of an app that called `get_dictation_capability`, and until
+ *  then a page reads the capability with that command.
  */
 export type DictationCapabilityEvent = {
 	capability: DictationCapability,
@@ -603,18 +593,6 @@ export type DownloadProgress = {
 	bytesReceived: number | null,
 	/**  Grand total bytes for the whole model (sum of the catalog file sizes). */
 	totalBytes: number | null,
-};
-
-export type GlobalShortcutRegistration = {
-	commandId: string,
-	accelerator: string,
-};
-
-export type GlobalShortcutState = "Pressed" | "Released";
-
-export type GlobalShortcutTriggered = {
-	commandId: string,
-	state: GlobalShortcutState,
 };
 
 /**

@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, Webview};
-use tauri_plugin_epicenter_folder::{FolderExt, GrantError};
+use tauri_plugin_epicenter_folder::GrantError;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Notify;
@@ -616,32 +616,6 @@ pub(crate) fn spawn_epicenter_folder_declaration(paths: &DesktopPaths) -> Epicen
     EpicenterFolderDeclared(receiver)
 }
 
-/// The arguments for `epicenter check <root> --json`.
-fn check_args(root: PathBuf) -> Vec<OsString> {
-    vec!["check".into(), root.into_os_string(), "--json".into()]
-}
-
-/// `epicenter check <folder> --json` on a folder this window was granted
-/// (ADR-0520), its one JSON line sent to `on_line`. Granted to the Folders
-/// window alone.
-#[tauri::command]
-#[specta::specta]
-pub async fn folder_check<R: Runtime>(
-    webview: Webview<R>,
-    scope: String,
-    on_line: Channel<String>,
-) -> Result<CliExit, CliError> {
-    let root = webview
-        .folders()
-        .granted_root(&scope, webview.label())
-        .map_err(|grant| CliError::NotGranted { grant })?;
-    window_invocation(&webview)?
-        .run(&check_args(root), None, |line| {
-            on_line.send(line).map_err(|error| error.to_string())
-        })
-        .await
-}
-
 // ---------------------------------------------------------------------------
 // AI connections (ADR-0557): one request over a connection, and its key in
 // the keychain. The CLI holds both; these commands only carry the page's
@@ -1087,12 +1061,6 @@ mod tests {
     use std::fs;
 
     use serde_json::{json, Value};
-    use tauri::ipc::{CallbackFn, InvokeBody};
-    use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
-    use tauri::utils::acl::ExecutionContext;
-    use tauri::webview::InvokeRequest;
-    use tauri::WebviewWindowBuilder;
-    use tauri_plugin_epicenter_folder::{FolderConfig, ScopeConfig};
 
     use super::*;
 
@@ -1321,117 +1289,6 @@ process.exitCode = 1;
             panic!("not a failure");
         };
         assert!(message.contains("could not be started"), "{message}");
-    }
-
-    fn invoke(
-        window: &tauri::WebviewWindow<MockRuntime>,
-        command: &str,
-        args: Value,
-    ) -> Result<Value, Value> {
-        tauri::test::get_ipc_response(
-            window,
-            InvokeRequest {
-                cmd: command.to_string(),
-                callback: CallbackFn(0),
-                error: CallbackFn(1),
-                url: "tauri://localhost".parse().unwrap(),
-                body: InvokeBody::Json(args),
-                headers: Default::default(),
-                invoke_key: INVOKE_KEY.to_string(),
-            },
-        )
-        .map(|body| body.deserialize::<Value>().expect("a JSON response"))
-    }
-
-    /// `folder_check` runs only on a folder this window was granted, and then
-    /// runs `epicenter check <root> --json`: here the CLI's source under
-    /// `bun`, which is what a development build runs.
-    #[tokio::test]
-    async fn folder_check_runs_check_on_the_granted_folder_only() {
-        let root = scratch("check");
-        fs::write(
-            root.join("epicenter.json"),
-            r#"{"kv":{"type":"object","properties":{}},"tables":{"notes":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}}"#,
-        )
-        .unwrap();
-        fs::create_dir_all(root.join("notes")).unwrap();
-        fs::write(root.join("notes/a.md"), "---\ntitle: A\n---\n").unwrap();
-        fs::write(root.join("notes/b.md"), "---\ntitle: 3\n---\n").unwrap();
-
-        let mut context = mock_context(noop_assets());
-        context.runtime_authority_mut().__allow_command(
-            "plugin:epicenter-folder|grant_directory".into(),
-            ExecutionContext::Local,
-        );
-        let app = mock_builder()
-            .plugin(tauri_plugin_epicenter_folder::init())
-            .manage(CliChildren::default())
-            .build(context)
-            .expect("mock app");
-        let shell = scratch("check-shell");
-        app.manage(paths_in(&shell));
-        app.folders()
-            .register(ScopeConfig {
-                scope: "data:notes".into(),
-                folder: FolderConfig::data(&root),
-                windows: vec!["folders".into()],
-            })
-            .unwrap();
-        let folders = WebviewWindowBuilder::new(&app, "folders", Default::default())
-            .build()
-            .unwrap();
-        let other = WebviewWindowBuilder::new(&app, "other", Default::default())
-            .build()
-            .unwrap();
-        let webview = |window: &tauri::WebviewWindow<MockRuntime>| window.as_ref().clone();
-        let lines = || {
-            let (sender, receiver) = std::sync::mpsc::channel::<String>();
-            let channel = Channel::new(move |body| {
-                let tauri::ipc::InvokeResponseBody::Json(text) = body else {
-                    panic!("a JSON message");
-                };
-                sender.send(serde_json::from_str(&text).unwrap()).unwrap();
-                Ok(())
-            });
-            (channel, receiver)
-        };
-
-        let (channel, _) = lines();
-        let refused = folder_check(webview(&folders), "data:notes".into(), channel)
-            .await
-            .unwrap_err();
-        assert!(
-            matches!(refused, CliError::NotGranted { .. }),
-            "{refused:?}"
-        );
-        let (channel, _) = lines();
-        let refused = folder_check(webview(&other), "data:notes".into(), channel)
-            .await
-            .unwrap_err();
-        assert!(
-            matches!(refused, CliError::NotGranted { .. }),
-            "{refused:?}"
-        );
-
-        invoke(
-            &folders,
-            "plugin:epicenter-folder|grant_directory",
-            json!({ "scope": "data:notes" }),
-        )
-        .unwrap();
-        let (channel, received) = lines();
-        let exit = folder_check(webview(&folders), "data:notes".into(), channel)
-            .await
-            .unwrap();
-        assert_eq!(exit.code, 1, "{}", exit.stderr);
-        let report: Value = serde_json::from_str(&received.recv().unwrap()).unwrap();
-        assert_eq!(report["rows"], 1);
-        assert_eq!(report["invalid"][0]["path"], "notes/b.md");
-        assert!(received.try_recv().is_err(), "check prints one line");
-
-        app.folders().shutdown();
-        let _ = fs::remove_dir_all(root);
-        let _ = fs::remove_dir_all(shell);
     }
 
     /// Every command a page calls starts the CLI the same way: with the

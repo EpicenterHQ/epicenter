@@ -67,7 +67,9 @@ const { openNotes } = await import('./notes-host.epicenter-host.js');
 
 /** Open the window as the shell does, handed `folder` in `?folder=`, or none. */
 function openWindow(folder?: string) {
-	const url = new URL(`http://127.0.0.1/apps/${HONEYCRISP_FOLDER_ID}/`);
+	const url = new URL(
+		`epicenter-app://localhost/apps/${HONEYCRISP_FOLDER_ID}/`,
+	);
 	if (folder !== undefined) url.searchParams.set('folder', folder);
 	Object.defineProperty(globalThis, 'location', {
 		value: url,

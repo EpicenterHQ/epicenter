@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/epicenter",
-	"description": "One desktop application host serving trusted Epicenter SPAs from Bun.",
+	"description": "The Epicenter desktop app: Rust serves its pages and every installed app from one origin.",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
@@ -24,15 +24,11 @@
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/cli": "workspace:*",
-		"@epicenter/principal": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
-		"hono": "catalog:",
-		"mime": "catalog:",
 		"runed": "catalog:",
-		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
@@ -40,13 +36,11 @@
 		"@tailwindcss/vite": "catalog:",
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
-		"fake-indexeddb": "^6.2.5",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"tailwindcss": "catalog:",
 		"typescript": "catalog:",
-		"vite": "catalog:",
-		"vite-plugin-singlefile": "catalog:"
+		"vite": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

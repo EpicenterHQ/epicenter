@@ -80,7 +80,7 @@ function openTodos() {
 
 /** Open the window as the shell does, handed `folder` in `?folder=`, or none. */
 function openWindow(folder?: string) {
-	const url = new URL(`http://127.0.0.1/apps/${OWN_ID}/`);
+	const url = new URL(`epicenter-app://localhost/apps/${OWN_ID}/`);
 	if (folder !== undefined) url.searchParams.set('folder', folder);
 	Object.defineProperty(globalThis, 'location', {
 		value: url,

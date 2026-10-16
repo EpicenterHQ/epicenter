@@ -74,7 +74,7 @@ mock.module('@tauri-apps/api/core', () => ({
 const { openWorkspace: openBrowserWorkspace } = await import('./browser.js');
 const { openDesktopWorkspace } = await import('./desktop.js');
 
-const ORIGIN = 'http://127.0.0.1:39130';
+const ORIGIN = 'epicenter-app://localhost';
 const SCOPE = 'so.epicenter.whispering';
 const ENDPOINT = 'http://127.0.0.1:18080/v1';
 

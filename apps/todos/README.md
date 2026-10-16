@@ -143,8 +143,6 @@ or reloading drops it.
   A write still running when the process ends is lost; every write is a
   rename, so the file holds the old version or the new one. Written files are
   on disk and reopen as they were.
-- When Epicenter's Bun host restarts, the Todos window is created again and
-  reopens its folder.
 - The browser demo asks first with the browser's leave warning when leaving
   the tab while a write or action runs (`todos.holdsUnsaved`). Opening another
   todo changes only the address's `?todo=` and never asks.

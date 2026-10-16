@@ -74,7 +74,7 @@ mock.module('@tauri-apps/api/core', () => ({
 function handWindow(folder: string) {
 	Object.defineProperty(globalThis, 'location', {
 		value: new URL(
-			`http://127.0.0.1/apps/so.epicenter.capture/?folder=${encodeURIComponent(folder)}`,
+			`epicenter-app://localhost/apps/so.epicenter.capture/?folder=${encodeURIComponent(folder)}`,
 		),
 		configurable: true,
 	});
