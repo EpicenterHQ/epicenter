@@ -1418,8 +1418,10 @@ typed after the checkpoint keeps the units it changed. Removals go first,
 guarded by the checkpoint's bytes, then the directories they emptied, so a
 file can take a directory's place and the reverse. Every write lands whole,
 so a publish cut off partway leaves each file at its old bytes or its new
-ones, ordinary changes that the next Sync records and merges to the same
-files (ADR-0545); there is no journal. A folder that had no history before
+ones (ADR-0545). `refs/epicenter/publishing` names the publish, as a commit
+whose parents are where the branch was and what it publishes, until the
+branch moves; the next commit finishes that publish before it records the
+files, so what arrived is never recorded as this device's edit. A folder that had no history before
 the run adopts the remote's by merging over an empty base; one with a
 history of its own meets an unrelated remote as `Unrelated`, and
 `run({ allowUnrelatedHistories: true })` combines them. `connect(url)` sets

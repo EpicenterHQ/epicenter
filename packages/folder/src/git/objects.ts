@@ -116,6 +116,13 @@ export async function commitTree(
 	return (await git.readCommit({ ...access, oid })).commit.tree;
 }
 
+export async function commitParents(
+	access: ObjectAccess,
+	oid: string,
+): Promise<readonly string[]> {
+	return (await git.readCommit({ ...access, oid })).commit.parent;
+}
+
 /** Every leaf of a tree by path. Symbolic links and submodules keep their modes. */
 export async function readTreeFiles(
 	access: ObjectAccess,

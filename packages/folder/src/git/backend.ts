@@ -72,6 +72,14 @@ export type GitBackend = {
 	/** Move the branch only if it still names `expected`. */
 	casBranch(expected: string | undefined, next: string): Promise<CasResult>;
 	/**
+	 * `refs/epicenter/publishing`: the publish Sync began and has not
+	 * finished, as a commit whose parents are the branch it began from, when
+	 * there was one, and the commit it publishes. `undefined` when none is.
+	 */
+	readPublishing(): Promise<string | undefined>;
+	/** Point `refs/epicenter/publishing` at `oid`, or delete it with `undefined`. */
+	writePublishing(oid: string | undefined): Promise<void>;
+	/**
 	 * Why no commit or incoming update may run now, such as a detached
 	 * `HEAD`, a rebase in progress, or a merge another Git program began
 	 * (`MERGE_HEAD`). The folder never begins one; that merge is finished or

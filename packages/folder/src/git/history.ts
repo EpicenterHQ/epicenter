@@ -51,6 +51,7 @@ import { commitSubject, messageProblem, type PathChange } from './messages.js';
 import {
 	type Author,
 	type CommitSummary,
+	commitParents,
 	commitTree,
 	countOnly,
 	diffFileMaps,
@@ -458,6 +459,9 @@ export function createHistory({
 		if (unborn !== undefined) return { status: 'blocked', reason: unborn };
 		const blocked = await wholeFolderProblem();
 		if (blocked !== undefined) return { status: 'blocked', reason: blocked };
+		const unfinished = await finishPublishing();
+		if (unfinished !== undefined)
+			return { status: 'blocked', reason: unfinished };
 		const { data: isLocal, error: localProblem } = await localNow();
 		if (localProblem !== null)
 			return { status: 'blocked', reason: localProblem };
@@ -778,6 +782,58 @@ export function createHistory({
 	}
 
 	/**
+	 * Mark the publish of `to` over the files the branch left at `from` as
+	 * begun: `refs/epicenter/publishing` names a commit whose parents are
+	 * `from`, when there is one, then `to`, which also keeps both from being
+	 * collected while the publish is unfinished.
+	 */
+	async function beginPublishing(from: string | undefined, to: string) {
+		const marker = await backend.withObjects(async (access) =>
+			writeCommitObject(access, {
+				tree: await commitTree(access, to),
+				parents: from === undefined ? [to] : [from, to],
+				message: 'Epicenter Sync is publishing this commit',
+				author,
+			}),
+		);
+		await backend.writePublishing(marker);
+	}
+
+	/**
+	 * Inside the protection, before any commit records the files: finish a
+	 * publish a Sync began and was cut off from (`refs/epicenter/publishing`).
+	 * Its files hold `to`'s bytes or `from`'s, which a commit would otherwise
+	 * record as this device's own edits, and a later merge would let them win
+	 * over the other device's newer ones. While the branch is still at
+	 * `from`, the same publish runs again: a file already at `to` stays, one
+	 * still at `from` takes `to`, and one edited since keeps its edit. A
+	 * branch that moved since leaves nothing to finish.
+	 */
+	async function finishPublishing(): Promise<string | undefined> {
+		const marker = await backend.readPublishing();
+		if (marker === undefined) return undefined;
+		const parents = await backend.withObjects((access) =>
+			commitParents(access, marker),
+		);
+		const [from, to] = parents.length === 2 ? parents : [undefined, parents[0]];
+		if (to === undefined || (await backend.readBranch()) !== from) {
+			await backend.writePublishing(undefined);
+			return undefined;
+		}
+		const { error } = await publishWithin(from, to, { resuming: true });
+		if (error === null) return undefined;
+		return `a Sync stopped while it wrote this folder's files and cannot finish them: ${error.message}`;
+	}
+
+	/**
+	 * Write the tree of `to` over the files, which the branch left at `from`,
+	 * then move the branch and set the index to it.
+	 */
+	function publish(from: string | undefined, to: string) {
+		return exclusive(() => publishWithin(from, to, { resuming: false }));
+	}
+
+	/**
 	 * Inside the protection: write the tree of `to` over the files, which the
 	 * branch left at `from`, then move the branch and set the index to it.
 	 * `moved` when a commit moved the branch since `from`, so Sync merges from
@@ -796,14 +852,18 @@ export function createHistory({
 	 *
 	 * `edited` when a file `to` removes holds an edit no commit has: Sync
 	 * records it and merges again, so the delete wins and the edit stays in
-	 * history. Every write lands whole, so a publish that stops partway, for
-	 * that or any other reason, leaves each file at its old bytes or its new
-	 * ones: ordinary changes, which the next Sync records and merges to the
-	 * same files (ADR-0545).
+	 * history. Every write lands whole, so a publish that stops partway
+	 * leaves each file at its old bytes or its new ones, and
+	 * `refs/epicenter/publishing` says which publish they belong to until the
+	 * branch moves: the next commit finishes it first (`finishPublishing`).
+	 * `resuming` is that second run, which keeps a file `to` removes when it
+	 * was edited after the cut, since the files hold part of `to` already
+	 * and recording the edit first would record that part as this device's.
 	 */
-	function publish(
+	async function publishWithin(
 		from: string | undefined,
 		to: string,
+		{ resuming }: { readonly resuming: boolean },
 	): Promise<
 		Result<
 			| { readonly kind: 'published' }
@@ -812,36 +872,36 @@ export function createHistory({
 			SyncError
 		>
 	> {
-		return exclusive(async () => {
-			const blocked = await wholeFolderProblem();
-			if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
-			const head = await backend.readBranch();
-			if (head !== from) return Ok({ kind: 'moved', head } as const);
-			const { data: isLocal, error: localProblem } = await localNow();
-			if (localProblem !== null)
-				return SyncError.Blocked({ reason: localProblem });
-			const plan = await between(from, to, isLocal);
-			const refused = await inTheWay(boundary, plan);
-			if (refused !== undefined) return SyncError.Blocked({ reason: refused });
-			// Read from history before any lock: only each file's check and
-			// write need it.
-			const blobs = new Map<
-				string,
-				{ readonly was: Uint8Array | null; readonly next: Uint8Array | null }
-			>();
-			for (const { path } of plan.changes)
-				blobs.set(path, {
-					was: await blobOf(plan.before.get(path)),
-					next: await blobOf(plan.after.get(path)),
-				});
-			const removals = plan.changes
-				.filter((change) => change.kind === 'delete')
-				.map(({ path }) => path);
-			const writes = plan.changes
-				.filter((change) => change.kind !== 'delete')
-				.map(({ path }) => path);
-			// Before anything is written: an edit no commit has, in a file `to`
-			// removes, is recorded first.
+		const blocked = await wholeFolderProblem();
+		if (blocked !== undefined) return SyncError.Blocked({ reason: blocked });
+		const head = await backend.readBranch();
+		if (head !== from) return Ok({ kind: 'moved', head } as const);
+		const { data: isLocal, error: localProblem } = await localNow();
+		if (localProblem !== null)
+			return SyncError.Blocked({ reason: localProblem });
+		const plan = await between(from, to, isLocal);
+		const refused = await inTheWay(boundary, plan);
+		if (refused !== undefined) return SyncError.Blocked({ reason: refused });
+		// Read from history before any lock: only each file's check and
+		// write need it.
+		const blobs = new Map<
+			string,
+			{ readonly was: Uint8Array | null; readonly next: Uint8Array | null }
+		>();
+		for (const { path } of plan.changes)
+			blobs.set(path, {
+				was: await blobOf(plan.before.get(path)),
+				next: await blobOf(plan.after.get(path)),
+			});
+		const removals = plan.changes
+			.filter((change) => change.kind === 'delete')
+			.map(({ path }) => path);
+		const writes = plan.changes
+			.filter((change) => change.kind !== 'delete')
+			.map(({ path }) => path);
+		// Before anything is written: an edit no commit has, in a file `to`
+		// removes, is recorded first.
+		if (!resuming)
 			for (const path of removals) {
 				const read = await boundary.read(path);
 				if (
@@ -850,84 +910,103 @@ export function createHistory({
 				)
 					return Ok({ kind: 'edited' } as const);
 			}
-			const { data: listed } = await boundary.list();
-			const directories = listed?.directories ?? [];
-			const reached: string[] = [];
-			let kept = false;
-			const failed = (path: string, error: { message: string }) =>
-				SyncError.Publish({ path, error: error.message });
-			try {
-				for (const path of removals) {
-					const { was } = blobs.get(path)!;
-					const step = await boundary.lock(
-						async (
-							held,
-						): Promise<Result<'removed' | 'kept' | 'edited', SyncError>> => {
-							const read = await held.read(path);
-							if (read.error?.name === 'NotFound') return Ok('removed');
-							if (read.error !== null) return failed(path, read.error);
-							if (!sameContent(read.data.bytes, was)) return Ok('edited');
-							const removed = await confirmedPut(
-								held,
-								path,
-								null,
-								read.data.sha256,
-								null,
-							);
-							if (removed.error !== null) return failed(path, removed.error);
-							// Changed by a program outside the save lock: it stays.
-							if (removed.data === 'stale') return Ok('kept');
-							for (const directory of ancestors(path).reverse())
-								if ((await held.rmdir(directory)).error !== null) break;
+		// A publish that changes no file has nothing to finish, and one
+		// resuming is already named.
+		const marked = resuming || plan.changes.length > 0;
+		if (marked && !resuming) await beginPublishing(from, to);
+		const unmark = () =>
+			marked ? backend.writePublishing(undefined) : Promise.resolve();
+		const { data: listed } = await boundary.list();
+		const directories = listed?.directories ?? [];
+		const reached: string[] = [];
+		let kept = false;
+		const failed = (path: string, error: { message: string }) =>
+			SyncError.Publish({ path, error: error.message });
+		try {
+			for (const path of removals) {
+				const { was } = blobs.get(path)!;
+				const step = await boundary.lock(
+					async (
+						held,
+					): Promise<Result<'removed' | 'kept' | 'edited', SyncError>> => {
+						const read = await held.read(path);
+						// No file there: gone already, or a directory a cut
+						// publish made in its place.
+						if (
+							read.error?.name === 'NotFound' ||
+							read.error?.name === 'NotAFile'
+						)
 							return Ok('removed');
-						},
-					);
-					if (step.error !== null) return Err(step.error);
-					if (step.data === 'edited') return Ok({ kind: 'edited' } as const);
-					if (step.data === 'kept') kept = true;
-					else reached.push(path);
+						if (read.error !== null) return failed(path, read.error);
+						if (!sameContent(read.data.bytes, was))
+							return Ok(resuming ? 'kept' : 'edited');
+						const removed = await confirmedPut(
+							held,
+							path,
+							null,
+							read.data.sha256,
+							null,
+						);
+						if (removed.error !== null) return failed(path, removed.error);
+						// Changed by a program outside the save lock: it stays.
+						if (removed.data === 'stale') return Ok('kept');
+						for (const directory of ancestors(path).reverse())
+							if ((await held.rmdir(directory)).error !== null) break;
+						return Ok('removed');
+					},
+				);
+				if (step.error !== null) return Err(step.error);
+				if (step.data === 'edited') {
+					// Only removals ran, each of a file `to` removes too, so
+					// recording them as this device's is what `to` holds.
+					await unmark();
+					return Ok({ kind: 'edited' } as const);
 				}
-				for (const path of writes) {
-					const { was, next } = blobs.get(path)!;
-					const { data: wrote, error } = await boundary.lock(async (held) => {
-						// An empty directory where the file goes, which a removal
-						// cut off before its own prune can leave.
-						for (const directory of directories
-							.filter(
-								(directory) =>
-									directory === path || directory.startsWith(`${path}/`),
-							)
-							.sort((a, b) => b.length - a.length))
-							await held.rmdir(directory);
-						return writeFile(held, kindOf(path), path, was, next, {
-							winner: 'theirs',
-						});
-					});
-					// A file this folder cannot take there, from a program outside
-					// the save lock or a name the disk holds under another spelling.
-					if (error !== null) return failed(path, error);
-					if (!sameContent(wrote.file?.bytes ?? null, next)) kept = true;
-					reached.push(path);
-				}
-				const moved = await backend.casBranch(from, to);
-				if (!moved.ok)
-					return SyncError.Blocked({
-						reason: `the branch moved to ${moved.actual ?? 'no commit'} while Sync wrote its files, which are now changes to it`,
-					});
-				// The branch holds the files now. An index another program holds
-				// is left as it is, as a commit leaves it: the next commit
-				// refreshes it.
-				await backend.reconcileIndex(to).catch(() => {});
-				return Ok({ kind: 'published' } as const);
-			} finally {
-				// Heard once the branch and the index are set, or the publish
-				// stopped: a status taken between them would be of neither.
-				if (reached.length > 0) {
-					markLanded(kept);
-					landed(reached);
-				}
+				if (step.data === 'kept') kept = true;
+				else reached.push(path);
 			}
-		});
+			for (const path of writes) {
+				const { was, next } = blobs.get(path)!;
+				const { data: wrote, error } = await boundary.lock(async (held) => {
+					// An empty directory where the file goes, which a removal
+					// cut off before its own prune can leave.
+					for (const directory of directories
+						.filter(
+							(directory) =>
+								directory === path || directory.startsWith(`${path}/`),
+						)
+						.sort((a, b) => b.length - a.length))
+						await held.rmdir(directory);
+					return writeFile(held, kindOf(path), path, was, next, {
+						winner: 'theirs',
+					});
+				});
+				// A file this folder cannot take there, from a program outside
+				// the save lock or a name the disk holds under another spelling.
+				if (error !== null) return failed(path, error);
+				if (!sameContent(wrote.file?.bytes ?? null, next)) kept = true;
+				reached.push(path);
+			}
+			const moved = await backend.casBranch(from, to);
+			// Either way the files now belong to the branch as it is.
+			await unmark();
+			if (!moved.ok)
+				return SyncError.Blocked({
+					reason: `the branch moved to ${moved.actual ?? 'no commit'} while Sync wrote its files, which are now changes to it`,
+				});
+			// The branch holds the files now. An index another program holds
+			// is left as it is, as a commit leaves it: the next commit
+			// refreshes it.
+			await backend.reconcileIndex(to).catch(() => {});
+			return Ok({ kind: 'published' } as const);
+		} finally {
+			// Heard once the branch and the index are set, or the publish
+			// stopped: a status taken between them would be of neither.
+			if (reached.length > 0) {
+				markLanded(kept);
+				landed(reached);
+			}
+		}
 	}
 
 	/**
