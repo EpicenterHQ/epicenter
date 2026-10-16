@@ -247,9 +247,14 @@ export const commands = {
 	 */
 	downloadModel: (modelId: string, downloadId: string, onProgress: Channel<DownloadProgress>) => typedError<null, CatalogError>(__TAURI_INVOKE("download_model", { modelId, downloadId, onProgress })),
 	/**
-	 *  Show a downloaded model's file in the system file manager, so the user can
-	 *  see where it lives in the shared Hugging Face cache and remove it with the
-	 *  tools that own that cache. Epicenter itself never deletes a model file.
+	 *  Show a downloaded model's folder in the shared Hugging Face cache, such as
+	 *  `models--handy-computer--whisper-tiny-gguf`, so the user can see where it
+	 *  lives and remove it themselves. Epicenter itself never deletes a model.
+	 * 
+	 *  The folder, not the file: the file is a symlink into the repo's `blobs/`,
+	 *  and the file manager would select the 64-hex blob it resolves to. Deleting
+	 *  the folder frees the space, and the model then reads as not downloaded.
+	 *  Async so a slow file manager call never blocks the main thread.
 	 */
 	revealModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("reveal_model", { modelId })),
 	/**

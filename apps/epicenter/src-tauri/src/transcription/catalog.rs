@@ -25,7 +25,10 @@
 //! Each model is pinned to a commit and to its file's content hash. Downloads
 //! fetch that commit, and presence is decided by the bytes, so another HF tool
 //! moving `refs/main`, or fetching the same file at a different commit, never
-//! makes a model read as missing.
+//! makes a model read as missing. The match at a different commit needs a
+//! symlinked cache: where `hf-hub` cannot symlink (Windows without the
+//! privilege), it moves the blob into the snapshot, so only the pinned commit's
+//! file is found.
 
 use super::error::error_chain_message;
 use crate::download::{DownloadManager, DownloadProgress};
@@ -395,35 +398,39 @@ pub async fn download_model(
         })
 }
 
-/// Show a downloaded model's file in the system file manager, so the user can
-/// see where it lives in the shared Hugging Face cache and remove it with the
-/// tools that own that cache. Epicenter itself never deletes a model file.
+/// Show a downloaded model's folder in the shared Hugging Face cache, such as
+/// `models--handy-computer--whisper-tiny-gguf`, so the user can see where it
+/// lives and remove it themselves. Epicenter itself never deletes a model.
+///
+/// The folder, not the file: the file is a symlink into the repo's `blobs/`,
+/// and the file manager would select the 64-hex blob it resolves to. Deleting
+/// the folder frees the space, and the model then reads as not downloaded.
+/// Async so a slow file manager call never blocks the main thread.
 #[tauri::command]
 #[specta::specta]
-pub fn reveal_model<R: tauri::Runtime>(
+pub async fn reveal_model<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     model_id: String,
 ) -> Result<(), CatalogError> {
     use tauri_plugin_opener::OpenerExt;
     let entry = find_or_unknown(&model_id)?;
-    let path = entry
-        .cached_path()
-        .ok_or_else(|| CatalogError::RevealFailed {
+    if entry.cached_path().is_none() {
+        return Err(CatalogError::RevealFailed {
             message: format!("{} is not downloaded.", entry.name),
-        })?;
+        });
+    }
+    let cache = Cache::from_env();
+    let folder = cache.path().join(entry.repo().folder_name());
     app.opener()
-        .reveal_item_in_dir(&path)
+        .reveal_item_in_dir(&folder)
         .map_err(|error| CatalogError::RevealFailed {
             message: error.to_string(),
         })
 }
 
-// The fixtures lay out `hf-hub`'s symlinked cache, which needs Unix symlinks.
-#[cfg(all(test, unix))]
-mod tests {
+#[cfg(test)]
+mod id_tests {
     use super::*;
-    use std::fs;
-    use std::path::Path;
 
     /// The ids stored as the active choice and named on transcripts. A change
     /// here strands every saved choice, so it must be deliberate.
@@ -438,6 +445,14 @@ mod tests {
             ]
         );
     }
+}
+
+// The fixtures lay out `hf-hub`'s symlinked cache, which needs Unix symlinks.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
 
     fn entry() -> &'static CatalogEntry {
         &CATALOG[0]

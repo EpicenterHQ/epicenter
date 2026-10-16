@@ -5,8 +5,8 @@
  * The host owns it; Home is the window that administers it (ADR-0180): which
  * model is active, downloading model files, and when the host drops the
  * resident model. Model files live in the shared Hugging Face cache, which
- * other tools use too, so Epicenter never deletes them; Home shows where a
- * file lives instead. Applications ask for transcription and never for a
+ * other tools use too, so Epicenter never deletes them; Home shows a
+ * model's folder instead. Applications ask for transcription and never for a
  * model, so this store is the only place in the product where a model is chosen.
  *
  * Three kinds of truth, deliberately kept apart:
@@ -227,7 +227,7 @@ function createLocalModels() {
 			await commands.cancelDownload(transfer.id);
 		},
 
-		/** Show a downloaded model's file in the system file manager. */
+		/** Show a downloaded model's folder in the system file manager. */
 		async reveal(model: ModelInfo) {
 			const { error: commandError } = await commands.revealModel(model.id);
 			error = commandError?.message ?? null;

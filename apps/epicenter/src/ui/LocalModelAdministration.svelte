@@ -62,8 +62,8 @@
 			Epicenter runs every local transcription on one active model. Apps choose
 			whether to transcribe locally; this is where you choose what they run on.
 			Models live in your shared Hugging Face cache and stay on this device.
-			Epicenter never deletes them; to free space, remove them with Hugging
-			Face's cache tools.
+			Epicenter never deletes them; to free space, show a model's folder and
+			delete it.
 		</Card.Description>
 	</Card.Header>
 	<Card.Content class="space-y-3">
@@ -174,7 +174,7 @@
 								variant="ghost"
 								onclick={() => localModels.reveal(model)}
 							>
-								Show file
+								Show folder
 							</Button>
 						{:else}
 							<Button size="sm" onclick={() => localModels.download(model)}>
