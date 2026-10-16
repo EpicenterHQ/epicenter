@@ -332,7 +332,10 @@ declaration that requires one is read as written.
 - A Sync interrupted partway leaves files of both versions, which the next
   commit finishes publishing before it records anything. The next Sync then
   ends where an uninterrupted one would have, here and on the remote, even
-  when another device changed the same units again in between. Until then
+  when another device changed the same units again in between. Finishing
+  writes by bytes, so text that arrived before the cut and that the person
+  edited after it comes back beside their edit, as two insertions at one
+  place. Until then
   a commit that cannot finish the publish, for a file in its way, is
   refused, naming the file.
 - A save waits only while Sync checks and writes one file: the merge is
