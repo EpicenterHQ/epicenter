@@ -57,6 +57,7 @@ Keychain (this machine only)                    written and read only by the epi
 ```
 
 `connections` is a table of `epicenterDefinition`
+<!-- doc-path-check: ignore-next-line -->
 (`apps/epicenter/src/folders/epicenter-folder.ts:30`), beside `apps`. Pages
 write rows through the folder engine, so each connection is its own file,
 versioned, and synced when `so.epicenter` is connected.

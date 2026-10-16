@@ -22,7 +22,7 @@ use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_K
 use tauri::utils::acl::ExecutionContext;
 use tauri::webview::InvokeRequest;
 use tauri::{App, Manager, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig};
+use tauri_plugin_epicenter_folder::{FolderConfig, FolderExt, ScopeConfig};
 
 use crate::{init, Recorders, COMMANDS};
 
@@ -104,13 +104,7 @@ fn fixture() -> Fixture {
     app.folders()
         .register(ScopeConfig {
             scope: "notes".to_string(),
-            folder: FolderConfig::new(
-                &root,
-                Author {
-                    name: "Test Author".to_string(),
-                    email: "test@example.com".to_string(),
-                },
-            ),
+            folder: FolderConfig::new(&root),
             windows: vec!["main".to_string()],
         })
         .unwrap();

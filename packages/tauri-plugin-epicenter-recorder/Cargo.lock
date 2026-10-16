@@ -760,7 +760,6 @@ name = "epicenter-folder-core"
 version = "0.0.1"
 dependencies = [
  "dunce",
- "libc",
  "rusqlite",
  "serde",
  "sha2",
