@@ -479,7 +479,7 @@ export function createHistory({
 			parent === undefined && included.size === 0
 				? undefined
 				: await backend.withObjects(async (access) => {
-						const tree = await writeFilesTree(access, included);
+						const tree = await writeFilesTree(access, included, committed);
 						const parentTree =
 							parent === undefined
 								? EMPTY_TREE
