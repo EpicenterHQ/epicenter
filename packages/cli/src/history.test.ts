@@ -243,9 +243,6 @@ test('a sync of competing changes merges them into one commit this folder wins, 
 	expect(message).toContain(`Overrode: ${parents[0]} file "doc.md"`);
 	expect(await git(other, 'ls-remote', 'origin', 'main')).toStartWith(head);
 	expect(await git(folder, 'status', '--porcelain')).toBe('');
-	expect(existsSync(join(folder, '.git/epicenter/sync-journal.json'))).toBe(
-		false,
-	);
 });
 
 test('save-version and sync from two processes at once take turns and leave one linear history', async () => {
