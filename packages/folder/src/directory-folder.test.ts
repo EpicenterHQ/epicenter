@@ -351,7 +351,7 @@ describe('a folder over an ordinary directory', () => {
 		const saved = expectOk(
 			await folder.tables.todos.save(created, created.row),
 		);
-		expect(saved).toMatchObject({ merged: true, replaced: [] });
+		expect(saved.merged).toBe(true);
 		expect(await readFile(path, 'utf8')).toBe(
 			'---\ntitle: Mine, edited\ndone: true\n---\n',
 		);
@@ -391,9 +391,7 @@ describe('a folder over an ordinary directory', () => {
 		const saved = expectOk(
 			await folder.tables.todos.save(created, created.row),
 		);
-		expect(saved.replaced).toEqual([
-			{ kind: 'field', field: 'title', kept: 'Mine, edited', theirs: 'Theirs' },
-		]);
+		expect(saved.merged).toBe(true);
 		expect(await readFile(path, 'utf8')).toContain('title: Mine, edited');
 
 		const note = join(root, 'todos/a.md');
@@ -412,13 +410,11 @@ describe('a folder over an ordinary directory', () => {
 		});
 		expect(await readFile(note, 'utf8')).toBe('theirs again\n');
 
-		// A save merges with whatever is there, and names what it replaced.
+		// A save merges with whatever is there, and wins the lines both changed.
 		const again = expectOk(await folder.files.read('todos/a.md'));
 		overtaken.set(note, 'theirs once more\n');
 		const mine = expectOk(await folder.files.save(again, 'mine\n'));
-		expect(mine.replaced).toMatchObject([
-			{ kind: 'text', kept: 'mine\n', theirs: 'theirs once more\n' },
-		]);
+		expect(mine.merged).toBe(true);
 		expect(await readFile(note, 'utf8')).toBe('mine\n');
 		expect(await readdir(join(root, SCRATCH_DIRECTORY))).toEqual([]);
 		await folder.close();

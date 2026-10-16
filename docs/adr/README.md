@@ -796,3 +796,7 @@ When you add an ADR, add its row here.
 | [0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) | The installed apps are the clones in Apps/, not rows in so.epicenter | Accepted (amends 0539 and 0552) |
 | [0570](0570-every-installed-apps-window-gets-the-same-grant.md) | Every installed app's window gets the same grant | Accepted (amends 0555, 0561, and 0564) |
 | [0571](0571-on-desktop-rust-owns-the-microphone-and-the-page-never-opens-one.md) | On desktop, Rust owns the microphone and the page never opens one | Proposed (amends 0561) |
+| [0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md) | A row body is read and written with line feeds and storable text | Proposed |
+| [0573](0573-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Proposed |
+| [0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Proposed |
+| [0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) | A control binds one part of a row: fields are patched and the body is opened | Proposed |

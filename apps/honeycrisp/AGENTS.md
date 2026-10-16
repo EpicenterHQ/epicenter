@@ -39,15 +39,21 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   folder, pin, list actions, and folder names set their fields through the
   folder's update options and keep every field another writer changed. The
   open note holds a title typed in its own `$state` until it is sent.
-- A note's body, from rich text or Source, is a body draft
-  (`createBodyDraftState` from `@epicenter/folder/svelte`), one per note in
-  the store. It takes the row and its version at the first change, keeps the
-  body outside the cache, and saves a second after the last change, or at
-  once when the view leaves it; `table.save` merges by line with a file
-  changed elsewhere since. A read never replaces a draft. A failed save keeps
+- A note's body, from rich text or Source, is opened with a body editor
+  (`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0575), one per
+  note in the store. It takes the row and its version at the first change,
+  keeps the body outside the cache, and saves the body alone a second after
+  the last change, or at once when the view leaves it; `table.setBody`
+  merges by line with a file changed elsewhere since. A read never replaces a draft. A failed save keeps
   the draft and reports it through `onWriteFailed`. While a file is open as
   text, its text is a draft of its own, written whole over the version it
   started from, and row edits of it are refused.
+- A save moves no timestamp (ADR-0573). Do not add a last-edited field or
+  write `updatedAt`; the list orders and groups notes by `createdAt`.
+- Row editors pass the text typed as it is (ADR-0572): the folder reads a
+  body with line feeds and writes a lone surrogate as U+FFFD. Do not convert
+  line endings or call `wellFormed` on a title or body. `FileView` edits a
+  file's exact text through `files`, so it keeps `withFileNewlines`.
 - Nothing goes stale on its own (`staleTime: Infinity`) and focus never
   refetches. The tests in `notes.test.ts` that hold a save while a read
   lands, and that save while another tab changed the file, guard the
@@ -77,11 +83,11 @@ shell, and the folder plugin fit together, and verify it against the code. The c
   cannot spell yet. Its document is never a third copy of the body.
 - Every ProseMirror transaction that changes the document goes through
   `stateAfter`: reconciliation with the body shown now (the draft's, or the
-  cache's), checked Markdown serialization, then `NoteBody.edit` with the
-  body made `wellFormed`, before it is shown. An edit that is refused is not
-  shown.
-  Do not refuse an edit only because a file cannot hold it (a lone
-  surrogate): sanitize it, or ProseMirror and the body shown diverge.
+  cache's), checked Markdown serialization, then `NoteBody.edit`, before it
+  is shown. An edit that is refused is not shown. The same transaction
+  replaces a lone surrogate with U+FFFD, as the file will store it; do not
+  drop that step, or the save landing restarts the state and its undo
+  history.
 - `stateShowing` follows the body shown by content: the same content keeps
   the state; different content (Source, a version, another writer's change)
   replaces it.

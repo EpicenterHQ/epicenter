@@ -32,7 +32,7 @@
 		};
 	}
 
-	const updated = (note: NoteEntry) => note.row.fields.updatedAt;
+	const created = (note: NoteEntry) => note.row.fields.createdAt;
 	const isDeleted = (note: NoteEntry) => typeof note.row.fields.deletedAt === 'string';
 	const isPinned = (note: NoteEntry) => note.row.fields.pinned;
 
@@ -47,7 +47,7 @@
 				if (needle === '') return true;
 				return `${fields.title}\n${note.row.body}`.toLowerCase().includes(needle);
 			})
-			.toSorted((a, b) => updated(b).localeCompare(updated(a)));
+			.toSorted((a, b) => created(b).localeCompare(created(a)));
 	});
 
 	const heading = $derived.by(() => {
@@ -67,7 +67,7 @@
 		};
 		for (const note of visible.filter(isPinned)) push('Pinned', note);
 		for (const note of visible.filter((item) => !isPinned(item)))
-			push(getDateLabel(updated(note)), note);
+			push(getDateLabel(created(note)), note);
 		return result;
 	});
 
@@ -163,7 +163,7 @@
 									{#if saving}
 										saving
 									{:else}
-										{format(new Date(updated(note)), 'h:mm a')}
+										{format(new Date(created(note)), 'h:mm a')}
 									{/if}
 								</span>
 							</span>

@@ -10,13 +10,15 @@
  *
  * Key behaviors:
  * - Every displayed edit is in the note, including spaces, Enter, and
- *   Shift-Enter, and is saved with the whole note, its fields included
+ *   Shift-Enter, and saves the body alone: every field, and a key Honeycrisp
+ *   does not declare, stays as it was
  * - Moving the cursor or setting pending formatting writes nothing, and is
  *   shown even while the note takes no edit
  * - An edit Markdown cannot express, or made while the note takes no edit,
  *   is refused before it is displayed
- * - A lone surrogate a file cannot hold is saved as U+FFFD, and the screen
- *   shows what was saved
+ * - A lone surrogate becomes U+FFFD in the same transaction, as the file
+ *   stores it, so the screen shows what is saved
+ * - A body read from a CRLF file shows and saves with line feeds
  * - The same content keeps the state, its cursor, pending formatting, and
  *   undo history; different content replaces it; a body that is not rich
  *   text is never written over
@@ -44,7 +46,6 @@ import {
 } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { noteText, openNotesFolder } from '../folder.test-support.js';
-import { withBody } from '../note-source.js';
 import type { WriteFailure } from '../notes.svelte.js';
 import { createQueryClient, observe, quiet } from '../query.test-support.js';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
@@ -282,8 +283,12 @@ describe('every displayed edit is in the note', () => {
 		expect(view.shown()).toBe(state);
 	});
 
-	test('an edit saves the whole note once: the body, a new time, and every other field', async () => {
-		const { type, draft, settled, failures, folder } = await open('one\n');
+	test('an edit saves the body once, and every field stays as it was (ADR-0573)', async () => {
+		// An earlier Honeycrisp wrote `updatedAt`; it is now a key it does not declare.
+		const edited = '"updatedAt": "2026-10-01T00:00:00.000Z"';
+		const { type, draft, settled, failures, folder } = await open('one\n', {
+			text: noteText({ body: 'one\n', extra: `${edited}\n"owner": "sam"\n` }),
+		});
 		const before = JSON.parse(JSON.stringify(draft()));
 		type('x');
 		expect(draft().body).toBe('xone\n');
@@ -291,23 +296,30 @@ describe('every displayed edit is in the note', () => {
 		expect(failures).toEqual([]);
 		const row = draft();
 		expect(row.body).toBe('xone\n');
-		expect(row.fields.updatedAt).not.toBe(before.fields.updatedAt);
-		expect({ ...row.fields, updatedAt: undefined }).toEqual({
-			...before.fields,
-			updatedAt: undefined,
-		});
+		expect(row.fields).toEqual(before.fields);
 		const saved = folder.text('notes/a.md') ?? '';
 		expect(saved).toContain('xone');
-		// A key Honeycrisp does not declare is kept.
-		expect(saved).toContain('owner');
+		expect(saved).toMatch(/^"?updatedAt"?: "2026-10-01T00:00:00\.000Z"$/m);
+		expect(saved).toMatch(/^"?owner"?: "?sam"?$/m);
 	});
 
-	test('CRLF line endings and blank lines at the start of the body are kept', async () => {
+	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
-		const { type, end, body } = await open('', { text: crlf });
+		const { type, end, body, settled, failures, folder } = await open('', {
+			text: crlf,
+		});
+		expect(body()).toBe('\none\n\ntwo\n');
 		end();
 		type('!');
-		expect(body()).toBe('\r\none\r\n\r\ntwo!\r\n');
+		expect(body()).toBe('\none\n\ntwo!\n');
+		await settled();
+		expect(failures).toEqual([]);
+		const saved = folder.text(PATH) ?? '';
+		// The body after the closing `---` line has line feeds only.
+		const savedBody = saved.slice(
+			saved.indexOf('\n', saved.lastIndexOf('---')) + 1,
+		);
+		expect(savedBody).toBe('\none\n\ntwo!\n');
 	});
 
 	test('moving the cursor or setting pending formatting writes nothing', async () => {
@@ -374,7 +386,7 @@ describe('an edit that cannot be written', () => {
 		expect(dispatch(view.shown().tr.insertText('x', 1))).toBe(true);
 		// The next edit is its own undo step.
 		expect(dispatch(closeHistory(view.shown().tr))).toBe(true);
-		// Half of an emoji: Markdown can spell it, and a file cannot hold it.
+		// Half of an emoji: Markdown can spell it, and the file stores it as U+FFFD.
 		expect(dispatch(view.shown().tr.insertText('\uD800', 1))).toBe(true);
 		expect(body()).toBe('\uFFFDxBody.\n');
 		expect(view.shown().doc.textContent).toBe('\uFFFDxBody.');
@@ -561,10 +573,10 @@ describe('the editor follows the note', () => {
 		const tab = await folder.otherTab();
 		const theirs = await tab.tables.notes.get('a');
 		if (theirs.data == null) throw new Error('No note a');
-		await tab.tables.notes.save(
-			theirs.data,
-			withBody(theirs.data.row, 'theirs\n'),
-		);
+		await tab.tables.notes.save(theirs.data, {
+			...theirs.data.row,
+			body: 'theirs\n',
+		});
 		for (let tries = 0; body() !== 'theirs\n' && tries < 500; tries++)
 			await Bun.sleep(2);
 		await settled();

@@ -16,13 +16,13 @@
  *    bytes mean done.
  *
  * Every round merges from the edit's own base, never from the previous
- * attempt, so what a save reports it replaced is the last round's alone.
- * `{ merge: false }` stops at the first swap and answers `Conflict`.
+ * attempt. `{ merge: false }` stops at the first swap and answers `Conflict`.
  *
- * A save names what it replaced with the content, so "Restore theirs" works
- * when the other side's version exists nowhere else: `restoreTheirs` builds
- * the one more save, over the version the save wrote, that puts theirs back.
+ * Where both sides changed one unit, the saver wins (ADR-0575). Nothing is
+ * returned to show a person; each overwrite that lands is logged through
+ * `wellcrafted/logger` with the units it replaced.
  */
+import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
 import {
@@ -32,22 +32,19 @@ import {
 	hashBytes,
 	ownCapture,
 } from './capture.js';
-import type { FolderDefinition } from './definition.js';
 import { type FileSaveError, TableError } from './errors.js';
-import type { SettledRegion } from './git/merge-lines.js';
 import { kvRefusal } from './kv.js';
-import { formatKvMembers, readKvMembers } from './kv-merge.js';
+import { readKvMembers } from './kv-merge.js';
 import {
 	type FileContent,
 	type FileKind,
-	fileKindOf,
 	type MergeUnit,
 	mergeFile,
 } from './merge-file.js';
-import { type AnyRow, setField } from './row-merge.js';
-import { formatRow, parseRow, type Row } from './row-text.js';
+import { parseRow } from './row-text.js';
 import { replaceCaptured } from './storage.js';
-import type { SavedRow, StoredRow } from './table.js';
+
+const log = createLogger('folder/save');
 
 /**
  * How many times a write is redone when another writer saved the file between
@@ -67,50 +64,12 @@ export type SaveOptions = {
 	readonly merge?: boolean;
 };
 
-/**
- * One value of another writer's that a save replaced, because both changed
- * it, with what a person needs to put theirs back.
- *
- * - `field`, `setting`: both changed one row field or one `kv.json` key.
- *   `kept` is the value saved and `theirs` theirs; `undefined` on either
- *   side is no such field or key.
- * - `text`: both changed the same lines of a row's body or a text file.
- *   `kept` is the text saved; `theirs` is the same merge with theirs winning
- *   every competing region, so restoring it keeps the edit's other lines.
- *   `regions` name each competing span, standing in `kept` from its line.
- * - `whole`: the file was one unit, because a version is not text, and the
- *   save replaced all of `theirs`.
- */
-export type Replaced =
-	| {
-			readonly kind: 'field';
-			readonly field: string;
-			readonly kept: unknown;
-			readonly theirs: unknown;
-	  }
-	| {
-			readonly kind: 'setting';
-			readonly key: string;
-			readonly kept: unknown;
-			readonly theirs: unknown;
-	  }
-	| {
-			readonly kind: 'text';
-			readonly part: 'body' | 'file';
-			readonly kept: string;
-			readonly theirs: string;
-			readonly regions: readonly SettledRegion[];
-	  }
-	| { readonly kind: 'whole'; readonly theirs: CapturedFile | null };
-
 /** A file save that landed. */
 export type SavedFile = {
 	/** The capture of the bytes written, carrying them. */
 	readonly stored: CapturedFile;
 	/** Whether another writer changed the file, so the edit was merged with it. */
 	readonly merged: boolean;
-	/** What of theirs the edit replaced; empty when nothing competed. */
-	readonly replaced: readonly Replaced[];
 };
 
 /** What `saveFile` wrote. */
@@ -119,7 +78,6 @@ type Written = {
 	readonly sha256: string;
 	readonly bytes: Uint8Array;
 	readonly merged: boolean;
-	readonly replaced: readonly Replaced[];
 };
 
 const encoder = new TextEncoder();
@@ -128,36 +86,27 @@ const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 /** Every unit settles with the edit's side. */
 const OURS = { kind: 'take', side: 'ours' } as const;
 
-/** What a settled unit replaced of `theirs`, the file it was merged against. */
-function replacedOf(unit: MergeUnit, theirs: CapturedFile): Replaced {
+/** What a log line names of a unit the saver won. */
+function unitOf(unit: MergeUnit) {
 	switch (unit.kind) {
 		case 'setting':
-			return Object.freeze({
-				kind: 'setting',
-				key: unit.key,
-				kept: unit.ours,
-				theirs: unit.theirs,
-			});
+			return { kind: unit.kind, key: unit.key };
 		case 'field':
-			return Object.freeze({
-				kind: 'field',
-				field: unit.field,
-				kept: unit.ours,
-				theirs: unit.theirs,
-			});
+			return { kind: unit.kind, field: unit.field };
 		case 'text':
-			return Object.freeze({
-				kind: 'text',
-				part: unit.part,
-				kept: unit.ours,
-				theirs: unit.theirs,
-				regions: Object.freeze(
-					unit.regions.map((region) => Object.freeze(region)),
-				),
-			});
+			return { kind: unit.kind, part: unit.part, regions: unit.regions.length };
 		case 'whole':
-			return Object.freeze({ kind: 'whole', theirs });
+			return { kind: unit.kind };
 	}
+}
+
+/** Log that a save landed over another writer's change to `units`. */
+export function logOverwrite(path: string, units: readonly MergeUnit[]) {
+	if (units.length === 0) return;
+	log.info(`Saved over another writer's change to ${path}`, {
+		path,
+		units: units.map(unitOf),
+	});
 }
 
 /**
@@ -245,23 +194,24 @@ export async function saveFile(
 	const strictEdit = readsAs(kind, edit);
 	let expected = owned.sha256;
 	let attempt = edit;
-	let replaced: readonly Replaced[] = Object.freeze([]);
+	let overwrote: readonly MergeUnit[] = [];
 	for (let merges = 0; ; merges++) {
 		const { data: saved, error: saveError } = await replaceCaptured(
 			storage,
 			fileCapture(path, expected),
 			attempt,
 		);
-		if (saveError === null)
+		if (saveError === null) {
+			logOverwrite(path, overwrote);
 			return Ok(
 				Object.freeze({
 					path,
 					sha256: saved.sha256,
 					bytes: attempt,
 					merged: merges > 0,
-					replaced,
 				}),
 			);
+		}
 		if (saveError.name !== 'Conflict' || !merge) return Err(saveError);
 		if (merges === WRITE_ATTEMPTS)
 			return TableError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
@@ -283,13 +233,7 @@ export async function saveFile(
 		const bytes = toBytes(content as FileContent);
 		if (strictEdit && kind.kind !== 'file' && !readsAs(kind, bytes))
 			return Err(unreadable(kind, path, current, bytes));
-		const theirs: CapturedFile = Object.freeze({
-			...fileCapture(path, current.sha256),
-			bytes: current.bytes,
-		});
-		replaced = Object.freeze(
-			merged.units.map((unit) => replacedOf(unit, theirs)),
-		);
+		overwrote = merged.units;
 		attempt = bytes;
 		expected = current.sha256;
 	}
@@ -297,89 +241,3 @@ export async function saveFile(
 
 const toBytes = (content: FileContent) =>
 	typeof content === 'string' ? encoder.encode(content) : content;
-
-/** The text of a capture's content. */
-function textOf(file: ContentCapture): string {
-	return 'text' in file ? file.text : strict.decode(file.bytes);
-}
-
-/** `row` with each replaced field and its body set back to theirs. */
-function withTheirFields(row: AnyRow, replaced: readonly Replaced[]): AnyRow {
-	const fields = { ...row.fields };
-	let { body } = row;
-	for (const item of replaced) {
-		if (item.kind === 'text' && item.part === 'body') body = item.theirs;
-		if (item.kind === 'field') setField(fields, item.field, item.theirs);
-	}
-	return { fields, body };
-}
-
-/**
- * The one save that puts back what `saved` replaced of theirs, over the
- * version it wrote: their value in each field or setting, their side of
- * each text unit (the same merge with theirs winning where both changed the
- * same lines), or their whole file. Pass it to the save that wrote `saved`.
- *
- * A file saved through `files.save` at a row path or `kv.json` is restored
- * by field or key, which needs the folder's definition.
- */
-export function restoreTheirs<TFields>(saved: SavedRow<TFields>): {
-	readonly base: StoredRow<TFields>;
-	readonly row: Row<TFields>;
-};
-export function restoreTheirs(
-	saved: SavedFile,
-	definition?: FolderDefinition,
-): { readonly base: CapturedFile; readonly content: FileContent };
-export function restoreTheirs(
-	saved: SavedFile | SavedRow<Record<string, unknown>>,
-	definition?: FolderDefinition,
-):
-	| { readonly base: CapturedFile; readonly content: FileContent }
-	| {
-			readonly base: StoredRow<Record<string, unknown>>;
-			readonly row: AnyRow;
-	  } {
-	const { stored, replaced } = saved;
-	if ('row' in stored)
-		return { base: stored, row: withTheirFields(stored.row, replaced) };
-	const file = stored as CapturedFile;
-	const whole = replaced.find((item) => item.kind === 'whole');
-	if (whole !== undefined) {
-		if (whole.theirs === null)
-			throw new Error('A save never replaces a file that is not there');
-		return { base: file, content: whole.theirs.bytes };
-	}
-	const text = replaced.find(
-		(item) => item.kind === 'text' && item.part === 'file',
-	);
-	if (text?.kind === 'text') return { base: file, content: text.theirs };
-	const kind = fileKindOf(definition, file.path);
-	const current = textOf(file);
-	if (kind.kind === 'kv') {
-		const members = new Map(readKvMembers(current));
-		for (const item of replaced) {
-			if (item.kind !== 'setting') continue;
-			if (item.theirs === undefined) members.delete(item.key);
-			else members.set(item.key, JSON.stringify(item.theirs));
-		}
-		return { base: file, content: formatKvMembers(members) };
-	}
-	if (kind.kind === 'row') {
-		const { data: row, error } = parseRow(kind.table, current);
-		if (error === null) {
-			const restored = formatRow(
-				kind.table,
-				withTheirFields(row as AnyRow, replaced) as Parameters<
-					typeof formatRow
-				>[1],
-			);
-			if (restored.error === null)
-				return { base: file, content: restored.data };
-		}
-	}
-	if (replaced.length === 0) return { base: file, content: file.bytes };
-	throw new Error(
-		`Restoring ${file.path} by field or key needs the folder's definition`,
-	);
-}

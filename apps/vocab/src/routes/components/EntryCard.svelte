@@ -11,7 +11,6 @@
 	import { Label } from '@epicenter/ui/label';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { cn } from '@epicenter/ui/utils';
-	import { wellFormed } from '@epicenter/folder';
 	import { createMutation } from '@tanstack/svelte-query';
 	import { useDebounce } from 'runed';
 	import { onDestroy } from 'svelte';
@@ -73,7 +72,7 @@
 		bind:value={
 			() => note ?? entry.note,
 			(typed) => {
-				note = wellFormed(typed);
+				note = typed;
 				void sendNoteLater();
 			}
 		}

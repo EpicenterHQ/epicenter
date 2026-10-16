@@ -74,15 +74,20 @@ and settings stay intact, and opening records no commit. The definition file
 supports discovery and does not configure Honeycrisp.
 
 A note's file stem is its identity. Its frontmatter holds `title`, `folderId`,
-`pinned`, `createdAt`, `updatedAt`, and `deletedAt`; its body is the note.
+`pinned`, `createdAt`, and `deletedAt`; its body is the note. The note list
+shows the newest notes first, by `createdAt`, grouped under labels such as
+"Today" and "Yesterday". Honeycrisp keeps no last-edited time in a note
+(ADR-0573); when a file last changed is the file system's and Git's to say.
 Folders are logical: a note belongs to one through `folderId`, so moving a note
 between folders changes one field and never moves or renames its file.
 
-Saving a note writes its frontmatter as plain YAML: its declared fields
-first, then any keys Honeycrisp does not know, which are kept. Comments and
-custom quoting in the frontmatter are not kept, so the first save of a file
-written by hand rewrites its frontmatter. The body is kept exactly. Opening or
-listing a note writes nothing. To change a key Honeycrisp does not show, use
+Editing a note's text replaces only its body (`table.setBody`, ADR-0575):
+the frontmatter stays byte for byte as written. The body is read and written
+with line feeds, so a body written with CRLF line endings gets line feeds on
+its next save (ADR-0572). Changing a field (its title, folder, or pin) writes
+the frontmatter as plain YAML: its declared fields first, then any keys
+Honeycrisp does not know, which are kept; comments and custom quoting are
+not. Opening or listing a note writes nothing. To change a key Honeycrisp does not show, use
 **Edit as file**: it saves exactly what you type.
 
 An action from the note list or the folder list (pin, move to a folder, move to
@@ -158,8 +163,10 @@ dividers, and line breaks. There is no underline and there are no images.
   block, and bold, italic, or strikethrough on a space by itself. An empty
   paragraph from Enter shows at once and saves nothing until you type in it.
 - **Text a file cannot hold is saved as the replacement character.** Half of
-  an emoji (a lone surrogate) typed in the title, rich text, Source, or a
-  file's text becomes U+FFFD as you type, so what saves is what you see.
+  an emoji (a lone surrogate) typed in the rich text or a file's text
+  becomes U+FFFD as you type. Typed in the title or Source, it shows until
+  its save lands and then shows as U+FFFD, as the folder writes it
+  (ADR-0572).
 - Spaces at the start or end of a line are kept. In Source they appear as
   `&#32;` (and a tab as `&#9;`), since Markdown would drop them otherwise.
 - Inline code is literal: it can be a link, but not bold, italic, or struck.
@@ -184,13 +191,13 @@ shows directly.
 | What happened | What Honeycrisp does |
 | --- | --- |
 | Another program or window changed a file | The lists and the open note show the new version. If you were not typing, the rich-text view starts over on the new text, so its undo history restarts. |
-| Another program changed the file while you were typing | What you typed stays on screen, and a read never replaces it. A title or other field you set wins that field and keeps every field they changed. The note's text holds the version it started from, and its save merges with their change by line (ADR-0548): what only they changed stays, and where you both changed the same lines, yours win. A message says what of theirs your text replaced, with **Restore theirs**. |
+| Another program changed the file while you were typing | What you typed stays on screen, and a read never replaces it. A title or other field you set wins that field and keeps every field they changed. The note's text holds the version it started from, and its save merges with their change by line (ADR-0548): what only they changed stays, and where you both changed the same lines, yours win, with no message (ADR-0575). |
 | Another program deleted the file, and you edit it | The save is refused, and the note leaves the list. A message offers **Copy your text**, which copies the note's text as you had it. |
 | You typed while a save was running | The newer typing saves next, on top of the save before it. |
 | A save failed, for example on a full disk | What you typed stays on screen, the note shows **Not saved**, and the message offers the note's text to copy. It saves again with your next change, or with **Save again**. |
 | A save got no reply | The same as a failed save: the message says the save may or may not have happened, and the next save merges with whatever the file holds. |
 | A value is not valid for a note | Inputs only change notes to valid values. A value the folder still refuses is reported the same way. |
-| You typed in a file open as text, and it changed elsewhere | The save merges by line (ADR-0551): what only they changed stays, and where you both changed the same lines, yours win. A message says what of theirs your edit replaced, with **Restore theirs**. |
+| You typed in a file open as text, and it changed elsewhere | The save merges by line (ADR-0551): what only they changed stays, and where you both changed the same lines, yours win, with no message (ADR-0575). |
 | You rename or delete the open item | Its saves finish first, and the rename or delete acts on what it saved last. Typing is paused while a rename or delete runs. A file changed elsewhere since is refused. |
 
 What a failed save held stays on screen until it saves; what a failed text
@@ -289,12 +296,12 @@ exactly the queries it names stale; the query client's focus refetch is off.
 
 A field edit of a note or folder is `tables.<name>.update`, which sets the
 fields on the file as it is now (ADR-0554); `NoteDetail` holds a typed title in
-its own state until it is sent. A note's body is a body draft
-(`createBodyDraftState` from `@epicenter/folder/svelte`), one per note in the
-store, shared by rich text and Source: it captures the cached row and its
-version at the first change, keeps the body outside the cache, and saves with
-`tables.notes.save` a second after the last change or when the view leaves
-it, merging with whatever changed since. A text edit is a text draft
+its own state until it is sent. A note's body is opened with a body editor
+(`createBodyEditor` from `@epicenter/folder/svelte`, ADR-0575), one per note
+in the store, shared by rich text and Source: it captures the cached row and
+its version at the first change, keeps the body outside the cache, and saves
+the body alone with `tables.notes.setBody` a second after the last change or when
+the view leaves it, merging with whatever changed since. A text edit is a text draft
 (`createTextDraftState`) saved the same way with `files.save`. Writes to one
 file run one at a time, and each puts its result in the cache. A new note
 or folder is `tables.<name>.create`; a new file is `files.create`; rename and
@@ -381,7 +388,7 @@ view and delivers events to it.
 | `src/lib/editor/schema.ts` | The bounded ProseMirror schema. |
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`, which decodes and encodes a note's whole body. |
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's body draft before it is shown, and semantic state replacement when the note's body changes. `EditorView.state` owns the cursor, pending formatting, and undo history. |
-| `src/lib/note-source.ts` | The body replacement Rich and Source share (`withBody`), and list previews. |
+| `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/lib/notes.svelte.ts` | The query cache and its change wiring, the updates fields are set with, the body and text drafts and their saves, note, folder, and file actions, Save version, what the detail shows, and the fence that stops input once the notes close. |
 | `src/lib/platform/` | The `#platform/folder` seam and its two leaves: `folder.epicenter-host.ts`, the folder Epicenter hands the window, and `folder.browser.ts`, the OPFS folder. |
 | `src/lib/platform/first-open.ts` | Setting up Honeycrisp's own folder when it has no layout yet, through the granted folder. |
@@ -402,6 +409,12 @@ since deleted; its terminal, reveal, and per-note history no longer exist.
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises
+
+The note list orders notes by when they were created, not when they were last
+edited, and a save no longer moves an `updatedAt` field (ADR-0573); a file
+that has one keeps it as a key Honeycrisp does not know. A note's body is
+written with line feeds, so the first save of a file with CRLF line endings
+changes every line once (ADR-0572).
 
 Honeycrisp is now an app installed in Epicenter (ADR-0552), and its
 standalone desktop app is deleted. It drops these promises of the standalone
@@ -425,9 +438,8 @@ app:
 
 This version saves a field as a change to the file as it is now
 (ADR-0554). A title and the note's text are saved a second after you stop
-typing, not at every keystroke; a field never names another writer's value
-it replaced, since it sets only what you changed; and a list action no longer
-shows in the open note before it is saved.
+typing, not at every keystroke; a field sets only what you changed; and a
+list action no longer shows in the open note before it is saved.
 
 Before that, this version reads through the query cache, follows the folder's change
 reports, and holds each edit in a draft that merges on save (ADR-0548). It
@@ -439,7 +451,7 @@ versions before it:
   saved** until it saves again, instead of putting the note back to the file.
 - There is no review with **Apply**. A save that meets a change made
   elsewhere merges with it, and your edit wins where you both changed the
-  same field or lines; a message names what of theirs it replaced.
+  same field or lines, with no message (ADR-0575).
 - A note deleted elsewhere is no longer offered back. Your next edit to it is
   refused, and it leaves the list.
 - Closing and quitting never ask and never wait. They quit at once; a save

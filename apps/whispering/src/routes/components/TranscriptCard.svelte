@@ -4,14 +4,12 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
-	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { wellFormed } from '@epicenter/folder';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { TRANSCRIPTIONS } from '$lib/definition.js';
 	import type { Library, TranscriptionEntry } from '$lib/library.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
-	import { confirmDelete, copyText, formatTime, lf, openItem } from './file-actions.js';
+	import { confirmDelete, copyText, formatTime, openItem } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ResultStatus from './ResultStatus.svelte';
 	import { onDestroy } from 'svelte';
@@ -67,9 +65,8 @@
 		<Textarea
 			class="min-h-32 resize-y font-sans"
 			bind:value={
-				() => lf(row?.body ?? ''),
-				(value) =>
-					library.editBody(TRANSCRIPTIONS, result.stem, withFileNewlines(wellFormed(value), row?.body ?? ''))
+				() => row?.body ?? '',
+				(value) => library.editBody(TRANSCRIPTIONS, result.stem, value)
 			}
 			onblur={() => void library.saveBody(result.path)}
 			disabled={locked}

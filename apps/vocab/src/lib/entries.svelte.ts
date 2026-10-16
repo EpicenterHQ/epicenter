@@ -16,9 +16,9 @@
  * A word file that is not a valid word is repaired as its exact text, read
  * as its own query and written the same way: a text draft over the version
  * read, saved after a pause in typing, one write at a time, and merged with
- * a change made elsewhere (ADR-0551). A save that replaced another writer's change names it, with
- * a way to put theirs back. Adding and deleting a word are mutations too, so
- * closing waits for them.
+ * a change made elsewhere (ADR-0551). Where both changed the same lines,
+ * the save wins, with no notice (ADR-0575). Adding and deleting a word are
+ * mutations too, so closing waits for them.
  *
  * A new word's file is named by the SHA-256 of its exact text, and creation
  * is exclusive, so two adds of one text reach the same file.
@@ -29,7 +29,6 @@ import {
 	type FileCapture,
 	type FileError,
 	hashBytes,
-	type Replaced,
 	rowPath,
 	type StoredRow,
 	type TableError,
@@ -88,16 +87,6 @@ export type EntryError = InferErrors<typeof EntryError>;
 /** Every word file, as the table lists it: a word, or why it is not one. */
 export type EntryListing = TableListing<EntryFields>;
 
-/**
- * A save that replaced a value another writer changed: the word's path,
- * what it replaced, and the one more save that puts theirs back.
- */
-export type ReplacedNotice = {
-	readonly path: string;
-	readonly replaced: readonly Replaced[];
-	readonly restore: () => void;
-};
-
 /** The directory, and table, that holds the words. */
 const ENTRIES = 'entries';
 
@@ -137,20 +126,17 @@ export function repairsOf(listing: EntryListing): UnreadableFile[] {
 }
 
 export function createEntries(
-	folder: Pick<VocabFolder, 'tables' | 'files' | 'definition'>,
+	folder: Pick<VocabFolder, 'tables' | 'files'>,
 	folder$: Pick<VocabOptions, 'entries' | 'files' | 'pathFilter'>,
 	queryClient: QueryClient,
 	{
 		refused,
 		onWriteFailed,
-		onReplaced,
 	}: {
 		/** Why no change starts now, if one does not. */
 		refused: () => string | undefined;
 		/** A write failed; the app tells the learner. */
 		onWriteFailed: (failure: WriteFailure) => void;
-		/** A save replaced a value changed elsewhere; the app tells the learner. */
-		onReplaced: (notice: ReplacedNotice) => void;
 	},
 ) {
 	const table = folder.tables.entries;
@@ -200,13 +186,6 @@ export function createEntries(
 				(mutation.state.variables as { stem?: string } | undefined)?.stem ===
 				id,
 		});
-
-	/** What a save of `path` replaced, named with the save that restores it. */
-	const tell =
-		(path: string) =>
-		({ replaced }: { replaced: readonly Replaced[] }, restore: () => void) => {
-			if (replaced.length > 0) onReplaced({ path, replaced, restore });
-		};
 
 	/** Save repair text of `path`: one run of the files' write mutation. */
 	function writeText(path: string, sent: SaveTextVariables) {
@@ -272,6 +251,8 @@ export function createEntries(
 		> => {
 			const why = refused();
 			if (why !== undefined) return EntryError.NotStarted({ reason: why });
+			// Well formed as the folder stores it, so a word read back compares
+			// equal to the text it was added with.
 			const exact = wellFormed(text.trim());
 			if (exact === '') return EntryError.Empty();
 			// A word under another name, such as one written outside Vocab, is
@@ -360,8 +341,8 @@ export function createEntries(
 			const { data, error } = await addWord(text);
 			return error === null ? Ok(data.outcome) : Err(error);
 		},
-		/** Send the note of the word at `id`, kept well formed, so what is shown is what is saved. */
-		setNote: (id: string, note: string) => set(id, { note: wellFormed(note) }),
+		/** Send the note of the word at `id`. */
+		setNote: (id: string, note: string) => set(id, { note }),
 		/** Press a stage of the word at `id`; it is sent at once. */
 		setStage: (id: string, stage: EntryFields['stage']) => set(id, { stage }),
 		/**
@@ -410,8 +391,6 @@ export function createEntries(
 				path,
 				draft: createTextDraftState({
 					save: (sent) => writeText(path, sent),
-					onSaved: tell(path),
-					definition: folder.definition,
 				}),
 			};
 		},

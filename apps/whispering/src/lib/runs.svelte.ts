@@ -110,8 +110,6 @@ const STILL_RECORDING =
 	'This recording is still recording. Stop it, then transcribe it.';
 const NO_AUDIO =
 	'This recording’s file names no audio, so there is nothing to transcribe. Add the audio file’s path in Source.';
-/** How many times a fill reads the row again after another writer changed it. */
-const FILL_READS = 3;
 /** The first wait before an answer is written again, doubled each time up to the last. */
 const RETRY_FIRST_MS = 500;
 const RETRY_LAST_MS = 30_000;
@@ -229,27 +227,25 @@ export function createRuns({
 	 * Fill the row's empty body, and only an empty one. A row that is gone or
 	 * already has a body is left as it is.
 	 *
-	 * The save does not merge (`{ merge: false }`): when another writer filled
-	 * the body meanwhile, both changed the body and a merging save's edit
-	 * would win. A file changed since it was read refuses the save; it is
-	 * read again, and filled only while its body is still empty.
+	 * The body is written with `table.setBody` (ADR-0575) and
+	 * `{ ifUnchanged: true }`, so it lands only while the body is still
+	 * empty. A body another writer filled between the read and the write is a
+	 * `Conflict`, and a row deleted meanwhile is `NotFound`: either stops the
+	 * fill, and their fill or deletion stands.
 	 */
 	async function fill(target: Target, body: string) {
 		const table = tableOf(target.table);
 		try {
-			for (let reads = 0; reads < FILL_READS; reads++) {
-				const { data: stored, error } = await table.get(target.stem);
-				if (error !== null) return describeError(error);
-				if (stored === undefined || stored.row.body !== '') return undefined;
-				const { error: saveError } = await table.save(
-					stored,
-					{ fields: stored.row.fields, body },
-					{ merge: false },
-				);
-				if (saveError === null) return undefined;
-				if (saveError.name !== 'Conflict') return describeError(saveError);
-			}
-			return 'The file kept changing while its answer was written.';
+			const { data: stored, error } = await table.get(target.stem);
+			if (error !== null) return describeError(error);
+			if (stored === undefined || stored.row.body !== '') return undefined;
+			const { error: bodyError } = await table.setBody(stored, body, {
+				ifUnchanged: true,
+			});
+			if (bodyError === null) return undefined;
+			return bodyError.name === 'Conflict' || bodyError.name === 'NotFound'
+				? undefined
+				: describeError(bodyError);
 		} catch (cause) {
 			return describe(cause);
 		}

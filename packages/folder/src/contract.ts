@@ -55,6 +55,7 @@ export {
 	type TableReadError,
 	type TableRenameError,
 	type TableSaveError,
+	type TableSetBodyError,
 	type TableUpdateError,
 	type TableWriteError,
 } from './errors.js';
@@ -152,8 +153,6 @@ export {
 	wellFormed,
 } from './row-text.js';
 export {
-	type Replaced,
-	restoreTheirs,
 	type SavedFile,
 	type SaveOptions,
 	WRITE_ATTEMPTS,
@@ -162,6 +161,7 @@ export type {
 	FileTable,
 	RowUpdate,
 	SavedRow,
+	SetBodyOptions,
 	StoredRow,
 	TableListing,
 } from './table.js';

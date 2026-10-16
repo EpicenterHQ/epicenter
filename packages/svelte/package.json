@@ -18,8 +18,7 @@
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte",
 		"./sync-line": "./src/sync-line.ts",
-		"./sync-review": "./src/sync-review.svelte",
-		"./replaced-notice": "./src/replaced-notice.svelte"
+		"./sync-review": "./src/sync-review.svelte"
 	},
 	"dependencies": {
 		"@epicenter/agent": "workspace:*",

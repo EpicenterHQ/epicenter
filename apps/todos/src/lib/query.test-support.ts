@@ -36,14 +36,14 @@ export function rowEditor(todos: Todos, stem: string) {
 }
 
 /**
- * What the detail's notes do once a pause in typing sends them: save `body`
- * over the row the cache holds, through the notes' save mutation.
+ * What the detail's notes do once a pause in typing sends them: replace the
+ * body of the row the cache holds with `body`, through the notes' mutation.
  */
 export function notesEditor(todos: Todos, stem: string) {
 	const save = new MutationObserver(todos.queryClient, todos.rows.saveNotes);
 	return (body: string) => {
 		const base = cached(todos, stem);
-		return save.mutate({ base, row: { fields: base.row.fields, body } }).then(
+		return save.mutate({ base, text: body }).then(
 			() => undefined,
 			() => undefined,
 		);

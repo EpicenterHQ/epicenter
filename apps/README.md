@@ -55,6 +55,33 @@ over plain Git with a token to the server the app was built for, or any Git
 remote on the desktop
 ([ADR-0521](../docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)).
 
+## Provide the folder, then read it through context
+
+The root page starts opening the folder when it mounts and waits with
+`{#await}`; loading and a refusal are screens. Once it is open,
+`FolderProvider` creates the page's `QueryClient`, provides
+`folderOptions(folder)` with `setFolder`, connects `invalidateOnChange` once,
+and closes the folder after its writes when the page goes away
+([ADR-0574](../docs/adr/0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md)).
+
+```svelte
+{#await opening}<Loading … />{:then opened}
+	{#if opened.error}<Empty …>{opened.error.message}</Empty>
+	{:else}<FolderProvider folder={opened.data}>{@render children()}</FolderProvider>{/if}
+{/await}
+```
+
+Every component reads and writes through `getFolder()`:
+
+```ts
+const folder = getFolder();
+const book = createQuery(() => folder.books.get.queryOptions(stem));
+const update = createMutation(() => folder.books.update.mutationOptions());
+```
+
+Input that is not yet committed is local `$state` bound with `bind:value`: a
+new-item box, a search, a field being typed.
+
 ## Product ownership
 
 Keep the inert declaration separate from opening. Mounted routes start it;

@@ -47,7 +47,7 @@ import {
 	openNotesFolder,
 	until,
 } from './folder.test-support.js';
-import type { Notes, ReplacedChange, WriteFailure } from './notes.svelte.js';
+import type { Notes, WriteFailure } from './notes.svelte.js';
 import {
 	cached,
 	createQueryClient,
@@ -72,10 +72,8 @@ async function open() {
 	await disk.write(A, noteText({ title: 'Alpha', body: 'One.\n' }));
 	await disk.write(B, noteText({ title: 'Beta', body: 'Two.\n' }));
 	const failures: WriteFailure[] = [];
-	const replaced: ReplacedChange[] = [];
 	const notes = createNotes(disk.folder, createQueryClient(), {
 		onWriteFailed: (failure) => failures.push(failure),
-		onReplaced: (change) => replaced.push(change),
 	});
 	cleanup.push(() => disk.close());
 	let closed = false;
@@ -89,7 +87,6 @@ async function open() {
 		notes,
 		disk,
 		failures,
-		replaced,
 		/** The test closes the notes itself. */
 		closing() {
 			closed = true;
@@ -211,7 +208,7 @@ test('a read that lands while a body is held does not replace it, and the save m
 	disk.release({ all: true });
 	await quiet(notes);
 	expect(failures).toEqual([]);
-	expect(disk.text(A)).toContain('title: Theirs');
+	expect(disk.text(A)).toMatch(/^"?title"?: "?Theirs"?$/m);
 	expect(disk.text(A)).toContain('Typed.\n');
 	expect(shown(notes, A)).toMatchObject({
 		fields: { title: 'Theirs' },
@@ -383,8 +380,8 @@ test('a note open as its file is a text edit, and the list shows it after the wr
 	expect(cached(notes, 'a').row.fields.title).toBe('By hand');
 });
 
-test('a text edit over a file changed elsewhere merges by line, names what it replaced, and restores theirs', async () => {
-	const { notes, disk, failures, replaced } = await open();
+test('a text edit over a file changed elsewhere merges by line, and the edit wins the lines both changed', async () => {
+	const { notes, disk, failures } = await open();
 	notes.open(A, 'text');
 	cleanup.push(observe(notes, A));
 	await quiet(notes);
@@ -392,7 +389,7 @@ test('a text edit over a file changed elsewhere merges by line, names what it re
 	disk.put(A, theirs);
 	expect(typeText(notes, A, 'Mine\n')).toBe(true);
 	await quiet(notes);
-	// Both changed the same lines: the edit's stand, and theirs are named.
+	// Both changed the same lines: the edit's stand.
 	expect(failures).toEqual([]);
 	expect(disk.text(A)).toBe('Mine\n');
 	expect(notes.typedText(A)).toBeUndefined();
@@ -401,18 +398,6 @@ test('a text edit over a file changed elsewhere merges by line, names what it re
 			notes.textQuery(A).queryKey,
 		)?.file.text;
 	expect(opened()).toBe('Mine\n');
-	expect(replaced).toMatchObject([
-		{
-			path: A,
-			replaced: [{ kind: 'text', part: 'file', kept: 'Mine\n', theirs }],
-		},
-	]);
-
-	replaced[0]?.restore();
-	await quiet(notes);
-	expect(failures).toEqual([]);
-	expect(disk.text(A)).toBe(theirs);
-	expect(opened()).toBe(theirs);
 });
 
 test('a note opened as its file while its save runs is read once the save lands', async () => {

@@ -422,11 +422,11 @@ Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
    goes out. A row that cannot be created refuses, and nothing is sent.
 2. The request goes out. While it is out the row shows as running.
 3. The answer is written into the row: the row is read again, and only an
-   empty body is filled, with `files.replace` guarded by the exact bytes read
-   empty. Not `table.save`, whose merge would let the answer win over a body
-   someone filled meanwhile: a file changed since is refused, read again, and
-   filled only while its body is still empty. A row that is gone was
-   discarded and a row that has a body was filled already; neither is
+   empty body is filled, with `table.setBody` and `{ ifUnchanged: true }`
+   (ADR-0575), which replaces the body on the file as it is now and keeps its
+   frontmatter. A body someone filled between the read and the write is a
+   `Conflict`, which stops the fill, so their fill stands. A row that is gone
+   was discarded and a row that has a body was filled already; neither is
    written. A write that
    fails is tried again after a wait that doubles from half a second to thirty
    seconds, for as long as the window is open.
@@ -515,8 +515,7 @@ text too; its fields open again once the text reads.
   the table's `save` mutation, over the version it started from, one at a
   time per file; text typed while one runs is sent next, from the version it
   wrote. A file changed since is merged by line in the engine: where both
-  changed the same lines the typing wins and the save names what it
-  replaced, which the shell shows as a toast.
+  changed the same lines the typing wins, with no notice (ADR-0575).
 - **Writes to one file** run one at a time, in the order made, whichever
   control made them.
 - **Text** edited as a whole file has no merge: its write is `files.replace`
@@ -530,8 +529,9 @@ text too; its fields open again once the text reads.
   `NotFound`, the draft is dropped and offered to copy, and the listing reads
   it gone.
 - **A value the schema refuses** is never written: the folder refuses it as
-  `InvalidValues`. Text typed into a field is kept well formed: a lone
-  surrogate becomes U+FFFD, as a file holds it.
+  `InvalidValues`. Text typed into a field or a body is sent as typed; the
+  folder writes a lone surrogate as U+FFFD, and a body reads and writes with
+  LF line endings (ADR-0572).
 - **A recording's lifecycle** writes in its file's queue: its row at start,
   its length at stop, saving a transcript, and saving a transformation result
   are mutations scoped by the recording's path, so they run in order.

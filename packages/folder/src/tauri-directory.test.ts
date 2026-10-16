@@ -438,12 +438,7 @@ test('a save another window overtakes where it publishes merges with what is the
 	overtaken.set(path, theirs);
 	created.row.fields.title = 'Mine, edited';
 	const saved = expectOk(await folder.tables.todos.save(created, created.row));
-	expect(saved).toMatchObject({
-		merged: true,
-		replaced: [
-			{ kind: 'field', field: 'title', kept: 'Mine, edited', theirs: 'Theirs' },
-		],
-	});
+	expect(saved.merged).toBe(true);
 	expect(await readFile(path, 'utf8')).toContain('title: Mine, edited');
 	// Each refused stream removed what it staged.
 	const scratchDirectory = join(root, '.git/epicenter/scratch');
@@ -466,10 +461,7 @@ test('a save another window overtakes where it publishes merges with what is the
 	const again = expectOk(await folder.files.read('notes/a.md'));
 	overtaken.set(note, 'theirs once more\n');
 	const mine = expectOk(await folder.files.save(again, 'mine\n'));
-	expect(mine).toMatchObject({
-		merged: true,
-		replaced: [{ kind: 'text', kept: 'mine\n', theirs: 'theirs once more\n' }],
-	});
+	expect(mine.merged).toBe(true);
 	expect(await readFile(note, 'utf8')).toBe('mine\n');
 	expect(await nodeFs.readdir(scratchDirectory)).toEqual([]);
 	// The page told the shell what each publish expected: the declaration,
