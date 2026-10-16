@@ -23,7 +23,6 @@ export { workerClientMetadataFetch } from './auth/client-metadata-fetch.js';
 // Hosted auth routes are mounted separately from request context creation.
 export { CloudAuthBindings } from './auth/create-auth.js';
 export {
-	OAUTH_SCOPES,
 	type OAuthAudiences,
 	type OAuthScope,
 	oauthResourceInputs,
@@ -34,12 +33,7 @@ export {
 	registerFirstPartyClients,
 } from './auth/oauth-registrations.js';
 export {
-	type AccountAccess,
-	authorizeAccountRequest,
 	authorizeResourceRequest,
-	protectedResourceMetadataUrl,
-	type ResourceAccess,
-	type ResourceRefusal,
 	readAccessToken,
 } from './auth/resource-access.js';
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
@@ -52,34 +46,12 @@ export {
 	requireAccessToken,
 	requireSessionCookie,
 } from './middleware/require-auth.js';
-export {
-	NAMESPACE_ROLES,
-	type NamespaceOperation,
-	type NamespaceRole,
-	roleAllows,
-} from './namespace-roles.js';
-// Hosted repositories as rows (ADR-0546): the manage role's rename and move,
-// each leaving an alias. No route mounts them yet.
-export {
-	changeRepository,
-	moveRepository,
-	RepositoryChangeError,
-	renameRepository,
-} from './repositories.js';
 // Reusable surfaces. Each `mount*` bundles auth + the route mount, accepting
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // Better Auth endpoints are mounted by mountAuthRoutes.
 export { mountAuthRoutes } from './routes/auth.js';
-export {
-	type HostedBlobStore,
-	mountPersonalAuthorityBlobs,
-} from './routes/authority-blobs.js';
-export {
-	type GitHost,
-	type GitRequest,
-	type GitService,
-	mountGitHost,
-} from './routes/git.js';
+export { mountPersonalAuthorityBlobs } from './routes/authority-blobs.js';
+export { type GitHost, mountGitHost } from './routes/git.js';
 export { mountInferenceApp } from './routes/inference.js';
 // The folder MCP server at the MCP audience (ADR-0550).
 export { mountMcpServer } from './routes/mcp.js';

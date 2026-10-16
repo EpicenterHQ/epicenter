@@ -219,7 +219,7 @@ async function roleIn(
  * `<namespace>/<name>` stays as an alias, and an alias the new one had is
  * dropped, since the repository now takes that name.
  */
-export async function changeRepository(
+async function changeRepository(
 	db: Db,
 	{
 		accountId,

@@ -106,6 +106,9 @@ type GitHost = {
 };
 ```
 
+`GitRequest` is internal to `src/routes/git.ts`; an implementation receives it
+through `GitHost['serve']` rather than importing it from the package.
+
 The route resolves names to ids and lists from Postgres, so the store takes
 an id where ADR-0546 sketches `(namespace, name)`, and has no `list`: a rename
 or a move is a row update and an alias, with no storage call. `apps/api` binds
@@ -152,9 +155,10 @@ Every call copies the whole repository, which bounds the size of a folder MCP
 can serve. The module runs in workerd (`workers/mcp.test.ts`) but has not run
 against the Artifacts store.
 
-`renameRepository`, `moveRepository`, and `changeRepository`
-(`src/repositories.ts`) are the `manage` role's rename and move, each leaving
-an alias for the old `<namespace>/<name>`; no route or screen mounts them yet.
+`renameRepository` and `moveRepository` (`src/repositories.ts`) are the
+`manage` role's rename and move, each leaving an alias for the old
+`<namespace>/<name>`. They are internal: the package does not export them, and
+no route or screen mounts them yet.
 A move also needs `push` in the destination.
 
 ## The authorization server
@@ -194,7 +198,7 @@ signing out revokes each access token it holds as well.
 
 A resource that acts on a namespace calls `authorizeResourceRequest` with its
 own audience, the scope the operation needs, and the namespace in its path,
-then decides the operation from the role with `roleAllows`
+then decides the operation from the role with the internal `roleAllows`
 (`src/namespace-roles.ts`); `mountGitHost` and `mountMcpServer` do (LFS is
 ADR-0544's). The other mounted resources act on the account and sit
 behind `requireAccessToken`, which runs `authorizeAccountRequest`. The
@@ -220,7 +224,8 @@ test-only route for the namespace check.
 `namespace_member` tables. The `user_personal_namespace` trigger in
 `apps/api/drizzle` gives each account its personal namespace, with the account
 as its only `owner`, inside the statement that inserts the account. Roles are
-`owner` and `member`; `NAMESPACE_ROLES` says what each may do.
+`owner` and `member`; `NAMESPACE_ROLES`, internal to `src/namespace-roles.ts`,
+says what each may do.
 
 ## Tests that need Postgres
 
