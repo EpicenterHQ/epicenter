@@ -123,6 +123,65 @@ test('a save waits for another process holding the save lock, then conflicts wit
 	}
 });
 
+test('two processes appending to one file through the one write keep every line once', async () => {
+	const ROUNDS = 30;
+	const root = await scratch('bun-write-race-');
+	try {
+		await writeFile(join(root, 'log.txt'), '');
+		// Each process appends its own lines through \`folder.write\`: read the
+		// file, then write the change from what it read to that plus a line.
+		// A put the other process overtook merges again, keeping both lines;
+		// one overtaken on every attempt is \`KeptChanging\`, landed nothing,
+		// and is sent again.
+		const appender = (id: number) =>
+			Bun.spawn(
+				[
+					'bun',
+					'-e',
+					`
+					const { openDataFolder } = await import(${JSON.stringify(join(import.meta.dir, 'bun.ts'))});
+					const [root, rounds] = process.argv.slice(-2);
+					const { data: folder, error } = await openDataFolder({
+						root,
+						git: { author: { name: 'Appender', email: 'appender@localhost' } },
+					});
+					if (error !== null) throw new Error(JSON.stringify(error));
+					for (let line = 0; line < Number(rounds); ) {
+						const read = await folder.files.read('log.txt');
+						if (read.error !== null) throw new Error(JSON.stringify(read.error));
+						const text = new TextDecoder().decode(read.data.bytes);
+						const { error } = await folder.write('log.txt', text, text + 'p${id}-' + line + '\\n');
+						if (error === null) line++;
+						else if (error.name !== 'KeptChanging') throw new Error(JSON.stringify(error));
+					}
+					await folder.close();
+					`,
+					'--',
+					root,
+					String(ROUNDS),
+				],
+				{ stdout: 'pipe', stderr: 'inherit', env: process.env },
+			);
+		const appenders = [appender(0), appender(1)];
+		expect(
+			await Promise.all(appenders.map((child) => child.exited)),
+		).toEqual([0, 0]);
+		const lines = (await readFile(join(root, 'log.txt'), 'utf8'))
+			.split('\n')
+			.filter((line) => line !== '');
+		for (const id of [0, 1])
+			expect(lines.filter((line) => line.startsWith(`p${id}-`))).toEqual(
+				Array.from({ length: ROUNDS }, (_, line) => `p${id}-${line}`),
+			);
+		expect(lines).toHaveLength(2 * ROUNDS);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+		await rm(join(dirname(root), `.${basename(root)}.epicenter-save-lock`), {
+			force: true,
+		});
+	}
+}, 60_000);
+
 test('two processes saving one file, each retrying on Conflict, lose no update', async () => {
 	const ROUNDS = 40;
 	const root = await scratch('bun-save-race-');

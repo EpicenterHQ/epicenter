@@ -14,14 +14,18 @@
  *   and shows the file again once its save lands with nothing typed since
  * - Typing during a save makes the next save start from what that one sent
  * - A failed save keeps what is typed; nothing is saved while the row is gone
+ * - Over a real table, an agent's lines merged in between two saves stay,
+ *   and text typed after the first save appears once
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
 import type { CapturedFile } from '../capture.js';
 import type { SaveTextVariables } from '../draft.js';
 import type { SavedFile } from '../save-file.js';
+import { rawBrowserFolder } from '../browser-storage.test-support.js';
+import { defineFolder, defineTable, field } from '../contract.js';
 import type { Row } from '../row-text.js';
-import type { StoredRow } from '../table.js';
+import { createTable, type StoredRow } from '../table.js';
 
 const { flushSync } = await import('svelte');
 const { createBodyEditor, createTextDraftState } = await import(
@@ -204,4 +208,60 @@ test('a body editor takes no change while there is no row', () => {
 	body.change('typed\n');
 	expect(body.text).toBeUndefined();
 	expect(body.typed).toBeUndefined();
+});
+
+test("an agent's lines merged into the body stay, and typing after a save appears once", async () => {
+	const definition = defineFolder({
+		kv: {},
+		tables: { notes: defineTable({ fields: { title: field.string() } }) },
+	});
+	const { boundary } = await rawBrowserFolder({ id: 'draft.agent' });
+	const notes = createTable<Note>(
+		{ storage: boundary },
+		'notes',
+		definition.tables.notes,
+	);
+	await notes.create({ fields: { title: 'One' }, body: 'Hello\n' }, { stem: 'a' });
+	let cached = (await notes.get('a')).data as StoredRow<Note>;
+	const body = createBodyEditor<Note>({
+		row: () => cached,
+		write: async ({ from, to }) => {
+			const { data, error } = await notes.write('a', from, to);
+			if (error !== null) throw error;
+			if (data !== null) cached = data;
+		},
+	});
+
+	body.change('Hello\nthere\n');
+	const saving = body.save();
+	// Keep typing while the first save runs, then an agent's line lands.
+	body.change('Hello\nthere, friend\n');
+	await saving;
+	const agent = (await notes.get('a')).data as StoredRow<Note>;
+	await notes.write('a', agent.row, {
+		...agent.row,
+		body: `${agent.row.body}Agent note\n`,
+	});
+	body.change('Hello\nthere, friend!\n');
+	await body.save();
+
+	expect((await notes.get('a')).data?.row.body).toBe(
+		'Hello\nthere, friend!\nAgent note\n',
+	);
+	expect(body.typed).toBeUndefined();
+
+	// With \`from\` left at the first keystroke, the typed line is a second
+	// insertion beside the one the first save already wrote.
+	await notes.write('a', (await notes.get('a')).data!.row, {
+		fields: { title: 'One' },
+		body: 'Hello\nthere\nAgent note\n',
+	});
+	await notes.write(
+		'a',
+		{ fields: { title: 'One' }, body: 'Hello\n' },
+		{ fields: { title: 'One' }, body: 'Hello\nthere, friend\n' },
+	);
+	expect((await notes.get('a')).data?.row.body).toBe(
+		'Hello\nthere\nAgent note\nthere, friend\n',
+	);
 });
